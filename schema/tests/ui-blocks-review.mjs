@@ -10,6 +10,7 @@ const read = name => JSON.parse(readFileSync(new URL(`../${name}`, import.meta.u
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
 ajv.addSchema(read("common.schema.json"));
 ajv.addSchema(read("kiln-vfx.schema.json"));
+ajv.addSchema(read("kiln-quests.schema.json"));
 const validate = ajv.compile(read("kiln-blocks.schema.json"));
 const row = { type: "text", text: "{game.fps:0}" };
 const window = { title: { en: "Settings", de: "Einstellungen" }, rows: [row] };

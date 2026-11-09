@@ -27,7 +27,7 @@ public enum UiMenuIn { Pause, Main, Both }
 public sealed record UiMenu
 {
     /// <summary>The label. A plain text, or one per language: <c>UiText.Of(("en", "Settings"), ("de", "Einstellungen"))</c>.</summary>
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Text { get; init; }
     public UiMenuIn In { get; init; } = UiMenuIn.Pause;
     /// <summary>Lower first. Kiln's own Mods entry has 1000.</summary>
@@ -56,7 +56,7 @@ public sealed record UiMenu
 [BlockClients(ClientsLevel.Mod)]
 public sealed record WindowBlock : IUiBlock
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Title { get; init; }
     public WindowKind Kind { get; init; } = WindowKind.Window;
     /// <summary>Pixels at UI scale 1. 0: a window fits its rows, a screen is 720 wide.</summary>
@@ -103,14 +103,14 @@ public abstract record UiRow
     /// <summary>On the same line as the row before it.</summary>
     public bool SameLine { get; init; }
     /// <summary>Shown while the pointer rests on the row's widget.</summary>
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public UiText? Tooltip { get; init; }
 }
 
 /// <summary>A line of text. <c>{game.fps:0}</c> and <c>{config.clock.scale:0.00}</c> in it show a value; <c>{{</c> and <c>}}</c> are braces.</summary>
 public sealed record TextRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Text { get; init; }
     /// <summary>"#rrggbb", "#rrggbbaa", or white, black, gray, red, green, yellow, orange, cyan.</summary>
     public string? Color { get; init; }
@@ -121,7 +121,7 @@ public sealed record TextRow : UiRow
 /// <summary>A label and a value that cannot be edited here: <c>Label: value</c>.</summary>
 public sealed record ValueRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Label { get; init; }
     /// <summary><c>game.&lt;name&gt;</c> or <c>config.&lt;path&gt;</c> (<c>config.&lt;config id&gt;/&lt;path&gt;</c> when two configs have the path).</summary>
     public required string Bind { get; init; }
@@ -132,7 +132,7 @@ public sealed record ValueRow : UiRow
 /// <summary>A checkbox on a true/false config entry. A click writes the config.</summary>
 public sealed record ToggleRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Label { get; init; }
     public required string Bind { get; init; }
 }
@@ -140,7 +140,7 @@ public sealed record ToggleRow : UiRow
 /// <summary>A slider on a whole-number or decimal config entry. A drag writes the config once it rests for a moment.</summary>
 public sealed record SliderRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Label { get; init; }
     public required string Bind { get; init; }
     /// <summary>Default: the entry's own range, which it must have when this and <see cref="Max"/> are left out.</summary>
@@ -151,7 +151,7 @@ public sealed record SliderRow : UiRow
 /// <summary>A drop-down on an enum config entry, with its options.</summary>
 public sealed record ChoiceRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Label { get; init; }
     public required string Bind { get; init; }
 }
@@ -159,14 +159,14 @@ public sealed record ChoiceRow : UiRow
 /// <summary>A line, with a heading when it has text.</summary>
 public sealed record SeparatorRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public UiText? Text { get; init; }
 }
 
 /// <summary>A button that runs an action.</summary>
 public sealed record ButtonRow : UiRow
 {
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Label { get; init; }
     public required UiAction Does { get; init; }
 }
@@ -190,7 +190,7 @@ public sealed record UiAction
     public WindowRef? OpenWindow { get; init; }
     public WindowRef? CloseWindow { get; init; }
     /// <summary>A short message in the corner of the screen.</summary>
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public UiText? Toast { get; init; }
 }
 
@@ -227,7 +227,7 @@ internal sealed class WindowRefConverter : JsonConverter<WindowRef>
 public sealed record HudLineBlock : IUiBlock
 {
     /// <summary>The text, with <c>{game.fps:0}</c> and <c>{config.clock.scale:0.00}</c> for values.</summary>
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public required UiText Text { get; init; }
     public HudAnchor Anchor { get; init; } = HudAnchor.TopLeft;
     /// <summary>"#rrggbb", "#rrggbbaa", or white, black, gray, red, green, yellow, orange, cyan. Default white.</summary>
@@ -254,7 +254,7 @@ public sealed record KeyBindingBlock : IUiBlock
     /// <summary>The default key: "F8", "Ctrl+K", "Shift+Alt+F2", "Numpad5", or "None" to bind it only once the player chooses.</summary>
     public required string Key { get; init; }
     /// <summary>What the Keys tab says. Default: the block's name.</summary>
-    [JsonConverter(typeof(UiTextConverter))]
+    [JsonConverter(typeof(UiBlockTextConverter))]
     public UiText? Description { get; init; }
     /// <summary>The group in the Keys tab. Default: the mod's name.</summary>
     public string? Category { get; init; }
@@ -272,7 +272,7 @@ public sealed record KeyBindingBlock : IUiBlock
 }
 
 /// <summary>A <see cref="UiText"/> in JSON: a string, or an object of language to string (<c>{ "en": "Save", "de": "Speichern" }</c>, <c>"*"</c> for every other language).</summary>
-internal sealed class UiTextConverter : JsonConverter<UiText>
+internal sealed class UiBlockTextConverter : JsonConverter<UiText>
 {
     public override UiText? Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
     {
