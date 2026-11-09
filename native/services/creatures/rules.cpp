@@ -27,7 +27,8 @@
 #include <deque>
 
 #include "internal.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
 #include "services/kiln_time.h"
 
 namespace kcr {
@@ -103,7 +104,7 @@ std::atomic<uint32_t> g_pump{0};
 std::unordered_map<KilnEntity, uint64_t> g_lives;  // protected by g_want_mu, including the destroy observer
 uint64_t g_next_life = 1;  // never reset across worlds
 std::atomic<uintptr_t> g_life_storage{0};
-safetyhook::MidHook g_life_destroy;
+kiln::MidHook2 g_life_destroy;
 bool g_life_warned = false;
 
 uint64_t capture_life(KilnEntity e) {
@@ -194,8 +195,8 @@ using FindFn = int64_t* (*)(int64_t*, uint8_t*, uint32_t);
 using BeginFn = void (*)(uint8_t*, const uint64_t*, uint32_t, uint64_t);
 using TargetFn = uint32_t (*)(uint8_t*);
 
-safetyhook::InlineHook g_h_constraint, g_h_action, g_h_select, g_h_available, g_h_find;
-safetyhook::MidHook g_h_start;
+kiln::RawHook g_h_constraint, g_h_action, g_h_select, g_h_available, g_h_find;
+kiln::MidHook2 g_h_start;
 ConstraintFn g_o_constraint = nullptr;
 ActionFn g_o_action = nullptr;
 SelectFn g_o_select = nullptr;
@@ -528,14 +529,13 @@ uint64_t hk_action(uint8_t* ctx, uint32_t* rng, uint32_t* variant, uint64_t firs
     return 0;
 }
 
-bool make_inline(safetyhook::InlineHook& h, uintptr_t at, void* detour, const char* what) {
+bool make_inline(kiln::RawHook& h, uintptr_t at, void* detour, const char* what) {
     if (!at) return false;
-    auto r = safetyhook::create_inline(reinterpret_cast<void*>(at), detour);
-    if (!r.operator bool()) {
+    const std::string label = std::string("creatures/") + what;  // the sigdb symbol name
+    if (!h.install(g_api, g_owner, at, detour, label.c_str())) {
         KC_W("rules: the hook on %s (0x%llx) failed", what, static_cast<unsigned long long>(at));
         return false;
     }
-    h = std::move(r);
     return true;
 }
 
@@ -703,8 +703,7 @@ void rules_lifetime_init() {
         !g_api->feature || !g_api->feature(kstr("world.lifecycle")) || !g_api->subscribe_world || L.world_storage <= 0 ||
         g_api->symbol(kstr("spawn/DestroyEntity"), &at) != KILN_OK || !at ||
         g_api->subscribe_world(g_owner, &on_rules_world, nullptr, &h) != KILN_OK) return;
-    auto hook = safetyhook::MidHook::create(reinterpret_cast<void*>(at), &hk_life_destroy);
-    if (hook) g_life_destroy = std::move(*hook);
+    g_life_destroy.install(g_api, g_owner, at, &hk_life_destroy, "spawn/DestroyEntity");
 }
 
 void rules_lifetime_unload(void*) {
@@ -813,21 +812,20 @@ bool rules_ensure_attack_hooks() {
         return false;
     }
     g_o_find = g_h_find.original<FindFn>();
-    auto m = safetyhook::MidHook::create(reinterpret_cast<void*>(g_s_start), &hk_start);
-    if (!m) {
+    if (!g_h_start.install(g_api, g_owner, g_s_start, &hk_start, "creatures/SetCurrentAttack")) {
         KC_W("rules: the mid hook on SetCurrentAttack failed");
         g_h_select = {};
         g_h_available = {};
         g_h_find = {};
         return false;
     }
-    g_h_start = std::move(*m);
     g_attack_hooks = true;
     KC_I("rules: attack hooks installed (%llu ms)", static_cast<unsigned long long>(GetTickCount64() - t0));
     return true;
 }
 
-// Called in Pre when no job runs. Nothing left uses the hooks: take them out, the game's code is as it was.
+// Called in Pre when no job runs. Nothing left uses the hooks: revoke the links (assigning an empty hook revokes). The
+// registry keeps its pass-through detour on the function (it never unpatches game code), so it is an empty chain.
 void rules_unhook_if_idle() {
     if (!g_rule_hooks && !g_attack_hooks) return;
     const RuleUses u = arsenal_uses();

@@ -16,6 +16,7 @@
 #include <thread>
 #include <vector>
 
+#include "hooks_shim.h"
 #include "../engine.cpp"
 #include "../moves.cpp"
 #include "../names.cpp"
@@ -30,7 +31,8 @@ void items_log(int level, const char* fmt, ...) {
     va_end(ap);
     std::printf("  log[%d] %s\n", level, b);
 }
-const KilnApi* items_api() { return nullptr; }
+const KilnApi* items_api() { return hooks_shim::api(); }  // the hooks go through the kiln.hooks stand-in
+KilnOwner items_owner() { return 7; }
 // engine.cpp's give path calls these; this test never gives, and pide.cpp has its own test (pide_test.cpp)
 void pide_commit(void* tx, void(KILN_CALL* commit)(void*), uint32_t, uint8_t, uint32_t) { commit(tx); }
 }  // namespace kitems
@@ -652,16 +654,15 @@ void hide_fault_test() {
 }
 
 int hook_factory_calls = 0;
-SafetyHookInline* fail_second_hook(void* target, void* replacement) {
-    return ++hook_factory_calls == 2 ? new SafetyHookInline() : make_hook(target, replacement);
+bool fail_second_hook(kiln::RawHook& hook, uintptr_t target, void* replacement, const char* label) {
+    return ++hook_factory_calls == 2 ? false : make_hook(hook, target, replacement, label);
 }
 
 void partial_install_test() {
     check(!install_locked(&fail_second_hook), "partial install: a failed second hook leaves the feature unavailable");
-    auto* qs = h_qs.load();
-    check(qs != nullptr && static_cast<bool>(*qs), "partial install: the quick-stack hook keeps its trampoline");
-    // Do not call through a missing trampoline on the unfixed build: the assertion above exposes the actual bug.
-    if (qs) {
+    check(static_cast<bool>(h_qs) && !static_cast<bool>(h_ma), "partial install: the quick-stack hook keeps its link, move all has none");
+    // Do not call through a missing continuation on a broken build: the assertion above exposes the actual bug.
+    if (h_qs) {
         fill_for_transfer();
         FakeTx tx;
         Result12 out[3] = {};
@@ -670,6 +671,21 @@ void partial_install_test() {
         check(g_vanilla_calls == 1 && out[0].value == 18,
               "partial install: the installed hook passes through safely with no registrations");
     }
+}
+
+// the hooks are placed through kiln.hooks (the stand-in here): one link per function, labelled with its sigdb name
+void link_test() {
+    check(hooks_shim::calls == 0, "kiln.hooks links: nothing is hooked before the first registration");
+    KilnItemsTransferRule kr{sizeof kr, KILN_TRANSFER_KEEP_SLOT, 0, 0, 0, 0, KILN_SLOT_ID(A, 2)};
+    uint64_t rule = 0;
+    check(xfer_add_rule(7, &kr, &rule) == KILN_OK && hooks_shim::calls == 2 && hooks_shim::links == 2 &&
+              static_cast<bool>(h_qs) && static_cast<bool>(h_ma),
+          "kiln.hooks links: the first registration places two raw links (quick stack, move all)");
+    uint64_t rule2 = 0;
+    check(xfer_add_rule(7, &kr, &rule2) == KILN_OK && hooks_shim::calls == 2,
+          "kiln.hooks links: a second registration places no further link");
+    xfer_end(rule);
+    xfer_end(rule2);
 }
 
 // ---------------------------------------------------------------------------------------------- review regressions ----
@@ -914,6 +930,11 @@ int main(int argc, char** argv) {
     }
     if (mode == "move-off") {
         move_off_test();
+        std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
+        return failures ? EXIT_FAILURE : EXIT_SUCCESS;
+    }
+    if (mode == "links") {
+        link_test();
         std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
         return failures ? EXIT_FAILURE : EXIT_SUCCESS;
     }

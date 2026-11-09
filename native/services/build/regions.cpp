@@ -17,7 +17,7 @@
 #include <sstream>
 
 #include "internal.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_saves.h"
 
 namespace kb {
@@ -29,7 +29,7 @@ struct Box {
     int32_t lo[3], hi[3];  // chunk coordinates, inclusive
 };
 
-SafetyHookInline g_hook;
+kiln::RawHook g_hook;
 std::mutex g_mu;
 std::set<std::array<int32_t, 3>> g_chunks;  // Kiln-kept chunks (cell coordinates / 32)
 std::string g_world;                         // world GUID text the set belongs to ("" = unknown yet)
@@ -274,8 +274,7 @@ bool regions_install() {
         g_dir = std::filesystem::path(std::string(buf, len)) / "kiln.build" / "regions";
     uintptr_t a = 0;
     if (g_api->symbol(kstr("build/SaveRegions"), &a) != KILN_OK || !a) return F.persist = false;
-    g_hook = safetyhook::create_inline(reinterpret_cast<void*>(a), reinterpret_cast<void*>(&hk_save_regions));
-    if (!g_hook) {
+    if (!g_hook.install(g_api, g_owner, a, reinterpret_cast<void*>(&hk_save_regions), "build/SaveRegions")) {
         KB_E("hooking the save-region builder failed: Kiln edits outside bases are not saved");
         return F.persist = false;
     }

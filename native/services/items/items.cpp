@@ -30,7 +30,7 @@
 #include "names.h"
 #include "pide.h"
 #include "kiln_api.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_items.h"
 #include "services/kiln_world.h"
 #include "xfer.h"
@@ -214,7 +214,7 @@ bool g_slots_ready = false;
 Access g_access;       // verified accessors (stable across updates)
 bool g_verified = false;
 
-SafetyHookInline g_register_hook;
+kiln::RawHook g_register_hook;
 
 void KILN_CALL world_update(KilnProgramCtx* ctx, void* user);
 void __fastcall own_update(void* ctx);
@@ -588,9 +588,9 @@ bool register_own() {
     g_desc.events_out = NameList{kEventsOut, 2};
     g_desc.flags = 0x4 | 0x10;  // system program (no entity query), not in a client's prediction world
     g_desc.interval = 1;
-    g_register_hook = safetyhook::create_inline(reinterpret_cast<void*>(E.register_all),
-                                                reinterpret_cast<void*>(&hk_register_all));
-    if (!g_register_hook) {
+    if (!g_register_hook.install(g_api, g_owner, reinterpret_cast<uintptr_t>(E.register_all),
+                                 reinterpret_cast<void*>(&hk_register_all),
+                                 "items/RegisterAllPrograms")) {
         LOGE("hooking RegisterAllPrograms failed");
         return false;
     }
@@ -1763,7 +1763,7 @@ void resolve() {
     E.program_ok = feat("items.program") && common && sym("items/RegisterProgram", &E.register_program) &&
                    sym("items/RegisterAllPrograms", &E.register_all) && sym("items/IterBegin", &E.iter_begin) &&
                    cst("items/world.program_count", &E.program_count);
-    const bool pide = E.tx_ok && pide_install(g_api);
+    const bool pide = E.tx_ok && pide_install(g_api, g_owner);
     LOGI("gear options at creation (KILN_ITEMS_UNLOCK, KILN_ITEMS_GEM_SLOT): %s", pide ? "on" : "OFF (items.pide_options)");
     // v3 (docs/re/items.md sections 13 and 14)
     {
@@ -1850,6 +1850,7 @@ void items_log(int level, const char* fmt, ...) {
     if (g_api && n > 0) g_api->log(g_owner, level, KilnStr{b, static_cast<size_t>(std::min(n, int(sizeof b) - 1))});
 }
 const KilnApi* items_api() { return g_api; }
+KilnOwner items_owner() { return g_owner; }
 }  // namespace kitems
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {

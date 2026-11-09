@@ -24,7 +24,7 @@
 #if KC_GAMEDATA
 #include "gamedata.h"
 #endif
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 using namespace kc;
 
@@ -443,7 +443,7 @@ void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) {
 }
 
 // ---- drop tables: the game's DefaultInventoryResource acquire ----
-SafetyHookInline g_acquire_hook;
+kiln::RawHook g_acquire_hook;
 
 void note_table(const uint8_t guid[16], uintptr_t data) {
     {
@@ -1013,9 +1013,8 @@ void resolve() {
         E.guard = rdv(E.stack_clamp, b) && b == 0x76;
     }
     if (E.drops) {
-        g_acquire_hook = safetyhook::create_inline(reinterpret_cast<void*>(E.default_inventory_acquire),
-                                                   reinterpret_cast<void*>(&hk_acquire));
-        if (!g_acquire_hook) {
+        if (!g_acquire_hook.install(g_api, g_owner, E.default_inventory_acquire, reinterpret_cast<void*>(&hk_acquire),
+                                    "content/DefaultInventoryAcquire")) {
             LOGE("hooking DefaultInventoryAcquire failed; drop tables off");
             E.drops = false;
         }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Every entity the server world creates or destroys (Forge: EntityJoinLevelEvent / EntityLeaveLevelEvent), not only
 // Kiln.Spawn's: creatures from spawners, NPCs, props, pickups, loot, child entities, players, and the entities the save
-// loads. Two inline hooks on the engine's immediate entity functions (docs/re/spawn.md, docs/re/gameplay.md section 9):
+// loads. Two raw kiln.hooks links on the engine's immediate entity functions (docs/re/spawn.md, docs/re/gameplay.md section 9):
 //  - createEntity(storage, id, SpawnRequest*, mask*) -> id: every creation path ends here (SpawnWrapper for Kiln.Spawn
 //    and admin spawns, the command executor for the queued creates of game programs, the save loader).
 //  - destroyEntity(storage, id, mode, skip_culled) -> bool: the command executor's queued destroys, the game's own
@@ -12,7 +12,7 @@
 #include <windows.h>
 
 #include "internal.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_spawn.h"
 
 namespace kg {
@@ -21,7 +21,7 @@ namespace {
 using CreateFn = uint32_t(__fastcall*)(uintptr_t storage, uint32_t id, void* request, void* mask);
 using DestroyFn = uint8_t(__fastcall*)(uintptr_t storage, uint32_t id, uint8_t mode, uint8_t skip_culled);
 
-SafetyHookInline h_create, h_destroy;
+kiln::RawHook h_create, h_destroy;
 const KilnSpawnApi* g_spawn = nullptr;
 
 struct Offs {
@@ -175,13 +175,11 @@ bool entities_install() {
              static_cast<long long>(O.entity_records), static_cast<long long>(O.rec_template));
         return false;
     }
-    h_create = safetyhook::create_inline(reinterpret_cast<void*>(create), reinterpret_cast<void*>(&hk_create));
-    if (!h_create) {
+    if (!h_create.install(g_api, g_owner, create, reinterpret_cast<void*>(&hk_create), "spawn/CreateEntity")) {
         KG_E("hooking createEntity at %p failed", reinterpret_cast<void*>(create));
         return false;
     }
-    h_destroy = safetyhook::create_inline(reinterpret_cast<void*>(destroy), reinterpret_cast<void*>(&hk_destroy));
-    if (!h_destroy) {
+    if (!h_destroy.install(g_api, g_owner, destroy, reinterpret_cast<void*>(&hk_destroy), "spawn/DestroyEntity")) {
         KG_E("hooking destroyEntity at %p failed", reinterpret_cast<void*>(destroy));
         h_create = {};
         return false;

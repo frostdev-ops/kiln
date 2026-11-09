@@ -15,6 +15,7 @@ namespace kitems {
 // Logging and the host API, from items.cpp.
 void items_log(int level, const char* fmt, ...);
 const KilnApi* items_api();
+KilnOwner items_owner();  // the owner kiln.items registered under (its hook links)
 
 // A kiln.items move (KILN_MOVE_QUICK_STACK / MOVE_ALL) is about to call the game's function on this thread: the hook
 // reports it as BY_MOD, and with `silent` neither rules nor handlers see it. A dry run still evaluates rules and

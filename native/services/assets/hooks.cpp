@@ -26,7 +26,7 @@
 #include <cstdio>
 
 #include "assets.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 namespace ka {
 
@@ -46,7 +46,7 @@ bool g_res_on = false, g_content_on = false, g_ui_on = false;
 std::string g_res_why, g_content_why, g_ui_why;
 int64_t g_kfc_header = 0x60, g_kfc_cmap = 0x30;
 
-SafetyHookInline h_init, h_by_key, h_data, h_key_of, h_by_type, h_io_create, h_cmap, h_populate;
+kiln::RawHook h_init, h_by_key, h_data, h_key_of, h_by_type, h_io_create, h_cmap, h_populate;
 
 // ---- calls of the originals ----------------------------------------------------------------------------------
 uint32_t* orig_by_key(uint32_t* out, uintptr_t S, const uint8_t* key32) {
@@ -522,9 +522,9 @@ bool cst(const char* name, int64_t* out, std::string* why) {
 bool feat(const char* name) { return g_api->feature(KilnStr{name, std::strlen(name)}); }
 
 template <class F>
-bool hook(SafetyHookInline& h, uintptr_t at, F fn, const char* what, std::string* why) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(at), reinterpret_cast<void*>(fn));
-    if (!h) {
+bool hook(kiln::RawHook& h, uintptr_t at, F fn, const char* what, std::string* why) {
+    const std::string label = std::string("assets/") + what;  // the sigdb symbol name
+    if (!h.install(g_api, g_self, at, reinterpret_cast<void*>(fn), label.c_str())) {
         *why += std::string(*why->c_str() ? ", " : "") + "hook " + what;
         return false;
     }

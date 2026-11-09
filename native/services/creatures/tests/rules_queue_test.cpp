@@ -19,6 +19,10 @@ void destroyed(uint32_t e, uintptr_t storage = 0x1020) {
 void pre() { kcr::rules_pre_work(); }
 }
 
+// kiln.hooks v2 stand-in: kiln::MidHook2 needs api->service("kiln.hooks", 2) with mid2 and revoke.
+KilnHooksApi g_hooks{};
+int g_mid_links = 0;  // live mid links
+
 namespace kcr {
 const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 1;
@@ -49,6 +53,16 @@ int main() {
         *out = test_symbol ? 0x2000 : 0;
         return test_symbol ? KILN_OK : KILN_ERR_UNAVAILABLE;
     };
+    g_hooks.header = {sizeof g_hooks, KILN_HOOKS_VERSION};
+    g_hooks.mid2 = [](KilnOwner, uintptr_t, const KilnHookOrder*, KilnMidFn, void*, KilnHandle* out) -> KilnResult {
+        *out = ++g_mid_links;
+        return KILN_OK;
+    };
+    g_hooks.revoke = [](KilnHandle) -> KilnResult {
+        --g_mid_links;
+        return KILN_OK;
+    };
+    api.service = [](KilnStr, uint32_t) -> const void* { return &g_hooks; };
     api.subscribe_world = [](KilnOwner, KilnWorldEventFn fn, void*, KilnHandle*) -> KilnResult {
         world_event = fn;
         return KILN_OK;
@@ -56,6 +70,7 @@ int main() {
     g_api = &api;
     L.world_storage = 0x20;
     rules_lifetime_init();
+    assert(g_mid_links == 1);  // the destroy observer is one mid link on spawn/DestroyEntity
     pre();
     assert(g_life_storage == 0x1020 && world_event);
     KilnRuleWork out[2]{};
@@ -113,7 +128,7 @@ int main() {
     want(W_ACTION, 1, 19);
     assert(g_want.back().life != original);
     rules_lifetime_unload(nullptr);
-    assert(g_want.empty() && g_lives.empty() && !g_life_destroy);
+    assert(g_want.empty() && g_lives.empty() && !g_life_destroy && g_mid_links == 0);  // the unload revoked its link
 
     // Unknown builds retain ID-based behaviour, with one warning for repeated actions.
     test_symbol = false;
