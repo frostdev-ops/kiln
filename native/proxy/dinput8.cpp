@@ -24,6 +24,12 @@
 //      mapping (never loaded for that) and refused when it is this proxy, the system dinput8, another Kiln proxy or
 //      ShroudForge's dinput8 (EMF's loader, which also exports ShroudForge's chain-host name, is accepted), then LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH) under an SEH guard. Never FreeLibrary.
 //      The results go to the core in KilnBootInfo.chain (and kiln/logs/proxy.log).
+//      kiln/chain.ini [late] (dev.21): an entry of the lists above whose DLL is also named in [late] passes the same
+//      checks but is not loaded: its entry gets status KILN_CHAIN_LATE and kiln-core loads it after Kiln's services,
+//      plugins and native mods ran (a closed-source DLL that hooks the same functions then hooks over Kiln instead of
+//      under it). Matching is by canonical path (the resolved path when the file is missing), in every mode (also
+//      play-once mode=profile). A [late] line that names no entry loads nothing (proxy.log says so). An older proxy
+//      ignores the unknown section and loads the entry as before.
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
 //      (EMF holds a server's start this way) is what the gate saves as "original": at the entry, Kiln's gate runs first,
@@ -559,6 +565,25 @@ uint32_t classify(const wchar_t* path) {
 
 // ---- chain loading ----
 
+// chain.ini [late]: the DLLs the core loads after the plugins. `used`: some entry of the other lists named the same file.
+struct Late {
+    wchar_t* raw;
+    const wchar_t* full;   // resolved like any chain.ini path (relative: to <game>\kiln\, else to <game>\)
+    const wchar_t* canon;  // nullptr when the file cannot be opened
+    bool used;
+};
+Late* g_late = nullptr;
+uint32_t g_late_count = 0;
+
+// Index of the [late] line that names this file (canonical paths when both can be opened, else resolved paths), or -1.
+int find_late(const wchar_t* canon, const wchar_t* full) {
+    for (uint32_t i = 0; i < g_late_count; ++i) {
+        const Late& l = g_late[i];
+        if (canon && l.canon ? wieq(canon, l.canon) : wieq(full, l.full)) return static_cast<int>(i);
+    }
+    return -1;
+}
+
 HMODULE guarded_load(const wchar_t* path, DWORD* error) {
     __try {
         HMODULE h = LoadLibraryExW(path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
@@ -593,6 +618,9 @@ KilnChainEntry* add(uint32_t source, const wchar_t* path, uint32_t status) {
 void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_t pre_refusal, bool skip) {
     wchar_t full[kPath];
     if (!resolve(base, raw, full)) lstrcpynW(full, raw, kPath);
+    const wchar_t* canon = canonical(full);  // nullptr when the file cannot be opened (missing)
+    const int late_at = find_late(canon, full);  // [late] names this file: it passes every check, the core loads it
+    if (late_at >= 0) g_late[late_at].used = true;
     if (pre_refusal != kAccept) {
         if (auto* e = add(source, full, KILN_CHAIN_REFUSED)) e->detail = pre_refusal;
         plog(L"chain: %s: %s refused: %s", source_name(source), full, refusal_text(pre_refusal));
@@ -610,7 +638,6 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
         plog(L"chain: %s: %s missing", source_name(source), full);
         return;
     }
-    const wchar_t* canon = canonical(full);
     const wchar_t* shown = canon ? canon : full;
     uint32_t refusal = kAccept;
     if (source == KILN_CHAIN_SOURCE_EMF) {
@@ -645,6 +672,11 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
         e->status = KILN_CHAIN_REFUSED;
         e->detail = refusal;
         plog(L"chain: %s: %s refused: %s", source_name(source), shown, refusal_text(refusal));
+        return;
+    }
+    if (late_at >= 0) {
+        e->status = KILN_CHAIN_LATE;
+        plog(L"chain: %s: %s deferred: the core loads it after the plugins (chain.ini [late])", source_name(source), shown);
         return;
     }
     DWORD error = 0;
@@ -831,12 +863,12 @@ void load_chain(bool profile_once, bool skip) {
         lstrcatW(buf, L"\\dinput8.dll");
         g_system_canon = canonical(buf);
     }
-    List chain, profile, emf, ignored;
+    List chain, profile, emf, ignored, late;
     wchar_t file[kPath];
     lstrcpynW(file, g_kiln, kPath - 32);
     lstrcatW(file, L"\\chain.ini");
-    const Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}};
-    read_dll_list(file, &chain, chain_sections, 2);
+    const Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}, {L"late", &late}};
+    read_dll_list(file, &chain, chain_sections, 3);
     if (profile_once) {
         lstrcpynW(file, g_kiln, kPath - 32);
         lstrcatW(file, L"\\chain\\once.ini");
@@ -849,7 +881,8 @@ void load_chain(bool profile_once, bool skip) {
     // order, as EMF's own reader takes them; a DLL that EMF's chained loader also starts is loaded once by Windows.
     const Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
     read_dll_list(file, &emf, emf_sections, 2);
-    const uint32_t total = chain.count + emf.count + profile.count;
+    const uint32_t late_n = late.count < kMaxPerList ? late.count : kMaxPerList;  // [late] has no overflow report
+    const uint32_t total = chain.count + emf.count + profile.count;  // [late] adds no entries of its own
     if (total == 0) return;
     g_chain = static_cast<KilnChainEntry*>(halloc(total * sizeof(KilnChainEntry)));
     g_canon = static_cast<const wchar_t**>(halloc(total * sizeof(wchar_t*)));
@@ -869,9 +902,31 @@ void load_chain(bool profile_once, bool skip) {
         profile_ok = profile_well_formed(pfile);
         if (!profile_ok) plog(L"chain: %s is not well-formed JSON: its [profile] DLLs are skipped (no mods this start)", pfile);
     }
+    if (late_n) {
+        g_late = static_cast<Late*>(halloc(late_n * sizeof(Late)));
+        if (g_late) {
+            for (uint32_t i = 0; i < late_n; ++i) {
+                wchar_t full[kPath];
+                if (!resolve(g_kiln, late.items[i], full)) lstrcpynW(full, late.items[i], kPath);
+                // dinput8-chain.ini names its DLLs relative to the game folder: accept that spelling here when the
+                // file is not under kiln\ but is under the game folder.
+                if (!is_absolute(late.items[i]) && GetFileAttributesW(full) == INVALID_FILE_ATTRIBUTES) {
+                    wchar_t alt[kPath];
+                    if (resolve(g_game, late.items[i], alt) && GetFileAttributesW(alt) != INVALID_FILE_ATTRIBUTES)
+                        lstrcpyW(full, alt);
+                }
+                g_late[i] = Late{late.items[i], wdup(full), canonical(full), false};
+            }
+            g_late_count = late_n;
+        }
+        if (late.count > kMaxPerList) plog(L"chain: chain.ini [late]: more than %u entries; the rest are ignored", kMaxPerList);
+    }
     load_list(KILN_CHAIN_SOURCE_CHAIN, g_kiln, chain, false, skip);
     load_list(KILN_CHAIN_SOURCE_EMF, g_game, emf, true, skip);
     load_list(KILN_CHAIN_SOURCE_PROFILE, g_kiln, profile, false, skip || !profile_ok);
+    // [late] only defers entries of the lists above; a line that names none of them loads nothing.
+    for (uint32_t i = 0; i < g_late_count; ++i)
+        if (!g_late[i].used) plog(L"chain: chain.ini [late]: %s names no entry of [chain], [profile] or dinput8-chain.ini; ignored", g_late[i].full);
     g_info.chain = g_chain;
     g_info.chain_count = g_count;
 }

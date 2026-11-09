@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "rules": [
+    {
+      "id": "xhl-and-shroudforge",
+      "when": [
+        {
+          "module": "xhl*.dll"
+        },
+        {
+          "engine": "shroudforge"
+        }
+      ],
+      "action": "late",
+      "subject": {
+        "module": "xhl*.dll"
+      },
+      "message": "XHL hooks the same functions as ShroudForge. It loads after Kiln so both work."
+    },
+    {
+      "id": "coolmod-and-xhl",
+      "when": [
+        {
+          "mod": "emf:coolmod"
+        },
+        {
+          "module": "xhl-core.dll"
+        }
+      ],
+      "action": "disable",
+      "subject": {
+        "mod": "emf:coolmod"
+      },
+      "message": "coolmod 1.x crashes with XHL. Update coolmod, or remove XHL."
+    },
+    {
+      "id": "inventory-overlap",
+      "when": [
+        {
+          "symbol": "gameplay/InventoryTransfer"
+        }
+      ],
+      "action": "warn",
+      "subject": {
+        "symbol": "gameplay/InventoryTransfer"
+      },
+      "message": "Another mod hooks the inventory too. Item moves may behave oddly."
+    }
+  ]
+}

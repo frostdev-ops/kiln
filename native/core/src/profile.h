@@ -22,6 +22,7 @@ struct Entry {
     std::string id, version;
     std::string path;  // absolute, Windows form, UTF-8
     bool enabled = true;
+    std::string disabled_by;  // why it is off when a compat rule switched it off (compat.h), else empty
 };
 
 struct Missing {
@@ -61,6 +62,13 @@ bool dropins(uint32_t kind);           // load that kind's drop-in folder too
 
 // A game-side path: absolute (X:\..., \\server\...) as is, anything else relative to <game>\kiln\. '/' = '\'.
 std::filesystem::path resolve(std::string_view game_path);
+
+// A compat rule with action "disable" on a hosted mod (compat.h): switches the profile's entry of `engine` (kiln, native,
+// plugin, emf or an engine word of kEngineKinds) with this id off, before any loader reads the profile. The entry's
+// `enabled` becomes false (kiln.profile get(), native loader, plugins) and the "enabled" key in json() (the text other
+// engines' plugins read) is rewritten to false. True when an enabled entry was found. Boot only: strings handed out
+// earlier by json() are invalidated.
+bool disable_entry(std::string_view engine, std::string_view id, std::string_view reason);
 
 // The kiln.profile v1 table (services/profile.cpp). KilnApi.service answers it in safe idle too.
 const KilnProfileApi* table();

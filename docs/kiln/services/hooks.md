@@ -168,8 +168,11 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
   `own: true` means the module is one of Kiln's own (`kiln-*.dll`).
 - `foreign` is sigdb's list of every symbol whose live bytes differed from the exe file's before Kiln hooked
   anything (the `code.live_differs_symbols` of `sigdb-report.json`), with the module each one jumps into.
-- The writer is extensible: other parts of the core add sections (`overlaps`, `rules`) with `add_map_extension`
-  (`native/core/src/services/hooks_internal.h`).
+- The writer is extensible: other parts of the core add sections with `add_map_extension`
+  (`native/core/src/services/hooks_internal.h`). The closed-DLL report adds `pid`, `overlaps` (where another module's
+  hook and a Kiln-hosted link meet: `foreign-before`, `foreign-over`, ShroudForge's `refused`), `rules` (the compat rules
+  that fired) and `ruleFiles`; what they mean and how to fix an overlap:
+  [../engines/README.md](../engines/README.md#closed-source-dll-mods). Schema: `schema/hooks-state.schema.json`.
 
 ## Threads
 

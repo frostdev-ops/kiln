@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// A chained test DLL (see CMakeLists.txt). Logs "dll <name> attach" from DllMain.
+// A chained test DLL (see CMakeLists.txt). Logs "dll <name> attach" and "probe <name> ..." from DllMain.
 //   TEST_ENTRY_PATCH  also overwrites the exe's entry point with a 14-byte jump to its own gate, which logs
 //                     "gate <name>", puts the saved bytes back and calls the entry: what a loader that holds the
 //                     game's start does (EMF on a server). With two of these and Kiln, the gates must run in reverse
@@ -78,6 +78,10 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void*) {
     DisableThreadLibraryCalls(inst);
     WideCharToMultiByte(CP_UTF8, 0, TEST_NAME, -1, g_name, sizeof g_name, nullptr, nullptr);
     ph_log("dll %s attach", g_name);
+    // What is already in the process when this DLL loads: a chain DLL loaded by the proxy sees no core; one the core loads
+    // late (chain.ini [late]) sees the core and the native mods that load before it ("boot" phase).
+    ph_log("probe %s kiln-core=%d native-test-boot=%d", g_name, GetModuleHandleW(L"kiln-core.dll") != nullptr ? 1 : 0,
+           GetModuleHandleW(L"native-test-boot.dll") != nullptr ? 1 : 0);
 #ifdef TEST_ENTRY_PATCH
     patch();
 #endif

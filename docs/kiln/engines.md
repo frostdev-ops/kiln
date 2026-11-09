@@ -68,6 +68,26 @@ a link, a mapped drive (Proton's `S:`) or at a drive root is accepted. Under Win
 Windows path APIs, so a Unix symlink inside the game folder counts as part of it (making one needs write access to the
 game folder, which already allows placing a DLL there); absolute, drive and `..` entries are refused before resolving.
 
+### Loading a chained DLL late (`[late]`)
+
+A DLL mod that hooks game functions (XHL-Core, Auto Loot Plus and similar closed-source mods) hooks them in its
+`DllMain`, before Kiln has hooked anything. Kiln then chains over that hook and works, but a hosted engine that insists on
+the game's original bytes (ShroudForge's engine hooks) can refuse. Name the DLL in `kiln/chain.ini` `[late]` and Kiln
+loads it **after** its own services, plugins and ShroudForge started: Kiln hooks first and the DLL hooks over Kiln.
+
+```ini
+[chain]
+chain\xhl-core-dinput8.dll
+[late]
+chain\xhl-core-dinput8.dll
+```
+
+The entry stays in its own list (`[chain]`, `[profile]` or `dinput8-chain.ini`) and `[late]` repeats its path. The
+proxy checks it as always (Kiln's and ShroudForge's proxies stay refused) and leaves loading to the core. Details:
+[launcher/contracts.md](launcher/contracts.md#53-chainini-chainonceini-dinput8-chainini). The launcher's profile page has the
+same switch ("Load after Kiln and ShroudForge"). What clashes and what Kiln does about it:
+[engines/README.md](engines/README.md#closed-source-dll-mods).
+
 ## Library kinds
 
 `library::detect` reports these kinds besides Kiln's own. Each has `engine` set and a reason a player can read.

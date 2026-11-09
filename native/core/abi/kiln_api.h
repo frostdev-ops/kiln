@@ -289,6 +289,10 @@ enum {
     KILN_CHAIN_REFUSED = 3,   /* a Kiln or ShroudForge proxy, or not a PE DLL: never loaded */
     KILN_CHAIN_DUPLICATE = 4, /* same canonical path as an earlier entry: loaded once */
     KILN_CHAIN_SKIPPED = 5,   /* not loaded on purpose (play-once no-mods, entry disabled) */
+    /* dev.21, appended: every proxy check passed, but the entry's DLL is also named in kiln/chain.ini [late]: the proxy did
+     * not load it. kiln-core loads it after Kiln's services, plugins and native mods ran (module is NULL here;
+     * state/boot.json and state/native.json report the outcome). An older core reads an unknown status as failed. */
+    KILN_CHAIN_LATE = 6,
 };
 
 /* KilnChainEntry.source: which list named the DLL. */

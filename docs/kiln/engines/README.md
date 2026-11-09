@@ -143,8 +143,73 @@ One limit: safetyhook needs its trampoline within ±2 GB of both the target and 
 `hooks: safetyhook could not detour <address>` (or a service names the hook it could not arm). The other engine's
 hook keeps working.
 
+When a closed-source DLL is the other engine, the overlap report and `[late]` (see [Closed-source DLL
+mods](#closed-source-dll-mods)) tell you which one hooked first and let you swap the order.
+
 What can still clash is **code patches**: two engines changing the same bytes in place, not a hook. Enshwick compares
 the bytes before it patches and skips a patch when Kiln got there first ([enshwick.md](enshwick.md#hooks-next-to-kiln)).
+
+## Closed-source DLL mods
+
+Mods that ship only as a DLL (XHL-Core, Auto Loot Plus, trainers, overlays) are not an engine Kiln can host. Kiln loads
+them from `kiln/chain.ini` and `dinput8-chain.ini` and lives next to them. Three things help when they hook the same
+game functions as Kiln or a hosted engine.
+
+**Load it late.** Put the DLL's path in `kiln/chain.ini` `[late]` (or switch it in the launcher). Kiln's proxy leaves it
+alone; kiln-core loads it after the services, plugins, native boot mods and the managed host, in safe idle too. Kiln then
+hooks first and the DLL hooks over it, which Kiln handles. A DLL that fails to load, or whose `DllMain` faults, is a
+warning in kiln.log (`late: <path> failed to load (error 1114: its DllMain failed)`) and an entry in
+`state/native.json` `chain.late`; the game goes on. See [../engines.md](../engines.md#loading-a-chained-dll-late-late).
+
+**Overlaps.** Kiln knows every hook it places (the [hook map](../services/hooks.md)). An *overlap* is a function where a
+foreign module's hook and a Kiln-hosted link (Kiln, ShroudForge, an EMF mod) meet:
+
+| Kind | What happened | Usual fix |
+|---|---|---|
+| `foreign-before` | another module hooked the function before Kiln did; Kiln chained over it | load that DLL late |
+| `foreign-over` | another module hooked over Kiln's detour; Kiln's stays armed behind it | none unless a feature misbehaves |
+| `refused` | a hosted engine could not hook (ShroudForge's engine hooks need the game's original bytes) | load the DLL that patched the code late |
+
+`state/hooks.json` lists them under `overlaps` and kiln.log warns once for each, naming both sides and the fix:
+
+```
+[W] [kiln] compat: overlap: xhl-core.dll+0x11ea80 hooked chat/ChatLogAdd before chat, emf; Kiln chained over it. Load xhl-core.dll late (kiln/chain.ini [late], or the launcher's "Load after Kiln and ShroudForge"): Kiln then hooks first and xhl-core.dll hooks over it.
+```
+
+The launcher shows the last session's overlaps on the profile's native page with a one-click "load late". ShroudForge's
+refusal is read from `state/shroudforge.json` (`game_thread=unavailable(<hook>:<reason>)`); Kiln writes it into
+`hooks.json` a few seconds after boot, once ShroudForge has reported.
+
+**Compat rules.** `compat-rules.json` tells Kiln about known clashes. Two files are read, Kiln's own (`kiln/compat-rules.json`,
+may be missing) and yours (`<configDir>/compat-rules.json`, in the launcher `profiles/<profile>/config/`). A rule of
+yours with the same `id` replaces Kiln's. Plain JSON, no comments.
+
+```json
+{ "format": 1, "rules": [
+  { "id": "xhl-and-shroudforge",
+    "when": [ { "module": "xhl-*.dll" }, { "engine": "shroudforge" } ],
+    "action": "late", "subject": { "module": "xhl-*.dll" },
+    "message": "XHL hooks the same functions as ShroudForge. It loads after Kiln so both work." } ] }
+```
+
+- `when`: every matcher must be present. `{"module": "xhl-*.dll"}` (a DLL file name; `*` and `?`, case ignored),
+  `{"engine": "shroudforge"}`, `{"mod": "emf:coolmod"}` (`kiln:` and `native:` both name Kiln's native mods),
+  `{"symbol": "chat/ChatLogAdd"}` (an overlap on that function). No `when`: always.
+- `action`: `warn` (log the message), `late` (the `subject` module loads late), `disable` (the `subject` module, mod or
+  engine does not load). `late` and `disable` need a `subject`.
+- Who applies what: the launcher writes `chain.ini` and the profile, so it applies `late` and `disable` of chain entries
+  (a line `; kiln rule <id>` marks what a rule wrote). kiln-core logs `warn` rules, switches off a **mod the profile lists**
+  (`disable` on `{"mod": "emf:coolmod"}`, before the plugins read the profile; the rule's message is the reason in the
+  logs), and reports the rest as not applied: `compat: rule <id> asks xhl-core.dll to load late; apply it in the
+  launcher`. `hooks.json` `rules` lists every rule that fired with `applied` and a `note`.
+- A late rule that was applied last session stays in force while its subject loads late, so a rule on a `symbol` does not
+  undo itself when moving the DLL removes the overlap.
+- A rule that does not validate (bad id, no `subject` for `late`/`disable`, an unknown key) is dropped with a warning in
+  kiln.log; the other rules stay. To switch a shipped rule off, give your own rule its `id` and a `when` that never holds.
+
+Limits: the core knows an engine from the profile's lists, ShroudForge's state and a few DLL names (`shroudforge-runtime.dll`,
+`emf_core.dll`, `enshwick.dll`); a mod folder placed by hand (not in a profile list) cannot be switched off by a rule in
+the core, and the report says so. Schema: `schema/compat-rules.schema.json`.
 
 ## Status files and logs
 

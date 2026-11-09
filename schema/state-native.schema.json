@@ -12,6 +12,28 @@
     "written": { "$ref": "common.schema.json#/$defs/time" },
     "policy": { "enum": ["always", "verified-only", "never"], "description": "kiln.json native.policy" },
     "phase": { "enum": ["dllmain", "early", "boot", "world"], "description": "The last phase that ran." },
+    "chain": {
+      "type": "object",
+      "description": "dev.21: chain.ini [late]. Present only when the proxy left chain DLLs to the core.",
+      "properties": {
+        "late": {
+          "type": "array",
+          "description": "The chain entries the core loaded after the plugins, in load order (the proxy's chain order). A dllmain native mod whose DLL is here finishes loading with it (mods[].state).",
+          "items": {
+            "type": "object",
+            "required": ["path", "source", "status", "order"],
+            "properties": {
+              "path": { "type": "string", "description": "The proxy's canonical path (Windows form)." },
+              "source": { "enum": ["chain", "emf", "profile"], "description": "The list the proxy found the entry in." },
+              "status": { "enum": ["pending", "loaded", "failed", "missing", "duplicate"], "description": "pending: the late phase has not run yet." },
+              "error": { "type": "integer", "description": "Win32 error code when failed, else 0." },
+              "ms": { "type": "number", "description": "LoadLibrary time, when it ran." },
+              "order": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
     "mods": {
       "type": "array",
       "items": {

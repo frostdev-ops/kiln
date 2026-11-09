@@ -814,9 +814,265 @@ def s_realcore():
     return g
 
 
+# ------------------------------------------------------------------------------------- chain.ini [late] ----
+
+def late_library(name, dlls):
+    lib = os.path.join(RUN, name + "-library")
+    if os.path.exists(lib):
+        shutil.rmtree(lib)
+    os.makedirs(lib)
+    for d in dlls:
+        shutil.copy(os.path.join(PH, d + ".dll"), os.path.join(lib, d + ".dll"))
+    return lib
+
+
+def s_late():
+    """chain.ini [late] with the stand-in core: an entry of [chain], dinput8-chain.ini or [profile] whose DLL [late] names
+    passes every check but is not loaded (status 6); the others load as before; a [late] line that names no entry loads
+    nothing. Matching is by canonical path, so other spellings, case, '..' and the game-relative spelling count."""
+    g = Game("late")
+    for n in ("chain-a", "chain-b", "fake-sf"):
+        g.dll(n, f"kiln/chain/{n}.dll")
+    g.dll("chain-d", "kiln/chain/orphan.dll")
+    g.dll("emf-x", "mods/emf-x.dll")
+    g.dll("emf-y", "mods/emf-y.dll")
+    lib = late_library("late", ["chain-c"])
+    lib_c = winpath(os.path.join(lib, "chain-c.dll"))
+    g.write("kiln/chain.ini", f"""[chain]
+chain/chain-a.dll
+chain/chain-b.dll
+chain/fake-sf.dll
+chain/missing-late.dll
+[profile]
+{lib_c}
+[Late]
+; the launcher's comment lines stay comments
+// kiln rule x
+chain/./CHAIN-B.dll
+late = mods/emf-x.dll
+chain/fake-sf.dll
+chain/missing-late.dll
+{winpath(os.path.join(lib, "..", os.path.basename(lib), "chain-c.dll"))}
+chain/orphan.dll
+readme.txt
+""")
+    g.write("dinput8-chain.ini", "[Chain]\nmods\\emf-x.dll\nmods\\emf-y.dll\n")
+    g.run()
+    print(f"[late] rc {g.rc}")
+    c = g.chain()
+    expect = [  # (status, source, detail, module loaded, path suffix)
+        ("0", "0", "0", True, "\\kiln\\chain\\chain-a.dll"),
+        ("6", "0", "0", False, "\\kiln\\chain\\chain-b.dll"),
+        ("3", "0", "4", False, "\\kiln\\chain\\fake-sf.dll"),
+        ("2", "0", "0", False, "\\kiln\\chain\\missing-late.dll"),
+        ("6", "2", "0", False, "\\mods\\emf-x.dll"),
+        ("0", "2", "0", True, "\\mods\\emf-y.dll"),
+        ("6", "1", "0", False, "\\chain-library\\chain-c.dll".replace("chain-library", "late-library")),
+    ]
+    check(g, len(c) == len(expect), f"{len(expect)} chain entries, the orphan [late] line adds none (got {len(c)})")
+    for i, (st, src, det, loaded, suffix) in enumerate(expect):
+        if i >= len(c):
+            break
+        e = c[i]
+        ok = e["status"] == st and e["source"] == src and e["detail"] == det and e["path"].lower().endswith(suffix.lower()) \
+            and (e["module"] == "1") == loaded
+        check(g, ok, f"entry {i}: status {st} source {src} detail {det} loaded {loaded} {suffix} "
+                     f"(got {e['status']}/{e['source']}/{e['detail']} module {e['module']} {e['path']})")
+    check(g, has(g.lines, "dll chain-a attach") and has(g.lines, "dll emf-y attach"), "the entries [late] does not name load as before")
+    check(g, not any(x.startswith(("dll chain-b", "dll emf-x", "dll chain-c", "dll chain-d", "dll fake-sf")) for x in g.lines),
+          "deferred, refused and orphan DLLs are not loaded by the proxy")
+    check(g, has(g.lines, "probe chain-a kiln-core=0"), "an early chain DLL sees no core")
+    check(g, ordered(g.lines, ["dll chain-a attach", "dll emf-y attach", "core boot", "main reached"]), "early DLLs, then the core, then main")
+    deferred = [x for x in g.proxy_log if "deferred" in x]
+    check(g, len(deferred) == 3 and all("chain.ini [late]" in x for x in deferred), f"proxy.log: 3 deferred lines ({len(deferred)})")
+    check(g, any("orphan.dll" in x and "names no entry" in x for x in g.proxy_log), "proxy.log names the orphan [late] line")
+    check(g, any("fake-sf.dll refused" in x for x in g.proxy_log) and any("missing-late.dll missing" in x for x in g.proxy_log),
+          "a refused or missing entry named in [late] keeps its status, once")
+    check(g, has(g.lines, "core play_once=0 nonce= profile= chain=7"), "KilnBootInfo carries 7 entries")
+    return g
+
+
+def s_late_modes():
+    """[late] in every mode: play-once mode=profile (chain.ini [late] defers [chain] entries and chain/once.ini [profile]
+    entries by path), play-once no-mods (everything is skipped, nothing is deferred), and chain order is load order."""
+    g = Game("late-profile")
+    for n in ("chain-a", "chain-b"):
+        g.dll(n, f"kiln/chain/{n}.dll")
+    lib = late_library("late-profile", ["chain-c"])
+    lib_c = winpath(os.path.join(lib, "chain-c.dll"))
+    g.write("kiln/chain.ini", f"[chain]\nchain/chain-b.dll\nchain/chain-a.dll\n[profile]\n{lib_c}\n[late]\nchain/chain-a.dll\n{lib_c}\nchain/chain-b.dll\n")
+    g.write("kiln/chain/once.ini", f"[profile]\n{lib_c}\n")
+    g.play_once("profile", nonce="late-once")
+    g.run()
+    c = g.chain()
+    check(g, [(e["status"], e["source"]) for e in c] == [("6", "0"), ("6", "0"), ("6", "1")] and
+          [os.path.basename(e["path"].replace("\\", "/")).lower() for e in c] == ["chain-b.dll", "chain-a.dll", "chain-c.dll"],
+          f"play-once profile: [chain] and once.ini [profile] entries deferred, in chain order, not [late] order ({[(e['status'], e['source'], e['path'][-12:]) for e in c]})")
+    check(g, not has(g.lines, "dll ") and has(g.lines, "core play_once=3"), "play-once profile: nothing loaded by the proxy")
+    n = Game("late-nomods")
+    n.dll("chain-a", "kiln/chain/chain-a.dll")
+    n.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\n[late]\nchain/chain-a.dll\nchain/orphan.dll\n")
+    n.play_once("no-mods", nonce="late-nomods")
+    n.run()
+    nc = n.chain()
+    check(n, len(nc) == 1 and nc[0]["status"] == "5", "play-once no-mods: the entry is SKIPPED, not deferred")
+    check(n, not has(n.lines, "dll ") and not any("deferred" in x for x in n.proxy_log), "play-once no-mods: nothing loads, nothing is deferred")
+    p = Game("late-corrupt")
+    for name in ("chain-a", "chain-c"):
+        p.dll(name, f"kiln/chain/{name}.dll")
+    p.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\n[profile]\nchain/chain-c.dll\n[late]\nchain/chain-a.dll\nchain/chain-c.dll\n")
+    p.write("kiln/profile.json", '{"format": 1, "id": "x", "generation": 1, "mods": {"kiln": [{"id": "a", "path": "Z:\\\\tr')
+    p.run()
+    pc = p.chain()
+    check(p, [e["status"] for e in pc] == ["6", "5"], "corrupt profile.json: [chain] entry deferred as usual, [profile] entry SKIPPED")
+    return g
+
+
+def s_late_realcore():
+    """The real core loads the proxy's late entries after Kiln's native phases, with the same SEH guard and reports:
+    state/native.json chain.late, a dllmain native mod finishing late, boot.json chain[] with the final status and
+    "late": true, kiln.log lines. Safe idle (no sigdb): the player's chain DLLs still load."""
+    g, lib, profile = realcore_game("late-real")
+    for n in ("chain-a", "chain-b", "chain-d", "failing", "fake-sf"):
+        g.dll(n, f"kiln/chain/{n}.dll")
+    dllmain = winpath(os.path.join(lib, "native", "native-test-dllmain", "native-test-dllmain.dll"))
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.write("kiln/chain.ini", f"""[chain]
+chain/chain-a.dll
+chain/chain-b.dll
+chain/failing.dll
+chain/fake-sf.dll
+chain/chain-d.dll
+[profile]
+{dllmain}
+[late]
+chain/chain-d.dll
+{dllmain}
+chain/failing.dll
+chain/fake-sf.dll
+chain/chain-b.dll
+""")
+    g.run()
+    print(f"[late real core] rc {g.rc}")
+    b, n, log = state(g, "boot.json"), state(g, "native.json"), kiln_log(g)
+
+    def at(prefix):
+        return next((i for i, line in enumerate(log) if prefix in line), -1)
+
+    check(g, has(g.lines, "probe chain-a kiln-core=0 native-test-boot=0"), "chain-a (not late) loaded before the core")
+    check(g, has(g.lines, "probe chain-b kiln-core=1 native-test-boot=1") and has(g.lines, "probe chain-d kiln-core=1 native-test-boot=1"),
+          "late DLLs load with the core and the boot-phase native mods already in the process")
+    check(g, ordered(g.lines, ["dll chain-a attach", "dll chain-b attach", "dll failing attach", "dll chain-d attach"]),
+          "late DLLs load in chain order (chain-b, failing, chain-d), not in [late] order")
+    check(g, not has(g.lines, "dll fake-sf"), "a refused entry named in [late] stays refused")
+    i_boot, i_late, i_done = at("native: phase boot"), at("native: loading 4 chain DLL(s)"), at("boot complete")
+    check(g, 0 <= i_boot < i_late < i_done, f"kiln.log: native boot phase ({i_boot}) < late phase ({i_late}) < boot complete ({i_done})")
+    check(g, any("late: " in l and "chain-b.dll loaded at" in l for l in log), "kiln.log: late: <path> loaded at ...")
+    check(g, any(l.startswith("[W ") and "late: " in l and "failing.dll failed to load (error 1114: its DllMain failed)" in l for l in log),
+          "kiln.log: a late DLL that fails to load is a warning with its error")
+    check(g, any("native mod native-test-dllmain" in l and "deferred to the late phase" in l for l in log), "kiln.log: the dllmain native mod finished late")
+    late = n.get("chain", {}).get("late", [])
+    want = [("chain-b.dll", "loaded", 0), ("failing.dll", "failed", 1114), ("chain-d.dll", "loaded", 0), ("native-test-dllmain.dll", "loaded", 0)]
+    check(g, [(os.path.basename(x["path"].replace("\\", "/")), x["status"], x["error"]) for x in late] == want and
+          [x["order"] for x in late] == [1, 2, 3, 4] and [x["source"] for x in late] == ["chain", "chain", "chain", "profile"],
+          f"native.json chain.late: {[(os.path.basename(x['path'].replace(chr(92), '/')), x['status'], x['error']) for x in late]}")
+    check(g, all(x["status"] != "loaded" or "ms" in x for x in late), "native.json chain.late: loaded entries carry ms")
+    mods = {m["id"]: m for m in n.get("mods", [])}
+    dm = mods.get("native-test-dllmain", {})
+    check(g, dm.get("state") == "loaded" and dm.get("phase") == "dllmain" and [d["status"] for d in dm.get("dlls", [])] == ["loaded"],
+          f"the dllmain native mod: loaded by the late phase ({dm.get('state')}, {dm.get('reason')})")
+    check(g, dm.get("loadIndex", -1) > mods.get("native-test-boot", {}).get("loadIndex", 99), "its loadIndex is after the boot-phase mods")
+    check(g, n.get("phase") in ("dllmain", "early", "boot", "world"), f"native.json phase stays in its enum ({n.get('phase')})")
+    chain = b.get("chain", [])
+    flagged = [(os.path.basename(x["path"].replace("\\", "/")), x["status"], x.get("late")) for x in chain if x.get("late")]
+    check(g, flagged == [("chain-b.dll", "loaded", True), ("failing.dll", "failed", True), ("chain-d.dll", "loaded", True),
+                         ("native-test-dllmain.dll", "loaded", True)], f"boot.json chain[]: late entries with their final status {flagged}")
+    check(g, all(x["status"] in ("loaded", "failed", "missing", "refused", "duplicate", "skipped") and x["source"] in ("chain", "emf", "profile")
+                 for x in chain), "boot.json chain[] stays inside the statuses and sources the launcher parses")
+    check(g, [x for x in chain if x["path"].lower().endswith("fake-sf.dll")][0]["status"] == "refused", "boot.json: the refused entry")
+    check(g, b.get("native", {}).get("pending") == 0, f"boot.json native.pending is 0 ({b.get('native')})")
+    passes = [l for l in log if "native-test" in l and " PASS" in l]
+    fails = [l for l in log if "native-test" in l and " FAIL" in l]
+    check(g, len(passes) >= 8 and not fails, f"native-test lines: {len(passes)} PASS, {len(fails)} FAIL")
+    return g
+
+
+def s_rules_realcore():
+    """compat-rules.json in the real core (safe idle): the shipped file and the player's (configDir), a player's rule
+    replacing a shipped one, a bad rule dropped with a warning, `warn` logged, `late` reported as not applied, and
+    `disable` of a mod the profile lists applied before the native loader reads it."""
+    g, lib, profile = realcore_game("rules-real")
+    g.dll("chain-a", "kiln/chain/chain-a.dll")
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\n")
+
+    def rule(id, action, message, when=None, subject=None):
+        r = {"id": id, "when": when if when is not None else [{"module": "chain-a.dll"}], "action": action, "message": message}
+        if subject:
+            r["subject"] = subject
+        return r
+
+    shipped = {"format": 1, "rules": [
+        rule("warn-chain-a", "warn", "chain-a is old"),
+        rule("off-clientside", "disable", "clientside clashes with chain-a", subject={"mod": "native:native-test-clientside"}),
+        rule("late-chain-a", "late", "chain-a hooks too early", subject={"module": "CHAIN-A.dll"}),
+        {"id": "broken", "when": [{"module": "chain-a.dll"}], "action": "late", "message": "no subject"},
+        rule("not-here", "warn", "chain-b is not here", when=[{"module": "chain-b.dll"}]),
+        rule("off-absent", "disable", "x", subject={"mod": "emf:nothing"}),
+    ]}
+    json.dump(shipped, open(os.path.join(g.kiln, "compat-rules.json"), "w"))
+    os.makedirs(os.path.join(lib, "config"), exist_ok=True)
+    json.dump({"format": 1, "rules": [rule("warn-chain-a", "warn", "chain-a is old, says the player")]},
+              open(os.path.join(lib, "config", "compat-rules.json"), "w"))
+    g.run()
+    print(f"[rules real core] rc {g.rc}")
+    n, log = state(g, "native.json"), kiln_log(g)
+    mods = {m["id"]: m for m in n.get("mods", [])}
+    cs = mods.get("native-test-clientside", {})
+    check(g, cs.get("state") == "disabled" and "switched off by compat rule 'off-clientside'" in (cs.get("reason") or "") and
+          "clientside clashes with chain-a" in (cs.get("reason") or ""), f"disable on a listed mod: native.json says {cs.get('state')} / {cs.get('reason')}")
+    check(g, all(mods.get(k, {}).get("state") == "loaded" for k in ("native-test-early", "native-test-boot")), "the other native mods load")
+    check(g, any("compat: rule off-clientside switched native:native-test-clientside off" in l for l in log), "kiln.log: rule switched the mod off")
+    check(g, any("compat: rule warn-chain-a: chain-a is old, says the player" in l for l in log) and not any("chain-a is old" in l and "says the player" not in l for l in log),
+          "warn: the player's rule replaced the shipped one")
+    check(g, any("the player's rule 'warn-chain-a' replaces the shipped one" in l for l in log), "kiln.log: the replacement is announced")
+    check(g, any("rule late-chain-a asks CHAIN-A.dll to load late; apply it in the launcher" in l for l in log), "late is reported as not applied (launcher)")
+    check(g, any("compat-rules.json" in l and "rule #4 (broken)" in l and "needs a \"subject\"" in l and l.startswith("[W ") for l in log), "a bad rule is dropped with a warning")
+    check(g, not any("chain-b is not here" in l for l in log), "a rule whose matchers do not hold stays quiet")
+    check(g, not any("off-absent" in l for l in log), "disable of a mod that is not there does nothing")
+    check(g, any("5 compatibility rule(s)" in l or "compatibility rule(s)" in l for l in log), "kiln.log counts the rules")
+    return g
+
+
+def s_late_oldproxy():
+    """An older proxy (the dev.20 one: OLD_PROXY=<its dinput8.dll>, or $KILN_OUT/oldproxy/dinput8.dll when built there from
+    git HEAD~) ignores the unknown [late] section and loads the entries early; the new core boots with it and loads
+    nothing late. Skipped when there is no old proxy."""
+    old = os.environ.get("OLD_PROXY") or os.path.join(OUT, "oldproxy", "dinput8.dll")
+    if not os.path.isfile(old):
+        print("[late old proxy] skipped (no old proxy: set OLD_PROXY=<dinput8.dll of dev.20>)")
+        return None
+    g, lib, profile = realcore_game("late-oldproxy")
+    shutil.copy(old, os.path.join(g.dir, "dinput8.dll"))
+    for n in ("chain-a", "chain-b"):
+        g.dll(n, f"kiln/chain/{n}.dll")
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\nchain/chain-b.dll\n[late]\nchain/chain-b.dll\nchain/orphan.dll\n")
+    g.run()
+    print(f"[late old proxy] rc {g.rc}")
+    b, n = state(g, "boot.json"), state(g, "native.json")
+    check(g, ordered(g.lines, ["dll chain-a attach", "dll chain-b attach", "main reached"]) and has(g.lines, "probe chain-b kiln-core=0"),
+          "the old proxy loads the [late] entry early, as before")
+    check(g, [c["status"] for c in b.get("chain", [])] == ["loaded", "loaded"] and not any(c.get("late") for c in b.get("chain", [])),
+          "boot.json: both loaded by the proxy, nothing flagged late")
+    check(g, "chain" not in n and b.get("errors") == [], "native.json has no chain.late block; the new core boots fine")
+    check(g, not any("late:" in l or "native: loading" in l for l in kiln_log(g)), "the core loads nothing late")
+    return g
+
+
 SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
-                                          s_realcore)}
+                                          s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_oldproxy)}
 
 
 def main():
