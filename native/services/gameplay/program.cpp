@@ -29,12 +29,14 @@ struct Change {
     KilnEntity entity;
     uint32_t hash;
     uint32_t op;
+    KilnOwner owner;
     std::vector<uint8_t> data;
 };
 std::vector<Change> g_changes;  // under g_mu
 // Who added which offer component on which entity ((entity << 32) | hash -> owner), so a remove only takes off what
 // that owner added through component_change (never the game's own offer, never another mod's). Under g_mu.
-std::unordered_map<uint64_t, KilnOwner> g_owned;
+struct Owned { KilnOwner owner; bool pending; };
+std::unordered_map<uint64_t, Owned> g_owned;
 constexpr size_t kMaxOwned = 4096;
 // component_change is limited to the three run-time components of an interaction offer (Kiln.Gameplay Offers).
 constexpr uint32_t kOfferComponents[] = {0x78EE0F23u /* InteractionOfferRuntime */, 0x8598AD86u /* ClientInteractionOffer */,
@@ -91,6 +93,17 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
                                   ? g_world_api->queue_add(ctx, ch.entity, ch.hash, ch.data.data(),
                                                            static_cast<uint32_t>(ch.data.size()))
                                   : g_world_api->queue_remove(ctx, ch.entity, ch.hash);
+        {
+            std::lock_guard lock(g_mu);
+            const uint64_t key = (static_cast<uint64_t>(ch.entity) << 32) | ch.hash;
+            const auto it = g_owned.find(key);
+            if (it != g_owned.end() && it->second.owner == ch.owner) {
+                // An add only owns what reached the engine queue; a failed remove must remain retryable.
+                if ((ch.op == KILN_GAMEPLAY_COMPONENT_ADD && rc != KILN_OK) ||
+                    (ch.op == KILN_GAMEPLAY_COMPONENT_REMOVE && rc == KILN_OK)) g_owned.erase(it);
+                else it->second.pending = false;
+            }
+        }
         if (rc != KILN_OK)
             KG_W("component_change: entity %u component 0x%08x op %u not queued (%d)", ch.entity, ch.hash, ch.op, rc);
     }
@@ -160,10 +173,15 @@ KilnResult component_change(KilnOwner owner, KilnEntity e, uint32_t hash, const 
     if (g_player_input && g_world_api->component(e, g_player_input, &sz)) return KILN_ERR_INVALID_ARGUMENT;
     const bool has = g_world_api->component(e, hash, &sz) != nullptr;
     const uint64_t key = (static_cast<uint64_t>(e) << 32) | hash;
-    Change ch{e, hash, op, {}};
+    Change ch{e, hash, op, owner, {}};
     if (op == KILN_GAMEPLAY_COMPONENT_ADD) ch.data.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
     std::lock_guard lock(g_mu);
     if (g_changes.size() >= 256) return KILN_ERR_BUFFER_TOO_SMALL;
+    const auto owned = g_owned.find(key);
+    if (owned != g_owned.end() && owned->second.pending) {
+        if (op == KILN_GAMEPLAY_COMPONENT_ADD) return KILN_ERR_INVALID_ARGUMENT;
+        return owned->second.owner == owner ? KILN_ERR_BUFFER_TOO_SMALL : KILN_ERR_NOT_FOUND;
+    }
     if (op == KILN_GAMEPLAY_COMPONENT_ADD) {
         // Already there (the game's, or another owner's): the engine would keep the old data, and the caller must not
         // gain the right to remove it. Absent: any record left for it is stale (the entity id was reused).
@@ -172,15 +190,16 @@ KilnResult component_change(KilnOwner owner, KilnEntity e, uint32_t hash, const 
             for (auto it = g_owned.begin(); it != g_owned.end();) {  // prune records whose component is gone
                 uint32_t s2 = 0;
                 const auto ent = static_cast<KilnEntity>(it->first >> 32);
-                it = g_world_api->component(ent, static_cast<uint32_t>(it->first), &s2) ? std::next(it) : g_owned.erase(it);
+                it = it->second.pending || g_world_api->component(ent, static_cast<uint32_t>(it->first), &s2)
+                         ? std::next(it) : g_owned.erase(it);
             }
             if (g_owned.size() >= kMaxOwned) return KILN_ERR_BUFFER_TOO_SMALL;
         }
-        g_owned[key] = owner;
+        g_owned[key] = {owner, true};
     } else {
         const auto it = g_owned.find(key);
-        if (it == g_owned.end() || it->second != owner) return KILN_ERR_NOT_FOUND;  // not added by this owner
-        g_owned.erase(it);
+        if (it == g_owned.end() || it->second.owner != owner) return KILN_ERR_NOT_FOUND;  // not added by this owner
+        it->second.pending = true;
     }
     g_changes.push_back(std::move(ch));
     return KILN_OK;

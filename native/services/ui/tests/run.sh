@@ -27,3 +27,4 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
     "$here/wheel_host_test.cpp" "${objs[@]}" -o "$out/wheel_host_test"
 "$out/wheel_host_test"
 PYTHONDONTWRITEBYTECODE=1 python3 "$here/render_sigdb_test.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$here/per_caller_test.py"

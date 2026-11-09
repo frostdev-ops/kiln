@@ -340,12 +340,12 @@ typedef struct KilnGameplayApi {
     /* Queues one change of an interaction-offer component on `entity` (never a player). `hash` must be one of
      * InteractionOfferRuntime 0x78EE0F23, ClientInteractionOffer 0x8598AD86, CheckPlayerInRange 0x50311280 (else
      * INVALID_ARGUMENT). op KILN_GAMEPLAY_COMPONENT_ADD adds it with `size` bytes of `data` (1..256); refused
-     * (INVALID_ARGUMENT) when the entity has it already. KILN_GAMEPLAY_COMPONENT_REMOVE removes it (data/size ignored)
+     * (INVALID_ARGUMENT) when the entity has it already or an add is pending. KILN_GAMEPLAY_COMPONENT_REMOVE removes it (data/size ignored)
      * only if `owner` added it through this call (else NOT_FOUND): the game's own components and other owners' stay.
      * Kiln's program writes the kind-3/4 record in the next step; the engine applies it at the end of that step. There
      * is no answer: read the component back (kiln.world component) a step or two later. Used by the managed
      * Kiln.Gameplay Offers. Tick thread. NOT_FOUND: no such entity. UNAVAILABLE: the program is off on this build.
-     * BUFFER_TOO_SMALL: 256 changes are queued already (retry next step). Queued changes are dropped when the server
+     * BUFFER_TOO_SMALL: 256 changes are queued already, or this owner's earlier change is pending (retry next step). Queued changes are dropped when the server
      * world goes away. */
     KilnResult(KILN_CALL* component_change)(KilnOwner owner, KilnEntity entity, uint32_t hash, const void* data,
                                             uint32_t size, uint32_t op);
