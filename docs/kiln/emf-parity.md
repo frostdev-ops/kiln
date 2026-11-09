@@ -64,7 +64,7 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `notify` (10), `hud_set` (12) | `kiln.ui` overlay | `HudLine` (`Kiln.Ui`) | partial: a server keeps HUD lines and logs notes | client |
 | `setting_declare/_int/_float/_text/_set`, `on_setting_changed` (13) | kiln-emf (`<configDir>/emf/<id>.ini`) | `ModConfig` | full | probe |
 | `mod_info`, `mod_info_at` (13) | kiln-emf | `ModEntry` | full | probe |
-| `find_pattern`, `hook_pattern`, `hook_address` (14) | on-disk scan, safetyhook | `Kiln.Hooks` | full | probe, lab-mod (loot_scale) |
+| `find_pattern`, `hook_pattern`, `hook_address` (14) | on-disk scan; the detour is a kiln.hooks v2 raw link owned by `emf:<id>` (newest first, before Kiln's own links; outside the exe: plain safetyhook) | `Kiln.Hooks` | full | probe, lab-mod (loot_scale) |
 | `game_build` (14) | Kiln's verified build records | `Diagnostics` | full | probe |
 | `command_sender` (15), `register_command_ex` (17) | `kiln.chat` | `Kiln.Chat` | full | probe |
 | `program_write_other` (16) | `kiln.world` programs v2, declared other-entity writes | `EcsProgramContext.TryWriteOther<T>` | full | host; server probe |

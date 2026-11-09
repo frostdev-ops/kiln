@@ -7,10 +7,12 @@
 //    player's typed line to the ChatMessagesSystem inbox with ChatLogAdd(result, sys, type, text, tag1, tag2,
 //    connectionHandle, accountHash, time); the send step sends every inbox line to each player reader whose bit in
 //    the line's mask is clear.
-//  - Kiln hooks ChatLogAdd and recognises the receive loop's call by its return address. While someone subscribed,
-//    such a line is held back (the hook reports success without adding it) and delivered in the next Pre, which
-//    runs in the same server frame before the send step. Unless a subscriber consumes it, Kiln then adds it with the
-//    original arguments, so it reaches everyone exactly as it would have.
+//  - Kiln hooks ChatLogAdd (a kiln.hooks v2 raw link) and recognises the receive loop's call by the return address of
+//    the game call that entered it, from caller(): other links on the same function (kiln-emf's, an EMF mod's)
+//    cannot disturb it. While someone subscribed, such a line is held back (the hook reports success without adding
+//    it) and delivered in the next Pre, which runs in the same server frame before the send step. Unless a subscriber
+//    consumes it, Kiln then adds it with the original arguments (through the rest of the chain and then the game's
+//    function), so it reaches everyone exactly as it would have.
 //  - Server lines: ChatLogAdd with the recipient's connection handle and account (a line with no speaker is sent
 //    but not shown by clients), then the line is marked as already sent (the game's own MarkSent) for every other
 //    reader, so only the recipient gets it. They are notices (type 4, no loca tag): the client's chat shows such a
@@ -21,7 +23,6 @@
 //    +4 peer handle (reader = peer & 0x7F), +0xA state, +0x10 permission bits, +0x18 player entity, +0x20 name
 //    {ptr, len}, +0x48 account hash. The GameServer pointer comes from the ChatReceive hook (every frame).
 #include <windows.h>
-#include <intrin.h>
 
 #include <algorithm>
 #include <atomic>
@@ -34,7 +35,7 @@
 #include <vector>
 
 #include "kiln_api.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_chat.h"
 
 namespace {
@@ -70,7 +71,7 @@ struct PlayerOffsets {
             account = -1, state = -1;
 } P;
 
-SafetyHookInline g_add_hook, g_recv_hook;
+kiln::RawHook g_add_hook, g_recv_hook;  // links of the kiln.hooks v2 chains on ChatLogAdd and ChatReceive
 MarkSentFn g_mark_sent = nullptr;
 uintptr_t g_receive_ret = 0;  // return address of the receive loop's ChatLogAdd call
 bool g_can_receive = false, g_can_send = false, g_can_players = false;
@@ -282,11 +283,12 @@ bool enqueue(uint8_t type, const char* text, size_t len, uint32_t tag1, uint32_t
     return true;
 }
 
+// The game's return address, not this detour's: caller() is right whatever other link runs before this one (kiln-emf's
+// hook on this function sits in the same chain). Read it before calling the original or any other hooked function.
 ChatResult* __fastcall hk_chat_log_add(ChatResult* out, uint8_t* sys, uint8_t type, const StrView* text, uint32_t tag1,
                                        uint32_t tag2, uint32_t handle, uint64_t account, const OptTime* time) {
-    if (g_receive_ret && reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_receive_ret && type == 0 &&
-        g_sub_count.load(std::memory_order_relaxed) > 0 && text && text->data && text->size > 0 &&
-        text->size <= static_cast<uint64_t>(C.max_text)) {
+    if (g_receive_ret && type == 0 && g_sub_count.load(std::memory_order_relaxed) > 0 && text && text->data &&
+        text->size > 0 && text->size <= static_cast<uint64_t>(C.max_text) && g_add_hook.caller() == g_receive_ret) {
         if (enqueue(type, text->data, static_cast<size_t>(text->size), tag1, tag2, handle, account, false)) {
             out->code = 0;  // what ChatLogAdd returns on success; the caller does not look at it anyway
             out->value = 0;
@@ -553,11 +555,11 @@ bool sym(const char* name, uintptr_t* out) { return g_api->symbol(KilnStr{name, 
 bool cst(const char* name, int64_t* out) { return g_api->constant(KilnStr{name, std::strlen(name)}, out) == KILN_OK; }
 bool feat(const char* name) { return g_api->feature(KilnStr{name, std::strlen(name)}); }
 
-bool hook(SafetyHookInline& h, uintptr_t target, void* detour, const char* what) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(target), detour);
-    if (!h) {
-        logf(KILN_LOG_ERROR, "chat: hooking %s at rva 0x%llx failed", what,
-             static_cast<unsigned long long>(target - g_base));
+// A link on `target` in kiln.hooks' chain, labelled like the sigdb symbol so kiln.log and state/hooks.json name it.
+bool hook(kiln::RawHook& h, uintptr_t target, void* detour, const char* what, const char* label) {
+    if (!h.install(g_api, g_owner, target, detour, label)) {
+        logf(KILN_LOG_ERROR, "chat: hooking %s at rva 0x%llx failed (%s)", what,
+             static_cast<unsigned long long>(target - g_base), h.error() ? h.error() : "unknown");
         return false;
     }
     return true;
@@ -595,9 +597,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     const bool receive_ok = feat("chat.receive") && sym("chat/ReceiveAddLine", &receive_call);
     g_receive_ret = receive_ok ? receive_call + 5 : 0;  // return address after the E8 rel32 call
 
-    if (!hook(g_recv_hook, receive, reinterpret_cast<void*>(&hk_chat_receive), "ChatReceive")) return KILN_ERR_UNAVAILABLE;
+    if (!hook(g_recv_hook, receive, reinterpret_cast<void*>(&hk_chat_receive), "ChatReceive", "chat/ChatReceive"))
+        return KILN_ERR_UNAVAILABLE;
     if (receive_ok || g_can_send) {
-        if (!hook(g_add_hook, add, reinterpret_cast<void*>(&hk_chat_log_add), "ChatLogAdd")) {
+        if (!hook(g_add_hook, add, reinterpret_cast<void*>(&hk_chat_log_add), "ChatLogAdd", "chat/ChatLogAdd")) {
             g_can_send = false;
         } else {
             g_can_receive = receive_ok;

@@ -107,9 +107,21 @@ What only a joined player can show is in the client checklist below.
 | beastmaster, bounty, champion, grave, handover, kill_counter, life_skills, necromancer (Lua) | yes (script) | Running under `lua`. Their commands answer from the console ("could not tell which player you are"). | wheel (client) |
 | quick_stack | yes | `qs.list` answers. Chest moves need a player. | wheel (client) |
 | raids | yes | `raids.status` / `raids.world on` answer, and its program registered. At nightfall with raids on it logged `nightfall: a raid was due, but nobody is at a base` (time of day, kept per world). | - |
-| loot_scale | yes | `hook_pattern` on the game's loot factor is installed and chained. | - |
+| loot_scale | yes | `hook_pattern` on the game's loot factor is installed as a link in Kiln's chain. | - |
 | loot_magnet, bulk_craft, companion, villager_jobs | yes | Ready, and their mod programs (`emit_event`) registered. They act on a player's input. | wheel (client) |
 | emf_probe (Kiln's test mod) | yes | 72 checks over the whole table, 0 failures. | - |
+
+## Hook order
+`hook`, `hook_pattern` and `hook_address` put each mod's detour into [kiln.hooks v2](services/hooks.md): one physical
+detour per game function, shared with Kiln's own services, and your detour is a **link** in it, owned by `emf:<mod id>` and
+labelled with the signature name (`state/hooks.json` lists it). `*original` is the link's continuation: it runs the rest of
+the chain and then the game's function. As EMF documents, a later hook on a function runs before an earlier one; mods'
+links also run before Kiln's own links on that function. Kiln's services read the game's call site with `caller()`, so
+your hook in front of them cannot confuse them. The log says `hook <name> at exe+0x... (in Kiln's hook chain)`.
+
+A target outside the game exe (another DLL's code, through `hook_address`) is not in kiln.hooks' reach: it still gets a
+plain detour and the log says `outside the game exe`. `kiln-emf`'s own hooks (ChatLogAdd and ClientOutboxFlush for the
+v27 client chat bridge) are links too, `ChatLogAdd` after `kiln.chat`'s.
 
 ## Compatibility by function
 The full table for EmfApi v27 (90 functions, and EMF's Lua API) is [emf-parity.md](emf-parity.md). v22-v27 in short:
@@ -138,7 +150,7 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 | `program_write_other` | full | declared other-entity writes through `kiln.world` programs |
 | `hook_program` | full | program-update pre/post callbacks through `kiln.types` |
 | `resolve`, `hook` | full | EMF signature name → Kiln sigdb symbol (42 of 51 resolve on the server, 47 on the client; 4 `Post*` client names are open) |
-| `find_pattern`, `hook_pattern`, `hook_address` | full | on-disk scan, safetyhook detours that chain over Kiln's own hooks |
+| `find_pattern`, `hook_pattern`, `hook_address` | full | on-disk scan; the detour is a [kiln.hooks v2](services/hooks.md) link owned by `emf:<mod id>` (see [Hook order](#hook-order)) |
 | `write_memory` | full | private data pages only, never code |
 | `game_build` | full | `known` = Kiln verified this exe; `number` = its svn |
 | `for_each_item`, `find_item`, `item_info` | full | `kiln.items` catalog, live max stack from `kiln.content` |

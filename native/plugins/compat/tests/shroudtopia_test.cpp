@@ -42,6 +42,18 @@ DWORD WINAPI call_target(void* p) {
     return 0;
 }
 int constant_detour() { return 99; }
+#ifdef ST_LAB
+// Lab: a pass-through CreateDetour on ChatLogAdd (nine arguments, four in registers), next to kiln.chat's link on it. The
+// RVA comes from lab_detour_rva.txt in the mod's folder (hex; kiln.log's "chat: hooks on ... ChatLogAdd rva 0x..." line).
+using LabChatAddFn = void* (*)(void*, void*, uint8_t, const void*, uint32_t, uint32_t, uint32_t, uint64_t, const void*);
+LabChatAddFn g_lab_chat_tramp = nullptr;
+volatile LONG g_lab_chat_calls = 0;
+void* lab_chat_add(void* out, void* sys, uint8_t type, const void* text, uint32_t a, uint32_t b, uint32_t h, uint64_t acct,
+                   const void* time) {
+    InterlockedIncrement(&g_lab_chat_calls);
+    return g_lab_chat_tramp(out, sys, type, text, a, b, h, acct, time);
+}
+#endif
 uint8_t g_patch_data[8] = {1, 2, 3, 4, 5, 6, 7, 8};
 
 bool named(const wchar_t* needle) {
@@ -99,6 +111,19 @@ public:
             std::snprintf(line, sizeof line, "lab: ChatLogAdd by FindPattern: %s rva 0x%llx; read %s", at ? "found" : "not found (hooked?)",
                           static_cast<unsigned long long>(at ? at - exe : 0), c->memory.Read(exe, b, 2) && b[0] == 'M' && b[1] == 'Z' ? "MZ ok" : "failed");
             c->Log(line);
+            {
+                FILE* f = std::fopen((c->shroudtopia.mod_folder + "\\lab_detour_rva.txt").c_str(), "rb");
+                char rva_text[32] = {};
+                if (f) {
+                    std::fread(rva_text, 1, sizeof rva_text - 1, f);
+                    std::fclose(f);
+                    const uintptr_t target = exe + static_cast<uintptr_t>(std::strtoull(rva_text, nullptr, 16));
+                    const bool ok = c->memory.CreateDetour(reinterpret_cast<void*>(target), reinterpret_cast<void*>(&lab_chat_add),
+                                                           reinterpret_cast<void**>(&g_lab_chat_tramp)) && g_lab_chat_tramp;
+                    std::snprintf(line, sizeof line, "lab: CreateDetour on ChatLogAdd rva %s: %s", rva_text, ok ? "installed" : "FAILED");
+                    c->Log(line);
+                }
+            }
             c->Log("loaded");
             return;
         }

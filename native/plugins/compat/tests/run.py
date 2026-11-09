@@ -326,6 +326,10 @@ def shroudtopia_legacy_server():
     g.has("first start of stfolder: wrote its defaults")
     g.expect(not os.path.exists(g.p("mods", "ftest", "started.txt")), "the Flame mod in mods/ was not loaded")
     g.expect(g.result("gt_target") == str(5 + 7), f"CreateDetour detour still runs: {g.result('gt_target')}")
+    # the detour on the exe's function is a kiln.hooks v2 raw link; the one in the mod's own memory block is outside the
+    # exe image, which kiln.hooks refuses, so it is a plain safetyhook detour
+    g.expect(g.result("hooks_raw_links") == "1", f"CreateDetour on the exe: one kiln.hooks raw link: {g.result('hooks_raw_links')}")
+    g.expect(g.result("hooks_outside_image") == "1", f"CreateDetour outside the exe: refused by kiln.hooks, safetyhook: {g.result('hooks_outside_image')}")
     with open(g.p("kiln", "config", "shroudtopia", "shroudtopia.json"), encoding="utf-8") as f:
         kcfg = json.load(f)
     g.expect(kcfg.get("mods", {}).get("stfolder", {}).get("speed") == 3, "manifest defaults written to Kiln's settings")
