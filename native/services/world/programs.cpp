@@ -5,6 +5,7 @@
 // resolved by the engine later, at finalize, by hash; kiln.world validates every name against the world's maps first,
 // because one unknown component or event aborts the engine's access resolution for that program half-way.
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <utility>
 #include <set>
@@ -764,9 +765,16 @@ KilnResult unregister_program(KilnHandle h) {
 }
 
 void KILN_CALL program_noop(void*) {}
+// The core API has no direct owner-liveness query: a post to a revoked owner fails (and one to a live owner queues a
+// no-op task). Probe at most once per second, not per program per tick; the list buffer is reused (tick thread only).
 void programs_reap_owners() {
-    std::vector<Program*> snapshot;
-    { std::lock_guard lock(g_mutex); snapshot = g_programs; }
+    static std::chrono::steady_clock::time_point next{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next) return;
+    next = now + std::chrono::seconds(1);
+    static std::vector<Program*> snapshot;
+    snapshot.clear();
+    { std::lock_guard lock(g_mutex); snapshot.assign(g_programs.begin(), g_programs.end()); }
     for (Program* p : snapshot) {
         if (p->internal || p->owner == g_owner) continue;
         if (g_api->post(p->owner, &program_noop, nullptr) == KILN_ERR_REVOKED)

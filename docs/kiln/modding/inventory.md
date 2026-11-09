@@ -113,7 +113,9 @@ it->transfer_listen(owner, on_transfer, NULL, &handle);                     /* i
 
 Keep it short; it must not block, and must not call kiln.items' tick-thread functions. `host->move` never takes a player's
 equipped or held items and never fills a player's action bar. `host->keep` ignores slots outside the source inventory,
-including destination slots. A faulting handler is skipped and logged.
+including destination slots. A faulting handler is skipped and logged. A mod's dry-run move (`KILN_ITEMS_MOVE_DRY_RUN`) also runs
+the handlers, with `KILN_TRANSFER_DRY_RUN` set in `ev->flags`. Everything is rolled back afterwards: keep and cancel as
+usual (so the dry run predicts the real move), but do not count it, log it or change anything outside the transfer.
 
 `transfer_end` and `cancel_owner` invalidate callbacks even in a registry snapshot already being delivered. Outside a
 transfer callback they wait for callbacks already running, so their code and userdata can then be released. Inside a

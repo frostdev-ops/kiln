@@ -426,10 +426,10 @@ pub fn run<S: Source>(request: Request, file_name: &str, open: impl FnOnce(&Path
         return Reply::failed(crate::BAD_REQUEST, message);
     }
     let _lock=match crate::portrait_export::cache_lock(cache_dir) {
-        Ok(lock)=>lock,Err(e)=>return Reply::failed(crate::BAD_REQUEST,e)
+        Ok(lock)=>lock,Err((code,e))=>return Reply::failed(code,e)
     };
     remove_leftovers(cache_dir);
-    if let Err(error)=crate::portrait_export::cache_budget(cache_dir,&request) {return Reply::failed(crate::BAD_REQUEST,error);}
+    if let Err((code,error))=crate::portrait_export::cache_budget(cache_dir,&request) {return Reply::failed(code,error);}
 
     let mut keys: Vec<(String, String)> = Vec::new();
     let checked: Vec<(Option<String>, Result<Item, String>)> = request

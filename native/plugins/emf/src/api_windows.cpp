@@ -351,6 +351,7 @@ uint32_t api_image_load(const char* path) {
     if (p.rfind(kPortrait, 0) == 0) {
         const std::string k = p.substr(kPortrait.size());
         if (!v26::portrait_key_ok(k)) return refuse(m, "image_load", "a portrait key is 1-64 of A-Z a-z 0-9 _ . -", true), 0;
+        portraits_wait(k);  // first start after a change: the picture may still be drawing on the portrait worker
         file = P.emf / L"cache" / L"portraits" / to_wide(k);
         key = p;
     } else {

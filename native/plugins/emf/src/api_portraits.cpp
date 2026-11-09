@@ -7,8 +7,12 @@
 #include "v26_model.h"
 #include "nlohmann/json.hpp"
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <cwchar>
 #include <fstream>
 #include <set>
+#include <thread>
 #ifdef KEMF_PORTRAIT_TEST
 #include <fcntl.h>
 #include <unistd.h>
@@ -199,6 +203,133 @@ json wanted() {
     }
     return items;
 }
+// The picture as the renderer left it: its index.json (size, time) and whether every frame file is there. Compared to
+// the facts saved after the last run; a picture changed or removed since then is handed to the renderer again.
+json picture_fact(const std::filesystem::path &folder, int frames) {
+    json index = fact(folder / L"index.json");
+    if (index.is_null() || !regular(folder, true))
+        return nullptr;
+    for (int f = 0; f < frames; ++f) {
+        wchar_t name[16];
+        swprintf(name, 16, L"%02d.png", f);
+        if (!regular(folder / name, false))
+            return nullptr;
+    }
+    return index;
+}
+
+// The renderer's request-level codes (gpl/kiln-eml lib.rs). Busy is transient; every other refusal of the whole
+// request lasts until the inputs change, and is remembered like a failed picture.
+constexpr int64_t kBadRequest = 2, kCacheBusy = 5, kCacheFull = 6;
+
+struct Job {
+    PortraitDrawFn draw;
+    std::filesystem::path memory, cache;
+    std::string stamp, request;
+    json ask;
+    std::set<std::string> failed;
+};
+std::mutex g_work_mu;
+std::condition_variable g_work_cv;
+bool g_working = false;
+std::set<std::string> g_pending; // lower-case keys the running job draws
+
+void finish_job() {
+    {
+        std::lock_guard lock(g_work_mu);
+        g_working = false;
+        g_pending.clear();
+    }
+    g_work_cv.notify_all();
+}
+
+void draw_job(Job &job) {
+    std::vector<char> reply(1u << 20);
+    size_t written = 0;
+    int32_t rc = -1;
+    struct Call {
+        PortraitDrawFn draw;
+        const std::string *request;
+        std::vector<char> *reply;
+        size_t *written;
+        int32_t *result;
+    } call{job.draw, &job.request, &reply, &written, &rc};
+    unsigned long code = 0;
+    uintptr_t address = 0;
+    const bool ok = seh_call(
+        [](void *p) {
+            auto &c = *static_cast<Call *>(p);
+            *c.result = c.draw(reinterpret_cast<const uint8_t *>(c.request->data()), c.request->size(), c.reply->data(),
+                               c.reply->size(), c.written);
+        },
+        &call, &code, &address);
+    json answer;
+    bool valid = false;
+    if (ok && rc == 0 && written > 0 && written <= reply.size() && reply[written - 1] == '\0') {
+        try {
+            answer = json::parse(std::string_view(reply.data(), written - 1));
+            valid = answer.is_object() && answer.contains("items") && answer["items"].is_array();
+        } catch (...) {
+        }
+    }
+    const int64_t status = valid && answer.contains("code") && answer["code"].is_number_integer()
+                               ? answer["code"].get<int64_t>()
+                               : -1;
+    const std::string message = valid && answer.contains("message") && answer["message"].is_string()
+                                    ? answer["message"].get<std::string>()
+                                    : std::string{};
+    // Cache contention is transient. A later start retries it instead of remembering a failed picture.
+    if (status == kCacheBusy) {
+        logf(KILN_LOG_WARN, "EMF portraits: another generator holds the cache this start; retrying next time");
+        return;
+    }
+    // A lasting refusal of the whole request: said once here, then remembered until the inputs change.
+    if (status == kCacheFull)
+        logf(KILN_LOG_WARN,
+             "EMF portraits: the picture cache is full (%s); delete unused folders in %s to draw new pictures",
+             message.c_str(), path_utf8(job.cache).c_str());
+    else if (status == kBadRequest)
+        logf(KILN_LOG_WARN, "EMF portraits: the renderer refused the request (%s); remembered until inputs change",
+             message.c_str());
+    size_t drawn = 0, current = 0;
+    json pictures = json::object();
+    for (const auto &i : job.ask) {
+        const auto key = i["key"].get<std::string>();
+        bool good = false;
+        if (valid)
+            for (const auto &a : answer["items"]) {
+                if (a.is_object() && a.value("key", std::string{}) == key) {
+                    const auto st = a.value("status", std::string{});
+                    good = st == "drawn" || st == "current";
+                    drawn += st == "drawn";
+                    current += st == "current";
+                    break;
+                }
+            }
+        if (good) {
+            job.failed.erase(key);
+            json f = picture_fact(job.cache / to_wide(key), i["frames"].get<int>());
+            if (!f.is_null())
+                pictures[key] = std::move(f);
+        } else
+            job.failed.insert(key);
+    }
+    json next = {{"format", 1}, {"stamp", job.stamp}, {"failed", job.failed}, {"current", pictures}};
+    if (!save_attempts(job.memory, next.dump() + "\n"))
+        logf(KILN_LOG_WARN, "EMF portraits: could not save attempt memory");
+    logf(KILN_LOG_INFO, "EMF portraits: %zu drawn, %zu current, %zu unavailable (offline CPU renderer)", drawn, current,
+         job.failed.size());
+}
+
+void run_job(Job &job) {
+    try {
+        draw_job(job);
+    } catch (...) {
+        logf(KILN_LOG_WARN, "EMF portraits: drawing failed; the game continues");
+    }
+    finish_job();
+}
+
 void prepare() {
     if (g_side != KILN_SIDE_CLIENT)
         return; // a dedicated server never opens a mod picture
@@ -267,17 +398,36 @@ void prepare() {
         }
     }
     std::set<std::string> failed;
+    json current = json::object(); // key -> facts of the picture's index.json and its frames, as last drawn or checked
     if (old.is_object() && old.contains("stamp") && old["stamp"].is_string() &&
-        old["stamp"].get<std::string>() == stamp && old.contains("failed") && old["failed"].is_array())
+        old["stamp"].get<std::string>() == stamp && old.contains("failed") && old["failed"].is_array()) {
         for (const auto &k : old["failed"])
             if (k.is_string())
                 failed.insert(k.get<std::string>());
+        if (old.contains("current") && old["current"].is_object())
+            current = old["current"];
+    }
     json ask = json::array();
     for (const auto &i : items)
         if (!failed.contains(i["key"].get<std::string>()))
             ask.push_back(i);
     if (ask.empty()) {
         logf(KILN_LOG_INFO, "EMF portraits: remembered %zu unavailable picture(s); inputs unchanged", failed.size());
+        return;
+    }
+    // The cheap up-to-date check: same inputs (stamp) and every picture's index and frames as this planner last saw
+    // them. Then the renderer, which opens the game's archives, is not called at all.
+    bool all_current = true;
+    for (const auto &i : ask) {
+        const auto key = i["key"].get<std::string>();
+        if (!current.contains(key) || current[key] != picture_fact(cache / to_wide(key), i["frames"].get<int>())) {
+            all_current = false;
+            break;
+        }
+    }
+    if (all_current) {
+        logf(KILN_LOG_INFO, "EMF portraits: %zu picture(s) current, %zu remembered unavailable; inputs unchanged",
+             ask.size(), failed.size());
         return;
     }
     const std::string request = json({{"game_dir", path_utf8(P.game)},
@@ -287,63 +437,23 @@ void prepare() {
                                     .dump();
     if (request.size() > kRequestLimit || stamp.size() > kRequestLimit / 2)
         return;
-    std::vector<char> reply(1u << 20);
-    size_t written = 0;
-    int32_t rc = -1;
-    struct Call {
-        PortraitDrawFn draw;
-        const std::string *request;
-        std::vector<char> *reply;
-        size_t *written;
-        int32_t *result;
-    } call{draw, &request, &reply, &written, &rc};
-    unsigned long code = 0;
-    uintptr_t address = 0;
-    const bool ok = seh_call(
-        [](void *p) {
-            auto &c = *static_cast<Call *>(p);
-            *c.result = c.draw(reinterpret_cast<const uint8_t *>(c.request->data()), c.request->size(), c.reply->data(),
-                               c.reply->size(), c.written);
-        },
-        &call, &code, &address);
-    json answer;
-    bool valid = false;
-    if (ok && rc == 0 && written > 0 && written <= reply.size() && reply[written - 1] == '\0') {
-        try {
-            answer = json::parse(std::string_view(reply.data(), written - 1));
-            valid = answer.is_object() && answer.contains("items") && answer["items"].is_array();
-        } catch (...) {
-        }
+    // Drawing reads the game's archives and can take seconds: it runs on its own thread so the game's start goes on.
+    // image_load("portrait:<key>") of a picture still being drawn waits for it (portraits_wait).
+    auto job = std::make_shared<Job>(Job{draw, memory, cache, stamp, request, std::move(ask), std::move(failed)});
+    {
+        std::lock_guard lock(g_work_mu);
+        if (g_working)
+            return;
+        g_working = true;
+        g_pending.clear();
+        for (const auto &i : job->ask)
+            g_pending.insert(lower(i["key"].get<std::string>()));
     }
-    size_t drawn = 0, current = 0;
-    // Cache contention is transient. A later start retries it instead of remembering a failed picture.
-    if (valid && answer.contains("code") && answer["code"].is_number_integer() && answer["code"].get<int64_t>() == 2) {
-        logf(KILN_LOG_WARN, "EMF portraits: cache is unavailable for this start; retrying next time");
-        return;
+    try {
+        std::thread([job] { run_job(*job); }).detach();
+    } catch (...) {
+        run_job(*job); // no thread: draw here, as before
     }
-    for (const auto &i : ask) {
-        const auto key = i["key"].get<std::string>();
-        bool good = false;
-        if (valid)
-            for (const auto &a : answer["items"]) {
-                if (a.is_object() && a.value("key", std::string{}) == key) {
-                    const auto status = a.value("status", std::string{});
-                    good = status == "drawn" || status == "current";
-                    drawn += status == "drawn";
-                    current += status == "current";
-                    break;
-                }
-            }
-        if (good)
-            failed.erase(key);
-        else
-            failed.insert(key);
-    }
-    json next = {{"format", 1}, {"stamp", stamp}, {"failed", failed}};
-    if (!save_attempts(memory, next.dump() + "\n"))
-        logf(KILN_LOG_WARN, "EMF portraits: could not save attempt memory");
-    logf(KILN_LOG_INFO, "EMF portraits: %zu drawn, %zu current, %zu unavailable (offline CPU renderer)", drawn, current,
-         failed.size());
 }
 } // namespace
 void portraits_on_ready() {
@@ -353,7 +463,19 @@ void portraits_on_ready() {
         logf(KILN_LOG_WARN, "EMF portraits: preparation failed; the game continues");
     }
 }
+void portraits_wait(const std::string &key) {
+    std::unique_lock lock(g_work_mu);
+    if (!g_working || !g_pending.contains(lower(key)))
+        return;
+    // bounded: a renderer that hangs must not hold a mod's window forever; the picture is then missing this start
+    if (!g_work_cv.wait_for(lock, std::chrono::seconds(120), [] { return !g_working; }))
+        logf(KILN_LOG_WARN, "EMF portraits: still drawing after 120 s; portrait:%s is not ready yet", key.c_str());
+}
 #ifdef KEMF_PORTRAIT_TEST
 void portraits_test_export(PortraitDrawFn fn) { g_draw = fn; }
+void portraits_test_join() {
+    std::unique_lock lock(g_work_mu);
+    g_work_cv.wait(lock, [] { return !g_working; });
+}
 #endif
 } // namespace kemf

@@ -76,6 +76,11 @@ rules. There are at most 32 items, 32 Mi output pixels (33,554,432), 64 frames p
 lock serializes processes. Symlinks/reparse points are refused in the cache and its portrait folders. New frames
 and their index replace one whole folder; failures preserve the prior drawing.
 
+The reply's `code`: 0 all drawn or current, 2 a refused request (lasting until its inputs change), 3 the run failed
+(archive unreadable), 4 some items failed, 5 another generator holds the cache lock (try again later), 6 the cache is
+over its 128-folder / 1024-entry / 512 MiB budget (lasting until it is cleaned). Codes 5 and 6 were added in dev.21;
+before, both were 2.
+
 Cache ancestors must also be regular directories. On Wine/Proton, an ancestor may instead be an OS volume boundary:
 Wine reports Unix mounts and its Z: root as mount-point reparse entries even though they do not redirect paths.
 The renderer accepts these only when Wine is present, the entry has the mount-point tag but no reparse data, and

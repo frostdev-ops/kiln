@@ -102,7 +102,15 @@ pub(crate) fn safe_item(path: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-pub(crate) fn cache_lock(path: &Path) -> Result<File, String> {
+/// Opens and takes the cache lock. Errors carry their status: CACHE_BUSY when another generator holds the lock,
+/// BAD_REQUEST otherwise.
+pub(crate) fn cache_lock(path: &Path) -> Result<File, (i32, String)> {
+    let file = open_cache_lock(path).map_err(|e| (crate::BAD_REQUEST, e))?;
+    file.try_lock()
+        .map_err(|e| (crate::CACHE_BUSY, format!("another portrait generator owns this cache: {e}")))?;
+    Ok(file)
+}
+fn open_cache_lock(path: &Path) -> Result<File, String> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err("cache_dir must be absolute without parent traversal".into());
     }
@@ -139,8 +147,6 @@ pub(crate) fn cache_lock(path: &Path) -> Result<File, String> {
     if is_link(&file.metadata().map_err(|e| e.to_string())?) {
         return Err("portrait lock is a link".into());
     }
-    file.try_lock()
-        .map_err(|e| format!("another portrait generator owns this cache: {e}"))?;
     Ok(file)
 }
 pub(crate) fn check_budget(request: &Request) -> Result<(), String> {
@@ -157,36 +163,38 @@ pub(crate) fn check_budget(request: &Request) -> Result<(), String> {
     }
     Ok(())
 }
-pub(crate) fn cache_budget(path: &Path, request: &Request) -> Result<(), String> {
+/// Errors carry their status: CACHE_FULL when the cache is over its budget, BAD_REQUEST for an entry it refuses.
+pub(crate) fn cache_budget(path: &Path, request: &Request) -> Result<(), (i32, String)> {
+    let bad = |e: std::io::Error| (crate::BAD_REQUEST, e.to_string());
     let mut folders = 0usize;
     let mut bytes = 0u64;
     for (i, e) in std::fs::read_dir(path)
-        .map_err(|e| e.to_string())?
+        .map_err(bad)?
         .enumerate()
     {
         if i >= 1024 {
-            return Err("portrait cache has too many entries".into());
+            return Err((crate::CACHE_FULL, "portrait cache has too many entries".into()));
         }
-        let e = e.map_err(|e| e.to_string())?;
-        let meta = std::fs::symlink_metadata(e.path()).map_err(|e| e.to_string())?;
+        let e = e.map_err(bad)?;
+        let meta = std::fs::symlink_metadata(e.path()).map_err(bad)?;
         if is_link(&meta) {
-            return Err("portrait cache contains a link".into());
+            return Err((crate::BAD_REQUEST, "portrait cache contains a link".into()));
         }
         if meta.is_dir() {
             folders += 1;
-            safe_item(&e.path())?;
-            for f in std::fs::read_dir(e.path()).map_err(|e| e.to_string())? {
+            safe_item(&e.path()).map_err(|e| (crate::BAD_REQUEST, e))?;
+            for f in std::fs::read_dir(e.path()).map_err(bad)? {
                 bytes = bytes.saturating_add(
-                    f.map_err(|e| e.to_string())?
+                    f.map_err(bad)?
                         .metadata()
-                        .map_err(|e| e.to_string())?
+                        .map_err(bad)?
                         .len(),
                 );
             }
         } else if meta.is_file() && meta.len() <= 2 * 1024 * 1024 {
             bytes = bytes.saturating_add(meta.len());
         } else {
-            return Err("portrait cache contains an invalid entry".into());
+            return Err((crate::BAD_REQUEST, "portrait cache contains an invalid entry".into()));
         }
     }
     let mut new = std::collections::BTreeSet::new();
@@ -205,7 +213,7 @@ pub(crate) fn cache_budget(path: &Path, request: &Request) -> Result<(), String>
     if folders + new.len() > 128
         || bytes.saturating_add(pixels.saturating_mul(8)) > 512 * 1024 * 1024
     {
-        return Err("portrait cache exceeds 128 folders or its 512 MiB generation budget".into());
+        return Err((crate::CACHE_FULL, "portrait cache exceeds 128 folders or its 512 MiB generation budget".into()));
     }
     Ok(())
 }
@@ -285,7 +293,7 @@ mod tests {
         let cache = root.join("new/cache");
         let first = cache_lock(&cache).unwrap();
         assert!(cache.join(".kiln-portraits.lock").is_file());
-        assert!(cache_lock(&cache).is_err());
+        assert_eq!(cache_lock(&cache).unwrap_err().0, crate::CACHE_BUSY, "contention is transient");
         drop(first);
         drop(cache_lock(&cache).unwrap());
         std::fs::remove_dir_all(root).unwrap();
@@ -398,7 +406,7 @@ mod tests {
         }
         let request: Request =
             serde_json::from_value(serde_json::json!({"items":[{"key":"new"}]})).unwrap();
-        assert!(cache_budget(&root, &request).is_err());
+        assert_eq!(cache_budget(&root, &request).unwrap_err().0, crate::CACHE_FULL, "over budget = cache full");
         std::fs::remove_dir(root.join("key127")).unwrap();
         assert!(cache_budget(&root, &request).is_ok());
         std::fs::remove_dir_all(root).unwrap();
@@ -426,7 +434,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("cache")).unwrap();
         std::fs::create_dir(dir.join("outside")).unwrap();
         symlink(dir.join("outside"), dir.join("linked")).unwrap();
-        assert!(cache_lock(&dir.join("linked")).is_err());
+        assert_eq!(cache_lock(&dir.join("linked")).unwrap_err().0, crate::BAD_REQUEST, "a link is a lasting refusal");
         symlink(dir.join("outside"), dir.join("cache/wolf")).unwrap();
         assert!(safe_item(&dir.join("cache/wolf")).is_err());
         std::fs::create_dir(dir.join("cache/boar")).unwrap();

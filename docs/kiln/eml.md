@@ -323,7 +323,7 @@ Not ported, on purpose:
 
 The separate GPL component exports `kiln_eml_portraits`, an offline CPU renderer for EMF manifest portrait requests.
 The reader/decoder stays in `gpl/kiln-eml`; kiln-emf's MIT adapter plans bounded requests and calls the export before
-EMF DLL mods load on a client. It reads the local game archives and writes only the portrait cache. The renderer's
+EMF DLL mods load on a client (drawing runs on a worker thread; nothing is drawn when every picture is current). It reads the local game archives and writes only the portrait cache. The renderer's
 EMF 0.6.0 source is pinned at `bd6d90644785df80e4a61cb6ec55f9dab8e16b22`, with its MIT notice retained in the GPL
 component's `NOTICE.txt`.
 

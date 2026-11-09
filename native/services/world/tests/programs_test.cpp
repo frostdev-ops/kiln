@@ -43,8 +43,14 @@ int main() {
     program.state=KILN_PROGRAM_FAULTED;program.each=[](KilnProgramCtx*,uint64_t*,KilnEntity,void*) {};
     program.user=reinterpret_cast<void*>(1234);
     g_programs.push_back(&program);g_by_slot[0]=&program;
+    static int posts=0;
+    api.post=[](KilnOwner owner,KilnTaskFn,void*) -> KilnResult {++posts;return owner==99?KILN_ERR_REVOKED:KILN_OK;};
     programs_reap_owners();
     check(program.owner==g_owner && program.user==nullptr,"faulted reserved callback releases revoked owner");
+    program.owner=55;posts=0;
+    for (int i=0;i<100;++i) programs_reap_owners();
+    check(posts==0,"owner liveness is probed at most once per second, not per tick");
+    program.owner=g_owner;
     KilnHandle rebound=0;
     check(bind_program(100,kstr("writer"),kstr("pulse"),program.each,nullptr,&rebound)==KILN_OK && rebound==1,"faulted declaration rebinds after owner revocation");
 

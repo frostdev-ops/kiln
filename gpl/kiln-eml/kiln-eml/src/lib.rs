@@ -19,6 +19,10 @@ pub const OK: i32 = 0;
 pub const BAD_REQUEST: i32 = 2;
 pub const RUN_FAILED: i32 = 3;
 pub const ITEMS_FAILED: i32 = 4;
+// Appended in dev.21: the portrait cache's causes, so a caller can tell a transient refusal from a lasting one. Every
+// other BAD_REQUEST is lasting until the inputs change.
+pub const CACHE_BUSY: i32 = 5; // another generator holds the cache lock: try again later
+pub const CACHE_FULL: i32 = 6; // the cache is over its folder, entry or size budget: lasting until it is cleaned
 
 #[cfg(any(windows, test))]
 mod plugin;

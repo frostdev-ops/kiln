@@ -310,6 +310,18 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());
   assert(logs.size()==1&&logs[0].find("no 'loca' section")!=std::string::npos);
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1);
+  {
+   // 60 s later the unchanged catalog is not parsed again, and the same reason is not printed again
+   const size_t parses=settexts::gParses;
+   settexts::gFailedAt=std::chrono::steady_clock::now()-std::chrono::seconds(61);
+   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());
+   assert(settexts::gParses==parses&&logs.size()==1);
+   // a changed file (size) is read again
+   std::ofstream(catalog/"client.json")<<"{\"format\":1,\"sections\":{\"items\":[ ]}}";
+   settexts::gFailedAt=std::chrono::steady_clock::now()-std::chrono::seconds(61);
+   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());
+   assert(settexts::gParses==parses+1&&logs.size()==1);
+  }
   std::ofstream(catalog/"client.json")<<"{ not json";settexts::reset();logs.clear();
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("not a readable catalog")!=std::string::npos);
   setenv("KILN_CATALOG",(root/"nowhere").string().c_str(),1);settexts::reset();logs.clear();

@@ -294,12 +294,16 @@ const KilnType* KILN_CALL event_type_at(uint32_t i) {
 // ---- systems ----
 void publish_system_switches();
 void KILN_CALL noop(void*);
-bool system_still_disabled(uint32_t index) {
-    std::lock_guard lock(g_sys_mu);
-    if (g_system_owners.reap([](KilnOwner owner) { return g_api->post(owner, &noop, nullptr) != KILN_ERR_REVOKED; }))
-        publish_system_switches();
-    return g_system_owners.disabled.count(index) != 0;
+// The core API has no direct owner-liveness query (a post to a revoked owner fails, and a post to a live one queues a
+// task), so revoked owners are probed from the tick thread at most once per second (on_pre), never per job or per tick.
+bool reap_due() {
+    static std::chrono::steady_clock::time_point next{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next) return false;
+    next = now + std::chrono::seconds(1);
+    return true;
 }
+bool owner_revoked(KilnOwner owner) { return g_api->post(owner, &noop, nullptr) == KILN_ERR_REVOKED; }
 int64_t sys_index_of_job(const void* job) {
     uint64_t prog, fn;
     if (!read_at(g_memory, reinterpret_cast<uint64_t>(job), 0x10, prog) || !prog ||
@@ -311,7 +315,8 @@ int64_t sys_index_of_job(const void* job) {
 void runner_detour(uintptr_t world, void* job, uint64_t index, uint64_t slot) {
     if (g_off_count.load(std::memory_order_acquire)) {
         const int64_t i = sys_index_of_job(job);
-        if (i >= 0 && g_off[size_t(i)].load(std::memory_order_relaxed) && system_still_disabled(static_cast<uint32_t>(i))) return;
+        // g_off is republished whenever an owner's request changes or a revoked owner is reaped (on_pre)
+        if (i >= 0 && g_off[size_t(i)].load(std::memory_order_relaxed)) return;
     }
     if (!g_prof.load(std::memory_order_acquire)) return g_runner.call<void>(world, job, index, slot);
     uint64_t generation;
@@ -408,13 +413,14 @@ void release_system_hooks(KilnOwner owner, bool all = false) {
           if (id.handle && (all || id.owner==owner)) handles.push_back(id.handle); } }
     for (auto handle : handles) system_unhook(handle);
 }
-void reap_system_hooks() {
-    std::vector<KilnHandle> handles;
+void reap_system_hooks() {  // tick thread, when reap_due(): no allocation
+    std::array<KilnHandle, kMaxSystemHooks> handles{};
+    size_t n = 0;
     { std::lock_guard lock(g_hooks_mu);
       for (auto& slot : g_hooks) { auto h = slot.load();
         if (h) { const auto id=h->callbacks.identity();
-          if (id.handle && g_api->post(id.owner,&noop,nullptr)==KILN_ERR_REVOKED) handles.push_back(id.handle); } } }
-    for (auto handle : handles) system_unhook(handle);
+          if (id.handle && owner_revoked(id.owner)) handles[n++] = id.handle; } } }
+    for (size_t i = 0; i < n; ++i) system_unhook(handles[i]);
 }
 
 uint32_t KILN_CALL system_count() { return static_cast<uint32_t>(g_sys.size()); }
@@ -471,7 +477,8 @@ KilnResult KILN_CALL system_release_owner(KilnOwner owner) {
 }
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     g_have_step = true;
-    reap_system_hooks();
+    const bool reap = reap_due();
+    if (reap) reap_system_hooks();
     if (g_systems_ok && g_modules.due() && !kset::runtime_conflict().empty()) {
         {
         std::lock_guard lock(g_sys_mu);
@@ -490,10 +497,9 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         logf(KILN_LOG_WARN, "native SET/power proxy appeared: systems restored, runner left passive until exit");
         return;
     }
-    if (!g_off_count.load(std::memory_order_acquire)) return;
+    if (!reap || !g_off_count.load(std::memory_order_acquire)) return;
     std::lock_guard lock(g_sys_mu);
-    if (g_system_owners.reap([](KilnOwner owner) { return g_api->post(owner, &noop, nullptr) != KILN_ERR_REVOKED; }))
-        publish_system_switches();
+    if (g_system_owners.reap([](KilnOwner owner) { return !owner_revoked(owner); })) publish_system_switches();
 }
 void KILN_CALL on_world(const KilnWorldEvent* event, void*) {
     if (!event || event->kind != KILN_WORLD_SERVER || event->event != KILN_WORLD_STOPPING) return;
