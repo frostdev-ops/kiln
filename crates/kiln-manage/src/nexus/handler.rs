@@ -320,6 +320,18 @@ fn mime_default(text: &str, id: Option<&str>) -> String {
     out
 }
 
+/// The nxm default in a mimeapps.list's `[Default Applications]` (its first id).
+fn mime_default_id(text: &str) -> Option<String> {
+    let mut defaults = false;
+    text.lines().find_map(|line| {
+        let t = line.trim();
+        if t.starts_with('[') { defaults = t == "[Default Applications]"; return None; }
+        if !defaults { return None; }
+        let (key, value) = t.split_once('=')?;
+        (key.trim() == MIME).then(|| value.split(';').next().unwrap_or("").trim().to_string())
+    })
+}
+
 /// A desktop entry's `Exec` value for a path (quoted per the Desktop Entry spec).
 pub fn exec_quote(path: &str) -> String {
     let mut s = String::from("\"");
@@ -419,8 +431,12 @@ impl HandlerPlatform for LinuxMime {
     }
 
     fn is_kiln_registration(&self) -> bool {
-        // Kiln's id is the default even if its .desktop file was deleted by hand since.
-        self.xdg_mime(&["query", "default", MIME]).is_ok_and(|id| id.trim() == DESKTOP_ID)
+        // Kiln's id is the default even if its .desktop file was deleted by hand since. Without a working xdg-mime the
+        // user's mimeapps.list decides (never "not ours" just because the query failed: the record would be dropped).
+        match self.xdg_mime(&["query", "default", MIME]) {
+            Ok(id) => id.trim() == DESKTOP_ID,
+            Err(_) => self.read_mime().ok().flatten().is_some_and(|text| mime_default_id(&text).as_deref() == Some(DESKTOP_ID)),
+        }
     }
 
     fn install(&self, exe: &Path) -> Result<()> {
@@ -520,6 +536,29 @@ pub fn split_command(command: &str) -> (String, String) {
         let (p, rest) = c.split_once(' ').unwrap_or((c, ""));
         (p.to_string(), rest.trim_start().to_string())
     }
+}
+
+/// The program a recorded Windows nxm command line starts (it comes from `handler.json`, so it is checked before it
+/// runs): an absolute `X:\...\name.exe` path (no network share, no relative or search-path name), not a script host or
+/// another program that runs code it is given, and not a Kiln launcher.
+#[cfg(any(windows, test))]
+pub fn forward_program_ok(prog: &str) -> Result<()> {
+    let refuse = |why: &str| Err(Error::new(ErrorCode::Refused, format!("The previous nxm handler cannot be started: {why}.")));
+    let b = prog.as_bytes();
+    if prog.chars().any(|c| c.is_control() || c == '"') { return refuse("its path has control characters or quotes"); }
+    if !(b.len() > 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/')) {
+        return refuse("it is not an absolute path on a local drive");
+    }
+    if prog.split(['\\', '/']).any(|c| c == "..") { return refuse("its path goes up a folder"); }
+    let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog).to_ascii_lowercase();
+    let base = base.trim_end_matches(['.', ' ']);
+    if !base.ends_with(".exe") { return refuse("it is not an .exe"); }
+    const HOSTS: &[&str] = &["cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe", "rundll32.exe",
+        "regsvr32.exe", "msiexec.exe", "conhost.exe", "explorer.exe", "wmic.exe", "forfiles.exe", "certutil.exe", "bitsadmin.exe",
+        "hh.exe", "schtasks.exe", "msbuild.exe", "installutil.exe", "wsl.exe", "bash.exe"];
+    if HOSTS.contains(&base) { return refuse("it is a script host or a program that runs other code"); }
+    if base.contains("kiln-launcher") { return refuse("it is Kiln itself"); }
+    Ok(())
 }
 
 #[cfg(any(windows, test))]
@@ -726,10 +765,8 @@ pub mod win {
             if super::super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
             let Previous::Command { command, .. } = previous else { return Err(Error::new(ErrorCode::Unsupported, "not a command")) };
             let (prog, rest) = split_command(&fill_command(command, url));
-            let base = prog.rsplit(['/', '\\']).next().unwrap_or(&prog).to_ascii_lowercase();
-            if ["cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "wscript.exe", "cscript.exe"].contains(&base.as_str()) || base.ends_with(".cmd") || base.ends_with(".bat") {
-                return Err(Error::new(ErrorCode::Unsupported, "The previous nxm handler is a script interpreter; open the link in that mod manager directly."));
-            }
+            forward_program_ok(&prog)?;
+            if !Path::new(&prog).is_file() { return Err(Error::not_found("The previous nxm handler's program is gone.")); }
             let mut c = std::process::Command::new(prog);
             if !rest.is_empty() {
                 c.raw_arg(rest);
@@ -955,9 +992,20 @@ pub fn retire_leftover(root: &Path, p: &dyn HandlerPlatform) -> Result<Leftover>
     let s = read_state(root)?;
     if !s.registered { return Ok(Leftover::Nothing); }
     let ours = p.matches_registered(s.exe.as_deref()) || p.is_kiln_registration();
+    // A record that names Kiln itself as the handler before it is never given back (it would register Kiln again).
+    let previous = s.previous.clone().filter(|prev| !is_kiln_handler(prev));
     let outcome = if ours {
-        p.restore_snapshot(s.previous.as_ref(), s.snapshot.as_ref())?;
-        Leftover::GivenBack { previous: s.previous.clone() }
+        p.restore_snapshot(previous.as_ref(), s.snapshot.as_ref())?;
+        // The saved association (mimeapps.list text, registry values, Kiln's old .desktop file) may itself have named
+        // Kiln: a build with Nexus off never leaves Kiln as the handler. Fall back to the recorded handler, then to none.
+        if p.is_kiln_registration() {
+            p.restore(previous.as_ref())?;
+            if p.is_kiln_registration() { p.restore(None)?; }
+        }
+        if p.is_kiln_registration() {
+            return Err(Error::new(ErrorCode::Io, "Kiln is still the nxm handler after giving the links back."));
+        }
+        Leftover::GivenBack { previous }
     } else {
         Leftover::Forgotten
     };
@@ -974,12 +1022,26 @@ pub fn retire_leftover(root: &Path, p: &dyn HandlerPlatform) -> Result<Leftover>
 /// failed). Reads `handler.json` only.
 pub fn recorded_previous(root: &Path) -> Option<Previous> {
     if !state_path(root).is_file() { return None; }
-    read_state(root).ok().filter(|s| s.registered).and_then(|s| s.previous)
+    read_state(root).ok().filter(|s| s.registered).and_then(|s| s.previous).filter(|p| !is_kiln_handler(p))
+}
+
+/// The handler is a Kiln launcher (any copy): its desktop id, or a command line with `--nxm` that runs kiln-launcher.
+/// A link is never forwarded to it (the link would come straight back, one new process per round) and it is never
+/// restored as "the handler before Kiln".
+pub fn is_kiln_handler(previous: &Previous) -> bool {
+    match previous {
+        Previous::Desktop { id } => id.trim() == DESKTOP_ID,
+        Previous::Command { command, .. } => {
+            let c = command.to_ascii_lowercase();
+            c.contains("--nxm") && c.contains("kiln-launcher")
+        }
+    }
 }
 
 /// Hands one link to the handler before Kiln, in a build with Nexus off (any game's link). Returns its name.
 pub fn forward_to_previous(p: &dyn HandlerPlatform, previous: &Previous, url: &str) -> Result<String> {
     if super::nxm::game_of(url).is_none() { return Err(Error::invalid("invalid nxm link")); }
+    if is_kiln_handler(previous) { return Err(Error::new(ErrorCode::Refused, "the recorded handler is Kiln itself")); }
     p.forward(previous, url)?;
     Ok(previous.label())
 }
@@ -987,6 +1049,25 @@ pub fn forward_to_previous(p: &dyn HandlerPlatform, previous: &Previous, url: &s
 #[cfg(test)]
 mod safety_tests {
     use super::*;
+
+    #[test]
+    fn recorded_windows_commands_start_only_a_local_exe_that_is_not_a_script_host_or_kiln() {
+        for ok in [r"C:\Program Files\Black Tree Gaming Ltd\Vortex\Vortex.exe", r"D:\MO2\nxmhandler.exe", "E:/Tools/mm.EXE"] {
+            forward_program_ok(ok).unwrap_or_else(|e| panic!("{ok}: {e}"));
+        }
+        for bad in ["cmd.exe", r"C:\Windows\System32\cmd.exe", r"C:\Windows\System32\mshta.exe", r"C:\Windows\System32\rundll32.exe",
+                    r"C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe", r"\\server\share\mm.exe", r"\\?\C:\mm.exe",
+                    r"mm.exe", r"C:\mm.bat", r"C:\mm.cmd", r"C:\mm.js", r"C:\a\..\Windows\System32\cmd.exe",
+                    r"C:\Apps\Kiln\kiln-launcher.exe", r"C:\Windows\explorer.exe", "C:\\mm.exe\n"] {
+            assert!(forward_program_ok(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn nxm_default_is_read_from_the_defaults_section_only() {
+        assert_eq!(mime_default_id("[Added Associations]\nx-scheme-handler/nxm=a.desktop;\n[Default Applications]\nx-scheme-handler/nxm=kiln-launcher-nxm.desktop;b.desktop\n").as_deref(), Some(DESKTOP_ID));
+        assert_eq!(mime_default_id("[Added Associations]\nx-scheme-handler/nxm=kiln-launcher-nxm.desktop\n"), None);
+    }
 
     fn temp() -> PathBuf {
         let p = std::env::temp_dir().join(format!("kiln-handler-{}-{}", std::process::id(), crate::hash::hex(&crate::util::random_bytes::<8>().unwrap())));

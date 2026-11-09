@@ -794,20 +794,39 @@ fn validate_value(old: &serde_json::Value, value: &serde_json::Value, key: &str)
     if valid { Ok(()) } else { Err(Error::invalid(format!("{key}: expected the declared setting type"))) }
 }
 
+/// The managed root of a profile's config folder: `<data>/profiles/<pid>/config` -> `<data>`, a copied profile's
+/// `<game>/kiln/profiles/<pid>/config` -> `<game>/kiln`. Links are refused from there down, so a link inside the data
+/// dir or the game's kiln folder above the config folder is refused too. Any other shape is its own root.
+fn config_root(config_dir: &Path) -> &Path {
+    match config_dir.parent().and_then(Path::parent) {
+        Some(c) if c.file_name().is_some_and(|n| n == "profiles") => c.parent().unwrap_or(config_dir),
+        _ => config_dir,
+    }
+}
+
+/// The managed root of a Library entry (`<data>/library/<kind>/<id>/<version>+<hash8>` -> `<data>`); any other shape
+/// is its own root.
+fn library_root(folder: &Path) -> &Path {
+    match folder.ancestors().nth(3) {
+        Some(lib) if lib.file_name().is_some_and(|n| n == "library") => lib.parent().unwrap_or(folder),
+        _ => folder,
+    }
+}
+
 /// The settings of one mod of an engine kind. `game_dir` finds ShroudForge's copy, `config_dir` (the profile's config
 /// folder) Shroudtopia's file, `folder` is the mod's library folder (defaults for a Shroudtopia mod without values yet).
 pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &Path, folder: Option<&Path>) -> Result<EngineSettings> {
     validate_setting_id(id)?;
-    if let Some(folder) = folder { refuse_symlink_path(folder, &folder.join("mod.json"))?; }
+    if let Some(folder) = folder { refuse_symlink_path(library_root(folder), &folder.join("mod.json"))?; }
     let none = |note: &str| EngineSettings {
         kind, id: id.to_string(), format: "none".into(), file: None,
         schema: serde_json::json!({ "type": "object", "properties": {} }), values: serde_json::json!({}), note: Some(note.into()),
     };
     match kind {
         ModKind::ShroudForge => {
-            // The managed root of the folder: the game folder for a placed copy, else the Library folder itself.
+            // The managed root of the folder: the game folder for a placed copy, else the data dir of the Library entry.
             let placed = game_dir.and_then(|g| placed_folder(kind, g, id).map(|p| (g, p))).filter(|(_, p)| p.is_dir());
-            let Some((root, dir)) = placed.or_else(|| folder.map(|f| (f, f.to_path_buf()))) else {
+            let Some((root, dir)) = placed.or_else(|| folder.map(|f| (library_root(f), f.to_path_buf()))) else {
                 return Ok(none("activate the profile once: ShroudForge's settings live in its mods folder"));
             };
             refuse_symlink_path(root, &dir.join("mod.json"))?;
@@ -822,7 +841,7 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
         }
         ModKind::Shroudtopia => {
             let file = shroudtopia_file(config_dir);
-            let doc = read_json_checked(config_dir, &file)?.unwrap_or_else(|| serde_json::json!({ "mods": {} }));
+            let doc = read_json_checked(config_root(config_dir), &file)?.unwrap_or_else(|| serde_json::json!({ "mods": {} }));
             if !doc.is_object() || doc.get("mods").is_some_and(|m| !m.is_object()) {
                 return Err(Error::invalid("Shroudtopia settings and mods must be objects"));
             }
@@ -853,7 +872,7 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
     validate_setting_id(id)?;
     let _lock = match (kind, game_dir) {
         (ModKind::ShroudForge, Some(game)) => Some(engine_lock(game, &game.join("kiln/state"))?),
-        (ModKind::Shroudtopia, _) => Some(engine_lock(config_dir, config_dir)?),
+        (ModKind::Shroudtopia, _) => Some(engine_lock(config_root(config_dir), config_dir)?),
         _ => None,
     };
     match kind {
@@ -873,8 +892,8 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
             let old = cur.values.get(key).ok_or_else(|| Error::invalid(format!("unknown setting {key}")))?;
             validate_value(old, value, key)?;
             let file = shroudtopia_file(config_dir);
-            refuse_symlink_path(config_dir, &crate::util::with_suffix(&file, ".tmp"))?;
-            let mut doc = read_json_checked(config_dir, &file)?.unwrap_or_else(|| serde_json::json!({}));
+            refuse_symlink_path(config_root(config_dir), &crate::util::with_suffix(&file, ".tmp"))?;
+            let mut doc = read_json_checked(config_root(config_dir), &file)?.unwrap_or_else(|| serde_json::json!({}));
             if !doc.is_object() || doc.get("mods").is_some_and(|m| !m.is_object()) {
                 return Err(Error::invalid("Shroudtopia settings and mods must be objects"));
             }
@@ -1010,6 +1029,28 @@ pub fn eml_restore_vanilla(game_dir: &Path) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_files_are_checked_from_the_data_or_game_folder_down() {
+        let p = Path::new;
+        assert_eq!(config_root(p("/home/u/.local/share/kiln/profiles/p1/config")), p("/home/u/.local/share/kiln"));
+        assert_eq!(config_root(p("/games/Enshrouded/kiln/profiles/p1/config")), p("/games/Enshrouded/kiln"));
+        assert_eq!(config_root(p("/tmp/x/cfg")), p("/tmp/x/cfg"));
+        assert_eq!(library_root(p("/d/kiln/library/shroudtopia/map/1.0.0+abcd1234")), p("/d/kiln"));
+        assert_eq!(library_root(p("/tmp/x/map")), p("/tmp/x/map"));
+        // a link inside the data dir above the config folder is refused (the old strict check refused it too)
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "config-root").unwrap();
+        let data = tmp.path().join("kiln");
+        std::fs::create_dir_all(tmp.path().join("elsewhere/p1/config")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(tmp.path().join("elsewhere"), data.join("profiles")).unwrap();
+            let cfg = data.join("profiles/p1/config");
+            let err = settings(ModKind::Shroudtopia, "map", None, &cfg, None).unwrap_err();
+            assert_eq!(err.code, ErrorCode::Refused);
+        }
+    }
 
     #[test]
     fn failed_receipt_write_rolls_back_copy_and_removal() {

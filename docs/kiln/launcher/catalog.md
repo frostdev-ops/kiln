@@ -68,7 +68,9 @@ below; the key is never printed, logged or sent.
 - **The personal API key.** In every build, Kiln deletes `<data>/nexus/apikey.json` and the keyring entry
   `nexusmods-api-key` (Linux: application `kiln-launcher`; Windows: Credential Manager `Kiln Launcher/nexusmods-api-key`).
   The log says `nexus: removed the stored Nexus personal API key` when it found one. The OAuth entry is a different
-  slot and stays. The keyring is read only to learn that the old entry exists.
+  slot and stays. The keyring is read only to learn that the old entry exists. Once a keyring lookup has worked (found
+  nothing, or removed the entry), `<data>/state/nexus-personal-key-retired` is written and later starts check only the
+  file, so a locked keyring does not ask to be unlocked at every start.
 - **The nxm handler.** If `<data>/nexus/handler.json` says Kiln registered itself, a build with Nexus off gives the
   links back at start:
   - Kiln is still the system's nxm handler: the manager before it (Vortex, Mod Organizer 2, ...) is restored the way
@@ -79,7 +81,8 @@ below; the key is never printed, logged or sent.
   - Another program has the links since: Kiln only drops its own record. The system's association is not changed.
   - A restore that fails keeps the record, so the next start tries again.
 - **A link that still arrives.** A browser may start `kiln-launcher --nxm <link>` before the handler is given back.
-  Kiln gives the handler back first, then hands that link to the manager before it (any game's link). With no such
+  Kiln gives the handler back first, then hands that link to the manager before it (any game's link). Kiln never
+  hands a link to itself, and on Windows it starts only a local `.exe` (no script host such as `cmd.exe` or `mshta.exe`). With no such
   manager recorded, the window opens with a message: the integration is off and how to reset the handler (Linux:
   `xdg-mime default <your mod manager>.desktop x-scheme-handler/nxm`; Windows: Settings > Apps > Default apps >
   Choose defaults by link type > NXM). Nothing is queued and nothing is downloaded.

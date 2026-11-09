@@ -465,7 +465,9 @@ fn disabled_nxm_entry(env: &LinkEnv, url: &str, log: &dyn Fn(&str)) -> bool {
 /// `ring` is the retired keyring slot (None: no keyring); only Kiln's own entries are named.
 fn startup_cleanup(root: &std::path::Path, nexus_on: bool, platform: &dyn HandlerPlatform, ring: Option<&dyn SecretBackend>) -> Vec<String> {
     let mut log = Vec::new();
-    match keystore::retire_personal_key_in(root, ring) {
+    // After one successful keyring check, later starts look at the file only (no unlock prompt at every start).
+    let marker = root.parent().unwrap_or(root).join("state").join("nexus-personal-key-retired");
+    match keystore::retire_personal_key_once(root, &marker, ring) {
         Ok(true) => log.push("removed the stored Nexus personal API key".to_string()),
         Ok(false) => {}
         Err(e) => log.push(format!("could not remove the stored Nexus personal API key: {}", e.message)),

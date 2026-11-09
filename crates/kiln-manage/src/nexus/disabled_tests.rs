@@ -276,3 +276,81 @@ fn disabled_nexus_restores_the_linux_association_dev19_wrote_in_private_xdg_fold
     assert_eq!(std::fs::read_to_string(config.join("mimeapps.list")).unwrap(), "[Default Applications]\nx-scheme-handler/nxm=chosen-later.desktop\n");
     assert!(!root.join("handler.json").exists());
 }
+
+/// The keyring is asked until one lookup succeeds (found nothing, or removed the entry); then a marker keeps later
+/// starts from asking again (no unlock prompt at every start). A failed lookup writes no marker. The file is checked
+/// at every start.
+#[test]
+fn disabled_nexus_personal_key_keyring_is_checked_until_one_lookup_succeeds() {
+    struct Locked;
+    impl keystore::SecretBackend for Locked {
+        fn get(&self) -> Result<Option<String>> { Err(crate::Error::new(ErrorCode::Io, "locked")) }
+        fn set(&self, _: &str) -> Result<()> { panic!("never written") }
+        fn clear(&self) -> Result<()> { panic!("nothing to clear") }
+    }
+    let temp = crate::library::TempDir::new(&std::env::temp_dir(), "nexus-legacy-marker").unwrap();
+    let root = temp.path().join("nexus");
+    let marker = temp.path().join("state/nexus-personal-key-retired");
+    // no keyring: no marker
+    assert!(!keystore::retire_personal_key_once(&root, &marker, None).unwrap());
+    assert!(!marker.exists());
+    // a locked keyring: an error, no marker (the next start asks again)
+    assert!(keystore::retire_personal_key_once(&root, &marker, Some(&Locked)).is_err());
+    assert!(!marker.exists());
+    // the entry is removed and the check recorded, without the value
+    let ring = Ring { value: Mutex::new(Some("fixture-keyring-entry".into())), fail_clear: false };
+    assert!(keystore::retire_personal_key_once(&root, &marker, Some(&ring)).unwrap());
+    assert!(!std::fs::read_to_string(&marker).unwrap().contains("fixture"));
+    // later starts do not ask the keyring (Locked would fail) but still remove a key file
+    assert!(!keystore::retire_personal_key_once(&root, &marker, Some(&Locked)).unwrap());
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("apikey.json"), b"{}").unwrap();
+    assert!(keystore::retire_personal_key_once(&root, &marker, Some(&Locked)).unwrap());
+    assert!(!root.join("apikey.json").exists());
+}
+
+/// A record that names Kiln itself, or a saved association that would put Kiln back, never leaves Kiln registered in a
+/// build with Nexus off, and a link is never forwarded to Kiln (it would come straight back).
+#[test]
+fn disabled_nexus_never_restores_or_forwards_to_kiln_itself() {
+    let temp = crate::library::TempDir::new(&std::env::temp_dir(), "nexus-leftover-self").unwrap();
+    let root = temp.path().join("nexus");
+    let kiln_desktop = handler::Previous::Desktop { id: handler::DESKTOP_ID.into() };
+    let kiln_command = handler::Previous::Command { command: r#""C:\Apps\Kiln\kiln-launcher.exe" --nxm "%1""#.into(), icon: None, scope: "hkcu".into() };
+    for kiln in [&kiln_desktop, &kiln_command] {
+        assert!(handler::is_kiln_handler(kiln));
+        let os = FakeOs::default();
+        assert!(handler::forward_to_previous(&os, kiln, "nxm://enshrouded/mods/1/files/2").is_err());
+        assert!(os.forwarded.lock().unwrap().is_empty());
+    }
+    assert!(!handler::is_kiln_handler(&vortex()));
+
+    // the record names Kiln as the handler before it: the links go to nobody, not back to Kiln
+    write_record(&root, Some(kiln_desktop.clone()), None);
+    assert_eq!(handler::recorded_previous(&root), None);
+    let os = FakeOs { current: Mutex::new(Some("kiln".into())), ..Default::default() };
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::GivenBack { previous: None });
+    assert_eq!(*os.current.lock().unwrap(), None);
+
+    // a platform whose saved association puts Kiln back: the recorded handler is restored instead
+    struct Sticky(Mutex<Option<String>>);
+    impl handler::HandlerPlatform for Sticky {
+        fn supported(&self) -> bool { panic!() }
+        fn current(&self) -> Result<Option<handler::Previous>> { panic!() }
+        fn is_ours(&self) -> bool { self.0.lock().unwrap().as_deref() == Some("kiln") }
+        fn install(&self, _: &Path) -> Result<()> { panic!("never registers") }
+        fn restore(&self, previous: Option<&handler::Previous>) -> Result<()> {
+            *self.0.lock().unwrap() = previous.map(|p| p.label());
+            Ok(())
+        }
+        fn restore_snapshot(&self, _: Option<&handler::Previous>, _: Option<&serde_json::Value>) -> Result<()> {
+            *self.0.lock().unwrap() = Some("kiln".into());
+            Ok(())
+        }
+        fn forward(&self, _: &handler::Previous, _: &str) -> Result<()> { panic!() }
+    }
+    write_record(&root, Some(vortex()), Some(serde_json::json!({"mime": "kiln"})));
+    let os = Sticky(Mutex::new(Some("kiln".into())));
+    assert_eq!(handler::retire_leftover(&root, &os).unwrap(), handler::Leftover::GivenBack { previous: Some(vortex()) });
+    assert_eq!(os.0.lock().unwrap().as_deref(), Some("Vortex"));
+}

@@ -163,6 +163,22 @@ pub fn retire_personal_key(root: &Path) -> Result<bool> {
     retire_personal_key_in(root, legacy_keyring().as_deref())
 }
 
+/// [`retire_personal_key_in`] for every launcher start: the file is checked each time (cheap), the keyring only until
+/// one lookup has succeeded and found nothing or removed the entry. That success is recorded in `marker` (no secret in
+/// it), so a locked keyring does not ask to be unlocked at every start, and a lookup that failed (locked, refused, no
+/// keyring yet) is tried again next time. Without a keyring (`ring` None) no marker is written.
+pub fn retire_personal_key_once(root: &Path, marker: &Path, ring: Option<&dyn SecretBackend>) -> Result<bool> {
+    let ring = ring.filter(|_| !marker.exists());
+    let checked_ring = ring.is_some();
+    let removed = retire_personal_key_in(root, ring)?;
+    if checked_ring {
+        if let Some(parent) = marker.parent() { std::fs::create_dir_all(parent).map_err(crate::util::io_at(parent, "creating"))?; }
+        std::fs::write(marker, b"the retired Nexus personal-key keyring slot was checked and is empty\n")
+            .map_err(crate::util::io_at(marker, "writing"))?;
+    }
+    Ok(removed)
+}
+
 /// [`retire_personal_key`] with the legacy keyring slot given (tests: a fake).
 pub fn retire_personal_key_in(root: &Path, ring: Option<&dyn SecretBackend>) -> Result<bool> {
     let file = root.join("apikey.json");
