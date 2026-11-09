@@ -31,9 +31,12 @@ public class ReflectedResourceTests : KilnTest
 
     public override void Dispose()
     {
-        Overrides.ResetForTests();
-        _game.Dispose();
-        base.Dispose();
+        try { base.Dispose(); }
+        finally
+        {
+            Overrides.ResetForTests();
+            _game.Dispose();
+        }
     }
 
     private static ReflectedResource Res(Guid guid) => ReflectedResources.Get(guid, "Test::Item")!;
@@ -556,7 +559,7 @@ public class ReflectedResourceTests : KilnTest
         public int Puts, Removes;
         public ulong Owner => 777;
         public readonly GameType ItemType;
-        private readonly FakeBackend _backend;
+        private readonly List<FakeServiceRegistration> _services = [];
         public static readonly uint ItemHash = Fnv("Test::Item");
 
         public static uint Fnv(string s)
@@ -601,7 +604,6 @@ public class ReflectedResourceTests : KilnTest
 
         public FakeGame(FakeBackend backend)
         {
-            _backend = backend;
             var u8 = Add("u8", GameTypeKind.U8, 1);
             var u16 = Add("u16", GameTypeKind.U16, 2);
             var i32 = Add("i32", GameTypeKind.S32, 4);
@@ -638,7 +640,7 @@ public class ReflectedResourceTests : KilnTest
             Bind<TypesNative.Table>(types, "TypeField", new FieldFn(Field));
             Bind<TypesNative.Table>(types, "TypeEnum", new EnumFn(EnumValue));
             Bind<TypesNative.Table>(types, "ComponentTypeCount", new CountFn(() => 0));
-            backend.Tables["kiln.types"] = types;
+            _services.Add(new(backend.Tables, "kiln.types", types));
 
             var assets = Alloc(Marshal.SizeOf<ResourceStore.Table>() + 64);   // longer than the prefix, like the real table
             Marshal.WriteInt32(assets, Marshal.SizeOf<ResourceStore.Table>() + 64);
@@ -646,7 +648,7 @@ public class ReflectedResourceTests : KilnTest
             Bind<ResourceStore.Table>(assets, "ResourceList", new ListFn(List));
             Bind<ResourceStore.Table>(assets, "ResourcePut", new PutFn(Put));
             Bind<ResourceStore.Table>(assets, "ResourceRemove", new RemoveFn(Remove));
-            backend.Tables["kiln.assets"] = assets;
+            _services.Add(new(backend.Tables, "kiln.assets", assets));
             ItemType = GameTypes.Find("Test::Item")!;
         }
 
@@ -738,8 +740,9 @@ public class ReflectedResourceTests : KilnTest
         {
             var cache = (Dictionary<nint, GameType>)typeof(GameTypes).GetField("Cache", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
             lock (cache) foreach (var key in _types.Keys) cache.Remove(key);
-            _backend.Tables.Clear();
+            foreach (var service in _services) service.Dispose();
             foreach (var allocation in _allocations) Marshal.FreeHGlobal(allocation);
+            GC.KeepAlive(_callbacks);
         }
 
         // A Test::Item resource: 64 bytes, then the text, the tags, the optional's value and the variant's value.

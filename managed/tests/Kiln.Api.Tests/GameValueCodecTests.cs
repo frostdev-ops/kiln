@@ -4,8 +4,9 @@
 using Kiln;
 using Xunit;
 using System.Runtime.InteropServices;
+using Kiln.Api.Tests;
 
-public class GameValueCodecTests
+public class GameValueCodecTests : KilnTest
 {
     private static readonly (string, long)[] Rarity = [("Common", 0), ("Uncommon", 1), ("Rare", 2), ("Epic", 3), ("Legendary", 4)];
 
@@ -107,6 +108,38 @@ public sealed class ReflectedSafetyTests : IDisposable
     private readonly Kiln.IKilnBackend _previous = Kiln.Backend.Current;
 
     public void Dispose() => Kiln.Backend.Current = _previous;
+
+    [Fact]
+    public void Scoped_native_fixture_withdraws_services_and_restores_the_previous_backend()
+    {
+        var previous = Kiln.Backend.Current;
+        ReflectionBackend backend;
+        using (var native = new NativeReflection())
+        {
+            backend = Assert.IsType<ReflectionBackend>(Kiln.Backend.Current);
+            Assert.NotEqual(0, backend.Service("kiln.types", 1));
+            Assert.NotEqual(0, backend.Service("kiln.world", 1));
+        }
+        Assert.Equal(0, backend.Service("kiln.types", 1));
+        Assert.Equal(0, backend.Service("kiln.world", 1));
+        Assert.Same(previous, Kiln.Backend.Current);
+    }
+
+    [Fact]
+    public void Scoped_native_fixture_preserves_replacement_registrations()
+    {
+        ReflectionBackend backend;
+        using (var native = new NativeReflection())
+        {
+            backend = Assert.IsType<ReflectionBackend>(Kiln.Backend.Current);
+            // Managed registry markers only: no facade calls after replacement.
+            backend.Tables["kiln.types"] = 123;
+            backend.Tables["unrelated"] = 456;
+        }
+        Assert.Equal(123, backend.Service("kiln.types", 1));
+        Assert.Equal(456, backend.Service("unrelated", 1));
+        Assert.Equal(0, backend.Service("kiln.world", 1));
+    }
 
     [Theory]
     [InlineData(GameTypeKind.Bool, 0)]
@@ -303,14 +336,18 @@ public sealed class ReflectedSafetyTests : IDisposable
     {
         using var native = new NativeReflection();
         var mod = Kiln.HostAccess.CreateContext(new ModInfo("types-owner", "types-owner", "1", "/tmp"), 456, "/tmp");
-        Kiln.HostAccess.Current = mod;
-        try { GameSystems.SetEnabled("stamina_depletion_sprint", false); }
-        finally { Kiln.HostAccess.Current = null; }
-        Assert.Equal(456ul, native.LastSystemOwner);
-        mod.Retire();
-        Assert.Equal(456ul, native.ReleasedOwner);
-        GameSystems.SetEnabled("stamina_depletion_sprint", false);
-        Assert.Equal(321ul, native.LastSystemOwner); // Shared developer tools have a real revocable native owner too.
+        try
+        {
+            Kiln.HostAccess.Current = mod;
+            try { GameSystems.SetEnabled("stamina_depletion_sprint", false); }
+            finally { Kiln.HostAccess.Current = null; }
+            Assert.Equal(456ul, native.LastSystemOwner);
+            mod.Retire();
+            Assert.Equal(456ul, native.ReleasedOwner);
+            GameSystems.SetEnabled("stamina_depletion_sprint", false);
+            Assert.Equal(321ul, native.LastSystemOwner); // Shared developer tools have a real revocable native owner too.
+        }
+        finally { mod.Retire(); } // Assertion failures must also retire the owner before the scoped tables are freed.
     }
 
     private sealed class NativeReflection : IDisposable
@@ -342,6 +379,8 @@ public sealed class ReflectedSafetyTests : IDisposable
         private readonly List<nint> _allocations = [];
         private readonly List<Delegate> _callbacks = [];
         private readonly ReflectionBackend _backend = new();
+        private readonly IKilnBackend _previousBackend = Kiln.Backend.Current;
+        private readonly List<FakeServiceRegistration> _services = [];
         public readonly nint ComponentMemory;
         public uint ComponentBytes = 8, EventBytes = 8;
         public int Posts, PostValue;
@@ -408,7 +447,7 @@ public sealed class ReflectedSafetyTests : IDisposable
         {
             var types = Alloc(Marshal.SizeOf<TypesNative.Table>());
             Marshal.WriteInt32(types, Marshal.SizeOf<TypesNative.Table>());
-            _backend.Tables["kiln.types"] = types;
+            _services.Add(new(_backend.Tables, "kiln.types", types));
             Bind<TypesNative.Table>(types, "TypeByName", new NameFn(n => Types.FirstOrDefault(t => t.Value.Name == n.ToString()).Key));
             Bind<TypesNative.Table>(types, "TypeInfo", new InfoFn(Info));
             Bind<TypesNative.Table>(types, "TypeField", new FieldFn(Field));
@@ -428,7 +467,7 @@ public sealed class ReflectedSafetyTests : IDisposable
             Bind<TypesNative.Table>(types, "SystemReleaseOwner", new ReleaseFn(o => { ReleasedOwner = o; return 0; }));
             var world = Alloc(Marshal.SizeOf<WorldPrefix>());
             Marshal.WriteInt32(world, Marshal.SizeOf<WorldPrefix>());
-            _backend.Tables["kiln.world"] = world;
+            _services.Add(new(_backend.Tables, "kiln.world", world));
             ComponentMemory = Alloc(8);
             Marshal.Copy(Enumerable.Repeat((byte)0x55, 8).ToArray(), 0, ComponentMemory, 8);
             Bind<WorldPrefix>(world, "Component", new ComponentFn((e, h, n) => { Marshal.WriteInt32(n, (int)ComponentBytes); return ComponentMemory; }));
@@ -438,8 +477,11 @@ public sealed class ReflectedSafetyTests : IDisposable
         public void Dispose()
         {
             var cache = (Dictionary<nint, GameType>)typeof(GameTypes).GetField("Cache", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
-            foreach (var key in Types.Keys) cache.Remove(key);
+            lock (cache) foreach (var key in Types.Keys) cache.Remove(key);
+            foreach (var service in _services) service.Dispose();
+            if (ReferenceEquals(Kiln.Backend.Current, _backend)) Kiln.Backend.Current = _previousBackend;
             foreach (var allocation in _allocations) Marshal.FreeHGlobal(allocation);
+            GC.KeepAlive(_callbacks);
         }
     }
 
