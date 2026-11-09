@@ -72,7 +72,7 @@ this GPL directory. It reads game archives and writes only the requested portrai
 `cargo build --release -p kiln-eml --bin kiln-portraits` builds the same renderer as an offline tool:
 `kiln-portraits request.json`. The JSON contains `game_dir`, `file_name` (`enshrouded` or `enshrouded_server`),
 `cache_dir`, and `items` with `key`, one of `template`/`model`, `frames` and `size`. Keys follow EMF's image cache
-rules. There are at most 32 items, 32 million output pixels, 64 frames per item and 512 pixels per side. A cache
+rules. There are at most 32 items, 32 Mi output pixels (33,554,432), 64 frames per item and 512 pixels per side. A cache
 lock serializes processes. Symlinks/reparse points are refused in the cache and its portrait folders. New frames
 and their index replace one whole folder; failures preserve the prior drawing.
 

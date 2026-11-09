@@ -4,7 +4,7 @@
     <KilnModId>world-programs</KilnModId>
     <KilnModName>World programs sample</KilnModName>
     <Version>0.1.0</Version>
-    <KilnModSide>server</KilnModSide>
+    <KilnSide>server</KilnSide>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
   <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />

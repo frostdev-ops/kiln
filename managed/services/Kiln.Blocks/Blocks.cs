@@ -70,7 +70,8 @@ public static class Blocks
     /// <summary>Defines a loot table as the calling mod's. The handle goes in a creature's <c>Drops</c>, and rolls, drops and gives by itself: <see cref="LootTableHandle.Roll"/>. It asks nothing of players' games.</summary>
     public static LootTableHandle Define(string name, LootTableBlock block) => (LootTableHandle)Define<LootTableBlock>(name, block);
     /// <summary>Defines a quest as the calling mod's: <c>Quests.Define</c> gets what it lowers to. The handle's <see cref="QuestHandle.FullId"/> is what <c>Quests.Start</c> takes. The game builds
-    /// its journal at start, so a quest defined here is in it from the next start (a quest in a data file's "quests" section too, unless the mod ships <c>quests/generated/&lt;mod&gt;.json</c>).</summary>
+    /// its journal at start, so a quest defined here is in it from the next start. A quest in a data file's "quests" section
+    /// is compiled during boot and is there on the first start; it does not need a generated quest file.</summary>
     public static QuestHandle Define(string name, QuestBlock block) => (QuestHandle)Define<QuestBlock>(name, block);
 
     /// <summary>Defines a dialogue as the calling mod's. The handle goes where a <see cref="DialogueDefinition"/> does (<c>new NpcBlock { Talk = handle }</c>); a block names it by its name (<c>TalkName</c>).</summary>
