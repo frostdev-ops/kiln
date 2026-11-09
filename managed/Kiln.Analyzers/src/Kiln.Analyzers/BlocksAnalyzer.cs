@@ -84,7 +84,7 @@ internal static class BlockFacts
     {
         "EffectBlock", "StatusBlock", "VfxBlock", "VisualBlock", "OnHitBlock", "WeaponStats", "ArmorStats", "WeaponClass", "ArmorSlot", "ArmorSet", "WornLook",
         "PlacementBlock", "ComfortBlock", "ProcessingBlock", "MenuBlock", "PerkBlock", "AbilityBlock", "TalentBlock", "TalentTreeBlock", "TriggerBlock",
-        "SoundBlock", "MaterialBlock", "ScreenEffectBlock", "QuestBlock", "DialogueBlock", "WindowBlock", "HudLineBlock", "KeyBindingBlock",
+        "SoundBlock", "MaterialBlock", "ScreenEffectBlock", "LootTableBlock", "RecipeBlock", "QuestBlock", "DialogueBlock", "WindowBlock", "HudLineBlock", "KeyBindingBlock",
     };
 
     /// <summary>Whether a block of this type answers a reference of this kind.</summary>

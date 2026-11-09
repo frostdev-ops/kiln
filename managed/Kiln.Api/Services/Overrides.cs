@@ -47,6 +47,7 @@ public sealed record OverrideInfo(string Mod, string Target, string Detail);
 /// log that names both. Several mods can change different fields of one resource: the game gets all of them, and a mod that
 /// restores or unloads takes out only its own. Thread-safe. Call it from mod code: a call from a background thread counts as
 /// Kiln's own and is not given back when a mod unloads.
+/// Apply and restore callbacks are serialized with claim changes; do not wait for another thread that is changing claims.
 /// </summary>
 /// <example>
 /// <code>
@@ -86,11 +87,18 @@ public static class Overrides
     private static void Hook(Holder who)
     {
         if (who.Context is not { } mod || !Hooked.Add(mod)) return;
-        mod.Retiring += () =>
+        Action retire = () =>
         {
             lock (Gate) Hooked.Remove(mod);
             ReleaseHeldBy(who, unloading: true);
         };
+        mod.Retiring += retire;
+        if (!mod.Alive)
+        {
+            mod.Retiring -= retire;
+            Hooked.Remove(mod);
+            throw new InvalidOperationException("the mod is unloading");
+        }
     }
 
     // ---- claims of any kind ---------------------------------------------------------------------------------------
@@ -116,6 +124,7 @@ public static class Overrides
         OverrideResult? refused = null;
         lock (Gate)
         {
+            RequireLive(who);
             if (Generic.TryGetValue(target, out var held))
             {
                 if (held.Holder != who) refused = Conflict(who, held.Holder.Mod, $"'{target}'", "");
@@ -123,26 +132,27 @@ public static class Overrides
             }
             else
             {
-                Generic[target] = new GenericClaim(who, target, restore, ++_seq);
                 Hook(who);
+                Generic[target] = new GenericClaim(who, target, restore, ++_seq);
             }
+            if (refused != null)
+            {
+                Say(who, LogLevel.Warn, "overrides: " + refused.Message);
+                return refused;
+            }
+            // Keep the claim and its effect in one operation: release/unload must not restore before apply finishes.
+            try
+            {
+                apply();
+            }
+            catch
+            {
+                if (!again) Generic.Remove(target);
+                throw;
+            }
+            Say(who, LogLevel.Debug, $"overrides: {who.Mod} {(again ? "updated" : "claimed")} '{target}'");
+            return new OverrideResult(OverrideStatus.Applied, $"'{target}' is {(again ? "updated" : "claimed")}");
         }
-        if (refused != null)
-        {
-            Say(who, LogLevel.Warn, "overrides: " + refused.Message);
-            return refused;
-        }
-        try
-        {
-            apply();
-        }
-        catch
-        {
-            if (!again) lock (Gate) Generic.Remove(target);
-            throw;
-        }
-        Say(who, LogLevel.Debug, $"overrides: {who.Mod} {(again ? "updated" : "claimed")} '{target}'");
-        return new OverrideResult(OverrideStatus.Applied, $"'{target}' is {(again ? "updated" : "claimed")}");
     }
 
     /// <summary>Gives back this mod's claim on <paramref name="target"/> (runs its restore). False when this mod does not hold it.</summary>
@@ -155,16 +165,9 @@ public static class Overrides
         {
             if (!Generic.TryGetValue(target, out claim) || claim.Holder != who) return false;
             Generic.Remove(target);
+            RestoreGeneric(claim);
+            return true;
         }
-        try
-        {
-            claim.Restore();
-        }
-        catch (Exception e)
-        {
-            Say(who, LogLevel.Error, $"overrides: restoring '{target}' failed: {e.Message}");
-        }
-        return true;
     }
 
     /// <summary>Gives back every claim this mod holds, newest first: resource fields get what the game had, and each
@@ -221,22 +224,27 @@ public static class Overrides
                 }
                 if (st.Claims.Count == 0) Resources.Remove(id);
             }
-        }
-        foreach (var c in generics.OrderByDescending(c => c.Seq))
-        {
-            try
-            {
-                c.Restore();
-            }
-            catch (Exception e)
-            {
-                Say(who, LogLevel.Error, $"overrides: restoring '{c.Target}' failed: {e.Message}");
-            }
+            foreach (var c in generics.OrderByDescending(c => c.Seq)) RestoreGeneric(c);
         }
         var count = fields + generics.Count;
         if (count > 0) Say(who, LogLevel.Info, $"overrides: gave back {count} change{(count == 1 ? "" : "s")} of {who.Mod}{(unloading ? " (unloading)" : "")}");
         foreach (var p in problems) Say(who, LogLevel.Warn, "overrides: " + p);
         return count;
+    }
+
+    private static void RequireLive(Holder who)
+    {
+        if (who.Context is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+    }
+
+    // A restore belongs to its original owner, including during unload. It cannot create ownerless replacement claims.
+    private static void RestoreGeneric(GenericClaim claim)
+    {
+        var previous = ModContext.CurrentMod;
+        ModContext.CurrentMod = claim.Holder.Context;
+        try { claim.Restore(); }
+        catch (Exception e) { Say(claim.Holder, LogLevel.Error, $"overrides: restoring '{claim.Target}' failed: {e.Message}"); }
+        finally { ModContext.CurrentMod = previous; }
     }
 
     // ---- fields of resources --------------------------------------------------------------------------------------
@@ -292,6 +300,8 @@ public static class Overrides
 
     private static OverrideResult SetFieldLocked(Holder who, ResourceId id, GameType type, string path, object? value)
     {
+        RequireLive(who);
+        Hook(who);
         var what = $"{path} of {id.Describe(type)}";
         Resources.TryGetValue(id, out var existing);
         var original = existing?.Original ?? ResourceStore.Read(id);
@@ -314,7 +324,6 @@ public static class Overrides
             return new(OverrideStatus.Unavailable, $"{what} was not changed: {problem}");
         }
         Resources[id] = state;
-        Hook(who);
         return new(OverrideStatus.Applied, $"{what} = {shown} (was {Show(spot.Type, original.AsSpan(spot.Offset, bytes.Length))})");
     }
 

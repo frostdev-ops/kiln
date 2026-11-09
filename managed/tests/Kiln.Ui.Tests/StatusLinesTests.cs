@@ -266,6 +266,29 @@ public class StatusLinesTests : IDisposable
         Assert.False(weak.IsAlive);
     }
 
+    [Fact]
+    public void Retirement_while_an_add_waits_for_the_registry_cannot_leave_a_source_behind()
+    {
+        var mod = NewMod("sl-racing");
+        var gate = typeof(StatusLines).GetField("Lock", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+        Exception? failure = null;
+        var worker = new Thread(() =>
+        {
+            try { As(mod, () => StatusLines.Add(() => "stale", "racing")); }
+            catch (Exception e) { failure = e; }
+        });
+        lock (gate)
+        {
+            worker.Start();
+            Assert.True(SpinWait.SpinUntil(() => (worker.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0, 5000));
+            mod.Retire();
+        }
+        Assert.True(worker.Join(5000));
+        Assert.IsType<InvalidOperationException>(failure);
+        var lines = (StatusLine[])typeof(StatusLines).GetField("_lines", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+        Assert.Empty(lines);
+    }
+
     // ---- the game's language, from kiln.ui to Game.Language ----
 
     private sealed class ClientMods : IModsBackend

@@ -365,6 +365,7 @@ public static unsafe class GameSystems
     public static IDisposable Hook(string name, Action? before = null, Action? after = null)
     {
         Services.RequireTickThread("GameSystems.Hook");
+        if (ModContext.CurrentMod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
         if (before is null && after is null) throw new ArgumentException("supply a before or after callback");
         var system = Find(name) ?? throw new ArgumentException($"no unique system named '{name}'", nameof(name));
         var table = Table;

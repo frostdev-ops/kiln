@@ -39,6 +39,8 @@ public abstract class Mod
     [TickThreadOnly]
     protected WorldConfig<T> WorldConfig<T>(string? name = null) where T : class, new()
     {
+        Game.AssertTickThread();
+        if (!Context.Alive) throw new InvalidOperationException("the mod is unloading");
         _worldConfigs ??= new();
         if (_worldConfigs.TryGetValue((typeof(T), name), out var have)) return (WorldConfig<T>)have;
         var previous = ModContext.CurrentMod;
@@ -191,7 +193,9 @@ public sealed class ModContext
             _alive = false;
             if (LiveByInfo.TryGetValue(Info, out var weak) && weak.TryGetTarget(out var current) && ReferenceEquals(current, this)) LiveByInfo.Remove(Info);
         }
-        try { Retiring?.Invoke(); } catch { /* a service's cleanup must not stop the unload */ }
+        if (Retiring is { } retiring)
+            foreach (Action cleanup in retiring.GetInvocationList())
+                try { cleanup(); } catch { /* one service's cleanup must not stop the others or the unload */ }
         Retiring = null;
         Tick.Clear();
         GameLog.Clear();

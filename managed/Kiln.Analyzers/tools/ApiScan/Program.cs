@@ -66,7 +66,7 @@ foreach (var (name, dir) in projects)
         new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
             nullableContextOptions: NullableContextOptions.Enable));
     // CS8795: [GeneratedRegex] partials, whose other half a source generator writes (not run here).
-    var diags = comp.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error && d.Id != "CS8795").ToList();
+    var diags = ApiScanCompilationErrors.Read(comp);
     if (diags.Count > 0 && pass == 0)
     {
         // Binding still works for the rest; report so a broken scan is visible.

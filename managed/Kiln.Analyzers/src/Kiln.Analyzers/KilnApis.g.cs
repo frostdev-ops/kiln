@@ -378,7 +378,7 @@ internal static partial class KilnApis
         "M:Kiln.KnowledgeScope.List", // KnowledgeScope.List(): via Knowledge.List(EntityId)
         "M:Kiln.KnowledgeScope.Revoke(System.String,System.Int32)", // KnowledgeScope.Revoke(string, int): via Knowledge.KnowledgeId(string, string)
         "M:Kiln.KnowledgeScope.Set(System.String,System.UInt32)", // KnowledgeScope.Set(string, uint): via Knowledge.KnowledgeId(string, string)
-        "M:Kiln.Mod.WorldConfig``1(System.String)", // Mod.WorldConfig<T>(string?): via Config.RegisterWorld<T>(string?)
+        "M:Kiln.Mod.WorldConfig``1(System.String)", // Mod.WorldConfig<T>(string?): Game.AssertTickThread
         "M:Kiln.NativeQuests.Holds(Kiln.NativeComputed,Kiln.QuestHolder)", // NativeQuests.Holds(NativeComputed, QuestHolder): Game.AssertTickThread
         "M:Kiln.NativeQuests.Resync(Kiln.QuestHolder,System.Boolean)", // NativeQuests.Resync(QuestHolder, bool): Game.AssertTickThread
         "M:Kiln.NativeQuests.Wanted(System.String,Kiln.QuestHolder)", // NativeQuests.Wanted(string, QuestHolder): Game.AssertTickThread

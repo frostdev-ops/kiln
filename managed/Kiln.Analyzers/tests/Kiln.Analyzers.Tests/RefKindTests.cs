@@ -159,6 +159,19 @@ public sealed class RefKindTests
         Assert.Contains("window block", d[0].GetMessage());
     }
 
+    [Theory]
+    [InlineData("new LootTableBlock { Entries = [new LootEntry { Item = \"Iron_Sword\" }] }")]
+    [InlineData("new RecipeBlock { Output = \"Iron_Sword\" }")]
+    public async Task Non_item_definition_blocks_are_not_recipe_ingredients(string definition)
+    {
+        var d = await Run(A, Mod($$"""
+            Blocks.Define("definition", {{definition}});
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["definition"] = 1 } };
+            """));
+        Ids(d, "KILN111");
+        Assert.Contains("definition", d[0].GetMessage());
+    }
+
     [Fact]
     public async Task A_game_cue_is_named_by_its_guid_only()
     {
