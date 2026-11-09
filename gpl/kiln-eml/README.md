@@ -79,7 +79,8 @@ and their index replace one whole folder; failures preserve the prior drawing.
 The reply's `code`: 0 all drawn or current, 2 a refused request (lasting until its inputs change), 3 the run failed
 (archive unreadable), 4 some items failed, 5 another generator holds the cache lock (try again later), 6 the cache is
 over its 128-folder / 1024-entry / 512 MiB budget (lasting until it is cleaned). Codes 5 and 6 were added in dev.21;
-before, both were 2.
+before, both were 2. Use kiln-emf and kiln-eml of the same Kiln release: a kiln-emf from before dev.21 treats only 2 as
+contention, and a newer kiln-emf reads the old "another portrait generator" message of code 2 as contention.
 
 Cache ancestors must also be regular directories. On Wine/Proton, an ancestor may instead be an OS volume boundary:
 Wine reports Unix mounts and its Z: root as mount-point reparse entries even though they do not redirect paths.

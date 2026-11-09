@@ -30,9 +30,10 @@ std::string lower(std::string_view v) {
 } // namespace kemf
 using namespace kemf;
 using json = nlohmann::json;
-static int checks = 0, failures = 0, calls = 0;
+static std::atomic<int> checks{0}, failures{0}, calls{0}; // the fake renderer runs on the worker thread
 static bool fail = false;
 static int forced_code = 0;
+static std::string forced_message = "fake";
 #define CHECK(x)                                                                                                       \
     do {                                                                                                               \
         ++checks;                                                                                                      \
@@ -69,7 +70,7 @@ static int32_t draw(const uint8_t *in, size_t n, char *out, size_t cap, size_t *
             }
         }
     }
-    const auto text = json({{"code", forced_code ? forced_code : (fail ? 4 : 0)}, {"message", "fake"}, {"items", items}}).dump();
+    const auto text = json({{"code", forced_code ? forced_code : (fail ? 4 : 0)}, {"message", forced_message}, {"items", items}}).dump();
     CHECK(cap > text.size());
     std::memcpy(out, text.c_str(), text.size() + 1);
     *written = text.size() + 1;
@@ -201,59 +202,108 @@ int main(int argc, char **argv) {
     ready();
     CHECK(calls == 7); // transient cache busy is retried
     forced_code = 2;
+    forced_message = "another portrait generator owns this cache: from a kiln-eml before dev.21";
     ready();
     CHECK(calls == 8);
     ready();
-    CHECK(calls == 8); // a lasting refusal (an invalid cache entry, a link) is remembered until inputs change
-    CHECK(json::parse(read(memory))["failed"].size() == 1);
+    CHECK(calls == 9); // code 2 with the old busy message is contention too: retried
+    forced_message = "portrait cache contains an invalid entry";
+    ready();
+    CHECK(calls == 10);
+    ready();
+    CHECK(calls == 10); // a lasting refusal (an invalid cache entry, a link) is remembered until inputs or the cache change
+    CHECK(json::parse(read(memory))["failed"].empty() && json::parse(read(memory)).contains("blocked"));
+    std::filesystem::create_directory(cache / "unused.folder");
+    ready();
+    CHECK(calls == 11); // the user changed the cache's folders: asked again
+    ready();
+    CHECK(calls == 11);
+    std::filesystem::remove(cache / "unused.folder");
     forced_code = 6;
     write(file, manifest(5).dump());
     ready();
-    CHECK(calls == 9);
+    CHECK(calls == 12);
     ready();
-    CHECK(calls == 9); // a full cache is remembered too
+    CHECK(calls == 12); // a full cache is remembered too
+    std::filesystem::create_directory(cache / "extra");
+    std::filesystem::remove(cache / "extra");
+    ready();
+    CHECK(calls == 12); // the same folders again: still remembered
+    std::filesystem::create_directory(cache / "other");
+    ready();
+    CHECK(calls == 13); // delete-and-add changes the folders: asked again (the log advises deleting unused folders)
+    std::filesystem::remove(cache / "other");
+    forced_message = "fake";
     forced_code = 0;
     write(file, manifest(3).dump());
     ready();
-    CHECK(calls == 10);
+    CHECK(calls == 14);
     write(memory, json({{"stamp", 42}, {"failed", json::array()}}).dump());
     ready();
-    CHECK(calls == 11); // malformed attempt memory cannot disable future generation
+    CHECK(calls == 15); // malformed attempt memory cannot disable future generation
     ready();
-    CHECK(calls == 11);
+    CHECK(calls == 15);
     {
         auto m = json::parse(read(memory));
         m["current"] = 7;
         write(memory, m.dump());
     }
     ready();
-    CHECK(calls == 12); // nor can a malformed current list
+    CHECK(calls == 16); // nor can a malformed current list
+    {
+        auto m = json::parse(read(memory));
+        m["current"] = {{"beastmaster.wolf", nullptr}};
+        write(memory, m.dump());
+        std::filesystem::remove_all(cache / "beastmaster.wolf");
+    }
+    ready();
+    CHECK(calls == 17); // nor a null fact standing for a picture that is missing
     write(P.state / "shroudforge.json", R"({"mode":"self-hosted"})");
     std::filesystem::remove_all(cache / "beastmaster.wolf");
     ready();
-    CHECK(calls == 12); // no archive read racing an external startup writer
+    CHECK(calls == 17); // no archive read racing an external startup writer
     write(P.state / "shroudforge.json", R"({"mode":"hosted"})");
     ready();
-    CHECK(calls == 13);
-    // image_load of a picture still being drawn waits for it; other keys do not wait
+    CHECK(calls == 18);
+    // image_load of a picture still being drawn: the starting thread waits for it, no other thread does, other keys never
     std::filesystem::remove_all(cache / "beastmaster.wolf");
     hold = true;
     portraits_on_ready();
     for (int i = 0; i < 400 && !drawing; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     CHECK(drawing); // portraits_on_ready returned while the picture is still being drawn
-    portraits_wait("other.key");
-    CHECK(drawing);
+    CHECK(portraits_wait("other.key") && drawing);
+    bool tick_thread_answer = true;
+    std::thread other([&] { tick_thread_answer = portraits_wait("beastmaster.wolf"); });
+    other.join();
+    CHECK(!tick_thread_answer && drawing); // another thread is told "not yet", at once
     std::thread release([] {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         hold = false;
     });
-    portraits_wait("BeastMaster.Wolf");
+    CHECK(portraits_wait("BeastMaster.Wolf"));
     CHECK(!drawing && std::filesystem::is_regular_file(cache / "beastmaster.wolf/02.png"));
     release.join();
     portraits_test_join();
-    CHECK(calls == 14);
+    CHECK(calls == 19);
+    CHECK(portraits_wait("beastmaster.wolf")); // nothing is drawing any more
+    // a renderer that hangs: the wait is bounded, and later calls do not wait again
+    std::filesystem::remove_all(cache / "beastmaster.wolf");
+    portraits_test_wait_ms(150);
+    hold = true;
+    portraits_on_ready();
+    for (int i = 0; i < 400 && !drawing; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    const auto began = std::chrono::steady_clock::now();
+    CHECK(!portraits_wait("beastmaster.wolf"));
+    CHECK(std::chrono::steady_clock::now() - began >= std::chrono::milliseconds(100));
+    const auto again = std::chrono::steady_clock::now();
+    CHECK(!portraits_wait("beastmaster.wolf"));
+    CHECK(std::chrono::steady_clock::now() - again < std::chrono::milliseconds(50));
+    hold = false;
+    portraits_test_join();
+    CHECK(portraits_wait("beastmaster.wolf"));
     std::filesystem::remove_all(root);
-    std::printf("EMF portrait planner: %d checks, %d failures\n", checks, failures);
+    std::printf("EMF portrait planner: %d checks, %d failures\n", checks.load(), failures.load());
     return failures ? 1 : 0;
 }

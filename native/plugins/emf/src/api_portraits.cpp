@@ -13,6 +13,7 @@
 #include <fstream>
 #include <set>
 #include <thread>
+#include <utility>
 #ifdef KEMF_PORTRAIT_TEST
 #include <fcntl.h>
 #include <unistd.h>
@@ -218,9 +219,31 @@ json picture_fact(const std::filesystem::path &folder, int frames) {
     return index;
 }
 
-// The renderer's request-level codes (gpl/kiln-eml lib.rs). Busy is transient; every other refusal of the whole
-// request lasts until the inputs change, and is remembered like a failed picture.
+// The renderer's request-level codes (gpl/kiln-eml lib.rs). Busy is transient. Every other refusal of the whole request
+// lasts until the inputs change or the cache does ("blocked", below).
 constexpr int64_t kBadRequest = 2, kCacheBusy = 5, kCacheFull = 6;
+
+// The names of the cache's folders (not the ".kiln-" files, which every run rewrites). A refusal that depends on what is
+// in the cache is asked again once the user has cleaned it, as the log line advises.
+std::string cache_token(const std::filesystem::path &cache) {
+    std::vector<std::string> names;
+    std::error_code ec;
+    std::filesystem::directory_iterator it(cache, ec), end;
+    while (!ec && it != end && names.size() <= 4096) {
+        const auto name = path_utf8(it->path().filename());
+        if (!name.empty() && name[0] != '.')
+            names.push_back(name);
+        it.increment(ec);
+    }
+    std::sort(names.begin(), names.end());
+    uint64_t hash = 1469598103934665603ull;
+    for (const auto &name : names) {
+        for (const unsigned char c : name)
+            hash = (hash ^ c) * 1099511628211ull;
+        hash = (hash ^ '\n') * 1099511628211ull;
+    }
+    return std::to_string(names.size()) + ":" + std::to_string(hash);
+}
 
 struct Job {
     PortraitDrawFn draw;
@@ -233,6 +256,13 @@ std::mutex g_work_mu;
 std::condition_variable g_work_cv;
 bool g_working = false;
 std::set<std::string> g_pending; // lower-case keys the running job draws
+std::thread::id g_boot_thread;   // the thread that started the job: the only one image_load may hold up
+std::chrono::steady_clock::time_point g_deadline; // when image_load stops waiting for the job, all calls together
+#ifdef KEMF_PORTRAIT_TEST
+int g_wait_ms = 120000;
+#else
+constexpr int g_wait_ms = 120000;
+#endif
 
 void finish_job() {
     {
@@ -278,19 +308,33 @@ void draw_job(Job &job) {
     const std::string message = valid && answer.contains("message") && answer["message"].is_string()
                                     ? answer["message"].get<std::string>()
                                     : std::string{};
-    // Cache contention is transient. A later start retries it instead of remembering a failed picture.
-    if (status == kCacheBusy) {
+    // Cache contention is transient. A later start retries it instead of remembering a failed picture. (kiln-eml before
+    // dev.21 reported it as code 2; its message is the only way to tell.)
+    if (status == kCacheBusy ||
+        (status == kBadRequest && message.rfind("another portrait generator", 0) == 0)) {
         logf(KILN_LOG_WARN, "EMF portraits: another generator holds the cache this start; retrying next time");
         return;
     }
-    // A lasting refusal of the whole request: said once here, then remembered until the inputs change.
-    if (status == kCacheFull)
-        logf(KILN_LOG_WARN,
-             "EMF portraits: the picture cache is full (%s); delete unused folders in %s to draw new pictures",
-             message.c_str(), path_utf8(job.cache).c_str());
-    else if (status == kBadRequest)
-        logf(KILN_LOG_WARN, "EMF portraits: the renderer refused the request (%s); remembered until inputs change",
-             message.c_str());
+    // A lasting refusal of the whole request (a full cache, an entry the renderer will not touch): said once here, and
+    // remembered while the inputs and the cache's folders stay as they are. The user who cleans the cache gets a retry.
+    if (status == kCacheFull || status == kBadRequest) {
+        if (status == kCacheFull)
+            logf(KILN_LOG_WARN,
+                 "EMF portraits: the picture cache is full (%s); delete unused folders in %s to draw new pictures",
+                 message.c_str(), path_utf8(job.cache).c_str());
+        else
+            logf(KILN_LOG_WARN, "EMF portraits: the renderer refused the request (%s); not asked again until the inputs or "
+                                "the folders in %s change",
+                 message.c_str(), path_utf8(job.cache).c_str());
+        const json blocked = {{"format", 1},
+                              {"stamp", job.stamp},
+                              {"failed", job.failed},
+                              {"current", json::object()},
+                              {"blocked", cache_token(job.cache)}};
+        if (!save_attempts(job.memory, blocked.dump() + "\n"))
+            logf(KILN_LOG_WARN, "EMF portraits: could not save attempt memory");
+        return;
+    }
     size_t drawn = 0, current = 0;
     json pictures = json::object();
     for (const auto &i : job.ask) {
@@ -399,6 +443,7 @@ void prepare() {
     }
     std::set<std::string> failed;
     json current = json::object(); // key -> facts of the picture's index.json and its frames, as last drawn or checked
+    std::string blocked;           // the cache_token when the renderer refused the whole request
     if (old.is_object() && old.contains("stamp") && old["stamp"].is_string() &&
         old["stamp"].get<std::string>() == stamp && old.contains("failed") && old["failed"].is_array()) {
         for (const auto &k : old["failed"])
@@ -406,6 +451,8 @@ void prepare() {
                 failed.insert(k.get<std::string>());
         if (old.contains("current") && old["current"].is_object())
             current = old["current"];
+        if (old.contains("blocked") && old["blocked"].is_string())
+            blocked = old["blocked"].get<std::string>();
     }
     json ask = json::array();
     for (const auto &i : items)
@@ -420,7 +467,8 @@ void prepare() {
     bool all_current = true;
     for (const auto &i : ask) {
         const auto key = i["key"].get<std::string>();
-        if (!current.contains(key) || current[key] != picture_fact(cache / to_wide(key), i["frames"].get<int>())) {
+        if (!current.contains(key) || current[key].is_null() ||
+            current[key] != picture_fact(cache / to_wide(key), i["frames"].get<int>())) {
             all_current = false;
             break;
         }
@@ -428,6 +476,12 @@ void prepare() {
     if (all_current) {
         logf(KILN_LOG_INFO, "EMF portraits: %zu picture(s) current, %zu remembered unavailable; inputs unchanged",
              ask.size(), failed.size());
+        return;
+    }
+    if (!blocked.empty() && blocked == cache_token(cache)) {
+        logf(KILN_LOG_INFO, "EMF portraits: the renderer refused the last request and the folders in %s are unchanged; "
+                            "not asking again",
+             path_utf8(cache).c_str());
         return;
     }
     const std::string request = json({{"game_dir", path_utf8(P.game)},
@@ -445,6 +499,8 @@ void prepare() {
         if (g_working)
             return;
         g_working = true;
+        g_boot_thread = std::this_thread::get_id();
+        g_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(g_wait_ms);
         g_pending.clear();
         for (const auto &i : job->ask)
             g_pending.insert(lower(i["key"].get<std::string>()));
@@ -463,16 +519,27 @@ void portraits_on_ready() {
         logf(KILN_LOG_WARN, "EMF portraits: preparation failed; the game continues");
     }
 }
-void portraits_wait(const std::string &key) {
+bool portraits_wait(const std::string &key) {
     std::unique_lock lock(g_work_mu);
     if (!g_working || !g_pending.contains(lower(key)))
-        return;
-    // bounded: a renderer that hangs must not hold a mod's window forever; the picture is then missing this start
-    if (!g_work_cv.wait_for(lock, std::chrono::seconds(120), [] { return !g_working; }))
-        logf(KILN_LOG_WARN, "EMF portraits: still drawing after 120 s; portrait:%s is not ready yet", key.c_str());
+        return true;
+    // Only the thread that started the drawing waits: it would have drawn the picture itself before, so a mod that loads
+    // its pictures while it starts gets them. Any other thread (tick, render, a mod's own) is never held up: the call
+    // answers "not yet" and the mod can ask again.
+    if (std::this_thread::get_id() != g_boot_thread)
+        return false;
+    // bounded for all calls together: a renderer that hangs must not hold the start for 120 s per call
+    if (g_work_cv.wait_until(lock, g_deadline, [] { return !g_working; }))
+        return true;
+    static bool said = false;
+    if (!std::exchange(said, true))
+        logf(KILN_LOG_WARN, "EMF portraits: still drawing after %d s; pictures being drawn are not ready this start",
+             g_wait_ms / 1000);
+    return false;
 }
 #ifdef KEMF_PORTRAIT_TEST
 void portraits_test_export(PortraitDrawFn fn) { g_draw = fn; }
+void portraits_test_wait_ms(int ms) { g_wait_ms = ms; }
 void portraits_test_join() {
     std::unique_lock lock(g_work_mu);
     g_work_cv.wait(lock, [] { return !g_working; });

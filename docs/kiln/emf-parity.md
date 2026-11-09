@@ -136,7 +136,7 @@ with stand-in engine calls. The world-program review also ran eight unload/reloa
 leaked program owners on its server lab. These checks do not demonstrate client rendering or player interaction.
 
 EMF manifest portraits are prepared by an offline CPU renderer in the separate GPL `kiln-eml` component, started
-when EMF DLL mods load (on a worker thread; `image_load` of a picture being drawn waits for it). The MIT adapter only plans requests and calls that export. Archive/cache checks rendered textured
+when EMF DLL mods load (on a worker thread; only the thread loading the mods waits in `image_load` for a picture being drawn). The MIT adapter only plans requests and calls that export. Archive/cache checks rendered textured
 wolf PNGs and reused them through the Windows DLL ABI. Automatic preparation in a real client, custom client
 portraits and their appearance in Beastmaster remain unchecked. See [eml.md](eml.md#emf-creature-portraits).
 
