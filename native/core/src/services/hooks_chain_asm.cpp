@@ -12,6 +12,9 @@
 //  kiln_hk_mid         entry of a mid link. The link's stub pushed [Link*] then [continuation]; this builds a
 //                      safetyhook-compatible Context64 below them, calls kiln_hk_mid_dispatch(ctx), restores
 //                      everything and returns to the continuation with `ret 8`, which also drops the Link* slot.
+//                      rbp is its frame pointer (the call is realigned at run time); the unwind info treats the two
+//                      pushed slots as an allocation, so a walk from a handler continues at the hooked code's [rsp]
+//                      (the game's caller for a mid hook at a function entry).
 //
 // Syntax: the clang-cl assembler defaults to Intel syntax; the directives are the COFF/SEH ones.
 __asm__(
@@ -153,16 +156,17 @@ __asm__(
     "  .seh_savexmm xmm14, 0xE0\n"
     "  movdqu xmmword ptr [rsp+0xF0], xmm15\n"
     "  .seh_savexmm xmm15, 0xF0\n"
+    "  mov rbp, rsp\n"             // frame pointer: the call below realigns rsp, so the unwinder must start from rbp
+    "  .seh_setframe rbp, 0\n"     // (ctx.rbp is already saved in its slot)
     "  .seh_endprologue\n"
     "  mov rax, [rsp+0x180]\n"    // ctx.rsp was pushed as (entry rsp - 24 + ...): make it the hooked code's rsp
     "  add rax, 0x18\n"
     "  mov [rsp+0x180], rax\n"
     "  mov rcx, rsp\n"            // &ctx
-    "  mov rbx, rsp\n"
     "  sub rsp, 0x30\n"
     "  and rsp, -16\n"
     "  call kiln_hk_mid_dispatch\n"
-    "  mov rsp, rbx\n"
+    "  mov rsp, rbp\n"
     "  movdqu xmm0, xmmword ptr [rsp+0x00]\n"
     "  movdqu xmm1, xmmword ptr [rsp+0x10]\n"
     "  movdqu xmm2, xmmword ptr [rsp+0x20]\n"

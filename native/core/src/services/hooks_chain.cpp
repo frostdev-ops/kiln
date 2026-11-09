@@ -226,6 +226,7 @@ bool thread_dead(DWORD tid) {
 extern "C" void* kiln_hk_alloc_block(void) {
     using namespace kiln::hooks::chain;
     State& s = S();
+    const DWORD saved_error = GetLastError();  // runs inside a game call: OpenThread/HeapAlloc must not leak into it
     const DWORD me = GetCurrentThreadId();
     AcquireSRWLockExclusive(&s.block_lock);
     Block* b = nullptr;
@@ -245,6 +246,7 @@ extern "C" void* kiln_hk_alloc_block(void) {
     }
     ReleaseSRWLockExclusive(&s.block_lock);
     TlsSetValue(s.tls, b);
+    SetLastError(saved_error);
     return b;
 }
 
@@ -447,7 +449,8 @@ bool module_of(uintptr_t a, Dest& d) {
     d.offset = a - reinterpret_cast<uintptr_t>(mod);
     std::string low = d.module;
     for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    d.own = low.rfind("kiln", 0) == 0;
+    // Kiln's modules are kiln-core.dll and kiln-<service|plugin>.dll; a third-party "KilnTweaks.dll" is not one of them.
+    d.own = low.size() > 9 && low.rfind("kiln-", 0) == 0 && low.compare(low.size() - 4, 4, ".dll") == 0;
     return true;
 }
 

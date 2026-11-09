@@ -309,6 +309,9 @@ void CALLBACK on_map_timer(PVOID, BOOLEAN) {
 void map_changed() {
     if (!g_map_enabled.load(std::memory_order_acquire)) return;
     if (g_timer_armed.exchange(true, std::memory_order_acq_rel)) return;
+    // The previous one-shot timer has fired (it cleared g_timer_armed first): free it without waiting for its callback
+    // (non-blocking delete; the callback takes the registry mutex, which our caller may hold).
+    if (g_timer) DeleteTimerQueueTimer(nullptr, g_timer, nullptr), g_timer = nullptr;
     if (!CreateTimerQueueTimer(&g_timer, nullptr, &on_map_timer, nullptr, 1000, 0, WT_EXECUTEONLYONCE))
         g_timer_armed.store(false, std::memory_order_release);
 }

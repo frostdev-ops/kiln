@@ -627,11 +627,14 @@ void test_mid() {
     auto* fe = reinterpret_cast<int (*)(int)>(&game_asm_mid);
     static KilnHandle h1 = 0;
     static std::atomic<uintptr_t> top_of_stack{0}, mid_caller{0};
+    static void* walk[32] = {};
+    static USHORT walk_n = 0;
     static auto cb1 = +[](KilnRegisters* r, void*) {
         mid_caller = A->caller(h1);
         ran('M');
         r->rcx += 10;
         top_of_stack = *reinterpret_cast<uintptr_t*>(r->rsp);  // the hooked function's return address
+        walk_n = RtlCaptureStackBackTrace(0, 32, walk, nullptr);  // unwinds through kiln_hk_mid's realigned frame
     };
     const auto o = ord(0, "t/mid-entry");
     check(A->mid2(6, reinterpret_cast<uintptr_t>(&game_asm_mid), &o, cb1, nullptr, &h1) == KILN_OK, "mid2 installed at an entry");
@@ -639,6 +642,12 @@ void test_mid() {
     check(fe(41) == 52 && take_order() == "M", "a mid hook at a function entry changes an argument register");
     check(top_of_stack != 0 && top_of_stack == mid_caller,
           "ctx.rsp is the hooked code's rsp: [rsp] is the return address caller() reports");
+    {
+        bool found = false;
+        for (USHORT i = 0; i < walk_n; ++i) found = found || reinterpret_cast<uintptr_t>(walk[i]) == top_of_stack;
+        check(found, "a stack walk from a mid handler unwinds through kiln_hk_mid to the game's caller",
+              std::to_string(walk_n) + " frames");
+    }
 
     // beside a raw link on the same target (priority decides: raw first)
     static int (*orig3)(int) = nullptr;
@@ -1323,6 +1332,28 @@ void test_client_header() {
     (void)stale;
     take_order();
     check(game_hdr(av, bv) == 4 * 10 + 2 && take_order().empty(), "after revoke the chain is empty again");
+    // re-installing / assigning replaces the link instead of stacking a second one (safetyhook's assignment semantics)
+    check(g_hdr.install(&api, 6, t, reinterpret_cast<void*>(&hdr_fn), "hdr/game_hdr", 3), "RawHook::install again");
+    const KilnHandle first = g_hdr.handle();
+    check(g_hdr.install(&api, 6, t, reinterpret_cast<void*>(&hdr_fn), "hdr/game_hdr", 3) && g_hdr.handle() != first,
+          "RawHook::install on a live hook");
+    take_order();
+    check(game_hdr(av, bv) == 5 * 10 + 2 && take_order() == "H" && chain::chain_of(t).size() == 1,
+          "install() on a live hook replaced the link (one link, the handler runs once)");
+    g_hdr = kiln::RawHook::create(&api, 6, t, reinterpret_cast<void*>(&hdr_fn), "hdr/game_hdr", 3);
+    take_order();
+    check(g_hdr && game_hdr(av, bv) == 5 * 10 + 2 && take_order() == "H" && chain::chain_of(t).size() == 1,
+          "g = RawHook::create(...) over a live hook revokes the old link");
+    g_hdr = {};
+    take_order();
+    check(!g_hdr && g_hdr.original<uint64_t (*)(uint64_t, int)>() != nullptr && chain::chain_of(t).empty() &&
+              game_hdr(av, bv) == 4 * 10 + 2 && take_order().empty(),
+          "g = {} revokes the link and keeps original() valid for a handler still running");
+    kiln::MidHook2 m1 = kiln::MidHook2::create(&api, 6, t, &hdr_mid, "hdr/mid", 0);
+    m1 = kiln::MidHook2::create(&api, 6, t, &hdr_mid, "hdr/mid", 0);
+    check(m1 && chain::chain_of(t).size() == 1, "MidHook2 assignment revokes the old link");
+    m1 = {};
+    check(!m1 && chain::chain_of(t).empty(), "MidHook2 = {} revokes");
     // a core that only has v1
     KilnHooksApi v1 = *A;
     v1.header.version = 1;
@@ -1344,6 +1375,14 @@ void test_thread_tables() {
     }
     const size_t after = chain::thread_tables();
     check(after <= before + 8 + 2, "24 short-lived threads reuse the tables of finished ones", "before=" + std::to_string(before) + " after=" + std::to_string(after));
+    // a thread's first hooked call (table lookup, recycling: OpenThread on finished threads) keeps its last-error value
+    DWORD err = 0;
+    std::thread([&] {
+        SetLastError(0xBEEF);
+        game_stress(1);
+        err = GetLastError();
+    }).join();
+    check(err == 0xBEEF, "the first hooked call of a thread preserves GetLastError()", std::to_string(err));
 }
 
 }  // namespace

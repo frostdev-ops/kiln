@@ -188,7 +188,9 @@ typedef struct KilnHooksApi {
      * caller. Float arguments or a float return need raw_detour. It runs under an SEH guard like v1 detour.
      *
      * mid2: ordered mid hook (the existing `mid` is a mid link with default order). A mid hook may share its address with
-     * detour links. Registers are those at the hooked instruction as seen by the previous link.
+     * detour links. Registers are those at the hooked instruction as seen by the previous link. rip is where execution
+     * continues (the next link or the original code). trampoline_rsp starts at rsp - 16 (one slot more than safetyhook's
+     * rsp - 8): move it relative to its starting value, never set it from rsp.
      *
      * map_json: the hook map (docs/kiln/services/hooks.md), also written to <kiln>/state/hooks.json. *len receives the
      * text length without the NUL; buf needs *len + 1 bytes (NUL-terminated), else KILN_ERR_BUFFER_TOO_SMALL. buf may be

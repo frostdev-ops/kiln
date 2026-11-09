@@ -24,6 +24,9 @@
 //    valid after revoke() and is never freed, so a handler that still holds it is safe.
 //  - A RawHook is not unhooked by its destructor: the link lives until revoke(), revoke_owner(), or the process ends
 //    (static destruction order must never call into the core). The small state block behind it is leaked on purpose.
+//  - Assigning to a hook that holds a live link (`g = RawHook::create(...)`, `g = {}`) revokes that link, like assigning
+//    a safetyhook hook. install() on a live hook replaces it: the new link goes in first, then the old one is revoked
+//    (if the new install fails, the old link stays). A handler still running on the old link keeps a valid original().
 //  - install() writes the continuation before the link can be reached, so the handler may call original() on its very
 //    first run. create() returns by value: a hook installed after the game started, stored in a global, can run before
 //    the assignment finishes; use install() on the global for those.
@@ -81,8 +84,16 @@ public:
     RawHook(const RawHook&) = delete;
     RawHook& operator=(const RawHook&) = delete;
     RawHook(RawHook&& other) noexcept : s_(other.s_), error_(other.error_) { other.s_ = nullptr; }
+    // Revokes the link this hook held (see the rules above). An empty right side keeps the old, revoked state so a
+    // handler still running reads a valid original().
     RawHook& operator=(RawHook&& other) noexcept {
-        s_ = other.s_, error_ = other.error_, other.s_ = nullptr;
+        if (this == &other) return *this;
+        hook_detail::State* old = s_;
+        hook_detail::State* incoming = other.s_;
+        other.s_ = nullptr;
+        error_ = other.error_;
+        s_ = incoming ? incoming : old;
+        if (old && old != incoming) revoke_state(old);
         return *this;
     }
     ~RawHook() = default;  // see the rules above: the link stays until revoke()
@@ -96,16 +107,19 @@ public:
         if (!h) return error_ = "kiln.hooks v2 is not available", false;
         auto* st = new (std::nothrow) hook_detail::State;
         if (!st) return error_ = "out of memory", false;
+        hook_detail::State* old = s_;
         st->api = h;
+        st->original = old ? old->original : nullptr;  // a handler still running on the old link stays valid
         s_ = st;  // before raw_detour: a handler running at once reads s_->original
         const KilnHookOrder o = hook_detail::make_order(priority, label, before, after);
         const KilnResult rc = h->raw_detour(owner, target, &o, fn, &st->original, &st->handle);
         if (rc != KILN_OK) {
-            s_ = nullptr;  // the state is leaked: nothing can have reached the handler
+            s_ = old;  // the new state is leaked: nothing can have reached the handler; the old link (if any) stays
             return error_ = rc == KILN_ERR_UNAVAILABLE ? "kiln.hooks could not hook the target (see kiln.log)"
                                                         : "kiln.hooks refused the hook (bad target or arguments)",
                    false;
         }
+        if (old) revoke_state(old);  // replaced: the new link is in, take the old one out
         return true;
     }
 
@@ -140,11 +154,15 @@ public:
 
     // Removes this link from the chain. original() keeps working. Idempotent.
     void revoke() {
-        if (s_ && s_->handle && s_->api) s_->api->revoke(s_->handle);
-        if (s_) s_->handle = 0;
+        if (s_) revoke_state(s_);
     }
 
 private:
+    static void revoke_state(hook_detail::State* st) {
+        if (st->handle && st->api) st->api->revoke(st->handle);
+        st->handle = 0;
+    }
+
     hook_detail::State* s_ = nullptr;
     const char* error_ = nullptr;
 };
@@ -160,7 +178,10 @@ public:
     MidHook2(MidHook2&& other) noexcept : api_(other.api_), handle_(other.handle_), error_(other.error_) {
         other.handle_ = 0;
     }
+    // Revokes the link this hook held, like assigning a safetyhook hook.
     MidHook2& operator=(MidHook2&& other) noexcept {
+        if (this == &other) return *this;
+        if (handle_ && handle_ != other.handle_) revoke();
         api_ = other.api_, handle_ = other.handle_, error_ = other.error_, other.handle_ = 0;
         return *this;
     }
@@ -181,6 +202,7 @@ public:
             return error_ = rc == KILN_ERR_UNAVAILABLE ? "kiln.hooks could not hook the target (see kiln.log)"
                                                         : "kiln.hooks refused the hook (bad target or arguments)",
                    false;
+        revoke();  // install() on a live hook replaces it (the new link is already in)
         api_ = h;
         handle_ = handle;
         return true;

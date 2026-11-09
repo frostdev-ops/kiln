@@ -53,7 +53,9 @@ Rules:
 - A continuation is never freed. After `revoke` it forwards to the next link, so a handler that still holds it is safe.
 - Pass `call<R>(...)` the game's exact argument types (`uint64_t`, not `int`, for a 64-bit parameter). Or take
   `original<R (*)(A, B)>()` once and call that.
-- Dropping a `RawHook` object does not remove its link. Call `revoke()`, or `revoke_owner(owner)`.
+- Dropping a `RawHook` object does not remove its link. Call `revoke()`, or `revoke_owner(owner)`. Assigning to a hook
+  that holds a link (`g = RawHook::create(...)`, `g = {}`) revokes the old link, like a safetyhook hook, and calling
+  `install()` again replaces the link. `MidHook2` behaves the same.
 - `install()` on a global is the safe way to hook after the game started. `create()` returns the hook by value and a
   game thread can run the handler before your global is assigned.
 
@@ -99,7 +101,7 @@ KilnHookOrder o{sizeof o, /*priority*/ 0, KilnStr{"emf/ChatLogAdd", 14}, {}, Kil
 - A constraint that contradicts an earlier one is dropped, with a warning in kiln.log. The earlier link keeps its
   constraint.
 - Adding or revoking a link while threads call through the chain is safe. Moving links that are already installed
-  (only possible when a new constraint swaps two older links) is not atomic: a call in flight at that moment can skip a
+  (only when adding or revoking a link with `before`/`after` changes the order of two other links) is not atomic: a call in flight at that moment can skip a
   link or run one twice. It cannot crash and it always reaches the real function.
 
 ## `caller()`
