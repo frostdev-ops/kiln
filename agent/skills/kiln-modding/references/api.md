@@ -254,4 +254,3 @@ Only when no service does the job, and only with `"advanced": true`. Since dev.2
 - Closed-source DLL mods (XHL, trainers) that clash: load them late (`kiln/chain.ini` `[late]`, or the launcher's "Load
   after Kiln and ShroudForge"). kiln.log `compat: overlap:` lines and `hooks.json` `overlaps` name both sides.
   `<configDir>/compat-rules.json` rules can `warn`, load a DLL `late` or `disable` it.
-

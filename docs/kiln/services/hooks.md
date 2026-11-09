@@ -3,8 +3,8 @@
 `kiln.hooks` hooks game functions for Kiln itself and for plugins and mods. Since dev.21 every hook Kiln places on the
 game exe goes through it: the services, the core tick, kiln-emf, EMF mods' `hook` slot, Shroudtopia's `CreateDetour`
 and ShroudForge's engine hooks when Kiln hosts it. Only hooks on system DLL exports (`LoadLibraryExW`, Vulkan, XInput
-on the client) and EMF/Shroudtopia hooks on targets outside the game exe still use plain safetyhook, plus the
-registry's own detour. For each game address the registry installs **one**
+on the client) and EMF/Shroudtopia hooks on targets outside the game exe still use plain safetyhook (the registry places
+its own detours with safetyhook too). For each game address the registry installs **one**
 physical detour. Every handler on that address is a **link** in an ordered chain. Links of different kinds, from
 different owners, share the detour instead of layering on top of each other.
 

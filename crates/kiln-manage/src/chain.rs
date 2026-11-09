@@ -689,6 +689,20 @@ mod tests {
         let t5 = std::fs::read_to_string(d2.join("kiln/chain.ini")).unwrap();
         assert_eq!(t5.matches("; Kiln chain-load list").count(), 1, "{t5}");
         assert!(t5.starts_with(HEADER), "{t5}");
+        // only the exact old header goes: a player's own first-line comment (even one that starts like it) stays, and the
+        // old header with LF line ends and a trailing blank is still replaced
+        std::fs::write(
+            d2.join("kiln/chain.ini"),
+            format!("; Kiln chain-load list (mine, keep)\n{} \n; my note\n[chain]\nchain\\emf-dinput8.dll\n", OLD_HEADERS[0]),
+        )
+        .unwrap();
+        write_profile_section(&d2, &[]).unwrap();
+        let t6 = std::fs::read_to_string(d2.join("kiln/chain.ini")).unwrap();
+        assert!(t6.contains("; Kiln chain-load list (mine, keep)\n"), "{t6}");
+        assert!(t6.contains("; my note\n"), "{t6}");
+        assert_eq!(t6.matches("; Kiln chain-load list").count(), 2, "{t6}");
+        assert!(!t6.contains(OLD_HEADERS[0]), "{t6}");
+        assert!(t6.starts_with(HEADER), "{t6}");
         assert_eq!(parse(t4.as_bytes()).chain.len(), 1);
         assert!(t4.contains("[profile]"));
         write_once(&d2, &["a.dll".into()]).unwrap();
