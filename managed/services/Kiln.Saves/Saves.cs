@@ -220,6 +220,10 @@ public static class Saves
     /// <summary>True when the native service is loaded on this build.</summary>
     public static bool Available => SavesRuntime.Ensure();
 
+    /// <summary>The runtime restages WorldData after the request's final simulation and before the game's pending snapshot.
+    /// Inventory journals need this as well as observation of native inventory commits.</summary>
+    public static bool SnapshotStagingAvailable => SavesRuntime.Ensure() && SavesNative.ReadStatus() is { } status && (status.Features & SavesNative.CanSnapshotStage) != 0;
+
     /// <summary>The world's GUID (from the world file header, or the game's memory once it saved), as text like
     /// <c>11111111-2222-4333-8444-555555555555</c>; null before a new world's first save or when unavailable.</summary>
     public static string? WorldId => SavesRuntime.Ensure() ? SavesRuntime.WorldId : null;

@@ -9,6 +9,7 @@
     <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <!-- CharacterSync: the channel "kiln:character" (Kiln.Network brings Kiln.Players and Kiln.Client along). The rest of
          this assembly still reads other services through their native tables (Foreign.cs). -->

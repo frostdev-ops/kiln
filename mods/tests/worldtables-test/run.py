@@ -331,11 +331,12 @@ def scenarios(lab, c, port):
             return results
 
         text, _ = lab.run("handshake", "status", during=clients)
+        material_mismatch = r"building(?: and terrain)? materials"
         for name, (welcomed, reject, want) in results.items():
-            ok = welcomed if want == "welcome" else (reject is not None and "building materials" in reject[0])
+            ok = welcomed if want == "welcome" else (not welcomed and reject is not None and re.search(material_mismatch, reject[0]) is not None)
             c(f"handshake.{name}", ok, f"welcome {welcomed}, reject {reject[0] if reject else None}")
         c("handshake.server-lived", "wt: done status" in text)
-        said = [l for l in lines(text, "net: refusing") if "building materials" in l]
+        said = [l for l in lines(text, "net: refusing") if re.search(material_mismatch, l)]
         c("handshake.server-says", len(said) == 3, f"{len(said)} refusal line(s) naming the materials: {said[:1]}")
 
         # A server that lost a mod: its kept material isn't in what a client must have.

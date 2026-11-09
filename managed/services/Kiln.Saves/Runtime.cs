@@ -95,6 +95,8 @@ internal static unsafe class SavesRuntime
     }
 
     private static bool _shutdownAnnounced;
+    private static ulong _savingSeq, _snapshotSeq;
+    private static uint _savingRevision;
 
     /// <summary>Tick thread, after the mods' own ServerStopping handlers and before they unload. The game's shutdown
     /// save comes a few steps later; what mods write now (and what they hold when they unload) goes into it.</summary>
@@ -321,6 +323,9 @@ internal static unsafe class SavesRuntime
         {
             case SavesNative.EvSaving:
             {
+                _savingSeq = ev.Seq;
+                _savingRevision = ev.Revision;
+                _snapshotSeq = 0;
                 Store.EnsureOpen();
                 if (id != null) Store.AdoptWorld(id);
                 var sync = (ev.Flags & SavesNative.FlagSync) != 0;
@@ -328,6 +333,14 @@ internal static unsafe class SavesRuntime
                 if (!announced && Events.HasSubscribers<WorldSavingEvent>())
                     Events.Post(new WorldSavingEvent(reason, ev.Revision, Store.WorldId ?? id, WorldFile, sync, ev.Step));
                 CharacterSync.OnWorldSaving(reason);
+                Store.Stage(ev.Revision, reason, late: false);
+                break;
+            }
+            case SavesNative.EvSnapshot:
+            {
+                // Only final serialization: do not repeat WorldSaving handlers or overwrite a target after its snapshot.
+                if (ev.SaveSeq == 0 || ev.SaveSeq != _savingSeq || ev.SaveSeq == _snapshotSeq || ev.Revision != _savingRevision) break;
+                _snapshotSeq = ev.SaveSeq;
                 Store.Stage(ev.Revision, reason, late: false);
                 break;
             }

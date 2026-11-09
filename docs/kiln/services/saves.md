@@ -69,6 +69,8 @@ data (objects are serialized when the mod unloads and read into the new instance
   Kiln runs the `WorldSavingEvent` handlers, serializes every mod's data and writes generation *R+1*
   (`manifests/<R+1>.pending.json`), then the game writes the world file as revision *R+1*; after the write Kiln
   confirms it (`manifests/<R+1>-<file time>.json`).
+- With `Saves.SnapshotStagingAvailable`, Kiln serializes that generation once more at the first safe Post after the request: simulation jobs have finished, and the game's pending snapshot has not run yet. A request after Post waits until the following tick's Post. This catches inventory commits made by that last simulation. `WorldSavingEvent` handlers run once; JSON serialization callbacks can run twice. Later Posts during the background write do not replace the staged generation. Shutdown without another simulation keeps the initial stage.
+- This ordering covers native inventory transactions, including container default loot. It does not promise that an arbitrary mod's writes in a later Post callback are captured; make save data changes before the final staging callback.
 - Loading picks the generation of the world file on disk (revision + file time); a crash or `kill -9` at any moment
   gives the old or the new generation, matching the world file, never a mix: every file is written to a temp name,
   flushed and renamed, and bundles are content-addressed (`blobs/ab/<sha256>.json`, checked on load).

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System.Runtime.CompilerServices;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -27,6 +28,42 @@ public static unsafe partial class Items
 
     /// <summary>True when give/take can run (the service's program runs and its checks passed).</summary>
     public static bool CanTransact => Status()?.Transactions == true;
+
+    private static ItemsNative.TableWithResultPeek* ResultTable
+    {
+        get
+        {
+            var t = T;
+            return t != null && t->Header.Size >= sizeof(ItemsNative.TableWithResultPeek) &&
+                ((ItemsNative.TableWithResultPeek*)t)->PeekResult != null ? (ItemsNative.TableWithResultPeek*)t : null;
+        }
+    }
+
+    /// <summary>The runtime can observe inventory commits before their next-step callbacks. Needed for a journal saved with the inventory.</summary>
+    public static bool ResultPeekAvailable => ResultTable != null;
+
+    /// <summary>Observes the result of a Give/Take task, including an inventory commit whose normal callback has not yet run. Runs no callbacks,
+    /// completes no task, and submits nothing. False: no result yet, or an older runtime has no result peek. The normal callback still runs once.</summary>
+    public static bool TryGetResult(Task<ItemsResult> transaction, [NotNullWhen(true)] out ItemsResult? result)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        if (transaction.IsCompleted)
+        {
+            result = transaction.GetAwaiter().GetResult();
+            return true;
+        }
+        result = null;
+        if (!TaskTickets.TryGetValue(transaction, out var pending)) return false;
+        result = Volatile.Read(ref pending.Observed);
+        if (result != null) return true;
+        var t = ResultTable;
+        if (t == null || pending.Ticket == 0) return false;
+        ItemsNative.Result native = default;
+        native.Size = (uint)sizeof(ItemsNative.Result);
+        if (t->PeekResult(pending.Ticket, &native) != ItemsNative.Ok) return false;
+        result = ResultOf(&native);
+        return true;
+    }
 
     /// <summary>This build supports <see cref="Gear.Unlocked"/> and <see cref="Gear.GemSlot"/> (feature
     /// items.pide_options; a give with them is Unavailable otherwise).</summary>
@@ -245,11 +282,14 @@ public static unsafe partial class Items
         public readonly TaskCompletionSource<ItemsResult> Tcs = tcs;
         public readonly ModContext? Mod = mod;
         public ulong Ticket;
+        public ItemsResult? Observed;
         public bool Take;  // for ItemsGivenEvent / ItemsTakenEvent
     }
 
     private static readonly object Gate = new();
     private static readonly Dictionary<long, Pending> InFlight = new();
+    // Weak keys: completed tasks are not retained by the service, while a save can still identify a task after OnDone removes its in-flight entry.
+    private static readonly ConditionalWeakTable<Task<ItemsResult>, Pending> TaskTickets = new();
     private static readonly HashSet<ModContext> Watched = new();
     private static long _nextKey;
 
@@ -262,6 +302,7 @@ public static unsafe partial class Items
         var mod = ModContext.CurrentMod;
         var tcs = new TaskCompletionSource<ItemsResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var p = new Pending(tcs, mod) { Take = take };
+        TaskTickets.Add(tcs.Task, p);
         long key;
         lock (Gate)
         {
@@ -285,7 +326,7 @@ public static unsafe partial class Items
         }
         lock (Gate)
         {
-            if (InFlight.TryGetValue(key, out var still)) still.Ticket = ticket;
+            p.Ticket = ticket;
         }
         return tcs.Task;
     }
@@ -317,14 +358,9 @@ public static unsafe partial class Items
             {
                 if (!InFlight.Remove((long)user, out p)) return;
             }
-            var changes = new ItemChange[Math.Min(r->ChangeCount, 16u)];
-            var c = (ItemsNative.Change*)r->Changes;
-            for (var i = 0; i < changes.Length; i++)
-                changes[i] = new ItemChange(new SlotId(c[i].Slot), new ItemId(c[i].Item), (int)c[i].Amount, new EntityId(c[i].Pide));
-            var status = Enum.IsDefined(typeof(ItemsStatus), r->Status) ? (ItemsStatus)r->Status : ItemsStatus.Refused;
-            var result = new ItemsResult(status, new EntityId(r->Entity), new ItemId(r->Item), (int)r->Requested,
-                (int)r->Done, changes, ItemsNative.Text(r->Message, 160), (int)r->GameError, (int)r->Steps,
-                (r->Flags & ItemsNative.DryRun) != 0);
+            var result = ResultOf(r);
+            // Item events run synchronously before the task completes and may request a save themselves.
+            Volatile.Write(ref p.Observed, result);
             ItemsEvents.Completed(p.Take, result, p.Mod);
             p.Tcs.TrySetResult(result);
         }
@@ -332,5 +368,17 @@ public static unsafe partial class Items
         {
             // never let an exception cross into native code
         }
+    }
+
+    private static ItemsResult ResultOf(ItemsNative.Result* r)
+    {
+        var changes = new ItemChange[Math.Min(r->ChangeCount, 16u)];
+        var c = (ItemsNative.Change*)r->Changes;
+        for (var i = 0; i < changes.Length; i++)
+            changes[i] = new ItemChange(new SlotId(c[i].Slot), new ItemId(c[i].Item), (int)c[i].Amount, new EntityId(c[i].Pide));
+        var status = Enum.IsDefined(typeof(ItemsStatus), r->Status) ? (ItemsStatus)r->Status : ItemsStatus.Refused;
+        return new ItemsResult(status, new EntityId(r->Entity), new ItemId(r->Item), (int)r->Requested,
+            (int)r->Done, changes, ItemsNative.Text(r->Message, 160), (int)r->GameError, (int)r->Steps,
+            (r->Flags & ItemsNative.DryRun) != 0);
     }
 }
