@@ -62,6 +62,7 @@ Requested host change: call `ServiceTick.Run(tick)` at the start of `HostRuntime
 | `EntityDestroyedEvent` | Kiln.Spawn | after `Spawn.Destroy` (`Reason` "destroy") or `Spawn.CleanupTracked` ("cleanup") | - | - |
 | `ItemsGivenEvent` / `ItemsTakenEvent` (base `ItemsTransactionEvent`) | Kiln.Items | when a Kiln.Items give/take completes with something moved (not dry runs), before the caller's task continues | - | - |
 | `WaterRefilledEvent` | Kiln.Items | Pre, at most once per step and refill policy (`Items.Fuel.Refill`), with every container it gave water back since the last one | - | - |
+| `InventoryTransferEvent` | Kiln.Items | Pre of the step after the game's quick stack or move all ran (a player's R key, a Quick Stack Station, `Items.QuickStack` / `MoveAll`), except dry-run moves, while a handler subscribes: `Kind`, `From`, `To`, `Player`, `ByMod`, `Canceled`, `Moved`, `Kept`. Nothing is hooked until someone subscribes or adds an `Items.Transfers` rule | - (it ran; use `Items.Transfers` rules, [modding/inventory.md](modding/inventory.md)) | - |
 | `PlayerRulesChangedEvent` | Kiln.Rules | when a player's combined rules change (a rule set applied, updated or ended; an area entered or left; a duration ran out) | - | - |
 | `ConfigChangedEvent` | Kiln.Api | a config's values changed while running (file edit or `ConfigFile.Set`), after the new values are in place | - | - |
 | `PermissionsChangedEvent` | Kiln.Permissions | permissions.json reloaded/edited or the server's user groups changed | - | - |

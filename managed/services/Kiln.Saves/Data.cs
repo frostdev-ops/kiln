@@ -147,8 +147,10 @@ public static class PlayerData
 /// <para>How it survives a restart: the game renumbers entities on load and keeps no id of its own, so Kiln stores each
 /// attachment with the entity's template and position at the save and gives it to the loaded entity of that template
 /// at that place (props: within 0.5 m, they come back exactly; creatures and NPCs: within 16 m, nearest unclaimed).
-/// Entities whose template never reaches the save (most enemies, the generic loot pickup) keep attachments for the
-/// session only (<see cref="IsPersistent"/>).</para>
+/// Only known, saved templates with CurrentTransform can use that positional identity. Inventory item entities have
+/// no world position: their attachments are session-only and are never rebound to another item after a restart.
+/// Templates the game never saves (most enemies, the generic loot pickup) are session-only too
+/// (<see cref="IsPersistent"/>).</para>
 /// <para>Player entities (ids 1..1023) map to <see cref="PlayerData"/> under the player's Steam id: the data follows the
 /// player, not the slot.</para>
 /// <para>Tick thread, from mod code. Needs kiln.spawn for entity lookups (<see cref="Available"/>).</para>
@@ -210,13 +212,14 @@ public static class EntityData
         return SavesRuntime.Store.Entities.Find(entity)?.ByMod.Remove(mod.Info.Id) == true;
     }
 
-    /// <summary>Whether the entity's attachments survive a restart (its template is saved by the game).</summary>
+    /// <summary>Whether the entity has a known, saved world template with a position for matching after a restart.
+    /// False for inventory item entities: their data is session-only.</summary>
     public static bool IsPersistent(EntityId entity)
     {
         if (entity.IsPlayer) return true;
         if (!Available) return false;
         var info = SpawnLink.Inspect(entity);
-        return info?.Template is { } g && !SpawnLink.Template(g).neverSaved;
+        return info?.Template is { } g && SpawnLink.Template(g).canPersist;
     }
 
     /// <summary>Live entities the calling mod has attachments on.</summary>

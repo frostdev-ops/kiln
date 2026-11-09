@@ -11,6 +11,7 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |
 | [faults.md](faults.md) | Fault policy, crash reports, `kiln.json` `mods` settings |
 | [blocks.md](blocks.md) | Building blocks: statuses, effects, spells; what they compile to, what clients need, how mistakes show. Start here to make something |
+| [inventory.md](inventory.md) | Moving items between inventories keeping their state, container names, quick stack and move all rules and events (ported from shroudlink) |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs |
 | [world-blocks.md](world-blocks.md) | Props, stations that work on their own (a forge, a drying rack) and building materials as blocks |
 | [cosmetics.md](cosmetics.md) | Pieces for the vanity slots on models of your own: skinned or on one joint, both bodies from one file, `kiln skeleton player` |

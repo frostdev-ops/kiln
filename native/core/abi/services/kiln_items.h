@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MIT
- * kiln.items v2 (v1 + water in containers: fuel, fuel_read, fuel_keep, fuel_keep_end): put items into and take them out of inventories (players' backpacks, chests, villagers), gear with a
- * level and rarity included; read an entity's inventory; the game's item catalog.
+ * kiln.items v3 (v1 + water in containers: fuel, fuel_read, fuel_keep, fuel_keep_end; v3 + item moves that keep item state,
+ * container names, inventory-transfer events and rules): put items into and take them out of inventories (players'
+ * backpacks, chests, villagers), gear with a level and rarity included; read an entity's inventory; the game's item
+ * catalog.
  *
  * How it works: every give/take goes through the game's own inventory transaction (the code its admin "create item",
  * loot pickup and crafting use): stacks are topped up first, gear gets its own item entity ("pide", with level, perks
@@ -29,7 +31,7 @@ extern "C" {
 #endif
 
 #define KILN_ITEMS_SERVICE "kiln.items"
-#define KILN_ITEMS_VERSION 2u  /* v2 appends the fuel functions; check header.size before using them */
+#define KILN_ITEMS_VERSION 3u  /* v2 appends the fuel functions, v3 the move, name and transfer functions; check header.size */
 
 typedef uint32_t KilnItemId;  /* 0 = none */
 typedef uint64_t KilnSlotId;  /* 0 = none / let the game choose */
@@ -286,6 +288,207 @@ typedef void(KILN_CALL* KilnItemsFuelDoneFn)(const KilnItemsFuelResult* result, 
 typedef void(KILN_CALL* KilnItemsFuelKeepFn)(uint64_t handle, const KilnItemsFuelChange* changes, uint32_t count,
                                              void* user);
 
+/* ---------------------------------------------------------------------------------------------- moves ------- */
+
+/* Moving items between inventories, keeping their state (v3, feature items.move; KILN_ERR_UNAVAILABLE without it).
+ * A give/take pair would destroy a piece of gear and create a new one. A move hands the item entity (the "pide" with
+ * its level, upgrades, gem, durability and anything a mod keyed to it) over to the new slot through the game's own slot
+ * transfer, inside the program and its commit, so replication and the save follow like a player's drag and drop.
+ * STACK moves one stack (or part of it), QUICK_STACK and MOVE_ALL run the game's own quick stack ("refill stacks",
+ * what a player's R key does) and move-all between two inventories. All three go through the game's functions, so
+ * transfer events and rules (below) see them too, flagged KILN_TRANSFER_BY_MOD. Requests run in the next sim step in
+ * the kiln_items program, like give and take; the callback comes on the tick thread in Pre. Evidence and what is not
+ * known: docs/re/items.md section 13. Usage: docs/kiln/modding/inventory.md. Ported from shroudlink's `move_stack`,
+ * `move_items` and `chest_name` (MIT, bjck/shroudlink); credit in docs/kiln/engines/shroudlink.md. */
+
+/* KilnItemsMoveRequest.kind */
+enum {
+    KILN_MOVE_STACK = 0,        /* one stack of `from` (the slot `slot`), all of it or `count` items, into `to` */
+    KILN_MOVE_QUICK_STACK = 1,  /* the game's quick stack: stacks of `from` that `to` already holds a stack of */
+    KILN_MOVE_ALL = 2,          /* the game's move all: every stack of `from` that fits into `to` */
+};
+
+/* KilnItemsMoveRequest.flags */
+enum {
+    KILN_ITEMS_MOVE_DRY_RUN = 0x01u,   /* run and roll back: the result says what would move; no transfer report */
+    KILN_ITEMS_MOVE_EQUIPPED = 0x02u,  /* STACK: a slot a player has equipped or holds may move (default: refused) */
+    KILN_ITEMS_MOVE_ACTIONBAR = 0x04u, /* STACK: may take from and fill a player's action-bar pages (default: refused
+                                          as a source, skipped as a destination); MOVE_ALL: takes the action bar along
+                                          (default: it stays) */
+    KILN_ITEMS_MOVE_SILENT = 0x08u,    /* QUICK_STACK / MOVE_ALL: no transfer rules or events (the caller is a handler) */
+};
+
+typedef struct KilnItemsMoveRequest {
+    uint32_t size;       /* sizeof(KilnItemsMoveRequest) */
+    uint32_t flags;      /* KILN_ITEMS_MOVE_*; other bits are refused */
+    uint32_t kind;       /* KILN_MOVE_* */
+    KilnEntity from;     /* the inventory the items leave: any entity with an InventorySetup */
+    KilnEntity to;       /* the inventory they enter; not the same entity as `from` */
+    uint32_t count;      /* STACK: items to move, 0 = the whole stack; must not exceed the stack. Otherwise 0 */
+    KilnSlotId slot;     /* STACK: the slot of `from` (KILN_SLOT_ID(inventory, index)) */
+    KilnSlotId to_slot;  /* STACK: a slot of `to` to fill first (0 = the game's choice: partial stacks of the item,
+                            then the first empty slot) */
+} KilnItemsMoveRequest;
+
+/* One piece of the ledger: `amount` of `item` left `from_slot` and arrived in `to_slot`. Gear (a stack with an item
+ * entity) moves whole: `pide` is the item entity that moved with it (the same entity before and after). */
+typedef struct KilnItemsMoveChange {
+    KilnSlotId from_slot;
+    KilnSlotId to_slot;
+    KilnItemId item;
+    uint32_t amount;
+    KilnEntity pide;
+    uint32_t reserved;
+} KilnItemsMoveChange;
+
+#define KILN_ITEMS_MAX_MOVE_CHANGES 16u
+
+typedef struct KilnItemsMoveResult {
+    uint32_t size;          /* sizeof(KilnItemsMoveResult) of kiln.items */
+    int32_t status;         /* KILN_ITEMS_DONE (all moved), PARTIAL (only `done` of `requested` fit / were allowed),
+                               NO_ROOM (nothing moved: no room, or nothing to move), NOT_ENOUGH (STACK: `count` is more
+                               than the stack holds), NO_INVENTORY (an entity has no initialized InventorySetup),
+                               SLOT_CHANGED (the slot is not one of `from`'s, or holds nothing), REFUSED (the game
+                               refused; an equipped slot without KILN_ITEMS_MOVE_EQUIPPED; a transfer rule or handler
+                               canceled it: `canceled`), UNAVAILABLE, DROPPED */
+    uint64_t ticket;
+    KilnEntity from;
+    KilnEntity to;
+    uint32_t kind;
+    uint32_t flags;         /* the request's flags */
+    uint32_t requested;     /* STACK: the count asked (the stack's size when 0); otherwise 0 */
+    uint32_t done;          /* items moved (dry run: would be) */
+    uint32_t stacks;        /* source stacks that gave something */
+    uint32_t game_error;    /* the game's error code, 0 = none */
+    uint32_t change_count;  /* entries in changes (the first KILN_ITEMS_MAX_MOVE_CHANGES; `done` counts them all) */
+    uint32_t canceled;      /* 1: a transfer rule or handler canceled the game's quick stack / move all */
+    uint32_t steps;         /* sim steps between the request and the move */
+    uint32_t reserved;
+    KilnItemsMoveChange changes[KILN_ITEMS_MAX_MOVE_CHANGES];
+    char message[160];      /* why it failed or was partial, in words; "" when DONE. NUL-terminated */
+} KilnItemsMoveResult;
+
+typedef void(KILN_CALL* KilnItemsMoveDoneFn)(const KilnItemsMoveResult* result, void* user);
+
+/* ------------------------------------------------------------------------------ transfer events and rules ---- */
+
+/* The game's quick stack (a player's R key, a Quick Stack Station, once per chest) and move all run through two
+ * functions. kiln.items hooks both, chained with any other hook on them (shroudlink's among them: either order, and
+ * Kiln never removes its hook), and only once something below is registered: until then nothing is hooked. With
+ * nothing registered a hook costs nothing; with one thing it reads one flag per call.
+ *
+ * Three ways in, from cheapest to most flexible:
+ *  - RULES (transfer_rule): data the hook reads on the game's thread. KEEP_SLOT / KEEP_ITEM leave stacks of the source
+ *    inventory out of the game's transfer, DENY cancels transfers into or out of a container. No code of yours runs.
+ *  - REPORTS (transfer_report): after the game's transfer, a small record of what it did, on the tick thread in Pre.
+ *  - HANDLERS (transfer_listen): your function runs inside the game's call, before its transfer, on the game's
+ *    worker thread inside the sim step (the thread the game's inventory program runs on). It may read inventories,
+ *    keep slots, move stacks itself and cancel; see KilnItemsTransferHost. Native code only: managed mods cannot run
+ *    there (Kiln.Items offers rules and reports). Keep it short; it must not block or call the tick-thread-only
+ *    functions of kiln.items.
+ * Keep/cancel semantics are shroudlink's (`keep`, `on_transfer`): kept stacks are hidden from the game's transfer while
+ * it runs (their count reads 0, then is put back), the handler's own moves happen first and are added to the count the
+ * game reports, and a cancel skips the game's transfer entirely (the caller sees "ok, moved what the handlers moved"). */
+
+/* KilnItemsTransferEvent.kind, KilnItemsTransferRule.kinds (a mask) */
+enum {
+    KILN_TRANSFER_QUICK_STACK = 1u,
+    KILN_TRANSFER_MOVE_ALL = 2u,
+    KILN_TRANSFER_ANY = 3u,
+};
+
+/* KilnItemsTransferEvent.flags, KilnItemsTransferReport.flags */
+enum {
+    KILN_TRANSFER_BY_MOD = 0x1u,    /* a kiln.items move (KILN_MOVE_QUICK_STACK / MOVE_ALL), not the game's own caller */
+    KILN_TRANSFER_CANCELED = 0x2u,  /* reports: a rule or handler canceled it */
+};
+
+typedef struct KilnItemsTransferCtx KilnItemsTransferCtx; /* opaque; valid only during the handler call */
+
+typedef struct KilnItemsTransferEvent {
+    uint32_t size;
+    uint32_t kind;         /* KILN_TRANSFER_QUICK_STACK or MOVE_ALL (one bit) */
+    KilnEntity from;       /* the inventory the items leave */
+    KilnEntity to;         /* the inventory they enter */
+    KilnEntity player;     /* whichever of from / to is a player's inventory, else 0 */
+    uint32_t flags;        /* KILN_TRANSFER_BY_MOD */
+    KilnItemsTransferCtx* ctx;
+} KilnItemsTransferEvent;
+
+/* What a handler may call. Valid during the handler call only, on its thread. */
+typedef struct KilnItemsTransferHost {
+    uint32_t size;
+    /* Up to `capacity` slots of any entity's inventories (empty ones included), like KilnItemsApi.read. Returns the
+     * count written. */
+    uint32_t(KILN_CALL* read)(KilnItemsTransferCtx* ctx, KilnEntity entity, KilnItemsSlot* out, uint32_t capacity);
+    /* The game's transfer leaves this stack of the source inventory alone. Slots outside the source inventory
+     * pages (including destination slots) are ignored. */
+    void(KILN_CALL* keep)(KilnItemsTransferCtx* ctx, KilnSlotId slot);
+    /* The game's transfer does not run. */
+    void(KILN_CALL* cancel)(KilnItemsTransferCtx* ctx);
+    /* Moves `count` items (0 = all) of the stack in `slot` of the event's source inventory into `to`, keeping item
+     * state, through the game's slot transfer in the game's own transaction. Never takes a player's equipped or held
+     * items, never fills a player's action bar. Returns the items moved. */
+    uint32_t(KILN_CALL* move)(KilnItemsTransferCtx* ctx, KilnSlotId slot, KilnEntity to, uint32_t count);
+    /* The custom name of a container (the Rename button), UTF-8, NUL not counted. Returns its length; 0 = none. */
+    uint32_t(KILN_CALL* name)(KilnItemsTransferCtx* ctx, KilnEntity entity, char* buf, uint32_t capacity);
+} KilnItemsTransferHost;
+
+typedef void(KILN_CALL* KilnItemsTransferFn)(const KilnItemsTransferEvent* event, const KilnItemsTransferHost* host,
+                                             void* user);
+
+/* KilnItemsTransferRule.type */
+enum {
+    KILN_TRANSFER_KEEP_SLOT = 1, /* the stack in `slot` stays where it is while it is in the source inventory */
+    KILN_TRANSFER_KEEP_ITEM = 2, /* stacks of `item` stay in the source inventory; `entity` 0 = any source, else only
+                                    when that entity's inventory is the source */
+    KILN_TRANSFER_DENY = 3,      /* a transfer into or out of `entity` does not run */
+};
+
+typedef struct KilnItemsTransferRule {
+    uint32_t size;      /* sizeof(KilnItemsTransferRule) */
+    uint32_t type;      /* KILN_TRANSFER_* above */
+    uint32_t kinds;     /* mask of KILN_TRANSFER_* kinds it applies to (0 = both) */
+    KilnEntity entity;  /* see type */
+    KilnItemId item;    /* KEEP_ITEM */
+    uint32_t reserved;  /* 0 */
+    KilnSlotId slot;    /* KEEP_SLOT: KILN_SLOT_ID(inventory entity, index) */
+} KilnItemsTransferRule;
+
+typedef struct KilnItemsTransferReport {
+    uint32_t size;
+    uint32_t kind;       /* KILN_TRANSFER_QUICK_STACK or MOVE_ALL */
+    KilnEntity from;
+    KilnEntity to;
+    KilnEntity player;   /* as in the event */
+    uint32_t flags;      /* KILN_TRANSFER_BY_MOD, KILN_TRANSFER_CANCELED */
+    uint32_t moved;      /* items the game's transfer moved, plus what handlers moved */
+    uint32_t kept;       /* stacks hidden from the game's transfer */
+    uint64_t step;       /* sim step of the transfer */
+    uint32_t reserved[2];
+} KilnItemsTransferReport;
+
+/* Tick thread, in Pre (a burst is delivered together; at most 256 are kept, older ones dropped). */
+typedef void(KILN_CALL* KilnItemsTransferReportFn)(const KilnItemsTransferReport* report, void* user);
+
+/* Status of the v3 parts (KilnItemsApi.status2). */
+typedef struct KilnItemsStatus2 {
+    uint32_t size;               /* in: sizeof(KilnItemsStatus2) */
+    uint8_t moves;               /* 1: move works (feature items.move; the program runs) */
+    uint8_t names;               /* 1: container_name works (feature items.names) */
+    uint8_t transfer_hooks;      /* 1: the quick-stack / move-all hooks can be installed (feature items.transfer) */
+    uint8_t hooks_installed;     /* 1: they are installed (something was registered once) */
+    uint32_t rules;              /* active rules */
+    uint32_t handlers;           /* active handlers */
+    uint32_t reporters;          /* active report listeners */
+    uint64_t transfers_seen;     /* calls of the game's quick stack / move all since the hooks went in */
+    uint64_t transfers_canceled; /* of them canceled by a rule or handler */
+    uint64_t moves_done;         /* move requests that moved something */
+    uint32_t names_found;        /* container_name lookups that found a name */
+    uint32_t reserved;
+    char detail[160];            /* the reason when a part is off; NUL-terminated */
+} KilnItemsStatus2;
+
 /* ---------------------------------------------------------------------------------------------- the table ---- */
 
 typedef struct KilnItemsApi {
@@ -302,8 +505,9 @@ typedef struct KilnItemsApi {
     /* Drops a request's callback (the transaction may still run if it already started). KILN_ERR_NOT_FOUND when its
      * callback already ran. Any thread. */
     KilnResult(KILN_CALL* cancel)(uint64_t ticket);
-    /* Drops the callbacks of every request of `owner` and ends its fuel_keep entries (call it when a plugin's owner
-     * goes away). Any thread. */
+    /* Drops the callbacks of every request of `owner` and ends its fuel_keep entries and its transfer rules, handlers
+     * and reports (call it when a plugin's owner goes away). Transfer callback draining follows transfer_end below.
+     * Any thread. */
     void(KILN_CALL* cancel_owner)(KilnOwner owner);
 
     /* The inventory of `entity`: *info (optional) and up to `capacity` slots (every slot of every linked 8-slot
@@ -346,6 +550,41 @@ typedef struct KilnItemsApi {
     KilnResult(KILN_CALL* fuel_keep)(KilnOwner owner, const KilnItemsFuelRequest* request, KilnItemsFuelKeepFn on_refill,
                                      void* user, uint64_t* out_handle);
     KilnResult(KILN_CALL* fuel_keep_end)(uint64_t handle); /* KILN_ERR_NOT_FOUND: no such keep */
+
+    /* ---- v3: moves, names, transfer events (check header.size; KILN_ERR_UNAVAILABLE without the feature) ---- */
+
+    /* Queues a move (see "moves"). *out_ticket (optional) = its ticket. Refused at once with KILN_ERR_INVALID_ARGUMENT
+     * (an entity 0, from == to, a bad kind / flags / slot / count, a non-zero `reserved`) or KILN_ERR_UNAVAILABLE
+     * (feature items.move off, 1024 requests waiting). Otherwise `done` runs once on the tick thread in Pre with the
+     * result (it may be NULL). cancel(ticket) and cancel_owner(owner) drop the callback. Any thread. */
+    KilnResult(KILN_CALL* move)(KilnOwner owner, const KilnItemsMoveRequest* request, KilnItemsMoveDoneFn done,
+                                void* user, uint64_t* out_ticket);
+
+    /* The custom name a player gave an object with the Rename button (a chest, a station...), as UTF-8, NUL-terminated,
+     * at most capacity - 1 bytes of it; *out_len = its full length. KILN_ERR_NOT_FOUND: no name (the entity has no
+     * name component, or it is empty, or the game's string table has no such string); KILN_ERR_BUFFER_TOO_SMALL: the
+     * name was cut; KILN_ERR_UNAVAILABLE: feature items.names is off, or before the server world's first step. Reads
+     * the game's string table: tick thread (Pre / Post). */
+    KilnResult(KILN_CALL* container_name)(KilnEntity entity, char* buf, uint32_t capacity, uint32_t* out_len);
+
+    /* Transfer rules, handlers and reports (see "transfer events and rules"). Each returns a handle for transfer_end.
+     * KILN_ERR_INVALID_ARGUMENT for a bad rule or NULL callback; KILN_ERR_UNAVAILABLE when feature items.transfer is
+     * off, the hooks cannot be installed (logged), or 256 of that kind are registered. The first registration installs
+     * the hooks. Any thread. */
+    KilnResult(KILN_CALL* transfer_rule)(KilnOwner owner, const KilnItemsTransferRule* rule, uint64_t* out_handle);
+    KilnResult(KILN_CALL* transfer_listen)(KilnOwner owner, KilnItemsTransferFn fn, void* user, uint64_t* out_handle);
+    KilnResult(KILN_CALL* transfer_report)(KilnOwner owner, KilnItemsTransferReportFn fn, void* user,
+                                           uint64_t* out_handle);
+    /* Ends a rule, handler or report listener; the hooks stay installed (they are never removed, so another loader's
+     * hook on the same functions is never undone). KILN_ERR_NOT_FOUND: no such handle. Any thread. cancel_owner(owner)
+     * ends all of an owner's. Invalidation prevents further callback starts, including in a captured registry snapshot.
+     * Called outside a transfer handler/report callback, waits for callbacks already running before returning: the
+     * caller may then release their code/userdata. Called reentrantly from a transfer callback, does not wait (avoids
+     * self/cross-callback deadlocks); already-running callbacks may finish. Keep code/userdata alive until those
+     * callbacks return, or drain again from outside any transfer callback before freeing/unloading. */
+    KilnResult(KILN_CALL* transfer_end)(uint64_t handle);
+
+    KilnResult(KILN_CALL* status2)(KilnItemsStatus2* out);
 } KilnItemsApi;
 
 #ifdef __cplusplus
