@@ -724,7 +724,7 @@ bool open_threads_toolhelp(std::vector<Stopped>& out, size_t& unopened) {
 }
 
 struct FreezeReport {
-    size_t threads = 0, unopened = 0, in_range = 0, moved = 0, no_context = 0;
+    size_t threads = 0, unopened = 0, unstopped = 0, in_range = 0, moved = 0, no_context = 0;
     double stopped_ms = 0;  // how long the other threads stood still
     double list_ms = 0;     // listing and opening them first (they still run)
     bool written = false;
@@ -736,7 +736,10 @@ void write_with_threads_stopped(std::vector<Stopped>& th, uintptr_t addr, const 
     LARGE_INTEGER t0, t1, freq;
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&t0);
-    for (Stopped& s : th) s.suspended = !s.skip && SuspendThread(s.h) != static_cast<DWORD>(-1);
+    for (Stopped& s : th) {
+        s.suspended = !s.skip && SuspendThread(s.h) != static_cast<DWORD>(-1);
+        if (!s.skip && !s.suspended) ++rep.unstopped;
+    }
     alignas(16) CONTEXT ctx;
     for (Stopped& s : th) {
         if (!s.suspended) continue;
@@ -880,6 +883,10 @@ Target* target_for(uintptr_t addr) {
         if (rep.moved)
             KLOG_I("hooks: %zu thread(s) were paused inside the first bytes of rva %s and were moved to the trampoline",
                    rep.moved, hex(rva_of(addr)).c_str());
+        if (rep.unopened || rep.unstopped || rep.no_context)
+            KLOG_W("hooks: rva %s: %zu thread(s) could not be opened or stopped and %zu stopped one(s) gave no context "
+                   "while the detour was written; they were not checked for the replaced bytes",
+                   hex(rva_of(addr)).c_str(), rep.unopened + rep.unstopped, rep.no_context);
         if (rep.moved != rep.in_range)
             KLOG_E("hooks: %zu thread(s) paused inside the first bytes of rva %s could not be moved; they may crash when they "
                    "run on", rep.in_range - rep.moved, hex(rva_of(addr)).c_str());

@@ -200,9 +200,11 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
   is not specific to Wine.
 - What this does not cover: a thread that is created during those few milliseconds; a branch from elsewhere into the
   middle of the replaced bytes, or a call made from inside them that has not returned yet (the 5 to 14 bytes at the
-  target: choose a hook address that nothing jumps or returns into). If Kiln cannot list or open the threads, or the
+  target: choose a hook address that nothing jumps or returns into). If Kiln cannot list the threads, or the
   trampoline has a shape it does not know, it logs a warning and falls back to safetyhook's own enable, with the old
-  race. A mod that places its own safetyhook hook on game code has the old race too.
+  race; a thread it cannot open or stop keeps running and is counted in a warning. A mod that places its own safetyhook
+  hook on game code has the old race too. Two hook libraries that stop threads (Kiln and a MinHook-based DLL mod, say)
+  must not install at the same instant from two threads: each could stop the other.
 - Stack arguments, rcx/rdx/r8/r9, xmm0-3 and the flags reach your handler as the game left them. Handlers are called with the
   standard stack alignment.
 

@@ -12,10 +12,13 @@
 
 #include <intrin.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1409,16 +1412,17 @@ void test_parked_threads() {
         const char* what;
         HANDLE h = nullptr;
     } ps[] = {
+        {park, 0, false, 9, false, 10, "at the function's first byte (stays: it runs the new jump into the chain)"},
         {park, 1, true, 41, false, 42, "after push rbx (offset 1, inside the jmp's rel32)"},
         {jcc, 2, false, 1, false, 2, "before the jne, jne taken (offset 2)"},
         {jcc, 4, false, 0, true, 100, "after the jne (offset 4; the trampoline has it at 8)"},
     };
     bool parked = true;
     for (P& p : ps) {
-        p.h = park_thread(reinterpret_cast<void*>(p.fn), p.at, p.fn == park, p.rcx, p.zf);
+        p.h = park_thread(reinterpret_cast<void*>(p.fn), p.at, p.pushed, p.rcx, p.zf);
         parked = parked && p.h;
     }
-    check(parked, "three threads parked inside the first bytes of two functions");
+    check(parked, "four threads parked at or inside the first bytes of two functions");
     if (!parked) {
         for (P& p : ps)
             if (p.h) TerminateThread(p.h, 1), CloseHandle(p.h);
@@ -1439,9 +1443,10 @@ void test_parked_threads() {
         c.ContextFlags = CONTEXT_CONTROL;
         const bool got = GetThreadContext(p.h, &c);
         const bool inside = got && c.Rip >= p.fn + 1 && c.Rip < p.fn + 16;
-        check(got && !inside, (std::string("parked thread left the replaced bytes: ") + p.what).c_str(),
+        const bool kept = p.at != 0 || (got && c.Rip == p.fn);  // a thread at the first byte is left where it is
+        check(got && !inside && kept, (std::string("parked thread left the replaced bytes: ") + p.what).c_str(),
               got ? "rip " + std::to_string(c.Rip - p.fn) + " bytes from the function" : "no context");
-        moved = moved && got && !inside;
+        moved = moved && got && !inside && kept;
     }
     if (!moved) {  // resuming a thread in the middle of the jump would take the whole test down
         for (P& p : ps) TerminateThread(p.h, 1), CloseHandle(p.h);
@@ -1457,7 +1462,8 @@ void test_parked_threads() {
         CloseHandle(p.h);
     }
     const bool live = game_asm_park(7) == 8 && game_asm_park_jcc(0) == 100 && game_asm_park_jcc(5) == 6;
-    check(live && phits == 1 && jhits == 2, "the detours are live for threads that enter the functions normally",
+    // park: the thread parked at its first byte went through the detour (1) + the call here (1)
+    check(live && phits == 2 && jhits == 2, "the detours are live for threads that enter the functions normally",
           "park hits " + std::to_string(phits.load()) + ", jcc hits " + std::to_string(jhits.load()));
     check(log_has("1 thread(s) were paused inside the first bytes") && log_has("2 thread(s) were paused inside the first bytes"),
           "kiln.log says how many threads were moved");
@@ -1481,7 +1487,7 @@ void test_many_threads_stopped() {
     static auto ih2 = +[](int x) -> int { return io2(x); };
     const auto o = ord(0, "t/idle");
     const size_t lines_before = log_count("hooks: detour on rva");
-    // two first installs in a row: the second reuses the first one's thread handles
+    // two first installs in a row: each lists, stops and resumes all threads again
     bool ok = A->raw_detour(6, reinterpret_cast<uintptr_t>(&game_asm_idle), &o, reinterpret_cast<void*>(ih),
                             reinterpret_cast<void**>(&io), nullptr) == KILN_OK;
     ok = A->raw_detour(6, reinterpret_cast<uintptr_t>(&game_asm_idle2), &o, reinterpret_cast<void*>(ih2),
@@ -1497,15 +1503,19 @@ void test_many_threads_stopped() {
     check(ok && game_asm_idle(1) == 2 && game_asm_idle2(1) == 2, "the detours are in and work");
     check(all, "all 64 threads were resumed (none left stopped)");
     check(log_count("hooks: detour on rva") == lines_before + 2, "kiln.log reports each stop");
+    size_t least = SIZE_MAX;
     {
         std::lock_guard lock(g_log_mutex);
         int shown = 0;
         for (auto it = g_lines.rbegin(); it != g_lines.rend() && shown < 2; ++it)
-            if (it->find("hooks: detour on rva") != std::string::npos) {
+            if (const size_t at = it->find("hooks: detour on rva"); at != std::string::npos) {
                 std::printf("  info: %s\n", it->c_str());
+                const size_t w = it->find(" written with ", at);
+                least = std::min<size_t>(least, w == std::string::npos ? 0 : std::strtoull(it->c_str() + w + 14, nullptr, 10));
                 ++shown;
             }
     }
+    check(least >= 64, "each install listed the 64 waiting threads (and more) as stopped", "least " + std::to_string(least));
     A->revoke_owner(6);
 }
 
