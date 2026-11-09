@@ -2,7 +2,8 @@
 // Early plugins: Kiln plugins (<game>/kiln/plugins/kiln-*.dll) that also export `kiln_plugin_early` run right after the
 // native mods of phase "early": before sigdb and hooks, in safe idle too, still before any game code. For work that
 // must finish before the game reads its data files and needs no hooks, such as EML's pre-game asset patching
-// (gpl/kiln-eml, docs/kiln/eml.md).
+// (gpl/kiln-eml, docs/kiln/eml.md). dev.21: kiln.hooks v2 answers api->service() for them already (verified build or
+// policy any; hooks::serve_early in boot.cpp), for plugins that hook game code while they initialise (kiln-shroudforge).
 //
 // Which DLLs: kiln-*.dll whose PE export directory defines "kiln_plugin_early" (checked through a read-only mapping,
 // so other plugins are not loaded early). Not with kiln.json "plugins": false, play-once no-mods or an invalid profile.

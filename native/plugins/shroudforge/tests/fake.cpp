@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <cstdio>
 #include <cmath>
+#include <cstdint>
 #include "services/kiln_eml.h"
 static void mark(const char* what) {
     wchar_t file[32768]{};
@@ -31,8 +32,58 @@ return 11;
 return 12;
 #endif
  }
-extern "C" __declspec(dllexport) bool KfcRuntimeInitialize() { mark("init"); return true; }
+#if TEST_good_kfc
+// The host interface (docs/kiln/shroudforge-compat.md): what the bundled runtime does with the table the adapter offers.
+struct Host {
+    uint32_t size, version;
+    uint32_t(__cdecl* find_signature)(const char*, const unsigned char*, size_t, uintptr_t*);
+    uint64_t(__cdecl* install_hook)(const char*, uintptr_t, uint32_t, void*, uintptr_t);
+    void(__cdecl* remove_hook)(uint64_t);
+};
+static Host host{};
+static uint64_t handles[3];
+static void logf2(const char* fmt, unsigned long long a, unsigned long long b, unsigned long long c) {
+    char text[128];
+    std::snprintf(text, sizeof text, fmt, a, b, c);
+    mark(text);
+}
+static void __cdecl cb_plain(void* a, void* b) { logf2("cb-plain %llx %llx %llx", (unsigned long long)a, (unsigned long long)b, 0); }
+static void __cdecl cb_context(void* a, void* b) { logf2("cb-context %llx %llx %llx", (unsigned long long)a, (unsigned long long)b, 0); }
+static void __cdecl cb_cursor(void* a, void* b, void* c) { logf2("cb-cursor %llx %llx %llx", (unsigned long long)a, (unsigned long long)b, (unsigned long long)c); }
+extern "C" __declspec(dllexport) bool __cdecl KfcRuntimeSetHost(const Host* offered) {
+    if (GetEnvironmentVariableW(L"KILN_SF_REFUSE_HOST", nullptr, 0)) { mark("set-host-refused"); return false; }
+    if (!offered || offered->size < sizeof(Host) || offered->version != 1) return false;
+    host = *offered;
+    mark("set-host");
+    return true;
+}
+#endif
+extern "C" __declspec(dllexport) bool KfcRuntimeInitialize() {
+    mark("init");
+#if TEST_good_kfc
+    if (host.find_signature) {
+        const unsigned char expected[4] = {0xAA, 0xBB, 0xCC, 0xDD}, wrong[4] = {0xAA, 0xBB, 0xCC, 0xDE};
+        uintptr_t at = 0;
+        const unsigned long long found = host.find_signature("AA BB CC DD EE FF", expected, 4, &at);
+        logf2("find %llx %llx %llx", found, at, 0);
+        logf2("find-mismatch %llx %llx %llx", host.find_signature("AA BB CC DD EE FF", wrong, 4, &at), 0, 0);
+        logf2("find-ambiguous %llx %llx %llx", host.find_signature("11 22 33 44 55 66", nullptr, 0, &at), 0, 0);
+        logf2("find-none %llx %llx %llx", host.find_signature("01 02 03", nullptr, 0, &at), 0, 0);
+        handles[0] = host.install_hook("game_thread", at, 0, reinterpret_cast<void*>(&cb_plain), 0);
+        handles[1] = host.install_hook("world_building_dispatch", at, 1, reinterpret_cast<void*>(&cb_context), 0);
+        handles[2] = host.install_hook("world_cursor", at, 2, reinterpret_cast<void*>(&cb_cursor), 0x270);
+        logf2("installed %llx %llx %llx", handles[0] != 0, handles[1] != 0, handles[2] != 0);
+    }
+#endif
+    return true;
+}
 extern "C" __declspec(dllexport) void KfcRuntimeTick() { mark("tick"); }
-extern "C" __declspec(dllexport) void KfcRuntimeShutdown() { mark("shutdown"); }
+extern "C" __declspec(dllexport) void KfcRuntimeShutdown() {
+    mark("shutdown");
+#if TEST_good_kfc
+    if (host.remove_hook)
+        for (int i = 2; i >= 0; --i) if (handles[i]) { host.remove_hook(handles[i]); mark("removed"); }
+#endif
+}
 extern "C" __declspec(dllexport) void KfcRuntimeStatus(char* p, size_t n) { if (n) { p[0] = 'x'; if (n > 1) p[1] = 0; } }
 #endif

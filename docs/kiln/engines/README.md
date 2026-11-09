@@ -145,6 +145,9 @@ hook keeps working.
 
 When a closed-source DLL is the other engine, the overlap report and `[late]` (see [Closed-source DLL
 mods](#closed-source-dll-mods)) tell you which one hooked first and let you swap the order.
+ShroudForge's native runtime (its six engine hooks, named by a legacy game profile) is hosted the same way: Kiln finds the
+places in the exe file's bytes and places them as mid links, so a DLL that hooked one first (XHL, a closed mod) no longer
+switches the runtime off ([../shroudforge-compat.md](../shroudforge-compat.md#engine-hooks-through-kilnhooks)).
 
 What can still clash is **code patches**: two engines changing the same bytes in place, not a hook. Enshwick compares
 the bytes before it patches and skips a patch when Kiln got there first ([enshwick.md](enshwick.md#hooks-next-to-kiln)).

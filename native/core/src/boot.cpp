@@ -213,6 +213,9 @@ void boot() {
     compat::apply_early();  // rules that switch a listed mod off: before anything reads the profile
     native_mods::discover(verified);
     native_mods::run_early();
+    // kiln.hooks for early plugins that hook game code (kiln-shroudforge's native runtime does it while it initialises);
+    // taken away again below when this start is safe idle.
+    const bool early_hooks = (verified || config().policy_any) && hooks::serve_early();
     early_plugins::run();  // kiln/plugins/kiln-*.dll exporting kiln_plugin_early (EML's pre-game patching)
 
     const auto definitions = paths().sigdb / to_wide(std::string(side_name(side)) + ".json");  // + <side>.d/*.json
@@ -241,6 +244,7 @@ void boot() {
         }
     }
     f.hooks = hooks;
+    if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());

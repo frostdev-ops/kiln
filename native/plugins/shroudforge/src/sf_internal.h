@@ -26,4 +26,9 @@ std::filesystem::path sf_directory(const std::filesystem::path& root, const char
 void start_helper_processes(const std::filesystem::path& root, bool server);
 void stop_helper_processes();
 
+// Engine hooks through kiln.hooks (host_hooks.cpp, kfc_host.h): the table kfc-runtime.dll accepts through
+// KfcRuntimeSetHost, or null when kiln.hooks v2 is not available to this plugin.
+struct KfcHost;
+const KfcHost* host_table(const KilnApi* api, KilnOwner owner);
+
 }  // namespace ksf

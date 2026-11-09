@@ -41,7 +41,7 @@ observations below; neither is a client rendering or player-interaction test.
 | Proxy name | Both own `dinput8.dll`. SF's `dinput8.dll` is only an alternative bootstrap plus the DirectInput provider host for SF's DLL Manager. SF also starts through `dbghelp.dll` → `winmm.dll`. | Kiln keeps `dinput8.dll`. SF's `dinput8.dll` goes to the backup, unchained. `dbghelp.dll`, `winmm.dll` and `shroudforge/` **stay** (installer change: agent `detect`, see section 6). |
 | Entry point | Both patch the exe's entry. | Compatible by design. Whoever patches second saves the first patch as "original" and jumps to it (LIFO). Kiln's proxy installs its gate after its chain. When kiln-shroudforge hosts SF there is only one gate (Kiln's), and SF's preparation runs inside Kiln's `on_ready`. |
 | Double start | SF's `dbghelp.dll` starts SF on Windows (and under Wine with `dbghelp=n`). | kiln-shroudforge looks for a module exporting `ShroudforgeStop` in the process and **steps aside** ("self-hosted"). |
-| Code hooks | SF: none on KFC4 builds. Kiln: many. | No double hooks. |
+| Code hooks | SF: none on KFC4 builds (a legacy profile names six). Kiln: many. | No double hooks. Where SF has hooks, they go through `kiln.hooks` ("Engine hooks through `kiln.hooks`" below), so another DLL's jump on one of them no longer turns SF's native runtime off. |
 | Shared game state | SF writes ECS components, resources and named services (e.g. `ecs::GameSettings`) from its own thread, with claims and readback. Kiln services write some of the same (e.g. `kiln.settings`). | Last writer wins, as with any two mods. SF restores its baselines when a mod switches off. Documented for players. The lab shows SF's guarded write confirmed next to Kiln's services. |
 | Tick | SF: its own 16 ms thread. Kiln: the server-world tick. | Kept separate. SF's timing stays exactly as in ShroudForge, so its mods behave the same. |
 | UI / input | SF's windows are separate processes (`shroudforge.exe`). Its keybinds use its hotkeys module. | Client only. kiln-shroudforge starts the Modloader and World Editor windows like SF does, and they respect SF's module switches. No in-process overlay conflict. |
@@ -283,6 +283,36 @@ type lookup and a general texture decoder are outside those helpers; PNG/RGBA8 a
 `Kiln.Settings` covers world settings. Entity scale is not
 provided by these APIs. The ports use Kiln's own type data and MIT helpers. The hosted plugin's lab evidence is separate
 from C# unit tests, and neither proves a client drew a result or accepted input.
+
+### Engine hooks through `kiln.hooks`
+
+SF's native runtime (`kfc-runtime.dll`) can hook up to six places in the game's code. Alone it scans the live code for
+each place and writes a jump only when the live bytes are still the profile's originals. A DLL that hooked a place first
+(XHL, a closed mod) made it refuse, and with it the whole native runtime. Since dev.21 the bundled runtime has an optional
+export, `KfcRuntimeSetHost(table)` (`modules/game-runtime/native/abi/runtime_host.h` in the fork; the ABI stays 12). The
+adapter (`src/host_hooks.cpp`, `src/kfc_host.h`) calls it before `KfcRuntimeInitialize` and offers:
+
+| Function | What Kiln does |
+|---|---|
+| `find_signature(signature, expected, n, &address)` | `kiln.hooks` `scan`: sigdb's scanner over the **exe file's** code, so another module's jump hides nothing. The profile's original bytes must match the file's bytes there. |
+| `install_hook(name, target, kind, callback, extra)` | a `kiln.hooks` v2 **mid link** at the place, owner `early:kiln-shroudforge.dll`, label `shroudforge/<name>`. The callback gets the registers of its kind: plain `(r15, rbp)`, context `(rcx, 0)`, cursor `(r14 + extra, r13, rbp)`. Kiln relocates the displaced instructions and chains over a foreign jump. |
+| `remove_hook(handle)` | revoke (`KfcRuntimeShutdown`). |
+
+Without the export (the player's installed ShroudForge, an older bundle), without `kiln.hooks` v2 (safe idle), or with
+`KILN_SF_ENGINE_HOOKS=self`, the runtime hooks the game itself as before. A self-hosted ShroudForge (its own `winmm.dll`
+bootstrap) never calls the export, so its behaviour is unchanged. `kiln/state/shroudforge.json` has `engineHooks`:
+`kiln.hooks` or `self`, and kiln.log says which and why.
+
+The six places are `game_thread`, `entity_manager`, `world_prop_update`, `world_actor_placement`,
+`world_building_dispatch` and `world_cursor`. They are named by a **legacy** game profile (`ecsLayout` + `hooks`); on
+current builds no shipped profile has them (see section 1), so today the runtime installs none and the host interface
+costs nothing. It matters on a build with such a profile, and for any profile that names hooks later. The core change
+behind it: `kiln.hooks` is served to early plugins ([services/hooks.md](services/hooks.md#early-plugins)), because the
+runtime installs its hooks while it initialises, in the early phase.
+
+Tests: `native/plugins/shroudforge/tests/run.py` (fake runtime and fake `kiln.hooks`: offer, refusal, old runtime,
+switch), `native/plugins/shroudforge/tests/test-host-chain.sh` (the adapter against the real registry with a foreign
+`jmp` on one place) and, in the fork, `kfc-runtime-test-engine-hooks` (the installer with and without a host).
 
 ## dev.20 mixed-server evidence
 

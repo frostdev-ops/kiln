@@ -17,6 +17,12 @@ inline std::vector<chain::TargetInfo> hooked_targets() { return chain::targets()
 // "kiln"). False when the image is unusable or no thread-local slot is left: hook with safetyhook then, or not at all.
 bool ensure_ready();
 
+// Early plugins (kiln_plugin_early) run before the services start. serve_early() makes kiln.hooks answer api->service() for
+// them already (the registry only; init() still runs at svc::init_all). withdraw_early() undoes that when the start turns
+// out to be safe idle. Links early plugins placed stay either way.
+bool serve_early();
+void withdraw_early();
+
 // Boot end, after every plugin and native mod started: checks nothing hooked over Kiln's detours, writes
 // <kiln>/state/hooks.json (phase "boot") and logs the summary. No-op when the service is off (safe idle).
 void boot_complete();

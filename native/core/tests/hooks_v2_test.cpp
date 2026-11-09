@@ -1417,6 +1417,11 @@ int main(int argc, char** argv) {
         std::puts("FAIL kiln.hooks service did not initialise");
         return 1;
     }
+    // dev.21 (WP-F4): early plugins get the service before svc::init_all; safe idle takes it away again
+    g_service->available = false;
+    check(kiln::hooks::serve_early() && g_service->available, "serve_early() makes kiln.hooks available to early plugins");
+    kiln::hooks::withdraw_early();
+    check(!g_service->available, "withdraw_early() takes it away again (safe idle)");
     g_service->available = true;
     check(kiln::hooks::ensure_ready() && chain::ready(), "ensure_ready() is idempotent (core code that hooks before the services start)");
     A = static_cast<const KilnHooksApi*>(g_service->table);
