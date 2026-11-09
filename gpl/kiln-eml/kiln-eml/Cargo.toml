@@ -19,8 +19,15 @@ crate-type = ["cdylib", "rlib"]
 name = "kiln-eml-run"
 path = "src/kiln_eml_run.rs"
 
+[[bin]]
+name = "kiln-portraits"
+path = "src/kiln_portraits.rs"
+
 [dependencies]
 mod-loader.workspace = true
+kfc.workspace = true
+half.workspace = true
+png = "0.17.16"
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -32,6 +39,8 @@ zip = "4.2.0"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
     "Win32_System_LibraryLoader",
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",

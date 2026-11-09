@@ -124,6 +124,55 @@ public sealed class RefKindTests
     }
 
     [Fact]
+    public async Task The_windows_abilities_and_effects_a_button_or_a_key_names()
+    {
+        var d = await Run(A, Mod("""
+            Blocks.Define("settings", new WindowBlock { Title = "S", Rows = [new TextRow { Text = "x" }] });
+            Blocks.Define("hit", new EffectBlock());
+            Blocks.Define("nova", new AbilityBlock { Name = "Nova", OnCast = [new EffectBlock()] });
+            Blocks.Define("main", new WindowBlock { Title = "M", Rows =
+            [
+                new ButtonRow { Label = "Go", Does = new UiAction { OpenWindow = "settings" } },
+                new ButtonRow { Label = "Cast", Does = new UiAction { CastAbility = "nova" } },
+                new ButtonRow { Label = "Hit", Does = new UiAction { ApplyEffect = "hit" } },
+                new ButtonRow { Label = "Typo", Does = new UiAction { OpenWindow = "settngs" } },
+                new ButtonRow { Label = "Wrong", Does = new UiAction { CloseWindow = "hit" } },
+            ] });
+            Blocks.Define("key", new KeyBindingBlock { Key = "F8", Does = new UiAction { CastAbility = "no-such-ability" } });
+            Blocks.Define("key2", new KeyBindingBlock { Key = "F9", Does = new UiAction { ApplyEffect = "nofx" } });
+            """));
+        Ids(d, "KILN111", "KILN111", "KILN111", "KILN111");
+        Assert.Contains("settngs", d[0].GetMessage());
+        Assert.Contains("\"hit\" is an effect block, and this takes a window", d[1].GetMessage());
+        Assert.Contains("no-such-ability", d[2].GetMessage());
+        Assert.Contains("nofx", d[3].GetMessage());
+    }
+
+    [Fact]
+    public async Task A_window_is_not_an_item()
+    {
+        var d = await Run(A, Mod("""
+            Blocks.Define("settings", new WindowBlock { Title = "S", Rows = [new TextRow { Text = "x" }] });
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["settings"] = 1 } };
+            """));
+        Ids(d, "KILN111");
+        Assert.Contains("window block", d[0].GetMessage());
+    }
+
+    [Theory]
+    [InlineData("new LootTableBlock { Entries = [new LootEntry { Item = \"Iron_Sword\" }] }")]
+    [InlineData("new RecipeBlock { Output = \"Iron_Sword\" }")]
+    public async Task Non_item_definition_blocks_are_not_recipe_ingredients(string definition)
+    {
+        var d = await Run(A, Mod($$"""
+            Blocks.Define("definition", {{definition}});
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["definition"] = 1 } };
+            """));
+        Ids(d, "KILN111");
+        Assert.Contains("definition", d[0].GetMessage());
+    }
+
+    [Fact]
     public async Task A_game_cue_is_named_by_its_guid_only()
     {
         // SoundId.Named looks a name up in the mod's own cook index: a GameSounds name is no cue there

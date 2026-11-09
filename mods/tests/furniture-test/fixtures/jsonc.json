@@ -1,0 +1,12 @@
+{
+  // A mixed block file accepted by BlockJson must also reach the boot world-table merge.
+  "format": 1,
+  "props": {
+    "jsonc-table": {
+      "name": "JSONC Table /* literal } ] */",
+      "visual": { "like": "Prop_Decoration_Comfort1_T0_Table_Medium", },
+      "provides": true, /* } ] , */
+    },
+  },
+  "items": {},
+}

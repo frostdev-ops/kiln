@@ -1,0 +1,24 @@
+{
+  // Cosmetics as data. "look" is a game item's look ("like"), a wornLooks block by name, or a model of your own
+  // ({ "model": "models/hat.gltf", "attach": "Head", "fits": "hat" }), which `kiln cook` finds here.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "wornLooks": {
+    "tricorn-look": { "like": "Vanity_TX_Helmet_05_tricorn" }
+  },
+  "cosmetics": {
+    "dyed-tricorn": {
+      "name": "Dyed Tricorn",
+      "slot": "head",
+      "look": "tricorn-look",
+      "dyes": true,
+      "recipe": { "needs": { "Material_T1_Plant_Fibre": 6 } }
+    }
+  },
+  "hair": {
+    "short-crop": { "name": "Short Crop", "look": { "like": "VC_Hair_04_02_frenchcrop" } }
+  },
+  "beards": {
+    "trim": { "name": "Trim", "look": { "like": "VC_Beard12_stubble" } }
+  }
+}

@@ -2,6 +2,9 @@
 
 Status: research, 2026-11-07. No code was changed for this document.
 
+This is a historical research snapshot. For current framework support and limitations, use the
+[engine compatibility guides](engines/README.md) and [EMF parity report](emf-parity.md).
+
 The user's direction: "we are the 'universal' mod loader and launcher, we need to support all the engines and runtimes."
 The bar for each framework: **Kiln loads its mods through a Kiln plugin, and supports everything its API supports.**
 Its API is read from source, and its functionality is ported into Kiln's own API as well.

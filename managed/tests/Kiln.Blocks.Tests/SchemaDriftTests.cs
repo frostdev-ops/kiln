@@ -19,6 +19,7 @@ public sealed class SchemaDriftTests
     [
         // PropBlock.Collider is inherited, but a station and furniture keep the collision they start from: the compiler refuses it (world-blocks.md), so the schema leaves it out
         "stations.collider", "containers.collider", "doors.collider", "beds.collider", "seats.collider",
+        "stations.colliders", "containers.colliders", "doors.colliders", "beds.colliders", "seats.colliders",
     ];
 
     private static string Repo([CallerFilePath] string self = "")

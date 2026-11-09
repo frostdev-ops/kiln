@@ -1,0 +1,14 @@
+<Project>
+  <!-- Sample: menu blocks (docs/kiln/modding/world-blocks.md). A station opens another station's crafting menu, which then lists the station's recipes
+       among its own. MenuBlock has only Like today: tabs and labels of its own need a client to verify and wait. blocks/twins.json is the same in data. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>menu-blocks</KilnModId>
+    <KilnModName>Menu blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A forge that opens the drying rack's menu, and a menu part two stations share. blocks/twins.json is the same in data.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

@@ -358,6 +358,80 @@ public static unsafe class GameSystems
         return n;
     }
 
+    /// <summary>Runs callbacks immediately before and after a game's system update, once per slice. Callbacks run
+    /// on game worker threads: use atomics for shared state and Scheduler.Post for tick-thread APIs. Dispose on the
+    /// tick thread. The calling mod's hooks are drained and removed when it unloads.</summary>
+    [TickThreadOnly]
+    public static IDisposable Hook(string name, Action? before = null, Action? after = null)
+    {
+        Services.RequireTickThread("GameSystems.Hook");
+        if (ModContext.CurrentMod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+        if (before is null && after is null) throw new ArgumentException("supply a before or after callback");
+        var system = Find(name) ?? throw new ArgumentException($"no unique system named '{name}'", nameof(name));
+        var table = Table;
+        if (table == null || table->SystemHook == null || table->SystemUnhook == null)
+            throw new NotSupportedException("system hooks are unavailable on this build");
+        TrackOwner();
+        var hook = new HookSubscription(before, after, ModContext.CurrentMod);
+        hook.Root = GCHandle.Alloc(hook);
+        ulong handle = 0;
+        var result = table->SystemHook(CallerOwner, (uint)system.Index, &BeforeHook, &AfterHook,
+            (void*)GCHandle.ToIntPtr(hook.Root), &handle);
+        if (result != 0)
+        {
+            hook.Root.Free();
+            throw new NotSupportedException($"cannot hook system '{name}' ({result})");
+        }
+        hook.Handle = handle;
+        if (hook.Mod is { } mod) mod.Retiring += hook.Dispose;
+        return hook;
+    }
+
+    private sealed class HookSubscription(Action? before, Action? after, ModContext? mod) : IDisposable
+    {
+        internal readonly Action? Before = before, After = after;
+        internal readonly ModContext? Mod = mod;
+        internal GCHandle Root;
+        internal ulong Handle;
+        internal bool Failed;
+        public void Dispose()
+        {
+            if (Handle == 0) return;
+            Services.RequireTickThread("GameSystems.Hook.Dispose");
+            var table = Table;
+            var result = table == null ? 3 : table->SystemUnhook(Handle);
+            if (result is not (0 or 2)) throw new InvalidOperationException($"cannot remove system hook ({result})");
+            Handle = 0;
+            if (Mod is { } owner) owner.Retiring -= Dispose;
+            if (Root.IsAllocated) Root.Free();
+        }
+        internal void Invoke(bool after)
+        {
+            if (Failed || (Mod is { Alive: false })) return;
+            var previous = ModContext.CurrentMod;
+            try
+            {
+                ModContext.CurrentMod = Mod;
+                (after ? After : Before)?.Invoke();
+            }
+            catch (Exception error)
+            {
+                Failed = true;
+                Mod?.Log.Error($"system hook disabled: {error}");
+            }
+            finally { ModContext.CurrentMod = previous; }
+        }
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void BeforeHook(void* ctx, void* user) => HookCallback(user, false);
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void AfterHook(void* ctx, void* user) => HookCallback(user, true);
+    private static void HookCallback(void* user, bool after)
+    {
+        try { if (GCHandle.FromIntPtr((nint)user).Target is HookSubscription hook) hook.Invoke(after); }
+        catch { /* never unwind through the game */ }
+    }
+
     /// <summary>On: starts the profiler from zero. Off: stops it, keeping the numbers.</summary>
     [TickThreadOnly]
     public static void Profile(bool on)
@@ -730,6 +804,9 @@ internal static unsafe class TypesNative
         public delegate* unmanaged[Cdecl]<nuint, uint, delegate* unmanaged[Cdecl]<void*, uint, void*, void>, void*, int> EventEach;
         public delegate* unmanaged[Cdecl]<nuint, uint, void*, uint, int> EventPost;
         public delegate* unmanaged[Cdecl]<ulong, int> SystemReleaseOwner;
+        public delegate* unmanaged[Cdecl]<ulong, uint, delegate* unmanaged[Cdecl]<void*, void*, void>,
+            delegate* unmanaged[Cdecl]<void*, void*, void>, void*, ulong*, int> SystemHook;
+        public delegate* unmanaged[Cdecl]<ulong, int> SystemUnhook;
     }
 }
 

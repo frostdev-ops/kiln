@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <sstream>
 
@@ -34,6 +35,12 @@ int main(int argc, char** argv) {
         else if (a == "--names") names = argv[++i];
         else if (a == "--out") out = argv[++i];
         else if (a == "--mod") mod_dirs.push_back(argv[++i]);
+        else if (a == "--parse-blocks") {
+            const std::string text((std::istreambuf_iterator<char>(std::cin)), std::istreambuf_iterator<char>());
+            const ojson parsed = parse_blocks_json(text);
+            std::printf("%s\n", ojson{{"valid", !parsed.is_discarded()}, {"value", parsed.is_discarded() ? ojson(nullptr) : parsed}}.dump().c_str());
+            return 0;
+        }
         else if (a == "--hash") {
             Guid ns;
             parse_guid("928632ef-3270-4bc2-8657-0b6bcdeb2976", &ns);

@@ -1,5 +1,5 @@
 /* This file is EMF's public C API header, copied unchanged (below the line) from EMF (Enshrouded Modding Framework)
- * 0.5.1, sdk/include/emf/emf_api.h, for kiln-emf.dll (native/plugins/emf), which builds an EmfApi v26 table on Kiln's
+ * 0.6.0, sdk/include/emf/emf_api.h, for kiln-emf.dll (native/plugins/emf), which builds an EmfApi v27 table on Kiln's
  * services so unmodified EMF mods load on Kiln. Also in licenses/EMF-LICENSE.txt.
  *
  * MIT License
@@ -24,7 +24,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  * ------------------------------------------------------------------------------------------------------------------ */
-/* EMF (Enshrouded Modding Framework) C API, version 26 (see EMF_API_VERSION).
+/* EMF (Enshrouded Modding Framework) C API, version 27 (see EMF_API_VERSION).
  *
  * A mod is a DLL in <game>/emf/mods/ that exports:
  *     extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api);
@@ -52,7 +52,7 @@
 extern "C" {
 #endif
 
-#define EMF_API_VERSION 26
+#define EMF_API_VERSION 27
 
 /* World kinds (the byte at the entity storage + 8: world+0xE15DC8 on build 1273043, world+0xE179C8 on 1283531). */
 #define EMF_WORLD_SERVER 0
@@ -418,6 +418,35 @@ typedef struct EmfWindowDef {
     EmfUiCallback cb;          /* window_open only; window_update keeps the first */
     void* user;
 } EmfWindowDef;
+
+/* v27 mod messages: a mod on a player's game and the same mod on the server send each other messages on named
+ * channels (reference.md "v27"). In a game the player hosts (or an offline one) they go in process. */
+#define EMF_NET_TO_SERVER   0x01u  /* players' games send it, the server receives it */
+#define EMF_NET_TO_PLAYERS  0x02u  /* the server sends it, players' games receive it */
+#define EMF_NET_MAX_MESSAGE 16384u /* bytes; a channel's default limit is 4096 */
+typedef struct EmfNetFrom {
+    uint32_t size;          /* sizeof(EmfNetFrom) of the core */
+    uint32_t player;        /* server: the sender's player entity in the server world; a player's game: 0 */
+    uint64_t account;       /* server: the sender's account from the server's own records (never from the message);
+                               0 in process */
+    uint32_t peer_version;  /* the channel version the other side has */
+    uint8_t admin;          /* server: 1 = the host's own game (or a [chat] admin) */
+    uint8_t local;          /* 1 = the same process (the host's own game, an offline game) */
+    uint8_t pad[2];
+} EmfNetFrom;
+typedef void (*EmfNetCallback)(EmfWorld* world, const EmfNetFrom* from, const void* data, uint32_t size, void* user);
+typedef struct EmfNetChannel {
+    uint32_t size;             /* sizeof(EmfNetChannel) */
+    uint32_t version;          /* 1..65535: nothing is delivered between sides with different versions */
+    const char* name;          /* "<your mod id>/<name>" (mod id: your DLL's file name); 1-48 and 1-32 of a-z 0-9 _ . - */
+    uint32_t flags;            /* EMF_NET_TO_SERVER | EMF_NET_TO_PLAYERS */
+    uint32_t max_size;         /* 1..EMF_NET_MAX_MESSAGE; 0 = 4096 */
+    uint32_t per_10s;          /* messages one sender may send in 10 s; 0 = 100 */
+    uint32_t pad;
+    EmfNetCallback on_server;  /* the server world's thread, after its step (components, spawn allowed) */
+    EmfNetCallback on_player;  /* a player's game's client world thread, after its step */
+    void* user;
+} EmfNetChannel;
 
 /* v13 mod_info: what the loader found */
 #define EMF_MOD_LOADED 0u
@@ -942,6 +971,21 @@ typedef struct EmfApi {
      * offer again: your own dropped offer is taken back when its parts are still EMF's, without being refused for "the
      * game's own offer". Any thread. */
     bool (*offer_active)(EmfWorld* world, uint32_t entity);
+
+    /* ---- v27: mod messages (EmfNetChannel above; reference.md "v27") ---- */
+    /* A channel of your mod; false (logged) for a bad definition or a name that is taken. Any thread. */
+    bool (*net_channel)(const EmfNetChannel* def);
+    /* A player's game -> the server. True: on its way. False (logged once per reason): no server has welcomed this game
+     * yet, too large, over the rate, a channel that does not go to the server. Any thread. */
+    bool (*net_to_server)(const char* channel, const void* data, uint32_t size);
+    /* The server -> one player's game (`player`: its entity in the server world). False when that game has not said
+     * hello with this channel. From a world callback on the server world. */
+    bool (*net_to_player)(EmfWorld* world, uint32_t player, const char* channel, const void* data, uint32_t size);
+    /* The server -> every player whose game has the channel (the host's own game included): how many. */
+    uint32_t (*net_to_players)(EmfWorld* world, const char* channel, const void* data, uint32_t size);
+    /* The channel version a player's game has (server: world, player), or the server's (a player's game: NULL, 0); 0 =
+     * none. */
+    uint32_t (*net_peer)(EmfWorld* world, uint32_t player, const char* channel);
 } EmfApi;
 
 typedef bool (*EmfModLoadFn)(const EmfApi* api);

@@ -14,6 +14,7 @@ public class AssetsBlobTests : KilnTest
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RevertFn(ulong owner);
 
     private readonly nint _table;
+    private readonly FakeServiceRegistration _service;
     private readonly List<Delegate> _keep = [];
     private readonly List<ulong> _reverted = [];
     private readonly List<(ulong Owner, uint Size)> _native = [];
@@ -43,7 +44,7 @@ public class AssetsBlobTests : KilnTest
         }));
         Bind("BlobRemove", new RemoveFn((owner, hash) => { _native.RemoveAll(n => n.Owner == owner && n.Size == (uint)Marshal.ReadInt32(hash)); return 0; }));
         Bind("RevertOwner", new RevertFn(owner => { _reverted.Add(owner); _native.RemoveAll(n => n.Owner == owner); }));
-        Backend.Tables["kiln.assets"] = _table;
+        _service = new(Backend.Tables, "kiln.assets", _table);
         typeof(Assets).GetField("_table", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.SetValue(null, null);
     }
 
@@ -62,13 +63,32 @@ public class AssetsBlobTests : KilnTest
 
     public override void Dispose()
     {
-        typeof(Assets).GetField("_table", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.SetValue(null, null);
-        Backend.Tables.Clear();
-        Marshal.FreeHGlobal(_table);
-        base.Dispose();
+        try { base.Dispose(); }
+        finally
+        {
+            typeof(Assets).GetField("_table", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.SetValue(null, null);
+            _service.Dispose();
+            Marshal.FreeHGlobal(_table);
+            GC.KeepAlive(_keep);
+        }
     }
 
     private static byte[] Bytes(int n, byte seed) => Enumerable.Range(0, n).Select(i => (byte)(i + seed)).ToArray();
+
+    [Fact]
+    public void Fixture_teardown_reverts_the_mods_native_blobs()
+    {
+        AssetsBlobTests fixture;
+        ulong owner;
+        using (fixture = new AssetsBlobTests())
+        {
+            var mod = fixture.NewMod("fixture-blobs");
+            owner = mod.Owner;
+            As(mod, () => Assets.AddBlob(Bytes(8, 1)));
+        }
+        Assert.Equal([owner], fixture._reverted);
+        Assert.Empty(fixture._native);
+    }
 
     [Fact]
     public void ListsWhatTheModAddedAndOverrode()

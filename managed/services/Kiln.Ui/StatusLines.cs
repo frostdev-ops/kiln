@@ -175,6 +175,8 @@ public static class StatusLines
         var modId = owner?.Info.Id ?? "kiln";
         lock (Lock)
         {
+            if (owner is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+            Watch(owner);
             id ??= "line" + (_sequence + 1);
             if (id.Length > 64) throw new ArgumentException("a status line's id is at most 64 characters", nameof(id));
             var existing = _lines.FirstOrDefault(l => ReferenceEquals(l.Owner, owner) && l.ModId == modId && l.Id == id);
@@ -189,7 +191,6 @@ public static class StatusLines
             var line = new StatusLine(modId, owner, id, source, text, ++_sequence);
             _lines = [.. _lines, line];
             Invalidate();
-            Watch(owner);
             return line;
         }
     }
@@ -207,7 +208,7 @@ public static class StatusLines
     private static void Watch(ModContext? mod)
     {
         if (mod is null || !Watched.Add(mod)) return;
-        mod.Retiring += () =>
+        Action retire = () =>
         {
             lock (Lock)
             {
@@ -216,6 +217,13 @@ public static class StatusLines
                 Invalidate();
             }
         };
+        mod.Retiring += retire;
+        if (!mod.Alive)
+        {
+            mod.Retiring -= retire;
+            Watched.Remove(mod);
+            throw new InvalidOperationException("the mod is unloading");
+        }
     }
 
     internal static IReadOnlyList<string> Read(StatusLine line)

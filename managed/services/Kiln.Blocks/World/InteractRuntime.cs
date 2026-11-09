@@ -4,6 +4,7 @@
 //    handles it, and a cancel turns it into the game's own DeclinedInteraction, so the host never accepts and the guest's sequence ends (docs/re/gameplay.md 4).
 //  - effects once the game accepted: InteractionResultEvent, the next step's Pre.
 //  - beds: the last spawn bed a player slept in is where a respawn's teleport goes (TeleportEvent), and a night ends when every player in the world sleeps in a bed that says so.
+//  - doors that say Sides: a player on the other side of the door is declined as a failed check is.
 // Nothing subscribes until a block needs it, and only on the server world. A player's action events (Kiln.Players) see the interaction sequence start, but the accept event is
 // already sent by then, so they can't refuse it: the checks are on the accept itself.
 using System.Text.Json.Nodes;
@@ -14,10 +15,12 @@ internal static class InteractRuntime
 {
     internal sealed record Entry(string Mod, string Block, Guid? Effects, Guid? Refused, PlayerStateId[]? When, PlayerStateId[]? Unless, Func<Player, bool>? If);
     private sealed record Bed(string Mod, string Block, bool SpawnPoint, bool SkipsNight);
+    private sealed record Door(string Mod, string Block, DoorSide Sides);
 
     private static readonly object Gate = new();
     private static readonly Dictionary<Guid, Entry> Entries = new();
     private static readonly Dictionary<Guid, Bed> Beds = new();
+    private static readonly Dictionary<Guid, Door> Doors = new();
     private static IDisposable? _tick, _attempts, _results, _teleports;
     private static Dictionary<string, JsonObject>? _spawns;
     private static string? _spawnFile;
@@ -45,6 +48,27 @@ internal static class InteractRuntime
         }
     }
 
+    /// <summary>A door that can be used from one side only: a player on the other is declined.</summary>
+    public static void AddDoor(ModBlocks mod, Guid template, string block, DoorSide sides)
+    {
+        lock (Gate)
+        {
+            Doors[template] = new Door(mod.Id, block, sides);
+            _tick ??= BlocksBridge.AddTick("kiln blocks interactions", OnTick);
+        }
+    }
+
+    /// <summary>A mod makes its blocks again or goes: its interactions and beds say nothing until they are made again.</summary>
+    internal static void Forget(string mod)
+    {
+        lock (Gate)
+        {
+            foreach (var k in Entries.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) Entries.Remove(k);
+            foreach (var k in Beds.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) Beds.Remove(k);
+            foreach (var k in Doors.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) Doors.Remove(k);
+        }
+    }
+
     /// <summary>The checks and effects for a template, for tests.</summary>
     internal static Entry? EntryOf(Guid template)
     {
@@ -65,7 +89,7 @@ internal static class InteractRuntime
     {
         lock (Gate)
         {
-            if (Entries.Values.Any(e => e.When != null || e.Unless != null || e.If != null)) _attempts ??= Events.On<InteractEvent>(OnAttempt);
+            if (Doors.Count > 0 || Entries.Values.Any(e => e.When != null || e.Unless != null || e.If != null)) _attempts ??= Events.On<InteractEvent>(OnAttempt);
             if (Entries.Values.Any(e => e.Effects != null) || Beds.Values.Any(b => b.SpawnPoint)) _results ??= Events.On<InteractionResultEvent>(OnResult);
             if (Beds.Values.Any(b => b.SpawnPoint)) _teleports ??= Events.On<TeleportEvent>(OnTeleport);
         }
@@ -73,12 +97,29 @@ internal static class InteractRuntime
 
     // ---- checks and effects --------------------------------------------------------------------------------------------
 
-    /// <summary>Whether a guest may use a thing of this template now. Null: Kiln has nothing to say about it.</summary>
-    internal static bool? Allows(EntityId guest, Guid template)
+    /// <summary>Which side of a door a guest stands on: the door's +z is its front (the side the game's directional interaction takes for its front way), turned about the vertical by its yaw.
+    /// Null: either is unknown (the door or the guest is gone).</summary>
+    internal static DoorSide? SideOf(EntityId host, EntityId guest)
+    {
+        if (Spawn.Inspect(host) is not { } h || World.Position(guest) is not { } g) return null;
+        var yaw = h.YawDegrees * Math.PI / 180;
+        var along = (g.X - h.Position.X) * Math.Sin(yaw) + (g.Z - h.Position.Z) * Math.Cos(yaw);
+        return along >= 0 ? DoorSide.Front : DoorSide.Back;
+    }
+
+    /// <summary>Whether a guest may use a thing of this template now. Null: Kiln has nothing to say about it. <paramref name="host"/>: the thing itself, for the checks that need where it stands.</summary>
+    internal static bool? Allows(EntityId guest, Guid template, EntityId host = default)
     {
         Entry? e;
-        lock (Gate) e = Entries.GetValueOrDefault(template);
-        if (e == null || (e.When == null && e.Unless == null && e.If == null)) return null;
+        Door? door;
+        lock (Gate)
+        {
+            e = Entries.GetValueOrDefault(template);
+            door = Doors.GetValueOrDefault(template);
+        }
+        // a guest the door can't place (no position) is let through: the game's own checks decide
+        if (door is { Sides: not DoorSide.Both } && !host.IsNone && SideOf(host, guest) is { } side && side != door.Sides) return false;
+        if (e == null || (e.When == null && e.Unless == null && e.If == null)) return door is { Sides: not DoorSide.Both } ? true : null;
         if (e.When is { } when && !when.Any(s => PlayerStates.Is(guest, s))) return false;
         if (e.Unless is { } unless && unless.Any(s => PlayerStates.Is(guest, s))) return false;
         if (e.If is { } check)
@@ -103,7 +144,7 @@ internal static class InteractRuntime
     private static void OnAttempt(InteractEvent e)
     {
         if (e.Canceled || TemplateOf(e.Host) is not { } template) return;
-        if (Allows(e.Guest, template) != false || !IsPlayer(e.Guest)) return;
+        if (Allows(e.Guest, template, e.Host) != false || !IsPlayer(e.Guest)) return;
         e.Cancel();
         Entry? entry;
         lock (Gate) entry = Entries.GetValueOrDefault(template);

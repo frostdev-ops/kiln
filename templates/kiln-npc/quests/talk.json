@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "dialogues": {
+    "angler-talk": {
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": { "en": "Fish don't bite in the Shroud. I trade instead." },
+          "options": [ { "text": { "en": "Who are you?" }, "reply": { "en": "Just an angler with no river." }, "once": true } ]
+        }
+      }
+    },
+    "peddler-talk": {
+      "start": "hello",
+      "nodes": {
+        "hello": { "text": { "en": "Twigs, friend? Fibre is all I ask." } }
+      }
+    }
+  }
+}

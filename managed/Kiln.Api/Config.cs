@@ -923,6 +923,9 @@ public static partial class Config
             _tick = null;
             _watcher?.Dispose();
             _watcher = null;
+            _nextPoll = 0;
+            _signalStep = 0;
+            _signal = false;
         }
         WorldConfigs.Reset();
     }

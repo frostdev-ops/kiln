@@ -61,3 +61,26 @@ resource snapshots restore the header exactly and retain their resource prefix; 
 Copy the eight crates from the new tag over `eml/`, re-apply the listed changes (search `kiln-eml:` in the old copy),
 update the tag and commit here, in `NOTICE.txt` and in `kiln-eml/src/lib.rs` (`EML_VERSION`), run
 `build.sh --host --test` and the probe mod (docs/kiln/eml.md, "Tests").
+
+## EMF creature portraits
+
+The separate GPL component also provides `kiln_eml_portraits`: bounded UTF-8 JSON in/out, called by kiln-emf before
+EMF mod DLLs enter. It uses the offline CPU renderer from EMF 0.6.0, commit
+`bd6d90644785df80e4a61cb6ec55f9dab8e16b22`, under its MIT copyright notice (NOTICE.txt). The reader/decoder stays in
+this GPL directory. It reads game archives and writes only the requested portrait cache, never game data.
+
+`cargo build --release -p kiln-eml --bin kiln-portraits` builds the same renderer as an offline tool:
+`kiln-portraits request.json`. The JSON contains `game_dir`, `file_name` (`enshrouded` or `enshrouded_server`),
+`cache_dir`, and `items` with `key`, one of `template`/`model`, `frames` and `size`. Keys follow EMF's image cache
+rules. There are at most 32 items, 32 Mi output pixels (33,554,432), 64 frames per item and 512 pixels per side. A cache
+lock serializes processes. Symlinks/reparse points are refused in the cache and its portrait folders. New frames
+and their index replace one whole folder; failures preserve the prior drawing.
+
+Cache ancestors must also be regular directories. On Wine/Proton, an ancestor may instead be an OS volume boundary:
+Wine reports Unix mounts and its Z: root as mount-point reparse entries even though they do not redirect paths.
+The renderer accepts these only when Wine is present, the entry has the mount-point tag but no reparse data, and
+the volume API confirms that exact directory as the volume root. Data-backed junctions and symbolic links remain
+refused, as do links inside the cache; the cache itself must be a regular directory.
+
+Focused checks: `cargo test --release -p kiln-eml --lib portrait`. Optional read-only archive tests take
+`EMF_PORTRAIT_GAME=<game folder>` and `EMF_PORTRAIT_OUT=<output folder>`. Keep their output outside the game.

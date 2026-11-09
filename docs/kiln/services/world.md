@@ -148,3 +148,12 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
   in the game log with Checkpoint.
 - A dead player (respawn screen) is refused with "the entity is dead".
 - `ToEntity(player, otherPlayer)` lands next to the other player; `ToSpawnPoint(player, altar)` on a landing pad.
+
+
+## Programs v2
+
+[Managed ECS programs and system hooks](../modding/ecs-programs.md) describes boot-time declarations and normal
+`OnLoad` callback binding. Native consumers can append-check `write_other`, `unregister_program`, `bind_program`,
+`capabilities`, `program_events` and `program_emit` in the v2 table. Existing v1 fields keep their positions.
+Other-write accessors use the engine's tracker and write flag. Event inputs resolve in event type-index order,
+independent of descriptor list order. Unknown access names refuse a program before engine registration.

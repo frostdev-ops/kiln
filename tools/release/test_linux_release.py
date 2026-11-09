@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -24,6 +25,8 @@ from unittest.mock import patch
 import zipfile
 
 HERE = Path(os.environ.get("KILN_RELEASE_TEST_ROOT", Path(__file__).resolve().parent))
+PUBLIC_CLIENT_ID = "unit-test-registration"
+PUBLIC_REDIRECT_URI = "http://127.0.0.1:8089/callback"
 
 
 def module(name):
@@ -78,6 +81,30 @@ class LinuxReleaseTests(unittest.TestCase):
         p = self.dir / name
         p.write_bytes(b"\x7fELF" + b"\0" * 508)
         return p
+
+    def release_env(self, flag="1", client_id=PUBLIC_CLIENT_ID, redirect_uri=PUBLIC_REDIRECT_URI, base=None):
+        env = dict(os.environ if base is None else base)
+        for key, value in [("KILN_NEXUS_ENABLED", flag), ("KILN_NEXUS_OAUTH_CLIENT_ID", client_id),
+                           ("KILN_NEXUS_OAUTH_REDIRECT_URI", redirect_uri)]:
+            env.pop(key, None)
+            if value is not None:
+                env[key] = value
+        return env
+
+    def selftest_report(self, distribution="nexus", enabled=True):
+        return {"ok": True, "passed": 1, "failed": 0, "distribution": distribution,
+                "checks": [{"name": "fixture", "ok": True, "detail": "offline fixture"}],
+                "buildMarker": release.BUILD_MARKERS[distribution].decode(), "releaseBuild": True,
+                "nexusOAuth": {"enabled": enabled, "configured": enabled,
+                               "clientId": PUBLIC_CLIENT_ID if enabled else None,
+                               "redirectUri": PUBLIC_REDIRECT_URI if enabled else None}}
+
+    def check_report(self, report, distribution="nexus", **expected):
+        path = self.dir / "selftest.json"
+        path.write_text(json.dumps(report))
+        return subprocess.run(["bash", "-c", 'set -euo pipefail; source "$1"; ck_report "$2" "$3"',
+                               "test", str(HERE / "checks.sh"), str(path), distribution],
+                              env=self.release_env(**expected), capture_output=True, text=True)
 
     def updater_check(self, data, absent=True):
         pub = base64.b64encode(b"untrusted comment: generated test key\n" + base64.b64encode(b"Ed" + os.urandom(40)) + b"\n")
@@ -152,11 +179,114 @@ class LinuxReleaseTests(unittest.TestCase):
                     nexus.validate_launcher_archive(str(path), str(repo))
 
     def test_selftest_report_requires_the_matching_compiled_marker(self):
-        report = self.dir / "selftest.json"
         for marker, ok in [(release.BUILD_MARKERS["nexus"].decode(), True), (None, False), (release.BUILD_MARKERS["direct"].decode(), False)]:
-            report.write_text(json.dumps({"ok": True, "distribution": "nexus", "checks": [], "buildMarker": marker}))
-            r = subprocess.run(["bash", "-c", 'source "$1"; ck_report "$2" nexus', "test", str(HERE / "checks.sh"), str(report)], capture_output=True)
+            report = self.selftest_report()
+            report["buildMarker"] = marker
+            r = self.check_report(report)
             self.assertEqual(r.returncode == 0, ok, r.stderr)
+
+    def test_official_selftest_report_refuses_missing_or_unconfigured_oauth(self):
+        registered = self.selftest_report()["nexusOAuth"]
+        for oauth, release_build, ok in [(None, True, False), ({"configured": False}, True, False),
+                ({"configured": True}, True, False), (registered, False, False), (registered, True, True),
+                ({"enabled": False, "configured": False, "clientId": None, "redirectUri": None}, True, True),
+                ({"enabled": False, "configured": True, "clientId": "stale", "redirectUri": None}, True, False),
+                ({"enabled": "0", "configured": False}, True, False),
+                ({"enabled": True, "configured": False}, True, False)]:
+            report = self.selftest_report()
+            report.update(releaseBuild=release_build, nexusOAuth=oauth)
+            r = self.check_report(report, flag="0" if oauth and oauth.get("enabled") is False else "1")
+            self.assertEqual(r.returncode == 0, ok, r.stderr)
+
+    def test_selftest_report_matches_expected_capability_in_each_distribution(self):
+        for distribution in ("direct", "nexus"):
+            for flag in (None, "1", "0"):
+                for enabled in (False, True):
+                    with self.subTest(distribution=distribution, flag=flag, enabled=enabled):
+                        r = self.check_report(self.selftest_report(distribution, enabled), distribution, flag=flag)
+                        self.assertEqual(r.returncode == 0, enabled == (flag != "0"), r.stdout + r.stderr)
+
+    def test_selftest_report_matches_each_expected_public_registration(self):
+        for distribution in ("direct", "nexus"):
+            for flag in (None, "1"):
+                for field, env_key, other in [("clientId", "client_id", "different-public-registration"),
+                        ("redirectUri", "redirect_uri", "http://127.0.0.1:8090/other/callback")]:
+                    with self.subTest(distribution=distribution, flag=flag, field=field):
+                        report = self.selftest_report(distribution)
+                        r = self.check_report(report, distribution, flag=flag, **{env_key: other})
+                        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+                        report["nexusOAuth"][field] = other
+                        r = self.check_report(report, distribution, flag=flag)
+                        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+                        r = self.check_report(report, distribution, flag=flag, **{env_key: other})
+                        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_selftest_report_rejects_malformed_expected_capability(self):
+        for flag in ("", "false", "true", " 0", "0 ", "00", "01", "2", "\n1", "١"):
+            for enabled in (False, True):
+                with self.subTest(flag=flag, enabled=enabled):
+                    r = self.check_report(self.selftest_report(enabled=enabled), flag=flag)
+                    self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_selftest_report_requires_valid_expected_registration(self):
+        invalid = [("clientId", "client_id", value) for value in
+                   (None, "", "bad registration", "bad\nregistration", "é", "x" * 129)]
+        invalid += [("redirectUri", "redirect_uri", value) for value in
+                    (None, "", "https://example.invalid/callback", "http://localhost:8089/callback",
+                     "http://127.0.0.1:08089/callback", "http://127.0.0.1:0/callback",
+                     "http://127.0.0.1:65536/callback", "http://127.0.0.1:+8089/callback",
+                     "http://127.0.0.1:8089/", "http://127.0.0.1:8089/a/../callback",
+                     "http://127.0.0.1:8089/a/./callback", "http://127.0.0.1:8089/a//callback",
+                     "http://127.0.0.1:8089/callback/", "http://127.0.0.1:8089/callback?code=fake",
+                     "http://127.0.0.1:8089/callback#fragment", "http://127.0.0.1:8089/" + "x" * 129)]
+        for flag in (None, "1"):
+            for field, env_key, value in invalid:
+                with self.subTest(flag=flag, field=field, value=value):
+                    report = self.selftest_report()
+                    r = self.check_report(report, flag=flag, **{env_key: value})
+                    self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+                    # Matching malformed values must still fail syntax validation.
+                    report["nexusOAuth"][field] = value
+                    r = self.check_report(report, flag=flag, **{env_key: value})
+                    self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        for client_id, redirect_uri in [(None, None), ("", ""), ("ignored invalid id", "invalid")]:
+            r = self.check_report(self.selftest_report(enabled=False), flag="0",
+                                  client_id=client_id, redirect_uri=redirect_uri)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_selftest_report_accepts_registration_shape_boundaries(self):
+        for client_id, redirect_uri in [("x", "http://127.0.0.1:1/c"),
+                ("A" * 128, "http://127.0.0.1:65535/" + "p" * 128),
+                ("a_B.c-9", "http://127.0.0.1:8089/.well-known/oauth_v1/callback-2")]:
+            with self.subTest(client_id=client_id, redirect_uri=redirect_uri):
+                report = self.selftest_report()
+                report["nexusOAuth"].update(clientId=client_id, redirectUri=redirect_uri)
+                r = self.check_report(report, client_id=client_id, redirect_uri=redirect_uri)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_selftest_report_requires_explicit_disabled_metadata(self):
+        disabled = self.selftest_report(enabled=False)["nexusOAuth"]
+        variants = [None, [], "disabled", {}, {**disabled, "enabled": 0},
+                    {**disabled, "configured": 0}, {**disabled, "clientId": "stale"},
+                    {**disabled, "redirectUri": PUBLIC_REDIRECT_URI}]
+        variants += [{k: v for k, v in disabled.items() if k != missing} for missing in disabled]
+        for oauth in variants:
+            with self.subTest(oauth=oauth):
+                report = self.selftest_report(enabled=False)
+                report["nexusOAuth"] = oauth
+                r = self.check_report(report, flag="0")
+                self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_selftest_report_preserves_release_distribution_and_check_failures(self):
+        for distribution in ("direct", "nexus"):
+            for key, value in [("ok", False), ("ok", "true"), ("releaseBuild", False),
+                    ("releaseBuild", None), ("releaseBuild", 1), ("distribution", "other"),
+                    ("buildMarker", None), ("checks", [{"name": "fixture", "ok": False, "detail": "failed"}])]:
+                with self.subTest(distribution=distribution, key=key, value=value):
+                    report = self.selftest_report(distribution)
+                    report[key] = value
+                    r = self.check_report(report, distribution)
+                    self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_only_glibc_requirements_not_definitions_or_filename(self):
         out = (b"/tmp/GLIBC_99.0: file format elf64-x86-64\nVersion definitions:\n"
@@ -328,20 +458,50 @@ class LinuxReleaseTests(unittest.TestCase):
         docker = bindir / "docker"
         docker.write_text('''#!/usr/bin/python3
 import json, os, sys, time
+from pathlib import Path
 with open(os.environ["MOCK_CALLS"], "a") as f: f.write(json.dumps(sys.argv[1:])+"\\n")
 if sys.argv[1:3] == ["image", "inspect"] and "--format" in sys.argv: print("sha256:" + "a"*64)
 if sys.argv[1] == "run":
     if os.environ.get("MOCK_BLOCK"): time.sleep(30)
+    if os.environ.get("MOCK_SELFTEST") and os.environ.get("MOCK_EXIT", "0") == "0":
+        for arg in sys.argv:
+            if arg.endswith(":/out"):
+                Path(arg[:-len(":/out")], "selftest.json").write_text(os.environ["MOCK_SELFTEST"])
     sys.exit(int(os.environ.get("MOCK_EXIT", "0")))
 ''')
         docker.chmod(0o755)
         self.calls = self.dir / "calls.jsonl"
-        return {**os.environ, "PATH": f"{bindir}:/usr/bin:/bin", "MOCK_CALLS": str(self.calls),
-                "KILN_GLIBC_DIR": str(self.dir / "cache")}
+        return self.release_env(flag="0", client_id=None, redirect_uri=None, base={**os.environ,
+            "PATH": f"{bindir}:/usr/bin:/bin", "MOCK_CALLS": str(self.calls),
+            "MOCK_SELFTEST": json.dumps(self.selftest_report("direct", enabled=False)),
+            "KILN_GLIBC_DIR": str(self.dir / "cache")})
 
     def script(self, name, *args, env=None):
         return subprocess.run(["bash", str(HERE / "linux-build" / name), *map(str, args)], env=env,
                               cwd=self.dir, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def test_release_linux_wrapper_forwards_public_oauth_registration(self):
+        # Exercise release.sh's actual Linux wrapper through run.sh and a fake Docker client.
+        # No release, signing environment, image build or provider request is involved.
+        env = self.mock_docker()
+        env.update(KILN_NEXUS_ENABLED="0", KILN_NEXUS_OAUTH_CLIENT_ID="unit-test-registration",
+                   KILN_NEXUS_OAUTH_REDIRECT_URI="http://127.0.0.1:8089/callback",
+                   KILN_LINUX_IMAGE="sha256:" + "a" * 64)
+        wrapper = re.search(r"^  linux\(\) \{\n.*?^  \}", (HERE / "release.sh").read_text(), re.M | re.S)
+        self.assertIsNotNone(wrapper)
+        source, work = self.dir / "source", self.dir / "work"
+        source.mkdir(); work.mkdir()
+        harness = self.dir / "wrapper.sh"
+        harness.write_text('set -euo pipefail\nhere=$1\nsrc=$2\nwork=$3\nlin_target=$4\nlin_rustflags=fixture\n'
+                           + wrapper.group() + '\nlinux true\n')
+        r = subprocess.run(["bash", str(harness), str(HERE), str(source), str(work), str(self.dir / "target")],
+                           cwd=source, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run = next(json.loads(line) for line in self.calls.read_text().splitlines() if json.loads(line)[0] == "run")
+        forwarded = [run[i + 1] for i, arg in enumerate(run[:-1]) if arg == "-e"]
+        self.assertIn("KILN_NEXUS_ENABLED", forwarded)
+        self.assertIn("KILN_NEXUS_OAUTH_CLIENT_ID", forwarded)
+        self.assertIn("KILN_NEXUS_OAUTH_REDIRECT_URI", forwarded)
 
     def test_secret_mount_rejected_before_docker(self):
         env = self.mock_docker()
@@ -435,6 +595,7 @@ runuser() { echo 'kilnctl 1.0'; return 19; }
 
     def test_nexus_start_selects_variant_and_keeps_release_read_only(self):
         env = self.mock_docker()
+        env["MOCK_SELFTEST"] = json.dumps(self.selftest_report("nexus", enabled=False))
         rel = self.dir / "release"
         (rel / "linux").mkdir(parents=True)
         (rel / "nexus/linux").mkdir(parents=True)
@@ -444,6 +605,43 @@ runuser() { echo 'kilnctl 1.0'; return 19; }
         run = next(c for c in calls if c[0] == "run")
         self.assertIn("DISTRIBUTION=nexus", run)
         self.assertIn(f"{rel}:/r:ro", run)
+
+    def test_clean_linux_start_checks_actual_report_against_release_environment(self):
+        env = self.mock_docker()
+        rel = self.dir / "release"
+        (rel / "linux").mkdir(parents=True)
+        (rel / "nexus/linux").mkdir(parents=True)
+        cases = [("0", False, None, True), ("0", True, None, False),
+                 ("1", True, None, True), (None, True, None, True),
+                 ("1", False, None, False), (None, False, None, False),
+                 ("false", False, None, False), ("", True, None, False),
+                 ("1", True, ("clientId", "stale-public-registration"), False),
+                 ("1", True, ("redirectUri", "http://127.0.0.1:8090/other"), False),
+                 ("0", False, ("releaseBuild", False), False),
+                 ("0", False, ("buildMarker", "stale"), False),
+                 ("0", False, ("distribution", "other"), False),
+                 ("0", False, ("ok", False), False),
+                 ("0", False, ("checks", [{"name": "fixture", "ok": False, "detail": "failed"}]), False)]
+        for distribution in ("direct", "nexus"):
+            for i, (flag, enabled, change, ok) in enumerate(cases):
+                with self.subTest(distribution=distribution, flag=flag, enabled=enabled, change=change):
+                    report = self.selftest_report(distribution, enabled)
+                    if change:
+                        target = report["nexusOAuth"] if change[0] in ("clientId", "redirectUri") else report
+                        target[change[0]] = change[1]
+                    test_env = self.release_env(flag=flag, base=env)
+                    test_env["MOCK_SELFTEST"] = json.dumps(report)
+                    r = self.script("start-test.sh", rel, "--distribution", distribution,
+                                    "--out", self.dir / f"results-{distribution}-{i}", env=test_env)
+                    self.assertEqual(r.returncode == 0, ok, r.stdout + r.stderr)
+
+    def test_clean_linux_start_requires_a_report_even_if_container_succeeds(self):
+        env = self.mock_docker()
+        env["MOCK_SELFTEST"] = ""
+        rel = self.dir / "release"
+        (rel / "linux").mkdir(parents=True)
+        r = self.script("start-test.sh", rel, "--out", self.dir / "results", env=env)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_cli_nonzero_exit_cannot_be_hidden_by_expected_text(self):
         out = self.dir / "release"

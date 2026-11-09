@@ -2,7 +2,7 @@
 
 Owner: agent `sf` (2026-11-07). Players' guide: [shroudforge.md](shroudforge.md). Wiki note: [wiki-notes/sf.md](wiki-notes/sf.md).
 
-ShroudForge (SF, [bonsaibauer/shroudforge](https://github.com/bonsaibauer/shroudforge), MIT) is the most common
+ShroudForge (SF, [bonsaibauer/shroudforge](https://github.com/bonsaibauer/shroudforge), MIT) is a
 mod loader for Enshrouded. Kiln started as a fork of it. SF mods are Lua packages: `mod.json` (EML's manifest),
 `extended.mod.json` (switch, targets, settings with labels and controls, groups), `src/*.lua` and `locales/*.json`.
 This page covers how SF loads, what conflicts with Kiln, the options and the chosen design, the licence boundary, and the
@@ -15,13 +15,12 @@ When a player has ShroudForge installed, the same adapter can drive the player's
 and a missing or broken copy falls back to the bundled one. Kiln's own `kiln-shroudforge.dll` stays MIT. Sections 5,
 7 and 10 describe the result.
 
-Sources read: upstream `bonsaibauer/shroudforge` HEAD `823823a` (2026-11-05, "new version"; releases: **v1.7.9 =
-Latest**, v1.8.0-dev.* pre-releases on 6 and 7 Nov), shallow clone in `/mnt/Dongus/kiln-wave/sf/src-ref/shroudforge`.
-The local fork `~/Work/kiln-shroudforge` is older (1.7.7). The two have the same bootstrap and runtime interface:
-`windows-bootstrap/` differs only by Kiln's CMake file. Lab tests used the SF **1.7.8** release binaries
-(`~/Work/ew-lab/dl/sf178`) plus upstream's profile for the current server build (`server/26430253.json`, which ships in
-1.7.9). Nothing of SF's DLLs was disassembled. The only binary check was the game exe's import table, because Kiln hooks
-that exe.
+The original source inventory used upstream `823823a` (1.7.9, recorded 2026-11-05). Historical lab evidence below
+used SF 1.7.8 and the current server profile. The dev.20 bundled fork is pinned at
+`1ef3896068b9106a96743e55850b599d8cd08aad`, including the archive-reader/publication and recovery-path fixes. Its clean component
+records that commit and all three submodule revisions in `SOURCE.txt`, identifies itself as `1.7.9 kiln.1ef3896`,
+and includes the component's notices and licenses. The dev.20 mixed-server evidence is separate from the older
+observations below; neither is a client rendering or player-interaction test.
 
 ## 1. How ShroudForge loads (source facts)
 
@@ -97,9 +96,12 @@ cadence uses the installed copy.
 
 The Kiln layer lives in `kiln/` (MIT): `build.sh` (SF's web UI, `shroudforge-runtime.dll` through `cargo xwin`,
 `kfc-runtime.dll` through CMake with clang-cl, then the staged component), `native/CMakeLists.txt`, `cmake/`,
-`sync-upstream.sh`, `UPSTREAM-VERSION` and `UPSTREAM-PATCHES.md`. One upstream file is patched: the app-icon build script
-is skipped under `SHROUDFORGE_NO_APP_ICON`, because winres cannot run `rc.exe` on Linux. `kiln/README.md` documents
-merges. A trial merge of upstream/1.8.0 into `kiln` had no conflicts, and the runtime exports and ABI 12 are unchanged.
+`sync-upstream.sh`, `UPSTREAM-VERSION` and `UPSTREAM-PATCHES.md`. The app-icon build script
+is skipped under `SHROUDFORGE_NO_APP_ICON`, because winres cannot run `rc.exe` on Linux. The fork also fixes startup
+archive publication on Windows: release the component's own readers/writers before commit or abort, and keep the
+previous target intact when a rename fails. Recovery validates staging, rollback and journal paths before deleting or replacing files;
+linked paths and malformed or duplicate journal entries are refused. Focused recovery tests pass on the host (7) and under Wine (5).
+`kiln/README.md` documents merges. A trial merge of upstream/1.8.0 into `kiln` had no conflicts, and the runtime exports and ABI 12 are unchanged.
 In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tools/package/stage.sh` builds it into the
 `shroudforge` component (default on, both sides). `tools/deploy-server.sh` deploys an existing build.
 `tools/release/release.sh` exports and ships its source (`tools/release/lib/sf-source.sh`) and appends its notice.
@@ -109,7 +111,7 @@ In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tool
 The runtime choice comes first. **Bundled**: `kiln/plugins/shroudforge/`, the default. **Installed**: `<game>/shroudforge/`,
 used when `kiln.json` has `"shroudforge": {"useInstalled": true}` (the launcher Settings toggle "Use my installed
 ShroudForge"; env `KILN_SHROUDFORGE_RUNTIME=installed|bundled` overrides). It logs which one runs
-(`ShroudForge runtime: bundled 1.7.9 kiln.823823a from ...`). When both are present it says how to switch. A chosen
+(`ShroudForge runtime: bundled 1.7.9 kiln.1ef3896 from ...` for the current pin). When both are present it says how to switch. A chosen
 runtime that is missing, unsafe, fails to load, has an unsupported version or lacks compatible exports falls back to
 the other one with a warning. Supported unversioned bootstrap contracts are SF 1.7.8 and 1.7.9; the native DLL must
 provide all five required exports and ABI 12. Missing `version.json` is incompatible. The runtime directory and its
@@ -202,8 +204,7 @@ statically. kiln-eml becomes relevant in three places:
 ## 8. API coverage
 
 Under Kiln every SF function runs as SF's own code (column "Under Kiln": **plugin** = hosted SF runtime). The Kiln C#
-column names what a Kiln mod uses today for the same effect. **Port** marks functionality to add to Kiln's C# API, as new
-files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested: **lab** = run in `wv-sf-1` (server build
+column names what a Kiln mod uses today for the same effect. The C# column states the actual scope, including remaining differences. Tested: **lab** = run in `wv-sf-1` (server build
 26430253) through kiln-shroudforge with SF 1.7.8; **unit** = kiln-manage tests; **client** = on the human checklist;
 **—** = not run in this slice (it works because it is SF's own code, but nobody has watched it yet).
 
@@ -220,7 +221,7 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 | keybind settings (`control: keybind`) | plugin (SF's hotkeys) | `Kiln.Ui.KeyBindings` | plugin; client |
 | locales `locales/*.json`, `shroudforge.i18n.get`, `shroudforge.locale()` | plugin | Kiln mod localisation | plugin; — |
 | dependencies (SemVer, optional) | plugin (SF's load order) | resolver | plugin; — |
-| `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | plugin; lab: "Early startup asset pass completed" (no patch mod enabled) |
+| `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | mixed-server lab: 89 resources committed, item count +2; second boot reused identical patched archive hashes |
 | DLL Manager (native DLL mods, `runtime-register-dll`) | plugin | Kiln native mods (`native.json`) | plugin; — (DirectInput providers need SF's dinput8: not supported) |
 | Modloader window, World Editor window | plugin starts `shroudforge.exe` like SF does | Kiln launcher, Kiln build tools | plugin; client |
 | Debug Console window | not started (kiln.log has SF's log as `[sf]`) | Kiln console | by design |
@@ -235,7 +236,7 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 | `shroudforge.settings.get(key, fallback)` | plugin | `Mod.Config<T>()` | lab |
 | `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | plugin (SF's Modloader window) | `Kiln.Ui` screens | client |
 | `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
-| `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | localisation, `Tick` | — |
+| `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
 | `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin | `Kiln.Ui.KeyBindings` | client |
 | `shroudforge.log.trace/debug/info/warn/error`, `version`, `mod_id`, `mod_kind` | plugin (also in kiln.log as `[sf]`) | `Mod.Log` | lab (probe's `log.info` lines) |
 
@@ -246,40 +247,56 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 | `runtime.has/require/status`, `runtime.get_operations`, `runtime.is_main_menu` | plugin | `Runtime`, `Kiln.Api.Lifecycle` | lab (survival checks `runtime.ecs.read/write`) |
 | `runtime.world.session_id/context_active/context_kind/operation_available` | plugin | `World`, `KilnSessionInfo` | lab (probe gates on `session_id`) |
 | `runtime.player.name` | plugin (client) | `Kiln.Players` | client |
-| `runtime.ecs.query/query_bounds/resolve/read/read_bytes/read_fields/write/write_fields/get_template/get_template_component` | plugin | entity/component access in Kiln services (`Kiln.World`, `Kiln.Players`, `Kiln.Gameplay`) | lab: `query("keen::ecs::PlayerInput")` (0 players → `no-target`); port: a generic reflected component read/write API |
-| `runtime.ecs.get_registry/get_component(s)/get_catalog` | plugin | typegen / `kiln.assets` types | port |
-| `runtime.ecs.get_attribute(s)/read_attribute(s)/evaluate_attributes/update_attribute/write_attribute_storage` | plugin | `Kiln.Players.PlayerStates`, `Kiln.Combat` | client (survival's stamina, mana, health, oxygen, heat); port: generic attribute API |
+| `runtime.ecs.query/query_bounds/resolve/read/read_bytes/read_fields/write/write_fields/get_template/get_template_component` | plugin | `Reflected.Component/All`, `ReflectedValue` checked setter | lab: `query("keen::ecs::PlayerInput")` (0 players → `no-target`); C# reflection host tests |
+| `runtime.ecs.get_registry/get_component(s)/get_catalog` | plugin | `GameTypes.All/Components/Find`, `GameType.Fields` | C# reflection host tests |
+| `runtime.ecs.get_attribute(s)/read_attribute(s)/evaluate_attributes/update_attribute/write_attribute_storage` | plugin | `Attributes.Get/Set/Add` (`Kiln.Combat`) | C# host tests; SF survival needs a client for stamina, mana, health, oxygen and heat |
 | `runtime.services.get` + `RuntimeService:read_fields/write_field` (named plain services, e.g. `ecs::GameSettings`) | plugin | `Kiln.Settings` (game settings), `Kiln.Rules` | **lab**: probe `write-confirmed: enableDurability=false \| writes=1`, restore on off |
-| `runtime.overrides.new/attribute/component/resource/template/service`, claims, `RuntimeOverrides:begin_update/apply/restore_disabled/restore_unused/restore_all/summary/...` | plugin | none as such (Kiln services restore their own changes) | lab (apply + restore); port: a reversible-override helper on Kiln services |
-| `runtime.values.decode/encode/normalize_field/new` | plugin | typegen value codecs | port |
+| `runtime.overrides.new/attribute/component/resource/template/service`, claims, `RuntimeOverrides:begin_update/apply/restore_disabled/restore_unused/restore_all/summary/...` | plugin | `Overrides.Claim/Release/RestoreAll`, `ReflectedResource.Set/Restore` | SF lab (apply + restore); C# unit tests; helper is not an automatic wrapper for every SF operation |
+| `runtime.values.decode/encode/normalize_field/new` | plugin | `GameValueCodec`, `GameType.Defaults`, checked reflected values | C# host tests |
 | `runtime.functions.list/list_native/find/get/get_native/bind/get_operations/bind_modifier`, `runtime.impact.call` | plugin (profile-admitted operations only) | `Kiln.Hooks`, `Kiln.Abilities` (Impact) | — |
 | `runtime.world.cursor.get`, `runtime.world.building.submit/status/cancel` | plugin (client) | `Kiln.Build` | client |
-| `runtime.world.voxel.get_grid_spec/read/write` | plugin | `Kiln.Build` (schematics), `Kiln.World` | — |
+| `runtime.world.voxel.get_grid_spec/read/write` | plugin | `Build.Grid/Read/Write` (`Kiln.Build`) | API exists; SF voxel path unchecked here |
 | `runtime.world.entity.query_props(_in_bounds)/get_transform/set_scale/spawn/place/destroy/finish_building/register_prop_recipes` | plugin | `Kiln.Spawn`, `Kiln.Build` | — (world-editor mod: client) |
 | `runtime.network.status/send/send_mod/accept/connected_peers/receive/receive_mod` | plugin (SF's Steam Networking Messages) | `Kiln.Network` (`ModCalls`) | lab: "Network service is ready ... role=server" |
 | `runtime.patch.available/set_enabled` | plugin (profile-defined patches; none on KFC4) | `Kiln.Hooks` | n/a on current builds |
-| `game.assets.get_loaded_resource(_by_field)/get_loaded_resources_by_type/prepare_loaded_index/resolve_loaded_resource/read_loaded_field/write_loaded_field` | plugin | `Kiln.Assets`, `Kiln.Items` | — ; port |
+| `game.assets.get_loaded_resource(_by_field)/get_loaded_resources_by_type/prepare_loaded_index/resolve_loaded_resource/read_loaded_field/write_loaded_field` | plugin | `ReflectedResources.Get/All/FindByField`, `ReflectedResource` checked setter, `Assets.Reflect` | C# reflected-resource unit tests |
 
 ### 8.4 EML v1 API (SF's own implementation, `lua/eml/v1/definitions`)
 
 | Module | Functions | Under Kiln | Kiln C# equivalent | Status |
 |---|---|---|---|---|
 | `game.assets` (AssetManager) | `get_resource(s_by_type)`, `get_resource_parts`, `get_resource_types`, `create_resource`, `get_content`, `get_all_contents`, `create_content`, `get_all_resources`, Resource/Content fields | plugin (startup and runtime) | `Kiln.Assets`, `tools/kfc` | plugin; — |
-| `game.types` (TypeRegistry) | `resolve`, `get`, `get_by_index`, `find`, `find_by_hash`, `get_by_qualified_name`, `get_by_impact_name`, `get_all`, `of`, `Type:is_a` | plugin | typegen | plugin; port |
-| `game.guid` (GuidHelper) | `from_content_hash`, `to_content_hash`, `hash` | plugin | `Kiln.Assets` | plugin |
+| `game.types` (TypeRegistry) | `resolve`, `get`, `get_by_index`, `find`, `find_by_hash`, `get_by_qualified_name`, `get_by_impact_name`, `get_all`, `of`, `Type:is_a` | plugin | `GameTypes.Find/ByHash/All/TypeOf`; no Impact-name lookup | plugin; C# equivalent partial |
+| `game.guid` (GuidHelper) | `from_content_hash`, `to_content_hash`, `hash` | plugin | `ContentHash`, `GuidHash.Of` (`Kiln.Eml`) | plugin; C# unit tests |
 | `buffer` | `create`, `wrap`, Buffer read/write of all scalar types, strings, resources | plugin | `System.Buffers` / `BinaryPrimitives` (C# has it) | plugin |
-| `image` | `create`, `decode`, `decode_texture`, `encode`, `encode_texture`, pixel get/set | plugin | — | plugin; port (texture codec) |
+| `image` | `create`, `decode`, `decode_texture`, `encode`, `encode_texture`, pixel get/set | plugin | `DataImage` (PNG and RGBA8 pixels), `Assets.OverrideTexture` (PNG to existing texture format) | plugin; C# unit tests; no general texture decoder |
 | `io` | `read`, `read_to_string`, `list_files`, `exists`, `is_file`, `is_directory`, path helpers, `export*` (exports folder) | plugin (SF's sandbox) | `System.IO` + `Mod.DataDir` | plugin |
-| `hasher` | `fnv`, `crc` | plugin | — | plugin; port (trivial) |
+| `hasher` | `fnv`, `crc` | plugin | `DataHash.Fnv1a32/Crc32/Crc64` (`Kiln.Eml`) | plugin; C# unit tests |
 | `integer` | 512 helpers (u64/i64 math) | plugin | C# has native 64-bit integers | n/a |
 | `loader` | `has_mod` | plugin | `Mods.Has` | plugin |
 | globals | `typeof`, `require` (package-local) | plugin | — | plugin |
 
-**Port to Kiln's C# API (point 3 of the brief), not started:** a generic reflected component and attribute read/write API,
-a reversible override helper, named-service field access (partly covered: `Kiln.Settings`), loaded-resource lookup and
-field write, voxel read/write, an image/texture codec. These must be clean implementations on Kiln's own type data, never
-from kfc-parser. Size: large (weeks). The hosted plugin already gives SF mods full coverage, so the port only matters to
-authors who want to write Kiln (C#) mods with the same reach.
+**Kiln C# coverage:** component reflection, attributes, reversible claims, reflected resource lookup and field writes,
+voxel access, hashing, PNG images and raw RGBA8 pixels have APIs. Blob enumeration covers managed additions and
+overrides only (`Assets.ListBlobs/ListAllBlobs`), not every game blob. General named-service reflection, Impact-name
+type lookup and a general texture decoder are outside those helpers; PNG/RGBA8 are implemented.
+`Kiln.Settings` covers world settings. Entity scale is not
+provided by these APIs. The ports use Kiln's own type data and MIT helpers. The hosted plugin's lab evidence is separate
+from C# unit tests, and neither proves a client drew a result or accepted input.
+
+## dev.20 mixed-server evidence
+
+The fixed fork completed two boots with enabled startup asset mods alongside unmodified EMF Lua 1.19 and
+Beastmaster 1.13. The first committed 89 resources and changed the item count from 4,213 to 4,215. The next boot
+used the cached result with identical patched KFC/resource hashes. Lua and Beastmaster each loaded once, and the
+API 27 network probe passed 11 checks on each boot. These are dedicated-server observations, with no joined player.
+
+The current clean component was rebuilt from `1ef3896` with matching `version.json`, `SOURCE.txt`, all three submodule
+revisions and six licenses. Recovery hardening passed seven host and five Windows checks. The mixed boots above predate
+that final recovery guard; they are separate evidence from the clean rebuild and recovery checks, not a fresh test of
+every mod pairing. Final native/GPL source review is complete. Windows DLL portrait archive/cache checks cover read-only
+C: and mounted Z: inputs and refusal of symbolic/junction redirects without external mutation. SF's client windows,
+custom portraits in game, taming, stable interactions and multiplayer behaviour remain unchecked.
 
 ## 9a. Evidence, bundled runtime (lab `wv-sf-2`, UDP 27061, server build 26430253, no ShroudForge installed)
 

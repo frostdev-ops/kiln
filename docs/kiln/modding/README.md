@@ -1,6 +1,6 @@
 # Writing Kiln mods
 
-Kiln loads C# mods into the Enshrouded server (and, later, the client). This folder is the modder's guide; the
+Kiln loads C# mods into the Enshrouded server and client. Each feature page states what still needs a client check. This folder is the modder's guide; the
 framework's internals are in `docs/kiln/architecture.md`.
 
 | Page | What |
@@ -10,18 +10,23 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [lifecycle.md](lifecycle.md) | Mod and server lifecycle events, the `Mods` API, inter-mod messages, hot reload |
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |
 | [faults.md](faults.md) | Fault policy, crash reports, `kiln.json` `mods` settings |
-| [blocks.md](blocks.md) | Building blocks: statuses, effects, spells; what they compile to, what clients need, how mistakes show. Start here to make something |
+| [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot and UI; what they compile to, client requirements and errors. Start here to make something |
+| [inventory.md](inventory.md) | Moving items between inventories keeping their state, container names, quick stack and move all rules and events (ported from shroudlink) |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs |
-| [world-blocks.md](world-blocks.md) | Props, stations that work on their own (a forge, a drying rack) and building materials as blocks |
+| [world-blocks.md](world-blocks.md) | Props, crafting props, stations, containers with default loot and lids, doors, colliders and building materials |
+| [npc-blocks.md](npc-blocks.md) | Creature bodies, animation, AI, behaviour, drops, friendly NPCs and vendors |
+| [ui-blocks.md](ui-blocks.md) | Windows, HUD lines and key bindings in C# or JSON; server validation and the client checklist |
+| [inventory.md](inventory.md) | Item-state-preserving moves, container names, transfer rules/events and current-session gear data limits |
 | [cosmetics.md](cosmetics.md) | Pieces for the vanity slots on models of your own: skinned or on one joint, both bodies from one file, `kiln skeleton player` |
 | [impact.md](impact.md) | Impact programs: tools/impact (dis/asm/lint/clone/cook), Kiln natives, packaging into kiln.assets |
 | [sounds.md](sounds.md) | Sounds, cues, music, voice-over: tools/soundcook, cook.json sound steps, SoundSample |
 | [vfx.md](vfx.md) | Effects: particles, lights and the game's VFX by name, in `blocks/*.json` or C#, the budget, VfxSample |
+| [ui-blocks.md](ui-blocks.md) | Windows, HUD lines and key bindings as blocks: rows on your config and a few game values, buttons that run a command, set a value, cast an ability or open a window; `mods/samples/UiBlocks` |
 | [screen-effects.md](screen-effects.md) | Full-screen effects: colour grading, tint, vignette, fades and flashes, on a status, an effect or from code |
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
 | [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |
-| [quests.md](quests.md) | Quest chains, conversations and quest NPCs: quests/*.json, Quests.Define, what players need, quests-sample |
+| [quests.md](quests.md) | Quest chains, conversations and NPCs: QuestBlock/DialogueBlock, quests/*.json, Quests.Define, rewards and client requirements |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, catalog |
@@ -50,5 +55,11 @@ its state (`kiln/control/m.result.json`).
 | `SampleLib` + `SampleLib.Api` | `exports`: an API assembly dependents compile against and share at run time; IMC `echo`; every lifecycle event |
 | `SampleConsumer` | a required dependency (`^1.0`), an optional absent one, shared types, an IMC round trip |
 | `SampleTests` | Kiln.Testing: sync/async tests, `await t.Ticks()`, IMC and Mods API checks, a skipped test, auto-run |
+| `AbilityBlocks` | Shared effects, perks, abilities, talent trees and triggers in C# and JSON |
+| `CreatureBlocks` | Reusable bodies, animation, AI, behaviour and NPCs |
+| `ScreenEffects`, `MenuBlocks`, `UiBlocks` | Screen-effect blocks, menu integration, windows, HUD lines and keys; client drawing/input checks remain |
 | `SampleFaulty` | the fault policy: throws every tick while `kiln/data/sample-faulty/fault` exists |
 | `resolver/*` | manifest-only fixtures: missing dependency, cycle, version mismatch, incompatible, client-only, feature, API, bad id |
+
+Block templates include `kiln-item-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-creature-blocks`, `kiln-cosmetic`,
+`kiln-building-material` and `kiln-ability-blocks`. `kiln new --list` shows their current options; see [mdk.md](mdk.md).

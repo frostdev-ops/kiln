@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <cmath>
 #include <mutex>
 #include <string>
@@ -23,11 +25,15 @@
 #include <vector>
 
 #include "engine.h"
+#include "completed_results.h"
+#include "moves.h"
+#include "names.h"
 #include "pide.h"
 #include "kiln_api.h"
 #include "safetyhook.hpp"
 #include "services/kiln_items.h"
 #include "services/kiln_world.h"
+#include "xfer.h"
 
 using namespace kitems;
 
@@ -43,6 +49,15 @@ static_assert(sizeof(KilnItemsStatus) == 200 && offsetof(KilnItemsStatus, detail
 static_assert(sizeof(KilnItemsFuelRequest) == 24 && sizeof(KilnItemsFuelChange) == 32);
 static_assert(sizeof(KilnItemsFuelResult) == 720 && offsetof(KilnItemsFuelResult, changes) == 48 &&
               offsetof(KilnItemsFuelResult, message) == 560);
+
+static_assert(sizeof(KilnItemsMoveRequest) == 40 && offsetof(KilnItemsMoveRequest, slot) == 24);
+static_assert(sizeof(KilnItemsMoveChange) == 32);
+static_assert(sizeof(KilnItemsMoveResult) == 736 && offsetof(KilnItemsMoveResult, changes) == 64 &&
+              offsetof(KilnItemsMoveResult, message) == 576);
+static_assert(sizeof(KilnItemsStatus2) == 216 && offsetof(KilnItemsStatus2, transfers_seen) == 24 &&
+              offsetof(KilnItemsStatus2, detail) == 56);
+static_assert(sizeof(KilnItemsTransferEvent) == 32 && sizeof(KilnItemsTransferRule) == 32 &&
+              sizeof(KilnItemsTransferReport) == 48);
 
 namespace {
 
@@ -71,6 +86,9 @@ void logf(int level, const char* fmt, ...) {
 #define LOGE(...) logf(KILN_LOG_ERROR, __VA_ARGS__)
 
 // ============================================================================================= state ===========
+
+void selftest_pre(uint64_t step);
+void selftest_init();
 
 std::atomic<int> g_program{KILN_ITEMS_PROGRAM_NONE};
 std::atomic<uintptr_t> g_world{0};       // the server world (from the program's job: storage - world.storage)
@@ -105,6 +123,13 @@ struct Callback {
     void* user;
     KilnOwner owner;
     KilnItemsFuelDoneFn fuel_fn = nullptr;  // fuel requests
+    KilnItemsMoveDoneFn move_fn = nullptr;  // move requests
+};
+struct MoveRequest {
+    uint64_t ticket;
+    KilnOwner owner;
+    MoveJob job;
+    uint64_t submitted;
 };
 struct FuelRequest {
     uint64_t ticket;
@@ -124,14 +149,18 @@ struct Keep {
 };
 
 constexpr uint32_t kFuelPerUpdate = 64;  // fuel requests per sim step (cheap: no transaction)
+constexpr uint32_t kMovesPerUpdate = 8;  // moves per sim step (each is a transaction)
 constexpr uint32_t kMaxKeeps = 256;
 
 std::mutex g_mu;  // guards the containers below; never held while calling the game or a callback
 std::deque<Request> g_pending;
-std::vector<KilnItemsResult> g_done;
+kitems::CompletedResults<KilnItemsResult> g_done;
 std::unordered_map<uint64_t, Callback> g_callbacks;
 std::deque<FuelRequest> g_fuel_pending;
 std::vector<KilnItemsFuelResult> g_fuel_done;
+std::deque<MoveRequest> g_move_pending;
+std::vector<KilnItemsMoveResult> g_move_done;
+std::atomic<uint64_t> g_moves_done{0};
 std::vector<Keep> g_keeps;
 std::atomic<uint64_t> g_fuel_writes{0};   // containers changed by requests and keeps
 std::atomic<uint32_t> g_keep_count{0};
@@ -324,6 +353,63 @@ void run_fuel_jobs(const Access& a) {
     }
 }
 
+// Moves (up to kMovesPerUpdate): each is a transaction of its own (the game's slot transfer, or its quick stack / move
+// all), committed here, so the item entities move with their stacks inside the game's own commit.
+void run_move_jobs(const Access& a) {
+    if (!E.move_ok) return;
+    MoveRequest batch[kMovesPerUpdate];
+    uint32_t n = 0;
+    {
+        std::lock_guard lock(g_mu);
+        while (n < kMovesPerUpdate && !g_move_pending.empty()) {
+            batch[n++] = g_move_pending.front();
+            g_move_pending.pop_front();
+        }
+    }
+    if (n == 0) return;
+    const uint64_t step = g_step.load();
+    std::vector<KilnItemsMoveResult> results(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        KilnItemsMoveResult& res = results[i];
+        std::memset(&res, 0, sizeof res);
+        res.size = sizeof res;
+        res.ticket = batch[i].ticket;
+        res.from = batch[i].job.r.from;
+        res.to = batch[i].job.r.to;
+        res.kind = batch[i].job.r.kind;
+        res.flags = batch[i].job.r.flags;
+        res.steps = static_cast<uint32_t>(step - batch[i].submitted);
+        if (g_program.load() == KILN_ITEMS_PROGRAM_BROKEN) {
+            res.status = KILN_ITEMS_UNAVAILABLE;
+            std::snprintf(res.message, sizeof res.message, "kiln.items' program was switched off (see kiln.log)");
+            continue;
+        }
+        unsigned long code = 0;
+        if (!run_move(a, batch[i].job, g_tx, &res, &code)) {
+            abandon_tx(g_tx);
+            res.status = KILN_ITEMS_UNAVAILABLE;
+            res.done = 0;
+            res.change_count = 0;
+            std::snprintf(res.message, sizeof res.message, "the game's inventory transaction faulted (0x%08lx)", code);
+            char b[160];
+            std::snprintf(b, sizeof b, "the game's inventory transaction faulted (0x%08lx) on a move of kind %u from %u to %u",
+                          code, res.kind, res.from, res.to);
+            broken(b);
+            continue;
+        }
+        const bool moved = (res.status == KILN_ITEMS_DONE || res.status == KILN_ITEMS_PARTIAL) &&
+                           !(res.flags & KILN_ITEMS_MOVE_DRY_RUN);
+        if (moved) {
+            g_commits.fetch_add(1);
+            g_moves_done.fetch_add(1);
+        } else {
+            g_rollbacks.fetch_add(1);
+        }
+    }
+    std::lock_guard lock(g_mu);
+    for (auto& r : results) g_move_done.push_back(r);
+}
+
 // One update of the program: verify once, then run up to kPerUpdate queued transactions.
 void program_body(void* ctx, const uint64_t* it) {
     g_updates.fetch_add(1, std::memory_order_relaxed);
@@ -331,7 +417,7 @@ void program_body(void* ctx, const uint64_t* it) {
     if (g_program.load() == KILN_ITEMS_PROGRAM_BROKEN) return;
     if (g_verified) {  // idle steps cost one lock: nothing to check or run
         std::lock_guard lock(g_mu);
-        if (g_pending.empty() && g_fuel_pending.empty() && g_keeps.empty()) return;
+        if (g_pending.empty() && g_fuel_pending.empty() && g_keeps.empty() && g_move_pending.empty()) return;
     }
     unsigned long code = 0;
     Access a{};
@@ -363,6 +449,7 @@ void program_body(void* ctx, const uint64_t* it) {
     }
 
     run_fuel_jobs(a);
+    run_move_jobs(a);
 
     Request batch[kPerUpdate];
     uint32_t n = 0;
@@ -707,14 +794,53 @@ void deliver_fuel() {
     }
 }
 
-void deliver() {
-    deliver_fuel();
-    std::vector<KilnItemsResult> done;
+bool guarded_move_callback(KilnItemsMoveDoneFn fn, const KilnItemsMoveResult* r, void* user, unsigned long* code) {
+    __try {
+        fn(r, user);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+void deliver_moves() {
+    std::vector<KilnItemsMoveResult> done;
     std::vector<Callback> cbs;
     {
         std::lock_guard lock(g_mu);
-        if (g_done.empty()) return;
-        done.swap(g_done);
+        if (g_move_done.empty()) return;
+        done.swap(g_move_done);
+        for (const KilnItemsMoveResult& r : done) {
+            auto it = g_callbacks.find(r.ticket);
+            if (it == g_callbacks.end()) cbs.push_back(Callback{});
+            else {
+                cbs.push_back(it->second);
+                g_callbacks.erase(it);
+            }
+        }
+    }
+    for (size_t i = 0; i < done.size(); ++i) {
+        const KilnItemsMoveResult& r = done[i];
+        LOGI("move ticket %llu%s: kind %u, entity %u -> %u, status %d, done %u of %u, %u stack(s), %u change(s), %u step(s)%s%s",
+             static_cast<unsigned long long>(r.ticket), (r.flags & KILN_ITEMS_MOVE_DRY_RUN) ? " (dry run)" : "", r.kind, r.from,
+             r.to, r.status, r.done, r.requested, r.stacks, r.change_count, r.steps, r.message[0] ? ": " : "", r.message);
+        unsigned long code = 0;
+        if (cbs[i].move_fn && !guarded_move_callback(cbs[i].move_fn, &r, cbs[i].user, &code))
+            LOGE("a move result callback (owner %llu) faulted (0x%08lx); ignored",
+                 static_cast<unsigned long long>(cbs[i].owner), code);
+    }
+}
+
+void deliver() {
+    deliver_fuel();
+    deliver_moves();
+    const std::vector<KilnItemsResult>* batch = nullptr;
+    std::vector<Callback> cbs;
+    {
+        std::lock_guard lock(g_mu);
+        if (g_done.empty() || g_done.delivering()) return;
+        batch = &g_done.begin_delivery();
+        const auto& done = *batch;
         cbs.reserve(done.size());
         for (const KilnItemsResult& r : done) {
             auto it = g_callbacks.find(r.ticket);
@@ -725,6 +851,7 @@ void deliver() {
             }
         }
     }
+    const auto& done = *batch;
     for (size_t i = 0; i < done.size(); ++i) {
         const KilnItemsResult& r = done[i];
         LOGI("ticket %llu%s: item 0x%08x x%u, entity %u -> status %d, done %u, %u slot(s), %u step(s)%s%s",
@@ -735,6 +862,8 @@ void deliver() {
             LOGE("a result callback (owner %llu) faulted (0x%08lx); ignored", static_cast<unsigned long long>(cbs[i].owner),
                  code);
     }
+    std::lock_guard lock(g_mu);
+    g_done.end_delivery();
 }
 
 KilnItemsFuelResult fuel_failure(const FuelRequest& q, int32_t status, const char* why, uint64_t step) {
@@ -743,6 +872,20 @@ KilnItemsFuelResult fuel_failure(const FuelRequest& q, int32_t status, const cha
     r.ticket = q.ticket;
     r.entity = q.job.r.entity;
     r.item = q.job.r.item;
+    r.flags = q.job.r.flags;
+    r.steps = static_cast<uint32_t>(step - q.submitted);
+    r.status = status;
+    std::snprintf(r.message, sizeof r.message, "%s", why);
+    return r;
+}
+
+KilnItemsMoveResult move_failure(const MoveRequest& q, int32_t status, const char* why, uint64_t step) {
+    KilnItemsMoveResult r{};
+    r.size = sizeof r;
+    r.ticket = q.ticket;
+    r.from = q.job.r.from;
+    r.to = q.job.r.to;
+    r.kind = q.job.r.kind;
     r.flags = q.job.r.flags;
     r.steps = static_cast<uint32_t>(step - q.submitted);
     r.status = status;
@@ -772,6 +915,17 @@ void expire() {
                       broken_now ? "give/take are off (see kiln.log)" : "the kiln_items program did not run for 10 s");
         g_done.push_back(r);
         g_pending.pop_front();
+    }
+    while (!g_move_pending.empty()) {
+        const MoveRequest& q = g_move_pending.front();
+        const bool broken_now = state == KILN_ITEMS_PROGRAM_BROKEN || state == KILN_ITEMS_PROGRAM_NONE;
+        const bool stale = step > q.submitted + kTimeoutSteps;
+        if (!broken_now && !stale) break;
+        g_move_done.push_back(move_failure(q, broken_now ? KILN_ITEMS_UNAVAILABLE : KILN_ITEMS_DROPPED,
+                                           broken_now ? "kiln.items' program is off (see kiln.log)"
+                                                      : "the kiln_items program did not run for 10 s",
+                                           step));
+        g_move_pending.pop_front();
     }
     while (!g_fuel_pending.empty()) {
         const FuelRequest& q = g_fuel_pending.front();
@@ -830,6 +984,10 @@ void drop_world(const char* why) {
             g_fuel_done.push_back(fuel_failure(g_fuel_pending.front(), KILN_ITEMS_DROPPED, "the server world closed", step));
             g_fuel_pending.pop_front();
         }
+        while (!g_move_pending.empty()) {
+            g_move_done.push_back(move_failure(g_move_pending.front(), KILN_ITEMS_DROPPED, "the server world closed", step));
+            g_move_pending.pop_front();
+        }
         if (!g_keeps.empty()) LOGI("server world closed: %zu keep-full entr%s ended", g_keeps.size(), g_keeps.size() == 1 ? "y" : "ies");
         g_keeps.clear();
         g_keep_count.store(0);
@@ -837,6 +995,7 @@ void drop_world(const char* why) {
     g_verified = false;
     g_world.store(0);
     g_registry.store(nullptr);
+    names_world_closed();
     int expected = KILN_ITEMS_PROGRAM_RUNNING;
     if (g_program.compare_exchange_strong(expected, KILN_ITEMS_PROGRAM_ACTIVE))
         set_detail("program registered, not run yet in this world");
@@ -864,9 +1023,12 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
         std::memcpy(&bits, &dt, 4);
         g_step_dt_bits.store(bits, std::memory_order_relaxed);
     }
+    xfer_set_step(tick->step);
     poll_world_program();
     expire();
     deliver();
+    xfer_deliver();
+    selftest_pre(tick->step);
     if (!g_catalog.load(std::memory_order_relaxed) && (tick->step & 7) == 0) build_catalog();
 }
 
@@ -1025,21 +1187,105 @@ KilnResult KILN_CALL t_fuel_keep_end(uint64_t handle) {
     return KILN_ERR_NOT_FOUND;
 }
 
+KilnResult KILN_CALL t_move(KilnOwner owner, const KilnItemsMoveRequest* r, KilnItemsMoveDoneFn done, void* user,
+                            uint64_t* out_ticket) {
+    constexpr uint32_t kAllowed = KILN_ITEMS_MOVE_DRY_RUN | KILN_ITEMS_MOVE_EQUIPPED | KILN_ITEMS_MOVE_ACTIONBAR |
+                                  KILN_ITEMS_MOVE_SILENT;
+    if (!r || r->size < sizeof(KilnItemsMoveRequest) || r->from == 0 || r->to == 0 || r->from == r->to ||
+        r->kind > KILN_MOVE_ALL || (r->flags & ~kAllowed))
+        return KILN_ERR_INVALID_ARGUMENT;
+    if (r->kind == KILN_MOVE_STACK) {
+        if (r->slot == 0 || (r->slot >> 40) != 0 || KILN_SLOT_INDEX(r->slot) > 7 || KILN_SLOT_INVENTORY(r->slot) == 0 ||
+            r->count > kMaxCount)
+            return KILN_ERR_INVALID_ARGUMENT;
+        if (r->to_slot && ((r->to_slot >> 40) != 0 || KILN_SLOT_INDEX(r->to_slot) > 7 || KILN_SLOT_INVENTORY(r->to_slot) == 0))
+            return KILN_ERR_INVALID_ARGUMENT;
+    } else if (r->slot != 0 || r->to_slot != 0 || r->count != 0) {
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
+    if (r->kind != KILN_MOVE_STACK && (r->flags & KILN_ITEMS_MOVE_EQUIPPED)) return KILN_ERR_INVALID_ARGUMENT;
+    if (!E.move_ok || !E.tx_ok || !g_tx) return KILN_ERR_UNAVAILABLE;
+    const int state = g_program.load();
+    if (state == KILN_ITEMS_PROGRAM_NONE || state == KILN_ITEMS_PROGRAM_BROKEN) return KILN_ERR_UNAVAILABLE;
+    MoveRequest q{};
+    q.ticket = g_next_ticket.fetch_add(1);
+    q.owner = owner;
+    q.job.r = *r;
+    q.job.r.size = sizeof(KilnItemsMoveRequest);
+    q.submitted = g_step.load();
+    {
+        std::lock_guard lock(g_mu);
+        if (g_move_pending.size() >= kMaxPending) return KILN_ERR_UNAVAILABLE;
+        g_move_pending.push_back(q);
+        if (done) {
+            Callback cb{};
+            cb.user = user;
+            cb.owner = owner;
+            cb.move_fn = done;
+            g_callbacks.emplace(q.ticket, cb);
+        }
+    }
+    if (out_ticket) *out_ticket = q.ticket;
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_container_name(KilnEntity entity, char* buf, uint32_t capacity, uint32_t* out_len) {
+    if (out_len) *out_len = 0;
+    if (entity == 0 || (capacity && !buf)) return KILN_ERR_INVALID_ARGUMENT;
+    if (!E.names_ok || !E.read_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    const uintptr_t world = g_api->server_world();
+    if (!world) return KILN_ERR_UNAVAILABLE;
+    return name_of(world, entity, buf, capacity, out_len);
+}
+
+KilnResult KILN_CALL t_transfer_rule(KilnOwner owner, const KilnItemsTransferRule* r, uint64_t* out) {
+    return xfer_add_rule(owner, r, out);
+}
+KilnResult KILN_CALL t_transfer_listen(KilnOwner owner, KilnItemsTransferFn fn, void* user, uint64_t* out) {
+    return xfer_add_handler(owner, fn, user, out);
+}
+KilnResult KILN_CALL t_transfer_report(KilnOwner owner, KilnItemsTransferReportFn fn, void* user, uint64_t* out) {
+    return xfer_add_reporter(owner, fn, user, out);
+}
+KilnResult KILN_CALL t_transfer_end(uint64_t handle) { return xfer_end(handle); }
+
+KilnResult KILN_CALL t_status2(KilnItemsStatus2* out) {
+    if (!out || out->size < sizeof(KilnItemsStatus2)) return KILN_ERR_INVALID_ARGUMENT;
+    std::memset(out, 0, sizeof *out);
+    out->size = sizeof *out;
+    out->moves = E.move_ok && g_program.load() == KILN_ITEMS_PROGRAM_RUNNING;
+    out->names = E.names_ok && E.read_ok;
+    xfer_status(out);
+    out->moves_done = g_moves_done.load();
+    out->names_found = names_found();
+    if (!out->detail[0]) {
+        const char* why = !E.move_ok ? "items.move is off on this build" : !E.names_ok ? "items.names is off on this build"
+                          : !E.transfer_ok ? "items.transfer is off on this build" : "";
+        std::snprintf(out->detail, sizeof out->detail, "%s", why);
+    }
+    return KILN_OK;
+}
+
 KilnResult KILN_CALL t_cancel(uint64_t ticket) {
     std::lock_guard lock(g_mu);
     return g_callbacks.erase(ticket) ? KILN_OK : KILN_ERR_NOT_FOUND;
 }
 
 void KILN_CALL t_cancel_owner(KilnOwner owner) {
-    std::lock_guard lock(g_mu);
-    for (auto it = g_callbacks.begin(); it != g_callbacks.end();)
-        it = it->second.owner == owner ? g_callbacks.erase(it) : std::next(it);
-    const size_t before = g_keeps.size();
-    g_keeps.erase(std::remove_if(g_keeps.begin(), g_keeps.end(), [owner](const Keep& k) { return k.owner == owner; }),
-                  g_keeps.end());
-    g_keep_count.store(static_cast<uint32_t>(g_keeps.size()));
-    if (before != g_keeps.size()) LOGI("owner %llu: %zu keep-full entr%s ended", static_cast<unsigned long long>(owner),
-                                       before - g_keeps.size(), before - g_keeps.size() == 1 ? "y" : "ies");
+    {
+        std::lock_guard lock(g_mu);
+        for (auto it = g_callbacks.begin(); it != g_callbacks.end();)
+            it = it->second.owner == owner ? g_callbacks.erase(it) : std::next(it);
+        const size_t before = g_keeps.size();
+        g_keeps.erase(std::remove_if(g_keeps.begin(), g_keeps.end(), [owner](const Keep& k) { return k.owner == owner; }),
+                      g_keeps.end());
+        g_keep_count.store(static_cast<uint32_t>(g_keeps.size()));
+        if (before != g_keeps.size()) LOGI("owner %llu: %zu keep-full entr%s ended", static_cast<unsigned long long>(owner),
+                                           before - g_keeps.size(), before - g_keeps.size() == 1 ? "y" : "ies");
+    }
+    // Draining a running transfer callback must not hold the request mutex: that callback may queue a request.
+    xfer_end_owner(owner);
 }
 
 KilnResult KILN_CALL t_read(KilnEntity entity, KilnItemsInventory* info, KilnItemsSlot* slots, uint32_t capacity,
@@ -1166,12 +1412,308 @@ KilnResult KILN_CALL t_status(KilnItemsStatus* out) {
     return KILN_OK;
 }
 
+KilnResult KILN_CALL t_peek_result(uint64_t ticket, KilnItemsResult* out) {
+    if (!ticket || !out || out->size < sizeof(KilnItemsResult)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mu);
+    return g_done.peek(ticket, out) ? KILN_OK : KILN_ERR_NOT_FOUND;
+}
+
 const KilnItemsApi kTable = {
     {sizeof(KilnItemsApi), KILN_ITEMS_VERSION},
     &t_give, &t_take, &t_cancel, &t_cancel_owner, &t_read, &t_find,
     &t_item_count, &t_item_at, &t_item_info, &t_find_item, &t_id_of_guid, &t_status,
     &t_fuel, &t_fuel_read, &t_fuel_keep, &t_fuel_keep_end,
+    &t_move, &t_container_name, &t_transfer_rule, &t_transfer_listen, &t_transfer_report, &t_transfer_end, &t_status2,
+    &t_peek_result,
 };
+
+// ============================================================================================= self-test =======
+// Labs only: enabled when <kiln data>/kiln.items/selftest exists at boot. Results: "items selftest: PASS|FAIL ..." lines.
+//  - names a container through the game's own rename path (set_string + AddComponent, what the server does for a client's
+//    Rename), so a lab world without a named chest has one, and the next autosave carries the name into the save;
+//  - when the managed test writes <data>/kiln.items/selftest-run (chest A, chest B, slots), runs a native transfer handler
+//    through the game's own quick stack / move all (see selftest_handler below).
+namespace {
+bool g_st_enabled = false;
+int g_st_phase = 0;
+uint64_t g_st_wait_until = 0;
+std::filesystem::path g_st_dir;
+KilnEntity g_st_named = 0;
+}  // namespace
+
+void selftest_init() {
+    char buf[1024];
+    size_t len = 0;
+    if (g_api->path(KILN_PATH_DATA, buf, sizeof buf, &len) != KILN_OK) return;
+    std::error_code ec;
+    const std::u8string dir(reinterpret_cast<const char8_t*>(buf), len);
+    g_st_dir = std::filesystem::path(dir) / "kiln.items";
+    if (!std::filesystem::exists(g_st_dir / "selftest", ec)) return;
+    g_st_enabled = true;
+    LOGI("items selftest enabled (%s)", reinterpret_cast<const char*>(g_st_dir.u8string().c_str()));
+}
+
+void selftest_name_chest() {
+    if (!E.names_ok || !E.set_string || !E.add_component) {
+        LOGI("items selftest: SKIP naming (no names / set_string / AddComponent on this build)");
+        g_st_phase = 99;
+        return;
+    }
+    const uintptr_t world = g_api->server_world();
+    KilnEntity ids[256];
+    uint32_t n = 0;
+    t_find(KILN_ITEMS_FIND_CONTAINERS | KILN_ITEMS_FIND_NONEMPTY, ids, 256, &n);
+    n = std::min<uint32_t>(n, 256);
+    char name[160];
+    for (uint32_t i = 0; i < n; ++i) {  // a chest that already carries a name (from the save): nothing to do
+        uint32_t len = 0;
+        if (name_of(world, ids[i], name, sizeof name, &len) == KILN_OK) {
+            g_st_named = ids[i];
+            LOGI("items selftest: PASS a container from the save is already named: entity %u is \"%s\"", ids[i], name);
+            g_st_phase = 99;
+            return;
+        }
+    }
+    KilnEntity pick = 0;
+    for (uint32_t i = 0; i < n; ++i) pick = (pick == 0 || ids[i] < pick) ? ids[i] : pick;
+    if (pick == 0) {
+        LOGI("items selftest: FAIL naming: no non-empty container in the world");
+        g_st_phase = 99;
+        return;
+    }
+    char msg[200];
+    if (!name_set_for_lab(world, pick, "Kiln Lab Ores", msg, sizeof msg)) {
+        LOGI("items selftest: FAIL naming entity %u: %s", pick, msg);
+        g_st_phase = 99;
+        return;
+    }
+    g_st_named = pick;
+    LOGI("items selftest: %s", msg);
+    g_st_phase = 2;  // read it back next step
+}
+
+// ---- the native handler scenario (docs/kiln/modding/inventory.md "Native handlers") ----
+// Written by the managed test when it is done: <data>/kiln.items/selftest-run holds "A B" (two containers). A handler is
+// registered with transfer_listen, then the game's own move all runs from A to B through kiln.items' move: the handler
+// keeps one stack, moves another itself, and (second pass) cancels. The inventories before and after say what happened;
+// the ledger puts everything back. Result lines: "items selftest: PASS|FAIL handler ..."; the file selftest-run.done.
+constexpr KilnOwner kScOwner = 0x5e1f7e57;  // the self-test's own owner id
+struct Scenario {
+    int stage = 0;
+    KilnEntity a = 0, b = 0;
+    KilnSlotId keep = 0, pre = 0;
+    uint32_t keep_item = 0, keep_count = 0, pre_item = 0, pre_count = 0;
+    std::vector<KilnItemsSlot> a0, b0;
+    bool cancel = false;
+    uint64_t handle = 0;
+    uint32_t calls = 0, ev_kind = 0, read_n = 0, pre_moved = 0, name_len = 0;
+    KilnEntity ev_from = 0, ev_to = 0;
+    std::vector<KilnItemsMoveChange> ledger;
+    size_t restoring = 0;
+    uint32_t done = 0, canceled = 0;
+    int status = -1;
+    int failures = 0;
+    std::string report;
+} g_sc;
+
+std::vector<KilnItemsSlot> read_all(KilnEntity e) {
+    std::vector<KilnItemsSlot> v(256);
+    KilnItemsInventory info{};
+    info.size = sizeof info;
+    uint32_t n = 0;
+    t_read(e, &info, v.data(), static_cast<uint32_t>(v.size()), &n);
+    v.resize(n);
+    return v;
+}
+
+uint32_t held(const std::vector<KilnItemsSlot>& v) {
+    uint32_t n = 0;
+    for (const auto& s : v) n += (s.item && s.count) ? s.count : 0;
+    return n;
+}
+
+bool same_slots(const std::vector<KilnItemsSlot>& x, const std::vector<KilnItemsSlot>& y) {
+    if (x.size() != y.size()) return false;
+    for (size_t i = 0; i < x.size(); ++i)
+        if (x[i].slot != y[i].slot || x[i].item != y[i].item || x[i].count != y[i].count) return false;
+    return true;
+}
+
+void sc_line(bool ok, const char* fmt, ...) {
+    char b[512];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    g_sc.failures += !ok;
+    LOGI("items selftest: %s %s", ok ? "PASS" : "FAIL", b);
+    g_sc.report += std::string(ok ? "PASS " : "FAIL ") + b + "\n";
+}
+
+void KILN_CALL sc_handler(const KilnItemsTransferEvent* ev, const KilnItemsTransferHost* host, void*) {
+    if (ev->from != g_sc.a || ev->to != g_sc.b) return;
+    ++g_sc.calls;
+    g_sc.ev_kind = ev->kind;
+    g_sc.ev_from = ev->from;
+    g_sc.ev_to = ev->to;
+    KilnItemsSlot slots[256];
+    g_sc.read_n = host->read(ev->ctx, ev->from, slots, 256);
+    char name[16];
+    g_sc.name_len = host->name(ev->ctx, ev->from, name, sizeof name);
+    if (!g_sc.cancel) host->keep(ev->ctx, g_sc.keep);
+    g_sc.pre_moved = host->move(ev->ctx, g_sc.pre, ev->to, 0);
+    if (g_sc.cancel) host->cancel(ev->ctx);
+}
+
+void sc_finish();
+void sc_submit_move_all();
+void sc_restore_next();
+
+void KILN_CALL sc_restore_done(const KilnItemsMoveResult* r, void*) {
+    if (r->status != KILN_ITEMS_DONE) sc_line(false, "handler: restoring a stack failed: status %d %s", r->status, r->message);
+    sc_restore_next();
+}
+
+void sc_restore_next() {
+    if (g_sc.restoring < g_sc.ledger.size()) {
+        const KilnItemsMoveChange& c = g_sc.ledger[g_sc.restoring++];
+        KilnItemsMoveRequest q{};
+        q.size = sizeof q;
+        q.kind = KILN_MOVE_STACK;
+        q.from = g_sc.b;
+        q.to = g_sc.a;
+        q.slot = c.to_slot;
+        q.count = c.amount;
+        q.to_slot = c.from_slot;
+        if (t_move(kScOwner, &q, &sc_restore_done, nullptr, nullptr) != KILN_OK) sc_restore_next();
+        return;
+    }
+    auto a1 = read_all(g_sc.a), b1 = read_all(g_sc.b);
+    sc_line(same_slots(a1, g_sc.a0) && same_slots(b1, g_sc.b0), "handler: pass %d restored by its ledger, both containers slot for slot as before (%zu piece(s))",
+            g_sc.stage, g_sc.ledger.size());
+    if (g_sc.stage == 1) {
+        g_sc.stage = 2;
+        g_sc.cancel = true;
+        sc_submit_move_all();
+    } else {
+        sc_finish();
+    }
+}
+
+void KILN_CALL sc_move_done(const KilnItemsMoveResult* r, void*) {
+    auto a1 = read_all(g_sc.a), b1 = read_all(g_sc.b);
+    g_sc.done = r->done;
+    g_sc.canceled = r->canceled;
+    g_sc.status = r->status;
+    g_sc.ledger.assign(r->changes, r->changes + r->change_count);
+    const uint32_t a0n = held(g_sc.a0), a1n = held(a1), b0n = held(g_sc.b0), b1n = held(b1);
+    if (!g_sc.cancel) {
+        const KilnItemsSlot* kept = nullptr;
+        for (const auto& s : a1) if (s.slot == g_sc.keep) kept = &s;
+        sc_line(g_sc.calls == 1 && g_sc.ev_kind == KILN_TRANSFER_MOVE_ALL && g_sc.ev_from == g_sc.a && g_sc.ev_to == g_sc.b,
+                "handler: the game's move all ran the handler once: kind %u, %u -> %u, it read %u slots, name length %u", g_sc.ev_kind,
+                g_sc.ev_from, g_sc.ev_to, g_sc.read_n, g_sc.name_len);
+        sc_line(kept && kept->item == g_sc.keep_item && kept->count == g_sc.keep_count && a1n == g_sc.keep_count,
+                "handler: keep: slot %u:%u still holds its %u x 0x%08x, everything else left %u (%u items)", KILN_SLOT_INVENTORY(g_sc.keep),
+                KILN_SLOT_INDEX(g_sc.keep), g_sc.keep_count, g_sc.keep_item, g_sc.a, a0n - a1n);
+        sc_line(g_sc.pre_moved == g_sc.pre_count && b1n == b0n + (a0n - g_sc.keep_count) && r->status == KILN_ITEMS_DONE && r->done == a0n - g_sc.keep_count,
+                "handler: it moved a stack itself first (%u of 0x%08x), the game moved the rest: %u items in all, B %u -> %u", g_sc.pre_moved,
+                g_sc.pre_item, r->done, b0n, b1n);
+    } else {
+        sc_line(g_sc.calls == 1 && r->canceled == 1 && a1n == a0n - g_sc.pre_count && g_sc.pre_moved == g_sc.pre_count && r->done == g_sc.pre_count,
+                "handler: cancel: the game's move all did not run; only the handler's own move happened (%u items, canceled %u, A %u -> %u)", r->done,
+                r->canceled, a0n, a1n);
+    }
+    g_sc.restoring = 0;
+    sc_restore_next();
+}
+
+void sc_submit_move_all() {
+    g_sc.calls = 0;
+    g_sc.pre_moved = 0;
+    g_sc.ledger.clear();
+    KilnItemsMoveRequest q{};
+    q.size = sizeof q;
+    q.kind = KILN_MOVE_ALL;
+    q.from = g_sc.a;
+    q.to = g_sc.b;
+    if (t_move(kScOwner, &q, &sc_move_done, nullptr, nullptr) != KILN_OK) {
+        sc_line(false, "handler: the move all was refused");
+        sc_finish();
+    }
+}
+
+void sc_finish() {
+    t_transfer_end(g_sc.handle);
+    g_sc.stage = 3;
+    LOGI("items selftest: handler scenario done, %d failure(s)", g_sc.failures);
+    std::error_code ec;
+    std::filesystem::remove(g_st_dir / "selftest-run", ec);
+    if (FILE* f = std::fopen((g_st_dir / "selftest-run.done").string().c_str(), "wb")) {
+        std::fprintf(f, "%s%s\n", g_sc.report.c_str(), g_sc.failures ? "RESULT fail" : "RESULT ok");
+        std::fclose(f);
+    }
+}
+
+void sc_start() {
+    std::ifstream in(g_st_dir / "selftest-run");
+    unsigned a = 0, b = 0;
+    if (!(in >> a >> b) || a == 0 || b == 0) return;
+    g_sc = Scenario{};
+    g_sc.a = a;
+    g_sc.b = b;
+    g_sc.a0 = read_all(a);
+    g_sc.b0 = read_all(b);
+    // two stacks of different items in A: the first is kept, the second the handler moves itself
+    for (const auto& s : g_sc.a0) {
+        if (!s.item || !s.count || s.category != 4) continue;
+        if (!g_sc.keep) { g_sc.keep = s.slot; g_sc.keep_item = s.item; g_sc.keep_count = s.count; }
+        else if (s.item != g_sc.keep_item && !g_sc.pre) { g_sc.pre = s.slot; g_sc.pre_item = s.item; g_sc.pre_count = s.count; }
+    }
+    if (!g_sc.keep || !g_sc.pre) {
+        sc_line(false, "handler: container %u needs two stacks of different items", a);
+        sc_finish();
+        return;
+    }
+    if (t_transfer_listen(kScOwner, &sc_handler, nullptr, &g_sc.handle) != KILN_OK) {
+        sc_line(false, "handler: transfer_listen refused: %s", "see kiln.log");
+        sc_finish();
+        return;
+    }
+    g_sc.stage = 1;
+    LOGI("items selftest: handler scenario on %u -> %u: keep %u:%u (0x%08x x%u), pre-move %u:%u (0x%08x x%u)", a, b,
+         KILN_SLOT_INVENTORY(g_sc.keep), KILN_SLOT_INDEX(g_sc.keep), g_sc.keep_item, g_sc.keep_count, KILN_SLOT_INVENTORY(g_sc.pre),
+         KILN_SLOT_INDEX(g_sc.pre), g_sc.pre_item, g_sc.pre_count);
+    sc_submit_move_all();
+}
+
+void selftest_pre(uint64_t step) {
+    if (!g_st_enabled) return;
+    if (g_st_phase == 99 && g_sc.stage == 0 && (step & 15) == 0) {
+        std::error_code ec;
+        if (std::filesystem::exists(g_st_dir / "selftest-run", ec)) sc_start();
+        return;
+    }
+    if (g_st_phase >= 99) return;
+    if (g_st_phase == 0) {
+        if (g_program.load() != KILN_ITEMS_PROGRAM_RUNNING || !g_catalog.load() || !g_api->server_world()) return;
+        g_st_wait_until = step + 50;
+        g_st_phase = 1;
+        return;
+    }
+    if (step < g_st_wait_until) return;
+    if (g_st_phase == 1) return selftest_name_chest();
+    if (g_st_phase == 2) {
+        char name[160];
+        uint32_t len = 0;
+        const KilnResult rc = name_of(g_api->server_world(), g_st_named, name, sizeof name, &len);
+        if (rc == KILN_OK && std::strcmp(name, "Kiln Lab Ores") == 0)
+            LOGI("items selftest: PASS container_name read back: entity %u is \"%s\"", g_st_named, name);
+        else
+            LOGI("items selftest: FAIL container_name read back: entity %u -> result %d, \"%s\"", g_st_named, rc, rc == KILN_OK ? name : "");
+        g_st_phase = 99;
+    }
+}
 
 // ============================================================================================= boot ============
 
@@ -1223,6 +1765,36 @@ void resolve() {
                    cst("items/world.program_count", &E.program_count);
     const bool pide = E.tx_ok && pide_install(g_api);
     LOGI("gear options at creation (KILN_ITEMS_UNLOCK, KILN_ITEMS_GEM_SLOT): %s", pide ? "on" : "OFF (items.pide_options)");
+    // v3 (docs/re/items.md sections 13 and 14)
+    {
+        const bool qs = sym("items/QuickStack", &E.quick_stack) && sym("items/MoveAll", &E.move_all);
+        const bool mv = sym("items/SlotTransfer", &E.slot_transfer);
+        uintptr_t area = 0;
+        sym("items/AreaDeposit", &area);
+        E.area_deposit = area;
+        E.move_ok = E.tx_ok && feat("items.move") && qs && mv;
+        E.transfer_ok = E.tx_ok && feat("items.transfer") && qs && area != 0;
+        uintptr_t str = 0, add = 0;
+        sym("items/SetString", &str);
+        sym("items/AddComponent", &add);
+        E.set_string = str;
+        E.add_component = add;
+        int64_t s_cap = 0, s_keys = 0, s_vals = 0, s_cnt = 0;
+        E.names_ok = E.read_ok && feat("items.names") && cst("items/strings.bitmap", &E.strings_bitmap) && str != 0 &&
+                     cst("items/strings.capacity", &s_cap) && cst("items/strings.keys", &s_keys) &&
+                     cst("items/strings.values", &s_vals) && cst("items/strings.count", &s_cnt);
+        // the string table's map must have the item registry's layout, relative to its bitmap pointer
+        if (E.names_ok &&
+            !(s_cap - E.strings_bitmap == E.hmap_capacity - E.hmap_bits && s_keys - E.strings_bitmap == E.hmap_keys - E.hmap_bits &&
+              s_vals - E.strings_bitmap == E.hmap_values - E.hmap_bits && s_cnt - E.strings_bitmap == E.hmap_count - E.hmap_bits)) {
+            E.names_ok = false;
+            LOGW("container names off: the string table's map layout differs from the item registry's");
+        }
+        // a mod's move is only ever as good as what the game's functions return: refuse a transaction layout whose result
+        // bytes do not fit the 12-byte results the code reads
+        if (!E.move_ok) { E.quick_stack = nullptr; E.move_all = nullptr; E.slot_transfer = nullptr; }
+        if (!E.transfer_ok && !E.move_ok) { E.quick_stack = nullptr; E.move_all = nullptr; }
+    }
     E.fuel_ok = E.tx_ok && feat("items.fuel") && sym("items/WriteOther", &E.write_other) &&
                 sym("items/JobTracker", &E.job_tracker) && sym("items/JobWriteFlag", &E.job_write_flag) &&
                 sym("items/AttrFind", &E.attr_find) && sym("items/AttrChanged", &E.attr_changed);
@@ -1232,10 +1804,12 @@ void resolve() {
         if (!g_tx) E.tx_ok = false;
     }
     LOGI("resolved: transaction %s (tx %lld bytes), read %s, catalog %s, scan %s, own program registration %s, recipe path %s, "
-         "tracked Fuel writes %s",
+         "tracked Fuel writes %s, moves %s, transfer hooks %s, container names %s",
          E.tx_ok ? "on" : "OFF", static_cast<long long>(E.tx_size), E.read_ok ? "on" : "OFF",
          E.catalog_ok ? "on" : "OFF", E.scan_ok ? "on" : "OFF", E.program_ok ? "possible" : "OFF",
-         E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF");
+         E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF", E.move_ok ? "on" : "OFF", E.transfer_ok ? "possible" : "OFF",
+         E.names_ok ? "on" : "OFF");
+    xfer_init();  // after every symbol above: a lab switch may install the hooks right now
 }
 
 void KILN_CALL on_ready(void*) {
@@ -1267,14 +1841,27 @@ void KILN_CALL on_ready(void*) {
 
 }  // namespace
 
+namespace kitems {
+void items_log(int level, const char* fmt, ...) {
+    char b[768];
+    va_list ap;
+    va_start(ap, fmt);
+    const int n = std::vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    if (g_api && n > 0) g_api->log(g_owner, level, KilnStr{b, static_cast<size_t>(std::min(n, int(sizeof b) - 1))});
+}
+const KilnApi* items_api() { return g_api; }
+}  // namespace kitems
+
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{kName, std::strlen(kName)};
-    info->version = KilnStr{"2", 1};
+    info->version = KilnStr{"3", 1};
     info->on_ready = &on_ready;
     resolve();
+    selftest_init();
     KilnHandle h = 0;
     if (!cst("storage.kind", &g_storage_kind)) g_storage_kind = -1;
     api->subscribe_world(owner, &on_world, nullptr, &h);

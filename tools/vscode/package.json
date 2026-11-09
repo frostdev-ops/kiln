@@ -86,6 +86,12 @@
     "jsonValidation": [
       {
         "fileMatch": [
+          "**/kiln.programs.json"
+        ],
+        "url": "./data/schemas/kiln-programs.schema.json"
+      },
+      {
+        "fileMatch": [
           "**/kiln.mod.json"
         ],
         "url": "./data/schemas/kiln.mod.schema.json"

@@ -207,8 +207,15 @@ public sealed record RecipeDefinition
     /// <summary>Other RecipeInfo fields by path (<c>"level"</c>, <c>"isCookingRecipe"</c>, …).</summary>
     public IReadOnlyDictionary<string, object>? Fields { get; init; }
 
+    /// <summary>Crafting props that must be near the station, added to those a <see cref="BaseOn"/> recipe asks for: each one's id and its place in the game's table of crafting props (the bit of
+    /// <c>requiredPropsMask</c>). A prop of a mod's own is in kiln.worldtables' table: <c>WorldTables.CraftingProps</c>.</summary>
+    public IReadOnlyList<RecipeProp>? Props { get; init; }
+
     public uint Id => NewContent.IdOf(Guid);
 }
+
+/// <summary>A crafting prop a recipe asks for: its <see cref="Id"/> (<c>keen::CraftingPropId</c>, FNV-1a of its GUID) and its <see cref="Index"/>, the bit in the mask (0..63).</summary>
+public readonly record struct RecipeProp(uint Id, int Index);
 
 /// <summary>A registered definition, as kiln.content reports it.</summary>
 /// <param name="State"><c>defined</c> / <c>unchanged</c> / <c>redefined</c> / <c>adopted</c> right after Register;
@@ -349,6 +356,8 @@ public static unsafe class NewContent
         if (def.DisplayName != null) j["displayName"] = def.DisplayName;
         (def.Fields as FieldValues)?.Require("recipes", $"recipe {def.Name}");
         if (def.Fields is { Count: > 0 }) j["fields"] = FieldsJson(def.Fields);
+        if (def.Props is { Count: > 0 })
+            j["props"] = new JsonArray(def.Props.Select(x => (JsonNode)new JsonObject { ["id"] = x.Id, ["index"] = x.Index }).ToArray());
         return Define(ContentKind.Recipes, j, owner);
     }
 

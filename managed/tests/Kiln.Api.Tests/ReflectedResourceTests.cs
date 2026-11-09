@@ -31,12 +31,92 @@ public class ReflectedResourceTests : KilnTest
 
     public override void Dispose()
     {
-        Overrides.ResetForTests();
-        _game.Dispose();
-        base.Dispose();
+        try { base.Dispose(); }
+        finally
+        {
+            Overrides.ResetForTests();
+            _game.Dispose();
+        }
     }
 
     private static ReflectedResource Res(Guid guid) => ReflectedResources.Get(guid, "Test::Item")!;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Retired_owner_cannot_claim_a_resource_or_callback(bool resource)
+    {
+        var mod = NewMod("retired");
+        mod.Retire();
+        As(mod, () =>
+        {
+            if (resource) Assert.Throws<InvalidOperationException>(() => Res(Sword).Set("weight", 8f));
+            else Assert.Throws<InvalidOperationException>(() => Overrides.Claim("late", () => { }, () => { }));
+        });
+        Assert.Empty(Overrides.Active);
+        Assert.Empty(_game.Overrides);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Generic_claim_release_waits_for_its_in_flight_apply(bool all)
+    {
+        using var applying = new ManualResetEventSlim();
+        using var finish = new ManualResetEventSlim();
+        using var releasing = new ManualResetEventSlim();
+        using var released = new ManualResetEventSlim();
+        var value = 1;
+        Exception? failure = null;
+        var claim = new Thread(() =>
+        {
+            try
+            {
+                Overrides.Claim("racing", () =>
+                {
+                    applying.Set();
+                    if (!finish.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException();
+                    value = 5;
+                }, () => value = 1);
+            }
+            catch (Exception e) { failure = e; }
+        });
+        claim.Start();
+        Assert.True(applying.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        var release = new Thread(() =>
+        {
+            releasing.Set();
+            if (all) Overrides.RestoreAll(); else Overrides.Release("racing");
+            released.Set();
+        });
+        release.Start();
+        try
+        {
+            Assert.True(releasing.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            Assert.False(released.Wait(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken), "release must not restore before apply finishes");
+        }
+        finally { finish.Set(); Assert.True(claim.Join(5000)); Assert.True(release.Join(5000)); }
+        Assert.Null(failure);
+        Assert.Equal(1, value);
+        Assert.Empty(Overrides.Active);
+    }
+
+    [Fact]
+    public void Unload_restore_runs_as_its_retired_owner_and_cannot_create_a_permanent_claim()
+    {
+        var mod = NewMod("restoring");
+        ModContext? restoredAs = null;
+        As(mod, () => Overrides.Claim("first", () => { }, () =>
+        {
+            restoredAs = HostAccess.Current;
+            Overrides.Claim("resurrected", () => { }, () => { });
+        }));
+        mod.Retire();
+        Assert.Same(mod, restoredAs);
+        Assert.Empty(Overrides.Active);
+        Assert.True(Backend.Logged("the mod is unloading"));
+        Assert.Null(HostAccess.Current);
+    }
 
     [Fact]
     public void ReadsEveryKindOfField()
@@ -479,7 +559,7 @@ public class ReflectedResourceTests : KilnTest
         public int Puts, Removes;
         public ulong Owner => 777;
         public readonly GameType ItemType;
-        private readonly FakeBackend _backend;
+        private readonly List<FakeServiceRegistration> _services = [];
         public static readonly uint ItemHash = Fnv("Test::Item");
 
         public static uint Fnv(string s)
@@ -524,7 +604,6 @@ public class ReflectedResourceTests : KilnTest
 
         public FakeGame(FakeBackend backend)
         {
-            _backend = backend;
             var u8 = Add("u8", GameTypeKind.U8, 1);
             var u16 = Add("u16", GameTypeKind.U16, 2);
             var i32 = Add("i32", GameTypeKind.S32, 4);
@@ -561,7 +640,7 @@ public class ReflectedResourceTests : KilnTest
             Bind<TypesNative.Table>(types, "TypeField", new FieldFn(Field));
             Bind<TypesNative.Table>(types, "TypeEnum", new EnumFn(EnumValue));
             Bind<TypesNative.Table>(types, "ComponentTypeCount", new CountFn(() => 0));
-            backend.Tables["kiln.types"] = types;
+            _services.Add(new(backend.Tables, "kiln.types", types));
 
             var assets = Alloc(Marshal.SizeOf<ResourceStore.Table>() + 64);   // longer than the prefix, like the real table
             Marshal.WriteInt32(assets, Marshal.SizeOf<ResourceStore.Table>() + 64);
@@ -569,7 +648,7 @@ public class ReflectedResourceTests : KilnTest
             Bind<ResourceStore.Table>(assets, "ResourceList", new ListFn(List));
             Bind<ResourceStore.Table>(assets, "ResourcePut", new PutFn(Put));
             Bind<ResourceStore.Table>(assets, "ResourceRemove", new RemoveFn(Remove));
-            backend.Tables["kiln.assets"] = assets;
+            _services.Add(new(backend.Tables, "kiln.assets", assets));
             ItemType = GameTypes.Find("Test::Item")!;
         }
 
@@ -661,8 +740,9 @@ public class ReflectedResourceTests : KilnTest
         {
             var cache = (Dictionary<nint, GameType>)typeof(GameTypes).GetField("Cache", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
             lock (cache) foreach (var key in _types.Keys) cache.Remove(key);
-            _backend.Tables.Clear();
+            foreach (var service in _services) service.Dispose();
             foreach (var allocation in _allocations) Marshal.FreeHGlobal(allocation);
+            GC.KeepAlive(_callbacks);
         }
 
         // A Test::Item resource: 64 bytes, then the text, the tags, the optional's value and the variant's value.

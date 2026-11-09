@@ -639,6 +639,7 @@ struct Def {
     json distribution = json::object();  // items: loot / drops / knowledge (distribution.cpp)
     std::vector<StackSpec> inputs, outputs;
     double duration = -1;  // recipes: seconds, < 0 = the template's
+    std::vector<std::pair<uint32_t, int>> props;  // recipes: "props": crafting props that must be near, {id, place (the bit of requiredPropsMask)}, besides the base recipe's
     bool unlock_base = false;
     KilnOwner owner = 0;
     std::string owner_label, source, text;  // text: the normalized definition (to see whether a redefinition changes it)
@@ -1268,8 +1269,14 @@ uintptr_t build_recipe(Def& d, WorldState& ws, std::string* why) {
         rdv(tmpl + L.r_props + 4, pn);
         if (!poff || pn > 64) pn = 0;
     }
+    // the definition's own props: each a CraftingPropId after the base's, and its place a bit of the mask
+    if (!d.props.empty() && L.prop_size != 4) {
+        *why = "keen::CraftingPropId isn't 4 bytes on this build: a recipe can't ask for props";
+        return 0;
+    }
+    const uint32_t en = static_cast<uint32_t>(d.props.size());
     const size_t size = L.recipe.size, in_at = (size + 15) & ~size_t(15), out_at = in_at + ins.size() * L.in_stride,
-                 props_at = out_at + outs.size() * L.out_stride, name_at = props_at + pn * L.prop_size,
+                 props_at = out_at + outs.size() * L.out_stride, name_at = props_at + (pn + en) * L.prop_size,
                  total = name_at + d.name.size() + 1;
     auto* p = static_cast<uint8_t*>(near_alloc(tmpl, total));
     if (!p) {
@@ -1307,11 +1314,18 @@ uintptr_t build_recipe(Def& d, WorldState& ws, std::string* why) {
     }
     set_blob(p, L.r_in, ins.empty() ? nullptr : p + in_at, static_cast<uint32_t>(ins.size()));
     set_blob(p, L.r_out, outs.empty() ? nullptr : p + out_at, static_cast<uint32_t>(outs.size()));
-    set_blob(p, L.r_props, pn ? p + props_at : nullptr, pn);
+    for (uint32_t i = 0; i < en; ++i) std::memcpy(p + props_at + (pn + i) * L.prop_size, &d.props[i].first, 4);
+    set_blob(p, L.r_props, pn + en ? p + props_at : nullptr, pn + en);
     if (from_station) {
         std::memset(p + L.r_mask, 0, 8);
         for (const std::string& f : L.zero_without_base)
             if (const Field* x = L.recipe.find(f)) std::memset(p + x->offset, 0, x->bytes);
+    }
+    if (en) {
+        uint64_t mask = 0;
+        std::memcpy(&mask, p + L.r_mask, 8);
+        for (const auto& pr : d.props) mask |= uint64_t{1} << pr.second;
+        std::memcpy(p + L.r_mask, &mask, 8);
     }
     if (d.duration >= 0) {
         const int64_t ns = static_cast<int64_t>(d.duration * 1e9);
@@ -3844,6 +3858,15 @@ KilnResult nc_define(KilnOwner owner, uint32_t kind, const std::string& text, bo
         const std::string u = lower(str_of(j, "unlock"));
         if (!u.empty() && u != "always" && u != "base") return fail("\"unlock\" must be \"always\" or \"base\"");
         d->unlock_base = u == "base";
+        if (j.contains("props")) {
+            if (!j["props"].is_array() || j["props"].size() > 8) return fail("\"props\" must be a list of at most 8 crafting props: {\"id\", \"index\"}");
+            for (const json& x : j["props"]) {
+                if (!x.is_object() || !x.contains("id") || !x["id"].is_number_unsigned() || x["id"].get<uint64_t>() > 0xFFFFFFFFull || !x.contains("index") || !x["index"].is_number_integer() ||
+                    x["index"].get<int64_t>() < 0 || x["index"].get<int64_t>() > 63)
+                    return fail("\"props\": each is {\"id\": a CraftingPropId, \"index\": its place 0..63 in the mask}");
+                d->props.emplace_back(static_cast<uint32_t>(x["id"].get<uint64_t>()), static_cast<int>(x["index"].get<int64_t>()));
+            }
+        }
     }
     if (kind == KILN_CONTENT_ITEMS) {
         for (int i = 0; i < kTextSlots; ++i) derive_guid(d->guid, kTextPurpose[i], d->tag_guid[i]);

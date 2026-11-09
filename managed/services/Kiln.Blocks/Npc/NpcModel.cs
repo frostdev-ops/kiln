@@ -588,9 +588,11 @@ public sealed record NpcBlock : INpcBlock
     public PartRef<AnimationBlock>? Animation { get; init; }
     public PartRef<AIBlock>? AI { get; init; }
     public PartRef<BehaviourBlock>? Behaviour { get; init; }
-    /// <summary>What it says: a dialogue (<c>Dialogues.Define</c>, or one of the mod's <c>quests/*.json</c> by its id).</summary>
+    /// <summary>What it says: a dialogue (<c>Dialogues.Define</c>), or the handle of a <see cref="DialogueBlock"/>: <c>Talk = Blocks.Define("tobin-talk", new DialogueBlock { ... })</c>.</summary>
     [JsonIgnore]
     public DialogueDefinition? Talk { get; init; }
+    /// <summary>A dialogue by name, in JSON <c>"talk"</c>: a <see cref="DialogueBlock"/> of this mod by its block name, or one of the mod's
+    /// <c>quests/*.json</c> by its id. Another mod's dialogue is not supported by the startup build.</summary>
     [JsonPropertyName("talk")]
     public string? TalkName { get; init; }
     public VendorBlock? Vendor { get; init; }

@@ -28,7 +28,9 @@ internal static class DataClients
         ["materialTweaks"] = None, ["strengths"] = None, ["surfaces"] = None, ["lootTables"] = None,
         ["creatures"] = None, ["bodies"] = None, ["animations"] = None, ["ais"] = None, ["behaviours"] = None, ["attacks"] = None, ["rules"] = None,
         // built by every player's game from the mod's own files
-        ["vfx"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,
+        ["vfx"] = Mod, ["windows"] = Mod, ["hudLines"] = Mod, ["keyBindings"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,
+        // the game's own journal and NPC menu, built from the mod's files at start
+        ["quests"] = Mod, ["dialogues"] = Mod,
     };
 
     /// <summary>The fields whose value can name the mod's own file, cue, VFX or key ([ClientsModWhen], and what the compilers check):
@@ -144,6 +146,9 @@ internal static class DataClients
                 case "model" or "female" when Guid.TryParse(text, out _) || Gltf(text):
                 case "model" when parent == "body" && text.Length > 0:
                 case "clips" when parent == "animation" && text.Length > 0:
+                    return Mod;
+                // a crafting prop has its place in a table every game merges from the mods' files at its start
+                case "provides" when parent == null && p.Value.ValueKind == JsonValueKind.True && section is "props" or "stations" or "containers" or "doors" or "beds" or "seats":
                     return Mod;
                 case "attacks" when section is "creatures" or "behaviours" && p.Value.ValueKind == JsonValueKind.Array:
                     if (p.Value.EnumerateArray().Any(a => a.ValueKind == JsonValueKind.Object && !a.TryGetProperty("sequence", out _))) level = Max(level, Kiln);

@@ -20,6 +20,7 @@
 #include "safetyhook.hpp"
 #include "services/kiln_render.h"
 #include "ui.h"
+#include "slider.h"
 
 namespace kui {
 
@@ -392,7 +393,7 @@ struct PerCaller {
 };
 PerCaller g_demand_by, g_capture_by;
 
-uint32_t per_caller(PerCaller& pc, void* ret, uint32_t n) {
+void per_caller(PerCaller& pc, std::atomic<uint32_t>& published, void* ret, uint32_t n) {
     std::lock_guard lk(pc.mu);
     HMODULE m = nullptr;
     auto at = std::find_if(pc.seen.begin(), pc.seen.end(), [&](const auto& x) { return x.first == ret; });
@@ -415,11 +416,12 @@ uint32_t per_caller(PerCaller& pc, void* ret, uint32_t n) {
     }
     uint64_t sum = 0;
     for (const auto& c : pc.counts) sum += c.second;
-    return static_cast<uint32_t>(std::min<uint64_t>(sum, UINT32_MAX));
+    // Publish before releasing the count lock: another caller must not publish its newer sum before ours.
+    published.store(static_cast<uint32_t>(std::min<uint64_t>(sum, UINT32_MAX)));
 }
 
-void KILN_CALL t_set_demand(uint32_t n) { g_demand = per_caller(g_demand_by, _ReturnAddress(), n); }
-void KILN_CALL t_set_capture(uint32_t n) { g_interactive = per_caller(g_capture_by, _ReturnAddress(), n); }
+void KILN_CALL t_set_demand(uint32_t n) { per_caller(g_demand_by, g_demand, _ReturnAddress(), n); }
+void KILN_CALL t_set_capture(uint32_t n) { per_caller(g_capture_by, g_interactive, _ReturnAddress(), n); }
 void KILN_CALL t_set_menu(int32_t open) { g_menu_open = open < 0 ? !g_menu_open.load() : open != 0; }
 void KILN_CALL t_set_menu_key(uint32_t vk, uint32_t mods) {
     if (vk == 0 || vk > 255) return;
@@ -458,7 +460,7 @@ void KILN_CALL t_text_disabled(KilnStr s) {
 bool KILN_CALL t_button(KilnStr l, float w, float h) { IN_FRAME(false); return ImGui::Button(z(l), ImVec2(w, h)); }
 bool KILN_CALL t_small_button(KilnStr l) { IN_FRAME(false); return ImGui::SmallButton(z(l)); }
 bool KILN_CALL t_checkbox(KilnStr l, bool* v) { IN_FRAME(false); return v && ImGui::Checkbox(z(l), v); }
-bool KILN_CALL t_slider_float(KilnStr l, float* v, float a, float b) { IN_FRAME(false); return v && ImGui::SliderFloat(z(l), v, a, b); }
+bool KILN_CALL t_slider_float(KilnStr l, float* v, float a, float b) { IN_FRAME(false); return v && kui::slider_float(z(l), v, a, b); }
 bool KILN_CALL t_slider_int(KilnStr l, int32_t* v, int32_t a, int32_t b) { IN_FRAME(false); return v && ImGui::SliderInt(z(l), v, a, b); }
 bool KILN_CALL t_input_text(KilnStr l, char* buf, size_t cap, uint32_t flags) {
     IN_FRAME(false);

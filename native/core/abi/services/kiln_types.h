@@ -83,6 +83,11 @@ typedef struct KilnTypesStatus {
 /* Called once per event of the type, in queue order. data is the event (type_size bytes), valid during the call. */
 typedef void(KILN_CALL* KilnEventFn)(const void* data, uint32_t size, void* user);
 
+/* Runs on a game worker thread with the REAL ProgramContext supplied to the update. Observational hooks must not
+ * iterate/advance it or mutate game data beyond the original program's declared access. User data lasts until
+ * system_unhook succeeds. A fault disables the hook and the original update still runs. */
+typedef void(KILN_CALL* KilnSystemHookFn)(void* program_context, void* user);
+
 typedef struct KilnTypesApi {
     KilnServiceHeader header; /* { sizeof(KilnTypesApi), KILN_TYPES_VERSION } */
     KilnResult(KILN_CALL* status)(KilnTypesStatus* out);
@@ -124,6 +129,16 @@ typedef struct KilnTypesApi {
     KilnResult(KILN_CALL* event_post)(uintptr_t world, uint32_t hash, const void* data, uint32_t size);
     /* Appended in v1: release all of this owner's disable requests (tick thread). Check header.size first. */
     KilnResult(KILN_CALL* system_release_owner)(KilnOwner owner);
+    /* Appended in v1: before/after the named system's update (one pair per slice). Same-update aliases trigger the
+     * same hook; a second registration for that function is refused. At least one callback, live owner required.
+     * At most 64 distinct update functions per process; retired functions reuse their retained passive trampoline.
+     * Register on the tick thread or before the first tick. Returns UNAVAILABLE on unknown builds/conflicts. */
+    KilnResult(KILN_CALL* system_hook)(KilnOwner owner, uint32_t index, KilnSystemHookFn before,
+                                      KilnSystemHookFn after, void* user, KilnHandle* out);
+    /* Any thread outside a system-hook callback. Drains callbacks before returning; required before freeing user
+     * data/code. WRONG_THREAD from inside a hook callback.
+     * system_release_owner also removes/drains this owner's hooks. */
+    KilnResult(KILN_CALL* system_unhook)(KilnHandle hook);
 } KilnTypesApi;
 
 #ifdef __cplusplus

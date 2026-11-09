@@ -58,7 +58,7 @@ public sealed class Bank : Mod
 | `WorldData.Get<T>(key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys` / `Loaded` | per world, per calling mod. `Get` creates `new T()`. JSON via System.Text.Json (public properties and fields) |
 | `PlayerData.Get<T>(steamId, key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys(steamId)` / `Players` | per world, per Steam id, per mod; the player need not be online. All characters of the account share it: for character progress use `CharacterData` |
 | `CharacterData.Get<T>(key or entity, k)`, `CharacterData.Carried.*` | per character, per mod: this world's record of the character, and what goes with it to other worlds. [character-data.md](character-data.md) |
-| `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); saved entities get it back after a restart. Player entities map to `PlayerData` (Steam id) |
+| `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); known, saved world templates with a position get it back after a restart. Inventory item entities are session-only. Player entities map to `PlayerData` (Steam id) |
 
 Rules: tick thread, from mod code (handlers, `OnLoad`, tasks; in a hosted world, once `Saves.WorldDataReady`: see "In a game client"). Keys belong to the calling mod (`kiln.mod.json` id).
 A stored value that no longer reads as `T` throws `InvalidDataException` and is kept as it was. A mod reload keeps the
@@ -69,6 +69,8 @@ data (objects are serialized when the mod unloads and read into the new instance
   Kiln runs the `WorldSavingEvent` handlers, serializes every mod's data and writes generation *R+1*
   (`manifests/<R+1>.pending.json`), then the game writes the world file as revision *R+1*; after the write Kiln
   confirms it (`manifests/<R+1>-<file time>.json`).
+- With `Saves.SnapshotStagingAvailable`, Kiln serializes that generation once more at the first safe Post after the request: simulation jobs have finished, and the game's pending snapshot has not run yet. A request after Post waits until the following tick's Post. This catches inventory commits made by that last simulation. `WorldSavingEvent` handlers run once; JSON serialization callbacks can run twice. Later Posts during the background write do not replace the staged generation. Shutdown without another simulation keeps the initial stage.
+- This ordering covers native inventory transactions, including container default loot. It does not promise that an arbitrary mod's writes in a later Post callback are captured; make save data changes before the final staging callback.
 - Loading picks the generation of the world file on disk (revision + file time); a crash or `kill -9` at any moment
   gives the old or the new generation, matching the world file, never a mix: every file is written to a temp name,
   flushed and renamed, and bundles are content-addressed (`blobs/ab/<sha256>.json`, checked on load).
@@ -77,8 +79,10 @@ data (objects are serialized when the mod unloads and read into the new instance
   loads the newest older generation (`DataMatch.Older`, logged as a warning).
 - Entities: attachments are stored with the entity's template and position at the save and given back to the loaded
   entity of that template there (props within 0.5 m; creatures and NPCs within 16 m, nearest unclaimed), retried for
-  10 minutes after a load (entities stream in), kept for 3 sessions if never matched. DoNotSave templates (most
-  enemies, loot pickups): session only.
+  10 minutes after a load (entities stream in), kept for 3 sessions if never matched. This needs a known, saved
+  template with `CurrentTransform`. DoNotSave templates (most enemies, loot pickups), inventory item entities,
+  and unknown templates: session only. An inventory item's default position is not a persistent identity;
+  old item attachments are never matched to a different sword after a restart.
 
 ## Saves
 

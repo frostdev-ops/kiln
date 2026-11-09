@@ -157,6 +157,50 @@
       "find": [
         { "scope": { "symbol": "items/ReadOtherImpl", "size": 64 }, "pattern": "48 8D BA {items/storage.entities:d32} 48 8B D9 48 8B CF 48 8D 54 24 48 49 8B F0 E8 {items/HashMapFindEntity:rel32} 48 3B 47 {items/hmap.capacity:d8} 0F 83 ?? ?? ?? ?? 48 8B 57 {items/hmap.values:d8}" }
       ]
+    },
+    "items/SlotTransfer": {
+      "comment": "the game's slot transfer (EMF moveStack, shroudlink `transfer`): (Result12* out, tx, u64 dst, u64 src, i32 mode) moves a stack (mode 0), half (1) or one item (2) between two slots inside the transaction, the item entity with it. Server 26430253 0x1b4550; one of the calls inside quick stack (docs/re/items.md section 13)",
+      "find": [
+        { "pattern": "48 89 5C 24 18 55 56 57 41 56 41 57 48 8B EC 48 81 EC 80 00 00 00 49 8B D9 49 8B F8 4C 8B FA 48 8B F1 45 3B C1 75 1F" }
+      ]
+    },
+    "items/QuickStack": {
+      "comment": "quick stack (shroudlink hook point `quick_stack`, MIT; a player's R key and, once per chest, a Quick Stack Station): (Result12* out, tx, u32 to, u32 from, feedback*). Server 26430253 0x1b3830",
+      "find": [
+        { "pattern": "48 89 5C 24 18 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 20 FE FF FF 48 81 EC E0 02 00 00 48 8B 72 18" }
+      ]
+    },
+    "items/AreaDeposit": {
+      "comment": "the Quick Stack Station's deposit (shroudlink hook point `area_deposit`): calls quick stack once per chest in range. Checked, not hooked. Server 26430253 0x1b2a70",
+      "find": [
+        { "pattern": "48 89 5C 24 18 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 20 FE FF FF 48 81 EC E0 02 00 00 4C 8B FA" }
+      ]
+    },
+    "items/MoveAll": {
+      "comment": "move all (shroudlink hook point `move_all`): (Result12* out, tx, u32 from, u32 to, u32 mode, u8 flag). Server 26430253 0x1b3fb0",
+      "find": [
+        { "pattern": "48 89 4C 24 08 55 53 56 57 41 54 41 56 48 8D AC 24 A8 FC FF FF" }
+      ]
+    },
+    "items/SetString": {
+      "comment": "stores a custom string (a chest's name) in the game's string table: (out, CustomPlayerStringsSystem*, u64 oldId, {char*, u64 len}*) -> id = FNV-1a 64 of the text at out+8. Server 26430253 0x915b80 (shroudlink hook point `set_string`)",
+      "find": [
+        { "pattern": "48 89 5C 24 10 55 56 57 41 54 41 57 48 83 EC 30 4D 8B 59 08" }
+      ]
+    },
+    "@items/SetString.fields": {
+      "comment": "the string table's HashMap (the same type as the item registry's): bitmap, capacity, count, keys, values, as set_string's own lookup reads them",
+      "find": [
+        { "scope": { "symbol": "items/SetString", "size": 512 }, "pattern": "4C 8B 92 {items/strings.capacity:d32} 4C 89 74 24 ?? 4C 8D B2 {items/strings.bitmap:d32} 44 39 A2 {items/strings.count:d32}" },
+        { "scope": { "symbol": "items/SetString", "size": 512 }, "pattern": "4C 8B 9D {items/strings.keys:d32} 4F 39 04 CB" },
+        { "scope": { "symbol": "items/SetString", "size": 512 }, "pattern": "48 8B 85 {items/strings.values:d32} 48 8B 3C F8 83 87 38 01 00 00 FF" }
+      ]
+    },
+    "items/AddComponent": {
+      "comment": "adds a component to an existing entity outside a program: (world*, u32 entity, u32 hash, {void*, u64 size}* data). The rename handler calls it for a chest's first name. Lab use only (docs/re/items.md section 14). Server 26430253 0x5fc570",
+      "find": [
+        { "pattern": "48 83 EC 38 41 0F 10 01 48 81 C1 ?? ?? ?? ?? 4C 8D 4C 24 20 0F 29 44 24 20 E8 ?? ?? ?? ?? 48 83 C4 38 C3" }
+      ]
     }
   },
   "constants": {
@@ -180,7 +224,12 @@
     "items/hmap.values": { "value": 64 },
     "items/hmap.count": { "value": 84 },
     "items/hmap.bits": { "value": 8 },
-    "items/hmap.keys": { "value": 40 }
+        "items/hmap.keys": { "value": 40 },
+    "items/strings.capacity": { "min_votes": 1 },
+    "items/strings.bitmap": { "min_votes": 1 },
+    "items/strings.count": { "min_votes": 1 },
+    "items/strings.keys": { "min_votes": 1 },
+    "items/strings.values": { "min_votes": 1 }
   },
   "features": {
     "items.transaction": {
@@ -218,6 +267,17 @@
     "items.scan": {
       "symbols": ["GetComponent", "items/ReadOtherImpl", "items/HashMapFindEntity", "@items/ReadOtherImpl.fields"],
       "constants": ["items/storage.entities", "items/hmap.capacity", "items/hmap.count", "items/hmap.bits", "items/hmap.keys", "world.storage"]
+    },
+    "items.move": {
+      "symbols": ["items/SlotTransfer", "items/QuickStack", "items/MoveAll"]
+    },
+    "items.transfer": {
+      "symbols": ["items/QuickStack", "items/MoveAll", "items/AreaDeposit"]
+    },
+    "items.names": {
+      "symbols": ["GetComponent", "items/SetString", "@items/SetString.fields"],
+      "constants": ["items/strings.capacity", "items/strings.bitmap", "items/strings.count", "items/strings.keys", "items/strings.values",
+                    "items/hmap.capacity", "items/hmap.count", "items/hmap.bits", "items/hmap.keys", "items/hmap.values", "world.storage"]
     }
   }
 }

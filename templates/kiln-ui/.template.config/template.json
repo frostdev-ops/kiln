@@ -10,7 +10,7 @@
   "identity": "Kiln.Templates.Ui",
   "groupIdentity": "Kiln.Templates.Ui",
   "name": "Kiln game UI",
-  "description": "Game UI (Kiln.Ui): an entry in the game's main and pause menus, a screen in the game's look with widgets, a key binding and toasts. Client mod.",
+  "description": "Game UI (Kiln.Ui): an entry in the game's main and pause menus, a screen in the game's look with widgets, a key binding and toasts. Client mod. With --blocks true the same UI is blocks in blocks/ui.json.",
   "shortName": "kiln-ui",
   "sourceName": "KilnUi1",
   "preferNameDirectory": true,
@@ -73,6 +73,12 @@
     "hasServer": {
       "type": "computed",
       "value": "(server != \"\")"
+    },
+    "blocks": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "false",
+      "description": "Make the screen, a HUD line and the key as blocks in blocks/ui.json (Kiln.Blocks) instead of C#; the C# keeps only the config they bind to"
     }
   },
   "sources": [
@@ -82,6 +88,12 @@
           "condition": "(!hasFeed)",
           "exclude": [
             "nuget.config"
+          ]
+        },
+        {
+          "condition": "(!blocks)",
+          "exclude": [
+            "blocks/**"
           ]
         }
       ]

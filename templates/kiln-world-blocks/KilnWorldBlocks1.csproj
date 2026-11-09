@@ -1,0 +1,15 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- Things to place from building blocks (KilnWorldBlocks1Mod.cs, and the same kinds as data in blocks/). Docs: docs/kiln/modding/world-blocks.md.
+         dotnet build -t:KilnDeploy [-p:KilnServer=<server folder>] [-p:KilnReload=true]    (or: kiln deploy)
+       Then `kiln blocks show <name>` says what a block became, and `kiln lint` checks blocks/*.json. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnWorldBlocks1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnWorldBlocks1: things to place, from blocks.</Description>
+    <KilnServices>Blocks</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

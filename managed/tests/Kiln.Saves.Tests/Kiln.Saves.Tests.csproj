@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- Exercise the real metadata, identity, stage, manifest and restart code; only the native world is a stand-in. -->
+    <ProjectReference Include="../../services/Kiln.Saves/Kiln.Saves.csproj" />
+  </ItemGroup>
+</Project>

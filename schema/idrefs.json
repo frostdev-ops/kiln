@@ -1935,6 +1935,127 @@
         "**/blocks/*.json"
       ],
       "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/farewell/*/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/greetings/*/text/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/chat/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/do/*/spawn",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/chat/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/do/*/spawn",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/reply/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/options/*/text/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/speaker/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/nodes/*/text/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/dialogues/*/transition/*/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
         "item:"
       ],
       "pointer": "/hair/*/look/female",
@@ -1973,6 +2094,226 @@
       "pointer": "/hair/*/look/variants/*",
       "schema": "kiln-blocks.schema.json",
       "section": "items"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/description/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/name/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/chat/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onFail/*/spawn",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/chat/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/onStart/*/spawn",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/marker/base",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/marker/name/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/kill/template",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objective/text/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/kill/template",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/objectives/*/text/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/chat/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onDone/*/spawn",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/chat/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/onEnter/*/spawn",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/spawn/*/template",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/spawn/template",
+      "schema": "kiln-blocks.schema.json",
+      "section": "templates"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/text/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
+    },
+    {
+      "files": [
+        "**/blocks/*.json"
+      ],
+      "forms": [
+        "name"
+      ],
+      "pointer": "/quests/*/steps/*/title/*~",
+      "schema": "kiln-blocks.schema.json",
+      "section": "languages"
     },
     {
       "files": [

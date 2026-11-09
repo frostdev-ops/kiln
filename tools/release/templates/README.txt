@@ -26,6 +26,9 @@ Most players want the Kiln Launcher. It installs Kiln into the game, manages mod
 Then open the launcher, let it find Enshrouded in your Steam libraries, and press Install on Play. The launcher
 carries the matching Kiln runtime (@RUNTIME_VERSION@).
 
+Add mods: download the mod archive in your browser, then drop it on the launcher window or import it through
+Library. This works without a Nexus account in the launcher or a Mod Manager Download handler.
+
 Server owners and tinkerers:
   runtime/kiln-server-@VERSION@.zip    the server pack: unzip it into a dedicated server's folder (also over FTP on a
                                        rented server); KILN-SERVER-README.txt inside
@@ -40,7 +43,7 @@ Mod authors:
   samples/*.zip                  sample mods; import a zip in the launcher's Library
   source/kiln-@VERSION@-src.tar.gz   the source of this release
 
-  Use the SDK from a folder:  dotnet new install Kiln.Templates --add-source <this folder>/sdk
+  Use the SDK from a folder:  dotnet new install "<this folder>/sdk/Kiln.Templates.@SDK_VERSION@.nupkg"
                               dotnet new kiln-mod -n MyMod
 
 

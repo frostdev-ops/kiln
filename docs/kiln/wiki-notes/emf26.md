@@ -1,5 +1,8 @@
 # Wiki note: EMF mods on Kiln now speak EmfApi v26 (EMF 0.5.1)
 
+> Archived release note: dev.20 supports EMF 0.6.0 / API v27. See the current [EMF guide](../emf.md) and
+> [parity report](../emf-parity.md) for supported functions, evidence and remaining limits.
+
 What changed for the public guide (EMF page):
 
 - Kiln runs mods built for **EMF 0.3.3 up to 0.5.1** (EmfApi v26). Before, every mod built with EMF 0.5's SDK was

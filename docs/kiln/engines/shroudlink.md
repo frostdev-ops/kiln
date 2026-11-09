@@ -96,25 +96,25 @@ The "Kiln C# equivalent" column is what a Kiln C# mod uses for the same thing. *
 | `log(text)` | shroudlink.log + kiln.log `[shroudlink]` | `ModContext.Log` | full; lab (mod lines in kiln.log, e.g. `assistants: 0 open order(s)`) |
 | `slots(game, entity)` | upstream `game_api` | `Items.Read(entity)` | full; lab "L stores the lock", quick-stack tests |
 | `is_player(game, entity)` | upstream | `Players.IsPlayer`, `EntityId.IsPlayer` | full; lab "give_items refuses players" |
-| `chest_name(game, entity)` | upstream (custom string index) | **gap** (no container-name read in Kiln) | full; lab "quick stack sorts by category: ... chest named Ores" |
+| `chest_name(game, entity)` | upstream (custom string index) | `Items.ContainerName(entity)` (tick thread) | full; lab "quick stack sorts by category: ... chest named Ores" |
 | `max_stack(game, item)` | upstream | `Items.Get(id).MaxStack` | full; lab "iron bar ... (max stack 250)" |
-| `move_stack(game, slot, to)` | upstream | **gap** (`Items.TakeSlot` + `Give` loses item state) | full; lab quick-stack tests |
+| `move_stack(game, slot, to)` | upstream | `Items.Move(from, slot, to)` (keeps the item entity) | full; lab quick-stack tests |
 | `players()` | upstream (login events) | `Players.Connected` | full; host |
 | `position(entity)` | upstream | `World.Position` | full; lab "entities_near" |
 | `teleport(entity, x, y, z)` | upstream | `Teleport.To` (Kiln.World) | full (no player in lab: untested) |
 | `player_of(client)` | upstream | `Network.PeerOf` / `Players.Find` | full; host `full_session` |
 | `read_component(entity, hash)` | upstream | `World.ReadBytes(entity, name)` | full; lab "component read: CurrentTransform of the chest, 56 bytes" |
-| `write_component(entity, hash, data)` | upstream | **gap** (typed writes only: `Combat.SetHealth`, `Transform`...) | full; untested in lab |
+| `write_component(entity, hash, data)` | upstream | `Reflected.Component(entity, name)[path] = value` (checked field writes) | full; untested in lab |
 | `inventories_near(entity, radius)` | upstream | **new** `Nearby.Within(Items.FindInventories(), entity, radius)` | full; lab "world inventories: 21" |
 | `inventory(entity)` | upstream | `Items.Read(entity)` | full; lab "world inventory: 24 slot(s)" |
-| `move_stack_between(from, slot, to)` | upstream | **gap** | full; lab "world move_stack: 4 iron bars moved, chest 7 -> 11" |
+| `move_stack_between(from, slot, to)` | upstream | `Items.Move(from, slot, to)` | full; lab "world move_stack: 4 iron bars moved, chest 7 -> 11" |
 | `apply_buff(entity, guid, seconds)` | upstream impact hooks | `Buffs.ApplyBuff(target, guid, duration)` (Kiln.Abilities) | full; lab "buffs: feature on" (no player to buff) |
 | `player_name(entity)` | upstream | `Players.Find(entity)?.Name` | full; untested (no player) |
 | `entities_near(entity, radius, type)` | upstream | **new** `Nearby.Entities(entity, radius, component)` | full; lab "world entities_near: 1 inventory entity(s) within 0.5 m" |
-| `move_items(from, slot, to, count)` | upstream | **gap** | full; lab "world move_items: 3 of 9 iron bars moved" |
+| `move_items(from, slot, to, count)` | upstream | `Items.Move(from, slot, to, count)` | full; lab "world move_items: 3 of 9 iron bars moved" |
 | `give_items(entity, item, count)` | upstream | `Items.Give` | full; lab "give_items: 5 plant fibre created" |
 | `remove_items(entity, slot, count)` | upstream | `Items.TakeSlot` / `Take` | full; lab "remove_items: 2 removed" |
-| `world_chest_name(entity)` | upstream | **gap** | full; lab "world chest_name: the test chest is \"Ores\"" |
+| `world_chest_name(entity)` | upstream | `Items.ContainerName(entity)` | full; lab "world chest_name: the test chest is \"Ores\"" |
 
 ### What a mod exports (`ModDecl` v1-v8)
 
@@ -125,9 +125,9 @@ The "Kiln C# equivalent" column is what a Kiln C# mod uses for the same thing. *
 | `on_load` | upstream | `Mod.OnLoad` | full; lab |
 | `on_join` / `on_leave` (addon session) | upstream link host | `PlayerJoinedEvent` / `PlayerLeftEvent` | full; host `full_session`, lab addon session |
 | `on_message` | upstream | `Network` channel handlers | full; lab "assistants window opens", "item search" |
-| `keep` (slots a transfer must not move) | upstream inventory hooks (quick stack, area deposit, move all) | **gap** (no inventory-transfer event) | full; lab "quick stack keeps locked slot", "move all keeps locked slot" |
-| `on_transfer` (mod moves stacks first) | upstream | **gap** | full; lab "quick stack sorts by category" |
-| `game_events` / `on_game_event` | upstream dispatcher hook, chained onto Kiln.Gameplay's | Kiln's typed events (`[Subscribe]`), no by-name subscription | full; lab "hook points: 14 found, features: ... game_events" (no events without players) |
+| `keep` (slots a transfer must not move) | upstream inventory hooks (quick stack, area deposit, move all) | `Items.Transfers.Keep/KeepItem/Deny` | full; lab "quick stack keeps locked slot", "move all keeps locked slot" |
+| `on_transfer` (mod moves stacks first) | upstream | partial: `InventoryTransferEvent` reports after the transfer; rules or a held client-action cancel shape it; synchronous handlers use the native `transfer_listen` API | full; lab "quick stack sorts by category" |
+| `game_events` / `on_game_event` | upstream dispatcher hook, chained onto Kiln.Gameplay's | `GameEvents.Each(type, handler)` (tick thread), or typed `[Subscribe]` events | full; lab "hook points: 14 found, features: ... game_events" (no events without players) |
 | `on_tick` (about 1/s, v5+) | upstream | `Tick` / `[Subscribe] TickEvent` | full; lab "mod tick: 6 v5 mod(s) got on_tick" |
 | hot reload (changed DLL) | upstream, over Kiln's roots | Kiln's mod reload | full; lab "hot reload: chestsort reloaded and greeted the session again" |
 
@@ -155,8 +155,13 @@ slot marks and slot keys have no Kiln equivalent (gap).
 - `Nearby.Within(IEnumerable<EntityId> candidates, EntityId center | WorldPosition at, double radius)`: filter any
   list, e.g. `Nearby.Within(Items.FindInventories(), player, 40)` for chests near a player. Tick thread.
 
-Gaps left (see "What's left" in the wave report): container names, slot moves between inventories, inventory
-transfer events with keep/take-over, raw component writes, game events by type name, slot marks/keys.
+Kiln C# also exposes `Items.ContainerName`, `Items.Move/QuickStack/MoveAll`, transfer rules and
+`InventoryTransferEvent`, checked component writes through `Reflected.Component`, and event reads by type name
+through `GameEvents.Each`. See [inventory.md](../modding/inventory.md). Moves keep the item entity rather than
+replacing gear with a take/give pair. Player-initiated quick stack, addon drawing and slot input still need client
+checks. Kiln's inventory lab reported 95 PASS and 15 PASS after restart, with 12 PASS in each shroudlink hook
+order. These server results do not prove addon input or drawing. Slot marks and slot keys remain
+without a Kiln C# equivalent.
 
 ## Tests
 

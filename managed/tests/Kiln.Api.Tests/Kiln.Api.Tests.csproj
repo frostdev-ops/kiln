@@ -2,6 +2,7 @@
   <!-- Unit tests of the mod-facing API backbone: event bus, config, typed commands, permissions, console folder. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
@@ -25,5 +26,7 @@
     <ProjectReference Include="../../services/Kiln.Gameplay/Kiln.Gameplay.csproj" />
     <!-- Built first so the leak test can load it into a collectible context. -->
     <ProjectReference Include="../../../mods/tests/api-test/ApiTest.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../../mods/tests/worldstatus-test/worldstatus-test.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../../mods/tests/items-test/ItemsTest.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

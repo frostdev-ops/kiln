@@ -169,6 +169,8 @@ if (!r.Ok) Log.Warn(r.Message);    // another mod claimed "mymod:spawn-rate"; ap
 Overrides.Release("mymod:spawn-rate");     // or Overrides.RestoreAll(); the unload does it too
 ```
 Use one name for one thing, the same in every mod that may want it. `restore` runs when you release the claim or your mod unloads.
+Apply and restore callbacks run as their owner and are serialized with claim changes. Keep them short; do not wait for
+another thread that is changing claims. A retired mod cannot acquire a new claim.
 
 ### Helpers from EML and ShroudForge
 Small ports that EML and ShroudForge mods use, as C# (clean implementations, MIT):

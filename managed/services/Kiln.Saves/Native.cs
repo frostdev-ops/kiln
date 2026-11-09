@@ -9,10 +9,11 @@ internal static unsafe class SavesNative
     public const string Service = "kiln.saves";
     public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3, BufferTooSmall = 5;
 
-    public const uint EvSaving = 1, EvWritten = 2, EvFailed = 3, EvLoaded = 4;
+    public const uint EvSaving = 1, EvWritten = 2, EvFailed = 3, EvLoaded = 4, EvSnapshot = 5;
     public const uint FlagSync = 1, FlagHasGuid = 2, FlagNewWorld = 4, FlagTimeout = 8;
     public const uint CanRequest = 1, CanWrite = 2, CanLoad = 4, CanReason = 8;
     public const uint ClientHosted = 16;  // KILN_SAVES_CLIENT_HOSTED: a game client's own world (Steam cloud / local slot)
+    public const uint CanSnapshotStage = 32;
     public const int PathSaveDir = 0, PathWorldFile = 1, PathData = 2, PathBackups = 3;
 
     [StructLayout(LayoutKind.Sequential)]

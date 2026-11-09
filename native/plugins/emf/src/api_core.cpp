@@ -8,6 +8,7 @@
 #include <cstdio>
 
 #include "emf_internal.h"
+#include "services/kiln_types.h"
 #include "nlohmann/json.hpp"
 
 namespace kemf {
@@ -291,13 +292,63 @@ void* api_get_template_component(EmfWorld* w, uint32_t hash, uint32_t entity, ui
     return template_component_of(w, hash, entity, size_out);
 }
 
-// ---- not supported (yet): log once, safe failure ----
-bool api_hook_program(const char* name, EmfProgramCallback, EmfProgramCallback, void*) {
-    unsupported(caller_mod(_ReturnAddress()), "hook_program", name);
-    return false;
+// Hooks are owned by kiln-emf, whose DLL (and loaded EMF modules) remain mapped until process exit.
+struct ProgramHook {
+    Mod* mod;
+    EmfProgramCallback before, after;
+    void* user;
+    std::atomic<bool> dead{false};
+};
+std::mutex g_program_hooks_mutex;
+std::vector<std::unique_ptr<ProgramHook>> g_program_hooks;
+void run_program_hook(void* ctx, void* raw, bool after) {
+    auto* hook = static_cast<ProgramHook*>(raw);
+    if (hook->dead.load()) return;
+    auto fn = after ? hook->after : hook->before;
+    if (!fn) return;
+    struct Call { EmfProgramCallback fn; void* ctx; void* user; } call{fn, ctx, hook->user};
+    ContextScope scope(hook->mod, nullptr, false);
+    const uint64_t start = qpc_ns();
+    if (!guarded(hook->mod, "a hook_program callback", [](void* raw) {
+        auto* c = static_cast<Call*>(raw); c->fn(c->ctx, c->user);
+    }, &call)) hook->dead = true;
+    account(hook->mod, qpc_ns() - start);
+}
+void KILN_CALL program_before(void* ctx, void* user) { run_program_hook(ctx, user, false); }
+void KILN_CALL program_after(void* ctx, void* user) { run_program_hook(ctx, user, true); }
+bool api_hook_program(const char* name, EmfProgramCallback before, EmfProgramCallback after, void* user) {
+    Mod* mod = caller_mod(_ReturnAddress());
+    if (!name || !*name || (!before && !after)) return refuse(mod, "hook_program", "name and a callback required"), false;
+    const auto* types = static_cast<const KilnTypesApi*>(g_api->service(kstr(KILN_TYPES_SERVICE), KILN_TYPES_VERSION));
+    if (!types || types->header.size < sizeof(KilnTypesApi) || !types->system_hook)
+        return unsupported(mod, "hook_program", "kiln.types system hooks are unavailable"), false;
+    const int32_t index = types->system_find(kstr(name));
+    if (index < 0) return refuse(mod, "hook_program", "unknown or ambiguous system name"), false;
+    auto hook = std::make_unique<ProgramHook>();
+    hook->mod = mod; hook->before = before; hook->after = after; hook->user = user;
+    KilnHandle handle = 0;
+    const auto result = types->system_hook(g_owner, static_cast<uint32_t>(index), &program_before, &program_after, hook.get(), &handle);
+    if (result != KILN_OK) return refuse(mod, "hook_program", "system hook refused (duplicate function or unavailable)"), false;
+    std::lock_guard lock(g_program_hooks_mutex);
+    g_program_hooks.push_back(std::move(hook));
+    return true;
 }
 
 }  // namespace
+
+// Owner retirement must drain worker callbacks before user records or adapter code can disappear.
+void keep_adapter_mapped() {
+    HMODULE pin = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        reinterpret_cast<LPCWSTR>(&keep_adapter_mapped), &pin);
+}
+void program_hooks_shutdown() {
+    const auto* types = static_cast<const KilnTypesApi*>(g_api->service(kstr(KILN_TYPES_SERVICE),1));
+    if (!types || types->header.size < sizeof(KilnTypesApi) || !types->system_release_owner ||
+        types->system_release_owner(g_owner) != KILN_OK) { keep_adapter_mapped(); return; }
+    std::lock_guard lock(g_program_hooks_mutex);
+    g_program_hooks.clear();
+}
 
 // ---------------------------------------------------------------------------------------------- helpers -------
 EmfWorld* world_of_kind(uint32_t kind) { return reinterpret_cast<EmfWorld*>(g_api->world(kind)); }
@@ -454,6 +505,7 @@ void dispatch_after_step(EmfWorld* w, uint8_t kind) {
     components_after_step(w, kind);  // v23/v25: answers of change_component, offer upkeep
     windows_after_step(w, kind);     // v24: window events
     level_after_step(w, kind);       // v22: the XP curve cache
+    net_after_step(w, kind);         // v27: messages on their destination world's thread
     commands_after_step(w, kind);
     core_after_step(w, kind);
     settings_after_step(w, kind);
@@ -473,6 +525,7 @@ const EmfApi* api_table() {
         fill_level(&g_table);       // v22
         fill_components(&g_table);  // v23, v25
         fill_windows(&g_table);     // v24, v26
+        fill_net(&g_table);         // v27
         // every slot must be filled: a NULL would crash a mod that checks only api->size
         const auto* slots = reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(&g_table) + 8);
         const size_t n = (sizeof(EmfApi) - 8) / sizeof(void*);

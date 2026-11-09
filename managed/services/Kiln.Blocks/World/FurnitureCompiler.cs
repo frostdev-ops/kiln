@@ -58,6 +58,17 @@ internal static partial class Compiler
                     p.Fields["InventorySetup.availableSlotCount"] = slots;
                     kind["slots"] = slots;
                 }
+                if (c.DefaultLoot is { } defaultLoot)
+                {
+                    var plan = LootPlanOf(ctx, low, defaultLoot, "defaultLoot");
+                    kind["defaultLoot"] = plan.ToJson();
+                    var (template, block, mod2) = (p.Guid, ctx.Block, ctx.Mod);
+                    low.AfterCommit(() => ContainerRuntime.Register(mod2, template, block, plan));
+                }
+                if (c.Lid is { } lid) ApplyLid(p, ctx, lid, kind);
+                break;
+            case DoorBlock door:
+                ApplyDoor(p, low, ctx, door, kind);
                 break;
             case BedBlock bed:
                 if (bed.Lies is { } lies) Spot(p, ctx, lies, "lies");
@@ -85,6 +96,85 @@ internal static partial class Compiler
             SeatBlock x => new BlockHandle<SeatBlock>(mod, name, d.Guid, d.Game, x),
             _ => new BlockHandle<PropBlock>(mod, name, d.Guid, d.Game, b),
         };
+    }
+
+    // ---- a container's lid, a door's swing and sides ----------------------------------------------------------------
+
+    // The lid is the game's toggle animation (ToggleAnimation: two states of the entity's animation graph), which the container's use flips. A client sight; the template says it.
+    private static void ApplyLid(Placed p, BlockContext ctx, LidBlock lid, JsonObject kind)
+    {
+        var json = new JsonObject { ["moves"] = lid.Moves };
+        if (!lid.Moves)
+        {
+            if (lid.Graph != null || lid.OpenState != null || lid.ShutState != null)
+                throw new BlockError(ctx.Block, "lid", "it doesn't move (moves = false), so a graph and states have nothing to do: leave them out");
+            // nothing flips a lid that has no toggle animation to play: the container still opens its screen
+            if (!p.Remove.Contains("ToggleAnimation")) p.Remove.Add("ToggleAnimation");
+            kind["lid"] = json;
+            return;
+        }
+        foreach (var (field, guid) in new[] { ("graph", lid.Graph), ("openState", lid.OpenState), ("shutState", lid.ShutState) })
+            if (guid == Guid.Empty) throw new BlockError(ctx.Block, $"lid.{field}", "a GUID of the game's animation graph or one of its states; the empty GUID names nothing");
+        if (lid.Graph is { } graph)
+        {
+            p.Fields["AnimationGraphResourceComponent2.animationGraph"] = graph.ToString();
+            json["graph"] = graph.ToString();
+        }
+        if (lid.Graph != null || lid.OpenState != null || lid.ShutState != null)
+        {
+            Components(p, "ToggleAnimation");
+            var open = lid.OpenState ?? LidBlock.Open;
+            var shut = lid.ShutState ?? LidBlock.Shut;
+            p.Fields["ToggleAnimation.animationStateOn"] = open.ToString();
+            p.Fields["ToggleAnimation.animationStateOff"] = shut.ToString();
+            json["openState"] = open.ToString();
+            json["shutState"] = shut.ToString();
+        }
+        kind["lid"] = json;
+    }
+
+    // The game's door has two ways to swing, DirectionalInteraction's front and back: each plays its own state of the door's graph, the one on the side the player is. The game's doors
+    // that swing one way only play the same state from both. Sides is Kiln's: a player on the other side is declined, as every check of Kiln's declines.
+    private static readonly Guid DoorSwingBack = new("03deda2f-3d10-4127-96bb-12d438533e4f");
+
+    private static void ApplyDoor(Placed p, Lowered low, BlockContext ctx, DoorBlock door, JsonObject kind)
+    {
+        if (door.Opens is { } opens)
+        {
+            if (!Enum.IsDefined(opens)) throw new BlockError(ctx.Block, "opens", $"{(int)opens} is not both, front or back");
+            var (front, back) = opens switch
+            {
+                DoorSide.Front => (LidBlock.Open, LidBlock.Open),
+                DoorSide.Back => (DoorSwingBack, DoorSwingBack),
+                _ => (LidBlock.Open, DoorSwingBack),
+            };
+            p.Fields["DirectionalInteraction.frontInteraction.animationState"] = front.ToString();
+            p.Fields["DirectionalInteraction.backInteraction.animationState"] = back.ToString();
+            kind["opens"] = opens.ToString().ToLowerInvariant();
+            // a look with no directional interaction (a game item that is no door) has nothing to turn
+            var (template, block, mod) = (p.Template, ctx.Block, ctx.Mod);
+            low.AfterCommit(() => BlockRuntime.AddReady(mod, problem =>
+            {
+                if (Content.Templates.Get(template) is { } t && !HasComponent(t, "DirectionalInteraction"))
+                    problem($"block {block}, opens: {template} has no DirectionalInteraction: start from a game door (visual.like), whose swing it turns");
+            }));
+        }
+        if (door.Sides is { } sides)
+        {
+            if (!Enum.IsDefined(sides)) throw new BlockError(ctx.Block, "sides", $"{(int)sides} is not both, front or back");
+            kind["sides"] = sides.ToString().ToLowerInvariant();
+            if (sides != DoorSide.Both)
+            {
+                var (template, block, mod) = (p.Guid, ctx.Block, ctx.Mod);
+                low.AfterCommit(() => InteractRuntime.AddDoor(mod, template, block, sides));
+            }
+        }
+    }
+
+    private static bool HasComponent(GameDataEntry t, string component)
+    {
+        try { return t.GetJson(component) != null; }
+        catch (KeyNotFoundException) { return false; }
     }
 
     // The guest's offset: in the thing's own axes, turned about its vertical.

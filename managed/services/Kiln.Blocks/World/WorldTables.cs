@@ -53,7 +53,20 @@ public static class WorldTables
 
     /// <summary>Stops keeping an absent mod's material in every world. From the next start a world's cells of it are lost when it loads. False: no world keeps it.</summary>
     public static bool Forget(Guid material) => WorldTablesNative.Forget(material);
+
+    /// <summary>The crafting props of mods in the game's table (<see cref="PropBlock.Provides"/>), in the order of their places.</summary>
+    public static IReadOnlyList<WorldCraftingProp> CraftingProps => WorldTablesNative.CraftingProps();
+
+    /// <summary>The place (0..63) a crafting prop has in the game's mask of props, or -1: it isn't in the table. A prop is named by the GUID <c>BlockIds.Derive(mod, "craftingprop", name)</c>.</summary>
+    public static int CraftingPropIndex(Guid craftingProp) => WorldTablesNative.CraftingPropIndex(craftingProp);
 }
+
+/// <summary>A crafting prop a mod made, as it is in the game's table.</summary>
+/// <param name="Guid">Its GUID, from the mod and the block's name.</param>
+/// <param name="Id">The game's <c>CraftingPropId</c>: FNV-1a of the GUID.</param>
+/// <param name="Index">Its place in the mask of props, 51..63 (the game's own props have 0..50).</param>
+/// <param name="ItemId">The item that places it.</param>
+public sealed record WorldCraftingProp(Guid Guid, uint Id, int Index, uint ItemId, string Mod, string Block);
 
 internal static unsafe class WorldTablesNative
 {
@@ -98,6 +111,18 @@ internal static unsafe class WorldTablesNative
         public delegate* unmanaged[Cdecl]<uint> TweakCount;
         public delegate* unmanaged[Cdecl]<uint, Tweak*, int> TweakAt;
         public delegate* unmanaged[Cdecl]<Str, int> GameMaterialId;
+        public delegate* unmanaged[Cdecl]<uint> CraftingPropCount;
+        public delegate* unmanaged[Cdecl]<uint, CraftingProp*, int> CraftingPropAt;
+        public delegate* unmanaged[Cdecl]<byte*, int> CraftingPropIndex;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CraftingProp
+    {
+        public uint Size, State;
+        public fixed byte Guid[16];
+        public uint PropId, Index, ItemId, NameTag;
+        public Str Mod, Block;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -122,6 +147,10 @@ internal static unsafe class WorldTablesNative
             return _table;
         }
     }
+
+    /// <summary>Tests without a game: what kiln.worldtables' define_json and crafting_prop_index would answer.</summary>
+    internal static Func<string, string?>? TestDefine;
+    internal static Func<Guid, int>? TestCraftingPropIndex;
 
     public static int State => T == null ? Off : T->State();
 
@@ -149,6 +178,30 @@ internal static unsafe class WorldTablesNative
         Span<byte> b = stackalloc byte[16];
         guid.TryWriteBytes(b);
         fixed (byte* p = b) return T->MaterialId(p);
+    }
+
+    public static IReadOnlyList<WorldCraftingProp> CraftingProps()
+    {
+        var t = T;
+        if (t == null) return [];
+        var n = t->CraftingPropCount();
+        var list = new List<WorldCraftingProp>((int)n);
+        for (uint i = 0; i < n; i++)
+        {
+            CraftingProp c = default;
+            c.Size = (uint)sizeof(CraftingProp);
+            if (t->CraftingPropAt(i, &c) == Ok) list.Add(new WorldCraftingProp(new Guid(new ReadOnlySpan<byte>(c.Guid, 16)), c.PropId, (int)c.Index, c.ItemId, c.Mod.Text(), c.Block.Text()));
+        }
+        return list;
+    }
+
+    public static int CraftingPropIndex(Guid guid)
+    {
+        if (TestCraftingPropIndex != null) return TestCraftingPropIndex(guid);
+        if (T == null) return -1;
+        Span<byte> b = stackalloc byte[16];
+        guid.TryWriteBytes(b);
+        fixed (byte* p = b) return T->CraftingPropIndex(p);
     }
 
     public static int GameMaterialId(string text)
@@ -203,6 +256,7 @@ internal static unsafe class WorldTablesNative
     /// <summary>The native report on a definition. Null: the service isn't here.</summary>
     public static string? DefineJson(string document)
     {
+        if (TestDefine != null) return TestDefine(document);
         var t = T;
         if (t == null) return null;
         var bytes = Encoding.UTF8.GetBytes(document);

@@ -11,6 +11,7 @@ common ones; the XML docs and the wiki have the rest. Talents, quests, NPCs and 
 | `Client.Tick`, `Client.Post`, network handlers on a client, key binding handlers | client main thread |
 | `Ui.Menus` clicks | game UI thread (main thread), after the frame |
 | screen draw functions, crafting panels, `Ui.Frame`, `Hud.Show` text functions | render thread, every frame: draw only |
+| `EcsPrograms.Bind` callbacks (dev.20+) | game worker thread; declared component/event access only |
 | `Abilities.Natives.Wrap`, `Abilities.OnDamage` | job thread inside the sim step: touch only the call |
 
 Back to the tick thread: `Context.Scheduler.Post(action)` or `await Context.Scheduler.NextTick()`. Check with
@@ -77,6 +78,9 @@ _cfg.Changed += e => { };                      // or [Subscribe] ConfigChangedEv
 var n = _cfg.Value.MaxHomes;                   // always current
 ```
 Commented JSONC, validated, clamped, hot-reloaded on edit. Never build the config path yourself: `Config.Directory`.
+**dev.20+:** `Config.RegisterWorld<T>()` keeps one config per world in its sidecar; values switch before `WorldLoadedEvent`
+and use defaults with no world. `[RequiresRestart]` edits apply when that world next opens. `Context.Locale.Get(key, args)`
+reads this mod's `locales/<language>.json`, falling back to English/key; use it for mod text, not game-tag lookup.
 
 ## Commands and permissions
 ```csharp
@@ -104,28 +108,52 @@ built in. Console: `kiln/control/console/*.cmd`.
 `PlayerLevelChangedEvent`, `PlayerSkillsChangedEvent`. Changes return `Task<ProgressionResult>`; game refusals come
 back as `Ok = false`, not exceptions. Level cap 50. New nodes and trees: [talents](quests-talents-sounds.md).
 
-Player state (any of 350 states from the game's own enums, `docs/kiln/modding/player-states.md`): `player.Is(PlayerStateId.Soaked)`, `player.IsGliding`, `IsSwimming`, `IsAttacking`..., `player.Snapshot()` (`Health`, `Mana`, `Stamina`, `ShroudTimeLeft`, `Action`, `Active`), `player.Equipment`, `player.Buffs`. Live on the tick thread. Events: `PlayerStateChangedEvent` (any state), `PlayerActionEvent` (any action sequence, `Cancel` stops it), `PlayerConsumeEvent` (`e.Item == GameItems.Food_...`, `Cancel`: item stays), `PlayerConsumedEvent`, `PlayerClientActionEvent` (any client command), `PlayerJumpEvent`, `PlayerGlideEvent`, `PlayerEquipmentChangedEvent`, `PlayerHotbarChangedEvent`. Real players not yet confirmed.
+Player state (any of 350 states from the game's own enums, `docs/kiln/modding/player-states.md`): `player.Is(PlayerStateId.Soaked)`, `player.IsGliding`, `IsSwimming`, `IsAttacking`..., `player.Snapshot()` (`Health`, `Mana`, `Stamina`, `ShroudTimeLeft`, `Action`, `Active`), `player.Equipment`, `player.Buffs`. Live on the tick thread. Events: `PlayerStateChangedEvent` (any state), `PlayerActionEvent` (any action sequence, `Cancel` stops it), `PlayerConsumeEvent` (`e.Item == GameItems.Food_...`, `Cancel`: item stays), `PlayerConsumedEvent`, `PlayerClientActionEvent` (any client command), `PlayerJumpEvent`, `PlayerGlideEvent`, `PlayerEquipmentChangedEvent`, `PlayerHotbarChangedEvent`. Check the dated wiki status for player-facing verification.
 
 ## Items, spawn, world, time, settings, combat
 - Items: `Items.Lookup(name)`, `Items.Search`, `await Items.Give(target, id, n, gear, options)`,
   `Items.Read(inventory)`, `await Items.Take(...)`, `Items.FindInventories(kinds)`.
 - Spawn: `Spawn.Lookup(template)`, `await Spawn.Entity(template, pos, yaw, options)`, `Spawn.Item`,
   `Spawn.Group`, `Spawn.Inspect`, `Spawn.Destroy`, `Spawn.Tracked`, `Spawn.CleanupTracked(tag)`. Check
-  `Spawn.WorldRunning` first.
+  `Spawn.WorldRunning` first. dev.20+: `SpawnOptions.Components` takes up to 64 `SpawnComponent.Of(name, bytes/value)`
+  entries applied with the spawn, before its first tick; check `Spawn.SupportsComponents`. Exact reflected sizes are
+  required, and `SpawnTime` needs `SpawnFlags.NoTrack`. This is distinct from queued component changes later.
 - World: positions are `WorldPosition` in metres; teleport and entity reads.
 - Time: `Time.State`, `Time.Set("19:45")`, `Time.ResetWeather()`. Set the time only after the world runs
   (`ServerStartedEvent`), or the save load overwrites it.
 - Settings: `Settings.Get(name)`, `Settings.Set(name, value)`, `TrySet`, `Settings.All`.
+- Combat (dev.20+): `Attributes.Get(entity, GameAttribute.Stamina)` and `Set` / `Add` (also Mana, BodyHeat, Oxygen);
+  check `Available`/read results. These use the game attribute path, on the tick thread.
 - Combat: `Combat.GetHealth`, `SetHealth`, `Heal`, `await Combat.Damage(target, n, attacker)`, `Kill`,
   `SetInvulnerable`; `EntityHurtEvent` (cancel, change `Amount`), `EntityDeathEvent`, ...
+- Gameplay (dev.20+): `Offers.Add/Remove/IsActive/Status` puts an E prompt on a suitable world entity, owned by this mod;
+  it needs collision and cannot already have a game/other-mod offer. Check availability/status; pending is not visible proof.
 - Gameplay: `InteractEvent`, `CraftEvent`, `LootEvent`, `TeleportEvent`, `NaturalSpawnEvent`,
   protection zones (`Gameplay.Protect`).
+
+## Inventory transfers (dev.20+)
+`await Items.Move(from, slot, to, count: 0)`, `MoveAll(from, to)`, `QuickStack(from, to)` keep the same gear entity and its
+level, upgrades, gem slot and durability. A take followed by a give makes new gear. `MoveResult` reports refusals and a
+bounded `Changes` ledger. Check `Items.MovesAvailable`; run on the tick thread and await completion there.
+
+`MoveOptions.DryRun` rolls back and emits no transfer event; `Equipped` and `ActionBar` opt into those slots; `Silent` skips
+transfer rules/events. `Items.ContainerName(chest)` reads a player's name, never renames; check `ContainerNamesAvailable`.
+`Items.Transfers.Keep(slot)`, `KeepItem(item, owner)`, `Deny(container, TransferKinds.QuickStack)` return disposable rules.
+`InventoryTransferEvent` is a report after quick stack/move all, not cancelable. To cancel an incoming player request,
+first require `e.Name == "inventoryTransferAction"` and `e.CanCancel` on `PlayerClientActionEvent`; then parse `e.Payload`
+with `Items.Transfers.ParseAction` and cancel the held action. The parser does not identify an action from its bytes.
+Joined-client events cannot cancel the server's action, and a Quick Stack Station has no such request. Rules and
+subscriptions end with the original mod lifetime.
+Wiki: [inventory](https://frostdev.io/kiln/wiki/inventory).
 
 ## Persistent data
 `WorldData.Get<T>(key)` (live object: change it in place; saved with the world), `PlayerData.Get<T>(steamId, key)`,
 `EntityData.Get<T>(entity, key)` / `Set`. Tick thread. JSON via System.Text.Json. Keys are per mod. Kept across hot
 reloads. `WorldSavingEvent` runs before the game's snapshot. Backups: `Saves.Request()`, `Saves.Backup(...)`.
 In a hosted world, `OnLoad` sees empty world data until `WorldLoadedEvent`: read per-world data from that event.
+**dev.20+:** `EntityData.IsPersistent(gearEntity)` is false. Gear has no stable world-position identity: its data follows a
+move within the session, not a restart. Kiln skips these attachments on save and refuses old positional gear records.
+World entities such as saved chests retain their normal persistence. Persistent per-item data and affixes are not supplied.
 
 ## Content and game data
 ```csharp
@@ -166,11 +194,29 @@ its own `Damage1` config or it hits for 0.
 `await Build.PlaceOnce(key, schematic, at)`, `await Build.Undo()`. Results carry `Refusal` (zone, base, not loaded).
 Vanilla clients see the edits and the game saves them.
 
+**dev.20+ flame writes:** `await WorldProgress.SetFlameLevel(level)` (Quests) returns `FlameChange`: inspect `Ok`,
+`Reason`, `Marked` and `Mirrored`, not just queue acceptance. `LimitsAt(level)` reads derived limits. Client UI/fog/placement
+checks remain pending; a failed rollback is explicitly reported and may leave changed state.
+
+## ECS world programs (dev.20+)
+For `kiln.programs.json` boot declarations and `EcsPrograms.Bind` in `OnLoad`, read
+[world-programs.md](world-programs.md). Ordinary `OnLoad` is too late to add a scheduler declaration. A callback is a worker
+context, never a place to call tick-thread game services or retain component pointers.
+
 ## Game UI, HUD, keys
 `Ui.Menus.Add(MenuLocation.MainMenu|PauseMenu, text, onClick)`, `Ui.Screen(title, ui => { ... }, options)` →
 `Open/Close/Toggle`, `Ui.Crafting.AddTab / AddSubcategory / AddPanel`, `Ui.Screens.Current`, `Hud.Show(id, text)`,
 `Hud.Toast(text)`, `KeyBindings.Register(id, "F8", action, description)`, `UiText.Of(("en", ...), ("de", ...))`.
-`Ui.Available` is false on a dedicated server.
+`Ui.Available` is false on a dedicated server. dev.20+: `WindowBlock`, `HudLineBlock`, `KeyBindingBlock` and the equivalent
+JSON sections bind config and safe `game.*` values without draw code: [blocks.md](blocks.md#ui-as-data).
+dev.20+: `StatusLines.Add(() => cachedText)` / `Set("state", text)` report mod status when asked, including on servers.
+A source may run on a worker: use a tick-produced snapshot, never game state or tick-held locks.
+A UI `command` runs in this game's registry; it does not send chat to a joined server. Use `castAbility` / `applyEffect`
+with the same mod on the server for server-side actions. Old callbacks, queued edits and commands cannot outlive their mod load.
+
+**dev.20+ game text:** `Texts.Get/GetPlain(tag)` in `Kiln.Content` resolves English loca. A server needs a client catalog
+from the same game build (`kiln catalog build --side client`, local `kiln/catalog/client.json`). `Texts.Status` explains a
+missing catalog; `Preload` loads ahead of time. Catalogs contain game data and must not ship in a mod.
 
 ## Assets
 `assets/assets.json` entries `icon`, `texture`, `resource`, `blob`; loaded at boot. Icons and textures are client

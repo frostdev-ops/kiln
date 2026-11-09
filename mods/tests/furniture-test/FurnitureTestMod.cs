@@ -4,6 +4,8 @@
 // Start it twice: the second run checks what the first one saved.
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Kiln;
 
 namespace FurnitureTest;
@@ -31,6 +33,8 @@ public sealed class FurnitureTestMod : Mod
 
     [Subscribe(ReceiveCanceled = true)] private void OnAttempt(InteractEvent e) => _attempts.Add(e);
     [Subscribe] private void OnResult(InteractionResultEvent e) => _results.Add(e);
+    private readonly List<ItemCraftedEvent> _crafted = new();
+    [Subscribe] private void OnCrafted(ItemCraftedEvent e) => _crafted.Add(e);
 
     private async Task Steps(int n)
     {
@@ -68,6 +72,9 @@ public sealed class FurnitureTestMod : Mod
         Blocks.Define("bell-door", new DoorBlock { Name = "Bell Door", OnInteract = new InteractBlock { Prompt = "Ring the bell", Toggle = new ToggleBlock { OnPrompt = "Push", Off = InteractVerb.Sit } } });
         Blocks.Define("high-bed", new BedBlock { Name = "High Bed", Lies = new SpotBlock { At = new(0.1f, 1.2f, -0.3f), Facing = 90 } });
         Blocks.Define("own-seat", new SeatBlock { Name = "Own Seat", Visual = new VisualBlock { Model = "item:Prop_Decoration_Comfort3_T2_Chair" }, Sits = new SpotBlock { At = new(0, 0.45f, 0.05f) } });
+        Blocks.Define("inline-cache", new ContainerBlock { Name = "Inline Cache", DefaultLoot = new LootTableBlock { Entries = [new LootEntry { Item = Twigs, CountMin = 5 }] } });
+        Blocks.Define("boundary-cache", new ContainerBlock { Name = "Save Boundary Cache", DefaultLoot = new LootTableBlock { Entries = [new LootEntry { Item = Twigs, CountMin = 5 }] } });
+        Blocks.Define("next-sim-cache", new ContainerBlock { Name = "Next Simulation Cache" });
         Blocks.Define("plain-lamp", new PropBlock { Name = "Plain Lamp", Visual = new VisualBlock { Like = "Prop_Decoration_T2_Vase_Clay_01" }, OnInteract = new InteractBlock { Effects = [new EffectBlock { Heal = 1 }] } });
         _ = Run();
     }
@@ -79,6 +86,7 @@ public sealed class FurnitureTestMod : Mod
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (!(Spawn.WorldRunning && Build.Available && Build.Grid is not null) && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(150);
+            await EnsureFixture();
             var saved = Path.Combine(Context.DataDirectory, "saved.json");
             if (File.Exists(saved))
             {
@@ -97,6 +105,13 @@ public sealed class FurnitureTestMod : Mod
                 await Part("interacting", () => Interacting(at));
                 await Part("hair and beards", () => HairAndBeards(at));
                 await Part("beds", () => Beds(at));
+                await Part("default loot", () => DefaultLoot(at));
+                await Part("committed loot at the save boundary", () => LootSaveBoundary(at));
+                await Part("loot committed after the initial save stage", () => LootNextSimulation(at));
+                await Part("fields of doors, lids and colliders", () => { Fields(); return Task.CompletedTask; });
+                await Part("door sides", () => DoorSides(at));
+                await Part("several colliders", () => Colliders(at));
+                await Part("crafting props", () => CraftingProps(at, "-json"));
                 await Part("leaving for a restart", () => Leave(at, saved));
             }
         }
@@ -119,7 +134,33 @@ public sealed class FurnitureTestMod : Mod
     {
         foreach (var e in World.Find("FactoryStation"))
             if (World.Position(e) is { } p) return p;
-        throw new InvalidOperationException("this world has no station to stand next to");
+        foreach (var home in Build.Bases)
+            if (!home.Abandoned && World.Position(home.Altar) is { } at) return at;
+        throw new InvalidOperationException($"this world has no station or active base for the persistence fixture ({Build.Bases.Count} base zones)");
+    }
+
+    // A disposable lab may start from a clean save. Found a real base through the public build API so the restart assertions exercise the game's save rules.
+    private async Task EnsureFixture()
+    {
+        if (Build.Bases.Count == 0)
+        {
+            var altars = Content.Templates.Where(t => t.Name.Contains("Altar", StringComparison.OrdinalIgnoreCase) && Has(t, "BaseIdComponent")).OrderBy(t => t.Name, StringComparer.Ordinal).ToArray();
+            Info($"base fixture templates: {string.Join(", ", altars.Select(t => t.Name))}");
+            var altar = altars.FirstOrDefault() ?? throw new InvalidOperationException("the game's catalog has no flame altar template for the lab fixture");
+            var ground = await OpenGround(3800, 1434);
+            var placed = Build.PlaceProp(altar.Guid, ground, null, 0, new BuildOptions { Flags = BuildFlags.AllowAltars | BuildFlags.InBases });
+            if (!Check(!placed.IsNone && await Until(() => Build.Bases.Any(b => b.Altar == placed && !b.Abandoned), 240), $"a real flame altar founds the lab fixture base: {altar.Name}, {placed}"))
+                throw new InvalidOperationException("the fixture altar did not produce an active build zone");
+        }
+        if (World.Find("FactoryStation").Count == 0)
+        {
+            var home = Build.Bases.First(b => !b.Abandoned);
+            var at = World.Position(home.Altar)!.Value;
+            var station = Build.PlaceProp("T1_Forge_Factory", new WorldPosition(at.X + 1, at.Y, at.Z + 1), null, 0, InBases);
+            await Steps(30);
+            if (!Check(!station.IsNone && World.Has(station, "FactoryStation"), $"a game forge anchors the fixture's station regressions: {station}"))
+                throw new InvalidOperationException("the fixture forge is not a station");
+        }
     }
 
     private static WorldPosition Near(WorldPosition at, int index) => new(at.X + 2.5 * index, at.Y, at.Z + 4);
@@ -161,6 +202,16 @@ public sealed class FurnitureTestMod : Mod
         Named("bad-verb", "yodel", "open");
         Named("blank-prompt", "toggle.onPrompt", "words");
         Named("verb-and-prompt", "prompt", "not both");
+        Named("lid-stuck", "lid", "moves");
+        Named("empty-loot", "defaultLoot.entries", "at least one");
+        Named("no-loot-table", "defaultLoot", "gone-table");
+        Named("bad-opens", "opens", "front");
+        Named("bad-sides", "sides", "front");
+        Named("both-colliders", "colliders", "not both");
+        Named("flat-collider", "colliders[1].size", "more than 0");
+        Named("needs-other", "needsProps", "provides");
+        Named("no-such-prop", "needsProps", "nothing-here");
+        Named("factory-props", "needsProps", "manual station");
         Named("hair-jaw", "variants[jaw03]", "Jaw03");
         Named("refused-lock", "onRefused");
         Named("no-such-interaction", "onInteract", "gone");
@@ -173,7 +224,7 @@ public sealed class FurnitureTestMod : Mod
         Named("hair-fits", "look.fits");
         Named("hair-attach", "look.attach");
         Named("beard-hat", "variants", "hat");
-        string[] broken = ["no-name", "many-slots", "typo-field", "bad-time", "empty-requires", "bad-count", "uses-nothing", "bad-state", "bad-verb", "blank-prompt", "verb-and-prompt", "hair-jaw", "refused-lock", "no-such-interaction", "far-spot", "bad-play", "empty-interaction", "no-cells", "bad-cell", "too-big", "hair-fits", "hair-attach", "beard-hat"];
+        string[] broken = ["factory-props", "lid-stuck", "empty-loot", "no-loot-table", "bad-opens", "bad-sides", "both-colliders", "flat-collider", "needs-other", "no-such-prop", "no-name", "many-slots", "typo-field", "bad-time", "empty-requires", "bad-count", "uses-nothing", "bad-state", "bad-verb", "blank-prompt", "verb-and-prompt", "hair-jaw", "refused-lock", "no-such-interaction", "far-spot", "bad-play", "empty-interaction", "no-cells", "bad-cell", "too-big", "hair-fits", "hair-attach", "beard-hat"];
         var made = (mine.Blocks ?? []).Intersect(broken).ToList();
         Check(made.Count == 0 && Content.Items.Get($"{Me}.many-slots") == null && Content.Templates.Get($"{Me}.many-slots.prop") == null, $"none of the broken blocks became anything ({string.Join(", ", made)})");
         var late = mine.Errors?.FirstOrDefault(x => x.Contains("plain-lamp", StringComparison.Ordinal));
@@ -187,6 +238,10 @@ public sealed class FurnitureTestMod : Mod
         try { Blocks.Define("bad-refused", new DoorBlock { Name = "x", OnInteract = new InteractBlock { Requires = new RequiresBlock { Item = Twigs }, OnRefused = [new EffectBlock { Heal = 1 }] } }); }
         catch (BlockError e) { refused = e.Message; }
         Check(refused.Contains("onInteract.onRefused", StringComparison.Ordinal), $"C#: the game's own lock refuses with no effects: \"{refused}\"");
+        var plain = "";
+        try { Blocks.Define("bad-needs", new ItemBlock { Name = "x", Recipe = new RecipeBlock { Needs = { [Twigs] = 1 }, NeedsProps = [$"{Sample}:trestle"] } }); }
+        catch (BlockError e) { plain = e.Message; }
+        Check(plain.Contains("recipe.needsProps[0]", StringComparison.Ordinal) && plain.Contains("provides", StringComparison.Ordinal), $"C#: a recipe that needs what provides no crafting prop: \"{plain}\"");
     }
 
     // ---- it is all there ----------------------------------------------------------------------------------------
@@ -195,6 +250,8 @@ public sealed class FurnitureTestMod : Mod
     {
         var report = Blocks.Report().GetValueOrDefault(Sample);
         Check(report.Errors is { Count: 0 }, $"the sample's blocks came through with no word from the services: [{string.Join(" | ", report.Errors ?? [])}]");
+        Check(Blocks.Find("jsonc-table") != null && WorldTables.CraftingProps.Any(p => p.Mod == Me && p.Block == "jsonc-table"),
+            "the mixed JSONC file with comments, trailing commas and comment braces reaches both BlockJson and the native boot merge");
         var clients = File.ReadAllText(Path.Combine(Mods.Get(Sample)!.Directory, "kiln.mod.json"));
         Check(clients.Contains("\"both\"", StringComparison.Ordinal) && clients.Contains("\"mod\"", StringComparison.Ordinal), "the SDK made the manifest side both, clients mod: a shape is merged into each game's own table at its start");
 
@@ -252,19 +309,34 @@ public sealed class FurnitureTestMod : Mod
     private static string NewContentTexts(Guid template) =>
         Content.GameDataDefinitions().FirstOrDefault(d => d.Guid == template) is { } d ? $"{d.State} {d.DefinitionJson}" : "none";
 
+    // a prompt of its own is named by a tag from the template's GUID, which follows from the name; a crafting prop's id and place follow from its GUID, which follows from the name
+    private static string Normal(string? json) => Regex.Replace(Regex.Replace(Regex.Replace(Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "-json", ""), "(?<=\"InteractionOfferRuntime\\.defaultVerbId\": )[0-9]+", "TAG"),
+            "(\"id\": \"0x[0-9a-f]{8}\"|\"index\": [0-9]+|\"RequiredCraftingProp\\.craftingPropId\": [0-9]+)", "CRAFT"),
+            "(?<=joltObjects\\[0\\]\\.hash\": )[0-9]+|(?<=\"Crafting.workshopId\": )[0-9]+|(?<=\"CraftingInteraction.workshopId\": )[0-9]+", "IDENTITY");
+
     // JSON and C# are the same objects: what they lower to differs only in names and the ids that follow from names.
     private void Twins()
     {
-        // a prompt of its own is named by a tag from the template's GUID, which follows from the name
-        static string Normal(string? json) => Regex.Replace(Regex.Replace(Regex.Replace(json ?? "", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "GUID"), "-json", ""), "(?<=\"InteractionOfferRuntime\\.defaultVerbId\": )[0-9]+", "TAG");
-        foreach (var n in new[] { "lockbox", "night-door", "camp-bed", "milking-stool", "pray", "prayer-bench", "arched-window", "short-crop", "trim" })
+        foreach (var n in new[] { "lockbox", "night-door", "camp-bed", "milking-stool", "pray", "prayer-bench", "arched-window", "short-crop", "trim", "scrap-pile", "supply-cache", "barrel", "one-way-door", "trestle" })
         {
+            // Code's shapes are first learned after the boot merge; JSON's were scanned before it. On that first start compare the full shape,
+            // and require the documented registration states. After the restart the complete lowered definitions must match too.
+            if (n == "arched-window" && JsonNode.Parse(Blocks.Lowered(n, Sample) ?? "{}") is { } shape && (string?)shape["status"] == "pending")
+            {
+                var twin = JsonNode.Parse(Blocks.Lowered(n + "-json", Sample) ?? "{}");
+                Check((string?)twin?["status"] == "registered" && JsonNode.DeepEquals(shape["blueprint"], twin?["blueprint"]) && shape["items"] == null && twin?["items"] is JsonArray { Count: 1 },
+                    "arched-window: C# and JSON have the same shape; code waits for the next boot merge and JSON already has its item");
+                continue;
+            }
             var cs = Normal(Blocks.Lowered(n, Sample));
             var json = Normal(Blocks.Lowered(n + "-json", Sample));
             Check(cs.Length > 10 && cs == json, $"{n}: blocks/twins.json lowers to what the C# does ({cs.Length} characters of definitions)");
             if (cs != json) Info($"C#: {cs}\nJSON: {json}");
         }
         Check(Blocks.Find("lockbox", Sample)!.Guid != Blocks.Find("lockbox-json", Sample)!.Guid, "and each has its own ids");
+        var csHash = T(G("trestle") + ".prop").Get("ColliderResourceComponent.colliders[0].joltObjects[0].hash").Integer;
+        var jsonHash = T(G("trestle-json") + ".prop").Get("ColliderResourceComponent.colliders[0].joltObjects[0].hash").Integer;
+        Check(csHash != 0 && jsonHash != 0 && csHash != jsonHash, "the two trestles have distinct physics cache keys derived from their identities");
     }
 
     // A shape's cells as the game keeps them: the game's own 4 m door wall is c3 c3 c3 c3 c3 ff ff ff (VoxelBlueprintItemRegistryResource).
@@ -417,12 +489,352 @@ public sealed class FurnitureTestMod : Mod
         Spawn.Destroy(guest);
     }
 
+    // ---- default loot ---------------------------------------------------------------------------------------------
+
+    private static int Count(EntityId e, string item) => Items.Read(e)?.Count(new ItemId(I(item).Id)) ?? 0;
+    private readonly List<EntityId> _kept = new();
+
+    private async Task<bool> Until(Func<bool> done, int steps = 240)
+    {
+        for (var i = 0; i < steps && !done(); i += 2) await Steps(2);
+        return done();
+    }
+
+    private async Task<EntityId> PlaceKept(string template, WorldPosition at)
+    {
+        var e = Build.PlaceProp(template, at, null, 0, InBases);
+        _kept.Add(e);
+        await Steps(10);
+        return e;
+    }
+
+    private void Drop(EntityId e)
+    {
+        if (World.Exists(e)) Build.RemoveProp(e, InBases);
+        _placed.Remove(e);
+        _kept.Remove(e);
+    }
+
+    private async Task DefaultLoot(WorldPosition at)
+    {
+        var cache = G("supply-cache") + ".prop";
+        var before = ContainerRuntime.Filled;
+        var a = await PlaceKept(cache, Near(at, 5));
+        Check(await Until(() => Count(a, Scraps) > 0), $"a placed container is given what its default loot rolls: scraps {Count(a, Scraps)}, twigs {Count(a, Twigs)}");
+        Check(Count(a, Scraps) == 3 && Count(a, Twigs) == 2, $"the table's fixed counts: 3 scraps and 2 twigs: {Count(a, Scraps)}, {Count(a, Twigs)}");
+        Check(ContainerRuntime.Filled == before + 1, $"and it is counted once: {ContainerRuntime.Filled - before}");
+        Check(Count(a, Scraps) > 0 && Items.Read(a)?.AvailableSlots == 24, $"the container is the game's small chest still: {Items.Read(a)?.AvailableSlots} slots");
+        // what a player takes out stays out: it is not filled again, however many times the world is searched (every 20 steps)
+        Check((await Items.Take(a, new ItemId(I(Scraps).Id), 1)).Succeeded, "a player takes a scrap out");
+        await Steps(130);
+        Check(Count(a, Scraps) == 2 && Count(a, Twigs) == 2 && ContainerRuntime.Filled == before + 1, $"it is not filled again: scraps {Count(a, Scraps)}, twigs {Count(a, Twigs)}, filled {ContainerRuntime.Filled - before}");
+
+        // the same spot again: the container was taken away and placed once more
+        var b = await Place(cache, Near(at, 2));
+        await Until(() => Count(b, Scraps) > 0);
+        Check(Count(b, Scraps) == 3, $"a second container on another spot is its own fill: {Count(b, Scraps)}");
+        Drop(b);
+        await Steps(10);
+        var again = await Place(cache, Near(at, 2));
+        await Steps(130);
+        Check(Count(again, Scraps) == 0 && Count(again, Twigs) == 0, $"placed again on the same spot, it is not filled again: scraps {Count(again, Scraps)}, twigs {Count(again, Twigs)}");
+        Drop(again);
+
+        // a new spot is a new fill; the data file's twin and a table written in place fill alike; a container with no default loot is left alone
+        var c = await PlaceKept(cache, Near(at, 7));
+        await Until(() => Count(c, Scraps) > 0);
+        Check(Count(c, Scraps) == 3 && Count(c, Twigs) == 2, $"another spot, another fill: {Count(c, Scraps)}, {Count(c, Twigs)}");
+        var json = await Place(G("supply-cache-json") + ".prop", Near(at, 2));
+        var inline = await Place($"{Me}.inline-cache.prop", Near(at, 3));
+        var lockbox = await Place(G("lockbox") + ".prop", Near(at, 4));
+        await Until(() => Count(json, Scraps) > 0 && Count(inline, Twigs) > 0);
+        await Steps(60);
+        Check(Count(json, Scraps) == 3 && Count(json, Twigs) == 2, $"the data file's twin: {Count(json, Scraps)}, {Count(json, Twigs)}");
+        Check(Count(inline, Twigs) == 5, $"a table written in the block: {Count(inline, Twigs)}");
+        Check((Items.Read(lockbox)?.Slots.Sum(x => x.Count) ?? -1) == 0, "a container with no default loot stays empty");
+        foreach (var e in new[] { json, inline, lockbox }) Drop(e);
+        await Steps(6);
+        Check(ContainerRuntime.Failed == 0, $"no container was given up on: {ContainerRuntime.Failed}");
+    }
+
+    private readonly List<EntityId> _boundaryCaches = new();
+    private EntityId _nextSimCache;
+
+    private async Task LootNextSimulation(WorldPosition at)
+    {
+        Check(Saves.SnapshotStagingAvailable, "the runtime advertises final Post staging before the game's snapshot");
+        var position = Near(at, -3);
+        if (!Check(Build.Bases.Any(home => !home.Abandoned && home.Contains(position)), "the next-simulation cache stands inside a saved build zone"))
+            throw new InvalidOperationException("the next-simulation fixture is outside every base");
+        _nextSimCache = await PlaceKept($"{Me}.next-sim-cache.prop", position);
+        // PlaceKept also joins the ordinary restart fixture's list; its first two cache entries remain unchanged.
+        var template = T($"{Me}.next-sim-cache.prop").Guid;
+        var spot = ContainerRuntime.Spot(template, World.Position(_nextSimCache)!.Value);
+        var journal = WorldData.Get<FilledContainers>("next-sim-fill");
+        var progress = new FilledContainers.FillProgress { Stacks = [new(Twigs, 5)] };
+        Task<ItemsResult>? transaction = null;
+        var queued = false;
+        var observed = false;
+        journal.BeforeSnapshot = () =>
+        {
+            if (!queued) return;
+            if (!observed && transaction is { IsCompleted: false } task && Items.TryGetResult(task, out var result) && result.Done == 5)
+            {
+                observed = true;
+                Check(Count(_nextSimCache, Twigs) == 5,
+                    "final Post observes the next simulation's native commit while its managed task is still pending");
+            }
+            ContainerRuntime.Advance(journal, spot, progress, ref transaction, _ => throw new InvalidOperationException("a snapshot submitted a second grant"), false, out _);
+        };
+        using var saving = Events.On<WorldSavingEvent>(e =>
+        {
+            if (queued || e.Reason != SaveReason.Request) return;
+            journal.Pending[spot] = progress;
+            transaction = Items.Give(_nextSimCache, Twigs, 5);
+            queued = true;
+            Check(!transaction.IsCompleted && Count(_nextSimCache, Twigs) == 0,
+                "the initial request-time stage precedes the queued inventory commit");
+        });
+        var saved = await Saves.Request();
+        Check(saved.Success && queued && observed, $"the actual world save includes the later simulation's journal update: {saved}");
+        var root = Saves.DataDirectory!;
+        var manifestFile = Directory.EnumerateFiles(Path.Combine(root, "manifests"), $"{saved.Revision:D10}-*.json").First();
+        var manifest = JsonNode.Parse(File.ReadAllText(manifestFile))!;
+        var sha = manifest["bundles"]![$"world/{Me}"]!["sha256"]!.GetValue<string>();
+        var blob = File.ReadAllText(Path.Combine(root, "blobs", sha[..2], sha + ".json"));
+        Check(JsonNode.Parse(blob)!["keys"]!["next-sim-fill"]!["Filled"]?[spot] != null && Count(_nextSimCache, Twigs) == 5,
+            "the committed manifest's journal and inventory agree on exactly one next-simulation grant");
+        File.WriteAllText(Path.Combine(Context.DataDirectory, "next-sim-journal.json"), blob);
+    }
+
+    private async Task LootSaveBoundary(WorldPosition at)
+    {
+        var template = T($"{Me}.boundary-cache.prop").Guid;
+        var positions = new[] { Near(at, -1), Near(at, -2) };
+        if (!Check(positions.All(position => Build.Bases.Any(home => !home.Abandoned && home.Contains(position))), "both callback-boundary caches stand inside a saved build zone"))
+            throw new InvalidOperationException("the callback-boundary fixture is outside every base");
+        var a = Build.PlaceProp(template, positions[0], null, 0, InBases);
+        var b = Build.PlaceProp(template, positions[1], null, 0, InBases);
+        _boundaryCaches.AddRange([a, b]);
+        Exception? failure = null;
+        var captured = false;
+        using var given = Events.On<ItemsGivenEvent>(e =>
+        {
+            if (captured || (e.Target != a && e.Target != b)) return;
+            captured = true;
+            try
+            {
+                Check(Count(a, Twigs) == 5 && Count(b, Twigs) == 5, "both native inventory commits exist before the first result callback completes");
+                var active = (System.Collections.IDictionary)typeof(ContainerRuntime).GetField("Active", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+                var works = active.Values.Cast<object>().Where(work =>
+                {
+                    var entity = (EntityId)work.GetType().GetField("Entity")!.GetValue(work)!;
+                    return entity == a || entity == b;
+                }).ToArray();
+                var waiting = works.Select(work => (Task<ItemsResult>?)work.GetType().GetField("Transaction")!.GetValue(work)).ToArray();
+                Check(waiting.Length == 2 && waiting.All(task => task is { IsCompleted: false }),
+                    "both container tasks are still pending while the first native callback is active");
+                var itemGuid = Items.Lookup(Twigs)!.Guid;
+                Check(itemGuid != Guid.Empty && works.All(work =>
+                    ((FilledContainers.FillProgress)work.GetType().GetField("Progress")!.GetValue(work)!).ItemGuids.GetValueOrDefault(Twigs) == itemGuid),
+                    "both live loot rolls grant through the confirmed native item GUID");
+                // Saves.Request queues for a later Pre. To prove this exact ordering, invoke the existing production stage while this
+                // callback is active: it serializes the real WorldData bundle, including its IJsonOnSerializing drain, to an actual blob.
+                var runtime = typeof(Saves).Assembly.GetType("Kiln.SavesRuntime", throwOnError: true)!;
+                var store = (runtime.GetField("Store", BindingFlags.Static | BindingFlags.NonPublic)
+                    ?? throw new MissingFieldException(runtime.FullName, "Store")).GetValue(null)!;
+                var revision = Saves.Status!.Revision + 1;
+                (store.GetType().GetMethod("Stage") ?? throw new MissingMethodException(store.GetType().FullName, "Stage"))
+                    .Invoke(store, [revision, SaveReason.Request, false]);
+                var root = Saves.DataDirectory!;
+                var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "manifests", $"{revision:D10}.pending.json")))!;
+                var sha = manifest["bundles"]!["world/kiln.blocks"]!["sha256"]!.GetValue<string>();
+                var blob = File.ReadAllText(Path.Combine(root, "blobs", sha[..2], sha + ".json"));
+                var journal = JsonNode.Parse(blob)!["keys"]!["containers-filled"]!;
+                foreach (var cache in new[] { a, b })
+                {
+                    var spot = ContainerRuntime.Spot(template, World.Position(cache)!.Value);
+                    Check(journal["Filled"]?[spot] != null && journal["Pending"]?[spot] == null,
+                        $"production WorldData staging inside the first item callback records committed cache {cache} once");
+                }
+                Directory.CreateDirectory(Context.DataDirectory);
+                File.WriteAllText(Path.Combine(Context.DataDirectory, "callback-boundary-journal.json"), blob);
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        Check(await Until(() => captured), "the save-boundary cache callback ran");
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+        var saved = await Saves.Request();
+        Check(saved.Success, $"the game saved both boundary caches with the journal: {saved}");
+        await Steps(45);
+        Check(Count(a, Twigs) == 5 && Count(b, Twigs) == 5, "normal callback delivery never grants the already-journaled loot again");
+    }
+
+    // ---- a lid, a swing, boxes ------------------------------------------------------------------------------------
+
+    private static readonly Guid OpenState = Guid.Parse("bcf39dc8-d81e-450a-a77d-3b626d4106c4");
+
+    private static int Boxes(GameDataEntry t)
+    {
+        var n = 0;
+        while (n < 32)
+        {
+            try { t.Get($"ColliderResourceComponent.colliders[0].dataArray[{n}].shape.halfSize.x"); }
+            catch (Exception e) when (e is KeyNotFoundException or ArgumentException or InvalidOperationException) { return n; }
+            n++;
+        }
+        return n;
+    }
+
+    private void Fields()
+    {
+        var supply = T(G("supply-cache") + ".prop");
+        Check(Has(supply, "ToggleAnimation") && Has(supply, "InventorySetup"), "a container with a default loot keeps its starter's lid");
+        foreach (var n in new[] { "barrel", "barrel-json" })
+        {
+            var t = T(G(n) + ".prop");
+            Check(!Has(t, "ToggleAnimation") && Has(t, "InventorySetup"), $"{n}: Lid.Moves = false takes the toggle animation off, and it is still a container");
+        }
+        foreach (var n in new[] { "one-way-door", "one-way-door-json" })
+        {
+            var t = T(G(n) + ".prop");
+            Check(t.Get("DirectionalInteraction.frontInteraction.animationState").Guid == OpenState && t.Get("DirectionalInteraction.backInteraction.animationState").Guid == OpenState,
+                $"{n}: Opens = front: both ways play the front state, as the game's doors that swing one way only: {t.Get("DirectionalInteraction.backInteraction.animationState").Guid}");
+        }
+        var wood = T(G("night-door") + ".prop");
+        Check(wood.Get("DirectionalInteraction.backInteraction.animationState").Guid != OpenState, "a door that says nothing of its swing keeps its starter's two ways");
+        foreach (var n in new[] { "trestle", "trestle-json" })
+        {
+            var t = T(G(n) + ".prop");
+            var boxes = Boxes(t);
+            Check(boxes == 3, $"{n}: three boxes in its template's collider, and no more: {boxes}");
+            var halves = Enumerable.Range(0, 3).Select(i => t.Get($"ColliderResourceComponent.colliders[0].dataArray[{i}].shape.halfSize.x").Number).ToArray();
+            var offsets = Enumerable.Range(0, 3).Select(i => t.Get($"ColliderResourceComponent.colliders[0].dataArray[{i}].offset.x").Number).ToArray();
+            Check(Math.Abs(halves[0] - 1) < 1e-4 && Math.Abs(halves[1] - 0.075) < 1e-4 && Math.Abs(halves[2] - 0.075) < 1e-4 && Math.Abs(offsets[1] + 0.85) < 1e-4 && Math.Abs(offsets[2] - 0.85) < 1e-4,
+                $"{n}: each box has its own size and place: halves [{string.Join(", ", halves)}], offsets [{string.Join(", ", offsets)}]");
+            var topY = t.Get("ColliderResourceComponent.colliders[0].dataArray[0].offset.y").Number;
+            var legY = t.Get("ColliderResourceComponent.colliders[0].dataArray[2].shape.halfSize.y").Number;
+            Check(Math.Abs(topY - 0.9) < 1e-4 && Math.Abs(legY - 0.425) < 1e-4, $"{n}: and so do their heights: top at {topY}, legs {legY} half-height");
+            Check(Has(t, "ColliderResourceComponent") && t.Get("ColliderResourceComponent.colliders[0].joltObjects[0].hash").Integer != 0, $"{n}: one physics shape for all of them: hash {t.Get("ColliderResourceComponent.colliders[0].joltObjects[0].hash").Integer}");
+            var indices = Enumerable.Range(0, 3).Select(i => t.Get($"ColliderResourceComponent.colliders[0].joltObjects[0].shapeIndexList[{i}]").Integer).ToArray();
+            Check(indices.SequenceEqual(new long[] { 0, 1, 2 }), $"{n}: the physics object uses every box: [{string.Join(", ", indices)}]");
+            Check(Content.ItemData.Get(G(n))!.Get("equipment.placementColliders[0].joltObjects[0].hash").Integer != t.Get("ColliderResourceComponent.colliders[0].joltObjects[0].hash").Integer,
+                $"{n}: the placement box and the three placed boxes have different physics cache keys");
+        }
+        var vase = Content.Templates.Get(Content.ItemData.Get("Prop_Decoration_T2_Vase_Clay_01")!.Get("equipment.placedEntity").Guid)!;
+        Info($"the game's own vase: {Boxes(vase)} box(es), so the trestle's three are the clone's: its template is longer than its starter's");
+    }
+
+    // ---- door sides -----------------------------------------------------------------------------------------------
+
+    private async Task DoorSides(WorldPosition at)
+    {
+        var door = await Place(G("one-way-door") + ".prop", Near(at, 0));
+        var info = Spawn.Inspect(door);
+        var p = World.Position(door)!.Value;
+        Info($"the one-way door stands at {p}, turned {info?.YawDegrees}");
+        var yaw = (info?.YawDegrees ?? 0) * Math.PI / 180;
+        WorldPosition Side(double along) => new(p.X + Math.Sin(yaw) * along, p.Y, p.Z + Math.Cos(yaw) * along);
+        var front = await Guest(Side(1.3));
+        var back = await Guest(Side(-1.3));
+        Check(InteractRuntime.SideOf(door, front) == DoorSide.Front && InteractRuntime.SideOf(door, back) == DoorSide.Back, $"Kiln knows the sides of the door: {InteractRuntime.SideOf(door, front)}, {InteractRuntime.SideOf(door, back)}");
+        _attempts.Clear();
+        var fromBack = await Use(back, door);
+        Check(fromBack != true && _attempts.Any(a => a.Host == door && a.Guest == back && a.Canceled), $"Sides = front: a player on the back side is declined by Kiln, and nothing accepts it ({fromBack})");
+        var state = DirectionalState(door);
+        var fromFront = await Use(front, door);
+        Check(fromFront == true, $"and one on the front side is accepted by the game: {fromFront}");
+        Info($"the door's directional interaction after the front guest used it: {state} -> {DirectionalState(door)}");
+        Spawn.Destroy(back);
+        Spawn.Destroy(front);
+        // a door with no say about its sides is used from either
+        var open = await Place($"{Me}.coded-door.prop", Near(at, 2));
+        var p2 = World.Position(open)!.Value;
+        var behind = await Guest(new WorldPosition(p2.X, p2.Y, p2.Z - 1.3));
+        Check(await Use(behind, open) == true, "a door that says nothing of its sides is used from the back too");
+        Remove();
+        await Steps(4);
+    }
+
+    private static string DirectionalState(EntityId door) => World.ReadBytes(door, "DirectionalInteraction") is { Length: > 0 } b ? $"state {b[0]}" : "none";
+
+    // ---- several colliders ----------------------------------------------------------------------------------------
+
+    private async Task Colliders(WorldPosition at)
+    {
+        foreach (var n in new[] { "trestle", "trestle-json" })
+        {
+            var e = await Place(G(n) + ".prop", Near(at, 1));
+            Check(!e.IsNone && Spawn.Inspect(e)?.Template == T(G(n) + ".prop").Guid, $"{n}: a prop whose template has three boxes places: {e} {Spawn.Inspect(e)?.TemplateName}");
+            await Steps(20);
+            var collider = World.ComponentSize(e, "Collider");
+            Check(World.Exists(e) && Spawn.Inspect(e)?.Template == T(G(n) + ".prop").Guid && Boxes(T(G(n) + ".prop")) == 3, $"{n}: and stays placed with its own three-box template");
+            Info($"{n}: runtime Collider has {collider} bytes on this headless server; physical bumping needs a joined player");
+            Remove();
+            await Steps(4);
+        }
+    }
+
+    // ---- crafting props -------------------------------------------------------------------------------------------
+
+    private static long Mask(EntityId station) => World.ReadBytes(station, "CraftingInteraction") is { Length: >= 8 } b ? BitConverter.ToInt64(b, 0) : -1;
+
+    private async Task<ItemCraftedEvent?> CraftOnce(EntityId guest, EntityId station, uint recipe)
+    {
+        _crafted.Clear();
+        Gameplay.Inject.Craft(guest, station, recipe);
+        await Until(() => _crafted.Any(e => e.Operator == guest && e.RecipeId == recipe));
+        return _crafted.LastOrDefault(e => e.Operator == guest && e.RecipeId == recipe);
+    }
+
+    // JSON's prop is in the table from the first start; code's from the second. Craft requests use the game's real prop check.
+    private async Task CraftingProps(WorldPosition at, string suffix)
+    {
+        var table = "rune-table" + suffix;
+        var benchName = "rune-bench" + suffix;
+        var props = WorldTables.CraftingProps;
+        Info($"crafting props in the game's table: {string.Join(", ", props.Select(x => $"{x.Mod}:{x.Block} place {x.Index} id 0x{x.Id:x8}"))}");
+        var mine = props.FirstOrDefault(x => x.Mod == Sample && x.Block == table);
+        Check(mine != null, $"{table} has a place in the game's table");
+        if (mine == null) return;
+        var guid = Compiler.CraftingPropGuid(Sample, table);
+        Check(mine.Index is >= 51 and <= 63 && mine.Guid == guid && mine.Id == BlockIds.Fnv(guid) && WorldTables.CraftingPropIndex(guid) == mine.Index, $"{table}: a free place of the game's 64 ({mine.Index}), the id of its GUID (0x{mine.Id:x8})");
+        Check(WorldTables.Hash != WorldTablesNative.EmptyHash, $"the handshake hash says it: {WorldTables.Hash}");
+        var t = T(G(table) + ".prop");
+        Check((uint)t.Get("RequiredCraftingProp.craftingPropId").Integer == mine.Id, $"{table}: the template is the crafting prop of that id");
+        var recipe = Content.Recipes.Get(G(benchName + ".makes.Material_T1_Wood_Logs"));
+        Check(recipe != null, $"{benchName}: the recipe that needs it is made");
+        if (recipe == null) return;
+        var wanted = recipe.Get("requiredPropsMask").Integer;
+        Check(wanted == 1L << mine.Index, $"{benchName}: the recipe's props mask is that place: 0x{wanted:x}");
+
+        var bench = await Place(G(benchName) + ".station", Near(at, 0));
+        var guest = await Guest(Near(at, 3));
+        await Items.Give(guest, Twigs, 6);
+        var before = await CraftOnce(guest, bench, recipe.Id);
+        Check(before is { Result: CraftResult.MissingCraftingProps } && (Mask(bench) & wanted) == 0 && Count(guest, Twigs) == 6 && Count(guest, "Material_T1_Wood_Logs") == 0,
+            $"no rune table near: the game refuses the craft (raw {before?.RawResult}), takes no inputs and gives no output; mask 0x{Mask(bench):x}");
+        var rune = await Place(G(table) + ".prop", Near(at, 1));
+        Check(await Until(() => (Mask(bench) & wanted) != 0, 160), $"with the table 2.5 m away the station's props in range have its place: mask 0x{Mask(bench):x}");
+        var made = await CraftOnce(guest, bench, recipe.Id);
+        Check(made is { Succeeded: true } && Count(guest, Twigs) == 4 && Count(guest, "Material_T1_Wood_Logs") == 1,
+            $"with the table the real craft request succeeds (raw {made?.RawResult}): twigs {Count(guest, Twigs)}, logs {Count(guest, "Material_T1_Wood_Logs")}");
+        Build.RemoveProp(rune, InBases);
+        _placed.Remove(rune);
+        Check(await Until(() => (Mask(bench) & wanted) == 0, 160), $"the table taken away, the place goes from the station's mask: 0x{Mask(bench):x}");
+        var after = await CraftOnce(guest, bench, recipe.Id);
+        Check(after is { Result: CraftResult.MissingCraftingProps } && Count(guest, Twigs) == 4 && Count(guest, "Material_T1_Wood_Logs") == 1,
+            $"after removal the game refuses again (raw {after?.RawResult}) and keeps inventory unchanged");
+        Spawn.Destroy(guest);
+        Remove();
+        await Steps(4);
+    }
+
     // ---- restarts -----------------------------------------------------------------------------------------------
 
-    private async Task<WorldPosition> OpenGround()
+    private async Task<WorldPosition> OpenGround(double x = 3024, double z = 1550)
     {
-        double x = 3024, z = 1550;
-        var box = Build.BoxBetween(new WorldPosition(x, 850, z), new WorldPosition(x, 960, z));
+        var box = Build.BoxBetween(new WorldPosition(x, 700, z), new WorldPosition(x, 1100, z));
         var cells = await Build.ReadAsync(box);
         for (var y = box.SizeY - 1; y >= 0; y--)
         {
@@ -459,6 +871,9 @@ public sealed class FurnitureTestMod : Mod
             ["doorState"] = World.ReadBytes(door, "ServerToggleState")?[0] ?? 255, ["gameDoor"] = Pos(gameDoor),
             ["itemBox"] = I(G("lockbox")).Guid.ToString(), ["templateBox"] = T(G("lockbox") + ".prop").Guid.ToString(), ["templateDoor"] = T($"{Me}.coded-door.prop").Guid.ToString(),
             ["templateBed"] = T(G("camp-bed") + ".prop").Guid.ToString(), ["hair"] = I(G("short-crop")).Guid.ToString(),
+            ["cacheA"] = Pos(_kept[0]), ["cacheC"] = Pos(_kept[1]),
+            ["boundaryCaches"] = new JsonArray(_boundaryCaches.Select(cache => (JsonNode)Pos(cache)).ToArray()),
+            ["nextSimCache"] = Pos(_nextSimCache),
         };
         Info($"left: lockbox {box} with 7 twigs, door {door} toggle {state["doorState"]}, bed {bed} in the base, bed {outside} on open ground at {open}");
         Directory.CreateDirectory(Context.DataDirectory);
@@ -480,6 +895,7 @@ public sealed class FurnitureTestMod : Mod
     private async Task AfterRestart(string file)
     {
         var s = JsonNode.Parse(File.ReadAllText(file))!;
+        Twins();
         Check(I(G("lockbox")).Guid.ToString() == (string?)s["itemBox"] && T(G("lockbox") + ".prop").Guid.ToString() == (string?)s["templateBox"] && I(G("short-crop")).Guid.ToString() == (string?)s["hair"], "the ids are what they were");
         var box = At(s["box"], T(G("lockbox") + ".prop").Guid);
         var door = At(s["door"], T($"{Me}.coded-door.prop").Guid);
@@ -508,6 +924,40 @@ public sealed class FurnitureTestMod : Mod
         foreach (var e in new[] { box, door, bed })
             if (!e.IsNone) Build.RemoveProp(e, InBases);
         await Steps(4);
+
+        // the default loot was given once: the record is in the world's data, so a restart fills nothing again and what a player took out stays out
+        var cacheT = T(G("supply-cache") + ".prop").Guid;
+        var a = At(s["cacheA"], cacheT);
+        var c = At(s["cacheC"], cacheT);
+        Check(!a.IsNone && Count(a, Scraps) == 2 && Count(a, Twigs) == 2, $"after the restart the first cache holds what was left in it, and is not filled again: scraps {(a.IsNone ? -1 : Count(a, Scraps))}, twigs {(a.IsNone ? -1 : Count(a, Twigs))}");
+        Check(!c.IsNone && Count(c, Scraps) == 3 && Count(c, Twigs) == 2, $"and the second holds its fill, no more: scraps {(c.IsNone ? -1 : Count(c, Scraps))}, twigs {(c.IsNone ? -1 : Count(c, Twigs))}");
+        Check(ContainerRuntime.Filled == 0, $"the restart filled nothing: {ContainerRuntime.Filled}");
+        foreach (var position in s["boundaryCaches"]!.AsArray())
+        {
+            var cache = At(position, T($"{Me}.boundary-cache.prop").Guid);
+            Check(!cache.IsNone && Count(cache, Twigs) == 5,
+                $"after restart a cache journaled before callback delivery holds exactly its single fill: {cache}, twigs {(cache.IsNone ? -1 : Count(cache, Twigs))}");
+            if (!cache.IsNone) Build.RemoveProp(cache, InBases);
+        }
+        var nextCache = At(s["nextSimCache"], T($"{Me}.next-sim-cache.prop").Guid);
+        var nextJournal = WorldData.Get<FilledContainers>("next-sim-fill");
+        var nextSpot = nextCache.IsNone ? "gone" : ContainerRuntime.Spot(T($"{Me}.next-sim-cache.prop").Guid, World.Position(nextCache)!.Value);
+        Check(!nextCache.IsNone && Count(nextCache, Twigs) == 5 && nextJournal.Filled.ContainsKey(nextSpot) && nextJournal.Pending.Count == 0,
+            $"after restart the next-simulation cache and journal contain exactly one grant: {nextCache}, twigs {(nextCache.IsNone ? -1 : Count(nextCache, Twigs))}");
+        if (!nextCache.IsNone) Build.RemoveProp(nextCache, InBases);
+        foreach (var e in new[] { a, c })
+            if (!e.IsNone) Build.RemoveProp(e, InBases);
+        await Steps(4);
+
+        // the code's crafting prop and station: in the game's table from this start, and what they lowered to is what the data file's twins lowered to
+        foreach (var n in new[] { "rune-table", "rune-bench" })
+        {
+            var cs = Normal(Blocks.Lowered(n, Sample));
+            var js = Normal(Blocks.Lowered(n + "-json", Sample));
+            Check(cs.Length > 10 && cs == js, $"{n}: blocks/twins.json lowers to what the C# does ({cs.Length} characters of definitions)");
+            if (cs != js) Info($"C#: {cs}\nJSON: {js}");
+        }
+        await CraftingProps(BaseSpot(), "");
         var saved = await Saves.Request();
         Check(saved.Success, $"saved without them: {saved}");
     }

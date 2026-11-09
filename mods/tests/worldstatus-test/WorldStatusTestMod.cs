@@ -8,6 +8,13 @@
 //     spire top, a vanilla quest's first step); the flame level through the progress entity's Level attribute; a Kiln
 //     quest on a synthetic holder; a spawned chest written as looted; a spawned boss killed. Each change must show in the
 //     reads and raise its event.
+//  3. The flame write (WorldProgress.SetFlameLevel, docs/re/world-status.md section 11): the level is written the way the
+//     game's admin command writes it, read back through Flame (the stored Level attribute, the replicated copy, the
+//     game's own ServerProgressSystem) and LimitsAt, then put back. Restart check: `touch kiln/data/worldstatus-test/arm-flame`
+//     (or `arm-flame-raw`: the same with a raw unmarked write), run once, restart the server: the second run finds the level
+//     in the world's save, checks what the game derives from it and puts it back.
+//  4. Texts.Get (docs/re/world-status.md section 12): item names through the catalog's loca table against the item
+//     catalog's DisplayName.
 // A lab world only: part 2 writes the world's knowledge and its flame level for a few seconds and restores them.
 // Output: "worldstatus-test: PASS <what>" / "FAIL <what>: <why>" lines in kiln/logs/kiln.log, then a summary.
 using System.Runtime.InteropServices;
@@ -210,6 +217,8 @@ public sealed class WorldStatusTestMod : Mod
         await WorldFacts();
         await CharacterFacts();
         await Flame();
+        await FlameWrite();
+        TextsCheck();
         await Chests();
         await BossDeath();
         await KilnQuest();
@@ -323,6 +332,176 @@ public sealed class WorldStatusTestMod : Mod
         World.TryWrite(f.Entity, "Level", offset, (uint)f.Level);
         var back = await WaitEvent<FlameLevelChangedEvent>(e => e.NewLevel == f.Level, 240);
         Check(back is not null && WorldProgress.FlameLevel == f.Level, "put back", $"{WorldProgress.Flame}");
+    }
+
+    // ------------------------------------------------------------------------------------------- the flame write ----
+
+    private string StateFile => Path.Combine(Context.DataDirectory, "flame-restart.json");
+
+    private async Task<bool> WaitFlame(Func<FlameStatus, bool> done, int steps)
+    {
+        for (var i = 0; i < steps; i++)
+        {
+            if (WorldProgress.Flame is { } f && done(f)) return true;
+            await Context.Scheduler.NextTick();
+        }
+        return false;
+    }
+
+    private void Limits(string what, int level)
+    {
+        var l = WorldProgress.LimitsAt(level);
+        Note($"{what}: {(l is null ? $"no limits for level {level}" : l.ToString())}");
+    }
+
+    private async Task FlameWrite()
+    {
+        if (WorldProgress.Flame is not { } f0 || f0.Stored is null)
+        {
+            Fail("flame write", $"the flame part of kiln.knowledge is not answering: {WorldProgress.Flame}");
+            return;
+        }
+        var max = f0.Max ?? 0;
+        Note($"flame before: {f0}; stored {f0.Stored}, max {f0.Max}, system level {f0.SystemLevel}");
+        Check(f0.Stored == f0.Level, "the stored Level attribute equals the replicated copy", $"{f0.Stored} vs {f0.Level}");
+        Check(max >= 2, $"the Level attribute's second value is the game's maximum ({max})", $"{max}");
+        Check(WorldProgress.LimitsAt(max) is not null && WorldProgress.LimitsAt(max + 1) is null,
+            $"the balancing table's flameLevelMax equals it (limits exist for 0..{max} and not above)");
+        Check(f0.SystemLevel == f0.Level, "the game's own ServerProgressSystem.progressLevel equals it (what altar and fog rules read)",
+            $"{f0.SystemLevel}");
+        Limits("limits at the current level", f0.Level);
+        if (Settings.Available && Settings.Values.TryGetValue("flameLevelFogRemoval", out var fog)) Note($"setting flameLevelFogRemoval = {fog}");
+
+        // arguments
+        var threw0 = false;
+        try { _ = WorldProgress.SetFlameLevel(0); } catch (ArgumentOutOfRangeException) { threw0 = true; }
+        var threwMax = false;
+        try { _ = WorldProgress.SetFlameLevel(max + 1); } catch (ArgumentOutOfRangeException) { threwMax = true; }
+        Check(threw0 && threwMax, "levels 0 and above the maximum are refused with ArgumentOutOfRangeException");
+
+        // a state left by an armed run before a restart: this is the second run
+        if (File.Exists(StateFile))
+        {
+            await FlameAfterRestart(f0);
+            return;
+        }
+
+        var armed = File.Exists(Path.Combine(Context.DataDirectory, "arm-flame")) ? "marked" :
+                    File.Exists(Path.Combine(Context.DataDirectory, "arm-flame-raw")) ? "raw" : null;
+
+        // up one (down one at the maximum), read back everywhere, put back
+        var target = f0.Level < max ? f0.Level + 1 : f0.Level - 1;
+        var up = await WorldProgress.SetFlameLevel(target);
+        Note($"SetFlameLevel({target}): {up}");
+        Check(up.Ok && up.Before == f0.Level && up.After == target && up.Marked && !up.Clamped,
+            $"SetFlameLevel({target}) wrote it: {up.Before} -> {up.After}, marked written {up.Marked}");
+        Check(up.Mirrored, $"the game mirrored it into NetworkServerProgress after {up.Steps} step(s)", $"{up}");
+        Check(await WaitFlame(f => f.Level == target && f.Stored == target && f.SystemLevel == target, 120),
+            "Level, the stored attribute and ServerProgressSystem.progressLevel all read the new level", $"{WorldProgress.Flame}");
+        var changed = await WaitEvent<FlameLevelChangedEvent>(e => e.NewLevel == target, 120);
+        Check(changed is not null && changed.OldLevel == f0.Level, "FlameLevelChangedEvent fires", $"{changed}");
+        Limits($"limits at the new level {target}", target);
+        var a = WorldProgress.LimitsAt(f0.Level);
+        var b = WorldProgress.LimitsAt(target);
+        Note($"derived: altars {a?.Altars} -> {b?.Altars}, water sources {a?.WaterSources} -> {b?.WaterSources}, fog resistance {a?.FogResistance} -> {b?.FogResistance}, " +
+             $"fog removed {a?.FogRemoved} -> {b?.FogRemoved}");
+
+        if (armed is not null)
+        {
+            // keep a level that differs from the saved one by 3 or more, for the restart
+            var keep = f0.Level + 4 <= max ? f0.Level + 4 : Math.Max(1, f0.Level - 4);
+            if (armed == "marked")
+            {
+                var k = await WorldProgress.SetFlameLevel(keep);
+                Check(k.Ok && k.Mirrored, $"armed ({armed}): level {keep} is set and mirrored", $"{k}");
+            }
+            else
+            {
+                var e = f0.Entity;
+                var slotOffset = World.TryRead<LevelAttribute>(e, "Level", out var lv) && lv.Value0 == (uint)target ? 8 : 12;
+                Check(World.TryWrite(e, "Level", slotOffset, (uint)keep), $"armed ({armed}): level {keep} written with a raw World.TryWrite (offset {slotOffset})");
+                Check(await WaitFlame(f => f.Level == keep, 240), "armed (raw): the game mirrored it", $"{WorldProgress.Flame}");
+            }
+            File.WriteAllText(StateFile, FlameRestartState(f0.Level, keep, armed));
+            Note($"armed ({armed}): the flame stays at {keep} (saved level was {f0.Level}). Wait for an autosave or stop the server, then start it again: the second run reads it back and restores {f0.Level}");
+            return;
+        }
+        var back = await WorldProgress.SetFlameLevel(f0.Level);
+        Check(back.Ok && back.After == f0.Level && back.Mirrored, $"put back: {back.Before} -> {back.After}", $"{back}");
+        Check(await WaitFlame(f => f.Level == f0.Level && f.Stored == f0.Level && f.SystemLevel == f0.Level, 120), "all three read the original level again", $"{WorldProgress.Flame}");
+    }
+
+    private static string FlameRestartState(int original, int expected, string mode) =>
+        // Serialize only framework types: reflection metadata for a mod-defined record would retain its load context.
+        new System.Text.Json.Nodes.JsonObject
+        {
+            ["original"] = original, ["expected"] = expected, ["mode"] = mode,
+        }.ToJsonString();
+
+    private async Task FlameAfterRestart(FlameStatus f)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(StateFile));
+        var original = doc.RootElement.GetProperty("original").GetInt32();
+        var expected = doc.RootElement.GetProperty("expected").GetInt32();
+        var mode = doc.RootElement.GetProperty("mode").GetString();
+        Note($"after the restart ({mode} write): flame {f}; stored {f.Stored}, system level {f.SystemLevel}; the armed run left {expected} (the level before was {original})");
+        Check(f.Level == expected && f.Stored == expected,
+            $"the level written before the restart ({mode}) is in the world's save: {f.Level} (stored {f.Stored}), expected {expected}", $"{f}");
+        Check(f.SystemLevel == expected, "the game's own limits read it too (ServerProgressSystem.progressLevel)", $"{f.SystemLevel}");
+        Limits("derived limits after the restart", f.Level);
+        if (Settings.Available && Settings.Values.TryGetValue("flameLevelFogRemoval", out var fog)) Note($"setting flameLevelFogRemoval = {fog} (unchanged by the level)");
+        var back = await WorldProgress.SetFlameLevel(original);
+        Check(back.Ok && back.Mirrored, $"put back to {original}", $"{back}");
+        File.Delete(StateFile);
+        File.Delete(Path.Combine(Context.DataDirectory, "arm-flame"));
+        File.Delete(Path.Combine(Context.DataDirectory, "arm-flame-raw"));
+    }
+
+    // ----------------------------------------------------------------------------------------------------- texts ----
+
+    private void TextsCheck()
+    {
+        var st = Texts.Status;
+        Note($"texts: {st}");
+        if (!st.Loaded)
+        {
+            Fail("texts", st.ToString());
+            return;
+        }
+        Check(st.Count > 10000, $"the loca table has {st.Count} texts");
+        // Three known items, required individually. Walk the item registry, whose GUIDs have already been resolved by
+        // kiln.items, rather than assuming every asset-directory key names an item in that registry.
+        var known = 0;
+        foreach (var n in new[] { "Material_T1_Wood_Logs", "Consumable_Potion_Mana_T5", "Consumable_Potion_Health_T5" })
+        {
+            var item = Items.Lookup(n);
+            if (item?.DisplayName is not { } shown || Assets.ReadResource(new AssetKey(item.Guid, AssetKey.ItemInfoType)) is not { Length: >= 0x58 } bytes)
+            {
+                Fail($"Texts.Get comparison for {n}", $"item {item}, display name {item?.DisplayName ?? "missing"}, GUID {item?.Guid}");
+                continue;
+            }
+            var tag = new Guid(bytes.AsSpan(0x48, 16));
+            var text = Texts.GetPlain(tag);
+            Note($"item {item.Name}: DisplayName \"{shown}\", Texts.Get(name tag {tag}) = \"{text}\"");
+            known++;
+            Check(text == shown, $"Texts.Get of {item.Name}'s name tag equals its DisplayName ({shown})", $"{text}");
+        }
+        Check(known >= 3, $"three known items were compared ({known} found)");
+        var same = 0;
+        var total = 0;
+        var diff = new List<string>();
+        foreach (var item in Items.All)
+        {
+            if (item.DisplayName is not { } shown ||
+                Assets.ReadResource(new AssetKey(item.Guid, AssetKey.ItemInfoType)) is not { Length: >= 0x58 } bytes) continue;
+            if (Texts.GetPlain(new Guid(bytes.AsSpan(0x48, 16))) is not { } text) continue;
+            total++;
+            if (text == shown) same++;
+            else if (diff.Count < 5) diff.Add($"{item.Name}: '{shown}' vs '{text}'");
+        }
+        Note($"every item with both names: {same} of {total} equal; first differences: {string.Join(" | ", diff)}");
+        Check(total > 3000 && same * 100 >= total * 97, $"{same} of {total} item names agree (the shipped catalog swaps a few names)");
+        Check(Texts.Get(0x12345678u) is null && Texts.Get(Guid.Empty) is null && Texts.Get("not a tag") is null, "an unknown tag, the zero GUID and a bad string read null");
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]

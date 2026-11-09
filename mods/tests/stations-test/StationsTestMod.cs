@@ -618,6 +618,7 @@ public sealed class StationsTestMod : Mod
         }
         var alone = await Measure();
         var ovenRecipe = Content.Recipes.First(r => (uint)r.Get("workshopId").Integer == 0x1ee9f0bf && r.Inputs.All(i => i.Item.Value != 0));
+        Check(T("T3_Oven_Factory").Get("ComfortProvider.comfort").Number == 3, "the vanilla comfort control has Hearth 3; our forge's template above has Hearth 2");
         var oven = await Lit("T3_Oven_Factory", ovenRecipe, 1.5);
         var withOven = await Measure();
         Info($"comfort: alone {alone}, a running game oven {oven} ({Stations.Status(oven)?.State}) {withOven}");
@@ -633,7 +634,10 @@ public sealed class StationsTestMod : Mod
         Info($"comfort: our running forge {forge} ({Stations.Status(forge)?.State}) {withForge}, the spa {spa} {withSpa}, the game's table {table} {withTable}");
         if (withOven.Hearth == oven.Value)
         {
-            Check(withForge.Hearth == forge.Value && withForge.Level == withOven.Level - 1, $"the game's comfort system takes our forge for its hearth, as it does the game's oven, at its comfort: hearth {withForge.Hearth}, level {withForge.Level} (the oven's {withOven.Level})");
+            // NetworkComfort's level is unsigned (Measure reads UInt16), so the difference saturates at zero. A level-zero control cannot distinguish the two strengths.
+            var expected = Math.Max(0, withOven.Level - 1);
+            Check(withForge.Hearth == forge.Value && withForge.Level == expected, $"the game's comfort system takes our forge for its hearth, as it does the game's oven: hearth {withForge.Hearth}, level {withForge.Level}, expected {expected} (the oven's {withOven.Level})");
+            if (withOven.Level == 0) Info("both comfort levels are at the unsigned zero floor: hearth selection and raw template values are checked, but the strength difference needs a sheltered/client check");
             if (withTable.Level > withForge.Level) Check(withSpa.Level > withForge.Level, $"and counts the spa beside it, as it does the game's table: level {withForge.Level} -> {withSpa.Level} (the table: {withTable.Level})");
             else Info("furniture beside a hearth counted for neither table here: furniture is a manual check");
         }

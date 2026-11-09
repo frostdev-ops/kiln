@@ -10,7 +10,7 @@
   "identity": "Kiln.Templates.Items",
   "groupIdentity": "Kiln.Templates.Items",
   "name": "Kiln new items",
-  "description": "New items and recipes (kiln.content): a material as data (content/items.json, own icon and texts) and a sword from code (a clone of a game item with its own stats).",
+  "description": "New items and recipes (kiln.content): a material as data (content/items.json, own icon and texts) and a sword from code (a clone of a game item with its own stats). Advanced: content-pack clones of game items with GUIDs of your own. For new items start with kiln-item-blocks.",
   "shortName": "kiln-items",
   "sourceName": "KilnItems1",
   "preferNameDirectory": true,

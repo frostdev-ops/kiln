@@ -857,7 +857,10 @@ internal static class NpcCompiler
         var cloneName = $"Kiln_{mod}_{key}";
         var names = new Dictionary<string, string>(StringComparer.Ordinal) { ["en"] = n.Name };
         foreach (var (lang, text) in n.Names ?? new Dictionary<string, string>()) names[lang] = text;
-        var dialogue = n.Talk?.Id ?? n.TalkName;
+        // Native dialogue compilation runs per mod at startup: an NPC can use only this mod's dialogue definitions.
+        if (n.Talk is { ModId.Length: > 0 } externalTalk && !externalTalk.ModId.Equals(mod, StringComparison.Ordinal))
+            throw new BlockError(ctx.Block, "talk", "an NPC's native dialogue must belong to this mod; another mod's dialogue is not supported by the startup build");
+        var dialogue = n.Talk?.Id ?? (n.TalkName is { } talkName ? QuestCompiler.NpcDialogue(ctx, talkName) : null);
 
         // the vendor: recipes at the body's workshop
         if (n.Vendor is { } v)

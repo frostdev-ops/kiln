@@ -429,8 +429,8 @@ branches of an `if` or `switch` are fine: only one runs.
 that is another kind of block. Names with a `:` (another mod's) and the game's ids (`0x...`, GUIDs) are not checked. Nor is anything when a block's name
 is built at run time, because it could be any name.
 
-It checks every field that names a block: effects, statuses, VFX, sounds, items, perks, abilities, materials, stations, screen effects and spawned
-templates. Some of these also take a game name:
+It checks every field that names a block: effects, statuses, VFX, sounds, items, perks, abilities, materials, stations, screen effects, the windows a
+button or key of a [UI block](ui-blocks.md) opens or closes, and spawned templates. Some of these also take a game name:
 - An item, perk or template may be the game's. The check uses the generated `GameItems`, `GamePerks` and `GameTemplates`; without them (no local
   game catalog, or the section left out of `KilnGameIds`) it skips those names. Names your data packs in `content/*.json` add count too. An item
   that code adds at run time, or another mod's by its game name, gets the warning: suppress it there.

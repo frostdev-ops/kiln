@@ -10,6 +10,38 @@ internal static unsafe class BlocksBridge
 {
     public static string? CallerModId => ModContext.CurrentMod?.Info.Id;
 
+    /// <summary>The actual mod lifetime of UI defined in code or read later by the data service. The guard stays
+    /// bound to that instance after a same-id reload; it never consults a stale polling cache.</summary>
+    public static (Func<bool> Alive, IDisposable Watch)? TrackUiOwner(string id, Action retired)
+    {
+        var caller = ModContext.CurrentMod;
+        var info = caller?.Info.Id == id ? caller.Info : Mods.Get(id)?.Info;
+        if (info == null) return null; // no host in unit tests
+        var mod = ModContext.FindLive(info);
+        if (mod == null) return (() => false, new UiOwnerWatch(null, retired));
+        mod.Retiring += retired;
+        var watch = new UiOwnerWatch(mod, retired);
+        if (!mod.Alive) retired(); // retirement may have taken its callback snapshot before the subscription
+        return (() => mod.Alive, watch);
+    }
+
+    private sealed class UiOwnerWatch(ModContext? mod, Action retired) : IDisposable
+    {
+        public void Dispose() { if (mod != null) mod.Retiring -= retired; }
+    }
+
+    /// <summary>Give a generated ability the real mod owner even when its data compiled on a service tick.</summary>
+    public static bool RunAsUiOwner(string id, Action run)
+    {
+        var previous = ModContext.CurrentMod;
+        var info = previous?.Info.Id == id ? previous.Info : Mods.Get(id)?.Info;
+        var owner = info == null ? null : ModContext.FindLive(info);
+        if (info != null && owner == null) return false;
+        ModContext.CurrentMod = owner;
+        try { run(); return true; }
+        finally { ModContext.CurrentMod = previous; }
+    }
+
     /// <summary>The calling mod's owner: its layers come off with it.</summary>
     public static ulong CallerOwner() => Content.Owner();
 
@@ -65,6 +97,20 @@ internal static unsafe class BlocksBridge
     {
         var dir = Mods.Get(mod)?.Directory ?? throw new InvalidOperationException($"mod {mod} is not loaded");
         return Path.GetFullPath(Path.Combine(dir, "..", "..", "data", "blocks", mod + ".json"));
+    }
+
+    /// <summary>The world's own data can be read (Kiln.Saves): on a dedicated server always, on a game client's hosted world once the game has loaded it.</summary>
+    public static bool WorldDataReady => Saves.Available && Saves.WorldDataReady && Saves.WorldId is not null;
+
+    /// <summary>Runs <paramref name="fn"/> (a <c>WorldData</c> call, on the tick thread) under a data context of Kiln's own, <paramref name="id"/>: a service has no mod whose keys these would be.
+    /// The context is made once, into <paramref name="context"/>.</summary>
+    public static T AsData<T>(ref ModContext? context, string id, Func<T> fn)
+    {
+        context ??= HostAccess.CreateContext(new ModInfo(id, id, "1", AppContext.BaseDirectory), 0, AppContext.BaseDirectory);
+        var previous = ModContext.CurrentMod;
+        ModContext.CurrentMod = context;
+        try { return fn(); }
+        finally { ModContext.CurrentMod = previous; }
     }
 
     /// <summary>What the content sync would send a Kiln client now.</summary>

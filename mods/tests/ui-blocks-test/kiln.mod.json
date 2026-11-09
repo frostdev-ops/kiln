@@ -1,0 +1,10 @@
+{
+  "id": "ui-blocks-test",
+  "name": "UI blocks lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "UiBlocksTest.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "PASS/FAIL lines for the window, HUD line and key binding blocks. A dedicated server checks that they compile in code and in data, that both are the same blocks, that every mistake is named by block and field, that the hidden ability of an applied effect casts, and that nothing is drawn or bound. A client draws them (docs/kiln/modding/ui-blocks.md, client checklist)."
+}

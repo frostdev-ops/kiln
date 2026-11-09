@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Kiln contributors",
+  "classifications": [
+    "Kiln",
+    "Enshrouded",
+    "Mod",
+    "Content"
+  ],
+  "identity": "Kiln.Templates.Npc",
+  "groupIdentity": "Kiln.Templates.Npc",
+  "name": "Kiln NPC",
+  "description": "A friendly NPC from building blocks: a game NPC's body with a dialogue (quests/*.json), wares to sell and a place in the roster, in data and in C#.",
+  "shortName": "kiln-npc",
+  "sourceName": "KilnNpc1",
+  "preferNameDirectory": true,
+  "forms": {
+    "kebab": {
+      "identifier": "kebabCase"
+    },
+    "xmlAttribute": {
+      "identifier": "chain",
+      "steps": [
+        "xmlEncode",
+        "xmlQuote"
+      ]
+    },
+    "xmlQuote": {
+      "identifier": "replace",
+      "pattern": "\"",
+      "replacement": "&quot;"
+    }
+  },
+  "tags": {
+    "language": "C#",
+    "type": "project",
+    "kiln.kind": "npc"
+  },
+  "symbols": {
+    "modId": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "Mod id ([a-z0-9][a-z0-9._-]*); default: the name in kebab-case"
+    },
+    "modIdDefault": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "kebab"
+    },
+    "modIdValue": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "modId",
+        "fallbackVariableName": "modIdDefault"
+      },
+      "replaces": "kiln-mod-id"
+    },
+    "kilnSdkVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.2.0",
+      "replaces": "KILN_SDK_VERSION",
+      "description": "Kiln.Sdk version (the MDK this template came with)"
+    },
+    "feed": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "Local NuGet feed holding Kiln.Sdk/Kiln.Api (writes a nuget.config next to the project)"
+    },
+    "feedXml": {
+      "type": "derived",
+      "valueSource": "feed",
+      "valueTransform": "xmlAttribute",
+      "replaces": "KILN_FEED"
+    },
+    "hasFeed": {
+      "type": "computed",
+      "value": "(feed != \"\")"
+    },
+    "server": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "Server (or game) folder with Kiln for deploy (KilnServer)"
+    },
+    "serverXml": {
+      "type": "derived",
+      "valueSource": "server",
+      "valueTransform": "xmlEncode",
+      "replaces": "KILN_SERVER"
+    },
+    "hasServer": {
+      "type": "computed",
+      "value": "(server != \"\")"
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(!hasFeed)",
+          "exclude": [
+            "nuget.config"
+          ]
+        }
+      ]
+    }
+  ],
+  "postActions": [],
+  "guids": [
+    "a195c631-dbe7-4fe8-b0f3-a2c531492b21"
+  ]
+}

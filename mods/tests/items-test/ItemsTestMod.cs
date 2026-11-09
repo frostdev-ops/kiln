@@ -10,7 +10,7 @@ namespace ItemsTest;
 /// removes it again; checks the refusals (unknown item, not enough, no inventory, dry run, wrong slot). Every check
 /// logs one PASS or FAIL line; the container ends exactly as it started.
 /// </summary>
-public sealed class ItemsTestMod : Mod
+public sealed partial class ItemsTestMod : Mod
 {
     private int _pass, _fail;
     private bool _stop;
@@ -111,6 +111,14 @@ public sealed class ItemsTestMod : Mod
         }
         Check(!chest.IsNone, $"chose container {chest} ({candidates.Count} candidates with >= 3 free slots)");
         if (chest.IsNone) return;
+        var second = candidates.Where(c => c.E != chest).Select(c => c.E).FirstOrDefault();
+        if (ProbePresent())
+        {
+            // shroudlink's probe mod keeps wood out of every quick stack, which would change the checks below: this run is
+            // the hook-chain check only (the rest runs without shroudlink mods)
+            await ChainChecks(chest, second, wood);
+            return;
+        }
         var before = Items.Read(chest)!;
         var original = Snapshot(before);
         Log.Info($"container {chest}: {before.Inventories.Count} inventories, {before.Slots.Count} slots, {before.UsedSlots} used, " +
@@ -198,6 +206,11 @@ public sealed class ItemsTestMod : Mod
         var final = Items.Read(chest)!;
         Check(Snapshot(final) == original, $"container {chest} ends as it started: {Describe(final)}");
 
+        // ---- 6b. kiln.items v3: moves that keep item state, container names, transfer rules and events ----
+        await RunV3(chest, second, wood, sword);
+        final = Items.Read(chest)!;
+        Check(Snapshot(final) == original, $"container {chest} still ends as it started after the v3 checks: {Describe(final)}");
+
         // ---- 7. opt-in: leave items in the container for a save + restart (kiln/data/items-test/persist.request) ----
         if (File.Exists(Path.Combine(Context.DataDirectory, "persist.request")) && sword is { IsGear: true })
         {
@@ -205,28 +218,68 @@ public sealed class ItemsTestMod : Mod
             var b = await Items.Give(chest, sword.Id, 1, new Gear(3, ItemRarity.Epic));
             await Steps(3);
             var gearSlot = b.Changes.FirstOrDefault();
+            // the gear is then moved to a second container: the save has to carry the moved item entity
+            var other = second;
+            var otherTotals = other.IsNone ? "" : Totals(Items.Read(other)!);
+            var movedToB = other.IsNone ? null : await Items.Move(chest, gearSlot.Slot, other, 0);
+            await Steps(3);
+            // item data left on two identical swords (same template, same container) for the restart: does it survive, and
+            // does each keep its own?
+            ItemDataSetTag(gearSlot.ItemEntity, "level3");
+            ItemDataSetTag(chest, "chest-persistence-control");
+            var g2 = await Items.Give(chest, sword.Id, 1, new Gear(5, ItemRarity.Epic));
+            await Steps(3);
+            var g2Slot = g2.Changes.FirstOrDefault();
+            if (g2Slot.ItemEntity.Value != 0)
+            {
+                ItemDataSetTag(g2Slot.ItemEntity, "level5");
+                if (!other.IsNone) await Items.Move(chest, g2Slot.Slot, other, 0);
+                await Steps(3);
+            }
+            var named = Items.ContainerNamesAvailable ? Items.FindInventories(InventoryKinds.Containers).Select(e => (e, n: Items.ContainerName(e))).FirstOrDefault(x => x.n != null) : default;
             var rec = new PersistRecord(chest.Value, original, wood.Id.Value, final.Count(wood.Id), 3, sword.Id.Value,
-                final.Count(sword.Id), gearSlot.ItemEntity.Value, 3, (int)ItemRarity.Epic);
-            File.WriteAllText(persist, JsonSerializer.Serialize(rec, new JsonSerializerOptions()));
+                final.Count(sword.Id), gearSlot.ItemEntity.Value, 3, (int)ItemRarity.Epic,
+                movedToB is { Status: ItemsStatus.Done } ? other.Value : 0, otherTotals, named.n == null ? 0 : named.e.Value, named.n ?? "");
+            File.WriteAllText(persist, PersistJson(rec));
             File.Delete(Path.Combine(Context.DataDirectory, "persist.request"));
             Check(a.Status == ItemsStatus.Done && b.Status == ItemsStatus.Done,
-                $"persistence phase 1: left 3 x Wood Logs and a level 3 Epic {sword.Label} (entity {gearSlot.ItemEntity}) in {chest}; restart the server to check them");
+                $"persistence phase 1: left 3 x Wood Logs and a level 3 Epic {sword.Label} (entity {gearSlot.ItemEntity}) in {chest}" +
+                (rec.ChestB != 0 ? $", the sword moved on to {other} ({movedToB})" : "") + (rec.Named != 0 ? $"; chest {rec.Named} is named \"{rec.NamedText}\"" : "") + "; restart the server to check them");
         }
         var s2 = Items.Status()!;
         Log.Info($"kiln.items: {s2.Committed} committed, {s2.RolledBack} rolled back, {s2.ProgramUpdates} program updates");
     }
 
-    // Serialized with a fresh JsonSerializerOptions each time: the shared default options cache type metadata and would
-    // keep this collectible mod context alive after an unload.
+    // Keep mod-defined types out of the framework's shared reflection metadata caches.
     private sealed record PersistRecord(uint Chest, string Original, uint Wood, int WoodBefore, int WoodCount, uint Gear,
-        int GearBefore, uint GearEntity, int GearLevel, int GearRarity);
+        int GearBefore, uint GearEntity, int GearLevel, int GearRarity, uint ChestB = 0, string BTotals = "", uint Named = 0,
+        string NamedText = "");
+
+    private static string PersistJson(PersistRecord r) => new System.Text.Json.Nodes.JsonObject
+    {
+        ["Chest"] = r.Chest, ["Original"] = r.Original, ["Wood"] = r.Wood, ["WoodBefore"] = r.WoodBefore,
+        ["WoodCount"] = r.WoodCount, ["Gear"] = r.Gear, ["GearBefore"] = r.GearBefore, ["GearEntity"] = r.GearEntity,
+        ["GearLevel"] = r.GearLevel, ["GearRarity"] = r.GearRarity, ["ChestB"] = r.ChestB, ["BTotals"] = r.BTotals,
+        ["Named"] = r.Named, ["NamedText"] = r.NamedText,
+    }.ToJsonString();
+
+    private static PersistRecord ParsePersistJson(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        uint U(string name) => root.TryGetProperty(name, out var value) ? value.GetUInt32() : 0;
+        int I(string name) => root.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
+        string? S(string name, string? fallback = null) => root.TryGetProperty(name, out var value) ? value.GetString() : fallback;
+        return new PersistRecord(U("Chest"), S("Original")!, U("Wood"), I("WoodBefore"), I("WoodCount"), U("Gear"),
+            I("GearBefore"), U("GearEntity"), I("GearLevel"), I("GearRarity"), U("ChestB"), S("BTotals", "")!, U("Named"), S("NamedText", "")!);
+    }
 
     // Phase 2 after a save and restart: the items are still there (stack count, gear with its level and rarity), then
     // they are taken out again and the container is as it was before phase 1. Matched by item, not by slot: entities
     // created at run time (the gear's item entity, a chest's linked inventories) get new ids when the save loads.
     private async Task VerifyPersisted(string path)
     {
-        var rec = JsonSerializer.Deserialize<PersistRecord>(File.ReadAllText(path), new JsonSerializerOptions())!;
+        var rec = ParsePersistJson(File.ReadAllText(path));
         var chest = new EntityId(rec.Chest);
         await Steps(25);
         var c = Items.Read(chest);
@@ -236,9 +289,19 @@ public sealed class ItemsTestMod : Mod
         var gearId = new ItemId(rec.Gear);
         Check(c.Count(wood) == rec.WoodBefore + rec.WoodCount,
             $"persistence: the {rec.WoodCount} wood logs survived the save ({string.Join(", ", c.Slots.Where(s => s.Item == wood).Select(s => $"{s.Slot} x{s.Count}"))})");
-        var gear = c.Slots.FirstOrDefault(s => s.Item == gearId && s.Level == rec.GearLevel && s.Rarity == (ItemRarity)rec.GearRarity);
-        Check(gear != null && !gear.ItemEntity.IsNone && c.Count(gearId) == rec.GearBefore + 1,
-            $"persistence: the gear survived: {gear?.Slot} item {gear?.Item} entity {gear?.ItemEntity} (was {rec.GearEntity} before the restart) level {gear?.Level} rarity {gear?.Rarity}");
+        // the gear was moved to a second container before the save: the move is in the save
+        var holder = rec.ChestB != 0 ? Items.Read(new EntityId(rec.ChestB)) : c;
+        var holderId = rec.ChestB != 0 ? new EntityId(rec.ChestB) : chest;
+        var gear = holder?.Slots.FirstOrDefault(s => s.Item == gearId && s.Level == rec.GearLevel && s.Rarity == (ItemRarity)rec.GearRarity);
+        Check(gear != null && !gear.ItemEntity.IsNone && (rec.ChestB != 0 ? holder!.Count(gearId) >= 1 && c.Count(gearId) == rec.GearBefore : c.Count(gearId) == rec.GearBefore + 1),
+            $"persistence: the gear survived{(rec.ChestB != 0 ? $" its move to {holderId}" : "")}: {gear?.Slot} item {gear?.Item} entity {gear?.ItemEntity} (was {rec.GearEntity} before the restart) level {gear?.Level} rarity {gear?.Rarity}");
+        var gear2 = holder?.Slots.FirstOrDefault(s => s.Item == gearId && s.Level == 5 && s.Rarity == ItemRarity.Epic);
+        if (gear != null) ItemDataAfterRestart(gear.ItemEntity, "level3", gear2?.ItemEntity ?? default, "level5", chest);
+        if (rec.Named != 0)
+        {
+            var name = Items.ContainerNamesAvailable ? Items.ContainerName(new EntityId(rec.Named)) : null;
+            Check(name == rec.NamedText, $"persistence: the chest named \"{rec.NamedText}\" before the restart is read back from the save: entity {rec.Named} is \"{name}\"");
+        }
         var left = rec.WoodCount;
         foreach (var s in c.Slots.Where(s => s.Item == wood).Reverse())
         {
@@ -250,10 +313,17 @@ public sealed class ItemsTestMod : Mod
         }
         if (gear is { IsEmpty: false })
         {
-            var t = await Items.TakeSlot(chest, gear);
+            var t = await Items.TakeSlot(holderId, gear);
             Check(t.Status == ItemsStatus.Done, $"persistence: gear taken back: {t}");
         }
+        if (gear2 is { IsEmpty: false })
+        {
+            var t = await Items.TakeSlot(holderId, gear2);
+            Check(t.Status == ItemsStatus.Done, $"persistence: second gear taken back: {t}");
+        }
         await Steps(3);
+        if (rec.ChestB != 0)
+            Check(Totals(Items.Read(new EntityId(rec.ChestB))!) == rec.BTotals, $"persistence: container {holderId} is as before phase 1: {Totals(Items.Read(new EntityId(rec.ChestB))!)}");
         var end = Items.Read(chest)!;
         Check(end.Count(wood) == rec.WoodBefore && end.Count(gearId) == rec.GearBefore &&
               (rec.Original.Length == 0 || Snapshot(end) == rec.Original),

@@ -1,0 +1,26 @@
+{
+  // Player powers as data: the same fields as in C#, in camelCase.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "perks": {
+    "frost-edge": { "name": "Frost Edge", "description": "Hits bite with cold.", "onHit": [ { "damage": { "ice": 5 }, "flinch": "none" } ] }
+  },
+  "weapons": {
+    "frost-sword": { "name": "Frost Sword", "class": "sword", "stats": { "level": 5, "power": 25, "rarity": "uncommon" }, "perks": [ "frost-edge" ], "recipe": { "needs": { "Material_T1_Twigs": 3 } } }
+  },
+  "abilities": {
+    "frost-ring": { "name": "Frost Ring", "key": "H", "command": "frostring", "cast": { "manaCost": 20 }, "cooldown": 8, "delivery": { "type": "around", "radius": 6, "effects": [ { "damage": { "ice": 15 }, "flinch": "none" } ] } }
+  },
+  "talentTrees": {
+    "frost-path": {
+      "name": "Frost Path", "key": "J", "points": { "start": 1, "perLevel": 1 },
+      "nodes": {
+        "chill": { "name": "Chill", "maxLevel": 3, "modifies": { "intelligence": 1 } },
+        "ring": { "name": "Frost Ring", "description": "H freezes what is around you.", "requires": [ "chill" ], "cost": 2, "unlocks": "frost-ring" }
+      }
+    }
+  },
+  "triggers": {
+    "on-sleep": { "on": "Sleeping", "do": [ { "restores": { "stamina": 20 } } ], "cooldown": 30 }
+  }
+}

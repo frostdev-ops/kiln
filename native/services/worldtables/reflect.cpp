@@ -236,6 +236,30 @@ bool read_model_layout(const uint8_t* image_base, size_t image_size, ModelLayout
     return r.ok;
 }
 
+bool read_crafting_prop_layout(const uint8_t* image_base, size_t image_size, CraftingPropLayout* C, std::string* why) {
+    Image img{image_base, image_size, {}, {}};
+    if (!img.open()) {
+        *why = "the game's image has no data sections";
+        return false;
+    }
+    const std::string none;
+    Reader r{img, none, why};
+    C->array = r.off(r.type("keen::WorkshopRegistryResource"), "craftingProps");
+    const uint8_t* e = r.type("keen::CraftingPropResource");
+    C->stride = r.size_of(e);
+    C->guid = r.off(e, "craftingPropGuid");
+    C->id = r.off(e, "craftingPropId");
+    C->index = r.off(e, "craftingPropIndex");
+    C->name = r.off(e, "name");
+    C->item = r.off(e, "item");
+    C->item_ref = r.off(e, "itemRef");
+    // what the merge writes has to be where it says: a byte for the place, 4 for ids and tags, 16 for GUIDs
+    if (r.ok && (C->stride < 32 || C->stride > 256 || C->guid + 16 > C->stride || C->item_ref + 16 > C->stride || C->id + 4 > C->stride || C->index + 1 > C->stride || C->name + 4 > C->stride || C->item + 4 > C->stride))
+        r.fail("keen::CraftingPropResource isn't laid out as the merge writes it");
+    C->ok = r.ok;
+    return r.ok;
+}
+
 bool read_terrain_tables(const uint8_t* image_base, size_t image_size, TerrainTables* T, std::string* why) {
     Image img{image_base, image_size, {}, {}};
     if (!img.open()) {

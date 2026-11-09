@@ -361,6 +361,117 @@ it moves water between a can and a well. Used by kiln.items' water functions (do
   container a save had already written was not (`1000/6400` back, raw `3000`). A container created in the same session
   is saved whole at its first save, raw writes included. **[rt]**
 
+## 13. Moving items: the slot transfer, quick stack and move all (server 26430253, exe `f0d824be…`; also 26404334) **[dis] [rt]**
+How a stack moves between inventories with its item entity, and where the game does quick stack and move all. Starting
+point: shroudlink's hook table (MIT, `native/plugins/shroudlink/upstream/server/src/hooks.rs`, game_api.rs, events.rs) and EMF's
+`moveStack` (section 1). Sigdb: `items/SlotTransfer`, `items/QuickStack`, `items/AreaDeposit`, `items/MoveAll` (features
+`items.move`, `items.transfer`). All four resolve uniquely on both builds, with the same RVAs on both.
+
+| What | RVA | Signature (MS x64) |
+|---|---|---|
+| `items/SlotTransfer` (EMF moveStack, shroudlink `transfer`) | `0x1b4550` | `Result12* (out, tx, u64 dst, u64 src, i32 mode)`: slot ids are `entity | index << 32`; mode 0 whole stack, 1 half, 2 one item; `out.value` = items moved. Same slot: ok, 0. Calls takeFromSlot `0x1b9620` / takeItems `0x1b9460` / putItems `0x1b7100`, queues ops in the tx's remap array (`tx+0x6918`) |
+| `items/QuickStack` (shroudlink `quick_stack`) | `0x1b3830` | `Result12* (out, tx, u32 to, u32 from, feedback*)`: calls the slot transfer once per stack. `feedback` is optional: when not null, `0x1b7d80(feedback, ItemInfo)` records each item (the "stored" list); kiln.items passes null |
+| `items/AreaDeposit` (shroudlink `area_deposit`) | `0x1b2a70` | the Quick Stack Station's deposit; calls quick stack from `0x1b305f`, once per chest. Called from `0x88ea1`. Checked, not hooked |
+| `items/MoveAll` (shroudlink `move_all`) | `0x1b3fb0` | `Result12* (out, tx, u32 from, u32 to, u32 mode, u8 flag)`. `flag` 0 leaves the source player's two action-bar pages (`SlotSelection+0xa0/+0xa4`) alone, 1 moves them too. Its `out.value` is **not** an item count (a move of 275 items returned 0), so kiln.items counts from the inventories |
+
+Callers. A client's `inventoryTransferAction` (32 bytes: version, source and target entity, source and target slot, `type`
+u8 `InventoryActionType` One/Half/All/CustomAmount/Destroy, `flags` u8 `TransferItemToInventoryFlag`, `amount` u16) is handled in
+the chunk `0x19ea0f..0x19f35e` of `inventory_actions`. The handler builds a fresh tx itself (`0x3ed10` ctor, `0x1b9300` init
+with a 0xF0 setup block, as section 3) and branches on the flags byte: **bit 1 (`RefillStacks`, 0x02) = quick stack** (call at
+`0x19ec04`, `to` = the action's target entity, `from` = its source), **bit 2 (`MoveAllStacks`, 0x04) = move all** (call at
+`0x19ef76` with mode 1 and flag `!(flags >> 2 & 1)`), bits 3-4 (`ToActionbar`, `ToBackpack`) another branch (`0x19f15c`), none =
+one stack by the slot transfer (`0x19f077`). So both whole-inventory transfers are the same client action. `MoveAll` has more
+callers: `0x1b5457`, `0x1b548a` (in `0x1b4e70`, EMF's equipItem) and `0x1b9e21`; the slot transfer is also called from `0x7ca86`.
+
+**The transaction words** the hooks read (the game's own tx, as section 3 lists): `tx[0]` ProgramContext (`*tx[0]` the job,
+`JobStorage(job)` the entity storage), `tx[1]` item registry, `tx[3]` InventorySetup accessor, `tx[4]` Inventory, `tx[5]`
+ItemState, `tx[7]` Fuel, `tx[0x12]` OwnerRelationship, `tx[0x14]` InventoryEmptyState, `tx[0x1D]` SlotSelection. kiln.items checks every accessor's type
+index against the world's component map before it trusts them (once per registry), and passes straight through if one differs.
+
+**A piece of gear moves with its item entity.** The slot transfer moves the stack record `{item, count, pide}` to the other
+slot and the commit rewrites the pide's `ItemState.containedInSlotId` and `OwnerRelationship`; the pide is not destroyed.
+Lab: a level 4 Epic Bronze Sword with an unlocked upgrade and a gem slot, moved between two chests and back: "item entity 2543 ->
+2543", `Level`, `PerkContainerNew`, `Durability` and `WeaponGemSlot` byte for byte the same, `ItemState.containedInSlotId`
+1142:0 and `OwnerRelationship` 1142 after the move; after a save and a restart the sword is in the second chest at level 3
+Epic (the item entity is renumbered, as section 7 says). A move inside kiln.items' program runs the slot transfer on a tx made
+as `run_give` makes it, then commits.
+
+**Hooking.** safetyhook inline hooks on `0x1b3830` and `0x1b3fb0` (first bytes `48 89 5C 24 18 ...` and `48 89 4C 24 08 ...`, both 5-byte
+relocatable). shroudlink's retour hooks the same two. Both orders ran in a lab with a shroudlink mod from the vendored SDK
+keeping wood out of every quick stack and move all: shroudlink installed first (Kiln's hook on top, installed at the first
+registration), and Kiln first (`KILN_ITEMS_HOOKS=early`; shroudlink then logs `kiln: found in the exe file (already hooked in
+memory): +0x1b3830`): in both, shroudlink's keep ran once per call and Kiln's report arrived once.
+
+Lab (`items-test`, `dev20-wp13`):
+```
+PASS move_stack: 9 wood logs moved, 1127 9 -> 0, 1142 0 -> 9 (Stack Done 9 item(s) in 1 stack(s) 1127 -> 1142; ledger 1127:7->1142:0 x9)
+PASS move_items: 3 of 9 wood logs moved back, 1142 9 -> 6, 1127 -> 3
+PASS move gear: Stack Done 1 item(s) in 1 stack(s) 1127 -> 1142; item entity 2543 -> 2543 in 1142:0 (a take and a give would have made a new entity)
+PASS quick stack by the game's function: QuickStack Done 5 item(s) in 1 stack(s) 1127 -> 1142; A lost 5, B gained 5, ledger 2b0cf1d5 1127:7->1142:0 x5
+PASS move all by the game's function: All Done 280 item(s) in 8 stack(s) 1127 -> 1142; A now holds 0 stack(s), B gained 280
+PASS native handler: it moved a stack itself first (4 of 0x95c119cb), the game moved the rest: 32 items in all, B 60 -> 92
+PASS native handler: cancel: the game's move all did not run; only the handler's own move happened (4 items, canceled 1, A 275 -> 271)
+```
+Not known: what the client shows after a server-side move while the player's window is open (the game's own drag is predicted by the
+client, a server move is not); the meaning of move all's `mode` (kiln.items passes 1 as the game's own caller does for a client
+action); how quick stack's `feedback` reaches the client; whether anything in a real player's tx (operator, events) changes
+what these functions do. Client checklist: docs/kiln/modding/inventory.md.
+
+## 14. Container names: the string table (server 26430253) **[dis] [rt]**
+A renamed chest carries `keen::ecs::CustomPlayerString` (hash `0x0e699564`, 8 bytes: the id), which only a renamed object has: in
+the lab world none of the 26 inventories has it, and the one entity that does (entity 1025, not an inventory) holds 0. The id is
+the FNV-1a 64 of the UTF-8 text. The text is in the world's `CustomPlayerStringsSystem` singleton (a sys-write of the program
+`update_logic_graph_system`, which calls `set_string`; `api->singleton(world, "CustomPlayerStringsSystem")` finds it).
+
+| What | RVA | Notes |
+|---|---|---|
+| `items/SetString` (shroudlink `set_string`) | `0x915b80` (26404334: `0x915b90`) | `(out, strings, u64 oldId, {char*, u64 len}* text)`: hashes the text, looks the id up, inserts the record when new; the id at `out+8`. Callers: `0x1e97fc` (the logic-graph program) and `0x7bde90` (the message dispatcher's rename handler) |
+| rename handler | `0x7bdb20` (dispatcher), call at `0x7bde90` | after `set_string`: if the entity has the component (`0x64edb0`, the tick-thread WriteOther of section 12), writes the id; else `0x5fc570` AddComponent `(world, entity, hash, {ptr, 8}*)` adds it |
+| `items/AddComponent` | `0x5fc570` | wrapper of `0x5fc340` on `world+0xE179C0`; lab use only |
+
+The table is a `HashMap<u64, record*>` of the same type as the item registry's (section 6): bitmap pointer at `strings+0x198`,
+capacity `+0x1a0`, keys `+0x1b8`, values `+0x1d0`, count `+0x1e4` (sigdb captures all five from `set_string` and kiln.items checks them
+against the registry map's offsets). Open addressing, linear probing from the low bits of the id. The record is the layout shroudlink's heap scan
+recognises, found at `+0x10` of the pointer the values array holds: `{u64 id; char* text = &record + 0x28; u32 len; u32 pad; u64
+capacity = 0x100; ...; char text[256]}`. kiln.items checks pointer, capacity, length, the NUL and the text's hash.
+
+Lab: the self-test (`kiln/data/kiln.items/selftest`) names the lowest-id non-empty container through `set_string` and `AddComponent`, as the
+handler would for a client:
+```
+items selftest: named entity 1026 "Kiln Lab Ores" (id 6b14f1f1dc987e89)
+container names: string table at 00000000BBA03898, 1 of 2048 slots used; the record for id 6b14f1f1dc987e89 is at +0x10 of what the table points at (text 13 bytes)
+PASS chest_name: the placed chest 1026 is "Kiln Lab Ores" (a name the game's rename path stored; shroudlink's "world chest_name")
+PASS chest_name: the component holds 6b14f1f1dc987e89, the FNV-1a 64 of the text (6b14f1f1dc987e89)
+PASS persistence: the chest named "Kiln Lab Ores" before the restart is read back from the save: entity 1026 is "Kiln Lab Ores"
+items selftest: PASS a container from the save is already named: entity 1026 is "Kiln Lab Ores"
+```
+The save (`world0.ksd`) carries both the component and the table: a restarted lab reads the name without anything naming it again.
+The user's world copy in `~/Work/ew-lab` has no named chest, which is why the lab names one. Not known: how clients get the text (the
+`CustomPlayerStringServerMessage` path: `next_pending` `0x92fad0`, `mark_sent` `0x94ec70`), and what the string table's limit of 256 bytes does
+to a longer name (the game's own text field refuses it).
+
+## 15. Per-item attachment identity (stretch finding)
+
+Gear's item entity is stable during a session, including `Items.Move`, but is renumbered on load. It has no
+`CurrentTransform`; its default position is not an identity. The first restart probe attached `level3` and `level5`
+to two swords of the same template. Kiln.Saves merged their template/position records on load and assigned `level5`
+to the level-3 sword. That exposed a real bug in `EntityTable.Absorb`'s positional identity assumptions.
+
+Kiln.Saves now permits positional persistence only when kiln.spawn reports a known template with `CurrentTransform`
+and without `DoNotSave` (template flag bits 0 and 3 set, bit 1 clear). Item attachments remain session-only;
+`EntityData.IsPersistent` returns false, staging omits them, and both direct and periodic matching refuse legacy
+positional item records. Known saved world props, creatures and NPCs retain their existing matching. Unknown
+template metadata is retried rather than cached permanently. Regression: two same-template swords after a save and
+restart read neither tag; a placed chest restores `chest-persistence-control`. Lab: `items-test` 95 PASS before the
+save and 15 PASS after the restart, no failures.
+
+The pinned MIT Enshwick source (`945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad`, alpha.13),
+`crates/internal/loader/src/item_data.rs` and `item_data/{attach,world_file,carried}.rs`, uses per-session item entity ids
+and saved inventory/character anchors with item checks. Ambiguous or missing anchors are set aside and cannot later
+attach to another item. `stats/affixes.rs` serializes rolled `ItemStats` into that store and its own stat engine
+applies the modifier bundles. Kiln's persistent item store and affixes remain deferred stretch work; ordinary
+`EntityData` is not a substitute for the inventory anchors.
+
 ## 9. Open questions
 - Players (no client in the lab): popup and PickupEvent with `0x01`, knowledge unlocks through the queue, the
   backpack-priority setting (the game's own handlers add `0x20` when `PlayerInput+0x5b0` bit 11 is set; kiln.items does
@@ -370,7 +481,7 @@ it moves water between a can and a well. Used by kiln.items' water functions (do
   section 11; writing it afterwards: section 12.
 - Water containers: the fill and pour rate with a player (section 11 derives it), and whether a can made before a capacity
   change takes the new capacity when the world next loads.
-- Moving gear without destroying it (moveStack `0x1b4550`, ops 4/5) is located but not wrapped (no "borrow/return").
+- Moving gear without destroying it: done in section 13 (`Items.Move`, kiln.items v3).
 - No inventory in this world carries the IsNpc flag; whether villagers / companions have one was not checked.
 - `tools/sigport/sigdb_check.py` counts non-overlapping matches (Python `finditer`), the core counts overlapping ones:
   a pattern can pass offline and fail at boot (it happened with the first InventoryTxCtor probe).

@@ -34,3 +34,14 @@
 | Two mods detouring the same very hot function (advanced tier) | under Wine a hot reload of one can stall | one mod per hot function |
 | Testing against the live server | players see your half-done mod; a fault disables it in front of them | a separate local test server |
 | Claiming a client-side effect works after a server-only test | a dedicated server draws nothing, has no UI and no sound | list it as "needs a client check" |
+
+## dev.20+ additions
+
+| Mistake | Result | Use instead |
+|---|---|---|
+| Take then give to move gear | makes a new item entity, losing instance state | `Items.Move` |
+| Treating gear `EntityData` as saved item payload | no stable positional identity; data is session-only | check `IsPersistent`; persistent item data/affixes are not supplied |
+| Registering an ECS scheduler declaration in ordinary `OnLoad` | world registration has already closed | ship `kiln.programs.json`, then `EcsPrograms.Bind` in `OnLoad` |
+| Calling game services from an ECS worker callback | wrong thread and undeclared access | declared context access, or post tick work |
+| A UI block `command` intended for a joined server | runs only in this game's command registry | `castAbility` / `applyEffect` with the mod on the server |
+| A factory recipe with `NeedsProps` | refused: no nearby-prop context on that path | use a manual station |

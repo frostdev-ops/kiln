@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
+    pub nexus_enabled: bool,
     pub version: String,
     /// Kiln (the runtime this launcher was built with).
     pub kiln: String,
@@ -267,6 +268,7 @@ pub fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, Error> {
 pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
     let dirs = crate::state::dirs()?;
     Ok(AppInfo {
+        nexus_enabled: kiln_manage::nexus::enabled(),
         // the release version (tools/release sets it at build time; a plain build is VERSION)
         version: app.package_info().version.to_string(),
         kiln: kiln_manage::VERSION.into(),

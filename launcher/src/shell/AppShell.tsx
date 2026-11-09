@@ -6,7 +6,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAppInfo, useBackendEvents, useSettings } from "../api/hooks";
+import { useAppInfo, useBackendEvents, useNexusEnabled, useSettings } from "../api/hooks";
 import { mockFallbackActive, useMockFallback } from "../api/fallback";
 import { Lockup, Skeleton, Splash, TaskTray, Toaster, useTaskFeed } from "../ui";
 import { GameArtAuto } from "../components/GameArt";
@@ -40,6 +40,8 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   const fallback = useMockFallback();
   const nav = useRef<HTMLElement>(null);
   const active = navFor(loc.pathname);
+  const nexusEnabled = useNexusEnabled();
+  const main = NAV_MAIN.filter((n) => nexusEnabled || n.to !== "/catalog");
   // the gold diamond sits under the active word (placed from its offset: words differ in width)
   useLayoutEffect(() => {
     const place = () => {
@@ -50,7 +52,7 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
     window.addEventListener("resize", place);
     document.fonts?.ready.then(place).catch(() => {});
     return () => window.removeEventListener("resize", place);
-  }, [active?.to]);
+  }, [active?.to, nexusEnabled]);
   const v = ctl.view;
   const word = ctl.starting ? "Starting" : v.phase === "running" || v.phase === "vanilla"
     ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}`
@@ -61,12 +63,12 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
     <header className="k-head">
       <NavLink to="/" className="k-logo" aria-label="Kiln: Play" title={info.data ? `Kiln Launcher ${info.data.version}` : "Kiln"}><Lockup height={30} /></NavLink>
       <nav ref={nav} className="k-nav" aria-label="Main">
-        {NAV_MAIN.map((n) => (
+        {main.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === "/"} className={"k-navb" + (active?.to === n.to ? " on" : "")} aria-current={active?.to === n.to ? "page" : undefined}>
             <span>{n.label}</span>
           </NavLink>
         ))}
-        {active && NAV_MAIN.includes(active) && <span className="k-nav-dia" aria-hidden><i className="k-dia" /></span>}
+        {active && main.includes(active) && <span className="k-nav-dia" aria-hidden><i className="k-dia" /></span>}
       </nav>
       <div className="k-head-right">
         <UpdateTray />

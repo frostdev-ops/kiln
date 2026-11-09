@@ -2,8 +2,9 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-Three NuGet packages at the MDK version (0.2.0): `Kiln.Api`, `Kiln.Sdk`, `Kiln.Templates`. They aren't on nuget.org yet: a Kiln
-checkout builds them into a local feed. Pass it as `--feed` or `$KILN_FEED`.
+`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.20` for this release, or a unique
+`0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
+not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
 
 ## New project
 ```sh
@@ -26,11 +27,14 @@ dotnet new kiln-mod -n MyMod --feed <feed> --server <server folder> --tests --se
 | `native` | a C++ mod | both |
 | `test` | a test mod; `target=<mod>` | server, none |
 
-There's no quest template: add `quests/*.json` to a `mod` or `datapack`.
+**dev.20+ block templates:** `item-blocks`, `world-blocks`, `creature-blocks`, `npc`, `cosmetic`,
+`building-material`, `ability-blocks`, `quest`; `ui --set blocks=true` selects UI as data. Use `kiln new --list` from the
+installed MDK to confirm availability. These add typed blocks and/or `blocks/*.json`; keep the form you need. `items` and
+`creature` remain the clone-based path when a block has no field for the change. [blocks.md](blocks.md).
 
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.20">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -62,7 +66,7 @@ Not in the manifest:
 | `KilnServices` | services to reference: Abilities, Assets, Audio, Build, Chat, Client, Combat, Content, Creatures, Gameplay, Items, Network, Permissions, Players, Quests, Saves, Settings, Skills, Spawn, Time, Ui, World; and `Testing` |
 | `KilnServer`, `KilnModsDir` | deploy target |
 | `KilnReload` | KilnDeploy also reloads the mod |
-| `KilnModFolders` | data folders copied into the mod; default `content;assets;skills;quests;icons;impact;audio` |
+| `KilnModFolders` | data folders copied into the mod; includes `blocks`, content, assets, skills, quests, icons, Impact and audio sources; inspect the installed SDK for the full list |
 | `KilnPackExclude` | left out of the zip; default `assets/cooked/**` |
 | `KilnAnalyzers` | false: no KILN1xx |
 | `KilnGameIds`, `KilnCatalog` | game-id constants |
@@ -78,7 +82,8 @@ None in the project folder: the build generates one. One there: the build valida
 `kiln` drives these: `dotnet build` (the output folder is the mod folder), `-t:KilnDeploy -p:KilnServer=<server>`, `-p:KilnReload=true`,
 `-t:KilnPack`.
 
-After re-packing the same SDK version, clear `~/.nuget/packages/kiln.*/0.2.0`, or you build against the old packages.
+NuGet caches each package id/version. Give each local pack a new full version and update the project to it; re-packing
+the same version can leave the project using its old cached packages.
 
 ## A finished mod
 ```
@@ -87,7 +92,9 @@ kiln/mods/my-mod/
   MyMod.dll  MyMod.pdb       (+ NuGet dependencies)
   content/*.json             data packs
   skills/*.json              talents
+  blocks/*.json              building blocks (including quests/UI on dev.20+)
   quests/*.json              quests, NPCs, dialogue
+  kiln.programs.json          optional dev.20+ boot ECS declarations
   assets/assets.json         icons, textures, resources
   assets/cook.json           recipe; assets/cooked/ is made on the player's machine
   audio/  impact/  icons/    sources

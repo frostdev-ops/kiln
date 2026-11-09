@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-emf: loads unmodified EMF (Enshrouded Modding Framework 0.5.1, API v26, MIT) mods on Kiln. Shared state.
+// kiln-emf: loads unmodified EMF (Enshrouded Modding Framework 0.6.0, API v27, MIT) mods on Kiln. Shared state.
 //
 // Layout of the plugin:
 //   plugin.cpp    kiln_plugin_main / on_ready: step aside when the real EMF runs, discover, order and load the mods,
@@ -56,7 +56,7 @@ namespace kemf {
 
 constexpr const char* kPluginId = "kiln-emf";
 constexpr const char* kPluginVersion = "0.1.0";
-constexpr uint32_t kEmfApiVersion = EMF_API_VERSION;  // 26
+constexpr uint32_t kEmfApiVersion = EMF_API_VERSION;  // 27
 
 // ---------------------------------------------------------------------------------------------- core handles ----
 extern const KilnApi* g_api;
@@ -211,6 +211,15 @@ void fill_components(EmfApi* t);  // api_components.cpp (v23, v25)
 void fill_windows(EmfApi* t);     // api_windows.cpp (v24, v26; it also fills the wheel)
 void fill_wheel(EmfApi* t);       // api_wheel.cpp (v10)
 void fill_attributes(EmfApi* t);  // api_attributes.cpp (v18)
+void fill_net(EmfApi* t);  // api_net.cpp (v27, EMF's wire protocol over the game's chat)
+void net_on_ready();
+void net_server_pre();
+void net_after_step(EmfWorld* w, uint8_t kind);
+void net_world_stopping(uint8_t kind);
+void net_world_started(uint8_t kind);
+void net_shutdown();
+void portraits_on_ready();  // offline generation through the separate GPL kiln-eml component
+bool commands_is_admin(uint32_t entity, uint64_t account);  // same policy as command_sender.admin
 
 // tick hooks of the parts
 void core_after_step(EmfWorld* w, uint8_t kind);
@@ -231,6 +240,9 @@ void windows_after_step(EmfWorld* w, uint8_t kind);
 void windows_world_stopping(uint8_t kind);
 void windows_world_started(uint8_t kind);
 void events_world_stopping();
+void events_shutdown();
+void program_hooks_shutdown();
+void keep_adapter_mapped();
 void windows_shutdown();
 // the radial wheel (api_wheel.cpp): the windows' hooks call these
 void wheel_after_step(EmfWorld* w, uint8_t kind);  // delivers the picks and cancels of wheels of that world kind

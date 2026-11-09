@@ -3,8 +3,9 @@
 // SET writes the game's own admin commands into the host's input; Kiln has typed services for the same jobs, which
 // also work on a dedicated server: kiln.time (setTime), kiln.world (teleport), kiln.spawn (spawn), kiln.items (give),
 // kiln.settings (settings, changeSettings). Calls queue and run at the next server tick, as in SET.
-// setLevel runs on kiln.progression (SET_LEVEL, as kiln-emf's player_level_set). setFlameLevel / send have no native
-// Kiln service yet and raise an error saying so.
+// setLevel runs on kiln.progression (SET_LEVEL, as kiln-emf's player_level_set). setFlameLevel runs on kiln.knowledge's
+// flame (the world's Level attribute, written as the game's own command does). send has no native Kiln service and raises
+// an error saying so.
 // English names (Admin.give, Res.text) come from the item catalog Kiln ships (Kiln.Items' Data/items.tsv, generated
 // at build time into kiln_set_items.inc) and kiln.spawn's template display names. Tables are built on the first call
 // that needs them, never per frame.
@@ -14,6 +15,7 @@
 #include "services/kiln_settings.h"
 #include "services/kiln_spawn.h"
 #include "services/kiln_time.h"
+#include "../../../services/quests/kiln_knowledge.h"
 
 const KilnApi* gKApi = nullptr;
 KilnOwner gKOwner = 0;
@@ -23,6 +25,9 @@ const KilnSpawnApi* gKSpawn = nullptr;
 const KilnItemsApi* gKItems = nullptr;
 const KilnSettingsApi* gKSettings = nullptr;
 const KilnProgressionApi* gKProgression = nullptr;
+const KilnKnowledgeApi* gKKnowledge = nullptr;  // kiln.knowledge: the Mother Flame's level
+
+#include "texts.inl"
 
 // ---- English names ----
 struct SetItemName { uint32_t id; const char* debug; const char* display; };
@@ -118,8 +123,11 @@ uint32_t itemIdByNameTag(const uint8_t g[16]) {
     return it == gIdByNameTag.end() ? 0 : it->second;
 }
 
+// Res.text for any other loca tag: the English table of the client catalog (texts.inl); empty when there is none.
+std::string setLocaText(const uint8_t g[16]) { return settexts::textOf(g); }
+
 // Res.text for items and templates: the English name of an item (its GUID or its name LocaTag) or a template (its
-// GUID). Empty when Kiln has none (other text ids: a later version).
+// GUID). Empty when Kiln has none (setLocaText answers other tags).
 std::string setDisplayText(const uint8_t g[16]) {
     if (gKItems && gKItems->item_id_of_guid)
         if (const char* d = itemDisplay(gKItems->item_id_of_guid(g))) return d;
@@ -223,8 +231,62 @@ int adminSetLevel(lua_State* L) {
     return 0;
 }
 
+// Admin.setFlameLevel(n): the world's flame level, 1 to 255 (the game's formula limits it to its maximum, 20), written the
+// way the game's own admin command writes it (kiln.knowledge's flame: the Level attribute of the world's progress entity,
+// marked written, the attribute formula re-run), so it is saved with the world and the altar, water-source and fog
+// rules follow. Refused at once with no world; a later refusal (no Mother Flame, an unsupported build) or a level above
+// the maximum is logged when the result arrives, as the other commands log what the game did not run.
+struct FlameWatch { uint64_t request; uint32_t level; };
+std::vector<FlameWatch> gFlameWatch;  // the tick thread only (armAdmin and the closures it runs)
+
+bool flameApi() {
+    return gKKnowledge && gKKnowledge->header.size >= sizeof(KilnKnowledgeApi) && gKKnowledge->flame_set && gKKnowledge->flame_result;
+}
+
+void flameStart(uint32_t level) {
+    uint64_t request = 0;
+    const KilnResult rc = gKKnowledge->flame_set(gKOwner, level, &request);
+    if (rc != KILN_OK) {
+        adminLog(std::string(LV_WARN "admin command adminSetFlameLevel was not run by the game (") +
+                 (rc == KILN_ERR_UNAVAILABLE ? "no Mother Flame is running, or flame levels are off on this game build" :
+                  rc == KILN_ERR_BUFFER_TOO_SMALL ? "too many flame changes are waiting" : "the level is out of range") + ")");
+        return;
+    }
+    gFlameWatch.push_back({request, level});
+}
+
+// Polls the flame changes still waiting for a result (an empty list costs nothing).
+void flamePoll() {
+    for (size_t i = 0; i < gFlameWatch.size();) {
+        FlameWatch& w = gFlameWatch[i];
+        KilnFlameResult r{};
+        r.size = sizeof r;
+        const KilnResult rc = gKKnowledge && gKKnowledge->flame_result ? gKKnowledge->flame_result(w.request, &r) : KILN_ERR_UNAVAILABLE;
+        // Only the native service can finish or cancel accepted work. A full serialized queue can take 1638 program
+        // updates (longer if paused); dropping the watcher must not imply the queued write can no longer happen.
+        if (rc == KILN_ERR_NOT_FOUND) { ++i; continue; }
+        if (rc == KILN_OK && r.status != KILN_OK)
+            adminLog(std::string(LV_WARN "admin command adminSetFlameLevel was not run by the game: ") + r.reason);
+        else if (rc == KILN_OK && !r.mirrored)
+            adminLog(std::string(LV_WARN "admin command adminSetFlameLevel: level ") + std::to_string(r.after) +
+                     " stored but not mirrored: " + (r.reason[0] ? r.reason : "the native service could not confirm the replicated level"));
+        else if (rc == KILN_OK && r.clamped)
+            adminLog(std::string(LV_WARN "admin command adminSetFlameLevel: level ") + std::to_string(w.level) +
+                     " is above the game's maximum: the flame is at " + std::to_string(r.after));
+        else if (rc != KILN_OK)
+            adminLog(LV_WARN "admin command adminSetFlameLevel: no result from kiln.knowledge");
+        gFlameWatch.erase(gFlameWatch.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+}
+
 int adminSetFlameLevel(lua_State* L) {
-    return luaL_error(L, "Admin.setFlameLevel is not available on Kiln yet");
+    const lua_Integer level = luaL_checkinteger(L, 1);
+    if (level < 1 || level > 255) return luaL_error(L, "flame level is 1 to 255, not %d", int(level));
+    if (!flameApi()) return luaL_error(L, "Admin.setFlameLevel is unavailable: kiln.knowledge is not running");
+    needGame(L);
+    needWorld(L);
+    queueAdmin(L, [level] { flameStart(static_cast<uint32_t>(level)); });
+    return 0;
 }
 
 // A template by GUID or name (kiln.spawn resolves names, display names and GUID text).
@@ -385,6 +447,7 @@ int adminChangeSettings(lua_State* L) {
 void resetAdmin() {
     std::lock_guard lock(gAdminMx);
     gAdminQueue.clear();
+    gFlameWatch.clear();
 }
 void checkSent(uintptr_t) {}
 void armAdmin(uintptr_t) {
@@ -394,4 +457,5 @@ void armAdmin(uintptr_t) {
         q.swap(gAdminQueue);
     }
     for (auto& work : q) work.fn();
+    if (!gFlameWatch.empty()) flamePoll();
 }

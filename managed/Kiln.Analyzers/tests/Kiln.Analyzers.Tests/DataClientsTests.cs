@@ -97,6 +97,12 @@ public sealed class DataClientsTests
         { "props", $$"""{ "name": "Lamp", "visual": { "model": "{{Guid1}}" } }""", "mod" },
         { "props", """{ "name": "Lamp", "light": "lamp-glow" }""", "mod" },
         { "props", """{ "name": "Lamp", "light": "game:Fx_Torch_Light" }""", "kiln" },
+        { "props", """{ "name": "Anvil", "provides": true }""", "mod" },
+        { "stations", """{ "name": "Forge", "provides": true }""", "mod" },
+        { "containers", """{ "name": "Rack", "provides": true }""", "mod" },
+        { "props", """{ "name": "Anvil", "provides": false }""", "kiln" },
+        { "props", """{ "name": "Table", "colliders": [ { "size": [1, 1, 1] } ] }""", "kiln" },
+        { "containers", """{ "name": "Crate", "defaultLoot": "scrap-pile", "lid": { "moves": false } }""", "kiln" },
         { "placements", """{ "snap": true }""", "kiln" },
         { "comforts", """{ "amount": 2 }""", "kiln" },
         { "processing", """{ "seconds": 10 }""", "kiln" },
@@ -156,6 +162,11 @@ public sealed class DataClientsTests
         { "blueprints", """{ "name": "Hut" }""", "mod" },
         { "npcs", """{ "name": "Smith" }""", "mod" },
         { "terrainMaterials", """{ "name": "Glowstone", "like": "Stone" }""", "mod" },
+        { "quests", """{ "name": "Errand", "steps": [ { "id": "go", "objective": { "custom": "x" } } ] }""", "mod" },
+        { "dialogues", """{ "nodes": { "start": { "text": "Hello" } } }""", "mod" },
+        { "windows", """{ "title": "Clock", "rows": [ { "type": "text", "text": "hi" } ] }""", "mod" },
+        { "hudLines", """{ "text": "{game.fps:0} fps" }""", "mod" },
+        { "keyBindings", """{ "key": "F8", "does": { "openWindow": "settings" } }""", "mod" },
     };
 
     [Theory]

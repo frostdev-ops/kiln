@@ -12,9 +12,11 @@ namespace Kiln;
 /// save</b> and matches loaded entities against that: props and other static entities come back at exactly their saved
 /// position (matched within 0.5 m), creatures and NPCs within 16 m (nearest unclaimed one of the template).
 /// </summary>
-/// <remarks>Entities whose template never reaches the save (DoNotSave, e.g. most enemies) keep attachments for the
-/// session only. A destroyed entity loses its attachments within a second. Attachments not matched within 10 minutes of a
-/// load are kept for 3 sessions, then dropped.</remarks>
+/// <remarks>Entities without a known, saved world template carrying CurrentTransform keep attachments for the session
+/// only. In particular, inventory item entities have no world position and cannot use this positional identity.
+/// A destroyed entity loses its attachments within a second. Attachments not matched within 10 minutes of a
+/// load are kept for 3 sessions, then dropped. Already-saved attachments survive temporarily unknown metadata
+/// within that retention window, but cannot match until their template's persistence flags are known.</remarks>
 internal sealed class EntityTable
 {
     private const double StaticRadius = 0.5, MobileRadius = 16;
@@ -35,7 +37,7 @@ internal sealed class EntityTable
         public double X, Y, Z;
         public float Yaw;
         public int Missed;
-        public bool Transient;  // template never saved: session only
+        public bool Transient;  // no safe positional identity: session only
         public readonly Dictionary<string, SortedDictionary<string, WorldStore.Slot>> ByMod = new(StringComparer.Ordinal);
         public string Where => $"({X:F1}, {Y:F1}, {Z:F1})";
     }
@@ -98,6 +100,7 @@ internal sealed class EntityTable
     {
         if (_live.TryGetValue(e.Value, out var r)) return r;
         if (_unresolved.Count == 0 || !SpawnLink.Available || SpawnLink.Inspect(e) is not { } info) return null;
+        if (!CanPersist(info.Template)) return null;
         foreach (var u in _unresolved)
         {
             if (u.Template != info.Template || !Near(u, info.Position, RadiusFor(u.Template))) continue;
@@ -114,12 +117,13 @@ internal sealed class EntityTable
         if (!SpawnLink.Available) throw new NotSupportedException("EntityData needs kiln.spawn (entity lookups), which is unavailable");
         var info = SpawnLink.Inspect(e) ?? throw new ArgumentException($"entity {e} does not exist", nameof(e));
         // A loaded attachment waiting for exactly this entity?
-        foreach (var u in _unresolved)
-        {
-            if (u.Template != info.Template || !Near(u, info.Position, RadiusFor(u.Template))) continue;
-            Claim(u, e);
-            return u;
-        }
+        if (CanPersist(info.Template))
+            foreach (var u in _unresolved)
+            {
+                if (u.Template != info.Template || !Near(u, info.Position, RadiusFor(u.Template))) continue;
+                Claim(u, e);
+                return u;
+            }
         r = new Rec { Entity = e.Value };
         Update(r, info);
         _live[e.Value] = r;
@@ -134,7 +138,18 @@ internal sealed class EntityTable
         r.Y = info.Position.Y;
         r.Z = info.Position.Z;
         r.Yaw = info.Yaw;
-        r.Transient = info.Template is { } g && SpawnLink.Template(g).neverSaved;
+        r.Transient = !CanPersist(info.Template);
+    }
+
+    private static bool CanPersist(Guid? template) => template is { } g && SpawnLink.Template(g).canPersist;
+
+    private static bool CanRetainSaved(Guid? template)
+    {
+        if (template is not { } g) return false;
+        var metadata = SpawnLink.Template(g);
+        // An unresolved saved record already has an identity; unavailable metadata cannot disprove it.
+        // Keep it under the usual session TTL, without granting unknown live entities a positional identity.
+        return !metadata.known || metadata.canPersist;
     }
 
     public void Drop(uint entity) => _live.Remove(entity);
@@ -143,14 +158,14 @@ internal sealed class EntityTable
     public void Tick()
     {
         if (_live.Count == 0 && _unresolved.Count == 0) return;
-        if (!SpawnLink.Available) return;
+        var available = SpawnLink.Available;
         var now = DateTime.UtcNow;
-        if (now >= _nextCheck && _live.Count > 0)
+        if (available && now >= _nextCheck && _live.Count > 0)
         {
             _nextCheck = now + TimeSpan.FromSeconds(1);
             CheckDestroyed();
         }
-        if (_unresolved.Count > 0 && now < _matchUntil && now >= _nextMatch && SpawnLink.WorldRunning)
+        if (available && _unresolved.Count > 0 && now < _matchUntil && now >= _nextMatch && SpawnLink.WorldRunning)
         {
             _nextMatch = now + TimeSpan.FromSeconds(5);
             MatchLoaded();
@@ -186,6 +201,7 @@ internal sealed class EntityTable
                 r.Y = info.Position.Y;
                 r.Z = info.Position.Z;
                 r.Yaw = info.Yaw;
+                r.Transient = !CanPersist(info.Template);
                 continue;
             }
             (gone ??= []).Add(id);
@@ -205,7 +221,7 @@ internal sealed class EntityTable
         var before = _unresolved.Count;
         foreach (var u in _unresolved.ToList())
         {
-            if (u.Template is not { } g) continue;
+            if (u.Template is not { } g || !CanPersist(g)) continue;
             var radius = RadiusFor(g);
             foreach (var cand in SpawnLink.Find(g, new WorldPosition(u.X, u.Y, u.Z), radius, 16))
             {
@@ -248,7 +264,7 @@ internal sealed class EntityTable
     {
         if (SpawnLink.Available) CheckDestroyed();
         var perMod = new SortedDictionary<string, List<(Rec r, SortedDictionary<string, WorldStore.Slot> keys)>>(StringComparer.Ordinal);
-        foreach (var r in _live.Values.Where(r => !r.Transient).Concat(_unresolved))
+        foreach (var r in _live.Values.Where(r => !r.Transient).Concat(_unresolved.Where(r => CanRetainSaved(r.Template))))
             foreach (var (mod, keys) in r.ByMod)
                 if (keys.Count > 0)
                 {

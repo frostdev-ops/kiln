@@ -16,3 +16,13 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
     "$here/glue_test.cpp" "$here/../src/api_windows.cpp" "$here/../src/api_wheel.cpp" "$here/../src/api_attributes.cpp" "$here/../src/api_level.cpp" "$here/../src/api_components.cpp" "$here/../src/api_events.cpp" "$here/../src/v26_model.cpp" \
     -o "$out/glue_test"
 "$out/glue_test" "$out"
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -pthread -DKEMF_NET_CLIENT_TEST \
+    -I"$here/host" -I"$here/../include" -I"$here/../src" -I"$here/../../../core/abi" -I"$here/../../../services/players" \
+    "$here/net_test.cpp" "$here/../src/api_net.cpp" "$here/../src/api_net_client.cpp" \
+    "$here/../src/net/net_service.cpp" "$here/../src/net/net_link.cpp" "$here/../src/net/net_line.cpp" "$here/../src/net/net_peers.cpp" \
+    -o "$out/net_test"
+"$out/net_test"
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -DKEMF_PORTRAIT_TEST \
+    -I"$here/host" -I"$here/../include" -I"$here/../src" -I"$here/../../../core/abi" -I"$here/../../../services/players" -I"$here/../../../third_party" \
+    "$here/portraits_test.cpp" "$here/../src/api_portraits.cpp" "$here/../src/v26_model.cpp" -o "$out/portraits_test"
+"$out/portraits_test" "$out"

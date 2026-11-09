@@ -47,6 +47,11 @@ export function useDistribution(): Distribution | null {
   const info = useAppInfo();
   return info.data ? distributionOf(info.data) : null;
 }
+/** Nexus stays hidden and idle until the backend explicitly enables this build. */
+export function useNexusEnabled() {
+  const info = useAppInfo();
+  return info.isSuccess && info.data?.nexusEnabled === true;
+}
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.appSettingsGet });
 export const useGames = () => useQuery({ queryKey: qk.games, queryFn: api.gameList });
 

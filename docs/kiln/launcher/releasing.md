@@ -41,6 +41,35 @@ the same runtime and notices:
   over the old install (the same app id and data folder as the direct build, so either replaces the other). Its
   README (`nexus/README.txt`, in the Nexus zips) says so and lists the files' SHA256.
 
+## Nexus capability and OAuth registration
+
+`KILN_NEXUS_ENABLED` is a compiled backend capability shared by the app, release preflight and public selftest
+metadata. Omit it or use `1` to enable Nexus. Use `0` to ship with the entire Nexus system disabled. Every other
+value is rejected, including empty strings and `false`. This switch is separate from the direct/Nexus distribution
+and its updater policy; other launcher features remain available.
+
+A disabled official build needs no OAuth registration. It hides catalog/navigation/account/settings controls in
+both desktop and Deck, refuses all `nexus_*` IPC commands, and stops catalog/API/download/refresh/storage/handler
+work before side effects. Direct `nxm://` invocations exit without forwarding, queueing or networking. The base
+Tauri packaging configuration has no deep-link plugin or automatic nxm association: ownership is only acquired by
+the runtime handler opt-in, which disabled builds refuse. Existing credentials and handler state are left untouched.
+
+For an enabled official build, obtain Nexus approval and set/export `KILN_NEXUS_OAUTH_CLIENT_ID` and
+`KILN_NEXUS_OAUTH_REDIRECT_URI` from that registration. The callback must be the exact approved
+`http://127.0.0.1:<port>/<path>` URI. No client secret, personal-key fallback or another app's registration is used.
+`release.sh` forwards the capability flag and both public registration values to the Linux container and exports
+them for host/Windows builds. `launcher/src-tauri/build.rs` shares runtime validation and refuses enabled official
+builds without complete valid public registration. Ordinary unconfigured development builds remain supported.
+
+`--selftest` reports `releaseBuild` and `nexusOAuth: {enabled, configured, clientId, redirectUri}` from the compiled
+backend. Disabled builds report false/false/null/null and require no provider or token-store access. Release report
+checks require the reported capability to match `KILN_NEXUS_ENABLED` and, for enabled variants, the exact public
+client ID and redirect URI supplied for the release. Keep those expected environment values set when running
+standalone AppImage, Windows or clean-Linux startup checks. A configured
+selftest cannot establish Nexus approval: approval, confirmed scopes/API compatibility, and real consent/API/
+refresh/sign-out/keyring evidence on Windows and Linux/Deck are release gates only when Nexus is enabled. Shipping
+the disabled variant is authorized while that approval is pending.
+
 ## Versions
 `VERSION` holds the version being worked on, for example `0.2.0-dev`. Releases take their version from it:
 

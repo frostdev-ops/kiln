@@ -16,6 +16,7 @@ pub mod codes;
 pub mod docs;
 pub mod json;
 mod regex;
+mod programs;
 mod rules;
 pub mod schema;
 mod suggest;
@@ -294,6 +295,7 @@ const EMBEDDED: &[(&str, &str)] = &[
     ("kiln-quests.schema.json", include_str!("../../../../schema/kiln-quests.schema.json")),
     ("kiln-blocks.schema.json", include_str!("../../../../schema/kiln-blocks.schema.json")),
     ("kiln-vfx.schema.json", include_str!("../../../../schema/kiln-vfx.schema.json")),
+    ("kiln-programs.schema.json", include_str!("../../../../schema/kiln-programs.schema.json")),
 ];
 const INDEX: &str = include_str!("../../../../schema/schemas.json");
 
@@ -628,6 +630,9 @@ impl<'o> Linter<'o> {
             want.push((root.join("native.json"), "native".into()));
             m.native = !root.join("kiln.mod.json").is_file();
         }
+        if root.join("kiln.programs.json").is_file() {
+            want.push((root.join("kiln.programs.json"), "programs".into()));
+        }
         // content/*.json, as kiln.content discovers them (one folder, any case of .json)
         if let Ok(rd) = std::fs::read_dir(root.join("content")) {
             let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("json"))).collect();
@@ -691,6 +696,10 @@ impl<'o> Linter<'o> {
                 return None;
             }
         };
+        if e.kind == "programs" && bytes.len() > 65536 {
+            self.diag(Diagnostic::new(&d, codes::SIZE, Span::default(), "kiln.programs.json exceeds the native reader's 64 KiB limit"));
+            return None;
+        }
         let mut f = LFile { path: path.to_path_buf(), display: d.clone(), kind: e.kind.clone(), bytes, root: None, annots: vec![], base: 0, generated_from: None };
         let (text, base) = if e.container.as_deref() == Some("kschem") {
             match rules::kschem_header(&f.bytes) {
@@ -714,6 +723,7 @@ impl<'o> Linter<'o> {
         let parsed = json::parse(&d, &text, base, e.dialect);
         let syntax_ok = parsed.root.is_some();
         for mut x in parsed.diagnostics {
+            if e.kind == "programs" && x.code == codes::DUPLICATE_KEY { x.severity = Severity::Error; }
             x.docs = e.docs.clone();
             if !e.dialect.comments && x.code == codes::COMMENT {
                 x.message = format!("comments are not allowed: {}", reader_note(e));
@@ -724,6 +734,7 @@ impl<'o> Linter<'o> {
             self.diag(x);
         }
         if let Some(root) = parsed.root {
+            if e.kind == "programs" { for diagnostic in programs::check(&d, &root) { self.diag(diagnostic); } }
             if syntax_ok {
                 let out = embedded().schemas.validate(&e.schema, &root);
                 for i in out.issues {

@@ -1,0 +1,23 @@
+{
+  // The sample's C# in data: each block here makes what the C# one with the name before "-json" does (MenuBlocksMod.cs).
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "menus": {
+    "kitchen-menu-json": { "like": "kitchen" }
+  },
+  "stations": {
+    "rack-forge-json": {
+      "name": "Rack Forge", "description": "A forge that thinks it is a drying rack.",
+      "kind": "forge",
+      "menu": { "like": "drying-rack" },
+      "processing": { "slots": 8 },
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 6 } },
+      "recipes": [ { "seconds": 3, "needs": { "Material_T1_Twigs": 2 }, "output": "Material_T1_Resin" } ]
+    },
+    "camp-stove-json": {
+      "name": "Camp Stove", "kind": "workbench", "menu": "kitchen-menu-json",
+      "recipe": { "needs": { "Material_T1_Wood_Logs": 3 } },
+      "recipes": [ { "needs": { "Material_T1_Twigs": 1 }, "output": "Material_T1_Resin" } ]
+    }
+  }
+}

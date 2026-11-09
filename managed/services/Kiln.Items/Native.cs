@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_items.h (kiln.items v2; the v2 functions are in TableV2). Blittable only; field order is the ABI (the native
+// Mirror of native/core/abi/services/kiln_items.h (kiln.items v3; the v2 functions are in TableV2, the v3 ones in TableV3). Blittable only; field order is the ABI (the native
 // side static_asserts the same sizes and offsets).
 using System.Runtime.InteropServices;
 
@@ -196,6 +196,129 @@ internal static unsafe class ItemsNative
         public delegate* unmanaged[Cdecl]<uint, int*, int*, int> FuelRead;
         public delegate* unmanaged[Cdecl]<ulong, FuelRequest*, delegate* unmanaged[Cdecl]<ulong, FuelChange*, uint, void*, void>, void*, ulong*, int> FuelKeep;
         public delegate* unmanaged[Cdecl]<ulong, int> FuelKeepEnd;
+    }
+
+    // ---- v3: moves, container names, transfer rules and reports ----
+    public const uint MoveStack = 0, MoveQuickStack = 1, MoveAllKind = 2;
+    public const uint MoveDryRun = 0x01, MoveEquipped = 0x02, MoveActionBar = 0x04, MoveSilent = 0x08;
+    public const uint TransferQuickStack = 1, TransferMoveAll = 2, TransferAny = 3;
+    public const uint TransferByMod = 1, TransferCanceled = 2;
+    public const uint RuleKeepSlot = 1, RuleKeepItem = 2, RuleDeny = 3;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MoveRequest
+    {
+        public uint Size;
+        public uint Flags;
+        public uint Kind;
+        public uint From;
+        public uint To;
+        public uint Count;
+        public ulong Slot;
+        public ulong ToSlot;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MoveChange
+    {
+        public ulong FromSlot;
+        public ulong ToSlot;
+        public uint Item;
+        public uint Amount;
+        public uint Pide;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MoveResult
+    {
+        public uint Size;
+        public int Status;
+        public ulong Ticket;
+        public uint From;
+        public uint To;
+        public uint Kind;
+        public uint Flags;
+        public uint Requested;
+        public uint Done;
+        public uint Stacks;
+        public uint GameError;
+        public uint ChangeCount;
+        public uint Canceled;
+        public uint Steps;
+        public uint Reserved;
+        public fixed byte Changes[16 * 32];
+        public fixed byte Message[160];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TransferRule
+    {
+        public uint Size;
+        public uint Type;
+        public uint Kinds;
+        public uint Entity;
+        public uint Item;
+        public uint Reserved;
+        public ulong Slot;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TransferReport
+    {
+        public uint Size;
+        public uint Kind;
+        public uint From;
+        public uint To;
+        public uint Player;
+        public uint Flags;
+        public uint Moved;
+        public uint Kept;
+        public ulong Step;
+        public uint R0, R1;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Status2
+    {
+        public uint Size;
+        public byte Moves;
+        public byte Names;
+        public byte TransferHooks;
+        public byte HooksInstalled;
+        public uint Rules;
+        public uint Handlers;
+        public uint Reporters;
+        public uint Pad;
+        public ulong TransfersSeen;
+        public ulong TransfersCanceled;
+        public ulong MovesDone;
+        public uint NamesFound;
+        public uint Reserved;
+        public fixed byte Detail[160];
+    }
+
+    /// <summary>The whole v3 table: v2 followed by the move, name and transfer functions. Use it only when the header's
+    /// size says the native service has them.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV3
+    {
+        public TableV2 V2;
+        public delegate* unmanaged[Cdecl]<ulong, MoveRequest*, delegate* unmanaged[Cdecl]<MoveResult*, void*, void>, void*, ulong*, int> Move;
+        public delegate* unmanaged[Cdecl]<uint, byte*, uint, uint*, int> ContainerName;
+        public delegate* unmanaged[Cdecl]<ulong, TransferRule*, ulong*, int> TransferRuleAdd;
+        public delegate* unmanaged[Cdecl]<ulong, void*, void*, ulong*, int> TransferListen;  // native handlers only
+        public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<TransferReport*, void*, void>, void*, ulong*, int> TransferReportAdd;
+        public delegate* unmanaged[Cdecl]<ulong, int> TransferEnd;
+        public delegate* unmanaged[Cdecl]<Status2*, int> GetStatus2;
+    }
+
+    // Appended within v3: keep TableV3's existing size so its move/transfer rows remain usable on older v3 runtimes.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableWithResultPeek
+    {
+        public TableV3 V3;
+        public delegate* unmanaged[Cdecl]<ulong, Result*, int> PeekResult;
     }
 
     public static string Text(byte* p, int max)
