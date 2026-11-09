@@ -1,7 +1,7 @@
-# EMF API parity (EmfApi v26 baseline; v27 integration pending)
+# EMF API parity (EmfApi v27)
 
 kiln-emf (`native/plugins/emf`) hands every EMF mod an `EmfApi` table built on Kiln's services. This page lists
-every function of EMF 0.5.1's C API (v26, 85 functions, `sdk/include/emf/emf_api.h`) and every function of its Lua
+every function of EMF 0.6.0's C API (v27, 90 functions, `sdk/include/emf/emf_api.h`) and every function of its Lua
 API (`docs/modding/lua.md`), with the Kiln service behind it, the nearest Kiln C# API, and the status.
 
 - **full**: behaves as EMF documents. **partial**: the difference is in the row. **no**: logs
@@ -9,21 +9,23 @@ API (`docs/modding/lua.md`), with the Kiln service behind it, the nearest Kiln C
 - **tested**: `probe` = the conformance probe (`mods/tests/emf-test/probe`, lab server), `host` = host test
   (`native/plugins/emf/tests/run.sh`), `client` = only a joined player can show it (client checklist in
   [emf.md](emf.md)), `lab-mod` = a shipped EMF mod uses it in the lab check (`tools/emf/lab-check.py`).
-- Counts: v21 had 61 full, 9 partial, 3 no out of 73; v22-v26's 12 functions were missing and every 0.5 mod was
-  refused (EMF's SDK refuses a table smaller than its own `sizeof(EmfApi)`). The v26 implementation baseline: **72 full, 13 partial, 0 no
-  out of 85.** Counts are C table slots, not grouped rows or attribute constants. The two attribute slots remain
-  partial because the XP/level ids use the queued progression path described below. Full means an implementation
-  matches the documented contract; the evidence column still distinguishes host, server and pending client checks.
+- Counts: **77 full, 13 partial, 0 no out of 90.** The v26 prefix has 85 slots (72 full, 13 partial); v27 appends
+  five implemented networking slots. Counts are C table slots, not grouped rows or attribute constants. The two
+  attribute slots remain partial because the XP/level ids use the queued progression path below. Full means the
+  implemented contract matches EMF; the evidence column separately names host, server and pending client checks.
 
-EMF 0.6/API 27 adds five networking slots. Their adapter, transport and interoperability checks are still being
-integrated; this v26 recount does not certify API 27 or a 0.6 mod. See the networking documentation after integration.
+API 27 messages use EMF's official `#!emf1` chat wire. Kiln peers can speak to EMF peers without Kiln's own network
+protocol. Host checks use the upstream wire peer; the dedicated-server API 27 probe passed 11 checks. Two mixed
+server boots loaded unmodified Lua 1.19, Beastmaster 1.13 and ShroudForge once each. Those boots do not verify a
+joined player's handshake, hidden chat, taming, portraits, UI or multiplayer behaviour. See [emf-network.md](emf-network.md).
 
 ## Version negotiation
 
-As EMF 0.5.1 does it: one table, `version = 26`, `size = sizeof(EmfApi) = 688`. Slots are only appended (v22 at
-byte 592, v23 616, v24 624, v25 648, v26 672). A mod's `mod.json` `"emf": N` above 26 is refused ("needs EMF API vN").
-Mods built with EMF's C++ SDK also check `api->size >= sizeof(EmfApi)` of their own header, so a v26 mod needs the
-whole v26 table. The table is a shared, immutable prefix-compatible view; it is not shrunk for an older mod.
+One table, `version = 27`, `size = sizeof(EmfApi) = 728`. Slots are only appended (v22 at
+byte 592, v23 616, v24 624, v25 648, v26 672, v27 688). The 688-byte v26 prefix is unchanged. A mod's `mod.json`
+`"emf": N` above 27 is refused ("needs EMF API vN"). Mods built with EMF's C++ SDK also check
+`api->size >= sizeof(EmfApi)` of their own header, so a v27 mod needs all 728 bytes. The table is a shared, immutable
+prefix-compatible view; it is not shrunk for an older mod.
 Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules): an `EmfUiWidget` array is walked by
 `widget_size` (44..4096 bytes, at most 256 widgets), and a v24/v25 mod's 56-byte widgets read `icon`, `fps` and
 `height` as 0.
@@ -41,13 +43,13 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `for_each_entity` (1) | the storage's entity map | `World.Find` | full | probe |
 | `on_tick`, `run_on_world` (1) | Post of each world's step | `TickEvents` / `Scheduler` | full | probe |
 | `resolve`, `hook` (1) | EMF signature name → Kiln sigdb (`sigdb/symbols/*.d/emf.json`) | `Kiln.Hooks` | full | probe |
-| `hook_program` (1) | `kiln.types` runner pre/post callbacks | `GameSystems.Hook(name, before, after)` | full | host; server probe pending final integration |
+| `hook_program` (1) | `kiln.types` runner pre/post callbacks | `GameSystems.Hook(name, before, after)` | full | host; server probe |
 | `register_program`, `register_program_def` (2/16) | `kiln.world` programs, server world | `Kiln.Api` ECS programs | partial: server world only | probe |
 | `spawn`, `destroy` (2) | `kiln.spawn` | `Kiln.Spawn` | full | probe |
-| `spawn_ex` (12) | `kiln.spawn` components copied into the spawn request | `SpawnOptions.Components`, `SpawnComponent.Of` | full | host; server probe pending final integration |
+| `spawn_ex` (12) | `kiln.spawn` components copied into the spawn request | `SpawnOptions.Components`, `SpawnComponent.Of` | full | host; server probe |
 | `on_save`, `on_load` (2) | `kiln.saves` events | `Kiln.Saves` events | full | probe |
 | `emit_event` (3) | the game's emitter (as `kiln.gameplay`) | `Kiln.Gameplay` | full | probe |
-| `read_events` (3) | `kiln.world` programs v2, multiple event inputs | `Kiln.Api` ECS programs with multiple event inputs | full | host; server probe pending final integration |
+| `read_events` (3) | `kiln.world` programs v2, multiple event inputs | `Kiln.Api` ECS programs with multiple event inputs | full | host; server probe |
 | `on_event` (4) | one `kiln.world` program per event type | `Events.On<T>` (service events) | partial: server world only | probe |
 | `for_each_item`, `find_item`, `item_info` (5) | `kiln.items` catalog | `Kiln.Items` | full | probe |
 | `give_item` (5) | `kiln.spawn` pickup | `Kiln.Items` | full | probe |
@@ -65,7 +67,7 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `find_pattern`, `hook_pattern`, `hook_address` (14) | on-disk scan, safetyhook | `Kiln.Hooks` | full | probe, lab-mod (loot_scale) |
 | `game_build` (14) | Kiln's verified build records | `Diagnostics` | full | probe |
 | `command_sender` (15), `register_command_ex` (17) | `kiln.chat` | `Kiln.Chat` | full | probe |
-| `program_write_other` (16) | `kiln.world` programs v2, declared other-entity writes | `EcsProgramContext.TryWriteOther<T>` | full | host; server probe pending final integration |
+| `program_write_other` (16) | `kiln.world` programs v2, declared other-entity writes | `EcsProgramContext.TryWriteOther<T>` | full | host; server probe |
 | `attribute_get`, `attribute_add` (18) | `kiln.combat` health, stamina and mana; v22 ids through `kiln.progression` | `Attributes.Get/Set/Add`, `PlayerProgression` | partial: health/stamina/mana supported; XP/level timing and limits below | probe; host |
 | `damage` (18) | `kiln.combat` hit | `Kiln.Combat` | full | probe |
 | `chat_tell`, `chat_broadcast`, `player_name`, `on_chat` (19) | `kiln.chat` | `Kiln.Chat` | full | probe, lab-mod (herald) |
@@ -82,11 +84,17 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `offer`, `offer_remove` (25) | the three offer components through `emf_components`; `InteractionAcceptedEvent` listener | `Offers.Add/TryAdd/Remove` | full | probe (components), host, client (the prompt, the accept) |
 | `image_load` (26) | `kiln.ui` `image_load` (PNG frames), EMF's limits and paths; encoded files also limited to 64 MB | `UiImage` | partial: encoded-file limit in addition to EMF's decoded-pixel limit | host, client |
 | `offer_active` (25/26) | kiln-emf's offer registry | `Offers.IsActive/Status` | full | probe, host |
+| `net_channel` (27) | upstream EMF channel registry, caller ownership and version checks | `Network.Channel` (Kiln wire; not the EMF protocol) | full | host wire/ownership checks; server probe |
+| `net_to_server` (27) | EMF wire on host loopback or the game's client chat outbox | `NetChannel.SendToServer` (Kiln wire) | full | host + production client-detour fixture; joined-client check pending |
+| `net_to_player` (27) | EMF wire through `kiln.chat`, checked peer/channel | `NetChannel.SendTo(player, message)` (Kiln wire) | full | host upstream-peer interop; server probe; joined-client check pending |
+| `net_to_players` (27) | EMF wire to every compatible peer | `NetChannel.SendToAll` (Kiln wire) | full | host; server probe; joined-client check pending |
+| `net_peer` (27) | EMF peer/channel-version snapshot | `Network.PeerOf`, `NetPeer.HasChannel` (Kiln peers; presence only) | full | host; server probe |
 
 ## Lua API (`emf.*`, run by EMF's `lua` mod on the C API)
 
 EMF's `lua` mod is an EMF DLL mod built on the public C API only, so every Lua function works on Kiln exactly as far
-as the C function under it does. Lua mods need EMF's `lua` mod in `emf/mods/lua/` (0.5.1's build needs the v26 table).
+as the C function under it does. Lua mods need EMF's `lua` mod in `emf/mods/lua/`. Unmodified Lua 1.19 loads on
+API 27, including its networking namespace; its actual player-facing features still need the client checklist.
 
 | Lua | C under it | Status |
 |---|---|---|
@@ -110,6 +118,7 @@ as the C function under it does. Lua mods need EMF's `lua` mod in `emf/mods/lua/
 | `emf.wheel`, `emf.wheel_section`, `emf.wheel_group` | `wheel_open` | full; client input/drawing pending |
 | `emf.window`, `emf.window_update`, `emf.window_close`, `emf.image` | v24, v26 | partial (as C) |
 | `emf.offer`, `emf.spawn_offer`, `emf.offer_remove`, `emf.offered` | v25, `offer_active` | full / partial / full / full |
+| `emf.net.channel(name, def)`, `.send(name, data)`, `.send_to(world, player, name, data)`, `.send_all(world, name, data)`, `.peer(world, player, name)` | v27 `net_channel`, `net_to_server`, `net_to_player`, `net_to_players`, `net_peer` | full implementation; host interop and server probe; joined-client checks pending |
 | `world:is_server`, `:is_client`, `:tick`, `:entities`, `:position`, `:get`, `:template`, `:name`, `:account` | worlds, components, `player_name` | full |
 
 ## Lifetime and host checks
@@ -121,8 +130,15 @@ support components they added. Native EMF DLLs remain loaded until process exit;
 entry point in kiln-emf.
 
 `native/plugins/emf/tests/run.sh` checks the frozen x64 ABI slot map, model policy/queues and the production window,
-progression, offer and event adapters with fake Kiln services (ASan/UBSan). These checks do not demonstrate rendering,
-replication or interaction in a running game.
+progression, offer, event and API 27 network adapters with fake Kiln services (ASan/UBSan). Network checks include
+upstream-wire interoperability, fragments, ownership, sender identity, limits, teardown and production client detours
+with stand-in engine calls. The world-program review also ran eight unload/reload cycles with no failed checks or
+leaked program owners on its server lab. These checks do not demonstrate client rendering or player interaction.
+
+EMF manifest portraits are prepared by an offline CPU renderer in the separate GPL `kiln-eml` component, before
+EMF DLL mods load. The MIT adapter only plans requests and calls that export. Archive/cache checks rendered textured
+wolf PNGs and reused them through the Windows DLL ABI. Automatic preparation in a real client, custom client
+portraits and their appearance in Beastmaster remain unchecked. See [eml.md](eml.md#emf-creature-portraits).
 
 ## What is not in kiln-emf
 

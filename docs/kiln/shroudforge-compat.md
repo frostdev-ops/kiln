@@ -2,7 +2,7 @@
 
 Owner: agent `sf` (2026-11-07). Players' guide: [shroudforge.md](shroudforge.md). Wiki note: [wiki-notes/sf.md](wiki-notes/sf.md).
 
-ShroudForge (SF, [bonsaibauer/shroudforge](https://github.com/bonsaibauer/shroudforge), MIT) is the most common
+ShroudForge (SF, [bonsaibauer/shroudforge](https://github.com/bonsaibauer/shroudforge), MIT) is a
 mod loader for Enshrouded. Kiln started as a fork of it. SF mods are Lua packages: `mod.json` (EML's manifest),
 `extended.mod.json` (switch, targets, settings with labels and controls, groups), `src/*.lua` and `locales/*.json`.
 This page covers how SF loads, what conflicts with Kiln, the options and the chosen design, the licence boundary, and the
@@ -15,13 +15,12 @@ When a player has ShroudForge installed, the same adapter can drive the player's
 and a missing or broken copy falls back to the bundled one. Kiln's own `kiln-shroudforge.dll` stays MIT. Sections 5,
 7 and 10 describe the result.
 
-Sources read: upstream `bonsaibauer/shroudforge` HEAD `823823a` (2026-11-05, "new version"; releases: **v1.7.9 =
-Latest**, v1.8.0-dev.* pre-releases on 6 and 7 Nov), shallow clone in `/mnt/Dongus/kiln-wave/sf/src-ref/shroudforge`.
-The local fork `~/Work/kiln-shroudforge` is older (1.7.7). The two have the same bootstrap and runtime interface:
-`windows-bootstrap/` differs only by Kiln's CMake file. Lab tests used the SF **1.7.8** release binaries
-(`~/Work/ew-lab/dl/sf178`) plus upstream's profile for the current server build (`server/26430253.json`, which ships in
-1.7.9). Nothing of SF's DLLs was disassembled. The only binary check was the game exe's import table, because Kiln hooks
-that exe.
+The original source inventory used upstream `823823a` (1.7.9, recorded 2026-11-05). Historical lab evidence below
+used SF 1.7.8 and the current server profile. The dev.20 bundled fork is pinned at
+`03b4950e620836cb0fbd771968e9410c4fa2b558`, including the archive-reader/publication fixes. Its clean component
+records that commit and all three submodule revisions in `SOURCE.txt`, identifies itself as `1.7.9 kiln.03b4950`,
+and includes the component's notices and licenses. The dev.20 mixed-server evidence is separate from the older
+observations below; neither is a client rendering or player-interaction test.
 
 ## 1. How ShroudForge loads (source facts)
 
@@ -97,9 +96,10 @@ cadence uses the installed copy.
 
 The Kiln layer lives in `kiln/` (MIT): `build.sh` (SF's web UI, `shroudforge-runtime.dll` through `cargo xwin`,
 `kfc-runtime.dll` through CMake with clang-cl, then the staged component), `native/CMakeLists.txt`, `cmake/`,
-`sync-upstream.sh`, `UPSTREAM-VERSION` and `UPSTREAM-PATCHES.md`. One upstream file is patched: the app-icon build script
-is skipped under `SHROUDFORGE_NO_APP_ICON`, because winres cannot run `rc.exe` on Linux. `kiln/README.md` documents
-merges. A trial merge of upstream/1.8.0 into `kiln` had no conflicts, and the runtime exports and ABI 12 are unchanged.
+`sync-upstream.sh`, `UPSTREAM-VERSION` and `UPSTREAM-PATCHES.md`. The app-icon build script
+is skipped under `SHROUDFORGE_NO_APP_ICON`, because winres cannot run `rc.exe` on Linux. The fork also fixes startup
+archive publication on Windows: release the component's own readers/writers before commit or abort, and keep the
+previous target intact when a rename fails. `kiln/README.md` documents merges. A trial merge of upstream/1.8.0 into `kiln` had no conflicts, and the runtime exports and ABI 12 are unchanged.
 In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tools/package/stage.sh` builds it into the
 `shroudforge` component (default on, both sides). `tools/deploy-server.sh` deploys an existing build.
 `tools/release/release.sh` exports and ships its source (`tools/release/lib/sf-source.sh`) and appends its notice.
@@ -109,7 +109,7 @@ In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tool
 The runtime choice comes first. **Bundled**: `kiln/plugins/shroudforge/`, the default. **Installed**: `<game>/shroudforge/`,
 used when `kiln.json` has `"shroudforge": {"useInstalled": true}` (the launcher Settings toggle "Use my installed
 ShroudForge"; env `KILN_SHROUDFORGE_RUNTIME=installed|bundled` overrides). It logs which one runs
-(`ShroudForge runtime: bundled 1.7.9 kiln.823823a from ...`). When both are present it says how to switch. A chosen
+(`ShroudForge runtime: bundled 1.7.9 kiln.03b4950 from ...` for the current pin). When both are present it says how to switch. A chosen
 runtime that is missing, unsafe, fails to load, has an unsupported version or lacks compatible exports falls back to
 the other one with a warning. Supported unversioned bootstrap contracts are SF 1.7.8 and 1.7.9; the native DLL must
 provide all five required exports and ABI 12. Missing `version.json` is incompatible. The runtime directory and its
@@ -202,8 +202,7 @@ statically. kiln-eml becomes relevant in three places:
 ## 8. API coverage
 
 Under Kiln every SF function runs as SF's own code (column "Under Kiln": **plugin** = hosted SF runtime). The Kiln C#
-column names what a Kiln mod uses today for the same effect. **Port** marks functionality to add to Kiln's C# API, as new
-files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested: **lab** = run in `wv-sf-1` (server build
+column names what a Kiln mod uses today for the same effect. The C# column states the actual scope, including remaining differences. Tested: **lab** = run in `wv-sf-1` (server build
 26430253) through kiln-shroudforge with SF 1.7.8; **unit** = kiln-manage tests; **client** = on the human checklist;
 **—** = not run in this slice (it works because it is SF's own code, but nobody has watched it yet).
 
@@ -220,7 +219,7 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 | keybind settings (`control: keybind`) | plugin (SF's hotkeys) | `Kiln.Ui.KeyBindings` | plugin; client |
 | locales `locales/*.json`, `shroudforge.i18n.get`, `shroudforge.locale()` | plugin | Kiln mod localisation | plugin; — |
 | dependencies (SemVer, optional) | plugin (SF's load order) | resolver | plugin; — |
-| `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | plugin; lab: "Early startup asset pass completed" (no patch mod enabled) |
+| `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | mixed-server lab: 89 resources committed, item count +2; second boot reused identical patched archive hashes |
 | DLL Manager (native DLL mods, `runtime-register-dll`) | plugin | Kiln native mods (`native.json`) | plugin; — (DirectInput providers need SF's dinput8: not supported) |
 | Modloader window, World Editor window | plugin starts `shroudforge.exe` like SF does | Kiln launcher, Kiln build tools | plugin; client |
 | Debug Console window | not started (kiln.log has SF's log as `[sf]`) | Kiln console | by design |
@@ -278,9 +277,22 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 **Kiln C# coverage:** component reflection, attributes, reversible claims, reflected resource lookup and field writes,
 voxel access, hashing, PNG images and raw RGBA8 pixels have APIs. Blob enumeration covers managed additions and
 overrides only (`Assets.ListBlobs/ListAllBlobs`), not every game blob. General named-service reflection, Impact-name
-type lookup and a general texture decoder remain gaps; `Kiln.Settings` covers world settings. Entity scale is not
+type lookup and a general texture decoder are outside those helpers; PNG/RGBA8 are implemented.
+`Kiln.Settings` covers world settings. Entity scale is not
 provided by these APIs. The ports use Kiln's own type data and MIT helpers. The hosted plugin's lab evidence is separate
 from C# unit tests, and neither proves a client drew a result or accepted input.
+
+## dev.20 mixed-server evidence
+
+The fixed fork completed two boots with enabled startup asset mods alongside unmodified EMF Lua 1.19 and
+Beastmaster 1.13. The first committed 89 resources and changed the item count from 4,213 to 4,215. The next boot
+used the cached result with identical patched KFC/resource hashes. Lua and Beastmaster each loaded once, and the
+API 27 network probe passed 11 checks on each boot. These are dedicated-server observations, with no joined player.
+
+A clean official component was then built from the pinned fork with matching `version.json`, `SOURCE.txt`, notices
+and licenses. The clean-component build and the two mixed boots are separate evidence; the final combined package
+still needs its integration checks. Portrait archive/PNG checks are offline proof only. SF's client windows,
+custom portraits, taming, stable interactions and multiplayer behaviour remain unchecked.
 
 ## 9a. Evidence, bundled runtime (lab `wv-sf-2`, UDP 27061, server build 26430253, no ShroudForge installed)
 

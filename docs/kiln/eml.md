@@ -9,7 +9,7 @@ GPL-3.0-or-later plugin built from EML's own source (`kiln/plugins/kiln-eml.dll`
 - **Players:** drop EML mods into `<game>/mods/` as with EML, or add them to a Kiln profile. You don't need EML's
   `dbghelp.dll` and, on Linux, you don't need `WINEDLLOVERRIDES`: Kiln's own proxy starts kiln-eml.
 - **Mod authors:** nothing changes. Same `mod.json`, same `src/mod.lua`, same Lua API, same game types.
-- **Kiln mod authors:** the MIT ports (`Kiln.Eml` assembly) are listed under [MIT ports](#mit-ports-kilneml).
+- **Kiln mod authors:** the MIT ports (`Kiln.Eml` assembly) are listed under [MIT ports](#4-mit-ports-kilneml).
 
 ## 1. How EML works (mapped from its source, v0.2.0)
 
@@ -236,23 +236,23 @@ formats and a general block-compressed texture codec. These do not reduce kiln-e
 | `loader.has_mod(id)` | EML | **port** `Eml.IsLoaded(id)` (+ `Mods.*` for Kiln mods) | probe; C# test |
 | `loader.runtime.register_dll(path)` | EML (stub upstream) | native mods (`native.json`) | probe |
 | `game.version` (field) | EML | `api->build_info` | probe |
-| `game.types.get(name or hash)` | EML | `Kiln.Game` generated types (typegen) | probe |
-| `game.types.get_by_qualified_name` | EML | `Kiln.Game` | probe |
-| `game.types.get_by_qualified_hash` | EML | `Assets.TypeHash(name)` | probe |
+| `game.types.get(name or hash)` | EML | `GameTypes.Find/ByHash` | probe |
+| `game.types.get_by_qualified_name` | EML | `GameTypes.Find` | probe |
+| `game.types.get_by_qualified_hash` | EML | `GameTypes.ByHash` | probe |
 | `game.types.get_by_impact_name` | EML | no Impact-name lookup in Kiln C# | probe |
 | `game.types.get_by_impact_hash` | EML | no Impact-hash lookup in Kiln C# | probe |
-| `game.types.get_all` | EML | `Kiln.Game` | probe |
+| `game.types.get_all` | EML | `GameTypes.All` | probe |
 | `game.types.of(value)` | EML | `GameTypes.TypeOf(value)` for reflected values, resources, fields and types | probe; C# unit tests |
 | `game.assets.get_resource(guid, type, part)` | EML | `Assets.ReadResource(key)` | probe |
 | `game.assets.get_resource_parts(guid, type)` | EML | `Assets.ListResources(type)` | probe |
 | `game.assets.get_resources_by_type(type)` | EML | `Assets.ListResources(type)` | probe |
 | `game.assets.get_all_resources()` | EML | `Assets.Dump(spec)` | probe |
-| `game.assets.get_resource_types()` | EML | `Kiln.Game` | probe |
+| `game.assets.get_resource_types()` | EML | `GameTypes.All` lists reflected types, without a resource-only filter | probe |
 | `game.assets.create_resource(value, type[, guid, part])` | EML | `Assets.Register(key, bytes)`, typed blocks | probe (both forms) |
-| `game.assets.get_content(guid or ContentHash)` | EML | `kiln.assets` blob read | probe |
+| `game.assets.get_content(guid or ContentHash)` | EML | advanced C ABI `kiln.assets.blob_read`; no managed blob-read helper | probe |
 | `game.assets.get_all_contents()` | EML | partial: `Assets.ListBlobs/ListAllBlobs` list blobs supplied through the managed API, not game or manifest blobs | probe; C# unit tests |
 | `game.assets.create_content(buffer)` | EML | `Assets.AddBlob(bytes)` | probe |
-| `Content:read_data()` | EML | `kiln.assets` blob read | probe |
+| `Content:read_data()` | EML | advanced C ABI `kiln.assets.blob_read`; no managed blob-read helper | probe |
 | `game.guid.hash(guid)` | EML | `GuidHash.Of(guid)` (`Kiln.Eml`) | probe; C# unit tests |
 | `game.guid.from_content_hash(h)` / `to_content_hash(guid)` | EML | `ContentHash` in Kiln.Assets | probe |
 | `hasher.fnv1a32(v)` | EML | **port** `DataHash.Fnv1a32` | probe; C# test |
@@ -286,9 +286,11 @@ formats and a general block-compressed texture codec. These do not reduce kiln-e
 **Counts:**
 - implemented: 89/89, all by EML's own code;
 - probe: 89/89 offline, 88/89 in the lab (the 89th, `io.export`, is off there);
-- MIT ports: 42 functions (`DataHash` 3, `DataBuffer` 38, `Eml.IsLoaded` 1);
-- an existing Kiln API does the job for 36 more; 11 have no Kiln equivalent (impact-name lookups, `types.of`,
-  `get_all_contents`, `guid.hash`, `Buffer:close`, pixel access), and none is needed so far.
+- C# helpers include `DataHash`, `DataBuffer`, `Eml.IsLoaded`, `GuidHash` and `DataImage`; `GameTypes.TypeOf`
+  handles reflected values and `Assets.ListBlobs/ListAllBlobs` list managed additions/overrides;
+- C# equivalence is qualified per row: Impact-name/hash lookup and complete game-blob enumeration are absent;
+  the image helper covers PNG and RGBA8, with other formats outside that helper. `Buffer:close` needs no equivalent
+  because managed memory is collected.
 
 ## 4. MIT ports (`Kiln.Eml`)
 These are Kiln's own code (`managed/services/Kiln.Eml/`, deployed to `kiln/host/` like the other service assemblies),
@@ -298,6 +300,9 @@ written from EML's documentation and from what the probe observed, never from EM
 - `DataBuffer`: EML's buffer model. Writes append at `Tail` and reads consume from `Head`. It has `Order` (little or
   big), every fixed-size type including `Half`, strings, `Skip/Reset/Reserve/Copy`, `Wrap`, `ToString`. EML Lua code
   ports to C# line by line.
+- `GuidHash.Of` hashes GUID bytes; `IdOf` also preserves the game's zero-id convention.
+- `DataImage` creates RGBA8 images, reads/writes individual or packed pixels, and decodes/encodes PNGs.
+  `FromRgba8/ToRgba8` copy raw pixels; this is not a general block-compressed texture codec.
 - `Eml.Status` / `Eml.IsLoaded(id)`: the current process's `state/eml.json`, checked by PID and write time so a missing
   or disabled plugin cannot report an old run. `Eml.Load(path)` can inspect a historical result. These are the port of
   `loader.has_mod`, plus the run's result for Kiln mods that build on an EML mod.
@@ -310,9 +315,27 @@ var b = new DataBuffer(); b.WriteU32(DataHash.Fnv1a32("keen::ItemInfo")); // 0xb
 Not ported, on purpose:
 - typed game data (`read_resource`, `create_resource`, `types`): Kiln has its own typed path (`Kiln.Game` generated
   types, typed blocks, `kiln.assets` overrides at run time);
-- image codecs: .NET libraries do that;
+- image formats beyond PNG/RGBA8 and Impact-name/hash lookup; the PNG/RGBA8 helpers above are implemented;
 - a C#/Lua pre-game KFC writer: kiln-eml is the single writer of the game files (section 6), and a second writer
   would conflict.
+
+## EMF creature portraits
+
+The separate GPL component exports `kiln_eml_portraits`, an offline CPU renderer for EMF manifest portrait requests.
+The reader/decoder stays in `gpl/kiln-eml`; kiln-emf's MIT adapter plans bounded requests and calls the export before
+EMF DLL mods load on a client. It reads the local game archives and writes only the portrait cache. The renderer's
+EMF 0.6.0 source is pinned at `bd6d90644785df80e4a61cb6ec55f9dab8e16b22`, with its MIT notice retained in the GPL
+component's `NOTICE.txt`.
+
+Manifest entries name a `key`, exactly one `template` or `model` GUID, `frames` (1..64) and `size` (8..512). The
+renderer accepts at most 32 portraits and 32 million output pixels per request. A process lock protects cache
+publication; a failed replacement preserves the prior frames. EMF's `image_load("portrait:<key>")` uses that cache.
+A dedicated server does not automatically generate or draw portraits.
+
+Offline Rust/cache checks and six read-only archive checks passed. A Windows DLL ABI check rendered four 128-pixel
+textured wolf frames from the real client archive, then reused the cache. These results do not prove automatic
+client startup, custom client portraits, Beastmaster's pictures, taming, UI or multiplayer behaviour. The build and
+focused test commands are in `gpl/kiln-eml/README.md`; the existing 89-function EML coverage count is unchanged.
 
 ## 5. Tests and evidence
 
