@@ -38,6 +38,26 @@ public sealed class FurnitureFieldsTests : IDisposable
         WorldTablesNative.TestCraftingPropIndex = null;
     }
 
+    [Fact]
+    public void Reset_forgets_interaction_callbacks_and_preserves_other_mods()
+    {
+        var mod = Mod("interaction-reset");
+        var other = Mod("interaction-other");
+        var mine = Guid.NewGuid();
+        var theirs = Guid.NewGuid();
+        try
+        {
+            InteractRuntime.Add(mod, mine, new(mod.Id, "mine", null, null, null, null, _ => false));
+            InteractRuntime.Add(other, theirs, new(other.Id, "theirs", null, null, null, null, _ => false));
+            Assert.False(InteractRuntime.Allows(EntityId.None, mine));
+            mod.Reset();
+            Assert.Null(InteractRuntime.EntryOf(mine));
+            Assert.Null(InteractRuntime.Allows(EntityId.None, mine));
+            Assert.NotNull(InteractRuntime.EntryOf(theirs));
+        }
+        finally { mod.Reset(); other.Reset(); }
+    }
+
     // ---- default loot ----
 
     private static readonly LootTableBlock Scrap = new() { Entries = [new LootEntry { Item = "Material_T1_Metal_Scraps", CountMin = 2, CountMax = 5 }] };

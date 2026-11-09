@@ -297,6 +297,17 @@ public sealed class WorldConfigTests : KilnTest
     }
 
     [Fact]
+    public void Mod_WorldConfig_keeps_its_tick_thread_guard_after_caching()
+    {
+        var mod = new SettingsMod();
+        HostAccess.Bind(mod, NewMod("wcguard"));
+        mod.Cfg();
+        Backend.TickThread = false;
+        try { Assert.Throws<InvalidOperationException>(() => mod.Cfg()); }
+        finally { Backend.TickThread = true; }
+    }
+
+    [Fact]
     public void Config_from_outside_a_mod_needs_a_name()
     {
         Assert.Throws<InvalidOperationException>(() => Config.RegisterWorld<TestConfig>());

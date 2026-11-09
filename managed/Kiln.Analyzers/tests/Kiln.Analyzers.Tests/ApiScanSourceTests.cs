@@ -1,11 +1,29 @@
 // SPDX-License-Identifier: MIT
 using Kiln.Analyzers.Tools;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
 namespace Kiln.Analyzers.Tests;
 
 public sealed class ApiScanSourceTests
 {
+    [Theory]
+    [InlineData("public static partial void Missing();", true)]
+    [InlineData("[GeneratedRegex(\"x\")] private static partial int Pattern();", true)]
+    [InlineData("[GeneratedRegex(\"[\")] private static partial Regex Pattern();", true)]
+    [InlineData("[GeneratedRegex(\"x\")] private static partial Regex Pattern();", false)]
+    public void Missing_partial_implementations_fail_except_for_the_known_regex_generator(string method, bool error)
+    {
+        var paths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
+        var compilation = CSharpCompilation.Create("ApiScanFixture",
+            [CSharpSyntaxTree.ParseText("using System.Text.RegularExpressions; public partial class Sample { " + method + " }", cancellationToken: TestContext.Current.CancellationToken)],
+            paths.Select(path => MetadataReference.CreateFromFile(path)),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        Assert.Contains(compilation.GetDiagnostics(TestContext.Current.CancellationToken), d => d.Id == "CS8795");
+        Assert.Equal(error, ApiScanCompilationErrors.Read(compilation).Count != 0);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

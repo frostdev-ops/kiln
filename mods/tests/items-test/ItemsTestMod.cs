@@ -240,7 +240,7 @@ public sealed partial class ItemsTestMod : Mod
             var rec = new PersistRecord(chest.Value, original, wood.Id.Value, final.Count(wood.Id), 3, sword.Id.Value,
                 final.Count(sword.Id), gearSlot.ItemEntity.Value, 3, (int)ItemRarity.Epic,
                 movedToB is { Status: ItemsStatus.Done } ? other.Value : 0, otherTotals, named.n == null ? 0 : named.e.Value, named.n ?? "");
-            File.WriteAllText(persist, JsonSerializer.Serialize(rec, new JsonSerializerOptions()));
+            File.WriteAllText(persist, PersistJson(rec));
             File.Delete(Path.Combine(Context.DataDirectory, "persist.request"));
             Check(a.Status == ItemsStatus.Done && b.Status == ItemsStatus.Done,
                 $"persistence phase 1: left 3 x Wood Logs and a level 3 Epic {sword.Label} (entity {gearSlot.ItemEntity}) in {chest}" +
@@ -250,18 +250,36 @@ public sealed partial class ItemsTestMod : Mod
         Log.Info($"kiln.items: {s2.Committed} committed, {s2.RolledBack} rolled back, {s2.ProgramUpdates} program updates");
     }
 
-    // Serialized with a fresh JsonSerializerOptions each time: the shared default options cache type metadata and would
-    // keep this collectible mod context alive after an unload.
+    // Keep mod-defined types out of the framework's shared reflection metadata caches.
     private sealed record PersistRecord(uint Chest, string Original, uint Wood, int WoodBefore, int WoodCount, uint Gear,
         int GearBefore, uint GearEntity, int GearLevel, int GearRarity, uint ChestB = 0, string BTotals = "", uint Named = 0,
         string NamedText = "");
+
+    private static string PersistJson(PersistRecord r) => new System.Text.Json.Nodes.JsonObject
+    {
+        ["Chest"] = r.Chest, ["Original"] = r.Original, ["Wood"] = r.Wood, ["WoodBefore"] = r.WoodBefore,
+        ["WoodCount"] = r.WoodCount, ["Gear"] = r.Gear, ["GearBefore"] = r.GearBefore, ["GearEntity"] = r.GearEntity,
+        ["GearLevel"] = r.GearLevel, ["GearRarity"] = r.GearRarity, ["ChestB"] = r.ChestB, ["BTotals"] = r.BTotals,
+        ["Named"] = r.Named, ["NamedText"] = r.NamedText,
+    }.ToJsonString();
+
+    private static PersistRecord ParsePersistJson(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        uint U(string name) => root.TryGetProperty(name, out var value) ? value.GetUInt32() : 0;
+        int I(string name) => root.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
+        string? S(string name, string? fallback = null) => root.TryGetProperty(name, out var value) ? value.GetString() : fallback;
+        return new PersistRecord(U("Chest"), S("Original")!, U("Wood"), I("WoodBefore"), I("WoodCount"), U("Gear"),
+            I("GearBefore"), U("GearEntity"), I("GearLevel"), I("GearRarity"), U("ChestB"), S("BTotals", "")!, U("Named"), S("NamedText", "")!);
+    }
 
     // Phase 2 after a save and restart: the items are still there (stack count, gear with its level and rarity), then
     // they are taken out again and the container is as it was before phase 1. Matched by item, not by slot: entities
     // created at run time (the gear's item entity, a chest's linked inventories) get new ids when the save loads.
     private async Task VerifyPersisted(string path)
     {
-        var rec = JsonSerializer.Deserialize<PersistRecord>(File.ReadAllText(path), new JsonSerializerOptions())!;
+        var rec = ParsePersistJson(File.ReadAllText(path));
         var chest = new EntityId(rec.Chest);
         await Steps(25);
         var c = Items.Read(chest);

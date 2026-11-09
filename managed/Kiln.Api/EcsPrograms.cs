@@ -29,6 +29,7 @@ public static unsafe class EcsPrograms
         ArgumentNullException.ThrowIfNull(callback);
         var mod = ModContext.CurrentMod ?? ModContext.OwnerOf(callback)
             ?? throw new InvalidOperationException("EcsPrograms.Bind must belong to a loaded mod");
+        if (!mod.Alive) throw new InvalidOperationException("the mod is unloading");
         var table = Table;
         if (table == null || (table->Capabilities() & 4) == 0) throw new NotSupportedException("kiln.world programs v2 is unavailable");
         var binding = new Binding(mod, callback, table);

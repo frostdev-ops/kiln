@@ -75,6 +75,20 @@ public sealed class OffersTests : KilnTest
         [Offers.InteractionOfferRuntime, Offers.ClientInteractionOffer, Offers.CheckPlayerInRange];
 
     [Fact]
+    public void Retired_owner_cannot_queue_a_new_offer_after_cleanup()
+    {
+        var mod = NewMod("retired");
+        mod.Retire();
+        As(mod, () =>
+        {
+            Assert.False(Offers.TryAdd(new EntityId(Prop), null, OfferVerbs.Talk, _ => { }, out var why));
+            Assert.Contains("unloading", why);
+        });
+        Assert.Empty(_w.Queue);
+        Assert.Empty(Offers.List());
+    }
+
+    [Fact]
     public void Add_puts_the_three_components_on_and_becomes_active()
     {
         var mod = NewMod("a");
@@ -180,6 +194,22 @@ public sealed class OffersTests : KilnTest
         As(mod, () => Offers.Add(new EntityId(Prop), null, 0, a => got.Add(a)));
         Offers.OnAccepted(7, Prop);
         Assert.Empty(got);
+    }
+
+    [Fact]
+    public void Throwing_service_cleanup_does_not_skip_offer_cleanup()
+    {
+        var mod = NewMod("cleanup-fault");
+        mod.Retiring += () => throw new InvalidOperationException("cleanup failed");
+        As(mod, () => Offers.Add(new EntityId(Prop), null, 0, _ => { }));
+        _w.EndStep();
+        Run();
+        mod.Retire();
+        _w.EndStep();
+        Run();
+        Assert.All(Three, h => Assert.False(_w.Has(Prop, h)));
+        Assert.Empty(Offers.List());
+        Assert.False(Offers.Wanted);
     }
 
     [Fact]

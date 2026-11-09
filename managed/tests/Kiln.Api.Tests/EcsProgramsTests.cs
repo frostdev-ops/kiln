@@ -83,6 +83,16 @@ public sealed unsafe class EcsProgramsTests : KilnTest
         binding.Dispose(); _native.Run(); Assert.Equal(1,calls);
     }
     [Fact]
+    public void Retired_owner_cannot_create_a_binding_after_its_cleanup_event()
+    {
+        var mod=NewMod("retired"); mod.Retire();
+        IDisposable? late=null;
+        try { Assert.Throws<InvalidOperationException>(()=>As(mod,()=>late=EcsPrograms.Bind("pulse",_=>{}))); }
+        finally { late?.Dispose(); }
+        Assert.False(_native.Bound);
+        Assert.Equal(0UL,_native.Owner);
+    }
+    [Fact]
     public void Duplicate_binding_and_undeclared_access_do_not_replace_first_callback()
     {
         var mod=NewMod("writer"); var calls=0;
@@ -172,6 +182,16 @@ public sealed unsafe class GameSystemsHookTests : KilnTest
         _native.Run();_native.Run();Assert.Equal(1,calls);Assert.True(Backend.Logged("system hook disabled"));
         Backend.TickThread=false;Assert.Throws<InvalidOperationException>(hook.Dispose);Assert.True(_native.Bound);
         Backend.TickThread=true;hook.Dispose();Assert.False(_native.Bound);
+    }
+    [Fact]
+    public void Retired_owner_cannot_root_a_new_system_hook()
+    {
+        var mod=NewMod("retired"); mod.Retire();
+        IDisposable? late=null;
+        try { Assert.Throws<InvalidOperationException>(()=>As(mod,()=>late=GameSystems.Hook("sample",()=>{}))); }
+        finally { late?.Dispose(); }
+        Assert.False(_native.Bound);
+        Assert.Equal(0UL,_native.Owner);
     }
     private sealed class FakeSystems : IDisposable
     {

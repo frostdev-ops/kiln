@@ -422,7 +422,7 @@ public sealed class WorldStatusTestMod : Mod
                 Check(World.TryWrite(e, "Level", slotOffset, (uint)keep), $"armed ({armed}): level {keep} written with a raw World.TryWrite (offset {slotOffset})");
                 Check(await WaitFlame(f => f.Level == keep, 240), "armed (raw): the game mirrored it", $"{WorldProgress.Flame}");
             }
-            File.WriteAllText(StateFile, System.Text.Json.JsonSerializer.Serialize(new { original = f0.Level, expected = keep, mode = armed }));
+            File.WriteAllText(StateFile, FlameRestartState(f0.Level, keep, armed));
             Note($"armed ({armed}): the flame stays at {keep} (saved level was {f0.Level}). Wait for an autosave or stop the server, then start it again: the second run reads it back and restores {f0.Level}");
             return;
         }
@@ -430,6 +430,13 @@ public sealed class WorldStatusTestMod : Mod
         Check(back.Ok && back.After == f0.Level && back.Mirrored, $"put back: {back.Before} -> {back.After}", $"{back}");
         Check(await WaitFlame(f => f.Level == f0.Level && f.Stored == f0.Level && f.SystemLevel == f0.Level, 120), "all three read the original level again", $"{WorldProgress.Flame}");
     }
+
+    private static string FlameRestartState(int original, int expected, string mode) =>
+        // Serialize only framework types: reflection metadata for a mod-defined record would retain its load context.
+        new System.Text.Json.Nodes.JsonObject
+        {
+            ["original"] = original, ["expected"] = expected, ["mode"] = mode,
+        }.ToJsonString();
 
     private async Task FlameAfterRestart(FlameStatus f)
     {

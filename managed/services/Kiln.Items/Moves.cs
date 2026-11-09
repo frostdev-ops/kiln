@@ -180,6 +180,7 @@ public static unsafe partial class Items
         if (r.From == 0 || r.To == 0) return MoveInvalid(kind, from, to, "no entity");
         if (r.From == r.To) return MoveInvalid(kind, from, to, "from and to are the same entity");
         var mod = ModContext.CurrentMod;
+        if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
         var tcs = new TaskCompletionSource<MoveResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var p = new PendingMove(tcs, mod);
         long key;

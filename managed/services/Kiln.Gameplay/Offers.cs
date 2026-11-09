@@ -221,6 +221,7 @@ public static class Offers
 
     private static string Offer(uint entity, Spec spec, ModContext? owner, Action<OfferAccepted> handler)
     {
+        if (owner is { Alive: false }) return "the mod is unloading";
         var w = World;
         if (!w.Available) return "offers are not available on this server (kiln.gameplay component_change or kiln.world missing)";
         if (entity == 0) return "no entity";

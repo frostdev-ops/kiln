@@ -58,11 +58,13 @@ internal static class InteractRuntime
         }
     }
 
-    /// <summary>A mod makes its blocks again or goes: its doors say nothing until they are made again.</summary>
+    /// <summary>A mod makes its blocks again or goes: its interactions and beds say nothing until they are made again.</summary>
     internal static void Forget(string mod)
     {
         lock (Gate)
         {
+            foreach (var k in Entries.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) Entries.Remove(k);
+            foreach (var k in Beds.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) Beds.Remove(k);
             foreach (var k in Doors.Where(x => x.Value.Mod == mod).Select(x => x.Key).ToList()) Doors.Remove(k);
         }
     }

@@ -26,15 +26,15 @@ public sealed class ModLeakTests : KilnTest
         }
     }
 
-    private static string? FindApiTest()
+    private static string? FindTestMod(string project, string assembly)
     {
         var dir = AppContext.BaseDirectory;
         for (var d = new DirectoryInfo(dir); d is not null; d = d.Parent)
         {
-            foreach (var candidate in new[] { Path.Combine(d.FullName, "ApiTest"), Path.Combine(d.FullName, "mods", "tests", "api-test", "bin") })
+            foreach (var candidate in new[] { Path.Combine(d.FullName, assembly), Path.Combine(d.FullName, project), Path.Combine(d.FullName, "mods", "tests", project, "bin") })
                 if (Directory.Exists(candidate))
                 {
-                    var f = Directory.EnumerateFiles(candidate, "ApiTest.dll", SearchOption.AllDirectories).OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault();
+                    var f = Directory.EnumerateFiles(candidate, assembly + ".dll", SearchOption.AllDirectories).OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault();
                     if (f is not null) return f;
                 }
         }
@@ -75,7 +75,7 @@ public sealed class ModLeakTests : KilnTest
     [Fact]
     public void Api_test_mod_unloads_without_a_trace()
     {
-        var dll = FindApiTest();
+        var dll = FindTestMod("api-test", "ApiTest");
         Assert.True(dll is not null, "ApiTest.dll not built");
         File.WriteAllText(Path.Combine(Path.GetDirectoryName(Root)!, "enshrouded_server.json"), """
             { "userGroups": [
@@ -99,5 +99,60 @@ public sealed class ModLeakTests : KilnTest
             Assert.Contains(Backend.Lines, l => l.Contains("api-test: load #3 in this process"));
         }
         Assert.Equal(0, refs.Count(r => r.IsAlive));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference SerializeRestartState(string dll)
+    {
+        var alc = new ModAlc(Path.GetDirectoryName(dll)!);
+        var asm = alc.LoadFile(dll);
+        var type = asm.GetType("WorldStatusTest.WorldStatusTestMod", throwOnError: true)!;
+        var json = (string)type.GetMethod("FlameRestartState", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [3, 7, "marked"])!;
+        using var parsed = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(3, parsed.RootElement.GetProperty("original").GetInt32());
+        Assert.Equal(7, parsed.RootElement.GetProperty("expected").GetInt32());
+        Assert.Equal("marked", parsed.RootElement.GetProperty("mode").GetString());
+        alc.Unload();
+        return new WeakReference(alc);
+    }
+
+    [Fact]
+    public void World_status_restart_serialization_does_not_retain_its_mod_context()
+    {
+        var dll = FindTestMod("worldstatus-test", "WorldStatusTest");
+        Assert.NotNull(dll);
+        var weak = SerializeRestartState(dll);
+        for (var i = 0; i < 20 && weak.IsAlive; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+        Assert.False(weak.IsAlive);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference RoundTripItemsState(string dll)
+    {
+        var alc = new ModAlc(Path.GetDirectoryName(dll)!);
+        var type = alc.LoadFile(dll).GetType("ItemsTest.ItemsTestMod", throwOnError: true)!;
+        const string json = """{"Chest":42,"Original":"before","Wood":13,"WoodBefore":2,"WoodCount":3,"Gear":17,"GearBefore":1,"GearEntity":99,"GearLevel":3,"GearRarity":4,"NamedText":"Lab Ores"}""";
+        var record = type.GetMethod("ParsePersistJson", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [json]);
+        var saved = (string)type.GetMethod("PersistJson", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [record])!;
+        using var parsed = System.Text.Json.JsonDocument.Parse(saved);
+        Assert.Equal(42u, parsed.RootElement.GetProperty("Chest").GetUInt32());
+        Assert.Equal("before", parsed.RootElement.GetProperty("Original").GetString());
+        Assert.Equal(3, parsed.RootElement.GetProperty("WoodCount").GetInt32());
+        Assert.Equal("Lab Ores", parsed.RootElement.GetProperty("NamedText").GetString());
+        Assert.Equal(0u, parsed.RootElement.GetProperty("ChestB").GetUInt32());
+        const string expected = """{"Chest":42,"Original":"before","Wood":13,"WoodBefore":2,"WoodCount":3,"Gear":17,"GearBefore":1,"GearEntity":99,"GearLevel":3,"GearRarity":4,"NamedText":"Lab Ores","ChestB":0,"BTotals":"","Named":0}""";
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(expected), System.Text.Json.Nodes.JsonNode.Parse(saved)));
+        alc.Unload();
+        return new WeakReference(alc);
+    }
+
+    [Fact]
+    public void Items_restart_serialization_does_not_retain_its_mod_context()
+    {
+        var dll = FindTestMod("items-test", "ItemsTest");
+        Assert.NotNull(dll);
+        var weak = RoundTripItemsState(dll);
+        for (var i = 0; i < 20 && weak.IsAlive; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+        Assert.False(weak.IsAlive);
     }
 }
