@@ -140,8 +140,8 @@ internal static partial class Ops
         }
     }
 
-    // A cached snapshot (at most a second old) that never holds this tick up for more than a few milliseconds, however slow a
-    // mod's status source is.
+    // A cached snapshot (refreshed about once a second on a worker) that never holds this tick up, however slow a mod's status
+    // source is: called once per mod, it answers from the last snapshot and starts at most one refresh.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static JsonArray? ReadStatusLines(string modId)
     {

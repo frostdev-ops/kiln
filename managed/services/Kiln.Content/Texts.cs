@@ -31,7 +31,9 @@ public sealed record TextsStatus(bool Loaded, string? Source, string? Build, int
 
 /// <summary>The game's English texts by loca tag. <c>Texts.Get(item.NameTag)</c>; see the file header for where they come
 /// from. The first call loads the table (about a quarter of a second for the 17,000 texts; <see cref="Preload"/> does it in
-/// the background). Any thread.</summary>
+/// the background). Any thread. While a load runs (a <see cref="Preload"/>, or a first call on another thread) the other
+/// calls do not wait for it: they answer null (no table yet) until it is done. A catalog that gave no table (missing, no
+/// <c>loca</c> section, broken) is looked at again after a minute, and read again only when a catalog file changed.</summary>
 public static class Texts
 {
     private const long MaxFileBytes = 512L << 20;
@@ -41,8 +43,11 @@ public static class Texts
     private static readonly object Lock = new();
     private static volatile Dictionary<uint, string>? _table;
     private static TextsStatus _status = new(false, null, null, 0, 0, "not loaded yet");
-    private static long _failedAt;  // Stopwatch timestamp of the last failed load, 0 when none
-    private static Task<bool>? _preload;
+    private static long _failedAt;  // Stopwatch timestamp of the last failed load (or of the last check that found the catalog
+                                    // files unchanged since), 0 when none
+    private static string? _failedFiles;  // what the catalog files looked like at that failed load (see FileStamps)
+    private static TaskCompletionSource<bool>? _inFlight;  // the load that runs now, outside the lock
+    private static long _epoch;  // bumped by Reset: a load still running from before publishes nothing
 
     /// <summary>True when a table is loaded (this loads it on the first call).</summary>
     public static bool Available => Table() is not null;
@@ -57,19 +62,20 @@ public static class Texts
         }
     }
 
-    /// <summary>Loads the table on a background thread; completes with whether there is one.</summary>
+    /// <summary>Loads the table on a background thread; completes with whether there is one. While it runs, <see cref="Get(uint)"/>
+    /// answers null at once instead of waiting.</summary>
     public static Task<bool> Preload()
     {
+        TaskCompletionSource<bool> mine;
         lock (Lock)
         {
-            if (_table is not null)
-                return _preload is { IsCompletedSuccessfully: true } && _preload.Result
-                    ? _preload : (_preload = Task.FromResult(true));
-            if (_preload is { IsCompleted: false }) return _preload;
-            if (_preload is { IsCompletedSuccessfully: true } && _failedAt != 0 && Stopwatch.GetElapsedTime(_failedAt) < RetryAfter)
-                return _preload;
-            return _preload = Task.Run(() => Table() is not null);
+            if (_table is not null) return Task.FromResult(true);
+            if (_inFlight is { } running) return running.Task;
+            if (!RetryDue()) return Task.FromResult(false);
+            mine = _inFlight = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+        Task.Run(() => Run(mine));
+        return mine.Task;
     }
 
     /// <summary>The text of a loca tag id (the FNV-1a of the tag's GUID bytes), with the game's markup; null when unknown or
@@ -116,23 +122,107 @@ public static class Texts
     {
         var t = _table;
         if (t is not null) return t;
+        TaskCompletionSource<bool> mine;
         lock (Lock)
         {
             if (_table is not null) return _table;
-            if (_failedAt != 0 && Stopwatch.GetElapsedTime(_failedAt) < RetryAfter) return null;
-            var sw = Stopwatch.StartNew();
-            var (table, source, build, reason) = Load();
-            if (table is null)
-            {
-                _failedAt = Stopwatch.GetTimestamp();
-                _status = new TextsStatus(false, source, build, 0, sw.Elapsed.TotalSeconds, reason);
-                return null;
-            }
-            _table = table;
-            _failedAt = 0;
-            _status = new TextsStatus(true, source, build, table.Count, sw.Elapsed.TotalSeconds, "");
-            return table;
+            if (_inFlight is not null) return null;  // another thread parses the catalog: never wait for it
+            if (!RetryDue()) return null;
+            mine = _inFlight = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+        return Run(mine);
+    }
+
+    // Under Lock: whether a load may start. After a failure: not within RetryAfter, and after it only when the catalog files
+    // changed (a server catalog without loca is not read again every minute); the check itself runs at most once a minute.
+    private static bool RetryDue()
+    {
+        if (_failedAt == 0) return true;
+        if (Stopwatch.GetElapsedTime(_failedAt) < RetryAfter) return false;
+        if (_failedFiles is not null && FileStamps() == _failedFiles)
+        {
+            _failedAt = Stopwatch.GetTimestamp();
+            return false;
+        }
+        return true;
+    }
+
+    // The single load: parses outside the lock, then publishes the table (or the failure) at once.
+    private static Dictionary<uint, string>? Run(TaskCompletionSource<bool> mine)
+    {
+        Dictionary<uint, string>? table = null;
+        long epoch;
+        lock (Lock) epoch = _epoch;
+        try
+        {
+            var stamps = FileStamps();
+            var sw = Stopwatch.StartNew();
+            Interlocked.Increment(ref LoadsForTests);
+            BeforeLoadForTests?.Invoke();
+            var (loaded, source, build, reason) = Load();
+            table = loaded;
+            lock (Lock)
+            {
+                if (epoch != _epoch)
+                {
+                    // Reset ran meanwhile (tests): publish nothing
+                }
+                else if (table is null)
+                {
+                    _failedAt = Stopwatch.GetTimestamp();
+                    _failedFiles = stamps;
+                    _status = new TextsStatus(false, source, build, 0, sw.Elapsed.TotalSeconds, reason);
+                }
+                else
+                {
+                    _table = table;
+                    _failedAt = 0;
+                    _failedFiles = null;
+                    _status = new TextsStatus(true, source, build, table.Count, sw.Elapsed.TotalSeconds, "");
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            table = null;
+            lock (Lock)
+            {
+                if (epoch == _epoch)
+                {
+                    _failedAt = Stopwatch.GetTimestamp();
+                    _failedFiles = null;  // not a file problem: try again after RetryAfter
+                    _status = new TextsStatus(false, null, null, 0, 0, $"loading failed: {e.Message}");
+                }
+            }
+        }
+        finally
+        {
+            lock (Lock)
+                if (ReferenceEquals(_inFlight, mine)) _inFlight = null;
+        }
+        mine.TrySetResult(table is not null);
+        return table;
+    }
+
+    // Each candidate catalog file's size and write time, as one string (cheap: a stat per place, no read).
+    private static string FileStamps()
+    {
+        var sb = new StringBuilder();
+        foreach (var file in CatalogFiles())
+        {
+            sb.Append(file).Append('|');
+            try
+            {
+                var info = new FileInfo(file);
+                if (info.Exists) sb.Append(info.Length).Append('@').Append(info.LastWriteTimeUtc.Ticks);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                sb.Append('?');
+            }
+            sb.Append('\n');
+        }
+        return sb.ToString();
     }
 
     private static (Dictionary<uint, string>? Table, string? Source, string? Build, string Reason) Load()
@@ -286,6 +376,10 @@ public static class Texts
         yield return AppContext.BaseDirectory;
     }
 
+    /// <summary>Test seams: how many loads ran, and a call made on the loading thread before the catalog is read.</summary>
+    internal static int LoadsForTests;
+    internal static Action? BeforeLoadForTests;
+
     /// <summary>Test seam: forget the loaded table and any failure.</summary>
     internal static void Reset()
     {
@@ -293,7 +387,9 @@ public static class Texts
         {
             _table = null;
             _failedAt = 0;
-            _preload = null;
+            _failedFiles = null;
+            _inFlight = null;
+            _epoch++;
             _status = new TextsStatus(false, null, null, 0, 0, "not loaded yet");
         }
     }

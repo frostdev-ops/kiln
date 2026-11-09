@@ -60,6 +60,64 @@ public static unsafe class EcsPrograms
         internal GCHandle Root;
         internal ulong Handle;
         internal bool Failed;
+
+        // What the callbacks looked up, per (kind, name): the native slot, the game type's size and the UTF-8 name. Resolved
+        // on first use and published copy-on-write, so the per-entity path is a scan of a small array: no allocation, no
+        // native lookup and no lock (workers that miss at the same time both resolve; one array wins, the result is equal).
+        private Entry[] _entries = [];
+        private int _typesMissingLogged;
+
+        internal sealed class Entry(int kind, string name, byte[] utf8, int slot, int size)
+        {
+            internal readonly int Kind = kind;
+            internal readonly string Name = name;
+            internal readonly byte[] Utf8 = utf8;
+            /// <summary>The access-list slot (or, for <see cref="HashKind"/>, the component hash); -1 when undeclared.</summary>
+            internal readonly int Slot = slot;
+            /// <summary>The game type's size; -1 when kiln.types does not know it (or is missing).</summary>
+            internal readonly int Size = size;
+        }
+
+        internal const int HashKind = -1;
+
+        internal Entry Lookup(int kind, string name)
+        {
+            var entries = Volatile.Read(ref _entries);
+            foreach (var e in entries)
+                if (e.Kind == kind && (ReferenceEquals(e.Name, name) || e.Name == name)) return e;
+            return Resolve(kind, name);
+        }
+
+        private Entry Resolve(int kind, string name)
+        {
+            var utf8 = Encoding.UTF8.GetBytes(name);
+            int slot, size = -1;
+            fixed (byte* text = utf8)
+            {
+                var str = new NativeStr { Ptr = text, Len = (nuint)utf8.Length };
+                if (kind == HashKind)
+                    slot = unchecked((int)((delegate* unmanaged[Cdecl]<NativeStr, uint>)Native->Prefix.ComponentHash)(str));
+                else
+                    slot = ((delegate* unmanaged[Cdecl]<ulong, int, NativeStr, int>)Native->Prefix.ProgramSlot)(Handle, kind, str);
+            }
+            if (kind is 0 or 1 or 2)
+            {
+                var type = GameTypes.Table == null ? null : GameTypes.Find(name);
+                if (type is not null) size = type.Size;
+                else if (Interlocked.Exchange(ref _typesMissingLogged, 1) == 0)
+                    Mod.Log.Warn(GameTypes.Table == null
+                        ? "ECS program: kiln.types is not running on this build, so TryRead/TryWrite always return false (TryReadOther/TryWriteOther still work)"
+                        : $"ECS program: kiln.types does not know component '{name}', so TryRead/TryWrite on it return false");
+            }
+            var entry = new Entry(kind, name, utf8, slot, size);
+            while (true)
+            {
+                var current = Volatile.Read(ref _entries);
+                foreach (var e in current)
+                    if (e.Kind == kind && e.Name == name) return e;
+                if (Interlocked.CompareExchange(ref _entries, [.. current, entry], current) == current) return entry;
+            }
+        }
         public void Dispose()
         {
             if (Handle == 0) return;
@@ -105,36 +163,33 @@ public readonly unsafe ref struct EcsProgramContext
     internal EcsProgramContext(EcsPrograms.Binding binding, void* context, ulong* iterator, uint entity)
     { _binding = binding; _context = context; _iterator = iterator; Entity = new EntityId(entity); }
     public EntityId Entity { get; }
-    private int Slot(int kind, string name)
+    private EcsPrograms.Binding.Entry Declared(int kind, string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
-        var bytes = Encoding.UTF8.GetBytes(name);
-        fixed (byte* text = bytes)
-        {
-            var find = (delegate* unmanaged[Cdecl]<ulong, int, NativeStr, int>)_binding.Native->Prefix.ProgramSlot;
-            var slot = find(_binding.Handle, kind, new NativeStr { Ptr = text, Len = (nuint)bytes.Length });
-            if (slot < 0) throw new ArgumentException($"'{name}' was not declared in access list {kind}", nameof(name));
-            return slot;
-        }
+        var entry = _binding.Lookup(kind, name);
+        if (entry.Slot < 0) throw new ArgumentException($"'{name}' was not declared in access list {kind}", nameof(name));
+        return entry;
     }
+    private int Slot(int kind, string name) => Declared(kind, name).Slot;
     /// <summary>Reads a declared read component of the current entity. Optional absent components return false.
-    /// Set template for a tpl/tplOptional declaration.</summary>
+    /// Set template for a tpl/tplOptional declaration. False on builds without kiln.types (logged once per program).</summary>
     public bool TryRead<T>(string component, out T value, bool template = false) where T : unmanaged
     {
-        var slot = Slot(template ? 0 : 1, component);
-        var data = (void*)_iterator[slot];
-        if (data == null || GameTypes.Find(component)?.Size != sizeof(T)) { value = default; return false; }
+        var entry = Declared(template ? 0 : 1, component);
+        var data = (void*)_iterator[entry.Slot];
+        if (data == null || entry.Size != sizeof(T)) { value = default; return false; }
         value = *(T*)data;
         return true;
     }
-    /// <summary>Writes a declared write component of the current entity and marks its replication/save dirtiness.</summary>
+    /// <summary>Writes a declared write component of the current entity and marks its replication/save dirtiness.
+    /// False on builds without kiln.types (logged once per program).</summary>
     public bool TryWrite<T>(string component, T value) where T : unmanaged
     {
-        var slot = Slot(2, component);
-        var data = (void*)_iterator[slot];
-        if (data == null || GameTypes.Find(component)?.Size != sizeof(T)) return false;
+        var entry = Declared(2, component);
+        var data = (void*)_iterator[entry.Slot];
+        if (data == null || entry.Size != sizeof(T)) return false;
         var mark = (delegate* unmanaged[Cdecl]<void*, ulong*, void>)_binding.Native->Prefix.MarkWritten;
-        mark(_context, _iterator + slot);
+        mark(_context, _iterator + entry.Slot);
         *(T*)data = value;
         return true;
     }
@@ -161,12 +216,11 @@ public readonly unsafe ref struct EcsProgramContext
     /// <summary>A copy of each event in this declared input stream, in queue order. Multiple input types are allowed.</summary>
     public byte[][] ReadEvents(string name)
     {
-        Slot(7, name);
+        var bytes = Declared(7, name).Utf8;
         var result = new List<byte[]>();
         var root = GCHandle.Alloc(result);
         try
         {
-            var bytes = Encoding.UTF8.GetBytes(name);
             int error;
             fixed (byte* text = bytes)
                 error = _binding.Native->Events(_context, new NativeStr { Ptr = text, Len = (nuint)bytes.Length }, &CopyEvent,
@@ -186,8 +240,7 @@ public readonly unsafe ref struct EcsProgramContext
     /// timestamps with program time. False when the per-step event buffer is full.</summary>
     public bool EmitEvent(string name, ReadOnlySpan<byte> data)
     {
-        Slot(8, name);
-        var bytes = Encoding.UTF8.GetBytes(name);
+        var bytes = Declared(8, name).Utf8;
         int result;
         fixed (byte* text = bytes, payload = data)
             result = _binding.Native->Emit(_context, new NativeStr { Ptr = text, Len = (nuint)bytes.Length }, payload, (uint)data.Length);
@@ -213,9 +266,8 @@ public readonly unsafe ref struct EcsProgramContext
     }
     private uint ComponentHash(string name)
     {
-        var hash = (delegate* unmanaged[Cdecl]<NativeStr, uint>)_binding.Native->Prefix.ComponentHash;
-        var bytes = Encoding.UTF8.GetBytes(name);
-        fixed (byte* text = bytes) return hash(new NativeStr { Ptr = text, Len = (nuint)bytes.Length });
+        ArgumentNullException.ThrowIfNull(name);
+        return unchecked((uint)_binding.Lookup(EcsPrograms.Binding.HashKind, name).Slot);
     }
 }
 

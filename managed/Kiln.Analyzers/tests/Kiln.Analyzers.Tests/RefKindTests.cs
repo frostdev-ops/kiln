@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+using Microsoft.CodeAnalysis;
 using Xunit;
 using static Kiln.Analyzers.Tests.Harness;
 
@@ -43,6 +44,50 @@ public sealed class RefKindTests
         Ids(d, "KILN111");
         Assert.Contains("Iron_Swrod", d[0].GetMessage());
         Assert.Contains("GameItems", d[0].GetMessage());
+        Assert.Equal(DiagnosticSeverity.Info, d[0].Severity);  // looks like the game's: the local catalog may be of another build
+    }
+
+    [Fact]
+    public async Task A_name_that_is_not_game_style_and_nowhere_is_a_warning()
+    {
+        var d = await Run(A, Mod("""
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["frost-gme"] = 2 } };
+            """));
+        Ids(d, "KILN111");
+        Assert.Equal(DiagnosticSeverity.Warning, d[0].Severity);
+    }
+
+    [Fact]
+    public async Task Game_style_names_missing_from_the_local_catalog_are_info_only()
+    {
+        var d = await Run(A, Mod("""
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["Weapon_T9_1H_SwordNew_01"] = 1 } };
+            IReadOnlyList<PerkRef> perks = ["Perk_From_A_Newer_Build"];
+            """));
+        Ids(d, "KILN111", "KILN111");
+        Assert.All(d, x => Assert.Equal(DiagnosticSeverity.Info, x.Severity));
+        Assert.Contains("another game build", d[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task Items_of_the_older_items_api_are_the_mods_own()
+    {
+        var d = await Run(A, Mod("""
+            Content.Items.Register(new ItemDefinition { Guid = Guid.Empty, Name = "glacier_gem", BaseOn = "Wood_Log" });
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["glacier_gem"] = 1, ["glacier_gme"] = 1 } };
+            """));
+        Ids(d, "KILN111");                                   // the typo only
+        Assert.Contains("glacier_gme", d[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task An_older_api_item_named_at_run_time_could_be_any()
+    {
+        Ids(await Run(A, Mod("""
+            var name = DateTime.Now.Ticks.ToString();
+            Content.Items.Register(new ItemDefinition { Guid = Guid.Empty, Name = name, BaseOn = "Wood_Log" });
+            var r = new RecipeBlock { Needs = new Dictionary<ItemRef, int> { ["glacier_gem"] = 1 } };
+            """)));
     }
 
     [Fact]

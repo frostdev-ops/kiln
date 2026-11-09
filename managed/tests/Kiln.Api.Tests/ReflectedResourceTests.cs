@@ -9,6 +9,17 @@ using Xunit;
 
 namespace Kiln.Api.Tests;
 
+public class ReflectWithoutTypesTests : KilnTest
+{
+    [Fact]
+    public void Assets_Reflect_is_null_without_kiln_types()
+    {
+        // no fake kiln.types or kiln.assets registered: a build where they do not run
+        Assert.False(ReflectedResources.Available);
+        Assert.Null(Assets.Reflect(new AssetKey(Guid.NewGuid(), 0x12345678, 0)));
+    }
+}
+
 public class ReflectedResourceTests : KilnTest
 {
     private readonly FakeGame _game;
@@ -369,6 +380,40 @@ public class ReflectedResourceTests : KilnTest
         As(b, () => Assert.True(Res(Sword).Set("stack", 9).Ok));              // free again
         Assert.Equal(9L, Res(Sword)["stack"]);
         Assert.Equal(["mod-b"], Overrides.Active.Select(i => i.Mod).ToArray());
+    }
+
+    private static void OnAnotherThread(Action body)
+    {
+        Exception? error = null;
+        var t = new Thread(() => { try { body(); } catch (Exception e) { error = e; } });
+        t.Start();
+        t.Join();
+        if (error is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+    }
+
+    [Fact]
+    public void A_background_write_belongs_to_the_mod_that_got_the_handle_or_is_refused()
+    {
+        var mod = NewMod("bg");
+        var sword = As(mod, () => Res(Sword));
+        Backend.TickThread = false;   // the threads below are not the tick thread, and no mod runs on them
+        OnAnotherThread(() => Assert.True(sword.Set("stack", 5).Ok));
+        Assert.Equal("bg", sword.HeldBy("stack"));                           // the mod's claim, not "kiln"
+        OnAnotherThread(() => Assert.Equal(1, sword.RestoreAll()));
+        OnAnotherThread(() => sword["weight"] = 7f);
+
+        ReflectedResource? orphan = null;
+        OnAnotherThread(() => orphan = Res(Shield));                          // got where no mod runs
+        var refused = Assert.Throws<InvalidOperationException>(() => OnAnotherThread(() => orphan!.Set("stack", 3)));
+        Assert.Contains("background thread", refused.Message);
+        Assert.Throws<InvalidOperationException>(() => OnAnotherThread(() => Overrides.Claim("bg:x", () => { }, () => { })));
+        Assert.Throws<InvalidOperationException>(() => OnAnotherThread(() => Overrides.RestoreAll()));
+        Assert.Null(Res(Shield).HeldBy("stack"));
+
+        mod.Retire();                                                         // the background write is given back
+        Assert.Empty(Overrides.Active);
+        Assert.Empty(_game.Overrides);
+        Backend.TickThread = true;
     }
 
     [Fact]

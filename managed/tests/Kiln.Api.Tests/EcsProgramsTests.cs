@@ -104,8 +104,25 @@ public sealed unsafe class EcsProgramsTests : KilnTest
         Assert.Throws<InvalidOperationException>(()=>As(mod,()=>EcsPrograms.Bind("pulse",_=>{})));
         _native.Run(); Assert.Equal(2,calls);
     }
+    [Fact]
+    public void Per_entity_access_resolves_each_name_once_and_missing_kiln_types_is_logged_once()
+    {
+        var mod=NewMod("writer"); var reads=0;
+        using var binding=As(mod,()=>EcsPrograms.Bind("pulse",context=> {
+            if (!context.TryRead<int>("Health",out _)) reads++;   // no kiln.types in this fixture: false, not a throw
+            Assert.True(context.TryReadOther<int>(new EntityId(5000),"Health",out _));
+            Assert.True(context.EmitEvent("TestEvent1",BitConverter.GetBytes(1)));
+        }));
+        FakeNative.SlotCalls=0;
+        for (var i=0;i<50;i++) _native.Run();
+        Assert.Equal(50,reads);
+        Assert.Equal(3,FakeNative.SlotCalls);   // (read, Health), (otherRead, Health), (eventOut, TestEvent1): once each
+        Assert.Equal(1,Backend.Lines.Count(l=>l.Contains("kiln.types is not running",StringComparison.Ordinal)));
+        Assert.False(Backend.Logged("ECS program disabled"));
+    }
     private sealed class FakeNative : IDisposable
     {
+        internal static int SlotCalls;
         private static FakeNative? Current;
         private readonly FakeServiceRegistration _service;
         internal readonly EcsWorldTable* Table;
@@ -140,8 +157,8 @@ public sealed unsafe class EcsProgramsTests : KilnTest
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]
         private static uint Capabilities()=>7;
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]
-        private static int Slot(ulong handle,int kind,NativeStr name) => (kind,name.ToString()) switch {
-            (5,"Health")=>0,(6,"Health")=>1,(7,"TestEvent1")=>2,(7,"TestEvent2")=>3,(8,"TestEvent1")=>2,_=>-1 };
+        private static int Slot(ulong handle,int kind,NativeStr name) { SlotCalls++; return (kind,name.ToString()) switch {
+            (1,"Health")=>0,(5,"Health")=>0,(6,"Health")=>1,(7,"TestEvent1")=>2,(7,"TestEvent2")=>3,(8,"TestEvent1")=>2,_=>-1 }; }
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]
         private static void* ReadOther(void* ctx,ulong accessor,uint entity,uint* size) { *size=4;return Current!.Component; }
         [UnmanagedCallersOnly(CallConvs=[typeof(CallConvCdecl)])]

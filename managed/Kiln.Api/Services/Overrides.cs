@@ -45,8 +45,10 @@ public sealed record OverrideInfo(string Mod, string Target, string Detail);
 /// Claims belong to the calling mod. When a mod unloads, every claim it holds is given back, in reverse order. When two mods
 /// want the same thing the first keeps it: the second gets <see cref="OverrideStatus.Conflict"/> and a warning in its
 /// log that names both. Several mods can change different fields of one resource: the game gets all of them, and a mod that
-/// restores or unloads takes out only its own. Thread-safe. Call it from mod code: a call from a background thread counts as
-/// Kiln's own and is not given back when a mod unloads.
+/// restores or unloads takes out only its own. Thread-safe, with one rule: a change belongs to the mod whose code runs on
+/// the calling thread. On a background thread no mod is running, so <see cref="Claim"/>, <see cref="Release"/> and
+/// <see cref="RestoreAll"/> throw <see cref="InvalidOperationException"/> there; a <see cref="ReflectedResource"/> your mod got
+/// in its own code keeps your mod and may be changed from any thread.
 /// Apply and restore callbacks are serialized with claim changes; do not wait for another thread that is changing claims.
 /// </summary>
 /// <example>
@@ -75,7 +77,19 @@ public static class Overrides
         public readonly List<FieldClaim> Claims = [];
     }
 
-    private static Holder Who() => ModContext.CurrentMod is { } mod ? new Holder(mod.Info.Id, mod) : new Holder("kiln", null);
+    // Who a change belongs to: the mod running on this thread, else the mod that made the handle (a ReflectedResource keeps
+    // it), else Kiln itself, but only on the tick thread. A change from a background thread that no mod can be found for is
+    // refused: owned by "kiln" it would never be given back.
+    private static Holder Who(ModContext? captured = null, string what = "Overrides")
+    {
+        if ((ModContext.CurrentMod ?? captured) is { } mod) return new Holder(mod.Info.Id, mod);
+        if (!Backend.Current.IsTickThread)
+            throw new InvalidOperationException(
+                $"{what}: no mod is running on this thread (a background thread), so the change could not be given back when " +
+                "the mod unloads. Make the change from your mod's code on the tick thread (Scheduler.Post), or through a " +
+                "ReflectedResource your mod got on the tick thread.");
+        return new Holder("kiln", null);
+    }
 
     private static void Say(Holder who, LogLevel level, string text)
     {
@@ -119,7 +133,7 @@ public static class Overrides
         ArgumentException.ThrowIfNullOrEmpty(target);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(restore);
-        var who = Who();
+        var who = Who(what: "Overrides.Claim");
         var again = false;
         OverrideResult? refused = null;
         lock (Gate)
@@ -159,7 +173,7 @@ public static class Overrides
     public static bool Release(string target)
     {
         ArgumentException.ThrowIfNullOrEmpty(target);
-        var who = Who();
+        var who = Who(what: "Overrides.Release");
         GenericClaim? claim;
         lock (Gate)
         {
@@ -172,7 +186,7 @@ public static class Overrides
 
     /// <summary>Gives back every claim this mod holds, newest first: resource fields get what the game had, and each
     /// <see cref="Claim"/>'s restore runs. Returns how many claims were given back. The unload does this by itself.</summary>
-    public static int RestoreAll() => ReleaseHeldBy(Who(), unloading: false);
+    public static int RestoreAll() => ReleaseHeldBy(Who(what: "Overrides.RestoreAll"), unloading: false);
 
     /// <summary>The id of the mod that holds <paramref name="target"/> (a <see cref="Claim"/> name), or null.</summary>
     public static string? HolderOf(string target)
@@ -287,11 +301,11 @@ public static class Overrides
             ? GameValueCodec.Format(GameValueCodec.Read(bytes, t.Kind, t.Size, t.EnumValues), t.Kind, t.EnumValues)
             : new Guid(bytes).ToString();
 
-    internal static OverrideResult SetField(ResourceId id, GameType type, string path, object? value)
+    internal static OverrideResult SetField(ResourceId id, GameType type, string path, object? value, ModContext? captured = null)
     {
         if (!ResourceStore.Available || SharedOwner == 0)
             return new(OverrideStatus.Unavailable, "kiln.assets is not running here: nothing was changed");
-        var who = Who();
+        var who = Who(captured, "ReflectedResource.Set");
         OverrideResult result;
         lock (Gate) result = SetFieldLocked(who, id, type, path, value);
         Say(who, result.Ok ? LogLevel.Debug : LogLevel.Warn, "overrides: " + result.Message);
@@ -327,9 +341,9 @@ public static class Overrides
         return new(OverrideStatus.Applied, $"{what} = {shown} (was {Show(spot.Type, original.AsSpan(spot.Offset, bytes.Length))})");
     }
 
-    internal static bool RestoreField(ResourceId id, GameType type, string path)
+    internal static bool RestoreField(ResourceId id, GameType type, string path, ModContext? captured = null)
     {
-        var who = Who();
+        var who = Who(captured, "ReflectedResource.Restore");
         var removed = 0;
         lock (Gate)
         {
@@ -344,9 +358,9 @@ public static class Overrides
         return true;
     }
 
-    internal static int RestoreResource(ResourceId id)
+    internal static int RestoreResource(ResourceId id, ModContext? captured = null)
     {
-        var who = Who();
+        var who = Who(captured, "ReflectedResource.RestoreAll");
         int removed;
         lock (Gate)
         {

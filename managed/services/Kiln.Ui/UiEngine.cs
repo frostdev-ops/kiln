@@ -648,7 +648,8 @@ internal static unsafe class UiEngine
         }
     }
 
-    /// <summary>What mods say about themselves (<see cref="StatusLines"/>); their sources run here, a few times a second.</summary>
+    /// <summary>What mods say about themselves (<see cref="StatusLines"/>): the last snapshot; the sources run on a worker about
+    /// twice a second, never on the render thread.</summary>
     private static void StatusSection(UiDraw ui)
     {
         IReadOnlyList<ModStatus> status;

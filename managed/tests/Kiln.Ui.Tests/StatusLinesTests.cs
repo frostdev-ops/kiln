@@ -213,18 +213,28 @@ public class StatusLinesTests : IDisposable
         public nint Service(string name, uint minVersion) => 0;
     }
 
+    private static IReadOnlyList<ModStatus> SnapshotUntil(TimeSpan maxAge, Func<IReadOnlyList<ModStatus>, bool> done)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        IReadOnlyList<ModStatus> value;
+        while (!done(value = StatusLines.Snapshot(maxAge)) && DateTime.UtcNow < deadline) Thread.Sleep(5);
+        return value;
+    }
+
     [Fact]
     public void The_menu_snapshot_is_not_read_more_often_than_it_is_asked_for()
     {
         var mod = NewMod("sl-snap");
         var calls = 0;
-        As(mod, () => StatusLines.Add(() => $"{++calls}"));
-        var first = StatusLines.Snapshot(TimeSpan.FromSeconds(30));
+        As(mod, () => StatusLines.Add(() => $"{Interlocked.Increment(ref calls)}"));
+        Assert.Empty(StatusLines.Snapshot(TimeSpan.FromSeconds(30)));  // never waits: the first answer is empty
+        var first = SnapshotUntil(TimeSpan.FromSeconds(30), v => v.Count > 0);
         var second = StatusLines.Snapshot(TimeSpan.FromSeconds(30));
         Assert.Same(first, second);
-        Assert.Equal(1, calls);
-        As(mod, () => StatusLines.Set("more", "x"));  // a change shows at once
-        Assert.NotSame(first, StatusLines.Snapshot(TimeSpan.FromSeconds(30)));
+        Assert.Equal(1, Volatile.Read(ref calls));
+        As(mod, () => StatusLines.Set("more", "x"));  // a change shows soon (after ChangeRefresh), not after maxAge
+        var changed = SnapshotUntil(TimeSpan.FromSeconds(30), v => v.Count > 0 && v[0].Lines.Contains("x"));
+        Assert.Contains("x", changed[0].Lines);
     }
 
     [Fact]
@@ -244,6 +254,64 @@ public class StatusLinesTests : IDisposable
         IReadOnlyList<string> lines = [];
         while (DateTime.UtcNow < deadline && (lines = StatusLines.RecentLines("sl-slow")).Count == 0) Thread.Sleep(10);
         Assert.Equal(["ready", "slow done"], lines);
+    }
+
+    [Fact]
+    public void A_hanging_source_never_holds_up_the_tick_and_starts_one_refresh()
+    {
+        // Kiln.Admin's mod list asks once per mod on the tick thread: with a source that hangs, 200 mods must cost nothing.
+        var mod = NewMod("sl-hang");
+        using var release = new ManualResetEventSlim();
+        var calls = 0;
+        As(mod, () => StatusLines.Set("fast", "ready"));
+        var first = SnapshotUntil(TimeSpan.FromMilliseconds(1), v => v.Count > 0);  // a snapshot to fall back on
+        Assert.Equal(["ready"], first[0].Lines);
+        As(mod, () => StatusLines.Add(() => { Interlocked.Increment(ref calls); release.Wait(TimeSpan.FromSeconds(10)); return "hung"; }, "hang"));
+        Thread.Sleep(150);  // past ChangeRefresh: the next read starts the refresh that hangs
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        for (var i = 0; i < 200; i++)
+        {
+            Assert.Equal(["ready"], StatusLines.RecentLines("sl-hang"));  // the last snapshot, at once
+            if (i % 50 == 0) Thread.Sleep(60);  // past ChangeRefresh again and again: still one refresh
+        }
+        var elapsed = watch.ElapsedMilliseconds;
+        Assert.True(elapsed < 1500, $"{elapsed} ms for 200 reads");
+        SpinWait.SpinUntil(() => Volatile.Read(ref calls) > 0, TimeSpan.FromSeconds(5));
+        Assert.Equal(1, Volatile.Read(ref calls));
+        release.Set();
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        IReadOnlyList<string> lines = [];
+        while (DateTime.UtcNow < deadline && (lines = StatusLines.RecentLines("sl-hang")).Count < 2) Thread.Sleep(10);
+        Assert.Equal(["ready", "hung"], lines);
+    }
+
+    [Fact]
+    public void A_line_set_every_tick_does_not_defeat_the_cache()
+    {
+        var mod = NewMod("sl-churn");
+        var reads = 0;
+        As(mod, () => StatusLines.Add(() => $"read {Interlocked.Increment(ref reads)}", "count"));
+        var stop = false;
+        var churn = new Thread(() =>
+        {
+            var n = 0;
+            while (!Volatile.Read(ref stop)) As(mod, () => StatusLines.Set("tick", $"tick {++n}"));
+        });
+        churn.Start();
+        try
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var got = SnapshotUntil(TimeSpan.FromSeconds(1), v => v.Count > 0);
+            Assert.NotEmpty(got);  // a refresh lands even though the lines change all the time
+            while (watch.ElapsedMilliseconds < 600) StatusLines.Snapshot(TimeSpan.FromSeconds(1));
+            // one refresh per ChangeRefresh (100 ms) at most, not one per call
+            Assert.InRange(Volatile.Read(ref reads), 1, 600 / 100 + 3);
+        }
+        finally
+        {
+            Volatile.Write(ref stop, true);
+            churn.Join();
+        }
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

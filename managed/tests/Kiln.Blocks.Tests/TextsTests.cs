@@ -25,6 +25,7 @@ public sealed class TextsTests : IDisposable
     public void Dispose()
     {
         foreach (var (n, v) in _saved) Environment.SetEnvironmentVariable(n, v);
+        Texts.BeforeLoadForTests = null;
         Texts.Reset();
         try { Directory.Delete(_dir, true); } catch (IOException) { }
     }
@@ -222,6 +223,49 @@ public sealed class TextsTests : IDisposable
             .SetValue(null, System.Diagnostics.Stopwatch.GetTimestamp() - 61 * System.Diagnostics.Stopwatch.Frequency);
         Assert.Equal("three", Texts.Get(3u));
         Assert.True(await Texts.Preload());
+    }
+
+    [Fact]
+    public async Task Get_does_not_wait_for_a_preload_that_is_still_parsing()
+    {
+        File.WriteAllBytes(Path.Combine(_dir, "client.json"), Catalog((3, "three")));
+        Environment.SetEnvironmentVariable("KILN_CATALOG", _dir);
+        using var parsing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        Texts.BeforeLoadForTests = () => { parsing.Set(); release.Wait(TimeSpan.FromSeconds(10)); };
+        var preload = Texts.Preload();
+        Assert.True(parsing.Wait(TimeSpan.FromSeconds(5)));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Null(Texts.Get(3u));                 // the parse is held up: Get answers at once, without a table
+        Assert.False(Texts.Available);
+        Assert.Same(preload, Texts.Preload());      // one load at a time
+        Assert.True(watch.ElapsedMilliseconds < 2000, $"{watch.ElapsedMilliseconds} ms");
+        release.Set();
+        Assert.True(await preload);
+        Assert.Equal("three", Texts.Get(3u));
+    }
+
+    [Fact]
+    public void A_catalog_without_loca_is_read_again_only_when_it_changed()
+    {
+        var file = Path.Combine(_dir, "client.json");
+        File.WriteAllText(file, """{"format":1,"sections":{"items":[]}}""");
+        Environment.SetEnvironmentVariable("KILN_CATALOG", _dir);
+        var loads = Texts.LoadsForTests;
+        Assert.Null(Texts.Get(3u));
+        Assert.Equal(loads + 1, Texts.LoadsForTests);
+        var failedAt = typeof(Texts).GetField("_failedAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        void PastCooldown() => failedAt.SetValue(null, System.Diagnostics.Stopwatch.GetTimestamp() - 61 * System.Diagnostics.Stopwatch.Frequency);
+        PastCooldown();
+        Assert.Null(Texts.Get(3u));                 // past the minute, but the file is the same: not read again
+        Assert.Equal(loads + 1, Texts.LoadsForTests);
+        Assert.Contains("no 'loca' section", Texts.Status.Reason);
+        File.WriteAllBytes(file, Catalog((3, "three")));
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(1));
+        Assert.Null(Texts.Get(3u));                 // changed, but the minute since the last check has not passed
+        PastCooldown();
+        Assert.Equal("three", Texts.Get(3u));
+        Assert.Equal(loads + 2, Texts.LoadsForTests);
     }
 }
 
