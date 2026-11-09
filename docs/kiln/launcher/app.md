@@ -4,6 +4,10 @@ The desktop app in `launcher/`: React 18 + TypeScript + Vite (bun) in a Tauri 2 
 `kiln-launcher`) on `crates/kiln-manage`. Contracts: [contracts.md](contracts.md) (formats, section 9 commands, section 10
 events). Design system: [design-system.md](design-system.md).
 
+**Official 0.2.0-dev.20:** Catalog, Nexus account/settings and `nxm://` handling are disabled while OAuth approval is
+pending. Browser downloads and manual Library import remain available. Nexus routes below describe the enabled
+implementation for a future approved build; no personal API key flow is supported. See [catalog.md](catalog.md).
+
 ## Layout
 | Path | What |
 |---|---|
@@ -43,7 +47,7 @@ events). Design system: [design-system.md](design-system.md).
 | `/logs` | kiln.log, game log, proxy.log, mod logs (follow, filter), crash reports, tick stats (sparklines); Engines: one line per engine plugin that wrote `kiln/state/<engine>.json` or has mods in the active profile (EML `phase`, ShroudForge `mode`, `reason`, each mod's state and reason), plus the restore offer | `logs_*`, `engine_status`, `eml_backup`, `eml_restore` |
 | `/saves` | save files, backups, manual backup, restore (refused while running; Steam Cloud hint), delete | `saves_*` |
 | `/editor` | the Save Editor (lazy chunk) | `editor_*`, `kiln-asset://` |
-| `/settings` | launcher settings ("Add new mods to the active profile", default on), Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Nexus Mods (the API key, the account, "Mod Manager Download links"; `components/NexusSettings.tsx`), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*`, `nexus_account`, `nexus_key_*`, `nexus_handler_*` |
+| `/settings` | launcher settings ("Add new mods to the active profile", default on), Appearance ("Animated fire": off draws the plain Play button), games (detect/add/forget), Nexus Mods in enabled builds only (OAuth account sign-in/sign-out and "Mod Manager Download links"; `components/NexusSettings.tsx`), Kiln's `kiln.json` via SchemaForm | `app_settings_*`, `game_*`, `config_kiln_*`, `nexus_account`, `nexus_sign_in`, `nexus_sign_out`, `nexus_handler_*` |
 | `/about` | versions, CREDITS.md, "Theme and design: frostdev"; Updates (the state, Check now), in the Nexus Mods build "New versions: Nexus Mods" | `app_info` |
 | `/servers` | every server, one line each (or a redirect to the first server when there is no `ServersPage.tsx`) | `server_list` |
 
