@@ -203,6 +203,9 @@ Barber.Wear(player, shortCrop);                                // hair or beard 
 ### Saves
 Placed furniture is a placed prop: in a base it comes back after a restart with what a container holds, outside one the world's save keeps none of it. A door comes back shut, as the game's own doors do. A container's default loot is recorded in the world's data once given, so it comes back with what is left in it; the record is kept with that world, not the mod, so a world played with the mod removed and back doesn't fill again.
 
+Each rolled stack's progress is saved with the inventory, including a native inventory commit whose normal item callback has not run yet. The journal is staged again after the save's final simulation, before the game takes its snapshot. This needs kiln.items' result-peek function and kiln.saves' final Post staging; without either, default loot gives nothing and the log says why. Closing and reopening the same hosted world reads its saved progress again.
+Pending stacks keep their item GUIDs, so an item's `Was` rename does not strand a partially filled container. Older name-only records are backfilled from the current item registry, or an unambiguous explicit `Was` alias. An unresolved or ambiguous name leaves its roll pending and is reported; Kiln does not guess another item.
+
 ### What players' games need
 `clients: kiln`: new items and templates on the game's art. A model of your own, a PNG icon, or `Provides` needs `mod`. Default loot, `Sides` and the checks of `OnInteract` are the server's, and ask nothing of a player's game.
 
@@ -218,6 +221,9 @@ blocks/house.json: block container cache, defaultLoot.entries: a loot table with
 
 ### Test
 `mods/tests/furniture-test` runs on a dedicated server with no player: what the templates say, interactions through the game's own interaction code with a spawned character as the guest (accepted, declined by the game's lock, by the time of day and by Kiln's checks, effects once accepted, an item used up), C# and JSON the same, the errors a mistake gets, and what a restart keeps. It also runs default loot (filled once, not again after a restart, nor when placed again on the same spot, nor when a player took something out), a barrel's lid, a door's swing and sides (a guest on each side), a prop with three boxes (what its template holds and that it places), and a crafting prop (its place in the game's table, the station's mask with and without the prop near, the recipe running only with it near; the code's twin from the second start). Start it twice. It logs `furniture-test: PASS` and `FAIL` lines and `furniture-test done: N PASS, M FAIL`.
+
+The save-boundary test stages the real WorldData bundle from the first of two item callbacks, while both container tasks are still pending, and checks the blob before requesting a game save and restarting. It calls the existing staging method through test-only reflection because `Saves.Request` queues its work for a later step; that call alone would not exercise this interval.
+Another fixture queues a grant from the request-time save event: the initial stage sees an empty inventory, and the final Post stage must journal the subsequent simulation's commit before its callback. The committed manifest and a restart must preserve exactly one grant.
 
 ## Materials
 Sample: `mods/samples/MaterialTweaks` (C#, and `blocks/twins.json` as data). The service under these blocks: [services/worldtables.md](../services/worldtables.md).

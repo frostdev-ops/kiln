@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "engine.h"
+#include "completed_results.h"
 #include "moves.h"
 #include "names.h"
 #include "pide.h"
@@ -153,7 +154,7 @@ constexpr uint32_t kMaxKeeps = 256;
 
 std::mutex g_mu;  // guards the containers below; never held while calling the game or a callback
 std::deque<Request> g_pending;
-std::vector<KilnItemsResult> g_done;
+kitems::CompletedResults<KilnItemsResult> g_done;
 std::unordered_map<uint64_t, Callback> g_callbacks;
 std::deque<FuelRequest> g_fuel_pending;
 std::vector<KilnItemsFuelResult> g_fuel_done;
@@ -833,12 +834,13 @@ void deliver_moves() {
 void deliver() {
     deliver_fuel();
     deliver_moves();
-    std::vector<KilnItemsResult> done;
+    const std::vector<KilnItemsResult>* batch = nullptr;
     std::vector<Callback> cbs;
     {
         std::lock_guard lock(g_mu);
-        if (g_done.empty()) return;
-        done.swap(g_done);
+        if (g_done.empty() || g_done.delivering()) return;
+        batch = &g_done.begin_delivery();
+        const auto& done = *batch;
         cbs.reserve(done.size());
         for (const KilnItemsResult& r : done) {
             auto it = g_callbacks.find(r.ticket);
@@ -849,6 +851,7 @@ void deliver() {
             }
         }
     }
+    const auto& done = *batch;
     for (size_t i = 0; i < done.size(); ++i) {
         const KilnItemsResult& r = done[i];
         LOGI("ticket %llu%s: item 0x%08x x%u, entity %u -> status %d, done %u, %u slot(s), %u step(s)%s%s",
@@ -859,6 +862,8 @@ void deliver() {
             LOGE("a result callback (owner %llu) faulted (0x%08lx); ignored", static_cast<unsigned long long>(cbs[i].owner),
                  code);
     }
+    std::lock_guard lock(g_mu);
+    g_done.end_delivery();
 }
 
 KilnItemsFuelResult fuel_failure(const FuelRequest& q, int32_t status, const char* why, uint64_t step) {
@@ -1407,12 +1412,19 @@ KilnResult KILN_CALL t_status(KilnItemsStatus* out) {
     return KILN_OK;
 }
 
+KilnResult KILN_CALL t_peek_result(uint64_t ticket, KilnItemsResult* out) {
+    if (!ticket || !out || out->size < sizeof(KilnItemsResult)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mu);
+    return g_done.peek(ticket, out) ? KILN_OK : KILN_ERR_NOT_FOUND;
+}
+
 const KilnItemsApi kTable = {
     {sizeof(KilnItemsApi), KILN_ITEMS_VERSION},
     &t_give, &t_take, &t_cancel, &t_cancel_owner, &t_read, &t_find,
     &t_item_count, &t_item_at, &t_item_info, &t_find_item, &t_id_of_guid, &t_status,
     &t_fuel, &t_fuel_read, &t_fuel_keep, &t_fuel_keep_end,
     &t_move, &t_container_name, &t_transfer_rule, &t_transfer_listen, &t_transfer_report, &t_transfer_end, &t_status2,
+    &t_peek_result,
 };
 
 // ============================================================================================= self-test =======

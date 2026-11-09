@@ -9,6 +9,7 @@
 // The managed Kiln.Saves registers a pump; it is called synchronously for SAVING (inside the game's request, before
 // the game snapshots the world in its next instance tick) and at the start of a step for everything else.
 #include <windows.h>
+#include "snapshot_stage.h"
 #include <intrin.h>
 #include <shlobj.h>
 
@@ -261,6 +262,8 @@ uint64_t g_current_save_seq = 0;  // SAVING seq of the save in progress
 double g_accepted_mono = 0;
 uint32_t g_current_reason = 0;
 uint64_t g_autosaves_logged = 0;
+ksaves::SnapshotStage g_snapshot_stage;
+std::atomic<bool> g_can_snapshot_stage{false};
 
 std::atomic<uintptr_t> g_inst{0};
 std::atomic<uintptr_t> g_save2{0};
@@ -389,6 +392,8 @@ void __fastcall hk_request(uintptr_t inst) {
         ev.slot = have ? slot : g_st.slot;
         if (have) std::memcpy(ev.world_guid, guid, 16);
         seq = push_event(ev);
+        ev.seq = seq;
+        g_snapshot_stage.accept(ev);
         g_current_save_seq = seq;
         g_current_reason = reason;
         g_accepted_mono = mono_ms();
@@ -713,6 +718,32 @@ void KILN_CALL on_pre(const KilnTickInfo* t, void*) {
     else if (every && t->step % every == 0) call_pump(0);
 }
 
+// Core server_step waits for simulation jobs before Post (tick.cpp:257-265); the caller then runs serverSaveTick
+// and takes its pending snapshot (docs/re/saves.md:27-35). A request after Post N needs this stage after sim N+1;
+// a request in Pre N needs it after sim N. Default-loot inventory writes run in that simulation, never in Post.
+void KILN_CALL on_post(const KilnTickInfo*, void*) {
+    if (!g_can_snapshot_stage.load()) return;
+    const uintptr_t inst = g_inst.load();
+    uintptr_t ss = 0;
+    uint8_t state = 0xFF;
+    if (!inst) return;
+    if (!rd(inst + static_cast<uintptr_t>(O.inst_save_sys), &ss) || !ss || !rd(ss + static_cast<uintptr_t>(O.ss_state), &state)) {
+        g_can_snapshot_stage.store(false);
+        logf(KILN_LOG_ERROR, "saves: the pending snapshot state is unreadable; final Post staging is disabled on this build");
+        return;
+    }
+    KilnSaveEvent ev{};
+    {
+        std::lock_guard lk(g_mu);
+        if (!g_snapshot_stage.take(g_current_save_seq, state == 1 && g_st.state == KILN_SAVES_STATE_SAVING, &ev)) return;
+        ev.flags |= KILN_SAVE_EVENT_SYNC;
+        push_event(ev);
+    }
+    logf(KILN_LOG_DEBUG, "saves: final Post journal stage for request #%llu, target revision %u, after sim step %llu",
+         static_cast<unsigned long long>(ev.save_seq), ev.revision, static_cast<unsigned long long>(g_step.load()));
+    call_pump(KILN_SAVE_EVENT_SNAPSHOT);
+}
+
 // ---- world sessions ----
 // A game client hosts one world after another (back to the main menu, host again; another world or the same one).
 // When the game closes the server world (after its shutdown save) the world's identity and instance go; the next
@@ -739,6 +770,7 @@ void drop_world(const char* why) {
         g_world_file.clear();
         g_current_save_seq = 0;
         g_current_reason = 0;
+        g_snapshot_stage.clear();
     }
     g_loaded.store(false);
     g_inst.store(0);
@@ -766,7 +798,7 @@ KilnResult KILN_CALL t_status(KilnSavesStatus* out) {
     std::lock_guard lk(g_mu);
     *out = g_st;
     out->size = sizeof(KilnSavesStatus);
-    out->features = (g_can_request ? KILN_SAVES_CAN_REQUEST : 0u) | (g_can_write ? KILN_SAVES_CAN_WRITE : 0u) |
+    out->features = (g_can_snapshot_stage.load() ? KILN_SAVES_CAN_SNAPSHOT_STAGE : 0u) | (g_can_request ? KILN_SAVES_CAN_REQUEST : 0u) | (g_can_write ? KILN_SAVES_CAN_WRITE : 0u) |
                     (g_can_load ? KILN_SAVES_CAN_LOAD : 0u) | (g_can_reason ? KILN_SAVES_CAN_REASON : 0u) |
                     (g_client ? KILN_SAVES_CLIENT_HOSTED : 0u);
     out->autosave_interval_ns = g_autosave_ns;
@@ -918,6 +950,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     KilnHandle h = 0;
     api->subscribe_world(owner, &on_world, nullptr, &h);
     api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h);
+    g_can_snapshot_stage.store(g_can_request && g_can_write && g_wait_jobs &&
+        api->subscribe_tick(owner, KILN_TICK_POST, &on_post, nullptr, &h) == KILN_OK);
     if (g_client) {
         std::string dirs;
         for (const auto& d : g_steam_dirs) dirs += (dirs.empty() ? "" : ", ") + u8s(d);

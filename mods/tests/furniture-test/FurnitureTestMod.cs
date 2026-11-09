@@ -4,6 +4,8 @@
 // Start it twice: the second run checks what the first one saved.
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Kiln;
 
 namespace FurnitureTest;
@@ -71,6 +73,8 @@ public sealed class FurnitureTestMod : Mod
         Blocks.Define("high-bed", new BedBlock { Name = "High Bed", Lies = new SpotBlock { At = new(0.1f, 1.2f, -0.3f), Facing = 90 } });
         Blocks.Define("own-seat", new SeatBlock { Name = "Own Seat", Visual = new VisualBlock { Model = "item:Prop_Decoration_Comfort3_T2_Chair" }, Sits = new SpotBlock { At = new(0, 0.45f, 0.05f) } });
         Blocks.Define("inline-cache", new ContainerBlock { Name = "Inline Cache", DefaultLoot = new LootTableBlock { Entries = [new LootEntry { Item = Twigs, CountMin = 5 }] } });
+        Blocks.Define("boundary-cache", new ContainerBlock { Name = "Save Boundary Cache", DefaultLoot = new LootTableBlock { Entries = [new LootEntry { Item = Twigs, CountMin = 5 }] } });
+        Blocks.Define("next-sim-cache", new ContainerBlock { Name = "Next Simulation Cache" });
         Blocks.Define("plain-lamp", new PropBlock { Name = "Plain Lamp", Visual = new VisualBlock { Like = "Prop_Decoration_T2_Vase_Clay_01" }, OnInteract = new InteractBlock { Effects = [new EffectBlock { Heal = 1 }] } });
         _ = Run();
     }
@@ -102,6 +106,8 @@ public sealed class FurnitureTestMod : Mod
                 await Part("hair and beards", () => HairAndBeards(at));
                 await Part("beds", () => Beds(at));
                 await Part("default loot", () => DefaultLoot(at));
+                await Part("committed loot at the save boundary", () => LootSaveBoundary(at));
+                await Part("loot committed after the initial save stage", () => LootNextSimulation(at));
                 await Part("fields of doors, lids and colliders", () => { Fields(); return Task.CompletedTask; });
                 await Part("door sides", () => DoorSides(at));
                 await Part("several colliders", () => Colliders(at));
@@ -551,6 +557,119 @@ public sealed class FurnitureTestMod : Mod
         Check(ContainerRuntime.Failed == 0, $"no container was given up on: {ContainerRuntime.Failed}");
     }
 
+    private readonly List<EntityId> _boundaryCaches = new();
+    private EntityId _nextSimCache;
+
+    private async Task LootNextSimulation(WorldPosition at)
+    {
+        Check(Saves.SnapshotStagingAvailable, "the runtime advertises final Post staging before the game's snapshot");
+        var position = Near(at, -3);
+        if (!Check(Build.Bases.Any(home => !home.Abandoned && home.Contains(position)), "the next-simulation cache stands inside a saved build zone"))
+            throw new InvalidOperationException("the next-simulation fixture is outside every base");
+        _nextSimCache = await PlaceKept($"{Me}.next-sim-cache.prop", position);
+        // PlaceKept also joins the ordinary restart fixture's list; its first two cache entries remain unchanged.
+        var template = T($"{Me}.next-sim-cache.prop").Guid;
+        var spot = ContainerRuntime.Spot(template, World.Position(_nextSimCache)!.Value);
+        var journal = WorldData.Get<FilledContainers>("next-sim-fill");
+        var progress = new FilledContainers.FillProgress { Stacks = [new(Twigs, 5)] };
+        Task<ItemsResult>? transaction = null;
+        var queued = false;
+        var observed = false;
+        journal.BeforeSnapshot = () =>
+        {
+            if (!queued) return;
+            if (!observed && transaction is { IsCompleted: false } task && Items.TryGetResult(task, out var result) && result.Done == 5)
+            {
+                observed = true;
+                Check(Count(_nextSimCache, Twigs) == 5,
+                    "final Post observes the next simulation's native commit while its managed task is still pending");
+            }
+            ContainerRuntime.Advance(journal, spot, progress, ref transaction, _ => throw new InvalidOperationException("a snapshot submitted a second grant"), false, out _);
+        };
+        using var saving = Events.On<WorldSavingEvent>(e =>
+        {
+            if (queued || e.Reason != SaveReason.Request) return;
+            journal.Pending[spot] = progress;
+            transaction = Items.Give(_nextSimCache, Twigs, 5);
+            queued = true;
+            Check(!transaction.IsCompleted && Count(_nextSimCache, Twigs) == 0,
+                "the initial request-time stage precedes the queued inventory commit");
+        });
+        var saved = await Saves.Request();
+        Check(saved.Success && queued && observed, $"the actual world save includes the later simulation's journal update: {saved}");
+        var root = Saves.DataDirectory!;
+        var manifestFile = Directory.EnumerateFiles(Path.Combine(root, "manifests"), $"{saved.Revision:D10}-*.json").First();
+        var manifest = JsonNode.Parse(File.ReadAllText(manifestFile))!;
+        var sha = manifest["bundles"]![$"world/{Me}"]!["sha256"]!.GetValue<string>();
+        var blob = File.ReadAllText(Path.Combine(root, "blobs", sha[..2], sha + ".json"));
+        Check(JsonNode.Parse(blob)!["keys"]!["next-sim-fill"]!["Filled"]?[spot] != null && Count(_nextSimCache, Twigs) == 5,
+            "the committed manifest's journal and inventory agree on exactly one next-simulation grant");
+        File.WriteAllText(Path.Combine(Context.DataDirectory, "next-sim-journal.json"), blob);
+    }
+
+    private async Task LootSaveBoundary(WorldPosition at)
+    {
+        var template = T($"{Me}.boundary-cache.prop").Guid;
+        var positions = new[] { Near(at, -1), Near(at, -2) };
+        if (!Check(positions.All(position => Build.Bases.Any(home => !home.Abandoned && home.Contains(position))), "both callback-boundary caches stand inside a saved build zone"))
+            throw new InvalidOperationException("the callback-boundary fixture is outside every base");
+        var a = Build.PlaceProp(template, positions[0], null, 0, InBases);
+        var b = Build.PlaceProp(template, positions[1], null, 0, InBases);
+        _boundaryCaches.AddRange([a, b]);
+        Exception? failure = null;
+        var captured = false;
+        using var given = Events.On<ItemsGivenEvent>(e =>
+        {
+            if (captured || (e.Target != a && e.Target != b)) return;
+            captured = true;
+            try
+            {
+                Check(Count(a, Twigs) == 5 && Count(b, Twigs) == 5, "both native inventory commits exist before the first result callback completes");
+                var active = (System.Collections.IDictionary)typeof(ContainerRuntime).GetField("Active", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+                var works = active.Values.Cast<object>().Where(work =>
+                {
+                    var entity = (EntityId)work.GetType().GetField("Entity")!.GetValue(work)!;
+                    return entity == a || entity == b;
+                }).ToArray();
+                var waiting = works.Select(work => (Task<ItemsResult>?)work.GetType().GetField("Transaction")!.GetValue(work)).ToArray();
+                Check(waiting.Length == 2 && waiting.All(task => task is { IsCompleted: false }),
+                    "both container tasks are still pending while the first native callback is active");
+                var itemGuid = Items.Lookup(Twigs)!.Guid;
+                Check(itemGuid != Guid.Empty && works.All(work =>
+                    ((FilledContainers.FillProgress)work.GetType().GetField("Progress")!.GetValue(work)!).ItemGuids.GetValueOrDefault(Twigs) == itemGuid),
+                    "both live loot rolls grant through the confirmed native item GUID");
+                // Saves.Request queues for a later Pre. To prove this exact ordering, invoke the existing production stage while this
+                // callback is active: it serializes the real WorldData bundle, including its IJsonOnSerializing drain, to an actual blob.
+                var runtime = typeof(Saves).Assembly.GetType("Kiln.SavesRuntime", throwOnError: true)!;
+                var store = (runtime.GetField("Store", BindingFlags.Static | BindingFlags.NonPublic)
+                    ?? throw new MissingFieldException(runtime.FullName, "Store")).GetValue(null)!;
+                var revision = Saves.Status!.Revision + 1;
+                (store.GetType().GetMethod("Stage") ?? throw new MissingMethodException(store.GetType().FullName, "Stage"))
+                    .Invoke(store, [revision, SaveReason.Request, false]);
+                var root = Saves.DataDirectory!;
+                var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "manifests", $"{revision:D10}.pending.json")))!;
+                var sha = manifest["bundles"]!["world/kiln.blocks"]!["sha256"]!.GetValue<string>();
+                var blob = File.ReadAllText(Path.Combine(root, "blobs", sha[..2], sha + ".json"));
+                var journal = JsonNode.Parse(blob)!["keys"]!["containers-filled"]!;
+                foreach (var cache in new[] { a, b })
+                {
+                    var spot = ContainerRuntime.Spot(template, World.Position(cache)!.Value);
+                    Check(journal["Filled"]?[spot] != null && journal["Pending"]?[spot] == null,
+                        $"production WorldData staging inside the first item callback records committed cache {cache} once");
+                }
+                Directory.CreateDirectory(Context.DataDirectory);
+                File.WriteAllText(Path.Combine(Context.DataDirectory, "callback-boundary-journal.json"), blob);
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        Check(await Until(() => captured), "the save-boundary cache callback ran");
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+        var saved = await Saves.Request();
+        Check(saved.Success, $"the game saved both boundary caches with the journal: {saved}");
+        await Steps(45);
+        Check(Count(a, Twigs) == 5 && Count(b, Twigs) == 5, "normal callback delivery never grants the already-journaled loot again");
+    }
+
     // ---- a lid, a swing, boxes ------------------------------------------------------------------------------------
 
     private static readonly Guid OpenState = Guid.Parse("bcf39dc8-d81e-450a-a77d-3b626d4106c4");
@@ -753,6 +872,8 @@ public sealed class FurnitureTestMod : Mod
             ["itemBox"] = I(G("lockbox")).Guid.ToString(), ["templateBox"] = T(G("lockbox") + ".prop").Guid.ToString(), ["templateDoor"] = T($"{Me}.coded-door.prop").Guid.ToString(),
             ["templateBed"] = T(G("camp-bed") + ".prop").Guid.ToString(), ["hair"] = I(G("short-crop")).Guid.ToString(),
             ["cacheA"] = Pos(_kept[0]), ["cacheC"] = Pos(_kept[1]),
+            ["boundaryCaches"] = new JsonArray(_boundaryCaches.Select(cache => (JsonNode)Pos(cache)).ToArray()),
+            ["nextSimCache"] = Pos(_nextSimCache),
         };
         Info($"left: lockbox {box} with 7 twigs, door {door} toggle {state["doorState"]}, bed {bed} in the base, bed {outside} on open ground at {open}");
         Directory.CreateDirectory(Context.DataDirectory);
@@ -811,6 +932,19 @@ public sealed class FurnitureTestMod : Mod
         Check(!a.IsNone && Count(a, Scraps) == 2 && Count(a, Twigs) == 2, $"after the restart the first cache holds what was left in it, and is not filled again: scraps {(a.IsNone ? -1 : Count(a, Scraps))}, twigs {(a.IsNone ? -1 : Count(a, Twigs))}");
         Check(!c.IsNone && Count(c, Scraps) == 3 && Count(c, Twigs) == 2, $"and the second holds its fill, no more: scraps {(c.IsNone ? -1 : Count(c, Scraps))}, twigs {(c.IsNone ? -1 : Count(c, Twigs))}");
         Check(ContainerRuntime.Filled == 0, $"the restart filled nothing: {ContainerRuntime.Filled}");
+        foreach (var position in s["boundaryCaches"]!.AsArray())
+        {
+            var cache = At(position, T($"{Me}.boundary-cache.prop").Guid);
+            Check(!cache.IsNone && Count(cache, Twigs) == 5,
+                $"after restart a cache journaled before callback delivery holds exactly its single fill: {cache}, twigs {(cache.IsNone ? -1 : Count(cache, Twigs))}");
+            if (!cache.IsNone) Build.RemoveProp(cache, InBases);
+        }
+        var nextCache = At(s["nextSimCache"], T($"{Me}.next-sim-cache.prop").Guid);
+        var nextJournal = WorldData.Get<FilledContainers>("next-sim-fill");
+        var nextSpot = nextCache.IsNone ? "gone" : ContainerRuntime.Spot(T($"{Me}.next-sim-cache.prop").Guid, World.Position(nextCache)!.Value);
+        Check(!nextCache.IsNone && Count(nextCache, Twigs) == 5 && nextJournal.Filled.ContainsKey(nextSpot) && nextJournal.Pending.Count == 0,
+            $"after restart the next-simulation cache and journal contain exactly one grant: {nextCache}, twigs {(nextCache.IsNone ? -1 : Count(nextCache, Twigs))}");
+        if (!nextCache.IsNone) Build.RemoveProp(nextCache, InBases);
         foreach (var e in new[] { a, c })
             if (!e.IsNone) Build.RemoveProp(e, InBases);
         await Steps(4);

@@ -7,7 +7,9 @@
  *  1. requestServerSave(instance) marks a save pending: the 30 s autosave timer, the shutdown state, a player leaving
  *     the server, or Kiln's request(). Kiln hooks it and reports KILN_SAVE_EVENT_SAVING when the game accepted it.
  *  2. In the next server-instance tick (after that tick's sim step) the game snapshots the ECS world and hands the
- *     blobs to its Save2Thread. So SAVING comes before the snapshot: data a handler writes then belongs to this save.
+ *     blobs to its Save2Thread. SNAPSHOT (when CAN_SNAPSHOT_STAGE) runs synchronously at the first safe Post after the
+ *     request, after that last simulation's jobs and before its pending snapshot. Restage data there without repeating
+ *     SAVING handlers. No later restage occurs while Save2 writes. Shutdown without another sim keeps the initial stage.
  *  3. The Save2Thread writes <saveDirectory>/world<N>.ksd (+ its backup/ copy); Kiln reports KILN_SAVE_EVENT_WRITTEN
  *     (or _FAILED) at the start of the next step. The world file's header revision is then the event's revision.
  *
@@ -15,7 +17,7 @@
  *  - status, request, next_event, path: any thread.
  *  - The pump (set_pump) runs on the tick thread: synchronously inside the game's save request for SAVING (after
  *    Kiln waited for the world's jobs, so game state may be read like in Post), else at the start of a step (Pre) when
- *    events are queued. A faulting pump is removed (logged).
+ *    events are queued. SNAPSHOT runs in Post after world jobs finish. A faulting pump is removed (logged).
  *
  * Revisions: the u32 at world file +0x1C, +1 for each successful write. SAVING carries the revision the save will get
  * (current + 1); a failed write leaves the revision unchanged, so the next save carries the same number again. */
@@ -45,6 +47,7 @@ enum {
     KILN_SAVE_EVENT_WRITTEN = 2, /* the world file is complete (revision = the file's new revision) */
     KILN_SAVE_EVENT_FAILED = 3,  /* the write failed (result = the game's error byte) or a request timed out */
     KILN_SAVE_EVENT_LOADED = 4,  /* the server finished loading the world save (or started a new world) */
+    KILN_SAVE_EVENT_SNAPSHOT = 5, /* appended v1: first safe Post after the request, before the pending ECS snapshot; same target revision */
 };
 
 /* KilnSaveEvent.flags */
@@ -80,6 +83,9 @@ enum {
     KILN_SAVES_STATE_RUNNING = 2, /* loaded, no save in progress */
     KILN_SAVES_STATE_SAVING = 3,  /* a save was accepted and is not written yet */
 };
+
+/* Appended v1: SNAPSHOT reaches the pump after world jobs and before the pending ECS snapshot. */
+#define KILN_SAVES_CAN_SNAPSHOT_STAGE (1u << 5)
 
 /* KilnSavesStatus.features */
 enum {

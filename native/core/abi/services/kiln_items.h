@@ -585,6 +585,13 @@ typedef struct KilnItemsApi {
     KilnResult(KILN_CALL* transfer_end)(uint64_t handle);
 
     KilnResult(KILN_CALL* status2)(KilnItemsStatus2* out);
+
+    /* Appended v3: copies a committed give/take result before its callback is delivered, or while its callback batch
+     * is being delivered (including from another result's callback). No callback runs and nothing is consumed. After
+     * the batch returns the result expires: KILN_ERR_NOT_FOUND also means the request hasn't completed yet. Any thread.
+     * For save journals: the inventory commit can precede the next Pre callback. Check header.size before calling.
+     * out->size must be at least sizeof(KilnItemsResult). */
+    KilnResult(KILN_CALL* peek_result)(uint64_t ticket, KilnItemsResult* out);
 } KilnItemsApi;
 
 #ifdef __cplusplus

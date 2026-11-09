@@ -313,6 +313,14 @@ internal static unsafe class ItemsNative
         public delegate* unmanaged[Cdecl]<Status2*, int> GetStatus2;
     }
 
+    // Appended within v3: keep TableV3's existing size so its move/transfer rows remain usable on older v3 runtimes.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableWithResultPeek
+    {
+        public TableV3 V3;
+        public delegate* unmanaged[Cdecl]<ulong, Result*, int> PeekResult;
+    }
+
     public static string Text(byte* p, int max)
     {
         var n = 0;
