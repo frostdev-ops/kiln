@@ -91,6 +91,7 @@ pub fn run() {
             commands::library::library_detect,
             commands::library::library_import,
             commands::library::library_remove,
+            commands::library::library_unused,
             commands::library::library_lint,
             commands::config::config_list,
             commands::config::config_read,

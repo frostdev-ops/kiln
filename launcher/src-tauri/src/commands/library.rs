@@ -68,9 +68,16 @@ pub async fn library_add(app: AppHandle, game_id: String, paths: Vec<String>) ->
     }))
 }
 
+/// Refuses (game_running) while a game or server runs, whatever `force` says (the game may be reading the mod).
 #[tauri::command]
 pub async fn library_remove(entry: LibraryRef, force: bool) -> Result<(), Error> {
     blocking(move || library::remove(&dirs()?, &entry, force)).await
+}
+
+/// The versions "Clean up" may remove: listed by no profile and by no known game's active or play-once profile file.
+#[tauri::command]
+pub async fn library_unused() -> Result<Vec<LibraryRef>, Error> {
+    blocking(move || library::unused(&dirs()?)).await
 }
 
 /// `kiln lint` on one library entry (with `profile_id`, the profile's other mods join the cross-mod checks), or on a

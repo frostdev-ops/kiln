@@ -6,7 +6,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import * as api from "../api/commands";
-import type { Detected, ImportReport, LibraryEntry, ModKind } from "../api/commands";
+import { toKilnError, type Detected, type ImportReport, type LibraryEntry, type ModKind } from "../api/commands";
 import { qk, useLibrary, useProfiles, useSettings } from "../api/hooks";
 import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_SHORT, KIND_TONE, NOT_RUNNING_NOTE, isEngineKind, runsYet } from "../api/kinds";
 import { useAddMods } from "../shell/drop";
@@ -107,7 +107,11 @@ export default function LibraryPage() {
     ) },
   ];
 
-  const unused = () => all.flatMap((e) => e.versions.filter((v) => !usage.uses(e.kind, e.id, v.version)).map((v) => ({ kind: e.kind, id: e.id, version: v.version, hash: v.hash })));
+  // The backend knows what profiles and the games' own profile files list (the game reads those), so it names what is unused.
+  const cleanUp = async () => {
+    try { setGc(await api.libraryUnused()); }
+    catch (e) { toast.error(e); }
+  };
   const say = lib.isLoading ? "Reading the library." : lib.error ? errorText(lib.error)
     : !all.length ? "Nothing imported yet. Drop a mod on the niche."
     : `${all.length} mod${all.length === 1 ? "" : "s"} imported.${usage.ready ? ` ${unusedMods ? `${unusedMods} ${unusedMods === 1 ? "is" : "are"} in no profile.` : "Every one is in a profile."}` : ""}`;
@@ -119,7 +123,7 @@ export default function LibraryPage() {
           pick={{ filters: [{ name: "Mods", extensions: ["zip", "dll"] }] }} />
         <p className="k-hint" style={{ fontSize: 16 }}>{toProfile ? "It goes into the active profile too. Drops anywhere on the window do the same." : "Kiln reads what it is first, then imports it by version. Nothing reaches a profile until you add it."}</p>
       </>}>
-        <PageHeader title="Library" sub={say} actions={<Button onClick={() => setGc(unused())} disabled={!usage.ready || !all.length}>Clean up</Button>} />
+        <PageHeader title="Library" sub={say} actions={<Button onClick={cleanUp} disabled={!all.length}>Clean up</Button>} />
         <div className="k-row" style={{ gap: "8px 20px" }}>
           <Segmented aria-label="Kind" value={engineFilter ? "engines" : kind} onChange={setKind} options={[{ id: "all", label: "All" }, { id: "kiln", label: "Kiln" }, { id: "native", label: "Native" }, { id: "emf", label: "EMF" }, { id: "plugin", label: "Plugin" },
             ...(engineKinds.length ? [{ id: "engines" as const, label: "Other engines" }] : [])]} />
@@ -148,10 +152,18 @@ export default function LibraryPage() {
         message="They are in no profile. Profiles and saves stay as they are."
         onConfirm={async () => {
           let n = 0;
-          for (const g of gc ?? []) { try { await api.libraryRemove(g, false); n++; } catch (e) { toast.error(e, `${g.id} ${g.version}`); } }
-          toast.ok(`Removed ${n}`, `${n} version${n === 1 ? "" : "s"} left the library.`); refresh();
+          for (const g of gc ?? []) {
+            try { await api.libraryRemove(g, false); n++; }
+            catch (e) {
+              // a running game stops the whole clean up: say so once ("Close Enshrouded first: ...")
+              if (toKilnError(e).code === "game_running") { toast.error(e); break; }
+              toast.error(e, `${g.id} ${g.version}`);
+            }
+          }
+          if (n) toast.ok(`Removed ${n}`, `${n} version${n === 1 ? "" : "s"} left the library.`);
+          refresh();
         }} />
-      {gc && gc.length === 0 && <Modal open onClose={() => setGc(null)} title="Nothing to clean" width={480} footer={<Button onClick={() => setGc(null)}>OK</Button>}>Every version is in a profile.</Modal>}
+      {gc && gc.length === 0 && <Modal open onClose={() => setGc(null)} title="Nothing to clean" width={480} footer={<Button onClick={() => setGc(null)}>OK</Button>}>Every version is in a profile, or in the profile file of a game.</Modal>}
     </Page>
   );
 }

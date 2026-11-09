@@ -188,7 +188,64 @@ impl FileSystem {
         Ok(abs_path)
     }
 
+    /// kiln-eml: reads `path` completely, the way `require` does (open, then read to a UTF-8 string), and says which
+    /// stage failed when that does not work. Kiln's preflight calls this for each mod's entry module before the long
+    /// game-data phase, through the same root and `sanitize_path` EML reads with later. Returns the size in bytes.
+    pub fn probe_read<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> std::result::Result<usize, ReadFailure> {
+        let path = path.as_ref();
+        let read = self.read_file(path)
+            .and_then(std::io::read_to_string);
+
+        match read {
+            Ok(text) => Ok(text.len()),
+            Err(e) => Err(self.diagnose(path, &e)),
+        }
+    }
+
+    /// kiln-eml: names the stage at which reading `path` fails, from the raw OS errors: root metadata, directory
+    /// metadata (each folder below the root), file metadata, canonicalize, the containment/link check, open, read.
+    /// `failed` is the error the caller already got; it is reported when every stage passes now (a transient failure).
+    pub fn diagnose<P: AsRef<Path>>(
+        &self,
+        path: P,
+        failed: &Error,
+    ) -> ReadFailure {
+        match self {
+            Self::Disk(fs) => diagnose_disk(fs.root(), path.as_ref(), failed),
+            Self::Zip(fs) => diagnose_zip(fs, path.as_ref(), failed),
+            Self::Empty => ReadFailure {
+                stage: "file system".to_string(),
+                error: failed.to_string(),
+                state: "no file system available".to_string(),
+            },
+        }
+    }
+
 }
+
+/// kiln-eml: why reading one file of a mod failed. `Display`: `<stage> failed: <raw error>; <state>`, for example
+/// `directory metadata (src) failed: Path not found (os error 3); root exists, src missing`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadFailure {
+    /// The first stage that fails, in order: `root metadata`, `directory metadata (<folder>)`, `file metadata`,
+    /// `canonicalize`, `containment check`, `open`, `read`.
+    pub stage: String,
+    /// The raw OS error text of that stage.
+    pub error: String,
+    /// Which parts of the path exist right now: `root exists, src missing`.
+    pub state: String,
+}
+
+impl std::fmt::Display for ReadFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} failed: {}; {}", self.stage, self.error, self.state)
+    }
+}
+
+impl std::error::Error for ReadFailure {}
 
 #[derive(Debug)]
 pub struct DiskFileSystem {
@@ -501,6 +558,142 @@ impl TreeNode {
         self.children.keys()
     }
 
+}
+
+// kiln-eml: the parts of a relative path, without empty and `.` components.
+fn rel_parts(rel: &Path) -> Vec<&str> {
+    rel.components()
+        .map(|c| c.as_str())
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect()
+}
+
+// kiln-eml: "root exists, src missing": walks the path from the root and stops at the first part that is not there.
+fn disk_state(root: &Path, rel: &Path) -> String {
+    let parts = rel_parts(rel);
+    let describe = |path: &Path, want_dir: bool| match std::fs::metadata(path) {
+        Ok(m) if want_dir && !m.is_dir() => "is not a directory".to_string(),
+        Ok(m) if !want_dir && !m.is_file() => "is not a file".to_string(),
+        Ok(_) => "exists".to_string(),
+        Err(e) if e.kind() == ErrorKind::NotFound => "missing".to_string(),
+        Err(e) => format!("cannot be read ({e})"),
+    };
+
+    let mut out = vec![format!("root {}", describe(root, true))];
+    if out[0] != "root exists" {
+        return out.remove(0);
+    }
+
+    let mut current = root.to_path_buf();
+    let mut label = String::new();
+
+    for (i, part) in parts.iter().enumerate() {
+        current.push(part);
+
+        if !label.is_empty() {
+            label.push('/');
+        }
+
+        label.push_str(part);
+
+        let word = describe(&current, i + 1 < parts.len());
+        let ok = word == "exists";
+
+        out.push(format!("{label} {word}"));
+
+        if !ok {
+            break;
+        }
+    }
+
+    out.join(", ")
+}
+
+// kiln-eml: the stage-by-stage walk behind `FileSystem::diagnose` for a folder mod. The same root and the same
+// `sanitize_path` steps (canonicalize, containment, link check) EML reads with, each one on its own.
+fn diagnose_disk(root: &Path, rel: &Path, failed: &Error) -> ReadFailure {
+    let state = disk_state(root, rel);
+    let fail = |stage: String, error: String| ReadFailure { stage, error, state: state.clone() };
+
+    if let Err(e) = std::fs::metadata(root) {
+        return fail("root metadata".to_string(), e.to_string());
+    }
+
+    let parts = rel_parts(rel);
+    let Some((file, folders)) = parts.split_last() else {
+        return fail("file metadata".to_string(), "the path is empty".to_string());
+    };
+
+    let mut current = root.to_path_buf();
+
+    for (i, folder) in folders.iter().enumerate() {
+        current.push(folder);
+
+        let stage = format!("directory metadata ({})", parts[..=i].join("/"));
+
+        match std::fs::metadata(&current) {
+            Err(e) => return fail(stage, e.to_string()),
+            Ok(m) if !m.is_dir() => return fail(stage, "not a directory".to_string()),
+            Ok(_) => {}
+        }
+    }
+
+    current.push(file);
+
+    match std::fs::metadata(&current) {
+        Err(e) => return fail("file metadata".to_string(), e.to_string()),
+        Ok(m) if !m.is_file() => return fail("file metadata".to_string(), "not a regular file".to_string()),
+        Ok(_) => {}
+    }
+
+    let resolved = match root.join(rel).canonicalize_utf8() {
+        Ok(p) => p,
+        Err(e) => return fail("canonicalize".to_string(), e.to_string()),
+    };
+
+    if !resolved.starts_with(root) {
+        return fail("containment check".to_string(), format!("{resolved} is outside {root}"));
+    }
+
+    if resolved.is_symlink() {
+        return fail("containment check".to_string(), format!("{resolved} is a link"));
+    }
+
+    match File::open(&resolved) {
+        Err(e) => fail("open".to_string(), e.to_string()),
+        Ok(mut f) => match std::io::read_to_string(&mut f) {
+            Err(e) => fail("read".to_string(), e.to_string()),
+            // every stage passes now: the failure was transient (the file or a folder changed in between)
+            Ok(_) => fail("read".to_string(), format!("{failed} (it reads fine now: the mod changed on disk meanwhile)")),
+        },
+    }
+}
+
+// kiln-eml: the same for a zip mod: the archive file, then the entry.
+fn diagnose_zip(fs: &ZipFileSystem, rel: &Path, failed: &Error) -> ReadFailure {
+    let name = rel_parts(rel).join("/");
+
+    if let Err(e) = std::fs::metadata(fs.root()) {
+        return ReadFailure {
+            stage: "root metadata".to_string(),
+            error: e.to_string(),
+            state: "zip missing".to_string(),
+        };
+    }
+
+    if !fs.exists(rel) {
+        return ReadFailure {
+            stage: "zip entry".to_string(),
+            error: "no such entry in the archive".to_string(),
+            state: format!("zip exists, {name} missing"),
+        };
+    }
+
+    ReadFailure {
+        stage: "read".to_string(),
+        error: failed.to_string(),
+        state: format!("zip exists, {name} present"),
+    }
 }
 
 fn sanitize_path(

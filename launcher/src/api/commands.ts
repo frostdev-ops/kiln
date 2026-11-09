@@ -1033,7 +1033,10 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
+/** Rejects with game_running while a game or server runs, even with force (it may be reading the mod). */
 export const libraryRemove = (entry: LibraryRef, force = false) => call<null>("library_remove", { entry, force });
+/** The versions Clean up may remove: in no profile, and not in any known game's active or play-once profile file. */
+export const libraryUnused = () => call<LibraryRef[]>("library_unused");
 /** One entry (with profileId: checked against the profile's other mods), or a whole profile (entry null). */
 export const libraryLint = (entry: LibraryRef | null, profileId: ProfileId | null = null) => call<LintReport>("library_lint", { entry, profileId });
 
@@ -1213,7 +1216,7 @@ export const COMMANDS = [
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
   "profile_deactivate", "profile_active",
-  "library_list", "library_detect", "library_import", "library_remove", "library_lint",
+  "library_list", "library_detect", "library_import", "library_remove", "library_unused", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",

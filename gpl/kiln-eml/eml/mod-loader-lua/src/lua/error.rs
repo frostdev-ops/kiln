@@ -125,12 +125,16 @@ impl LuaError {
         )
     }
 
+    // kiln-eml: names the qualified module (`mods.<id>.<module>`) first, so Kiln's runner can tell which mod failed
+    // (`runner::failing_mod`); upstream printed only the file path.
     pub fn module_load(
+        qualified_id: impl Into<String>,
         path: impl Into<String>,
         cause: impl Into<Box<dyn std::error::Error + Send + Sync>>,
     ) -> mlua::Error {
         error!(
-            "failed to load module: {} ({})",
+            "failed to load module: {} ({}): {}",
+            qualified_id.into(),
             path.into(),
             cause.into()
         )

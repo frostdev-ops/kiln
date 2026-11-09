@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! One EML run, Kiln's way: EML's own runner (`mod_loader::lua::run`, patch + optional export) over an explicit mod
-//! list, failing soft. A mod whose Lua fails is named (EML loads each module as chunk `mods.<id>.<path>`), switched
-//! off and the run repeats without it; when the failure names no mod, the game data goes back to vanilla
-//! (`<file>.kfc.bak`, EML's backup) so the game never starts on a half-applied state.
+//! list, failing soft. Before the long game-data phase, each mod's entry module (`src/mod.lua`) is opened through the
+//! mod's own EML file system (`preflight`); a mod that cannot be read is switched off with the stage that failed.
+//! A mod whose Lua fails is named (EML loads each module as chunk `mods.<id>.<path>`, and a module that cannot be
+//! read names `mods.<id>.<module>`), switched off and the run repeats without it; when the failure names no mod, the
+//! game data goes back to vanilla (`<file>.kfc.bak`, EML's backup) so the game never starts on a half-applied state.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -10,7 +12,7 @@ use std::time::Instant;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use mod_loader::lua::{self, RunArgs, RunOptions};
-use mod_loader::ModEnvironment;
+use mod_loader::{Capability, ModEnvironment};
 use serde::Serialize;
 
 use crate::discover::Entry;
@@ -111,21 +113,66 @@ pub fn game_file_name(game_dir: &Utf8Path) -> Option<String> {
     None
 }
 
-/// The mod id a failure names: EML's chunk names are `mods.<id>.<module>`.
+/// Is `needle` in `error`, followed by something that ends an id (so `mods.foo` does not match `mods.foo_bar`)?
+fn names_id(error: &str, needle: &str) -> bool {
+    error.match_indices(needle).any(|(i, _)| {
+        let next = error[i + needle.len()..].chars().next();
+        matches!(next, None | Some('.') | Some('"') | Some('\'') | Some(']') | Some(':') | Some(' '))
+    })
+}
+
+/// The mod id a failure names: EML's chunk names are `mods.<id>.<module>`. A module that cannot be read says so
+/// (`failed to load module: mods.<id>.<module> (...)`, kiln-eml: EML's error carries the qualified module); that mod
+/// is the one at fault even when another mod's chunk is on the Lua stack (it required the module).
 pub fn failing_mod<'a>(error: &str, ids: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let mut best: Option<&str> = None;
-    for id in ids {
-        let needle = format!("mods.{id}");
-        let hit = error.match_indices(&needle).any(|(i, _)| {
-            let next = error[i + needle.len()..].chars().next();
-            matches!(next, None | Some('.') | Some('"') | Some('\'') | Some(']') | Some(':') | Some(' '))
-        });
-        // the longest id wins ("mods.foo_bar" also contains "mods.foo")
-        if hit && best.is_none_or(|b| id.len() > b.len()) {
-            best = Some(id);
+    let ids: Vec<&str> = ids.into_iter().collect();
+    // the longest id wins ("mods.foo_bar" also contains "mods.foo")
+    let longest = |hit: &dyn Fn(&str) -> bool| ids.iter().copied().filter(|id| hit(id)).max_by_key(|id| id.len());
+    longest(&|id| names_id(error, &format!("failed to load module: mods.{id}")))
+        .or_else(|| longest(&|id| names_id(error, &format!("mods.{id}"))))
+        .map(str::to_owned)
+}
+
+/// The module EML runs first for every mod (`mods.<id>` is `src/mod.lua`).
+pub const ENTRY_MODULE: &str = "src/mod.lua";
+
+/// Reads the entry module of every mod EML will run (`patch`/`export` capabilities of the run) through that mod's
+/// own EML file system: the same root and the same path checks `require` uses later, after the long game-data phase.
+/// Returns `(mod id, reason)` for each mod that cannot be read, sorted by id. The reason names the stage that failed
+/// (root metadata, directory metadata, file metadata, canonicalize, containment check, open, read) with the raw OS
+/// error and which parts of the path exist, e.g. `entry src/mod.lua: directory metadata (src) failed: Path not found
+/// (os error 3); root exists, src missing`.
+pub fn preflight(env: &ModEnvironment, patch: bool, export: bool) -> Vec<(String, String)> {
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for (id, m) in env.mod_registry().iter() {
+        let caps = &m.info().capabilities;
+        let runs = patch && caps.contains(&Capability::Patch) || export && caps.contains(&Capability::Export);
+        if !runs {
+            continue;
+        }
+        if let Err(why) = m.fs().probe_read(ENTRY_MODULE) {
+            failed.push((id.clone(), format!("entry {ENTRY_MODULE}: {why}")));
         }
     }
-    best.map(str::to_owned)
+    failed.sort();
+    failed
+}
+
+/// Runs `preflight`: each mod whose entry module cannot be read is marked `failed` in `entries` (with the stage
+/// reason) and taken out of `mods`. True when at least one mod was taken out.
+fn drop_unreadable(env: &ModEnvironment, cfg: &RunConfig, entries: &mut [Entry], mods: &mut Vec<Utf8PathBuf>) -> bool {
+    let before = mods.len();
+    for (id, reason) in preflight(env, cfg.patch, cfg.export) {
+        let path = entries.iter()
+            .find(|m| m.state == "pending" && m.id.as_deref() == Some(id.as_str()))
+            .map(|m| Utf8PathBuf::from(&m.path));
+        tracing::error!(mod_id = %id, error = %reason, "EML mod cannot be read; running the others without it");
+        if let Some(path) = path {
+            set_state(entries, &path, "failed", Some(reason));
+            mods.retain(|p| p != &path);
+        }
+    }
+    mods.len() != before
 }
 
 fn panic_text(p: Box<dyn std::any::Any + Send>) -> String {
@@ -293,6 +340,11 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
                 )
             }
         };
+        // Open every mod's entry module now: a mod whose files are gone, unreadable or not UTF-8 would otherwise fail
+        // only after EML's game-data phase (minutes on a big install), and take the whole run with it.
+        if drop_unreadable(&env, cfg, &mut out.mods, &mut mods) {
+            continue; // the environment is built again from the mods left (cheap: it only reads their mod.json)
+        }
         let args = RunArgs {
             file_name: file.clone(),
             options: RunOptions {
@@ -367,6 +419,186 @@ mod tests {
         assert_eq!(failing_mod(e, ["better"]), None);
         assert_eq!(failing_mod("callback error: mods.a.util:1", ["a", "b"]).as_deref(), Some("a"));
         assert_eq!(failing_mod("Failed to apply resource 123", ["a"]), None);
+    }
+
+    #[test]
+    fn names_the_mod_of_a_module_that_cannot_be_read() {
+        // kiln-eml: EML's module-load error carries the qualified module
+        let entry = "failed to load module: mods.foo (src/mod.lua): directory metadata (src) failed: Path not found (os error 3); root exists, src missing; mod loaded 184.0s ago";
+        assert_eq!(failing_mod(entry, ["foo", "foo_bar", "bar"]).as_deref(), Some("foo"));
+        assert_eq!(failing_mod(&entry.replace("mods.foo", "mods.foo_bar"), ["foo", "foo_bar"]).as_deref(), Some("foo_bar"));
+        // a helper module of another mod: the Lua stack names mod a, the unreadable module is b's
+        let nested = "runtime error: [string \"mods.a.mod\"]:3: failed to load module: mods.b.util (src/util.lua): open failed: Access denied (os error 5); root exists, src exists, src/util.lua exists\nstack traceback:\n\t[C]: in ?";
+        assert_eq!(failing_mod(nested, ["a", "b"]).as_deref(), Some("b"));
+        assert_eq!(failing_mod("failed to load module: mods.zed.mod (src/mod.lua): x", ["a", "b"]), None);
+    }
+
+    /// A game folder with the given EML mods, each with `mod.json` (patch capability) and `src/mod.lua`.
+    fn mods_fixture(tag: &str, ids: &[&str]) -> (Utf8PathBuf, Vec<Utf8PathBuf>) {
+        let d = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-eml-pre-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let paths = ids.iter().map(|id| {
+            let p = d.join("mods").join(id);
+            std::fs::create_dir_all(p.join("src")).unwrap();
+            std::fs::write(p.join("mod.json"), format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0","capabilities":["patch"]}}"#)).unwrap();
+            std::fs::write(p.join("src/mod.lua"), "-- fixture").unwrap();
+            p
+        }).collect();
+        (d, paths)
+    }
+
+    fn env_of(game: &Utf8Path, paths: &[Utf8PathBuf]) -> ModEnvironment {
+        ModEnvironment::load_from(game, game.join("cache"), paths.to_vec()).unwrap_or_else(|r| panic!("registry: {:?}", r.error))
+    }
+
+    fn failures(env: &ModEnvironment) -> Vec<(String, String)> {
+        preflight(env, true, false)
+    }
+
+    #[test]
+    fn preflight_passes_readable_mods() {
+        let (d, paths) = mods_fixture("ok", &["a", "b"]);
+        assert!(failures(&env_of(&d, &paths)).is_empty());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn preflight_catches_src_removed_after_the_registry_load() {
+        // the issue: mod.json is read when the registry loads; src/mod.lua is needed much later
+        let (d, paths) = mods_fixture("src", &["a", "b"]);
+        let env = env_of(&d, &paths);
+        std::fs::remove_dir_all(paths[1].join("src")).unwrap();
+        let bad = failures(&env);
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(bad[0].0, "b");
+        assert!(bad[0].1.starts_with("entry src/mod.lua: directory metadata (src) failed: "), "{}", bad[0].1);
+        assert!(bad[0].1.contains("(os error"), "raw OS error: {}", bad[0].1);
+        assert!(bad[0].1.ends_with("root exists, src missing"), "{}", bad[0].1);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn preflight_names_each_stage() {
+        let (d, paths) = mods_fixture("stages", &["root", "file", "dir", "utf8", "src"]);
+        let env = env_of(&d, &paths);
+        std::fs::remove_dir_all(&paths[0]).unwrap(); // the whole Library entry is gone
+        std::fs::remove_file(paths[1].join("src/mod.lua")).unwrap();
+        std::fs::remove_file(paths[2].join("src/mod.lua")).unwrap();
+        std::fs::create_dir(paths[2].join("src/mod.lua")).unwrap();
+        std::fs::write(paths[3].join("src/mod.lua"), [0xff, 0xfe, 0x00, 0x41]).unwrap();
+        std::fs::remove_dir_all(paths[4].join("src")).unwrap();
+        std::fs::write(paths[4].join("src"), "a file where the folder was").unwrap();
+        let bad: std::collections::BTreeMap<_, _> = failures(&env).into_iter().collect();
+        assert_eq!(bad.len(), 5, "{bad:#?}");
+        assert!(bad["root"].starts_with("entry src/mod.lua: root metadata failed: "), "{}", bad["root"]);
+        assert!(bad["root"].ends_with("root missing"), "{}", bad["root"]);
+        assert!(bad["file"].starts_with("entry src/mod.lua: file metadata failed: "), "{}", bad["file"]);
+        assert!(bad["file"].ends_with("root exists, src exists, src/mod.lua missing"), "{}", bad["file"]);
+        assert!(bad["dir"].contains("file metadata failed: not a regular file; root exists, src exists, src/mod.lua is not a file"), "{}", bad["dir"]);
+        assert!(bad["utf8"].contains("read failed: "), "{}", bad["utf8"]);
+        assert!(bad["utf8"].ends_with("root exists, src exists, src/mod.lua exists"), "{}", bad["utf8"]);
+        assert!(bad["src"].contains("directory metadata (src) failed: not a directory"), "{}", bad["src"]);
+        assert!(bad["src"].ends_with("root exists, src is not a directory"), "{}", bad["src"]);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preflight_names_the_open_stage() {
+        use std::os::unix::fs::PermissionsExt;
+        let (d, paths) = mods_fixture("open", &["locked"]);
+        let env = env_of(&d, &paths);
+        let file = paths[0].join("src/mod.lua");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let can_still_open = std::fs::File::open(&file).is_ok(); // root ignores the mode bits
+        let bad = failures(&env);
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+        if !can_still_open {
+            assert_eq!(bad.len(), 1);
+            assert!(bad[0].1.starts_with("entry src/mod.lua: open failed: "), "{}", bad[0].1);
+            assert!(bad[0].1.contains("(os error"), "{}", bad[0].1);
+        }
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preflight_names_the_containment_check() {
+        // a link that leaves the mod folder passes the metadata stages (they follow links) and fails EML's own check
+        let (d, paths) = mods_fixture("link", &["linked"]);
+        let env = env_of(&d, &paths);
+        let outside = d.join("outside.lua");
+        std::fs::write(&outside, "-- not the mod's").unwrap();
+        std::fs::remove_file(paths[0].join("src/mod.lua")).unwrap();
+        std::os::unix::fs::symlink(&outside, paths[0].join("src/mod.lua")).unwrap();
+        let bad = failures(&env);
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert!(bad[0].1.starts_with("entry src/mod.lua: containment check failed: "), "{}", bad[0].1);
+        assert!(bad[0].1.contains("is outside"), "{}", bad[0].1);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn preflight_skips_mods_that_do_not_run() {
+        let (d, paths) = mods_fixture("skip", &["lib", "ex"]);
+        std::fs::write(paths[0].join("mod.json"), r#"{"id":"lib","name":"lib","version":"1.0.0"}"#).unwrap();
+        std::fs::write(paths[1].join("mod.json"), r#"{"id":"ex","name":"ex","version":"1.0.0","capabilities":["export"]}"#).unwrap();
+        let env = env_of(&d, &paths);
+        std::fs::remove_dir_all(paths[0].join("src")).unwrap();
+        std::fs::remove_dir_all(paths[1].join("src")).unwrap();
+        // a library mod (no capability) is only required by others; an export mod runs only when export is on
+        assert!(preflight(&env, true, false).is_empty());
+        let with_export = preflight(&env, true, true);
+        assert_eq!(with_export.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["ex"]);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn preflight_reads_zip_mods() {
+        let (d, _) = mods_fixture("zip", &[]);
+        std::fs::create_dir_all(&d).unwrap();
+        let write = |name: &str, with_entry: bool| {
+            let path = d.join(name);
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            let opt = zip::write::SimpleFileOptions::default();
+            z.start_file("mod.json", opt).unwrap();
+            let id = name.trim_end_matches(".zip");
+            std::io::Write::write_all(&mut z, format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0","capabilities":["patch"]}}"#).as_bytes()).unwrap();
+            if with_entry {
+                z.start_file("src/mod.lua", opt).unwrap();
+                std::io::Write::write_all(&mut z, b"-- fixture").unwrap();
+            }
+            z.finish().unwrap();
+            path
+        };
+        let paths = vec![write("good.zip", true), write("empty.zip", false)];
+        let bad = failures(&env_of(&d, &paths));
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(bad[0].0, "empty");
+        assert!(bad[0].1.starts_with("entry src/mod.lua: zip entry failed: "), "{}", bad[0].1);
+        assert!(bad[0].1.ends_with("zip exists, src/mod.lua missing"), "{}", bad[0].1);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn an_unreadable_mod_is_dropped_and_the_others_stay() {
+        let (d, paths) = mods_fixture("drop", &["good", "broken", "also-good"]);
+        let candidates: Vec<crate::discover::Candidate> = paths.iter()
+            .map(|p| crate::discover::Candidate { path: p.clone(), source: "test".into(), enabled: true }).collect();
+        let (mut run, mut entries) = crate::discover::resolve(&candidates);
+        assert_eq!(run.len(), 3, "discovery sees three valid mods");
+        let env = env_of(&d, &run);
+        std::fs::remove_dir_all(paths[1].join("src")).unwrap(); // gone between discovery and the run
+        let cfg = RunConfig { game_dir: d.clone(), cache_dir: d.join("cache"), patch: true, ..Default::default() };
+        assert!(drop_unreadable(&env, &cfg, &mut entries, &mut run));
+        assert_eq!(run, vec![paths[0].clone(), paths[2].clone()]);
+        let state = |id: &str| entries.iter().find(|e| e.id.as_deref() == Some(id)).unwrap();
+        assert_eq!(state("broken").state, "failed");
+        assert!(state("broken").reason.as_deref().unwrap().contains("directory metadata (src) failed"));
+        assert_eq!((state("good").state.as_str(), state("also-good").state.as_str()), ("pending", "pending"));
+        // the environment of the mods left is clean: nothing more to drop
+        assert!(!drop_unreadable(&env_of(&d, &run), &cfg, &mut entries, &mut run));
+        let _ = std::fs::remove_dir_all(d);
     }
 
     #[test]

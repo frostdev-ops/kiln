@@ -46,6 +46,13 @@ Each is marked `kiln-eml:` in the source.
    code-derived deterministic build IDs, no export short circuit, no cache after inputs changed during the run.
 7. `kfc-base/container/writer.rs`: explicit header flush/sync, so buffered write errors propagate; regression test
    preserving the removed-content padding fix.
+8. `mod-loader-base` `registry/fs.rs`, `registry/mod.rs`: `FileSystem::probe_read` / `diagnose` and `ReadFailure` name the
+   stage at which reading a mod's file fails (root metadata, directory metadata, file metadata, canonicalize,
+   containment check, open, read) with the raw OS error and which parts of the path exist; `Mod::age`.
+   `mod-loader-lua` `lua/error.rs`, `runner/state.rs`: a module that cannot be read carries its qualified name
+   (`mods.<id>.<module>`) in the error, so `runner::failing_mod` drops only that mod, and logs the stage, the state of the
+   mod folder and the time since the mod was loaded (GitHub issue 4). `kiln-eml/src/runner.rs` `preflight` reads every
+   mod's `src/mod.lua` through that file system before the game-data phase.
 
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.

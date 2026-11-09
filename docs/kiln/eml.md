@@ -160,13 +160,42 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   Zip classification uses the same SF/EMF/Flame exclusions as folders, with entry and uncompressed-size limits.
 
 It fails soft:
+- **A mod whose entry module cannot be read is switched off before the run.** EML needs `src/mod.lua` only after its
+  long game-data phase, but reads `mod.json` when the mods load. kiln-eml opens each mod's `src/mod.lua` first, through
+  the same file system EML reads with, and marks a mod that fails `failed` with the reason (see
+  [When a mod cannot be read](#when-a-mod-cannot-be-read)). The other mods run. EML runs a mod only with the `patch`
+  capability (or `export`, when export is on), so only those are checked; a library mod that others `require` is not.
 - **A mod whose Lua fails is switched off, and the run repeats without it.** EML names each chunk `mods.<id>.<module>`,
-  so the error names the mod. The other mods still patch.
+  so the error names the mod. The other mods still patch. A module that cannot be read at that point (a `require` of a
+  file that vanished or is unreadable) names its mod too: `failed to load module: mods.<id>.<module> (<file>): ...`.
 - **A failure that names no mod** (a write error, a panic): a compatible valid backup restores vanilla, and the
   cache is dropped so the next start re-runs. Restore failures are reported as failures; they are never labelled idle.
   An install-lock failure stops startup instead of entering the game alongside a possible active writer.
 - **No EML mods (left):** if a `.kfc.bak` exists and differs, `<exe>.kfc` is restored from it byte for byte, once.
   Otherwise kiln-eml touches nothing (`idle`).
+
+#### When a mod cannot be read
+`state/eml.json` and kiln.log give the reason: `entry src/mod.lua: <stage> failed: <OS error>; <what exists>`. Example:
+`entry src/mod.lua: directory metadata (src) failed: Path not found (os error 3); root exists, src missing`.
+
+| The reason says | What happened |
+|---|---|
+| `root metadata failed`, `root missing` | the mod folder is gone. Most often the launcher's Library version was removed while the game was starting. Re-add the mod and start again. |
+| `directory metadata (src) failed` | the folder has no `src` (or `src` is a file). |
+| `file metadata failed` | `src/mod.lua` is missing, or it is a folder. |
+| `canonicalize failed` | the folder and file exist, but the OS cannot resolve the path. Under Wine/Proton, report the raw error text. |
+| `containment check failed` | `src/mod.lua` is a link, or resolves outside the mod folder. Links are refused. |
+| `open failed` | the file exists but cannot be opened (permissions, or another program has it locked). |
+| `read failed` | the file is not valid UTF-8 text. |
+
+The last part of the line says which parts of the path exist right now (`root exists, src missing`).
+If a read fails later, during the run, eml.log and kiln.log have a line
+`module mods.<id>.<module> could not be read 184.2s after the mod was loaded: <stage> failed: ...; root exists, ...`:
+the stage, whether the mod folder and `src` still exist, and how long after the mod loaded it happened. Only that mod
+is switched off. A long gap means something changed the folder while the game was starting.
+
+The launcher refuses to remove a Library version while a game or server runs ("Close Enshrouded first: the game may be
+reading this mod"), and "Clean up" never lists a version the game's `kiln/profile.json` still points at.
 
 How it composes with Kiln's asset layer: EML changes the files before the game reads them, and `kiln.assets`
 overrides resources and blobs in memory after the game reads them. An override in a Kiln asset pack wins over an EML
@@ -395,6 +424,19 @@ are kiln.log lines:
   refused to start (`Container ..._010.dat has wrong size 4'096 (expected: 0)`). kiln-eml now truncates the padding
   containers. EML 0.2.0 has the same bug; it is worth reporting upstream.
 
+### Lab check for GitHub issue 4 (2026-11-09, lab server under Wine, server build 1287369)
+Two good mods and one broken mod in `kiln/eml/mods/`. The state file marks the broken mod `failed` with the stage and
+the others `loaded`; the run happens once.
+- A `src/mod.lua` that is not UTF-8 passes discovery and fails the entry check 28 ms after kiln-eml starts:
+  `entry src/mod.lua: read failed: stream did not contain valid UTF-8; root exists, src exists, src/mod.lua exists`.
+- A mod folder removed 4 s into the run (after the entry check, as the Library does in the issue) fails when its
+  module is read, 34 s after the mod was loaded. Only that mod is dropped and the run repeats once for the others:
+  `module mods.g_vanishing could not be read 34.1s after the mod was loaded: root metadata failed: File not found. (os error 2); root missing`.
+  The same with only `src` removed says `directory metadata (src) failed: ...; root exists, src missing`, and a
+  `require` of a missing helper says `file metadata failed: ...; root exists, src exists, src/util.lua missing`.
+- Not reachable in the lab: a failure at the open stage (Wine refuses an unreadable file at discovery, with
+  `Access denied. (os error 5)`, so such a mod is `skipped`).
+
 ## 6. Shared startup data writer: ShroudForge and EMF content
 
 There must be one KFC writer per start. The append-only `kiln.eml` table is now v2: v1's slots are unchanged;
@@ -438,6 +480,10 @@ client testing:
    (EML's `.kfc.bak` may remain; it is not a game file).
 7. Optional: install EML's own `dbghelp.dll` with the Wine override. kiln.log should say `standing aside`, and the mod
    still works (EML applied it).
+8. Library guard (GitHub issue 4): start the game with the EML mod in the active profile and, while it loads, try to
+   remove that mod's version on the launcher's Library page. The launcher must refuse with "Close Enshrouded first: the
+   game may be reading this mod", with or without "force". Close the game: removal works. "Clean up" must not list a
+   version that the game's `kiln/profile.json` still points at.
 
 Mods we need from the user (Nexus downloads, which agents can't fetch):
 - 2-3 popular EML mods: one stat or balancing mod, one with `create_resource`/`create_content` (new items), one with

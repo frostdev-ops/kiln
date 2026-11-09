@@ -795,8 +795,12 @@ const handlers: Record<string, Handler> = {
       ["Reading", "Hashing", "Adding to the profile", "Writing profile.json"], () => quickAdd(gameId, paths, makeIt), 300);
   },
   library_lint: () => ({ format: 1, tool: "kiln-lint", version: "mock", ok: true, checked: [], summary: { errors: 0, warnings: 0, infos: 0, hints: 0 }, catalog: null, diagnostics: [] }),
+  library_unused: () => library.flatMap((e) => e.versions
+    .filter((v) => ![...profiles.values()].some((p) => p.mods[e.kind].some((m) => m.id === e.id && m.version === v.version)))
+    .map((v) => ({ kind: e.kind, id: e.id, version: v.version, hash: v.hash }))),
   library_remove: (a) => {
     const r = a.entry as LibraryRef;
+    if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
     const used = [...profiles.values()].filter((p) => p.mods[r.kind].some((m) => m.id === r.id && m.version === r.version));
     if (used.length && !a.force) reject("conflict", `Used by ${used.map((p) => p.name).join(", ")}.`, { profiles: used.map((p) => p.id) });
     const e = library.find((l) => l.kind === r.kind && l.id === r.id);
