@@ -238,6 +238,7 @@ public sealed class TextsTests : IDisposable
         var watch = System.Diagnostics.Stopwatch.StartNew();
         Assert.Null(Texts.Get(3u));                 // the parse is held up: Get answers at once, without a table
         Assert.False(Texts.Available);
+        Assert.Contains("still loading", Texts.Status.Reason);   // not "not loaded yet": the load is on its way
         Assert.Same(preload, Texts.Preload());      // one load at a time
         Assert.True(watch.ElapsedMilliseconds < 2000, $"{watch.ElapsedMilliseconds} ms");
         release.Set();
@@ -265,6 +266,23 @@ public sealed class TextsTests : IDisposable
         Assert.Null(Texts.Get(3u));                 // changed, but the minute since the last check has not passed
         PastCooldown();
         Assert.Equal("three", Texts.Get(3u));
+        Assert.Equal(loads + 2, Texts.LoadsForTests);
+    }
+
+    [Fact]
+    public void A_catalog_that_could_not_be_opened_is_tried_again_after_the_minute_though_it_did_not_change()
+    {
+        var file = Path.Combine(_dir, "client.json");
+        File.WriteAllBytes(file, Catalog((3, "three")));
+        Environment.SetEnvironmentVariable("KILN_CATALOG", _dir);
+        var failedAt = typeof(Texts).GetField("_failedAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var loads = Texts.LoadsForTests;
+        using (new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None))   // another process has it open
+            Assert.Null(Texts.Get(3u));
+        Assert.Equal(loads + 1, Texts.LoadsForTests);
+        Assert.False(Texts.Status.Loaded);
+        failedAt.SetValue(null, System.Diagnostics.Stopwatch.GetTimestamp() - 61 * System.Diagnostics.Stopwatch.Frequency);
+        Assert.Equal("three", Texts.Get(3u));        // same size and time as before: a read error is not a reason to give up
         Assert.Equal(loads + 2, Texts.LoadsForTests);
     }
 }

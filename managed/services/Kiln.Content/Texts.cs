@@ -33,7 +33,8 @@ public sealed record TextsStatus(bool Loaded, string? Source, string? Build, int
 /// from. The first call loads the table (about a quarter of a second for the 17,000 texts; <see cref="Preload"/> does it in
 /// the background). Any thread. While a load runs (a <see cref="Preload"/>, or a first call on another thread) the other
 /// calls do not wait for it: they answer null (no table yet) until it is done. A catalog that gave no table (missing, no
-/// <c>loca</c> section, broken) is looked at again after a minute, and read again only when a catalog file changed.</summary>
+/// <c>loca</c> section, broken) is looked at again after a minute, and read again only when a catalog file changed (a file that
+/// could not be opened is tried again after a minute either way). <see cref="Status"/> says "still loading" meanwhile.</summary>
 public static class Texts
 {
     private const long MaxFileBytes = 512L << 20;
@@ -58,7 +59,10 @@ public static class Texts
         get
         {
             Table();
-            lock (Lock) return _status;
+            lock (Lock)
+                return _table is null && _inFlight is not null
+                    ? new TextsStatus(false, null, null, 0, 0, "still loading (Get answers null until the load is done)")
+                    : _status;
         }
     }
 
@@ -159,7 +163,7 @@ public static class Texts
             var sw = Stopwatch.StartNew();
             Interlocked.Increment(ref LoadsForTests);
             BeforeLoadForTests?.Invoke();
-            var (loaded, source, build, reason) = Load();
+            var (loaded, source, build, reason, transient) = Load();
             table = loaded;
             lock (Lock)
             {
@@ -170,7 +174,7 @@ public static class Texts
                 else if (table is null)
                 {
                     _failedAt = Stopwatch.GetTimestamp();
-                    _failedFiles = stamps;
+                    _failedFiles = transient ? null : stamps;  // a read error may pass without the file changing: try again after RetryAfter
                     _status = new TextsStatus(false, source, build, 0, sw.Elapsed.TotalSeconds, reason);
                 }
                 else
@@ -225,7 +229,8 @@ public static class Texts
         return sb.ToString();
     }
 
-    private static (Dictionary<uint, string>? Table, string? Source, string? Build, string Reason) Load()
+    // Transient: the failure was reading the file (locked, vanished), so it may go away without the file changing.
+    private static (Dictionary<uint, string>? Table, string? Source, string? Build, string Reason, bool Transient) Load()
     {
         var tried = new List<string>();
         foreach (var file in CatalogFiles())
@@ -235,18 +240,18 @@ public static class Texts
             {
                 var info = new FileInfo(file);
                 if (!info.Exists) continue;
-                if (info.Length > MaxFileBytes) return (null, file, null, $"{file} is larger than 512 MB");
+                if (info.Length > MaxFileBytes) return (null, file, null, $"{file} is larger than 512 MB", false);
                 var parsed = Parse(File.ReadAllBytes(file), out var build);
-                if (parsed is null) return (null, file, build, $"{file} has no 'loca' section (a server catalog has none: use the client catalog, `kiln catalog build --side client`)");
-                return (parsed, file, build, "");
+                if (parsed is null) return (null, file, build, $"{file} has no 'loca' section (a server catalog has none: use the client catalog, `kiln catalog build --side client`)", false);
+                return (parsed, file, build, "", false);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or FormatException)
             {
-                return (null, file, null, $"{file}: {e.Message}");
+                return (null, file, null, $"{file}: {e.Message}", e is IOException or UnauthorizedAccessException);
             }
         }
         return (null, null, null, "no client catalog found (run `kiln catalog build --side client`, or set KILN_CATALOG to the folder or the client.json; " +
-                                  $"looked at: {(tried.Count == 0 ? "nothing" : string.Join("; ", tried))})");
+                                  $"looked at: {(tried.Count == 0 ? "nothing" : string.Join("; ", tried))})", false);
     }
 
     /// <summary>The <c>loca</c> section of a catalog's bytes, or null when it has none. <paramref name="build"/> is the game

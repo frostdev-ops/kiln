@@ -60,13 +60,13 @@ public static class ReflectedResources
     {
         ArgumentNullException.ThrowIfNull(type);
         var root = RootOf(type);
-        return Enumerate(root, type.Hash);
+        return Enumerate(root, type.Hash, ModContext.CurrentMod);   // the mod that asked, not whoever enumerates later
     }
 
-    private static IEnumerable<ReflectedResource> Enumerate(GameType root, uint hash)
+    private static IEnumerable<ReflectedResource> Enumerate(GameType root, uint hash, ModContext? mod)
     {
         if (!Available) yield break;
-        foreach (var id in ResourceStore.List(hash)) yield return new ReflectedResource(id, root);
+        foreach (var id in ResourceStore.List(hash)) yield return new ReflectedResource(id, root, mod);
     }
 
     /// <summary>
@@ -136,11 +136,11 @@ public sealed class ReflectedResource
     private readonly ResourceId _id;
     private readonly ModContext? _mod;   // the mod whose code got this handle: background-thread writes are its claims
 
-    internal ReflectedResource(ResourceId id, GameType type)
+    internal ReflectedResource(ResourceId id, GameType type, ModContext? mod = null)
     {
         _id = id;
         Type = type;
-        _mod = ModContext.CurrentMod;
+        _mod = mod ?? ModContext.CurrentMod;
     }
 
     internal ResourceId Id => _id;

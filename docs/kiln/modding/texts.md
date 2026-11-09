@@ -18,8 +18,9 @@ name the file or its directory. The usual Kiln data directories are also searche
 Use a catalog from the same game build; `Texts.Status` reports its source, build, text count and load result.
 
 The first lookup reads the table once. `await Texts.Preload()` can load it on a background thread beforehand; while it
-loads, `Texts.Get` returns `null` at once instead of waiting. A missing, unreadable or malformed catalog returns `null`
-with a reason in `Status`; after 60 seconds the catalog is read again only if a catalog file changed. Input
+loads, `Texts.Get` returns `null` at once instead of waiting (`Texts.Status` says "still loading"; `Texts.Available` is
+false). A missing, unreadable or malformed catalog returns `null` with a reason in `Status`; after 60 seconds the catalog
+is read again only if a catalog file changed (a file that could not be opened is tried again every 60 seconds). Input
 is limited to a 512 MiB catalog, two million texts and 64 KiB per text.
 
 SET's `Res.text(locaGuid)` reads this same catalog for tags beyond items and templates. Its item and template names keep

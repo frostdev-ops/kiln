@@ -272,22 +272,23 @@ public static class StatusLines
 
     /// <summary>For the Kiln menu (render thread, every frame) and Kiln.Admin (tick thread, once per mod in the mod list): the
     /// same as <see cref="All"/>, but never run on the calling thread and never waited for. It answers at once with the last
-    /// snapshot (empty until the first one is read) and, when that one is older than <paramref name="maxAge"/> (or lines
+    /// snapshot (empty until the first one is read; after a pause, the last one read, however old, until the refresh it starts
+    /// lands a moment later) and, when that one is older than <paramref name="maxAge"/> (or lines
     /// changed and it is older than <see cref="ChangeRefresh"/>), starts a refresh on a worker. At most one refresh runs at a
     /// time: a source that is slow or hangs leaves every caller with the previous snapshot until it returns, and a mod that
     /// calls <see cref="Set"/> every tick gets at most one refresh per <see cref="ChangeRefresh"/>.</summary>
     internal static IReadOnlyList<ModStatus> Snapshot(TimeSpan maxAge)
     {
         var c = _cache;
-        var now = Environment.TickCount64;
-        if (c is not null && now - c.At < maxAge.TotalMilliseconds &&
-            (c.Generation == Volatile.Read(ref _generation) || now - c.At < ChangeRefresh.TotalMilliseconds))
-            return c.Value;
+        if (Fresh(c, maxAge)) return c!.Value;
         var refresh = _refresh;
         if (refresh is null || refresh.IsCompleted)
         {
             lock (Lock)
             {
+                // a refresh that finished between the reads above has just made the snapshot fresh: no second one right behind it
+                c = _cache;
+                if (Fresh(c, maxAge)) return c!.Value;
                 if (_refresh is null || _refresh.IsCompleted)
                 {
                     var generation = _generation;
@@ -313,6 +314,14 @@ public static class StatusLines
             }
         }
         return c?.Value ?? [];
+    }
+
+    // The snapshot answers the caller as it is: not older than maxAge, and (when lines changed since) not older than ChangeRefresh.
+    private static bool Fresh(Cached? c, TimeSpan maxAge)
+    {
+        if (c is null) return false;
+        var age = Environment.TickCount64 - c.At;
+        return age < maxAge.TotalMilliseconds && (c.Generation == Volatile.Read(ref _generation) || age < ChangeRefresh.TotalMilliseconds);
     }
 
     /// <summary>Kiln.Admin's mod list (tick thread, once per mod): one mod's lines from <see cref="Snapshot"/> (refreshed once

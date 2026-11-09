@@ -417,6 +417,22 @@ public class ReflectedResourceTests : KilnTest
     }
 
     [Fact]
+    public void A_listing_enumerated_on_a_background_thread_still_belongs_to_the_mod_that_asked_for_it()
+    {
+        var mod = NewMod("lazy");
+        var listing = As(mod, () => ReflectedResources.All("Test::Item"));   // lazy: nothing is read yet
+        Backend.TickThread = false;
+        try
+        {
+            OnAnotherThread(() => Assert.True(listing.First(r => r.Guid == Sword).Set("stack", 5).Ok));
+            Assert.Equal("lazy", Res(Sword).HeldBy("stack"));
+        }
+        finally { Backend.TickThread = true; }
+        mod.Retire();
+        Assert.Empty(Overrides.Active);
+    }
+
+    [Fact]
     public void UnloadingAModGivesEverythingBack()
     {
         var mod = NewMod("temp");

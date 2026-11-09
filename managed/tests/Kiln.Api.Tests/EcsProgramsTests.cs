@@ -120,6 +120,27 @@ public sealed unsafe class EcsProgramsTests : KilnTest
         Assert.Equal(1,Backend.Lines.Count(l=>l.Contains("kiln.types is not running",StringComparison.Ordinal)));
         Assert.False(Backend.Logged("ECS program disabled"));
     }
+    [Fact]
+    public void Workers_that_look_a_name_up_at_the_same_time_leave_one_entry_per_name_and_no_fault()
+    {
+        var mod=NewMod("writer");
+        using var binding=As(mod,()=>EcsPrograms.Bind("pulse",context=> {
+            context.TryRead<int>("Health",out _);
+            context.TryReadOther<int>(new EntityId(5000),"Health",out _);
+            context.EmitEvent("TestEvent1",BitConverter.GetBytes(1));
+        }));
+        using var start=new Barrier(8);
+        var failures=new System.Collections.Concurrent.ConcurrentBag<Exception>();
+        var workers=Enumerable.Range(0,8).Select(_=>new Thread(()=> {
+            try { start.SignalAndWait(); for (var i=0;i<300;i++) _native.Run(); } catch (Exception e) { failures.Add(e); }
+        })).ToList();
+        workers.ForEach(w=>w.Start()); workers.ForEach(w=>w.Join());
+        Assert.Empty(failures);
+        var entries=(Array)typeof(EcsPrograms.Binding).GetField("_entries",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(binding)!;
+        Assert.Equal(3,entries.Length);   // (read, Health), (otherRead, Health), (eventOut, TestEvent1): each once, however many raced
+        Assert.False(Backend.Logged("ECS program disabled"));
+        Assert.Contains(Backend.Lines,l=>l.Contains("ECS program 'pulse': kiln.types is not running",StringComparison.Ordinal));
+    }
     private sealed class FakeNative : IDisposable
     {
         internal static int SlotCalls;

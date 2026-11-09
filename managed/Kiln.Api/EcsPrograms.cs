@@ -32,7 +32,7 @@ public static unsafe class EcsPrograms
         if (!mod.Alive) throw new InvalidOperationException("the mod is unloading");
         var table = Table;
         if (table == null || (table->Capabilities() & 4) == 0) throw new NotSupportedException("kiln.world programs v2 is unavailable");
-        var binding = new Binding(mod, callback, table);
+        var binding = new Binding(mod, key, callback, table);
         binding.Root = GCHandle.Alloc(binding);
         var idBytes = Encoding.UTF8.GetBytes(mod.Info.Id);
         var keyBytes = Encoding.UTF8.GetBytes(key);
@@ -52,9 +52,10 @@ public static unsafe class EcsPrograms
         return binding;
     }
 
-    internal sealed class Binding(ModContext mod, EcsProgramCallback callback, EcsWorldTable* table) : IDisposable
+    internal sealed class Binding(ModContext mod, string key, EcsProgramCallback callback, EcsWorldTable* table) : IDisposable
     {
         internal readonly ModContext Mod = mod;
+        internal readonly string Key = key;
         internal readonly EcsProgramCallback Callback = callback;
         internal readonly EcsWorldTable* Native = table;
         internal GCHandle Root;
@@ -100,14 +101,14 @@ public static unsafe class EcsPrograms
                 else
                     slot = ((delegate* unmanaged[Cdecl]<ulong, int, NativeStr, int>)Native->Prefix.ProgramSlot)(Handle, kind, str);
             }
-            if (kind is 0 or 1 or 2)
+            if ((kind is 0 or 1 or 2) && slot >= 0)   // an undeclared name throws in Declared: nothing to size or warn about
             {
                 var type = GameTypes.Table == null ? null : GameTypes.Find(name);
                 if (type is not null) size = type.Size;
                 else if (Interlocked.Exchange(ref _typesMissingLogged, 1) == 0)
                     Mod.Log.Warn(GameTypes.Table == null
-                        ? "ECS program: kiln.types is not running on this build, so TryRead/TryWrite always return false (TryReadOther/TryWriteOther still work)"
-                        : $"ECS program: kiln.types does not know component '{name}', so TryRead/TryWrite on it return false");
+                        ? $"ECS program '{Key}': kiln.types is not running on this build, so TryRead/TryWrite always return false (TryReadOther/TryWriteOther still work)"
+                        : $"ECS program '{Key}': kiln.types does not know component '{name}', so TryRead/TryWrite on it return false");
             }
             var entry = new Entry(kind, name, utf8, slot, size);
             while (true)
