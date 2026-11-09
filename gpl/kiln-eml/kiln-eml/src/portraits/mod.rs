@@ -827,12 +827,14 @@ mod tests {
         assert_eq!(side_folders(&cache.0), Vec::<String>::new());
     }
 
-    /// Windows does not rename a folder while a file in it is open (a scanner reading a frame, say).
+    /// A scanner can hold the cache directory without sharing DELETE, blocking its replacement.
     #[cfg(windows)]
     #[test]
     fn a_folder_that_cannot_be_moved_aside_is_left_as_it_was() {
+        use std::os::windows::fs::OpenOptionsExt;
         let (cache, folder, before) = drawn_wolf("held");
-        let held = std::fs::File::open(folder.join("01.png")).unwrap();
+        // File::open shares DELETE; hold the directory itself without it, including on Wine.
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).custom_flags(0x02000000).open(&folder).unwrap();
         let run = run_fake(&cache, json!([{"key": "wolf", "model": WOLF, "frames": 6, "size": 40}]), 1, None);
         drop(held);
         assert_eq!(run.reply.code, ITEMS_FAILED);

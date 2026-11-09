@@ -21,6 +21,52 @@ fn is_link(meta: &std::fs::Metadata) -> bool {
     }
     false
 }
+
+// Wine exposes Unix volume boundaries (including Z:\) as mount-point reparse entries without reparse data.
+// These do not redirect a cache path. Never extend this exception to data-backed junctions or symbolic links.
+#[cfg(windows)]
+fn wine_volume_boundary(path: &Path) -> bool {
+    use std::os::windows::{ffi::{OsStrExt, OsStringExt}, fs::OpenOptionsExt, io::AsRawHandle};
+    use windows::{core::{s, w, PCWSTR}, Win32::{
+        Foundation::{HANDLE, ERROR_NOT_A_REPARSE_POINT},
+        Storage::FileSystem::{FileAttributeTagInfo, FILE_ATTRIBUTE_TAG_INFO,
+            GetFileInformationByHandleEx, GetVolumePathNameW},
+        System::{IO::DeviceIoControl, LibraryLoader::{GetModuleHandleW, GetProcAddress}},
+    }};
+    unsafe {
+        let Ok(ntdll) = GetModuleHandleW(w!("ntdll.dll")) else { return false };
+        if GetProcAddress(ntdll, s!("wine_get_version")).is_none() { return false; }
+        // Open the entry itself, not its target, and inspect its actual tag and reparse data.
+        let Ok(file) = OpenOptions::new().access_mode(0).share_mode(7)
+            .custom_flags(0x02200000).open(path) else { return false };
+        let handle = HANDLE(file.as_raw_handle());
+        let mut tag = FILE_ATTRIBUTE_TAG_INFO::default();
+        if GetFileInformationByHandleEx(handle, FileAttributeTagInfo, (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of_val(&tag) as u32).is_err() || tag.ReparseTag != 0xa0000003 {
+            return false;
+        }
+        let mut data = [0u8; 16384];
+        let mut returned = 0;
+        let result = DeviceIoControl(handle, 0x900a8, None, 0, Some(data.as_mut_ptr().cast()),
+            data.len() as u32, Some(&mut returned), None);
+        if result.err().is_none_or(|e| e.code() != ERROR_NOT_A_REPARSE_POINT.to_hresult()) {
+            return false;
+        }
+        // Confirm that the OS reports this exact entry as a volume root, not merely a path on that volume.
+        let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut volume = vec![0u16; 32768];
+        if GetVolumePathNameW(PCWSTR(name.as_ptr()), &mut volume).is_err() { return false; }
+        let Some(end) = volume.iter().position(|v| *v == 0) else { return false };
+        let volume = std::path::PathBuf::from(std::ffi::OsString::from_wide(&volume[..end]));
+        match (std::fs::canonicalize(path), std::fs::canonicalize(volume)) {
+            (Ok(path), Ok(volume)) => path == volume && std::fs::metadata(path).is_ok_and(|m| m.is_dir()),
+            _ => false,
+        }
+    }
+}
+#[cfg(not(windows))]
+fn wine_volume_boundary(_: &Path) -> bool { false }
+
 pub(crate) fn safe_directory(path: &Path) -> Result<(), String> {
     let meta = std::fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if is_link(&meta) || !meta.is_dir() {
@@ -64,6 +110,7 @@ pub(crate) fn cache_lock(path: &Path) -> Result<File, String> {
     for ancestor in path.ancestors() {
         match std::fs::symlink_metadata(ancestor) {
             Ok(m) if !is_link(&m) && m.is_dir() => {}
+            Ok(_) if ancestor != path && wine_volume_boundary(ancestor) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             _ => return Err("cache_dir and its parents must be regular directories".into()),
         }
@@ -231,6 +278,62 @@ pub unsafe extern "C" fn kiln_eml_portraits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_regular_paths_create_and_serialize() {
+        let root = std::env::temp_dir().join(format!("kiln-portrait-regular-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let cache = root.join("new/cache");
+        let first = cache_lock(&cache).unwrap();
+        assert!(cache.join(".kiln-portraits.lock").is_file());
+        assert!(cache_lock(&cache).is_err());
+        drop(first);
+        drop(cache_lock(&cache).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cache_windows_linked_parents_are_refused() {
+        use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt, io::AsRawHandle};
+        use windows::Win32::{Foundation::HANDLE, System::IO::DeviceIoControl};
+        let root = std::env::temp_dir().join(format!("kiln-portrait-win-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let outside = root.join("outside");
+        std::fs::create_dir_all(outside.join("existing")).unwrap();
+        let symbolic = root.join("symbolic");
+        std::os::windows::fs::symlink_dir(&outside, &symbolic).unwrap();
+        let junction = root.join("junction");
+        std::fs::create_dir(&junction).unwrap();
+        let entry = OpenOptions::new().access_mode(0x40000000).share_mode(7)
+            .custom_flags(0x02200000).open(&junction).unwrap();
+        let target = std::fs::canonicalize(&outside).unwrap();
+        let mut target: Vec<u16> = target.as_os_str().encode_wide().collect();
+        assert_eq!(&target[..4], &[92, 92, 63, 92]); // \\?\ -> \??\ for the junction's substitute name
+        target[1] = 63;
+        let length = (target.len() * 2) as u16;
+        let mut data = Vec::new();
+        data.extend_from_slice(&0xa0000003u32.to_le_bytes());
+        for value in [length + 12, 0, 0, length, length + 2, 0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in target.into_iter().chain([0, 0]) { data.extend_from_slice(&value.to_le_bytes()); }
+        let mut returned = 0;
+        unsafe { DeviceIoControl(HANDLE(entry.as_raw_handle()), 0x900a4,
+            Some(data.as_ptr().cast()), data.len() as u32, None, 0, Some(&mut returned), None).unwrap(); }
+        drop(entry);
+        for linked in [&symbolic, &junction] {
+            // Ensure the fixture really is a Windows reparse link, not a transparent host-side alias.
+            assert!(std::fs::symlink_metadata(linked).unwrap().file_type().is_symlink());
+            assert!(!wine_volume_boundary(linked));
+            assert!(cache_lock(&linked.join("existing")).is_err());
+            assert!(!outside.join("existing/.kiln-portraits.lock").exists());
+            assert!(cache_lock(&linked.join("new/cache")).is_err());
+            assert!(!outside.join("new").exists());
+            std::fs::remove_dir(linked).unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn bounded_input_and_work() {
         assert!(render_json(&vec![b'x'; MAX_REQUEST + 1]).contains("256 KiB"));

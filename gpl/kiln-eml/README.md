@@ -76,5 +76,11 @@ rules. There are at most 32 items, 32 million output pixels, 64 frames per item 
 lock serializes processes. Symlinks/reparse points are refused in the cache and its portrait folders. New frames
 and their index replace one whole folder; failures preserve the prior drawing.
 
+Cache ancestors must also be regular directories. On Wine/Proton, an ancestor may instead be an OS volume boundary:
+Wine reports Unix mounts and its Z: root as mount-point reparse entries even though they do not redirect paths.
+The renderer accepts these only when Wine is present, the entry has the mount-point tag but no reparse data, and
+the volume API confirms that exact directory as the volume root. Data-backed junctions and symbolic links remain
+refused, as do links inside the cache; the cache itself must be a regular directory.
+
 Focused checks: `cargo test --release -p kiln-eml --lib portrait`. Optional read-only archive tests take
 `EMF_PORTRAIT_GAME=<game folder>` and `EMF_PORTRAIT_OUT=<output folder>`. Keep their output outside the game.
