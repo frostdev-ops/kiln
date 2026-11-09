@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  // Native parser regression: comment braces are not nesting. {{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{
+  // Quest and dialogue blocks as data (docs/kiln/modding/quests.md "Quests as blocks"). The game reads this file at its start: all of it is in the game's journal and
+  // NPC menu at the first start. blocks-quest-test's code defines a twin of bq-twin, and a chain of its own that is there from the next start.
+  "statuses": {
+    "bq-boon": { "name": "Boon", "kind": "buff", "seconds": 30 }
+  },
+  "npcs": {
+    "bq-giver": { "name": "Test Giver", "body": "villager", "talk": "bq-talk" }
+  },
+  "dialogues": {
+    "bq-talk": {
+      "start": "hello",
+      "nodes": {
+        "hello": {
+          "text": "Hello, tester.",
+          "options": [
+            { "text": "I'll do it.", "if": { "quest": "bq-data", "is": "available" }, "do": [ { "start": "bq-data" } ], "reply": "Ring the bell twice." },
+            { "text": "Here are the logs.", "if": { "step": "bq-data.hand", "is": "active" }, "do": [ { "advance": "bq-data.hand" } ], "reply": "Well done." },
+            { "text": "Farewell.", "goto": "end", "close": true }
+          ]
+        }
+      }
+    }
+  },
+  "quests": {
+    "bq-data": {
+      "name": { "en": "Block quest", "de": "Blockquest" },
+      "giver": "bq-giver",
+      "requires": [ { "level": 2 } ],
+      "steps": [
+        { "id": "ring", "text": "Ring the bell twice", "objective": { "custom": { "signal": "bq.bell", "count": 2 } } },
+        { "id": "gather", "text": "Gather three logs", "objective": { "collect": { "item": "Material_T1_Wood_Logs", "count": 3 } } },
+        { "id": "hand", "text": "Give the logs to the giver", "objective": { "deliver": { "item": "Material_T1_Wood_Logs", "count": 3, "to": "bq-giver" } },
+          "rewards": { "items": { "Material_T1_Twigs": 1 } } }
+      ],
+      "rewards": { "xp": 500, "items": { "Material_T1_Twigs": 4 }, "status": "bq-boon" }
+    },
+    "bq-world": {
+      "name": "A quest for the whole world",
+      "scope": "world",
+      "steps": [
+        { "id": "one", "text": "Signal once", "objective": { "custom": "bq.world" } },
+        { "id": "three", "text": "Signal three times", "objective": { "custom": { "signal": "bq.world", "count": 3 } } }
+      ]
+    },
+    "bq-twin": {
+      "name": "Twin",
+      "description": "The same, in C# and in JSON.",
+      "scope": "party",
+      "requires": [ { "level": 3 }, { "not": { "quest": "bq-data", "is": "failed" } } ],
+      "steps": [
+        { "id": "hunt", "title": "Hunt", "text": "Kill two Vukah", "objective": { "kill": { "family": "Vukah", "count": 2 } },
+          "spawn": { "template": "Enemy_Vukah_Melee", "count": 2, "tag": "bq-hunt", "near": "bq-giver", "distance": [40, 80] } },
+        { "id": "report", "text": "Tell the giver", "objective": { "talk": { "npc": "bq-giver", "node": "hello" } }, "rewards": { "xp": 10, "status": "bq-boon" } }
+      ],
+      "rewards": { "xp": 100, "items": { "Material_T1_Twigs": 2 }, "knowledge": [ "npc:NPC_Workshop_Bard01.unlock" ] }
+    }
+  }
+}

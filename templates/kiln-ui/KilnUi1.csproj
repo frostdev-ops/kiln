@@ -3,6 +3,10 @@
        binding for it, and a toast. Client mod: it runs in the player's game (a dedicated server skips it).
          dotnet build -t:KilnDeploy -p:KilnServer=<game folder with Kiln> [-p:KilnReload=true]
        Docs: docs/kiln/ui.md ("The game's own UI", screens, widgets, key bindings). -->
+<!--#if (blocks)-->
+  <!-- Made with the blocks option: the screen, a HUD line and the key are blocks in blocks/ui.json, and KilnUi1Mod.cs only registers the
+       config they bind to. Docs: docs/kiln/modding/ui-blocks.md. -->
+<!--#endif-->
   <PropertyGroup>
     <KilnModId>kiln-mod-id</KilnModId>
     <KilnModName>KilnUi1</KilnModName>
@@ -10,7 +14,11 @@
     <Description>KilnUi1: a menu entry and a screen in the game's UI.</Description>
     <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
     <KilnSide>client</KilnSide>
+<!--#if (blocks)-->
+    <KilnServices>Ui;Blocks</KilnServices>
+<!--#else-->
     <KilnServices>Ui</KilnServices>
+<!--#endif-->
 <!--#if (hasServer)-->
     <KilnServer>KILN_SERVER</KilnServer>
 <!--#endif-->

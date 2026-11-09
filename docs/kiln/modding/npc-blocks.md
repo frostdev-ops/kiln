@@ -180,7 +180,7 @@ Blocks.Define("tobin", new NpcBlock
 {
     Name = "Tobin the Wanderer",
     Body = Bodies.Fisher,
-    Talk = tobinDialogue,                                    // a DialogueDefinition, or TalkName for one of quests/*.json
+    Talk = tobinTalk,                                        // the handle of a DialogueBlock, or a DialogueDefinition; TalkName names one by its name
     Vendor = new VendorBlock { Sells = { [GameItems.Material_T1_Plant_Fibre] = Price.Of(GameItems.Material_T1_Twigs, 2) } },
     Roster = new RosterBlock { SummonTool = "Tobin's Whistle", Description = "Tobin trades a little." },
     Place = new NpcPlace { Distance = [6, 10] },
@@ -193,6 +193,10 @@ by the game at start**:
   player's game;
 - one written in C# is known only once the mod's code runs, so Kiln writes it to `kiln/data/kiln-quests/native/<mod>.blocks.json` (the data folder: a
   redeploy keeps it, and nothing is written into the mod) and it is there from the next start. Write NPCs in data files to have them at once.
+
+`Talk` is the handle `Blocks.Define("tobin-talk", new DialogueBlock { ... })` gives back, or any `DialogueDefinition` from `Dialogues.Define`. In JSON, and in C# as `TalkName`, a
+name: a dialogue block of this mod by its block name (`"talk": "tobin-talk"`), compiled first when a data file defines it later, or, when no block has
+that name, one of this mod's `quests/*.json`. Another mod's dialogue is refused: the startup build compiles each mod's NPC lines separately. A name that is another kind of block is refused. [quests.md](quests.md) "Quests as blocks" has the dialogue and quest blocks.
 
 `Place` puts it once per world: `At` a spot, or `Distance` metres from the first player in game. A base is fine (`InBase`, default true), so it comes
 that near while the player is home; `InBase = false` keeps it 20 m outside every base zone, as a quest's places are. `Exact` takes `At` as it is. The

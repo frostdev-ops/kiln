@@ -63,4 +63,36 @@ public sealed class ModOwnerTests
 
     [Fact]
     public void Work_outside_a_mod_has_no_owner() => Assert.Null(ModContext.OwnerOf(OwnerWork.Closure()));
+
+    [Fact]
+    public void Live_lookup_uses_metadata_identity_and_retiring_an_old_generation_keeps_the_new_one()
+    {
+        var info = new ModInfo("same-id", "Same", "1.0", ".") { Side = ModSide.Client };
+        var otherInfo = info with { Side = ModSide.Server };
+        var old = HostAccess.CreateContext(info, 1, ".");
+        var other = HostAccess.CreateContext(otherInfo, 2, ".");
+        Assert.Same(old, ModContext.FindLive(info));
+        Assert.Same(other, ModContext.FindLive(otherInfo));
+        var next = HostAccess.CreateContext(info, 3, ".");
+        old.Retire();
+        Assert.Same(next, ModContext.FindLive(info));
+        Assert.Same(other, ModContext.FindLive(otherInfo));
+        next.Retire();
+        Assert.Null(ModContext.FindLive(info));
+        other.Retire();
+    }
+
+    [Fact]
+    public void A_live_metadata_key_does_not_keep_its_context_alive()
+    {
+        var info = new ModInfo("weak-owner", "Weak", "1.0", ".");
+        var weak = CreateWeakContext(info);
+        for (var i = 0; i < 10 && weak.IsAlive; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+        Assert.False(weak.IsAlive);
+        Assert.Null(ModContext.FindLive(info));
+        GC.KeepAlive(info);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference CreateWeakContext(ModInfo info) => new(HostAccess.CreateContext(info, 9, "."));
 }

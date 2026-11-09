@@ -1,0 +1,15 @@
+<Project>
+  <!-- Sample: a window, a HUD line and keys as building blocks (docs/kiln/modding/ui-blocks.md). The window binds to the mod's client config, one button casts an
+       ability and one applies an effect, and a key opens the window. blocks/twins.json is the same in data, with every kind of row. The side and the clients follow
+       from the blocks: both, and mod (players' games draw the window and bind the key from the mod's files). On a dedicated server the blocks are checked and do nothing. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>ui-blocks</KilnModId>
+    <KilnModName>UI blocks (sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A settings window (F8 and the pause menu) on the mod's own config, a status line on the HUD, a button that casts an ability and one that applies an effect.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Ui;Abilities</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

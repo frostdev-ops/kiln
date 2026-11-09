@@ -1,0 +1,31 @@
+{
+  // The same UI as the C# variant, as data: a screen in the game's look, a line on the HUD and a key. Each is a block with a name; a button, a menu entry or
+  // a key opens the screen by that name. Values: game.* are read-only values of the game, config.* are entries of the config KilnUi1Mod.cs registers.
+  // Docs: docs/kiln/modding/ui-blocks.md.
+  "$schema": "https://raw.githubusercontent.com/frostdev-ops/kiln/main/schema/kiln-blocks.schema.json",
+  "format": 1,
+  "windows": {
+    "screen": {
+      "title": { "en": "KilnUi1 screen", "de": "KilnUi1-Fenster" },
+      "kind": "screen",
+      "width": 520,
+      "height": 360,
+      "menu": { "text": { "en": "KilnUi1", "de": "KilnUi1" }, "in": "both", "order": 20 },
+      "rows": [
+        { "type": "text", "text": "Hello from KilnUi1." },
+        { "type": "separator" },
+        { "type": "toggle", "label": "Show the HUD line", "bind": "config.hud.show" },
+        { "type": "slider", "label": "Volume", "bind": "config.audio.volume" },
+        { "type": "value", "label": "Frames per second", "bind": "game.fps", "format": "0" },
+        { "type": "button", "label": "Say hello", "does": { "toast": "Hello from KilnUi1" } },
+        { "type": "button", "label": "Close", "sameLine": true, "does": { "closeWindow": "screen" } }
+      ]
+    }
+  },
+  "hudLines": {
+    "fps": { "text": "{game.fps:0} fps", "anchor": "topRight", "color": "cyan", "when": "game.inGame && config.hud.show", "refresh": 0.5 }
+  },
+  "keyBindings": {
+    "open-screen": { "key": "F9", "description": "Open the KilnUi1 screen", "does": { "openWindow": "screen" } }
+  }
+}

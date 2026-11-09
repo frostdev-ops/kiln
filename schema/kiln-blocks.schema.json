@@ -163,7 +163,57 @@
     "hair": {"type": "object", "description": "Hair styles: worn looks on the head. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/hair"}},
     "beards": {"type": "object", "description": "Beards: worn looks on the jaw. A look with files of the mod's own needs \"clients\": \"mod\".", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/beard"}},
     "lootTables": {"type": "object", "description": "Tables of what drops, rolled by Kiln: a creature's drops name one, and so does code (LootTableHandle.Roll/Drop/Give). Server only.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/lootTable"}},
-    "recipes": {"type": "object", "description": "Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"allOf": [{"$ref": "#/$defs/recipe"}, {"required": ["output"]}]}}
+    "recipes": {"type": "object", "description": "Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench.", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"allOf": [{"$ref": "#/$defs/recipe"}, {"required": ["output"]}]}},
+    "quests": {
+      "type": "object",
+      "description": "Quest chains in the game's own journal: steps, objectives, conditions, rewards. Needs \"clients\": \"mod\".",
+      "propertyNames": {
+        "$ref": "kiln-quests.schema.json#/$defs/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/quest"
+      }
+    },
+    "dialogues": {
+      "type": "object",
+      "description": "Conversations in the game's own NPC menu, for an NPC block's talk or a quest NPC's dialogue. Needs \"clients\": \"mod\".",
+      "propertyNames": {
+        "$ref": "kiln-quests.schema.json#/$defs/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/dialogue"
+      }
+    },
+    "windows": {
+      "type": "object",
+      "description": "Windows and screens of rows: text, values, buttons, toggles and sliders on the mod's config. Drawn by each player's game from the mod's own file, so needs \"clients\": \"mod\"; on a dedicated server checked and kept, nothing drawn.",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/window"
+      }
+    },
+    "hudLines": {
+      "type": "object",
+      "description": "Lines of text on the game's screen with values in them, a condition and a refresh rate. Needs \"clients\": \"mod\".",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/hudLine"
+      }
+    },
+    "keyBindings": {
+      "type": "object",
+      "description": "Keys that run an action (open a window, toggle a config value, run a command, cast an ability), rebindable in the Kiln menu. Needs \"clients\": \"mod\".",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/keyBinding"
+      }
+    }
   },
   "additionalProperties": false,
   "$defs": {
@@ -1512,7 +1562,7 @@
         "animation": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/animation" } ] },
         "ai": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/ai" } ] },
         "behaviour": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/behaviour" } ] },
-        "talk": { "type": "string", "description": "A dialogue of the mod's quests/*.json." },
+        "talk": { "type": "string", "description": "A dialogue block or quests/*.json dialogue of this mod. Another mod's dialogue is not supported by the startup build." },
         "names": { "type": "object", "additionalProperties": { "type": "string" } },
         "vendor": {
           "type": "object",
@@ -2136,6 +2186,1850 @@
         "sits": {
           "$ref": "#/$defs/spot",
           "description": "Where the player sits. Default: the starter's spot."
+        }
+      },
+      "additionalProperties": false
+    },
+    "questPos": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Metres: [x, y, z]. x east, y up, z north."
+    },
+    "questPlace": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A place found at run time: on real ground (the voxel surface), outside every base, not too steep; one per world. Say what it is near: near (\"player\", or an NPC), or at.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/questPos"
+        },
+        "near": {
+          "type": "string",
+          "minLength": 1,
+          "description": "\"player\" (who gets there first), or an NPC: an NPC block of this mod by its name, or an id of the mod's quests/*.json."
+        },
+        "distance": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minItems": 1,
+          "maxItems": 2,
+          "description": "Metres from what it is near: [min, max]. It widens by itself until a good spot is found."
+        },
+        "margin": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Metres to keep from a base's build zone (default 20)."
+        },
+        "inBase": {
+          "type": "boolean",
+          "description": "A base is fine (never for enemies: the game pacifies them there and may remove them)."
+        },
+        "exact": {
+          "type": "boolean",
+          "description": "Exactly at: no ground, no base check."
+        }
+      }
+    },
+    "questSpawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template"
+      ],
+      "description": "Creatures the step brings into the world: on real ground outside every base, never saved, checked every second, spawned again when the game removes them, and after a restart or rejoin as many as are still owed. Where: the step's site, or at, near and distance here.",
+      "properties": {
+        "template": {
+          "$ref": "kiln-quests.schema.json#/$defs/template"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Kiln.Spawn tag: a kill objective can name it."
+        },
+        "at": {
+          "$ref": "#/$defs/questPos"
+        },
+        "near": {
+          "type": "string",
+          "minLength": 1,
+          "description": "\"player\" or an NPC."
+        },
+        "distance": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minItems": 1,
+          "maxItems": 2
+        },
+        "margin": {
+          "type": "number",
+          "minimum": 0
+        },
+        "inBase": {
+          "type": "boolean"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "spread": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Metres between them (default 4)."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The level to spawn at (0: the template's)."
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many times they come back when the game removes them (default 5). Then kiln.log has an error."
+        }
+      }
+    },
+    "questMarker": {
+      "description": "The step's map marker. A step with a place (site, spawn, a reach or kill place, an NPC to talk to or deliver to) has one by itself; this names it or moves it. false: none.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/questPos"
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0
+            },
+            "waypoint": {
+              "type": "boolean",
+              "description": "Also write the player's waypoint, the game's own map and compass pin (default true)."
+            },
+            "name": {
+              "$ref": "kiln-quests.schema.json#/$defs/text",
+              "description": "The map marker's name; default the step's text."
+            },
+            "base": {
+              "$ref": "kiln-quests.schema.json#/$defs/template",
+              "description": "The marker template to copy (default a search-area label)."
+            }
+          }
+        }
+      ]
+    },
+    "questNpc": {
+      "type": "string",
+      "minLength": 1,
+      "description": "An NPC: an NPC block of this mod by its name, an id of the mod's quests/*.json, \"other-mod:npc\"."
+    },
+    "questObjective": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One of kill, collect, deliver, reach, talk, craft, build, knowledge, custom.",
+      "anyOf": [
+        {
+          "required": [
+            "kill"
+          ]
+        },
+        {
+          "required": [
+            "collect"
+          ]
+        },
+        {
+          "required": [
+            "deliver"
+          ]
+        },
+        {
+          "required": [
+            "reach"
+          ]
+        },
+        {
+          "required": [
+            "talk"
+          ]
+        },
+        {
+          "required": [
+            "craft"
+          ]
+        },
+        {
+          "required": [
+            "build"
+          ]
+        },
+        {
+          "required": [
+            "knowledge"
+          ]
+        },
+        {
+          "required": [
+            "custom"
+          ]
+        }
+      ],
+      "x-kiln-message": "an objective needs one of kill, collect, deliver, reach, talk, craft, build, knowledge, custom",
+      "properties": {
+        "text": {
+          "$ref": "kiln-quests.schema.json#/$defs/text",
+          "description": "Shown instead of the step's text when a step has several objectives."
+        },
+        "kill": {
+          "type": "object",
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "template"
+              ]
+            },
+            {
+              "required": [
+                "family"
+              ]
+            },
+            {
+              "required": [
+                "tag"
+              ]
+            }
+          ],
+          "x-kiln-message": "kill needs template, family or tag",
+          "description": "A death credited to the player (a world quest: any death).",
+          "properties": {
+            "template": {
+              "$ref": "kiln-quests.schema.json#/$defs/template"
+            },
+            "family": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Part of the template's name."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The Kiln.Spawn tag."
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "near": {
+              "$ref": "#/$defs/questPos"
+            },
+            "radius": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "countDestroyed": {
+              "type": "boolean",
+              "description": "Kiln.Spawn destroying a match counts too."
+            }
+          }
+        },
+        "collect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "item"
+          ],
+          "description": "What the inventory holds now. Takes nothing.",
+          "properties": {
+            "item": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "deliver": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "item"
+          ],
+          "description": "Takes the items when an advance action or the NPC's hand-over finishes it.",
+          "properties": {
+            "item": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "to": {
+              "$ref": "#/$defs/questNpc"
+            }
+          }
+        },
+        "reach": {
+          "type": "object",
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "at"
+              ]
+            },
+            {
+              "required": [
+                "offset"
+              ]
+            },
+            {
+              "required": [
+                "marker"
+              ]
+            },
+            {
+              "required": [
+                "site"
+              ]
+            }
+          ],
+          "x-kiln-message": "reach needs at, offset, marker or site",
+          "description": "Being there, checked twice a second.",
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/questPos"
+            },
+            "offset": {
+              "$ref": "#/$defs/questPos",
+              "description": "Metres from where the player stood when the step started."
+            },
+            "marker": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A template's name: the nearest entity of it."
+            },
+            "site": {
+              "type": "boolean",
+              "description": "The step's site is the place."
+            },
+            "radius": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "talk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "npc"
+          ],
+          "description": "Talking to that NPC.",
+          "properties": {
+            "npc": {
+              "$ref": "#/$defs/questNpc"
+            },
+            "line": {
+              "type": "string",
+              "minLength": 1,
+              "description": "One dialogue line: line:…, 0x…, <dialogue>.<node>.<option>."
+            },
+            "node": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Reaching a node of a chat conversation."
+            }
+          }
+        },
+        "craft": {
+          "type": "object",
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "item"
+              ]
+            },
+            {
+              "required": [
+                "recipe"
+              ]
+            }
+          ],
+          "x-kiln-message": "craft needs item or recipe",
+          "description": "A successful craft by the player.",
+          "properties": {
+            "item": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "recipe": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A recipe's 0x id."
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prop"
+          ],
+          "description": "Placing it.",
+          "properties": {
+            "prop": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "knowledge": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The game's knowledge holds it: npc:…, quest:…, query:…, 0x…."
+        },
+        "custom": {
+          "description": "A signal name, or the signal and how many: Quests.Signal, the signal action, or a C# progress function.",
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "signal"
+              ],
+              "properties": {
+                "signal": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "questCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One of knowledge, level, quest, step, item, predicate, all, any, not. Checked on the server, also when an option is chosen.",
+      "anyOf": [
+        {
+          "required": [
+            "knowledge"
+          ]
+        },
+        {
+          "required": [
+            "level"
+          ]
+        },
+        {
+          "required": [
+            "quest"
+          ]
+        },
+        {
+          "required": [
+            "step"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        },
+        {
+          "required": [
+            "predicate"
+          ]
+        },
+        {
+          "required": [
+            "all"
+          ]
+        },
+        {
+          "required": [
+            "any"
+          ]
+        },
+        {
+          "required": [
+            "not"
+          ]
+        }
+      ],
+      "x-kiln-message": "a condition needs one of knowledge, level, quest, step, item, predicate, all, any, not",
+      "properties": {
+        "knowledge": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The game's knowledge holds it."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The character's level is at least this."
+        },
+        "quest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A quest of this mod (or \"other-mod:quest\"), in the state is."
+        },
+        "step": {
+          "type": "string",
+          "pattern": "\\.",
+          "x-kiln-message": "a step is quest.step",
+          "description": "\"quest.step\", in the state is."
+        },
+        "is": {
+          "enum": [
+            "locked",
+            "available",
+            "active",
+            "done",
+            "failed",
+            "started",
+            "pending"
+          ],
+          "description": "Quest: locked, available, active, done, failed, started. Step: pending, active, done. Default done."
+        },
+        "item": {
+          "$ref": "#/$defs/itemRef",
+          "description": "At least count of it are in the inventory."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "predicate": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A name registered with Quests.RegisterPredicate."
+        },
+        "all": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questCondition"
+          },
+          "minItems": 1
+        },
+        "any": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questCondition"
+          },
+          "minItems": 1
+        },
+        "not": {
+          "$ref": "#/$defs/questCondition"
+        }
+      }
+    },
+    "questAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, talk, signal, call. In an option's do the first failing action stops the rest; in rewards and hooks each failure is logged and the rest runs.",
+      "anyOf": [
+        {
+          "required": [
+            "xp"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        },
+        {
+          "required": [
+            "take"
+          ]
+        },
+        {
+          "required": [
+            "knowledge"
+          ]
+        },
+        {
+          "required": [
+            "revoke"
+          ]
+        },
+        {
+          "required": [
+            "start"
+          ]
+        },
+        {
+          "required": [
+            "complete"
+          ]
+        },
+        {
+          "required": [
+            "fail"
+          ]
+        },
+        {
+          "required": [
+            "advance"
+          ]
+        },
+        {
+          "required": [
+            "reset"
+          ]
+        },
+        {
+          "required": [
+            "spawn"
+          ]
+        },
+        {
+          "required": [
+            "despawn"
+          ]
+        },
+        {
+          "required": [
+            "teleport"
+          ]
+        },
+        {
+          "required": [
+            "chat"
+          ]
+        },
+        {
+          "required": [
+            "talk"
+          ]
+        },
+        {
+          "required": [
+            "signal"
+          ]
+        },
+        {
+          "required": [
+            "call"
+          ]
+        }
+      ],
+      "x-kiln-message": "an action needs one of xp, item, take, knowledge, revoke, start, complete, fail, advance, reset, spawn, despawn, teleport, chat, talk, signal, call",
+      "properties": {
+        "xp": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Experience, as a quest reward."
+        },
+        "item": {
+          "$ref": "#/$defs/itemRef",
+          "description": "Gives count of it (what does not fit lands at the player's feet)."
+        },
+        "take": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Items given or taken, spawned entities."
+        },
+        "knowledge": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Grants it: npc:….unlock, quest:…, 0x…."
+        },
+        "revoke": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Clears that id only: what the game already did because of it stays."
+        },
+        "target": {
+          "enum": [
+            "world",
+            "player"
+          ],
+          "description": "knowledge, revoke: default the player's object if the id has one, else the world's."
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "knowledge: a counter's amount or a flag's number."
+        },
+        "flag": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31,
+          "description": "revoke: one flag of a Flags object."
+        },
+        "start": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Starts a quest."
+        },
+        "complete": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "advance": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Finishes a step: \"quest.step\". Refused for unfinished kill, collect and reach objectives unless force."
+        },
+        "reset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "force": {
+          "type": "boolean",
+          "description": "start, advance: past what refuses."
+        },
+        "spawn": {
+          "$ref": "kiln-quests.schema.json#/$defs/template",
+          "description": "A one-off creature near the player or at at, on the ground outside bases. For creatures a step needs, use the step's spawn."
+        },
+        "despawn": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The tag of what spawn made."
+        },
+        "at": {
+          "$ref": "#/$defs/questPos"
+        },
+        "offset": {
+          "$ref": "#/$defs/questPos",
+          "description": "Metres from the player, instead of at."
+        },
+        "yaw": {
+          "type": "number"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bindNpc": {
+          "$ref": "#/$defs/questNpc",
+          "description": "The spawned entity becomes this NPC."
+        },
+        "transient": {
+          "type": "boolean",
+          "description": "Never written to the save."
+        },
+        "exact": {
+          "type": "boolean",
+          "description": "Exactly at: no ground, no base check."
+        },
+        "teleport": {
+          "$ref": "#/$defs/questPos",
+          "description": "Moves the player."
+        },
+        "chat": {
+          "$ref": "kiln-quests.schema.json#/$defs/text",
+          "description": "A chat line for the player."
+        },
+        "talk": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opens a chat conversation: a dialogue of this mod, at node."
+        },
+        "node": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signal": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Feeds custom objectives."
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "call": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A name registered with Quests.RegisterAction."
+        }
+      }
+    },
+    "questReward": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a quest or a step pays, all at once: experience, items, a status, knowledge. Each part is paid on its own: one that cannot be (a full inventory drops the rest at the player's feet) is logged and the others still are. A world quest pays every player in game.",
+      "properties": {
+        "xp": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Experience, through the game's quest path."
+        },
+        "items": {
+          "type": "object",
+          "description": "Item and count: a game item, or an item this mod defines.",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "status": {
+          "description": "A status put on the player: a status block of this mod, or a game status; its own time, or seconds.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ref"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "$ref": "#/$defs/statusRef"
+                },
+                "seconds": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The game's knowledge granted: npc:….unlock unlocks an NPC."
+        },
+        "lootTable": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A loot table rolled when the reward is paid: the name of a lootTables block of this mod (or \"other-mod:name\"). What comes up is given like items. A name that is no loot table refuses the quest."
+        }
+      }
+    },
+    "questStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "One step of a quest. It is done when all its objectives are.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/questIdName",
+          "description": "Letters, digits, '_' and '-'; unique in the quest. Keep it: progress is filed under it."
+        },
+        "text": {
+          "$ref": "kiln-quests.schema.json#/$defs/text",
+          "description": "The journal's paragraph."
+        },
+        "title": {
+          "$ref": "kiln-quests.schema.json#/$defs/text",
+          "description": "The journal's short line (the list, the tracked quest). Default its text."
+        },
+        "voice": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A voice-over line in the journal: a name of the mod's cooked audio, or a GUID."
+        },
+        "recommendedLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "objective": {
+          "$ref": "#/$defs/questObjective"
+        },
+        "objectives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questObjective"
+          }
+        },
+        "marker": {
+          "$ref": "#/$defs/questMarker"
+        },
+        "site": {
+          "$ref": "#/$defs/questPlace"
+        },
+        "spawn": {
+          "description": "Creatures the step brings into the world: one or a list.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/questSpawn"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/questSpawn"
+              }
+            }
+          ]
+        },
+        "rewards": {
+          "$ref": "#/$defs/questReward",
+          "description": "Paid when the step is done."
+        },
+        "onEnter": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questAction"
+          }
+        },
+        "onDone": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questAction"
+          }
+        }
+      }
+    },
+    "questIdName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "x-kiln-message": "an id: letters, digits, '_' and '-'"
+    },
+    "quest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "steps"
+      ],
+      "description": "A quest chain in the game's own journal, tracked-quest line and map: steps that run in order, each with objectives, and what it pays. The block's name is its id: keep it and the steps' ids. Players need the mod (clients \"mod\"). A quest from a blocks file is built into the game's journal from the next start, unless the mod ships quests/generated/<mod>.json.",
+      "properties": {
+        "name": {
+          "$ref": "kiln-quests.schema.json#/$defs/text"
+        },
+        "description": {
+          "$ref": "kiln-quests.schema.json#/$defs/text"
+        },
+        "giver": {
+          "$ref": "#/$defs/questNpc",
+          "description": "The NPC who offers it. A quest with a giver starts through that NPC, an action or code."
+        },
+        "scope": {
+          "enum": [
+            "player",
+            "party",
+            "world"
+          ],
+          "description": "player (default), party (players within partyRadius share credit, each gets rewards), world (one shared state)."
+        },
+        "partyRadius": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "main": {
+          "type": "boolean"
+        },
+        "auto": {
+          "type": "boolean",
+          "description": "Starts by itself as soon as it is available."
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "retryable": {
+          "type": "boolean",
+          "description": "Can start again after it failed or was given up (default true)."
+        },
+        "abandonable": {
+          "type": "boolean",
+          "description": "Players may give it up (default true; never a world quest)."
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Not listed until it is active."
+        },
+        "source": {
+          "enum": [
+            "None",
+            "Flame",
+            "Blacksmith",
+            "Alchemist",
+            "Huntress",
+            "Farmer",
+            "Carpenter",
+            "CryptKeeper",
+            "Bard",
+            "ChineseNewYearTrader",
+            "Barber",
+            "Fisher",
+            "AncientResearcher",
+            "Grassland",
+            "Deepforest",
+            "Steppes",
+            "Desert",
+            "ColdHeights",
+            "Wetlands",
+            "AncientLands"
+          ],
+          "description": "The journal's portrait (keen::QuestSourceType). Default None."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Its order in the journal (the game uses 40..100; default 50)."
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questCondition"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questStep"
+          },
+          "minItems": 1
+        },
+        "rewards": {
+          "$ref": "#/$defs/questReward"
+        },
+        "onStart": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questAction"
+          }
+        },
+        "onFail": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questAction"
+          }
+        }
+      }
+    },
+    "dialogueOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "$ref": "kiln-quests.schema.json#/$defs/text"
+        },
+        "if": {
+          "$ref": "#/$defs/questCondition",
+          "description": "Shown only while this holds; checked again when chosen."
+        },
+        "do": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questAction"
+          }
+        },
+        "goto": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The next node: its text is the reply, and its options join the NPC's topics from then on. \"end\" or none: nothing more."
+        },
+        "reply": {
+          "$ref": "kiln-quests.schema.json#/$defs/text",
+          "description": "What the NPC answers; default the target node's text."
+        },
+        "voice": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The reply's voice-over; default the target node's."
+        },
+        "once": {
+          "type": "boolean",
+          "description": "The topic goes away once heard."
+        },
+        "close": {
+          "type": "boolean",
+          "description": "The NPC plays its outro after the reply."
+        },
+        "hint": {
+          "enum": [
+            "None",
+            "Hint",
+            "Attention",
+            "MainQuest"
+          ],
+          "description": "The topic's marker."
+        }
+      }
+    },
+    "dialogueNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "speaker": {
+          "$ref": "kiln-quests.schema.json#/$defs/text"
+        },
+        "text": {
+          "$ref": "kiln-quests.schema.json#/$defs/text"
+        },
+        "voice": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A voice-over line the game's dialogue plays: a name in the mod's cooked audio, or a GUID."
+        },
+        "hint": {
+          "enum": [
+            "None",
+            "Hint",
+            "Attention",
+            "MainQuest"
+          ],
+          "description": "The marker over the NPC's head on this node's greeting."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dialogueOption"
+          },
+          "description": "Add new options at the end: positions and node names feed the lines' ids."
+        },
+        "goto": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A node without options: where \"Continue\" goes."
+        },
+        "do": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/questAction"
+          },
+          "description": "Run when the node opens."
+        }
+      }
+    },
+    "dialogue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes"
+      ],
+      "description": "A conversation in the game's own NPC menu: nodes of text and options, each with a condition and actions. An NPC block names it (talk). A conversation in chat (native: false) is quests/*.json's. Players need the mod (clients \"mod\").",
+      "properties": {
+        "start": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The first node (default \"start\")."
+        },
+        "nodes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/dialogueNode"
+          }
+        },
+        "greet": {
+          "type": "boolean",
+          "description": "The start node's text is a greeting. Default: yes on a clone, no on a game NPC (its own greetings stay)."
+        },
+        "hint": {
+          "enum": [
+            "None",
+            "Hint",
+            "Attention",
+            "MainQuest"
+          ],
+          "description": "The marker over the NPC's head on the greeting."
+        },
+        "greetings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "text"
+            ],
+            "properties": {
+              "text": {
+                "$ref": "kiln-quests.schema.json#/$defs/text"
+              },
+              "if": {
+                "$ref": "#/$defs/questCondition"
+              },
+              "voice": {
+                "type": "string",
+                "minLength": 1
+              },
+              "hint": {
+                "enum": [
+                  "None",
+                  "Hint",
+                  "Attention",
+                  "MainQuest"
+                ]
+              }
+            }
+          },
+          "description": "More greetings, shown before the plain one while their condition holds."
+        },
+        "farewell": {
+          "type": "array",
+          "items": {
+            "$ref": "kiln-quests.schema.json#/$defs/text"
+          },
+          "description": "Replaces the NPC's farewell lines."
+        },
+        "transition": {
+          "type": "array",
+          "items": {
+            "$ref": "kiln-quests.schema.json#/$defs/text"
+          },
+          "description": "Replaces the line between topics."
+        }
+      }
+    },
+    "uiText": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^(\\*|[A-Za-z]{2,3}([-_][A-Za-z0-9]+)*)$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ],
+      "description": "A text: plain, or one per language ({ \"en\": \"Save\", \"de\": \"Speichern\" }, \"*\" for every other language). The game's language picks it: the exact key (\"pt-br\"), the primary language (\"pt\"), then \"en\", then \"*\"."
+    },
+    "uiWhen": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Shown only while this is true: a name (game.inGame, config.clock.show: true, not 0, not empty), !name, or name == value with == != < <= > >=, joined with &&. Examples: \"game.inGame\", \"!game.inGame\", \"game.screen == InGame\", \"game.fps < 30 && config.hud.on\"."
+    },
+    "uiBind": {
+      "type": "string",
+      "pattern": "^(game|config)\\.[A-Za-z0-9_.\\-/]+$",
+      "description": "A value: game.<name> (fps, frameMs, state, inGame, screen, language, clock) or config.<path> of this mod's config (config.<config id>/<path> when two configs have the path)."
+    },
+    "uiSet": {
+      "type": "object",
+      "required": [
+        "bind",
+        "to"
+      ],
+      "description": "A config entry and the value to give it: true or false, a number in its range, or an option of an enum.",
+      "properties": {
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        },
+        "to": {
+          "type": [
+            "boolean",
+            "number",
+            "string"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiAction": {
+      "type": "object",
+      "description": "What a button or a key does: exactly one of command, toggle, set, castAbility, applyEffect, openWindow, closeWindow, toast. Runs on the player's game, never on a dedicated server.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "A command line of this game's command registry, as the console runs it: as the host's own character when this game hosts the world, else as the console. It does not reach a server this game joined."
+        },
+        "toggle": {
+          "$ref": "#/$defs/uiBind",
+          "description": "Flips a true/false config entry."
+        },
+        "set": {
+          "$ref": "#/$defs/uiSet"
+        },
+        "castAbility": {
+          "$ref": "#/$defs/ref",
+          "description": "Asks the server to cast an ability of this mod (or \"other-mod:name\"), as its key would. The server needs the mod."
+        },
+        "applyEffect": {
+          "$ref": "#/$defs/effectRef",
+          "description": "Applies an effect to the player, through a hidden ability named ui-apply.<name>. The server needs the mod."
+        },
+        "openWindow": {
+          "$ref": "#/$defs/ref",
+          "description": "Opens a window block of this mod (or \"other-mod:name\")."
+        },
+        "closeWindow": {
+          "$ref": "#/$defs/ref",
+          "description": "Closes a window block."
+        },
+        "toast": {
+          "$ref": "#/$defs/uiText",
+          "description": "A short message in the corner of the screen."
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRow": {
+      "description": "One line of a window. \"type\" says which: text, value, toggle, slider, choice, separator, button.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uiRowText"
+        },
+        {
+          "$ref": "#/$defs/uiRowValue"
+        },
+        {
+          "$ref": "#/$defs/uiRowToggle"
+        },
+        {
+          "$ref": "#/$defs/uiRowSlider"
+        },
+        {
+          "$ref": "#/$defs/uiRowChoice"
+        },
+        {
+          "$ref": "#/$defs/uiRowSeparator"
+        },
+        {
+          "$ref": "#/$defs/uiRowButton"
+        }
+      ]
+    },
+    "uiRowText": {
+      "type": "object",
+      "required": [
+        "type",
+        "text"
+      ],
+      "description": "A line of text. {game.fps:0} and {config.clock.scale:0.00} in it show a value (refreshed at the window's pace); {{ and }} are braces.",
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "text": {
+          "$ref": "#/$defs/uiText"
+        },
+        "color": {
+          "$ref": "#/$defs/uiColor"
+        },
+        "wrap": {
+          "type": "boolean",
+          "description": "Break long text at the window's edge. The overlay's wrapped text has no colour: not with color."
+        }
+      },
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "color",
+          "wrap"
+        ],
+        "properties": {
+          "wrap": {
+            "const": true
+          }
+        }
+      }
+    },
+    "uiRowValue": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A label and a value that cannot be edited here: Label: value.",
+      "properties": {
+        "type": {
+          "const": "value"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How a number shows (\"0\", \"0.00\", \"#,##0\") or a true/false (\"yes|no\")."
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowToggle": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A checkbox on a true/false config entry. A click writes the config.",
+      "properties": {
+        "type": {
+          "const": "toggle"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowSlider": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A slider on a whole-number or decimal config entry. A drag writes the config once it rests for a moment.",
+      "properties": {
+        "type": {
+          "const": "slider"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        },
+        "min": {
+          "type": "number",
+          "description": "Default: the entry's own range, which it must have when min and max are left out."
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowChoice": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "bind"
+      ],
+      "description": "A drop-down on an enum config entry, with its options.",
+      "properties": {
+        "type": {
+          "const": "choice"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "bind": {
+          "$ref": "#/$defs/uiBind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowSeparator": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "description": "A line, with a heading when it has text.",
+      "properties": {
+        "type": {
+          "const": "separator"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "text": {
+          "$ref": "#/$defs/uiText"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiRowButton": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "does"
+      ],
+      "description": "A button that runs an action.",
+      "properties": {
+        "type": {
+          "const": "button"
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "sameLine": {
+          "type": "boolean",
+          "description": "On the same line as the row before it."
+        },
+        "tooltip": {
+          "$ref": "#/$defs/uiText",
+          "description": "Shown while the pointer rests on the row's widget. May show values like a text row does."
+        },
+        "label": {
+          "$ref": "#/$defs/uiText"
+        },
+        "does": {
+          "$ref": "#/$defs/uiAction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiColor": {
+      "type": "string",
+      "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|white|black|gray|grey|red|green|yellow|orange|cyan)$",
+      "description": "#rrggbb, #rrggbbaa, or white, black, gray, red, green, yellow, orange, cyan."
+    },
+    "uiMenu": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "description": "An entry in the game's pause menu and/or main menu that opens the window.",
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/uiText"
+        },
+        "in": {
+          "enum": [
+            "pause",
+            "main",
+            "both"
+          ],
+          "description": "Default pause."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Lower first. Kiln's own Mods entry has 1000."
+        }
+      },
+      "additionalProperties": false
+    },
+    "window": {
+      "type": "object",
+      "required": [
+        "title",
+        "rows"
+      ],
+      "description": "A window or a screen of rows: text, values, buttons, toggles, sliders, choices and separators. Drawn by each player's game from the mod's own file, so the mod needs \"clients\": \"mod\"; on a dedicated server it is checked and kept, and nothing is drawn. What it shows refreshes every \"refresh\" seconds, not every frame; a closed window costs nothing.",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/uiText"
+        },
+        "kind": {
+          "enum": [
+            "window",
+            "screen"
+          ],
+          "description": "window (default): an overlay window the player can drag. screen: a full screen in the game's look, dimming the game, closed by Escape."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4096,
+          "description": "Pixels at UI scale 1. 0: a window fits its rows, a screen is 720 wide."
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4096,
+          "description": "Pixels at UI scale 1. 0: a window fits its rows, a screen is 520 high."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "A window: where its centre is, [x, y] as 0..1 of the screen."
+        },
+        "autoResize": {
+          "type": "boolean",
+          "description": "A window: it grows and shrinks with its rows."
+        },
+        "titleBar": {
+          "type": "boolean",
+          "description": "Default true."
+        },
+        "alpha": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "A window: how opaque the background is."
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "A window: false gives a panel the player only looks at (default true)."
+        },
+        "dim": {
+          "type": "boolean",
+          "description": "A screen: darken the game behind it (default true)."
+        },
+        "openAtStart": {
+          "type": "boolean",
+          "description": "Open as soon as the game has it. Default: closed until a key, a button or a menu entry opens it."
+        },
+        "refresh": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3600,
+          "description": "Seconds between updates of the values and conditions it shows. Default 0.25."
+        },
+        "menu": {
+          "$ref": "#/$defs/uiMenu"
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/uiRow"
+          }
+        },
+        "comment": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "screen"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "position"
+                  ]
+                },
+                {
+                  "required": [
+                    "alpha"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "autoResize": {
+                "const": false
+              },
+              "interactive": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "dim"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "hudLine": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "description": "A line of text on the game's screen. It shows while its condition holds and updates at its own pace; hidden, it costs nothing. Drawn by each player's game, so the mod needs \"clients\": \"mod\".",
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/uiText",
+          "description": "The text, with {game.fps:0} and {config.clock.scale:0.00} for values; {{ and }} are braces."
+        },
+        "anchor": {
+          "enum": [
+            "topLeft",
+            "topCenter",
+            "topRight",
+            "middleLeft",
+            "center",
+            "middleRight",
+            "bottomLeft",
+            "bottomCenter",
+            "bottomRight"
+          ],
+          "description": "Default topLeft."
+        },
+        "color": {
+          "$ref": "#/$defs/uiColor",
+          "description": "Default white."
+        },
+        "when": {
+          "$ref": "#/$defs/uiWhen"
+        },
+        "refresh": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3600,
+          "description": "Seconds between updates. Default 1."
+        },
+        "comment": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "keyBinding": {
+      "type": "object",
+      "required": [
+        "key",
+        "does"
+      ],
+      "description": "A key that runs an action. The player can rebind it in the Kiln menu's Keys tab; the choice is kept in keybinds.json under <mod>:<name>. Bound on each player's game, so the mod needs \"clients\": \"mod\".",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The default key: F8, Ctrl+K, Shift+Alt+F2, Numpad5, or None to bind it only once the player chooses."
+        },
+        "description": {
+          "$ref": "#/$defs/uiText",
+          "description": "What the Keys tab says. Default: the block's name."
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The group in the Keys tab. Default: the mod's name."
+        },
+        "does": {
+          "$ref": "#/$defs/uiAction"
+        },
+        "onGameScreens": {
+          "type": "boolean",
+          "description": "A key that types something (a letter, a digit) fires in play only; true fires on every game screen too, chat included."
+        },
+        "whileCapturing": {
+          "type": "boolean",
+          "description": "Also fire while the Kiln menu is open."
+        },
+        "was": {
+          "$ref": "#/$defs/name"
+        },
+        "comment": {
+          "type": "string"
         }
       },
       "additionalProperties": false

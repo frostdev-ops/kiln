@@ -1730,6 +1730,7 @@ const KilnKnowledgeApi kTable = {
     &t_status, &t_info, &t_get, &t_list, &t_submit, &t_result, &t_grant, &t_revoke, &t_query, &t_resolve, &t_name_of,
     &t_catalog_count, &t_catalog_at, &t_journal_quest, &t_journal_step, &t_npc, &t_events, &t_last_seq, &t_held_ops,
     &t_decide, &t_listen, &t_settings, &t_configure, &t_allow, &t_native_manifest, &t_lab_record,
+    &flame_status, &flame_set, &flame_result,
 };
 
 // ------------------------------------------------------------------------------------------- setup ------------
@@ -1827,6 +1828,7 @@ void install_hooks() {
 
 void KILN_CALL on_ready(void*) {
     native_pack_ready();
+    flame_ready();
     if (!g_know_ok) return;
     register_program();
 }
