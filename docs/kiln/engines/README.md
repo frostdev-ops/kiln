@@ -105,23 +105,37 @@ it jumps to:
 file can't be used (unreadable, or a different build than the one loaded), Kiln scans the live code as before and
 logs a warning.
 
-**Hooking the same function.** Kiln's hooks use safetyhook. safetyhook decodes at least 5 bytes at the target and
-moves them into its trampoline. A `jmp rel32` (E9, Enshwick's 5-byte hook) or a `jmp [rip+0]` (FF 25, a 14-byte
-absolute hook) there is IP-relative, so it is copied with its displacement rewritten. The trampoline still reaches
-the other engine's hook. A call then runs:
+**Hooking the same function.** Kiln's hooks use safetyhook, through one registry (`kiln.hooks` v2,
+[../services/hooks.md](../services/hooks.md)) that places **one** detour per game address for every handler registered with it (the services move over during dev.21).
+safetyhook decodes at least 5 bytes at the target and moves them into its trampoline. A `jmp rel32` (E9, Enshwick's
+5-byte hook) or a `jmp [rip+0]` (FF 25, a 14-byte absolute hook) there is IP-relative, so it is copied with its
+displacement rewritten. The trampoline still reaches the other engine's hook. A call then runs:
 
 1. the hook armed last (Kiln's, when the other engine started first);
 2. its call to the original, which enters the other engine's hook;
 3. the real function, once.
 
-Mid hooks behave the same way. When Kiln unhooks a function the other engine hooked *before* Kiln, Kiln restores the
-other engine's `jmp`. Enshwick's decoder does the same with Kiln's `jmp` when Kiln hooks first.
-`native/spikes/hookchain/run.sh` (Wine, no game) checks all of these cases.
+Kiln notices when it hooks a function that already starts with someone else's jump (the live bytes differ from the exe
+file's) and says so, in kiln.log and in `state/hooks.json`:
 
-The other order is not safe to undo. safetyhook's unhook writes its saved bytes back without checking them. If Kiln
-hooked first and another engine hooked over Kiln's `jmp`, a Kiln unhook removes the other engine's hook too, and the
-other engine's trampoline then leads into freed memory. Kiln's hooks stay armed for the life of the process, so this
-only matters for the few that a service turns off at runtime (npcai's lifetime observers).
+```
+[kiln] hooks: chat/ChatLogAdd chained over enshwick.dll+0x11ea80
+```
+
+Mid hooks behave the same way. When another engine hooks **over** Kiln's detour, its jump now starts the call and Kiln's
+detour is reached through it. After boot and at the first world (never per frame) Kiln checks every target and logs
+`hooks: <module> hooked over Kiln's <label>`; `hooks.json` records it as `foreignOver`. Kiln never removes the other
+module's jump and never unhooks its own detours (an empty chain calls the real function), so the order in which engines
+start does not make Kiln undo another engine's hook. Enshwick's decoder relocates Kiln's `jmp` when Kiln hooks first.
+`native/spikes/hookchain/run.sh` and `native/core/tests/test-hooks-v2.sh` (Wine, no game) check these cases with a
+stand-in hooker.
+
+The one path that can still undo someone's hook is a safetyhook unhook outside the registry: it writes its saved bytes
+back without checking them. If Kiln hooked first and another engine hooked over Kiln's `jmp`, such an unhook removes
+the other engine's hook too, and the other engine's trampoline then leads into freed memory. Registry links are never
+unhooked, only revoked from the chain. Hooks that a service still places with its own safetyhook calls (being moved to
+the registry in dev.21) keep the old guard: npcai's lifetime observers, for example, stay armed when they find a foreign
+jump on top.
 
 One limit: safetyhook needs its trampoline within ±2 GB of both the target and the other engine's relay (a 5-byte
 `jmp` already keeps the relay within ±2 GB of the target). If no such memory is free, safetyhook falls back to a

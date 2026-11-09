@@ -177,6 +177,43 @@ static void pool_and_resolver(const char* dir) {
     std::filesystem::remove(file);
 }
 
+// kiln.hooks v2's accessors: the exe file's bytes at a live address, the symbol name at an address, and the symbols whose
+// live bytes differed from the file's when they were resolved (with the 16 live bytes found then).
+static void live_diff_accessors(const char* dir) {
+    Loaded x;
+    uint8_t* fn = x.live.data() + TestPe::kFunc;
+    fn[0] = 0xE9;  // another engine's jmp over the function's first bytes, to far outside the image
+    const int32_t rel = 0x10000000;
+    std::memcpy(fn + 1, &rel, 4);
+    test_query = true;
+    test_mbi = {x.live.data(), x.live.size(), MEM_COMMIT, 4};
+    sigdb::init_code();
+    const auto file = std::filesystem::path(dir) / "livediff.json";
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}]}}})";
+    }
+    sigdb::Resolver r;
+    r.load(file, "");
+    r.resolve();
+    uintptr_t a = 0;
+    CHECK(r.symbol("root", &a) && a == kiln::test_image.base + TestPe::kFunc, "live diffs: the hooked symbol still resolves on the file");
+    std::vector<sigdb::LiveDiff> d;
+    r.collect_live_diffs(d);
+    CHECK(d.size() == 1 && d[0].symbol == "root" && d[0].address == a && d[0].at == a && d[0].bytes_ok && d[0].bytes[0] == 0xE9 &&
+              d[0].by.rfind("jmp to", 0) == 0,
+          "live diffs: the symbol is listed with the live bytes seen at resolve time and its jump");
+    CHECK(r.name_at(a) == "root" && r.name_at(a + 1).empty(), "live diffs: name_at finds the symbol at an address");
+    uint8_t got[5] = {};
+    CHECK(sigdb::file_bytes(a, got, sizeof got) && got[0] == 0x48 && got[1] == 0xB8 && fn[0] == 0xE9,
+          "live diffs: file_bytes returns the exe file's bytes, not the hook");
+    CHECK(!sigdb::file_bytes(kiln::test_image.base + 1, got, sizeof got) &&
+              !sigdb::file_bytes(a + x.ft.text_vsize, got, sizeof got),
+          "live diffs: file_bytes refuses addresses outside .text");
+    test_query = false;
+    std::filesystem::remove(file);
+}
+
 static void hook_guard() {
     struct Hook { bool on = true; int restores = 0; bool enabled() { return on; }
                   bool disable() { ++restores; on = false; return true; } } h;
@@ -230,6 +267,7 @@ int main(int argc, char** argv) {
     if (argc != 2) return 2;
     views_and_holes();
     pool_and_resolver(argv[1]);
+    live_diff_accessors(argv[1]);
     hook_guard();
     diff_budget();
     return g_fail ? 1 : 0;

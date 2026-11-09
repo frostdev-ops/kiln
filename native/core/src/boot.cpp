@@ -13,6 +13,7 @@
 #include "profile.h"
 #include "sigdb.h"
 #include "tick.h"
+#include "services/hooks_internal.h"
 #include "services/service.h"
 
 // The build stamp ("+20261106.8d20598") native/build.sh writes; empty in a build without it. Only this file includes
@@ -241,6 +242,7 @@ void boot() {
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
     }
     write_boot_json(f);
+    hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     KLOG_I("boot complete; handing control to the game");
 }
 

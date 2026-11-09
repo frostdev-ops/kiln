@@ -63,4 +63,23 @@ std::vector<uintptr_t> scan_code(const Pattern& p, size_t limit);
 bool hole_value_at(const Pattern& p, uintptr_t live_match, std::string_view name, int64_t* out);
 bool code_from_disk();  // true when the file's .text is in use, false on the live fallback
 
+// kiln.hooks v2 (hooks map, foreign-hook detection).
+// n bytes of the exe file's code (relocated like the live image) at a live address; false on the live fallback or when
+// the range is outside .text.
+bool file_bytes(uintptr_t live_addr, uint8_t* out, size_t n);
+// The sigdb symbol (core first, then fragments) resolved to exactly this address, or "".
+std::string symbol_name_at(uintptr_t live_addr);
+// A symbol whose live bytes differed from the file's when it was resolved (someone hooked or patched it before Kiln
+// looked): `at` is where the attribution started (0 = unreadable), `bytes` the 16 live bytes there then, `by` the
+// sigdb log's description ("jmp to enshwick.dll+0x11ea80", "bytes changed in place", ...).
+struct LiveDiff {
+    std::string symbol;
+    uintptr_t address = 0;
+    uintptr_t at = 0;
+    uint8_t bytes[16] = {};
+    bool bytes_ok = false;
+    std::string by;
+};
+std::vector<LiveDiff> live_differs();
+
 }  // namespace kiln::sigdb

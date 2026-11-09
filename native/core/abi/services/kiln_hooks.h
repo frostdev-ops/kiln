@@ -15,7 +15,11 @@
  * Managed Kiln.Hooks calls revoke_owner from a mod's Retiring event.
  *
  * Threads: a detour/mid handler runs on whatever thread the target runs on (often the tick thread, but job threads
- * too). Installing a hook freezes the other threads (safetyhook); do it on the tick thread or at mod load.
+ * too). The first hook on a target freezes the other threads briefly (safetyhook); do it on the tick thread or at mod
+ * load. Adding or revoking further links on that target freezes nothing.
+ *
+ * v2 (dev.21): see the "v2" block at the end of KilnHooksApi and native/core/abi/kiln_hook.hpp (a header-only C++
+ * client with a safetyhook-like surface).
  */
 #ifndef KILN_HOOKS_H
 #define KILN_HOOKS_H
@@ -27,7 +31,10 @@ extern "C" {
 #endif
 
 #define KILN_HOOKS_SERVICE "kiln.hooks"
-#define KILN_HOOKS_VERSION 1u
+/* 2 (dev.21) = one registry that owns a single physical detour per target for every kind of handler: native-signature
+ * "raw" links with continuations, structured 12-argument detours, ordered mid hooks, caller(), ordering constraints,
+ * foreign-hook detection and the hook map. Appended after the v1 functions; v1 callers are unchanged. */
+#define KILN_HOOKS_VERSION 2u
 
 /* A detour call in progress. Passed to every detour handler and back to call_original. The handler may change args
  * before calling the original, and may change the return value after. `reserved` is the native chain cursor: do not
@@ -44,6 +51,20 @@ typedef struct KilnHookCall {
  * of the chain and then the real function (optionally after changing call->args); skip it to replace the function
  * entirely. Runs under an SEH guard: a fault disables this handler, the chain continues. */
 typedef uintptr_t(KILN_CALL* KilnDetourFn)(KilnHookCall* call, void* user);
+
+/* v2 structured detour call: up to 12 integer/pointer arguments (rcx, rdx, r8, r9, then the stack arguments) plus the
+ * address the game call returns to. `arg_count` is the count the hook declared (<= 12); args beyond it are copied
+ * through to the original as the caller left them. `reserved` is opaque: pass the same pointer to call_original2. */
+typedef struct KilnHookCall2 {
+    uint32_t size;
+    uint32_t arg_count;
+    uint64_t hook;        /* KilnHandle of the hook whose handler is running */
+    uintptr_t args[12];   /* read/write: changes reach the rest of the chain and the real function */
+    uintptr_t caller;     /* return address of the game call that entered the target on this thread */
+    void* reserved;
+} KilnHookCall2;
+
+typedef uintptr_t(KILN_CALL* KilnDetourFn2)(KilnHookCall2* call, void* user);
 
 /* Full register context of a mid-function hook. Field order mirrors safetyhook's Context64 exactly, so there is no
  * copy; writing a field changes the register when execution resumes. rsp is read-only (use trampoline_rsp per
@@ -71,14 +92,31 @@ typedef struct KilnHooksSigSummary {
     uint32_t features, features_ok;
 } KilnHooksSigSummary;
 
+/* Where a link goes in a target's chain (v2). Order on a target: constraints, then priority (higher first), then
+ * registration order. `before` / `after` are comma-separated owner names (a plugin's or mod's id: "kiln.chat",
+ * "emf:coolmod", "native:foo"; the kind prefix and a ".dll" suffix are optional, '-' and '.' are alike). An
+ * unsatisfiable constraint is dropped with a warning in kiln.log. `label` names the link in kiln.log and the hook map. */
+typedef struct KilnHookOrder {
+    uint32_t size;       /* sizeof(KilnHookOrder) */
+    int32_t priority;    /* higher runs first */
+    KilnStr label;       /* e.g. "chat/ChatLogAdd" */
+    KilnStr before;      /* owners this link must run before */
+    KilnStr after;       /* owners this link must run after */
+} KilnHookOrder;
+
 typedef struct KilnHooksStats {
     uint32_t size;
-    uint32_t detour_targets;   /* distinct addresses with an inline detour installed */
-    uint32_t mid_targets;      /* distinct addresses with a mid hook installed */
-    uint32_t handlers;         /* live detour + mid handlers across all chains */
+    uint32_t detour_targets;   /* distinct addresses with a detour (raw, structured or v1) link */
+    uint32_t mid_targets;      /* distinct addresses with a mid link */
+    uint32_t handlers;         /* live links of every kind across all chains */
     uint32_t patches;          /* live byte patches */
-    uint64_t detour_calls;     /* total detour dispatches since boot */
-    uint64_t mid_calls;        /* total mid dispatches since boot */
+    uint64_t detour_calls;     /* structured + v1 detour dispatches since boot (raw links are not counted) */
+    uint64_t mid_calls;        /* mid dispatches since boot */
+    /* ---- appended in v2: filled only when `size` covers them ---- */
+    uint32_t raw_links;        /* live raw links */
+    uint32_t foreign_before;   /* targets that were already hooked/patched by someone else when Kiln hooked them */
+    uint32_t foreign_over;     /* targets someone else hooked over Kiln's detour afterwards */
+    uint32_t targets;          /* distinct hooked addresses */
 } KilnHooksStats;
 
 typedef struct KilnHooksApi {
@@ -128,6 +166,42 @@ typedef struct KilnHooksApi {
 
     /* ---- introspection ---- */
     KilnResult(KILN_CALL* stats)(KilnHooksStats* out);
+
+    /* ======== v2 (KILN_HOOKS_VERSION 2): check header.size covers these before calling ========
+     *
+     * The registry owns one physical detour per target. Every kind of handler below is a link in that target's chain:
+     * raw, structured (detour2 and the v1 detour) and mid. Links run in the order of KilnHookOrder; each one reaches the
+     * rest of the chain and then the real function through its own continuation (raw), call_original2 / call_original
+     * (structured) or by returning (mid). Adding or revoking a link while other threads call through the chain is safe
+     * (cells are retargeted atomically; nothing is frozen after the first install of a target).
+     *
+     * raw_detour: `fn` has the target's own native signature (any arguments, floats, stack arguments, any return).
+     * *original is the continuation with the same signature: it runs the rest of the chain and then the real function.
+     * Continuations are never freed (a revoked link's continuation forwards to the next link), so a handler that still
+     * holds one after revoke is safe. `order` may be NULL. `original` may be NULL.
+     *
+     * caller: the return address of the game call that entered h's target on the current thread. Valid for every link of
+     * the chain, when read before the handler calls its original or another hooked function. A recursive entry into the
+     * same target on the same thread overwrites the record. 0 when unknown.
+     *
+     * detour2: structured handler for integer/pointer signatures up to 12 arguments (stack arguments included), with the
+     * caller. Float arguments or a float return need raw_detour. It runs under an SEH guard like v1 detour.
+     *
+     * mid2: ordered mid hook (the existing `mid` is a mid link with default order). A mid hook may share its address with
+     * detour links. Registers are those at the hooked instruction as seen by the previous link.
+     *
+     * map_json: the hook map (docs/kiln/services/hooks.md), also written to <kiln>/state/hooks.json. *len receives the
+     * text length without the NUL; buf needs *len + 1 bytes (NUL-terminated), else KILN_ERR_BUFFER_TOO_SMALL. buf may be
+     * NULL to ask for the length. */
+    KilnResult(KILN_CALL* raw_detour)(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, void* fn,
+                                      void** original, KilnHandle* out);
+    uintptr_t(KILN_CALL* caller)(KilnHandle h);
+    KilnResult(KILN_CALL* detour2)(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, uint32_t arg_count,
+                                   KilnDetourFn2 fn, void* user, KilnHandle* out);
+    uintptr_t(KILN_CALL* call_original2)(KilnHookCall2* call);
+    KilnResult(KILN_CALL* mid2)(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, KilnMidFn fn, void* user,
+                                KilnHandle* out);
+    KilnResult(KILN_CALL* map_json)(char* buf, size_t cap, size_t* len);
 } KilnHooksApi;
 
 #ifdef __cplusplus

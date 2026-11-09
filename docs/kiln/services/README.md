@@ -18,6 +18,10 @@ A service is one capability (teleport, items, chat, ...) with three layers. The 
 - The server world and its singletons: `api->server_world()` (0 before the first server-world step) and
   `api->singleton(world, "ServerPlayers")` (exact registered name; tick thread). Use these instead of hooking
   RegisterSingleton yourself (core feature `singletons`, layout from docs/re/players.md).
+- Hooks: place them through `kiln.hooks` v2 with `native/core/abi/kiln_hook.hpp` (`kiln::RawHook`, `kiln::MidHook2`),
+  not with your own safetyhook calls. One registry owns one detour per game address, orders the links, gives you the
+  game's call site with `caller()` (use it instead of `_ReturnAddress()`), and lists every hook in
+  `state/hooks.json`. See [hooks.md](hooks.md).
 - Other services: look them up in `info->on_ready` (`api->service("kiln.world", 1)`), not in `kiln_plugin_main`.
 - Threads: game state only on the tick thread, in Pre (no world jobs running) or Post (after `WaitWorldJobs`), or
   inside an ECS program update with declared access. Calls from managed mods arrive on the tick thread.
