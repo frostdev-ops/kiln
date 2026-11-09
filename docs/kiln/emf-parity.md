@@ -1,4 +1,4 @@
-# EMF API parity (EmfApi v26)
+# EMF API parity (EmfApi v26 baseline; v27 integration pending)
 
 kiln-emf (`native/plugins/emf`) hands every EMF mod an `EmfApi` table built on Kiln's services. This page lists
 every function of EMF 0.5.1's C API (v26, 85 functions, `sdk/include/emf/emf_api.h`) and every function of its Lua
@@ -10,8 +10,13 @@ API (`docs/modding/lua.md`), with the Kiln service behind it, the nearest Kiln C
   (`native/plugins/emf/tests/run.sh`), `client` = only a joined player can show it (client checklist in
   [emf.md](emf.md)), `lab-mod` = a shipped EMF mod uses it in the lab check (`tools/emf/lab-check.py`).
 - Counts: v21 had 61 full, 9 partial, 3 no out of 73; v22-v26's 12 functions were missing and every 0.5 mod was
-  refused (EMF's SDK refuses a table smaller than its own `sizeof(EmfApi)`). Now: **67 full, 15 partial, 3 no
-  out of 85.**
+  refused (EMF's SDK refuses a table smaller than its own `sizeof(EmfApi)`). The v26 implementation baseline: **72 full, 13 partial, 0 no
+  out of 85.** Counts are C table slots, not grouped rows or attribute constants. The two attribute slots remain
+  partial because the XP/level ids use the queued progression path described below. Full means an implementation
+  matches the documented contract; the evidence column still distinguishes host, server and pending client checks.
+
+EMF 0.6/API 27 adds five networking slots. Their adapter, transport and interoperability checks are still being
+integrated; this v26 recount does not certify API 27 or a 0.6 mod. See the networking documentation after integration.
 
 ## Version negotiation
 
@@ -36,13 +41,13 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `for_each_entity` (1) | the storage's entity map | `World.Find` | full | probe |
 | `on_tick`, `run_on_world` (1) | Post of each world's step | `TickEvents` / `Scheduler` | full | probe |
 | `resolve`, `hook` (1) | EMF signature name → Kiln sigdb (`sigdb/symbols/*.d/emf.json`) | `Kiln.Hooks` | full | probe |
-| `hook_program` (1) | — | — | no | probe (refusal) |
+| `hook_program` (1) | `kiln.types` runner pre/post callbacks | `GameSystems.Hook(name, before, after)` | full | host; server probe pending final integration |
 | `register_program`, `register_program_def` (2/16) | `kiln.world` programs, server world | `Kiln.Api` ECS programs | partial: server world only | probe |
 | `spawn`, `destroy` (2) | `kiln.spawn` | `Kiln.Spawn` | full | probe |
-| `spawn_ex` (12) | `kiln.spawn` | `Kiln.Spawn` | partial: no spawn-time components | probe |
+| `spawn_ex` (12) | `kiln.spawn` components copied into the spawn request | `SpawnOptions.Components`, `SpawnComponent.Of` | full | host; server probe pending final integration |
 | `on_save`, `on_load` (2) | `kiln.saves` events | `Kiln.Saves` events | full | probe |
 | `emit_event` (3) | the game's emitter (as `kiln.gameplay`) | `Kiln.Gameplay` | full | probe |
-| `read_events` (3) | one `events_in` per program | `Kiln.Api` ECS programs | partial: one event type per program | probe |
+| `read_events` (3) | `kiln.world` programs v2, multiple event inputs | `Kiln.Api` ECS programs with multiple event inputs | full | host; server probe pending final integration |
 | `on_event` (4) | one `kiln.world` program per event type | `Events.On<T>` (service events) | partial: server world only | probe |
 | `for_each_item`, `find_item`, `item_info` (5) | `kiln.items` catalog | `Kiln.Items` | full | probe |
 | `give_item` (5) | `kiln.spawn` pickup | `Kiln.Items` | full | probe |
@@ -53,15 +58,15 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `program_singleton`, `program_read_other` (8) | `kiln.world` iterator slots | `Kiln.Api` ECS programs | full | probe |
 | `put_items` (8), `put_items_ex`, `take_items` (11) | `kiln.items` transactions | `Kiln.Items` | full | probe |
 | `server_session` (9) | core session | `Kiln.World` | full | probe |
-| `wheel_open` (10) | — | — | no: no radial wheel yet | probe (refusal) |
+| `wheel_open` (10) | `kiln.ui` radial wheel; server refusal as EMF | `Ui.OpenWheel`, `UiWheel` | full | host; client drawing, mouse/keyboard/gamepad selection pending |
 | `notify` (10), `hud_set` (12) | `kiln.ui` overlay | `HudLine` (`Kiln.Ui`) | partial: a server keeps HUD lines and logs notes | client |
 | `setting_declare/_int/_float/_text/_set`, `on_setting_changed` (13) | kiln-emf (`<configDir>/emf/<id>.ini`) | `ModConfig` | full | probe |
 | `mod_info`, `mod_info_at` (13) | kiln-emf | `ModEntry` | full | probe |
 | `find_pattern`, `hook_pattern`, `hook_address` (14) | on-disk scan, safetyhook | `Kiln.Hooks` | full | probe, lab-mod (loot_scale) |
 | `game_build` (14) | Kiln's verified build records | `Diagnostics` | full | probe |
 | `command_sender` (15), `register_command_ex` (17) | `kiln.chat` | `Kiln.Chat` | full | probe |
-| `program_write_other` (16) | — | — | no: `kiln.world` has no other-entity writes | probe (refusal) |
-| `attribute_get`, `attribute_add` (18) | `kiln.combat` health; v22 ids through `kiln.progression` | `Kiln.Combat`, `PlayerProgression` | partial: stamina and mana not supported | probe |
+| `program_write_other` (16) | `kiln.world` programs v2, declared other-entity writes | `EcsProgramContext.TryWriteOther<T>` | full | host; server probe pending final integration |
+| `attribute_get`, `attribute_add` (18) | `kiln.combat` health, stamina and mana; v22 ids through `kiln.progression` | `Attributes.Get/Set/Add`, `PlayerProgression` | partial: health/stamina/mana supported; XP/level timing and limits below | probe; host |
 | `damage` (18) | `kiln.combat` hit | `Kiln.Combat` | full | probe |
 | `chat_tell`, `chat_broadcast`, `player_name`, `on_chat` (19) | `kiln.chat` | `Kiln.Chat` | full | probe, lab-mod (herald) |
 | `request_save` (19) | `kiln.saves` | `Kiln.Saves` | full | probe |
@@ -72,11 +77,11 @@ Structs passed in are read up to their `size` field (EMF's `api_sizes.h` rules):
 | `player_level_set` (22) | `kiln.progression` SET_LEVEL + SET_EXPERIENCE | `PlayerProgression` | partial: level queued for the next server step, even in a world callback (EMF: at once there); nonzero XP is a second request after the level result (several steps later), suppressed if superseded or the session/level changed | probe (refusals), host |
 | `EMF_ATTR_XP_PENDING` / `_XP` / `_XP_REQUIRED` / `_LEVEL` (22) | `kiln.progression` get / ADD_EXPERIENCE | `PlayerProgression` | partial: pending XP is queued, at most 100,000,000 per call (`kiln.progression`); reads require the server thread | probe (refusals), host |
 | `change_component` (23) | kiln-emf's `emf_components` program on `kiln.world` (`queue_add` / `queue_remove`), EMF's list and queue | `Kiln.Api` ECS program `QueueAdd` / `QueueRemove` (low level) | full | probe, host |
-| `window_open`, `window_update`, `window_close` (24) | `kiln.ui` ImGui window, capture, keys | `UiWindow` | partial: no right clicks; plain ImGui look; refused on a dedicated server (as EMF) | probe (server refusal), host, client |
-| `spawn_offer` (25) | `kiln.spawn` + the offer below | — | partial: the prompt appears a step or two after the spawn | probe |
-| `offer`, `offer_remove` (25) | the three offer components through `emf_components`; `InteractionAcceptedEvent` listener | — | full | probe (components), host, client (the prompt, the accept) |
+| `window_open`, `window_update`, `window_close` (24) | `kiln.ui` ImGui window, capture, keys | `UiWindow` | partial: plain ImGui look; left/right clicks implemented; refused on a dedicated server (as EMF) | probe (server refusal), host, client |
+| `spawn_offer` (25) | `kiln.spawn` + the offer below | `Offers.SpawnWithOffer` | partial: the prompt appears a step or two after the spawn | probe |
+| `offer`, `offer_remove` (25) | the three offer components through `emf_components`; `InteractionAcceptedEvent` listener | `Offers.Add/TryAdd/Remove` | full | probe (components), host, client (the prompt, the accept) |
 | `image_load` (26) | `kiln.ui` `image_load` (PNG frames), EMF's limits and paths; encoded files also limited to 64 MB | `UiImage` | partial: encoded-file limit in addition to EMF's decoded-pixel limit | host, client |
-| `offer_active` (25/26) | kiln-emf's offer registry | — | full | probe, host |
+| `offer_active` (25/26) | kiln-emf's offer registry | `Offers.IsActive/Status` | full | probe, host |
 
 ## Lua API (`emf.*`, run by EMF's `lua` mod on the C API)
 
@@ -95,14 +100,14 @@ as the C function under it does. Lua mods need EMF's `lua` mod in `emf/mods/lua/
 | `emf.on_world_data`, `emf.save_world_data` | `on_save` / `on_load` | full |
 | `emf.setting`, `emf.set_setting`, `emf.on_setting_changed`, `emf.on_key`, `emf.key_down` | settings | full (`on_key`: client) |
 | `emf.item`, `emf.item_info`, `emf.give`, `emf.put`, `emf.take`, `emf.move` | items | full |
-| `emf.spawn`, `emf.destroy` | `spawn_ex`, `destroy` | partial: no spawn-time components |
-| `emf.kill`, `emf.health`, `emf.attribute`, `emf.attribute_add`, `emf.damage` | v18 attributes, `damage` | partial: health and XP/level; no stamina, mana |
+| `emf.spawn`, `emf.destroy` | `spawn_ex`, `destroy` | full; spawn-time components supported |
+| `emf.kill`, `emf.health`, `emf.attribute`, `emf.attribute_add`, `emf.damage` | v18 attributes, `damage` | partial: health, stamina and mana supported; XP/level timing and limits as C |
 | `emf.xp_required`, `emf.level_cap`, `emf.set_level` | v22 | full / full / partial (queued level, then XP) |
 | `emf.add_component`, `emf.remove_component` | `change_component` | full |
 | `emf.tell`, `emf.broadcast`, `emf.on_chat`, `emf.request_save` | v19 | full |
 | `emf.teleport` | `teleport` | full |
 | `emf.world_settings.get/set/reset/list`, `emf.on_world_setting_changed` | v21 | full |
-| `emf.wheel`, `emf.wheel_section`, `emf.wheel_group` | `wheel_open` | no |
+| `emf.wheel`, `emf.wheel_section`, `emf.wheel_group` | `wheel_open` | full; client input/drawing pending |
 | `emf.window`, `emf.window_update`, `emf.window_close`, `emf.image` | v24, v26 | partial (as C) |
 | `emf.offer`, `emf.spawn_offer`, `emf.offer_remove`, `emf.offered` | v25, `offer_active` | full / partial / full / full |
 | `world:is_server`, `:is_client`, `:tick`, `:entities`, `:position`, `:get`, `:template`, `:name`, `:account` | worlds, components, `player_name` | full |

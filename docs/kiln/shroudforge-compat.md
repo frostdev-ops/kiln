@@ -235,7 +235,7 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 | `shroudforge.settings.get(key, fallback)` | plugin | `Mod.Config<T>()` | lab |
 | `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | plugin (SF's Modloader window) | `Kiln.Ui` screens | client |
 | `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
-| `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | localisation, `Tick` | — |
+| `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
 | `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin | `Kiln.Ui.KeyBindings` | client |
 | `shroudforge.log.trace/debug/info/warn/error`, `version`, `mod_id`, `mod_kind` | plugin (also in kiln.log as `[sf]`) | `Mod.Log` | lab (probe's `log.info` lines) |
 
@@ -246,40 +246,41 @@ files or a new service (`Kiln.ShroudForge`-style helpers), not done yet. Tested:
 | `runtime.has/require/status`, `runtime.get_operations`, `runtime.is_main_menu` | plugin | `Runtime`, `Kiln.Api.Lifecycle` | lab (survival checks `runtime.ecs.read/write`) |
 | `runtime.world.session_id/context_active/context_kind/operation_available` | plugin | `World`, `KilnSessionInfo` | lab (probe gates on `session_id`) |
 | `runtime.player.name` | plugin (client) | `Kiln.Players` | client |
-| `runtime.ecs.query/query_bounds/resolve/read/read_bytes/read_fields/write/write_fields/get_template/get_template_component` | plugin | entity/component access in Kiln services (`Kiln.World`, `Kiln.Players`, `Kiln.Gameplay`) | lab: `query("keen::ecs::PlayerInput")` (0 players → `no-target`); port: a generic reflected component read/write API |
-| `runtime.ecs.get_registry/get_component(s)/get_catalog` | plugin | typegen / `kiln.assets` types | port |
-| `runtime.ecs.get_attribute(s)/read_attribute(s)/evaluate_attributes/update_attribute/write_attribute_storage` | plugin | `Kiln.Players.PlayerStates`, `Kiln.Combat` | client (survival's stamina, mana, health, oxygen, heat); port: generic attribute API |
+| `runtime.ecs.query/query_bounds/resolve/read/read_bytes/read_fields/write/write_fields/get_template/get_template_component` | plugin | `Reflected.Component/All`, `ReflectedValue` checked setter | lab: `query("keen::ecs::PlayerInput")` (0 players → `no-target`); C# reflection host tests |
+| `runtime.ecs.get_registry/get_component(s)/get_catalog` | plugin | `GameTypes.All/Components/Find`, `GameType.Fields` | C# reflection host tests |
+| `runtime.ecs.get_attribute(s)/read_attribute(s)/evaluate_attributes/update_attribute/write_attribute_storage` | plugin | `Attributes.Get/Set/Add` (`Kiln.Combat`) | C# host tests; SF survival needs a client for stamina, mana, health, oxygen and heat |
 | `runtime.services.get` + `RuntimeService:read_fields/write_field` (named plain services, e.g. `ecs::GameSettings`) | plugin | `Kiln.Settings` (game settings), `Kiln.Rules` | **lab**: probe `write-confirmed: enableDurability=false \| writes=1`, restore on off |
-| `runtime.overrides.new/attribute/component/resource/template/service`, claims, `RuntimeOverrides:begin_update/apply/restore_disabled/restore_unused/restore_all/summary/...` | plugin | none as such (Kiln services restore their own changes) | lab (apply + restore); port: a reversible-override helper on Kiln services |
-| `runtime.values.decode/encode/normalize_field/new` | plugin | typegen value codecs | port |
+| `runtime.overrides.new/attribute/component/resource/template/service`, claims, `RuntimeOverrides:begin_update/apply/restore_disabled/restore_unused/restore_all/summary/...` | plugin | `Overrides.Claim/Release/RestoreAll`, `ReflectedResource.Set/Restore` | SF lab (apply + restore); C# unit tests; helper is not an automatic wrapper for every SF operation |
+| `runtime.values.decode/encode/normalize_field/new` | plugin | `GameValueCodec`, `GameType.Defaults`, checked reflected values | C# host tests |
 | `runtime.functions.list/list_native/find/get/get_native/bind/get_operations/bind_modifier`, `runtime.impact.call` | plugin (profile-admitted operations only) | `Kiln.Hooks`, `Kiln.Abilities` (Impact) | — |
 | `runtime.world.cursor.get`, `runtime.world.building.submit/status/cancel` | plugin (client) | `Kiln.Build` | client |
-| `runtime.world.voxel.get_grid_spec/read/write` | plugin | `Kiln.Build` (schematics), `Kiln.World` | — |
+| `runtime.world.voxel.get_grid_spec/read/write` | plugin | `Build.Grid/Read/Write` (`Kiln.Build`) | API exists; SF voxel path unchecked here |
 | `runtime.world.entity.query_props(_in_bounds)/get_transform/set_scale/spawn/place/destroy/finish_building/register_prop_recipes` | plugin | `Kiln.Spawn`, `Kiln.Build` | — (world-editor mod: client) |
 | `runtime.network.status/send/send_mod/accept/connected_peers/receive/receive_mod` | plugin (SF's Steam Networking Messages) | `Kiln.Network` (`ModCalls`) | lab: "Network service is ready ... role=server" |
 | `runtime.patch.available/set_enabled` | plugin (profile-defined patches; none on KFC4) | `Kiln.Hooks` | n/a on current builds |
-| `game.assets.get_loaded_resource(_by_field)/get_loaded_resources_by_type/prepare_loaded_index/resolve_loaded_resource/read_loaded_field/write_loaded_field` | plugin | `Kiln.Assets`, `Kiln.Items` | — ; port |
+| `game.assets.get_loaded_resource(_by_field)/get_loaded_resources_by_type/prepare_loaded_index/resolve_loaded_resource/read_loaded_field/write_loaded_field` | plugin | `ReflectedResources.Get/All/FindByField`, `ReflectedResource` checked setter, `Assets.Reflect` | C# reflected-resource unit tests |
 
 ### 8.4 EML v1 API (SF's own implementation, `lua/eml/v1/definitions`)
 
 | Module | Functions | Under Kiln | Kiln C# equivalent | Status |
 |---|---|---|---|---|
 | `game.assets` (AssetManager) | `get_resource(s_by_type)`, `get_resource_parts`, `get_resource_types`, `create_resource`, `get_content`, `get_all_contents`, `create_content`, `get_all_resources`, Resource/Content fields | plugin (startup and runtime) | `Kiln.Assets`, `tools/kfc` | plugin; — |
-| `game.types` (TypeRegistry) | `resolve`, `get`, `get_by_index`, `find`, `find_by_hash`, `get_by_qualified_name`, `get_by_impact_name`, `get_all`, `of`, `Type:is_a` | plugin | typegen | plugin; port |
-| `game.guid` (GuidHelper) | `from_content_hash`, `to_content_hash`, `hash` | plugin | `Kiln.Assets` | plugin |
+| `game.types` (TypeRegistry) | `resolve`, `get`, `get_by_index`, `find`, `find_by_hash`, `get_by_qualified_name`, `get_by_impact_name`, `get_all`, `of`, `Type:is_a` | plugin | `GameTypes.Find/ByHash/All/TypeOf`; no Impact-name lookup | plugin; C# equivalent partial |
+| `game.guid` (GuidHelper) | `from_content_hash`, `to_content_hash`, `hash` | plugin | `ContentHash`, `GuidHash.Of` (`Kiln.Eml`) | plugin; C# unit tests |
 | `buffer` | `create`, `wrap`, Buffer read/write of all scalar types, strings, resources | plugin | `System.Buffers` / `BinaryPrimitives` (C# has it) | plugin |
-| `image` | `create`, `decode`, `decode_texture`, `encode`, `encode_texture`, pixel get/set | plugin | — | plugin; port (texture codec) |
+| `image` | `create`, `decode`, `decode_texture`, `encode`, `encode_texture`, pixel get/set | plugin | `DataImage` (PNG and RGBA8 pixels), `Assets.OverrideTexture` (PNG to existing texture format) | plugin; C# unit tests; no general texture decoder |
 | `io` | `read`, `read_to_string`, `list_files`, `exists`, `is_file`, `is_directory`, path helpers, `export*` (exports folder) | plugin (SF's sandbox) | `System.IO` + `Mod.DataDir` | plugin |
-| `hasher` | `fnv`, `crc` | plugin | — | plugin; port (trivial) |
+| `hasher` | `fnv`, `crc` | plugin | `DataHash.Fnv1a32/Crc32/Crc64` (`Kiln.Eml`) | plugin; C# unit tests |
 | `integer` | 512 helpers (u64/i64 math) | plugin | C# has native 64-bit integers | n/a |
 | `loader` | `has_mod` | plugin | `Mods.Has` | plugin |
 | globals | `typeof`, `require` (package-local) | plugin | — | plugin |
 
-**Port to Kiln's C# API (point 3 of the brief), not started:** a generic reflected component and attribute read/write API,
-a reversible override helper, named-service field access (partly covered: `Kiln.Settings`), loaded-resource lookup and
-field write, voxel read/write, an image/texture codec. These must be clean implementations on Kiln's own type data, never
-from kfc-parser. Size: large (weeks). The hosted plugin already gives SF mods full coverage, so the port only matters to
-authors who want to write Kiln (C#) mods with the same reach.
+**Kiln C# coverage:** component reflection, attributes, reversible claims, reflected resource lookup and field writes,
+voxel access, hashing, PNG images and raw RGBA8 pixels have APIs. Blob enumeration covers managed additions and
+overrides only (`Assets.ListBlobs/ListAllBlobs`), not every game blob. General named-service reflection, Impact-name
+type lookup and a general texture decoder remain gaps; `Kiln.Settings` covers world settings. Entity scale is not
+provided by these APIs. The ports use Kiln's own type data and MIT helpers. The hosted plugin's lab evidence is separate
+from C# unit tests, and neither proves a client drew a result or accepted input.
 
 ## 9a. Evidence, bundled runtime (lab `wv-sf-2`, UDP 27061, server build 26430253, no ShroudForge installed)
 

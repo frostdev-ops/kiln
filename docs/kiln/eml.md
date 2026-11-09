@@ -222,6 +222,9 @@ every function is the original: **89/89 implemented**.
 
 The "Kiln equivalent" column is Kiln's own API (MIT). "port" means a new MIT port of the EML function (section 4).
 The others name the Kiln API that does that job; Kiln changes data in memory at run time rather than in files.
+The EML probe tests EML itself. A C# unit test checks the named helper, not its presentation or use in a running client.
+Remaining C# differences include Impact-name/hash lookup, enumeration of the game's content blobs, non-PNG image
+formats and a general block-compressed texture codec. These do not reduce kiln-eml's hosted coverage.
 
 | EML function | kiln-eml | Kiln equivalent (MIT) | Tested |
 |---|---|---|---|
@@ -236,10 +239,10 @@ The others name the Kiln API that does that job; Kiln changes data in memory at 
 | `game.types.get(name or hash)` | EML | `Kiln.Game` generated types (typegen) | probe |
 | `game.types.get_by_qualified_name` | EML | `Kiln.Game` | probe |
 | `game.types.get_by_qualified_hash` | EML | `Assets.TypeHash(name)` | probe |
-| `game.types.get_by_impact_name` | EML | n/a | probe |
-| `game.types.get_by_impact_hash` | EML | n/a | probe |
+| `game.types.get_by_impact_name` | EML | no Impact-name lookup in Kiln C# | probe |
+| `game.types.get_by_impact_hash` | EML | no Impact-hash lookup in Kiln C# | probe |
 | `game.types.get_all` | EML | `Kiln.Game` | probe |
-| `game.types.of(value)` | EML | n/a | probe |
+| `game.types.of(value)` | EML | `GameTypes.TypeOf(value)` for reflected values, resources, fields and types | probe; C# unit tests |
 | `game.assets.get_resource(guid, type, part)` | EML | `Assets.ReadResource(key)` | probe |
 | `game.assets.get_resource_parts(guid, type)` | EML | `Assets.ListResources(type)` | probe |
 | `game.assets.get_resources_by_type(type)` | EML | `Assets.ListResources(type)` | probe |
@@ -247,10 +250,10 @@ The others name the Kiln API that does that job; Kiln changes data in memory at 
 | `game.assets.get_resource_types()` | EML | `Kiln.Game` | probe |
 | `game.assets.create_resource(value, type[, guid, part])` | EML | `Assets.Register(key, bytes)`, typed blocks | probe (both forms) |
 | `game.assets.get_content(guid or ContentHash)` | EML | `kiln.assets` blob read | probe |
-| `game.assets.get_all_contents()` | EML | n/a | probe |
+| `game.assets.get_all_contents()` | EML | partial: `Assets.ListBlobs/ListAllBlobs` list blobs supplied through the managed API, not game or manifest blobs | probe; C# unit tests |
 | `game.assets.create_content(buffer)` | EML | `Assets.AddBlob(bytes)` | probe |
 | `Content:read_data()` | EML | `kiln.assets` blob read | probe |
-| `game.guid.hash(guid)` | EML | n/a | probe |
+| `game.guid.hash(guid)` | EML | `GuidHash.Of(guid)` (`Kiln.Eml`) | probe; C# unit tests |
 | `game.guid.from_content_hash(h)` / `to_content_hash(guid)` | EML | `ContentHash` in Kiln.Assets | probe |
 | `hasher.fnv1a32(v)` | EML | **port** `DataHash.Fnv1a32` | probe; C# test |
 | `hasher.crc32(v)` | EML | **port** `DataHash.Crc32` | probe; C# test |
@@ -270,10 +273,10 @@ The others name the Kiln API that does that job; Kiln changes data in memory at 
 | `Buffer:write_bool ... write_f64` (12) | EML | **port** `WriteBool` ... `WriteF64` | probe; C# test |
 | `Buffer:write_string(s)` | EML | **port** `WriteString` | probe; C# test |
 | `Buffer:read_resource(type)` / `write_resource(type, v)` | EML | `Kiln.Game` typed structs | probe |
-| `image.create(w, h)` | EML | n/a | probe |
-| `image.decode(buf, fmt)` / `encode(img, fmt)` | EML | `Assets.RegisterIcon(png)`, `OverrideTexture(png)` | probe (png) |
-| `image.decode_texture` / `encode_texture` | EML | `Assets.OverrideTexture` | probe (R8G8B8A8) |
-| `Image:get_pixel/set_pixel/get_pixel_packed/set_pixel_packed` | EML | n/a | probe |
+| `image.create(w, h)` | EML | `new DataImage(w, h)` (`Kiln.Eml`) | probe; C# unit tests |
+| `image.decode(buf, fmt)` / `encode(img, fmt)` | EML | `DataImage.DecodePng/EncodePng` (PNG only) | probe (png); C# unit tests |
+| `image.decode_texture` / `encode_texture` | EML | partial: `DataImage.FromRgba8/ToRgba8`; `Assets.OverrideTexture` encodes a PNG to an existing texture's format; no general texture decoder | probe (R8G8B8A8); C# raw-pixel unit tests |
+| `Image:get_pixel/set_pixel/get_pixel_packed/set_pixel_packed` | EML | `DataImage.GetPixel/SetPixel/GetPixelPacked/SetPixelPacked` | probe; C# unit tests |
 | `io.read` / `read_to_string` | EML | `System.IO`, `ModContext` folders | probe |
 | `io.list_files` / `exists` / `is_file` / `is_directory` | EML | `System.IO` | probe |
 | `io.name` / `name_without_extension` / `extension` / `parent` / `join` | EML | `System.IO.Path` | probe |

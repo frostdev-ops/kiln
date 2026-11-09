@@ -32,7 +32,11 @@ The same as data, in `blocks/*.json` (the schema gives the editor completion and
 ```
 Start with `kiln new spell` (template `kiln-spell`), or read `mods/samples/FrostboltBlock`. Set `<KilnServices>Blocks</KilnServices>` in the project. Items, weapons, armor and
 stations: [item-blocks.md](item-blocks.md). Props, forges and racks of your own: [world-blocks.md](world-blocks.md). Creatures, their bodies, animations,
-AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md).
+AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md). Quests and conversations: [quests.md](quests.md#quests-as-blocks).
+Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md).
+
+These pages describe the implemented API. A compile, lowered-resource readback or dedicated-server test does not
+prove client drawing, animation, input or the player's interaction. Those checks remain on the feature's client checklist.
 
 A field that takes a block takes it inline, as what `Blocks.Define` returned, or by name. A name is a block of this mod, or `"other-mod:name"`. Code and data files of one mod name each other's blocks freely: a data block that code names during `OnLoad` is compiled there and then, the rest after `OnLoad`, and the ids are the same either way. A chain that goes back and forth has to be defined in the order it is named.
 
@@ -123,6 +127,19 @@ Blocks.Define("flame-step", new AbilityBlock
     Delivery = new ConeBlock { Range = 8, Angle = 60, Effects = [new EffectBlock { Damage = Damage.Fire(30) }] },
 });
 ```
+An ability is a reusable action with costs and a cooldown. A spell is ammunition used by a staff; a perk follows an
+item's enhancement unlock; a talent follows the player's learned level. Use an item's `OnHit` when no enhancement
+unlock should be needed. All four can share the same effect and status blocks.
+
+The ability above as data:
+```jsonc
+{ "format": 1, "abilities": { "flame-step": {
+  "name": "Flame Step", "key": "G", "command": "step",
+  "cast": { "manaCost": 20, "staminaCost": 10 }, "cooldown": 8,
+  "delivery": { "type": "cone", "range": 8, "angle": 60, "effects": [{ "damage": { "fire": 30 } }] }
+} } }
+```
+
 `Aim` is `Forward` or `NearestEnemy` (none in `Range`: no cast). `SpecialCost` costs the special-ability bar. Without `Cast.Animation` nothing plays and the delivery leaves at once, or after `ReleaseAt`; with one, the caster plays it and its event sends the delivery. `Item` makes an item that casts it when used: `Cast.Charges` is how many a cast takes, 0 keeps it, and a refused cast gives back what it took. A `Key` needs `clients: mod`; a chat command works on any client.
 
 ## Perks
@@ -147,7 +164,9 @@ Blocks.Define("ember-arts", new TalentTreeBlock
 });
 Blocks.Define("ember-ward", new TalentBlock { Name = "Ember Ward", MaxLevel = 3, Modifies = { [Stat.Strength] = 1 }, Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, -40] } });
 ```
-A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`.
+A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`. Names in `Requires`, `Unlocks` and `Keeps` are block references, so code and JSON can
+share them. Keep the tree, node and ability names stable: saves use them. `Skills.Unlock`, `Lock` and `Respec`
+exercise the server rules; a client still has to confirm the screen, key binding and learned talent presentation.
 
 ## What players do
 Any of the game's player states and actions ([player-states.md](player-states.md)) can drive effects:
@@ -156,6 +175,35 @@ Blocks.Define("rest", new TriggerBlock { On = PlayerStateId.Sitting, Do = [new E
 Blocks.Define("no-mushrooms-in-bed", new TriggerBlock { On = PlayerStateRef.Eating, Item = GameItems.Food_T1_raw_mushroom_Mushroom_brown, When = [PlayerStateId.Sleeping], Stop = true });
 ```
 `On` is a state entered, an action started, `Eating` (a consumable started) or `Eaten` (it has really gone). In JSON a name: Kiln's (`"Gliding"`) or the game's (`"HangGliding"`). `Item`, `When`, `Unless`, `If` (code), `Cooldown`, `Do`, `OnEnd` when a state is left, and `Stop` to stop an action or a meal. A consumable says the same of itself: `OnEat` once it has gone, `CanEat` (`When`, `Unless`, `OnRefused`) before. Refused, the item stays and gives nothing; one the game uses up in its first moment (`Consumable_Scroll_Fog_Meteor_Shower`) cannot be refused, and a rule on it is an error. Triggers run on the server world. Nothing is watched until a mod has one.
+
+## Bodies, loot and recipes
+`BodyBlock` is the reusable body of a creature: a game premade such as `Bodies.Vukah`, or a body with its own model,
+skeleton, slots and size. A body or animation that names files belongs in `blocks/*.json` so the cook can see it;
+C# can name that block. See [npc-blocks.md](npc-blocks.md#bodies-and-animations-with-files-of-their-own).
+
+`LootBlock` is an item's place in the game's loot: `Like`, `Tables` (each a `DropPlace`) and `Rolled`. A
+`LootTableBlock` is a table of your own, with `Entries`, `Rolls` and `Pick`. A creature's `Drops` or a container's
+`DefaultLoot` can name it, and its handle can `Roll`, `Give` or `Drop` it:
+```csharp
+var scraps = Blocks.Define("scrap-pile", new LootTableBlock
+{
+    Entries = [new LootEntry { Item = GameItems.Material_T1_Metal_Scraps, CountMin = 2, CountMax = 5 }],
+});
+Blocks.Define("scrapper", new CreatureBlock { Body = Bodies.Vukah, Drops = scraps });
+```
+Creature drops are additional to the game's own drops. The world's Loot Amount setting does not scale this table.
+Loose pickups from `Drop` are not saved. A `RecipeBlock` can be defined on its own in `recipes`, as well as on an
+item or station. See [item-blocks.md](item-blocks.md) for loot tables, recipe inputs and outputs.
+
+## UI blocks
+`WindowBlock`, `HudLineBlock` and `KeyBindingBlock` also have JSON forms: `windows`, `hudLines` and `keyBindings`.
+They bind to this mod's config and the supported read-only `game.*` values; buttons and keys use `UiAction`.
+```csharp
+Blocks.Define("clock", new HudLineBlock { Text = "{game.clock}  {game.fps:0} fps", Anchor = HudAnchor.TopRight });
+```
+Every player needs the mod (`clients: mod`). A dedicated server validates and keeps these blocks but draws and
+binds nothing. Host tests and server registration do not verify widget layout, gamepad/mouse input or visible HUD
+text. See [ui-blocks.md](ui-blocks.md) for actions, conditions, config writes and the client checklist.
 
 ## Game things, by name
 `GameBuffs` constants are ids, `GameTemplates` constants are names. Only the running game knows what they stand for, so a program naming one is finished when content is ready. A name that is nothing is a load error by block and field, and `kiln lint` says so first if a catalog is there.
@@ -216,7 +264,8 @@ To say more, write the reference out: `new VfxRef("frost_burst") { Slot = VfxSlo
 
 **Parameters** work only on an effect's VFX, and only on one of the game's. Everywhere else the game takes a block laid out by the VFX itself, which a server doesn't have, so a cast, a projectile or a status with parameters is refused by name. A `VfxBlock` has none yet. An effect with parameters is a relayed play, not a hidden template: Kiln clients near it see it, a joiner doesn't. A number is a float, `VfxValue.Int(7)` (`{ "int": 7 }`) a whole number, a `Vector3` (`[x, y, z]`) three floats, `"#rrggbb"` or `"#rrggbbaa"` a colour. The game ignores a name or type its VFX doesn't have.
 
-A look can't carry a VFX yet: `VisualBlock.Vfx` is an error. A game VFX on an effect plays with its own default parameters, not its template's.
+`VisualBlock.Vfx` attaches a VFX to an item's own visual template or a placed prop; it takes the same `VfxRef`.
+A game VFX on an effect plays with its own default parameters unless the reference supplies `Parameters`.
 
 **Limits.** The game has room for 473 new VFX across all mods and about 240 KB of mesh memory. Going over either aborts the game, so a mod that doesn't fit is refused as a whole, and each of its blocks says why when it loads. A server has no builder and counts VFX only. See [the builder's checks](../services/vfx-cook.md#the-limits-and-the-checks-before-them).
 

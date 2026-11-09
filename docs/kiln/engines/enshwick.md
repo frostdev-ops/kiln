@@ -142,24 +142,24 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 | Loading: DLL mods (`enshwick_mod_abi/_query/_init/_ready`), resolve, duplicates, `mods.toml` | hosted (kiln-enshwick) | Kiln mod loader (`kiln.mod.json`, dependencies) | hosted; host + lab (2 DLL mods from enshwick/mods) |
 | Luau mods (`main.luau`, sandbox, 37 namespaces) | hosted | C# mods | hosted; lab |
 | Data packs (`pack.toml`, items, recipes, workshops, loot, rewards, sounds, texts) | hosted | `Kiln.Blocks` (typed blocks, JSON) | hosted; lab |
-| Settings (`config_schema`, `config_check`, `settings`): per-world `settings.toml` | hosted | `Kiln.Config` (per profile; per-world: not yet) | hosted; lab (files written), client (Settings button) |
+| Settings (`config_schema`, `config_check`, `settings`): per-world `settings.toml` | hosted | `Config.RegisterWorld<T>()` / `Mod.WorldConfig<T>()` (per-world config) | hosted; lab (files written), client (Settings button) |
 | Join check (`join_missing`, `hosting`, `mods.lock`) | hosted | `Kiln.Network` mod-set check | hosted; lab (`mods.lock`, server advertising), client (refusal) |
 | Hooks and raw access (`hook`, `hook_at`, `patch_code`, `code_range`, `symbol`, `find_call`, `field_offset`, `constant`, `caller_frame`, `fault`) | hosted, chained with Kiln's hooks (see above) | `Kiln.Hooks` | hosted; lab |
-| ECS and types (`component`, `component_write`, `system`, `types`, `type_size`, `type_hash`, `resource_read`, `resource_keys`, `rebuild_resource`, `serve_resource`) | hosted | `Kiln.Game` typed components, `kiln.types` | hosted; lab |
+| ECS and types (`component`, `component_write`, `system`, `types`, `type_size`, `type_hash`, `resource_read`, `resource_keys`, `rebuild_resource`, `serve_resource`) | hosted | `Reflected.Component`, `GameTypes`, `ReflectedResources.Get/All/FindByField`, `Assets` | hosted; lab |
 | Events and ticks (`subscribe*`, `define_event`, `send_event`, `emit`, `event_types`, `set_tick_every`, `loop_wait`, `task_workers`) | hosted | `Events`, `ModContext.Tick`, `Scheduler` | hosted; lab |
 | Services and calls between mods (`publish`, `service`, `serve_call`, `call`) | hosted | `Mods.Send`, `Kiln.Network` ModCalls | hosted; host (no game needed) |
 | Extension points (`define_point`, `attach_point`, `run_point`) | hosted | **`Kiln.Points`** (new, ported from Enshwick's model) | hosted; C# unit-tested |
 | World, players, entities (`world_*`, `player`, `players`, `entities`, `entity_template`, `spawn`, `destroy`, `teleport`, `server_world`, `server_wait`) | hosted | `Kiln.World`, `Kiln.Players`, `Kiln.Spawn` | hosted; lab |
-| Entity and item data (`entity_data_open`, `item_data_*`) | hosted | `EntityData` (`Kiln.Saves`); per-item data: none | hosted; client |
+| Entity and item data (`entity_data_open`, `item_data_*`) | hosted | `EntityData` (`Kiln.Saves`); gear uses `InventorySlot.ItemEntity` in the current world session; no persistent per-item store | hosted; client |
 | Saves and state (`save_world`, `save_info`, `hold_saves`, `data_dir`, `set_saved`) | hosted | `WorldData`, `PlayerData`, `ModContext.DataDirectory` | hosted; lab |
 | Items, inventory, transactions (`item_*`, `inventory_*`, `transaction_*`, `summon_*`, `local_held`) | hosted | `Kiln.Items` | hosted; client |
 | Content (`declare_content`, `declare_change`, `use_content`, `content_*`, `rename_*`, `add_text`, `texts`, `icons_ready`, `workshop_recipes`, `recipe_*`, `crafting_prop`) | hosted | `Kiln.Content`, `Kiln.Blocks` | hosted; client |
 | Loot and rewards | hosted | `Kiln.Content` loot, `Kiln.Quests` rewards | hosted; client |
-| Stats, buffs, affixes, damage (`stat_*`, `buff*`, `apply_buff`, `remove_buff`, `affix_*`, `damage_filter`, `stats_changed`) | hosted | `Kiln.Combat`, `Kiln.Abilities`; affixes: none | hosted; client |
+| Stats, buffs, affixes, damage (`stat_*`, `buff*`, `apply_buff`, `remove_buff`, `affix_*`, `damage_filter`, `stats_changed`) | hosted | `Attributes`, `Kiln.Combat`, `Kiln.Abilities`; affixes: no Kiln C# API | hosted; client |
 | Progress, knowledge, skills, experience, comfort (`knowledge*`, `grant/revoke_knowledge`, `skill_override`, `experience_filter`, `comfort_filter`, `quests`) | hosted | `Kiln.Skills`, `Kiln.Players`, `Kiln.Quests` | hosted; client |
 | Rates and game settings (`rate`, `set_rate`, `game_settings`, `set_game_settings`, `keep/forget_game_settings`) | hosted | `Kiln.Rules`, `Kiln.Settings` | hosted; lab |
 | Vetoes and filters (`craft_filter`, `build_filter`, `build_rights`, `interaction_filter`, `building_zone_check_filter`, `chat_filter`) | hosted | cancelable `Events`, `Kiln.Rules` | hosted; client |
-| Altars, bases, survivors (`altar*`, `base_*`, `raise_base_limit`, `request_base_limits`, `survivor_*`) | hosted | `Kiln.Build` (partial); survivors: none | hosted; client |
+| Altars, bases, survivors (`altar*`, `base_*`, `raise_base_limit`, `request_base_limits`, `survivor_*`) | hosted | `Kiln.Build` (partial), `Villagers` (`Kiln.Creatures`) and `WorldProgress.Survivors` (read); recruit/assign and `raise_base_limit` remain gaps | hosted; client |
 | Daytime, weather (`time_of_day`, `set_time_of_day`, `time_speed*`, `weather_at`, `weather_fronts`, `set_weather`) | hosted | `Kiln.Time` | hosted; lab |
 | Terrain, voxels (`terrain_*`, `voxel_read`) | hosted | `Kiln.Build`, `Kiln.Blocks` | hosted; client |
 | Map, fog, markers (`map_*`, `fog_*`, `ui_markers`) | hosted | `Kiln.Ui` map markers | hosted; client |
@@ -168,13 +168,18 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 | Chat and console (`chat`, `chat_mute_*`, `run_console`, `account_*`) | hosted | `Kiln.Chat`, `kilnctl` commands | hosted; lab |
 | Net between a mod's server and client (`net_channel`, `net_send`, `net_ready`) | hosted | `Kiln.Network` | hosted; client |
 | Sound (`sound`) | hosted | `Kiln.Audio` | hosted; client |
-| Pacing (`pacing`, `set_change`, `change_data`) | hosted | none | hosted; lab |
-| Status lines (`status`), mods list (`mods`, `mod_dir`, `host_version`, `game_version`, `language`, `feature`) | hosted | `Mods.All`; status lines: none | hosted; host |
+| Pacing (`pacing`, `set_change`, `change_data`) | hosted | `Pacing.OnLoopWait/OnServerWait`, `Pacing.CapTaskWorkers` (check `Sites`) | hosted; lab; Kiln pacing: 48 native checks, 20 lab PASS |
+| Status lines (`status`), mods list (`mods`, `mod_dir`, `host_version`, `game_version`, `language`, `feature`) | hosted | `Mods.All`, `StatusLines.Add/Set/All` (`Kiln.Ui`) | hosted; host |
 | Logging (`log`, `log_level`) | hosted; key lines mirrored into kiln.log | `ModContext.Log` | hosted; host + lab |
 
 Counts: 33 areas, 33 hosted. Of the 193 entries, 193 are served by Enshwick's own code. On Kiln's side,
-`Kiln.Points` is new. Per-world settings, per-item data, affixes, survivors, status lines and pacing have no Kiln C#
-equivalent yet.
+`Kiln.Points`, per-world config, reflected resources and `StatusLines` have Kiln C# APIs.
+Persistent per-item data, affixes, survivor recruit/assign and base-limit increases remain gaps. Gear
+`EntityData` is limited to its item entity in the current world session. `Pacing` has native loop/server-wait hooks and startup worker caps on supported server builds. Its lab changed
+server waits from 40 to 80 to 10 ms, then restored 40 ms; disposal left no callbacks. Both Enshwick hook orders
+ran in the lab. Client wait sites have static matches only; check `Pacing.Sites` and the client checklist.
+See [lifecycle.md](../modding/lifecycle.md).
+The hosted evidence in this table tests Enshwick; it does not verify the C# equivalents or client rendering.
 
 ## Known differences
 
