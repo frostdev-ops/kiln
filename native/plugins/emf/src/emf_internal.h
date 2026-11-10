@@ -218,7 +218,10 @@ void net_after_step(EmfWorld* w, uint8_t kind);
 void net_world_stopping(uint8_t kind);
 void net_world_started(uint8_t kind);
 void net_shutdown();
-void portraits_on_ready();  // offline generation through the separate GPL kiln-eml component
+void portraits_on_ready();  // offline generation through the separate GPL kiln-eml component (drawing on a worker)
+// image_load("portrait:<key>"): true when the picture is not being drawn (any more). While it is, the thread that started the
+// drawing waits (for 120 s all calls together); any other thread gets false at once and asks again later.
+bool portraits_wait(const std::string& key);
 bool commands_is_admin(uint32_t entity, uint64_t account);  // same policy as command_sender.admin
 
 // tick hooks of the parts

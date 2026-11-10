@@ -184,12 +184,17 @@ screen; a status line is read when someone asks (Enshwick's `add_status` and the
 StatusLines.Add(() => $"{_merged} zones merged, {_seams} seams");   // a source: Kiln calls it only when someone looks
 StatusLines.Set("state", "waiting for the world");                  // or push a text; an empty text removes the line
 ```
-- **A source** runs only when the status is read, on whichever thread reads it, as your mod. Keep it quick; read fields or
-  atomics the tick thread wrote; touch no game state. A source that throws shows nothing and is logged once. Several lines are fine
-  (`\n`); empty ones are dropped. A line has an id within your mod: the same id replaces it.
-- **Where it shows:** the **Mods** tab of Kiln's menu on a client (under the table, refreshed a few times a second);
+- **A source** runs only when the status is read, as your mod: on the thread that calls `Lines`, `All` or `Summary`, and on a
+  worker thread for the menu and the dashboard. Keep it quick; read fields or atomics the tick thread wrote; touch no game
+  state. A source that throws shows nothing and is logged once. Several lines are fine (`\n`); empty ones are dropped. A line
+  has an id within your mod: the same id replaces it.
+- **Where it shows:** the **Mods** tab of Kiln's menu on a client (under the table, refreshed about twice a second);
   `StatusLines.Summary()` as text, `StatusLines.Lines(modId)`, `StatusLines.All()`; `StatusLines.WriteToLog()` for a server's log;
   `kiln-admin`'s `mods` operation adds a `statusLines` list per mod for the dashboard.
+- **The menu and the dashboard never wait for a source.** They show the lines read last and start one refresh on a worker, so a
+  new or changed line shows a moment later, and the first look after a pause shows the previous lines (the very first, none):
+  look again. Setting a line every tick starts at most ten refreshes a second. A source that hangs freezes the lines of every
+  mod in the menu and the dashboard at their last value until it returns.
 - Lines go with the mod that added them. The registry works on a dedicated server too: nothing in it draws.
 
 ## Pacing (`Pacing`)

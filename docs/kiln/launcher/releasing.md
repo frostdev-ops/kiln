@@ -52,7 +52,11 @@ A disabled official build needs no OAuth registration. It hides catalog/navigati
 both desktop and Deck, refuses all `nexus_*` IPC commands, and stops catalog/API/download/refresh/storage/handler
 work before side effects. Direct `nxm://` invocations exit without forwarding, queueing or networking. The base
 Tauri packaging configuration has no deep-link plugin or automatic nxm association: ownership is only acquired by
-the runtime handler opt-in, which disabled builds refuse. Existing credentials and handler state are left untouched.
+the runtime handler opt-in, which disabled builds refuse. A disabled build still removes Kiln's own leftovers from
+0.2.0-dev.19 at every start: the stored personal API key, and the nxm registration (the manager before Kiln gets the
+links back; another program's handler is never changed). Your OAuth sign-in is not touched. Details:
+[catalog.md](catalog.md), "Leftovers of older builds". `tools/test-nexus-disabled.sh` runs the disabled-build tests
+(`release.sh` runs it as a check when `KILN_NEXUS_ENABLED=0`).
 
 For an enabled official build, obtain Nexus approval and set/export `KILN_NEXUS_OAUTH_CLIENT_ID` and
 `KILN_NEXUS_OAUTH_REDIRECT_URI` from that registration. The callback must be the exact approved

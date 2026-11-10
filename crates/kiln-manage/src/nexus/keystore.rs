@@ -141,13 +141,60 @@ fn remove_file(path: &Path) -> Result<()> {
         Err(e) => Err(crate::util::io_at(path, "removing")(e)),
     }
 }
-/// Delete the retired credential slots; no personal key is loaded or sent to Nexus.
+/// Delete the retired credential slots; no personal key is loaded or sent to Nexus. Only where Nexus is on: the
+/// launcher calls [`retire_personal_key`] at every start, in builds with Nexus off as well.
 pub fn retire_legacy(root: &Path) -> Result<()> {
-        super::require_enabled()?;
-    remove_file(&root.join("apikey.json"))?;
+    super::require_enabled()?;
+    retire_personal_key(root).map(|_| ())
+}
+
+/// The keyring slot dev.19 kept the personal API key in (`nexusmods-api-key`, not the OAuth slot). None: no keyring on
+/// this system, or `KILN_NO_KEYRING` is set.
+pub fn legacy_keyring() -> Option<Box<dyn SecretBackend>> {
     let off = std::env::var("KILN_NO_KEYRING").is_ok_and(|v| !v.is_empty() && v != "0");
-    if !off { if let Some(backend) = platform_keyring(true) { backend.clear()?; } }
-    Ok(())
+    if off { None } else { platform_keyring(true) }
+}
+
+/// Removes the personal API key an older Kiln (dev.19) stored: `<root>/apikey.json` and the keyring entry
+/// `nexusmods-api-key`. Both are Kiln's own: no other program's secret is named. Works in every build, also where
+/// Nexus is off, because the key is a leftover nobody can use any more. Returns whether a key was there. The value is
+/// never printed, logged or returned: the keyring is read only to learn that the entry exists.
+pub fn retire_personal_key(root: &Path) -> Result<bool> {
+    retire_personal_key_in(root, legacy_keyring().as_deref())
+}
+
+/// [`retire_personal_key_in`] for every launcher start: the file is checked each time (cheap), the keyring only until
+/// one lookup has succeeded and found nothing or removed the entry. That success is recorded in `marker` (no secret in
+/// it), so a locked keyring does not ask to be unlocked at every start, and a lookup that failed (locked, refused, no
+/// keyring yet) is tried again next time. Without a keyring (`ring` None) no marker is written.
+pub fn retire_personal_key_once(root: &Path, marker: &Path, ring: Option<&dyn SecretBackend>) -> Result<bool> {
+    let ring = ring.filter(|_| !marker.exists());
+    let checked_ring = ring.is_some();
+    let removed = retire_personal_key_in(root, ring)?;
+    if checked_ring {
+        if let Some(parent) = marker.parent() { std::fs::create_dir_all(parent).map_err(crate::util::io_at(parent, "creating"))?; }
+        std::fs::write(marker, b"the retired Nexus personal-key keyring slot was checked and is empty\n")
+            .map_err(crate::util::io_at(marker, "writing"))?;
+    }
+    Ok(removed)
+}
+
+/// [`retire_personal_key`] with the legacy keyring slot given (tests: a fake).
+pub fn retire_personal_key_in(root: &Path, ring: Option<&dyn SecretBackend>) -> Result<bool> {
+    let file = root.join("apikey.json");
+    let mut removed = match std::fs::symlink_metadata(&file) {
+        Ok(_) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(crate::util::io_at(&file, "inspecting")(e)),
+    };
+    if removed { remove_file(&file)?; }
+    if let Some(ring) = ring
+        && ring.get()?.is_some_and(|secret| !secret.is_empty())
+    {
+        ring.clear()?;
+        removed = true;
+    }
+    Ok(removed)
 }
 
 /// Writes JSON readable by the user only (created 0600 on Unix, then renamed over the target).
@@ -239,19 +286,30 @@ impl SecretTool {
 }
 
 #[cfg(target_os = "linux")]
+impl SecretTool {
+    /// The OAuth slot follows the Nexus switch. The retired personal-key slot can always be read and cleared (so a
+    /// build with Nexus off still removes it) and can never be written.
+    fn allowed(&self, write: bool) -> Result<()> {
+        if !self.legacy { return super::require_enabled(); }
+        if write { return Err(Error::new(ErrorCode::Unsupported, "The retired Nexus personal-key slot is never written.")); }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
 impl SecretBackend for SecretTool {
     fn get(&self) -> Result<Option<String>> {
-        super::require_enabled()?;
+        self.allowed(false)?;
         let (ok, out) = self.run(&["lookup"], None)?;
         Ok(ok.then(|| out.trim().to_string()).filter(|s| !s.is_empty()))
     }
     fn set(&self, secret: &str) -> Result<()> {
-        super::require_enabled()?;
+        self.allowed(true)?;
         let (ok, _) = self.run(&["store", "--label=Kiln Launcher: Nexus Mods authorization"], Some(secret))?;
         if ok { Ok(()) } else { Err(Error::new(ErrorCode::Unsupported, "the keyring refused authorization")) }
     }
     fn clear(&self) -> Result<()> {
-        super::require_enabled()?;
+        self.allowed(false)?;
         let (ok, _) = self.run(&["clear"], None)?;
         if ok || self.get()?.is_none() { Ok(()) } else { Err(Error::new(ErrorCode::Io, "The keyring could not remove the Nexus Mods authorization.")) }
     }
@@ -276,9 +334,20 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 #[cfg(windows)]
+impl WinCred {
+    /// The OAuth credential follows the Nexus switch. The retired personal-key credential can always be read and
+    /// deleted (so a build with Nexus off still removes it) and can never be written.
+    fn allowed(&self, write: bool) -> Result<()> {
+        if !self.legacy { return super::require_enabled(); }
+        if write { return Err(Error::new(ErrorCode::Unsupported, "The retired Nexus personal-key credential is never written.")); }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
 impl SecretBackend for WinCred {
     fn get(&self) -> Result<Option<String>> {
-        super::require_enabled()?;
+        self.allowed(false)?;
         use windows_sys::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CREDENTIALW, CredFree, CredReadW};
         let target = wide(target(self.legacy));
         let mut p: *mut CREDENTIALW = std::ptr::null_mut();
@@ -299,7 +368,7 @@ impl SecretBackend for WinCred {
         }
     }
     fn set(&self, secret: &str) -> Result<()> {
-        super::require_enabled()?;
+        self.allowed(true)?;
         use windows_sys::Win32::Security::Credentials::{CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredWriteW};
         let target = wide(target(self.legacy));
         let user = wide("nexusmods");
@@ -318,7 +387,7 @@ impl SecretBackend for WinCred {
         if ok != 0 { Ok(()) } else { Err(Error::new(ErrorCode::Unsupported, "Credential Manager refused authorization")) }
     }
     fn clear(&self) -> Result<()> {
-        super::require_enabled()?;
+        self.allowed(false)?;
         use windows_sys::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CredDeleteW};
         let target = wide(target(self.legacy));
         // SAFETY: NUL-terminated target.
@@ -392,6 +461,37 @@ mod tests {
         assert!(store.get().is_err());
         store.clear().unwrap();
         assert!(!store.file_path().exists());
+    }
+    /// The real adapter against a stand-in `secret-tool` that keeps its entries in a folder (never the user's keyring):
+    /// the retired slot is cleared by its own attributes in every build, the OAuth slot is left alone, and the retired
+    /// slot can never be written.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn disabled_nexus_retired_slot_is_cleared_through_secret_tool_and_the_oauth_slot_is_left_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = temp();
+        let store = tmp.path().join("store");
+        std::fs::create_dir(&store).unwrap();
+        let script = tmp.path().join("secret-tool");
+        std::fs::write(&script, format!(
+            "#!/bin/sh\nd='{}'\nop=$1; shift\nkey=\nfor a in \"$@\"; do case \"$a\" in --label=*) ;; *) key=\"$key.$a\";; esac; done\n\
+             f=\"$d/slot$key\"\ncase \"$op\" in\n  lookup) [ -f \"$f\" ] && cat \"$f\" || exit 1;;\n  store) cat > \"$f\";;\n  clear) rm -f \"$f\";;\nesac\n",
+            store.display())).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let legacy_slot = store.join("slot.application.kiln-launcher.service.nexusmods-api-key");
+        let oauth_slot = store.join("slot.application.kiln-launcher.service.nexusmods-oauth");
+        std::fs::write(&legacy_slot, "fixture personal key").unwrap();
+        std::fs::write(&oauth_slot, "fixture oauth entry").unwrap();
+        let legacy = SecretTool { exe: script.clone(), legacy: true };
+        assert_eq!(legacy.get().unwrap().as_deref(), Some("fixture personal key"));
+        assert!(legacy.set("never").is_err());
+        assert_eq!(std::fs::read_to_string(&legacy_slot).unwrap(), "fixture personal key");
+        let root = tmp.path().join("nexus");
+        assert!(retire_personal_key_in(&root, Some(&legacy)).unwrap());
+        assert!(!legacy_slot.exists());
+        assert_eq!(std::fs::read_to_string(&oauth_slot).unwrap(), "fixture oauth entry");
+        assert!(!retire_personal_key_in(&root, Some(&legacy)).unwrap());
+        assert!(!root.exists(), "retiring created the Nexus folder");
     }
     #[test]
     fn private_writes_preserve_other_writers_temporary_files() {

@@ -64,6 +64,31 @@ int main() {
     check(present && remove(10) == KILN_OK, "failed removal retains ownership for retry"); apply();
     check(!present, "retried removal succeeds");
     reset();
+    // kiln.types present: the payload must match the component's reflected size (InteractionOfferRuntime = 56 here)
+    static KilnTypesApi types{};
+    types.header.size = sizeof types;
+    types.header.version = KILN_TYPES_VERSION;
+    types.type_by_hash = [](uint32_t h) -> const KilnType* {
+        return h == kOfferComponents[0] ? reinterpret_cast<const KilnType*>(&types) : nullptr;
+    };
+    types.type_info = [](const KilnType*, KilnTypeInfo* out) -> KilnResult { out->type_size = 56; return KILN_OK; };
+    static KilnApi api{};
+    api.service = [](KilnStr name, uint32_t) -> const void* {
+        return std::string_view(name.ptr, name.len) == KILN_TYPES_SERVICE ? &types : nullptr;
+    };
+    g_api = &api;
+    check(component_change(10, 42, hash, data, 55, KILN_GAMEPLAY_COMPONENT_ADD) == KILN_ERR_INVALID_ARGUMENT,
+          "a payload shorter than the reflected size is refused");
+    uint8_t big[64]{};
+    check(component_change(10, 42, hash, big, sizeof big, KILN_GAMEPLAY_COMPONENT_ADD) == KILN_ERR_INVALID_ARGUMENT,
+          "a payload longer than the reflected size is refused");
+    check(add(10) == KILN_OK, "a payload of the reflected size is queued");
+    apply();
+    check(present, "the matching payload is applied");
+    reset();
+    check(component_change(10, 42, kOfferComponents[1], big, 12, KILN_GAMEPLAY_COMPONENT_ADD) == KILN_OK,
+          "a type kiln.types does not list falls back to the 1..256 bound");
+    reset();
     std::printf("gameplay component ownership: %s %d checks, %d failures\n", failures ? "FAIL" : "PASS", checks, failures);
     return failures ? 1 : 0;
 }

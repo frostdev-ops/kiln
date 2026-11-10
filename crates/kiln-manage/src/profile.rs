@@ -826,7 +826,7 @@ pub fn read_game_profile(game_dir: &std::path::Path) -> Result<Option<ProfileFil
     Ok(p)
 }
 
-fn running_process_with(
+pub(crate) fn running_process_with(
     dir: &Path,
     selected: &str,
     mut find: impl FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>,

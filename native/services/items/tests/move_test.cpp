@@ -775,6 +775,10 @@ void review_tests() {
     }
 
     check(xfer_add_reporter(95, &on_report, nullptr, &handle) == KILN_OK, "review: dry-run reporter registers");
+    uint64_t dry_handler = 0;
+    g_handler_keep = g_handler_move = 0;
+    g_handler_cancel = false;
+    check(xfer_add_handler(96, &native_handler, nullptr, &dry_handler) == KILN_OK, "review: dry-run handler registers");
     E.tx_ctor = &fake_tx_ctor;
     E.tx_init = &fake_tx_init;
     E.commit = &fake_tx_noop;
@@ -793,7 +797,24 @@ void review_tests() {
         job.r.flags = KILN_ITEMS_MOVE_DRY_RUN;
         KilnItemsMoveResult moved{};
         unsigned long code = 0;
-        const bool ok = run_move(access, job, reinterpret_cast<uint8_t*>(&tx), &moved, &code);
+        g_seen = SeenEvent{};
+        bool ok = run_move(access, job, reinterpret_cast<uint8_t*>(&tx), &moved, &code);
+        xfer_deliver();
+        check(g_seen.calls == 1 && (g_seen.flags & KILN_TRANSFER_DRY_RUN) && (g_seen.flags & KILN_TRANSFER_BY_MOD),
+              kind == KILN_MOVE_QUICK_STACK ? "review: a dry-run quick stack tells handlers (KILN_TRANSFER_DRY_RUN)"
+                                            : "review: a dry-run move all tells handlers (KILN_TRANSFER_DRY_RUN)");
+        g_seen = SeenEvent{};
+        reset_world(); put(A, 0, WOOD, 9); put(B, 0, WOOD, 2);
+        job.r.flags = 0;
+        KilnItemsMoveResult real{};
+        run_move(access, job, reinterpret_cast<uint8_t*>(&tx), &real, &code);
+        xfer_deliver();
+        check(g_seen.calls == 1 && !(g_seen.flags & KILN_TRANSFER_DRY_RUN) && (g_seen.flags & KILN_TRANSFER_BY_MOD),
+              "review: a real mod move has no dry-run flag");
+        g_reports.clear();
+        reset_world(); put(A, 0, WOOD, 9); put(B, 0, WOOD, 2);
+        job.r.flags = KILN_ITEMS_MOVE_DRY_RUN;
+        ok = run_move(access, job, reinterpret_cast<uint8_t*>(&tx), &moved, &code);
         xfer_deliver();
         check(ok && moved.done == 9 && total(WOOD, {A, A2}) == 9 && total(WOOD, {B, B2}) == 2,
               "review: dry-run uses the real move path and rolls its inventory writes back");
@@ -802,6 +823,48 @@ void review_tests() {
             : "review: dry-run move all emits no committed transfer report");
     }
     xfer_end_owner(95);
+    xfer_end_owner(96);
+}
+
+// items.move off, items.transfer on (dev.20 review): the transfer hooks still work, mods' moves are refused cleanly.
+void move_off_test() {
+    E.move_ok = false;
+    E.transfer_ok = false;
+    gate_features();
+    check(!E.slot_transfer && !E.quick_stack && !E.move_all, "move off, transfer off: no game function is left to call");
+    setup_engine();
+    E.move_ok = false;
+    E.transfer_ok = true;
+    gate_features();
+    check(!E.slot_transfer && E.quick_stack && E.move_all,
+          "move off, transfer on: the slot transfer is dropped, quick stack and move all stay for the hooks");
+    FakeTx tx;
+    Access a;
+    check(access_from_tx(&tx, &a), "move off: the transaction accessors check out");
+    fill_for_transfer();
+    MoveOutcome mo;
+    check(move_stack_in(a, &tx, A, KILN_SLOT_ID(A, 0), B, 0, 0, false, false, &mo) == 0 && mo.status == KILN_ITEMS_UNAVAILABLE &&
+              total(WOOD, {A, A2}) == 13,
+          "move off: a mod's stack move is refused as unavailable and nothing moves");
+    MoveJob job;
+    job.r.size = sizeof(KilnItemsMoveRequest);
+    job.r.kind = KILN_MOVE_QUICK_STACK;
+    job.r.from = A;
+    job.r.to = B;
+    KilnItemsMoveResult res{};
+    unsigned long code = 0;
+    run_move(a, job, reinterpret_cast<uint8_t*>(&tx), &res, &code);
+    check(res.status == KILN_ITEMS_UNAVAILABLE, "move off: a mod's quick stack is refused as unavailable");
+    uint64_t keep_rule = 0;
+    KilnItemsTransferRule kr{sizeof kr, KILN_TRANSFER_KEEP_SLOT, 0, 0, 0, 0, KILN_SLOT_ID(A, 2)};
+    check(xfer_add_rule(7, &kr, &keep_rule) == KILN_OK, "move off: a transfer rule still installs the hooks");
+    fill_for_transfer();
+    Result12 out[3] = {};
+    g_vanilla_calls = 0;
+    call_qs(B, A, tx, out);
+    check(out[0].error == 0 && out[0].value == 14 && count_at(A, 2) == 4 && g_vanilla_calls == 1,
+          "move off: the game's quick stack runs through the hook and the keep rule holds the locked stack");
+    xfer_end(keep_rule);
 }
 
 // ---------------------------------------------------------------------------------------------- chaining ----
@@ -846,6 +909,11 @@ int main(int argc, char** argv) {
     const std::string mode = argc > 1 ? argv[1] : "all";
     if (mode == "review") {
         review_tests();
+        std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
+        return failures ? EXIT_FAILURE : EXIT_SUCCESS;
+    }
+    if (mode == "move-off") {
+        move_off_test();
         std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
         return failures ? EXIT_FAILURE : EXIT_SUCCESS;
     }

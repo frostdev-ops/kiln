@@ -694,12 +694,13 @@ pub fn extract(zip_file: &Path, manifest: &ModpackManifest, staging: &Path) -> R
     if current != *manifest {
         return Err(err(ErrorCode::HashMismatch, "the modpack changed after it was inspected"));
     }
-    crate::engine_mods::refuse_symlink_path(staging)?;
+    // The staging folder is the managed root: it and everything below it must be real folders.
+    crate::engine_mods::refuse_symlink_path(staging, staging)?;
     std::fs::create_dir_all(staging).map_err(crate::util::io_at(staging, "creating"))?;
     let unpacked = crate::library::unpack_to_temp(zip_file, staging)?;
     for m in &manifest.mods {
         let to = staging.join(&m.path);
-        crate::engine_mods::refuse_symlink_path(&to)?;
+        crate::engine_mods::refuse_symlink_path(staging, &to)?;
         let from = unpacked.path().join(&m.path);
         if m.kind == ModKind::Plugin {
             if let Some(p) = to.parent() {

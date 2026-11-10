@@ -7,12 +7,14 @@ use parking_lot::{Mutex, MutexGuard};
 use crate::{alias::{Path, PathBuf}, log::{info, warn}, IoError, ModEnvironmentErrorReport, ModError, ModErrorReport};
 
 pub use manifest::*;
-pub use fs::FileSystem;
+pub use fs::{FileSystem, ReadFailure}; // kiln-eml: ReadFailure
 
 #[derive(Debug)]
 struct ModInner {
     info: ModManifest,
     fs: Mutex<FileSystem>,
+    // kiln-eml: when mod.json was read (the registry load), for "mod loaded N s ago" in read failures.
+    loaded: std::time::Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +30,11 @@ impl Mod {
 
     pub fn fs(&self) -> MutexGuard<FileSystem> {
         self.inner.fs.lock()
+    }
+
+    /// kiln-eml: the time since this mod was loaded into the registry (when its mod.json was read).
+    pub fn age(&self) -> std::time::Duration {
+        self.inner.loaded.elapsed()
     }
 
 }
@@ -249,6 +256,7 @@ impl ModRegistry {
             inner: Arc::new(ModInner {
                 info: mod_info,
                 fs: Mutex::new(fs),
+                loaded: std::time::Instant::now(), // kiln-eml: Mod::age
             }),
         }))
     }

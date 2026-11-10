@@ -32,6 +32,7 @@ Mod *caller_mod(const void *) { return active_mod; }
 Mod *mod_of_address(const void *) { return active_mod; }
 void logf(int, const char *, ...) {}
 void mod_logf(const Mod *, int, const char *, ...) {}
+bool portraits_wait(const std::string &) { return true; }
 int unsupported_calls = 0, refusals = 0;
 static void say(const char *what, const char *fn, const char *why) {
     if (std::getenv("KEMF_TEST_VERBOSE"))

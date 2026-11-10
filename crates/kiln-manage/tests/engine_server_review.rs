@@ -146,3 +146,36 @@ fn modpack_limits_and_mod_versions_are_checked_before_install() {
     w.start_file("set/m/init.lua",o).unwrap();w.write_all(b"x").unwrap();w.finish().unwrap();
     assert_eq!(modpack::verify(&zip,None).unwrap_err().code,ErrorCode::Schema);
 }
+
+/// Fedora Atomic / Bazzite: `/home` is a link to `/var/home`. The data dir, the server folder and a modpack's staging
+/// folder are reached through it; links inside the managed folders are still refused.
+#[test]
+fn symlinked_system_ancestors_work_but_links_inside_the_server_folder_do_not() {
+    let t=tmp("ancestors"); std::fs::create_dir_all(t.0.join("var/home/jame")).unwrap();
+    std::os::unix::fs::symlink("var/home",t.0.join("home")).unwrap();
+    let dirs=DataDirs::at(t.0.join("home/jame/data")); let src=t.0.join("home/jame/src/owner"); set_mod(&src);
+    let r=import(&dirs,&src); let server=t.0.join("home/jame/server"); let i=instance(&server);
+    control::sync(&dirs,&i,&[r.clone()],&mut NoProgress).unwrap();
+    let copy=server.join("shrouded_engine_tweaks/mods/owner"); assert!(copy.join("init.lua").is_file());
+    control::set_enabled(&i,"owner",false).unwrap();
+    assert!(server.join("kiln/disabled/set/owner/init.lua").is_file());
+    control::set_enabled(&i,"owner",true).unwrap();
+    assert!(control::mods(&i).unwrap().iter().any(|m| m.folder=="owner" && m.source.is_some()),"the synced copy is still Kiln's own");
+    control::sync(&dirs,&i,&[],&mut NoProgress).unwrap();
+    assert!(!copy.exists());
+    // a link inside the server folder is refused, whatever lies above it
+    let outside=t.0.join("home/jame/outside"); std::fs::create_dir_all(&outside).unwrap();
+    std::fs::remove_dir_all(server.join("shrouded_engine_tweaks")).unwrap();
+    std::os::unix::fs::symlink(&outside,server.join("shrouded_engine_tweaks")).unwrap();
+    assert_eq!(control::sync(&dirs,&i,&[r],&mut NoProgress).unwrap_err().code,ErrorCode::Refused);
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(),0);
+    // a modpack unpacks into a staging folder behind the link; a link inside the staging folder is refused
+    let zip=t.0.join("home/jame/pack.zip"); let m=pack(&zip,"set/m/init.lua");
+    let staging=t.0.join("home/jame/staging");
+    assert_eq!(modpack::extract(&zip,&m,&staging).unwrap().len(),1);
+    assert!(staging.join("set/m/init.lua").is_file());
+    let staging2=t.0.join("home/jame/staging2"); std::fs::create_dir_all(&staging2).unwrap();
+    std::os::unix::fs::symlink(&outside,staging2.join("set")).unwrap();
+    assert_eq!(modpack::extract(&zip,&m,&staging2).unwrap_err().code,ErrorCode::Refused);
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(),0);
+}

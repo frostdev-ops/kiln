@@ -1792,8 +1792,7 @@ void resolve() {
         }
         // a mod's move is only ever as good as what the game's functions return: refuse a transaction layout whose result
         // bytes do not fit the 12-byte results the code reads
-        if (!E.move_ok) { E.quick_stack = nullptr; E.move_all = nullptr; E.slot_transfer = nullptr; }
-        if (!E.transfer_ok && !E.move_ok) { E.quick_stack = nullptr; E.move_all = nullptr; }
+        gate_features();
     }
     E.fuel_ok = E.tx_ok && feat("items.fuel") && sym("items/WriteOther", &E.write_other) &&
                 sym("items/JobTracker", &E.job_tracker) && sym("items/JobWriteFlag", &E.job_write_flag) &&

@@ -49,9 +49,11 @@ public sealed record ModStatus(string ModId, string Name, string Version, IReadO
 /// </summary>
 /// <remarks>
 /// <para>A source runs as the mod that added it, never inside a game hook: on the thread that asks for <see cref="Lines"/>,
-/// <see cref="All"/> or <see cref="Summary"/>, and on a worker thread for the Kiln menu and Kiln.Admin (at most about twice a
-/// second; they show the previous lines while a source takes longer than a few milliseconds). Keep it quick, touch no game state and no
-/// locks the tick thread holds; read fields the tick thread wrote. A source that throws shows no lines (logged once until it
+/// <see cref="All"/> or <see cref="Summary"/>, and on a worker thread for the Kiln menu and Kiln.Admin (about twice a second
+/// while someone looks, one refresh at a time; the menu and the dashboard always show the last lines read and never wait for a
+/// source, so a new or changed line shows a moment later). Keep it quick, touch no game state and no locks the tick thread
+/// holds; read fields the tick thread wrote. A source that hangs freezes every mod's lines in the menu and the dashboard at
+/// their last value until it returns. A source that throws shows no lines (logged once until it
 /// works again). Each line of a multi-line text shows on its own; empty lines are dropped.</para>
 /// <para>Lines go away with the mod that added them.</para>
 /// </remarks>
@@ -60,11 +62,11 @@ public static class StatusLines
     private static readonly object Lock = new();
     private static StatusLine[] _lines = [];
     private static readonly HashSet<ModContext> Watched = new(ReferenceEqualityComparer.Instance);
-    private static long _sequence, _generation;
+    private static long _sequence, _generation, _epoch;
     private static volatile Cached? _cache;
-    private static Task<IReadOnlyList<ModStatus>>? _refresh;
+    private static volatile Task<IReadOnlyList<ModStatus>>? _refresh;
 
-    private sealed record Cached(long At, IReadOnlyList<ModStatus> Value);
+    private sealed record Cached(long At, long Generation, IReadOnlyList<ModStatus> Value);
 
     /// <summary>Adds a line whose text <paramref name="source"/> computes whenever someone looks. <paramref name="id"/> names
     /// it within the calling mod (a second call with the same id replaces the source); without one a line of its own is made.</summary>
@@ -261,52 +263,69 @@ public static class StatusLines
         return text.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
 
-    // Under Lock: a line was added, changed or removed, so the next snapshot reads again.
-    private static void Invalidate()
-    {
-        _generation++;
-        _cache = null;
-    }
+    // Under Lock: a line was added, changed or removed, so the next snapshot reads again (soon, not at once: see Snapshot).
+    private static void Invalidate() => _generation++;
 
-    /// <summary>The time a snapshot waits for the sources before it answers with the last one it has.</summary>
-    internal static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(20);
+    /// <summary>The shortest time between two snapshot refreshes that a change (a <see cref="Set"/>, an added or removed line)
+    /// starts; without changes a snapshot is refreshed once it is older than the caller's maxAge.</summary>
+    internal static readonly TimeSpan ChangeRefresh = TimeSpan.FromMilliseconds(100);
 
-    /// <summary>For the Kiln menu (render thread, every frame) and Kiln.Admin (tick thread): the same as <see cref="All"/>,
-    /// but not more often than <paramref name="maxAge"/>, and never holding the caller up for more than <see cref="Budget"/>.
-    /// The sources run on a worker, one refresh at a time; a source that is slow (or hangs) leaves the caller with the
-    /// previous snapshot (empty the first time) instead of stalling a frame or a tick.</summary>
+    /// <summary>For the Kiln menu (render thread, every frame) and Kiln.Admin (tick thread, once per mod in the mod list): the
+    /// same as <see cref="All"/>, but never run on the calling thread and never waited for. It answers at once with the last
+    /// snapshot (empty until the first one is read; after a pause, the last one read, however old, until the refresh it starts
+    /// lands a moment later) and, when that one is older than <paramref name="maxAge"/> (or lines
+    /// changed and it is older than <see cref="ChangeRefresh"/>), starts a refresh on a worker. At most one refresh runs at a
+    /// time: a source that is slow or hangs leaves every caller with the previous snapshot until it returns, and a mod that
+    /// calls <see cref="Set"/> every tick gets at most one refresh per <see cref="ChangeRefresh"/>.</summary>
     internal static IReadOnlyList<ModStatus> Snapshot(TimeSpan maxAge)
     {
         var c = _cache;
-        if (c is not null && Environment.TickCount64 - c.At < maxAge.TotalMilliseconds) return c.Value;
-        Task<IReadOnlyList<ModStatus>> task;
-        lock (Lock)
+        if (Fresh(c, maxAge)) return c!.Value;
+        var refresh = _refresh;
+        if (refresh is null || refresh.IsCompleted)
         {
-            if (_refresh is null || _refresh.IsCompleted)
+            lock (Lock)
             {
-                var generation = _generation;
-                _refresh = Task.Run(() =>
+                // a refresh that finished between the reads above has just made the snapshot fresh: no second one right behind it
+                c = _cache;
+                if (Fresh(c, maxAge)) return c!.Value;
+                if (_refresh is null || _refresh.IsCompleted)
                 {
-                    IReadOnlyList<ModStatus> value = All();
-                    lock (Lock)
-                        if (generation == _generation) _cache = new Cached(Environment.TickCount64, value);
-                    return value;
-                });
+                    var generation = _generation;
+                    var epoch = _epoch;
+                    var at = Environment.TickCount64;
+                    _refresh = Task.Run(() =>
+                    {
+                        IReadOnlyList<ModStatus> value;
+                        try
+                        {
+                            value = All();
+                        }
+                        catch (Exception)
+                        {
+                            value = _cache?.Value ?? [];  // All() catches the sources' exceptions; anything else: the last snapshot
+                        }
+                        // kept even when lines changed meanwhile (a mod that sets a line every tick must not starve the cache);
+                        // the next call sees the newer generation and refreshes again after ChangeRefresh
+                        if (epoch == Volatile.Read(ref _epoch)) _cache = new Cached(at, generation, value);
+                        return value;
+                    });
+                }
             }
-            task = _refresh;
-        }
-        try
-        {
-            if (task.Wait(Budget)) return task.Result;
-        }
-        catch (Exception)
-        {
-            // All() catches the sources' exceptions; anything else: the last snapshot
         }
         return c?.Value ?? [];
     }
 
-    /// <summary>Kiln.Admin's mod list: one mod's lines from <see cref="Snapshot"/> (at most a second old).</summary>
+    // The snapshot answers the caller as it is: not older than maxAge, and (when lines changed since) not older than ChangeRefresh.
+    private static bool Fresh(Cached? c, TimeSpan maxAge)
+    {
+        if (c is null) return false;
+        var age = Environment.TickCount64 - c.At;
+        return age < maxAge.TotalMilliseconds && (c.Generation == Volatile.Read(ref _generation) || age < ChangeRefresh.TotalMilliseconds);
+    }
+
+    /// <summary>Kiln.Admin's mod list (tick thread, once per mod): one mod's lines from <see cref="Snapshot"/> (refreshed once
+    /// a second; never waits).</summary>
     internal static IReadOnlyList<string> RecentLines(string modId) =>
         Snapshot(TimeSpan.FromSeconds(1)).FirstOrDefault(m => m.ModId == modId)?.Lines ?? [];
 
@@ -318,6 +337,8 @@ public static class StatusLines
             _lines = [];
             Watched.Clear();
             Invalidate();
+            _epoch++;  // a refresh still running (a hung test source) does not write into the next test's cache
+            _cache = null;
             _refresh = null;
         }
     }

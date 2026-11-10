@@ -364,7 +364,7 @@ Result12* around(uint32_t kind, void* tx, uint32_t from, uint32_t to, Vanilla va
     c.kind = kind;
     c.from = from;
     c.to = to;
-    c.flags = by_mod ? KILN_TRANSFER_BY_MOD : 0;
+    c.flags = by_mod ? (KILN_TRANSFER_BY_MOD | (t_dry_run ? KILN_TRANSFER_DRY_RUN : 0u)) : 0u;
     if (!prepare(&c)) {
         if (!g_broken.exchange(true))
             items_log(KILN_LOG_WARN, "transfer hooks: the game's transaction does not match the layout kiln.items knows; "

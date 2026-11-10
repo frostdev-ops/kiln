@@ -18,6 +18,11 @@ namespace kitems {
 
 Engine E;
 
+void gate_features() {
+    if (!E.move_ok) E.slot_transfer = nullptr;
+    if (!E.move_ok && !E.transfer_ok) { E.quick_stack = nullptr; E.move_all = nullptr; }
+}
+
 const char* const kAccNames[A_COUNT] = {"Fuel",     "Inventory",         "InventoryEmptyState", "InventorySetup",
                                         "ItemState", "OwnerRelationship", "SlotSelection"};
 const uint32_t kAccHashes[A_COUNT] = {0x04182abbu, 0xb19528a9u, 0x37c4cfe7u, 0xc24df82au,

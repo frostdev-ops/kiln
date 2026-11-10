@@ -102,6 +102,9 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
 {
     private static readonly Regex ValidName = new("^[A-Za-z0-9._-]+$", RegexOptions.CultureInvariant);
     private static readonly Regex GameName = new("^(0x|buff_)|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-", RegexOptions.CultureInvariant);
+    // A game debug name: capitalised words joined by '_' ("Weapon_T1_1H_SwordEpic_01", "Perk_Frost_Damage"); a mod's block names
+    // are usually lower-case with '-'. One missing from the local GameIds may come from another game build: an info, not a warning.
+    private static readonly Regex GameStyle = new("^[A-Z][A-Za-z0-9]*(_[A-Za-z0-9]+)+$", RegexOptions.CultureInvariant);
     private static readonly Regex JsonClients = new("\"clients\"\\s*:\\s*\"(none|kiln|mod)\"", RegexOptions.CultureInvariant);
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
@@ -124,6 +127,7 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
             var defined = new ConcurrentBag<Defined>();
             var named = new ConcurrentBag<(string Name, string Kind, Location Where)>();
             var own = new ConcurrentBag<(IPropertySymbol Property, Location Where)>();
+            var registered = new ConcurrentBag<string?>();  // items of the older items API (ItemDefinition.Name); null: built at run time
             start.RegisterSyntaxNodeAction(ctx =>
             {
                 var call = (InvocationExpressionSyntax)ctx.Node;
@@ -142,17 +146,25 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
             start.RegisterSyntaxNodeAction(ctx =>
             {
                 var assignment = (AssignmentExpressionSyntax)ctx.Node;
-                if (assignment.Parent is InitializerExpressionSyntax && BlockFacts.OwnFiles(assignment, ctx.SemanticModel) is { } p)
+                if (assignment.Parent is not InitializerExpressionSyntax) return;
+                if (BlockFacts.OwnFiles(assignment, ctx.SemanticModel) is { } p)
                     own.Add((p, assignment.GetLocation()));
+                else if (ctx.SemanticModel.GetSymbolInfo(assignment.Left).Symbol is IPropertySymbol
+                         {
+                             Name: "Name", ContainingType: { Name: "ItemDefinition", ContainingNamespace: { Name: "Kiln", ContainingNamespace.IsGlobalNamespace: true } },
+                         })
+                    registered.Add(ctx.SemanticModel.GetConstantValue(assignment.Right) is { HasValue: true, Value: string n } ? n : null);
             }, SyntaxKind.SimpleAssignmentExpression);
             var options = start.Options;
-            start.RegisterCompilationEndAction(ctx => Finish(ctx, options, defined.ToList(), named.ToList(), own.ToList()));
+            start.RegisterCompilationEndAction(ctx => Finish(ctx, options, defined.ToList(), named.ToList(), own.ToList(), registered.ToList()));
         });
     }
 
-    private static void Finish(CompilationAnalysisContext ctx, AnalyzerOptions options, List<Defined> defined, List<(string Name, string Kind, Location Where)> named, List<(IPropertySymbol Property, Location Where)> own)
+    private static void Finish(CompilationAnalysisContext ctx, AnalyzerOptions options, List<Defined> defined, List<(string Name, string Kind, Location Where)> named, List<(IPropertySymbol Property, Location Where)> own, List<string?> registered)
     {
         void Report(DiagnosticDescriptor rule, Location where, string text) => ctx.ReportDiagnostic(Diagnostic.Create(rule, where, text));
+        void Note(DiagnosticDescriptor rule, Location where, string text) =>
+            ctx.ReportDiagnostic(Diagnostic.Create(rule, where, DiagnosticSeverity.Info, null, null, text));
 
         // ---- names
         foreach (var d in defined.Where(d => d.Name != null && !ValidName.IsMatch(d.Name)))
@@ -179,11 +191,21 @@ public sealed class BlocksAnalyzer : DiagnosticAnalyzer
                     continue;
                 }
                 if (jsonText.Any(t => t.Contains($"\"{name}\""))) continue;
+                // an item of the older items API (new ItemDefinition { Name = ... } for Content.Items.Register); one named at run time could be any
+                if (kind == "item" && (registered.Contains(name) || registered.Contains(null))) continue;
                 // a game name: known only from the generated GameIds; without them any name could be the game's
                 if (GameClass(kind) is { } cls)
                 {
                     var game = GameNames(ctx.Compilation, cls, gameCache);
                     if (game == null || game.Contains(name)) continue;
+                    if (GameStyle.IsMatch(name))
+                    {
+                        // looks like the game's: the local catalog may be of another game build (or the item comes from elsewhere)
+                        Note(Descriptors.BlockReference, where, kind == "template"
+                            ? $"the local game catalog has no template \"{name}\" ({cls}): check the name, or ignore this if it is from another game build"
+                            : $"this mod has no {kind} block \"{name}\", and the local game catalog has none by that name ({cls}): check the name, or ignore this if it is from another game build or another mod's (\"other-mod:{name}\")");
+                        continue;
+                    }
                     Report(Descriptors.BlockReference, where, kind == "template"
                         ? $"the game has no template \"{name}\": use a GameTemplates constant or a GUID"
                         : $"this mod has no {kind} block \"{name}\", and the game has none by that name ({cls}): define it, or say \"other-mod:{name}\"");

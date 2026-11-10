@@ -172,6 +172,17 @@ Use one name for one thing, the same in every mod that may want it. `restore` ru
 Apply and restore callbacks run as their owner and are serialized with claim changes. Keep them short; do not wait for
 another thread that is changing claims. A retired mod cannot acquire a new claim.
 
+**Threads.** A change belongs to the mod whose code makes it. A resource you get (`ReflectedResources.Get`, `All`,
+`FindByField`) remembers your mod, so you may write through it from any thread and the claim is still yours. On a thread where
+no mod's code runs (a `Task.Run` or a timer thread), `Overrides.Claim`, `Release` and `RestoreAll` throw
+`InvalidOperationException`, and so does a write through a resource that was also got there. Before dev.21 such a change
+counted as Kiln's own and was never given back.
+```csharp
+var sword = ReflectedResources.Get(swordGuid, "keen::ItemInfo")!;   // in OnLoad: the handle is your mod's
+Task.Run(() => sword["maxStackSize"] = 5);                          // fine: still your claim
+Task.Run(() => Overrides.Claim("mymod:x", Apply, Undo));            // throws: post it with Scheduler.Post instead
+```
+
 ### Helpers from EML and ShroudForge
 Small ports that EML and ShroudForge mods use, as C# (clean implementations, MIT):
 | What | In Kiln |

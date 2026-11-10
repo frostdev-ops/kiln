@@ -358,12 +358,22 @@ pub struct PlaceReport {
     pub own: Vec<String>,
 }
 
-/// Refuse symlinks (including dangling links and Windows junctions) in an existing path prefix.
+/// Refuse symlinks (including dangling links and Windows junctions) from `root` down to `path`.
+///
+/// `root` is the folder Kiln manages: the data dir, the game or server folder, a Library entry or a staging folder.
+/// `root` itself and every existing component below it must be a real folder or file. Folders ABOVE `root` belong to the
+/// system and the player and may be links: Fedora Atomic and Bazzite make `/home` a link to `/var/home`, and Steam
+/// libraries are often reached through links. A `path` that is not under `root` gets the strict check from its first
+/// component on, so a caller that passes the wrong root only becomes stricter. Parent traversal (`..`) is refused
+/// anywhere in `path`.
+///
 /// Mutation callers check the parent before creating missing components as well as the leaf.
-pub fn refuse_symlink_path(path: &Path) -> Result<()> {
+pub fn refuse_symlink_path(root: &Path, path: &Path) -> Result<()> {
+    // The prefix length (in components) from which links are refused.
+    let first_checked = if path.starts_with(root) { root.components().count() } else { 0 };
     let mut prefix = PathBuf::new();
-    let mut components = path.components().peekable();
-    while let Some(component) = components.next() {
+    let mut components = path.components().enumerate().peekable();
+    while let Some((index, component)) = components.next() {
         if matches!(component, std::path::Component::ParentDir) {
             return Err(Error::new(ErrorCode::Refused, format!("{}: parent traversal is not allowed", path.display())));
         }
@@ -371,7 +381,9 @@ pub fn refuse_symlink_path(path: &Path) -> Result<()> {
         // An absolute Windows prefix (e.g. `\\?\C:`) needs its following root separator.
         // Drive-relative prefixes (`C:child`) still need inspection of the drive's current directory.
         if matches!(component, std::path::Component::Prefix(_))
-            && matches!(components.peek(), Some(std::path::Component::RootDir)) { continue; }
+            && matches!(components.peek(), Some((_, std::path::Component::RootDir))) { continue; }
+        // `index + 1` components are in `prefix`: the folders above the managed root are not ours to judge.
+        if index + 1 < first_checked { continue; }
         match std::fs::symlink_metadata(&prefix) {
             Ok(meta) => {
                 #[cfg(windows)]
@@ -400,9 +412,10 @@ struct Placement {
     files: std::collections::BTreeMap<String, String>,
 }
 
-fn engine_lock(root: &Path) -> Result<std::fs::File> {
+/// `managed` is the folder links are refused from (see [`refuse_symlink_path`]); the lock lives in `root` below it.
+fn engine_lock(managed: &Path, root: &Path) -> Result<std::fs::File> {
     let path = root.join("engine-mods.lock");
-    refuse_symlink_path(&path)?;
+    refuse_symlink_path(managed, &path)?;
     std::fs::create_dir_all(root).map_err(io_at(root, "creating"))?;
     let lock = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path)?;
     lock.lock()?;
@@ -415,13 +428,13 @@ fn placements_file(game: &Path) -> PathBuf {
 
 fn placements(game: &Path) -> Result<Vec<Placement>> {
     let file = placements_file(game);
-    refuse_symlink_path(&file)?;
+    refuse_symlink_path(game, &file)?;
     Ok(crate::util::read_json(&file)?.unwrap_or_default())
 }
 
 fn save_placements(game: &Path, entries: &[Placement]) -> Result<()> {
     let file = placements_file(game);
-    refuse_symlink_path(&file)?;
+    refuse_symlink_path(game, &file)?;
     let parent = file.parent().expect("receipt parent");
     std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?;
     let tmp = crate::library::TempDir::new(parent, "receipt")?;
@@ -432,11 +445,11 @@ fn save_placements(game: &Path, entries: &[Placement]) -> Result<()> {
 
 fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTreeMap<String, String>> {
     fn walk(root: &Path, dir: &Path, kind: ModKind, out: &mut std::collections::BTreeMap<String, String>) -> Result<()> {
-        refuse_symlink_path(dir)?;
+        refuse_symlink_path(root, dir)?;
         for entry in std::fs::read_dir(dir).map_err(io_at(dir, "reading"))? {
             let entry = entry?;
             let path = entry.path();
-            refuse_symlink_path(&path)?;
+            refuse_symlink_path(root, &path)?;
             let rel = path.strip_prefix(root).expect("tree child").to_str()
                 .ok_or_else(|| Error::invalid("non-Unicode placed mod path"))?.replace('\\', "/");
             if rel == MARKER { continue; }
@@ -446,7 +459,7 @@ fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTree
                 walk(root, &path, kind, out)?;
             } else if entry.file_type()?.is_file() {
                 let hash = if kind == ModKind::ShroudForge && rel == "extended.mod.json" {
-                    let mut doc = read_json_checked(&path)?.ok_or_else(|| Error::invalid("missing SF extension"))?;
+                    let mut doc = read_json_checked(root, &path)?.ok_or_else(|| Error::invalid("missing SF extension"))?;
                     let obj = doc.as_object_mut().ok_or_else(|| Error::invalid("SF extension must be an object"))?;
                     obj.remove("enabled");
                     obj.remove("settings");
@@ -464,8 +477,9 @@ fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTree
     Ok(files)
 }
 
-fn owned<'a>(entries: &'a [Placement], dst: &Path, kind: ModKind, id: &str) -> Result<Option<&'a Placement>> {
-    refuse_symlink_path(dst)?;
+/// `game` is the managed root `dst` lies under.
+fn owned<'a>(game: &Path, entries: &'a [Placement], dst: &Path, kind: ModKind, id: &str) -> Result<Option<&'a Placement>> {
+    refuse_symlink_path(game, dst)?;
     if !dst.exists() { return Ok(None); }
     let Some(receipt) = entries.iter().find(|r| r.path == dst && r.marker.kind == kind && r.marker.id == id) else { return Ok(None) };
     let valid = receipt.marker.format == 1 && crate::manifest::is_mod_id(&receipt.marker.id)
@@ -484,11 +498,20 @@ pub(crate) fn preserve_recovery(tmp: crate::library::TempDir, error: Error) -> E
     error.with_detail(serde_json::json!({ "recovery": recovery }))
 }
 
+/// The folders links are refused from when a mod is copied from the Library into a game folder.
+#[derive(Clone, Copy)]
+struct Roots<'a> {
+    /// Kiln's data dir (the Library entry is below it).
+    data: &'a Path,
+    /// The game folder (the destination is below it).
+    game: &'a Path,
+}
+
 /// Stage the entire replacement first, then rename the old copy aside; restore it if publication fails.
-fn copy_in(src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
+fn copy_in(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
            persist: impl FnOnce(&Placement) -> Result<()>) -> Result<()> {
-    refuse_symlink_path(src)?;
-    refuse_symlink_path(dst)?;
+    refuse_symlink_path(roots.data, src)?;
+    refuse_symlink_path(roots.game, dst)?;
     if crate::hash::dirhash(src)? != m.hash {
         return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch", src.display())));
     }
@@ -536,8 +559,8 @@ fn copy_in(src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Valu
     Ok(())
 }
 
-fn remove_copy(dst: &Path, persist: impl FnOnce() -> Result<()>) -> Result<()> {
-    refuse_symlink_path(dst)?;
+fn remove_copy(game: &Path, dst: &Path, persist: impl FnOnce() -> Result<()>) -> Result<()> {
+    refuse_symlink_path(game, dst)?;
     let parent = dst.parent().ok_or_else(|| Error::invalid("no mod parent"))?;
     let tmp = crate::library::TempDir::new(parent, "kiln-remove")?;
     let parked = tmp.path().join("removed");
@@ -553,7 +576,7 @@ fn remove_copy(dst: &Path, persist: impl FnOnce() -> Result<()>) -> Result<()> {
 
 /// Reconcile only copies authorized by the install's receipt. Markers shipped in archives do not grant ownership.
 pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path) -> Result<PlaceReport> {
-    let _lock = engine_lock(&game_dir.join("kiln/state"))?;
+    let _lock = engine_lock(game_dir, &game_dir.join("kiln/state"))?;
     let mut rep = PlaceReport::default();
     let mut receipts = placements(game_dir)?;
     for kind in [ModKind::ShroudForge, ModKind::Set] {
@@ -562,7 +585,7 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
             ModKind::ShroudForge => crate::shroudforge::mods_dir(game_dir),
             _ => game_dir.join(SET_MODS),
         };
-        refuse_symlink_path(&root)?;
+        refuse_symlink_path(game_dir, &root)?;
         let tag = |id: &str| format!("{}:{id}", kind.as_str());
         for m in list {
             // path_of validates id, version and hash before any destination is joined or touched.
@@ -570,14 +593,14 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
                 kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
             let dst = root.join(&m.id);
             let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
-            let have = owned(&receipts, &dst, kind, &m.id)?.cloned();
+            let have = owned(game_dir, &receipts, &dst, kind, &m.id)?.cloned();
             if have.is_none() && dst.exists() {
                 rep.own.push(tag(&m.id));
                 continue; // In particular, never apply a ShroudForge switch to a player's folder.
             }
             if kind == ModKind::Set && !m.enabled {
                 if have.is_some() {
-                    remove_copy(&dst, || {
+                    remove_copy(game_dir, &dst, || {
                         receipts.retain(|r| r.path != dst);
                         save_placements(game_dir, &receipts)
                     })?;
@@ -587,7 +610,7 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
             }
             if have.as_ref().is_some_and(|h| h.marker == want) {
                 if kind == ModKind::ShroudForge {
-                    refuse_symlink_path(&dst.join("extended.mod.json.tmp"))?;
+                    refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
                     if crate::shroudforge::read_mod(&dst)?.enabled != m.enabled {
                         crate::shroudforge::set_enabled(&dst, m.enabled)?;
                         rep.switched.push(tag(&m.id));
@@ -598,7 +621,7 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
                 let kept: Vec<_> = if kind == ModKind::ShroudForge && have.is_some() {
                     crate::shroudforge::read_mod(&dst)?.settings.into_iter().map(|s| (s.key, s.value)).collect()
                 } else { Vec::new() };
-                copy_in(&src, &dst, &want, &kept, m.enabled, |receipt| {
+                copy_in(Roots { data: &dirs.root, game: game_dir }, &src, &dst, &want, &kept, m.enabled, |receipt| {
                     receipts.retain(|r| r.path != dst);
                     receipts.push(receipt.clone());
                     save_placements(game_dir, &receipts)
@@ -616,15 +639,15 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
                 save_placements(game_dir, &receipts)?;
                 continue;
             }
-            owned(&receipts, dst, kind, &receipt.marker.id)?;
+            owned(game_dir, &receipts, dst, kind, &receipt.marker.id)?;
             if kind == ModKind::Set {
-                remove_copy(dst, || {
+                remove_copy(game_dir, dst, || {
                     receipts.retain(|r| r.path != *dst);
                     save_placements(game_dir, &receipts)
                 })?;
                 rep.removed.push(tag(&receipt.marker.id));
             } else if crate::shroudforge::read_mod(dst)?.enabled {
-                refuse_symlink_path(&dst.join("extended.mod.json.tmp"))?;
+                refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
                 crate::shroudforge::set_enabled(dst, false)?;
                 rep.switched.push(tag(&receipt.marker.id));
             }
@@ -745,8 +768,8 @@ fn shroudtopia_key(doc: &serde_json::Value, id: &str, folder: Option<&Path>) -> 
     name.unwrap_or_else(|| id.to_string())
 }
 
-fn read_json_checked(path: &Path) -> Result<Option<serde_json::Value>> {
-    refuse_symlink_path(path)?;
+fn read_json_checked(root: &Path, path: &Path) -> Result<Option<serde_json::Value>> {
+    refuse_symlink_path(root, path)?;
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -771,23 +794,43 @@ fn validate_value(old: &serde_json::Value, value: &serde_json::Value, key: &str)
     if valid { Ok(()) } else { Err(Error::invalid(format!("{key}: expected the declared setting type"))) }
 }
 
+/// The managed root of a profile's config folder: `<data>/profiles/<pid>/config` -> `<data>`, a copied profile's
+/// `<game>/kiln/profiles/<pid>/config` -> `<game>/kiln`. Links are refused from there down, so a link inside the data
+/// dir or the game's kiln folder above the config folder is refused too. Any other shape is its own root.
+fn config_root(config_dir: &Path) -> &Path {
+    match config_dir.parent().and_then(Path::parent) {
+        Some(c) if c.file_name().is_some_and(|n| n == "profiles") => c.parent().unwrap_or(config_dir),
+        _ => config_dir,
+    }
+}
+
+/// The managed root of a Library entry (`<data>/library/<kind>/<id>/<version>+<hash8>` -> `<data>`); any other shape
+/// is its own root.
+fn library_root(folder: &Path) -> &Path {
+    match folder.ancestors().nth(3) {
+        Some(lib) if lib.file_name().is_some_and(|n| n == "library") => lib.parent().unwrap_or(folder),
+        _ => folder,
+    }
+}
+
 /// The settings of one mod of an engine kind. `game_dir` finds ShroudForge's copy, `config_dir` (the profile's config
 /// folder) Shroudtopia's file, `folder` is the mod's library folder (defaults for a Shroudtopia mod without values yet).
 pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &Path, folder: Option<&Path>) -> Result<EngineSettings> {
     validate_setting_id(id)?;
-    if let Some(folder) = folder { refuse_symlink_path(&folder.join("mod.json"))?; }
+    if let Some(folder) = folder { refuse_symlink_path(library_root(folder), &folder.join("mod.json"))?; }
     let none = |note: &str| EngineSettings {
         kind, id: id.to_string(), format: "none".into(), file: None,
         schema: serde_json::json!({ "type": "object", "properties": {} }), values: serde_json::json!({}), note: Some(note.into()),
     };
     match kind {
         ModKind::ShroudForge => {
-            let placed = game_dir.and_then(|g| placed_folder(kind, g, id)).filter(|p| p.is_dir());
-            let Some(dir) = placed.or_else(|| folder.map(Path::to_path_buf)) else {
+            // The managed root of the folder: the game folder for a placed copy, else the data dir of the Library entry.
+            let placed = game_dir.and_then(|g| placed_folder(kind, g, id).map(|p| (g, p))).filter(|(_, p)| p.is_dir());
+            let Some((root, dir)) = placed.or_else(|| folder.map(|f| (library_root(f), f.to_path_buf()))) else {
                 return Ok(none("activate the profile once: ShroudForge's settings live in its mods folder"));
             };
-            refuse_symlink_path(&dir.join("mod.json"))?;
-            refuse_symlink_path(&dir.join("extended.mod.json"))?;
+            refuse_symlink_path(root, &dir.join("mod.json"))?;
+            refuse_symlink_path(root, &dir.join("extended.mod.json"))?;
             let m = crate::shroudforge::read_mod(&dir)?;
             Ok(EngineSettings {
                 kind, id: id.to_string(), format: "extended.mod.json".into(),
@@ -798,7 +841,7 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
         }
         ModKind::Shroudtopia => {
             let file = shroudtopia_file(config_dir);
-            let doc = read_json_checked(&file)?.unwrap_or_else(|| serde_json::json!({ "mods": {} }));
+            let doc = read_json_checked(config_root(config_dir), &file)?.unwrap_or_else(|| serde_json::json!({ "mods": {} }));
             if !doc.is_object() || doc.get("mods").is_some_and(|m| !m.is_object()) {
                 return Err(Error::invalid("Shroudtopia settings and mods must be objects"));
             }
@@ -828,8 +871,8 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
                    folder: Option<&Path>) -> Result<EngineSettings> {
     validate_setting_id(id)?;
     let _lock = match (kind, game_dir) {
-        (ModKind::ShroudForge, Some(game)) => Some(engine_lock(&game.join("kiln/state"))?),
-        (ModKind::Shroudtopia, _) => Some(engine_lock(config_dir)?),
+        (ModKind::ShroudForge, Some(game)) => Some(engine_lock(game, &game.join("kiln/state"))?),
+        (ModKind::Shroudtopia, _) => Some(engine_lock(config_root(config_dir), config_dir)?),
         _ => None,
     };
     match kind {
@@ -838,10 +881,10 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
                 .ok_or_else(|| Error::not_found(format!("ShroudForge mod {id} is not in ShroudForge's mods folder: activate the profile first")))?;
             let game = game_dir.expect("placed game");
             let receipts = placements(game)?;
-            if owned(&receipts, &dir, kind, id)?.is_none() {
+            if owned(game, &receipts, &dir, kind, id)?.is_none() {
                 return Err(Error::new(ErrorCode::Refused, "ShroudForge settings belong to a player-owned folder"));
             }
-            refuse_symlink_path(&dir.join("extended.mod.json.tmp"))?;
+            refuse_symlink_path(game, &dir.join("extended.mod.json.tmp"))?;
             crate::shroudforge::set_setting(&dir, key, value)?;
         }
         ModKind::Shroudtopia => {
@@ -849,8 +892,8 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
             let old = cur.values.get(key).ok_or_else(|| Error::invalid(format!("unknown setting {key}")))?;
             validate_value(old, value, key)?;
             let file = shroudtopia_file(config_dir);
-            refuse_symlink_path(&crate::util::with_suffix(&file, ".tmp"))?;
-            let mut doc = read_json_checked(&file)?.unwrap_or_else(|| serde_json::json!({}));
+            refuse_symlink_path(config_root(config_dir), &crate::util::with_suffix(&file, ".tmp"))?;
+            let mut doc = read_json_checked(config_root(config_dir), &file)?.unwrap_or_else(|| serde_json::json!({}));
             if !doc.is_object() || doc.get("mods").is_some_and(|m| !m.is_object()) {
                 return Err(Error::invalid("Shroudtopia settings and mods must be objects"));
             }
@@ -915,7 +958,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
         .into_iter()
         .filter_map(|k| {
             let f = game_dir.join("kiln").join("state").join(state_file(k)?);
-            let (state, error) = match read_json_checked(&f) {
+            let (state, error) = match read_json_checked(game_dir, &f) {
                 Ok(state) => (state, None),
                 Err(e) => (None, Some(e.message)),
             };
@@ -950,8 +993,8 @@ pub fn eml_backup(game_dir: &Path) -> Result<Vec<EmlBackup>> {
     for exe in ["enshrouded", "enshrouded_server"] {
         let file = game_dir.join(format!("{exe}.kfc"));
         let bak = game_dir.join(format!("{exe}.kfc.bak"));
-        refuse_symlink_path(&file)?;
-        refuse_symlink_path(&bak)?;
+        refuse_symlink_path(game_dir, &file)?;
+        refuse_symlink_path(game_dir, &bak)?;
         if !bak.exists() || !file.exists() { continue; }
         if !bak.is_file() || !file.is_file() { return Err(Error::invalid("EML backup and game data must be regular files")); }
         let same = crate::hash::sha256_file(&file)?.0 == crate::hash::sha256_file(&bak)?.0;
@@ -968,8 +1011,8 @@ pub fn eml_restore_vanilla(game_dir: &Path) -> Result<Vec<String>> {
     for b in backups.into_iter().filter(|b| b.patched) {
         let file = Path::new(&b.file);
         let bak = Path::new(&b.backup);
-        refuse_symlink_path(file)?;
-        refuse_symlink_path(bak)?;
+        refuse_symlink_path(game_dir, file)?;
+        refuse_symlink_path(game_dir, bak)?;
         let tmp = crate::library::TempDir::new(game_dir, "eml-restore")?;
         let staged = tmp.path().join("data.kfc");
         std::fs::copy(bak, &staged).map_err(io_at(bak, "copying"))?;
@@ -988,6 +1031,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn settings_files_are_checked_from_the_data_or_game_folder_down() {
+        let p = Path::new;
+        assert_eq!(config_root(p("/home/u/.local/share/kiln/profiles/p1/config")), p("/home/u/.local/share/kiln"));
+        assert_eq!(config_root(p("/games/Enshrouded/kiln/profiles/p1/config")), p("/games/Enshrouded/kiln"));
+        assert_eq!(config_root(p("/tmp/x/cfg")), p("/tmp/x/cfg"));
+        assert_eq!(library_root(p("/d/kiln/library/shroudtopia/map/1.0.0+abcd1234")), p("/d/kiln"));
+        assert_eq!(library_root(p("/tmp/x/map")), p("/tmp/x/map"));
+        // a link inside the data dir above the config folder is refused (the old strict check refused it too)
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "config-root").unwrap();
+        let data = tmp.path().join("kiln");
+        std::fs::create_dir_all(tmp.path().join("elsewhere/p1/config")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(tmp.path().join("elsewhere"), data.join("profiles")).unwrap();
+            let cfg = data.join("profiles/p1/config");
+            let err = settings(ModKind::Shroudtopia, "map", None, &cfg, None).unwrap_err();
+            assert_eq!(err.code, ErrorCode::Refused);
+        }
+    }
+
+    #[test]
     fn failed_receipt_write_rolls_back_copy_and_removal() {
         let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "engine-receipt-rollback").unwrap();
         let src = tmp.path().join("source");
@@ -997,16 +1062,17 @@ mod tests {
         std::fs::write(src.join("init.lua"), b"new").unwrap();
         std::fs::write(dst.join("init.lua"), b"old").unwrap();
         let marker = Marker { format: 1, kind: ModKind::Set, id: "test".into(), version: "1.0.0".into(), hash: crate::hash::dirhash(&src).unwrap() };
-        assert!(copy_in(&src, &dst, &marker, &[], true, |_| Err(Error::invalid("injected receipt failure"))).is_err());
+        let roots = Roots { data: tmp.path(), game: tmp.path() };
+        assert!(copy_in(roots, &src, &dst, &marker, &[], true, |_| Err(Error::invalid("injected receipt failure"))).is_err());
         assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"old");
-        assert!(remove_copy(&dst, || Err(Error::invalid("injected receipt failure"))).is_err());
+        assert!(remove_copy(tmp.path(), &dst, || Err(Error::invalid("injected receipt failure"))).is_err());
         assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"old");
         std::fs::remove_dir_all(&dst).unwrap();
-        assert!(copy_in(&src, &dst, &marker, &[], true, |_| Err(Error::invalid("injected receipt failure"))).is_err());
+        assert!(copy_in(roots, &src, &dst, &marker, &[], true, |_| Err(Error::invalid("injected receipt failure"))).is_err());
         assert!(!dst.exists());
         std::fs::create_dir_all(&dst).unwrap();
         std::fs::write(dst.join("init.lua"), b"recover me").unwrap();
-        let error = remove_copy(&dst, || {
+        let error = remove_copy(tmp.path(), &dst, || {
             std::fs::create_dir_all(&dst).unwrap();
             std::fs::write(dst.join("new-player-file"), b"keep too").unwrap();
             Err(Error::invalid("injected receipt failure"))

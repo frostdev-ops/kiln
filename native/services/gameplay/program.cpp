@@ -4,9 +4,11 @@
 // client's or a villager's would: CraftRecipeEvent (handle_crafting_events), AcceptOfferedInteractionEvent
 // (interaction_attempt), LootInteractionEvent (loot_pickup_item, immediate_loot_action).
 #include "internal.h"
+#include "services/kiln_types.h"
 #include "services/kiln_world.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <unordered_map>
 
@@ -42,6 +44,24 @@ constexpr size_t kMaxOwned = 4096;
 constexpr uint32_t kOfferComponents[] = {0x78EE0F23u /* InteractionOfferRuntime */, 0x8598AD86u /* ClientInteractionOffer */,
                                          0x50311280u /* CheckPlayerInRange */};
 uint32_t g_player_input = 0;  // hash of PlayerInput: players are refused
+
+// The component's size as kiln.types reflects it from the game's type table; 0 = unknown (no kiln.types, an older
+// table, or a type it does not list), and then only the 1..256 bound applies. Not a hot path: mods call it rarely.
+std::atomic<const KilnTypesApi*> g_types{nullptr};
+uint32_t reflected_size(uint32_t hash) {
+    const KilnTypesApi* t = g_types.load(std::memory_order_acquire);
+    if (!t && g_api) {
+        t = static_cast<const KilnTypesApi*>(g_api->service(kstr(KILN_TYPES_SERVICE), 1));
+        if (t && t->header.size < offsetof(KilnTypesApi, type_info) + sizeof t->type_info) t = nullptr;
+        if (t) g_types.store(t, std::memory_order_release);
+    }
+    if (!t || !t->type_by_hash || !t->type_info) return 0;
+    const KilnType* type = t->type_by_hash(hash);
+    if (!type) return 0;
+    KilnTypeInfo info{};
+    info.size = sizeof info;
+    return t->type_info(type, &info) == KILN_OK ? info.type_size : 0;
+}
 
 void emit_one(KilnProgramCtx* ctx, const uint64_t* iter, const KilnGameplayInject& r) {
     int32_t slot = -1;
@@ -167,6 +187,16 @@ KilnResult component_change(KilnOwner owner, KilnEntity e, uint32_t hash, const 
     if (op == KILN_GAMEPLAY_COMPONENT_ADD && (!data || size == 0 || size > 256)) return KILN_ERR_INVALID_ARGUMENT;
     if (std::find(std::begin(kOfferComponents), std::end(kOfferComponents), hash) == std::end(kOfferComponents))
         return KILN_ERR_INVALID_ARGUMENT;
+    if (op == KILN_GAMEPLAY_COMPONENT_ADD) {
+        // the engine copies the component's full size from `data`: a shorter or longer payload is a caller bug
+        const uint32_t want = reflected_size(hash);
+        if (want && size != want) {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true))
+                KG_W("component_change: component 0x%08x is %u bytes on this build, the payload has %u; refused", hash, want, size);
+            return KILN_ERR_INVALID_ARGUMENT;
+        }
+    }
     if (!program_active()) return KILN_ERR_UNAVAILABLE;
     if (!g_world_api->exists(e)) return KILN_ERR_NOT_FOUND;
     uint32_t sz = 0;

@@ -51,6 +51,8 @@ per-entity query, supply flags such as `["hostOnly"]` and at least one required 
 
 `context.TryRead<T>` and `TryWrite<T>` access the current entity's declared slots. `TryReadOther<T>` and
 `TryWriteOther<T>` use declared accessors for another entity. Sizes must match the game's reflected component size.
+`TryRead`/`TryWrite` get that size from kiln.types: on a build without it they return false (the mod log says so once
+per program). Each name is looked up once per program, so calling them per entity costs no allocation or lock.
 Writes mark the game's replication/save tracker. `otherWrite` is passed to the engine's descriptor before it builds
 the dependency plan. A component may appear in both other-read and other-write lists. Use `QueueAdd` and
 `QueueRemove` for changes to the component set at the end of the step.

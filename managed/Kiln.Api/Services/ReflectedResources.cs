@@ -15,6 +15,11 @@ namespace Kiln;
 /// resources by the value of one of their fields. Any thread. Without kiln.assets and kiln.types (an unknown game build, a
 /// client without Kiln) every lookup finds nothing.
 /// </summary>
+/// <remarks>Threads: a resource you get remembers the mod whose code got it, and its writes (<see cref="ReflectedResource.Set"/>,
+/// the indexer, <see cref="ReflectedResource.Restore(string)"/>) are that mod's claims on any thread, given back when the mod
+/// unloads. The mod running on the calling thread wins when there is one. A handle got on a background thread that no mod's
+/// code runs on has no mod: writing through it there throws <see cref="InvalidOperationException"/> (it would otherwise be a
+/// claim nobody gives back). Get the handle in OnLoad or a tick-thread callback, or post the write with Scheduler.Post.</remarks>
 /// <example>
 /// <code>
 /// var sword = ReflectedResources.Get(Guid.Parse("1d622bd9-8170-41b1-822e-d3984b386d95"), "keen::ItemInfo")!;
@@ -55,13 +60,13 @@ public static class ReflectedResources
     {
         ArgumentNullException.ThrowIfNull(type);
         var root = RootOf(type);
-        return Enumerate(root, type.Hash);
+        return Enumerate(root, type.Hash, ModContext.CurrentMod);   // the mod that asked, not whoever enumerates later
     }
 
-    private static IEnumerable<ReflectedResource> Enumerate(GameType root, uint hash)
+    private static IEnumerable<ReflectedResource> Enumerate(GameType root, uint hash, ModContext? mod)
     {
         if (!Available) yield break;
-        foreach (var id in ResourceStore.List(hash)) yield return new ReflectedResource(id, root);
+        foreach (var id in ResourceStore.List(hash)) yield return new ReflectedResource(id, root, mod);
     }
 
     /// <summary>
@@ -129,11 +134,13 @@ public static class ReflectedResources
 public sealed class ReflectedResource
 {
     private readonly ResourceId _id;
+    private readonly ModContext? _mod;   // the mod whose code got this handle: background-thread writes are its claims
 
-    internal ReflectedResource(ResourceId id, GameType type)
+    internal ReflectedResource(ResourceId id, GameType type, ModContext? mod = null)
     {
         _id = id;
         Type = type;
+        _mod = mod ?? ModContext.CurrentMod;
     }
 
     internal ResourceId Id => _id;
@@ -217,13 +224,15 @@ public sealed class ReflectedResource
     /// fit. When another mod already changed this field the result is <see cref="OverrideStatus.Conflict"/>: nothing changes
     /// and a warning names both mods in the log.
     /// </summary>
-    public OverrideResult Set(string path, object? value) => Overrides.SetField(_id, Type, path, value);
+    /// <exception cref="InvalidOperationException">Called on a background thread for a handle that no mod's code got (see
+    /// <see cref="ReflectedResources"/>).</exception>
+    public OverrideResult Set(string path, object? value) => Overrides.SetField(_id, Type, path, value, _mod);
 
     /// <summary>Gives the field back what it had before this mod changed it. False when this mod holds no change there.</summary>
-    public bool Restore(string path) => Overrides.RestoreField(_id, Type, path);
+    public bool Restore(string path) => Overrides.RestoreField(_id, Type, path, _mod);
 
     /// <summary>Undoes every change this mod made to this resource. Returns how many fields were given back.</summary>
-    public int RestoreAll() => Overrides.RestoreResource(_id);
+    public int RestoreAll() => Overrides.RestoreResource(_id, _mod);
 
     /// <summary>The id of the mod that changed the field at <paramref name="path"/> through <see cref="Overrides"/>, or null.</summary>
     public string? HeldBy(string path) => Overrides.FieldHolder(_id, Type, path);

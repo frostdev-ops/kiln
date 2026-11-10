@@ -218,10 +218,14 @@ public static unsafe class Assets
     }
 
     /// <summary>The resource as a reflected struct: read any field by path, change one copy-on-write (see
-    /// <see cref="ReflectedResource"/>). Null when the game has no such resource. Throws when the key's type is not a reflected
-    /// type of this build. <see cref="ReflectedResources"/> finds resources by type and by the value of a field.</summary>
-    public static ReflectedResource? Reflect(AssetKey key) =>
-        ReflectedResources.Get(key.Guid, GameTypes.ByHash(key.Type) ?? throw new ArgumentException($"no reflected type has the hash 0x{key.Type:x8}"), key.Part);
+    /// <see cref="ReflectedResource"/>). Null when the game has no such resource, and on a build where kiln.types or kiln.assets
+    /// is not running (<see cref="ReflectedResources.Available"/>). Throws when kiln.types runs but the key's type is not a
+    /// reflected type of this build. <see cref="ReflectedResources"/> finds resources by type and by the value of a field.</summary>
+    public static ReflectedResource? Reflect(AssetKey key)
+    {
+        if (!ReflectedResources.Available) return null;
+        return ReflectedResources.Get(key.Guid, GameTypes.ByHash(key.Type) ?? throw new ArgumentException($"no reflected type has the hash 0x{key.Type:x8}"), key.Part);
+    }
 
     /// <summary>Every key of a type (the game's plus new ones).</summary>
     public static AssetKey[] ListResources(uint type)

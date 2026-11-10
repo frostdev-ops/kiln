@@ -17,6 +17,12 @@ On a real Windows 10/11 PC:
    window), admin pages, the firewall prompt for UDP and the TCP admin port, `steamcmd.exe` on PATH.
 6. Defender or antivirus against the dinput8 proxy and the installer's file renames.
 7. Saved Games moved to another drive; a OneDrive-redirected Documents folder (save editor backups).
+8. A PC where 0.2.0-dev.19's "Mod Manager Download links" was on over Vortex: start a build with Nexus off, then
+   `reg query HKCU\Software\Classes\nxm\shell\open\command` shows Vortex again (the log says "gave the nxm links back
+   to Vortex") and a Nexus link opens Vortex. A stored personal API key in Credential Manager
+   (`Kiln Launcher/nexusmods-api-key`) is gone after that start. Not tested under Wine: the registry restore.
+9. A folder that is a junction inside the game folder, or in a profile's mod folder, is still refused; a junction
+   ABOVE the game folder (a Steam library reached through one) works.
 
 Notes: never put `mscoree=` in WINEDLLOVERRIDES when testing servers (the .NET host fails with 0x8007007E); in a
 WebView2 test prefix, kill `MicrosoftEdgeUpdate.exe`.

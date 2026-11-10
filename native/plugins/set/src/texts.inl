@@ -8,7 +8,9 @@
 // Kiln.Content's Texts.Get (managed) reads the same file the same way.
 //
 // Bounded: at most 512 MB of file, 2,000,000 texts, 64 KiB each. A catalog that is missing or unreadable means "no texts"
-// (Res.text then answers nil, as before) with one line in the console per attempt; another attempt is made after 60 s.
+// (Res.text then answers nil, as before) with one line in the console; another attempt is made after 60 s. A file that
+// was read and refused (no loca section, not a catalog, too large) is not read again until its size or time changes,
+// and the same reason is not printed again. Paths are wide on Windows (a home folder with non-ASCII letters).
 // (The headers it uses, <fstream>, <memory>, <unordered_map> and nlohmann/json.hpp, are included at the top of lua_api.cpp: this
 // file is part of an anonymous namespace.)
 
@@ -23,6 +25,21 @@ std::mutex gMx;
 std::shared_ptr<const Table> gTable;                         // gMx
 std::chrono::steady_clock::time_point gFailedAt{};           // gMx; time_since_epoch 0 = no failure yet
 std::string gReason = "not loaded yet";                      // gMx
+std::string gSaid;                                           // gMx: the last reason printed
+// Files read and refused, with their size and time then: skipped (no re-parse) while both are unchanged. gMx.
+struct Miss {
+    uintmax_t size;
+    std::filesystem::file_time_type time;
+    std::string why;
+};
+std::map<std::filesystem::path, Miss> gMisses;
+size_t gParses = 0;                                          // gMx: files parsed (tests)
+
+// A path as UTF-8 for messages (path::string() throws on Windows for names outside the ANSI code page).
+std::string u8(const std::filesystem::path& p) {
+    const auto s = p.u8string();
+    return std::string(s.begin(), s.end());
+}
 
 constexpr uintmax_t kMaxFile = 512ull << 20;
 constexpr size_t kMaxTexts = 2'000'000, kMaxText = 1u << 16;
@@ -98,9 +115,17 @@ struct Sax : LocaSax {
     bool key(std::string& k) { return storeKey(k); }
 };
 
-std::string getenv_s(const char* name) {
+// An environment variable as a path, empty when unset. Wide on Windows: the narrow CRT copy loses letters outside the
+// ANSI code page.
+std::filesystem::path envPath(const char* name) {
+#ifdef _WIN32
+    std::wstring w(name, name + std::strlen(name));
+    const wchar_t* v = _wgetenv(w.c_str());
+    return v ? std::filesystem::path(v) : std::filesystem::path();
+#else
     const char* v = std::getenv(name);
-    return v ? v : "";
+    return v ? std::filesystem::path(v) : std::filesystem::path();
+#endif
 }
 
 // The files a catalog may be in, in the order kiln-manage looks (docs/kiln/modding/catalogs.md) plus the server's own Kiln
@@ -108,34 +133,39 @@ std::string getenv_s(const char* name) {
 // is also tried through the Z: drive.
 std::vector<std::filesystem::path> candidates() {
     std::vector<std::filesystem::path> places;
-    auto add = [&](const std::string& p) {
+    auto add = [&](const std::filesystem::path& p) {
         if (p.empty()) return;
-        places.emplace_back(p);
+        places.push_back(p);
 #ifdef _WIN32
-        if (p[0] == '/') {
-            std::string z = "Z:" + p;
-            std::replace(z.begin(), z.end(), '/', '\\');
+        const std::wstring& n = p.native();
+        if (n[0] == L'/') {
+            std::wstring z = L"Z:" + n;
+            std::replace(z.begin(), z.end(), L'/', L'\\');
             places.emplace_back(z);
         }
 #endif
     };
-    add(getenv_s("KILN_CATALOG"));
+    add(envPath("KILN_CATALOG"));
     if (gKApi && gKApi->path) {
         char buf[1024];
         size_t n = 0;
         if (gKApi->path(KILN_PATH_KILN, buf, sizeof buf, &n) == KILN_OK && n && n < sizeof buf)
-            places.emplace_back((std::filesystem::path(std::string(buf, n)) / "catalog"));
+            places.push_back(std::filesystem::path(std::u8string(buf, buf + n)) / "catalog");  // the core's paths are UTF-8
     }
-    if (auto d = getenv_s("KILN_DATA_DIR"); !d.empty()) add((std::filesystem::path(d) / "catalog").generic_string());
+    // generic (forward-slash) form, as before, so a Linux value from Wine's host variables is also tried through Z:
+    auto gen = [](const std::filesystem::path& p) { return std::filesystem::path(p.generic_u8string()); };
+    if (auto d = envPath("KILN_DATA_DIR"); !d.empty()) add(gen(d / "catalog"));
     for (const char* name : {"XDG_DATA_HOME", "WINE_HOST_XDG_DATA_HOME"})
-        if (auto x = getenv_s(name); !x.empty()) add((std::filesystem::path(x) / "kiln" / "catalog").generic_string());
+        if (auto x = envPath(name); !x.empty()) add(gen(x / "kiln" / "catalog"));
     for (const char* name : {"HOME", "WINE_HOST_HOME"})
-        if (auto h = getenv_s(name); !h.empty()) add((std::filesystem::path(h) / ".local" / "share" / "kiln" / "catalog").generic_string());
-    if (auto w = getenv_s("WINEHOMEDIR"); !w.empty()) {
-        if (w.rfind("\\??\\", 0) == 0) w.erase(0, 4);
-        places.emplace_back(std::filesystem::path(w) / ".local" / "share" / "kiln" / "catalog");
+        if (auto h = envPath(name); !h.empty()) add(gen(h / ".local" / "share" / "kiln" / "catalog"));
+    if (auto w = envPath("WINEHOMEDIR"); !w.empty()) {
+        auto n = w.native();
+        const decltype(n) prefix(std::filesystem::path("\\??\\").native());
+        if (n.rfind(prefix, 0) == 0) n.erase(0, 4);
+        places.push_back(std::filesystem::path(n) / ".local" / "share" / "kiln" / "catalog");
     }
-    if (auto l = getenv_s("LOCALAPPDATA"); !l.empty()) places.emplace_back(std::filesystem::path(l) / "Kiln" / "catalog");
+    if (auto l = envPath("LOCALAPPDATA"); !l.empty()) places.push_back(l / "Kiln" / "catalog");
     std::vector<std::filesystem::path> files;
     for (const auto& p : places) {
         auto f = p.extension() == ".json" ? p : p / "client.json";
@@ -145,17 +175,20 @@ std::vector<std::filesystem::path> candidates() {
 }
 
 // A catalog file's loca table, or null with `why`.
-std::shared_ptr<Table> parseFile(const std::filesystem::path& file, std::string& why) {
+// `lasting` (optional): the refusal stays until the file changes (not set for a file that could not be opened).
+std::shared_ptr<Table> parseFile(const std::filesystem::path& file, std::string& why, bool* lasting = nullptr) {
+    if (lasting) *lasting = true;
     std::error_code ec;
     const auto size = std::filesystem::file_size(file, ec);
     if (ec) return nullptr;  // not there: the caller tries the next place
     if (size > kMaxFile) {
-        why = file.string() + " is larger than 512 MB";
+        why = u8(file) + " is larger than 512 MB";
         return nullptr;
     }
     std::ifstream in(file, std::ios::binary);
     if (!in) {
-        why = file.string() + " cannot be opened";
+        why = u8(file) + " cannot be opened";
+        if (lasting) *lasting = false;
         return nullptr;
     }
     auto table = std::make_shared<Table>();
@@ -164,14 +197,14 @@ std::shared_ptr<Table> parseFile(const std::filesystem::path& file, std::string&
     sax.out = table.get();
     const bool ok = nlohmann::json::sax_parse(in, &sax);
     if (!ok) {
-        why = file.string() + " is not a readable catalog";
+        why = u8(file) + " is not a readable catalog";
         return nullptr;
     }
     if (table->text.empty()) {
-        why = file.string() + " has no 'loca' section (a server catalog has none: use the client catalog, `kiln catalog build --side client`)";
+        why = u8(file) + " has no 'loca' section (a server catalog has none: use the client catalog, `kiln catalog build --side client`)";
         return nullptr;
     }
-    table->source = file.string();
+    table->source = u8(file);
     table->build = sax.steam.empty() ? sax.svn : sax.svn.empty() ? sax.steam : sax.steam + " (svn " + sax.svn + ")";
     return table;
 }
@@ -185,18 +218,38 @@ std::shared_ptr<const Table> table() {
     std::string why;
     std::string tried;
     for (const auto& file : candidates()) {
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(file, ec);
+        const auto time = ec ? std::filesystem::file_time_type{} : std::filesystem::last_write_time(file, ec);
+        if (!ec) {
+            // read and refused before, unchanged since: not parsed again (a server catalog can be hundreds of MB)
+            if (auto m = gMisses.find(file); m != gMisses.end() && m->second.size == size && m->second.time == time) {
+                why = m->second.why;
+                tried += (tried.empty() ? "" : "; ") + u8(file);
+                continue;
+            }
+        }
         std::string w;
-        if (auto t = parseFile(file, w)) {
+        bool lasting = false;
+        if (!ec) ++gParses;
+        if (auto t = ec ? nullptr : parseFile(file, w, &lasting)) {
             gTable = t;
+            gMisses.clear();
             gSink((LV_OK "Res.text: " + std::to_string(t->text.size()) + " texts from " + t->source + " (game build " + t->build + ")").c_str());
             return gTable;
         }
-        if (!w.empty()) why = w;
-        tried += (tried.empty() ? "" : "; ") + file.string();
+        if (!w.empty()) {
+            why = w;
+            if (!ec && lasting) gMisses[file] = Miss{size, time, w};
+        }
+        tried += (tried.empty() ? "" : "; ") + u8(file);
     }
     gFailedAt = now;
     gReason = !why.empty() ? why : "no client catalog found (run `kiln catalog build --side client`, or set KILN_CATALOG; looked at: " + tried + ")";
-    gSink((LV_WARN "Res.text: no texts for tags beyond items and templates: " + gReason).c_str());
+    if (gReason != gSaid) {  // the same reason is said once, not every 60 s
+        gSaid = gReason;
+        gSink((LV_WARN "Res.text: no texts for tags beyond items and templates: " + gReason).c_str());
+    }
     return nullptr;
 }
 
@@ -205,6 +258,8 @@ void reset() {
     gTable.reset();
     gFailedAt = {};
     gReason = "not loaded yet";
+    gSaid.clear();
+    gMisses.clear();
 }
 
 // The text of a LocaTag reference (the tag id is the FNV-1a of its 16 GUID bytes), or empty.

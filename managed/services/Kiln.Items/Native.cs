@@ -202,7 +202,7 @@ internal static unsafe class ItemsNative
     public const uint MoveStack = 0, MoveQuickStack = 1, MoveAllKind = 2;
     public const uint MoveDryRun = 0x01, MoveEquipped = 0x02, MoveActionBar = 0x04, MoveSilent = 0x08;
     public const uint TransferQuickStack = 1, TransferMoveAll = 2, TransferAny = 3;
-    public const uint TransferByMod = 1, TransferCanceled = 2;
+    public const uint TransferByMod = 1, TransferCanceled = 2, TransferDryRun = 4;  // DryRun: native handler events only, never in reports
     public const uint RuleKeepSlot = 1, RuleKeepItem = 2, RuleDeny = 3;
 
     [StructLayout(LayoutKind.Sequential)]

@@ -24,7 +24,7 @@ come with code fixes.
 | [KILN196](#kiln196) | warning | writing an identity field or a name | the local catalog |
 | [KILN197](#kiln197) | **error** | a typed field on an entry of another section | the code |
 | [KILN110](#kiln110) | **error** | bad or duplicate block name | blocks.md |
-| [KILN111](#kiln111) | warning | a name that is no block, or the wrong kind of block | blocks.md |
+| [KILN111](#kiln111) | warning (info for a game-style name the local catalog lacks) | a name that is no block, or the wrong kind of block | blocks.md |
 | [KILN112](#kiln112) | **error** | `clients` too low for the mod's blocks | blocks.md |
 
 Other KILN codes:
@@ -432,8 +432,12 @@ is built at run time, because it could be any name.
 It checks every field that names a block: effects, statuses, VFX, sounds, items, perks, abilities, materials, stations, screen effects, the windows a
 button or key of a [UI block](ui-blocks.md) opens or closes, and spawned templates. Some of these also take a game name:
 - An item, perk or template may be the game's. The check uses the generated `GameItems`, `GamePerks` and `GameTemplates`; without them (no local
-  game catalog, or the section left out of `KilnGameIds`) it skips those names. Names your data packs in `content/*.json` add count too. An item
-  that code adds at run time, or another mod's by its game name, gets the warning: suppress it there.
+  game catalog, or the section left out of `KilnGameIds`) it skips those names. Names your data packs in `content/*.json` add count too, and so do
+  items your code registers with the older items API (`new ItemDefinition { Name = "glacier_gem", ... }` for `Content.Items.Register`; when such a
+  name is built at run time, item names are not checked).
+- A name in the game's style (capitalised words joined by `_`, like `Weapon_T1_1H_SwordEpic_01`) that the local catalog lacks is reported as
+  **info**, not a warning: your catalog may be of another game build, or the item may be another mod's. Other unknown names stay warnings.
+  An item that code adds at run time some other way, or another mod's by its game name, can be suppressed there.
 - A sound may be a `SoundBlock`, a cue in `assets/cook.json`, or a game cue's GUID (`GameSounds.Guids`). A game cue has no name a block can use.
 - A perk may also be `"none"` or `"item:<name>"`. A station may be `"hand"` or a workshop's `0x` id.
 

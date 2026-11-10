@@ -139,6 +139,9 @@ struct Engine {
     bool names_ok = false;    // feature items.names: container names
 };
 extern Engine E;
+// After resolve(): blank the game functions a feature that is off must never call. items.move off drops the slot transfer
+// only; quick stack and move all stay while items.transfer can still hook them, and go only when both features are off.
+void gate_features();
 
 // ---- fixed layouts (types.json + disassembly of this build; see docs/re/items.md) ----
 constexpr uint32_t kSetupBlock = 0xF0;  // InventoryTx setup block (InventoryTx_init copies it)

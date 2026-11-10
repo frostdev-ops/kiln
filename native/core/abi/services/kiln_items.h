@@ -310,7 +310,8 @@ enum {
 
 /* KilnItemsMoveRequest.flags */
 enum {
-    KILN_ITEMS_MOVE_DRY_RUN = 0x01u,   /* run and roll back: the result says what would move; no transfer report */
+    KILN_ITEMS_MOVE_DRY_RUN = 0x01u,   /* run and roll back: the result says what would move; no transfer report;
+                                          handlers see KILN_TRANSFER_DRY_RUN */
     KILN_ITEMS_MOVE_EQUIPPED = 0x02u,  /* STACK: a slot a player has equipped or holds may move (default: refused) */
     KILN_ITEMS_MOVE_ACTIONBAR = 0x04u, /* STACK: may take from and fill a player's action-bar pages (default: refused
                                           as a source, skipped as a destination); MOVE_ALL: takes the action bar along
@@ -401,6 +402,9 @@ enum {
 enum {
     KILN_TRANSFER_BY_MOD = 0x1u,    /* a kiln.items move (KILN_MOVE_QUICK_STACK / MOVE_ALL), not the game's own caller */
     KILN_TRANSFER_CANCELED = 0x2u,  /* reports: a rule or handler canceled it */
+    KILN_TRANSFER_DRY_RUN = 0x4u,   /* events (dev.21, appended): a KILN_ITEMS_MOVE_DRY_RUN move; everything it does is rolled
+                                     * back after, so a handler must not count it or act outside the transfer. Dry runs
+                                     * send no report. Older services never set it. */
 };
 
 typedef struct KilnItemsTransferCtx KilnItemsTransferCtx; /* opaque; valid only during the handler call */
@@ -411,7 +415,7 @@ typedef struct KilnItemsTransferEvent {
     KilnEntity from;       /* the inventory the items leave */
     KilnEntity to;         /* the inventory they enter */
     KilnEntity player;     /* whichever of from / to is a player's inventory, else 0 */
-    uint32_t flags;        /* KILN_TRANSFER_BY_MOD */
+    uint32_t flags;        /* KILN_TRANSFER_BY_MOD, KILN_TRANSFER_DRY_RUN */
     KilnItemsTransferCtx* ctx;
 } KilnItemsTransferEvent;
 
