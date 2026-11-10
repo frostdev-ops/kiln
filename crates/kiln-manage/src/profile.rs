@@ -13,6 +13,16 @@ use serde::{Deserialize, Serialize};
 // ---- game side: <game>/kiln/profile.json ----
 
 /// `dropins`: true/false, or a list of kinds.
+///
+/// How each reader takes it (docs/kiln/profiles.md "Drop-in folders"):
+/// - kiln-core (`kiln`, `native`, `plugin`, `emf`, through `kiln.profile` `dropins()`) and kiln-eml (`eml`): `true`, or
+///   a list naming the kind. A missing key is `false`.
+/// - compat.h's engines (Greeneye, Flame, Shroudtopia, Enshwick, Ember) and kiln-shroudlink: their folder is read when
+///   the profile has no `mods.<engine>` list, or when `dropins` is `true`. A list is not read by them.
+/// - kiln-shroudforge hosts ShroudForge (which runs its whole mods folder) when `mods.shroudforge` has an enabled entry,
+///   or (from dev.22) when `dropins` is `true` or names `shroudforge`.
+/// - kiln-set always reads `shrouded_engine_tweaks/mods`; Enshwick's loader runs every folder in `<game>/mods`. Neither
+///   reads `dropins`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dropins {
@@ -25,6 +35,37 @@ impl Default for Dropins {
         Dropins::All(false)
     }
 }
+
+impl Dropins {
+    /// `true`, or a list naming `kind` (the rule of kiln-core and kiln-eml).
+    pub fn names(&self, kind: ModKind) -> bool {
+        match self {
+            Dropins::All(b) => *b,
+            Dropins::Kinds(v) => v.contains(&kind),
+        }
+    }
+
+    /// `true` itself (the only form compat.h's engines and kiln-shroudlink read).
+    pub fn is_all(&self) -> bool {
+        matches!(self, Dropins::All(true))
+    }
+}
+
+/// The kinds whose plugin reads the profile's `dropins` for its own folder, in [`ModKind::ALL`] order: the switches the
+/// launcher offers. `dropins: true` is written when a profile has every one of them on. SET and Enshwick do not read
+/// `dropins` (see [`Dropins`]); Ember's mods do not run.
+pub const DROPIN_KINDS: [ModKind; 10] = [
+    ModKind::Kiln,
+    ModKind::Native,
+    ModKind::Plugin,
+    ModKind::Emf,
+    ModKind::Eml,
+    ModKind::ShroudForge,
+    ModKind::Greeneye,
+    ModKind::Flame,
+    ModKind::Shroudtopia,
+    ModKind::Shroudlink,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -300,6 +341,10 @@ pub struct Profile {
     pub mods: ProfileMods,
     #[serde(default)]
     pub dropins: Vec<ModKind>,
+    /// `dropins` names the engine kinds too (written by dev.22 launchers). Without it (older profiles) a profile with
+    /// all four Kiln kinds on loads every kind's drop-in folder, as before: [`Profile::dropin_kinds`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dropins_engines: bool,
     #[serde(default)]
     pub data_dir: DataDirMode,
     #[serde(default)]
@@ -307,6 +352,38 @@ pub struct Profile {
     /// Native mod ids whose dllmain DLLs load after Kiln and ShroudForge (chain.ini [late]) instead of in the proxy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub late: Vec<String>,
+}
+
+impl Profile {
+    /// The kinds whose drop-in folders this profile switches on, as the player sees them, in [`ModKind::ALL`] order. A
+    /// profile from before `dropinsEngines` with all four Kiln kinds on means every kind (older launchers wrote
+    /// `dropins: true` for it, which the engine plugins read as "my folder too").
+    pub fn dropin_kinds(&self) -> Vec<ModKind> {
+        if !self.dropins_engines && ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
+            return ModKind::ALL.to_vec();
+        }
+        ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k)).collect()
+    }
+
+    /// profile.json `dropins` for this profile. Older profiles (no `dropinsEngines`) are written as before: `true` when
+    /// all four Kiln kinds are on, else their list. With `dropinsEngines`: `true` when every kind of [`DROPIN_KINDS`] is
+    /// on, `false` when none is, else the list of those that are (kinds whose plugin does not read `dropins` are left
+    /// out, so the file says the same to every reader).
+    pub fn dropins_file(&self) -> Dropins {
+        if !self.dropins_engines {
+            return match self.dropins.len() {
+                0 => Dropins::All(false),
+                _ if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) => Dropins::All(true),
+                _ => Dropins::Kinds(self.dropins.clone()),
+            };
+        }
+        let on: Vec<ModKind> = DROPIN_KINDS.into_iter().filter(|k| self.dropins.contains(k)).collect();
+        match on.len() {
+            0 => Dropins::All(false),
+            n if n == DROPIN_KINDS.len() => Dropins::All(true),
+            _ => Dropins::Kinds(on),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -594,6 +671,7 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         notes: src.as_ref().map(|s| s.notes.clone()).unwrap_or_default(),
         mods: src.as_ref().map(|s| s.mods.clone()).unwrap_or_default(),
         dropins: src.as_ref().map(|s| s.dropins.clone()).unwrap_or_default(),
+        dropins_engines: src.as_ref().is_some_and(|s| s.dropins_engines),
         data_dir: src.as_ref().map(|s| s.data_dir).unwrap_or_default(),
         server: src.as_ref().and_then(|s| s.server.clone()),
         late: src.as_ref().map(|s| s.late.clone()).unwrap_or_default(),
@@ -804,12 +882,7 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
         DataDirMode::Shared => None,
         DataDirMode::Profile => Some(game_or_copy(&pdir.join("data"), install, mode, || format!("{COPY_ROOT_REL}/{pid}/data"))?),
     };
-    let dropins = match profile.dropins.len() {
-        0 => Dropins::All(false),
-        // every Kiln kind: true (the engine plugins read their own folders then too), as older launchers wrote it
-        _ if ModKind::CORE.iter().all(|k| profile.dropins.contains(k)) => Dropins::All(true),
-        _ => Dropins::Kinds(profile.dropins.clone()),
-    };
+    let dropins = profile.dropins_file();
     Ok(ProfileFile {
         schema: None,
         format: 1,

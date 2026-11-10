@@ -76,7 +76,7 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
 | `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
 | `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size}` |
-| `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty) |
+| `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty; dev.22 adds `dropinsEngines: true`: `dropins` names the engine kinds too, profiles.md "Drop-in folders") |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/`, `native.json` and the player's `compat-rules.json` |
 | `profiles/<pid>/data/` | per-mod data when the profile chooses `dataDir: profile` |
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
@@ -170,7 +170,8 @@ missing folders in `profile.missing[]`, but `kiln.profile` `count()/get()` cover
 change): each engine's plugin reads its own list from `kiln.profile.json()`. Older cores warn
 `unknown mod kind "mods.<kind>" ignored` and run on. A list is written only when it has entries, so a Kiln-only
 profile is byte-identical to older launchers' files. `dropins` may name engine kinds; `true` is written when the
-profile turns on all four Kiln kinds (as before), and the engine plugins then read their own folders too.
+profile turns on all four Kiln kinds (profiles without `dropinsEngines`, as before) or every drop-in switch (profiles
+with it, profiles.md "Drop-in folders"), and the engine plugins then read their own folders too.
 Older cores can ignore the new `mods.<kind>` lists, but their `dropins` arrays reject unknown names: engine-specific
 drop-in selections require an updated core. `dropins: true` keeps the older all-Kiln-kinds representation.
 
@@ -823,6 +824,8 @@ or emits `kiln://update`; its UI calls none of these commands.
 | engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
 | compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it (`lateBy`: `player`, `profile` or `rule:<id>`; a `[late]` line that a rule wrote into chain.ini, marked `; kiln rule <id>`, is that rule's even when it is another profile's), the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
 | compat | `chain_set_late` | profileId, gameId, path: string, late: boolean | `ChainView` (a `[profile]` entry changes the profile's late list, saved and re-applied where it is active; a `[chain]` entry changes the game's `chain.ini [late]` for every profile and is refused with `game_running` while the game runs; `not_found` when `path` is not in the profile's chain) |
+| found | `found_scan` | gameId, profileId | `FoundReport {gameId, profileId, kilnInstalled, mods: FoundMod[], loaders: OwnLoader[], unreadable: {path, reason}[], truncated}`; `FoundMod {kind: ModKind \| null, name, id, version, path (relative to the game, '/'), state: "loads"\|"off"\|"inProfile"\|"cannotRun", via?: "kiln"\|"ownLoader", reason, fix?: "dropins"\|"add", profileMod?}`, `OwnLoader {engine, name, kinds, file}` (mods in the game folder Kiln did not put there and whether they load with that profile: profiles.md "Mods in the game folder"; never fails over a missing or unreadable folder) |
+| found | `found_add` | gameId, profileId, path | `TaskId` -> `AddReport` (imports a `found_scan` entry into the Library and adds it to the profile, enabled; through `library_add`'s flow when the profile is active in the game; a refusal is in `import.skipped`; the player's folder stays) |
 
 `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:
 AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs: applies at the next

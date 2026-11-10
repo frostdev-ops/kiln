@@ -68,6 +68,8 @@ export function useProfileEdit(id: string) {
     setBusy(false);
     qc.invalidateQueries({ queryKey: qk.profiles });
     qc.invalidateQueries({ queryKey: ["profile_resolve", id] });
+    // drop-ins and the profile's own mods decide what loads from the game folder
+    qc.invalidateQueries({ queryKey: ["found_scan"] });
   };
 
   /** Applies `edit` (to a copy) and saves it after any edits before it. */
