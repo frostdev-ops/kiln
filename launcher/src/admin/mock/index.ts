@@ -48,6 +48,11 @@ export function adminMockHandlers(emit: Emit): Record<string, Handler> {
 
 // ---------------------------------------------------------------- canned (in-memory) Kiln.Admin
 
+/** Tests: the next state pushes look like the Emberwatch Lua mod's state.json with nobody online (Lua writes an
+ * empty list as `{}`). `window.__kilnAdminMock.luaState(true)`. */
+let luaState = false;
+if (typeof window !== "undefined") (window as unknown as { __kilnAdminMock?: unknown }).__kilnAdminMock = { luaState: (on: boolean) => { luaState = on; } };
+
 function cannedHandlers(emit: Emit): Record<string, Handler> {
   const worlds = new Map<string, MockWorld>();
   const sessions = new Map<string, MockSession>();
@@ -59,7 +64,8 @@ function cannedHandlers(emit: Emit): Record<string, Handler> {
     for (const s of sessions.values()) {
       if (s.topics.has("state")) {
         s.seq.state = (s.seq.state ?? 0) + 1;
-        emit("kiln://admin", { session: s.id, serverId: s.serverId, event: { kind: "push", topic: "state", seq: s.seq.state, data: s.world.state() } });
+        const data = luaState ? { clock: s.world.state().clock, ready: true, players: {}, deaths: {}, enemies: {}, explore: false, spawned: 0 } : s.world.state();
+        emit("kiln://admin", { session: s.id, serverId: s.serverId, event: { kind: "push", topic: "state", seq: s.seq.state, data } });
       }
       if (s.topics.has("log") && s.world.log.length > s.logSent) {
         const lines = s.world.log.slice(s.logSent);
