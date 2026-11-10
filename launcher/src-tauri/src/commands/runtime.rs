@@ -86,6 +86,25 @@ pub(crate) fn install_result(receipt: &InstallReceipt, report: &install::Install
     Ok(v)
 }
 
+/// After an install: the profile the launcher remembers for the game becomes the active one again
+/// ([`kiln_manage::quick::resume_active`]), so a reinstall after an uninstall loads the player's mods without a step.
+/// Fails soft: the install stands whatever happens here. Returns the profile made active, if any.
+fn resume_profile(d: &kiln_manage::paths::DataDirs, g: &GameInstall, p: &mut dyn Progress) -> Option<String> {
+    match kiln_manage::quick::resume_active(d, g) {
+        Ok(Some(a)) => {
+            p.report(Some(0.98), &format!("profile {} is active again", a.profile_id));
+            Some(a.profile_id)
+        }
+        Ok(None) => None,
+        // the game started during the install: the player activates the profile later
+        Err(e) if e.code == ErrorCode::GameRunning => None,
+        Err(e) => {
+            eprintln!("runtime install: the remembered profile was not made active again: {e}");
+            None
+        }
+    }
+}
+
 /// An install only counts when the game folder says so afterwards: the receipt names the bundle's version and parts,
 /// and every file it lists has its bytes. Anything else fails the task with what is wrong.
 pub(crate) fn check_applied(g: &GameInstall, version: &str, receipt: &InstallReceipt, p: &mut dyn Progress) -> Result<(), Error> {
@@ -134,7 +153,12 @@ pub async fn runtime_install(app: AppHandle, game_id: String, version: String, o
         after_change(&a, &game_id);
         let (r, report) = r?;
         check_applied(&g, &b.version, &r, p)?;
-        install_result(&r, &report)
+        let resumed = resume_profile(&d, &g, p);
+        let mut v = install_result(&r, &report)?;
+        if let Some(o) = v.as_object_mut() {
+            o.insert("resumedProfile".into(), serde_json::json!(resumed));
+        }
+        Ok(v)
     }))
 }
 
@@ -176,7 +200,12 @@ pub async fn runtime_rollback(app: AppHandle, game_id: String, version: String) 
         after_change(&a, &game_id);
         let (r, report) = r?;
         check_applied(&g, &b.version, &r, p)?;
-        install_result(&r, &report)
+        let resumed = resume_profile(&d, &g, p);
+        let mut v = install_result(&r, &report)?;
+        if let Some(o) = v.as_object_mut() {
+            o.insert("resumedProfile".into(), serde_json::json!(resumed));
+        }
+        Ok(v)
     }))
 }
 

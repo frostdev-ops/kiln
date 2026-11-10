@@ -1445,7 +1445,7 @@ bool wr_write(uintptr_t map, const MapView& m, int64_t slot, uint32_t key, const
 
 // Puts workshop `wid` of recipe `d` ("workshop:<guid>", with "menu") into `world`'s workshop registry. Once per workshop and world session.
 void wr_add(WorldState& ws, uint32_t kind, uintptr_t world, uint32_t wid, const Def& d) {
-    static const bool on_server = GetFileAttributesA((data_dir() + "\\content\\workshops-on-server").c_str()) != INVALID_FILE_ATTRIBUTES;
+    static const bool on_server = path_exists(data_dir() + "\\content\\workshops-on-server");
     if (kind != KILN_WORLD_CLIENT && !(kind == KILN_WORLD_SERVER && on_server)) return;
     if (!wid || !d.menu_workshop || !ws.wr_done.insert(wid).second) return;
     wr_layout();
@@ -3196,12 +3196,12 @@ void client_diag(uintptr_t world) {
     if (now - last < std::chrono::seconds(10)) return;
     last = now;
     const std::string dflag = data_dir() + "\\content\\debug-ui";
-    if (GetFileAttributesA(dflag.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!path_exists(dflag)) {
         g_loca_trace.store(false);
         return;
     }
     const std::string flag = data_dir() + "\\content\\loca-trace";
-    const bool trace = GetFileAttributesA(flag.c_str()) != INVALID_FILE_ATTRIBUTES;
+    const bool trace = path_exists(flag);
     std::vector<uint32_t> ids;
     {
         std::lock_guard lock(g_trace_mu);
@@ -4209,7 +4209,7 @@ uint32_t nc_undefine_owner(KilnOwner owner) {
 // Client worlds: registration at registry load, and answers for unknown ids. Everything here fails soft: without a
 // hook the definitions go in at the first Pre as before and a miss stays NULL (kiln.log says so).
 void early_boot() {
-    const auto file = [](const char* n) { return GetFileAttributesA((data_dir() + "\\content\\" + n).c_str()) != INVALID_FILE_ATTRIBUTES; };
+    const auto file = [](const char* n) { return path_exists(data_dir() + "\\content\\" + n); };
     g_early_test = file("early-test");
     if (g_api->side() != KILN_SIDE_CLIENT && !g_early_test) return;
     if (g_early_test) {
@@ -4317,7 +4317,7 @@ void nc_boot() {
     N.loot = E.loot && feat("content.loot_new") && sym("content/LootItems", &N.loot_items_fn) &&
              cst("content/lootreg.data", &N.lootreg_data) && cst("content/loot.items", &N.loot_items) &&
              N.lootreg_data > 0 && N.lootreg_data < 0x100 && N.loot_items == 0x14;
-    if (N.loot && GetFileAttributesA((data_dir() + "\\content\\no-loot-hook").c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (N.loot && path_exists(data_dir() + "\\content\\no-loot-hook")) {
         LOGW("new content: <kiln>/data/content/no-loot-hook: random loot of new items off");
         N.loot = false;
     }

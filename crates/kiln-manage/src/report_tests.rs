@@ -323,8 +323,8 @@ fn engine_stood_aside_and_loader_in_folder() {
 #[test]
 fn mods_in_the_game_folder_the_profile_skips() {
     let f = Fx::healthy("unlisted");
-    f.w("kiln/mods/extra-mod/kiln.mod.json", br#"{"id":"extra-mod","version":"1.0.0"}"#);
-    f.w("kiln/mods/chat-plus/kiln.mod.json", br#"{"id":"chat-plus","version":"1.0.0"}"#);
+    f.w("kiln/mods/extra-mod/kiln.mod.json", br#"{"id":"extra-mod","version":"1.0.0","apiVersion":"0.2"}"#);
+    f.w("kiln/mods/chat-plus/kiln.mod.json", br#"{"id":"chat-plus","version":"1.0.0","apiVersion":"0.2"}"#);
     f.w("kiln/mods/old-mod/.disabled", b"");
     f.w("mods/BiggerTorch/flame.json", br#"{}"#);
     let r = build(&f.input());
@@ -341,7 +341,25 @@ fn mods_in_the_game_folder_the_profile_skips() {
     // drop-ins on: nothing is skipped
     f.profile(serde_json::json!(true), serde_json::json!({"kiln": [], "flame": [{"id": "other", "path": "x"}]}));
     assert!(!ids(&build(&f.input())).contains(&"unlisted-mods"));
-    assert!(folder_loaded(ModKind::Kiln, None, None), "legacy layout loads the drop-ins");
+    // legacy layout (no profile.json): every drop-in folder loads
+    f.rm("kiln/profile.json");
+    assert!(!ids(&build(&f.input())).contains(&"unlisted-mods"));
+}
+
+#[test]
+fn report_and_game_folder_panel_agree() {
+    let f = Fx::healthy("agree");
+    f.w("kiln/mods/extra-mod/kiln.mod.json", br#"{"id":"extra-mod","version":"1.0.0","apiVersion":"0.2"}"#);
+    f.w("mods/BiggerTorch/flame.json", br#"{}"#);
+    f.profile(serde_json::json!(["kiln"]), serde_json::json!({"kiln": [], "flame": [{"id": "other", "path": "x"}]}));
+    let r = build(&f.input());
+    let u = finding(&r, "unlisted-mods");
+    let file = crate::profile::read_game_profile(&f.game).unwrap().unwrap();
+    let scan = crate::found::scan(&DataDirs::at(f.root.join("data")), &f.install(Platform::Windows), &profile_view(&file));
+    for m in &scan.mods {
+        assert_eq!(u.text.contains(&m.path), m.state == crate::found::FoundState::Off, "{} ({:?}): {}", m.path, m.state, u.text);
+    }
+    assert!(scan.mods.iter().any(|m| m.state == crate::found::FoundState::Loads), "{:?}", scan.mods);
 }
 
 #[test]
@@ -479,7 +497,7 @@ fn print_fixture_summary() {
     // `cargo test -p kiln-manage report::tests::print_fixture_summary -- --nocapture` shows a fixture's summary.txt
     let f = Fx::healthy("print");
     f.rm("kiln/kiln-core.dll");
-    f.w("kiln/mods/extra-mod/kiln.mod.json", br#"{"id":"extra-mod","version":"1.0.0"}"#);
+    f.w("kiln/mods/extra-mod/kiln.mod.json", br#"{"id":"extra-mod","version":"1.0.0","apiVersion":"0.2"}"#);
     f.w("kiln/state/eml.json", br#"{"pid":1,"phase":"aside","reason":"dbghelp.dll is loaded: EML's own loader patched the game files this start","mods":[]}"#);
     f.w("dbghelp.dll", crate::pe::build_test_dll(&[], b"EML_LOG_FILE_PATH"));
     f.w("kiln/chain.ini", "[chain]\nchain/emf-dinput8.dll\n");

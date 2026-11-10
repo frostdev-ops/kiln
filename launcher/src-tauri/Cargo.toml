@@ -49,3 +49,5 @@ evdev = "0.13"
 [dev-dependencies]
 # selfupdate tests drive the real updater plugin on a mock app
 tauri = { version = "2.12", features = ["test"] }
+# deck/browse tests: a real .7z in the file browser (the same crate and version kiln-manage reads them with)
+sevenz-rust2 = { version = "0.25", default-features = false, features = ["compress"] }

@@ -539,3 +539,120 @@ fn concurrent_placement_is_serialized_and_modified_library_is_refused() {
     assert!(engine_mods::place(&dirs, &p, &t.0.join("other-game")).is_err());
     assert!(!t.0.join("other-game/shrouded_engine_tweaks/mods/flymode").exists());
 }
+
+/// A ShroudForge package as its author ships it: mod.json `id` as given, an SF extension, Lua code.
+fn sf_package(dir: &Path, id: &str) {
+    put(dir, "mod.json", format!(r#"{{"id":"{id}","name":"Package {id}","version":"1.0.0"}}"#).as_bytes());
+    put(dir, "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":3}}}"#);
+    put(dir, "src/mod.lua", b"return {}");
+}
+
+#[test]
+fn shroudforge_packages_whose_id_is_not_a_kiln_id_import_under_a_slug() {
+    let t = tmp("sf-wide-id");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let long = format!("Sf.Pack-{}", "X".repeat(62)); // upper case, 70 characters: ShroudForge's rule, not Kiln's
+    assert_eq!(long.len(), 70);
+    let a = t.0.join("src/HoardersHelper");
+    let b = t.0.join("src/long");
+    sf_package(&a, "HoardersHelper");
+    sf_package(&b, &long);
+    let bad = t.0.join("src/bad");
+    sf_package(&bad, "has space");
+    let r = library::import(&dirs, &[a.clone(), b.clone(), bad], &mut NoProgress).unwrap();
+    assert_eq!(r.skipped.len(), 1, "{:?}", r.skipped);
+    assert!(r.skipped[0].reason.contains("not a valid ShroudForge package id"), "{:?}", r.skipped);
+    let ha = refs(&r, ModKind::ShroudForge, "hoardershelper");
+    let slug = library::id_from_name(&long);
+    let hb = refs(&r, ModKind::ShroudForge, &slug);
+    // the files are byte-identical; the manifest's own id stays in the record
+    assert_eq!(hash::dirhash(&library::path_of(&dirs, &ha).unwrap()).unwrap(), hash::dirhash(&a).unwrap());
+    assert_eq!(library::record(&dirs, &ha).unwrap().manifest_id.as_deref(), Some("HoardersHelper"));
+    assert_eq!(library::record(&dirs, &hb).unwrap().manifest_id.as_deref(), Some(long.as_str()));
+
+    // placed as <sf mods>/<library id>/, switched and set by the Library id, read by ShroudForge's own id
+    let game = t.0.join("game");
+    let mut p = profile::create(&dirs, "wide", None).unwrap();
+    p.mods.shroudforge = vec![pm(&ha, true), pm(&hb, true)];
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.placed.len(), 2, "{rep:?}");
+    let da = game.join("mods/hoardershelper");
+    assert_eq!(engine_mods::placed_folder(ModKind::ShroudForge, &game, &ha.id), Some(da.clone()));
+    let m = kiln_manage::shroudforge::read_mod(&da).unwrap();
+    assert_eq!((m.id.as_str(), m.enabled), ("HoardersHelper", true));
+    assert!(game.join("mods").join(&slug).join("mod.json").is_file());
+    let cfg = t.0.join("config");
+    engine_mods::set_setting(ModKind::ShroudForge, &ha.id, "speed", &serde_json::json!(8), Some(&game), &cfg, None).unwrap();
+    let s = engine_mods::settings(ModKind::ShroudForge, &ha.id, Some(&game), &cfg, None).unwrap();
+    assert_eq!(s.values["speed"], 8);
+    p.mods.shroudforge[0].enabled = false;
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.switched, vec!["shroudforge:hoardershelper".to_string()]);
+    assert!(!kiln_manage::shroudforge::read_mod(&da).unwrap().enabled);
+    assert_eq!(kiln_manage::shroudforge::read_mod(&da).unwrap().settings[0].value, 8, "settings kept");
+}
+
+#[test]
+fn a_players_own_shroudforge_folder_with_the_same_package_id_is_left_alone() {
+    let t = tmp("sf-twin");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let a = t.0.join("src/HoardersHelper");
+    sf_package(&a, "HoardersHelper");
+    let r = library::import(&dirs, &[a.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "hoardershelper");
+    let game = t.0.join("game");
+    // the player extracted the same package themselves, under another folder name
+    let own = game.join("mods/Hoarders Helper");
+    kiln_manage::util::copy_tree(&a, &own).unwrap();
+    let before = hash::dirhash(&own).unwrap();
+    let mut p = profile::create(&dirs, "twin", None).unwrap();
+    p.mods.shroudforge = vec![pm(&h, true)];
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.own, vec!["shroudforge:hoardershelper".to_string()], "{rep:?}");
+    assert!(!game.join("mods/hoardershelper").exists(), "a second package of the same id would make ShroudForge drop both");
+    assert_eq!(hash::dirhash(&own).unwrap(), before);
+}
+
+#[test]
+fn a_servers_hand_placed_engine_mod_with_a_wide_id_is_listed_switched_and_advertised() {
+    use kiln_manage::server::{control, instance::ServerInstance};
+    let t = tmp("server-wide-id");
+    let server = t.0.join("server");
+    std::fs::create_dir_all(server.join("kiln")).unwrap();
+    let dir = server.join("kiln/eml/mods/Hoarders Helper");
+    put(&dir, "mod.json", br#"{"id":"HoardersHelper","name":"Hoarder's Helper","version":"1.0.0","capabilities":["patch"]}"#);
+    put(&dir, "src/mod.lua", b"return {}");
+    let inst: ServerInstance = serde_json::from_value(serde_json::json!({
+        "id": "t", "name": "t", "kind": "local", "dir": server, "port": 27140, "queryPort": 27140, "wine": null,
+        "policy": "any", "source": "launcher", "remote": null })).unwrap();
+    // the id a player's Library imports it under
+    assert_eq!(engine_mods::identity(&dir).0, "hoardershelper");
+    let listed = control::mods(&inst).unwrap();
+    assert!(listed.iter().any(|m| m.kind == Some(ModKind::Eml) && m.id == "hoardershelper" && m.folder == "Hoarders Helper" && m.enabled), "{listed:?}");
+    assert!(modpack::required(&server).unwrap().iter().any(|m| m.id == "hoardershelper"), "joining players are told about it");
+    control::set_enabled(&inst, "Hoarders Helper", false).unwrap();
+    assert!(server.join("kiln/disabled/eml/Hoarders Helper/mod.json").is_file());
+    control::set_enabled(&inst, "Hoarders Helper", true).unwrap();
+    assert!(dir.join("mod.json").is_file());
+    assert!(control::set_enabled(&inst, "../x", true).is_err());
+}
+
+#[test]
+fn a_data_only_kiln_mod_imports_and_joins_a_profile() {
+    let t = tmp("data-only");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/isle-colours");
+    put(&src, "kiln.mod.json", br#"{"id":"isle-colours","name":"Isle Colours","version":"1.0.0","apiVersion":"0.2","side":"client"}"#);
+    put(&src, "content/colours.json", br#"{"format":1}"#);
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    assert!(r.skipped.is_empty(), "{:?}", r.skipped);
+    let k = refs(&r, ModKind::Kiln, "isle-colours");
+    let mut p = profile::create(&dirs, "data", None).unwrap();
+    p.mods.kiln = vec![pm(&k, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let game = game_with_z(&t.0);
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let file = profile::read_game_profile(&game.path).unwrap().unwrap();
+    assert_eq!(file.mods.kiln.len(), 1);
+    assert_eq!(file.mods.kiln[0].id, "isle-colours");
+}

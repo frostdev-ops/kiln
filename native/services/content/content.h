@@ -338,6 +338,9 @@ bool dump_all(const std::string& path, std::string* error);
 std::string export_changes_json(uint32_t kinds, uint32_t* fields);
 std::string mods_dir();
 std::string data_dir();
+// Whether a file or folder exists at `utf8_path` (a UTF-8 path such as data_dir()'s): converted as UTF-8, never read in
+// the ANSI code page, which lacks the letters of a Cyrillic or accented Windows user name.
+bool path_exists(const std::string& utf8_path);
 
 // The gamedata worker's sections (gamedata.h, gamedata*.cpp): its store slots use kinds >= GD_KIND_BASE.
 #if defined(KILN_CONTENT_GAMEDATA) && __has_include("gamedata.h")

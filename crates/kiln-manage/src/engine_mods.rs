@@ -191,8 +191,8 @@ fn safe_enshwick_id(id: &str) -> bool {
 /// The Kiln id an engine mod gets in the Library, from the id its own manifest gives (`manifest_id`).
 ///
 /// Engine manifests have no id rule of Kiln's: real ids are `HoardersHelper`, `Less Dense Shroud Fog`, `antisocialian's
-/// tweaks`. (Enshwick and ShroudForge keep the strict id: their mods are copied into a folder those engines read, named
-/// by it.) A valid Kiln id is kept; any other becomes its slug ([`crate::library::id_from_name`]). The mod's files
+/// tweaks`. (Enshwick keeps the strict id: it copies its mods into a folder named by it. ShroudForge's packages are
+/// placed under the Library id: ShroudForge finds them by their mod.json id.) A valid Kiln id is kept; any other becomes its slug ([`crate::library::id_from_name`]). The mod's files
 /// are never changed: the plugin reads the manifest's own id. Two different manifest ids never share a library id:
 /// when the slug belongs to another manifest id already (`Ember` and `ember`, `a b` and `a-b`), a short hash of the
 /// manifest id is added. Returns the library id.
@@ -250,10 +250,10 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         return skip(ctx.report, "its manifest gives no usable id (empty, with control characters, or longer than 256): ask the author for a fixed version".into());
     }
     let manifest_id = id;
-    if kind == ModKind::ShroudForge && !crate::manifest::is_mod_id(&manifest_id) {
-        // Kiln places the package in ShroudForge's mods folder under its id, and ShroudForge's own runtime reads that
-        // folder: this is the one place where the id is a folder name of an engine Kiln can't check here
-        return skip(ctx.report, format!("the package id {manifest_id:?} is not a valid mod id (lower case letters, digits, . _ -, at most 64): Kiln places ShroudForge packages under their id, so the author has to change it"));
+    if kind == ModKind::ShroudForge && !crate::shroudforge::is_package_id(&manifest_id) {
+        // ShroudForge finds a package by its mod.json id (the folder name does not matter to it), so Kiln places it
+        // under its Library id; an id ShroudForge's own rule refuses would never load
+        return skip(ctx.report, format!("the package id {manifest_id:?} is not a valid ShroudForge package id (ASCII letters, digits, . _ -, at most 80): ShroudForge would not load it, so the author has to change it"));
     }
     if kind == ModKind::Enshwick {
         // Enshwick copies a mod into <game>/mods/<id>/ itself and holds its authors to one id shape: no renaming here.
@@ -633,7 +633,7 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
             let dst = root.join(&m.id);
             let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
             let have = owned(game_dir, &receipts, &dst, kind, &m.id)?.cloned();
-            if have.is_none() && dst.exists() {
+            if have.is_none() && (dst.exists() || (kind == ModKind::ShroudForge && crate::shroudforge::other_holder(&root, &src, &dst).is_some())) {
                 rep.own.push(tag(&m.id));
                 continue; // In particular, never apply a ShroudForge switch to a player's folder.
             }
@@ -732,7 +732,7 @@ pub fn folder_is(kind: ModKind, dir: &Path) -> bool {
     }
 }
 
-/// An engine folder's identity. An Enshwick pack.toml is authoritative; invalid pack
+/// An engine folder's identity: (Kiln id, version, name). An Enshwick pack.toml is authoritative; invalid pack
 /// metadata has no identity and must never fall through to mod.json or a folder alias.
 pub fn identity(dir: &Path) -> (String, Option<String>, Option<String>) {
     let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -747,7 +747,12 @@ pub fn identity(dir: &Path) -> (String, Option<String>, Option<String>) {
         let id = explicit.unwrap_or(folder);
         if !safe_enshwick_id(&id) { return (String::new(), None, None); }
         id
-    } else { explicit.filter(|i| crate::manifest::is_mod_id(i)).unwrap_or(folder) };
+    } else {
+        // a manifest id that is not a Kiln id (`HoardersHelper`) gets the slug the Library imports it under, so a
+        // server advertises the same id a player's Library holds; no manifest id: the folder name, slugged the same way
+        let id = explicit.unwrap_or(folder);
+        if crate::manifest::is_mod_id(&id) { id } else { crate::library::id_from_name(&id) }
+    };
     (id, s("version"), s("name"))
 }
 
