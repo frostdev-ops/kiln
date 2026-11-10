@@ -641,14 +641,23 @@ thread_local! {
 
 /// The last session's hooks.json; None when the game never wrote one.
 pub fn read_hooks(game_dir: &Path) -> Result<Option<HooksState>> {
+    Ok(read_hooks_shared(game_dir)?.map(|h| (*h).clone()))
+}
+
+/// [`read_hooks`] without a copy of what is remembered.
+fn read_hooks_shared(game_dir: &Path) -> Result<Option<std::sync::Arc<HooksState>>> {
     #[cfg(test)]
     HOOKS_READS.with(|c| c.set(c.get() + 1));
+    // up to 8 MiB, read by every chain view, activation and late switch: parsed once while the file is unchanged
+    static PARSED: std::sync::LazyLock<crate::filecache::Memo<Option<std::sync::Arc<HooksState>>>> =
+        std::sync::LazyLock::new(|| crate::filecache::Memo::new(16));
     let p = game_dir.join(HOOKS_JSON);
-    match read_capped(&p, MAX_HOOKS_BYTES) {
-        Ok(b) => parse_hooks(&b).map(Some),
+    let parsed = PARSED.get(&p, |p| match read_capped(p, MAX_HOOKS_BYTES) {
+        Ok(b) => parse_hooks(&b).map(|h| Some(std::sync::Arc::new(h))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(crate::util::io_at(&p, "reading")(e)),
-    }
+        Err(e) => Err(crate::util::io_at(p, "reading")(e)),
+    })?;
+    Ok(parsed)
 }
 
 /// The overlaps of a session: the core's list, or (from a core that writes none) the targets with a foreign jump
@@ -735,7 +744,7 @@ pub struct Plan {
     #[serde(skip)]
     pub ini: chain::ChainIni,
     #[serde(skip)]
-    pub hooks: Option<HooksState>,
+    pub hooks: Option<std::sync::Arc<HooksState>>,
     /// chain.ini did not read (the plan then worked from an empty one; [`view`] reports it).
     #[serde(skip)]
     pub chain_error: Option<Error>,
@@ -804,7 +813,7 @@ pub fn plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, profile_d
             }
         }
     }
-    let hooks = read_hooks(&install.path).ok().flatten();
+    let hooks = read_hooks_shared(&install.path).ok().flatten();
     if let Some(h) = &hooks {
         for f in &h.foreign {
             if !f.dest.own && !f.dest.module.is_empty() {
@@ -1033,7 +1042,7 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
         })
         .collect();
     let lib = crate::library::list(dirs, None).unwrap_or_default();
-    let overlaps = p.hooks.as_ref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib)).collect();
+    let overlaps = p.hooks.as_deref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib)).collect();
     let session = p.hooks.as_ref().map(|h| SessionInfo { generated: h.generated.clone(), phase: h.phase.clone(), kiln: h.kiln.clone(), world_checked: h.world_checked });
     Ok(ChainView { entries, rules: p.rules, rule_errors: p.rule_errors, session, overlaps, active, current, error })
 }

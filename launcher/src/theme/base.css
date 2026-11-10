@@ -29,7 +29,10 @@ p { margin: 0; }
 * { scrollbar-color: rgba(255, 190, 140, .18) transparent; scrollbar-width: thin; }
 
 /* ---------------------------------------------------------------- frame */
-.k-app { position: relative; height: 100%; min-height: 640px; min-width: 1024px; overflow: hidden; background: var(--k-bg-0); --fire: .5; }
+/* --fire: the flicker (shell/Stage.tsx sets it about 11 times a second on the two elements that use it, .k-title and
+   .k-sheet). Not inherited: a change restyles only those two, not the whole page under the sheet. */
+@property --fire { syntax: "<number>"; inherits: false; initial-value: .5; }
+.k-app { position: relative; height: 100%; min-height: 640px; min-width: 1024px; overflow: hidden; background: var(--k-bg-0); }
 .k-stage { position: absolute; inset: 0; z-index: 0; }
 /* the static stage (no WebGL): the mouth's glow on the dark, and the wall glow around the pilot light */
 .k-fall { position: absolute; inset: 0; transition: opacity .6s;

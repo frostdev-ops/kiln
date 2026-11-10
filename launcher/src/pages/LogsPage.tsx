@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import * as api from "../api/commands";
 import type { LogFile, LogTarget } from "../api/commands";
-import { qk, useGame } from "../api/hooks";
+import { qk, useGame, usePoll } from "../api/hooks";
 import { Button, EmptyState, LogView, Page, PageHeader, Select, Skeleton, Table, Tabs, WellInput, errorText, fmtAgo, fmtBytes, toast, type Column } from "../ui";
 import { TICKS, TickStats } from "./ticks";
 import { EngineStatusList, RestoreVanillaOffer } from "../components/EngineStatus";
@@ -24,7 +24,7 @@ export default function LogsPage() {
 export function LogsFor({ target, folder, embedded, tabs: wanted = ["kiln", "game", "proxy", "mods", "crash", "ticks", "engines"] }: { target: LogTarget; folder?: string; embedded?: boolean; tabs?: LogTab[] }) {
   // Engines: the engine plugins' state files, a game's only (engine_status)
   const tabs = "game" in target ? wanted : wanted.filter((t) => t !== "engines");
-  const files = useQuery({ queryKey: qk.logs(target), queryFn: () => api.logsList(target), refetchInterval: 10000 });
+  const files = useQuery({ queryKey: qk.logs(target), queryFn: () => api.logsList(target), refetchInterval: usePoll(10000) });
   const [tab, setTab] = useState<LogTab>(tabs[0]);
   const [chosen, setChosen] = useState<Partial<Record<LogTab, string>>>({});
   const [filter, setFilter] = useState("");

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import * as api from "../api/commands";
 import type { EngineStatus, GameId, Json, ModKind } from "../api/commands";
-import { useActiveProfile, useGameStatus, useProfile } from "../api/hooks";
+import { useActiveProfile, useGameStatus, usePoll, useProfile } from "../api/hooks";
 import { KIND_NAME, KIND_SHORT, KIND_TONE, MOD_KINDS } from "../api/kinds";
 import { Badge, Banner, Button, EmptyState, Modal, Skeleton, errorText, toast, type Tone } from "../ui";
 
@@ -50,7 +50,7 @@ export const engineStatusKey = (gameId: GameId) => ["engine_status", gameId] as 
 
 /** One compact row per engine plugin that wrote a state file or has mods in the active profile. */
 export function EngineStatusList({ gameId }: { gameId: GameId }) {
-  const q = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId), refetchInterval: 10_000 });
+  const q = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId), refetchInterval: usePoll(10_000) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;

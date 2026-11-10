@@ -10,6 +10,9 @@ pub mod commands;
 pub mod deck;
 pub mod distribution;
 pub mod events;
+/// The backend timing harness (ignored tests; tools/launcher/perf.sh).
+#[cfg(test)]
+mod perf;
 pub mod selftest;
 /// The self-update: only in direct builds (feature `self-update`); the Nexus Mods build compiles none of it.
 #[cfg(feature = "self-update")]
@@ -36,6 +39,10 @@ pub fn run() {
     builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
+            // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
+            if let Ok(d) = state::dirs() {
+                kiln_manage::filecache::persist_at(&state::file_hashes(&d));
+            }
             watch::start(app.handle().clone());
             let shipped = app.handle().clone();
             std::thread::spawn(move || commands::runtime::import_shipped(&shipped));

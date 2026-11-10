@@ -6,7 +6,7 @@
 // base.css draws the CSS mouth instead.
 // Budget: at most 1000 px wide (0.72 of the window at 1280), ~30 fps on Play, ~9 fps behind a sheet, full rate only while
 // the mouth moves or the heat changes; nothing while the window is hidden, and a still frame while the game runs (the GPU
-// is the game's then).
+// is the game's then; the loop then looks four times a second instead of every frame).
 import { useEffect, useRef, type RefObject } from "react";
 
 export type Heat = "unlit" | "idle" | "flare" | "embers" | "low";
@@ -91,10 +91,11 @@ export function Stage({ root, enabled = true }: { root: RefObject<HTMLDivElement
     const still = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     let gl: WebGLRenderingContext | null = null;
     const U: Partial<Record<(typeof UNIFORMS)[number], WebGLUniformLocation | null>> = {};
-    let raf = 0;
+    let raf = 0, nap = 0;
     const off = (why: string) => {
       gl = null;
       cancelAnimationFrame(raf);
+      clearTimeout(nap);
       delete app.dataset.gl;
       for (const p of ["transform", "width", "height"]) app.querySelector<HTMLElement>(".k-door")?.style.removeProperty(p);
       if (why) console.warn("Hearth fire off:", why);
@@ -131,6 +132,8 @@ export function Stage({ root, enabled = true }: { root: RefObject<HTMLDivElement
     const m = [0, 0];
     let last = performance.now(), lastDraw = 0, lastCss = 0, lastDoor = "", lastSize = "";
     let door: HTMLElement | null = null;
+    // the flicker's two readers (base.css --fire), looked up again when React replaced them
+    let lit: HTMLElement[] = [];
     const loop = (ms: number) => {
       if (!gl) return;
       raf = requestAnimationFrame(loop);
@@ -159,10 +162,22 @@ export function Stage({ root, enabled = true }: { root: RefObject<HTMLDivElement
         door.style.height = `${dh.toFixed(1)}px`;
         app.style.setProperty("--k", k.toFixed(3));
       }
-      if (!i.game && ms - lastCss > 90) { lastCss = ms; app.style.setProperty("--fire", F.toFixed(3)); }
+      if (!i.game && ms - lastCss > 90) {
+        lastCss = ms;
+        if (!lit.length || lit.some((e) => !e.isConnected) || (i.play && !lit.some((e) => e.classList.contains("k-title")))) {
+          lit = [...app.querySelectorAll<HTMLElement>(".k-sheet, .k-title")];
+        }
+        for (const e of lit) e.style.setProperty("--fire", F.toFixed(3));
+      }
       const moving = Math.abs(kv) > 0.004 || Math.abs(k - tgt) > 0.002 || Math.abs(h - heat) > 0.02;
       const size = `${W}x${H}`;
       const gap = moving || size !== lastSize ? 0 : i.game ? Infinity : i.play ? 33 : 110;
+      if (gap === Infinity) {
+        // the game runs and the frame stands: look again in 250 ms, not every frame
+        cancelAnimationFrame(raf);
+        nap = window.setTimeout(() => { nap = 0; raf = requestAnimationFrame(loop); }, 250);
+        return;
+      }
       if (ms - lastDraw < gap) return;
       lastDraw = ms;
       lastSize = size;
@@ -183,6 +198,7 @@ export function Stage({ root, enabled = true }: { root: RefObject<HTMLDivElement
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(nap);
       canvas.removeEventListener("webglcontextlost", lost);
       delete app.dataset.gl;
     };

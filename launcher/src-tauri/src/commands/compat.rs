@@ -22,24 +22,26 @@ pub async fn chain_view(profile_id: String, game_id: String) -> Result<ChainView
 /// chain.ini [late] for every profile. Answers the fresh view.
 #[tauri::command]
 pub async fn chain_set_late(app: AppHandle, profile_id: String, game_id: String, path: String, late: bool) -> Result<ChainView, Error> {
-    let (view, applied) = blocking(move || {
-        let d = dirs()?;
-        let g = crate::state::game(&game_id)?;
-        let mut p = profile::get(&d, &profile_id)?;
-        // only the entry: no full view (hooks.json, Library) before the switch, one after it
-        let entry = compat::find_entry(&d, &p, &g, &path)?;
-        let mut applied = Vec::new();
-        if compat::set_entry_late(&g, &mut p, &entry, late)? {
-            let saved = profile::save(&d, &p)?;
-            applied = crate::commands::profile::reapply_where_active(&d, &saved.id);
-            p = saved;
-        }
-        crate::commands::app::launcher_log("chain", &format!("{} loads {} ({})", entry.path, if late { "late" } else { "in the proxy" }, g.path.display()));
-        Ok((compat::view(&d, &p, &g)?, applied))
-    })
-    .await?;
+    let (view, applied) = blocking(move || set_late(&profile_id, &game_id, &path, late)).await?;
     for g in applied {
         crate::commands::profile::emit_status_later(app.clone(), g);
     }
     Ok(view)
+}
+
+/// chain_set_late's work: the fresh view and the games whose profile.json was written again.
+pub(crate) fn set_late(profile_id: &str, game_id: &str, path: &str, late: bool) -> Result<(ChainView, Vec<String>), Error> {
+    let d = dirs()?;
+    let g = crate::state::game(game_id)?;
+    let mut p = profile::get(&d, profile_id)?;
+    // only the entry: no full view (hooks.json, Library) before the switch, one after it
+    let entry = compat::find_entry(&d, &p, &g, path)?;
+    let mut applied = Vec::new();
+    if compat::set_entry_late(&g, &mut p, &entry, late)? {
+        let saved = profile::save(&d, &p)?;
+        applied = crate::commands::profile::reapply_where_active(&d, &saved.id);
+        p = saved;
+    }
+    crate::commands::app::launcher_log("chain", &format!("{} loads {} ({})", entry.path, if late { "late" } else { "in the proxy" }, g.path.display()));
+    Ok((compat::view(&d, &p, &g)?, applied))
 }

@@ -37,6 +37,11 @@ pub fn game(id: &str) -> Result<GameInstall, Error> {
         .ok_or_else(|| Error::not_found(format!("No game '{id}'. Detect or add it on Play.")))
 }
 
+/// Where the launcher keeps kiln_manage::filecache's sha256s between runs.
+pub fn file_hashes(d: &DataDirs) -> std::path::PathBuf {
+    d.root.join("state").join("file-hashes.json")
+}
+
 /// Opens a folder, file or https URL with the desktop (xdg-open / explorer). Never waits for it.
 pub fn open_external(target: &std::ffi::OsStr) -> Result<(), Error> {
     #[cfg(windows)]
@@ -97,9 +102,50 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         active_profile,
         play_once_pending: install.path.join(kiln_manage::paths::game::PLAY_ONCE).is_file(),
         boot,
-        launch_options: kiln_manage::game::launch_options_info(install, &roots),
+        launch_options: launch_options(install, &roots),
         newer_mods,
     })
+}
+
+/// `game::launch_options_info`, read again only when one of its inputs changed: the Steam roots it reads, the prefix's
+/// user.reg (MBs) and each Steam user's localconfig.vdf (game_status runs every few seconds).
+fn launch_options(install: &GameInstall, roots: &[kiln_manage::steam::SteamRoot]) -> Option<kiln_manage::game::LaunchOptionsInfo> {
+    use kiln_manage::filecache::FileKey;
+    use std::sync::{LazyLock, Mutex};
+    type Inputs = (String, Vec<(std::path::PathBuf, Option<FileKey>)>);
+    static LAST: LazyLock<Mutex<std::collections::HashMap<String, (Inputs, Option<kiln_manage::game::LaunchOptionsInfo>)>>> =
+        LazyLock::new(Default::default);
+    if install.platform != kiln_manage::game::Platform::Proton {
+        return None;
+    }
+    // the roots it reads launch options from, as launch_options_info picks them (libraryfolders.vdf is small)
+    let candidates: Vec<kiln_manage::steam::SteamRoot> = match install.library.as_deref().and_then(|l| kiln_manage::steam::root_of_library(roots, l)) {
+        Some(r) => vec![r],
+        None => roots.to_vec(),
+    };
+    let mut files = Vec::new();
+    if let Some(p) = &install.prefix {
+        files.push(p.join("user.reg"));
+    }
+    for r in &candidates {
+        let users = r.path.join("userdata");
+        files.push(users.clone());
+        let mut u: Vec<std::path::PathBuf> = std::fs::read_dir(&users).into_iter().flatten().flatten().map(|e| e.path().join("config/localconfig.vdf")).collect();
+        u.sort();
+        files.extend(u);
+    }
+    let what = format!("{:?}|{:?}|{:?}|{:?}|{:?}", install.platform, install.prefix, install.library, install.app_id, candidates.iter().map(|r| &r.path).collect::<Vec<_>>());
+    let inputs: Inputs = (what, files.into_iter().map(|f| { let k = FileKey::of(&f); (f, k) }).collect());
+    if let Some((have, info)) = LAST.lock().ok().and_then(|m| m.get(&install.id).cloned())
+        && have == inputs
+    {
+        return info;
+    }
+    let info = kiln_manage::game::launch_options_info(install, roots);
+    if let Ok(mut m) = LAST.lock() {
+        m.insert(install.id.clone(), (inputs, info.clone()));
+    }
+    info
 }
 
 /// Refuses while the game runs (activation, install, restore).
@@ -108,4 +154,63 @@ pub fn refuse_running(install: &GameInstall) -> Result<(), Error> {
         return Err(Error::new(ErrorCode::GameRunning, "Close the game first."));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kiln_manage::game::{GameKind, PathMode, Platform};
+    use kiln_manage::steam::{SteamFlavor, SteamRoot};
+    use std::path::Path;
+
+    fn put(p: &Path, text: &str) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        // through a rename, then the old mtime back: what the cache must not be fooled by
+        let t = std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        let tmp = p.with_extension("swap");
+        std::fs::write(&tmp, text).unwrap();
+        std::fs::rename(&tmp, p).unwrap();
+        if let Some(t) = t {
+            std::fs::File::options().write(true).open(p).unwrap().set_modified(t).unwrap();
+        }
+    }
+
+    fn localconfig(opts: &str) -> String {
+        format!("\"UserLocalConfigStore\"\n{{\n\"Software\"\n{{\n\"Valve\"\n{{\n\"Steam\"\n{{\n\"apps\"\n{{\n\"{}\"\n{{\n\"LaunchOptions\" \"{opts}\"\n}}\n}}\n}}\n}}\n}}\n}}\n", kiln_manage::CLIENT_APP_ID)
+    }
+
+    #[test]
+    fn launch_options_are_read_again_when_an_input_changes() {
+        let t = std::env::temp_dir().join(format!("kl-launchopts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let pfx = t.join("pfx");
+        let root = t.join("Steam");
+        std::fs::create_dir_all(root.join("steamapps")).unwrap();
+        put(&pfx.join("user.reg"), "WINE REGISTRY Version 2\n");
+        put(&root.join("userdata/111/config/localconfig.vdf"), &localconfig("%command%"));
+        let g = GameInstall {
+            id: "g-launchopts".into(), kind: GameKind::Client, path: t.join("game"), exe: "enshrouded.exe".into(),
+            app_id: kiln_manage::CLIENT_APP_ID, library: None, platform: Platform::Proton, prefix: Some(pfx.clone()), build_id: None,
+            exe_sha256: None, steam_flavor: None, path_mode: PathMode::Copy, source: "manual".into(),
+        };
+        let roots = vec![SteamRoot { flavor: SteamFlavor::Native, path: root.clone() }];
+        let fresh = || kiln_manage::game::launch_options_info(&g, &roots);
+        let check = |why: &str| assert_eq!(launch_options(&g, &roots), fresh(), "{why}");
+        check("first");
+        assert!(!fresh().unwrap().has_dll_override);
+        check("unchanged");
+        // the prefix gets the override
+        put(&pfx.join("user.reg"), "WINE REGISTRY Version 2\n\n[Software\\\\Wine\\\\DllOverrides] 1\n\"dinput8\"=\"native,builtin\"\n");
+        assert!(fresh().unwrap().has_dll_override);
+        check("user.reg rewritten");
+        // launch options edited in Steam
+        put(&root.join("userdata/111/config/localconfig.vdf"), &localconfig("WINEDLLOVERRIDES=dinput8=n,b %command%"));
+        check("localconfig.vdf rewritten");
+        // another Steam user
+        put(&root.join("userdata/222/config/localconfig.vdf"), &localconfig("-high %command%"));
+        std::fs::remove_dir_all(root.join("userdata/111")).unwrap();
+        check("users changed");
+        assert_eq!(fresh().unwrap().value.as_deref(), Some("-high %command%"));
+        let _ = std::fs::remove_dir_all(&t);
+    }
 }
