@@ -139,6 +139,7 @@ pub const NAMES: &[&str] = &[
     "update_skip",
     "update_ack",
     "library_add",
+    "library_add_to_profile",
     "profile_revert",
     "profile_ensure_default",
     "deck_browse",

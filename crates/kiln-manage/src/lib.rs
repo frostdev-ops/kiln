@@ -26,6 +26,7 @@
 //! | [`semver`] | port of SemVer.cs |
 //! | [`resolver`] | port of Resolver.cs |
 //! | [`library`] | the content-addressed mod library, import detection |
+//! | [`archive`] | 7z (in-process) and rar (a tool already on the PC) packages, unpacked under the import limits |
 //! | [`profile`] | profiles (`meta.json`), `profile.json`, activation |
 //! | [`quick`] | the simple flow: import + add to the active profile + apply, the default profile "My mods", undo |
 //! | [`engine_mods`] | other engines' mods in the launcher: importers, placing SF/SET mods, settings, plugin status (owner: wire) |
@@ -68,6 +69,7 @@ pub mod bundle;
 pub mod chain;
 pub mod compat;
 pub mod install;
+pub mod archive;
 pub mod library;
 pub mod manifest;
 pub mod playonce;

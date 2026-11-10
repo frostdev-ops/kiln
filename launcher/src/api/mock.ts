@@ -157,6 +157,7 @@ function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: strin
       version: m.version, hash, folder: `library/${kind}/${m.id}/${m.version}+${hash.slice(5, 13)}`, imported,
       side: m.side, clients: m.clients ?? (m.side === "server" ? "none" : "mod"), size: 40_000 + m.id.length * 3_100,
       source: { type: kind === "plugin" ? "file" : "folder", from: from ?? `${m.id}-${m.version}.zip` },
+      manifestId: null,
       manifest: { ...m } as unknown as Json,
     }],
   };
@@ -199,6 +200,9 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
   }],
 ]);
 const activations: Record<string, Activation | null> = {};
+/** The profile the launcher remembers per game (`<data>/installs/<id>.active.json`): it outlives an uninstall of Kiln,
+ *  a deliberate "No profile" clears it. */
+const remembered: Record<string, string | null> = {};
 
 function fingerprint(p: Profile): string {
   const parts = MOD_KINDS.flatMap((k) => (p.mods[k] ?? []).filter((m) => m.enabled).map((m) => `${k}\0${m.id}\0${m.version}\0${m.hash}`)).sort();
@@ -215,6 +219,7 @@ function activate(pid: string, gameId: string): Activation {
     copied: 0, fingerprint: fingerprint(p), activated: now(),
   };
   activations[gameId] = a;
+  remembered[gameId] = pid;
   return a;
 }
 if (!FRESH) activate("ember-run", "client-steam");
@@ -700,6 +705,7 @@ const handlers: Record<string, Handler> = {
     return startTask("runtime_uninstall", "Uninstall Kiln", ["Restoring dinput8.dll", "Removing files", "Cleaning chain.ini"], () => {
       const prev = runtime[gameId];
       const emf = prev?.receipt?.replaced?.some((r) => r.class === "emf");
+      activations[gameId] = null; // kiln/profile.json goes with Kiln's files; the launcher's record of the profile stays
       runtime[gameId] = { installed: false, receipt: null, proxy: emf ? { kind: "emf", version: "0.3.3", abi: null, sha256: hex("emf"), size: 70_000, detail: "export emf_loader_identity" } : null, modified: [], upgradeAvailable: null };
       emitGame(gameId, "status");
       return null;
@@ -743,7 +749,7 @@ const handlers: Record<string, Handler> = {
     emitGame(S(a.gameId), "status");
     return r;
   },
-  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
+  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
   profile_revert: (a) => {
     const id = S(a.profileId);
@@ -767,6 +773,13 @@ const handlers: Record<string, Handler> = {
     gameOf(gameId);
     if (!runtime[gameId]?.installed) reject("unsupported", "Kiln is not in this game yet: install it first.");
     if (activations[gameId]) return activations[gameId];
+    const again = remembered[gameId];
+    if (again && profiles.has(again)) {
+      if (running[gameId]) reject("game_running", "Close the game first: Kiln turns your profile back on in the game folder.");
+      const r = activate(again, gameId);
+      emitGame(gameId, "status");
+      return r;
+    }
     if (profiles.size) return null;
     if (running[gameId]) reject("game_running", "Close the game first: the new profile is activated in the game folder.");
     makeDefault();
@@ -792,8 +805,33 @@ const handlers: Record<string, Handler> = {
     if (!runtime[gameId]?.installed) reject("unsupported", "Kiln is not in this game yet: install it first.");
     const makeIt = !activations[gameId] && profiles.size === 0;
     if (makeIt && running[gameId]) reject("game_running", "Close the game first: the new profile is activated in the game folder.");
+    const again = !activations[gameId] && !makeIt && remembered[gameId] && profiles.has(remembered[gameId]!) ? remembered[gameId]! : null;
+    if (again && running[gameId]) reject("game_running", `Close the game first: Kiln turns ${profiles.get(again)!.name} back on in the game folder.`);
     return startTask("library_add", paths.length === 1 ? `Add ${paths[0].split(/[\\/]/).pop()}` : `Add ${paths.length} items`,
       ["Reading", "Hashing", "Adding to the profile", "Writing profile.json"], () => quickAdd(gameId, paths, makeIt), 300);
+  },
+  library_add_to_profile: (a) => {
+    const gameId = S(a.gameId);
+    const refs = (a.entries as LibraryRef[]) ?? [];
+    if (!refs.length) reject("invalid_argument", "Nothing to add.");
+    gameOf(gameId);
+    const p = clone(profiles.get(S(a.profileId)) ?? reject("not_found", `No profile '${S(a.profileId)}'.`));
+    const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: p.id, profileName: p.name, created: false, added: [], already: [],
+      changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
+    const named = (x: LibraryRef): AddedMod => ({ ...x, name: library.find((l) => l.kind === x.kind && l.id === x.id)?.name ?? x.id });
+    for (const ref of refs) {
+      const after: ProfileMod = { id: ref.id, version: ref.version, hash: ref.hash, enabled: true };
+      const list = p.mods[ref.kind];
+      const i = list.findIndex((m) => m.id === ref.id);
+      if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(after)) { r.already.push(named(ref)); continue; }
+      r.changes.push({ kind: ref.kind, before: i >= 0 ? list[i] : null, after });
+      if (i >= 0) list[i] = after; else list.push(after);
+    }
+    if (!r.changes.length) return r;
+    profiles.set(p.id, { ...p, generation: p.generation + 1, updated: now() });
+    if (activations[gameId]?.profileId === p.id && !running[gameId]) { r.activation = activate(p.id, gameId); r.applied = true; emitGame(gameId, "status"); }
+    r.added = r.changes.map((c) => named({ kind: c.kind, ...c.after }));
+    return r;
   },
   library_lint: () => ({ format: 1, tool: "kiln-lint", version: "mock", ok: true, checked: [], summary: { errors: 0, warnings: 0, infos: 0, hints: 0 }, catalog: null, diagnostics: [] }),
   library_unused: () => library.flatMap((e) => e.versions
@@ -1085,8 +1123,8 @@ function mockLibraryRemove(r: LibraryRef, force: boolean | string[]) {
 
 /** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
 function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
-  const r: AddReport = { import: { imported: [], existing: [], skipped: [] }, profileId: null, profileName: null, created: false, added: [], already: [],
-    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [] };
+  const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: null, profileName: null, created: false, added: [], already: [],
+    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
   const files: string[] = [];
   for (const p of paths) {
     if (detect(p).kind !== "modpack") files.push(p);
@@ -1098,12 +1136,20 @@ function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
   if (!refs.length) return r;
   const active = activations[gameId]?.profileId ?? null;
   let p: Profile;
+  const again = remembered[gameId];
   if (active) p = clone(profiles.get(active)!);
   else if (makeIt) {
     p = makeDefault();
     r.activation = activate(p.id, gameId);
     r.created = r.applied = true;
-  } else return r;
+  } else if (again && profiles.has(again)) {
+    p = clone(profiles.get(again)!);
+    r.activation = activate(p.id, gameId);
+    r.resumed = r.applied = true;
+  } else {
+    r.libraryOnly = "No profile is active in this game, so the mod is only in your Library. Add it to a profile to play with it.";
+    return r;
+  }
   r.profileId = p.id;
   r.profileName = p.name;
   const named = (x: { kind: ModKind; id: string; version: string; hash: string }): AddedMod =>
@@ -1149,7 +1195,7 @@ function detect(path: string): Detected {
 }
 
 function importPaths(paths: string[]): ImportReport {
-  const report: ImportReport = { imported: [], existing: [], skipped: [] };
+  const report: ImportReport = { imported: [], existing: [], skipped: [], notes: [], names: {} };
   for (const p of paths.flatMap((x) => { const d = detect(x); return d.kind === "unknown" && d.items.length ? d.items.map((i) => i.path) : [x]; })) {
     const d = p.includes(".zip/") ? detect(p.split(".zip/")[0].replace(/-pack$/i, "") + ".zip") : detect(p);
     const kind: ModKind | null = d.kind === "bare-dll" ? "native" : d.kind === "kiln" || d.kind === "native" || d.kind === "emf" || d.kind === "plugin" ? d.kind : null;
@@ -1158,7 +1204,7 @@ function importPaths(paths: string[]): ImportReport {
     const ex = library.find((l) => l.kind === kind && l.id === d.id);
     const hash = kdh(kind + d.id + version);
     const ref: LibraryRef = { kind, id: d.id, version, hash };
-    if (ex?.versions.some((v) => v.version === version)) { report.existing.push(ref); continue; }
+    if (ex?.versions.some((v) => v.version === version)) { report.names[`${kind}/${d.id}`] = ex.name; report.existing.push(ref); continue; }
     // a seed mod's file ("more-hotbars-2.1.0.zip") keeps the seed's manifest (its name, requires, side)
     const seed = seedMods[kind].find((x) => x.id === d.id);
     const m: MockManifest = seed ? { ...seed, version } : { id: d.id, name: d.id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), version, side: "both", phase: kind === "native" ? "early" : undefined };
@@ -1169,6 +1215,7 @@ function importPaths(paths: string[]): ImportReport {
       const at = library.findIndex((l) => MOD_KINDS.indexOf(l.kind) > MOD_KINDS.indexOf(kind) || (l.kind === kind && l.id > fresh.id));
       library.splice(at < 0 ? library.length : at, 0, fresh);
     }
+    report.names[`${kind}/${d.id}`] = ex?.name ?? fresh.name;
     report.imported.push(ref);
   }
   return report;

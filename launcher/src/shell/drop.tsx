@@ -13,10 +13,11 @@ import type { AddReport, GameInstall, GameStatus, ImportReport, LauncherSettings
 import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfiles, useSettings } from "../api/hooks";
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 import { useInstallPrompt } from "./firstRun";
+import { detailsAction, leftOutLine, names as nameList, summarize, usePickProfile } from "./importResult";
 
 /** "Night Owl", "Night Owl and Dawn Lamp", "3 mods". */
 function names(m: { name: string }[]): string {
-  return m.length === 1 ? m[0].name : m.length === 2 ? `${m[0].name} and ${m[1].name}` : `${m.length} mods`;
+  return nameList(m.map((x) => x.name));
 }
 
 /** A modpack zip dropped on the window, waiting for the player's yes. */
@@ -70,11 +71,21 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       if (!files.length) return null;
       const r = await runTask<ImportReport>(() => api.libraryImport(files), { quiet: true });
       refresh(null);
-      const n = r.imported.length + r.existing.length;
-      if (n) toast.ok(`Imported ${n}`, r.skipped.length ? `${r.skipped.length} skipped: ${r.skipped[0].reason}.` : undefined, { actions: [{ label: "Library", onClick: () => nav("/library") }] });
-      else toast.info("Nothing to import", r.skipped[0]?.reason);
+      const sum = summarize(r);
+      const more = detailsAction({ heading: "Imported into the Library", summary: sum });
+      if (sum.taken.length) toast.ok(`Imported ${nameList(sum.taken)}`, leftOutLine(sum), { actions: [{ label: "Library", onClick: () => nav("/library") }, ...more] });
+      else toast.info("Nothing to import", leftOutLine(sum), { actions: more });
     } catch (e) { toast.error(e, "Import failed"); }
     return null;
+  };
+
+  /** After the player picked a profile for a mod that only reached the Library. */
+  const pickedAdd = (r: AddReport, game: GameInstall) => {
+    refresh(r.profileId, game.id);
+    if (r.added.length) {
+      toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, r.applied ? undefined : `${r.profileName ?? "It"} is not the active profile: turn it on on Play.`,
+        { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
+    } else toast.info(`Already in ${r.profileName ?? "the profile"}`);
   };
 
   const add = async (paths: string[], game: GameInstall | null) => {
@@ -96,20 +107,26 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
     refresh(r.profileId, game.id);
     if (r.modpacks.length) offerModpacks(game, r.modpacks);
     const found = [...r.import.imported, ...r.import.existing];
+    const sum = summarize(r.import);
+    const detail = (heading: string) => ({ heading, summary: sum, libraryOnly: r.libraryOnly });
     if (r.added.length) {
       const more = [
         r.missing.length ? `Needs ${r.missing.map((m) => m.id).join(", ")}.` : "",
+        r.resumed ? `${r.profileName ?? "Your profile"} is on again.` : "",
         r.running ? "Applies at the next start." : "",
-        r.import.skipped.length ? `${r.import.skipped.length} skipped: ${r.import.skipped[0].reason}.` : "",
+        leftOutLine(sum) ?? "",
       ].filter(Boolean).join(" ");
-      toast.ok(`Added ${names(r.added)}`, more || undefined, { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
+      toast.ok(`Added ${names(r.added)}`, more || undefined, { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }, ...detailsAction(detail(`Added to ${r.profileName ?? "the profile"}`))] });
     } else if (r.already.length) {
-      toast.info(`Already in ${r.profileName ?? "the profile"}`);
-    } else if (!r.profileId && found.length) {
-      // profiles exist but none is active in this game: a power user's choice, the mod waits in the library
-      toast.info(`Imported ${found.length === 1 ? found[0].id : `${found.length} mods`}`, "No profile is active.", { actions: [{ label: "Profiles", onClick: () => nav("/profiles") }] });
+      toast.info(`Already in ${r.profileName ?? "the profile"}`, leftOutLine(sum), { actions: detailsAction(detail("Already there")) });
+    } else if (r.libraryOnly && found.length) {
+      // no profile is active in this game and none is remembered: the mod waits in the Library, and the player can pick a profile
+      const label = nameList(sum.taken);
+      toast.info(`Imported ${label}`, "Only in your Library: no profile is active in this game.", {
+        actions: [{ label: "Add to a profile", onClick: () => usePickProfile.setState({ pending: { game, entries: found, label, onAdded: pickedAdd } }) }, ...detailsAction(detail("Imported into the Library"))],
+      });
     } else if (!r.modpacks.length) {
-      toast.info("Nothing to add", r.import.skipped[0]?.reason);
+      toast.info("Nothing to add", leftOutLine(sum), { actions: detailsAction(detail("Nothing was added")) });
     }
     return r;
   };

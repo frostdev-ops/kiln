@@ -2,8 +2,11 @@
 //! into the library, adds what they hold to the game's active profile (enabled), and writes the game's
 //! `kiln/profile.json` again. A first-time player has no profile yet: [`ensure_default`] makes "My mods" (every
 //! drop-in folder on, so what loaded before still loads) and activates it. Players who already have profiles keep
-//! them: with profiles but none active in the game, the files are only imported. Modpacks are never added here: they
-//! go through the consent flow (`modpack::install`), so [`add`] lists them instead.
+//! them. With profiles but none active in the game the drop goes to the profile the launcher remembers for that game
+//! (its activation record outlives an uninstall of Kiln), activated again; without one, or when `profile.json` names a
+//! profile of another data folder, the files are only imported and the result says so in plain words
+//! ([`AddReport::library_only`]); [`add_to_profile`] then puts them into the profile the player picks. Modpacks are
+//! never added here: they go through the consent flow (`modpack::install`), so [`add`] lists them instead.
 //! [`revert`] undoes an add (the toast's Undo): the profile entries go back, the library copies stay.
 
 use crate::game::{GameInstall, GameKind};
@@ -32,7 +35,7 @@ pub(crate) fn import_is_link(meta: &std::fs::Metadata) -> bool {
 }
 
 /// Reject links (including cycles), special files and lossy path names before library detection can follow them.
-/// Nested zip files are opaque mod assets; the library does not recursively extract them.
+/// Nested archives are opaque mod assets; the library does not recursively extract them.
 pub fn validate_import_path(path: &Path) -> Result<()> {
     let mut pending = vec![(path.to_path_buf(), 0)];
     let (mut entries, mut bytes) = (0, 0u64);
@@ -66,6 +69,10 @@ pub fn validate_import_path(path: &Path) -> Result<()> {
     #[cfg(feature = "zip")]
     if path.is_file() && path.extension().is_some_and(|s| s.eq_ignore_ascii_case("zip")) {
         validate_zip(path)?;
+    }
+    // a 7z: its header (entry count, names, links, declared sizes); a rar is checked after a tool unpacked it
+    if path.is_file() && path.extension().is_some_and(|s| s.eq_ignore_ascii_case("7z")) {
+        crate::archive::validate_sevenz(path)?;
     }
     Ok(())
 }
@@ -199,6 +206,11 @@ pub struct AddReport {
     pub missing: Vec<MissingMod>,
     /// Modpack zips among the paths: not imported, they need the player's consent (`modpack::install`).
     pub modpacks: Vec<String>,
+    /// The game had no active profile (Kiln was uninstalled and installed again): `profile_id` was active here before
+    /// and is active again, so the added mods load at the next start.
+    pub resumed: bool,
+    /// The mods reached the Library only, and why, in words for the player. None when they went into a profile.
+    pub library_only: Option<String>,
 }
 
 /// The profile [`add`] puts mods into.
@@ -207,8 +219,10 @@ pub struct Target {
     pub profile: Profile,
     /// Made now ("My mods").
     pub created: bool,
-    /// The activation that made it active (only when created).
+    /// The activation that made it active (only when created or resumed).
     pub activation: Option<Activation>,
+    /// The profile the game had before Kiln was reinstalled, activated again.
+    pub resumed: bool,
 }
 
 fn mods_of(m: &mut ProfileMods, k: ModKind) -> &mut Vec<ProfileMod> {
@@ -249,7 +263,7 @@ fn create_default(dirs: &DataDirs, install: &GameInstall) -> Result<Target> {
     p.dropins = ModKind::ALL.to_vec();
     let p = profile::save(dirs, &p).map_err(undo)?;
     let a = profile::activate(dirs, &p.id, install).map_err(undo)?;
-    Ok(Target { profile: p, created: true, activation: Some(a) })
+    Ok(Target { profile: p, created: true, activation: Some(a), resumed: false })
 }
 
 fn rollback_error(mut original: Error, rollback: Error) -> Error {
@@ -269,8 +283,65 @@ fn cleanup_created(dirs: &DataDirs, install: &GameInstall, id: &str, error: Erro
     match cleanup() { Ok(()) => error, Err(e) => rollback_error(error, e) }
 }
 
+/// The profile the launcher remembers for this game while none is active in it: `<data>/installs/<id>.active.json`
+/// names the profile that was activated last. Uninstalling Kiln leaves that record (and the profile) alone while
+/// `kiln/profile.json` goes with the game's Kiln files, so after a reinstall it is what the player was playing. A
+/// deliberate "No profile" (`profile::deactivate`) removes the record: nothing is remembered then. Only a profile that
+/// still exists counts.
+fn remembered(dirs: &DataDirs, install: &GameInstall) -> Option<Profile> {
+    let a: Activation = crate::util::read_json(&dirs.installs().join(format!("{}.active.json", install.id))).ok().flatten()?;
+    (a.game_id == install.id).then(|| profile::get(dirs, &a.profile_id).ok()).flatten()
+}
+
+/// Where a drop goes in a game.
+enum Dest {
+    /// The game's active profile.
+    Active(Profile),
+    /// No profile in this data folder at all: "My mods" is made and activated.
+    Make,
+    /// Profiles exist and none is active in the game, but this one was before: activated again.
+    Resume(Profile),
+    /// Only the Library takes it. Why, for the player.
+    Library(String),
+}
+
+fn destination(dirs: &DataDirs, install: &GameInstall) -> Result<Dest> {
+    Ok(match active_here(dirs, install)? {
+        Ok(Some(p)) => Dest::Active(p),
+        Err(()) => Dest::Library("This game runs a profile from another Kiln data folder, so the mod is only in your Library. \
+            Add it to a profile of this launcher to play with it.".into()),
+        Ok(None) if !has_profiles(dirs)? => Dest::Make,
+        Ok(None) => match remembered(dirs, install) {
+            Some(p) => Dest::Resume(p),
+            None => Dest::Library("No profile is active in this game, so the mod is only in your Library. \
+                Add it to a profile to play with it.".into()),
+        },
+    })
+}
+
+fn needs_activation(dest: &Dest) -> bool {
+    matches!(dest, Dest::Make | Dest::Resume(_))
+}
+
+fn running_error(dest: &Dest) -> Error {
+    let what = match dest {
+        Dest::Resume(p) => format!("Kiln turns {} back on in the game folder", p.name),
+        _ => "the new profile is activated in the game folder".to_string(),
+    };
+    Error::new(ErrorCode::GameRunning, format!("Close the game first: {what}."))
+}
+
+/// Makes the profile active again (the game's profile.json is gone). Failing, the caller falls back to the Library.
+fn resume(dirs: &DataDirs, install: &GameInstall, p: Profile) -> std::result::Result<Target, (Profile, Error)> {
+    match profile::activate(dirs, &p.id, install) {
+        Ok(a) => Ok(Target { profile: p, created: false, activation: Some(a), resumed: true }),
+        Err(e) => Err((p, e)),
+    }
+}
+
 /// The profile the simple flow uses in a game: the active one; else, when this data folder has no profile at all, a
-/// new "My mods", activated. None when profiles exist but none is active here, or the game's profile.json names a
+/// new "My mods", activated; else the profile the launcher remembers for the game (see [`remembered`]), activated
+/// again. None when profiles exist but none is active here and none is remembered, or the game's profile.json names a
 /// profile of another data folder: those players chose that, and are left alone.
 pub fn ensure_default(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Target>> {
     let running = crate::proc::find_game(install)?.is_some();
@@ -281,12 +352,28 @@ pub fn ensure_default(dirs: &DataDirs, install: &GameInstall) -> Result<Option<T
 pub fn ensure_default_with(dirs: &DataDirs, install: &GameInstall, running: bool) -> Result<Option<Target>> {
     kiln_in_game(install)?;
     let _lock = lock(dirs)?;
-    match active_here(dirs, install)? {
-        Ok(Some(p)) => Ok(Some(Target { profile: p, created: false, activation: None })),
-        Err(()) => Ok(None),
-        Ok(None) if has_profiles(dirs)? => Ok(None),
-        Ok(None) if running => Err(Error::new(ErrorCode::GameRunning, "Close the game first: the new profile is activated in the game folder.")),
-        Ok(None) => create_default(dirs, install).map(Some),
+    let dest = destination(dirs, install)?;
+    if needs_activation(&dest) && running {
+        return Err(running_error(&dest));
+    }
+    match dest {
+        Dest::Active(p) => Ok(Some(Target { profile: p, created: false, activation: None, resumed: false })),
+        Dest::Library(_) => Ok(None),
+        Dest::Make => create_default(dirs, install).map(Some),
+        Dest::Resume(p) => resume(dirs, install, p).map(Some).or_else(|(_, e)| if e.code == ErrorCode::GameRunning { Err(e) } else { Ok(None) }),
+    }
+}
+
+/// After Kiln is installed into a game (a reinstall after an uninstall): the profile the launcher remembers for the game
+/// is made the active one again, so the player's mods load without a step. Ok(None): nothing to do (a profile is
+/// active, none is remembered, or `profile.json` names a profile of another data folder). Refused (GameRunning) while
+/// the game runs, like any activation.
+pub fn resume_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
+    kiln_in_game(install)?;
+    let _lock = lock(dirs)?;
+    match destination(dirs, install)? {
+        Dest::Resume(p) => profile::activate(dirs, &p.id, install).map(Some),
+        _ => Ok(None),
     }
 }
 
@@ -409,11 +496,10 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
     kiln_in_game(install)?;
     let _lock = lock(dirs)?;
     // where the mods go is decided before anything is imported, so a refusal changes nothing
-    let here = active_here(dirs, install)?;
-    let make_default = matches!(here, Ok(None)) && !has_profiles(dirs)?;
+    let dest = destination(dirs, install)?;
     let running = is_running()?;
-    if make_default && running {
-        return Err(Error::new(ErrorCode::GameRunning, "Close the game first: the new profile is activated in the game folder."));
+    if needs_activation(&dest) && running {
+        return Err(running_error(&dest));
     }
     let mut report = AddReport { running, ..AddReport::default() };
     let mut files = Vec::new();
@@ -450,32 +536,54 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
         return Ok(report);
     }
     // Imports may take seconds. Re-read both the active profile and process state before any game write.
-    let here = active_here(dirs, install)?;
-    let make_default = matches!(here, Ok(None)) && !has_profiles(dirs)?;
+    let dest = destination(dirs, install)?;
     let running = is_running()?;
     report.running = running;
-    if make_default && running {
-        return Err(Error::new(ErrorCode::GameRunning, "Close the game first: the new profile is activated in the game folder."));
+    if needs_activation(&dest) && running {
+        return Err(running_error(&dest));
     }
-    let target = match here {
-        Ok(Some(p)) => Target { profile: p, created: false, activation: None },
-        Ok(None) if make_default => {
+    let target = match dest {
+        Dest::Active(p) => Target { profile: p, created: false, activation: None, resumed: false },
+        Dest::Make => {
             progress.report(None, &format!("making the profile {DEFAULT_PROFILE}"));
             create_default(dirs, install)?
         }
+        Dest::Resume(p) => {
+            progress.report(None, &format!("turning {} back on", p.name));
+            match resume(dirs, install, p) {
+                Ok(t) => t,
+                Err((p, e)) => {
+                    report.library_only = Some(format!("Kiln could not turn {} back on ({}), so the mod is only in your Library.", p.name, e.message));
+                    return Ok(report);
+                }
+            }
+        }
         // profiles exist but none is active here (or another data folder's is): only the library takes them
-        _ => return Ok(report),
+        Dest::Library(why) => {
+            report.library_only = Some(why);
+            return Ok(report);
+        }
     };
     report.profile_id = Some(target.profile.id.clone());
     report.profile_name = Some(target.profile.name.clone());
     report.created = target.created;
+    report.resumed = target.resumed;
     report.activation = target.activation.clone();
-    report.applied = target.created;
+    report.applied = target.created || target.resumed;
+    put_in_profile(dirs, install, &target, &refs, running, progress, &mut report)?;
+    Ok(report)
+}
+
+/// Merges `refs` into the target profile, saves it and, when the game is not running, writes the game's profile.json
+/// again; fills the report (`already`, `added`, `changes`, `missing`). The profile change is undone (and a profile made
+/// for it removed) when the game's profile.json cannot be written.
+fn put_in_profile(dirs: &DataDirs, install: &GameInstall, target: &Target, refs: &[LibraryRef], running: bool, progress: &mut dyn Progress,
+                  report: &mut AddReport) -> Result<()> {
     let mut p = target.profile.clone();
-    let (changes, already) = merge(&mut p.mods, &refs);
+    let (changes, already) = merge(&mut p.mods, refs);
     report.already = already.iter().map(|r| named(dirs, r)).collect::<Result<_>>()?;
     if changes.is_empty() {
-        return Ok(report);
+        return Ok(());
     }
     // Finish fallible report work before saving the profile. Corrupt library records must not become a success
     // with an empty dependency list, or an error after the mods have already been applied.
@@ -493,8 +601,9 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
         progress.report(None, "writing the game's profile.json");
         match profile::refresh_active(dirs, install) {
             Ok(Some(a)) => {
+                // another active profile that had changed is written again too; only the target's write counts here
+                report.applied = a.profile_id == saved.id;
                 report.activation = Some(a);
-                report.applied = true;
             }
             Ok(None) => {}
             Err(mut e) => {
@@ -516,6 +625,34 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
     report.changes = changes;
     let n = report.added.len();
     progress.report(Some(1.0), &format!("{n} added to {}{}", saved.name, if report.running { " (applies at the next start)" } else { "" }));
+    Ok(())
+}
+
+/// Puts library versions into the profile the player picked, for a drop that only reached the Library
+/// ([`AddReport::library_only`]). The report is [`add`]'s with an empty `import`; the game's profile.json is written
+/// again when that profile is the game's active one and the game is not running. A profile that is not active stays
+/// as it is: the result says which profile took the mods, and the player turns it on.
+pub fn add_to_profile(dirs: &DataDirs, install: &GameInstall, profile_id: &str, refs: &[LibraryRef], progress: &mut dyn Progress) -> Result<AddReport> {
+    let running = crate::proc::find_game(install)?.is_some();
+    add_to_profile_with(dirs, install, profile_id, refs, running, progress)
+}
+
+/// [`add_to_profile`] with the game's running state given (tests).
+pub fn add_to_profile_with(dirs: &DataDirs, install: &GameInstall, profile_id: &str, refs: &[LibraryRef], running: bool,
+                           progress: &mut dyn Progress) -> Result<AddReport> {
+    if refs.is_empty() {
+        return Err(Error::invalid("Nothing to add."));
+    }
+    let _lock = lock(dirs)?;
+    for r in refs {
+        library::record(dirs, r)?; // each must be in the library
+    }
+    let profile = profile::get(dirs, profile_id)?;
+    let mut report = AddReport { running, ..AddReport::default() };
+    report.profile_id = Some(profile.id.clone());
+    report.profile_name = Some(profile.name.clone());
+    let target = Target { profile, created: false, activation: None, resumed: false };
+    put_in_profile(dirs, install, &target, refs, running, progress, &mut report)?;
     Ok(report)
 }
 

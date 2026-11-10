@@ -11,13 +11,14 @@ description = "Kiln's management library: Steam/game discovery, runtime install,
 [features]
 default = []
 zip = ["dep:zip"]                       # bundle, modpack: read/write zips
+sevenz = ["dep:sevenz-rust2"]           # library: read .7z packages (pure Rust)
 http = ["dep:ureq"]                     # modpack: https download
 admin = ["dep:hmac", "dep:getrandom"]   # admin: KAP/1 handshake MAC, nonces
 jsonc = ["dep:jsonc-parser"]            # config, jsonc: value edits that keep comments
 saves = ["dep:zstd"]                    # saves::editor: zstd (the save editor's format)
 server = ["dep:toml"]                   # server::instance: kilnctl instance files
 gameart = ["dep:zstd", "dep:bcdec_rs", "dep:image-webp", "dep:png", "dep:flate2"]  # gameart: read the game's KFC4 data, decode BCn, write WebP, read PNG
-full = ["zip", "http", "admin", "jsonc", "saves", "server", "gameart"]
+full = ["zip", "sevenz", "http", "admin", "jsonc", "saves", "server", "gameart"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -25,6 +26,9 @@ serde_json = "1"
 sha2 = "0.11"
 unicode-normalization = "0.1"
 zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# 7z packages (Apache-2.0, pure Rust; no AES: password-protected archives are refused). bzip2 is libbz2-rs-sys, ppmd-rust
+# is a Rust port: nothing here needs a C compiler, so the Windows cross build stays as it is.
+sevenz-rust2 = { version = "0.25", optional = true, default-features = false, features = ["bzip2", "ppmd", "deflate"] }
 ureq = { version = "3", optional = true }
 hmac = { version = "0.13", optional = true }
 getrandom = { version = "0.4", optional = true }
@@ -37,6 +41,10 @@ image-webp = { version = "0.2", optional = true }
 # gameart: PNG icons of mods (MIT OR Apache-2.0), gzip of the admin map's base height (MIT OR Apache-2.0, zlib-rs backend)
 png = { version = "0.18", optional = true }
 flate2 = { version = "1", optional = true, default-features = false, features = ["zlib-rs"] }
+
+[dev-dependencies]
+# tests write a 7z fixture
+sevenz-rust2 = { version = "0.25", default-features = false, features = ["compress"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading",

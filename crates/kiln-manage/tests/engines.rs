@@ -232,13 +232,13 @@ fn every_engine_kind_is_detected_with_its_reason() {
          "minimap.dll: a Shroudtopia mod"),
         // loaders under proxy names
         (put(r, "eml/dbghelp.dll", &build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_FILE_PATH")), DetectKind::Proxy, Some(Engine::Eml),
-         "dbghelp.dll is EML (Enshrouded Mod Loader)'s loader"),
+         "EML's own loader is in this package: not needed, Kiln runs EML mods"),
         (put(r, "gl/dbgcore.dll", &build_test_dll(&["MiniDumpWriteDump"], b"Greeneye Loader")), DetectKind::Proxy, Some(Engine::Greeneye),
-         "not a mod to import"),
+         "Greeneye's own loader is in this package: not needed, Kiln runs Greeneye mods"),
         (put(r, "emf/dinput8.dll", &build_test_dll(&["DirectInput8Create", "ShroudforgeSetDinput8Provider", "emf_loader_identity"], b"")),
          DetectKind::Proxy, Some(Engine::Emf), "EMF's own loader"),
         (put(r, "sf/dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"shroudforge/shroudforge-runtime.dll")), DetectKind::Proxy,
-         Some(Engine::ShroudForge), "switch from ShroudForge"),
+         Some(Engine::ShroudForge), "ShroudForge's own loader"),
         (put(r, "lm/iphlpapi.dll", &build_test_dll(&["GetAdaptersInfo"], b"livemap.ini")), DetectKind::Proxy, Some(Engine::LiveMap),
          "copy it into the server folder"),
         // files that are no mods
@@ -284,8 +284,9 @@ fn creative_mode_is_never_imported_as_plain_dlls() {
     let dirs = DataDirs::at(t.0.join("data"));
     let rep = library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap();
     assert_eq!(rep.imported.iter().map(|r| (r.kind, r.id.as_str())).collect::<Vec<_>>(), [(kiln_manage::manifest::ModKind::Flame, "creative")], "{rep:?}");
-    assert_eq!(rep.skipped.len(), 1);
-    assert!(rep.skipped[0].reason.contains("not a mod to import"), "{:?}", rep.skipped);
+    // Flame's own loader is information, not a failure: Kiln runs Flame mods itself
+    assert!(rep.skipped.is_empty(), "{:?}", rep.skipped);
+    assert_eq!(rep.notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), ["Flame's own loader is in this package: not needed, Kiln runs Flame mods"]);
     let l = library::list(&dirs, None).unwrap();
     assert_eq!(l.len(), 1);
     assert!(l[0].versions[0].folder.join("creative.dll").is_file() && l[0].versions[0].folder.join("flame.json").is_file());

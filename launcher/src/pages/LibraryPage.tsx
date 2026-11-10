@@ -10,6 +10,7 @@ import type { Detected, ImportReport, LibraryEntry, LibraryRef, ModKind } from "
 import { qk, useLibrary, useProfiles, useSettings } from "../api/hooks";
 import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_SHORT, KIND_TONE, NOT_RUNNING_NOTE, isEngineKind, runsYet } from "../api/kinds";
 import { useAddMods } from "../shell/drop";
+import { ImportDetailsModal, sentence, summarize } from "../shell/importResult";
 import {
   Badge, Button, ConfirmDanger, DropZone, EmptyState, Menu, Modal, NameId, Page, PageHeader, Segmented, Select, Skeleton, SplitPage, Table, WellInput,
   errorText, fmtAgo, fmtBytes, runTask, shortHash, toast, type Column,
@@ -73,13 +74,18 @@ export default function LibraryPage() {
       const r = await runTask<ImportReport>(() => api.libraryImport(paths), { failed: "Import failed" });
       await refresh();
       flash(r.imported);
-      if (r.skipped.length || r.existing.length) setReport(r);
+      if (r.skipped.length || r.existing.length || r.notes.length) setReport(r);
       else toast.ok(`Imported ${r.imported.length}`, "Add it to a profile to use it.");
     } catch { /* toasted */ } finally { setImporting(false); }
   };
 
   const cols: Column<LibraryEntry>[] = [
-    { key: "name", header: "Mod", sort: (a, b) => a.name.localeCompare(b.name), render: (e) => <NameId name={e.name} id={e.id} /> },
+    // an engine mod whose own id is not a Kiln id (Hoarders Helper): its own id is the one in the game's reports
+    { key: "name", header: "Mod", sort: (a, b) => a.name.localeCompare(b.name), render: (e) => (
+      <span title={e.versions[0]?.manifestId ? `Library id ${e.id}; the mod's own id is ${e.versions[0].manifestId}` : undefined}>
+        <NameId name={e.name} id={e.versions[0]?.manifestId ?? e.id} />
+      </span>
+    ) },
     { key: "kind", header: "Kind", width: engineKinds.some((k) => !runsYet(k)) ? "150px" : engineKinds.length ? "96px" : "56px", sort: (a, b) => a.kind.localeCompare(b.kind),
       render: (e) => (
         <span className="k-row" style={{ gap: 4 }} data-not-running={runsYet(e.kind) ? undefined : true}>
@@ -216,7 +222,7 @@ function DetectModal({ detected, onClose, onImport }: { detected: Detected[] | n
             <NameId name={d.name ?? d.id ?? d.path.split(/[\\/]/).pop()} id={d.version ?? undefined} />
             <Badge tone={importable(d) ? "ember" : "idle"}>{d.kind}</Badge>
             <span className="k-hint" style={{ flexBasis: "100%" }}>
-              {d.reason}
+              {sentence(d.reason)}
               {d.kind === "runtime" && " Runtime bundles go on the Runtime page."}
               {d.items.length > 0 && ` ${d.items.length} inside: ${d.items.map((i) => i.id ?? i.name).join(", ")}.`}
             </span>
@@ -228,16 +234,9 @@ function DetectModal({ detected, onClose, onImport }: { detected: Detected[] | n
 }
 
 function ReportModal({ report, onClose }: { report: ImportReport | null; onClose: () => void }) {
+  const sum = report ? summarize(report) : null;
   return (
-    <Modal open={!!report} onClose={onClose} title="Imported" width={520} footer={<Button onClick={onClose}>OK</Button>}>
-      {report && (
-        <div className="k-stack">
-          <span>{report.imported.length} imported, {report.existing.length} already there, {report.skipped.length} skipped.</span>
-          {report.skipped.map((s) => (
-            <div key={s.path} className="k-list-item"><span className="k-mono k-ellipsis">{s.path.split(/[\\/]/).pop()}</span><span className="k-muted">{s.reason}</span></div>
-          ))}
-        </div>
-      )}
-    </Modal>
+    <ImportDetailsModal onClose={onClose}
+      data={sum ? { heading: `${report!.imported.length} imported, ${report!.existing.length} already there`, summary: sum } : null} />
   );
 }

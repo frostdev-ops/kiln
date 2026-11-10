@@ -72,9 +72,13 @@ window, Play. Library and Profiles stay as they are for everyone else.
   events in the browser mock) show the niche over a dimmed window, "Drop to add", "Into <profile>". The drop runs
   `library_add` (import, add to the active profile, write profile.json; contracts.md section 7 "Add a mod"). The toast
   is the mod's name and Undo (`profile_revert`; the library copy stays), "Needs <ids>." when requirements are missing,
-  "Applies at the next start." while the game runs. Before Kiln is installed: "Install Kiln first" with Install Kiln
-  (the dropped files are added once the install is done). With profiles but none active: imported only, "No profile is
-  active." with Profiles. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
+  "Applies at the next start." while the game runs, and one short line about what was left out ("N files were left
+  out.", or the reason when it is one sentence) with "Details" (`shell/importResult.tsx`: what was added, what was left
+  out and why, what was not needed: `ImportReport.skipped` and `notes`). Before Kiln is installed: "Install Kiln first"
+  with Install Kiln (the dropped files are added once the install is done). With profiles but none active in the game
+  the drop goes to the profile the launcher remembers for it (after an uninstall and a reinstall of Kiln: that profile
+  is on again, "<profile> is on again."); with none remembered the toast says "Only in your Library: no profile is
+  active in this game." with "Add to a profile" (`library_add_to_profile`). Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
   `modpack_install` with `{path}`). A drop on a DropZone (Library's niche, Runtime's bundle row) or while a dialog is
   open is not the window's; a covered or busy DropZone takes no drops. Overlapping identical drops run once; other
   window drops run in order. Settings "Add new mods to the active profile" off: ordinary mods are only imported;

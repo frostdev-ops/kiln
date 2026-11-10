@@ -352,6 +352,9 @@ export interface LibraryVersion {
   clients: Clients | null;
   size: number;
   source: { type: "file" | "folder" | "modpack"; from: string } | null;
+  /** The id the mod's own manifest gives, when the Library id is not that (an engine mod such as "Hoarders Helper":
+   *  the Library id is its Kiln-id slug). Engine plugins report their state rows under this id. */
+  manifestId: string | null;
   manifest: Json | null;
 }
 export interface LibraryEntry {
@@ -382,7 +385,12 @@ export interface Detected {
 export interface ImportReport {
   imported: LibraryRef[];
   existing: LibraryRef[];
+  /** Left out, with a reason: what happened and, when the player has to do something, what. No final period. */
   skipped: { path: string; reason: string }[];
+  /** Left out because it is not needed (a loader the package carries); each text once. */
+  notes: { path: string; text: string }[];
+  /** The display name of every entry in `imported` and `existing`, by `<kind>/<id>`. */
+  names: Record<string, string>;
 }
 /** library_add's result (kiln_manage::quick::AddReport): what the library took, and what reached the profile. */
 export interface AddedMod {
@@ -417,6 +425,11 @@ export interface AddReport {
   activation: Activation | null;
   /** Mods the added ones require that the profile lacks. */
   missing: { id: string; range: string; by: string }[];
+  /** The game had no active profile (Kiln was reinstalled): `profileId` was active here before, and is again. */
+  resumed: boolean;
+  /** The mods reached the Library only, and why in plain words; null when they went into a profile. The player can
+   *  pick a profile (library_add_to_profile). */
+  libraryOnly: string | null;
   /** Modpack zips among the paths: not imported, they go through the consent flow (modpack_install). */
   modpacks: string[];
 }
@@ -1109,6 +1122,10 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
+/** Puts library versions into the profile the player picked (after an add that said `libraryOnly`); the result is
+ *  library_add's with an empty `import`, so Undo is profile_revert. */
+export const libraryAddToProfile = (gameId: GameId, profileId: ProfileId, entries: LibraryRef[]) =>
+  call<AddReport>("library_add_to_profile", { gameId, profileId, entries });
 /** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod).
  *  `shown`: the libraryUsers answer a confirmation named. Removal goes past exactly those; any other user is a conflict, whatever `force` says. */
 export const libraryRemove = (entry: LibraryRef, force = false, shown?: string[]) => call<null>("library_remove", { entry, force, shown: shown ?? null });
@@ -1318,7 +1335,7 @@ export const COMMANDS = [
   "app_assets_status", "app_assets_import",
   "server_console_open", "server_console_close",
   "update_status", "update_check", "update_install", "update_restart", "update_skip", "update_ack",
-  "library_add", "profile_revert", "profile_ensure_default",
+  "library_add", "library_add_to_profile", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
   "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",

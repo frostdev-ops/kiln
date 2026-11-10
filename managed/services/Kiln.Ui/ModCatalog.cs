@@ -406,6 +406,26 @@ internal static class ModCatalog
         catch (Exception) { return p; }
     }
 
+    /// <summary>The Kiln id the launcher's Library gives an engine mod from the id its manifest gives (kiln-manage
+    /// <c>library::id_from_name</c>, keep in step): lower case, anything but letters, digits and <c>._-</c> as a dash,
+    /// dashes collapsed and trimmed, at most 64, "mod" when nothing is left. A profile entry carries that id; the engine's
+    /// state rows carry the manifest's own (<c>Hoarders Helper</c>, <c>HoardersHelper</c>).</summary>
+    internal static string IdFromName(string name)
+    {
+        var sb = new StringBuilder();
+        foreach (var c in name.ToLowerInvariant())
+            sb.Append(c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '.' or '_' or '-' ? c : '-');
+        var s = sb.ToString();
+        while (s.Contains("--", StringComparison.Ordinal)) s = s.Replace("--", "-", StringComparison.Ordinal);
+        s = s.Trim('-', '.', '_');
+        if (s.Length > 64) s = s[..64];
+        return s.Length == 0 ? "mod" : s;
+    }
+
+    /// <summary>A folder path as compared between a profile entry and an engine's row: one separator, no trailing one
+    /// (the plugin writes the path it resolved, `Z:/home/...`; the profile has `Z:\home\...`). Callers compare without regard to case.</summary>
+    internal static string NormPath(string p) => p.Replace('\\', '/').TrimEnd('/');
+
     private static bool DirExists(string? p)
     {
         if (string.IsNullOrEmpty(p)) return false;
@@ -721,6 +741,9 @@ internal static class ModCatalog
     {
         var f = ReadState(b.Src, kind + ".json");
         var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // an engine mod whose manifest id is no Kiln id (EML: `Hoarders Helper`) is in the profile under its Kiln id: the
+        // row matches it by its folder, else by the id's slug
+        var reportedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var reportedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? word = null;
         var health = EngineHealth.Ok;
@@ -733,7 +756,8 @@ internal static class ModCatalog
             foreach (var line in ModLines(d))
             {
                 reported.Add(line.Id);
-                if (line.Folder is { } lf) reportedFolders.Add(lf.TrimEnd('\\', '/'));
+                reportedSlugs.Add(IdFromName(line.Id));
+                if (line.Folder is { } lf) reportedFolders.Add(NormPath(lf));
                 var state = StateOf(line.State);
                 var reason = line.Reason;
                 string? help = null;
@@ -763,7 +787,7 @@ internal static class ModCatalog
             : !f.Exists ? $"{EngineName(kind)} did not run this start, so this mod did not load."
             : !f.Current ? $"{EngineName(kind)} did not report this start (its last report is from an earlier start)."
             : $"Listed in the profile, but {EngineName(kind)} did not report it this start.";
-        b.ProfileRest(kind, e => (e.Id is not null && reported.Contains(e.Id)) || reportedFolders.Contains(e.Path.TrimEnd('\\', '/')), why,
+        b.ProfileRest(kind, e => (e.Id is not null && (reported.Contains(e.Id) || reportedSlugs.Contains(e.Id))) || reportedFolders.Contains(NormPath(e.Path)), why,
             notReportedHelp: !f.Exists || !f.Current ? $"Check that Kiln's {EngineName(kind)} plugin is installed (kiln/plugins), then start the game again." : null);
         if (kind == "set" && !f.Current && b.Profile.ReadsFolder("set"))
         {
