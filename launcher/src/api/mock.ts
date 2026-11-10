@@ -1224,7 +1224,7 @@ function foundAdd(gameId: string, pid: string, m: FoundMod): AddReport {
   const active = activations[gameId]?.profileId === pid && !running[gameId];
   if (active) { activate(pid, gameId); emitGame(gameId, "status"); }
   const added: AddedMod = { kind, id, version: v.version, hash: v.hash, name: m.name };
-  return { import: { imported: [ref], existing: [], skipped: [] }, profileId: pid, profileName: p.name, created: false, added: [added], already: [],
+  return { import: { imported: [ref], existing: [], skipped: [], notes: [], names: { [`${kind}/${id}`]: m.name } }, profileId: pid, profileName: p.name, created: false, added: [added], already: [],
     changes: [{ kind, before, after }], applied: active, running: !!running[gameId], activation: active ? activations[gameId] : null, missing: [], modpacks: [] };
 }
 
