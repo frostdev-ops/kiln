@@ -104,6 +104,32 @@ public sealed class LoaderTests : ModsFixture
     }
 
     [Fact]
+    public void A_mod_of_data_only_loads_without_an_assembly_and_takes_its_place_in_the_load_order()
+    {
+        // kiln/mods/pack-only: kiln.mod.json and content/*.json, no entryAssembly (GitHub issue 14)
+        var dir = WriteManifest("pack-only", """{"id":"pack-only","version":"1.0.0","apiVersion":"0.2","dependencies":{"hello":"*"}}""");
+        Directory.CreateDirectory(Path.Combine(dir, "content"));
+        File.WriteAllText(Path.Combine(dir, "content", "items.json"), """{"format":1}""");
+        InstallHello();
+        var host = new FakeHost();
+        using var mods = NewManager(host);
+        mods.LoadAll();
+        Assert.Equal(["hello", "pack-only"], mods.Mods.Select(m => m.Id));
+        Assert.True(host.Has("mod pack-only 1.0.0 loaded in"), host.Dump());
+        Assert.True(host.Has("(data only: no entryAssembly) (after hello)"), host.Dump());
+        Assert.True(host.Has("mods: 2 loaded, 0 failed, 0 skipped; load order: hello, pack-only"), host.Dump());
+        var pack = Kiln.Mods.Get("pack-only")!;
+        Assert.Equal((ModState.Loaded, 1), (pack.State, pack.LoadIndex));
+        Assert.Null(pack.Error);
+        Assert.Contains("pack-only 1.0.0 [loaded]", File.ReadAllText(Path.Combine(LogsDir, "mods.txt")));
+        // it unloads and reloads like any mod, and unloads with its dependency
+        Assert.True(mods.Reload("pack-only", out var error), error);
+        Assert.True(Kiln.Mods.IsLoaded("pack-only"));
+        Assert.True(mods.Unload("hello", out _));
+        Assert.Empty(mods.Mods);
+    }
+
+    [Fact]
     public void Reload_of_an_unknown_id_loads_its_folder()
     {
         var host = new FakeHost();

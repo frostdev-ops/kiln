@@ -45,12 +45,17 @@ export function LogView({ lines, text, follow = true, height = 420, fill, filter
     const now = born.current.length === 0 ? 0 : Date.now();
     for (let i = born.current.length; i < all.length; i++) born.current.push(now);
   }
-  const shown = useMemo(() => {
-    const idx = all.map((l, i) => [l, i] as const);
-    if (!filter) return idx;
+  // the matching lines' indexes (null: every line; a followed log grows by a few lines a second, and copying tens of
+  // thousands of pairs for each was most of its cost)
+  const matches = useMemo(() => {
+    if (!filter) return null;
     const f = filter.toLowerCase();
-    return idx.filter(([l]) => l.toLowerCase().includes(f));
+    const out: number[] = [];
+    all.forEach((l, i) => { if (l.toLowerCase().includes(f)) out.push(i); });
+    return out;
   }, [all, filter]);
+  const shown = { length: matches ? matches.length : all.length };
+  const at = (k: number): readonly [string, number] => { const n = matches ? matches[k] : k; return [all[n], n]; };
   const scroll = useRef<HTMLDivElement>(null);
   const [atEnd, setAtEnd] = useState(true);
   const virt = useVirtualizer({ count: shown.length, getScrollElement: () => scroll.current, estimateSize: () => ROW, overscan: 20 });
@@ -81,7 +86,7 @@ export function LogView({ lines, text, follow = true, height = 420, fill, filter
         ) : (
           <div style={{ height: virt.getTotalSize(), position: "relative" }}>
             {virt.getVirtualItems().map((v) => {
-              const [line, n] = shown[v.index];
+              const [line, n] = at(v.index);
               const lvl = classify(line);
               return (
                 <div key={v.key} className={"k-log-line" + (lvl ? ` l-${lvl}` : "") + (Date.now() - (born.current[n] ?? 0) < COOL_MS ? " fresh" : "")} style={{ transform: `translateY(${v.start}px)` }} title={line.length > 160 ? line : undefined}>

@@ -11,9 +11,11 @@ chain.ini, dinput8-chain.ini, play-once.ini), runs it once and checks the harnes
 refusal reasons, dedupe, last-in-first-out entry patches, play-once modes / expiry / deletion, KILN_DISABLE,
 GetdfDIJoystick and KilnProxyInfo. Wine prefix: $KILN_OUT/proxyhost/pfx (created on first use). Exit code 0 = all pass.
 
-PROXYHOST_WINPATHS=1: Windows-style paths. The game folders live inside the prefix's drive_c, under names with spaces
-and non-ASCII characters (C:\\Spiele Ü\\Kiln Läufe\\<scenario>), and every absolute path the harness writes (chain.ini,
-dinput8-chain.ini, profile.json, play-once.ini) is a C:\\ path as on a Windows PC, not a Z:\\ path.
+PROXYHOST_WINPATHS=1: Windows-style paths. The game folders live inside the prefix's drive_c, under names with spaces,
+parentheses and non-ASCII characters (C:\\Игры Steam (x86) 日本語\\Kiln Läufe Ü\\<scenario>: Latin-1, Cyrillic and CJK), and
+every absolute path the harness writes (chain.ini, dinput8-chain.ini, profile.json, play-once.ini) is a C:\\ path as on a
+Windows PC, not a Z:\\ path. Under Wine's Western ANSI code page the Cyrillic and CJK letters are outside the code page, so
+a narrow Win32 call in the proxy would fail here as it does on a Windows PC with such a user or library folder name.
 """
 import json
 import os
@@ -33,7 +35,7 @@ PFX = os.path.join(WORK, "pfx")
 WINE = os.environ.get("PROXYHOST_WINE", "wine")
 WINPATHS = os.environ.get("PROXYHOST_WINPATHS") == "1"
 DRIVE_C = os.path.join(PFX, "drive_c")
-RUN = os.path.join(DRIVE_C, "Spiele Ü", "Kiln Läufe") if WINPATHS else os.path.join(WORK, "run")
+RUN = os.path.join(DRIVE_C, "Игры Steam (x86) 日本語", "Kiln Läufe Ü") if WINPATHS else os.path.join(WORK, "run")
 
 
 def winpath(p):

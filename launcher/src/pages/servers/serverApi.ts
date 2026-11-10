@@ -7,7 +7,6 @@ import { listen as tauriListen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 import { create } from "zustand";
 import * as api from "../../api/commands";
-import { mockInvoke, mockListen } from "../../api/mock";
 import type { ServerId, ServerInstance, ServerMod, ServerSettings, ServerSpec, ServerStatus } from "../../api/commands";
 
 export type ServerRunner = "kilnctl" | "steam" | "windows" | "remote";
@@ -152,7 +151,7 @@ export interface ConsoleEvent {
 
 async function callX<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   try {
-    return api.isTauri() ? await tauriInvoke<T>(cmd, args) : await mockInvoke<T>(cmd, args);
+    return api.isTauri() ? await tauriInvoke<T>(cmd, args) : await (await api.loadMock()).mockInvoke<T>(cmd, args);
   } catch (e) {
     throw api.toKilnError(e);
   }
@@ -163,7 +162,7 @@ export const serverConsoleOpen = (serverId: ServerId, maxLines: number | null = 
 export const serverConsoleClose = (subscription: string) => callX<null>("server_console_close", { subscription });
 export async function onServerConsole(handler: (e: ConsoleEvent) => void): Promise<() => void> {
   if (api.isTauri()) return tauriListen<ConsoleEvent>("kiln://console", (e) => handler(e.payload));
-  return mockListen("kiln://console", handler as (payload: unknown) => void);
+  return (await api.loadMock()).mockListen("kiln://console", handler as (payload: unknown) => void);
 }
 
 export type { ServerSettings, ServerMod };

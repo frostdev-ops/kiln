@@ -648,7 +648,12 @@ fn one_launcher_takes_links_from_the_inbox() {
     assert_eq!(handler::take_links(&t.0), ["nxm://enshrouded/mods/1/files/2?key=a&expires=1", "nxm://enshrouded/mods/3/files/4"]);
     assert!(handler::take_links(&t.0).is_empty());
     drop(a);
-    assert!(handler::acquire_instance(&t.0).unwrap().is_some(), "free again when the first ends");
+    // A child that another test forked a moment ago holds a copy of the lock's descriptor until it execs.
+    let free = (0..400).any(|_| handler::acquire_instance(&t.0).unwrap().is_some() || {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        false
+    });
+    assert!(free, "free again when the first ends");
 }
 
 // ---------------------------------------------------------------- the real API (opt-in, anonymous, read-only)

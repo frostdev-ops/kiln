@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport, DeckFoundMod } from "../../api/commands";
 import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfile } from "../../api/hooks";
+import { leftOutLine, summarize } from "../../shell/importResult";
 import { runTask, toast } from "../../ui";
 import { FolderIcon, ModpackDialog, useBrowse } from "../dialogs";
 import { DeckButton, Row, Screen, Word } from "../ui";
@@ -62,8 +63,8 @@ export default function AddMods() {
       if (r.modpacks.length) setPack(r.modpacks[0]);
       else if (r.added.length) toast.ok(`Added ${r.added.length === 1 ? r.added[0].name : `${r.added.length} mods`}`, r.missing.length ? `Needs ${r.missing.map((x) => x.id).join(", ")}` : undefined);
       else if (r.already.length) toast.info(`Already in ${r.profileName ?? "the profile"}`);
-      else if (!r.profileId && (r.import.imported.length || r.import.existing.length)) toast.info("In the library", "No profile is active");
-      else toast.info("Nothing to add", r.import.skipped[0]?.reason);
+      else if (r.libraryOnly && (r.import.imported.length || r.import.existing.length)) toast.info("Only in the Library", "No profile is active in this game");
+      else toast.info("Nothing to add", leftOutLine(summarize(r.import)));
     } catch { /* toasted */ } finally { setBusy(null); }
   };
 

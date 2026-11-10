@@ -182,7 +182,8 @@ pub fn browse(dir: Option<&Path>, env: &Env) -> Result<Folder, Error> {
 }
 
 /// A recognised mod, or None. Folders: only those with a manifest, or with a child folder that has one (an unpacked
-/// zip), go to the library's detection; zips: only those listing a manifest or a DLL.
+/// zip), go to the library's detection; zips: only those listing a manifest or a DLL; 7z and rar files up to
+/// [`MAX_ZIP`] (the result is cached per file, size and time, so a listing unpacks each at most once).
 fn detect_cached(path: &Path, meta: &std::fs::Metadata, dir: bool) -> Option<Detected> {
     let key = (path.to_path_buf(), meta.len(), meta.modified().ok());
     if !dir {
@@ -225,6 +226,10 @@ fn file_candidate(path: &Path, size: u64) -> bool {
         return size <= MAX_DLL;
     }
     if size <= MAX_DLL && kiln_manage::engines::detect_file(path).is_some() { return true; }
+    // a 7z or rar: the Library's detection opens it (a 7z in-process, a rar with a tool the PC has; none: not listed)
+    if lower.ends_with(".7z") || lower.ends_with(".rar") {
+        return size <= MAX_ZIP;
+    }
     if !lower.ends_with(".zip") || size > MAX_ZIP {
         return false;
     }
@@ -407,6 +412,39 @@ mod tests {
         // the cache answers the same the second time
         let again = browse(Some(&dl), &e).unwrap();
         assert_eq!(again.mods.len(), 3);
+    }
+
+    #[test]
+    fn seven_zip_and_rar_files_are_candidates() {
+        assert!(file_candidate(Path::new("Hoarders Helper.7z"), 1000));
+        assert!(file_candidate(Path::new("ShroudHud.RAR"), 1000));
+        assert!(!file_candidate(Path::new("huge.7z"), MAX_ZIP + 1), "too large to open for a listing");
+        assert!(!file_candidate(Path::new("notes.txt"), 10));
+        // a real 7z of a Kiln mod is listed with what it holds; a 7z of junk is not
+        let t = Tmp::new("sevenz");
+        let e = env(&t);
+        let dl = e.home.join("Downloads");
+        std::fs::create_dir_all(&dl).unwrap();
+        let src = t.0.join("src/night-sky");
+        kiln_mod(&src, "night-sky", "0.9.0");
+        let seven = |dir: &Path, out: &Path| {
+            let mut w = sevenz_rust2::ArchiveWriter::create(out).unwrap();
+            for f in std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.is_file()) {
+                let name = f.file_name().unwrap().to_string_lossy().into_owned();
+                let data = std::fs::read(&f).unwrap();
+                w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(&name), Some(&data[..])).unwrap();
+            }
+            w.finish().unwrap();
+        };
+        seven(&src, &dl.join("night-sky-0.9.0.7z"));
+        let junk = t.0.join("src/junk");
+        std::fs::create_dir_all(&junk).unwrap();
+        std::fs::write(junk.join("readme.txt"), "hi").unwrap();
+        seven(&junk, &dl.join("photos.7z"));
+        let f = browse(None, &e).unwrap();
+        let ids: Vec<(String, DetectKind, Option<String>)> = f.mods.iter().map(|m| (m.file.clone(), m.detected.kind, m.detected.id.clone())).collect();
+        assert_eq!(ids, vec![("night-sky-0.9.0.7z".into(), DetectKind::Kiln, Some("night-sky".into()))]);
+        assert_eq!(f.other, 1);
     }
 
     #[test]

@@ -289,23 +289,51 @@ pub fn mod_reason(engine: Engine, what: &str) -> String {
     }
 }
 
-/// Why a loader or tool DLL is not imported as a mod.
+/// The engine's name as a sentence uses it: "EML", "Ember", "Greeneye" (no parenthesis, no "Loader").
+pub fn short_name(engine: Engine) -> &'static str {
+    let n = engine.name();
+    let n = n.split(" (").next().unwrap_or(n);
+    n.strip_suffix(" Loader").unwrap_or(n)
+}
+
+/// Engines whose mods Kiln runs itself (a plugin per engine): their own loader in a package is not needed.
+pub fn kiln_runs(engine: Engine) -> bool {
+    matches!(engine, Engine::Emf | Engine::Eml | Engine::ShroudForge | Engine::Set | Engine::Greeneye | Engine::Flame
+        | Engine::Shroudtopia | Engine::Enshwick | Engine::Shroudlink | Engine::Ember)
+}
+
+/// Loaders of DLL mods that Kiln does itself (it chains DLLs and reads `dinput8-chain.ini`).
+fn is_chain_loader(engine: Engine) -> bool {
+    matches!(engine, Engine::ChainLoader | Engine::ModLoaderProxy)
+}
+
+/// A loader in a package that is only worth a line of information: the player has nothing to do.
+pub fn loader_is_note(engine: Engine) -> bool {
+    kiln_runs(engine) || is_chain_loader(engine)
+}
+
+/// A tool that runs on its own next to Kiln (not a loader of mods): a package built around it is left out whole,
+/// with one reason, instead of importing its helper DLLs one by one.
+pub fn is_standalone_tool(engine: Engine) -> bool {
+    matches!(engine, Engine::Aldrich | Engine::LiveMap | Engine::SharedXp | Engine::ReShade)
+}
+
+/// Why a loader or tool DLL is not imported as a mod: one short sentence, with what to do when the player has to
+/// do something. [`loader_is_note`] engines give information ("not needed"), the others a reason to act on.
 pub fn loader_reason(engine: Engine, file: &str) -> String {
     let n = engine.name();
+    let short = short_name(engine);
     match engine {
-        Engine::Kiln => "Kiln's own dinput8 proxy: install a runtime bundle instead".into(),
-        Engine::Emf => format!("{file} is EMF's own loader. Kiln runs EMF mods itself: add the EMF mods, not the loader"),
-        Engine::ShroudForge => format!("{file} is ShroudForge's loader, not a mod to import. Install Kiln with 'switch from ShroudForge' to back up its dinput8.dll; its other proxy files stay in place"),
+        Engine::Kiln => format!("{file} is Kiln's own loader: install or update Kiln on the Runtime page instead of adding it as a mod"),
+        Engine::Ember => "Ember's own loader is in this package: not needed, and Kiln can't run Ember mods yet".to_string(),
+        e if kiln_runs(e) => format!("{short}'s own loader is in this package: not needed, Kiln runs {short} mods"),
+        Engine::ChainLoader | Engine::ModLoaderProxy => format!("{file} is {n}: not needed, Kiln loads DLL mods itself"),
         Engine::LiveMap | Engine::SharedXp => format!(
-            "{file} is {n}, {}. It runs on its own next to the server and Kiln: copy it into the server folder by hand",
-            info(engine).what
+            "{file} is {n}, a stand-alone server mod: Kiln doesn't manage it, copy it into the server folder yourself"
         ),
-        Engine::ReShade => format!("{file} is {n}, {}. It runs on its own next to Kiln; Kiln doesn't install it", info(engine).what),
-        Engine::ChainLoader | Engine::ModLoaderProxy => format!(
-            "{file} is {n}, {}. Kiln chains such loaders when it is installed; it is not a mod to import",
-            info(engine).what
-        ),
-        _ => format!("{file} is {n}'s loader ({}), not a mod to import. Kiln chains it when installed over dinput8.dll; add its mods separately", info(engine).what),
+        Engine::ReShade => format!("{file} is ReShade, which runs on its own next to Kiln: Kiln doesn't manage it, copy it into the Enshrouded folder yourself"),
+        Engine::Aldrich => format!("{file} is {n}, which runs on its own from the Enshrouded folder: Kiln doesn't manage it, copy its files there yourself"),
+        _ => format!("{file} is {n}, {}: Kiln doesn't manage it, copy it into the Enshrouded folder yourself", info(engine).what),
     }
 }
 
@@ -318,6 +346,27 @@ const SHROUDTOPIA_MOD_EXPORT: &str = "CreateModInstance";
 const FLAME_MOD_EXPORT: &str = "FlameStartRuntime";
 /// shroudlink's mod DLLs (its server looks for `shroudlink_mod_v2`, then `_v1`).
 const SHROUDLINK_MOD_EXPORTS: [&str; 2] = ["shroudlink_mod_v2", "shroudlink_mod_v1"];
+
+/// shroudlink's client addon: its `dinput8.dll` draws the in-game MODS tab, the chest search and the slot locks. It
+/// is a mod of its own, not a loader Kiln replaces: kiln-shroudlink is shroudlink's server core, and the addon is what
+/// shows that core's windows. The core is told apart by the export `CrashHandlerFactory` (it also runs as
+/// crashhandler64.dll) or by naming Steam's renamed DLL (it is the server's Steam proxy). `file`: the file name, also
+/// a chained one (`shroudlink-dinput8.dll`).
+pub fn is_shroudlink_addon(file: &str, bytes: &[u8], exports: &[String]) -> bool {
+    let has = |e: &str| exports.iter().any(|x| x == e);
+    let lower: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+    let names = |t: &str| find_any(&lower, &[t.as_bytes().to_vec(), utf16(t)]).iter().any(|f| *f);
+    file.to_ascii_lowercase().ends_with("dinput8.dll") && has("DirectInput8Create") && !has("CrashHandlerFactory")
+        && names("shroudlink") && !names("steam_api64_o.dll")
+}
+
+/// [`is_shroudlink_addon`] for a file on disk (false when it cannot be read).
+pub fn shroudlink_addon_at(path: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(path) else { return false };
+    let Ok(pe) = crate::pe::parse(&bytes) else { return false };
+    let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    is_shroudlink_addon(&file, &bytes, &pe.exports)
+}
 
 fn detected(kind: DetectKind, engine: Option<Engine>, path: &Path, reason: String) -> Detected {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
@@ -359,6 +408,10 @@ pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detec
     let engine = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln)?; // Kiln's own proxy: library's rule
     // a plain DLL that merely mentions "dinput8-chain.ini" or "reshade" keeps Kiln's own rules unless it is one by name
     if matches!(engine, Engine::ChainLoader | Engine::ReShade | Engine::Aldrich) && !is_proxy_name(&file) {
+        return None;
+    }
+    // shroudlink's client addon is a DLL mod (Kiln chains it), not a loader Kiln replaces
+    if engine == Engine::Shroudlink && is_shroudlink_addon(&file, bytes, exports) {
         return None;
     }
     Some(detected(DetectKind::Proxy, Some(engine), path, loader_reason(engine, &file)))
@@ -550,7 +603,7 @@ fn folder_detected(kind: DetectKind, engine: Engine, dir: &Path, manifest: Optio
 }
 
 /// DLL files directly in `dir`.
-fn dlls_in(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn dlls_in(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -560,6 +613,13 @@ fn dlls_in(dir: &Path) -> Vec<PathBuf> {
         .collect();
     v.sort();
     v
+}
+
+/// A folder that holds mods instead of being one: the game's `mods` folder, or a package shaped like the game folder
+/// (a `mods` folder next to loader files and readmes). Its mods are the folders and DLLs inside.
+pub fn is_container(dir: &Path) -> bool {
+    let named = |p: &Path| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("mods"));
+    named(dir) || std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| e.path().is_dir() && named(&e.path()))
 }
 
 /// A mod folder made for another engine (None: not one; Kiln's own manifests are checked by the caller first). Order
@@ -591,6 +651,11 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
     if has("init.lua") && !has("native.json") {
         let m = read_json(&dir.join("mod.json"));
         return Some(folder_detected(DetectKind::Set, Engine::Set, dir, m.as_ref(), "this Shrouded Engine Tweaks mod"));
+    }
+    // The game folder's shape (a package with loader files and a `mods` folder, or the `mods` folder itself) holds
+    // mods; `shroudtopia.json` next to the loader is the loader's own settings, not a mod.
+    if is_container(dir) {
+        return None;
     }
     if has("shroudtopia.json") {
         return Some(folder_detected(DetectKind::Shroudtopia, Engine::Shroudtopia, dir, None, "this Shroudtopia setup"));
@@ -743,6 +808,18 @@ mod tests {
         assert_eq!(kind_of(&[d8], b"FlameStartRuntime\0flame.json"), ProxyKind::Flame);
         assert_eq!(kind_of(&["SteamAPI_Init"], b"shroudlink server"), ProxyKind::Shroudlink);
         assert_eq!(kind_of(&["SteamAPI_Init"], b"LoadLibraryW steam_api64_o.dll"), ProxyKind::Shroudlink);
+        // shroudlink's client addon (the MODS tab) is a mod, its core is not
+        let exports = |e: &[&str]| e.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(is_shroudlink_addon("dinput8.dll", b"shroudlink addon", &exports(&[d8])));
+        assert!(is_shroudlink_addon("shroudlink-dinput8.dll", b"shroudlink addon", &exports(&[d8])));
+        assert!(!is_shroudlink_addon("dinput8.dll", b"shroudlink core", &exports(&[d8, "CrashHandlerFactory"])));
+        assert!(!is_shroudlink_addon("dinput8.dll", b"shroudlink steam_api64_o.dll", &exports(&[d8])));
+        assert!(!is_shroudlink_addon("steam_api64.dll", b"shroudlink", &exports(&["SteamAPI_Init"])));
+        assert!(!is_shroudlink_addon("dinput8.dll", b"some other mod", &exports(&[d8])));
+        let addon = build_test_dll(&[d8], b"shroudlink addon");
+        assert!(detect_dll(Path::new("dinput8.dll"), &addon, &exports(&[d8])).is_none(), "left to the Library's DLL rule: a native mod");
+        let core = build_test_dll(&[d8, "CrashHandlerFactory"], b"shroudlink core");
+        assert_eq!(detect_dll(Path::new("dinput8.dll"), &core, &exports(&[d8, "CrashHandlerFactory"])).unwrap().kind, DetectKind::Proxy);
         assert_eq!(kind_of(&["PowerGetActiveScheme"], b"crates\\ember-loader\\src\\lib.rs"), ProxyKind::Ember);
         assert_eq!(kind_of(&[d8], &utf16("ChainLoader.ini")), ProxyKind::ModLoaderProxy);
         assert_eq!(kind_of(&[d8, "IsUltimateASILoader"], b""), ProxyKind::UltimateAsiLoader);

@@ -10,6 +10,7 @@
 #include <set>
 
 #include "emf_internal.h"
+#include "../../compat/compat.h"
 #include "v26_model.h"
 #include "nlohmann/json.hpp"
 
@@ -397,10 +398,12 @@ void add_mod(std::unique_ptr<Mod> m) {
     g_mods.push_back(std::move(m));
 }
 
-void scan_folder_mod(const std::filesystem::path& folder, const char* origin, int profile_enabled) {
+void scan_folder_mod(const std::filesystem::path& folder, const char* origin, int profile_enabled,
+                     std::string_view profile_id = {}) {
     auto m = std::make_unique<Mod>();
     m->folder = folder;
     m->origin = origin;
+    m->profile_id = std::string(profile_id);
     m->source = to_utf8(folder.filename().wstring()) + "\\";
     const bool ok = read_manifest(folder, m.get());
     if (!ok) m->status = EMF_MOD_REJECTED;
@@ -413,7 +416,7 @@ void scan_folder_mod(const std::filesystem::path& folder, const char* origin, in
     add_mod(std::move(m));
 }
 
-void scan_legacy(const std::filesystem::path& dir) {
+void scan_legacy(const std::filesystem::path& dir, const std::vector<std::string>& profile_ids) {
     std::error_code ec;
     if (!std::filesystem::is_directory(dir, ec)) return;
     std::vector<std::filesystem::path> entries;
@@ -421,7 +424,13 @@ void scan_legacy(const std::filesystem::path& dir) {
     std::sort(entries.begin(), entries.end());
     for (const auto& p : entries) {
         if (std::filesystem::is_directory(p, ec)) {
-            if (std::filesystem::exists(p / L"mod.json", ec)) scan_folder_mod(p, "legacy", -1);
+            if (!std::filesystem::exists(p / L"mod.json", ec)) continue;
+            // Kiln's copy of a profile entry (for EMF's own loader): the profile entry is that mod.
+            if (const auto id = kcompat::library_copy_of(p, "emf", profile_ids); !id.empty()) {
+                logf(KILN_LOG_INFO, "%s: Kiln's copy of profile mod %s; the profile entry is used", path_utf8(p).c_str(), id.c_str());
+                continue;
+            }
+            scan_folder_mod(p, "legacy", -1);
             continue;
         }
         if (lower(to_utf8(p.extension().wstring())) != ".dll") continue;
@@ -479,6 +488,7 @@ const char* mod_name(const Mod* m) { return m ? m->id.c_str() : "?"; }
 void discover_mods() {
     std::lock_guard lock(g_mods_mutex);
     bool legacy = true;
+    std::vector<std::string> profile_ids;
     if (S.profile) {
         const uint32_t mode = S.profile->mode();
         const char* names[] = {"legacy", "active", "play-once", "no-mods", "invalid"};
@@ -496,6 +506,7 @@ void discover_mods() {
                 e.size = sizeof e;
                 if (S.profile->get(KILN_PROFILE_KIND_EMF, i, &e) != KILN_OK) continue;
                 const auto folder = from_windows(sv(e.path));
+                if (!sv(e.id).empty()) profile_ids.emplace_back(sv(e.id));
                 std::error_code ec;
                 if (!std::filesystem::exists(folder / L"mod.json", ec)) {
                     auto m = std::make_unique<Mod>();
@@ -503,17 +514,64 @@ void discover_mods() {
                     if (m->id.empty()) m->id = lower(to_utf8(folder.filename().wstring()));
                     m->folder = folder;
                     m->origin = "profile";
+                    m->profile_id = std::string(sv(e.id));
                     m->status = EMF_MOD_REJECTED;
                     m->reason = "the profile names " + std::string(sv(e.path)) + ", which has no mod.json";
                     add_mod(std::move(m));
                     continue;
                 }
-                scan_folder_mod(folder, "profile", e.enabled ? 1 : 0);
+                scan_folder_mod(folder, "profile", e.enabled ? 1 : 0, sv(e.id));
             }
             legacy = (S.profile->dropins() & (1u << KILN_PROFILE_KIND_EMF)) != 0;
         }
     }
-    if (legacy) scan_legacy(P.emf / L"mods");
+    if (legacy) scan_legacy(P.emf / L"mods", profile_ids);
+}
+
+// The real EMF reads only <game>/emf/mods and switches each mod by <game>/emf/config/<id>.ini (enabled=0/1).
+void aside_mods() {
+    std::lock_guard lock(g_mods_mutex);
+    if (!S.profile) return;
+    const uint32_t mode = S.profile->mode();
+    if (mode != KILN_PROFILE_ACTIVE && mode != KILN_PROFILE_ONCE) return;
+    const uint32_t n = S.profile->count(KILN_PROFILE_KIND_EMF);
+    for (uint32_t i = 0; i < n; ++i) {
+        KilnProfileMod e{};
+        e.size = sizeof e;
+        if (S.profile->get(KILN_PROFILE_KIND_EMF, i, &e) != KILN_OK) continue;
+        const auto folder = from_windows(sv(e.path));
+        auto m = std::make_unique<Mod>();
+        m->folder = folder;
+        m->origin = "profile";
+        m->profile_id = std::string(sv(e.id));
+        m->source = to_utf8(folder.filename().wstring()) + "\\";
+        if (!read_manifest(folder, m.get())) m->reason.clear();  // only name/version are wanted here
+        if (m->id.empty()) m->id = lower(m->profile_id.empty() ? to_utf8(folder.filename().wstring()) : m->profile_id);
+        m->enabled = e.enabled != 0;
+        auto rep = kcompat::aside_report(m->profile_id, folder, e.enabled != 0, "emf", P.emf / L"mods", "EMF", "emf\\mods");
+        if (rep.state == kcompat::Aside::Off) {
+            m->status = EMF_MOD_DISABLED;
+        } else {
+            m->state = kcompat::aside_word(rep.state);
+            if (rep.state == kcompat::Aside::OwnLoader) {
+                // EMF's own switch decides under the real EMF: say so when its file keeps the mod off.
+                Mod copy;
+                std::string ini;
+                const std::string eid = read_manifest(rep.copy, &copy) ? copy.id : m->id;
+                if (valid_mod_id(eid) && read_file(P.emf / L"config" / to_wide(eid + ".ini"), &ini)) {
+                    std::string flat;
+                    for (char c : ini)
+                        if (c != ' ' && c != '\t' && c != '\r') flat += c;
+                    if (("\n" + flat).find("\nenabled=0") != std::string::npos)
+                        rep.reason += "; EMF's own switch emf\\config\\" + eid + ".ini says enabled=0, so EMF keeps it off";
+                }
+                m->folder = rep.copy;
+            }
+            kcompat::log_aside(kcompat::Host{g_api, g_owner, "emf"}, m->profile_id.empty() ? m->id : m->profile_id, rep);
+        }
+        m->reason = rep.reason;
+        g_mods.push_back(std::move(m));
+    }
 }
 
 namespace {

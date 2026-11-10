@@ -93,14 +93,15 @@ void save_locked() {
     s += "]\n}\n";
     std::error_code ec;
     std::filesystem::create_directories(g_file.parent_path(), ec);
-    const auto tmp = g_file.string() + ".tmp";
+    std::filesystem::path tmp = g_file;
+    tmp += L".tmp";
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         f << s;
         f.flush();
         if (!f) return;
     }
-    if (!MoveFileExA(tmp.c_str(), g_file.string().c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return;
+    if (!MoveFileExW(tmp.c_str(), g_file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return;
     g_dirty = false;
 }
 
@@ -121,7 +122,7 @@ void load_locked() {
     g_dirty = g_chunks.size() != loaded;
     g_boxes_stale = true;
     g_last_logged = ~size_t{0};
-    KB_I("save regions: %zu chunk(s) kept for world %s (%s)", loaded, w.c_str(), g_file.string().c_str());
+    KB_I("save regions: %zu chunk(s) kept for world %s (%s)", loaded, w.c_str(), reinterpret_cast<const char*>(g_file.u8string().c_str()));
 }
 
 // Greedy boxes over the chunk set: runs along x, merged across z when equal, then across y.
@@ -271,7 +272,7 @@ bool regions_install() {
     char buf[1024];
     size_t len = 0;
     if (g_api->path(KILN_PATH_DATA, buf, sizeof buf, &len) == KILN_OK)
-        g_dir = std::filesystem::path(std::string(buf, len)) / "kiln.build" / "regions";
+        g_dir = std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(buf), len)) / "kiln.build" / "regions";  // UTF-8
     uintptr_t a = 0;
     if (g_api->symbol(kstr("build/SaveRegions"), &a) != KILN_OK || !a) return F.persist = false;
     if (!g_hook.install(g_api, g_owner, a, reinterpret_cast<void*>(&hk_save_regions), "build/SaveRegions")) {

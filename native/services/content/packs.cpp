@@ -406,6 +406,11 @@ uint64_t g_generation = 0;
 std::string mods_dir() { return api_path(KILN_PATH_MODS); }
 std::string data_dir() { return api_path(KILN_PATH_DATA); }
 
+bool path_exists(const std::string& utf8_path) {
+    std::error_code ec;
+    return fs::exists(upath(utf8_path), ec);
+}
+
 void drops_apply_rules(const Entry& table) {
     std::lock_guard lock(store_mutex());
     std::vector<const DropRule*> rs;

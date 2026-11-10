@@ -238,6 +238,25 @@ void KILN_CALL on_ready(void*) {
         g_stepped_aside = already ? "Greeneye Loader runs in this process (it holds its claim) and starts the Greeneye mods"
                                   : "could not take Greeneye Loader's per-process claim";
         Log("kiln-greeneye steps aside: %s", g_stepped_aside.c_str());
+        // The profile's Greeneye mods live in Kiln's Library, which Greeneye Loader never reads: say for each whether
+        // it runs there (Kiln copied it into greeneye/<id>/) or not at all.
+        const kcompat::EnginePlan plan = kcompat::plan_engine(H, "greeneye");
+        std::set<std::string> seen;
+        for (const auto& r : plan.listed) {
+            Entry e = read_mod(r.path, r.id, r.enabled, "profile");
+            if (!seen.insert(kcompat::lower(e.id)).second) continue;
+            if (e.status == "candidate") {
+                const auto rep = kcompat::aside_report(r.id, r.path, r.enabled, "greeneye", folder, "Greeneye", "greeneye");
+                e.status = kcompat::aside_word(rep.state);
+                e.reason = rep.reason;
+                if (!rep.copy.empty() && rep.copy != e.dir) {
+                    if (!e.dll.empty()) e.dll = rep.copy / e.dll.lexically_relative(e.dir);
+                    e.dir = rep.copy;
+                }
+                kcompat::log_aside(H, e.id, rep);
+            }
+            g_entries.push_back(std::move(e));
+        }
         write_status();
         return;
     }
@@ -258,8 +277,14 @@ void KILN_CALL on_ready(void*) {
             if (d.is_directory(ec) && d.path().filename().wstring()[0] != L'.' &&
                 kcompat::contained_path(folder, d.path())) dirs.push_back(d.path());
         std::sort(dirs.begin(), dirs.end());  // Greeneye Loader takes FindFirstFile order: by name on NTFS
+        const auto ids = kcompat::listed_ids(plan);
         for (const auto& d : dirs) {
             if (!kcompat::exists(d / L"mod.json")) continue;
+            // Kiln's copy of a profile entry (for Greeneye Loader's own use): the profile entry is that mod.
+            if (const auto id = kcompat::library_copy_of(d, "greeneye", ids); !id.empty()) {
+                Log("%s: Kiln's copy of profile mod %s; the profile entry is used", path_utf8(d).c_str(), id.c_str());
+                continue;
+            }
             Entry e = read_mod(d, {}, true, "folder");
             if (!seen.insert(kcompat::lower(e.id)).second) {
                 Log("%s: also in the profile, the profile's copy is used (%s skipped)", e.id.c_str(), path_utf8(d).c_str());

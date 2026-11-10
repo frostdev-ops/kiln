@@ -4,10 +4,10 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected, Distribution,
-  EditorBackup, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
+  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
+  EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
-  NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
+  NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
 import { adminMockHandlers } from "../admin/mock";
@@ -26,6 +26,7 @@ import bigStacksSchema from "../../../schema/examples/config-schema.json";
 import beastmasterSchema from "../../../schema/examples/config-schema-emf.json";
 import kilnJsonSnapshot from "../data/kiln-json.snapshot.json";
 import { MOD_KINDS, emptyMods } from "./kinds";
+import { DROPIN_KINDS, dropinKinds } from "../pages/profiles/dropins";
 import { deselectedFor, partRows, resolveParts, selectParts } from "../shell/parts";
 
 /** Kiln's own four kinds (the drop-in folders); MOD_KINDS (./kinds.ts) has every kind. */
@@ -87,6 +88,8 @@ let failNextInstall: string | null = null;
 /** Steam does not load Kiln's proxy (tests: `__kilnMock.setNoProxy`): starts keep play-once.ini, write no boot.json, the
  *  launch option is not set, and the process "started" 31 s before the launch so the launcher's grace has passed. */
 let noProxy = false;
+/** What `launch_prestart` answers while the fake game runs (tests: `__kilnMock.setPreStart`); null: nothing before boot. */
+let preStart: PreStart | null = null;
 /** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
 const newerMods: Record<string, NewerKilnMod[]> = {};
 
@@ -157,6 +160,7 @@ function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: strin
       version: m.version, hash, folder: `library/${kind}/${m.id}/${m.version}+${hash.slice(5, 13)}`, imported,
       side: m.side, clients: m.clients ?? (m.side === "server" ? "none" : "mod"), size: 40_000 + m.id.length * 3_100,
       source: { type: kind === "plugin" ? "file" : "folder", from: from ?? `${m.id}-${m.version}.zip` },
+      manifestId: null,
       manifest: { ...m } as unknown as Json,
     }],
   };
@@ -186,7 +190,8 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
       eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
       flame: [], shroudtopia: [pm("shroudtopia", "fly-mode")], enshwick: [], shroudlink: [], ember: [],
     },
-    dropins: [], dataDir: "shared", server: null,
+    // made by a dev.22 launcher: the list names every kind that is on (none). "Vanilla plus" is from before dev.22.
+    dropins: [], dropinsEngines: true, dataDir: "shared", server: null,
   }],
   ["vanilla-plus", {
     format: 1, id: "vanilla-plus", name: "Vanilla plus", created: "2026-11-02T08:00:00Z", updated: "2026-11-03T21:15:00Z", generation: 2, notes: "",
@@ -199,6 +204,9 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
   }],
 ]);
 const activations: Record<string, Activation | null> = {};
+/** The profile the launcher remembers per game (`<data>/installs/<id>.active.json`): it outlives an uninstall of Kiln,
+ *  a deliberate "No profile" clears it. */
+const remembered: Record<string, string | null> = {};
 
 function fingerprint(p: Profile): string {
   const parts = MOD_KINDS.flatMap((k) => (p.mods[k] ?? []).filter((m) => m.enabled).map((m) => `${k}\0${m.id}\0${m.version}\0${m.hash}`)).sort();
@@ -215,6 +223,7 @@ function activate(pid: string, gameId: string): Activation {
     copied: 0, fingerprint: fingerprint(p), activated: now(),
   };
   activations[gameId] = a;
+  remembered[gameId] = pid;
   return a;
 }
 if (!FRESH) activate("ember-run", "client-steam");
@@ -578,6 +587,9 @@ const logFiles: Record<string, string[]> = {
 const kindOf = (n: string): LogFile["kind"] => (n.endsWith("proxy.log") ? "proxy" : n.includes("/mods/") ? "mod" : n.startsWith("kiln/") ? "kiln" : "game");
 const follows = new Map<string, ReturnType<typeof setInterval>>();
 let subSeq = 0;
+const mockReportFindings: ReportFinding[] = [
+  { id: "crash", level: "warning", text: "Kiln wrote a crash report on 2026-11-03T22:10:04Z: kiln/crash-reports/2026-11-03T22-10-04Z-night-sky.txt (1 in all; the newest is in this report)." },
+];
 const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", created: "2026-11-03T22:10:04Z", size: 4_211 }];
 
 // ---------------------------------------------------------------- settings, servers
@@ -700,6 +712,7 @@ const handlers: Record<string, Handler> = {
     return startTask("runtime_uninstall", "Uninstall Kiln", ["Restoring dinput8.dll", "Removing files", "Cleaning chain.ini"], () => {
       const prev = runtime[gameId];
       const emf = prev?.receipt?.replaced?.some((r) => r.class === "emf");
+      activations[gameId] = null; // kiln/profile.json goes with Kiln's files; the launcher's record of the profile stays
       runtime[gameId] = { installed: false, receipt: null, proxy: emf ? { kind: "emf", version: "0.3.3", abi: null, sha256: hex("emf"), size: 70_000, detail: "export emf_loader_identity" } : null, modified: [], upgradeAvailable: null };
       emitGame(gameId, "status");
       return null;
@@ -743,7 +756,7 @@ const handlers: Record<string, Handler> = {
     emitGame(S(a.gameId), "status");
     return r;
   },
-  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
+  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
   profile_revert: (a) => {
     const id = S(a.profileId);
@@ -767,6 +780,13 @@ const handlers: Record<string, Handler> = {
     gameOf(gameId);
     if (!runtime[gameId]?.installed) reject("unsupported", "Kiln is not in this game yet: install it first.");
     if (activations[gameId]) return activations[gameId];
+    const again = remembered[gameId];
+    if (again && profiles.has(again)) {
+      if (running[gameId]) reject("game_running", "Close the game first: Kiln turns your profile back on in the game folder.");
+      const r = activate(again, gameId);
+      emitGame(gameId, "status");
+      return r;
+    }
     if (profiles.size) return null;
     if (running[gameId]) reject("game_running", "Close the game first: the new profile is activated in the game folder.");
     makeDefault();
@@ -792,8 +812,33 @@ const handlers: Record<string, Handler> = {
     if (!runtime[gameId]?.installed) reject("unsupported", "Kiln is not in this game yet: install it first.");
     const makeIt = !activations[gameId] && profiles.size === 0;
     if (makeIt && running[gameId]) reject("game_running", "Close the game first: the new profile is activated in the game folder.");
+    const again = !activations[gameId] && !makeIt && remembered[gameId] && profiles.has(remembered[gameId]!) ? remembered[gameId]! : null;
+    if (again && running[gameId]) reject("game_running", `Close the game first: Kiln turns ${profiles.get(again)!.name} back on in the game folder.`);
     return startTask("library_add", paths.length === 1 ? `Add ${paths[0].split(/[\\/]/).pop()}` : `Add ${paths.length} items`,
       ["Reading", "Hashing", "Adding to the profile", "Writing profile.json"], () => quickAdd(gameId, paths, makeIt), 300);
+  },
+  library_add_to_profile: (a) => {
+    const gameId = S(a.gameId);
+    const refs = (a.entries as LibraryRef[]) ?? [];
+    if (!refs.length) reject("invalid_argument", "Nothing to add.");
+    gameOf(gameId);
+    const p = clone(profiles.get(S(a.profileId)) ?? reject("not_found", `No profile '${S(a.profileId)}'.`));
+    const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: p.id, profileName: p.name, created: false, added: [], already: [],
+      changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
+    const named = (x: LibraryRef): AddedMod => ({ ...x, name: library.find((l) => l.kind === x.kind && l.id === x.id)?.name ?? x.id });
+    for (const ref of refs) {
+      const after: ProfileMod = { id: ref.id, version: ref.version, hash: ref.hash, enabled: true };
+      const list = p.mods[ref.kind];
+      const i = list.findIndex((m) => m.id === ref.id);
+      if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(after)) { r.already.push(named(ref)); continue; }
+      r.changes.push({ kind: ref.kind, before: i >= 0 ? list[i] : null, after });
+      if (i >= 0) list[i] = after; else list.push(after);
+    }
+    if (!r.changes.length) return r;
+    profiles.set(p.id, { ...p, generation: p.generation + 1, updated: now() });
+    if (activations[gameId]?.profileId === p.id && !running[gameId]) { r.activation = activate(p.id, gameId); r.applied = true; emitGame(gameId, "status"); }
+    r.added = r.changes.map((c) => named({ kind: c.kind, ...c.after }));
+    return r;
   },
   library_lint: () => ({ format: 1, tool: "kiln-lint", version: "mock", ok: true, checked: [], summary: { errors: 0, warnings: 0, infos: 0, hints: 0 }, catalog: null, diagnostics: [] }),
   library_unused: () => library.flatMap((e) => e.versions
@@ -846,7 +891,9 @@ const handlers: Record<string, Handler> = {
       st("shroudforge", "shroudforge.json", { mode: "hosted", reason: null, version: "0.9.2", side: "client" }),
       st("set", "set.json", null),
       st("greeneye", "greeneye.json", { mods: [{ id: "zoom-out", status: "started", generation: 1, hooks: 2 }] }),
-      st("flame", "flame.json", null),
+      { ...st("flame", "flame.json", null), ownLoader: { kind: "flame", engine: "flame", file: "kiln/chain/flame-dinput8.dll", via: "chain", folder: "mods",
+        delivery: "placed", enabled: 1, copied: ["torch-range"], notCopied: [],
+        text: "Flame's own loader (kiln/chain/flame-dinput8.dll) is installed: it runs the Flame mods in mods/; Kiln copied this profile's 1 Flame mod(s) into mods/ for it" } },
       st("shroudtopia", "shroudtopia.json", { mods: [{ name: "Fly Mode", status: "active", updates: 120 }], refused: [] }),
       st("enshwick", "enshwick.json", { status: "started", phase: "early", mods: [{ folder: "you.lanterns", form: "pack", origin: "profile", action: "copy", note: "" }] }),
       st("shroudlink", "shroudlink.json", null),
@@ -864,6 +911,15 @@ const handlers: Record<string, Handler> = {
     const done = emlPatched && !FRESH ? [`${g.path}/enshrouded.kfc`] : [];
     emlPatched = false;
     return done;
+  },
+
+  // mods in the game folder Kiln did not put there (kiln_manage::found)
+  found_scan: (a) => foundScan(S(a.gameId), profiles.get(S(a.profileId)) ?? reject("not_found", `No profile '${S(a.profileId)}'.`)),
+  found_add: (a) => {
+    const gameId = S(a.gameId), pid = S(a.profileId), path = S(a.path);
+    const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    const m = foundScan(gameId, p).mods.find((x) => x.path === path) ?? reject("not_found", `${path} is not a mod in the game folder (any more)`);
+    return startTask("found_add", `Add ${path.split("/").pop()}`, ["Reading", "Copying", "Adding to the profile"], () => foundAdd(gameId, pid, m), 300);
   },
 
   // configs
@@ -929,6 +985,10 @@ const handlers: Record<string, Handler> = {
     return { boot, mods: boot ? (modsExample as unknown as ModsJson) : null, native: boot ? (nativeExample as unknown as NativeJson) : null, stale: !r && !!boot, log };
   },
 
+  // what kiln-eml does before the game's window exists: only on request (tests: `__kilnMock.setPreStart`), so that a plain
+  // start still says "Waiting for Kiln to boot."
+  launch_prestart: (a): PreStart | null => (running[S(a.gameId)] ? preStart : null),
+
   // logs
   logs_list: (a) => {
     const t = a.target as LogTarget;
@@ -954,6 +1014,22 @@ const handlers: Record<string, Handler> = {
   },
   logs_unfollow: (a) => { clearInterval(follows.get(S(a.subscription))); follows.delete(S(a.subscription)); return null; },
   logs_crash_reports: () => crashes,
+  report_save: (a) => {
+    if (!S(a.path).trim()) reject("invalid_argument", "Choose where to save the report.");
+    const path = /\.zip$/i.test(S(a.path)) ? S(a.path) : `${S(a.path)}.zip`;
+    return { path, size: 48_213, findings: mockReportFindings, errors: [] } satisfies ReportSaved;
+  },
+  report_summary: () => [
+    "Kiln support report, 2026-11-10T12:00:00Z",
+    "kiln-launcher 0.2.0-dev (mock); Kiln in the game: 0.2.0-dev",
+    "OS: Arch Linux; Proton: GE-Proton10-3; Steam Deck: no",
+    "Game: client, Steam build 26430253, known to Kiln: yes",
+    "Profile: Ember run (4 mods)",
+    "Last start: 2026-11-04T12:01:02Z, hooks on",
+    "Findings:",
+    ...mockReportFindings.filter((f) => f.level !== "info").map((f) => `- ${f.text}`),
+    "",
+  ].join("\n"),
 
   // saves
   saves_list: (a) => { gameOf(a.gameId); return saveSlots; },
@@ -1083,10 +1159,82 @@ function mockLibraryRemove(r: LibraryRef, force: boolean | string[]) {
   if (!e!.versions.length) library.splice(library.indexOf(e!), 1);
 }
 
+// ---------------------------------------------------------------- the game folder (kiln_manage::found)
+
+/** What a player extracted into the mock game folder. Kiln drops none of these there. */
+const gameFolder: { kind: ModKind | null; name: string; id: string | null; version: string | null; path: string; why?: string; wrong?: string }[] = FRESH ? [] : [
+  { kind: "eml", name: "Hoarder's Helper", id: "HoardersHelper", version: "1.0.1", path: "mods/HoardersHelper" },
+  { kind: "eml", name: "Less Dense Shroud Fog", id: "Less Dense Shroud Fog", version: "1.2.0", path: "mods/Less Dense Shroud Fog" },
+  { kind: "greeneye", name: "Better Map", id: "better-map", version: "2.0.0", path: "greeneye/better-map" },
+  { kind: "greeneye", name: "Zoom Out", id: "zoom-out", version: "1.1.0", path: "greeneye/zoom-out" },
+  { kind: "set", name: "Fly Mode", id: "FlyMode", version: null, path: "shrouded_engine_tweaks/mods/FlyMode" },
+  // an EMF mod extracted into mods/, where nothing loads EMF mods from
+  { kind: "emf", name: "Pack Mule", id: "pack-mule", version: "0.3.0", path: "mods/pack-mule", wrong: "Nothing loads EMF mods from mods: Kiln looks for them in emf/mods." },
+  { kind: null, name: "screenshots", id: null, version: null, path: "mods/screenshots", why: "No mod manifest, Lua code or mod DLL in this folder." },
+];
+const SHORT: Partial<Record<ModKind, string>> = { eml: "EML", greeneye: "Greeneye", set: "SET", emf: "EMF" };
+
+/** profile.json `dropins` as kiln_manage::profile::Profile::dropins_file says: true, or the kinds named. */
+function dropinsFile(p: Profile): true | ModKind[] {
+  const core = ["kiln", "native", "plugin", "emf"] as ModKind[];
+  if (!p.dropinsEngines) return core.every((k) => p.dropins.includes(k)) ? true : dropinKinds(p).filter((k) => k !== "set");
+  const on = DROPIN_KINDS.filter((k) => p.dropins.includes(k));
+  return on.length === DROPIN_KINDS.length ? true : on;
+}
+
+/** kiln_manage::found's rule for the kinds the mock folder holds: every plugin follows `dropins`; kiln-set always reads. */
+function foundState(p: Profile, kind: ModKind): { loads: boolean; reason: string } {
+  const f = dropinsFile(p);
+  const label = SHORT[kind] ?? kind;
+  if (kind === "set") return { loads: true, reason: "kiln-set always reads shrouded_engine_tweaks/mods." };
+  const on = f === true || f.includes(kind);
+  return { loads: on, reason: `${label} drop-ins are ${on ? "on" : "off"} in this profile.` };
+}
+
+function foundScan(gameId: string, p: Profile): FoundReport {
+  gameOf(gameId);
+  const kiln = !!runtime[gameId]?.installed;
+  const mods: FoundMod[] = gameFolder.map((g) => {
+    const base = { kind: g.kind, name: g.name, id: g.id, version: g.version, path: g.path };
+    if (!g.kind) return { ...base, state: "cannotRun", reason: g.why ?? "Not a mod Kiln knows." };
+    const mine = (p.mods[g.kind] ?? []).find((m) => g.id && (m.id.toLowerCase() === g.id.toLowerCase() || m.id === g.id.toLowerCase().replace(/[^a-z0-9._-]/g, "-")));
+    if (mine) return { ...base, state: "inProfile", reason: mine.enabled ? "This profile has this mod too. The profile's copy loads." : "This profile has this mod too, switched off. The profile's copy wins.", profileMod: mine.id };
+    if (!kiln) return { ...base, state: "off", reason: "Kiln is not installed in this game." };
+    if (g.wrong) return { ...base, state: "off", reason: g.wrong, fix: "add" };
+    const st = foundState(p, g.kind);
+    if (st.loads) return { ...base, state: "loads", via: "kiln", reason: st.reason };
+    const withIt: Profile = { ...p, dropins: [...new Set([...dropinKinds(p), g.kind])], dropinsEngines: true };
+    return { ...base, state: "off", reason: st.reason, fix: foundState(withIt, g.kind).loads ? "dropins" : "add" };
+  });
+  return { gameId, profileId: p.id, kilnInstalled: kiln, mods, loaders: [], unreadable: [], truncated: false };
+}
+
+/** found_add: the folder into the Library (an id as the Library makes it) and into the profile, enabled. */
+function foundAdd(gameId: string, pid: string, m: FoundMod): AddReport {
+  const kind = m.kind ?? reject("refused", `${m.path}: ${m.reason}`);
+  const id = (m.id ?? m.name).toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+  const man: MockManifest = { id, name: m.name, version: m.version ?? "1.0.0", side: "both" };
+  let e = library.find((l) => l.kind === kind && l.id === id);
+  if (!e) { e = entryFor(kind, man, now(), `${gameOf(gameId).path}/${m.path}`); library.push(e); }
+  const v = e.versions[0];
+  const ref: LibraryRef = { kind, id, version: v.version, hash: v.hash };
+  const p = clone(profiles.get(pid)!);
+  const after: ProfileMod = { id, version: v.version, hash: v.hash, enabled: true };
+  const before = p.mods[kind].find((x) => x.id === id) ?? null;
+  p.mods[kind] = [...p.mods[kind].filter((x) => x.id !== id), after];
+  profiles.set(pid, { ...p, generation: p.generation + 1, updated: now() });
+  const active = activations[gameId]?.profileId === pid && !running[gameId];
+  if (active) { activate(pid, gameId); emitGame(gameId, "status"); }
+  const added: AddedMod = { kind, id, version: v.version, hash: v.hash, name: m.name };
+  return { import: { imported: [ref], existing: [], skipped: [], notes: [], names: { [`${kind}/${id}`]: m.name } }, profileId: pid, profileName: p.name, created: false, added: [added], already: [],
+    changes: [{ kind, before, after }], applied: active, running: !!running[gameId], activation: active ? activations[gameId] : null, missing: [], modpacks: [],
+    resumed: false, libraryOnly: null };
+}
+
 /** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
 function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
-  const r: AddReport = { import: { imported: [], existing: [], skipped: [] }, profileId: null, profileName: null, created: false, added: [], already: [],
-    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [] };
+  const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: null, profileName: null, created: false, added: [], already: [],
+    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
   const files: string[] = [];
   for (const p of paths) {
     if (detect(p).kind !== "modpack") files.push(p);
@@ -1098,12 +1246,20 @@ function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
   if (!refs.length) return r;
   const active = activations[gameId]?.profileId ?? null;
   let p: Profile;
+  const again = remembered[gameId];
   if (active) p = clone(profiles.get(active)!);
   else if (makeIt) {
     p = makeDefault();
     r.activation = activate(p.id, gameId);
     r.created = r.applied = true;
-  } else return r;
+  } else if (again && profiles.has(again)) {
+    p = clone(profiles.get(again)!);
+    r.activation = activate(p.id, gameId);
+    r.resumed = r.applied = true;
+  } else {
+    r.libraryOnly = "No profile is active in this game, so the mod is only in your Library. Add it to a profile to play with it.";
+    return r;
+  }
   r.profileId = p.id;
   r.profileName = p.name;
   const named = (x: { kind: ModKind; id: string; version: string; hash: string }): AddedMod =>
@@ -1149,7 +1305,7 @@ function detect(path: string): Detected {
 }
 
 function importPaths(paths: string[]): ImportReport {
-  const report: ImportReport = { imported: [], existing: [], skipped: [] };
+  const report: ImportReport = { imported: [], existing: [], skipped: [], notes: [], names: {} };
   for (const p of paths.flatMap((x) => { const d = detect(x); return d.kind === "unknown" && d.items.length ? d.items.map((i) => i.path) : [x]; })) {
     const d = p.includes(".zip/") ? detect(p.split(".zip/")[0].replace(/-pack$/i, "") + ".zip") : detect(p);
     const kind: ModKind | null = d.kind === "bare-dll" ? "native" : d.kind === "kiln" || d.kind === "native" || d.kind === "emf" || d.kind === "plugin" ? d.kind : null;
@@ -1158,7 +1314,7 @@ function importPaths(paths: string[]): ImportReport {
     const ex = library.find((l) => l.kind === kind && l.id === d.id);
     const hash = kdh(kind + d.id + version);
     const ref: LibraryRef = { kind, id: d.id, version, hash };
-    if (ex?.versions.some((v) => v.version === version)) { report.existing.push(ref); continue; }
+    if (ex?.versions.some((v) => v.version === version)) { report.names[`${kind}/${d.id}`] = ex.name; report.existing.push(ref); continue; }
     // a seed mod's file ("more-hotbars-2.1.0.zip") keeps the seed's manifest (its name, requires, side)
     const seed = seedMods[kind].find((x) => x.id === d.id);
     const m: MockManifest = seed ? { ...seed, version } : { id: d.id, name: d.id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), version, side: "both", phase: kind === "native" ? "early" : undefined };
@@ -1169,6 +1325,7 @@ function importPaths(paths: string[]): ImportReport {
       const at = library.findIndex((l) => MOD_KINDS.indexOf(l.kind) > MOD_KINDS.indexOf(kind) || (l.kind === kind && l.id > fresh.id));
       library.splice(at < 0 ? library.length : at, 0, fresh);
     }
+    report.names[`${kind}/${d.id}`] = ex?.name ?? fresh.name;
     report.imported.push(ref);
   }
   return report;
@@ -1210,6 +1367,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
+  setPreStart: (p: PreStart | null) => { preStart = p; },
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

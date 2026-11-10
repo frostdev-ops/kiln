@@ -35,16 +35,74 @@ pub fn find_exe(dir: &Path, exe: &str) -> Result<Option<ProcessInfo>> {
     Finder::default().find(dir, exe)
 }
 
+/// `pid` when it still is the running process of `<dir>/<exe>` (as [`find_exe`] matches it), without listing every
+/// process: for a watcher that found the game once and checks every second that it still runs. None: it ended (or the
+/// pid is another process now); look again with [`find_exe`].
+pub fn still_running(pid: u32, dir: &Path, exe: &str) -> Option<ProcessInfo> {
+    #[cfg(not(windows))]
+    {
+        let l = imp::light(pid)?;
+        let probe = ProcessInfo { pid, name: l.name.clone(), exe: None, cmdline: l.cmdline.clone() };
+        if !name_matches(&probe, exe) {
+            return None;
+        }
+        let (p, extra) = imp::full(&l)?;
+        let want_dir = canon(dir);
+        matches_exe(&p, &extra, &want_dir, &want_dir.join(exe), exe).then_some(p)
+    }
+    #[cfg(windows)]
+    {
+        find_exe(dir, exe).ok().flatten().filter(|p| p.pid == pid)
+    }
+}
+
 /// [`find_exe`] for several folders and exe names from one look at the process table: Linux lists /proc once, Windows
 /// once per exe name. For one decision over many folders (the Library's removal guard); the listing is not refreshed.
 #[derive(Default)]
 pub struct Finder {
     all: Option<Vec<(ProcessInfo, Extra)>>,
     named: std::collections::HashMap<String, Vec<(ProcessInfo, Extra)>>,
+    /// Linux: every process's name and command line, read once; the rest only for name matches (`find_light`).
+    #[cfg(not(windows))]
+    light: Option<Vec<imp::Light>>,
 }
 
 impl Finder {
     pub fn find(&mut self, dir: &Path, exe: &str) -> Result<Option<ProcessInfo>> {
+        #[cfg(not(windows))]
+        {
+            return self.find_light(dir, exe);
+        }
+        #[cfg(windows)]
+        self.find_listed(dir, exe)
+    }
+
+    /// Linux: what `find_listed` answers, from fewer reads: a process can only match by its name (comm) or argv[0], so
+    /// its state, exe and cwd are read only for those (the watcher looks every second; /proc has hundreds of
+    /// processes, and five reads each was most of a status poll).
+    #[cfg(not(windows))]
+    fn find_light(&mut self, dir: &Path, exe: &str) -> Result<Option<ProcessInfo>> {
+        let light = match &mut self.light {
+            Some(l) => l,
+            None => self.light.insert(imp::list_light()),
+        };
+        let want_dir = canon(dir);
+        let want_exe = want_dir.join(exe);
+        for l in light.iter() {
+            let probe = ProcessInfo { pid: l.pid, name: l.name.clone(), exe: None, cmdline: l.cmdline.clone() };
+            if !name_matches(&probe, exe) {
+                continue;
+            }
+            let Some((p, extra)) = imp::full(l) else { continue };
+            if matches_exe(&p, &extra, &want_dir, &want_exe, exe) {
+                return Ok(Some(p));
+            }
+        }
+        Ok(None)
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn find_listed(&mut self, dir: &Path, exe: &str) -> Result<Option<ProcessInfo>> {
         // Windows: only processes with the exe's image name get their full image path looked up (the launcher's
         // watcher calls find_exe every second; opening and canonicalizing every process each time is wasteful)
         let candidates: &[(ProcessInfo, Extra)] = if cfg!(windows) {
@@ -86,9 +144,7 @@ fn matches_exe(p: &ProcessInfo, extra: &Extra, want_dir: &Path, want_exe: &Path,
     }
     // Wine/Proton: the game process is named after the exe; argv[0] is its Windows path (Z:\... or C:\...), cwd the
     // game folder. A name match alone is not enough (another install of the same game may run).
-    let name_ok = p.name.eq_ignore_ascii_case(&comm_of(exe))
-        || p.cmdline.first().is_some_and(|a| win_basename(a).eq_ignore_ascii_case(exe));
-    if !name_ok {
+    if !name_matches(p, exe) {
         return false;
     }
     if let Some(a0) = p.cmdline.first()
@@ -98,6 +154,11 @@ fn matches_exe(p: &ProcessInfo, extra: &Extra, want_dir: &Path, want_exe: &Path,
         return true;
     }
     extra.cwd.as_deref().is_some_and(|c| eq_path(&canon(c), want_dir))
+}
+
+/// Linux/Wine: the process is named after the exe (comm), or its argv[0] is the exe's path.
+fn name_matches(p: &ProcessInfo, exe: &str) -> bool {
+    p.name.eq_ignore_ascii_case(&comm_of(exe)) || p.cmdline.first().is_some_and(|a| win_basename(a).eq_ignore_ascii_case(exe))
 }
 
 fn win_basename(s: &str) -> &str {
@@ -192,6 +253,11 @@ mod imp {
         list()
     }
 
+    fn cmdline(pid: u32) -> Vec<String> {
+        let cmd = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        cmd.split(|&b| b == 0).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned()).collect()
+    }
+
     pub fn list() -> Result<Vec<(ProcessInfo, Extra)>> {
         let mut out = Vec::new();
         for pid in pids() {
@@ -199,18 +265,42 @@ mod imp {
             if !alive(pid) {
                 continue;
             }
-            let cmd = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-            let cmdline: Vec<String> = cmd
-                .split(|&b| b == 0)
-                .filter(|a| !a.is_empty())
-                .map(|a| String::from_utf8_lossy(a).into_owned())
-                .collect();
+            let cmdline = cmdline(pid);
             let exe = fs::read_link(format!("/proc/{pid}/exe")).ok();
             let cwd = fs::read_link(format!("/proc/{pid}/cwd")).ok();
             out.push((ProcessInfo { pid, name: comm.trim_end().to_string(), exe, cmdline }, Extra { cwd }));
         }
         out.sort_by_key(|(p, _)| p.pid);
         Ok(out)
+    }
+
+    /// A process as far as name matching needs it (comm, argv).
+    pub struct Light {
+        pub pid: u32,
+        pub name: String,
+        pub cmdline: Vec<String>,
+    }
+
+    pub fn light(pid: u32) -> Option<Light> {
+        let comm = fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        Some(Light { pid, name: comm.trim_end().to_string(), cmdline: cmdline(pid) })
+    }
+
+    /// Every process's pid, comm and argv, by pid (two reads each; `list` does five).
+    pub fn list_light() -> Vec<Light> {
+        let mut out: Vec<Light> = pids().into_iter().filter_map(light).collect();
+        out.sort_by_key(|l| l.pid);
+        out
+    }
+
+    /// The rest of `list`'s entry for one process (None: it ended or is a zombie, which `list` leaves out).
+    pub fn full(l: &Light) -> Option<(ProcessInfo, Extra)> {
+        if !alive(l.pid) {
+            return None;
+        }
+        let exe = fs::read_link(format!("/proc/{}/exe", l.pid)).ok();
+        let cwd = fs::read_link(format!("/proc/{}/cwd", l.pid)).ok();
+        Some((ProcessInfo { pid: l.pid, name: l.name.clone(), exe, cmdline: l.cmdline.clone() }, Extra { cwd }))
     }
 }
 

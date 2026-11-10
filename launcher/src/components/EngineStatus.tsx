@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import * as api from "../api/commands";
 import type { EngineStatus, GameId, Json, ModKind } from "../api/commands";
-import { useActiveProfile, useGameStatus, useProfile } from "../api/hooks";
+import { useActiveProfile, useGameStatus, usePoll, useProfile } from "../api/hooks";
 import { KIND_NAME, KIND_SHORT, KIND_TONE, MOD_KINDS } from "../api/kinds";
 import { Badge, Banner, Button, EmptyState, Modal, Skeleton, errorText, toast, type Tone } from "../ui";
 
@@ -50,13 +50,13 @@ export const engineStatusKey = (gameId: GameId) => ["engine_status", gameId] as 
 
 /** One compact row per engine plugin that wrote a state file or has mods in the active profile. */
 export function EngineStatusList({ gameId }: { gameId: GameId }) {
-  const q = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId), refetchInterval: 10_000 });
+  const q = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId), refetchInterval: usePoll(10_000) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
   if (q.isLoading) return <Skeleton lines={3} />;
   if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
-  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind))
+  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader)
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
   if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
   return (
@@ -87,6 +87,12 @@ function EngineRow({ s }: { s: EngineStatus }) {
           {mods.map((m, i) => (
             <span key={m.id + i}>{i ? ", " : ""}<span className="k-mono">{m.id}</span>{m.state ? ` ${m.state}` : ""}{m.reason ? ` (${m.reason})` : ""}</span>
           ))}
+        </span>
+      )}
+      {/* The engine's own loader is in the game: what that means for the active profile's mods (own_loaders.rs). */}
+      {s.ownLoader && (
+        <span className={s.ownLoader.notCopied.length ? "k-hint k-tone-warn" : "k-hint"} data-own-loader={s.ownLoader.file} style={{ flexBasis: "100%" }}>
+          {s.ownLoader.text}.
         </span>
       )}
     </div>

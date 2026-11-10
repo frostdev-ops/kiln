@@ -1,0 +1,31 @@
+{
+  "raw": "{\"id\":\"pack-only\",\"name\":\"Pack Only\",\"version\":\"1.0.0\",\"apiVersion\":\"0.2\",\"side\":\"both\",\"clients\":\"kiln\"}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "pack-only",
+      "name": "Pack Only",
+      "version": "1.0.0",
+      "parsedVersion": "1.0.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "",
+      "entryType": null,
+      "side": "both",
+      "clients": "kiln",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "kilnBuild": null,
+      "warnings": []
+    }
+  }
+}

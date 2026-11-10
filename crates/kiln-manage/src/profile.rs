@@ -13,6 +13,18 @@ use serde::{Deserialize, Serialize};
 // ---- game side: <game>/kiln/profile.json ----
 
 /// `dropins`: true/false, or a list of kinds.
+///
+/// How each reader takes it (docs/kiln/profiles.md "Drop-in folders"):
+/// - kiln-core (`kiln`, `native`, `plugin`, `emf`, through `kiln.profile` `dropins()`) and kiln-eml (`eml`): `true`, or
+///   a list naming the kind. A missing key is `false`.
+/// - compat.h's engines (Greeneye, Flame, Shroudtopia, Enshwick, Ember) and kiln-shroudlink: the same rule since dev.22
+///   (`true`, or a list naming the engine). Before dev.22 they ignored a list and read their folder whenever the profile
+///   had no `mods.<engine>` list; [`Profile::dropins_file`] keeps that for profiles made before dev.22.
+/// - kiln-shroudforge hosts ShroudForge (which runs its whole mods folder) when `mods.shroudforge` has an enabled entry,
+///   or (from dev.22) when `dropins` is `true` or names `shroudforge` and that folder holds a ShroudForge package.
+/// - kiln-enshwick starts Enshwick's loader for a hand-installed folder only when `dropins` is `true` or names
+///   `enshwick`; once the loader runs (the profile has an Enshwick mod), it runs every folder in `<game>/mods`.
+/// - kiln-set always reads `shrouded_engine_tweaks/mods` and does not read `dropins`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dropins {
@@ -25,6 +37,43 @@ impl Default for Dropins {
         Dropins::All(false)
     }
 }
+
+impl Dropins {
+    /// `true`, or a list naming `kind` (the rule of kiln-core and kiln-eml).
+    pub fn names(&self, kind: ModKind) -> bool {
+        match self {
+            Dropins::All(b) => *b,
+            Dropins::Kinds(v) => v.contains(&kind),
+        }
+    }
+
+    /// `true` itself: every kind's folder.
+    pub fn is_all(&self) -> bool {
+        matches!(self, Dropins::All(true))
+    }
+}
+
+/// The kinds whose plugin reads the profile's `dropins` for its own folder, in [`ModKind::ALL`] order: the switches the
+/// launcher offers. `dropins: true` is written when a profile has every one of them on. SET does not read `dropins`
+/// (see [`Dropins`]); Ember's mods do not run, so it has no switch.
+pub const DROPIN_KINDS: [ModKind; 11] = [
+    ModKind::Kiln,
+    ModKind::Native,
+    ModKind::Plugin,
+    ModKind::Emf,
+    ModKind::Eml,
+    ModKind::ShroudForge,
+    ModKind::Greeneye,
+    ModKind::Flame,
+    ModKind::Shroudtopia,
+    ModKind::Enshwick,
+    ModKind::Shroudlink,
+];
+
+/// Engine kinds whose plugin, before dev.22, read its own folder whenever the profile listed no mod of that engine,
+/// whatever `dropins` said. A profile made before dev.22 keeps loading those folders ([`Profile::dropin_kinds`]).
+const READ_WHEN_UNLISTED: [ModKind; 5] =
+    [ModKind::Greeneye, ModKind::Flame, ModKind::Shroudtopia, ModKind::Shroudlink, ModKind::Ember];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -300,6 +349,10 @@ pub struct Profile {
     pub mods: ProfileMods,
     #[serde(default)]
     pub dropins: Vec<ModKind>,
+    /// `dropins` names the engine kinds too (written by dev.22 launchers). Without it (older profiles) a profile with
+    /// all four Kiln kinds on loads every kind's drop-in folder, as before: [`Profile::dropin_kinds`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dropins_engines: bool,
     #[serde(default)]
     pub data_dir: DataDirMode,
     #[serde(default)]
@@ -307,6 +360,47 @@ pub struct Profile {
     /// Native mod ids whose dllmain DLLs load after Kiln and ShroudForge (chain.ini [late]) instead of in the proxy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub late: Vec<String>,
+}
+
+impl Profile {
+    /// The kinds whose drop-in folders this profile switches on, as the player sees them, in [`ModKind::ALL`] order.
+    ///
+    /// A profile from before `dropinsEngines` keeps what it loaded then. With all four Kiln kinds on that is every
+    /// kind (older launchers wrote `dropins: true` for it). Otherwise it is its list, plus the folders the engine
+    /// plugins read without asking `dropins`: Enshwick's always, and Greeneye's, Flame's, Shroudtopia's, shroudlink's
+    /// and Ember's while the profile lists no mod of that engine.
+    pub fn dropin_kinds(&self) -> Vec<ModKind> {
+        if self.dropins_engines {
+            return ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k)).collect();
+        }
+        if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
+            return ModKind::ALL.to_vec();
+        }
+        ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k) || *k == ModKind::Enshwick
+            || (READ_WHEN_UNLISTED.contains(k) && self.mods.list(*k).is_empty())).collect()
+    }
+
+    /// profile.json `dropins` for this profile: `true` when every folder is on, `false` when none is, else the list of
+    /// the kinds that are. Every plugin reads it the same way since dev.22 ([`Dropins`]), so the list names exactly the
+    /// folders [`Profile::dropin_kinds`] shows. With `dropinsEngines`, "every" means every kind of [`DROPIN_KINDS`],
+    /// and kinds without a switch are left out. A profile from before `dropinsEngines` gets `true` with all four Kiln
+    /// kinds on, as older launchers wrote it.
+    pub fn dropins_file(&self) -> Dropins {
+        if !self.dropins_engines {
+            if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
+                return Dropins::All(true);
+            }
+            // SET's plugin does not read `dropins`
+            let on: Vec<ModKind> = self.dropin_kinds().into_iter().filter(|k| *k != ModKind::Set).collect();
+            return if on.is_empty() { Dropins::All(false) } else { Dropins::Kinds(on) };
+        }
+        let on: Vec<ModKind> = DROPIN_KINDS.into_iter().filter(|k| self.dropins.contains(k)).collect();
+        match on.len() {
+            0 => Dropins::All(false),
+            n if n == DROPIN_KINDS.len() => Dropins::All(true),
+            _ => Dropins::Kinds(on),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,6 +455,10 @@ pub struct Activation {
     pub copied: u32,
     pub fingerprint: String,
     pub activated: String,
+    /// Other engines' own loaders installed in this game and what they mean for the profile's mods of their engine
+    /// (own_loaders::notes): each has a one-sentence `text` for the Play and profile pages. Empty: none installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own_loaders: Vec<crate::own_loaders::OwnLoaderNote>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -594,6 +692,7 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         notes: src.as_ref().map(|s| s.notes.clone()).unwrap_or_default(),
         mods: src.as_ref().map(|s| s.mods.clone()).unwrap_or_default(),
         dropins: src.as_ref().map(|s| s.dropins.clone()).unwrap_or_default(),
+        dropins_engines: src.as_ref().is_some_and(|s| s.dropins_engines),
         data_dir: src.as_ref().map(|s| s.data_dir).unwrap_or_default(),
         server: src.as_ref().and_then(|s| s.server.clone()),
         late: src.as_ref().map(|s| s.late.clone()).unwrap_or_default(),
@@ -804,12 +903,7 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
         DataDirMode::Shared => None,
         DataDirMode::Profile => Some(game_or_copy(&pdir.join("data"), install, mode, || format!("{COPY_ROOT_REL}/{pid}/data"))?),
     };
-    let dropins = match profile.dropins.len() {
-        0 => Dropins::All(false),
-        // every Kiln kind: true (the engine plugins read their own folders then too), as older launchers wrote it
-        _ if ModKind::CORE.iter().all(|k| profile.dropins.contains(k)) => Dropins::All(true),
-        _ => Dropins::Kinds(profile.dropins.clone()),
-    };
+    let dropins = profile.dropins_file();
     Ok(ProfileFile {
         schema: None,
         format: 1,
@@ -1015,12 +1109,13 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     let prev = read_game_profile(&install.path).ok().flatten().map(|f| f.generation).unwrap_or(0);
     let generation = next_generation(prev)?;
     let (mut file, mode, copied) = prepare(dirs, &profile, install)?;
-    // ShroudForge and SET read their mods from their own folder in the game.
-    crate::engine_mods::place(dirs, &profile, &install.path)?;
     file.generation = generation; // grows with every write of the file
     let now = now_rfc3339();
     file.written = Some(now.clone());
+    // chain.ini first: its [chain] lines (a compat rule may switch a chained loader off) decide which own loaders run
     write_chain_plan(dirs, &profile, install, &file)?;
+    // ShroudForge and SET read their mods from their own folder in the game; the other engines' own loaders too.
+    let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
     let pj = install.path.join(crate::paths::game::PROFILE);
     crate::util::write_json_atomic(&pj, &file)?;
     remove_if_there(&install.path.join(crate::paths::game::CHAIN_ONCE))?;
@@ -1034,6 +1129,7 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
         copied,
         fingerprint: file.fingerprint.clone().unwrap_or_default(),
         activated: now,
+        own_loaders: placed.own_loaders,
     };
     let _ = crate::util::write_json_atomic(&activation_record(dirs, install), &a);
     Ok(a)
@@ -1079,7 +1175,12 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     // These engines consume fixed folders, not the profile's paths. Changing them for a single start would also
     // change the next Steam launch, which does not call refresh_active. Only a persistent activation may do that.
     let active = read_game_profile(&install.path)?;
-    for kind in [ModKind::ShroudForge, ModKind::Set] {
+    // EML, EMF, Greeneye, Flame and Shroudtopia read a fixed folder too while their own loader is installed (Kiln
+    // copies the active profile's mods there): their selection cannot change for a single start either.
+    let loaders = crate::own_loaders::find(&install.path, Some(&crate::own_loaders::ProfileView::of_profile(&profile)));
+    let fixed = crate::own_loaders::PLACED_FOR_LOADER.into_iter().filter(|k| crate::own_loaders::of_kind(&loaders, *k)
+        .is_some_and(|l| l.delivery == crate::own_loaders::Delivery::Placed));
+    for kind in [ModKind::ShroudForge, ModKind::Set].into_iter().chain(fixed) {
         let mut wanted: Vec<_> = profile.mods.list(kind).iter()
             .map(|m| (m.id.as_str(), Some(m.version.as_str()), Some(m.hash.as_str()), m.enabled)).collect();
         let mut current: Vec<_> = active.as_ref().and_then(|f| f.mods.folders(kind)).into_iter().flatten()
@@ -1087,8 +1188,14 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
         wanted.sort_unstable();
         current.sort_unstable();
         if wanted != current {
+            let why = match crate::own_loaders::of_kind(&loaders, kind) {
+                Some(l) if crate::own_loaders::PLACED_FOR_LOADER.contains(&kind) => format!(
+                    "{} reads its mods from {}/ itself, so {} mods use a fixed game folder", crate::own_loaders::loader_name(l),
+                    l.folder, crate::own_loaders::short(kind)),
+                _ => format!("{} mods use a fixed game folder", kind.label()),
+            };
             return Err(Error::new(ErrorCode::Unsupported,
-                format!("{} mods use a fixed game folder; activate this profile to change them before playing (play-once keeps the active selection)", kind.label())));
+                format!("{why}; activate this profile to change them before playing (play-once keeps the active selection)")));
         }
     }
     let (mut file, _, _) = prepare(dirs, &profile, install)?;
@@ -1119,12 +1226,20 @@ pub fn deactivate(dirs: &DataDirs, install: &GameInstall) -> Result<()> {
     Ok(())
 }
 
+/// The own loaders installed now and what they mean for the active profile file (checked again on every call: the
+/// player may have added or removed a loader since the activation).
+fn own_loader_notes(install: &GameInstall, file: &ProfileFile) -> Vec<crate::own_loaders::OwnLoaderNote> {
+    let view = crate::own_loaders::ProfileView::of_file(file);
+    crate::own_loaders::notes(&install.path, &crate::own_loaders::find(&install.path, Some(&view)), Some(&view))
+}
+
 pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
     let Some(file) = read_game_profile(&install.path)? else { return Ok(None) };
-    if let Ok(Some(a)) = crate::util::read_json::<Activation>(&activation_record(dirs, install))
+    if let Ok(Some(mut a)) = crate::util::read_json::<Activation>(&activation_record(dirs, install))
         && a.profile_id == file.id
         && a.generation == file.generation
     {
+        a.own_loaders = own_loader_notes(install, &file);
         return Ok(Some(a));
     }
     Ok(Some(Activation {
@@ -1136,6 +1251,7 @@ pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activatio
         copied: 0,
         fingerprint: file.fingerprint.clone().unwrap_or_default(),
         activated: file.written.clone().unwrap_or_default(),
+        own_loaders: own_loader_notes(install, &file),
     }))
 }
 

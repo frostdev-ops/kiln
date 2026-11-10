@@ -553,11 +553,11 @@ void on_tick(EmfWorld* w, void*) {
         check(!A->setting_set(kMod, "level", "11"), "setting_set out of range is refused");
         check(A->setting_int(kMod, "level", -1) == g_level_target, "setting_int reads the new value");
         // the command arrives through the console file
-        char exe[MAX_PATH];
-        GetModuleFileNameA(nullptr, exe, MAX_PATH);
-        std::string dir(exe);
-        dir = dir.substr(0, dir.find_last_of("\\/"));
-        if (FILE* f = std::fopen((dir + "\\emf\\commands.txt").c_str(), "ab")) {
+        wchar_t exe[MAX_PATH];  // wide: the game folder may hold letters the ANSI code page lacks
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring dir(exe);
+        dir = dir.substr(0, dir.find_last_of(L"\\/"));
+        if (FILE* f = _wfopen((dir + L"\\emf\\commands.txt").c_str(), L"ab")) {
             std::fputs("probe.cmd alpha \"beta gamma\"\n", f);
             std::fclose(f);
         }

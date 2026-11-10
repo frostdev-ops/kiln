@@ -40,7 +40,8 @@ The plugin **steps aside**. If shroudlink's core is loaded in the process as `st
 by its export pair `CrashHandlerFactory` + `DirectInput8Create` or its file name, together with shroudlink's own core
 strings in the file. Unrelated proxies exporting the same names do not make Kiln step aside. kiln.log then says
 `kiln-shroudlink steps aside: shroudlink's own core runs in this process (...)`, and that core loads
-`shroudlink_mods/` as usual. Profile entries are not passed to the real core.
+`shroudlink_mods/` as usual. Profile entries are not passed to the real core: `shroudlink.json` lists them as
+`not-loaded` (a warning in kiln.log), except an entry that is a DLL directly in `shroudlink_mods/` (`own-loader`).
 As a backstop, both copies use shroudlink's per-process claim (`chestsort_server_<pid>`): whichever claims first runs
 and the other stays idle.
 
@@ -49,7 +50,11 @@ back to `steam_api64.dll` (or verify the files in Steam), keep `shroudlink_mods/
 
 The **client addon** (`dinput8.dll`, MODS tab, chest search, slot locks) is a client mod. Kiln's installer chains it
 from `kiln/chain/` like any other `dinput8.dll` mod, and it talks to the server over the game's own connection, so it
-works the same with a Kiln-hosted core. In singleplayer the addon loads `shroudlink_core.dll` from the game folder.
+works the same with a Kiln-hosted core. Dropped on the launcher (alone, or in shroudlink's singleplayer package) it is
+imported as a native mod and chained from the profile (dev.22; before, the Library took it for shroudlink's loader and
+left it out, so the MODS tab never appeared). The Library tells it from the core by the core's `CrashHandlerFactory`
+export and its Steam proxy text (`engines::is_shroudlink_addon`). The addon alone is not counted as shroudlink's own
+loader; with `shroudlink_core.dll` in the game folder it is. In singleplayer the addon loads `shroudlink_core.dll` from the game folder.
 With kiln-shroudlink in the client and shroudlink mods present, Kiln's copy usually claims first and the addon's copy
 stays idle. That case is on the client checklist.
 

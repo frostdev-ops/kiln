@@ -1,7 +1,0 @@
-{
-  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\"}",
-  "expect": {
-    "ok": false,
-    "error": "kiln.mod.json: 'entryAssembly' is required"
-  }
-}

@@ -21,6 +21,8 @@ Observed from the mod's files and the loader's import and export tables, never b
 ## What kiln-flame does
 
 1. Steps aside when Flame's loader runs in this process (see [README.md](README.md#when-the-other-loader-is-installed-too)).
+   The launcher copies the profile's Flame mods into `mods/<id>/` while Flame's loader is installed, so it runs them;
+   `flame.json` lists them as `own-loader` or `not-loaded`.
 2. Finds the mods: the profile's `mods.flame` entries, then every `<game>/mods/<dir>/` with a `flame.json`.
 3. Checks each one without running it: `flame.json` names a regular DLL inside the mod folder, with no symlink or junction in its path, and its export
    table has a callable `FlameStartRuntime`. Handles keep the file unchanged through loading.

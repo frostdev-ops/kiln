@@ -161,6 +161,13 @@ fn folder_ok(f: &str) -> bool {
     !f.is_empty() && f.len() <= 80 && !f.starts_with('.') && f.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
 
+/// A folder a player placed by hand in an engine's folder may have any plain Windows name (EML's `Hoarders Helper`,
+/// `antisocialian's tweaks`): one path component, no hidden, reserved or trailing-dot names.
+fn hand_placed_ok(f: &str) -> bool {
+    !f.is_empty() && f.len() <= 255 && !f.starts_with('.') && !f.ends_with(['.', ' '])
+        && !f.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
+}
+
 /// Every mod folder of the server (managed and native), with its marker and, while it runs, its state.
 pub fn mods(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
     let server = instance.local_dir()?;
@@ -440,7 +447,7 @@ fn mods_of(instance: &ServerInstance) -> Result<Vec<ServerMod>> {
 /// `.disabled` on (enabled false) or off. Works for any folder under kiln/mods or kiln/native (an empty marker file;
 /// other tools toggle it the same way). The server sees it at its next start (or a mod_load/mod_unload).
 pub fn set_enabled(instance: &ServerInstance, folder: &str, enabled: bool) -> Result<()> {
-    if !folder_ok(folder) {
+    if !folder_ok(folder) && !hand_placed_ok(folder) {
         return Err(Error::invalid(format!("{folder:?} is not a mod folder name")));
     }
     let server = instance.local_dir()?;

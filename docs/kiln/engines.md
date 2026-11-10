@@ -154,6 +154,42 @@ installs take the kind.
 Code: `crates/kiln-manage/src/engine_mods.rs`; formats: [launcher/contracts.md](launcher/contracts.md) 5.1 ("Other
 engines' mods") and 5.8.
 
+- **Package shapes.** Mods are dropped the way Nexus ships them: a zip, 7z or rar; an extracted folder; the game's own
+  `mods` folder; one mod folder. A package shaped like the game folder (`dbghelp.dll` + `dinput8.dll` + `eml.json` +
+  `mods/<Name>/mod.json`, or Shroudtopia's `winmm.dll` + `shroudtopia.dll` + `shroudtopia.json` + `mods/`) is a folder of
+  mods: every folder and loose mod DLL inside `mods/` is imported (a loose Shroudtopia DLL gets the `mod.json` its plugin
+  needs). The engine's own loader in it is never installed and is not an error: the result carries one line of
+  information, `EML's own loader is in this package: not needed, Kiln runs EML mods` (the loaders of EMF, EML,
+  ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink and Ember; DLL chain loaders get "not needed, Kiln
+  loads DLL mods itself"). A tool that runs on its own next to Kiln (Aldrich's mod menu, ReShade, Live Map, Shared XP) is
+  left out whole with what to do (copy its files into the Enshrouded folder yourself). Folders such as `fomod/`,
+  `screenshots/`, `__MACOSX/` and the readme, licence and script files around a mod are ignored.
+- **Ids.** An engine manifest has no id rule of Kiln's (`HoardersHelper`, `XHL-Max-Stack-65535`, `Less Dense Shroud Fog`,
+  `antisocialian's tweaks`). A valid Kiln id is kept; any other becomes its slug (`library::id_from_name`:
+  `hoardershelper`, `less-dense-shroud-fog`, `antisocialian-s-tweaks`) as the Library and profile id, and the manifest's
+  own id goes into the import record (`manifestId`). The mod's files are not changed. Two manifest ids with one slug
+  (`Ember` and `ember`) do not share an entry: the second gets a short hash (`ember-3fa9c2`). EML reads only a profile
+  entry's `path` and `enabled` and reports each mod's own id and its `path`; the other engines' plugins take the
+  profile entry's id as the mod's id, which is the Library id. Enshwick keeps the strict id (its loader copies a mod into
+  `mods/<id>/`). A ShroudForge package needs only ShroudForge's own id rule (ASCII letters of both cases, digits, `.-_`,
+  at most 80); Kiln places it in ShroudForge's mods folder as `<library id>/`, since ShroudForge finds a package by its
+  mod.json id, not its folder name, and leaves it out when a folder there (the player's own copy) holds the same package
+  id already: ShroudForge drops every package whose id it finds twice. A server's hand-placed engine mod folder is
+  listed under the same slug (`engine_mods::identity`), and switched by its folder name whatever that is. Kiln's own kinds (`kiln`, `native`, `plugin`, `emf`) keep the strict id: their manifests are
+  Kiln's contract, and the reason says the author has to change it.
+- **A DLL mod with its files.** A plain DLL beside the files it reads (`dinput8.dll` + `.ini`/`.dat`/`.jpg`,
+  `powrprof.dll` + a folder, a lone `winmm.dll`) is imported as one native mod: the whole package folder, with a
+  generated `native.json` listing the DLL (phase `dllmain` for a `DirectInput8Create` proxy, chain-loaded by Kiln's proxy;
+  `early` otherwise), named after the package. Kiln loads the DLL from that folder, so a mod that reads its files next
+  to its own DLL finds them; the result says so in one line when the package has such files. A mod that looks for them in the game folder does not: that needs files placed into the game
+  folder by profile activation, which the Library has no kind for yet. A lone DLL under a proxy name gets a few characters of its
+  hash in its id, so two different `winmm.dll` files never share an entry.
+- **Archives.** `.7z` is read in-process (`sevenz-rust2`, pure Rust, no password support, decoder memory capped at 256
+  MiB). `.rar` needs a tool that is already on the PC (`unrar`, `7zz`/`7z`, `bsdtar`, Windows' `tar.exe`), found by
+  absolute path, started with an empty private working folder, stopped when its output passes the import limits, and its
+  output is checked like a folder; without one the reason says "Extract this .rar first, then drop the folder".
+  Archives obey the zip limits (10,000 entries, 32 levels, 512 MiB per file, 1 GiB, no links, no `..`); a modpack must
+  be a `.zip`.
 - **Library.** `engines::builtin_loaders` registers `engine_mods::import_engine_mod` for every engine kind: `eml`,
   `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink` and `ember`
   (`engine_mods::IMPORTED`). The item goes to `library/<kind>/<id>/<version>+<hash8>/` with its kdh1, like a Kiln
@@ -178,8 +214,8 @@ engines' mods") and 5.8.
   the profile's Engines tab and the Deck.
   Folder and archive imports refuse symlinks, including hidden links and Windows reparse points: Wine's plugins
   cannot read file symlinks. The same bounded import rules apply as for Kiln mods (512 MiB per file, 1 GiB total,
-  10,000 entries, 32 levels; ZIP64 refused). Explicit invalid ids are refused rather than renamed away from the
-  engine manifest; missing ids use the normalized name. Versions are canonical semantic versions, `0.0.0` when
+  10,000 entries, 32 levels; ZIP64 refused). An id that is no Kiln id gets a Kiln id and its own stays in the import
+  record (above); an empty id, or one with control characters, is refused; missing ids use the normalized name. Versions are canonical semantic versions, `0.0.0` when
   absent, or a `0.0.0` prerelease for engine versions that are not semantic versions (`0.0.0-beta`, with an
   `import-` prefix when needed to make the prerelease valid, such as `0.0.0-import-001`).
 - **Profiles.** `ModKind` has one kind per engine, and `Profile.mods.<kind>` and profile.json `mods.<kind>` have one

@@ -19,6 +19,7 @@ pub mod deck;
 pub mod nexus;
 pub mod engines;
 pub mod compat;
+pub mod found;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -71,6 +72,7 @@ pub const NAMES: &[&str] = &[
     "config_native_set",
     "launch_play",
     "launch_state",
+    "launch_prestart",
     "logs_list",
     "logs_read",
     "logs_follow",
@@ -139,6 +141,7 @@ pub const NAMES: &[&str] = &[
     "update_skip",
     "update_ack",
     "library_add",
+    "library_add_to_profile",
     "profile_revert",
     "profile_ensure_default",
     "deck_browse",
@@ -164,6 +167,10 @@ pub const NAMES: &[&str] = &[
     "eml_restore",
     "chain_view",
     "chain_set_late",
+    "found_scan",
+    "found_add",
+    "report_save",
+    "report_summary",
 ];
 
 #[cfg(test)]

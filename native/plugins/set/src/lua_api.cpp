@@ -51,7 +51,21 @@
 
 namespace {
 
-std::string gModsDir;
+std::string gModsDir;  // UTF-8, like every path this file keeps as text
+
+std::filesystem::path pathOf(const std::string& utf8) { return std::filesystem::path(std::u8string(utf8.begin(), utf8.end())); }
+
+// A mod's folder as UTF-8 text. (path::string() would convert to the ANSI code page and throw for characters it lacks.)
+std::string modFolder(const std::string& name) {
+    const auto u = (pathOf(gModsDir) / pathOf(name)).u8string();
+    return std::string(u.begin(), u.end());
+}
+// UTF-8 <-> UTF-16 for the Win32 profile (ini) API: its *A forms read paths and keys in the ANSI code page.
+std::wstring wideOf(const std::string& s) { return pathOf(s).wstring(); }
+std::string utf8Of(const std::wstring& w) {
+    const auto u = std::filesystem::path(w).u8string();
+    return std::string(u.begin(), u.end());
+}
 rt::Sink gSink = [](const char*) {};
 uintptr_t gWorld;  // server world, only set while Lua runs
 lua_State* gL;
@@ -980,12 +994,13 @@ void loadBindings() {
     gSaved.clear();
     std::string path = bindsPath();
     if (path.empty()) return;
-    std::vector<char> keys(32 * 1024);
-    DWORD n = GetPrivateProfileStringA("bindings", nullptr, "", keys.data(), static_cast<DWORD>(keys.size()), path.c_str());
-    for (const char* k = keys.data(); k < keys.data() + n && *k; k += strlen(k) + 1) {
-        char combo[64];
-        GetPrivateProfileStringA("bindings", k, "", combo, sizeof combo, path.c_str());
-        gSaved[k] = combo;
+    const std::wstring file = wideOf(path);
+    std::vector<wchar_t> keys(32 * 1024);
+    DWORD n = GetPrivateProfileStringW(L"bindings", nullptr, L"", keys.data(), static_cast<DWORD>(keys.size()), file.c_str());
+    for (const wchar_t* k = keys.data(); k < keys.data() + n && *k; k += wcslen(k) + 1) {
+        wchar_t combo[64];
+        GetPrivateProfileStringW(L"bindings", k, L"", combo, 64, file.c_str());
+        gSaved[utf8Of(k)] = utf8Of(combo);
     }
 }
 
@@ -1409,7 +1424,7 @@ void dispatchHooks(lua_State* L) {
 // A mod's globals: its own table, falling back to the shared one, plus what has to know the mod: Keys.hotkey and
 // Keys.input, io inside its folder, and require from its folder.
 void pushModEnv(lua_State* L, const std::string& name) {
-    std::string dir = (std::filesystem::u8path(gModsDir) / name).string();
+    std::string dir = modFolder(name);
     lua_newtable(L);
     int env = lua_gettop(L);
     lua_newtable(L);
@@ -1520,7 +1535,7 @@ struct ModInfo {
 ModInfo readModJson(lua_State* L, const std::string& name) {
     ModInfo info;
     FILE* f = nullptr;
-    f = kset::sandbox::open((std::filesystem::u8path(gModsDir) / name).string(), "mod.json", "rb");
+    f = kset::sandbox::open(modFolder(name), "mod.json", "rb");
     if (!f) return info;
     std::string text;
     char buf[4096];
@@ -1581,12 +1596,30 @@ void loadMods(lua_State* L) {
     };
     lua_getfield(L, LUA_REGISTRYINDEX, kMods);
     int mods = lua_gettop(L);
-    WIN32_FIND_DATAA fd;
-    HANDLE h = FindFirstFileA((gModsDir + "\\*").c_str(), &fd);
-    for (bool more = h != INVALID_HANDLE_VALUE; more; more = FindNextFileA(h, &fd) != 0) {
-        std::string name = fd.cFileName, init = gModsDir + "\\" + name + "\\init.lua";
-        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || name[0] == '.') continue;
-        if (GetFileAttributesA(init.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    // The mod folders by name, case-insensitive as NTFS lists them. std::filesystem reads the folder with the wide Win32
+    // calls: FindFirstFileA would read gModsDir in the ANSI code page and find no mod under a Cyrillic or CJK game folder.
+    std::vector<std::string> folders;
+    {
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(pathOf(gModsDir), ec), end; !ec && it != end; it.increment(ec)) {
+            std::error_code dir_ec;
+            if (!it->is_directory(dir_ec)) continue;
+            const auto u = it->path().filename().u8string();
+            std::string folder(u.begin(), u.end());
+            if (!folder.empty() && folder[0] != '.') folders.push_back(std::move(folder));
+        }
+    }
+    const auto folded = [](std::string v) {
+        for (char& c : v) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+        return v;
+    };
+    std::sort(folders.begin(), folders.end(), [&](const std::string& x, const std::string& y) {
+        const std::string fx = folded(x), fy = folded(y);
+        return fx != fy ? fx < fy : x < y;
+    });
+    for (const std::string& name : folders) {
+        std::error_code init_ec;
+        if (!std::filesystem::exists(pathOf(gModsDir) / pathOf(name) / "init.lua", init_ec)) {
             gSink((LV_WARN "Mod skipped: " + name + " (no init.lua)").c_str());
             report(name, "skipped", "the folder has no init.lua", ModInfo{});
             continue;
@@ -1599,7 +1632,7 @@ void loadMods(lua_State* L) {
             report(name, "failed", "needs Shrouded Engine Tweaks " + info.needs + ", this is " RUNTIME_VERSION, info);
             continue;
         }
-        bool ok = loadText(L, (std::filesystem::u8path(gModsDir) / name).string(), "init.lua", ("@" + name + "/init.lua").c_str());
+        bool ok = loadText(L, modFolder(name), "init.lua", ("@" + name + "/init.lua").c_str());
         std::string why;
         if (!ok) {
             const char* e = lua_tostring(L, -1);
@@ -1628,7 +1661,6 @@ void loadMods(lua_State* L) {
         report(name, ok ? "loaded" : "failed",
                ok ? (paren == std::string::npos ? std::string() : line.substr(paren + 2, line.size() - paren - 3)) : why, info);
     }
-    if (h != INVALID_HANDLE_VALUE) FindClose(h);
     lua_pop(L, 1);
     {
         std::lock_guard lock(gReportMx);
@@ -2422,7 +2454,10 @@ void rt::setBinding(const std::string& key, int mods, int vk) {
         if (vk) gSaved[key] = combo;
         else gSaved.erase(key);
         std::string path = bindsPath();
-        if (!path.empty()) WritePrivateProfileStringA("bindings", key.c_str(), vk ? combo.c_str() : nullptr, path.c_str());
+        if (!path.empty()) {
+            const std::wstring wkey = wideOf(key), wcombo = wideOf(combo);
+            WritePrivateProfileStringW(L"bindings", wkey.c_str(), vk ? wcombo.c_str() : nullptr, wideOf(path).c_str());
+        }
     }
     gSink((LV_OK "Binding " + key + ": " + (vk ? combo : "unbound")).c_str());
 }
@@ -2435,7 +2470,7 @@ void rt::removeDeadBindings() {
             ++it;
             continue;
         }
-        if (!path.empty()) WritePrivateProfileStringA("bindings", it->first.c_str(), nullptr, path.c_str());
+        if (!path.empty()) WritePrivateProfileStringW(L"bindings", wideOf(it->first).c_str(), nullptr, wideOf(path).c_str());
         it = gSaved.erase(it);
     }
 }

@@ -1,0 +1,39 @@
+{
+  "format": 1,
+  "pid": 4120,
+  "kilnEml": "0.1.0",
+  "eml": "0.2.0",
+  "phase": "running",
+  "file": "enshrouded",
+  "patched": 0,
+  "cached": false,
+  "restored": false,
+  "ms": 0.0,
+  "error": null,
+  "aside": null,
+  "mods": [
+    {
+      "id": "HoardersHelper",
+      "version": "1.2.0",
+      "name": "Hoarder's Helper",
+      "source": "game-mods",
+      "path": "S:\\steamapps\\common\\Enshrouded\\mods\\HoardersHelper",
+      "state": "pending",
+      "reason": null,
+      "capabilities": ["patch"]
+    }
+  ],
+  "progress": {
+    "stage": "checking",
+    "label": "Checking the game data",
+    "doneBytes": 13194139533,
+    "totalBytes": 52183056384,
+    "filesDone": 12,
+    "filesTotal": 55,
+    "file": "enshrouded_012.dat",
+    "quietMs": 0,
+    "stageMs": 31200,
+    "startedMs": 1762775838000,
+    "updatedMs": 1762775869200
+  }
+}

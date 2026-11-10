@@ -23,7 +23,7 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "loadBefore": ["other-mod"],
   "incompatible": { "rival": "<3" },    // or ["rival"] (any version): this mod does not load when it is present
   "features": ["tick", "log.mirror"],   // Kiln features this game build must have (Game.HasFeature)
-  "entryAssembly": "MyMod.dll",         // required: a file in the folder
+  "entryAssembly": "MyMod.dll",         // a file in the folder; leave it out for a mod of data only (see below)
   "entryType": "MyMod.MyModClass",      // default: the only public Kiln.Mod subclass
   "exports": ["MyMod.Api.dll"],         // assemblies dependents compile against (shared at run time)
   "advanced": false,                    // opt into the advanced tier (ModInfo.Advanced)
@@ -72,6 +72,22 @@ clients. A Kiln client without a mod that states `mod` is refused too, with a me
 `warn` or `off`. It needs `side: both` to be checked, and `optionalMods` exempts one. The refusal carries the server's modpack, so the launcher can offer it.
 A client let in anyway (`modSync: off`) doesn't get entities of new templates, but a new item it meets can still crash
 it: see [Clients without Kiln](../network.md#clients-without-kiln).
+
+## Mods of data only
+A mod needs no code. Without `entryAssembly` (and `entryType`) Kiln.Host loads the folder as a mod with nothing to run: it has
+its id, version, dependencies, side and a place in the load order, a line in the mod list (`kiln/logs/mods.txt`, the launcher's
+`state/mods.json`) and unloads and reloads like any mod. What the folder holds belongs to it: data packs for kiln.content
+(`content/*.json`, [content.md](../services/content.md#data-packs)), assets for kiln.assets.
+```jsonc
+// kiln/mods/pack-only/kiln.mod.json, with kiln/mods/pack-only/content/items.json beside it
+{ "id": "pack-only", "version": "1.0.0", "apiVersion": "0.2", "side": "both", "clients": "kiln" }
+```
+```text
+[host] mod pack-only 1.0.0 loaded in 0.4 ms (data only: no entryAssembly)
+```
+A key that is present must still be a `.dll` file name (an empty `entryAssembly` is refused). Before dev.22 Kiln.Host refused a manifest
+without it (`kiln.mod.json: 'entryAssembly' is required`) and the folder's data packs were skipped. Kiln.Sdk, which builds code, still
+requires the key to name the assembly it builds (KILN001).
 
 ## Versions and ranges
 | Range | Means |

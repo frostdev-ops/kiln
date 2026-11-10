@@ -77,6 +77,13 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
             else Log.LogError(null, "KILN001", null, null, 0, 0, 0, 0, $"{e.Message} (from the project's Kiln properties)");
             return false;
         }
+        if (!manifest.HasCode)
+        {
+            // a manifest without entryAssembly is a mod of data only; a project that builds code must name its assembly
+            Log.LogError(null, "KILN001", null, own ? Source : null, 0, 0, 0, 0,
+                $"kiln.mod.json: 'entryAssembly' is required (the project builds '{EntryAssembly}')");
+            return false;
+        }
         if (!string.Equals(manifest.EntryAssembly, EntryAssembly, StringComparison.OrdinalIgnoreCase))
         {
             Log.LogError(null, "KILN002", null, own ? Source : null, 0, 0, 0, 0,

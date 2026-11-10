@@ -4,10 +4,15 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
+import { isTauri, loadMock } from "./api/commands";
 import { UiModeGate } from "./deck/mode";
 import "./theme/base.css";
 
 const queryClient = new QueryClient();
+
+// a plain browser (development, the Playwright tests): the mock answers every command, so it is there before the first
+// render, as when it was part of the bundle (the desktop app never loads it)
+if (!isTauri()) await loadMock();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

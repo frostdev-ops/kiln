@@ -116,3 +116,40 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         assert status['engineHooks'] == 'self' and 'set-host-refused' in calls and 'find' not in ' '.join(calls), (status, calls)
         assert 'hooks the game itself: kfc-runtime.dll refused the host interface' in out, out
     case('engine-hooks-refused', installed='corrupt', extra_env=dict(hook_env, KILN_SF_REFUSE_HOST='1'), verify=refused)
+
+    # ---- dev.22: drop-ins for ShroudForge with an active profile that lists no ShroudForge mods ----
+    def profile_case(name, dropins, package):
+        game = root / name
+        (game / 'kiln').mkdir(parents=True)
+        for kind in ('shroudforge', 'kiln/plugins/shroudforge'):
+            dest = game / kind
+            dest.mkdir(parents=True)
+            (dest / 'version.json').write_text(json.dumps({'version': '1.7.9'}))
+            (dest / 'profiles').mkdir()
+            shutil.copyfile(build / 'good_kfc.dll', dest / 'kfc-runtime.dll')
+            shutil.copyfile(build / 'runtime.dll', dest / 'shroudforge-runtime.dll')
+        if package:
+            (game / 'mods/pkg').mkdir(parents=True)
+            (game / 'mods/pkg/extended.mod.json').write_text(json.dumps({'enabled': True}))
+        profile = {'format': 1, 'id': 'p', 'generation': 1, 'mods': {}}
+        if dropins is not None:
+            profile['dropins'] = dropins
+        (game / 'kiln/profile.json').write_text(json.dumps(profile))
+        log = game / 'calls.txt'
+        call_env = dict(env, KILN_SF_TEST_LOG='Z:' + str(log).replace('/', '\\'),
+                        KILN_SF_PROFILE='Z:' + str(game / 'kiln/profile.json').replace('/', '\\'))
+        call_env.pop('KILN_SHROUDFORGE', None)
+        result = subprocess.run(['wine', str(build / 'sfhost.exe'), str(game), str(adapter)], env=call_env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=40)
+        if result.returncode:
+            raise RuntimeError(f'{name}: host exit {result.returncode}\n{result.stdout.decode(errors="replace")}')
+        return json.loads((game / 'kiln/state/shroudforge.json').read_text()), log, result.stdout.decode(errors='replace')
+    for name, dropins in [('profile-dropins-true', True), ('profile-dropins-list', ['emf', 'shroudforge'])]:
+        status, log, out = profile_case(name, dropins, package=True)
+        assert status['mode'] != 'off' and log.exists() and 'prepare' in log.read_text().splitlines(), (name, status, out)
+        print('PASS', name)
+    for name, dropins, package in [('profile-no-dropins', None, True), ('profile-dropins-other', ['emf'], True),
+                                   ('profile-dropins-empty-folder', True, False)]:
+        status, log, out = profile_case(name, dropins, package)
+        assert status['mode'] == 'off' and not log.exists(), (name, status, out)
+        print('PASS', name)

@@ -49,7 +49,7 @@ loaded), the plugin says so and loads the mods itself.
 
 | Engine | How Kiln knows its loader runs | Why stepping aside keeps the setup working |
 |---|---|---|
-| EML | a module named `dbghelp.dll`/`dinput8.dll` or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH` (ShroudForge's carries it too) | EML patched the game files in its `DllMain`; a second writer would drop its changes ([../eml.md](../eml.md#real-eml-present-kiln-eml-steps-aside)) |
+| EML | a module named `dbghelp.dll`/`dinput8.dll` or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH` (ShroudForge's carries it too) and whose loaded image is that file (not Wine's builtin) | EML patched the game files in its `DllMain`; a second writer would drop its changes ([../eml.md](../eml.md#real-eml-present-kiln-eml-steps-aside)) |
 | ShroudForge | its own `dbghelp.dll` started it (state `self-hosted`) | SF already runs its mods and its startup writer ([../shroudforge.md](../shroudforge.md)) |
 | EMF | `emf_core.dll` is loaded, or EMF's loader is chained (`kiln/chain.ini`, `dinput8-chain.ini`) | EMF loads the EMF mods; one EMF per process ([../emf.md](../emf.md#when-emf-itself-is-installed)) |
 | SET | any non-system `powrprof.dll` is loaded, or a renamed module carries SET's branding (deliberately conservative) | SET's own runtime drives its mods ([../set.md](../set.md)) |
@@ -66,6 +66,74 @@ a real loader arriving after a mod has entered can still start that mod again. K
 observes such a loader, but cannot undo arbitrary hooks or threads already started. Disable one loader before
 starting the process when both could arrive in that order.
 
+### The profile's mods while the own loader runs
+
+The engine's own loader reads only its own folder (`<game>/mods`, `emf/mods`, `greeneye` ...), never Kiln's Library.
+So when a plugin steps aside, the profile's mods of that engine run only if they are in that folder. Since dev.22 the
+launcher puts them there:
+
+- **At activation** (and whenever the launcher refreshes the active profile before a start), when the engine's own
+  loader is installed for this game, Kiln copies the profile's enabled mods of that engine into the folder the loader
+  reads, as `<folder>/<library id>/` with Kiln's marker `.kiln-library.json` (`{format, kind, id, version, hash}`;
+  the id is the Library id, which may differ from the id in the mod's own manifest). Current copies are kept. Kiln's
+  copies of mods that were switched off or left the profile are removed. When the loader is no longer installed, Kiln
+  removes its copies of that engine again. Ownership comes only from Kiln's receipt (`kiln/state/library-placements.json`),
+  never from a marker in a folder, so folders the player put there are never touched: a player's folder with the same
+  name, or with the same mod (the same manifest id: real EML stops the game on a duplicate id), is left alone and the
+  player's copy runs. A copy that changed since Kiln placed it (a mod writing its settings into its folder) is left as
+  it is.
+- **"Installed"** is a static check of the game folder (`crates/kiln-manage/src/own_loaders.rs`): a loader file under a
+  proxy name next to the game, an active `[chain]` line of `kiln/chain.ini`, an entry of `dinput8-chain.ini`, and for
+  EML also a profile that makes Kiln host ShroudForge (ShroudForge then writes the EML packages of its mods folder
+  itself, [../eml.md](../eml.md#6-shared-startup-data-writer-shroudforge-and-emf-content)). A file under a proxy name
+  counts as "may run": on Windows the game imports those names, under Wine and Proton they load only with a DLL
+  override (a Steam Deck player with ShroudForge's overrides set does run it), which the launcher cannot see.
+- **No double load.** When the loader does not start after all (Wine/Proton without the override), the plugin runs
+  the profile's mods from the Library as usual. A folder in the engine's drop-in folder whose marker names this
+  engine and a profile entry's id is that profile mod: the plugin skips it, so the mod runs once and is listed once.
+  A marked folder that no profile entry names is an ordinary drop-in.
+- **Saying it.** A plugin that steps aside lists the profile's mods of its engine in `kiln/state/<engine>.json`:
+  `own-loader` (Kiln's copy is in the loader's folder, it runs there) or `not-loaded` (only in the Library, with a
+  one-sentence reason), plus `disabled`. Every `not-loaded` mod is a warning in kiln.log. The launcher gets the same
+  picture before the start: `profile_activate` / `profile_active` return `ownLoaders`, and `engine_status` returns
+  `ownLoader` per engine, each with a `text` such as "EML's own loader (dbghelp.dll) is installed: it runs the EML
+  mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it".
+- **Play-once** keeps the active profile's selection for an engine whose own loader is installed (as for ShroudForge
+  and SET): its folder is fixed, so a play-once profile with other mods of that engine is refused with the reason.
+  Play-once **no-mods** cannot stop an own loader: it runs whatever is in its folder, Kiln's copies included.
+
+Audit (dev.22):
+
+| Engine | Own loader reads | How the plugin knows it runs | Profile mods while it runs, before dev.22 | Since dev.22 |
+|---|---|---|---|---|
+| EML | `<game>/mods/*` (working folder); ShroudForge's loader, which carries EML: ShroudForge's mods folder | module scan for `EML_LOG_FILE_PATH` (`gpl/kiln-eml/kiln-eml/src/plugin.rs` `eml_loader_loaded`); kiln-shroudforge's `stand_aside` | none ran; `standing aside` at info level, `eml.json` listed no mods | placed into `mods/<id>/` (or ShroudForge's folder); `eml.json` lists them `own-loader`/`not-loaded`; marked copies skipped as drop-ins |
+| ShroudForge | its mods folder (`paths.mods`, default `mods`) | state `self-hosted` (its bootstrap loaded) | already placed at activation | unchanged |
+| SET | `shrouded_engine_tweaks/mods/<name>/` | non-system `powrprof.dll` or SET's branding | already placed at activation | unchanged |
+| EMF | `emf/mods/<id>/` (switch: `emf/config/<id>.ini`) | `emf_core.dll` loaded, or a module exporting `emf_loader_identity`/`emf_core_start` | none ran, none listed | placed into `emf/mods/<id>/`; `emf.json` lists them (`profileId`); the `own-loader` reason says when EMF's ini keeps the mod off |
+| Greeneye | `greeneye/<id>/` | Greeneye Loader's claim `Local\Greeneye-Loader-<pid>` exists | none ran, none listed | placed into `greeneye/<id>/`; listed in `greeneye.json` |
+| Flame | `<game>/mods/<id>/` with `flame.json` | a game-folder or `kiln/chain/` module carrying `FlameStartRuntime` without exporting it | none ran; listed `skipped` | placed into `mods/<id>/`; listed `own-loader`/`not-loaded`; `kiln.flame` `running(id)` also true for them |
+| Shroudtopia | `<game>/mods/*.dll` and `mods/<name>/` | `shroudtopia.dll` loaded, or a module naming Shroudtopia/Shroudweave | none ran, none listed | placed into `mods/<id>/` (the 1.0 folder layout); listed in `shroudtopia.json` |
+| Enshwick | `<game>/mods/<folder>/` | its `powrprof.dll` stub loaded, its claim, or a module exporting `enshwick_start` | none copied (kiln-enshwick returned before its sync), none listed | kiln-enshwick copies new entries while standing aside too (stage + one rename; the stub's loader may see a new copy only from the next start); never refreshes or removes a copy the running loader may hold; listed in `enshwick.json` (`action`) |
+| shroudlink | `shroudlink_mods/*.dll` (flat only) | a module exporting `CrashHandlerFactory` + `DirectInput8Create`, or `shroudlink_core.dll`, with shroudlink's strings; or its claim | only disabled entries listed | not delivered (the real core reads only flat DLLs): `not-loaded` with the reason, `own-loader` for an entry that is a DLL directly in `shroudlink_mods/` |
+| Ember | `ember/mods/<mod>/` | a DLL from the server folder or `kiln/chain/` carrying `ember-loader` | `skipped` | not delivered (no Ember loader exists yet): `not-loaded`, or `own-loader` for an entry that already lives in `ember/mods` |
+
+Drop-ins with an active profile: every plugin reads its engine's folder when the profile has `"dropins": true` or a
+`dropins` list naming the engine (the list form was ignored by kiln-greeneye, kiln-flame, kiln-shroudtopia,
+kiln-enshwick, kiln-shroudlink and kiln-ember before dev.22; kiln-emf reads the core's bitmask, which has it).
+kiln-shroudforge hosts ShroudForge with an active profile when the profile lists an enabled ShroudForge mod, and since
+dev.22 also when ShroudForge drop-ins are on and its mods folder has a ShroudForge package. kiln-set reads only
+`shrouded_engine_tweaks/mods`, where the launcher places the profile's SET mods. A profile made before dev.22 keeps
+loading the folders it loaded: the launcher names those kinds in the `dropins` list it writes
+([../profiles.md](../profiles.md#drop-in-folders)).
+
+**Under Wine without a DLL override** the loader file is in the folder but Wine loads its own builtin DLL of that name
+and reports the game folder's path for it. A check that reads the file at a loaded module's path would then see the
+other loader's markers although it never ran. kiln-eml compares the loaded image's PE header with the file's and runs
+the EML mods itself when they differ (lab, GE-Proton, no override):
+```
+[eml] Z:\...\dbghelp.dll: EML's loader is in the folder but this process loaded another dbghelp.dll (Wine's builtin, without a DLL override): kiln-eml runs the EML mods
+```
+
 **Path policy.** A mod DLL must be a regular file inside its authorized root: the mod folder, the engine folder for a
 mod found there, or the parent of an explicitly listed flat DLL. From that root down (the root included, so a mod
 folder or a profile's listed folder must not itself be a link), symlinks, junctions, `..`, alternate streams and
@@ -78,6 +146,16 @@ that writes the mod folder must not create such links. Directory and file handle
 DLL contents stable from export validation through loading. A callable, file-backed export is required; forwarded and
 data exports do not qualify.
 The export precheck does not validate dependencies or make native mod code safe.
+
+**Path encoding.** Paths cross the C ABI as UTF-8 (`KilnApi::path`, `kiln.profile`, `KilnNativeContext`), and a player's
+game folder and Library often hold a Windows user name or Steam library folder in Cyrillic, CJK or accented Latin. A
+narrow path (`char*`, a `std::string` handed to `fopen`, `std::ifstream`, `std::filesystem::path`, a `*A` Win32 call)
+is read in the ANSI code page, which lacks those letters, and `std::filesystem::path::string()` throws for them. So a
+plugin or service converts a UTF-8 path once (`to_wide`, `std::filesystem::path(std::u8string(...))`) and uses the
+wide calls (`CreateFileW`, `GetFileAttributesW`, `FindFirstFileW`, `LoadLibraryExW`, `_wfopen`), `path::u8string()` for
+log text, and never `path::string()`. A third-party API that takes only `char*` gets the bytes instead (read the
+file yourself) or its UTF-8 entry point. `tools/lab/winpaths.py` builds a server lab under such a path with one mod of
+every kind; `PROXYHOST_WINPATHS=1 native/spikes/proxyhost/run.py` runs the proxy under one.
 
 Compatibility runtimes and entered mod DLLs stay mapped for the process lifetime. Revoking a plugin stops queued
 work and cancellable watchers; it cannot terminate foreign threads or reclaim trampolines they may still call.

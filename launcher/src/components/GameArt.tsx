@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import * as api from "../api/commands";
 import type { AssetsStatus, KilnError, Task } from "../api/commands";
+import { usePoll } from "../api/hooks";
 import { runTask, toast, useTasks } from "../ui";
 
 export const ASSETS_KEY = ["app_assets_status"] as const;
@@ -17,7 +18,7 @@ const TITLE: Record<ArtKind, string> = { editor: "Prepare game art", admin: "Ext
 const RETRY_MS = 10 * 60 * 1000;
 
 export function useAssetsStatus() {
-  return useQuery({ queryKey: ASSETS_KEY, queryFn: api.appAssetsStatus, staleTime: 10_000, refetchInterval: 15_000, refetchOnWindowFocus: true });
+  return useQuery({ queryKey: ASSETS_KEY, queryFn: api.appAssetsStatus, staleTime: 10_000, refetchInterval: usePoll(15_000), refetchOnWindowFocus: true });
 }
 
 const running = (t?: Task) => !!t && (t.state === "running" || t.state === "queued");

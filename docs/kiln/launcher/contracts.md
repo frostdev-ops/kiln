@@ -75,8 +75,8 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 |---|---|
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
 | `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
-| `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size}` |
-| `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty) |
+| `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size, name?, side?, clients?, file?, manifestId?}`. `manifestId` (dev.22): an engine mod whose own manifest id is no Kiln id (`Hoarders Helper`, `antisocialian's tweaks`) is filed under a Kiln id made from it (`hoarders-helper`) and keeps its own id here; the files in the folder are the author's, byte for byte, because the engine plugin reads that manifest and reports its state rows (`kiln/state/<engine>.json`) under it. Rows that carry a `path` match their profile entry by it; the mod manager (`ModCatalog`) also matches a row by the slug of its id. Two manifest ids with one slug get a short hash added to the second one's id |
+| `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty; dev.22 adds `dropinsEngines: true`: `dropins` names the engine kinds too, profiles.md "Drop-in folders") |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/`, `native.json` and the player's `compat-rules.json` |
 | `profiles/<pid>/data/` | per-mod data when the profile chooses `dataDir: profile` |
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
@@ -170,7 +170,8 @@ missing folders in `profile.missing[]`, but `kiln.profile` `count()/get()` cover
 change): each engine's plugin reads its own list from `kiln.profile.json()`. Older cores warn
 `unknown mod kind "mods.<kind>" ignored` and run on. A list is written only when it has entries, so a Kiln-only
 profile is byte-identical to older launchers' files. `dropins` may name engine kinds; `true` is written when the
-profile turns on all four Kiln kinds (as before), and the engine plugins then read their own folders too.
+profile turns on all four Kiln kinds (profiles without `dropinsEngines`, as before) or every drop-in switch (profiles
+with it, profiles.md "Drop-in folders"), and the engine plugins then read their own folders too.
 Older cores can ignore the new `mods.<kind>` lists, but their `dropins` arrays reject unknown names: engine-specific
 drop-in selections require an updated core. `dropins: true` keeps the older all-Kiln-kinds representation.
 
@@ -591,9 +592,15 @@ Deactivate: move `profile.json` to `kiln/backups/profile-<ts>.json`, clear `[pro
 ### Add a mod (`library_add`: a drop anywhere on the launcher window)
 1. Refuse at once (no task) when the game has no `kiln/` folder (`unsupported`: install Kiln first).
 2. Where the mods go is decided before anything changes: the profile the game's `profile.json` names (when this data
-   folder has it); else, with no profile at all, "My mods" (made below); else nowhere (profiles exist but none is active
-   in this game, or another data folder's profile is: those players are left alone, the files are only imported).
-   "My mods" while the game runs is refused (`game_running`) before the import.
+   folder has it); else, with no profile at all, "My mods" (made below); else, with profiles but none active in the
+   game, the profile the launcher remembers for it (`<data>/installs/<installId>.active.json`, which an uninstall of Kiln
+   leaves while `kiln/profile.json` goes with Kiln's files: it is the profile the player had), activated again
+   (`AddReport.resumed`); else nowhere: a deliberate "No profile" (`profile_deactivate` clears the record), a remembered
+   profile that is gone, or another data folder's `profile.json` leave the files in the Library only, and
+   `AddReport.libraryOnly` says so in plain words. `library_add_to_profile(gameId, profileId, entries)` then puts the
+   entries into the profile the player picks (the result is an `AddReport` with an empty `import`; a profile that is not
+   active stays as it is). "My mods" or the remembered profile while the game runs is refused (`game_running`) before the
+   import.
 3. Modpack zips (`kiln-modpack.json` at the root) are not imported: the result lists them (`modpacks`) for the consent
    flow (`modpack_inspect`/`modpack_install` with `{path}`). A modpack folder is skipped ("drop its zip").
 4. `library::import` the rest; every entry imported or already there is added to the profile, enabled: new, or
@@ -607,7 +614,16 @@ Deactivate: move `profile.json` to `kiln/backups/profile-<ts>.json`, clear `[pro
    the profile lacks (enabled, any version).
 Undo is `profile_revert(profileId, changes)`: each changed entry goes back (removed when it was new), newest first; an
 entry changed since is left alone; then `profile.json` is written again where the profile is active.
-`profile_ensure_default(gameId)` is step 2 and 5 alone (Play runs it after it installed Kiln).
+`profile_ensure_default(gameId)` is step 2 and 5 alone (Play runs it after it installed Kiln; it also turns the
+remembered profile back on, so a reinstall brings the player's profile back before any drop).
+
+What an import says (`ImportReport`): `imported` and `existing` (with `names`, the display name of each by `<kind>/<id>`),
+`skipped` (left out, each with a reason: one sentence saying what happened and, when the player has to do something,
+what; no final period), and `notes` (information, nothing to do: "EML's own loader is in this package: not needed,
+Kiln runs EML mods", once per text). The launcher shows one short toast (names added, one left-out line) and
+"Details" for the whole list. Archives: `.zip`, `.7z` (pure Rust, no password) and `.rar` (a tool already on the PC:
+`unrar`, 7-Zip, or `bsdtar`/Windows' `tar.exe`; without one the reason says to extract it and drop the folder) are
+unpacked into a private folder under the same limits.
 
 ### Launch (`launch_play`)
 1. Refuse while the game runs (`game_running`).
@@ -656,8 +672,8 @@ files.
 - manifest: `{raw, syntax?, expect: {ok: true, manifest: {id, name, version, parsedVersion, apiVersion,
   entryAssembly, entryType, side, clients, authors, description, license, url, dependencies[{id, range, optional}],
   loadBefore, loadAfter, incompatible[{id, range}], features, exports, advanced, tests, warnings}} | {ok: false,
-  error}}`. With `syntax: true` (invalid JSON) only the prefix `kiln.mod.json: not valid JSON` must match; other
-  errors match exactly.
+  error}}`. `entryAssembly` is `""` when the manifest has none (a mod of data only, dev.22). With `syntax: true` (invalid JSON) only the
+  prefix `kiln.mod.json: not valid JSON` must match; other errors match exactly.
 - semver: `parse.json` (`cases[{text, expect{ok, major, minor, patch, pre, build, text}}]`), `ranges.json`
   (`cases[{range, version, satisfies}]`, `invalid[{range, ok:false}]`), `order.json` (`ordered[]`, `equal[[a,b]]`),
   `api.json` (`cases[{api, current, satisfies}]`).
@@ -711,6 +727,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |
+| library | `library_add_to_profile` | gameId, profileId, entries: LibraryRef[] | `AddReport` (the entries into the profile the player picked after an add said `libraryOnly`; Undo is `profile_revert`) |
 | library | `library_remove` | entry: LibraryRef, force: boolean, shown?: string[] \| null | null (`game_running` while a game runs, or a server whose `profile.json` points into the library, even with `force`; `conflict` while `library_users` lists it, unless `force`. With `shown` (the `library_users` answer a dialog named): `conflict` when it lists anything not in `shown`, whatever `force` says) |
 | library | `library_remove_many` | entries: LibraryRef[], force: boolean | `RemoveReport` {removed: LibraryRef[], failed: {entry: LibraryRef, error: KilnError}[]} (Clean up: one look at the running processes and the profiles for the batch; `game_running` for the whole batch, nothing removed, as `library_remove`; otherwise each version not removed is in `failed`) |
 | library | `library_unused` | | `LibraryRef[]` (in no profile, no known game's `profile.json`, and no `profile.once.json` while the game's `play-once.ini` asks for it) |
@@ -728,11 +745,14 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | config | `config_native_set` | target, modId: string, enabled: boolean \| null | `NativeUserState` |
 | launch | `launch_play` | gameId, request: LaunchRequest {mode: 'profile'\|'vanilla'\|'no-mods'\|'once', profileId?, skipBackup?} | `LaunchResult` |
 | launch | `launch_state` | gameId | `BootState` {boot, mods, native, stale} (launcher type) |
+| launch | `launch_prestart` | gameId | `PreStart` or null: what kiln-eml is doing before the game's window exists (`kiln/state/eml.json`, phase running), while the game runs (`kiln_manage::prestart`) |
 | logs | `logs_list` | target: LogTarget | `LogFile[]` |
 | logs | `logs_read` | target, file: string, offset: number \| null, maxBytes: number \| null | `LogChunk` |
 | logs | `logs_follow` | target, file: string | string (subscription; lines in `kiln://log`) |
 | logs | `logs_unfollow` | subscription: string | null |
 | logs | `logs_crash_reports` | target | `CrashReport[]` |
+| logs | `report_save` | target: LogTarget \| null, path: string | `ReportSaved` {path, size, findings: `ReportFinding[]` {id, level: 'problem'\|'warning'\|'info', text}, errors: string[]} (launcher type; writes the support report zip, `.zip` added when missing; null target: the system and the launcher only; [support-report.md](support-report.md)) |
+| logs | `report_summary` | target: LogTarget \| null | string (the short summary for a post, redacted like the zip) |
 | saves | `saves_list` | gameId | `SaveSlot[]` |
 | saves | `saves_backups` | gameId | `SaveBackup[]` |
 | saves | `saves_backup` | gameId, note: string \| null | `SaveBackup` |
@@ -823,10 +843,14 @@ or emits `kiln://update`; its UI calls none of these commands.
 | engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
 | compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it (`lateBy`: `player`, `profile` or `rule:<id>`; a `[late]` line that a rule wrote into chain.ini, marked `; kiln rule <id>`, is that rule's even when it is another profile's), the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
 | compat | `chain_set_late` | profileId, gameId, path: string, late: boolean | `ChainView` (a `[profile]` entry changes the profile's late list, saved and re-applied where it is active; a `[chain]` entry changes the game's `chain.ini [late]` for every profile and is refused with `game_running` while the game runs; `not_found` when `path` is not in the profile's chain) |
+| found | `found_scan` | gameId, profileId | `FoundReport {gameId, profileId, kilnInstalled, mods: FoundMod[], loaders: OwnLoader[], unreadable: {path, reason}[], truncated}`; `FoundMod {kind: ModKind \| null, name, id, version, path (relative to the game, '/'), state: "loads"\|"off"\|"inProfile"\|"cannotRun", via?: "kiln"\|"ownLoader", reason, fix?: "dropins"\|"add", profileMod?}`, `OwnLoader {engine, name, kinds, file}` (mods in the game folder Kiln did not put there and whether they load with that profile: profiles.md "Mods in the game folder"; never fails over a missing or unreadable folder) |
+| found | `found_add` | gameId, profileId, path | `TaskId` -> `AddReport` (imports a `found_scan` entry into the Library and adds it to the profile, enabled; through `library_add`'s flow when the profile is active in the game; a refusal is in `import.skipped`; the player's folder stays) |
 
-`AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:
-AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs: applies at the next
-start), activation, missing: {id, range, by}[], modpacks: string[]}`, `AddedMod {kind, id, version, hash, name}`,
+`ImportReport {imported: LibraryRef[], existing: LibraryRef[], skipped: {path, reason}[], notes: {path, text}[], names:
+{"<kind>/<id>": string}}`, `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added:
+AddedMod[], already: AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs:
+applies at the next start), activation, missing: {id, range, by}[], modpacks: string[], resumed (the profile the game had
+before Kiln was reinstalled is active again), libraryOnly: string | null (why the mods are in the Library only)}`, `AddedMod {kind, id, version, hash, name}`,
 `ProfileChange {kind, before: ProfileMod | null, after: ProfileMod}` (`kiln_manage::quick`).
 
 Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
@@ -965,6 +989,7 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `jsonc` | `split_path(&str) -> Vec<PathSeg>`, `parse`, `set_value`, `remove_value` |
 | `saves` | `list`, `backups`, `backup`, `restore`, `delete`, `KEEP`; `SaveSlot`, `SlotKind`, `SaveBackup`, `BackupReason`; `saves::editor::{list_saves, file_info, read_file, zstd_decompress, zstd_compress, game_running, backup_file, write_save, list_backups, restore_backup, backups_dir}` |
 | `logs` | `list(&Path)`, `read(&Path, &str, Option<u64>, Option<u64>)`, `crash_reports`, `Follower::{open, poll}`; `LogFile`, `LogKind`, `LogChunk`, `CrashReport` |
+| `report` | `build(&ReportInput) -> Report` (never fails; unreadable sections in `errors`), `write_zip(&Report, &Path)` (feature `zip`), `redact(&str, &Redactor)`, `redact_json`, `is_secret_key`, `Redactor::{new, current, add_home, add_word, add_whole_word}`, `file_name`, `os_info`, `os_release`, `folder_mods`, `folder_loaded`, `engine_headline`, `engine_mod_lines`, `host_name`, `LEFT_OUT`; `ReportInput`, `Report`, `Finding`, `Level`, `OsInfo`, `FolderMod` ([support-report.md](support-report.md)) |
 | `control` | `send(&Path, &str, Duration) -> Result<Value>` |
 | `state` | `read_boot`, `read_mods`, `read_native`, `read_last_server` (implemented); `BootJson` (+ `BootProfile`, `ProfileMode`, `BootChainEntry`, `ChainSource`, `ChainStatus`, `RefusalDetail`, ...), `ModsJson`, `ManagedMod`, `NativeJson`, `NativeModStatus`, `LastServer`, `RequiredMod`, `JoinOutcome`, `ServerRef` |
 | `server` (`instance settings steamcmd run control query backup remote game procs console proton`) | `instance::{list, get, create, import, remove, record}`, `settings::{read, write, validate, schema}`, `steamcmd::{install, update}`, `run::{status, start, stop, restart, pid, headless, ctrl_c}`, `console::{capture_path, open_capture, pick, snapshot, ConsoleFollower::{open, poll, source}, ConsoleLine, ConsoleLevel, ConsoleSource, ConsoleSnapshot, ConsoleUpdate}`, `proton::{plan, SteamLaunch, parse_launch_options}`, `control::{mods, sync, set_enabled}`, `query::query`, `backup::{list, create, restore}`, `remote::{run, read_file}`; `ServerInstance` (+ `runner`, `prefix`, `backupDir`, `kilnctl`, `stopTimeoutS`), `ServerRunner {Kilnctl, Steam, Windows, Remote}`, `ServerSpec` (+ `wine`, `skipSteamcmd`), `ServerStatus`, `ServerState`, `ServerMod` (+ `kind`), `SourceMarker`, `NetworkModpackConfig`, `RemoteSpec`, `ServerQuery`, `ServerBackup`, `ServerSettings` (+ `schema`, `running`); kilnctl's moved pieces (instance files, game, procs, the foreground runner) |

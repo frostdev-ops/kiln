@@ -41,6 +41,9 @@ pub struct LibraryVersion {
     pub clients: Option<Clients>,
     pub size: u64,
     pub source: Option<ImportSource>,
+    /// The id the mod's own manifest gives, when the library id is not that (an engine mod whose id is not a Kiln
+    /// id: `Hoarders Helper` is `hoarders-helper` here). Engine plugins report the manifest's id in their state files.
+    pub manifest_id: Option<String>,
     /// The manifest as JSON (kiln.mod.json / native.json / EMF mod.json).
     pub manifest: Option<serde_json::Value>,
 }
@@ -142,13 +145,38 @@ pub struct Skipped {
     pub reason: String,
 }
 
+/// Something left out on purpose that needs nothing from the player: a loader the package carries, which Kiln does
+/// not need ("EML's own loader is in this package: not needed, Kiln runs EML mods").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportNote {
+    pub path: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportReport {
     pub imported: Vec<LibraryRef>,
     /// Already in the library (same kind, id, version and hash).
     pub existing: Vec<LibraryRef>,
+    /// Left out, with the reason: what happened and, when the player has to do something, what.
     pub skipped: Vec<Skipped>,
+    /// Left out because it is not needed; each text once per import.
+    #[serde(default)]
+    pub notes: Vec<ImportNote>,
+    /// The display name of every mod in `imported` and `existing`, by `<kind>/<id>`.
+    #[serde(default)]
+    pub names: std::collections::BTreeMap<String, String>,
+}
+
+impl ImportReport {
+    /// An information line, once per distinct text.
+    pub(crate) fn note(&mut self, path: &str, text: String) {
+        if !self.notes.iter().any(|n| n.text == text) {
+            self.notes.push(ImportNote { path: path.to_string(), text });
+        }
+    }
 }
 
 /// `<version>+<hash8>.json` next to a library folder (contracts.md 3).
@@ -173,6 +201,10 @@ pub struct ImportRecord {
     /// Plugins: the DLL's file name inside the folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// Engine mods: the id the mod's own manifest gives, when `id` (a Kiln id made from it) is not that. The files
+    /// stay as the author made them: the engine plugin reads the manifest's id and reports its rows under it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_id: Option<String>,
 }
 
 const EMF_MANIFEST: &str = "mod.json";
@@ -205,8 +237,16 @@ fn detect_dll(path: &Path) -> Detected {
         items: vec![],
         engine: None,
     };
+    // A DLL under a proxy name says nothing about what mod it is (`winmm.dll`, `dinput8.dll`): two of them must not
+    // become one library entry, so its id carries a few characters of its content.
+    let plain = |mut x: Detected| {
+        if crate::engines::is_proxy_name(&file_name(path)) {
+            x.id = Some(format!("{stem_id}-{}", &crate::hash::sha256_hex(&bytes)[..6]));
+        }
+        x
+    };
     if crate::pe::classify_bytes(&bytes).kind == crate::pe::ProxyKind::Kiln {
-        return d(DetectKind::Unknown, "Kiln's own dinput8 proxy: install a runtime bundle instead");
+        return d(DetectKind::Unknown, &crate::engines::loader_reason(crate::engines::Engine::Kiln, &file_name(path)));
     }
     if has(crate::pe::KILN_PLUGIN_EXPORT) {
         return d(DetectKind::Plugin, "a Kiln plugin (exports kiln_plugin_main)");
@@ -223,18 +263,22 @@ fn detect_dll(path: &Path) -> Detected {
         return match c.kind {
             crate::pe::ProxyKind::Kiln => Detected {
                 kind: DetectKind::Unknown,
-                reason: "Kiln's own dinput8 proxy: install a runtime bundle instead".into(),
+                reason: crate::engines::loader_reason(crate::engines::Engine::Kiln, &file_name(path)),
                 ..d(DetectKind::Unknown, "")
             },
             crate::pe::ProxyKind::ShroudForge => Detected {
                 kind: DetectKind::Unknown,
-                reason: "ShroudForge's mod loader: it cannot run next to Kiln".into(),
+                reason: "ShroudForge's mod loader can't run next to Kiln: Kiln runs ShroudForge mods itself".into(),
                 ..d(DetectKind::Unknown, "")
             },
-            _ => d(DetectKind::BareDll, "a dinput8 proxy (exports DirectInput8Create): a native mod with phase dllmain (chain-loaded)"),
+            _ => plain(d(DetectKind::BareDll, "a DLL mod that loads as a DirectInput8 proxy: a native mod, phase dllmain (chain-loaded)")),
         };
     }
-    d(DetectKind::BareDll, "a plain DLL: a native mod with a generated native.json (phase early)")
+    plain(d(DetectKind::BareDll, "a plain DLL: added as a native mod, loaded early"))
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 /// A mod id from a file or folder name: lower case, other characters as '-', at most 64.
@@ -260,11 +304,90 @@ fn emf_manifest(dir: &Path) -> Option<(serde_json::Value, String)> {
     dir.join(&dll).is_file().then_some((v, dll))
 }
 
-fn detect_folder(dir: &Path) -> Detected {
-    detect_folder_at(dir, 0)
+/// Why a Kiln or native manifest can't be used, for the player: an id that is not a Kiln id gets its own sentence.
+fn manifest_problem(file: &str, message: &str) -> String {
+    let id = message.split_once("id '").and_then(|(_, rest)| rest.split_once("' must match")).map(|(id, _)| id);
+    match id {
+        Some(id) => format!("{file} gives the id {id:?}, which is not a Kiln mod id (lower case letters, digits, . _ -, at most 64): the author has to change it"),
+        None => format!("{file} can't be used: {message}"),
+    }
 }
 
-fn detect_folder_at(dir: &Path, depth: usize) -> Detected {
+/// Folders that are never a mod and say nothing worth reporting beside the mods of a package.
+fn is_junk_folder(name: &str) -> bool {
+    matches!(name.to_ascii_lowercase().as_str(), "__macosx" | "fomod" | "docs" | "doc" | "documentation" | "screenshots"
+        | "licenses" | "licences" | "images")
+}
+
+/// A file that documents or installs a package (readmes, licences, scripts, a mod manager's instructions): not data
+/// the mod reads.
+fn is_docs_file(name: &str) -> bool {
+    let low = name.to_ascii_lowercase();
+    let ext = low.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    if matches!(ext, "txt" | "md" | "rtf" | "pdf" | "nfo" | "url" | "lnk" | "html" | "htm" | "bat" | "cmd" | "ps1" | "sh") {
+        return true;
+    }
+    low == "vortex_override_instructions.json"
+        || ["readme", "license", "licence", "changelog", "credits", "notice", "permissions", "third_party", "copying", "uninstall"]
+            .iter().any(|w| low.starts_with(w))
+}
+
+/// The manifest files that make a folder a mod of some engine.
+const MOD_MANIFESTS: [&str; 7] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "pack.toml", "init.lua", "extended.mod.json"];
+
+/// Is one of `dir`'s folders a mod on its own?
+fn has_mod_subfolder(dir: &Path) -> bool {
+    std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
+        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && MOD_MANIFESTS.iter().any(|m| p.join(m).is_file()))
+}
+
+/// What the DLLs directly in a folder are: the ones that are no known loader or engine mod (plain DLL mods), every
+/// other DLL, and a loader of a tool that runs on its own (Aldrich's mod menu, ReShade ...).
+struct TopDlls {
+    bare: Vec<PathBuf>,
+    others: usize,
+    tool: Option<(crate::engines::Engine, String)>,
+}
+
+fn survey_dlls(dir: &Path) -> TopDlls {
+    let mut t = TopDlls { bare: Vec::new(), others: 0, tool: None };
+    for p in crate::engines::dlls_in(dir) {
+        let d = detect_dll(&p);
+        match (d.kind, d.engine) {
+            (DetectKind::BareDll, _) => t.bare.push(p),
+            (DetectKind::Proxy, Some(e)) if crate::engines::is_standalone_tool(e) => {
+                t.tool.get_or_insert((e, file_name(&p)));
+                t.others += 1;
+            }
+            _ => t.others += 1,
+        }
+    }
+    t
+}
+
+/// A plain DLL mod with the files it reads next to it (`dinput8.dll` + `.ini`/`.dat`, `powrprof.dll` + a folder):
+/// the folder is one mod, so the files stay with the DLL. A lone DLL with only documents is the DLL alone, except a
+/// DLL under a proxy name, whose id and name come from the package.
+fn package_dll(dir: &Path, dlls: &TopDlls) -> Option<PathBuf> {
+    let [dll] = dlls.bare.as_slice() else { return None };
+    if dlls.others > 0 || has_mod_subfolder(dir) {
+        return None;
+    }
+    (has_package_data(dir, dll) || crate::engines::is_proxy_name(&file_name(dll))).then(|| dll.clone())
+}
+
+/// Does the folder hold files the DLL may read (anything but documents, installer scripts and other DLLs)?
+fn has_package_data(dir: &Path, dll: &Path) -> bool {
+    std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let is_dir = e.path().is_dir();
+        !name.starts_with('.') && e.path() != *dll && !(if is_dir { is_junk_folder(&name) } else { is_docs_file(&name) })
+            && !name.to_ascii_lowercase().ends_with(".dll")
+    })
+}
+
+/// `top_name`: what the package is called when `dir` is an unpacked archive (its file name without the extension).
+fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detected {
     let p = dir.display().to_string();
     let mk = |kind, id: Option<String>, version: Option<String>, name: Option<String>, reason: String| Detected {
         kind, path: p.clone(), id, version, name, reason, items: vec![], engine: None,
@@ -283,13 +406,13 @@ fn detect_folder_at(dir: &Path, depth: usize) -> Detected {
     if dir.join(crate::manifest::KILN_MANIFEST).is_file() {
         return match crate::manifest::read_kiln(dir) {
             Ok(m) => mk(DetectKind::Kiln, Some(m.id), Some(m.version), Some(m.name), "a Kiln mod (kiln.mod.json)".into()),
-            Err(e) => mk(DetectKind::Unknown, None, None, None, e.message),
+            Err(e) => mk(DetectKind::Unknown, None, None, None, manifest_problem("kiln.mod.json", &e.message)),
         };
     }
     if dir.join(crate::manifest::NATIVE_MANIFEST).is_file() {
         return match crate::manifest::read_native(dir) {
             Ok(m) => mk(DetectKind::Native, Some(m.id.clone()), Some(m.version.clone()), m.name.clone().or(Some(m.id)), "a native mod (native.json)".into()),
-            Err(e) => mk(DetectKind::Unknown, None, None, None, e.message),
+            Err(e) => mk(DetectKind::Unknown, None, None, None, manifest_problem("native.json", &e.message)),
         };
     }
     if let Some((v, _)) = emf_manifest(dir) {
@@ -305,6 +428,24 @@ fn detect_folder_at(dir: &Path, depth: usize) -> Detected {
     {
         return mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir));
     }
+    if !crate::engines::is_container(dir) {
+        let dlls = survey_dlls(dir);
+        // a tool's package (Aldrich's mod menu, ReShade): left out whole, its helper DLLs are no mods
+        if let Some((engine, file)) = dlls.tool {
+            let mut d = mk(DetectKind::Proxy, None, None, None, crate::engines::loader_reason(engine, &file));
+            d.engine = Some(engine);
+            return d;
+        }
+        // a plain DLL mod with the files it reads
+        if let Some(dll) = package_dll(dir, &dlls) {
+            let shown = match (depth, top_name) {
+                (0, Some(n)) => n.to_string(),
+                _ => file_name(dir),
+            };
+            let reason = format!("{}: a DLL mod with its files, added as one native mod", file_name(&dll));
+            return mk(DetectKind::BareDll, Some(id_from_name(&shown)), Some("0.0.0".into()), Some(shown), reason);
+        }
+    }
     // a folder of mods (an unpacked zip): what is inside
     let items = children(dir, depth);
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
@@ -313,7 +454,7 @@ fn detect_folder_at(dir: &Path, depth: usize) -> Detected {
         let reason = if other == 0 {
             format!("a folder with {n} importable item(s)")
         } else if n == 0 {
-            // nothing Kiln can load: the first item says what it is and why
+            // nothing Kiln can add: the first item says what it is and why
             items.iter().find(|i| i.kind != DetectKind::Unknown).map(|i| i.reason.clone()).unwrap_or_default()
         } else {
             format!("a folder with {n} importable item(s) and {other} Kiln can't load yet")
@@ -340,10 +481,10 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
             continue;
         }
         if e.is_dir() {
-            let d = detect_folder_at(&e, depth + 1);
+            let d = detect_folder_at(&e, depth + 1, None);
             if d.kind == DetectKind::Unknown && !d.items.is_empty() {
                 out.extend(d.items);
-            } else if d.kind != DetectKind::Unknown || name != "__MACOSX" {
+            } else if d.kind != DetectKind::Unknown || !is_junk_folder(&name) {
                 out.push(d);
             }
         } else if name.to_lowercase().ends_with(".dll") {
@@ -355,6 +496,33 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
     out
 }
 
+/// Is this a package file Kiln opens itself or with a tool: a zip, a 7z or a rar?
+pub fn is_archive(path: &Path) -> bool {
+    matches!(archive_kind(path), Some(_))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ArchiveKind {
+    Zip,
+    SevenZ,
+    Rar,
+}
+
+fn archive_kind(path: &Path) -> Option<ArchiveKind> {
+    let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    match ext.as_str() {
+        "zip" => Some(ArchiveKind::Zip),
+        "7z" => Some(ArchiveKind::SevenZ),
+        "rar" => Some(ArchiveKind::Rar),
+        _ => None,
+    }
+}
+
+/// What an archive is called: its file name without the extension.
+fn archive_name(path: &Path) -> Option<String> {
+    path.file_stem().map(|n| n.to_string_lossy().into_owned())
+}
+
 pub fn detect(path: &Path) -> Result<Detected> {
     let meta = std::fs::symlink_metadata(path).map_err(io(path, "reading"))?;
     if crate::quick::import_is_link(&meta) {
@@ -363,15 +531,15 @@ pub fn detect(path: &Path) -> Result<Detected> {
     }
     crate::quick::validate_import_path(path)?;
     if meta.is_dir() {
-        return Ok(detect_folder(path));
+        return Ok(detect_folder_at(path, 0, path.file_name().map(|n| n.to_string_lossy().into_owned()).as_deref()));
     }
     let lower = path.to_string_lossy().to_lowercase();
     if lower.ends_with(".dll") {
         return Ok(detect_dll(path));
     }
-    if lower.ends_with(".zip") {
+    if is_archive(path) {
         let tmp = unpack_to_temp(path, &std::env::temp_dir())?;
-        let mut d = detect_folder(tmp.path());
+        let mut d = detect_folder_at(tmp.path(), 0, archive_name(path).as_deref());
         relabel(&mut d, tmp.path(), path);
         return Ok(d);
     }
@@ -384,7 +552,7 @@ pub fn detect(path: &Path) -> Result<Detected> {
         id: None,
         version: None,
         name: None,
-        reason: "not a folder, .zip or .dll".into(),
+        reason: "not a folder, .zip, .7z, .rar or .dll".into(),
         items: vec![],
         engine: None,
     })
@@ -421,13 +589,18 @@ impl Drop for TempDir {
     }
 }
 
-/// Unpacks a zip (zip-slip guarded, symlink entries refused) into a temp folder below `parent`.
+/// Unpacks a package (a zip; a 7z; a rar through a tool the PC already has: [`crate::archive`]) into a temp folder
+/// below `parent`: zip-slip guarded, links refused, the import limits kept.
 pub fn unpack_to_temp(zip: &Path, parent: &Path) -> Result<TempDir> {
     // This is shared by direct Library callers and modpack installation, which do not necessarily go
     // through quick::add. Bound the central directory and expanded bytes before creating any output.
     crate::quick::validate_import_path(zip)?;
     let tmp = TempDir::new(parent, "kiln-unpack")?;
-    unpack(zip, tmp.path())?;
+    match archive_kind(zip) {
+        Some(ArchiveKind::SevenZ) => crate::archive::unpack_sevenz(zip, tmp.path())?,
+        Some(ArchiveKind::Rar) => crate::archive::unpack_rar(zip, tmp.path(), parent)?,
+        _ => unpack(zip, tmp.path())?,
+    }
     Ok(tmp)
 }
 
@@ -516,6 +689,12 @@ fn kind_dir(dirs: &DataDirs, kind: ModKind) -> PathBuf {
     dirs.library().join(kind.as_str())
 }
 
+/// The manifest id of whatever holds library id `id` of `kind` now (None: nothing does). An entry without a
+/// `manifestId` is its own manifest id.
+pub(crate) fn id_holder(dirs: &DataDirs, kind: ModKind, id: &str) -> Option<String> {
+    records(dirs, kind).into_iter().find(|(_, rec)| rec.id == id).map(|(_, rec)| rec.manifest_id.unwrap_or(rec.id))
+}
+
 /// A LibraryRef is also deserialized from callers and profiles. Validate before joining any of its fields.
 fn checked_entry(dirs: &DataDirs, r: &LibraryRef) -> Result<PathBuf> {
     if !crate::manifest::is_mod_id(&r.id) || r.id.chars().any(char::is_control) {
@@ -564,6 +743,8 @@ pub fn commit_folder(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report
     if rec.format != 1 || recorded_hash(prepared, &rec)? != rec.hash {
         return Err(Error::new(ErrorCode::HashMismatch, "Prepared library content does not match its import record."));
     }
+    let shown = rec.name.clone().filter(|n| !n.trim().is_empty()).or_else(|| rec.manifest_id.clone()).unwrap_or_else(|| rec.id.clone());
+    report.names.insert(format!("{}/{}", rec.kind.as_str(), rec.id), shown);
     if folder.is_dir() && record_path(&folder).is_file() {
         let old = record(dirs, &r)?;
         if recorded_hash(&folder, &old)? != r.hash {
@@ -611,8 +792,11 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 _ => ModKind::Emf,
             };
             let (id, version) = (d.id.clone().unwrap_or_default(), d.version.clone().unwrap_or_default());
+            // Kiln's own kinds keep the strict id: their manifests are Kiln's contract (engine mods get a Kiln id made from
+            // theirs, engine_mods::import_engine_mod)
             if !crate::manifest::is_mod_id(&id) {
-                skip(report, format!("id {id:?} is not a valid mod id"));
+                let file = match kind { ModKind::Kiln => "kiln.mod.json", ModKind::Native => "native.json", _ => "mod.json" };
+                skip(report, format!("{file} gives the id {id:?}, which is not a Kiln mod id (lower case letters, digits, . _ -, at most 64): the author has to change it"));
                 return Ok(());
             }
             let tmp = TempDir::new(&staging_parent, "import")?;
@@ -631,7 +815,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 _ => (None, None),
             };
             let version = if semverish(&version) { version.trim().to_string() } else { fallback_version(&version) };
-            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None };
+            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None, manifest_id: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::Plugin => {
@@ -643,7 +827,43 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let (hash, _) = crate::hash::sha256_file(&work.join(&file))?;
             let id = d.id.clone().unwrap_or_else(|| id_from_name(&file));
             let rec = ImportRecord { format: 1, kind: ModKind::Plugin, id, version: d.version.clone().unwrap_or("0.0.0".into()), hash, imported: now,
-                source: Some(from.clone()), size, name: Some(file.clone()), side: None, clients: None, file: Some(file) };
+                source: Some(from.clone()), size, name: Some(file.clone()), side: None, clients: None, file: Some(file), manifest_id: None };
+            commit(dirs, &work, rec, report)
+        }
+        DetectKind::BareDll if src.is_dir() => {
+            // a plain DLL mod with the files it reads: the folder is one native mod, its DLL listed in a generated native.json
+            let dlls = survey_dlls(src);
+            let Some(dll) = package_dll(src, &dlls) else {
+                skip(report, "no single DLL mod in this folder".into());
+                return Ok(());
+            };
+            let file = file_name(&dll);
+            let proxy = std::fs::read(&dll).ok().and_then(|b| crate::pe::parse(&b).ok()).is_some_and(|i| i.exports.iter().any(|x| x == crate::pe::DINPUT8_EXPORT));
+            let tmp = TempDir::new(&staging_parent, "import")?;
+            let work = tmp.path().join("m");
+            let mut size = copy_mod_tree(src, &work)?;
+            if crate::hash::dirhash(&work)? != crate::hash::dirhash(src)? {
+                return Err(Error::new(ErrorCode::HashMismatch, "It changed while it was imported."));
+            }
+            let id = d.id.clone().unwrap_or_else(|| id_from_name(&file));
+            let name = d.name.clone().unwrap_or_else(|| file.clone());
+            if has_package_data(src, &dll) {
+                // Kiln does not put the files into the game folder: say where they are, so a mod that looks for them
+                // there is not a mystery
+                report.note(&d.path, format!("{name} is a DLL mod with files: Kiln loads {file} from its own folder, with those files beside it"));
+            }
+            let manifest = serde_json::json!({
+                "format": 1, "id": id, "name": name, "version": "0.0.0",
+                "description": format!("Generated by Kiln from {file} and the files next to it{}", if proxy { " (a dinput8 proxy, chain-loaded in DllMain)" } else { "" }),
+                "side": "client", "dlls": [file], "phase": if proxy { "dllmain" } else { "early" },
+            });
+            let mut body = serde_json::to_string_pretty(&manifest)?;
+            body.push('\n');
+            size += body.len() as u64;
+            std::fs::write(work.join(crate::manifest::NATIVE_MANIFEST), body).map_err(io(&work, "writing"))?;
+            let hash = crate::hash::dirhash(&work)?;
+            let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version: "0.0.0".into(), hash, imported: now, source: Some(from.clone()), size,
+                name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::BareDll | DetectKind::Emf => {
@@ -660,7 +880,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                     "description": format!("Generated by Kiln from {file}"),
                 }))
             } else {
-                let proxy = d.reason.contains("DirectInput8Create");
+                let proxy = std::fs::read(src).ok().and_then(|b| crate::pe::parse(&b).ok()).is_some_and(|i| i.exports.iter().any(|x| x == crate::pe::DINPUT8_EXPORT));
                 (ModKind::Native, crate::manifest::NATIVE_MANIFEST, serde_json::json!({
                     "format": 1, "id": id, "name": file, "version": "0.0.0",
                     "description": format!("Generated by Kiln from {file}{}", if proxy { " (a dinput8 proxy, chain-loaded in DllMain)" } else { "" }),
@@ -673,11 +893,20 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             std::fs::write(work.join(manifest_name), body).map_err(io(&work, "writing"))?;
             let hash = crate::hash::dirhash(&work)?;
             let rec = ImportRecord { format: 1, kind, id, version: "0.0.0".into(), hash, imported: now, source: Some(from.clone()), size,
-                name: Some(file), side: Some(Side::Client), clients: Some(Clients::Mod), file: None };
+                name: Some(file), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::Runtime => {
-            skip(report, "a Kiln runtime: import it on the Runtime page (bundle::import)".into());
+            skip(report, "this is a Kiln runtime, not a mod: add it on the Runtime page".into());
+            Ok(())
+        }
+        // another engine's loader or a tool: information when Kiln has no use for it, else what the player does instead
+        DetectKind::Proxy => {
+            if d.engine.is_some_and(crate::engines::loader_is_note) {
+                report.note(&d.path, d.reason.clone());
+            } else {
+                skip(report, d.reason.clone());
+            }
             Ok(())
         }
         k if k.is_engine() => match crate::engines::loader_for(k) {
@@ -721,11 +950,20 @@ fn import_detected(dirs: &DataDirs, d: &Detected, base_label: &Path, base_real: 
 pub fn import(dirs: &DataDirs, paths: &[PathBuf], progress: &mut dyn Progress) -> Result<ImportReport> {
     let mut report = ImportReport::default();
     for p in paths {
-        let lower = p.to_string_lossy().to_lowercase();
-        if lower.ends_with(".zip") && p.is_file() {
+        if is_archive(p) && p.is_file() {
             std::fs::create_dir_all(dirs.library()).map_err(io(&dirs.library(), "creating"))?;
-            let tmp = unpack_to_temp(p, &dirs.library())?;
-            let mut d = detect_folder(tmp.path());
+            progress.report(None, &format!("unpacking {}", file_name(p)));
+            let tmp = match unpack_to_temp(p, &dirs.library()) {
+                Ok(t) => t,
+                // an archive Kiln can't open (a rar without a tool, a password, a damaged file) is left out with
+                // its reason, and the other paths still go
+                Err(e) if matches!(e.code, ErrorCode::Unsupported | ErrorCode::Parse) => {
+                    report.skipped.push(Skipped { path: p.display().to_string(), reason: e.message });
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let mut d = detect_folder_at(tmp.path(), 0, archive_name(p).as_deref());
             relabel(&mut d, tmp.path(), p);
             let from = source_of(p, if d.kind == DetectKind::Modpack { "modpack" } else { "file" });
             if d.kind == DetectKind::Unknown && d.items.is_empty() {
@@ -798,6 +1036,7 @@ pub fn list(dirs: &DataDirs, kind: Option<ModKind>) -> Result<Vec<LibraryEntry>>
                     .into_iter()
                     .map(|(folder, r)| LibraryVersion {
                         manifest: read_manifest_json(k, &folder),
+                        manifest_id: r.manifest_id,
                         version: r.version,
                         hash: r.hash,
                         folder,

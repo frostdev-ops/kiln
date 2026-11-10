@@ -10,6 +10,7 @@ import { invalidateGame, showActive, useActiveProfile, useGame, useGameStatus } 
 import { Banner, Button, EmptyState, Field, Modal, NavTabs, Page, PageHeader, Segmented, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
 import { ENGINE_KINDS, KIND_SHORT } from "../../api/kinds";
+import { dropinKinds, setDropins } from "./dropins";
 
 interface Ctx { aside: HTMLElement | null }
 
@@ -79,8 +80,8 @@ export default function ProfileLayout() {
         </div>
         <aside ref={setAside} className="k-aside k-profile-aside" />
       </div>
-      <ProfileSettingsModal open={edit} onClose={() => setEdit(false)} name={profile.name} notes={profile.notes} dropins={profile.dropins} dataDir={profile.dataDir}
-        onSave={(v) => { update((p) => { p.name = v.name; p.notes = v.notes; p.dropins = v.dropins; p.dataDir = v.dataDir; }); setEdit(false); }} />
+      <ProfileSettingsModal open={edit} onClose={() => setEdit(false)} name={profile.name} notes={profile.notes} dropins={dropinKinds(profile)} dataDir={profile.dataDir}
+        onSave={(v) => { update((p) => { p.name = v.name; p.notes = v.notes; setDropins(p, v.dropins); p.dataDir = v.dataDir; }); setEdit(false); }} />
     </Page>
   );
 }
@@ -91,11 +92,23 @@ export function useOpenSettings(): () => void {
   return ctx?.openSettings ?? (() => {});
 }
 
-const DROPIN_KINDS: { kind: ModKind; label: string; folder: string }[] = [
+type DropinRow = { kind: ModKind; label: string; folder: string; hint?: string };
+/** Kiln's own drop-in folders. */
+const KILN_DROPINS: DropinRow[] = [
   { kind: "kiln", label: "Kiln mods", folder: "kiln/mods" },
   { kind: "native", label: "Native mods", folder: "kiln/native" },
   { kind: "plugin", label: "Plugins", folder: "kiln/plugins" },
   { kind: "emf", label: "EMF mods", folder: "emf/mods" },
+];
+/** Other engines' folders (each engine plugin's own folder, where their mod pages say to extract). */
+const ENGINE_DROPINS: DropinRow[] = [
+  { kind: "eml", label: "EML mods", folder: "mods, kiln/eml/mods" },
+  { kind: "shroudforge", label: "ShroudForge mods", folder: "ShroudForge's mods folder (mods)" },
+  { kind: "greeneye", label: "Greeneye mods", folder: "greeneye" },
+  { kind: "flame", label: "Flame mods", folder: "mods" },
+  { kind: "shroudtopia", label: "Shroudtopia mods", folder: "mods" },
+  { kind: "enshwick", label: "Enshwick mods", folder: "mods", hint: "Enshwick's loader runs every folder in mods once this profile has an Enshwick mod." },
+  { kind: "shroudlink", label: "shroudlink mods (servers)", folder: "shroudlink_mods" },
 ];
 
 function ProfileSettingsModal({ open, onClose, onSave, ...init }: {
@@ -105,6 +118,11 @@ function ProfileSettingsModal({ open, onClose, onSave, ...init }: {
   const [v, setV] = useState(init);
   const [seen, setSeen] = useState(open);
   if (open !== seen) { setSeen(open); if (open) setV(init); }
+  const row = (d: DropinRow) => (
+    <Toggle key={d.kind} checked={v.dropins.includes(d.kind)} label={d.label}
+      hint={<><span className="k-mono">{d.folder}</span>{d.hint && <> · {d.hint}</>}</>}
+      onChange={(on) => setV({ ...v, dropins: on ? [...v.dropins, d.kind] : v.dropins.filter((k) => k !== d.kind) })} />
+  );
   return (
     <Modal open={open} onClose={onClose} title="Profile settings" width={560}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!v.name.trim()} onClick={() => onSave({ ...v, name: v.name.trim() })}>Save</Button></>}>
@@ -114,10 +132,13 @@ function ProfileSettingsModal({ open, onClose, onSave, ...init }: {
       </Field>
       <Field label="Drop-in folders" hint="Also load mods placed in the game folder by hand.">
         <div className="k-stack">
-          {DROPIN_KINDS.map((d) => (
-            <Toggle key={d.kind} checked={v.dropins.includes(d.kind)} label={d.label} hint={<span className="k-mono">{d.folder}</span>}
-              onChange={(on) => setV({ ...v, dropins: on ? [...v.dropins, d.kind] : v.dropins.filter((k) => k !== d.kind) })} />
-          ))}
+          {KILN_DROPINS.map(row)}
+        </div>
+      </Field>
+      <Field label="Other engines' folders" hint="Where other loaders' mod pages say to extract their mods.">
+        <div className="k-stack">
+          {ENGINE_DROPINS.map(row)}
+          <p className="k-hint">SET mods (<span className="k-mono">shrouded_engine_tweaks/mods</span>) and Enshwick mods (<span className="k-mono">mods</span>) always load. Ember mods are found but do not run yet.</p>
         </div>
       </Field>
       <Field label="Notes" htmlFor="ps-notes"><TextArea id="ps-notes" rows={3} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} style={{ fontFamily: "var(--k-font-ui)", fontSize: 16 }} /></Field>

@@ -1,9 +1,20 @@
 // Kiln Launcher frontend. Dev server on 1420; Tauri loads it in dev.
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+
+// the dev server keeps the browser mock in the page (src/api/mockLoad.dev.ts); a build loads it on first use
+const mockInPage: Plugin = {
+  name: "kiln-mock-in-page",
+  apply: "serve",
+  enforce: "pre",
+  resolveId(id, importer) {
+    return id === "./mockLoad" && importer?.replaceAll("\\", "/").endsWith("/src/api/commands.ts") ? fileURLToPath(new URL("./src/api/mockLoad.dev.ts", import.meta.url)) : null;
+  },
+};
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), mockInPage],
   clearScreen: false,
   server: {
     port: 1420,

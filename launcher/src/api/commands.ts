@@ -5,9 +5,12 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { canFallBack, noteFallback } from "./fallback";
-import { mockInvoke, mockListen } from "./mock";
+import { loadMock } from "./mockLoad";
 
 // ---------------------------------------------------------------- plumbing
+
+/** The browser mock: a chunk of its own in a build (./mockLoad.ts). */
+export { loadMock };
 
 /** True inside the Tauri webview; false in a plain browser (the mock layer answers then). */
 export const isTauri = (): boolean => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -37,13 +40,13 @@ export function toKilnError(e: unknown): KilnError {
 
 async function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   try {
-    return isTauri() ? await tauriInvoke<T>(cmd, args) : await mockInvoke<T>(cmd, args);
+    return isTauri() ? await tauriInvoke<T>(cmd, args) : await (await loadMock()).mockInvoke<T>(cmd, args);
   } catch (e) {
     const err = toKilnError(e);
     // Development aid (./fallback.ts): read-only commands the crate does not implement yet answer from the mock.
     if (isTauri() && err.code === "not_implemented" && canFallBack(cmd)) {
       noteFallback(cmd);
-      return mockInvoke<T>(cmd, args).catch((m) => { throw toKilnError(m); });
+      return loadMock().then((m) => m.mockInvoke<T>(cmd, args)).catch((m) => { throw toKilnError(m); });
     }
     throw err;
   }
@@ -282,6 +285,9 @@ export interface Profile {
   notes: string;
   mods: Record<ModKind, ProfileMod[]>;
   dropins: ModKind[];
+  /** `dropins` names the engine kinds too (dev.22). Absent (older profiles): all four Kiln kinds on means every kind.
+   *  pages/profiles/dropins.ts reads and writes both. */
+  dropinsEngines?: boolean;
   dataDir: "shared" | "profile";
   server: BoundServer | null;
   /** Native mod ids whose dllmain DLLs load after Kiln and ShroudForge (chain.ini [late]); absent when none. */
@@ -304,6 +310,33 @@ export interface Activation {
   copied: number;
   fingerprint: string;
   activated: string;
+  /** Other engines' own loaders installed in this game (own_loaders.rs); absent or empty: none. Each `text` is one
+   * sentence for the Play and profile pages. */
+  ownLoaders?: OwnLoaderNote[];
+}
+/** An engine's own loader next to the game (EML's dbghelp.dll, a chained Flame loader...) and what it means for the
+ * profile's mods of that engine. While it runs, it runs them only from its own folder. */
+export interface OwnLoaderNote {
+  kind: ModKind;
+  /** The engine the loader file belongs to (ShroudForge's loader runs EML mods too): "eml", "shroudforge", "flame"... */
+  engine: string;
+  /** Game-relative file: "dbghelp.dll", "kiln/chain/flame-dinput8.dll", "kiln/plugins/kiln-shroudforge.dll". */
+  file: string;
+  /** proxy: under a proxy name next to the game (on Linux it runs only with a DLL override); chain: kiln/chain.ini;
+   * emf-chain: dinput8-chain.ini; hosted-shroud-forge: Kiln hosts ShroudForge for this profile. */
+  via: "proxy" | "chain" | "emf-chain" | "hosted-shroud-forge";
+  /** Game-relative folder the loader reads ("mods", "emf/mods"). */
+  folder: string;
+  /** placed: the launcher copies the profile's mods there; plugin: Kiln's plugin does; none: nothing can. */
+  delivery: "placed" | "plugin" | "none";
+  /** The profile's enabled mods of this kind. */
+  enabled: number;
+  /** Ids with Kiln's copy in the loader's folder (they run under it). */
+  copied: string[];
+  /** Ids not in that folder: they do not load while the loader runs. */
+  notCopied: string[];
+  /** "EML's own loader (dbghelp.dll) is installed: it runs the EML mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it." */
+  text: string;
 }
 export type ModState = "pending" | "loaded" | "disabled" | "failed" | "skipped";
 export interface Rejection {
@@ -352,6 +385,9 @@ export interface LibraryVersion {
   clients: Clients | null;
   size: number;
   source: { type: "file" | "folder" | "modpack"; from: string } | null;
+  /** The id the mod's own manifest gives, when the Library id is not that (an engine mod such as "Hoarders Helper":
+   *  the Library id is its Kiln-id slug). Engine plugins report their state rows under this id. */
+  manifestId: string | null;
   manifest: Json | null;
 }
 export interface LibraryEntry {
@@ -382,7 +418,12 @@ export interface Detected {
 export interface ImportReport {
   imported: LibraryRef[];
   existing: LibraryRef[];
+  /** Left out, with a reason: what happened and, when the player has to do something, what. No final period. */
   skipped: { path: string; reason: string }[];
+  /** Left out because it is not needed (a loader the package carries); each text once. */
+  notes: { path: string; text: string }[];
+  /** The display name of every entry in `imported` and `existing`, by `<kind>/<id>`. */
+  names: Record<string, string>;
 }
 /** library_add's result (kiln_manage::quick::AddReport): what the library took, and what reached the profile. */
 export interface AddedMod {
@@ -417,6 +458,11 @@ export interface AddReport {
   activation: Activation | null;
   /** Mods the added ones require that the profile lacks. */
   missing: { id: string; range: string; by: string }[];
+  /** The game had no active profile (Kiln was reinstalled): `profileId` was active here before, and is again. */
+  resumed: boolean;
+  /** The mods reached the Library only, and why in plain words; null when they went into a profile. The player can
+   *  pick a profile (library_add_to_profile). */
+  libraryOnly: string | null;
   /** Modpack zips among the paths: not imported, they go through the consent flow (modpack_install). */
   modpacks: string[];
 }
@@ -606,6 +652,22 @@ export interface BootState {
   stale: boolean;
   /** kiln.log's error lines for the run that wrote boot.json (null: kiln.log is another run's or missing). */
   log?: { errors: number; first: string[] } | null;
+}
+/** What kiln-eml is doing before the game's window exists (kiln/state/eml.json, phase running): `launch_prestart`. */
+export interface PreStart {
+  /** starting | checking | prepare | mods | writing | saving */
+  stage: string;
+  label: string;
+  doneBytes: number;
+  totalBytes: number;
+  filesDone: number;
+  filesTotal: number;
+  /** The file being read now. */
+  file?: string | null;
+  /** Milliseconds since a byte was last read (while a file is being read). */
+  quietMs: number;
+  /** The sentence for the launch status ("Preparing the game data for EML mods: 12.3 GiB of 48.6 GiB. ..."). */
+  message: string;
 }
 export interface RequiredMod {
   id: string;
@@ -1014,6 +1076,8 @@ export interface EngineStatus {
   file: string;
   /** A present state file could not be read or parsed. */
   error?: string | null;
+  /** This engine's own loader, when installed, and what it means for the active profile's mods of the kind. */
+  ownLoader?: OwnLoaderNote | null;
 }
 /** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
 export interface EmlBackup {
@@ -1101,6 +1165,39 @@ export const chainView = (profileId: ProfileId, gameId: GameId) => call<ChainVie
 export const chainSetLate = (profileId: ProfileId, gameId: GameId, path: string, late: boolean) =>
   call<ChainView>("chain_set_late", { profileId, gameId, path, late });
 
+// found.rs (kiln_manage::found): mods in the game folder that Kiln did not put there
+/** loads: at the next start with this profile (`via`); off: not with this profile (`reason`, `fix`); inProfile: the
+ *  profile has the same mod and its copy wins; cannotRun: nothing Kiln can run. */
+export type FoundState = "loads" | "off" | "inProfile" | "cannotRun";
+export interface FoundMod {
+  kind: ModKind | null;
+  name: string;
+  id: string | null;
+  version: string | null;
+  /** Relative to the game folder, with "/". */
+  path: string;
+  state: FoundState;
+  via?: "kiln" | "ownLoader";
+  /** One plain sentence. */
+  reason: string;
+  /** dropins: switch on the profile's drop-in folder of `kind`; add: found_add. */
+  fix?: "dropins" | "add";
+  profileMod?: string;
+}
+export interface OwnLoader { engine: string; name: string; kinds: ModKind[]; file: string }
+export interface FoundReport {
+  gameId: GameId;
+  profileId: ProfileId;
+  kilnInstalled: boolean;
+  mods: FoundMod[];
+  loaders: OwnLoader[];
+  unreadable: { path: string; reason: string }[];
+  truncated: boolean;
+}
+export const foundScan = (gameId: GameId, profileId: ProfileId) => call<FoundReport>("found_scan", { gameId, profileId });
+/** Task result: AddReport (`import.skipped` says why the Library refused it). */
+export const foundAdd = (gameId: GameId, profileId: ProfileId, path: string) => call<TaskId>("found_add", { gameId, profileId, path });
+
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
@@ -1109,6 +1206,10 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
+/** Puts library versions into the profile the player picked (after an add that said `libraryOnly`); the result is
+ *  library_add's with an empty `import`, so Undo is profile_revert. */
+export const libraryAddToProfile = (gameId: GameId, profileId: ProfileId, entries: LibraryRef[]) =>
+  call<AddReport>("library_add_to_profile", { gameId, profileId, entries });
 /** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod).
  *  `shown`: the libraryUsers answer a confirmation named. Removal goes past exactly those; any other user is a conflict, whatever `force` says. */
 export const libraryRemove = (entry: LibraryRef, force = false, shown?: string[]) => call<null>("library_remove", { entry, force, shown: shown ?? null });
@@ -1144,6 +1245,7 @@ export const configKilnReset = (gameId: GameId, path: string) => call<ConfigDocu
 // launch.rs
 export const launchPlay = (gameId: GameId, request: LaunchRequest) => call<LaunchResult>("launch_play", { gameId, request });
 export const launchState = (gameId: GameId) => call<BootState>("launch_state", { gameId });
+export const launchPrestart = (gameId: GameId) => call<PreStart | null>("launch_prestart", { gameId });
 
 // logs.rs
 export const logsList = (target: LogTarget) => call<LogFile[]>("logs_list", { target });
@@ -1153,6 +1255,25 @@ export const logsRead = (target: LogTarget, file: string, offset: number | null 
 export const logsFollow = (target: LogTarget, file: string) => call<string>("logs_follow", { target, file });
 export const logsUnfollow = (subscription: string) => call<null>("logs_unfollow", { subscription });
 export const logsCrashReports = (target: LogTarget) => call<CrashReport[]>("logs_crash_reports", { target });
+/** kiln_manage::report::Finding: one check that explains a common failure. */
+export interface ReportFinding {
+  id: string;
+  level: "problem" | "warning" | "info";
+  text: string;
+}
+/** report_save's answer (launcher type). */
+export interface ReportSaved {
+  path: string;
+  size: number;
+  findings: ReportFinding[];
+  /** Sections that could not be read; the rest is in the zip. */
+  errors: string[];
+}
+/** Writes the support report zip (logs, state files, profile, listings, summary.txt; names and paths replaced) to
+ *  `path`. `target` null: the system and the launcher only. */
+export const reportSave = (target: LogTarget | null, path: string) => call<ReportSaved>("report_save", { target, path });
+/** A few lines for a forum post, redacted like the zip. */
+export const reportSummary = (target: LogTarget | null) => call<string>("report_summary", { target });
 
 // saves.rs
 export const savesList = (gameId: GameId) => call<SaveSlot[]>("saves_list", { gameId });
@@ -1302,7 +1423,7 @@ export const COMMANDS = [
   "profile_deactivate", "profile_active",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
-  "launch_play", "launch_state",
+  "launch_play", "launch_state", "launch_prestart",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",
   "saves_list", "saves_backups", "saves_backup", "saves_restore", "saves_delete",
   "editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_zstd_compress",
@@ -1318,11 +1439,13 @@ export const COMMANDS = [
   "app_assets_status", "app_assets_import",
   "server_console_open", "server_console_close",
   "update_status", "update_check", "update_install", "update_restart", "update_skip", "update_ack",
-  "library_add", "profile_revert", "profile_ensure_default",
+  "library_add", "library_add_to_profile", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
   "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
+  "found_scan", "found_add",
+  "report_save", "report_summary",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
@@ -1348,5 +1471,5 @@ export type KilnEventName = keyof KilnEvents;
 /** Subscribes to a launcher event; resolves to the unsubscribe function. */
 export async function onKilnEvent<E extends KilnEventName>(name: E, handler: (payload: KilnEvents[E]) => void): Promise<() => void> {
   if (isTauri()) return tauriListen<KilnEvents[E]>(name, (e) => handler(e.payload));
-  return mockListen(name, handler as (payload: unknown) => void);
+  return (await loadMock()).mockListen(name, handler as (payload: unknown) => void);
 }

@@ -10,6 +10,7 @@
 //! | [`task`] | progress reporting for long operations |
 //! | [`paths`] | launcher data dirs, game-side file names |
 //! | [`hash`] | kdh1 directory hash, kms1 fingerprint, sha256 |
+//! | [`filecache`] | sha256s and parsed files remembered while the file is unchanged (the launcher keeps the sha256s across starts) |
 //! | [`vdf`] | Valve KeyValues text reader |
 //! | [`steam`] | Steam roots, libraryfolders, app manifests, compat tool, launch options (read-only) |
 //! | [`game`] | game installs: detection, platform, path mode |
@@ -26,15 +27,19 @@
 //! | [`semver`] | port of SemVer.cs |
 //! | [`resolver`] | port of Resolver.cs |
 //! | [`library`] | the content-addressed mod library, import detection |
+//! | [`archive`] | 7z (in-process) and rar (a tool already on the PC) packages, unpacked under the import limits |
 //! | [`profile`] | profiles (`meta.json`), `profile.json`, activation |
 //! | [`quick`] | the simple flow: import + add to the active profile + apply, the default profile "My mods", undo |
 //! | [`engine_mods`] | other engines' mods in the launcher: importers, placing SF/SET mods, settings, plugin status (owner: wire) |
+//! | [`found`] | mods in the game folder Kiln did not put there: whether each loads with a profile, and adding one |
 //! | [`shroudforge`] | ShroudForge mods next to Kiln: install detection, mod packages, switches, settings, status (owner: sf) |
 //! | [`playonce`] | `kiln/play-once.ini` |
+//! | [`prestart`] | what kiln-eml is doing before the game's window exists (`kiln/state/eml.json`, phase running) |
 //! | [`config`] | offline mod configs, `.schema/` snapshots, `config/native.json` |
 //! | [`jsonc`] | JSONC CST value edits |
 //! | [`saves`] | save slots, save backups, the save editor's commands |
 //! | [`logs`] | log files, tail/follow, crash reports |
+//! | [`report`] | support reports: summary, findings, redacted files, the zip (`zip`) |
 //! | [`control`] | `kiln/control/*.cmd`, `kiln/control/console/*.cmd` |
 //! | [`util`] | paths, UTC time formatting, atomic writes, external commands (from kilnctl) |
 //! | [`wine`] | Wine runner selection and environment of server instances (from kilnctl) |
@@ -53,6 +58,7 @@ pub mod util;
 
 // discovery and system
 pub mod game;
+pub mod filecache;
 pub mod hash;
 pub mod launch;
 pub mod paths;
@@ -68,12 +74,16 @@ pub mod bundle;
 pub mod chain;
 pub mod compat;
 pub mod install;
+pub mod archive;
 pub mod library;
 pub mod manifest;
 pub mod playonce;
+pub mod prestart;
 pub mod profile;
 pub mod quick;
 pub mod engine_mods;
+pub mod found;
+pub mod own_loaders;
 pub mod shroudforge;
 pub mod resolver;
 pub mod semver;
@@ -83,6 +93,7 @@ pub mod config;
 pub mod control;
 pub mod jsonc;
 pub mod logs;
+pub mod report;
 pub mod saves;
 pub mod state;
 

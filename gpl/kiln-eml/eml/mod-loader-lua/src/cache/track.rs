@@ -3,21 +3,29 @@ use std::path::Path;
 
 use walkdir::WalkDir;
 
-use crate::{cache::{FileStateCache, Fingerprints}, log::warn};
+use crate::{cache::{FileStateCache, Fingerprints, Need}, log::warn};
 
 impl FileStateCache {
 
     /// Inputs which publication must never change. Compare these around Lua execution and publication as well
     /// as recording the final output files: otherwise a changed input can be cached alongside an older patch.
     pub fn track_game_inputs(&mut self, game_dir: &Path, file_name: &str, vanilla_containers: usize, prints: &mut Fingerprints) {
-        self.track(game_dir.join(format!("{file_name}.kfc.bak")), prints);
+        // kiln-eml: the game's own files are fingerprinted by what the OS says of them (Need::Identity, prints.rs)
+        self.track_game_inputs_as(game_dir, file_name, vanilla_containers, prints, Need::Identity);
+    }
+
+    /// `track_game_inputs` with the kind of fingerprint named (the benchmark runs dev.21's, by content, for comparison).
+    pub fn track_game_inputs_as(&mut self, game_dir: &Path, file_name: &str, vanilla_containers: usize, prints: &mut Fingerprints, need: Need) {
+        let mut paths = vec![game_dir.join(format!("{file_name}.kfc.bak"))];
         for suffix in ["exe", "kfc_resources.bak", "kfc.bak.integrity"] {
             let path = game_dir.join(format!("{file_name}.{suffix}"));
-            if !matches!(path.try_exists(), Ok(false)) { self.track(path, prints); }
+            if !matches!(path.try_exists(), Ok(false)) { paths.push(path); }
         }
         let config = game_dir.join("eml.json");
-        if !matches!(config.try_exists(), Ok(false)) { self.track(config, prints); }
-        for index in 0..vanilla_containers { self.track(game_dir.join(format!("{file_name}_{index:03}.dat")), prints); }
+        if !matches!(config.try_exists(), Ok(false)) { paths.push(config); }
+        for index in 0..vanilla_containers { paths.push(game_dir.join(format!("{file_name}_{index:03}.dat"))); }
+        prints.announce("Game inputs", &paths, need);
+        for path in paths { self.track_as(path, prints, need); }
     }
 
     pub fn only_game_inputs(mut self, game_dir: &Path, file_name: &str, vanilla_containers: usize) -> Self {
@@ -27,6 +35,7 @@ impl FileStateCache {
         paths.extend((0..vanilla_containers).map(|index| game_dir.join(format!("{file_name}_{index:03}.dat"))));
         self.files.retain(|p, _| paths.contains(p));
         self.stamps.retain(|p, _| paths.contains(p));
+        self.unread.retain(|p| paths.contains(p));
         if !self.build_id.is_empty() { self.build_id = super::BUILD_ID.into(); }
         self
     }
@@ -35,6 +44,16 @@ impl FileStateCache {
         &mut self,
         game_dir: impl AsRef<Path>,
         prints: &mut Fingerprints,
+    ) {
+        self.track_game_files_as(game_dir, prints, Need::Identity);
+    }
+
+    /// `track_game_files` with the kind of fingerprint named (see `track_game_inputs_as`).
+    pub fn track_game_files_as(
+        &mut self,
+        game_dir: impl AsRef<Path>,
+        prints: &mut Fingerprints,
+        need: Need,
     ) {
         let game_dir = game_dir.as_ref();
 
@@ -53,6 +72,7 @@ impl FileStateCache {
 
         // kiln-eml: list the folder first. The volume test (prints.rs) creates and removes a file in it, which must not
         // disturb a listing in progress.
+        let mut paths = Vec::new();
         for entry in game_files.collect::<Vec<_>>() {
             let entry = match entry {
                 Ok(e) => e,
@@ -72,9 +92,16 @@ impl FileStateCache {
 
             if let Some(ext) = extension {
                 if matches!(ext, "dat" | "kfc" | "kfc_resources" | "exe" | "bak" | "integrity") || path.file_name().is_some_and(|n| n == "eml.json") {
-                    self.track(path, prints);
+                    paths.push(path);
                 }
             }
+        }
+        // kiln-eml: sorted, so the log and the progress line read the same way every start; announced as one batch
+        // (what is read, what is recorded by stamp), then tracked: the game's own files by what the OS says of them.
+        paths.sort();
+        prints.announce("Game data", &paths, need);
+        for path in paths {
+            self.track_as(path, prints, need);
         }
     }
 

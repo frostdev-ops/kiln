@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln.mod.json, manifest v2 (backward compatible with v1: id, name, version, apiVersion, entryAssembly, entryType,
-// side; "clients" and "kilnBuild" added later). Self-contained (System.Text.Json + SemVer.cs + KilnBuild.cs): Kiln.Sdk's build
+// side; "clients" and "kilnBuild" added later; entryAssembly is optional since dev.22: a mod of data only has none).
+// Self-contained (System.Text.Json + SemVer.cs + KilnBuild.cs): Kiln.Sdk's build
 // task compiles this file too.
 // Schema: schema/kiln.mod.schema.json. Docs: docs/kiln/modding/manifest.md.
 using System.Text.Json;
@@ -56,7 +57,12 @@ internal sealed class Manifest
     public required SemVersion ParsedVersion { get; init; }
     public required string ApiVersion { get; init; }
     public required VersionRange ApiRange { get; init; }
-    public required string EntryAssembly { get; init; }
+    /// <summary>The mod's assembly (<c>"entryAssembly"</c>); empty for a mod of data only (content packs, assets), which
+    /// has no code: Kiln.Host loads it as a mod with nothing to run, so it takes its place in the load order and its
+    /// data packs apply.</summary>
+    public string EntryAssembly { get; init; } = "";
+
+    public bool HasCode => EntryAssembly.Length > 0;
     public string? EntryType { get; init; }
     public ManifestSide Side { get; init; } = ManifestSide.Server;
 
@@ -121,8 +127,8 @@ internal sealed class Manifest
             if (SemVersion.TryParse(api, out var apiMin)) apiRange = VersionRange.AtLeastSameMajor(apiMin);
             else if (!VersionRange.TryParse(api, out apiRange, out var apiError)) throw Bad($"apiVersion: {apiError}");
 
-            var entry = Str(root, "entryAssembly") ?? throw Bad("'entryAssembly' is required");
-            if (!IsDllName(entry)) throw Bad($"entryAssembly '{entry}' must be a .dll file name in the mod folder");
+            var entry = Str(root, "entryAssembly");  // none: a mod of data only
+            if (entry is not null && !IsDllName(entry)) throw Bad($"entryAssembly '{entry}' must be a .dll file name in the mod folder");
 
             var side = (Str(root, "side") ?? "server") switch
             {
@@ -182,7 +188,7 @@ internal sealed class Manifest
                 ParsedVersion = parsed,
                 ApiVersion = api,
                 ApiRange = apiRange,
-                EntryAssembly = entry,
+                EntryAssembly = entry ?? "",
                 EntryType = Str(root, "entryType"),
                 Side = side,
                 Clients = clients,

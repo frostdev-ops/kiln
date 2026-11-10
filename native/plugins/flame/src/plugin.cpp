@@ -38,6 +38,9 @@ std::string g_stepped_aside;
 
 struct Mod {
     std::string id, name, version, origin, reason;
+    std::string manifest_id;  // mod.json "id" (may differ from a profile entry's Library id)
+    std::string state;        // state-file word when it is not the status's ("own-loader", "not-loaded")
+    bool own_loader = false;  // a profile entry that Flame's own loader runs from Kiln's copy in <game>/mods
     fs::path folder, dll;
     std::atomic<uint32_t> status{KILN_FLAME_PENDING};
     std::atomic<bool> entered{false};  // a failed start may already have installed hooks or launched threads
@@ -57,7 +60,7 @@ void write_status() {
         for (const auto& m : g_mods) {
             const uint32_t st = m->status.load();
             json j = {{"id", m->id},         {"name", m->name},     {"version", m->version},
-                      {"origin", m->origin}, {"status", st < 4 ? kStatus[st] : "?"},
+                      {"origin", m->origin}, {"status", !m->state.empty() ? m->state.c_str() : st < 4 ? kStatus[st] : "?"},
                       {"reason", m->reason}, {"folder", path_utf8(m->folder)}, {"startMs", m->start_ms}};
             if (!m->dll.empty()) j["dll"] = path_utf8(m->dll);
             mods.push_back(std::move(j));
@@ -96,8 +99,8 @@ bool KILN_CALL f_running(KilnStr id) {
     std::lock_guard lock(g_mu);
     for (const auto& m : g_mods) {
         const uint32_t st = m->status.load();
-        if (kcompat::lower(m->id) != want) continue;
-        if (m->entered.load()) return true;
+        if (kcompat::lower(m->id) != want && kcompat::lower(m->manifest_id) != want) continue;
+        if (m->entered.load() || m->own_loader) return true;
         if (st == KILN_FLAME_PENDING || st == KILN_FLAME_STARTED) return true;
         if (st == KILN_FLAME_SKIPPED && !g_stepped_aside.empty() && m->origin == "folder" && m->reason.empty()) return true;
     }
@@ -125,10 +128,9 @@ std::string flame_loader_in_process(const fs::path& game, const fs::path& kiln) 
         if (!fs::equivalent(dir, game, ec) && !fs::equivalent(dir, kiln / L"chain", ec)) continue;
         if (mods[i] == GetModuleHandleW(nullptr)) continue;
         if (GetProcAddress(mods[i], "FlameStartRuntime")) continue;  // a Flame mod, not a loader
-        if (GetProcAddress(mods[i], "kiln_boot") || GetProcAddress(mods[i], "KilnProxyInfo") ||
-            GetProcAddress(mods[i], KILN_PLUGIN_MAIN))
-            continue;  // Kiln's own modules (this plugin names the entry point too)
-        if (kcompat::file_contains(f, "FlameStartRuntime")) return path_utf8(f);
+        if (kcompat::kiln_own_module(mods[i], f)) continue;  // Kiln's own modules (this plugin names the entry point too)
+        // Wine's builtin under the proxy's name reports the file's path without running it: compare the images.
+        if (kcompat::module_is_file(mods[i], f) && kcompat::file_contains(f, "FlameStartRuntime")) return path_utf8(f);
     }
     return {};
 }
@@ -145,7 +147,8 @@ std::unique_ptr<Mod> read_mod(const fs::path& folder, const std::string& profile
     if (kcompat::read_file(folder / L"mod.json", &text)) {
         try {
             const auto j = nlohmann::json::parse(text, nullptr, true, true);
-            if (profile_id.empty() && j.contains("id") && j["id"].is_string()) m->id = j["id"].get<std::string>();
+            if (j.contains("id") && j["id"].is_string()) m->manifest_id = j["id"].get<std::string>();
+            if (profile_id.empty() && !m->manifest_id.empty()) m->id = m->manifest_id;
             if (j.contains("name") && j["name"].is_string()) m->name = j["name"].get<std::string>();
             if (j.contains("version") && j["version"].is_string()) m->version = j["version"].get<std::string>();
         } catch (...) {
@@ -181,6 +184,21 @@ std::unique_ptr<Mod> read_mod(const fs::path& folder, const std::string& profile
     return m;
 }
 
+// A pending profile entry while kiln-flame stands aside (g_mu held): Flame's loader reads only <game>/mods, so the
+// entry runs there only from Kiln's copy (mods/<id>/.kiln-library.json); otherwise it does not load at all.
+void mark_aside(Mod& m) {
+    m.status = KILN_FLAME_SKIPPED;
+    if (m.origin == "folder") {
+        m.reason.clear();  // Flame's loader reads <game>/mods itself: those mods run there (empty reason: "run by Flame")
+        return;
+    }
+    const auto rep = kcompat::aside_report(m.id, m.folder, true, "flame", H.path(KILN_PATH_GAME) / L"mods", "Flame", "mods");
+    m.state = kcompat::aside_word(rep.state);
+    m.reason = rep.reason;
+    m.own_loader = rep.state == kcompat::Aside::OwnLoader;
+    kcompat::log_aside(H, m.id, rep);
+}
+
 // ---- start ------------------------------------------------------------------------------------------------------
 using FlameStartFn = void (*)();
 
@@ -213,10 +231,7 @@ DWORD WINAPI worker(void*) {
             std::lock_guard lock(g_mu);
             g_stepped_aside = "Flame's own loader (" + loader + ") arrived before dispatch";
             for (auto& pending : g_mods)
-                if (pending->status.load() == KILN_FLAME_PENDING) {
-                    pending->reason = pending->origin == "folder" ? "" : g_stepped_aside;
-                    pending->status = KILN_FLAME_SKIPPED;
-                }
+                if (pending->status.load() == KILN_FLAME_PENDING) mark_aside(*pending);
             break;
         }
         const auto t0 = std::chrono::steady_clock::now();
@@ -297,7 +312,13 @@ void KILN_CALL on_ready(void*) {
             for (const auto& d : fs::directory_iterator(game / L"mods", ec))
                 if (d.is_directory(ec) && kcompat::exists(d.path() / L"flame.json")) dirs.push_back(d.path());
             std::sort(dirs.begin(), dirs.end());
+            const auto ids = kcompat::listed_ids(plan);
             for (const auto& d : dirs) {
+                // Kiln's copy of a profile entry (for Flame's own loader): the profile entry is that mod.
+                if (const auto id = kcompat::library_copy_of(d, "flame", ids); !id.empty()) {
+                    H.logf(KILN_LOG_INFO, "%s: Kiln's copy of profile mod %s; the profile entry is used", path_utf8(d).c_str(), id.c_str());
+                    continue;
+                }
                 auto m = read_mod(d, {}, true, "folder");
                 if (!seen.insert(kcompat::lower(m->id)).second) {
                     H.logf(KILN_LOG_INFO, "%s: also in the profile, the profile's copy is used (%s skipped)", m->id.c_str(),
@@ -308,18 +329,14 @@ void KILN_CALL on_ready(void*) {
             }
         }
         if (!g_stepped_aside.empty()) {
-            for (auto& m : g_mods) {
-                if (m->status.load() != KILN_FLAME_PENDING) continue;
-                m->status = KILN_FLAME_SKIPPED;
-                // Flame's loader reads <game>/mods itself: those mods run there (empty reason marks "run by Flame").
-                if (m->origin != "folder") m->reason = "Flame's own loader runs in this process; it starts only <game>/mods";
-            }
+            for (auto& m : g_mods)
+                if (m->status.load() == KILN_FLAME_PENDING) mark_aside(*m);
         }
     }
     H.logf(KILN_LOG_INFO, "kiln-flame %s on %s: %s; %zu Flame mod(s)", kPluginVersion,
            H.api->side() == KILN_SIDE_SERVER ? "the server" : "the client", plan.note.c_str(), g_mods.size());
     for (const auto& m : g_mods)
-        if (m->status.load() == KILN_FLAME_SKIPPED && !m->reason.empty())
+        if (m->status.load() == KILN_FLAME_SKIPPED && !m->reason.empty() && m->state.empty())
             H.logf(KILN_LOG_INFO, "%s %s: %s", m->name.c_str(), m->version.c_str(), m->reason.c_str());
     if (!g_stepped_aside.empty()) {
         H.logf(KILN_LOG_WARN,

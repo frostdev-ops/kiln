@@ -186,7 +186,7 @@ test("players with profiles: a drop goes into the active one; the setting can tu
   await page.getByText("Add new mods to the active profile", { exact: true }).click();
   await expect(sw).not.toBeChecked();
   await dropOn(page, page.locator(".k-sheet"), "dawn-lamp-2.0.0.zip");
-  const imported = toastWith(page, "Imported 1");
+  const imported = toastWith(page, "Imported Dawn Lamp");
   await expect(imported).toBeVisible({ timeout: 5000 });
   await expect(imported.getByRole("button", { name: "Library" })).toBeVisible();
   await page.evaluate(() => { location.hash = "#/profiles/ember-run/mods"; });
@@ -216,4 +216,39 @@ test("the first run's Play states fit 1024×640", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Active profile: My mods. Change profile." })).toBeVisible({ timeout: 10_000 });
   await fits("ready");
   await shot(page, "5b-ready-1024x640", 2800);
+});
+
+test("a drop says what was left out and why; Details lists everything", async ({ page }) => {
+  await start(page, null, "/");
+  await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip", "readme.txt");
+  const toast = toastWith(page, "Added Night Owl");
+  await expect(toast).toBeVisible({ timeout: 5000 });
+  // one short line: the file and the reason, with the period the backend leaves out
+  await expect(toast.getByText(/readme\.txt: .*\.$/)).toBeVisible();
+  await toast.getByRole("button", { name: "Details" }).click();
+  const dlg = page.getByRole("dialog", { name: "What was added" });
+  await expect(dlg.getByText("Night Owl")).toBeVisible();
+  await expect(dlg.getByText("Left out")).toBeVisible();
+  await expect(dlg.getByText("readme.txt")).toBeVisible();
+  await dlg.getByRole("button", { name: "OK" }).click();
+});
+
+test("no profile is active and none is remembered: the drop says it is only in the Library and offers the profiles", async ({ page }) => {
+  await start(page, null, "/");
+  // "No profile" on purpose: the launcher forgets the profile it had for the game
+  await page.getByRole("button", { name: /^Active profile: Ember run/ }).click();
+  await page.getByRole("option", { name: /^No profile/ }).click();
+  await expect(page.getByRole("button", { name: /^Active profile: Drop-in mods/ })).toBeVisible({ timeout: 5000 });
+  await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip");
+  const toast = toastWith(page, "Imported Night Owl");
+  await expect(toast).toBeVisible({ timeout: 5000 });
+  await expect(toast.getByText("Only in your Library: no profile is active in this game.")).toBeVisible();
+  await toast.getByRole("button", { name: "Add to a profile" }).click();
+  const pick = page.getByRole("dialog", { name: "Add to which profile?" });
+  await pick.getByRole("button", { name: /Ember run/ }).click();
+  const added = toastWith(page, "Added Night Owl to Ember run");
+  await expect(added).toBeVisible({ timeout: 5000 });
+  await expect(added.getByText(/not the active profile/)).toBeVisible();
+  await page.evaluate(() => { location.hash = "#/profiles/ember-run/mods"; });
+  await expect(page.locator(".k-order-row", { hasText: "night-owl" })).toBeVisible({ timeout: 5000 });
 });

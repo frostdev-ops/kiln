@@ -205,7 +205,8 @@ void apply_packs(bool reload) {
     gd_packs_end();
 #endif
     rep.skipped = skipped;
-    for (const std::string& m : skipped) LOGI("data packs of %s skipped: the mod is not loaded", m.c_str());
+    for (const std::string& m : skipped)
+        LOGW("data packs of %s skipped: Kiln.Host did not load the mod (its \"mod ... not loaded\" / \"skipped\" line above and kiln/logs/mods.txt say why)", m.c_str());
     g_report = report_json(rep);
     g_generation.store(rep.generation);
     g_modified_stale = true;
@@ -298,7 +299,7 @@ void try_ready(uint64_t step, uint32_t kind, uintptr_t world) {
     LOGI("store lock at world load: %s", lock_report(true).c_str());
     // <kiln>/data/content/dump-on-start: write the registries once the packs are applied (for modders).
     const std::string marker = data_dir() + "\\content\\dump-on-start";
-    if (GetFileAttributesA(marker.c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (path_exists(marker)) {
         const std::string p = data_dir() + "\\content\\dump.json";
         std::string err;
         const auto t1 = std::chrono::steady_clock::now();

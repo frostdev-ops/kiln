@@ -10,6 +10,9 @@ pub mod commands;
 pub mod deck;
 pub mod distribution;
 pub mod events;
+/// The backend timing harness (ignored tests; tools/launcher/perf.sh).
+#[cfg(test)]
+mod perf;
 pub mod selftest;
 /// The self-update: only in direct builds (feature `self-update`); the Nexus Mods build compiles none of it.
 #[cfg(feature = "self-update")]
@@ -36,6 +39,10 @@ pub fn run() {
     builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
+            // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
+            if let Ok(d) = state::dirs() {
+                kiln_manage::filecache::persist_at(&state::file_hashes(&d));
+            }
             watch::start(app.handle().clone());
             let shipped = app.handle().clone();
             std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
@@ -104,6 +111,7 @@ pub fn run() {
             commands::config::config_native_set,
             commands::launch::launch_play,
             commands::launch::launch_state,
+            commands::launch::launch_prestart,
             commands::logs::logs_list,
             commands::logs::logs_read,
             commands::logs::logs_follow,
@@ -172,6 +180,7 @@ pub fn run() {
             commands::update::update_skip,
             commands::update::update_ack,
             commands::library::library_add,
+            commands::library::library_add_to_profile,
             commands::profile::profile_revert,
             commands::profile::profile_ensure_default,
             commands::deck::deck_browse,
@@ -196,7 +205,11 @@ pub fn run() {
             commands::engines::eml_backup,
             commands::engines::eml_restore,
             commands::compat::chain_view,
-            commands::compat::chain_set_late
+            commands::compat::chain_set_late,
+            commands::found::found_scan,
+            commands::found::found_add,
+            commands::logs::report_save,
+            commands::logs::report_summary
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")

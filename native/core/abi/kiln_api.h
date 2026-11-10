@@ -161,6 +161,9 @@ typedef struct KilnApi {
     void(KILN_CALL* log)(KilnOwner owner, int32_t level, KilnStr text);
     KilnResult(KILN_CALL* build_info)(KilnBuildInfo* out);
     bool(KILN_CALL* feature)(KilnStr name);
+    /* The folder of `kind` (KILN_PATH_*) as an absolute Windows-form path in UTF-8 (not NUL-terminated). Convert it with a
+     * wide-character call before it reaches a file API: a narrow call reads UTF-8 bytes in the ANSI code page, which
+     * lacks Cyrillic, CJK and most other non-Latin letters. KILN_ERR_BUFFER_TOO_SMALL sets *out_len to the length needed. */
     KilnResult(KILN_CALL* path)(int32_t kind, char* buffer, size_t capacity, size_t* out_len);
 
     /* ---- ownership ---- */

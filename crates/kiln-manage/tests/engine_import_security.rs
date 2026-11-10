@@ -61,14 +61,24 @@ fn all_folder_links_and_lone_dll_links_are_refused() {
 }
 
 #[test]
-fn invalid_manifest_ids_are_refused_and_fallback_versions_are_valid() {
+fn unusable_manifest_ids_are_refused_others_get_a_kiln_id_and_fallback_versions_are_valid() {
     let t = tmp("identity");
     let dirs = DataDirs::at(t.0.join("data"));
     let src = t.0.join("set");
-    for id in ["", "../escape", "bad\nid", "trailing\n", "Uppercase"] {
+    // ids that give nothing to name a library entry by are refused; any other id is the engine's own and gets a Kiln id
+    for id in ["", "bad\nid", "trailing\n"] {
         set_mod(&src, id, "1.0.0");
         let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
         assert!(r.imported.is_empty() && !r.skipped.is_empty(), "{id:?}: {r:?}");
+    }
+    for (id, slug) in [("../escape", "escape"), ("Uppercase", "uppercase")] {
+        set_mod(&src, id, "1.0.0");
+        let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+        assert_eq!(r.imported.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), [slug], "{id:?}: {r:?}");
+        let rec = library::record(&dirs, &r.imported[0]).unwrap();
+        assert_eq!(rec.manifest_id.as_deref(), Some(id));
+        // the files are the author's, byte for byte
+        assert_eq!(std::fs::read(library::path_of(&dirs, &r.imported[0]).unwrap().join("mod.json")).unwrap(), std::fs::read(src.join("mod.json")).unwrap());
     }
     for v in ["001", "../../escape", "1.0/evil", "???", "beta"] {
         set_mod(&src, "setmod", v);
@@ -174,7 +184,7 @@ fn loader_cannot_commit_a_folder_under_an_incorrect_hash() {
     let mut report = library::ImportReport::default();
     let rec = library::ImportRecord {
         format: 1, kind: ModKind::Set, id: "setmod".into(), version: "1.0.0".into(), hash: format!("kdh1:{}", "0".repeat(64)),
-        imported: "now".into(), source: None, size: 0, name: None, side: None, clients: None, file: None,
+        imported: "now".into(), source: None, size: 0, name: None, side: None, clients: None, file: None, manifest_id: None,
     };
     assert_eq!(library::commit_folder(&dirs, &src, rec, &mut report).unwrap_err().code, ErrorCode::HashMismatch);
     assert!(report.imported.is_empty());

@@ -67,7 +67,9 @@ std::string ember_loader_in_process(const fs::path& game, const fs::path& kiln) 
         const fs::path f(p);
         const fs::path dir = f.parent_path();
         if (!fs::equivalent(dir, game, ec) && !fs::equivalent(dir, kiln / L"chain", ec)) continue;
-        if (GetProcAddress(mods[i], KILN_PLUGIN_MAIN) || GetProcAddress(mods[i], "KilnProxyInfo")) continue;
+        if (kcompat::kiln_own_module(mods[i], f)) continue;  // Kiln's own files name every engine
+        // Wine's builtin under the proxy's name (powrprof, iphlpapi, dbghelp) reports the file's path without running it.
+        if (!kcompat::module_is_file(mods[i], f)) continue;
         if (kcompat::file_contains(f, "ember-loader") || kcompat::file_contains(f, "ember_loader")) return path_utf8(f);
     }
     return {};
@@ -160,8 +162,22 @@ void KILN_CALL on_ready(void*) {
     const std::string loader = ember_loader_in_process(game, kiln);
     if (!loader.empty()) {
         g_stepped_aside = "Ember's own loader (" + loader + ") runs in this process and starts the mods in ember/mods";
-        for (auto& m : g_mods)
-            if (m.status == "waiting-for-abi") m.status = "skipped", m.reason = m.origin == "folder" ? "" : g_stepped_aside;
+        for (auto& m : g_mods) {
+            if (m.status != "waiting-for-abi") continue;
+            if (m.origin == "folder") {
+                m.status = "skipped", m.reason.clear();  // Ember's loader reads ember/mods itself
+                continue;
+            }
+            // Kiln copies nothing into ember/mods, so a profile entry runs there only when it already lives there.
+            const auto rep = kcompat::aside_report(m.id, m.folder, true, "ember",
+                                                   game / L"ember" / L"mods", "Ember", "ember\\mods");
+            m.status = kcompat::aside_word(rep.state);
+            m.reason = rep.state == kcompat::Aside::OwnLoader
+                           ? rep.reason
+                           : "Ember's own loader runs this start and reads only <game>\\ember\\mods; this mod is in Kiln's "
+                             "Library, so it does not load (and Kiln itself starts no Ember mod until Ember publishes its "
+                             "mod ABI)";
+        }
     }
     H.logf(KILN_LOG_INFO, "kiln-ember %s on %s: %s; %zu Ember mod(s)", kPluginVersion,
            H.api->side() == KILN_SIDE_SERVER ? "the server" : "the client", plan.note.c_str(), g_mods.size());
@@ -171,7 +187,7 @@ void KILN_CALL on_ready(void*) {
     for (const auto& m : g_mods) {
         std::string ex;
         for (const auto& e : m.exports) ex += (ex.empty() ? "" : ", ") + e;
-        H.mod_log(m.status == "waiting-for-abi" ? KILN_LOG_WARN : KILN_LOG_INFO, m.id,
+        H.mod_log(m.status == "waiting-for-abi" || m.status == "not-loaded" ? KILN_LOG_WARN : KILN_LOG_INFO, m.id,
                   m.origin + ": " + (m.reason.empty() ? std::string("runs under Ember's own loader") : m.reason) +
                       (m.library.empty() ? std::string() : " (" + path_utf8(m.library) + "; exports: " + (ex.empty() ? "none" : ex) + ")"));
     }

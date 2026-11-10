@@ -95,6 +95,8 @@ test("Logs > Engines shows each plugin's state, and Restore vanilla game data pu
   await expect(list.locator('[data-engine="shroudforge"]')).toContainText("hosted");
   await expect(list.locator('[data-engine="greeneye"]')).toContainText("zoom-out started");
   await expect(list.locator('[data-engine="shroudtopia"]')).toContainText("Fly Mode active");
+  // an engine's own loader in the game: the row says what it means for the profile's mods
+  await expect(list.locator('[data-engine="flame"]')).toContainText("Flame's own loader (kiln/chain/flame-dinput8.dll) is installed");
 
   // the active profile ("Ember run") has its EML mod off, and enshrouded.kfc is still patched
   const offer = page.getByRole("button", { name: "Restore vanilla game data" });

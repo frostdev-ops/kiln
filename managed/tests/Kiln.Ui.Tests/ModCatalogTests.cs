@@ -116,6 +116,8 @@ public sealed class ModCatalogTests : IDisposable
     [InlineData("skipped", ModRunState.NotLoaded)]
     [InlineData("duplicate", ModRunState.NotLoaded)]
     [InlineData("something new", ModRunState.NotLoaded)]
+    [InlineData("own-loader", ModRunState.Loaded)]
+    [InlineData("not-loaded", ModRunState.Failed)]
     internal void Engine_words_map_to_states(string word, ModRunState state) => Assert.Equal(state, ModCatalog.StateOf(word));
 
     // ---- each engine's file ----
@@ -275,6 +277,69 @@ public sealed class ModCatalogTests : IDisposable
         var g = s.Engines.Single(e => e.Kind == "greeneye");  // listed although it has no mod: its plugin failed
         Assert.Equal(EngineHealth.Problem, g.Health);
         Assert.Contains("bad image", g.Note);
+    }
+
+    // ---- engine mods whose manifest id is no Kiln id: the profile has the Library's id, the plugin reports the manifest's ----
+
+    [Fact]
+    public void An_engine_row_matches_its_profile_entry_by_folder_whatever_the_separators_and_case()
+    {
+        // the profile (written by the launcher) has backslashes, kiln-eml reports the path it resolved with slashes
+        Profile(new() { ["eml"] = [new { id = "hoardershelper", version = "1.0.0", path = @"Z:\Data\Lib\hoardershelper" }] });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "done",
+            mods = new[] { new { id = "Hoarders Helper", name = "Hoarder's Helper", version = "1.0.0", state = "loaded", path = "z:/data/lib/hoardershelper", reason = (string?)null } },
+        });
+        var s = Read();
+        var m = Assert.Single(s.Mods, x => x.Engine == "eml");
+        Assert.Equal(("Hoarders Helper", ModRunState.Loaded), (m.Id, m.State));
+        Assert.False(m.Missing);
+    }
+
+    [Fact]
+    public void An_engine_row_without_a_folder_matches_by_the_slug_of_its_id()
+    {
+        Profile(new()
+        {
+            ["eml"] =
+            [
+                new { id = "less-dense-shroud-fog", version = "1.0.0", path = Dir("lib", "less-dense-shroud-fog") },
+                new { id = "antisocialian-s-tweaks", version = "1.0.0", path = Dir("lib", "antisocialian-s-tweaks") },
+                new { id = "unreported", version = "1.0.0", path = Dir("lib", "unreported") },
+            ],
+        });
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "done",
+            mods = new[]
+            {
+                new { id = "Less Dense Shroud Fog", state = "loaded" },
+                new { id = "antisocialian's tweaks", state = "loaded" },
+            },
+        });
+        var s = Read();
+        // two rows from the plugin, and only the mod it did not report as "not reported": no duplicates of the first two
+        Assert.Equal(["Less Dense Shroud Fog", "antisocialian's tweaks", "unreported"], s.Mods.Where(x => x.Engine == "eml").Select(x => x.Id).ToArray());
+        Assert.Equal(ModRunState.NotLoaded, Mod(s, "eml", "unreported").State);
+    }
+
+    [Fact]
+    public void The_slug_is_the_one_the_library_makes()
+    {
+        // the cases of kiln-manage's library::id_from_name (crates/kiln-manage/src/library.rs and tests/import_shapes.rs)
+        Assert.Equal("hoardershelper", ModCatalog.IdFromName("HoardersHelper"));
+        Assert.Equal("xhl-max-stack-65535", ModCatalog.IdFromName("XHL-Max-Stack-65535"));
+        Assert.Equal("less-dense-shroud-fog", ModCatalog.IdFromName("Less Dense Shroud Fog"));
+        Assert.Equal("antisocialian-s-tweaks", ModCatalog.IdFromName("antisocialian's tweaks"));
+        Assert.Equal("no_intro", ModCatalog.IdFromName("no_intro"));
+        Assert.Equal("escape", ModCatalog.IdFromName("../escape"));
+        Assert.Equal("a-b", ModCatalog.IdFromName("  -.A  B_."));
+        Assert.Equal("n", ModCatalog.IdFromName("\u00dcn\u00ef"));
+        Assert.Equal("mod", ModCatalog.IdFromName("***"));
+        Assert.Equal(64, ModCatalog.IdFromName(new string('x', 200)).Length);
+        Assert.Equal("p", ModCatalog.NormPath(@"p\").TrimEnd('/'));
+        Assert.Equal("Z:/a/b", ModCatalog.NormPath(@"Z:\a\b\"));
     }
 
     // ---- stale, malformed and missing files ----

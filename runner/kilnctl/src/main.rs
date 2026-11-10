@@ -11,6 +11,7 @@ mod ops;
 mod preflight;
 mod profiles;
 mod procs;
+mod report;
 mod run;
 mod server;
 mod sigport;
@@ -250,6 +251,21 @@ enum Cmd {
     },
     /// List instances
     List,
+    /// Write a support report: one zip with Kiln's logs, state files, the profile, listings of the game folder and a
+    /// summary with findings; home folder, user and machine names, Steam ids and IP addresses are replaced
+    Report {
+        /// Instance name [default: --dir, else the client Steam knows]
+        name: Option<String>,
+        /// A server or client folder
+        #[arg(long, conflicts_with = "name")]
+        dir: Option<PathBuf>,
+        /// The zip to write [default: ./kiln-report-<date>.zip]
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print summary.txt instead of writing the zip
+        #[arg(long, conflicts_with = "out")]
+        print: bool,
+    },
     /// Runtime bundles: create, verify, install into a game folder, uninstall (docs/kiln/launcher/bundle.md)
     Bundle {
         #[command(subcommand)]
@@ -444,6 +460,7 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<i32> {
             ops::backup(&load(&name)?)?;
         }
         Cmd::List => ops::list()?,
+        Cmd::Report { name, dir, out, print } => return report::run(report::ReportArgs { name, dir, out, print }),
         Cmd::Bundle { cmd } => {
             return match cmd {
                 BundleCmd::Create { stage, out, git, epoch } => bundle::create(&stage, &out, git, epoch),

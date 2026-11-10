@@ -187,6 +187,7 @@ void KILN_CALL on_ready(void*) {
     g_stepped_aside = emf_in_process();
     if (!g_stepped_aside.empty()) {
         logf(KILN_LOG_WARN, "kiln-emf steps aside: %s; the EMF mods are EMF's to load", g_stepped_aside.c_str());
+        aside_mods();
         g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_aside_pre, nullptr, &g_aside_tick);
         write_status();
         return;
@@ -283,7 +284,7 @@ void write_status() {
         json j = {{"id", m->id},
                   {"name", m->name},
                   {"version", m->version},
-                  {"status", m->status < 6 ? kStatus[m->status] : "?"},
+                  {"status", !m->state.empty() ? m->state.c_str() : m->status < 6 ? kStatus[m->status] : "?"},
                   {"reason", m->reason},
                   {"source", m->source},
                   {"origin", m->origin},
@@ -299,6 +300,7 @@ void write_status() {
                   {"tickMsMax", static_cast<double>(m->tick_max_ns.load()) / 1e6}};
         if (!m->dll.empty()) j["dll"] = path_utf8(m->dll);
         if (!m->main.empty()) j["main"] = m->main;
+        if (!m->profile_id.empty()) j["profileId"] = m->profile_id;
         json deps = json::array();
         for (const auto& d : m->deps) deps.push_back({{"id", d.id}, {"version", d.range}, {"optional", d.optional}});
         j["depends"] = deps;

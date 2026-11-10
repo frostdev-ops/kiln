@@ -3,6 +3,7 @@
 // The mouth (shell/AppShell.tsx) is the Play button. Banners (refusal, launch option, Steam update) sit above the name.
 // A first start: the launcher looks for the game by itself (shell/firstRun.tsx), then Install Kiln runs right here (the
 // mouth and the link open its confirm; the task shows in place of the sentence's links).
+// One line links to the profile's "In the game folder" section when the active profile leaves such mods unloaded.
 // The modpack offer is a working dialog (src/pages/servers/ModpackOffer.tsx, loaded when it exists).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
@@ -11,8 +12,9 @@ import * as api from "../api/commands";
 import { totalCount } from "../api/kinds";
 import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
 import {
-  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
+  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, usePoll, usePreStart, useProfiles, useRuntimeChanges,
 } from "../api/hooks";
+import { useFound } from "./profiles/GameFolder";
 import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
 import {
@@ -94,9 +96,12 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const state = useLaunchState(game.id);
   const active = useActiveProfile(game.id);
   const profiles = useProfiles();
-  const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: 15000 });
+  const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: usePoll(15000) });
   const activeId = active.data?.profileId ?? null;
   const preview = useQuery({ queryKey: qk.resolve(activeId ?? "", "client"), queryFn: () => api.profileResolve(activeId!, "client"), enabled: !!activeId });
+  // mods extracted into the game folder that the active profile leaves out (kiln_manage::found)
+  const found = useFound(status.data?.runtime.installed ? game.id : null, activeId);
+  const unloaded = found.data?.mods.filter((m) => m.state === "off").length ?? 0;
   const [onceOpen, setOnceOpen] = useState(false);
   const [vanillaOpen, setVanillaOpen] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
@@ -105,6 +110,8 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const v = ctl.view;
   const boot = state.data?.boot ?? null;
   const fresh = !!boot && !state.data?.stale;
+  // what kiln-eml does before the game's window exists (fingerprinting the game's data files): said instead of "Waiting"
+  const prep = usePreStart(game.id, (ctl.starting || ctl.running) && !fresh).data ?? null;
   const list = profiles.data ?? [];
   const cur = list.find((p) => p.id === activeId) ?? null;
   const rt = s?.runtime;
@@ -132,7 +139,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
     say = `${order.length} of ${total} mods load on this client.` + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} on the server.` : "");
   } else say = `${cur.counts.kiln} Kiln mods in this profile.`;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
-  const runLine = v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
+  const runLine = prep && !fresh ? prep.message : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
     : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${preview.data ? ` and ${preview.data.kiln.order.length} mods` : ""}.`;
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
@@ -165,7 +172,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         )}
         {starting ? (
           <div className="k-hero-state" key="start">
-            <p className="k-hero-say">Waiting for Kiln to boot.</p>
+            <p className="k-hero-say" role="status">{prep ? prep.message : "Waiting for Kiln to boot."}</p>
             <ol className="k-boot" aria-label="Boot stages">
               {stages.map((t, i) => (
                 <li key={t}>
@@ -183,6 +190,11 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         ) : (
           <div className="k-hero-state" key="stop">
             <p className="k-hero-say">{say}</p>
+            {rt?.installed && activeId && unloaded > 0 && (
+              <button type="button" className="k-link k-tone-warn" style={{ alignSelf: "flex-start" }} onClick={() => nav(`/profiles/${activeId}/mods#game-folder`)}>
+                {unloaded} {unloaded === 1 ? "mod" : "mods"} in the game folder {unloaded === 1 ? "does" : "do"} not load with this profile.
+              </button>
+            )}
             {rt?.installed ? (
               <div className="k-hero-once">
                 <span className="k-sc k-muted" style={{ fontSize: 17 }}>Just once:</span>
@@ -293,8 +305,8 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
   } else if (ctl.stuck && s?.runtime.installed) {
     // the launch option is set (or not needed here) and Kiln still did not load: say so, never "Starting" forever
     out.push(
-      <Banner key="nokiln" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : "Kiln did not start"} actions={<Button size="s" onClick={() => nav("/logs")}>Logs</Button>}>
-        The game started without Kiln. Close it and send us <span className="k-mono">kiln/logs/proxy.log</span> from the game folder (no such file: Kiln's dinput8.dll never loaded), your Proton version and Steam's launch options for Enshrouded.
+      <Banner key="nokiln" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : "Kiln did not start"} actions={<Button size="s" onClick={() => nav("/logs")}>Support report</Button>}>
+        The game started without Kiln. Close it, then save a support report on the Logs page and send us that zip: it explains most causes itself.
       </Banner>,
     );
   }

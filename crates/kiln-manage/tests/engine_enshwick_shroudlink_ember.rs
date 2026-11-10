@@ -476,3 +476,22 @@ fn ancillary_pack_does_not_override_another_engines_manifest() {
         }
     }
 }
+
+/// shroudlink's singleplayer package: the client addon (`dinput8.dll`, the in-game MODS tab), its core and the mods.
+/// The addon is a DLL mod Kiln chains, the mods are shroudlink mods, and only the core is not needed (kiln-shroudlink
+/// is that core).
+#[test]
+fn shroudlinks_client_addon_is_kept_as_a_mod() {
+    let t = tmp("sl-addon");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let pkg = t.0.join("shroudlink-singleplayer");
+    put(&pkg, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"shroudlink addon"));
+    put(&pkg, "shroudlink_core.dll", &build_test_dll(&["DirectInput8Create", "CrashHandlerFactory"], b"shroudlink core"));
+    put(&pkg, "shroudlink_mods/chestsort.dll", &build_test_dll(&["shroudlink_mod_v2"], b""));
+    let r = library::import(&dirs, &[pkg], &mut NoProgress).unwrap();
+    let kinds: Vec<(ModKind, &str)> = r.imported.iter().map(|m| (m.kind, m.id.as_str())).collect();
+    assert!(kinds.iter().any(|(k, _)| *k == ModKind::Native), "the addon is a native mod: {r:#?}");
+    assert!(kinds.contains(&(ModKind::Shroudlink, "chestsort.dll")), "{r:#?}");
+    assert!(r.notes.iter().any(|n| n.text.contains("shroudlink's own loader")), "the core is a note: {r:#?}");
+    assert!(r.skipped.is_empty(), "{r:#?}");
+}

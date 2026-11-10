@@ -289,6 +289,7 @@ pub struct KilnManifest {
     /// The version normalized by SemVer (1.2 -> 1.2.0).
     pub parsed_version: String,
     pub api_version: String,
+    /// The mod's assembly; empty for a mod of data only (no `entryAssembly`).
     pub entry_assembly: String,
     pub entry_type: Option<String>,
     pub side: Side,
@@ -534,8 +535,11 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
     if SemVersion::try_parse(&api).is_none() {
         VersionRange::try_parse(&api).map_err(|e| bad(format!("apiVersion: {e}")))?;
     }
-    let entry = str_of(&root, "entryAssembly")?.ok_or_else(|| bad("'entryAssembly' is required"))?;
-    if !is_dll_name(&entry) {
+    // No entryAssembly: a mod of data only (content packs, assets). Kiln.Host loads it with nothing to run.
+    let entry = str_of(&root, "entryAssembly")?;
+    if let Some(entry) = &entry
+        && !is_dll_name(entry)
+    {
         return Err(bad(format!("entryAssembly '{entry}' must be a .dll file name in the mod folder")));
     }
     let side = match str_of(&root, "side")?.as_deref().unwrap_or("server") {
@@ -602,7 +606,7 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
         version,
         parsed_version: parsed.to_string(),
         api_version: api,
-        entry_assembly: entry,
+        entry_assembly: entry.unwrap_or_default(),
         entry_type,
         side,
         clients,
@@ -986,6 +990,16 @@ mod tests {
         assert!(parse_native(r#"{"id": "m", "version": "1", "dlls": ["lib/m.DLL"],}"#).is_ok());
         assert_eq!(parse_native("{").unwrap_err().code, ErrorCode::Parse);
         assert_eq!(parse_native(r#"{"version": "1", "dlls": ["m.dll"]}"#).unwrap_err().message, "native.json: 'id' is required");
+    }
+
+    #[test]
+    fn a_mod_without_entry_assembly_is_a_mod_of_data_only() {
+        let m = parse_kiln(r#"{"id": "pack-only", "version": "1.0.0", "apiVersion": "0.2", "side": "both"}"#).unwrap();
+        assert_eq!((m.entry_assembly.as_str(), m.clients), ("", Clients::Mod));
+        let m = parse_kiln(r#"{"id": "n", "version": "1", "apiVersion": "0.2", "entryAssembly": null}"#).unwrap();
+        assert_eq!(m.entry_assembly, "");
+        assert!(parse_kiln(r#"{"id": "n", "version": "1", "apiVersion": "0.2", "entryAssembly": ""}"#).is_err());
+        assert!(parse_kiln(r#"{"id": "n", "version": "1", "apiVersion": "0.2", "entryAssembly": "n.dll"}"#).is_ok());
     }
 
     #[test]

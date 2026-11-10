@@ -470,7 +470,10 @@ pub fn manifest_for_stage(stage: &Path, options: &CreateOptions) -> Result<(Runt
 pub fn read(zip: &Path) -> Result<RuntimeManifest> {
     #[cfg(feature = "zip")]
     {
-        imp::read(zip)
+        // `list` reads every bundle's manifest on each status poll: parsed once per zip while it is unchanged
+        static MANIFESTS: std::sync::LazyLock<crate::filecache::Memo<std::sync::Arc<RuntimeManifest>>> =
+            std::sync::LazyLock::new(|| crate::filecache::Memo::new(64));
+        MANIFESTS.get(zip, |z| imp::read(z).map(std::sync::Arc::new)).map(|m| (*m).clone())
     }
     #[cfg(not(feature = "zip"))]
     {
@@ -531,26 +534,10 @@ pub fn create(stage: &Path, out_dir: &Path, options: &CreateOptions) -> Result<P
     }
 }
 
-/// A bundle's sha256, remembered per (path, size, mtime) for this process: `list` runs on every status poll, and
-/// hashing each ~100 MB zip every time was most of a status's cost.
+/// A bundle's sha256, remembered while the zip is unchanged (crate::filecache; across launcher starts too): `list`
+/// runs on every status poll, and hashing each ~100 MB zip every time was most of a status's cost.
 fn cached_sha(zip: &Path) -> Result<String> {
-    use std::sync::{Mutex, OnceLock};
-    type Key = (u64, Option<std::time::SystemTime>);
-    static CACHE: OnceLock<Mutex<std::collections::HashMap<std::path::PathBuf, (Key, String)>>> = OnceLock::new();
-    let md = std::fs::metadata(zip).map_err(crate::util::io_at(zip, "reading"))?;
-    let key: Key = (md.len(), md.modified().ok());
-    let cache = CACHE.get_or_init(Default::default);
-    if key.1.is_some()
-        && let Some((k, h)) = cache.lock().ok().and_then(|c| c.get(zip).cloned())
-        && k == key
-    {
-        return Ok(h);
-    }
-    let (h, _) = crate::hash::sha256_file(zip)?;
-    if let Ok(mut c) = cache.lock() {
-        c.insert(zip.to_path_buf(), (key, h.clone()));
-    }
-    Ok(h)
+    crate::filecache::sha256(zip)
 }
 
 fn describe(zip: &Path, m: &RuntimeManifest) -> Result<RuntimeBundle> {
@@ -600,6 +587,7 @@ pub fn list(dirs: &crate::paths::DataDirs) -> Result<Vec<RuntimeBundle>> {
         }
     }
     out.sort_by(|a, b| compare(b, a));
+    crate::filecache::flush();
     Ok(out)
 }
 

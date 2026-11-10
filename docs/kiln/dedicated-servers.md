@@ -133,6 +133,10 @@ Open `kiln/logs/kiln.log` after the server has started.
 
 On Linux, `kilnctl status myserver` shows the same build line.
 
+Asking for help: `kilnctl report myserver` (or the Kiln Launcher's Logs page, "Save report...") writes one zip with
+these logs, Kiln's state files and a summary that names the usual causes; names, paths and addresses are replaced
+([launcher/support-report.md](launcher/support-report.md)).
+
 ## Running the server: admin options
 
 | Way | Where it works | What you need |

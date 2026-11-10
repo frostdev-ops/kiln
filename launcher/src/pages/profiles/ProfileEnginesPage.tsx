@@ -2,14 +2,15 @@
 // shroudlink, Ember), each run by its Kiln engine plugin (docs/kiln/engines.md). One card per engine whose mods are in
 // the library or the profile, with the same flame switch, versions and add-from-library as Kiln mods; Settings for
 // ShroudForge and Shroudtopia mods. Ember's card says its mods don't run yet (no published Ember ABI). EML's "Restore
-// vanilla game data" offer on top.
+// vanilla game data" offer on top; "In the game folder" (GameFolder.tsx) at the end, for these kinds.
 import { useState } from "react";
 import type { ModKind } from "../../api/commands";
 import { useGame, useLibrary } from "../../api/hooks";
-import { IMPORTED_KINDS, KIND_NAME, KIND_PLUGIN, KIND_SHORT, KIND_TONE, NOT_RUNNING_NOTE, SETTINGS_KINDS, runsYet } from "../../api/kinds";
+import { ENGINE_KINDS, IMPORTED_KINDS, KIND_NAME, KIND_PLUGIN, KIND_SHORT, KIND_TONE, NOT_RUNNING_NOTE, SETTINGS_KINDS, runsYet } from "../../api/kinds";
 import { EngineSettingsModal } from "../../components/EngineSettings";
 import { RestoreVanillaOffer } from "../../components/EngineStatus";
 import { Badge, Banner, EmptyState, Skeleton, errorText } from "../../ui";
+import { GameFolderSection } from "./GameFolder";
 import { ModList, libName } from "./ModList";
 import { ProfileFacts } from "./ProfileLayout";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
@@ -58,6 +59,7 @@ export default function ProfileEnginesPage() {
             emptyHint={`No ${KIND_SHORT[k]} mods in this profile.`} />
         </section>
       ))}
+      <GameFolderSection profileId={id} kinds={ENGINE_KINDS} />
       <EngineSettingsModal target={settings} onClose={() => setSettings(null)} profileId={id} gameId={game?.id ?? null} />
       <ProfileFacts hint="Each engine's mods run through Kiln's plugin for that engine. EMF mods have their own tab." />
     </div>

@@ -8,6 +8,7 @@ use kiln_manage::Error;
 use kiln_manage::library::{self, Detected, LibraryEntry, LibraryRef, RemoveReport};
 use kiln_manage::lint::{self, LintOptions, LintReport};
 use kiln_manage::manifest::ModKind;
+use kiln_manage::quick::AddReport;
 use std::path::PathBuf;
 use tauri::AppHandle;
 
@@ -66,6 +67,19 @@ pub async fn library_add(app: AppHandle, game_id: String, paths: Vec<String>) ->
         }
         to_value(r)
     }))
+}
+
+/// Puts library versions into the profile the player picked: what a drop offers when it only reached the Library
+/// (`AddReport.libraryOnly`: no profile is active in the game and none is remembered). The result is `library_add`'s,
+/// with an empty `import`, so the toast and its Undo (`profile_revert`) are the same.
+#[tauri::command]
+pub async fn library_add_to_profile(app: AppHandle, game_id: String, profile_id: String, entries: Vec<LibraryRef>) -> Result<AddReport, Error> {
+    let g = blocking({ let id = game_id.clone(); move || crate::state::game(&id) }).await?;
+    let r = blocking(move || kiln_manage::quick::add_to_profile(&dirs()?, &g, &profile_id, &entries, &mut kiln_manage::task::NoProgress)).await?;
+    if r.applied {
+        super::profile::emit_status_later(app, game_id);
+    }
+    Ok(r)
 }
 
 /// Refuses (game_running) while a game runs, or a server whose profile file points into the library, whatever `force`

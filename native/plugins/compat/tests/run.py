@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Host tests of the compatibility plugins (kiln-greeneye, kiln-flame, kiln-shroudtopia) under plain Wine, no game.
+"""Host tests of the compatibility plugins (kiln-greeneye, kiln-flame, kiln-shroudtopia; kiln-emf for own-loader
+reports and copy dedupe) under plain Wine, no game.
 
-    KILN_OUT=<build dir> native/build.sh compathost
+    KILN_OUT=<build dir> native/build.sh compathost kiln-emf
     KILN_OUT=<build dir> python3 native/plugins/compat/tests/run.py [scenario...]
 
 Each scenario builds a scratch game folder under $KILN_OUT/compat/run/<scenario>/ (compathost.exe as enshrouded.exe or
@@ -22,7 +23,9 @@ CT = os.path.join(BIN, "compat-tests")
 PLUGINS = os.path.join(BIN, "plugins")
 WORK = os.path.join(OUT, "compat")
 PFX = os.path.join(WORK, "pfx")
-RUN = os.path.join(WORK, "run")
+# The scenario folders sit under a name with a space, parentheses, Cyrillic and CJK letters (a Windows player's Steam library
+# or user folder): Wine's ANSI code page lacks them, so a narrow path call in a plugin fails here as on such a PC.
+RUN = os.path.join(WORK, "run", "Игры (x86) 日本語")
 WINE = os.environ.get("COMPAT_WINE", "wine")
 
 
@@ -30,9 +33,9 @@ def winpath(p):
     return "Z:" + os.path.abspath(p).replace("/", "\\")
 
 
-def env():
+def env(overrides=""):
     e = dict(os.environ)
-    e.update(WINEPREFIX=PFX, WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d")
+    e.update(WINEPREFIX=PFX, WINEDEBUG="-all", WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d" + overrides)
     # No window may reach the desktop (a crash dialog included): no X display, and a Wayland socket that does not
     # exist (unset, libwayland falls back to $XDG_RUNTIME_DIR/wayland-0, the desktop); winedbg is off.
     e.pop("DISPLAY", None)
@@ -85,9 +88,9 @@ class Game:
     def profile(self, mods, dropins=False):
         self.put("kiln/profile.json", {"format": 1, "id": "testprofile", "generation": 1, "dropins": dropins, "mods": mods})
 
-    def run(self, plugin, wait_ms, *extra):
+    def run(self, plugin, wait_ms, *extra, overrides=""):
         cmd = [WINE, self.p(self.exe), plugin, str(wait_ms), *extra]
-        r = subprocess.run(cmd, cwd=self.dir, env=env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+        r = subprocess.run(cmd, cwd=self.dir, env=env(overrides), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
         self.out = r.stdout.decode("utf-8", "replace")
         self.expect(r.returncode == 0, f"host exit status {r.returncode}: {self.out[-1500:]}")
         try:
@@ -794,6 +797,248 @@ def shroudtopia_loader_named_mod():
     g.expect(g.state("shroudtopia").get("steppedAside") is False, "CreateModInstance mod named shroudtopia.dll is not a loader")
     return g
 
+# ---------------------------------------------------------------------------------------------------- own loaders ---
+# The launcher copies a profile's mods into the own loader's folder (<folder>/<library id>/) with a .kiln-library.json
+# marker. While the adapter steps aside, each profile entry says whether it runs there (own-loader) or not at all
+# (not-loaded, a WARN line); without the own loader, the marked copy is the profile entry and loads once.
+def marker(g, folder, kind, lib_id):
+    g.put(f"{folder}/.kiln-library.json", {"format": 1, "kind": kind, "id": lib_id, "version": "1.0", "hash": "x"})
+
+
+def mods_by(g, engine, key, value):
+    return [m for m in g.state(engine).get("mods", []) if m.get(key) == value]
+
+
+def expect_aside(g, engine, own, missing, off, off_word, key="id"):
+    st = g.state(engine)
+    g.expect(st.get("steppedAside") is True and st.get("steppedAsideReason"), f"{engine}: steppedAside with a reason")
+    o = mods_by(g, engine, key, own)
+    g.expect(len(o) == 1 and o[0].get("status") == "own-loader", f"{engine}: {own} own-loader: {o}")
+    g.expect(o and "copied it to" in o[0].get("reason", ""), f"{engine}: own-loader reason names the copy: {o}")
+    n = mods_by(g, engine, key, missing)
+    g.expect(len(n) == 1 and n[0].get("status") == "not-loaded", f"{engine}: {missing} not-loaded: {n}")
+    g.expect(n and "does not load" in n[0].get("reason", ""), f"{engine}: not-loaded reason: {n}")
+    f = mods_by(g, engine, key, off)
+    g.expect(len(f) == 1 and f[0].get("status") == off_word, f"{engine}: {off} {off_word}: {f}")
+    g.expect(f"[W] [{engine}] profile mod {missing}: not-loaded" in g.log, f"{engine}: WARN line for {missing}")
+    g.expect(f"[I] [{engine}] profile mod {own}: own-loader" in g.log, f"{engine}: info line for {own}")
+
+
+def greeneye_aside_profile():
+    g = Game("greeneye-aside-profile")
+    greeneye_mod(g, "library/ga", "ga-manifest", "greeneye_test.dll")
+    greeneye_mod(g, "library/gb", "gb", "greeneye_test.dll")
+    greeneye_mod(g, "library/goff", "goff", "greeneye_test.dll")
+    greeneye_mod(g, "greeneye/ga", "ga-manifest", "greeneye_test.dll")
+    marker(g, "greeneye/ga", "greeneye", "ga")
+    greeneye_mod(g, "greeneye/gb", "gb", "greeneye_test.dll")
+    marker(g, "greeneye/gb", "flame", "gb")  # another engine's marker: not a copy of this entry
+    g.profile({"greeneye": [{"id": "ga", "path": winpath(g.p("library/ga"))}, {"id": "gb", "path": winpath(g.p("library/gb"))},
+                            {"id": "goff", "path": winpath(g.p("library/goff")), "enabled": False}]})
+    g.run(g.plugin("kiln-greeneye.dll"), 200, "--claim-greeneye")
+    g.has("kiln-greeneye steps aside")
+    g.expect(g.result("gt_target") == "5", "nothing hooked")
+    expect_aside(g, "greeneye", "ga", "gb", "goff", "disabled")
+    return g
+
+
+def flame_aside_profile():
+    g = Game("flame-aside-profile")
+    flame_mod(g, "library/creative-lib", "ftest", "flame_test.dll")  # Library id differs from the manifest id
+    flame_mod(g, "library/fb", "fb", "flame_test.dll")
+    flame_mod(g, "library/foff", "foff", "flame_test.dll")
+    flame_mod(g, "mods/creative-lib", "ftest", "flame_test.dll")
+    marker(g, "mods/creative-lib", "flame", "creative-lib")
+    flame_mod(g, "mods/handmade", "handmade", "flame_test.dll")  # the player's own: Flame's loader runs it
+    g.dll("fakeflame.dll", "dinput8-flame.dll")
+    g.profile({"flame": [{"id": "creative-lib", "path": winpath(g.p("library/creative-lib"))},
+                         {"id": "fb", "path": winpath(g.p("library/fb"))},
+                         {"id": "foff", "path": winpath(g.p("library/foff")), "enabled": False}]}, dropins=True)
+    g.run(g.plugin("kiln-flame.dll"), 400, "--load", "dinput8-flame.dll")
+    g.has("kiln-flame steps aside")
+    g.expect(not os.path.exists(g.p("library", "fb", "started.txt")), "kiln-flame started nothing")
+    expect_aside(g, "flame", "creative-lib", "fb", "foff", "skipped")
+    g.expect(not mods_by(g, "flame", "folder", winpath(g.p("mods/creative-lib"))), "the copy is not listed as a folder mod too")
+    g.expect(len(mods_by(g, "flame", "id", "handmade")) == 1, "the player's own folder mod is listed")
+    g.expect(g.result("flame_running_ftest") == "yes", "kiln.flame: the copy's manifest id runs under Flame's loader")
+    return g
+
+
+def shroudtopia_aside_profile():
+    g = Game("shroudtopia-aside-profile")
+    for lib in ("sa", "sb", "soff"):
+        g.put(f"library/{lib}/mod.json", {"id": lib})
+        g.dll("shroudtopia_test.dll", f"library/{lib}/{lib}.dll")
+    g.put("mods/sa/mod.json", {"id": "sa"})
+    g.dll("shroudtopia_test.dll", "mods/sa/sa.dll")
+    marker(g, "mods/sa", "shroudtopia", "sa")
+    g.dll("dummy.dll", "shroudtopia.dll")
+    g.profile({"shroudtopia": [{"id": "sa", "path": winpath(g.p("library/sa"))}, {"id": "sb", "path": winpath(g.p("library/sb"))},
+                               {"id": "soff", "path": winpath(g.p("library/soff")), "enabled": False}]})
+    g.run(g.plugin("kiln-shroudtopia.dll"), 600, "--load", "shroudtopia.dll")
+    g.has("kiln-shroudtopia steps aside")
+    g.lacks("Registered mod")
+    expect_aside(g, "shroudtopia", "sa", "sb", "soff", "skipped")
+    return g
+
+
+def emf_aside_profile():
+    g = Game("emf-aside-profile")
+    for lib, mid in (("ea", "ea-manifest"), ("eb", "eb"), ("ec", "ec")):
+        g.put(f"library/{lib}/mod.json", {"id": mid, "version": "1.0.0"})
+    g.put("emf/mods/ea/mod.json", {"id": "ea-manifest", "version": "1.0.0"})
+    marker(g, "emf/mods/ea", "emf", "ea")
+    g.put("emf/config/ea-manifest.ini", "[ea-manifest]\nenabled = 0\n")
+    g.dll("dummy.dll", "emf_core.dll")
+    g.profile({"emf": [{"id": "ea", "path": winpath(g.p("library/ea"))}, {"id": "eb", "path": winpath(g.p("library/eb"))},
+                       {"id": "ec", "path": winpath(g.p("library/ec")), "enabled": False}]})
+    g.run(g.plugin("kiln-emf.dll"), 300, "--load", "emf_core.dll")
+    g.has("kiln-emf steps aside")
+    expect_aside(g, "emf", "ea", "eb", "ec", "disabled", key="profileId")
+    a = mods_by(g, "emf", "profileId", "ea")
+    g.expect(a and "enabled=0" in a[0].get("reason", ""), f"emf: own-loader reason says EMF's switch is off: {a}")
+    return g
+
+
+def copy_dedupe():
+    """No own loader, drop-ins on: Kiln's marked copy in the engine folder (folder = Library id, manifest id differs) is
+    the profile entry: it loads once and is listed once. A marker naming an id the profile does not list is an
+    ordinary drop-in."""
+    combined = None
+    for engine in ("greeneye", "flame", "shroudtopia", "emf"):
+        g = Game("copy-dedupe-" + engine)
+        dropins = [engine] if engine in ("greeneye", "emf") else True  # the list form too
+        folder = {"greeneye": "greeneye", "flame": "mods", "shroudtopia": "mods", "emf": "emf/mods"}[engine]
+        for root in ("library/libid", f"{folder}/libid"):
+            if engine == "greeneye":
+                greeneye_mod(g, root, "manifest-x", "greeneye_test.dll")
+            elif engine == "flame":
+                flame_mod(g, root, "manifest-x", "flame_test.dll")
+            elif engine == "shroudtopia":
+                g.put(f"{root}/mod.json", {"id": "manifest-x"})
+                g.dll("shroudtopia_test.dll", f"{root}/manifest-x.dll")
+            else:
+                g.put(f"{root}/mod.json", {"id": "manifest-x", "version": "1.0.0"})
+        marker(g, f"{folder}/libid", engine, "libid")
+        if engine == "greeneye":  # a marker for an id the profile does not list: an ordinary drop-in
+            greeneye_mod(g, "greeneye/stray", "stray", "greeneye_test.dll")
+            marker(g, "greeneye/stray", "greeneye", "notlisted")
+        if engine == "shroudtopia":
+            g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50,
+                                                          "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+        g.profile({engine: [{"id": "libid", "path": winpath(g.p("library/libid"))}]}, dropins=dropins)
+        g.run(g.plugin("kiln-" + engine + ".dll"), 900 if engine == "shroudtopia" else 400)
+        g.has(f"Kiln's copy of profile mod libid; the profile entry is used")
+        mods = g.state(engine).get("mods", [])
+        if engine == "greeneye":
+            g.has("MANIFEST-X 1.0 (profile): started")
+            g.lacks("MANIFEST-X 1.0 (folder)")
+            g.has("STRAY 1.0 (folder): started")
+            g.expect(len([m for m in mods if m.get("id") in ("libid", "manifest-x")]) == 1, f"one greeneye entry: {mods}")
+        elif engine == "flame":
+            g.expect(os.path.isfile(g.p("library", "libid", "started.txt")), "the profile entry started")
+            g.expect(not os.path.exists(g.p("mods", "libid", "started.txt")), "the copy did not start")
+            g.expect(len(mods) == 1, f"one flame entry: {mods}")
+        elif engine == "shroudtopia":
+            g.expect(g.log.count("Registered mod:") == 1, "one Shroudtopia registration")
+            g.has("(profile, ")
+            g.expect(len(mods) == 1 and mods[0].get("origin") == "profile", f"one shroudtopia entry: {mods}")
+        else:
+            g.expect(len(mods) == 1 and mods[0].get("profileId") == "libid", f"one emf entry: {mods}")
+            g.lacks("a second copy")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def dropins_rule():
+    """An active profile reads the engine's own folder only with drop-ins on for that engine: "dropins": true or a list
+    naming it. An old-style list of the core's kinds, or no list, leaves greeneye/ unread, with or without a
+    "mods.greeneye" list."""
+    combined = None
+    for name, dropins, read in (("old-list", ["kiln", "native", "plugin", "emf"], False), ("none", None, False),
+                                ("true", True, True), ("named", ["greeneye"], True)):
+        g = Game("dropins-rule-" + name)
+        greeneye_mod(g, "greeneye/gtest", "gtest", "greeneye_test.dll")
+        doc = {"format": 1, "id": "testprofile", "generation": 1, "mods": {"kiln": []}}
+        if dropins is not None:
+            doc["dropins"] = dropins
+        g.put("kiln/profile.json", doc)
+        g.run(g.plugin("kiln-greeneye.dll"), 300)
+        if read:
+            g.has("GTEST 1.0 (folder): started")
+            g.has("drop-ins for greeneye are on")
+        else:
+            g.lacks("[greeneye:gtest]")
+            g.has("drop-ins for greeneye are off in this profile")
+            g.expect(g.result("gt_target") == "5", "nothing hooked")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def kiln_files_not_a_loader():
+    """Kiln's own files name every engine (kiln\\host\\Kiln.Ui.dll's mod catalogue): a module under kiln\\host\\
+    carrying an engine's loader marker never makes the adapter step aside; the same file under kiln\\chain\\ (a
+    chained foreign loader) does."""
+    combined = None
+    for engine, src, extra in (("flame", "fakeflame.dll", b""), ("shroudtopia", "fakeshroud.dll", b""),
+                               ("ember", "dummy.dll", b"ember-loader")):
+        for where, aside in (("host", False), ("chain", True)):
+            g = Game(f"kiln-files-{engine}-{where}", server=engine == "ember")
+            rel = f"kiln/{where}/Kiln.Ui.dll"
+            g.dll(src, rel)
+            if extra:
+                with open(g.p(rel), "ab") as f:
+                    f.write(extra)  # overlay bytes: the marker text, the image is unchanged
+            if engine == "flame":
+                flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
+            elif engine == "shroudtopia":
+                g.dll("shroudtopia_test.dll", "mods/shroudtopia_test.dll")
+            else:
+                g.put("ember/mods/em/readme.txt", "x")
+                g.dll("dummy.dll", "ember/mods/em/em.dll")
+            g.run(g.plugin(f"kiln-{engine}.dll"), 500, "--load", rel.replace("/", "\\"))
+            g.has(f"[host] preloaded {rel.replace('/', chr(92))} ok")
+            got = g.state(engine).get("steppedAside")
+            g.expect(got is aside, f"{engine} {where}: steppedAside {got}")
+            if combined is None:
+                combined = g
+            else:
+                combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
+def wine_builtin_not_a_loader():
+    """Under Wine, a native loader in the game folder under a builtin's name (winmm.dll) does not run without a DLL
+    override, yet Wine's builtin reports that path: the adapters must not stand aside for it. With winmm=n it runs, and
+    they do."""
+    combined = None
+    for engine, override in (("flame", ";winmm=b"), ("flame", ";winmm=n"), ("shroudtopia", ";winmm=b"), ("shroudtopia", ";winmm=n")):
+        g = Game(f"wine-builtin-{engine}{override[-2:]}")
+        if engine == "flame":
+            flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
+            g.dll("fakeflame.dll", "winmm.dll")
+        else:
+            g.dll("shroudtopia_test.dll", "mods/shroudtopia_test.dll")
+            g.dll("fakeshroud.dll", "winmm.dll")
+            g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50,
+                                                          "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+        g.run(g.plugin(f"kiln-{engine}.dll"), 600, "--load", "winmm.dll", overrides=override)
+        g.has("[host] preloaded winmm.dll ok")
+        aside = g.state(engine).get("steppedAside")
+        g.expect(aside is override.endswith("=n"), f"{engine} {override}: steppedAside {aside}")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
 SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_legacy_client, greeneye_profile_server, greeneye_hot_reload_server, greeneye_aside, greeneye_nomods,
     flame_legacy, flame_profile, flame_aside,
@@ -802,7 +1047,9 @@ SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_hot_factory_faults, shroudtopia_late_loader, shroudtopia_lifetime, shroudtopia_renamed_loader,
     shroudtopia_config_replacements, shroudtopia_faults, profile_id_precedence,
     greeneye_chaining, greeneye_lifetime, ancestor_symlinks, greeneye_hot_callback_faults,
-    greeneye_manifest_bounds, shroudtopia_loader_named_mod, greeneye_default_dll_profile]}
+    greeneye_manifest_bounds, shroudtopia_loader_named_mod, greeneye_default_dll_profile,
+    greeneye_aside_profile, flame_aside_profile, shroudtopia_aside_profile, emf_aside_profile, copy_dedupe,
+    wine_builtin_not_a_loader, dropins_rule, kiln_files_not_a_loader]}
 
 
 def main():

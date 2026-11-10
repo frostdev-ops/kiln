@@ -12,7 +12,7 @@ it comes off when the mod unloads or reloads, and it is applied again at the nex
 | C table | `native/core/abi/services/kiln_content.h` (`kiln.content` v4: v2 `export_changes`, v3 `define` / `definitions`, v4 `set_ref` / `undefine_owner` / `info`) |
 | Native | `native/services/content/` → `kiln/services/kiln-content.dll` |
 | Managed | `managed/services/Kiln.Content/` → `kiln/host/Kiln.Content.dll` (namespace `Kiln`, class `Content`) |
-| Test | `mods/tests/content-test/` (PASS / FAIL lines) + `Observer/` (logs value changes); `mods/tests/newcontent-test/` (new items / recipes); `mods/tests/kitbash-test/` (references, texts, distribution; `syncdefs.py`: definitions in the content sync); `mods/tests/placeholder-test/` (+ `Items/`: missing content over four restarts); `mods/tests/craftmatch-test/` (a made item is what its recipe tooltip promises) |
+| Test | `mods/tests/content-test/` (PASS / FAIL lines) + `Observer/` (logs value changes); `mods/tests/newcontent-test/` (new items / recipes); `mods/tests/kitbash-test/` (references, texts, distribution; `syncdefs.py`: definitions in the content sync); `mods/tests/placeholder-test/` (+ `Items/`: missing content over four restarts); `mods/tests/craftmatch-test/` (a made item is what its recipe tooltip promises); `native/services/content/tests/run.sh` (near memory: the allocation policy on simulated address spaces and, under Wine, on a real fragmented one) |
 | Sample | `mods/samples/BigStacks/` (bigger stacks, a C# port of EMF's big_stacks idea); `mods/samples/NewItems/` (new items and recipes, side both) |
 
 ## Data packs
@@ -118,6 +118,13 @@ public override void OnLoad()
 Without any mod referencing Kiln.Content, data packs still apply (native), in mod-folder order, with folders holding a
 `.disabled` file skipped; the pack-follows-mod behaviour (load order from Kiln.Host's mod list, unload reverts) needs
 Kiln.Content running.
+
+**A pack needs no code.** A folder with `kiln.mod.json` (no `entryAssembly`) and `content/*.json` is a mod of data only
+([manifest.md](../modding/manifest.md#mods-of-data-only)): Kiln.Host loads it (`mod my-pack 1.0.0 loaded in 0.4 ms (data only: no
+entryAssembly)`), so its packs apply in its place in the load order and come off when it unloads. Before dev.22 Kiln.Host refused
+such a manifest and the packs were skipped. When Kiln.Host does not load a folder that has packs (an invalid manifest, a side that does not
+match, a missing dependency, a failed `OnLoad`), kiln.log warns: `data packs of my-pack skipped: Kiln.Host did not load the mod (its
+"mod ... not loaded" / "skipped" line above and kiln/logs/mods.txt say why)`.
 
 ## C (native plugins and services)
 ```c
@@ -643,6 +650,28 @@ profile's managed mods (their folders in profile order, then `kiln/mods` when th
 a profile with no mods or an invalid one gives no packs; without the service (the legacy layout, or a core that does
 not have it yet) every folder of `kiln/mods` in name order, as before. Relative PNG icon paths of a pack resolve to
 its mod's folder.
+
+## Near memory (new items and recipes)
+A new item or recipe is a copy of its base, and the copy keeps the 32-bit self-relative offsets of the game's data it points into, so it must lie
+within 2 GB of that data. kiln.content therefore sets address space aside at boot, before the game fills the space near its resources, and hands
+out memory from it a chunk (256 KB) at a time; only when none is in reach does it look around the target. kiln.log, at boot:
+```
+[service:kiln-content.dll] near memory: 128 MB set aside at 0000000070000000
+[service:kiln-content.dll] near memory: 7 arena(s) of 128 MB set aside above 4 GB, from 0000000140050000 (the system's next allocation would go to 0000000000800000): 0000000140050000, 0000000220050000, ...
+```
+The first line is the low arena (the game's data lands in the low 4 GB under Wine), the second a ladder of arenas above 4 GB, spaced so that every
+address up to its end has one in reach (on a native Windows server the data is above 4 GB). The world's first definitions then log
+`near memory: chunk 1 at 0000000200000000, 256 KB, for target 0000000152F5D230`. When nothing is in reach, one line says why, once per
+neighbourhood (the definitions that go without name themselves: `not registered in the server world: no memory near the base item`):
+```
+near memory: nothing free within 2 GB of 0000000152F5D230 for 2112 bytes (0 chunks): window 00000000D3F5D230 to 00000001D1F5D230; walked 32512 regions above
+to the window's edge and 32512 regions below to the window's edge in 313 ms; free runs seen: 0, none inside the window that can hold a block; the whole
+window is reserved or committed; 8 arena(s), the nearest at 0000000200000000 is 2.45 GB above the target: out of reach
+```
+It names the target, the window, how many regions each side saw and why each side stopped (to the window's edge; the limit of 262,144 regions; the top of
+the address space), the largest free run that lies in the window and whether it is too small, and the nearest arena (in reach, out of reach, or full).
+"The whole window is reserved or committed" means the game left no room; "the window was not seen in full" means the walk was cut short and
+the line is the evidence to send. Internals and measurements: `docs/re/content.md` section 10.
 
 ## Not yet
 - A changed reference of a **game** item is not sent to clients for list fields (`model`'s per-body / pickup model

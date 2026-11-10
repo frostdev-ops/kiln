@@ -921,9 +921,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     info->on_ready = &on_ready;
 
     load_layout();
-    char sim[MAX_PATH] = {};
-    if (const DWORD n = GetEnvironmentVariableA("KILN_PLAYERS_SIMULATE", sim, sizeof sim); n > 0 && n < sizeof sim) {
-        if (std::FILE* f = std::fopen(sim, "rb")) {
+    wchar_t sim[MAX_PATH] = {};
+    if (const DWORD n = GetEnvironmentVariableW(L"KILN_PLAYERS_SIMULATE", sim, MAX_PATH); n > 0 && n < MAX_PATH) {
+        if (std::FILE* f = _wfopen(sim, L"rb")) {
             std::string all;
             char buf[4096];
             for (size_t k; (k = std::fread(buf, 1, sizeof buf, f)) > 0;) all.append(buf, k);
@@ -939,7 +939,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
             }
             g_sim = true;
         } else {
-            logf(KILN_LOG_WARN, "players: KILN_PLAYERS_SIMULATE=%s cannot be opened; ignored", sim);
+            logf(KILN_LOG_WARN, "players: the file named by KILN_PLAYERS_SIMULATE cannot be opened; ignored");
         }
     }
     uintptr_t reg = 0;

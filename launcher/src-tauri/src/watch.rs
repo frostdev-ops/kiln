@@ -1,6 +1,7 @@
 //! Background watchers: the game process and its state files (`kiln://game`) and followed log
 //! files (`kiln://log`). `kiln://last-server` comes from the modpack watcher (commands/modpack.rs). One thread, polling every
-//! second; cheap checks only (process list, file mtimes), the full status is computed when something changed.
+//! second; cheap checks only (process list, file mtimes; while the game runs only its own pid), the full status is
+//! computed when something changed.
 
 use crate::events::{self, GameEvent, GameEventKind, LogEvent};
 use kiln_manage::Error;
@@ -132,6 +133,14 @@ fn poll_follows(app: &AppHandle) {
 
 // ---------------------------------------------------------------- the loop
 
+/// The game's pid for the watcher. While it runs (`last`), only that pid is checked; a whole /proc scan only to see it
+/// start or end.
+pub(crate) fn game_pid(g: &kiln_manage::game::GameInstall, last: Option<u32>) -> Option<u32> {
+    last.and_then(|p| kiln_manage::proc::still_running(p, &g.path, &g.exe))
+        .or_else(|| kiln_manage::proc::find_game(g).ok().flatten())
+        .map(|p| p.pid)
+}
+
 /// Starts the watcher thread (once, from setup).
 pub fn start(app: AppHandle) {
     std::thread::Builder::new()
@@ -154,7 +163,7 @@ pub fn start(app: AppHandle) {
                 }
                 for g in &games {
                     let now = Seen {
-                        pid: kiln_manage::proc::find_game(g).ok().flatten().map(|p| p.pid),
+                        pid: game_pid(g, seen.get(&g.id).and_then(|s| s.pid)),
                         boot: mtime(&g.path.join(gp::BOOT_JSON)),
                         mods: mtime(&g.path.join(gp::MODS_JSON)),
                         native: mtime(&g.path.join(gp::NATIVE_JSON)),

@@ -932,7 +932,7 @@ bool enum_value(const Field& f, const std::string& name, int64_t* v) {
 // the way. So a client without kiln.vfx keeps the game's own VFX, and a mod's becomes no VFX at all: the game ends an empty entry at once. On a
 // server the GUID is only carried. <kiln>/data/content/no-vfx-client makes a lab behave as such a client.
 bool vfx_reference_kept(const uint8_t g[16]) {
-    static const bool test = GetFileAttributesA((data_dir() + "\\content\\no-vfx-client").c_str()) != INVALID_FILE_ATTRIBUTES;
+    static const bool test = path_exists(data_dir() + "\\content\\no-vfx-client");
     if (g_api->side() != KILN_SIDE_CLIENT && !test) return true;
     if (!test && g_api->service(KilnStr{"kiln.vfx", 8}, 1)) return true;
     if (res_data(g, fnv1a(std::string("keen::VfxResource")))) return true;

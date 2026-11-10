@@ -1157,7 +1157,7 @@ bool poke_byte(uint8_t* at, uint8_t value) {
 // Requests 3 and up change a player or item entity's components directly, which only a test has any use for. They run where <kiln>/data/skills/lab-ops exists,
 // which a test server's deployment or its test mod creates; everywhere else they are refused. Read at each call, so a test can turn it off.
 bool lab_ops_on() {
-    if (GetFileAttributesA((api_path(KILN_PATH_DATA) + "\\skills\\lab-ops").c_str()) != INVALID_FILE_ATTRIBUTES) return true;
+    if (GetFileAttributesW(widen(api_path(KILN_PATH_DATA) + "\\skills\\lab-ops").c_str()) != INVALID_FILE_ATTRIBUTES) return true;
     static std::atomic<bool> told{false};
     if (!told.exchange(true)) SW("a test-only request was refused: <kiln>/data/skills/lab-ops does not exist");
     return false;

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-eml.schema.json",
+  "title": "kiln-eml state (<game>/kiln/state/eml.json), format 1",
+  "description": "Written by kiln-eml (gpl/kiln-eml, docs/kiln/eml.md). While the run goes on (dev.22) the file is replaced whole, atomically, a few times a second and at least once a second, with phase \"running\" and a progress object; the run's result replaces it when it ends. Fields marked dev.22 are additive: an older reader ignores them, a newer one finds none in a file an older kiln-eml wrote.",
+  "type": "object",
+  "required": ["format", "pid", "phase", "mods"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "pid": { "type": "integer", "minimum": 0, "description": "The game process (the Windows pid under Wine and Proton)." },
+    "kilnEml": { "type": "string" },
+    "eml": { "type": "string", "description": "The EML release the plugin carries." },
+    "phase": {
+      "enum": ["done", "failed", "aside", "idle", "running"],
+      "description": "done: patched, or nothing changed since the last run. failed: the game data was put back to vanilla. aside: another loader runs the EML mods this start (EML's own dbghelp.dll, ShroudForge's, or ShroudForge hosted by Kiln); `aside` says which, and `mods` lists the profile's EML mods (dev.22). idle: no EML mods. running (dev.22): the run is going on, `progress` says what it is doing; a file that stays running while the game does not run was left by a start that died."
+    },
+    "file": { "type": ["string", "null"], "description": "The game's data file stem: enshrouded or enshrouded_server." },
+    "patched": { "type": "integer", "minimum": 0 },
+    "cached": { "type": "boolean" },
+    "restored": { "type": "boolean" },
+    "ms": { "type": "number" },
+    "fingerprint": {
+      "type": "object",
+      "description": "What reading the game's files for the change cache cost (a finished run).",
+      "properties": {
+        "hashedBytes": { "type": "integer", "minimum": 0, "description": "Bytes read to compute a CRC-64." },
+        "hashedFiles": { "type": "integer", "minimum": 0 },
+        "reusedFiles": { "type": "integer", "minimum": 0, "description": "Files whose recorded fingerprint was taken again because the OS stamp showed them unchanged." },
+        "reusedBytes": { "type": "integer", "minimum": 0 },
+        "recordedFiles": { "type": "integer", "minimum": 0, "description": "dev.22: files recorded by their stamp alone, nothing read." },
+        "recordedBytes": { "type": "integer", "minimum": 0 },
+        "ms": { "type": "number" }
+      }
+    },
+    "error": { "type": ["string", "null"] },
+    "aside": { "type": ["string", "null"] },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "path", "state"],
+        "properties": {
+          "id": { "type": ["string", "null"], "description": "The mod's manifest id; with phase aside the profile entry's id (the Library id)." },
+          "version": { "type": ["string", "null"] },
+          "name": { "type": ["string", "null"] },
+          "source": { "type": "string", "description": "profile, kiln-dropin, game-mods, or the engine plugin that added it." },
+          "path": { "type": "string" },
+          "state": {
+            "enum": ["loaded", "failed", "skipped", "disabled", "duplicate", "pending", "own-loader", "not-loaded"],
+            "description": "With phase aside (dev.22): own-loader (Kiln copied the profile mod into the running loader's folder, it runs there) or not-loaded (the mod is only in Kiln's Library, which that loader never reads)."
+          },
+          "reason": { "type": ["string", "null"] },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "progress": {
+      "type": "object",
+      "description": "dev.22, only with phase running: what the run is doing before the game's window exists.",
+      "required": ["stage", "label", "doneBytes", "totalBytes", "filesDone", "filesTotal", "stageMs", "startedMs", "updatedMs"],
+      "properties": {
+        "stage": { "enum": ["starting", "checking", "prepare", "mods", "writing", "saving"] },
+        "label": { "type": "string", "description": "The stage for a person: \"Checking the game data\"." },
+        "doneBytes": { "type": "integer", "minimum": 0, "description": "Bytes read in this stage so far." },
+        "totalBytes": { "type": "integer", "minimum": 0, "description": "Bytes the stage announced it will read (0: not known; the bar has no total)." },
+        "filesDone": { "type": "integer", "minimum": 0 },
+        "filesTotal": { "type": "integer", "minimum": 0 },
+        "file": { "type": "string", "description": "The file being read now (its name)." },
+        "quietMs": { "type": "integer", "minimum": 0, "description": "While a file is being read: milliseconds since a byte came. A large value is a read the drive is not answering." },
+        "stageMs": { "type": "integer", "minimum": 0, "description": "How long the stage has lasted." },
+        "startedMs": { "type": "integer", "minimum": 0, "description": "When the run began, milliseconds since 1970." },
+        "updatedMs": { "type": "integer", "minimum": 0, "description": "When this was written." }
+      }
+    }
+  }
+}
