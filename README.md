@@ -16,7 +16,7 @@
 
 ## Downloads and mods
 
-Get the launcher from [frostdev.io](https://frostdev.io/kiln#download), [GitHub Releases](https://github.com/frostdev-ops/kiln/releases), or the [Nexus Files tab](https://www.nexusmods.com/enshrouded/mods/301?tab=files) when available. The Nexus distribution has no launcher self-updater.
+Get the launcher from [frostdev.io](https://frostdev.io/kiln/download), [GitHub Releases](https://github.com/frostdev-ops/kiln/releases), or the [Nexus Files tab](https://www.nexusmods.com/enshrouded/mods/301?tab=files) when available. The Nexus distribution has no launcher self-updater.
 
 **0.2.0-dev.22:** Nexus Catalog, account sign-in and Mod Manager Download (`nxm://`) are disabled while OAuth approval is pending. Download a mod archive in your browser, then drop it on the launcher or import it through Library. Personal API keys are not a fallback. Many new paths in this release were verified only under Wine (tests and dedicated-server labs), not on Windows or in a real client. Client UI, hooks and chat on the client, custom portraits, taming and joined-multiplayer compatibility still need game checks; API coverage is not a guarantee for every mod combination.
 
