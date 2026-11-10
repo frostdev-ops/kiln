@@ -127,6 +127,10 @@ internal static class GameColors
     public static readonly Color Ok = Color.FromRgba(0x9fcf8aff);
     public static readonly Color Idle = Color.FromRgba(0x9aa3adff);
     public static readonly Color Night = Color.FromRgba(0x121118ff);
+    /// <summary>menu.tileBackgroundColor's alpha in the game's data (169): the panels on the game page.</summary>
+    public const byte PanelAlpha = 169;
+    /// <summary>A lighter tile for rows hovered or chosen on a tile panel.</summary>
+    public static readonly Color TileLight = Color.FromRgba(0x56506eff);
 
     public static Color Of(ModRunState s, bool missing) => missing ? Warning : s switch
     {
@@ -145,6 +149,9 @@ internal sealed class ModManagerPage
     public string? Selected;
     /// <summary>Put the keyboard into the search box at the next frame.</summary>
     public bool FocusSearch;
+    /// <summary>Each column on its own tile panel (the game page: the game's 3D view is behind, with no dimming). Set by the
+    /// host before <see cref="Draw"/>.</summary>
+    public bool Backed;
 
     private long _snapVersion = -1;
     private EngineFilter _rowsFilter;
@@ -296,9 +303,25 @@ internal sealed class ModManagerPage
             right = Math.Max(300 * s, right - (300 * s - mid));
             mid = r.Width - left - right - 2 * gap;
         }
-        EnginesColumn(ui, new PageRect(r.X, r.Y, left, r.Height), s);
+        var leftR = new PageRect(r.X, r.Y, left, r.Height);
         var midR = new PageRect(r.X + left + gap, r.Y, mid, r.Height);
         var rightR = new PageRect(midR.Right + gap, r.Y, right, r.Height);
+        if (Backed)
+        {
+            // each column on a tile panel (captions inside), its content inset so text never touches the panel's edge
+            Panel(ui, leftR, s);
+            if (Filter.IsSettings) Panel(ui, new PageRect(midR.X, midR.Y, rightR.Right - midR.X, midR.Height), s);
+            else
+            {
+                Panel(ui, midR, s);
+                Panel(ui, rightR, s);
+            }
+            var p = PanelPad * s;
+            leftR = Inset(leftR, p);
+            midR = Inset(midR, p);
+            rightR = Inset(rightR, p);
+        }
+        EnginesColumn(ui, leftR, s);
         if (Filter.IsSettings)
         {
             SettingsColumns(ui, midR, rightR, s);
@@ -307,6 +330,23 @@ internal sealed class ModManagerPage
         ModsColumn(ui, midR, s);
         DetailsColumn(ui, rightR, s);
     }
+
+    /// <summary>The inner padding of a column's panel on the game page (UI units).</summary>
+    internal const float PanelPad = 14;
+
+    // The game's tile (menu.tileBackgroundColor at its alpha) over a light dark base, so a bright or busy shot behind
+    // still leaves the muted text readable; the hue stays the game's.
+    private static void Panel(UiDraw ui, PageRect r, float s)
+    {
+        ui.DrawRect(UiLayer.Window, r.X, r.Y, r.Right, r.Bottom, GameColors.Night.WithAlpha(110), 2 * s);
+        ui.DrawRect(UiLayer.Window, r.X, r.Y, r.Right, r.Bottom, GameColors.Tile.WithAlpha(GameColors.PanelAlpha), 2 * s);
+    }
+
+    private static PageRect Inset(PageRect r, float p) => new(r.X + p, r.Y + p, Math.Max(0, r.Width - 2 * p), Math.Max(0, r.Height - 2 * p));
+
+    // Rows: on a tile panel the chosen / hovered rows use a lighter tile, so they still stand out from it.
+    private Color RowChosen => Backed ? GameColors.TileLight.WithAlpha(235) : GameColors.Tile.WithAlpha(235);
+    private Color RowHovered(byte a) => Backed ? GameColors.TileLight.WithAlpha(a) : GameColors.Tile.WithAlpha(a);
 
     private void Place(UiDraw ui, float x, float y)
     {
@@ -322,8 +362,8 @@ internal sealed class ModManagerPage
         if (ui.BeginChild("kiln.engines", r.Width, r.Bottom - top, UiChildFlags.NavFlattened, UiWindowFlags.NoBackground))
         {
             var rowH = 46 * s;
-            using var c0 = ui.PushColor(UiColorSlot.Header, GameColors.Tile.WithAlpha(235));
-            using var c1 = ui.PushColor(UiColorSlot.HeaderHovered, GameColors.Tile.WithAlpha(150));
+            using var c0 = ui.PushColor(UiColorSlot.Header, RowChosen);
+            using var c1 = ui.PushColor(UiColorSlot.HeaderHovered, RowHovered(150));
             using var c2 = ui.PushColor(UiColorSlot.HeaderActive, GameColors.GoldDeep.WithAlpha(160));
             using var sp = ui.PushVar(UiStyleVar.ItemSpacing, 0, 4 * s);
             var w = ui.Cursor.AvailWidth;
@@ -387,7 +427,7 @@ internal sealed class ModManagerPage
             var (_, nh) = ui.MeasureText(note, 15 * s, r.Width - 34 * s);
             var bh = nh + 18 * s;
             var c = GameColors.Of(eng.Health);
-            ui.DrawRect(UiLayer.Window, r.X, y, r.Right, y + bh, GameColors.Tile.WithAlpha(150), 2 * s);
+            ui.DrawRect(UiLayer.Window, r.X, y, r.Right, y + bh, Backed ? GameColors.Night.WithAlpha(110) : GameColors.Tile.WithAlpha(150), 2 * s);
             ui.DrawRect(UiLayer.Window, r.X, y, r.X + 3 * s, y + bh, c);
             ui.DrawText(UiLayer.Window, r.X + 16 * s, y + 9 * s, note, GameColors.Text.WithAlpha(230), 15 * s, r.Width - 34 * s);
             y += bh + 10 * s;
@@ -405,8 +445,8 @@ internal sealed class ModManagerPage
                 ui.Space(w, 120 * s);
             }
             var rowH = 58 * s;
-            using var c0 = ui.PushColor(UiColorSlot.Header, GameColors.Tile.WithAlpha(235));
-            using var c1 = ui.PushColor(UiColorSlot.HeaderHovered, GameColors.Tile.WithAlpha(140));
+            using var c0 = ui.PushColor(UiColorSlot.Header, RowChosen);
+            using var c1 = ui.PushColor(UiColorSlot.HeaderHovered, RowHovered(140));
             using var c2 = ui.PushColor(UiColorSlot.HeaderActive, GameColors.GoldDeep.WithAlpha(160));
             using var sp = ui.PushVar(UiStyleVar.ItemSpacing, 0, 3 * s);
             foreach (var row in _rows)
@@ -482,8 +522,9 @@ internal sealed class ModManagerPage
         var top = r.Y + 26 * s;
         Place(ui, r.X, top);
         var mod = Selected is null ? null : _rows.FirstOrDefault(x => x.Key == Selected)?.Mod;
-        using (ui.PushColor(UiColorSlot.ChildBg, GameColors.Tile.WithAlpha(115)))
-        using (ui.PushVar(UiStyleVar.WindowPadding, 26 * s, 22 * s))
+        // on the game page the column's panel is the background (no second tile inside it)
+        using (ui.PushColor(UiColorSlot.ChildBg, Backed ? Color.FromRgba(0x00000000) : GameColors.Tile.WithAlpha(115)))
+        using (ui.PushVar(UiStyleVar.WindowPadding, Backed ? 12 * s : 26 * s, Backed ? 8 * s : 22 * s))
         using (ui.PushVar(UiStyleVar.ChildRounding, 2 * s))
         {
             if (ui.BeginChild("kiln.details", r.Width, r.Bottom - top, UiChildFlags.NavFlattened | UiChildFlags.Padding))
@@ -591,8 +632,8 @@ internal sealed class ModManagerPage
         Caption(ui, r.X + 2 * s, r.Y, "KILN SETTINGS", s);
         var top = r.Y + 26 * s;
         Place(ui, r.X, top);
-        using (ui.PushColor(UiColorSlot.ChildBg, GameColors.Tile.WithAlpha(115)))
-        using (ui.PushVar(UiStyleVar.WindowPadding, 26 * s, 22 * s))
+        using (ui.PushColor(UiColorSlot.ChildBg, Backed ? Color.FromRgba(0x00000000) : GameColors.Tile.WithAlpha(115)))
+        using (ui.PushVar(UiStyleVar.WindowPadding, Backed ? 12 * s : 26 * s, Backed ? 8 * s : 22 * s))
         {
             if (ui.BeginChild("kiln.settings", r.Width, r.Bottom - top, UiChildFlags.NavFlattened | UiChildFlags.Padding))
                 ConfigScreens.Draw(ui, "kiln");
@@ -607,9 +648,10 @@ internal sealed class ModManagerPage
         var x = r.X;
         var c = ui.Cursor;
         ui.SetCursor(x - c.WindowX, r.Y - c.WindowY);
-        using (ui.PushColor(UiColorSlot.ChildBg, GameColors.Tile.WithAlpha(115)))
+        using (ui.PushColor(UiColorSlot.ChildBg, Backed ? Color.FromRgba(0x00000000) : GameColors.Tile.WithAlpha(115)))
         using (ui.PushVar(UiStyleVar.WindowPadding, 30 * s, 24 * s))
         {
+            if (Backed) Panel(ui, new PageRect(x, r.Y, w, r.Height), s);
             if (ui.BeginChild(id, w, r.Height, UiChildFlags.NavFlattened | UiChildFlags.Padding))
             {
                 using (ui.FontSize(17 * _k)) draw(ui);
@@ -656,11 +698,13 @@ internal static class ModManagerHost
                 var margin = Math.Max(48 * s, w * 0.055f);
                 var top = Math.Max(36 * s, h * 0.055f);
                 var footerH = 64 * s;
-                ModManagerChrome.Title(ui, ChromeLook.Standalone, margin, top, w - margin, 46 * s, s);
+                var cw = ModManagerChrome.ContentWidth(w - 2 * margin, s);  // ultrawide: the extra room stays empty on the right
+                ModManagerChrome.Title(ui, ChromeLook.Standalone, margin, top, margin + cw, 46 * s, s);
                 var bodyTop = top + 46 * s + 44 * s;
-                var body = new PageRect(margin, bodyTop, w - 2 * margin, h - bodyTop - footerH - 18 * s);
+                var body = new PageRect(margin, bodyTop, cw, h - bodyTop - footerH - 18 * s);
+                Page.Backed = false;
                 Page.Draw(ui, body, s);
-                if (ModManagerChrome.Footer(ui, ChromeLook.Standalone, margin, h - footerH, w - 2 * margin, footerH, s, Page.Hints))
+                if (ModManagerChrome.Footer(ui, ChromeLook.Standalone, margin, h - footerH, cw, footerH, s, Page.Hints))
                     Ui.MenuOpen = false;
             }
             ui.EndWindow();
@@ -688,6 +732,35 @@ internal static class ModManagerChrome
 {
     // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings
     public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8);
+
+    /// <summary>The widest the page's content gets, in UI units (1920x1080 = 1 unit per pixel). 16:9 and 16:10 pages are
+    /// narrower (1760 units inside the game's padding); on ultrawide displays the rest stays empty on the right, so lines
+    /// keep a comfortable length.</summary>
+    internal const float MaxContentUnits = 2000;
+
+    /// <summary>The content width for <paramref name="available"/> pixels at scale <paramref name="s"/>.</summary>
+    public static float ContentWidth(float available, float s) => Math.Min(available, MaxContentUnits * s);
+
+    /// <summary>Soft dark bands at the top (<paramref name="topTo"/> down) and the bottom (<paramref name="bottomFrom"/> down)
+    /// of the display, behind every window: the title, the tabs and the hints stay readable on a bright picture.</summary>
+    public static void Bands(UiDraw ui, float topTo, float bottomFrom, byte alpha)
+    {
+        // full strength over most of each band (the text sits there), fading out over its last third
+        const int steps = 16;
+        var h = ui.Height;
+        var bh = h - bottomFrom;
+        for (var i = 0; i < steps; i++)
+        {
+            var mid = (i + 0.5f) / steps;  // 0 at the display's edge, 1 at the band's inner end
+            var a = (byte)(alpha * Math.Clamp((1 - mid) / 0.35f, 0, 1));
+            var t0 = MathF.Floor(topTo * i / steps);
+            var t1 = MathF.Floor(topTo * (i + 1) / steps);
+            ui.DrawRect(UiLayer.Background, 0, t0, ui.Width, t1, Color.Black.WithAlpha(a));
+            var b0 = MathF.Floor(h - bh * (i + 1) / steps);
+            var b1 = MathF.Floor(h - bh * i / steps);
+            ui.DrawRect(UiLayer.Background, 0, b0, ui.Width, b1, Color.Black.WithAlpha(a));
+        }
+    }
 
     /// <summary>The game page's title: what its own pages show for "Mods" (made once: drawn a letter at a time).</summary>
     internal const string GameTitle = "MODS";
@@ -717,8 +790,10 @@ internal static class ModManagerChrome
         using (ui.Font(UiFont.GameBold))
         {
             var cx = x;
+            var shadow = MathF.Max(1, MathF.Round(size / 23));  // a soft drop shadow: readable on a bright picture too
             foreach (var letter in GameTitleLetters)
             {
+                ui.DrawText(UiLayer.Window, cx + shadow, y + shadow, letter, Color.Black.WithAlpha(150), size);
                 ui.DrawText(UiLayer.Window, cx, y, letter, Color.White, size);
                 cx += ui.MeasureText(letter, size, 0).Width + Tracking * size;
             }

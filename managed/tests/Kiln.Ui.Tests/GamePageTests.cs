@@ -139,6 +139,30 @@ public sealed class MenuHostRulesTests
         Assert.Equal(2, s, 0.001f);
     }
 
+    [Theory]
+    [InlineData(1920, 1080)]
+    [InlineData(1920, 1200)]
+    [InlineData(2560, 1440)]
+    public void SixteenByNineAndTenUseTheWholeRectangle(float w, float h)
+    {
+        var (r, s) = MenuHosts.Layout(Game(w, h), w, h);
+        var (head, body, foot) = MenuHosts.Parts(r, s);
+        Assert.Equal(r.Width, body.Width, 0.01f);
+        Assert.Equal(r.Right, foot.Right, 0.01f);
+        Assert.Equal(r.Right, head.Right, 0.01f);
+    }
+
+    [Fact]
+    public void UltrawideKeepsTheLeftEdgeAndCapsTheWidth()
+    {
+        var (r, s) = MenuHosts.Layout(Game(3440, 1440), 3440, 1440);
+        var (head, body, foot) = MenuHosts.Parts(r, s);
+        Assert.Equal(r.X, head.X);                                       // the game's padding and title position
+        Assert.Equal(ModManagerChrome.MaxContentUnits * s, body.Width, 0.01f);
+        Assert.Equal(body.Right, foot.Right, 0.01f);                      // the hints end where the columns end
+        Assert.True(r.Right - body.Right > 500);                          // the extra room stays empty on the right
+    }
+
     [Fact]
     public void TitleBodyAndHintsFillTheRectangle()
     {

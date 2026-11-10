@@ -3,7 +3,8 @@
 // The main menu's MODS entry makes the game go to a page of its own (its Credits slot, left empty by kiln.ui): the game
 // glides its camera to the close-up shot, hides its main menu and draws its vignette. GamePageHost draws the mod
 // manager into the rectangle the game's pages use (its canvas, viewport and padding, published by kiln.ui each UI
-// frame), with the game's header and hint-bar look and no background of its own. Leaving (Escape, gamepad B, the Back
+// frame), with the game's header and hint-bar look and no dimming of its own: each column sits on a translucent tile
+// (menu.tileBackgroundColor) and soft bands darken the top and bottom edges, so it reads on any shot. Leaving (Escape, gamepad B, the Back
 // hint, the menu key) asks kiln.ui, which makes the game go back itself. When the game leaves the page by itself (an
 // invite) the page is simply no longer shown. Render thread.
 namespace Kiln;
@@ -70,6 +71,7 @@ internal static class MenuHosts
     /// (the mod manager page) and the hint bar at the bottom.</summary>
     public static (PageRect Header, PageRect Body, PageRect Footer) Parts(PageRect r, float s)
     {
+        r = r with { Width = ModManagerChrome.ContentWidth(r.Width, s) };  // ultrawide: left-aligned, the rest stays empty
         var titleH = 46 * s;
         var footerH = 48 * s;
         var header = new PageRect(r.X, r.Y, r.Width, titleH);
@@ -135,8 +137,13 @@ internal static unsafe class GamePageHost
             if (first) ui.FocusNextWindow();  // keyboard and gamepad go to the page when it appears
             using var pad = ui.PushVar(UiStyleVar.WindowPadding, 0, 0);
             using var border = ui.PushVar(UiStyleVar.WindowBorderSize, 0);
+            // no dimming either, but soft dark bands behind the title and tabs and behind the hints (the game draws a
+            // vignette; the shot behind may still be bright)
+            // full strength through the tab row (the first 46 units of the body) and the hint bar, fading after
+            ModManagerChrome.Bands(ui, (body.Y + 52 * s) / 0.65f, h - (h - footer.Y + 8 * s) / 0.65f, 170);
             if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.page", ModManagerChrome.PageWindowFlags))
             {
+                ModManagerHost.Page.Backed = true;
                 ModManagerChrome.Title(ui, ChromeLook.GamePage, header.X, header.Y, header.Right, header.Height, s);
                 ModManagerHost.Page.Draw(ui, body, s);
                 if (ModManagerChrome.Footer(ui, ChromeLook.GamePage, footer.X, footer.Y, footer.Width, footer.Height, s, ModManagerHost.Page.Hints))

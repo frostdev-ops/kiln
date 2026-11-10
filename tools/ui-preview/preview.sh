@@ -20,7 +20,7 @@ while (($#)); do
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
-if [[ -n $size ]]; then sizes=("$size $scale"); else sizes=("1920x1080 1" "2560x1440 1" "1920x1080 1.5" "3440x1440 1"); fi
+if [[ -n $size ]]; then sizes=("$size $scale"); else sizes=("1920x1080 1" "2560x1440 1" "1920x1080 1.5" "3440x1440 1" "1920x1200 1"); fi
 
 # the shim: Dear ImGui + kiln.ui's drawing slots and looks (the game's code) + the rasteriser
 imgui=$repo/native/third_party/imgui

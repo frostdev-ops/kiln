@@ -5,7 +5,7 @@ be judged and iterated.
 
 ```sh
 tools/ui-preview/preview.sh                                  # every scene at 1920x1080, 2560x1440 and 1920x1080 at UI scale 1.5;
-                                                             # the game-page scene also at 3440x1440
+                                                             # the game-page scenes also at 3440x1440 and 1920x1200
 tools/ui-preview/preview.sh --scene problems --size 2560x1440 --scale 1.25
 tools/ui-preview/preview.sh --font ~/fonts/Some.ttf          # another TTF for the game look
 ```
@@ -29,8 +29,9 @@ Scenes (`Kiln.Ui.Preview/Program.cs`, `Scenes`): `typical` (25 mods over Kiln, E
 one switched off), `typical-emf` (one engine), `typical-search`, `typical-config` (a mod's settings inline),
 `typical-keys` (three Down presses: the selection follows the focus), `problems` (failed mods in several engines, a
 missing folder, ShroudForge not installed, Ember, a stale and a cut-off report), `problems-ember`, `empty`, `network`,
-`keys`, `overlay`, and `game-page` / `game-page-problems`: the page inside the game's main menu (`GamePageHost`), with
-the rectangle and scale the game would publish at that size and a stand-in for the close-up shot and its vignette. Add one by writing its files in a new method and listing it in `Scenes.All`.
+`keys`, `overlay`, and `game-page` / `game-page-bright` / `game-page-problems`: the page inside the game's main menu
+(`GamePageHost`), with the rectangle and scale the game would publish at that size, over a stand-in for the close-up
+shot and its vignette (dark, or bright and busy to test readability). Add one by writing its files in a new method and listing it in `Scenes.All`.
 
 Limits: the backdrop is not the game's picture; ImGui is rasterised on the CPU (close to the GPU result, not equal); the
 game's own menu entries and transitions are not drawn; the gamepad is not simulated (keys are: `Scene.Keys`).

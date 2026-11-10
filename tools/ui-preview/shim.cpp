@@ -152,6 +152,7 @@ bool KILN_CALL p_wheel_active() { return false; }
 // ---- the main-menu page (v4): kiln_preview_page() sets it; the canvas is what the game's UI system computes for the
 // window size (1920x1080 UI units at 1 pixel per unit, grown along the longer side; 0xa4fb40) ----
 bool g_page = false;
+int g_backdrop = 1;  // the game page's stand-in: 1 the dark close-up, 2 a bright, busy, high-contrast picture
 uint64_t g_ui_frame = 0;
 int g_page_drawn = 0, g_page_leaves = 0;
 KilnResult KILN_CALL p_menu_page(KilnUiMenuPage* out) {
@@ -415,9 +416,34 @@ void paint_page_backdrop() {
     }
 }
 
+// The worst case for readability: a bright sky, white and near-black stripes and blocks, sharp edges (snow, sunlit
+// stone, dark trees), with the game's vignette on top.
+void paint_bright_backdrop() {
+    const int W = static_cast<int>(g_w), H = static_cast<int>(g_h);
+    for (int y = 0; y < H; ++y) {
+        const float t = static_cast<float>(y) / H;
+        for (int x = 0; x < W; ++x) {
+            const float u = static_cast<float>(x) / W * (g_w / g_h) * (9.0f / 16.0f);
+            float r = 236 - 30 * t, g = 238 - 20 * t, b = 246 - 10 * t;  // white-blue sky
+            if (std::sin(u * 40.0f + t * 9.0f) > 0.55f) r = g = b = 252;   // glare streaks
+            const int cx = static_cast<int>(u * 14), cy = static_cast<int>(t * 9);
+            if (((cx * 7 + cy * 3) % 5) == 0) { r = 30; g = 34; b = 28; }  // dark blocks (trees)
+            if (t > 0.78f + 0.04f * std::sin(u * 21.0f)) { r = 250; g = 247; b = 240; }  // snow
+            if (((cx + cy) % 4) == 1) { r = std::min(255.f, r + 10); g = std::min(255.f, g + 5); b = 120; }  // yellow light
+            const float ex = std::max(std::fabs(static_cast<float>(x) / W - 0.5f) * 2, std::fabs(t - 0.5f) * 2);
+            const float v = 1 - 0.45f * std::clamp((ex - 0.45f) / 0.55f, 0.f, 1.f);
+            uint8_t* d = &g_pixels[(static_cast<size_t>(y) * W + x) * 4];
+            d[0] = static_cast<uint8_t>(std::clamp(r * v, 0.f, 255.f));
+            d[1] = static_cast<uint8_t>(std::clamp(g * v, 0.f, 255.f));
+            d[2] = static_cast<uint8_t>(std::clamp(b * v, 0.f, 255.f));
+            d[3] = 255;
+        }
+    }
+}
+
 // A stand-in for the game's picture behind the menu: dusk sky, a warm horizon, a few soft shapes.
 void paint_backdrop() {
-    if (g_page) return paint_page_backdrop();
+    if (g_page) return g_backdrop == 2 ? paint_bright_backdrop() : paint_page_backdrop();
     const int W = static_cast<int>(g_w), H = static_cast<int>(g_h);
     for (int y = 0; y < H; ++y) {
         const float t = static_cast<float>(y) / H;
@@ -546,8 +572,12 @@ __attribute__((visibility("default"))) const KilnUiApi* kiln_preview_open(int wi
 // The game's bold UI face (call before kiln_preview_open; the game's resource has it as a second glyph set).
 __attribute__((visibility("default"))) void kiln_preview_bold_font(const char* path) { g_bold_path = path ? path : ""; }
 
-// The Kiln page inside the game's main menu: shown (1) or not (0). The backdrop becomes the close-up shot's stand-in.
-__attribute__((visibility("default"))) void kiln_preview_page(int shown) { g_page = shown != 0; }
+// The Kiln page inside the game's main menu: 0 not shown, 1 shown over the dark close-up stand-in, 2 shown over a
+// bright, high-contrast stand-in.
+__attribute__((visibility("default"))) void kiln_preview_page(int mode) {
+    g_page = mode != 0;
+    g_backdrop = mode == 2 ? 2 : 1;
+}
 
 // Feeds input before the next frame: a key (ImGuiKey value) down/up, or the mouse (x, y, left button).
 __attribute__((visibility("default"))) void kiln_preview_key(int key, int down) {

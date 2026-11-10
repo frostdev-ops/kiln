@@ -77,7 +77,7 @@ internal static unsafe class Program
         {
             if (only is not null && only != "all" && !scene.Name.Equals(only, StringComparison.OrdinalIgnoreCase)) continue;
             if (scene.OnlyAt is { } at && at != suffix && only is null) continue;
-            if (suffix == "3440x1440" && !scene.GamePage && only is null) continue;  // the ultrawide size is for the game page
+            if (suffix is "3440x1440" or "1920x1200" && !scene.GamePage && only is null) continue;  // these sizes are for the game page
             var root = Path.Combine(work, scene.Name);
             if (Directory.Exists(root)) Directory.Delete(root, true);
             var kilnMods = scene.Build(root);
@@ -94,7 +94,7 @@ internal static unsafe class Program
             ModManagerHost.ResetForTests();
             GamePageHost.ResetForTests();
             // the game page: kiln.ui says the game shows it; the Kiln menu itself is not "open" (the stand-alone host)
-            _page(scene.GamePage ? 1 : 0);
+            _page(scene.GamePage ? (scene.Bright ? 2 : 1) : 0);
             var menu = scene.GamePage ? 0 : 1;
             byte* px = null;
             for (var i = 0; i < 4; i++) px = _frame(menu);
@@ -210,6 +210,8 @@ internal sealed record Scene(string Name, Func<string, IReadOnlyList<KilnModInpu
     public bool Summary { get; init; }
     /// <summary>Inside the game's main menu (GamePageHost) instead of the stand-alone page; also rendered at 3440x1440.</summary>
     public bool GamePage { get; init; }
+    /// <summary>The game page over a bright, high-contrast stand-in (readability).</summary>
+    public bool Bright { get; init; }
 }
 
 internal static class Scenes
@@ -252,6 +254,7 @@ internal static class Scenes
         new("keys", Typical) { Section = ModManagerSection.Keys, OnlyAt = "1920x1080" },
         new("overlay", Typical) { Section = ModManagerSection.Overlay, OnlyAt = "1920x1080" },
         new("game-page", Typical) { Selected = "kiln/storage-labels", GamePage = true },
+        new("game-page-bright", Typical) { Selected = "kiln/storage-labels", GamePage = true, Bright = true },
         new("game-page-problems", Problems) { Filter = EngineFilter.Attention, GamePage = true, OnlyAt = "1920x1080" },
     ];
 
