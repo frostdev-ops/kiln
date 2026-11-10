@@ -18,7 +18,7 @@ mod id.
 ```
 
 ## Detours (inline hooks with a callable original and a priority chain)
-`Hooks.Detour(symbolOrAddress, handler, priority = 0)` installs a safetyhook inline hook. Several handlers on one
+`Hooks.Detour(symbolOrAddress, handler, priority = 0)` adds a link to the target's one inline detour. Several handlers on one
 target form a **priority chain** (highest first; a Mixin `@Inject` head/tail with cancellation). A handler sees the
 first four integer/pointer arguments (rcx, rdx, r8, r9), may change them, then either:
 
@@ -32,11 +32,13 @@ var h = Hooks.Detour("GetComponent", call => { Interlocked.Increment(ref _n); re
 h.Remove();   // or it is revoked automatically when the mod unloads
 ```
 
-Only the first four integer args are visible, and calling the original forwards exactly those four. A target with
-more integer args, or floating-point args, needs a **mid hook** instead.
+A managed handler sees the first four integer/pointer arguments. Since dev.21 the original receives **every**
+argument the game passed (the rest unchanged), so a target with more than four integer arguments works; you just
+cannot read or change the fifth and later. Floating-point arguments, or reading all of them, need a **mid hook** or a
+native plugin (see [services/hooks.md](services/hooks.md): raw links take any signature, `detour2` up to 12 integers).
 
 ## Mid hooks (full register context)
-`Hooks.Mid(symbolOrAddress, (ref Registers r) => …, priority = 0)` installs a safetyhook mid hook. The handler reads
+`Hooks.Mid(symbolOrAddress, (ref Registers r) => …, priority = 0)` adds a mid link (it may share the address with detours). The handler reads
 and writes every register in place (writes take effect when the game resumes); `r.Rax`, `r.Rcx`, …, `r.Rip`, and
 `r.XmmD(n)` / `r.Xmm(n)` for vector registers.
 
@@ -76,15 +78,17 @@ public override void OnLoad()
 - A detour/mid handler runs on **whatever thread the target runs on** — often the tick thread, but the game's job
   threads too. Keep handlers short and thread-safe; do not call tick-thread-only APIs (most of `World`, `Items`, …)
   from them.
-- Installing a hook freezes the other threads briefly (safetyhook); do it on the tick thread or in `OnLoad`.
-- The inline detour itself is **never uninstalled** while the process runs; revoking a mod empties its handler slot
-  atomically (a dead mod is never called), and when no handlers remain the dispatch calls the original directly.
+- The first hook on a target freezes the other threads briefly (safetyhook); do it on the tick thread or in `OnLoad`.
+  Later hooks on the same target freeze nothing.
+- The inline detour itself is **never uninstalled** while the process runs; revoking a mod removes its links from the
+  chain atomically (a dead mod is never called), and when none remain the call goes straight to the original.
 
 ## Per-call overhead (measured, lab, Wine)
-A detour that forwards to the original costs ~65 ns through the empty-chain native path and ~100 ns when it routes
-through a managed handler (reverse P/Invoke into `Kiln.Hooks` + a dictionary lookup + the delegate): about **37 ns of
-managed dispatch overhead per call**. Fine for functions called a few hundred thousand times a step; still, a hot
-handler should do as little as possible.
+`GetComponent` is called about 400k times per step. With the v2 registry (dev.21 lab, `hooks-test` mod): about **6 ns**
+per call through a target whose chain is empty (the entry stub, one jump, the trampoline) and about **59 ns** through a
+managed handler, so roughly **53 ns** of managed dispatch (reverse P/Invoke into `Kiln.Hooks`, a dictionary lookup, the
+delegate). dev.20's v1 path measured about 65 ns and 100 ns. Fine for functions called a few hundred thousand times a
+step; a hot handler should still do as little as possible.
 
 ## Safety model (collectible contexts)
 Native dispatch routes through a fixed `[UnmanagedCallersOnly]` dispatcher in `Kiln.Hooks` (the default, non-
@@ -100,8 +104,16 @@ the other mod's handler keeps the game threads bouncing through reverse P/Invoke
 only ones on the hot path is fine (verified: 100 reloads, 0 failures). Prefer not to pile several mods' hot-path
 detours on one function, or quiesce before a hot reload.
 
-## C table (`kiln_hooks.h`, v1)
+## v2 (dev.21): one registry
+Hooks placed through `kiln.hooks` (managed `Hooks.*`, kiln-emf's and kiln-set's, and Kiln's services as dev.21 moves
+them over) go through one registry that owns a single physical detour per game address, with ordering (`before` /
+`after` / priority), the game's call site (`caller()`), detection of other modules' hooks and a map of all hooks in
+`state/hooks.json`. Native code uses it through `kiln_hook.hpp`. The full description is
+[services/hooks.md](services/hooks.md). Managed `Hooks.Detour` / `Hooks.Mid` are links in that chain at their
+priority and need no change.
+
+## C table (`kiln_hooks.h`, v1 + v2)
 `image_base/image_size`, `symbol/constant`, `scan/scan_hole`, `load_symbols/unload_symbols`, `read/write/patch/
-unpatch`, `detour/mid/call_original/revoke/revoke_owner`, `stats`. Detour handler:
+unpatch`, `detour/mid/call_original/revoke/revoke_owner`, `stats`; v2 adds `raw_detour/caller/detour2/call_original2/mid2/map_json`. Detour handler:
 `uintptr_t(KilnHookCall*, void*)`; mid handler: `void(KilnRegisters*, void*)` (`KilnRegisters` mirrors safetyhook's
 Context64). See the header for the full contract.

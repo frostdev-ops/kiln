@@ -54,6 +54,10 @@ struct Resolved {
     // on or in the first 5 bytes at its address (0 = none), and what the live code jumps to there.
     uintptr_t live_diff = 0;
     std::string live_by;
+    // kiln.hooks v2 (hooks map): where the attribution started and the 16 live bytes found there at resolve time,
+    // before any Kiln hook could change them. live_at is 0 when the bytes could not be read.
+    uintptr_t live_at = 0;
+    uint8_t live_bytes[16] = {};
 };
 
 struct Vote {
@@ -441,6 +445,10 @@ public:
                                      ? static_cast<uintptr_t>(r.value)
                                      : d;
             r.live_by = patched_by(at);
+            if (readable(at, sizeof r.live_bytes)) {
+                std::memcpy(r.live_bytes, reinterpret_cast<const void*>(at), sizeof r.live_bytes);
+                r.live_at = at;
+            }
         }
     }
 
@@ -556,6 +564,26 @@ public:
         return n;
     }
     size_t symbol_count() const { return symbols_.size(); }
+    // kiln.hooks v2: the first symbol (alphabetical) whose address is `a`; "" when none.
+    std::string name_at(uintptr_t a) const {
+        for (auto& [n, r] : symbols_)
+            if (r.ok && n[0] != '@' && static_cast<uintptr_t>(r.value) == a) return n;
+        return {};
+    }
+    // kiln.hooks v2: every resolved symbol whose live bytes differed from the file's when it was resolved.
+    void collect_live_diffs(std::vector<LiveDiff>& out) const {
+        for (auto& [n, r] : symbols_) {
+            if (!r.ok || !r.live_diff || n[0] == '@') continue;
+            LiveDiff d;
+            d.symbol = n;
+            d.address = static_cast<uintptr_t>(r.value);
+            d.at = r.live_at;
+            d.bytes_ok = r.live_at != 0;
+            std::memcpy(d.bytes, r.live_bytes, sizeof d.bytes);
+            d.by = r.live_by;
+            out.push_back(std::move(d));
+        }
+    }
     size_t live_differs_count() const {
         size_t n = 0;
         for (auto& [k, r] : symbols_) if (r.live_diff) ++n;
@@ -871,5 +899,34 @@ bool hole_value_at(const Pattern& p, uintptr_t live_match, std::string_view name
 }
 
 bool code_from_disk() { return code().disk; }
+
+// ---- kiln.hooks v2 accessors ----
+bool file_bytes(uintptr_t live_addr, uint8_t* out, size_t n) {
+    const pe::CodeView& cv = code();
+    if (!cv.disk || !out) return false;
+    const uint8_t* f = cv.to_scan(live_addr);
+    if (!f || n > static_cast<size_t>(cv.end() - f)) return false;
+    std::memcpy(out, f, n);
+    return true;
+}
+
+std::string symbol_name_at(uintptr_t live_addr) {
+    std::string n = g_core.name_at(live_addr);
+    if (!n.empty()) return n;
+    std::lock_guard lock(g_frag_mutex);
+    for (auto& [id, res] : g_fragments) {
+        n = res->name_at(live_addr);
+        if (!n.empty()) return n;
+    }
+    return {};
+}
+
+std::vector<LiveDiff> live_differs() {
+    std::vector<LiveDiff> out;
+    g_core.collect_live_diffs(out);
+    std::lock_guard lock(g_frag_mutex);
+    for (auto& [id, res] : g_fragments) res->collect_live_diffs(out);
+    return out;
+}
 
 }  // namespace kiln::sigdb
