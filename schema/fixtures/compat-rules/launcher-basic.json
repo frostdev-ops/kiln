@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "rules": [
+    {
+      "id": "xhl-after-sf",
+      "when": [{ "module": "xhl-*.dll" }, { "engine": "shroudforge" }],
+      "action": "late",
+      "subject": { "module": "xhl-*.dll" },
+      "message": "XHL-Core hooks functions ShroudForge needs; load it after ShroudForge."
+    },
+    {
+      "id": "chat-overlap",
+      "when": [{ "symbol": "ChatLogAdd" }],
+      "action": "warn",
+      "message": "Two mods hook the chat log."
+    },
+    {
+      "id": "old-chainloader-off",
+      "when": [{ "engine": "chain-loader" }, { "mod": "emf:better-chat" }],
+      "action": "disable",
+      "subject": { "engine": "chain-loader" },
+      "message": "The old chain loader breaks Better Chat."
+    },
+    {
+      "id": "emf-foo-off",
+      "when": [{ "module": "foo-hook.dll" }],
+      "action": "disable",
+      "subject": { "mod": "emf:foo" },
+      "message": "foo and foo-hook.dll patch the same code."
+    }
+  ]
+}

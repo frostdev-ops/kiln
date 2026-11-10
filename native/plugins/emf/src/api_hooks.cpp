@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 // The EmfApi table, part 4: engine code. resolve() maps EMF 0.3.3's signature names (src/common/signatures.cpp,
 // extracted to sigdb/evidence/emf-0.3.3-signatures.json) onto Kiln's sigdb symbols; names Kiln has no symbol for are
-// defined as "emf/<Name>" in sigdb/symbols/server.d/emf.json. hook / hook_pattern / hook_address install raw inline
-// detours with safetyhook (linked into every plugin); a target another hook already patched chains: the new detour
-// runs first and *original calls the previous one, as EMF documents. find_pattern scans the exe as it is on disk.
+// defined as "emf/<Name>" in sigdb/symbols/server.d/emf.json. hook / hook_pattern / hook_address install each mod's
+// detour as a kiln.hooks v2 raw link owned by "emf:<mod id>" and labelled with the signature name: the one physical
+// detour per function is shared with Kiln's own components, and *original is the link's continuation (the rest of
+// the chain, then the game's function). EMF documents that a later hook on a function runs first and its *original
+// calls the previous one; the links keep that: they run before Kiln's own links, newest first. A target outside the
+// game exe (another module's code) is not in kiln.hooks' reach and still gets a plain safetyhook detour.
+// find_pattern scans the exe as it is on disk.
 // write_memory copies into private heap pages only (template data, item definitions), never code or image data.
 #include <intrin.h>
 
@@ -11,6 +15,7 @@
 #include <map>
 
 #include "emf_internal.h"
+#include "kiln_hook.hpp"
 #include "safetyhook.hpp"
 
 namespace kemf {
@@ -92,7 +97,8 @@ struct Hook {
     std::string name;
     Mod* mod;
     uintptr_t target;
-    safetyhook::InlineHook hook;
+    KilnHandle link = 0;          // the link in kiln.hooks' chain (the usual case)
+    safetyhook::InlineHook hook;  // only for a target outside the game exe
 };
 std::mutex g_hook_mutex;
 std::vector<std::unique_ptr<Hook>> g_hooks;  // live for the whole process (EMF: hooks are never removed)
@@ -104,29 +110,62 @@ bool executable_image(uintptr_t a) {
     return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
 }
 
+// A mod's hook name as a link label: printable ASCII, at most 96 bytes. The label goes into kiln.log and
+// state/hooks.json; hook_address / hook_pattern take any string from the mod (the JSON writer refuses invalid UTF-8).
+std::string link_label(const char* name) {
+    if (!name) return "?";
+    std::string s(name, strnlen(name, 96));
+    for (char& c : s)
+        if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E) c = '?';
+    return s.empty() ? "?" : s;
+}
+
+// Mods' links run before Kiln's own (priority 0), a later one before an earlier one (EMF: the new detour runs first).
+constexpr int32_t kModLinkPriority = 1;
+
 bool install(Mod* m, const char* label, uintptr_t target, void* detour, void** original, const char* fn) {
     if (!target || !detour) return refuse(m, fn, "no target or detour"), false;
     if (!executable_image(target)) return refuse(m, fn, "the target is not executable code of a loaded image"), false;
     std::lock_guard lock(g_hook_mutex);
     auto h = std::make_unique<Hook>();
-    h->name = label ? label : "?";
+    h->name = link_label(label);
     h->mod = m;
     h->target = target;
-    auto r = safetyhook::InlineHook::create(reinterpret_cast<void*>(target), detour, safetyhook::InlineHook::StartDisabled);
-    if (!r) return refuse(m, fn, format("%s: the hook could not be made (safetyhook error %d)", h->name.c_str(),
-                                        static_cast<int>(r.error().type)).c_str()),
-                  false;
-    h->hook = std::move(*r);
-    if (original) *original = h->hook.original<void*>();  // set before the hook is live
-    if (auto e = h->hook.enable(); !e) {
-        if (original) *original = nullptr;
-        return refuse(m, fn, format("%s: enabling the hook failed", h->name.c_str()).c_str()), false;
+    size_t earlier = 0;  // hooks already on this target (every mod's)
+    for (const auto& o : g_hooks) earlier += o->target == target;
+    const uintptr_t exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    const KilnHooksApi* hooks = kiln::hooks_v2(g_api);
+    if (!hooks) return refuse(m, fn, format("%s: kiln.hooks v2 is not available", h->name.c_str()).c_str()), false;
+    // The mod's own owner ("emf:<id>"), else kiln-emf's. raw_detour writes *original (the continuation) before the link
+    // can be reached, so the detour may call it on its very first run, on any thread.
+    const KilnOwner owner = m && m->owner ? m->owner : g_owner;
+    KilnHookOrder order{};
+    order.size = sizeof order;
+    order.priority = kModLinkPriority + static_cast<int32_t>(std::min<size_t>(earlier, 1000));
+    order.label = KilnStr{h->name.data(), h->name.size()};
+    const KilnResult rc = hooks->raw_detour(owner, target, &order, detour, original, &h->link);
+    bool in_chain = rc == KILN_OK;
+    if (rc == KILN_ERR_INVALID_ARGUMENT) {
+        // Not the game exe (another module's code): kiln.hooks does not reach it. Plain safetyhook detour, as before.
+        auto r = safetyhook::InlineHook::create(reinterpret_cast<void*>(target), detour, safetyhook::InlineHook::StartDisabled);
+        if (!r) return refuse(m, fn, format("%s: the hook could not be made (safetyhook error %d)", h->name.c_str(),
+                                            static_cast<int>(r.error().type)).c_str()),
+                      false;
+        h->hook = std::move(*r);
+        if (original) *original = h->hook.original<void*>();  // set before the hook is live
+        if (auto e = h->hook.enable(); !e) {
+            if (original) *original = nullptr;
+            return refuse(m, fn, format("%s: enabling the hook failed", h->name.c_str()).c_str()), false;
+        }
+    } else if (rc != KILN_OK) {
+        return refuse(m, fn, format("%s: the hook could not be made (kiln.hooks result %d; see kiln.log)", h->name.c_str(),
+                                    static_cast<int>(rc)).c_str()),
+               false;
     }
-    bool chained = false;
-    for (const auto& o : g_hooks) chained |= o->target == target;
-    mod_logf(m, KILN_LOG_INFO, "hook %s at exe+0x%llx%s", h->name.c_str(),
-             static_cast<unsigned long long>(target - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
-             chained ? " (chained over an earlier hook)" : "");
+    mod_logf(m, KILN_LOG_INFO, "hook %s at exe+0x%llx%s%s", h->name.c_str(),
+             static_cast<unsigned long long>(target - exe),
+             in_chain ? " (in Kiln's hook chain)" : " (outside the game exe: not in Kiln's hook chain)",
+             earlier ? " (chained over an earlier hook)" : "");
     g_hooks.push_back(std::move(h));
     return true;
 }

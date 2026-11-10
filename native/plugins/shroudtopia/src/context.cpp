@@ -5,14 +5,18 @@
 //  - memory.*: Shroudtopia's ten helpers. Guarded, bounded copies restore protection for every memory region;
 //    ApplyPatch saves its originals locally and restores them when the worker has stopped on plugin unload;
 //    FindPattern scans committed readable memory from `start` for `length` bytes, first match, like Shroudtopia's;
-//    CreateDetour and InjectShellcode do what their names say (see docs/kiln/engines/shroudtopia.md for where
-//    Shroudtopia's own versions differ);
+//    CreateDetour installs a kiln.hooks v2 raw link owned by "shroudtopia:<mod>" (the one detour per function is shared
+//    with Kiln's own hooks; the trampoline the mod gets is the link's continuation: the rest of the chain, then the
+//    game's function), or a plain safetyhook detour for a target outside the game exe; InjectShellcode does what its
+//    name says (see docs/kiln/engines/shroudtopia.md for where Shroudtopia's own versions differ);
 //  - Log: [shroudtopia:<mod>] in kiln.log, plus logs/shroudtopia.log.
 #include <algorithm>
 #include <atomic>
 #include <limits>
+#include <map>
 #include <mutex>
 
+#include "kiln_hook.hpp"
 #include "safetyhook.hpp"
 #include "shroudtopia_internal.h"
 
@@ -372,7 +376,27 @@ uint8_t* alloc_near(uintptr_t near_addr, size_t size) {
 }
 
 std::mutex g_detour_mu;
-std::vector<std::unique_ptr<safetyhook::InlineHook>> g_detours;  // kept for the process life
+std::vector<std::unique_ptr<safetyhook::InlineHook>> g_detours;  // targets outside the game exe, kept for the process life
+std::map<std::string, KilnOwner> g_mod_owners;                   // "shroudtopia:<mod>", for the hook map (never revoked)
+std::map<uintptr_t, int32_t> g_links_on;                         // CreateDetour links per target (for their order)
+
+// A mod's name (from its own GetMetaData: any bytes, any length) as it may appear in an owner or link label: printable
+// ASCII, at most 64 bytes. Both go into kiln.log and state/hooks.json (the JSON writer refuses invalid UTF-8).
+std::string link_name(const std::string& mod) {
+    std::string s = mod.substr(0, 64);
+    for (char& c : s)
+        if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E) c = '?';
+    return s.empty() ? "?" : s;
+}
+
+// The owner a mod's hooks are filed under (g_detour_mu held): its own, so hooks.json and kiln.log name the mod.
+KilnOwner owner_of(const std::string& mod) {
+    if (mod.empty() || !H.api || !H.api->owner_create) return H.owner;
+    auto it = g_mod_owners.find(mod);
+    if (it == g_mod_owners.end())
+        it = g_mod_owners.emplace(mod, H.api->owner_create(kcompat::kstr("shroudtopia:" + link_name(mod)))).first;
+    return it->second;
+}
 
 // ---- the ModContext functions, as Shroudtopia's loader passes them ----
 void ctx_log(const char* msg) { log_line(current_mod(), msg ? msg : ""); }
@@ -476,26 +500,50 @@ bool ctx_create_detour(LPVOID target, LPVOID detour, void** trampoline) {
         !(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) return false;
     std::lock_guard lock(g_detour_mu);
     if (g_memory_stopped) return false;
-    auto hook = safetyhook::InlineHook::create(target, detour, safetyhook::InlineHook::StartDisabled);
-    if (!hook) {
+    const KilnHooksApi* hooks = kiln::hooks_v2(H.api);
+    if (!hooks) {
+        ctx_log("Failed to install detour: kiln.hooks v2 is not available");
+        return false;
+    }
+    // The registry writes the continuation to the mod's trampoline storage before the link can be reached, so the
+    // detour may call it on its first run on any thread (the caller must pass the storage its detour actually uses).
+    const std::string mod = current_mod();
+    const std::string label = "shroudtopia/" + link_name(mod);  // names the link in kiln.log and hooks.json
+    // As before dev.21 (a detour layered over Kiln's own hooks and the earlier ones): mods' links run before Kiln's own
+    // (priority 0), a later one on the same function before an earlier one, so a mod's detour still sees the game's call.
+    int32_t& earlier = g_links_on[reinterpret_cast<uintptr_t>(target)];
+    KilnHookOrder order{};
+    order.size = sizeof order;
+    order.priority = 1 + std::min<int32_t>(earlier, 1000);
+    order.label = KilnStr{label.data(), label.size()};
+    KilnHandle link = 0;
+    const KilnResult rc = hooks->raw_detour(owner_of(mod), reinterpret_cast<uintptr_t>(target), &order, detour, trampoline, &link);
+    if (rc == KILN_OK) ++earlier;
+    if (rc == KILN_ERR_INVALID_ARGUMENT) {
+        // Not the game exe (another module's code): kiln.hooks does not reach it. A plain safetyhook detour, as before.
+        auto hook = safetyhook::InlineHook::create(target, detour, safetyhook::InlineHook::StartDisabled);
+        if (!hook) {
+            ctx_log("Failed to install detour");
+            return false;
+        }
+        auto h = std::make_unique<safetyhook::InlineHook>(std::move(*hook));
+        void* original = h->original<void*>();
+        // Allocate the owning record before publishing anything to the mod. An allocation failure must not leave
+        // its output pointing at the trampoline of a destroyed, disabled hook.
+        g_detours.push_back(std::move(h));
+        if (trampoline && !seh_copy(trampoline, &original, sizeof original)) {
+            g_detours.pop_back();
+            return false;
+        }
+        // Publish the callable original before another thread can enter the detour.
+        std::atomic_thread_fence(std::memory_order_release);
+        if (!g_detours.back()->enable()) {
+            g_detours.pop_back();
+            if (trampoline) seh_copy(trampoline, &previous, sizeof previous);
+            return false;
+        }
+    } else if (rc != KILN_OK) {
         ctx_log("Failed to install detour");
-        return false;
-    }
-    auto h = std::make_unique<safetyhook::InlineHook>(std::move(*hook));
-    void* original = h->original<void*>();
-    // Allocate the owning record before publishing anything to the mod. An allocation failure must not leave
-    // its output pointing at the trampoline of a destroyed, disabled hook.
-    g_detours.push_back(std::move(h));
-    if (trampoline && !seh_copy(trampoline, &original, sizeof original)) {
-        g_detours.pop_back();
-        return false;
-    }
-    // Publish the callable original before another thread can enter the detour. The caller must pass the
-    // trampoline storage its detour actually uses, as with other concurrent native hook APIs.
-    std::atomic_thread_fence(std::memory_order_release);
-    if (!g_detours.back()->enable()) {
-        g_detours.pop_back();
-        if (trampoline) seh_copy(trampoline, &previous, sizeof previous);
         return false;
     }
     ctx_log("Successfully installed detour");

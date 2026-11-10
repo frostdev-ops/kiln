@@ -83,8 +83,12 @@ def dll_entries(data: bytes, wanted: dict, default_section: str) -> dict:
 
 def chain(data: bytes) -> dict:
     """kiln/chain.ini: [chain] (proxies the installer displaced) and [profile] (dllmain native mods of the active
-    profile). Section names are case-insensitive; lines before any section count as [chain]."""
-    return dll_entries(data, {"chain": 1, "profile": 1}, "chain")
+    profile). Section names are case-insensitive; lines before any section count as [chain]. [late] (dev.21) names
+    entries of the other sections that load after Kiln's plugins; reported only when it has lines."""
+    out = dll_entries(data, {"chain": 1, "profile": 1, "late": 1}, "chain")
+    if not out["late"]:
+        del out["late"]
+    return out
 
 
 def once(data: bytes) -> dict:

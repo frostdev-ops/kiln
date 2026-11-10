@@ -63,6 +63,17 @@ void simstep_detour(void* a, void* b, void* c, void* d) {
     g_simsteps.fetch_add(1, std::memory_order_relaxed);
     g_simstep_orig(a, b, c, d);
 }
+// ChatLogAdd(result, system, type, text, tag1, tag2, connection, account, time): nine arguments, four in registers. kiln.chat
+// has a link on it too; this mod's link runs in front of it (kiln.hooks v2, owner emf:emf_probe) and kiln.chat still tells a
+// player's line by caller(). Lines reach it only when the game adds one (a player typed, a notice): none in a lab without players.
+using ChatLogAddFn = void* (*)(void*, void*, uint8_t, const void*, uint32_t, uint32_t, uint32_t, uint64_t, const void*);
+ChatLogAddFn g_chatadd_orig = nullptr;
+std::atomic<uint64_t> g_chatadds{0};
+void* chatadd_detour(void* out, void* sys, uint8_t type, const void* text, uint32_t t1, uint32_t t2, uint32_t h, uint64_t acct,
+                     const void* time) {
+    g_chatadds.fetch_add(1, std::memory_order_relaxed);
+    return g_chatadd_orig(out, sys, type, text, t1, t2, h, acct, time);
+}
 
 int64_t g_level_target = 7;
 std::atomic<int> g_loads{0}, g_saves{0}, g_setting_changes{0}, g_ws_changes{0}, g_cmd_runs{0};
@@ -717,6 +728,9 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
     check(api->hook("SimStep", reinterpret_cast<void*>(&simstep_detour), reinterpret_cast<void**>(&g_simstep_orig)) &&
               g_simstep_orig != nullptr,
           "hook(SimStep): installed, original set");
+    check(api->hook("ChatLogAdd", reinterpret_cast<void*>(&chatadd_detour), reinterpret_cast<void**>(&g_chatadd_orig)) &&
+              g_chatadd_orig != nullptr,
+          "hook(ChatLogAdd): a nine-argument link next to kiln.chat's, original set");
     // settings from mod.json
     const int64_t lvl = api->setting_int(kMod, "level", -1);
     check(lvl >= 0 && lvl <= 10 && api->setting_float(kMod, "ratio", -1) == 0.5, "settings declared from mod.json (int 0..10, float 0.5)",

@@ -3,19 +3,21 @@
 // kiln-shroudtopia). run.py copies it into a scratch game folder as enshrouded.exe or enshrouded_server.exe and runs
 // it under plain Wine:
 //   compathost.exe <plugin.dll> <wait ms> [--claim-greeneye] [--load <dll>] [--at <ms> --copy <src> <dst>]
-// It serves a minimal KilnApi (log, paths, side, build info, kiln.profile from kiln/profile.json, register_service /
-// service), loads the plugin, runs kiln_plugin_main and on_ready, waits, then calls the test targets below and prints
+// It serves a minimal KilnApi (log, paths, side, build info, kiln.profile from kiln/profile.json, a kiln.hooks v2 stand-in
+// that places raw_detour links with safetyhook, register_service / service), loads the plugin, runs kiln_plugin_main and on_ready, waits, then calls the test targets below and prints
 // RESULT lines that run.py checks together with kiln/logs/kiln.log and kiln/state/*.json.
 #include <windows.h>
 
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "kiln_api.h"
+#include "services/kiln_hooks.h"
 #include "services/kiln_profile.h"
 #include "../../flame/include/kiln_flame.h"
 #include "../compat.h"
@@ -158,6 +160,43 @@ KilnResult KILN_CALL f_subscribe_world_tick(KilnOwner, uint32_t, int32_t, KilnTi
 KilnResult KILN_CALL f_post_world(KilnOwner, uint32_t, KilnTaskFn, void*) { return KILN_OK; }
 KilnResult KILN_CALL f_subscribe_world(KilnOwner, KilnWorldEventFn, void*, KilnHandle* out) { if (out) *out = 1; return KILN_OK; }
 KilnResult KILN_CALL f_session(KilnSessionInfo*) { return KILN_ERR_UNAVAILABLE; }
+
+// ---- kiln.hooks v2 stand-in: raw_detour over safetyhook (the real registry has its own tests: native/core/tests) ----
+// Like the registry it accepts only targets inside the exe image (the others get KILN_ERR_INVALID_ARGUMENT), writes the
+// continuation to *original before the hook is live, and never removes a link. Counts links and refusals for RESULT lines.
+std::vector<std::unique_ptr<safetyhook::InlineHook>> g_links;
+std::mutex g_links_mu;
+int g_raw_links = 0, g_raw_outside = 0;
+KilnResult KILN_CALL hk_raw_detour(KilnOwner, uintptr_t target, const KilnHookOrder*, void* fn, void** original,
+                                   KilnHandle* out) {
+    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    std::lock_guard lock(g_links_mu);
+    if (!fn || target < base || target >= base + nt->OptionalHeader.SizeOfImage) {
+        ++g_raw_outside;
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
+    auto hook = safetyhook::InlineHook::create(reinterpret_cast<void*>(target), fn, safetyhook::InlineHook::StartDisabled);
+    if (!hook) return KILN_ERR_UNAVAILABLE;
+    auto h = std::make_unique<safetyhook::InlineHook>(std::move(*hook));
+    if (original) *original = h->original<void*>();  // before the link can be reached
+    if (!h->enable()) return KILN_ERR_UNAVAILABLE;
+    g_links.push_back(std::move(h));
+    ++g_raw_links;
+    if (out) *out = 0x4B484F4F00000000ull + static_cast<uint64_t>(g_links.size());
+    return KILN_OK;
+}
+uintptr_t KILN_CALL hk_caller(KilnHandle) { return 0; }
+KilnResult KILN_CALL hk_revoke(KilnHandle) { return KILN_OK; }
+KilnHooksApi make_hooks() {
+    KilnHooksApi t{};
+    t.header = {sizeof(KilnHooksApi), KILN_HOOKS_VERSION};
+    t.raw_detour = &hk_raw_detour;
+    t.caller = &hk_caller;
+    t.revoke = &hk_revoke;
+    return t;
+}
+const KilnHooksApi kHooks = make_hooks();
 
 const KilnApi kApi = {sizeof(KilnApi), KILN_ABI_VERSION, &f_version, &f_log, &f_build_info, &f_feature, &f_path,
                       &f_owner_create, &f_owner_revoke, &f_subscribe_tick, &f_unsubscribe, &f_post, &f_on_tick_thread,
@@ -320,6 +359,7 @@ int wmain(int argc, wchar_t** argv) {
         g_data_u8 = u8(g_game + L"\\kiln\\data");
     }
     g_services[KILN_PROFILE_SERVICE] = &kProfile;
+    g_services[KILN_HOOKS_SERVICE] = &kHooks;
     line(std::string("[host] side ") + (g_side == KILN_SIDE_SERVER ? "server" : "client") + ", profile mode " +
          std::to_string(g_profile_mode));
     shared_checks();
@@ -397,6 +437,11 @@ int wmain(int argc, wchar_t** argv) {
         line(std::string("[host] RESULT flame_stepped_aside=") + (flame->stepped_aside() ? "yes" : "no"));
     }
     if (!freed && info.on_unload) info.on_unload(info.user);
+    {
+        std::lock_guard lock(g_links_mu);
+        line("[host] RESULT hooks_raw_links=" + std::to_string(g_raw_links));
+        line("[host] RESULT hooks_outside_image=" + std::to_string(g_raw_outside));
+    }
     line("[host] RESULT done");
     std::fflush(stdout);
     if (g_log) std::fclose(g_log);

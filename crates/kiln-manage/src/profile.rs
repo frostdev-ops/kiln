@@ -304,6 +304,9 @@ pub struct Profile {
     pub data_dir: DataDirMode,
     #[serde(default)]
     pub server: Option<BoundServer>,
+    /// Native mod ids whose dllmain DLLs load after Kiln and ShroudForge (chain.ini [late]) instead of in the proxy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub late: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -499,6 +502,14 @@ fn check_profile(p: &Profile) -> Result<()> {
             }
         }
     }
+    if p.late.len() > 4096 {
+        problems.push("late exceeds 4096 entries".to_string());
+    }
+    for id in p.late.iter().take(4096) {
+        if !crate::manifest::is_mod_id(id) || id.ends_with('\n') {
+            problems.push(format!("late mod id {id:?} is not valid"));
+        }
+    }
     if !problems.is_empty() {
         return Err(Error::new(ErrorCode::Schema, format!("the profile breaks the format's rules: {}", problems.join("; "))).with_detail(problems));
     }
@@ -585,6 +596,7 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         dropins: src.as_ref().map(|s| s.dropins.clone()).unwrap_or_default(),
         data_dir: src.as_ref().map(|s| s.data_dir).unwrap_or_default(),
         server: src.as_ref().and_then(|s| s.server.clone()),
+        late: src.as_ref().map(|s| s.late.clone()).unwrap_or_default(),
     };
     check_profile(&p)?;
     let dir = dirs.profile(&id);
@@ -845,7 +857,7 @@ fn running_process(install: &GameInstall) -> Result<Option<crate::proc::ProcessI
     running_process_with(&install.path, &install.exe, crate::proc::find_exe)
 }
 
-fn refuse_running(install: &GameInstall) -> Result<()> {
+pub(crate) fn refuse_running(install: &GameInstall) -> Result<()> {
     if let Some(p) = running_process(install)? {
         return Err(Error::new(ErrorCode::GameRunning, format!("{} is running (pid {}); quit it first", p.name, p.pid))
             .with_detail(serde_json::json!({ "pid": p.pid })));
@@ -934,24 +946,12 @@ fn write_native_switches(config_dir: &Path, profile: &Profile) -> Result<()> {
     crate::config::write_native_state(config_dir, &st)
 }
 
-/// Game-side DLL paths of the enabled native mods with phase dllmain (chain.ini [profile] / once.ini).
-fn dllmain_dlls(dirs: &DataDirs, profile: &Profile, file: &ProfileFile) -> Result<Vec<String>> {
-    let mut out = Vec::new();
-    for (m, fm) in profile.mods.native.iter().zip(&file.mods.native) {
-        if !m.enabled {
-            continue;
-        }
-        let folder = crate::library::path_of(dirs, &lref(ModKind::Native, m))?;
-        let Ok(n) = crate::manifest::read_native(&folder) else { continue };
-        if n.phase != NativePhase::Dllmain {
-            continue;
-        }
-        for d in &n.dlls {
-            // chain.ini paths use '\'; relative ones resolve against <game>/kiln/
-            out.push(format!("{}\\{d}", fm.path.trim_end_matches(['\\', '/'])).replace('/', "\\"));
-        }
-    }
-    Ok(out)
+/// chain.ini as the profile wants it: [profile], its late natives and the compat rules (compat::plan). Returns true
+/// when it wrote.
+fn write_chain_plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, file: &ProfileFile) -> Result<bool> {
+    let entries = crate::compat::dllmain_entries(dirs, profile, file)?;
+    let plan = crate::compat::plan(dirs, profile, install, &entries);
+    crate::chain::write_profile_plan(&install.path, &plan.chain)
 }
 
 /// Prepares everything a profile file needs on the game side (path mode, copies, config dir, native.json) and
@@ -1020,7 +1020,7 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     file.generation = generation; // grows with every write of the file
     let now = now_rfc3339();
     file.written = Some(now.clone());
-    crate::chain::write_profile_section(&install.path, &dllmain_dlls(dirs, &profile, &file)?)?;
+    write_chain_plan(dirs, &profile, install, &file)?;
     let pj = install.path.join(crate::paths::game::PROFILE);
     crate::util::write_json_atomic(&pj, &file)?;
     remove_if_there(&install.path.join(crate::paths::game::CHAIN_ONCE))?;
@@ -1060,6 +1060,8 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
         // launch even though profile.json itself still describes the active profile. Never change them mid-game.
         if running_process(install)?.is_none() {
             crate::engine_mods::place(dirs, &profile, &install.path)?;
+            // the profile's late natives and the compat rules live in chain.ini only
+            write_chain_plan(dirs, &profile, install, &file)?;
         }
         return Ok(None);
     }
@@ -1090,7 +1092,9 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     }
     let (mut file, _, _) = prepare(dirs, &profile, install)?;
     file.written = Some(now_rfc3339());
-    crate::chain::write_once(&install.path, &dllmain_dlls(dirs, &profile, &file)?)?;
+    // compat rules that switch a native off apply to a single start too ([late] stays chain.ini's)
+    let entries = crate::compat::dllmain_entries(dirs, &profile, &file)?;
+    crate::chain::write_once(&install.path, &crate::compat::plan(dirs, &profile, install, &entries).chain.profile)?;
     crate::util::write_json_atomic(&install.path.join(crate::paths::game::PROFILE_ONCE), &file)?;
     Ok(file)
 }

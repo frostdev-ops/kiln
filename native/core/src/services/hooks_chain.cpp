@@ -1071,7 +1071,7 @@ std::string map_text(const std::vector<ForeignSym>& foreign, const char* phase) 
         ext = s.extensions;
     }
     for (MapExtension fn : ext) fn(&doc, phase);
-    return doc.dump(2) + "\n";
+    return doc.dump(2, ' ', false, json::error_handler_t::replace) + "\n";  // never throw on a bad label
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -18,6 +18,7 @@ pub mod update;
 pub mod deck;
 pub mod nexus;
 pub mod engines;
+pub mod compat;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -161,6 +162,8 @@ pub const NAMES: &[&str] = &[
     "engine_status",
     "eml_backup",
     "eml_restore",
+    "chain_view",
+    "chain_set_late",
 ];
 
 #[cfg(test)]

@@ -2,13 +2,15 @@
 // Client engine bridge adapted from EMF 0.6.0 server_chat_hooks.cpp/server_chat.h (MIT).
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 // The three game calls and GameClient+0xF8 layout were checked upstream on the hash allowlist below.
-// Hooks stay mapped for process lifetime; shutdown turns their work off without freeing a foreign trampoline.
+// The two hooks (ChatLogAdd, ClientOutboxFlush) are kiln.hooks v2 raw links owned by kiln-emf, so they share the one
+// detour per function with kiln.chat's and with other Kiln components', and ChatLogAdd runs after kiln.chat's. ChatClientSend
+// is not hooked: it is called directly. Links stay for process lifetime; shutdown turns their work off.
 #include "emf_internal.h"
 #include "net_bridge.h"
 #include "net/net_line.h"
 #include <algorithm>
 #ifndef KEMF_NET_CLIENT_TEST
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #endif
 
 namespace kemf {
@@ -23,19 +25,37 @@ using NetSendFn = uint8_t *(*)(uint8_t *, uint8_t *, uint8_t, const NetText *, u
 using NetAddFn = uint8_t *(*)(uint8_t *, uint8_t *, uint8_t, const NetText *, uint32_t, uint32_t, uint32_t, uint64_t,
                               const void *);
 #endif
-NetFlushFn g_flush = nullptr;
 NetSendFn g_send = nullptr;
+// Test builds replace the two hooked functions by plain functions; production calls through the links' continuations.
+#ifdef KEMF_NET_CLIENT_TEST
+NetFlushFn g_flush = nullptr;
 NetAddFn g_add = nullptr;
+#endif
+std::atomic<bool> g_ready{false};  // the hooks and the send function are in place
 std::atomic<bool> g_active{false};
 std::atomic<uint8_t *> g_system{nullptr}, g_game_client{nullptr};
 std::recursive_mutex g_client_dispatch;
 #ifndef KEMF_NET_CLIENT_TEST
-// Never destroyed: these may have another engine's hook layered above them.
-struct Hooks {
-    safetyhook::InlineHook add, flush;
-};
-Hooks *g_hooks = nullptr;
+// Never revoked while the process runs (a game thread may be inside the chain); a RawHook's destructor leaves the link.
+kiln::RawHook g_add_link, g_flush_link;
 #endif
+
+// The rest of the chain, then the game's function.
+void call_flush(uint8_t *gc) {
+#ifdef KEMF_NET_CLIENT_TEST
+    g_flush(gc);
+#else
+    g_flush_link.call<void>(gc);
+#endif
+}
+uint8_t *call_add(uint8_t *out, uint8_t *sys, uint8_t kind, const NetText *text, uint32_t tag1, uint32_t tag2,
+                  uint32_t handle, uint64_t account, const void *time) {
+#ifdef KEMF_NET_CLIENT_TEST
+    return g_add(out, sys, kind, text, tag1, tag2, handle, account, time);
+#else
+    return g_add_link.call<uint8_t *>(out, sys, kind, text, tag1, tag2, handle, account, time);
+#endif
+}
 
 void pump(uint8_t *gc) {
     std::lock_guard dispatch(g_client_dispatch);
@@ -74,7 +94,7 @@ void hook_flush(uint8_t *gc) {
     } catch (...) {
         g_active = false;
     }
-    g_flush(gc);
+    call_flush(gc);
 }
 uint8_t *hook_add(uint8_t *out, uint8_t *sys, uint8_t kind, const NetText *text, uint32_t tag1, uint32_t tag2,
                   uint32_t handle, uint64_t account, const void *time) {
@@ -104,7 +124,7 @@ uint8_t *hook_add(uint8_t *out, uint8_t *sys, uint8_t kind, const NetText *text,
     } catch (...) {
         g_active = false;
     }
-    return g_add(out, sys, kind, text, tag1, tag2, handle, account, time);
+    return call_add(out, sys, kind, text, tag1, tag2, handle, account, time);
 }
 } // namespace
 
@@ -120,12 +140,12 @@ void net_client_stop() {
 void net_client_resume() {
     std::lock_guard dispatch(g_client_dispatch);
     net_client_clear();
-    g_active = g_flush && g_send && g_add;
+    g_active = g_ready.load();
 }
 
 #ifndef KEMF_NET_CLIENT_TEST
 bool net_client_install() {
-    if (g_hooks) {
+    if (g_ready) {
         g_active = true;
         return true;
     }
@@ -149,27 +169,23 @@ bool net_client_install() {
         g_api->symbol(kstr("emf/ClientOutboxFlush"), &flush) != KILN_OK ||
         g_api->symbol(kstr("emf/ChatClientSend"), &send) != KILN_OK || !add || !flush || !send)
         return false;
-    auto h = std::make_unique<Hooks>();
-    auto a = safetyhook::InlineHook::create(reinterpret_cast<void *>(add), reinterpret_cast<void *>(&hook_add),
-                                            safetyhook::InlineHook::StartDisabled);
-    if (!a)
-        return false;
-    h->add = std::move(*a);
-    g_add = h->add.original<NetAddFn>();
-    auto f = safetyhook::InlineHook::create(reinterpret_cast<void *>(flush), reinterpret_cast<void *>(&hook_flush),
-                                            safetyhook::InlineHook::StartDisabled);
-    if (!f)
-        return false;
-    h->flush = std::move(*f);
-    g_flush = h->flush.original<NetFlushFn>();
     g_send = reinterpret_cast<NetSendFn>(send);
-    if (!h->add.enable())
-        return false;
-    if (!h->flush.enable()) {
-        (void)h->add.disable();
+    // ChatLogAdd after kiln.chat's link (kiln.chat holds back players' lines it hands to mods; this link sees every line
+    // that reaches the game's function, including the ones kiln.chat adds back). The links are installed in place: a game
+    // thread may enter the chain at once, and the continuations are written before it can.
+    if (!g_add_link.install(g_api, g_owner, add, reinterpret_cast<void *>(&hook_add), "emf/ChatLogAdd", 0, nullptr,
+                            "kiln.chat")) {
+        logf(KILN_LOG_WARN, "EMF net: ChatLogAdd link refused (%s); remote client messages are off",
+             g_add_link.error() ? g_add_link.error() : "?");
         return false;
     }
-    g_hooks = h.release();
+    if (!g_flush_link.install(g_api, g_owner, flush, reinterpret_cast<void *>(&hook_flush), "emf/ClientOutboxFlush")) {
+        logf(KILN_LOG_WARN, "EMF net: ClientOutboxFlush link refused (%s); remote client messages are off",
+             g_flush_link.error() ? g_flush_link.error() : "?");
+        g_add_link.revoke();  // the continuation stays valid for a thread already inside hook_add
+        return false;
+    }
+    g_ready = true;
     g_active = true;
     logf(KILN_LOG_INFO, "EMF net: client chat receive/send hooks on (official #!emf1 wire)");
     return true;
@@ -181,6 +197,7 @@ NetClientDetours net_client_test_install(NetFlushFn flush, NetSendFn send, NetAd
     g_flush = flush;
     g_send = send;
     g_add = add;
+    g_ready = true;
     g_active = true;
     return {&hook_flush, &hook_add};
 }

@@ -284,6 +284,8 @@ export interface Profile {
   dropins: ModKind[];
   dataDir: "shared" | "profile";
   server: BoundServer | null;
+  /** Native mod ids whose dllmain DLLs load after Kiln and ShroudForge (chain.ini [late]); absent when none. */
+  late?: string[];
 }
 export interface ProfileSummary {
   id: ProfileId;
@@ -1030,6 +1032,68 @@ export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { g
 /** Copies each `.kfc.bak` over its patched `.kfc`; the files restored. Rejects with game_running while the game runs. */
 export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
 
+// compat.rs (kiln_manage::compat): closed DLL mods on a profile's native page
+export type ChainSection = "chain" | "profile";
+export interface ChainViewEntry {
+  /** As in chain.ini ('\', relative to <game>/kiln/ unless absolute). */
+  path: string;
+  file: string;
+  section: ChainSection;
+  /** [chain]: the engine word its markers name. */
+  engine: string | null;
+  /** [profile]: the native mod's id. */
+  modId: string | null;
+  late: boolean;
+  /** "player" ([chain], game-wide), "profile", or "rule:<id>". */
+  lateBy: string | null;
+  /** "rule:<id>" when a compat rule switches it off. */
+  offBy: string | null;
+}
+export type RuleAction = "warn" | "late" | "disable";
+export interface CompatRuleResult {
+  id: string;
+  source: "kiln" | "user";
+  action: RuleAction;
+  message: string;
+  fired: boolean;
+  applied: boolean;
+  targets: string[];
+  note?: string;
+}
+export type OverlapKind = "foreign-before" | "foreign-over" | "refused" | "other";
+export interface ChainOverlap {
+  symbol: string;
+  rva: string;
+  kind: OverlapKind;
+  foreign: { module: string; offset: string; own?: boolean } | null;
+  owners: string[];
+  /** The chain entry that loads the foreign module (null: another loader loaded it). */
+  entry: string | null;
+  section: ChainSection | null;
+  library: { kind: ModKind; id: string; name: string } | null;
+  late: boolean;
+  /** "late": one click loads `entry` late; "none": only the hint. */
+  fix: "late" | "none";
+  hint: string;
+}
+export interface ChainView {
+  entries: ChainViewEntry[];
+  rules: CompatRuleResult[];
+  ruleErrors: string[];
+  /** null: no hooks.json yet (the game has not started with this Kiln). */
+  session: { generated: string | null; phase: string | null; kiln: string | null; worldChecked: boolean } | null;
+  overlaps: ChainOverlap[];
+  active: boolean;
+  /** Active, and chain.ini already says what the plan says. */
+  current: boolean;
+  error: string | null;
+}
+export const chainView = (profileId: ProfileId, gameId: GameId) => call<ChainView>("chain_view", { profileId, gameId });
+/** Loads one chain entry after Kiln and ShroudForge (or not): a [profile] entry changes the profile, a [chain] entry
+ *  the game's chain.ini for every profile. Answers the fresh view. */
+export const chainSetLate = (profileId: ProfileId, gameId: GameId, path: string, late: boolean) =>
+  call<ChainView>("chain_set_late", { profileId, gameId, path, late });
+
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
@@ -1250,6 +1314,7 @@ export const COMMANDS = [
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
   "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
+  "chain_view", "chain_set_late",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
