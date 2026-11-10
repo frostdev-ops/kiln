@@ -189,3 +189,81 @@ fn a_profile_file_without_late_reads_and_a_bad_late_id_is_refused() {
     bad.late = (0..5000).map(|i| format!("m{i}")).collect();
     assert!(profile::save(&dirs, &bad).is_err());
 }
+
+/// Play once follows the play-once profile's own compat rules and late list, not what the active profile's activation
+/// left in chain.ini: the single start reads [chain] and [late] from chain/once.ini.
+#[test]
+fn play_once_applies_the_once_profiles_chain_rules() {
+    let t = Tmp(std::env::temp_dir().join(format!("km-compat-once-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&t.0);
+    std::fs::create_dir_all(&t.0).unwrap();
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "kiln/chain/xhl-core.dll", &build_test_dll(&[], b"xhl"));
+    put(&game, "kiln/chain/chain-loader-dinput8.dll", &build_test_dll(&[], b"reads dinput8-chain.ini"));
+    put(&game, "kiln/chain.ini", b"[chain]\r\nchain\\xhl-core.dll\r\nchain\\chain-loader-dinput8.dll\r\n[late]\r\n; mine\r\nchain\\chain-loader-dinput8.dll\r\n");
+    let mut srcs = Vec::new();
+    for id in ["fpsunlock", "other-hook"] {
+        let d = t.0.join(format!("src/{id}"));
+        put(&d, "native.json", format!(r#"{{ "format": 1, "id": "{id}", "version": "1.0.0", "dlls": ["{id}.dll"], "phase": "dllmain", "init": null }}"#).as_bytes());
+        put(&d, &format!("{id}.dll"), &build_test_dll(&[], id.as_bytes()));
+        srcs.push(d);
+    }
+    let r = library::import(&dirs, &srcs, &mut NoProgress).unwrap();
+    let lref = |id: &str| -> LibraryRef { r.imported.iter().find(|x| x.kind == ModKind::Native && x.id == id).cloned().unwrap() };
+    let pm = |l: LibraryRef| ProfileMod { id: l.id, version: l.version, hash: l.hash, enabled: true };
+    let inst = GameInstall {
+        id: "g-once".into(), kind: GameKind::Client, path: game.clone(), exe: "enshrouded.exe".into(),
+        app_id: kiln_manage::CLIENT_APP_ID, library: None, platform: Platform::Proton, prefix: None, build_id: None,
+        exe_sha256: None, steam_flavor: None, path_mode: PathMode::Copy, source: "manual".into(),
+    };
+    // A (active): its rule switches the old chain loader off; its native is late
+    let mut a = profile::create(&dirs, "Active", None).unwrap();
+    a.mods.native = vec![pm(lref("fpsunlock"))];
+    a.late = vec!["fpsunlock".into()];
+    let a = profile::save(&dirs, &a).unwrap();
+    put(&dirs.profile(&a.id), "config/compat-rules.json", br#"{ "format": 1, "rules": [
+        { "id": "a-loader-off", "action": "disable", "subject": {"engine": "chain-loader"} } ] }"#);
+    // B (play once): its rule loads XHL late and switches nothing off; its native is not late
+    let mut b = profile::create(&dirs, "Once", None).unwrap();
+    b.mods.native = vec![pm(lref("other-hook"))];
+    let b = profile::save(&dirs, &b).unwrap();
+    put(&dirs.profile(&b.id), "config/compat-rules.json", br#"{ "format": 1, "rules": [
+        { "id": "b-xhl-late", "action": "late", "subject": {"module": "xhl-*.dll"} } ] }"#);
+    // C (play once): switches XHL off
+    let c = profile::create(&dirs, "Once off", None).unwrap();
+    put(&dirs.profile(&c.id), "config/compat-rules.json", br#"{ "format": 1, "rules": [
+        { "id": "c-xhl-off", "action": "disable", "subject": {"module": "xhl-*.dll"} } ] }"#);
+
+    profile::activate(&dirs, &a.id, &inst).unwrap();
+    let active_chain = chain::read_raw(&game).unwrap();
+    let active = chain::parse(active_chain.as_bytes());
+    assert_eq!(active.chain.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["chain\\xhl-core.dll"], "A's rule switched the loader off: {active_chain}");
+    let once_paths = |v: &Option<Vec<chain::ChainEntry>>| v.as_ref().unwrap().iter().map(|e| e.path.clone()).collect::<Vec<_>>();
+    let read_once = || chain::parse_once(&std::fs::read(game.join("kiln/chain/once.ini")).unwrap());
+
+    // B: the loader A switched off is back; XHL is late by B's rule; A's late native and A's loader line are not B's
+    profile::write_once(&dirs, &b.id, &inst).unwrap();
+    let o = read_once();
+    assert_eq!(once_paths(&o.chain), ["chain\\xhl-core.dll", "chain\\chain-loader-dinput8.dll"], "the loader is back for this start");
+    let late = once_paths(&o.late);
+    assert_eq!(late.len(), 2, "{late:?}");
+    assert!(late.contains(&"chain\\xhl-core.dll".to_string()), "B's rule: {late:?}");
+    assert!(late.contains(&"chain\\chain-loader-dinput8.dll".to_string()), "the player's own late line stays: {late:?}");
+    assert!(o.profile.len() == 1 && o.profile[0].path.ends_with("other-hook.dll"), "{:?}", o.profile);
+    assert!(!late.iter().any(|l| l.ends_with("fpsunlock.dll")), "A's late native is not B's: {late:?}");
+
+    // C: its rule switches XHL off for this start; the loader is back; nothing is late but the player's line
+    profile::write_once(&dirs, &c.id, &inst).unwrap();
+    let o = read_once();
+    assert_eq!(once_paths(&o.chain), ["chain\\chain-loader-dinput8.dll"], "XHL is off for this start only");
+    assert_eq!(once_paths(&o.late), ["chain\\chain-loader-dinput8.dll"]);
+    assert!(o.profile.is_empty());
+
+    // chain.ini is still what A's activation left; the next activation clears once.ini
+    assert_eq!(chain::read_raw(&game).unwrap(), active_chain);
+    assert!(game.join("kiln/chain/once.ini").exists());
+    profile::activate(&dirs, &a.id, &inst).unwrap();
+    assert!(!game.join("kiln/chain/once.ini").exists());
+}

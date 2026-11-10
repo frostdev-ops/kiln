@@ -105,6 +105,15 @@ int main() {
     owner_release(1); tick(); assert(g_installed == 0);
     pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0.1f); tick(); assert(g_installed == 31);
     test_now += 200; tick(); assert(g_pairs.empty() && g_installed == 0); // the last expiring pair removes all five
+    {   // a world stop before the cap takes the links out (with the observer); the next relation puts them back
+        KilnWorldEvent early{};
+        early.kind = KILN_WORLD_SERVER; early.event = KILN_WORLD_STOPPING;
+        assert(pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0) == KILN_OK);
+        tick(); assert(g_installed == 31 && g_destroy);
+        const int revokes0 = kiln::test::revokes;
+        on_world(&early, nullptr);
+        assert(g_installed == 0 && !g_destroy && !g_answering && kiln::test::revokes == revokes0 + 6);
+    }
 
     // kiln.hooks never frees a link: a relation that keeps coming and going (timed pairs) stops adding links after
     // kMaxCycles sets, and the links then stay in through the idle spells without answering.
@@ -122,6 +131,21 @@ int main() {
     tick(); assert(g_answering && !hk_hostile(&factions[1], &factions[2]));  // the same links answer again
     assert(kiln::test::installs - installs0 <= 6 * static_cast<int>(kMaxCycles));
     owner_release(1); tick(); assert(!g_answering && g_installed == 31);
+
+    // A world stop goes through the same cap: past kMaxCycles its links stay in (answers stop), so the next world's first
+    // relation adds none; before the cap it takes them out like any idle spell.
+    KilnWorldEvent stopped{};
+    stopped.kind = KILN_WORLD_SERVER; stopped.event = KILN_WORLD_STOPPING;
+    {
+        const int installs1 = kiln::test::installs, revokes1 = kiln::test::revokes;
+        assert(pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0) == KILN_OK);
+        tick(); assert(g_answering);
+        on_world(&stopped, nullptr);
+        assert(g_installed == 31 && !g_answering && g_destroy && kiln::test::revokes == revokes1);
+        assert(pair_set(1, 1, 2, KILN_REL_NEUTRAL, 0) == KILN_OK);  // the next world
+        tick(); assert(g_answering && g_installed == 31 && kiln::test::installs == installs1);
+        owner_release(1); tick(); assert(!g_answering && g_installed == 31);
+    }
 
     std::atomic<bool> stop{false};
     std::thread worker([&] {
@@ -143,9 +167,8 @@ int main() {
         if (i % 3 == 0) died(1);
     }
     stop = true; worker.join();
-    KilnWorldEvent stopped{};
-    stopped.kind = KILN_WORLD_SERVER; stopped.event = KILN_WORLD_STOPPING;
     on_world(&stopped, nullptr);
+    assert(g_installed == 31 && !g_answering);  // at the cap the links stay through the world stop
     assert(g_rows.empty() && g_pairs.empty() && g_cells.empty() && g_table_n == 0);
     on_unload(nullptr);
     assert(g_installed == 0 && !g_destroy && !g_live.load() && !g_life_index.load());

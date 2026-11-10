@@ -67,52 +67,77 @@ fn wine_volume_boundary(path: &Path) -> bool {
 #[cfg(not(windows))]
 fn wine_volume_boundary(_: &Path) -> bool { false }
 
-pub(crate) fn safe_directory(path: &Path) -> Result<(), String> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+/// Why a cache check failed. `Refused` lasts until the cache changes (a link, an invalid entry, a bad path). `Io` is an
+/// I/O error (a sharing violation, a drive briefly gone, a permission problem): the caller tries again later.
+#[derive(Debug)]
+pub(crate) enum CacheError {
+    Refused(String),
+    Io(String),
+}
+impl CacheError {
+    fn io(e: std::io::Error) -> Self { CacheError::Io(e.to_string()) }
+    /// The request-level status: BAD_REQUEST for a refusal, CACHE_IO for an I/O error.
+    pub(crate) fn status(self) -> (i32, String) {
+        match self {
+            CacheError::Refused(m) => (crate::BAD_REQUEST, m),
+            CacheError::Io(m) => (crate::CACHE_IO, m),
+        }
+    }
+}
+impl From<CacheError> for String {
+    fn from(e: CacheError) -> String {
+        match e {
+            CacheError::Refused(m) | CacheError::Io(m) => m,
+        }
+    }
+}
+
+pub(crate) fn safe_directory(path: &Path) -> Result<(), CacheError> {
+    let meta = std::fs::symlink_metadata(path).map_err(|e| CacheError::Io(format!("{}: {e}", path.display())))?;
     if is_link(&meta) || !meta.is_dir() {
-        return Err(format!(
+        return Err(CacheError::Refused(format!(
             "{} is not a folder (a regular directory is required)",
             path.display()
-        ));
+        )));
     }
     Ok(())
 }
-pub(crate) fn safe_item(path: &Path) -> Result<(), String> {
+pub(crate) fn safe_item(path: &Path) -> Result<(), CacheError> {
     match std::fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(CacheError::io(e)),
         _ => {}
     }
     safe_directory(path)?;
     for (i, e) in std::fs::read_dir(path)
-        .map_err(|e| e.to_string())?
+        .map_err(CacheError::io)?
         .enumerate()
     {
         if i >= 128 {
-            return Err("portrait cache folder has more than 128 files".into());
+            return Err(CacheError::Refused("portrait cache folder has more than 128 files".into()));
         }
-        let e = e.map_err(|e| e.to_string())?;
-        let m = std::fs::symlink_metadata(e.path()).map_err(|e| e.to_string())?;
+        let e = e.map_err(CacheError::io)?;
+        let m = std::fs::symlink_metadata(e.path()).map_err(CacheError::io)?;
         if is_link(&m) || !m.is_file() || m.len() > 2 * 1024 * 1024 {
-            return Err(format!(
+            return Err(CacheError::Refused(format!(
                 "{} is not a bounded regular cache file",
                 e.path().display()
-            ));
+            )));
         }
     }
     Ok(())
 }
 /// Opens and takes the cache lock. Errors carry their status: CACHE_BUSY when another generator holds the lock,
-/// BAD_REQUEST otherwise.
+/// CACHE_IO for an I/O error, BAD_REQUEST for a path or entry it refuses.
 pub(crate) fn cache_lock(path: &Path) -> Result<File, (i32, String)> {
-    let file = open_cache_lock(path).map_err(|e| (crate::BAD_REQUEST, e))?;
+    let file = open_cache_lock(path).map_err(CacheError::status)?;
     file.try_lock()
         .map_err(|e| (crate::CACHE_BUSY, format!("another portrait generator owns this cache: {e}")))?;
     Ok(file)
 }
-fn open_cache_lock(path: &Path) -> Result<File, String> {
+fn open_cache_lock(path: &Path) -> Result<File, CacheError> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err("cache_dir must be absolute without parent traversal".into());
+        return Err(CacheError::Refused("cache_dir must be absolute without parent traversal".into()));
     }
     // Check existing parents before create_dir_all can follow a link and create files outside the cache tree.
     for ancestor in path.ancestors() {
@@ -120,15 +145,16 @@ fn open_cache_lock(path: &Path) -> Result<File, String> {
             Ok(m) if !is_link(&m) && m.is_dir() => {}
             Ok(_) if ancestor != path && wine_volume_boundary(ancestor) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            _ => return Err("cache_dir and its parents must be regular directories".into()),
+            Err(e) => return Err(CacheError::Io(format!("{}: {e}", ancestor.display()))),
+            Ok(_) => return Err(CacheError::Refused("cache_dir and its parents must be regular directories".into())),
         }
     }
-    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(path).map_err(CacheError::io)?;
     safe_directory(path)?;
     let lock = path.join(".kiln-portraits.lock");
     if let Ok(m) = std::fs::symlink_metadata(&lock) {
         if is_link(&m) || !m.is_file() {
-            return Err("portrait lock is not a regular file".into());
+            return Err(CacheError::Refused("portrait lock is not a regular file".into()));
         }
     }
     let mut options = OpenOptions::new();
@@ -143,9 +169,16 @@ fn open_cache_lock(path: &Path) -> Result<File, String> {
         use std::os::windows::fs::OpenOptionsExt;
         options.custom_flags(0x00200000);
     }
-    let file = options.open(lock).map_err(|e| e.to_string())?;
-    if is_link(&file.metadata().map_err(|e| e.to_string())?) {
-        return Err("portrait lock is a link".into());
+    // O_NOFOLLOW / FILE_FLAG_OPEN_REPARSE_POINT: a lock that became a link since the check above fails here (ELOOP).
+    let file = options.open(lock).map_err(|e| {
+        if e.raw_os_error() == Some(40) && cfg!(target_os = "linux") {
+            CacheError::Refused("portrait lock is a link".into())
+        } else {
+            CacheError::io(e)
+        }
+    })?;
+    if is_link(&file.metadata().map_err(CacheError::io)?) {
+        return Err(CacheError::Refused("portrait lock is a link".into()));
     }
     Ok(file)
 }
@@ -163,9 +196,10 @@ pub(crate) fn check_budget(request: &Request) -> Result<(), String> {
     }
     Ok(())
 }
-/// Errors carry their status: CACHE_FULL when the cache is over its budget, BAD_REQUEST for an entry it refuses.
+/// Errors carry their status: CACHE_FULL when the cache is over its budget, BAD_REQUEST for an entry it refuses,
+/// CACHE_IO when reading the cache failed.
 pub(crate) fn cache_budget(path: &Path, request: &Request) -> Result<(), (i32, String)> {
-    let bad = |e: std::io::Error| (crate::BAD_REQUEST, e.to_string());
+    let bad = |e: std::io::Error| (crate::CACHE_IO, e.to_string());
     let mut folders = 0usize;
     let mut bytes = 0u64;
     for (i, e) in std::fs::read_dir(path)
@@ -182,7 +216,7 @@ pub(crate) fn cache_budget(path: &Path, request: &Request) -> Result<(), (i32, S
         }
         if meta.is_dir() {
             folders += 1;
-            safe_item(&e.path()).map_err(|e| (crate::BAD_REQUEST, e))?;
+            safe_item(&e.path()).map_err(CacheError::status)?;
             for f in std::fs::read_dir(e.path()).map_err(bad)? {
                 bytes = bytes.saturating_add(
                     f.map_err(bad)?
@@ -410,6 +444,34 @@ mod tests {
         std::fs::remove_dir(root.join("key127")).unwrap();
         assert!(cache_budget(&root, &request).is_ok());
         std::fs::remove_dir_all(root).unwrap();
+    }
+    // An I/O error reading or locking the cache is CACHE_IO (retry later), never the lasting BAD_REQUEST.
+    #[cfg(unix)]
+    #[test]
+    fn cache_io_errors_are_transient() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("kiln-portrait-io-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("cache/wolf")).unwrap();
+        std::fs::create_dir_all(dir.join("closed/inner")).unwrap();
+        let mode = |p: &Path, m: u32| std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+        mode(&dir.join("cache/wolf"), 0o000);
+        mode(&dir.join("closed"), 0o000);
+        // Root reads through any mode: nothing to test there.
+        if std::fs::read_dir(dir.join("cache/wolf")).is_err() {
+            let request: Request = serde_json::from_value(serde_json::json!({"items":[{"key":"boar"}]})).unwrap();
+            assert_eq!(cache_budget(&dir.join("cache"), &request).unwrap_err().0, crate::CACHE_IO);
+            assert_eq!(cache_lock(&dir.join("closed/inner/cache")).unwrap_err().0, crate::CACHE_IO);
+            assert!(matches!(safe_item(&dir.join("cache/wolf")), Err(CacheError::Io(_))));
+            // Once the problem is gone, the same cache works.
+            mode(&dir.join("cache/wolf"), 0o755);
+            mode(&dir.join("closed"), 0o755);
+            assert!(cache_budget(&dir.join("cache"), &request).is_ok());
+            assert!(cache_lock(&dir.join("closed/inner/cache")).is_ok());
+        }
+        mode(&dir.join("cache/wolf"), 0o755);
+        mode(&dir.join("closed"), 0o755);
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[cfg(unix)]
     #[test]

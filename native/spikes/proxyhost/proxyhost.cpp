@@ -21,7 +21,7 @@ const GUID kIidDirectInput8W = {0xBF798031, 0x483A, 0x4DA2, {0xAA, 0x99, 0x5D, 0
 int main() {
     ph_log("main reached");
     for (const wchar_t* name : {L"chain-a.dll", L"chain-b.dll", L"chain-c.dll", L"emf-x.dll", L"emf-y.dll",
-                                L"entrypatch-1.dll", L"entrypatch-2.dll", L"failing.dll", L"fake-sf.dll", L"kiln-core.dll"})
+                                L"entrypatch-1.dll", L"entrypatch-2.dll", L"emf-loader.dll", L"emf-loader-patch.dll", L"failing.dll", L"fake-sf.dll", L"kiln-core.dll"})
         if (GetModuleHandleW(name)) ph_log("main module %S loaded", name);
     HMODULE proxy = GetModuleHandleW(L"dinput8.dll");
     using GetDf = const DiDataFormat*(WINAPI*)();

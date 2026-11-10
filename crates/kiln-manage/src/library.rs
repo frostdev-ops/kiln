@@ -1079,10 +1079,16 @@ impl Guard {
         Ok(folder)
     }
 
-    /// Removes one version once the running check passed: refused (Conflict) while something lists it, unless `force`.
-    fn remove_checked(&self, dirs: &DataDirs, r: &LibraryRef, folder: &Path, force: bool) -> Result<()> {
+    /// Removes one version once the running check passed: refused (Conflict) while something lists it that `force`
+    /// does not go past.
+    fn remove_checked(&self, dirs: &DataDirs, r: &LibraryRef, folder: &Path, force: &Force) -> Result<()> {
         let used = self.usage.users(dirs, r);
-        if !used.is_empty() && !force {
+        let past = match force {
+            Force::No => used.is_empty(),
+            Force::All => true,
+            Force::Past(shown) => used.iter().all(|u| shown.contains(u)),
+        };
+        if !past {
             return Err(Error::new(ErrorCode::Conflict, format!("{} {} is used by profile(s) {}", r.id, r.version, used.join(", "))).with_detail(used));
         }
         std::fs::remove_file(record_path(folder)).map_err(io(folder, "removing the record of"))?;
@@ -1094,10 +1100,26 @@ impl Guard {
     }
 }
 
+/// How far a removal may go past what lists the version ([`users`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Force {
+    /// Refused (Conflict) while anything lists it.
+    No,
+    /// Past every user (`force = true`).
+    All,
+    /// Past exactly these users, as [`users`] named them (what a confirmation showed). Any other user is a Conflict.
+    Past(Vec<String>),
+}
+
+impl From<bool> for Force {
+    fn from(force: bool) -> Self { if force { Force::All } else { Force::No } }
+}
+
 /// Removes a version. Refuses (GameRunning) while a game runs, or a server whose `kiln/profile.json` may point at the
 /// version, whatever `force` says. Refuses (Conflict) while a profile lists the version, or a known game's active
-/// profile file (or a play-once file a start can still read) points at it, unless `force`.
-pub fn remove(dirs: &DataDirs, r: &LibraryRef, force: bool) -> Result<()> {
+/// profile file (or a play-once file a start can still read) points at it, unless `force` goes past it (`true`: every
+/// user; [`Force::Past`]: only the users named).
+pub fn remove(dirs: &DataDirs, r: &LibraryRef, force: impl Into<Force>) -> Result<()> {
     let mut finder = crate::proc::Finder::default();
     remove_with(dirs, r, force, &mut |dir, exe| finder.find(dir, exe))
 }
@@ -1106,13 +1128,13 @@ pub fn remove(dirs: &DataDirs, r: &LibraryRef, force: bool) -> Result<()> {
 pub fn remove_with(
     dirs: &DataDirs,
     r: &LibraryRef,
-    force: bool,
+    force: impl Into<Force>,
     find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>,
 ) -> Result<()> {
     let folder = Guard::folder(dirs, r)?;
     let guard = Guard::read(dirs, find)?;
     guard.refuse_while_running(dirs, r)?;
-    guard.remove_checked(dirs, r, &folder, force)
+    guard.remove_checked(dirs, r, &folder, &force.into())
 }
 
 /// What [`remove_many`] did: the versions removed, and each one that was not with the reason (`Conflict` while
@@ -1152,8 +1174,9 @@ pub fn remove_many_with(
         guard.refuse_while_running(dirs, r)?;
     }
     let mut report = RemoveReport::default();
+    let force = Force::from(force);
     for r in refs {
-        match Guard::folder(dirs, r).and_then(|folder| guard.remove_checked(dirs, r, &folder, force)) {
+        match Guard::folder(dirs, r).and_then(|folder| guard.remove_checked(dirs, r, &folder, &force)) {
             Ok(()) => report.removed.push(r.clone()),
             Err(error) => report.failed.push(RemoveFailure { entry: r.clone(), error }),
         }

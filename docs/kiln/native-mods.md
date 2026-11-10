@@ -44,7 +44,9 @@ Unknown keys are kept and logged as a warning.
 
 Within a phase the order follows the managed resolver's rules: `requires` (a dependency), `after`, `before`, ties by
 id; a cycle fails every mod in it ("load-order cycle: a -> b -> a"), its dependents fail next. A mod may require one
-of an earlier phase, not a later one. Each DLL loads with `LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH)` under an
+of an earlier phase, not a later one. A dllmain mod whose DLL `kiln/chain.ini [late]` defers loads after everything
+else in `kiln_boot`, so an `early` or `boot` mod cannot require it: that mod fails at startup with the reason
+(`requires <id>, whose DLL kiln/chain.ini [late] loads after the plugins ...`). A `world` mod can. Each DLL loads with `LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH)` under an
 SEH guard (a fault marks the mod failed, a crash report is written, the game goes on). **Kiln never calls
 FreeLibrary** on a native mod.
 
@@ -54,7 +56,12 @@ FreeLibrary** on a native mod.
 - `kiln.json`: `"native": {"policy": "always" | "verified-only" | "never"}` (also in the `server`/`client`
   sections). `always` (default) loads native mods on any build, in safe idle too; `verified-only` only when the
   game build's record says verified; `never` loads none. Refused mods get state `policy`. Dllmain mods are loaded by
-  the proxy before kiln.json is read: they keep loading and carry a note instead.
+  the proxy before kiln.json is read: they keep loading and carry a note instead. A dllmain DLL that
+  `chain.ini [late]` defers has not loaded yet, so the policy, the side and the switches above apply to it: a disabled,
+  other-side or refused mod's late DLL is not loaded (`state/native.json` `chain.late`: status `skipped`, with the reason).
+- A mod switched off after the proxy loaded its DLL (a compat rule, `<configDir>/native.json`, a profile entry) still
+  runs: the loader shows it as `loaded` with a note, and a compat rule for it is reported as not applied. Activate the
+  profile again in the launcher so `chain.ini` leaves the DLL out.
 - Other checks: the side, `kiln` (a dev build counts as its release), missing DLLs, `requires`, `incompatible`.
 
 ## A Kiln-aware native mod

@@ -32,7 +32,12 @@ Mod *caller_mod(const void *) { return active_mod; }
 Mod *mod_of_address(const void *) { return active_mod; }
 void logf(int, const char *, ...) {}
 void mod_logf(const Mod *, int, const char *, ...) {}
-bool portraits_wait(const std::string &) { return true; }
+// A fake portrait worker: `drawing_key` is being drawn until the test finishes it and runs the registered callback.
+std::string drawing_key;
+void (*when_drawn)() = nullptr;
+bool portraits_wait(const std::string &k) { return k != drawing_key; }
+bool portraits_drawing(const std::string &k) { return k == drawing_key; }
+void portraits_when_drawn(void (*fn)()) { when_drawn = fn; }
 int unsupported_calls = 0, refusals = 0;
 static void say(const char *what, const char *fn, const char *why) {
     if (std::getenv("KEMF_TEST_VERBOSE"))
@@ -294,6 +299,36 @@ static void test_images(KilnUiApi &ui) {
     CHECK(table.image_load(big.string().c_str()) == 0 && decoded == before && live_images == 2);
     const std::string too_long(32768, 'a');
     CHECK(table.image_load(too_long.c_str()) == 0 && table.image_load(nullptr) == 0);
+}
+// image_load("portrait:<key>") from a tick/render thread while the worker draws: a handle at once, frames when drawn.
+static void test_pending_portrait() {
+    const auto dir = P.emf / "cache" / "portraits" / "wolf";
+    std::filesystem::create_directories(dir);
+    const unsigned char png[24] = {0x89, 'P', 'N', 'G', 13, 10, 26, 10, 0, 0, 0, 13,
+                                   'I',  'H', 'D', 'R', 0,  0,  0,  1,  0, 0, 0, 1};
+    for (auto name : {"00.png", "01.png"}) {
+        std::ofstream f(dir / name, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(png), sizeof png);
+    }
+    drawing_key = "wolf";
+    const int before = decoded, live = live_images;
+    const uint32_t handle = table.image_load("portrait:wolf");
+    CHECK(handle != 0 && decoded == before && when_drawn); // a handle, nothing decoded yet
+    CHECK(table.image_load("portrait:wolf") == handle);   // asked again: the same handle
+    drawing_key.clear();
+    when_drawn(); // the worker finished drawing
+    CHECK(decoded == before + 2 && live_images == live + 2);
+    CHECK(table.image_load("portrait:wolf") == handle);
+    when_drawn(); // claimed once: a second run decodes nothing
+    CHECK(decoded == before + 2);
+    // A picture that failed to draw: the handle draws nothing and a later call tries again.
+    drawing_key = "boar";
+    const uint32_t boar = table.image_load("portrait:boar");
+    CHECK(boar != 0 && boar != handle);
+    drawing_key.clear();
+    when_drawn();
+    CHECK(decoded == before + 2);
+    CHECK(table.image_load("portrait:boar") == 0); // no folder: refused now, not a stale handle
 }
 static std::map<std::string, KilnProgramDesc> programs;
 static std::map<std::pair<uint32_t, uint32_t>, std::vector<uint8_t>> components;
@@ -809,6 +844,7 @@ int main(int argc, char **argv) {
     CHECK(clicks == 1 && closed == 4); // CLOSED frees user: the second extracted
                                        // CLICK must be suppressed
     test_images(ui);
+    test_pending_portrait();
     test_attributes();
     test_wheel_and_right_clicks(ui);
     windows_shutdown();

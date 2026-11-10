@@ -61,11 +61,14 @@ def game_path(p: str):
     return p, not absolute
 
 
-def dll_entries(data: bytes, wanted: dict, default_section: str) -> dict:
-    """One DLL per line; a 'key = value' line counts by its value; only values ending in .dll count."""
+def dll_entries(data: bytes, wanted: dict, default_section: str, seen: set = None) -> dict:
+    """One DLL per line; a 'key = value' line counts by its value; only values ending in .dll count. `seen` (optional)
+    collects the wanted sections whose header is in the file."""
     out = {name: [] for name in wanted}
     for n, section, kind, text in lines(data):
         if kind == "section":
+            if seen is not None and text in out:
+                seen.add(text)
             continue
         name = section if section is not None else default_section
         if name not in out:
@@ -93,8 +96,16 @@ def chain(data: bytes) -> dict:
 
 def once(data: bytes) -> dict:
     """kiln/chain/once.ini: read instead of chain.ini [profile] when play-once mode=profile. Its [profile] section
-    (lines before any section count as [profile]); other sections are ignored."""
-    return dll_entries(data, {"profile": 1}, "profile")
+    (lines before any section count as [profile]). dev.21: it may also have a [chain] and a [late] (the play-once
+    profile's compat rules applied): a section it has replaces chain.ini's for that start, even an empty one, so they
+    are reported only when the file has the section's header; a file without them leaves chain.ini's in effect. Other
+    sections are ignored."""
+    seen = set()
+    out = dll_entries(data, {"profile": 1, "chain": 1, "late": 1}, "profile", seen)
+    for name in ("chain", "late"):
+        if name not in seen:
+            del out[name]
+    return out
 
 
 def parse_created(text: str) -> int:

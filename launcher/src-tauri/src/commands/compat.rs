@@ -26,14 +26,8 @@ pub async fn chain_set_late(app: AppHandle, profile_id: String, game_id: String,
         let d = dirs()?;
         let g = crate::state::game(&game_id)?;
         let mut p = profile::get(&d, &profile_id)?;
-        let before = compat::view(&d, &p, &g)?;
-        let entry = before
-            .entries
-            .iter()
-            .find(|e| e.entry.path.eq_ignore_ascii_case(&path))
-            .ok_or_else(|| Error::not_found(format!("{path} is not in this profile's chain")))?
-            .entry
-            .clone();
+        // only the entry: no full view (hooks.json, Library) before the switch, one after it
+        let entry = compat::find_entry(&d, &p, &g, &path)?;
         let mut applied = Vec::new();
         if compat::set_entry_late(&g, &mut p, &entry, late)? {
             let saved = profile::save(&d, &p)?;

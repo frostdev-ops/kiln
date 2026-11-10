@@ -85,6 +85,10 @@ int64_t g_storage_offset = -1;
 // takes the link out of Kiln's chain (the detour stays, so another module's hook over it is never undone).
 kiln::MidHook2 g_destroy;
 uintptr_t g_destroy_at = 0;
+// The target kiln.hooks refused the observer's link on. entity_support() runs for every tracked creature on every tick: a
+// refusal (it also leaks arena memory and logs an error in the core each time) is final for that target. A retry is only
+// sound for another one (g_destroy_at resolved again).
+uintptr_t g_destroy_refused_at = 0;
 bool g_lifecycle = false;
 
 std::shared_ptr<Life> life_of(KilnEntity e) {
@@ -324,7 +328,8 @@ void uninstall() {
     if (g_lives.empty() && g_destroy) g_destroy.revoke();
 }
 
-// No relation is left: answers stop now. The links go out too, unless they have come and gone kMaxCycles times already.
+// No relation is left (or the world is gone): answers stop now. The links go out too, unless they have come and gone
+// kMaxCycles times already: kiln.hooks never frees a link, so every caller that takes them out goes through here.
 void idle() {
     if (g_cycles >= kMaxCycles && g_installed.load() == 0x1f) {
         g_answering.store(false, std::memory_order_release);
@@ -358,9 +363,10 @@ bool entity_support() {
     if (!g_world || !g_faction_hash || !g_destroy_at || !g_lifecycle || !server_world_ok()) return false;
     g_storage.store(g_api->server_world() + static_cast<uintptr_t>(g_storage_offset), std::memory_order_release);
     if (g_destroy) return true;
+    if (g_destroy_refused_at == g_destroy_at) return false;  // refused on this target already: no second install()
     if (!g_destroy.install(g_api, g_owner, g_destroy_at, &hk_destroy, "spawn/DestroyEntity")) {
-        static std::atomic<bool> warned{false};
-        if (!warned.exchange(true)) NA_W("the entity lifetime observer did not install (%s): per-creature relations are refused", g_destroy.error());
+        g_destroy_refused_at = g_destroy_at;
+        NA_W("the entity lifetime observer did not install (%s): per-creature relations are refused", g_destroy.error());
         return false;
     }
     return true;
@@ -649,7 +655,7 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
         clear_entities();
         g_cells.clear();
         rebuild_table();
-        uninstall();
+        idle();  // not uninstall(): past kMaxCycles the links stay in and the next world's relations use them again
     }
 }
 

@@ -25,7 +25,11 @@
             "properties": {
               "path": { "type": "string", "description": "The proxy's canonical path (Windows form)." },
               "source": { "enum": ["chain", "emf", "profile"], "description": "The list the proxy found the entry in." },
-              "status": { "enum": ["pending", "loaded", "failed", "missing", "duplicate"], "description": "pending: the late phase has not run yet." },
+              "status": {
+                "enum": ["pending", "loaded", "failed", "missing", "duplicate", "skipped", "already-loaded"],
+                "description": "pending: the late phase has not run yet. skipped: the DLL belongs to a native mod that is disabled, on the other side or refused by native.policy, so it was not loaded (`note` says why). already-loaded: the DLL was in the process before the late phase (another loader, such as EMF's loader with dinput8-chain.ini, started it), so [late] moved nothing (`note`). Appended in dev.21: skipped, already-loaded."
+              },
+              "note": { "type": "string", "description": "Why, for skipped and already-loaded." },
               "error": { "type": "integer", "description": "Win32 error code when failed, else 0." },
               "ms": { "type": "number", "description": "LoadLibrary time, when it ran." },
               "order": { "type": "integer", "minimum": 1 }

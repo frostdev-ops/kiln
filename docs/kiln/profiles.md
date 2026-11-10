@@ -60,7 +60,10 @@ nonce = 4f1c0e3a9b2d4e6f
 The proxy reads it in `DllMain`, **deletes it at once**, then decides:
 - `vanilla`: nothing at all (no chained DLL, no Kiln). The game runs as if Kiln were not installed.
 - `no-mods`: the chained DLLs are listed but not loaded (`skipped`); Kiln boots without any mod.
-- `profile`: Kiln boots from `kiln/profile.once.json`; `kiln/chain/once.ini` replaces chain.ini `[profile]`.
+- `profile`: Kiln boots from `kiln/profile.once.json`; `kiln/chain/once.ini` replaces chain.ini `[profile]`. It also
+  carries the play-once profile's own `[chain]` and `[late]` (dev.21): chain.ini as that profile's compat rules and late
+  natives would leave it, so this one start follows them and not the active profile's. A `once.ini` without those
+  sections (an older launcher's) leaves chain.ini's in effect.
 - Ignored (a normal start), and reported in boot.json `playOnce.mode` and `kiln/logs/proxy.log`: the file could not
   be deleted (`ignored-undeletable`: a flag that cannot be removed must not stick), a dedicated server
   (`ignored-server`), invalid (`ignored-invalid`: unknown mode, missing `created` or `nonce`), older than 600 s or more

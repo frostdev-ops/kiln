@@ -8,7 +8,7 @@
   "properties": {
     "$schema": { "type": "string" },
     "format": { "const": 1 },
-    "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "maxItems": 512 }
+    "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "maxItems": 512, "description": "More than 512: the first 512 count, the readers (kiln-core, the launcher) log one line saying how many were ignored." }
   },
   "additionalProperties": true,
   "$defs": {

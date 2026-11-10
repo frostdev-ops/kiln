@@ -47,9 +47,18 @@ int main() {
     uninstall();
     assert(!g_destroy && warnings == 0);
     kiln::test::fail_target = g_destroy_at;
+    const int attempts = kiln::test::attempts;
     assert(!entity_support() && !g_destroy && warnings == 1);  // refused once: one warning
-    assert(!entity_support() && warnings == 1);
+    assert(kiln::test::attempts == attempts + 1);
+    // entity_support() runs per tracked creature per tick: a refusal is final for that target, no install() again
+    for (int i = 0; i < 100; ++i) assert(!entity_support());
+    assert(kiln::test::attempts == attempts + 1 && warnings == 1);
     kiln::test::fail_target = 0;
-    assert(entity_support() && g_destroy);
-    std::puts("PASS npcai: links revoked (never unhooked), re-added on demand, lifetime observer linked once");
+    assert(!entity_support() && kiln::test::attempts == attempts + 1);  // the same target stays refused
+    uninstall();                                                        // so does a world stop or idle spell
+    assert(!entity_support() && kiln::test::attempts == attempts + 1);
+    std::array<uint8_t, 32> moved{};  // another target (resolved again): a retry is sound
+    g_destroy_at = reinterpret_cast<uintptr_t>(moved.data());
+    assert(entity_support() && g_destroy && kiln::test::attempts == attempts + 2);
+    std::puts("PASS npcai: links revoked (never unhooked), re-added on demand, lifetime observer linked once, a refusal is not retried");
 }

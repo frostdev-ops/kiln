@@ -802,7 +802,7 @@ const handlers: Record<string, Handler> = {
   library_users: (a) => mockLibraryUsers(a.entry as LibraryRef),
   library_remove: (a) => {
     if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
-    mockLibraryRemove(a.entry as LibraryRef, !!a.force);
+    mockLibraryRemove(a.entry as LibraryRef, Array.isArray(a.shown) ? (a.shown as string[]) : !!a.force);
     return null;
   },
   library_remove_many: (a) => {
@@ -1071,10 +1071,12 @@ function mockLibraryUsers(r: LibraryRef): string[] {
   return [...new Set([...inProfiles, ...(gameFileUsers[`${r.kind}/${r.id}/${r.version}`] ?? [])])].sort();
 }
 
-/** One version out of the library, as library_remove after its running check (conflict while a profile lists it). */
-function mockLibraryRemove(r: LibraryRef, force: boolean) {
+/** One version out of the library, as library_remove after its running check (conflict while a profile lists it).
+ *  `force`: true past every user, a list past exactly those (library::Force::Past). */
+function mockLibraryRemove(r: LibraryRef, force: boolean | string[]) {
   const used = mockLibraryUsers(r);
-  if (used.length && !force) reject("conflict", `${r.id} ${r.version} is used by profile(s) ${used.join(", ")}`, used);
+  const past = Array.isArray(force) ? used.every((u) => force.includes(u)) : force || !used.length;
+  if (!past) reject("conflict", `${r.id} ${r.version} is used by profile(s) ${used.join(", ")}`, used);
   const e = library.find((l) => l.kind === r.kind && l.id === r.id && l.versions.some((v) => v.version === r.version));
   if (!e) reject("not_found", `${r.kind} ${r.id} ${r.version} is not in the library`);
   e!.versions = e!.versions.filter((v) => v.version !== r.version);

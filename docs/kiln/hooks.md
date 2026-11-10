@@ -40,7 +40,9 @@ native plugin (see [services/hooks.md](services/hooks.md): raw links take any si
 ## Mid hooks (full register context)
 `Hooks.Mid(symbolOrAddress, (ref Registers r) => …, priority = 0)` adds a mid link (it may share the address with detours). The handler reads
 and writes every register in place (writes take effect when the game resumes); `r.Rax`, `r.Rcx`, …, `r.Rip`, and
-`r.XmmD(n)` / `r.Xmm(n)` for vector registers.
+`r.XmmD(n)` / `r.Xmm(n)` for vector registers. `r.Rsp` is read-only. `r.TrampolineRsp` follows safetyhook's rule: it
+starts at `Rsp - 8` and the game resumes at the address on top of that stack, so a mid hook on a function's first
+instruction returns early with `r.Rax = value; r.TrampolineRsp = r.Rsp;`.
 
 ```csharp
 Hooks.Mid("GetEntityTransform", (ref Registers r) => Log.Info($"entity arg r8 = {r.R8}"));

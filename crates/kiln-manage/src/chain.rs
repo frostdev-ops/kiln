@@ -1,5 +1,6 @@
 //! `kiln/chain.ini` ([chain]: proxies the installer displaced; [profile]: native mods with phase dllmain of the
-//! active profile) and `kiln/chain/once.ini` (play-once mode=profile reads it instead of [profile]). Grammar:
+//! active profile) and `kiln/chain/once.ini` (play-once mode=profile reads it instead of [profile]; since dev.21 it
+//! may also carry the once-profile's own [chain] and [late], which replace chain.ini's for that one start). Grammar:
 //! contracts.md "INI files"; reference: schema/fixtures/ini/kini.py; fixtures: schema/fixtures/ini/chain.
 //! The installer writes [chain], profile activation writes [profile]; each rewrite keeps the other section's lines
 //! as they were and replaces the file atomically.
@@ -53,6 +54,13 @@ pub struct ChainIni {
 #[serde(rename_all = "camelCase")]
 pub struct OnceIni {
     pub profile: Vec<ChainEntry>,
+    /// [chain] (dev.21): present when the file has the section, even an empty one; the proxy then loads these proxies
+    /// for the start instead of chain.ini's [chain]. None: chain.ini's [chain] stays in effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain: Option<Vec<ChainEntry>>,
+    /// [late] (dev.21): the same for chain.ini's [late].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub late: Option<Vec<ChainEntry>>,
 }
 
 // ---- the shared INI dialect (play-once.ini uses it too) ----
@@ -87,7 +95,6 @@ pub(crate) fn decode(data: &[u8]) -> String {
 
 /// A meaningful line: a section header (lower case), or a text line with the section it is in (None before any).
 pub(crate) enum IniLine<'a> {
-    #[allow(dead_code)] // the name: callers so far only need the Text lines' sections
     Section(String),
     Text(Option<String>, &'a str),
 }
@@ -121,11 +128,20 @@ pub fn game_path(p: &str) -> (String, bool) {
     (p, !absolute)
 }
 
-fn dll_entries(data: &[u8], wanted: &[&str], default_section: &str) -> Vec<Vec<ChainEntry>> {
+/// The DLL lines of the wanted sections: per section whether its header was in the file, and its entries.
+fn dll_sections(data: &[u8], wanted: &[&str], default_section: &str) -> Vec<(bool, Vec<ChainEntry>)> {
     let text = decode(data);
-    let mut out: Vec<Vec<ChainEntry>> = wanted.iter().map(|_| Vec::new()).collect();
+    let mut out: Vec<(bool, Vec<ChainEntry>)> = wanted.iter().map(|_| (false, Vec::new())).collect();
     for l in lines(&text) {
-        let IniLine::Text(section, text) = l else { continue };
+        let (section, text) = match l {
+            IniLine::Section(name) => {
+                if let Some(idx) = wanted.iter().position(|w| *w == name) {
+                    out[idx].0 = true;
+                }
+                continue;
+            }
+            IniLine::Text(section, text) => (section, text),
+        };
         let name = section.as_deref().unwrap_or(default_section);
         let Some(idx) = wanted.iter().position(|w| *w == name) else { continue };
         let value = match text.split_once('=') {
@@ -137,13 +153,17 @@ fn dll_entries(data: &[u8], wanted: &[&str], default_section: &str) -> Vec<Vec<C
         }
         let (path, relative) = game_path(value);
         let mut e = ChainEntry { path, relative, status: EntryStatus::Ok, detail: None };
-        if out[idx].len() >= MAX_ENTRIES {
+        if out[idx].1.len() >= MAX_ENTRIES {
             e.status = EntryStatus::Refused;
             e.detail = Some("too-many".into());
         }
-        out[idx].push(e);
+        out[idx].1.push(e);
     }
     out
+}
+
+fn dll_entries(data: &[u8], wanted: &[&str], default_section: &str) -> Vec<Vec<ChainEntry>> {
+    dll_sections(data, wanted, default_section).into_iter().map(|(_, entries)| entries).collect()
 }
 
 /// Decodes (UTF-8 with or without BOM, UTF-16LE with BOM, else ANSI) and parses chain.ini.
@@ -155,8 +175,13 @@ pub fn parse(bytes: &[u8]) -> ChainIni {
     ChainIni { chain, profile, late }
 }
 
+/// once.ini: [profile] (lines before any section count as [profile]), and [chain] / [late] when the file has them.
 pub fn parse_once(bytes: &[u8]) -> OnceIni {
-    OnceIni { profile: dll_entries(bytes, &["profile"], "profile").pop().unwrap_or_default() }
+    let mut v = dll_sections(bytes, &["profile", "chain", "late"], "profile");
+    let (late_seen, late) = v.pop().unwrap_or_default();
+    let (chain_seen, chain) = v.pop().unwrap_or_default();
+    let profile = v.pop().map(|(_, e)| e).unwrap_or_default();
+    OnceIni { profile, chain: chain_seen.then_some(chain), late: late_seen.then_some(late) }
 }
 
 pub fn read(game_dir: &Path) -> Result<ChainIni> {
@@ -517,6 +542,30 @@ pub fn rule_off_entries(text: &str) -> Vec<(String, String)> {
     out
 }
 
+/// The active [late] lines a compat rule added (the `; kiln rule <id>` comment right before them): (rule id, entry path).
+/// The player's own lines have no such mark.
+pub fn rule_late_entries(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (name, lines) in blocks(text) {
+        if name.as_deref() != Some("late") {
+            continue;
+        }
+        let mut mark: Option<String> = None;
+        for l in lines {
+            // the mark belongs to the next line only (render_plan reads it the same way)
+            let marked = mark.take();
+            if let Some(id) = rule_mark_line(&l) {
+                mark = Some(id.to_string());
+            } else if let Some(id) = marked
+                && !is_comment(&l)
+            {
+                out.push((id, game_path(&entry_value(&l)).0));
+            }
+        }
+    }
+    out
+}
+
 /// True when chain.ini (`text`) already says what `plan` says (an activation would write nothing new).
 pub fn plan_is_current(text: &str, plan: &ProfilePlan) -> bool {
     let out = render_plan(text, plan, true);
@@ -528,11 +577,14 @@ pub fn is_late(ini: &ChainIni, dll: &str) -> bool {
     ini.late.iter().any(|e| e.path.eq_ignore_ascii_case(&dll.replace('/', "\\")))
 }
 
-/// `lines` without the active ones naming `dll` (and the rule comment right before such a line).
+/// `lines` without the ones naming `dll`: its active lines, and a `; kiln rule <id> off:` comment of a rule that had
+/// switched one off (it would turn back into an active line at the next activation). The rule comment right before
+/// such a line goes with it.
 fn without_late(lines: Vec<String>, dll: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for l in lines {
-        if !is_comment(&l) && same_entry(&l, dll) {
+        let names_it = (!is_comment(&l) && same_entry(&l, dll)) || rule_off_line(&l).is_some_and(|(_, orig)| same_entry(orig, dll));
+        if names_it {
             if out.last().is_some_and(|p| rule_mark_line(p).is_some()) {
                 out.pop();
             }
@@ -628,20 +680,42 @@ fn is_comment(l: &str) -> bool {
     t.is_empty() || t.starts_with(';') || t.starts_with('#') || t.starts_with("//")
 }
 
-/// Writes kiln/chain/once.ini (launch mode once), or removes it when `dlls` is empty.
-pub fn write_once(game_dir: &Path, dlls: &[String]) -> Result<()> {
+const ONCE_HEADER: &str = "; Kiln play-once chain list for one start: [profile] = native mods with phase dllmain of the \
+play-once profile; [chain] and [late] = what chain.ini would hold with that profile active (its compat rules applied), \
+read for this start instead of chain.ini's.";
+
+/// Writes kiln/chain/once.ini (launch mode once): what the proxy reads for the one start in place of chain.ini.
+/// `plan` is the play-once profile's ([`crate::compat::plan`]). The file carries three sections:
+/// - `[profile]`: the profile's dllmain natives that no rule switched off;
+/// - `[chain]`: chain.ini's [chain] as an activation of that profile would leave it: a proxy the *active* profile's rule
+///   switched off is back, one this profile's rule switches off is out;
+/// - `[late]`: chain.ini's [late] the same way: the player's lines, the profile's late natives and this profile's
+///   `late` rules (the active profile's own are gone).
+/// An older proxy reads only `[profile]`. chain.ini itself is not touched.
+pub fn write_once(game_dir: &Path, plan: &ProfilePlan) -> Result<()> {
     let path = game_dir.join(crate::paths::game::CHAIN_ONCE);
-    if dlls.is_empty() {
-        return match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(crate::util::io_at(&path, "removing")(e)),
-        };
-    }
-    let mut s = String::from("; Kiln play-once profile: native mods with phase dllmain for this one start\r\n[profile]\r\n");
-    for d in dlls {
-        s.push_str(&dll_line(d));
-        s.push_str("\r\n");
+    let text = read_text(&game_dir.join(crate::paths::game::CHAIN))?;
+    let ini = parse(render_plan(&text, plan, true).as_bytes());
+    let mut s = String::from(ONCE_HEADER);
+    s.push_str("\r\n");
+    let mut section = |name: &str, dlls: Vec<String>| {
+        s.push_str(&format!("[{name}]\r\n"));
+        for d in dlls {
+            s.push_str(&dll_line(&d));
+            s.push_str("\r\n");
+        }
+    };
+    // the proxy keeps a section's first MAX_ENTRIES and reports the first one past them: no need to write more
+    let first = |v: Vec<ChainEntry>| v.into_iter().take(MAX_ENTRIES + 1).map(|e| e.path).collect::<Vec<_>>();
+    section("profile", plan.profile.iter().take(MAX_ENTRIES + 1).cloned().collect());
+    section("chain", first(ini.chain));
+    section("late", first(ini.late));
+    // the proxy refuses a file larger than this (chain.ini is held to the same limit when it is written)
+    if s.len() > MAX_BYTES {
+        return Err(crate::Error::new(
+            crate::ErrorCode::Refused,
+            format!("{}: would be larger than {} KiB, which the proxy refuses to read; shorten chain.ini first", path.display(), MAX_BYTES / 1024),
+        ));
     }
     crate::util::write_atomic(&path, s.as_bytes())
 }
@@ -705,11 +779,73 @@ mod tests {
         assert!(t6.starts_with(HEADER), "{t6}");
         assert_eq!(parse(t4.as_bytes()).chain.len(), 1);
         assert!(t4.contains("[profile]"));
-        write_once(&d2, &["a.dll".into()]).unwrap();
-        assert_eq!(parse_once(&std::fs::read(d2.join("kiln/chain/once.ini")).unwrap()).profile[0].path, "a.dll");
-        write_once(&d2, &[]).unwrap();
-        assert!(!d2.join("kiln/chain/once.ini").exists());
+        write_once(&d2, &ProfilePlan { profile: vec!["a.dll".into()], ..Default::default() }).unwrap();
+        let once = parse_once(&std::fs::read(d2.join("kiln/chain/once.ini")).unwrap());
+        assert_eq!(once.profile[0].path, "a.dll");
+        assert_eq!(once.chain.as_ref().map(|c| c.len()), Some(1), "[chain] is always written");
+        assert_eq!(once.late, Some(vec![]), "an empty [late] is written too: it replaces chain.ini's");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Play-once follows the once-profile's plan, not what the active profile left in chain.ini: a proxy the active
+    /// profile's rule switched off is back, one the once-profile's rule switches off is out, and [late] holds the
+    /// once-profile's late natives and rules (not the active profile's).
+    #[test]
+    fn write_once_follows_the_play_once_profile() {
+        let d = std::env::temp_dir().join(format!("km-chain-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("kiln")).unwrap();
+        let f = d.join("kiln/chain.ini");
+        std::fs::write(&f, "[chain]\r\nchain\\emf-dinput8.dll\r\nchain\\old-a.dll\r\nchain\\old-b.dll\r\n[other]\r\nx = 1\r\n[late]\r\n; mine\r\nchain\\player.dll\r\n").unwrap();
+        // the active profile A: its rule switches old-a off, loads old-b late; its natives are late
+        let a = ProfilePlan {
+            profile: vec!["Z:\\a\\a1.dll".into()],
+            profile_late: vec!["Z:\\a\\a1.dll".into()],
+            rule_late: vec![("rule-a".into(), "chain\\old-b.dll".into())],
+            rule_off: vec![("off-a".into(), "chain\\old-a.dll".into())],
+        };
+        assert!(write_profile_plan(&d, &a).unwrap());
+        let before = std::fs::read_to_string(&f).unwrap();
+        assert_eq!(parse(before.as_bytes()).chain.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["chain\\emf-dinput8.dll", "chain\\old-b.dll"]);
+        // the play-once profile P: its rule switches old-b off and loads old-a late; two natives, one of them late
+        let p = ProfilePlan {
+            profile: vec!["Z:\\p\\p1.dll".into(), "Z:\\p\\p2.dll".into()],
+            profile_late: vec!["Z:\\p\\p2.dll".into()],
+            rule_late: vec![("rule-p".into(), "chain\\old-a.dll".into())],
+            rule_off: vec![("off-p".into(), "chain\\old-b.dll".into())],
+        };
+        write_once(&d, &p).unwrap();
+        let once = parse_once(&std::fs::read(d.join("kiln/chain/once.ini")).unwrap());
+        let paths = |v: &Option<Vec<ChainEntry>>| v.as_ref().unwrap().iter().map(|e| e.path.clone()).collect::<Vec<_>>();
+        assert_eq!(once.profile.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["Z:\\p\\p1.dll", "Z:\\p\\p2.dll"]);
+        assert_eq!(paths(&once.chain), ["chain\\emf-dinput8.dll", "chain\\old-a.dll"], "old-a is back (A's rule is not P's), old-b is out (P's rule)");
+        assert_eq!(paths(&once.late), ["chain\\player.dll", "Z:\\p\\p2.dll", "chain\\old-a.dll"], "the player's line, P's late native and P's rule; none of A's");
+        // chain.ini is what A left, byte for byte
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), before);
+        // a start without a chain.ini: empty [chain] and [late] sections, still present
+        std::fs::remove_file(&f).unwrap();
+        write_once(&d, &ProfilePlan::default()).unwrap();
+        let once = parse_once(&std::fs::read(d.join("kiln/chain/once.ini")).unwrap());
+        assert_eq!((once.profile.len(), once.chain, once.late), (0, Some(vec![]), Some(vec![])));
+        // the proxy refuses a file it would not read: so does the writer
+        std::fs::write(&f, format!("[chain]\r\n{}", format!("chain\\{}.dll\r\n", "x".repeat(1500)).repeat(200))).unwrap();
+        assert!(std::fs::metadata(&f).unwrap().len() as usize > MAX_BYTES);
+        assert_eq!(write_once(&d, &ProfilePlan::default()).unwrap_err().code, crate::ErrorCode::Refused);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// once.ini written by a dev.20 launcher (only [profile]) leaves chain.ini's [chain] and [late] in effect; one with
+    /// the sections says so, even when they are empty.
+    #[test]
+    fn once_ini_sections_are_reported_when_present() {
+        let old = parse_once(b"; old\r\n[profile]\r\nZ:\\a.dll\r\n");
+        assert_eq!((old.profile.len(), old.chain, old.late), (1, None, None));
+        let new = parse_once(b"[Profile]\nZ:\\a.dll\n[CHAIN]\n[late]\nchain/x.dll\n; chain\\off.dll\nnotes.txt\n");
+        assert_eq!(new.chain, Some(vec![]));
+        assert_eq!(new.late.unwrap().iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), ["chain\\x.dll"]);
+        // lines before any section are [profile], as before
+        let bare = parse_once(b"Z:\\b.dll\n[other]\nc.dll\n");
+        assert_eq!((bare.profile.len(), bare.chain, bare.late), (1, None, None));
     }
 
     fn fixture(name: &str) -> String {
@@ -961,6 +1097,59 @@ mod tests {
         assert!(!t.contains("a-dinput8"), "{t}");
         assert!(t.contains("chain\\b-dinput8.dll"), "{t}");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A rule that switched a [chain] proxy off also commented out its [late] line (`; kiln rule <id> off: <line>`).
+    /// Uninstalling the proxy removes that comment too, or the next activation would turn it back into an active
+    /// [late] line for a DLL that is gone.
+    #[test]
+    fn uninstall_drops_the_rule_switched_off_late_lines() {
+        let d = std::env::temp_dir().join(format!("km-chain-uninst-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("kiln")).unwrap();
+        let f = d.join("kiln/chain.ini");
+        std::fs::write(&f, "[chain]\r\nchain\\a-dinput8.dll\r\nchain\\b-dinput8.dll\r\n[late]\r\nchain\\a-dinput8.dll\r\n; mine\r\n").unwrap();
+        // one rule loads b late; another switches a off (its [late] line goes off with it) and also b
+        let plan = ProfilePlan {
+            rule_late: vec![("r-late".into(), "chain\\b-dinput8.dll".into())],
+            rule_off: vec![("r-off".into(), "chain\\a-dinput8.dll".into()), ("r-off".into(), "chain\\b-dinput8.dll".into())],
+            ..Default::default()
+        };
+        assert!(write_profile_plan(&d, &plan).unwrap());
+        let t = std::fs::read_to_string(&f).unwrap();
+        assert_eq!(t.matches("kiln rule r-off off: chain\\a-dinput8.dll").count(), 2, "[chain] and [late] both: {t}");
+        assert!(parse(t.as_bytes()).late.is_empty(), "{t}");
+        // uninstall a: nothing in the file names it any more
+        assert_eq!(remove_chain_entry(&d, "chain\\a-dinput8.dll").unwrap(), 0);
+        let t = std::fs::read_to_string(&f).unwrap();
+        assert!(!t.contains("a-dinput8"), "{t}");
+        // uninstall b (a rule's late line, then switched off): its mark goes with it, and no later line inherits it
+        assert_eq!(remove_chain_entry(&d, "chain\\b-dinput8.dll").unwrap(), 0);
+        let t = std::fs::read_to_string(&f).unwrap();
+        assert!(!t.contains("b-dinput8") && !t.contains("kiln rule r-late"), "{t}");
+        assert!(t.contains("; mine"), "{t}");
+        // the rule stops applying (an activation without it): no [late] line comes back
+        write_profile_plan(&d, &ProfilePlan::default()).unwrap();
+        let t = std::fs::read_to_string(&f).unwrap();
+        let ini = parse(t.as_bytes());
+        assert!(ini.late.is_empty() && ini.chain.is_empty(), "{t}");
+        // the switch the player's late toggle does: also drops a rule's off comment for that DLL
+        std::fs::write(&f, "[chain]\r\nchain\\c.dll\r\n[late]\r\nchain\\c.dll\r\n").unwrap();
+        let off = ProfilePlan { rule_off: vec![("r".into(), "chain\\c.dll".into())], ..Default::default() };
+        write_profile_plan(&d, &off).unwrap();
+        set_late(&d, "chain\\c.dll", false).unwrap();
+        write_profile_plan(&d, &ProfilePlan::default()).unwrap();
+        let ini = read(&d).unwrap();
+        assert!(ini.late.is_empty() && ini.chain.len() == 1, "{ini:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn rule_late_entries_are_the_marked_lines() {
+        let t = "[chain]\r\nchain\\a.dll\r\n[late]\r\nchain\\player.dll\r\n; kiln rule r1\r\nchain\\a.dll\r\n; kiln rule r2\r\n; a comment between\r\nchain\\b.dll\r\n; kiln rule r3 off: chain\\c.dll\r\n; kiln rule r4\r\nkey = chain/D.dll\r\n";
+        assert_eq!(rule_late_entries(t), [("r1".to_string(), "chain\\a.dll".to_string()), ("r4".to_string(), "chain\\D.dll".to_string())],
+            "the mark counts for the next line only; marks outside [late] do not count");
+        assert!(rule_late_entries("[chain]\r\n; kiln rule r\r\nchain\\a.dll\r\n").is_empty());
     }
 
     #[test]

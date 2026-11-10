@@ -32,7 +32,12 @@ proxyhost_dll(emf-x)
 proxyhost_dll(emf-y)
 proxyhost_dll(entrypatch-1 TEST_ENTRY_PATCH)
 proxyhost_dll(entrypatch-2 TEST_ENTRY_PATCH)
+# EMF's loader, as the proxy recognises it (exports): one that starts mods\emf-x.dll itself, one that holds the start
+proxyhost_dll(emf-loader TEST_EMF_EXPORTS TEST_LOADS_EMF_X)
+proxyhost_dll(emf-loader-patch TEST_EMF_EXPORTS TEST_ENTRY_PATCH)
 proxyhost_dll(failing TEST_FAIL)
+# patches the entry point, then fails its DllMain: Windows unloads it and the patch points into freed memory
+proxyhost_dll(entrypatch-fail TEST_ENTRY_PATCH TEST_FAIL)
 proxyhost_dll(fake-sf TEST_SHROUDFORGE)
 proxyhost_dll(fake-emf05 TEST_EMF05)
 proxyhost_dll(fake-emf-exports TEST_EMF_EXPORTS)

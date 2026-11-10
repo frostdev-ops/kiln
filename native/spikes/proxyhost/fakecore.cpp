@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // A stand-in kiln-core.dll for proxyhost: kiln_boot writes the KilnBootInfo the proxy passed to the harness log.
+#include <cstring>
+
 #include "harness.h"
 #include "kiln_api.h"
 
@@ -29,6 +31,17 @@ extern "C" __declspec(dllexport) KilnResult KILN_CALL kiln_boot(const KilnBootIn
     }
     const unsigned char* entry = ph_entry();
     ph_log("core entry bytes %02x %02x %02x %02x", entry[0], entry[1], entry[2], entry[3]);
+    // Is the entry point Kiln's gate (a jump into the proxy) while the core boots? The proxy puts the entry's own bytes
+    // back before it calls kiln_boot, so the answer is no.
+    bool gate = false;
+    if (entry[0] == 0xff && entry[1] == 0x25 && info->proxy_module) {
+        const auto* proxy = static_cast<const unsigned char*>(info->proxy_module);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(proxy + reinterpret_cast<const IMAGE_DOS_HEADER*>(proxy)->e_lfanew);
+        unsigned long long target = 0;
+        memcpy(&target, entry + 6, sizeof target);
+        gate = target >= reinterpret_cast<uintptr_t>(proxy) && target < reinterpret_cast<uintptr_t>(proxy) + nt->OptionalHeader.SizeOfImage;
+    }
+    ph_log("core entry is kiln gate=%d", gate ? 1 : 0);
     return KILN_OK;
 }
 

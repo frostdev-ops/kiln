@@ -9,14 +9,32 @@
 //  kiln_hk_structured  entry of a structured link (v1 detour, detour2): copies rcx/rdx/r8/r9 into its own frame (the
 //                      caller's shadow space is never written), then calls kiln_hk_structured_dispatch(regs, stack
 //                      args, link). r11 = the Link, set by the link's adapter stub.
-//  kiln_hk_mid         entry of a mid link. The link's stub pushed [Link*] then [continuation]; this builds a
-//                      safetyhook-compatible Context64 below them, calls kiln_hk_mid_dispatch(ctx), restores
-//                      everything and returns to the continuation with `ret 8`, which also drops the Link* slot.
+//  kiln_hk_mid         entry of a mid link. The link's stub pushed [continuation] then [Link*]; this builds a
+//                      safetyhook-compatible Context64 below them in which the continuation slot is ctx.rip and the
+//                      Link* slot is ctx.trampoline_rsp, so the layout and the rules are safetyhook's own:
+//                      trampoline_rsp = the hooked code's rsp - 8 (it points at ctx.rip) and the stub resumes with
+//                      `pop rsp; ret`. The Link* is moved into rdx (kiln_hk_mid_dispatch(ctx, link)) before the slot
+//                      gets its trampoline_rsp value. A handler at a function entry that returns early by setting
+//                      trampoline_rsp = rsp (and rax) returns to the game's caller with the stack it had.
 //                      rbp is its frame pointer (the call is realigned at run time); the unwind info treats the two
 //                      pushed slots as an allocation, so a walk from a handler continues at the hooked code's [rsp]
 //                      (the game's caller for a mid hook at a function entry).
 //
 // Syntax: the clang-cl assembler defaults to Intel syntax; the directives are the COFF/SEH ones.
+#include <cstddef>
+
+#include "services/kiln_hooks.h"
+
+// kiln_hk_mid hard-codes these offsets (the push order below builds the struct from rip down to xmm0).
+static_assert(offsetof(KilnRegisters, xmm15) == 0xF0, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, rflags) == 0x100, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, r15) == 0x108, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, rax) == 0x170, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, rbp) == 0x178, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, rsp) == 0x180, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, trampoline_rsp) == 0x188, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(offsetof(KilnRegisters, rip) == 0x190, "KilnRegisters layout (kiln_hk_mid)");
+static_assert(sizeof(KilnRegisters) == 0x198, "KilnRegisters layout (kiln_hk_mid)");
 __asm__(
     ".intel_syntax noprefix\n"
     ".text\n"
@@ -91,10 +109,8 @@ __asm__(
     ".seh_proc kiln_hk_mid\n"
     "kiln_hk_mid:\n"
     "  nop\n"
-    "  .seh_stackalloc 16\n"      // the Link* and continuation slots the link's stub pushed
-    "  push rsp\n"                // trampoline_rsp
-    "  .seh_stackalloc 8\n"
-    "  push rsp\n"                // rsp (read-only)
+    "  .seh_stackalloc 16\n"      // the continuation (ctx.rip) and Link* (ctx.trampoline_rsp) slots the stub pushed
+    "  push rsp\n"                // ctx.rsp (read-only; set below)
     "  .seh_stackalloc 8\n"
     "  push rbp\n"
     "  .seh_pushreg rbp\n"
@@ -159,8 +175,10 @@ __asm__(
     "  mov rbp, rsp\n"             // frame pointer: the call below realigns rsp, so the unwinder must start from rbp
     "  .seh_setframe rbp, 0\n"     // (ctx.rbp is already saved in its slot)
     "  .seh_endprologue\n"
-    "  mov rax, [rsp+0x180]\n"    // ctx.rsp was pushed as (entry rsp - 24 + ...): make it the hooked code's rsp
-    "  add rax, 0x18\n"
+    "  mov rdx, [rsp+0x188]\n"    // Link* (2nd argument); its slot becomes ctx.trampoline_rsp
+    "  lea rax, [rsp+0x190]\n"    // trampoline_rsp = &ctx.rip = the hooked code's rsp - 8, as safetyhook
+    "  mov [rsp+0x188], rax\n"
+    "  lea rax, [rsp+0x198]\n"    // ctx.rsp = the hooked code's rsp
     "  mov [rsp+0x180], rax\n"
     "  mov rcx, rsp\n"            // &ctx
     "  sub rsp, 0x30\n"
@@ -201,7 +219,7 @@ __asm__(
     "  pop rax\n"
     "  pop rbp\n"
     "  lea rsp, [rsp+8]\n"        // skip the read-only rsp slot
-    "  pop rsp\n"                 // trampoline_rsp: the continuation slot
-    "  ret 8\n"                   // continue (ctx.rip), dropping the Link* slot
+    "  pop rsp\n"                 // trampoline_rsp: &ctx.rip unless the handler moved it
+    "  ret\n"                     // continue at [trampoline_rsp] (ctx.rip)
     ".seh_endproc\n"
 );

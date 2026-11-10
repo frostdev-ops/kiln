@@ -67,8 +67,12 @@ typedef struct KilnHookCall2 {
 typedef uintptr_t(KILN_CALL* KilnDetourFn2)(KilnHookCall2* call, void* user);
 
 /* Full register context of a mid-function hook. Field order mirrors safetyhook's Context64 exactly, so there is no
- * copy; writing a field changes the register when execution resumes. rsp is read-only (use trampoline_rsp per
- * safetyhook's rules); rip points into a trampoline of the overwritten instruction(s). Each xmm is 16 bytes. */
+ * copy; writing a field changes the register when execution resumes. rsp is the hooked code's rsp and is read-only.
+ * rip is where execution continues (the next link, or a trampoline of the overwritten instruction(s)). trampoline_rsp
+ * follows safetyhook's rules: it starts at rsp - 8 (it points at the rip slot) and execution resumes with
+ * `rsp = trampoline_rsp; ret`, so the top of that stack must be the address to resume at. A handler at a function's
+ * first instruction returns early to the game's caller by setting rax and trampoline_rsp = rsp. Each xmm is 16 bytes.
+ * (dev.21 before ur10 started trampoline_rsp at rsp - 16; that was a defect and is fixed.) */
 typedef struct KilnXmm {
     uint8_t bytes[16];
 } KilnXmm;
@@ -95,14 +99,23 @@ typedef struct KilnHooksSigSummary {
 /* Where a link goes in a target's chain (v2). Order on a target: constraints, then priority (higher first), then
  * registration order. `before` / `after` are comma-separated owner names (a plugin's or mod's id: "kiln.chat",
  * "emf:coolmod", "native:foo"; the kind prefix and a ".dll" suffix are optional, '-' and '.' are alike). An
- * unsatisfiable constraint is dropped with a warning in kiln.log. `label` names the link in kiln.log and the hook map. */
+ * unsatisfiable constraint is dropped with a warning in kiln.log. `label` names the link in kiln.log and the hook map.
+ * `flags` (appended in dev.21, read only when `size` covers it; an older caller's size leaves it 0):
+ * KILN_HOOK_NEWEST_FIRST makes the link run before the other links of its priority, the newest one first. Hook engines
+ * that stack their mods' detours (EMF, Shroudtopia) use one priority and this flag, so across engines the latest
+ * detour sees the game's call first, as layered inline hooks did. Every (re)install counts as the newest. Links without
+ * the flag at that priority keep registration order and come after the flagged ones. */
 typedef struct KilnHookOrder {
     uint32_t size;       /* sizeof(KilnHookOrder) */
     int32_t priority;    /* higher runs first */
     KilnStr label;       /* e.g. "chat/ChatLogAdd" */
     KilnStr before;      /* owners this link must run before */
     KilnStr after;       /* owners this link must run after */
+    /* ---- appended in dev.21 (ur8) ---- */
+    uint32_t flags;      /* KILN_HOOK_* below */
 } KilnHookOrder;
+
+#define KILN_HOOK_NEWEST_FIRST 1u  /* among links of the same priority: newest first, before those without the flag */
 
 typedef struct KilnHooksStats {
     uint32_t size;
@@ -110,13 +123,21 @@ typedef struct KilnHooksStats {
     uint32_t mid_targets;      /* distinct addresses with a mid link */
     uint32_t handlers;         /* live links of every kind across all chains */
     uint32_t patches;          /* live byte patches */
-    uint64_t detour_calls;     /* structured + v1 detour dispatches since boot (raw links are not counted) */
-    uint64_t mid_calls;        /* mid dispatches since boot */
+    uint64_t detour_calls;     /* structured + v1 detour dispatches since boot (raw links are not counted); each
+                                  thread counts its own, the sum is read when stats() is called */
+    uint64_t mid_calls;        /* mid dispatches since boot (counted the same way) */
     /* ---- appended in v2: filled only when `size` covers them ---- */
     uint32_t raw_links;        /* live raw links */
     uint32_t foreign_before;   /* targets that were already hooked/patched by someone else when Kiln hooked them */
     uint32_t foreign_over;     /* targets someone else hooked over Kiln's detour afterwards */
     uint32_t targets;          /* distinct hooked addresses */
+    /* ---- appended in dev.21 (ur10): filled only when `size` covers them ---- */
+    uint32_t links_used;       /* link slots taken since boot (a revoked link keeps its slot; re-installing the same
+                                  handler on the same target takes it again) */
+    uint32_t links_cap;        /* link slots there are (65536); new hooks are refused when links_used reaches it */
+    /* ---- appended in dev.21 (ur8): filled only when `size` covers them ---- */
+    uint32_t targets_cap;      /* distinct addresses kiln.hooks can hook (512); a new address is refused (KILN_ERR_UNAVAILABLE)
+                                  when `targets` reaches it. Addresses already hooked still take links. 0 = not reported */
 } KilnHooksStats;
 
 typedef struct KilnHooksApi {
@@ -178,7 +199,13 @@ typedef struct KilnHooksApi {
      * raw_detour: `fn` has the target's own native signature (any arguments, floats, stack arguments, any return).
      * *original is the continuation with the same signature: it runs the rest of the chain and then the real function.
      * Continuations are never freed (a revoked link's continuation forwards to the next link), so a handler that still
-     * holds one after revoke is safe. `order` may be NULL. `original` may be NULL.
+     * holds one after revoke is safe. `order` may be NULL. `original` may be NULL. A raw handler reads one continuation
+     * variable, so a target holds at most one live raw link per `fn`: installing the same `fn` again on that target
+     * replaces the earlier link (atomically; its handle stops working), as RawHook::install on a live hook needs.
+     *
+     * Every kind: installing a handler again on a target where the same (kind, fn, user, owner, label[, arg_count]) was
+     * revoked takes the revoked link's slot again (with a new handle) instead of a new one. There are 65536 link slots
+     * per process (stats links_used / links_cap).
      *
      * caller: the return address of the game call that entered h's target on the current thread. Valid for every link of
      * the chain, when read before the handler calls its original or another hooked function. A recursive entry into the
@@ -189,8 +216,8 @@ typedef struct KilnHooksApi {
      *
      * mid2: ordered mid hook (the existing `mid` is a mid link with default order). A mid hook may share its address with
      * detour links. Registers are those at the hooked instruction as seen by the previous link. rip is where execution
-     * continues (the next link or the original code). trampoline_rsp starts at rsp - 16 (one slot more than safetyhook's
-     * rsp - 8): move it relative to its starting value, never set it from rsp.
+     * continues (the next link or the original code). trampoline_rsp follows safetyhook's rules (see KilnRegisters),
+     * for v1 `mid` links too.
      *
      * map_json: the hook map (docs/kiln/services/hooks.md), also written to <kiln>/state/hooks.json. *len receives the
      * text length without the NUL; buf needs *len + 1 bytes (NUL-terminated), else KILN_ERR_BUFFER_TOO_SMALL. buf may be

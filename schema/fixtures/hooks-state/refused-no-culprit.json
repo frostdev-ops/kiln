@@ -1,0 +1,62 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.21",
+  "pid": 7312,
+  "phase": "world",
+  "worldChecked": true,
+  "generated": "2026-11-09T18:40:12Z",
+  "targets": [
+    {
+      "rva": "0x31c0a0",
+      "symbol": null,
+      "label": "rva 0x31c0a0",
+      "links": [
+        { "owner": "native:fps-unlock", "kind": "mid", "priority": 0, "label": "" }
+      ],
+      "foreignBefore": { "module": "", "offset": "0x0", "address": "0x1b2c3d4e0000", "inPlace": true, "own": false },
+      "foreignOver": null
+    }
+  ],
+  "foreign": [
+    { "symbol": "a/B", "rva": "0x1", "module": "xhl-core.dll", "offset": "0x5", "own": false },
+    { "symbol": "g/H", "rva": "0x4", "module": "reshade64.dll", "offset": "0x1", "own": false }
+  ],
+  "overlaps": [
+    {
+      "symbol": null,
+      "rva": "0x31c0a0",
+      "kind": "foreign-before",
+      "foreign": { "module": "", "offset": "0x0", "address": "0x1b2c3d4e0000", "inPlace": true },
+      "owners": ["native:fps-unlock"],
+      "fix": "rule",
+      "chainEntry": null,
+      "message": "an unnamed module (jump target 0x1b2c3d4e0000) hooked rva before native:fps-unlock; Kiln chained over it. Kiln cannot tell which module that is. Add a rule to compat-rules.json or switch one side off."
+    },
+    {
+      "symbol": null,
+      "rva": null,
+      "kind": "refused",
+      "foreign": { "module": null, "offset": null },
+      "owners": ["shroudforge"],
+      "hook": "game-thread",
+      "reason": "original-bytes-mismatch",
+      "suspects": ["xhl-core.dll", "reshade64.dll"],
+      "fix": "rule",
+      "chainEntry": null,
+      "message": "ShroudForge refused its game-thread hook (original-bytes-mismatch): another module patched game code first (modules that patched game code: xhl-core.dll, reshade64.dll). Add a rule to compat-rules.json or switch the other module off."
+    }
+  ],
+  "rules": [
+    {
+      "id": "warn-any",
+      "action": "warn",
+      "applied": true,
+      "message": "always",
+      "subject": null,
+      "source": "user"
+    }
+  ],
+  "ruleFiles": [
+    { "path": "Z:\\games\\Enshrouded\\kiln\\config\\compat-rules.json", "source": "user", "rules": 1, "error": null }
+  ]
+}

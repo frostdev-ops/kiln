@@ -1044,10 +1044,14 @@ export interface ChainViewEntry {
   /** [profile]: the native mod's id. */
   modId: string | null;
   late: boolean;
-  /** "player" ([chain], game-wide), "profile", or "rule:<id>". */
+  /** "player" ([chain], game-wide), "profile", or "rule:<id>" (a rule of this profile, or one that wrote the chain.ini
+   *  [late] line, which is then not the player's to switch off). */
   lateBy: string | null;
   /** "rule:<id>" when a compat rule switches it off. */
   offBy: string | null;
+  /** EMF's loader: it starts EMF itself, which Kiln's EMF support has to see when it starts, so Kiln always loads it
+   *  first and the late switch is not offered. */
+  loader: boolean;
 }
 export type RuleAction = "warn" | "late" | "disable";
 export interface CompatRuleResult {
@@ -1062,8 +1066,11 @@ export interface CompatRuleResult {
 }
 export type OverlapKind = "foreign-before" | "foreign-over" | "refused" | "other";
 export interface ChainOverlap {
+  /** Empty for a target without a sigdb name and for a refused hook (kiln-core writes null; the launcher reads it as ""). */
   symbol: string;
   rva: string;
+  /** refused: the hosted engine's name for the hook ("game-thread"), which labels a row without a symbol. */
+  hook?: string | null;
   kind: OverlapKind;
   foreign: { module: string; offset: string; own?: boolean } | null;
   owners: string[];
@@ -1102,8 +1109,9 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
-/** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod). */
-export const libraryRemove = (entry: LibraryRef, force = false) => call<null>("library_remove", { entry, force });
+/** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod).
+ *  `shown`: the libraryUsers answer a confirmation named. Removal goes past exactly those; any other user is a conflict, whatever `force` says. */
+export const libraryRemove = (entry: LibraryRef, force = false, shown?: string[]) => call<null>("library_remove", { entry, force, shown: shown ?? null });
 /** Clean up: one look at the running processes and the profiles for the whole batch. Rejects with game_running (nothing
  *  removed) while a game runs, or a server may read one of the versions; otherwise reports the versions not removed. */
 export const libraryRemoveMany = (entries: LibraryRef[], force = false) => call<RemoveReport>("library_remove_many", { entries, force });

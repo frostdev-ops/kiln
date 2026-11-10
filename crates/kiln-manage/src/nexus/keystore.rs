@@ -141,11 +141,12 @@ fn remove_file(path: &Path) -> Result<()> {
         Err(e) => Err(crate::util::io_at(path, "removing")(e)),
     }
 }
-/// Delete the retired credential slots; no personal key is loaded or sent to Nexus. Only where Nexus is on: the
-/// launcher calls [`retire_personal_key`] at every start, in builds with Nexus off as well.
+/// Delete the retired personal-key file; no personal key is loaded or sent to Nexus. Only where Nexus is on. The
+/// keyring slot is not asked here: the launcher's start runs [`retire_personal_key_once`] in every build, which asks
+/// the keyring only until one lookup has confirmed the slot empty.
 pub fn retire_legacy(root: &Path) -> Result<()> {
     super::require_enabled()?;
-    retire_personal_key(root).map(|_| ())
+    retire_personal_key_in(root, None).map(|_| ())
 }
 
 /// The keyring slot dev.19 kept the personal API key in (`nexusmods-api-key`, not the OAuth slot). None: no keyring on
@@ -166,7 +167,9 @@ pub fn retire_personal_key(root: &Path) -> Result<bool> {
 /// [`retire_personal_key_in`] for every launcher start: the file is checked each time (cheap), the keyring only until
 /// one lookup has succeeded and found nothing or removed the entry. That success is recorded in `marker` (no secret in
 /// it), so a locked keyring does not ask to be unlocked at every start, and a lookup that failed (locked, refused, no
-/// keyring yet) is tried again next time. Without a keyring (`ring` None) no marker is written.
+/// keyring yet) is tried again next time. The retired slot's `get` returns an error for such a lookup (on Linux,
+/// secret-tool's error text or a matching item it could not read), never "empty". Without a keyring (`ring` None) no
+/// marker is written.
 pub fn retire_personal_key_once(root: &Path, marker: &Path, ring: Option<&dyn SecretBackend>) -> Result<bool> {
     let ring = ring.filter(|_| !marker.exists());
     let checked_ring = ring.is_some();
@@ -249,7 +252,8 @@ fn attributes(legacy: bool) -> [&'static str; 4] { ["application", "kiln-launche
 #[cfg(target_os = "linux")]
 impl SecretTool {
     /// Runs secret-tool with a 5 s limit (a keyring that waits for an unlock prompt nobody answers must not hang us).
-    fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<(bool, String)> {
+    /// Returns its success, stdout and stderr.
+    fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<(bool, String, String)> {
         use std::io::Write;
         use std::process::{Command, Stdio};
         let mut child = Command::new(&self.exe)
@@ -257,7 +261,7 @@ impl SecretTool {
             .args(attributes(self.legacy))
             .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| Error::new(ErrorCode::Unsupported, format!("secret-tool: {e}")))?;
         if let Some(s) = stdin
@@ -268,12 +272,11 @@ impl SecretTool {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             if let Some(st) = child.try_wait()? {
-                let mut out = String::new();
-                if let Some(mut o) = child.stdout.take() {
-                    use std::io::Read;
-                    let _ = o.read_to_string(&mut out);
-                }
-                return Ok((st.success(), out));
+                use std::io::Read;
+                let (mut out, mut err) = (String::new(), String::new());
+                if let Some(mut o) = child.stdout.take() { let _ = o.read_to_string(&mut out); }
+                if let Some(e) = child.stderr.take() { let _ = e.take(4096).read_to_string(&mut err); }
+                return Ok((st.success(), out, err));
             }
             if std::time::Instant::now() > deadline {
                 let _ = child.kill();
@@ -298,19 +301,29 @@ impl SecretTool {
 
 #[cfg(target_os = "linux")]
 impl SecretBackend for SecretTool {
+    /// `secret-tool lookup` exits 1 both for a missing entry (no output) and for a failure; a failure prints its reason
+    /// on stderr (no Secret Service, a refused D-Bus call). A locked item whose unlock prompt was dismissed also gives
+    /// exit 1 without a message, so for the retired slot an empty answer is confirmed with `search --all`, which lists
+    /// locked items too and never prompts. The OAuth slot keeps treating a failed lookup as "not signed in", so a
+    /// system with secret-tool but no keyring running can still browse Nexus.
     fn get(&self) -> Result<Option<String>> {
         self.allowed(false)?;
-        let (ok, out) = self.run(&["lookup"], None)?;
-        Ok(ok.then(|| out.trim().to_string()).filter(|s| !s.is_empty()))
+        let (ok, out, err) = self.run(&["lookup"], None)?;
+        if ok { return Ok(Some(out.trim().to_string()).filter(|s| !s.is_empty())); }
+        if !self.legacy { return Ok(None); }
+        let failed = || Error::new(ErrorCode::Io, "The keyring could not be read (locked, refused or not running).");
+        if !err.trim().is_empty() { return Err(failed()); }
+        let (ok, out, err) = self.run(&["search", "--all"], None)?;
+        if ok && out.trim().is_empty() && err.trim().is_empty() { Ok(None) } else { Err(failed()) }
     }
     fn set(&self, secret: &str) -> Result<()> {
         self.allowed(true)?;
-        let (ok, _) = self.run(&["store", "--label=Kiln Launcher: Nexus Mods authorization"], Some(secret))?;
+        let (ok, ..) = self.run(&["store", "--label=Kiln Launcher: Nexus Mods authorization"], Some(secret))?;
         if ok { Ok(()) } else { Err(Error::new(ErrorCode::Unsupported, "the keyring refused authorization")) }
     }
     fn clear(&self) -> Result<()> {
         self.allowed(false)?;
-        let (ok, _) = self.run(&["clear"], None)?;
+        let (ok, ..) = self.run(&["clear"], None)?;
         if ok || self.get()?.is_none() { Ok(()) } else { Err(Error::new(ErrorCode::Io, "The keyring could not remove the Nexus Mods authorization.")) }
     }
 }
@@ -492,6 +505,42 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&oauth_slot).unwrap(), "fixture oauth entry");
         assert!(!retire_personal_key_in(&root, Some(&legacy)).unwrap());
         assert!(!root.exists(), "retiring created the Nexus folder");
+    }
+    /// `secret-tool lookup` exits 1 for a missing entry and for a failed lookup alike. Only a confirmed empty slot (no
+    /// error text, and `search --all` lists no locked item) writes the "retired" marker; a failure is asked again at the
+    /// next start. A stand-in `secret-tool`, never the user's keyring.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn disabled_nexus_retired_slot_marker_needs_a_confirmed_empty_lookup() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = temp();
+        let d = tmp.path().join("state");
+        std::fs::create_dir(&d).unwrap();
+        let script = tmp.path().join("secret-tool");
+        std::fs::write(&script, format!(
+            "#!/bin/sh\nd='{}'\ncase \"$1\" in\n  lookup) [ -f \"$d/fail\" ] && {{ echo 'secret-tool: Could not connect' >&2; exit 1; }}; exit 1;;\n\
+               search) [ -f \"$d/fail\" ] && exit 1; [ -f \"$d/locked\" ] && echo '[/org/freedesktop/secrets/collection/login/7]'; exit 0;;\n\
+               *) exit 1;;\nesac\n",
+            d.display())).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let legacy = SecretTool { exe: script.clone(), legacy: true };
+        let root = tmp.path().join("nexus");
+        let marker = tmp.path().join("state/nexus-personal-key-retired");
+        // no Secret Service (lookup prints why): an error, no marker
+        std::fs::write(d.join("fail"), "").unwrap();
+        assert!(retire_personal_key_once(&root, &marker, Some(&legacy)).is_err());
+        assert!(!marker.exists());
+        // the OAuth slot still reads a failed lookup as "not signed in"
+        if crate::nexus::enabled() { assert!(SecretTool { exe: script.clone(), legacy: false }.get().unwrap().is_none()); }
+        // a locked entry whose unlock prompt was dismissed: lookup is silent, search lists the item: no marker
+        std::fs::remove_file(d.join("fail")).unwrap();
+        std::fs::write(d.join("locked"), "").unwrap();
+        assert!(retire_personal_key_once(&root, &marker, Some(&legacy)).is_err());
+        assert!(!marker.exists());
+        // confirmed empty: the marker is written
+        std::fs::remove_file(d.join("locked")).unwrap();
+        assert!(!retire_personal_key_once(&root, &marker, Some(&legacy)).unwrap());
+        assert!(marker.exists());
     }
     #[test]
     fn private_writes_preserve_other_writers_temporary_files() {

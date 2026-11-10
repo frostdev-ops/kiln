@@ -14,6 +14,7 @@ inline uintptr_t fail_target = 0;           // install() on this target fails
 inline bool fail_all = false;               // every install() fails
 inline thread_local uintptr_t caller = 0;   // what caller() answers (the game's call site)
 inline int installs = 0, revokes = 0;       // counters
+inline int attempts = 0;                    // install() calls, refused ones too
 inline void (*on_install)(uintptr_t target) = nullptr;  // runs after a link went in
 }  // namespace test
 
@@ -34,6 +35,7 @@ public:
     }
     bool install(const KilnApi*, KilnOwner, uintptr_t target, void*, const char*, int32_t = 0, const char* = nullptr,
                  const char* = nullptr) {
+        ++test::attempts;
         if (test::fail_all || (test::fail_target && target == test::fail_target) || !target)
             return error_ = "test: install refused", false;
         if (live_) revoke();
@@ -74,6 +76,7 @@ public:
     template <class Ctx>
     bool install(const KilnApi*, KilnOwner, uintptr_t target, void (*)(Ctx&), const char*, int32_t = 0,
                  const char* = nullptr, const char* = nullptr) {
+        ++test::attempts;
         if (test::fail_all || (test::fail_target && target == test::fail_target) || !target)
             return error_ = "test: install refused", false;
         live_ = true, error_ = nullptr;

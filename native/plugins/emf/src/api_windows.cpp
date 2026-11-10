@@ -56,6 +56,7 @@ std::atomic<bool> g_open{false};
 struct Image {
     std::vector<KilnHandle> frames;
     uint32_t w = 0, h = 0;
+    std::string pending;  // a portrait key still being drawn: no frames yet, loaded when the drawing finishes
 };
 std::mutex g_img_mutex;
 std::vector<Image> g_images;           // handle = index + 1
@@ -339,38 +340,10 @@ std::filesystem::path mod_folder(const void* return_address) {
     return P.emf / L"mods";
 }
 
-uint32_t api_image_load(const char* path) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (!path || !*path) return 0;
-    const size_t length = strnlen(path, 32768);
-    if (length == 32768) return refuse(m, "image_load", "path is too long", true), 0;
-    const std::string p(path, length);
-    std::filesystem::path file;
-    std::string key;
-    const std::string kPortrait = "portrait:";
-    if (p.rfind(kPortrait, 0) == 0) {
-        const std::string k = p.substr(kPortrait.size());
-        if (!v26::portrait_key_ok(k)) return refuse(m, "image_load", "a portrait key is 1-64 of A-Z a-z 0-9 _ . -", true), 0;
-        // first start after a change: the picture may still be drawing on the portrait worker. Only the thread that is
-        // loading the mods waits for it; a tick or render thread is told to ask again (not cached, so a retry works).
-        if (!portraits_wait(k))
-            return refuse(m, "image_load", "the picture is still being drawn: ask again in a moment", true), 0;
-        file = P.emf / L"cache" / L"portraits" / to_wide(k);
-        key = p;
-    } else {
-        const std::filesystem::path w(to_wide(p));
-        file = w.is_absolute() || (p.size() > 1 && (p[0] == '\\' || p[0] == '/')) ? w : mod_folder(_ReturnAddress()) / w;
-        key = lower(path_utf8(file));
-    }
-    std::lock_guard lock(g_img_mutex);
-    if (g_shutdown) return 0;
-    if (auto it = g_image_keys.find(key); it != g_image_keys.end()) return it->second;
-    auto refused = [&](const std::string& why) -> uint32_t {
-        if (g_image_refused.insert(key).second) mod_logf(m, KILN_LOG_WARN, "image_load('%s') refused: %s", p.c_str(), why.c_str());
-        return 0;
-    };
-    if (g_side == KILN_SIDE_SERVER || !S.ui) return refused(no_overlay());
-    if (g_images.size() >= v26::kMaxImages) return refused("128 pictures are loaded already");
+// Decodes a PNG file, or a folder of PNG frames, into `im` (empty on failure; `why` says why). `budget` is how many
+// bytes of decoded pixels are left. Touches no shared state but kiln.ui, so it can run without g_img_mutex.
+bool decode_image(const std::filesystem::path& file, uint64_t budget, Image* out, uint64_t* out_bytes, std::string* why) {
+    auto refused = [&](const std::string& w) { *why = w; return false; };
     std::vector<std::filesystem::path> files;
     std::error_code ec;
     if (std::filesystem::is_directory(file, ec)) {
@@ -414,14 +387,108 @@ uint32_t api_image_load(const char* path) {
         im.w = w;
         im.h = h;
         bytes += uint64_t{w} * h * 4;
-        if (g_image_bytes + bytes > v26::kMaxImageBytes) return refused("the 64 MB for pictures are used up");
+        if (bytes > budget) return refused("the 64 MB for pictures are used up");
         const KilnHandle hnd = S.ui->image_load(g_owner, data.data(), data.size());
         if (!hnd) return refused("it could not be decoded");
         im.frames.push_back(hnd);
     }
+    out->frames = std::move(im.frames);
+    out->w = im.w;
+    out->h = im.h;
+    im.frames.clear();
+    *out_bytes = bytes;
+    return true;
+}
+
+std::filesystem::path portrait_folder(const std::string& key) { return P.emf / L"cache" / L"portraits" / to_wide(key); }
+
+// Loads the frames of every handle handed out while its portrait was being drawn. Runs on the portrait worker when the
+// drawing finishes (and on a loading thread that lost the race with it). Each pending handle is claimed once.
+void resolve_portraits() {
+    std::vector<std::pair<uint32_t, std::string>> todo;
+    uint64_t budget = 0;
+    {
+        std::lock_guard lock(g_img_mutex);
+        if (g_shutdown) return;
+        for (size_t i = 0; i < g_images.size(); ++i)
+            if (!g_images[i].pending.empty() && !portraits_drawing(g_images[i].pending))
+                todo.emplace_back(static_cast<uint32_t>(i + 1), std::exchange(g_images[i].pending, {}));
+        budget = v26::kMaxImageBytes - std::min<uint64_t>(g_image_bytes, v26::kMaxImageBytes);
+    }
+    for (const auto& [handle, key] : todo) {
+        Image im;
+        uint64_t bytes = 0;
+        std::string why;
+        const bool ok = decode_image(portrait_folder(key), budget, &im, &bytes, &why);
+        std::lock_guard lock(g_img_mutex);
+        if (ok && !g_shutdown && handle <= g_images.size() && g_image_bytes + bytes <= v26::kMaxImageBytes) {
+            g_image_bytes += bytes;
+            budget -= std::min(budget, bytes);
+            g_images[handle - 1].frames = std::move(im.frames);
+            g_images[handle - 1].w = im.w;
+            g_images[handle - 1].h = im.h;
+            continue;
+        }
+        for (auto h : im.frames) S.ui->image_free(h);
+        if (g_shutdown) return;
+        if (ok) why = "the 64 MB for pictures are used up";
+        // The handle stays valid and draws nothing. A later image_load of the key tries again with a new handle.
+        g_image_keys.erase("portrait:" + key);
+        if (g_image_refused.insert("portrait:" + key).second)
+            logf(KILN_LOG_WARN, "EMF: image_load('portrait:%s') refused after drawing: %s", key.c_str(), why.c_str());
+    }
+}
+
+uint32_t api_image_load(const char* path) {
+    Mod* m = caller_mod(_ReturnAddress());
+    if (!path || !*path) return 0;
+    const size_t length = strnlen(path, 32768);
+    if (length == 32768) return refuse(m, "image_load", "path is too long", true), 0;
+    const std::string p(path, length);
+    std::filesystem::path file;
+    std::string key, drawing;
+    const std::string kPortrait = "portrait:";
+    if (p.rfind(kPortrait, 0) == 0) {
+        const std::string k = p.substr(kPortrait.size());
+        if (!v26::portrait_key_ok(k)) return refuse(m, "image_load", "a portrait key is 1-64 of A-Z a-z 0-9 _ . -", true), 0;
+        // first start after a change: the picture may still be drawing on the portrait worker. Only the thread that is
+        // loading the mods waits for it; a tick or render thread gets a handle at once that draws nothing until the
+        // worker has finished the picture (resolve_portraits).
+        if (!portraits_wait(k)) drawing = k;
+        file = portrait_folder(k);
+        key = p;
+    } else {
+        const std::filesystem::path w(to_wide(p));
+        file = w.is_absolute() || (p.size() > 1 && (p[0] == '\\' || p[0] == '/')) ? w : mod_folder(_ReturnAddress()) / w;
+        key = lower(path_utf8(file));
+    }
+    std::unique_lock lock(g_img_mutex);
+    if (g_shutdown) return 0;
+    if (auto it = g_image_keys.find(key); it != g_image_keys.end()) return it->second;
+    auto refused = [&](const std::string& why) -> uint32_t {
+        if (g_image_refused.insert(key).second) mod_logf(m, KILN_LOG_WARN, "image_load('%s') refused: %s", p.c_str(), why.c_str());
+        return 0;
+    };
+    if (g_side == KILN_SIDE_SERVER || !S.ui) return refused(no_overlay());
+    if (g_images.size() >= v26::kMaxImages) return refused("128 pictures are loaded already");
+    if (!drawing.empty()) {
+        Image im;
+        im.pending = drawing;
+        g_images.push_back(std::move(im));
+        const uint32_t handle = static_cast<uint32_t>(g_images.size());
+        g_image_keys[key] = handle;
+        lock.unlock();
+        portraits_when_drawn(&resolve_portraits);
+        if (!portraits_drawing(drawing)) resolve_portraits();  // the worker finished before it saw this handle
+        return handle;
+    }
+    Image im;
+    uint64_t bytes = 0;
+    std::string why;
+    if (!decode_image(file, v26::kMaxImageBytes - std::min<uint64_t>(g_image_bytes, v26::kMaxImageBytes), &im, &bytes, &why))
+        return refused(why);
     g_image_bytes += bytes;
     g_images.push_back(std::move(im));
-    im.frames.clear();
     const uint32_t handle = static_cast<uint32_t>(g_images.size());
     g_image_keys[key] = handle;
     return handle;

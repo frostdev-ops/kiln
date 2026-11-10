@@ -4,6 +4,8 @@
 //                     "gate <name>", puts the saved bytes back and calls the entry: what a loader that holds the
 //                     game's start does (EMF on a server). With two of these and Kiln, the gates must run in reverse
 //                     order of patching: Kiln, then the last patcher, then the first, then the real entry.
+//   TEST_LOADS_EMF_X  also starts <game>\mods\emf-x.dll from its DllMain: what EMF's loader does with the DLLs of
+//                     dinput8-chain.ini, so such a DLL is in the process before kiln-core's late phase can load it
 //   TEST_FAIL         DllMain returns FALSE (LoadLibrary fails with ERROR_DLL_INIT_FAILED, 1114)
 //   TEST_SHROUDFORGE  carries ShroudForge's marker text: the proxy must refuse it without loading it
 //   TEST_EMF05        shaped like EMF 0.5's loader: exports emf_loader_identity (EMF's marker text) and
@@ -38,6 +40,20 @@ extern "C" __declspec(dllexport) void KilnProxyInfo() {}
 #ifdef TEST_EMF_WIDE
 extern "C" __declspec(dllexport) const wchar_t emf_identity_wide[] = L"eMf-LoAdEr-7d3c9f";
 extern "C" __declspec(dllexport) void ShroudforgeSetDinput8Provider(void*) {}
+#endif
+
+#ifdef TEST_LOADS_EMF_X
+void load_listed() {
+    wchar_t path[1024];
+    const DWORD n = GetModuleFileNameW(nullptr, path, 1000);
+    if (n == 0 || n >= 1000) return;
+    wchar_t* slash = path;
+    for (wchar_t* p = path; *p; ++p)
+        if (*p == L'\\') slash = p;
+    lstrcpyW(slash, L"\\mods\\emf-x.dll");
+    HMODULE h = LoadLibraryW(path);
+    ph_log("loader %s started mods\\emf-x.dll: %s", g_name, h ? "yes" : "no");
+}
 #endif
 
 #ifdef TEST_ENTRY_PATCH
@@ -84,6 +100,9 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void*) {
            GetModuleHandleW(L"native-test-boot.dll") != nullptr ? 1 : 0);
 #ifdef TEST_ENTRY_PATCH
     patch();
+#endif
+#ifdef TEST_LOADS_EMF_X
+    load_listed();
 #endif
 #ifdef TEST_SHROUDFORGE
     ph_log("dll %s: ShroudForge marker %s", g_name, proxyhost_marker);

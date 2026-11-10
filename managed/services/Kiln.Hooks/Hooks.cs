@@ -56,8 +56,13 @@ public delegate void MidHandler(ref Registers regs);
 public unsafe struct Registers
 {
     private fixed byte _xmm[256];
+    /// <summary>General registers. <see cref="Rsp"/> is the hooked code's rsp and is read-only.</summary>
     public nuint Rflags, R15, R14, R13, R12, R11, R10, R9, R8, Rdi, Rsi, Rdx, Rcx, Rbx, Rax, Rbp, Rsp;
+    /// <summary>safetyhook's rule: starts at <c>Rsp - 8</c> (it points at <see cref="Rip"/>); the game resumes with
+    /// <c>rsp = TrampolineRsp; ret</c>. At a function's first instruction, <c>Rax = value; TrampolineRsp = Rsp</c>
+    /// returns to the caller without running the function.</summary>
     public nuint TrampolineRsp;
+    /// <summary>Where execution goes on (the next hook, or the overwritten instructions).</summary>
     public nuint Rip;
 
     /// <summary>xmm register <paramref name="n"/> (0..15) as a 16-byte span.</summary>

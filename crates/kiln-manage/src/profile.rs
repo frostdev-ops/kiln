@@ -1068,8 +1068,9 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
     activate(dirs, &profile.id, install).map(Some)
 }
 
-/// Launch mode once: renders the profile into `kiln/profile.once.json` and its dllmain natives into
-/// `kiln/chain/once.ini` (play-once mode=profile then boots it for one start).
+/// Launch mode once: renders the profile into `kiln/profile.once.json` and its chain plan (dllmain natives, the [chain]
+/// and [late] lists with its compat rules applied) into `kiln/chain/once.ini` (play-once mode=profile then boots it for
+/// one start).
 pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<ProfileFile> {
     refuse_running(install)?;
     ensure_kiln(install)?;
@@ -1092,9 +1093,10 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     }
     let (mut file, _, _) = prepare(dirs, &profile, install)?;
     file.written = Some(now_rfc3339());
-    // compat rules that switch a native off apply to a single start too ([late] stays chain.ini's)
+    // The single start follows this profile's plan: its compat rules (a [chain] proxy switched off, entries loaded late)
+    // and its late natives, not the active profile's that chain.ini holds. once.ini carries [profile], [chain] and [late].
     let entries = crate::compat::dllmain_entries(dirs, &profile, &file)?;
-    crate::chain::write_once(&install.path, &crate::compat::plan(dirs, &profile, install, &entries).chain.profile)?;
+    crate::chain::write_once(&install.path, &crate::compat::plan(dirs, &profile, install, &entries).chain)?;
     crate::util::write_json_atomic(&install.path.join(crate::paths::game::PROFILE_ONCE), &file)?;
     Ok(file)
 }

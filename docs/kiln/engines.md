@@ -89,6 +89,22 @@ proxy checks it as always (Kiln's and ShroudForge's proxies stay refused) and le
 same switch ("Load after Kiln and ShroudForge"). What clashes and what Kiln does about it:
 [engines/README.md](engines/README.md#closed-source-dll-mods).
 
+A late DLL may patch the game's entry point, as a loader that holds the start does. Kiln's gate puts the entry's own
+bytes back before the core starts, so the patch saves the right bytes and runs before the game's own entry.
+
+What `[late]` cannot do:
+
+- **EMF's own loader** is never deferred, even when it is named. It starts EMF itself, and Kiln's EMF support decides
+  when Kiln's plugins start whether the real EMF is running; a loader that came later would run EMF next to it. The
+  proxy loads it in its place and writes a line to `proxy.log`; the
+  launcher shows it as "Always loads first" without a switch, and a `late` compat rule skips it.
+- **A DLL something else already started.** With EMF's loader chained, it starts the DLLs of `dinput8-chain.ini` itself,
+  so they are running before Kiln's late phase. kiln.log says `late: <path> was already loaded when the late phase ran`,
+  `state/native.json` `chain.late` says `already-loaded`, and `state/boot.json` marks the entry `lateIgnored`. The
+  overlap report suggests a compat rule for it, not `[late]`.
+- **A disabled mod.** A native mod's DLL in `[late]` loads only when the mod does (see
+  [native-mods.md](native-mods.md#switches-and-policy)).
+
 ## Library kinds
 
 `library::detect` reports these kinds besides Kiln's own. Each has `engine` set and a reason a player can read.

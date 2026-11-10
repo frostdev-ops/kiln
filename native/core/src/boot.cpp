@@ -3,7 +3,10 @@
 //   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", sigdb, hooks,
 //   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
 //   chain.ini [late], state/boot.json, state/hooks.json.
+#include <cstring>
+
 #include "api.h"
+#include "chain_status.h"
 #include "clr.h"
 #include "compat.h"
 #include "config.h"
@@ -59,11 +62,9 @@ const char* play_once_name(uint32_t v) {
         default: return "none";
     }
 }
-const char* const kChainStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped", "late"};
 const char* const kChainSource[] = {"chain", "profile", "emf"};
 const char* const kChainDetail[] = {nullptr, "self", "system", "kiln", "shroudforge", "not-dll", "outside", "too-many"};
 
-const char* chain_status(uint32_t s) { return s < 7 ? kChainStatus[s] : "failed"; }
 const char* chain_source(uint32_t s) { return s < 3 ? kChainSource[s] : "chain"; }
 const char* chain_detail(uint32_t d) { return d < 8 ? kChainDetail[d] : nullptr; }
 
@@ -79,7 +80,7 @@ void log_proxy() {
         const char* detail = e.status == KILN_CHAIN_REFUSED ? chain_detail(e.detail) : nullptr;
         log::writef(e.status == KILN_CHAIN_FAILED || e.status == KILN_CHAIN_MISSING ? KILN_LOG_WARN : KILN_LOG_INFO, "kiln",
                     "proxy: chain %u (%s) %.*s: %s%s%s%s", i + 1, chain_source(e.source), static_cast<int>(e.path.len),
-                    e.path.ptr ? e.path.ptr : "", chain_status(e.status), detail ? " (" : "", detail ? detail : "",
+                    e.path.ptr ? e.path.ptr : "", chain_status_name(e.status), detail ? " (" : "", detail ? detail : "",
                     detail ? ")" : "");
         if (e.status == KILN_CHAIN_FAILED) KLOG_W("proxy: chain %u: error %d", i + 1, e.error);
     }
@@ -97,6 +98,58 @@ struct BootFacts {
     std::vector<std::string> errors;
 };
 
+// The exe's entry point and the proxy's gate on it. The gate is a 14-byte jump (FF 25 00000000, target inside the
+// proxy). A dev.21 proxy puts the entry's own bytes back before it calls kiln_boot, so a DLL that loads during boot
+// (chain.ini [late], a native mod) and patches the entry point saves the right bytes and its patch runs when the gate
+// continues. An older proxy keeps its jump there until kiln_boot returns and then puts its saved bytes back, which
+// drops such a patch. snapshot_entry() runs first in boot(), check_entry_patch() at its end.
+constexpr size_t kGateSize = 14;
+uint8_t g_entry_at_boot[kGateSize]{};
+const uint8_t* g_entry = nullptr;   // null: no proxy, or the exe's headers cannot be read
+bool g_gate_held = false;           // the proxy's jump was on the entry point when kiln_boot started (an older proxy)
+
+bool is_proxy_gate(const uint8_t* entry) {
+    const auto* proxy = reinterpret_cast<const uint8_t*>(g_boot_info.proxy_module);
+    const auto* pdos = reinterpret_cast<const IMAGE_DOS_HEADER*>(proxy);
+    if (!proxy || pdos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    const auto* pnt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(proxy + pdos->e_lfanew);
+    if (pnt->Signature != IMAGE_NT_SIGNATURE) return false;
+    uint64_t target = 0;
+    std::memcpy(&target, entry + 6, sizeof target);
+    return entry[0] == 0xFF && entry[1] == 0x25 && entry[2] == 0 && entry[3] == 0 && entry[4] == 0 && entry[5] == 0 &&
+           target >= reinterpret_cast<uintptr_t>(proxy) && target < reinterpret_cast<uintptr_t>(proxy) + pnt->OptionalHeader.SizeOfImage;
+}
+
+void snapshot_entry() {
+    const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+    if (!g_boot_info.proxy_module || !base) return;
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE || !nt->OptionalHeader.AddressOfEntryPoint ||
+        nt->OptionalHeader.AddressOfEntryPoint > nt->OptionalHeader.SizeOfImage - kGateSize)
+        return;
+    g_entry = base + nt->OptionalHeader.AddressOfEntryPoint;
+    std::memcpy(g_entry_at_boot, g_entry, kGateSize);
+    g_gate_held = is_proxy_gate(g_entry);
+}
+
+// A DLL that loaded during boot patched the entry point: says what happens to that patch (kiln.log; boot.json "errors"
+// when it is lost).
+void check_entry_patch(BootFacts& f) {
+    if (!g_entry || std::memcmp(g_entry, g_entry_at_boot, kGateSize) == 0) return;
+    if (!g_gate_held) {
+        KLOG_I("a DLL that loaded while Kiln started (chain.ini [late], or a native mod) patched the game's entry point; "
+               "the proxy runs it before the game's own entry (proxy.log says so if it had to drop it)");
+        return;
+    }
+    const std::string what = "the game's entry point was patched while Kiln started (by a DLL loaded late or a native mod), and "
+                             "this dinput8.dll is an older Kiln proxy that puts its saved bytes back afterwards, so that patch "
+                             "is lost. Install Kiln again so the proxy matches kiln-core";
+    KLOG_W("%s", what.c_str());
+    f.errors.push_back(what);
+}
+
 void write_boot_json(const BootFacts& f) {
     using nlohmann::json;
     const auto& prof = profile::state();
@@ -104,17 +157,18 @@ void write_boot_json(const BootFacts& f) {
     const auto late_rows = native_mods::late_rows();  // chain.ini [late]: the core loaded these after the plugins
     for (uint32_t i = 0; i < g_boot_info.chain_count; ++i) {
         const KilnChainEntry& e = g_boot_info.chain[i];
-        json o = {{"path", std::string(sv(e.path))}, {"source", chain_source(e.source)}, {"status", chain_status(e.status)}};
+        json o = {{"path", std::string(sv(e.path))}, {"source", chain_source(e.source)}, {"status", chain_status_name(e.status)}};
         const char* d = e.status == KILN_CHAIN_REFUSED ? chain_detail(e.detail) : nullptr;
         o["detail"] = d ? json(d) : json(nullptr);
         if (e.status == KILN_CHAIN_FAILED) o["error"] = e.error;
         if (e.status == KILN_CHAIN_LATE) {
-            // The launcher's readers know the six proxy statuses: report the final one (the core's), flag it "late".
-            std::string status = "skipped";
-            for (const auto& row : late_rows)
-                if (row.chain_index == i && row.status != "pending") status = row.status;
-            o["status"] = status;
+            // The launcher's readers know the six proxy statuses: report the final one (the core's), flag it "late". An
+            // entry the late phase has not decided on shows "skipped"; one another loader had started shows "loaded"
+            // with "lateIgnored": [late] moved nothing.
+            const std::string final_status = chain_final_status(e, i, late_rows, "skipped");
+            o["status"] = chain_reported_status(final_status);
             o["late"] = true;
+            if (final_status == kLateAlreadyLoaded) o["lateIgnored"] = true;
             for (const auto& row : late_rows)
                 if (row.chain_index == i && row.error) o["error"] = row.error;
         }
@@ -183,6 +237,7 @@ void write_boot_json(const BootFacts& f) {
 }
 
 void boot() {
+    snapshot_entry();  // before anything loads a DLL
     init_paths();
     BootFacts f;
     f.started_ms = now_ms();
@@ -200,6 +255,7 @@ void boot() {
         f.safe_idle = "the game image cannot be parsed";
         f.errors.push_back(f.safe_idle);
         native_mods::run_late();  // the player's chain DLLs named in chain.ini [late] still load
+        check_entry_patch(f);
         write_boot_json(f);
         return;
     }
@@ -262,6 +318,7 @@ void boot() {
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
     }
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
+    check_entry_patch(f);
     write_boot_json(f);
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();

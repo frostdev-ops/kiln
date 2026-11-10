@@ -70,7 +70,9 @@ below; the key is never printed, logged or sent.
   The log says `nexus: removed the stored Nexus personal API key` when it found one. The OAuth entry is a different
   slot and stays. The keyring is read only to learn that the old entry exists. Once a keyring lookup has worked (found
   nothing, or removed the entry), `<data>/state/nexus-personal-key-retired` is written and later starts check only the
-  file, so a locked keyring does not ask to be unlocked at every start.
+  file, so a locked keyring does not ask to be unlocked at every start. A lookup that failed (keyring locked and the
+  prompt dismissed, no keyring service running) writes no marker; the next start asks again. On Linux, Kiln confirms
+  an empty slot with `secret-tool search --all`, which never prompts.
 - **The nxm handler.** If `<data>/nexus/handler.json` says Kiln registered itself, a build with Nexus off gives the
   links back at start:
   - Kiln is still the system's nxm handler: the manager before it (Vortex, Mod Organizer 2, ...) is restored the way

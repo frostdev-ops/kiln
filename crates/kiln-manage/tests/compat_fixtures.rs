@@ -47,8 +47,15 @@ fn parse_cases() {
         // a file-level failure gives no rules and one error; a good file gives one error per dropped rule
         let ok = c["ok"].as_bool().unwrap();
         let dropped = c["dropped"].as_u64().unwrap() as usize;
-        if ok && errors.len() != dropped {
-            bad.push(format!("{name}: {} errors, want {dropped} dropped: {errors:?}", errors.len()));
+        // one line per dropped rule, unless the case says otherwise (the rules past the limit give one summary line)
+        let problems = c["problems"].as_u64().map_or(dropped, |n| n as usize);
+        if ok && errors.len() != problems {
+            bad.push(format!("{name}: {} errors, want {problems}: {errors:?}", errors.len()));
+        }
+        if let Some(last) = c["lastProblem"].as_str()
+            && errors.last().map(String::as_str) != Some(last)
+        {
+            bad.push(format!("{name}: last problem {:?}, want {last:?}", errors.last()));
         }
         if !ok && errors.len() != 1 {
             bad.push(format!("{name}: want one file error, got {errors:?}"));

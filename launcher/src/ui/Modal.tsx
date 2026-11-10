@@ -96,14 +96,16 @@ export interface ConfirmDangerProps {
   /** Button label, e.g. "Delete". */
   action: string;
   onConfirm: () => void | Promise<void>;
+  /** Keeps the action disabled (e.g. while what the message names is still loading). */
+  disabled?: boolean;
 }
 
 /** A destructive action behind a typed confirmation, in the arch. The danger fill stays disabled until the word matches. */
-export function ConfirmDanger({ open, onClose, title, message, word, action, onConfirm }: ConfirmDangerProps) {
+export function ConfirmDanger({ open, onClose, title, message, word, action, onConfirm, disabled }: ConfirmDangerProps) {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) { setTyped(""); setBusy(false); } }, [open]);
-  const ok = typed.trim() === word;
+  const ok = typed.trim() === word && !disabled;
   const run = async () => {
     if (!ok || busy) return;
     setBusy(true);

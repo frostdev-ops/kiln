@@ -250,7 +250,8 @@ kiln\\chain\\chain-b.dll
     check(g, sum(1 for line in g.lines if line.startswith("dll emf-x attach")) == 1, "emf-x attached once (dedupe)")
     check(g, not has(g.lines, "dll chain-b"), "commented-out and other-section lines are not loaded")
     check(g, not has(g.lines, "dll fake-sf"), "ShroudForge-marked DLL never loaded")
-    check(g, has(g.lines, "core entry bytes ff 25"), "at kiln_boot the entry still holds a jump (entrypatch-2's)")
+    check(g, has(g.lines, "core entry bytes ff 25") and has(g.lines, "core entry is kiln gate=0"),
+          "at kiln_boot the entry holds entrypatch-2's jump again: Kiln's gate put the saved bytes back before the core")
     check(g, has(g.lines, "main GetdfDIJoystick size=32 objsize=24 flags=1 datasize=80 objects=44"),
           "GetdfDIJoystick: c_dfDIJoystick (fallback under Wine)")
     check(g, has(g.lines, "main KilnProxyInfo abi=2"), "KilnProxyInfo export answers abi 2")
@@ -437,7 +438,7 @@ def s_profile():
     for n in ("chain-a", "chain-b", "chain-c"):
         g.dll(n, f"kiln/chain/{n}.dll")
     g.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\n[profile]\nchain/chain-c.dll\n")
-    g.write("kiln/chain/once.ini", "chain/chain-b.dll\n[chain]\nchain/chain-c.dll\n")
+    g.write("kiln/chain/once.ini", "chain/chain-b.dll\n[other]\nchain/chain-c.dll\n")
     created = (datetime.now(timezone(timedelta(hours=1)))).strftime("%Y-%m-%dT%H:%M:%S.123+01:00")
     f = g.play_once("profile", created=created, nonce="once-1")
     g.run()
@@ -447,7 +448,67 @@ def s_profile():
           any(line.endswith("\\kiln\\profile.once.json chain=2") for line in g.lines),
           "core sees PROFILE with kiln\\profile.once.json (offset +01:00 accepted)")
     check(g, ordered(g.lines, ["dll chain-a attach", "dll chain-b attach"]) and not has(g.lines, "dll chain-c"),
-          "chain.ini [chain] + chain\\once.ini (lines before a section = [profile]; its [chain] ignored)")
+          "chain.ini [chain] + chain\\once.ini (lines before a section = [profile]; other sections ignored; no [chain] or [late] in it: chain.ini's stay)")
+    return g
+
+
+def s_profile_rules():
+    """dev.21: chain\\once.ini may carry its own [chain] and [late] (the play-once profile's compat rules applied by the
+    launcher). Each section it has replaces chain.ini's for this start; each it lacks leaves chain.ini's; a normal start
+    never reads once.ini."""
+    def game(name, once):
+        g = Game(name)
+        for n in ("chain-a", "chain-b", "chain-c", "chain-d"):
+            g.dll(n, f"kiln/chain/{n}.dll")
+        # what the active profile's activation left: a switched off (a comment), b late by its rule, c a native of its own
+        g.write("kiln/chain.ini", "[chain]\nchain/chain-b.dll\n; kiln rule active-off off: chain/chain-a.dll\n[profile]\nchain/chain-c.dll\n"
+                "[late]\n; kiln rule active-late\nchain/chain-b.dll\n")
+        g.write("kiln/chain/once.ini", once)
+        return g
+
+    def entries(g):
+        return [(e["status"], e["source"], os.path.basename(e["path"].replace("\\", "/")).lower()) for e in g.chain()]
+
+    # both sections: a is back, b is out, d is the play-once profile's late rule; chain.ini's [late] (b) is gone
+    g = game("profile-rules", "[profile]\nchain/chain-c.dll\n[chain]\nchain/chain-a.dll\nchain/chain-d.dll\n[late]\nchain/chain-d.dll\n")
+    g.play_once("profile", nonce="rules-1")
+    g.run()
+    print(f"[profile-rules] rc {g.rc}")
+    check(g, entries(g) == [("0", "0", "chain-a.dll"), ("6", "0", "chain-d.dll"), ("0", "1", "chain-c.dll")],
+          f"once.ini [chain] replaces chain.ini's (a back, b out), [late] replaces chain.ini's (d late): {entries(g)}")
+    check(g, has(g.lines, "dll chain-a attach") and not has(g.lines, "dll chain-b") and not has(g.lines, "dll chain-d"),
+          "the proxy loaded a (and c), not b, and deferred d")
+    check(g, ordered(g.lines, ["dll chain-a attach", "dll chain-c attach"]), "chain order is once.ini's [chain] then [profile]")
+    check(g, any("chain\\once.ini has its own [chain] (2 entries)" in x for x in g.proxy_log) and
+          any("chain\\once.ini has its own [late] (1 entries)" in x for x in g.proxy_log), "proxy.log says which sections once.ini supplied")
+    check(g, not any("names no entry" in x for x in g.proxy_log), "chain.ini's [late] line for b is not applied (no orphan warning either)")
+
+    # [late] only: chain.ini's [chain] stays (b), the empty [late] ends chain.ini's deferral of b
+    g = game("profile-rules-late", "[profile]\nchain/chain-c.dll\n[late]\n")
+    g.play_once("profile", nonce="rules-2")
+    g.run()
+    check(g, entries(g) == [("0", "0", "chain-b.dll"), ("0", "1", "chain-c.dll")],
+          f"an empty [late] in once.ini replaces chain.ini's; chain.ini's [chain] stays: {entries(g)}")
+
+    # [chain] only: chain.ini's [late] stays (it names b, which once.ini's [chain] has)
+    g = game("profile-rules-chain", "[profile]\n[chain]\nchain/chain-b.dll\nchain/chain-a.dll\n")
+    g.play_once("profile", nonce="rules-3")
+    g.run()
+    check(g, entries(g) == [("6", "0", "chain-b.dll"), ("0", "0", "chain-a.dll")],
+          f"[chain] in once.ini, [late] from chain.ini: {entries(g)}")
+
+    # an empty [chain] means no displaced proxy this start (the play-once profile's rules switched them all off)
+    g = game("profile-rules-empty", "[chain]\n[late]\n[profile]\nchain/chain-d.dll\n")
+    g.play_once("profile", nonce="rules-4")
+    g.run()
+    check(g, entries(g) == [("0", "1", "chain-d.dll")] and not has(g.lines, "dll chain-b"),
+          f"an empty [chain] in once.ini: only the profile's DLL loads: {entries(g)}")
+
+    # not a play-once profile start: once.ini is not read, chain.ini decides
+    g = game("profile-rules-normal", "[chain]\nchain/chain-a.dll\n[late]\n[profile]\nchain/chain-d.dll\n")
+    g.run()
+    check(g, entries(g) == [("6", "0", "chain-b.dll"), ("0", "1", "chain-c.dll")] and not any("chain\\once.ini" in x for x in g.proxy_log),
+          f"a normal start ignores chain/once.ini: {entries(g)}")
     return g
 
 
@@ -1044,6 +1105,282 @@ def s_rules_realcore():
     return g
 
 
+# --------------------------------------------------------------------- review fixes for chain.ini [late] ----
+
+def plain_mod(lib, profile, mid, enabled=True, **fields):
+    """A dllmain native mod made of native-plain.dll (it writes <folder>/native-plain.log when its DLL runs), listed in the
+    profile. Returns the DLL's game path."""
+    d = os.path.join(lib, "native", mid)
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(os.path.join(BIN, "samples", "native-test", "native-plain.dll"), os.path.join(d, mid + ".dll"))
+    json.dump(dict({"id": mid, "version": "1.0.0", "dlls": [mid + ".dll"], "phase": "dllmain", "side": "both"}, **fields),
+              open(os.path.join(d, "native.json"), "w"))
+    entry = {"id": mid, "path": winpath(d)}
+    if not enabled:
+        entry["enabled"] = False
+    profile["mods"]["native"].append(entry)
+    return winpath(os.path.join(d, mid + ".dll"))
+
+
+def ran(lib, mid):
+    return os.path.exists(os.path.join(lib, "native", mid, "native-plain.log"))
+
+
+def empty_profile(profile):
+    profile["mods"]["native"] = []
+    profile["mods"]["plugin"] = []
+    return profile
+
+
+def late_rows(n):
+    return {os.path.basename(x["path"].replace("\\", "/")): x for x in n.get("chain", {}).get("late", [])}
+
+
+def s_late_native_realcore():
+    """A [late] DLL of a native mod that is disabled, on the wrong side or switched off by a compat rule is not loaded (the
+    row says skipped and why); one the proxy loaded before a `disable` rule could be read stays reported as running, and
+    the rule as not applied. No kiln.log line says \"switched off\" for a DLL that runs."""
+    g, lib, profile = realcore_game("late-native")
+    empty_profile(profile)
+    dlls = {
+        "late-ok": plain_mod(lib, profile, "late-ok"),
+        "late-off": plain_mod(lib, profile, "late-off", enabled=False),
+        "late-server": plain_mod(lib, profile, "late-server", side="server"),
+        "late-rule": plain_mod(lib, profile, "late-rule"),
+        "now-rule": plain_mod(lib, profile, "now-rule"),
+    }
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    late = "\n".join(dlls[m] for m in ("late-ok", "late-off", "late-server", "late-rule"))
+    g.write("kiln/chain.ini", "[profile]\n" + "\n".join(dlls.values()) + "\n[late]\n" + late + "\n")
+    json.dump({"format": 1, "rules": [
+        {"id": "r-late", "action": "disable", "subject": {"mod": "native:late-rule"}, "message": "clash A"},
+        {"id": "r-now", "action": "disable", "subject": {"mod": "native:now-rule"}, "message": "clash B"},
+    ]}, open(os.path.join(g.kiln, "compat-rules.json"), "w"))
+    g.run()
+    print(f"[late native real core] rc {g.rc}")
+    n, b, log = state(g, "native.json"), state(g, "boot.json"), kiln_log(g)
+    mods = {m["id"]: m for m in n.get("mods", [])}
+    rows = late_rows(n)
+    check(g, ran(lib, "late-ok") and mods["late-ok"]["state"] == "loaded", "a late DLL of an enabled mod loads late")
+    for mid in ("late-off", "late-server", "late-rule"):
+        check(g, not ran(lib, mid), f"{mid}: the DLL is not loaded")
+    check(g, [rows[m + ".dll"]["status"] for m in ("late-off", "late-server", "late-rule")] == ["skipped"] * 3 and
+          rows["late-ok.dll"]["status"] == "loaded", f"native.json chain.late: {[(k, v['status']) for k, v in rows.items()]}")
+    check(g, "is disabled" in rows["late-off.dll"].get("note", "") and "is skipped" in rows["late-server.dll"].get("note", "") and
+          "switched off by compat rule 'r-late'" in rows["late-rule.dll"].get("note", ""), "the rows say why")
+    check(g, mods["late-off"]["state"] == "disabled" and mods["late-server"]["state"] == "skipped" and
+          mods["late-rule"]["state"] == "disabled" and "switched off by compat rule 'r-late'" in (mods["late-rule"].get("reason") or ""),
+          f"the mods stay as they were resolved ({[(k, v['state']) for k, v in mods.items()]})")
+    for mid in ("late-off", "late-server", "late-rule"):
+        check(g, any(l.startswith("[W ") and f"late: " in l and f"{mid}.dll is not loaded: native mod {mid} is" in l for l in log),
+              f"kiln.log: a warning says the late DLL of {mid} is not loaded")
+    chain = {os.path.basename(x["path"].replace("\\", "/")): x for x in b.get("chain", [])}
+    check(g, all(chain[m + ".dll"]["status"] == "skipped" and chain[m + ".dll"].get("late") for m in ("late-off", "late-server", "late-rule")) and
+          chain["late-ok.dll"]["status"] == "loaded", "boot.json: the skipped late entries show skipped (and late), the loaded one loaded")
+    # a rule against a mod whose DLL the proxy loaded already
+    now = mods["now-rule"]
+    check(g, ran(lib, "now-rule") and now["state"] == "loaded" and now.get("reason") is None and
+          any("the proxy loaded its DLL before kiln-core started" in x for x in now.get("notes", [])),
+          f"now-rule: running, reported loaded with a note ({now.get('state')}, {now.get('notes')})")
+    check(g, any("compat: rule r-now asks native:now-rule to be disabled, but its DLL was loaded by the proxy" in l and l.startswith("[W ") for l in log),
+          "kiln.log: the rule is reported as not applied (the DLL runs)")
+    check(g, not any("r-now switched" in l or "now-rule" in l and "switched off" in l for l in log), "kiln.log never says a running mod was switched off")
+    check(g, any("compat: rule r-late switched native:late-rule off: clash A" in l for l in log), "kiln.log: a rule that kept the DLL out says it switched the mod off")
+    return g
+
+
+def s_late_policy_realcore():
+    """kiln.json native.policy applies to a DLL chain.ini [late] deferred (the proxy has not loaded it); what the proxy
+    loaded before kiln.json was read keeps its note."""
+    g, lib, profile = realcore_game("late-policy")
+    empty_profile(profile)
+    late = plain_mod(lib, profile, "late-pol")
+    now = plain_mod(lib, profile, "now-pol")
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.write("kiln/chain.ini", f"[profile]\n{late}\n{now}\n[late]\n{late}\n")
+    json.dump({"native": {"policy": "never"}}, open(os.path.join(g.kiln, "kiln.json"), "w"))
+    g.run()
+    print(f"[late policy real core] rc {g.rc}")
+    n, log = state(g, "native.json"), kiln_log(g)
+    mods = {m["id"]: m for m in n.get("mods", [])}
+    check(g, not ran(lib, "late-pol") and ran(lib, "now-pol"), "native.policy never: the deferred DLL stays out, the proxy's had loaded")
+    check(g, mods["late-pol"]["state"] == "policy" and "chain.ini [late] deferred its DLL" in (mods["late-pol"].get("reason") or "") and
+          not any("before kiln.json" in x for x in mods["late-pol"].get("notes", [])), f"late-pol: policy ({mods['late-pol'].get('state')}, {mods['late-pol'].get('reason')})")
+    check(g, mods["now-pol"]["state"] == "loaded" and any("before kiln.json native.policy" in x for x in mods["now-pol"].get("notes", [])),
+          "now-pol: loaded by the proxy, with the note that the policy came too late")
+    check(g, late_rows(n)["late-pol.dll"]["status"] == "skipped" and any("late-pol.dll is not loaded: native mod late-pol is policy" in l for l in log),
+          "the late row says skipped (policy)")
+    return g
+
+
+def s_late_requires_realcore():
+    """An early or boot native mod that `requires` a dllmain mod chain.ini [late] defers cannot be satisfied (the late phase
+    runs last): it is refused up front with that reason, never with \"failed to load\". A world mod is accepted."""
+    g, lib, profile = realcore_game("late-requires")
+    empty_profile(profile)
+    base = plain_mod(lib, profile, "base-late")
+    for mid, phase in (("early-dep", "early"), ("boot-dep", "boot"), ("world-dep", "world")):
+        plain_mod(lib, profile, mid, phase=phase, requires=["base-late"])
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.write("kiln/chain.ini", f"[profile]\n{base}\n[late]\n{base}\n")
+    g.run()
+    print(f"[late requires real core] rc {g.rc}")
+    n, log = state(g, "native.json"), kiln_log(g)
+    mods = {m["id"]: m for m in n.get("mods", [])}
+    check(g, mods["base-late"]["state"] == "loaded" and ran(lib, "base-late"), "the deferred mod loads in the late phase")
+    for mid, phase in (("early-dep", "early"), ("boot-dep", "boot")):
+        m = mods[mid]
+        why = m.get("reason") or ""
+        check(g, m["state"] == "failed" and "requires base-late" in why and "chain.ini [late] loads after the plugins" in why and
+              f"this mod's {phase} phase" in why and "failed to load" not in why, f"{mid}: refused up front, accurately ({m['state']}: {why})")
+        check(g, not ran(lib, mid), f"{mid}: not loaded")
+    w = mods["world-dep"]
+    check(g, w["state"] == "skipped" and "needs hooks" in (w.get("reason") or ""),
+          f"world-dep: accepted by the dependency check (safe idle skips every world mod: {w['state']}: {w.get('reason')})")
+    check(g, not any("failed to load" in l for l in log), "kiln.log never says a required mod failed to load")
+    return g
+
+
+def s_late_already_loaded_realcore():
+    """EMF's loader (chained) starts the DLLs of dinput8-chain.ini itself, so [late] cannot defer them: the late phase finds
+    the DLL in the process and says so (native.json, boot.json, a kiln.log warning, and the compat rule outcomes)."""
+    g, lib, profile = realcore_game("late-already")
+    empty_profile(profile)
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.dll("emf-loader", "kiln/chain/emf-loader.dll")
+    g.dll("emf-x", "mods/emf-x.dll")
+    g.write("kiln/chain.ini", "[chain]\nchain/emf-loader.dll\n[late]\nmods/emf-x.dll\n")
+    g.write("dinput8-chain.ini", "[Chain]\nmods\\emf-x.dll\n")
+    json.dump({"format": 1, "rules": [
+        {"id": "x-late", "action": "late", "subject": {"module": "emf-x.dll"}, "message": "xx"},
+        {"id": "loader-late", "action": "late", "subject": {"module": "emf-loader.dll"}, "message": "ll"},
+    ]}, open(os.path.join(g.kiln, "compat-rules.json"), "w"))
+    g.run()
+    print(f"[late already real core] rc {g.rc}")
+    n, b, log = state(g, "native.json"), state(g, "boot.json"), kiln_log(g)
+    check(g, any("emf-loader.dll loaded at" in x for x in g.proxy_log) and
+          any("dinput8-chain.ini" in x and "emf-x.dll deferred" in x for x in g.proxy_log),
+          "the proxy: the loader loads, the dinput8-chain.ini entry is deferred")
+    check(g, sum(1 for x in g.lines if x == "dll emf-x attach") == 1 and has(g.lines, "loader emf-loader started mods\\emf-x.dll: yes"),
+          "emf-x runs once, started by the loader")
+    row = late_rows(n).get("emf-x.dll", {})
+    check(g, row.get("status") == "already-loaded" and "another loader started it" in row.get("note", "") and "ms" not in row,
+          f"native.json chain.late: already-loaded with a note ({row})")
+    check(g, any(l.startswith("[W ") and "late: " in l and "emf-x.dll was already loaded when the late phase ran" in l for l in log), "kiln.log: a warning, not 'loaded at'")
+    check(g, not any("emf-x.dll loaded at" in l for l in log), "kiln.log never says the core loaded it late")
+    chain = {os.path.basename(x["path"].replace("\\", "/")): x for x in b.get("chain", [])}
+    check(g, chain["emf-x.dll"]["status"] == "loaded" and chain["emf-x.dll"].get("late") is True and chain["emf-x.dll"].get("lateIgnored") is True,
+          f"boot.json: loaded, late, lateIgnored ({chain['emf-x.dll']})")
+    check(g, any("compat: emf-x.dll is named in chain.ini [late], but another loader started it first" in l for l in log),
+          "compat rule: the late rule on it is not applied, and says why")
+    check(g, any("compat: emf-loader.dll is EMF's loader" in l and "cannot be moved late" in l for l in log), "compat rule: a late rule on EMF's loader is not applied")
+    return g
+
+
+def s_late_loader_and_entry():
+    """EMF's own loader is never deferred, even when [late] names it (it starts EMF itself, which kiln-emf has to see when
+    the plugins start). Any other DLL may patch the entry point from the late phase: the gate put the entry's bytes back
+    before the core started, so the patch saves the right bytes and runs before the game's entry, last in, first out."""
+    g = Game("late-emf-loader")
+    for n in ("emf-loader", "emf-loader-patch", "chain-a"):
+        g.dll(n, f"kiln/chain/{n}.dll")
+    g.write("kiln/chain.ini", "[chain]\nchain/emf-loader.dll\nchain/emf-loader-patch.dll\nchain/chain-a.dll\n[late]\nchain/emf-loader.dll\nchain/emf-loader-patch.dll\nchain/chain-a.dll\n")
+    g.write("dinput8-chain.ini", "")
+    g.dll("emf-x", "mods/emf-x.dll")
+    g.run()
+    print(f"[late EMF loader] rc {g.rc}")
+    c = g.chain()
+    check(g, [(e["status"], e["module"]) for e in c] == [("0", "1"), ("0", "1"), ("6", "0")],
+          f"EMF's loaders load in their place, the other entry is deferred ({[(e['status'], e['module']) for e in c]})")
+    check(g, sum(1 for x in g.proxy_log if "is EMF's loader: it starts EMF itself" in x and "does not defer it" in x) == 2, "proxy.log: one line per loader")
+    check(g, ordered(g.lines, ["dll emf-loader-patch attach", "core boot", "gate emf-loader-patch", "main reached"]),
+          "a loader that holds the start keeps its entry patch: Kiln's gate, then its gate, then the game")
+    check(g, not any("entry point" in x and "patched" in x for x in g.proxy_log), "no entry-patch line for a patch made before the gate")
+    check(g, has(g.lines, "core entry bytes ff 25") and has(g.lines, "core entry is kiln gate=0"), "at kiln_boot the entry holds the loader's jump again, not Kiln's gate")
+
+    # a DLL deferred to the late phase that patches the entry point: it saves the game's own bytes and its gate runs
+    r, lib, profile = realcore_game("late-entry-patch")
+    empty_profile(profile)
+    json.dump(profile, open(os.path.join(r.kiln, "profile.json"), "w"))
+    r.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
+    r.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n[late]\nchain/entrypatch-1.dll\n")
+    r.run()
+    print(f"[late entry patch] rc {r.rc}")
+    saved = [l for l in r.lines if l.startswith("patch entrypatch-1: entry patched")]
+    check(r, len(saved) == 1 and "(saved ff 25)" not in saved[0], f"the late DLL saved the game's own entry bytes, not Kiln's jump ({saved})")
+    check(r, ordered(r.lines, ["probe entrypatch-1 kiln-core=1", "patch entrypatch-1: entry patched", "gate entrypatch-1", "main reached"]) and r.rc in (0, -9),
+          "the late DLL's gate runs before the game's entry, and the game starts")
+    check(r, sum(1 for l in r.lines if l.startswith("gate entrypatch-1")) == 1, "its gate runs once")
+    check(r, any("patched the game's entry point; its patch runs now" in x for x in r.proxy_log), "proxy.log notes the patch")
+    check(r, any(l.startswith("[I ") and "patched the game's entry point" in l for l in kiln_log(r)) and
+          not any(l.startswith(("[W ", "[E ")) and "entry point" in l for l in kiln_log(r)), "kiln.log notes it as information")
+    check(r, not any("entry point" in e for e in state(r, "boot.json").get("errors", [])), "boot.json errors: nothing about the entry point")
+
+    # an early patcher and a late one: last in, first out across the two phases
+    m, lib_m, profile_m = realcore_game("late-entry-mixed")
+    empty_profile(profile_m)
+    json.dump(profile_m, open(os.path.join(m.kiln, "profile.json"), "w"))
+    for n in ("entrypatch-1", "entrypatch-2"):
+        m.dll(n, f"kiln/chain/{n}.dll")
+    m.write("kiln/chain.ini", "[chain]\nchain/entrypatch-2.dll\nchain/entrypatch-1.dll\n[late]\nchain/entrypatch-1.dll\n")
+    m.run()
+    print(f"[late entry patch, mixed] rc {m.rc}")
+    check(m, ordered(m.lines, ["patch entrypatch-2: entry patched", "probe entrypatch-1 kiln-core=1", "patch entrypatch-1: entry patched (saved ff 25)",
+                               "gate entrypatch-1", "gate entrypatch-2", "main reached"]) and m.rc in (0, -9),
+          "the late patch saved the early loader's jump; gates run late one first, then the early one, then the game")
+    check(m, sum(1 for l in m.lines if l.startswith("gate ")) == 2, "each gate runs once")
+
+    # a late DLL that patches the entry point and then fails its DllMain is unloaded: its jump points into freed memory
+    d, lib_d, profile_d = realcore_game("late-entry-dead")
+    empty_profile(profile_d)
+    json.dump(profile_d, open(os.path.join(d.kiln, "profile.json"), "w"))
+    d.dll("entrypatch-fail", "kiln/chain/entrypatch-fail.dll")
+    d.write("kiln/chain.ini", "[chain]\nchain/entrypatch-fail.dll\n[late]\nchain/entrypatch-fail.dll\n")
+    d.run()
+    print(f"[late entry patch, DLL gone] rc {d.rc}")
+    check(d, ordered(d.lines, ["patch entrypatch-fail: entry patched", "main reached"]) and not has(d.lines, "gate entrypatch-fail") and d.rc in (0, -9),
+          "a patch whose DLL was unloaded again is removed and the game starts")
+    check(d, any("is not in the process any more; its patch was removed" in x for x in d.proxy_log), "proxy.log says the dead patch was removed")
+    check(d, any("entrypatch-fail.dll failed to load" in l for l in kiln_log(d)), "kiln.log: the late DLL failed to load")
+    # the same DLL loaded early chains as before, and nothing is reported
+    e = Game("late-entry-early")
+    e.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
+    e.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n")
+    e.run()
+    check(e, ordered(e.lines, ["dll entrypatch-1 attach", "core boot", "gate entrypatch-1", "main reached"]) and not any("entry point" in x and "patched" in x for x in e.proxy_log),
+          "an entry patch made before the gate still unwinds last in, first out, with no line about it")
+    q, lib2, profile2 = realcore_game("late-entry-quiet")
+    empty_profile(profile2)
+    json.dump(profile2, open(os.path.join(q.kiln, "profile.json"), "w"))
+    q.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
+    q.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n")
+    q.run()
+    check(q, has(q.lines, "gate entrypatch-1") and not any("entry point" in l for l in kiln_log(q)) and
+          not any("entry point" in x for x in state(q, "boot.json").get("errors", [])), "the real core: nothing said when nothing patched the entry during boot")
+    return g
+
+
+def s_overlap_refused_realcore():
+    """A `refused` overlap with no single culprit has null symbol, rva, module and offset. It used to make the report
+    throw (nlohmann on null), so hooks.json lost its overlaps, rules and ruleFiles. The overlap and the rules after it are
+    logged now (safe idle: kiln.log only)."""
+    g, lib, profile = realcore_game("overlap-refused")
+    empty_profile(profile)
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    g.write("kiln/state/shroudforge.json", json.dumps({"mode": "hosted", "runtime": "running",
+            "native": "types=3/3 game_thread=unavailable(game-thread:original-bytes-mismatch) entity_hooks{}"}))
+    json.dump({"format": 1, "rules": [{"id": "always-on", "action": "warn", "message": "rules are reported too"}]},
+              open(os.path.join(g.kiln, "compat-rules.json"), "w"))
+    g.run()
+    print(f"[overlap refused real core] rc {g.rc}")
+    log = kiln_log(g)
+    check(g, any(l.startswith("[W ") and "compat: overlap: ShroudForge refused its game-thread hook (original-bytes-mismatch)" in l for l in log),
+          "kiln.log: the refused overlap is reported")
+    check(g, any("compat: rule always-on: rules are reported too" in l for l in log), "kiln.log: the rules after the overlap are reported")
+    check(g, not any("report skipped" in l for l in log), "no 'report skipped' warning")
+    return g
+
+
 def s_late_oldproxy():
     """An older proxy (the dev.20 one: OLD_PROXY=<its dinput8.dll>, or $KILN_OUT/oldproxy/dinput8.dll when built there from
     git HEAD~) ignores the unknown [late] section and loads the entries early; the new core boots with it and loads
@@ -1070,9 +1407,35 @@ def s_late_oldproxy():
     return g
 
 
-SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
+def s_entry_gate_held():
+    """A proxy from before the gate put the entry bytes back first (dev.21 before its review fixes: HELD_PROXY=<its
+    dinput8.dll>, or $KILN_OUT/heldproxy/dinput8.dll) keeps its jump on the entry point while the core boots. A DLL that
+    patches the entry point then saves that jump, and the proxy drops the patch afterwards: the new core says so. Skipped
+    when there is no such proxy."""
+    held = os.environ.get("HELD_PROXY") or os.path.join(OUT, "heldproxy", "dinput8.dll")
+    if not os.path.isfile(held):
+        print("[entry gate held] skipped (no such proxy: set HELD_PROXY=<dinput8.dll that knows [late] and restores the entry after kiln_boot>)")
+        return None
+    g, lib, profile = realcore_game("entry-gate-held")
+    empty_profile(profile)
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    shutil.copy(held, os.path.join(g.dir, "dinput8.dll"))
+    g.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
+    g.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n[late]\nchain/entrypatch-1.dll\n")
+    g.run()
+    print(f"[entry gate held] rc {g.rc}")
+    check(g, has(g.lines, "patch entrypatch-1: entry patched (saved ff 25)") and not has(g.lines, "gate entrypatch-1") and has(g.lines, "main reached"),
+          "with the older proxy the late DLL saves Kiln's jump and its patch is dropped; the game starts")
+    check(g, any(l.startswith("[W ") and "older Kiln proxy" in l and "that patch is lost" in l for l in kiln_log(g)), "kiln.log: the new core warns")
+    check(g, any("older Kiln proxy" in e for e in state(g, "boot.json").get("errors", [])), "boot.json errors: the warning")
+    return g
+
+
+SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_profile_rules, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
-                                          s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_oldproxy)}
+                                          s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_native_realcore, s_late_policy_realcore,
+                                          s_late_requires_realcore, s_late_already_loaded_realcore, s_late_loader_and_entry, s_overlap_refused_realcore,
+                                          s_late_oldproxy, s_entry_gate_held)}
 
 
 def main():

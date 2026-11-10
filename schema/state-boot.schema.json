@@ -249,7 +249,11 @@
           },
           "late": {
             "const": true,
-            "description": "dev.21: the entry's DLL is also named in kiln/chain.ini [late]. The proxy did not load it; kiln-core loaded it after the plugins, and `status` is the core's result (loaded, failed, missing, duplicate; skipped when the late phase did not run). Absent for every other entry."
+            "description": "dev.21: the entry's DLL is also named in kiln/chain.ini [late]. The proxy did not load it; kiln-core loaded it after the plugins, and `status` is the core's result (loaded, failed, missing, duplicate; skipped when the late phase did not run, or when its native mod is disabled, on the other side or refused). Absent for every other entry. EMF's own loader is never deferred, so it never carries it."
+          },
+          "lateIgnored": {
+            "const": true,
+            "description": "dev.21, with `late`: the DLL was in the process before the late phase (another loader started it, such as EMF's loader with dinput8-chain.ini), so [late] moved nothing; `status` is loaded. Absent otherwise."
           }
         }
       },

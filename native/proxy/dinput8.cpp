@@ -14,7 +14,9 @@
 //      stick). Ignored when older than 600 s, in the future, invalid, or on a dedicated server.
 //        mode=vanilla  no chain, no gate: this start is vanilla.
 //        mode=no-mods  the chain is listed but not loaded (SKIPPED); the core boots without any mod.
-//        mode=profile  kiln/chain/once.ini instead of kiln/chain.ini; the core boots from kiln/profile.once.json.
+//        mode=profile  kiln/chain/once.ini instead of kiln/chain.ini [profile]; the core boots from kiln/profile.once.json.
+//                      once.ini may carry its own [chain] and [late] (dev.21): the play-once profile's compat rules
+//                      applied. A section it has replaces chain.ini's for this start; one it lacks leaves chain.ini's.
 //   3. Chain loading (docs/kiln/launcher/contracts.md, "chain.ini"), in this order:
 //        kiln/chain.ini [chain]    proxies the installer displaced (EMF's loader, unknown dinput8 mods)
 //        <game>/dinput8-chain.ini  EMF's chain file, [Chain], [EMF] (the DLLs EMF 0.5's installer renamed) and lines
@@ -29,15 +31,19 @@
 //      plugins and native mods ran (a closed-source DLL that hooks the same functions then hooks over Kiln instead of
 //      under it). Matching is by canonical path (the resolved path when the file is missing), in every mode (also
 //      play-once mode=profile). A [late] line that names no entry loads nothing (proxy.log says so). An older proxy
-//      ignores the unknown section and loads the entry as before.
+//      ignores the unknown section and loads the entry as before. One limit: EMF's own loader (a [chain] entry) is
+//      never deferred, [late] or not: it starts EMF itself, and kiln-emf decides when the plugins start whether the
+//      real EMF is in the process. A late DLL may patch the exe's entry point like an early one (step 4).
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
 //      (EMF holds a server's start this way) is what the gate saves as "original": at the entry, Kiln's gate runs first,
 //      puts those bytes back and jumps there, so the chained DLL's patch runs next and unwinds to the real entry
 //      (last in, first out).
-// The gate runs on the main thread after the loader lock is released and before any game code: it loads
-// <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v2, restores the entry bytes and
-// continues into the entry point. If anything fails the game starts vanilla.
+// The gate runs on the main thread after the loader lock is released and before any game code: it restores the entry
+// bytes, loads <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v2 and continues into the
+// entry point. The bytes go back before the core starts, so a DLL the core loads (a [late] entry, a native mod) that
+// patches the entry point saves the right bytes and its patch runs first when the gate continues: last in, first out
+// again. If anything fails the game starts vanilla.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -532,7 +538,8 @@ bool marker(const unsigned char* b, size_t n, const char (&text)[N]) {
     return false;
 }
 
-uint32_t classify(const wchar_t* path) {
+// `emf_loader` (optional): set when the DLL is EMF's own loader (its exports or marker text).
+uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE) return kAccept;  // LoadLibrary reports the real error
@@ -551,7 +558,10 @@ uint32_t classify(const wchar_t* path) {
                 if (memcmp(b + 0x40, kWine, sizeof kWine - 1) == 0) result = kSystem;
                 else if ((flags & 1) || contains(b, n, kCore, sizeof kCore - sizeof(wchar_t)) || marker(b, n, "KilnProxy/"))
                     result = kKiln;
-                else if ((flags & 2) || marker(b, n, "EMF-LOADER-7d3c9f")) result = kAccept;
+                else if ((flags & 2) || marker(b, n, "EMF-LOADER-7d3c9f")) {
+                    result = kAccept;
+                    if (emf_loader) *emf_loader = true;
+                }
                 else if ((flags & 4) || marker(b, n, "shroudforge")) result = kShroudForge;
                 else result = kAccept;
             }
@@ -619,7 +629,7 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
     wchar_t full[kPath];
     if (!resolve(base, raw, full)) lstrcpynW(full, raw, kPath);
     const wchar_t* canon = canonical(full);  // nullptr when the file cannot be opened (missing)
-    const int late_at = find_late(canon, full);  // [late] names this file: it passes every check, the core loads it
+    int late_at = find_late(canon, full);  // [late] names this file: it passes every check, the core loads it
     if (late_at >= 0) g_late[late_at].used = true;
     if (pre_refusal != kAccept) {
         if (auto* e = add(source, full, KILN_CHAIN_REFUSED)) e->detail = pre_refusal;
@@ -664,7 +674,16 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
             return;
         }
     }
-    if (refusal == kAccept) refusal = classify(shown);
+    bool emf_loader = false;
+    if (refusal == kAccept) refusal = classify(shown, &emf_loader);
+    if (late_at >= 0 && refusal == kAccept && emf_loader && source == KILN_CHAIN_SOURCE_CHAIN) {
+        // EMF's loader starts EMF itself (its core and the DLLs of dinput8-chain.ini). kiln-emf decides when the plugins
+        // start whether the real EMF is in the process; a loader that came after that would run EMF next to kiln-emf.
+        // It loads now, in its place in the chain, [late] or not.
+        plog(L"chain: %s: %s is EMF's loader: it starts EMF itself, so chain.ini [late] does not defer it; loaded now",
+             source_name(source), shown);
+        late_at = -1;
+    }
     KilnChainEntry* e = add(source, shown, KILN_CHAIN_LOADED);
     if (!e) return;
     g_canon[g_count - 1] = canon;
@@ -716,8 +735,9 @@ struct List {
 struct Section {
     const wchar_t* name;
     List* list;
+    bool seen = false;  // the file has this section's header
 };
-void read_dll_list(const wchar_t* file, List* first, const Section* sections, size_t nsections) {
+void read_dll_list(const wchar_t* file, List* first, Section* sections, size_t nsections) {
     DWORD error = 0;
     wchar_t* text = read_text(file, &error);
     if (!text) {
@@ -732,7 +752,7 @@ void read_dll_list(const wchar_t* file, List* first, const Section* sections, si
         if (section_of(line, section, 128)) {
             current = nullptr;
             for (size_t i = 0; i < nsections; ++i)
-                if (lstrcmpW(section, sections[i].name) == 0) current = sections[i].list;
+                if (lstrcmpW(section, sections[i].name) == 0) current = sections[i].list, sections[i].seen = true;
             return;
         }
         if (!current) return;  // other sections belong to other tools
@@ -853,7 +873,9 @@ bool profile_well_formed(const wchar_t* file) {
 
 // kiln\chain.ini [chain] (lines before any section count as [chain]) -> <game>\dinput8-chain.ini ([Chain], [EMF] and
 // lines before any section, EMF's rules) -> kiln\chain.ini [profile], or with play-once mode=profile kiln\chain\once.ini
-// ([profile], lines before any section count) in place of chain.ini [profile].
+// ([profile], lines before any section count) in place of chain.ini [profile]. once.ini may have a [chain] and a [late]
+// of its own (the play-once profile's compat rules applied, written by the launcher); each one it has replaces the
+// same section of chain.ini for this start, each it lacks leaves chain.ini's (a once.ini from before dev.21).
 void load_chain(bool profile_once, bool skip) {
     g_game_canon = canonical(g_game);
     wchar_t buf[kPath];
@@ -867,19 +889,28 @@ void load_chain(bool profile_once, bool skip) {
     wchar_t file[kPath];
     lstrcpynW(file, g_kiln, kPath - 32);
     lstrcatW(file, L"\\chain.ini");
-    const Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}, {L"late", &late}};
+    Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}, {L"late", &late}};
     read_dll_list(file, &chain, chain_sections, 3);
     if (profile_once) {
+        List once_chain, once_late;
         lstrcpynW(file, g_kiln, kPath - 32);
         lstrcatW(file, L"\\chain\\once.ini");
-        const Section once_sections[] = {{L"profile", &profile}};
-        read_dll_list(file, &profile, once_sections, 1);
+        Section once_sections[] = {{L"profile", &profile}, {L"chain", &once_chain}, {L"late", &once_late}};
+        read_dll_list(file, &profile, once_sections, 3);
+        if (once_sections[1].seen) {
+            chain = once_chain;
+            plog(L"chain: %s has its own [chain] (%u entries): used for this start instead of chain.ini's", file, chain.count);
+        }
+        if (once_sections[2].seen) {
+            late = once_late;
+            plog(L"chain: %s has its own [late] (%u entries): used for this start instead of chain.ini's", file, late.count);
+        }
     }
     lstrcpynW(file, g_game, kPath - 32);
     lstrcatW(file, L"\\dinput8-chain.ini");
     // [EMF]: the DLLs EMF 0.5's installer renamed (only EMF's loader read them). One list with [Chain], in file
     // order, as EMF's own reader takes them; a DLL that EMF's chained loader also starts is loaded once by Windows.
-    const Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
+    Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
     read_dll_list(file, &emf, emf_sections, 2);
     const uint32_t late_n = late.count < kMaxPerList ? late.count : kMaxPerList;  // [late] has no overflow report
     const uint32_t total = chain.count + emf.count + profile.count;  // [late] adds no entries of its own
@@ -1106,6 +1137,18 @@ void boot_core() {
     boot(&g_info);
 }
 
+// proxy.log was closed before the core started (it writes kiln.log from there): append one line to it.
+void log_after_boot(const wchar_t* line) {
+    wchar_t path[kPath];
+    lstrcpynW(path, g_kiln, kPath - 32);
+    lstrcatW(path, L"\\logs\\proxy.log");
+    g_log = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+    plog(L"%s", line);
+    if (g_log != INVALID_HANDLE_VALUE) CloseHandle(g_log);
+    g_log = INVALID_HANDLE_VALUE;
+}
+
 bool restore_entry() {
     DWORD protection = 0;
     if (!VirtualProtect(g_entry, sizeof g_original, PAGE_EXECUTE_READWRITE, &protection)) return false;
@@ -1115,16 +1158,63 @@ bool restore_entry() {
     return FlushInstructionCache(GetCurrentProcess(), g_entry, sizeof g_original) != 0;
 }
 
+bool executable(const void* p) {
+    MEMORY_BASIC_INFORMATION m{};
+    if (!VirtualQuery(p, &m, sizeof m) || m.State != MEM_COMMIT || (m.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+    return (m.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
+// The entry point was patched while the core booted. True when the patch is a plain jump (jmp rel32, jmp [rip+d] or
+// mov rax, imm64; jmp rax) whose target is not code any more: the DLL that wrote it was unloaded again (a DllMain that
+// failed after patching, a DLL the core refused as a plugin). Any other patch is taken as it is.
+bool entry_patch_is_dead() {
+    const unsigned char* e = g_entry;
+    const unsigned char* target = nullptr;
+    if (e[0] == 0xe9) {
+        int32_t rel = 0;
+        memcpy(&rel, e + 1, sizeof rel);
+        target = e + 5 + rel;
+    } else if (e[0] == 0xff && e[1] == 0x25) {
+        int32_t rel = 0;
+        memcpy(&rel, e + 2, sizeof rel);
+        const unsigned char* cell = e + 6 + rel;
+        MEMORY_BASIC_INFORMATION m{};
+        if (rel != 0 && (!VirtualQuery(cell, &m, sizeof m) || m.State != MEM_COMMIT || (m.Protect & (PAGE_GUARD | PAGE_NOACCESS))))
+            return true;  // the jump reads its target from memory that is gone
+        memcpy(&target, cell, sizeof target);
+    } else if (e[0] == 0x48 && e[1] == 0xb8 && e[10] == 0xff && e[11] == 0xe0) {
+        memcpy(&target, e + 2, sizeof target);
+    } else {
+        return false;
+    }
+    return !executable(target);
+}
+
 // Reached by a jmp from the exe's entry point, so the stack looks like a call to the entry: return its value.
 int __cdecl gate_entry() {
     if (g_log != INVALID_HANDLE_VALUE) {  // the core writes kiln.log from here on
         CloseHandle(g_log);
         g_log = INVALID_HANDLE_VALUE;
     }
+    // The saved bytes go back before the core starts, not after it. Nothing runs the entry point until this function
+    // continues into it (this thread is the one that would), so the order is free, and a DLL the core loads (chain.ini
+    // [late], a native mod) that patches the entry point then saves the real bytes instead of Kiln's jump. Saved over
+    // the jump, its patch could only be dropped: chaining to it would run this gate a second time.
+    if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);  // the entry point would jump back here for ever
     boot_core();
-    if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);
-    // The bytes put back may be another DLL's entry patch (a chained loader that holds the start): it runs now and
-    // unwinds to the real entry point in turn.
+    if (memcmp(g_entry, g_original, sizeof g_original) != 0) {
+        if (entry_patch_is_dead()) {
+            // Continuing would jump into memory that is gone. The saved bytes are the entry as it was before that DLL.
+            if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);
+            log_after_boot(L"entry gate: a DLL that loaded while Kiln started patched the game's entry point and is not in "
+                           L"the process any more; its patch was removed, the game starts without it");
+        } else {
+            log_after_boot(L"entry gate: a DLL that loaded while Kiln started (chain.ini [late], or a native mod) patched "
+                           L"the game's entry point; its patch runs now, before the game's own entry");
+        }
+    }
+    // The bytes at the entry point may be another DLL's patch (a chained loader that holds the start, or one from the
+    // boot above): it runs now and unwinds to the real entry point in turn.
     return reinterpret_cast<int(__cdecl*)()>(g_entry)();
 }
 

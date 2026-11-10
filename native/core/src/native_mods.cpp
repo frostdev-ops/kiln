@@ -12,6 +12,7 @@
 #include <set>
 
 #include "api.h"
+#include "chain_status.h"
 #include "config.h"
 #include "crash.h"
 #include "image.h"
@@ -22,6 +23,8 @@
 #include "profile.h"
 #include "registry.h"
 #include "tick.h"
+
+#include <psapi.h>  // after windows.h (common.h)
 
 namespace kiln::native_mods {
 namespace {
@@ -68,6 +71,11 @@ struct Mod {
     std::string reason;
     std::vector<std::string> notes;
     int load_index = -1;
+    // phase dllmain, chain.ini [profile]: the proxy loaded at least one of its DLLs before kiln-core started
+    bool proxy_loaded = false;
+    // phase dllmain with a DLL chain.ini [late] deferred: why that DLL must not be loaded (the mod was not loadable when
+    // the proxy's results were matched), else empty
+    std::string late_block;
     // init call
     bool init_called = false, init_faulted = false;
     int init_result = 0;
@@ -94,6 +102,7 @@ struct LateDll {
     LateRow row;
     std::wstring canon;  // lower-case final path (matches Dll::late_canon)
     HMODULE module = nullptr;
+    const Mod* owner = nullptr;  // the dllmain native mod whose DLL this is (set by resolve()), else null
 };
 std::vector<LateDll> g_late;
 bool g_late_collected = false;
@@ -352,6 +361,11 @@ std::string check_deps(const Mod& m) {
         }
         if (p->phase > m.phase)
             return "requires " + r + ", which loads in a later phase (" + kPhases[p->phase] + " after " + kPhases[m.phase] + ")";
+        // A dllmain mod that is still pending here has a DLL kiln/chain.ini [late] defers: it loads after the early and
+        // boot phases ran (run_late() is the last step of kiln_boot). Only a world-phase mod comes after it.
+        if (p->phase == KILN_NATIVE_PHASE_DLLMAIN && (m.phase == KILN_NATIVE_PHASE_EARLY || m.phase == KILN_NATIVE_PHASE_BOOT))
+            return "requires " + r + ", whose DLL kiln/chain.ini [late] loads after the plugins, later than this mod's " +
+                   kPhases[m.phase] + " phase (take " + r + " out of [late], or make this mod phase world)";
     }
     for (const auto& [id, range] : m.incompatible) {
         const Mod* o = any_by_id(id);
@@ -522,10 +536,15 @@ void resolve() {
         else if (config().native_policy == NativePolicy::VerifiedOnly && !g_verified)
             fail(m, St::Policy, "kiln.json native.policy is \"verified-only\" and this game build is not verified");
     }
-    // 3. dllmain: what the proxy did (kiln/chain.ini [profile])
+    // 3. dllmain: what the proxy did (kiln/chain.ini [profile]). Every dllmain mod is matched, loadable or not: a DLL the
+    // proxy loaded is running whatever the profile says, and a DLL it deferred (chain.ini [late]) must not be loaded
+    // by run_late() when its mod is disabled, on the wrong side or refused.
     const KilnBootInfo& bi = boot_info();
+    const bool policy_refuses = config().native_policy == NativePolicy::Never ||
+                                (config().native_policy == NativePolicy::VerifiedOnly && !g_verified);
     for (Mod& m : g_mods) {
-        if (m.state != St::Pending || m.phase != KILN_NATIVE_PHASE_DLLMAIN) continue;
+        if (m.phase != KILN_NATIVE_PHASE_DLLMAIN) continue;
+        const bool pending = m.state == St::Pending;
         int found = 0, loaded = 0, late = 0;
         std::string bad;
         for (Dll& d : m.dlls) {
@@ -535,14 +554,15 @@ void resolve() {
             for (uint32_t i = 0; i < bi.chain_count; ++i) {
                 const KilnChainEntry& e = bi.chain[i];
                 if (e.source != KILN_CHAIN_SOURCE_PROFILE || lower(to_wide(sv(e.path))) != c) continue;
-                static const char* const kStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped"};
                 if (e.status == KILN_CHAIN_LATE) {  // chain.ini [late]: run_late() loads it and finishes the mod
                     ++found;
                     ++late;
                     d.late_canon = c;
+                    for (LateDll& l : g_late)
+                        if (l.row.chain_index == i) l.owner = &m;
                     break;
                 }
-                d.status = e.status <= 5 ? kStatus[e.status] : "failed";
+                d.status = chain_status_name(e.status);
                 d.error = e.error;
                 d.module = static_cast<HMODULE>(e.module);
                 ++found;
@@ -551,10 +571,33 @@ void resolve() {
                 break;
             }
         }
+        m.proxy_loaded = loaded > 0;
+        if (!pending) {
+            if (late > 0) m.late_block = "native mod " + m.key + " is " + st_name(m.state) + (m.reason.empty() ? "" : " (" + m.reason + ")");
+            if (m.state == St::Disabled && m.proxy_loaded) {
+                // chain.ini was written before the profile changed: the proxy started the DLL, so the mod runs
+                m.state = St::Loaded;
+                m.reason.clear();
+                m.load_index = g_next_index++;
+                m.notes.push_back("the profile says it is disabled, but the proxy loaded its DLL before kiln-core started; "
+                                  "activate the profile again in the launcher to keep it out");
+            }
+            continue;
+        }
         if (found == 0)
             fail(m, St::Skipped, "phase dllmain: not in kiln/chain.ini [profile] (the launcher writes it when it activates the profile)");
         else if (!bad.empty()) fail(m, St::Failed, "the proxy did not load it: " + bad);
-        else if (late > 0 && loaded + late == static_cast<int>(m.dlls.size())) {
+        else if (late > 0 && policy_refuses) {
+            // [late] kept the proxy from loading it, so kiln.json can still decide
+            m.notes.erase(std::remove_if(m.notes.begin(), m.notes.end(),
+                                         [](const std::string& n) { return n.rfind("phase dllmain: loaded by the proxy", 0) == 0; }),
+                          m.notes.end());
+            fail(m, St::Policy, std::string(config().native_policy == NativePolicy::Never
+                                                ? "kiln.json native.policy is \"never\""
+                                                : "kiln.json native.policy is \"verified-only\" and this game build is not verified") +
+                                    " (chain.ini [late] deferred its DLL, so the policy applies to it)");
+            m.late_block = "native mod " + m.key + " is policy (" + m.reason + ")";
+        } else if (late > 0 && loaded + late == static_cast<int>(m.dlls.size())) {
             m.reason = "loads late: chain.ini [late] puts its DLL after the plugins";  // stays Pending until run_late()
             m.notes.push_back("phase dllmain, deferred by chain.ini [late]");
         } else if (loaded < static_cast<int>(m.dlls.size())) fail(m, St::Failed, "the proxy loaded only some of its DLLs");
@@ -646,6 +689,7 @@ void write_state() {
             json o = {{"path", l.row.path}, {"source", l.row.source}, {"status", l.row.status}, {"error", l.row.error},
                       {"order", l.row.order}};
             if (l.row.ms >= 0) o["ms"] = l.row.ms;
+            if (!l.row.note.empty()) o["note"] = l.row.note;
             late.push_back(std::move(o));
         }
         doc["chain"] = {{"late", std::move(late)}};
@@ -774,6 +818,36 @@ void run_phase(uint32_t phase) {
 
 const char* const kChainSources[] = {"chain", "profile", "emf"};
 
+// The module of the DLL `canon` (lower-case final path) when it is in the process already: loaded by another loader
+// (EMF's loader starts the DLLs of dinput8-chain.ini itself), or by anything else before the late phase.
+HMODULE module_in_process(const fs::path& path, const std::wstring& canon) {
+    if (HMODULE h = GetModuleHandleW(path.c_str())) return h;
+    // The same file under another spelling (a link, 8.3 names, another drive mapping): modules of that file name only.
+    const size_t cut = canon.find_last_of(L'\\');
+    const std::wstring base = cut == std::wstring::npos ? canon : canon.substr(cut + 1);
+    HMODULE mods[2048];
+    DWORD needed = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), mods, sizeof mods, &needed)) return nullptr;
+    const size_t n = std::min<size_t>(needed / sizeof(HMODULE), 2048);
+    for (size_t i = 0; i < n; ++i) {
+        wchar_t name[2048];
+        const DWORD len = GetModuleFileNameW(mods[i], name, 2048);
+        if (len == 0 || len >= 2048) continue;
+        const std::wstring full(name, len);
+        const size_t slash = full.find_last_of(L"\\/");
+        if (lower(slash == std::wstring::npos ? full : full.substr(slash + 1)) != base) continue;
+        if (final_path(fs::path(full)) == canon) return mods[i];
+    }
+    return nullptr;
+}
+
+// Why a late DLL of this native mod must not be loaded; empty when the mod is loadable.
+std::string unloadable_why(const Mod& m) {
+    if (!m.late_block.empty()) return m.late_block;
+    if (m.state != St::Pending) return "native mod " + m.key + " is " + st_name(m.state) + (m.reason.empty() ? "" : " (" + m.reason + ")");
+    return {};
+}
+
 // The proxy's KILN_CHAIN_LATE entries, in its list order.
 void collect_late() {
     g_late_collected = true;
@@ -845,6 +919,13 @@ void run_late() {
     for (LateDll& l : g_late) {
         const fs::path path = to_wide(l.row.path);
         std::error_code ec;
+        // Its native mod is disabled, on the wrong side, refused by the policy or failed a check: the DLL stays out.
+        if (const std::string why = l.owner ? unloadable_why(*l.owner) : std::string(); !why.empty()) {
+            l.row.status = "skipped";
+            l.row.note = why + "; chain.ini [late] does not load its DLL";
+            KLOG_W("late: %s is not loaded: %s", l.row.path.c_str(), l.row.note.c_str());
+            continue;
+        }
         if (!fs::is_regular_file(path, ec)) {
             l.row.status = "missing";
             KLOG_W("late: %s is gone since the proxy checked it; not loaded", l.row.path.c_str());
@@ -853,6 +934,14 @@ void run_late() {
         if (g_loaded_paths.count(l.canon)) {
             l.row.status = "duplicate";
             KLOG_I("late: %s was loaded already (as a native mod DLL)", l.row.path.c_str());
+            continue;
+        }
+        if (HMODULE have = module_in_process(path, l.canon)) {
+            // dinput8-chain.ini: EMF's loader (when chained) starts those DLLs itself, before the gate. [late] moved nothing.
+            l.module = have;
+            l.row.status = kLateAlreadyLoaded;
+            l.row.note = "another loader started it before the late phase; chain.ini [late] had no effect";
+            KLOG_W("late: %s was already loaded when the late phase ran: %s", l.row.path.c_str(), l.row.note.c_str());
             continue;
         }
         const double t0 = now_ms();
@@ -885,11 +974,13 @@ void run_late() {
                 if (bad.empty()) bad = d.file + ": not handed to the late phase";
                 continue;
             }
-            d.status = it->row.status;
+            const bool already = it->row.status == kLateAlreadyLoaded;
+            d.status = already ? "duplicate" : it->row.status;
             d.error = it->row.error;
             d.ms = it->row.ms;
             d.module = it->module;
-            if (it->row.status != "loaded" && it->row.status != "duplicate" && bad.empty())
+            if (already) m.notes.push_back("chain.ini [late] had no effect on " + d.file + ": another loader started its DLL first");
+            if (it->row.status != "loaded" && it->row.status != "duplicate" && !already && bad.empty())
                 bad = d.file + ": " + it->row.status + (it->row.error ? " (error " + std::to_string(it->row.error) + ")" : "");
         }
         if (!any) continue;
@@ -905,6 +996,13 @@ void run_late() {
         }
     }
     write_state();
+}
+
+bool loaded_by_proxy(const std::string& mod_id) {
+    std::lock_guard lock(g_mutex);
+    for (const Mod& m : g_mods)
+        if (m.id == mod_id && m.proxy_loaded) return true;
+    return false;
 }
 
 std::vector<LateRow> late_rows() {

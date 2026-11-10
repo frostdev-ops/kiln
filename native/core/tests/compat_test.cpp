@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 
+#include "chain_status.h"
 #include "compat.h"
 #include "compat_rules.h"
 #include "nlohmann/json.hpp"
@@ -16,6 +17,7 @@
 namespace {
 
 using json = nlohmann::ordered_json;
+using namespace kiln;
 using namespace kiln::compat;
 
 int g_checks = 0, g_failed = 0;
@@ -62,6 +64,12 @@ void rule_cases(const std::string& dir) {
         for (const Rule& rule : r.rules) ids.push_back(rule.id);
         check(ids == strings(c["rules"]), name + " (kept ids)");
         check(r.dropped == c["dropped"].get<int>(), name + " (dropped " + std::to_string(r.dropped) + ")");
+        // the problem lines: one per dropped rule unless the case says otherwise (the rules past the limit give one summary)
+        const size_t problems = c.contains("problems") ? c["problems"].get<size_t>() : static_cast<size_t>(c["dropped"].get<int>());
+        check(!r.ok || r.problems.size() == problems, name + " (" + std::to_string(r.problems.size()) + " problem lines)");
+        if (c.contains("lastProblem"))
+            check(!r.problems.empty() && r.problems.back() == c["lastProblem"].get<std::string>(),
+                  name + " (last problem: " + (r.problems.empty() ? std::string("none") : r.problems.back()) + ")");
     }
     for (const auto& c : cases["merge"]) {
         const std::string name = "merge: " + c["name"].get<std::string>();
@@ -208,12 +216,170 @@ void overlap_cases() {
     check(compute_overlaps(map, chain, refused) == compute_overlaps(map, chain, refused), "compute_overlaps is deterministic");
 }
 
+// The reports are built from rows the core wrote itself: `refused` has null symbol, rva, module and offset. Nothing in
+// them may throw (nlohmann's value() does on a null), or hooks.json loses its compat sections.
+void null_tolerance_cases() {
+    const char* sf = R"j({"mode":"hosted","native":"game_thread=unavailable(game-thread:original-bytes-mismatch)"})j";
+    // no single suspect: two modules patched game code, so the refused row has foreign.module null
+    json map = {{"targets", json::array()},
+                {"foreign", json::array({{{"symbol", "a/B"}, {"rva", "0x1"}, {"module", "xhl-core.dll"}, {"offset", "0x5"}, {"own", false}},
+                                         {{"symbol", "g/H"}, {"rva", "0x4"}, {"module", "reshade64.dll"}, {"offset", "0x1"}, {"own", false}}})}};
+    const json overlaps = compute_overlaps(map, {row("xhl-core.dll", "loaded")}, parse_sf_status(sf));
+    check(overlaps.size() == 1 && overlaps[0]["kind"] == "refused" && overlaps[0]["foreign"]["module"].is_null() &&
+          overlaps[0]["foreign"]["offset"].is_null() && overlaps[0]["symbol"].is_null() && overlaps[0]["rva"].is_null(),
+          "refused with two suspects: every field the launcher parses is null");
+    bool threw = false;
+    std::string key;
+    try {
+        for (const auto& o : overlaps) key = overlap_key(o);
+    } catch (const std::exception& e) {
+        threw = true;
+        std::printf("overlap_key threw: %s\n", e.what());
+    }
+    check(!threw && key == "refused|game-thread||", "overlap_key of a refused row without a culprit does not throw (" + key + ")");
+    // the key of every other kind, and of rows with odd members
+    check(overlap_key({{"kind", "foreign-before"}, {"symbol", "chat/ChatLogAdd"}, {"foreign", {{"module", "x.dll"}, {"offset", "0x2a0"}}}}) ==
+              "foreign-before|chat/ChatLogAdd|x.dll|0x2a0", "overlap_key: foreign-before");
+    check(overlap_key({{"kind", "foreign-over"}, {"symbol", nullptr}, {"hook", nullptr}, {"foreign", nullptr}}) == "foreign-over|||" &&
+          overlap_key(json::object()) == "|||" && overlap_key(json(nullptr)) == "|||" &&
+          overlap_key({{"kind", 5}, {"foreign", {{"module", 7}, {"offset", true}}}}) == "|||", "overlap_key: null and non-string members read as empty");
+    check(json_text({{"a", nullptr}, {"b", 1}, {"c", "x"}}, "a").empty() && json_text({{"b", 1}}, "b").empty() && json_text({{"c", "x"}}, "c") == "x" &&
+          json_text(json::array(), "c").empty() && !json_flag({{"own", nullptr}}, "own") && json_flag({{"own", true}}, "own"),
+          "json_text and json_flag: only a string / a true boolean count");
+    // other modules' files: a null member must not stop the report either
+    check(!sf_running(R"j({"mode":null})j") && sf_running(R"j({"mode":"self-hosted"})j") && parse_sf_status(R"j({"mode":null,"native":null})j").empty(),
+          "SF status: null members are read as absent");
+    map = {{"targets", json::array({{{"rva", nullptr}, {"symbol", nullptr}, {"label", nullptr},
+                                     {"links", json::array({{{"owner", nullptr}}, {{"owner", "service:kiln-a.dll"}}})},
+                                     {"foreignBefore", {{"module", nullptr}, {"offset", nullptr}, {"own", nullptr}}}, {"foreignOver", nullptr}}})},
+           {"foreign", json::array({json(nullptr), {{"module", nullptr}, {"own", nullptr}}})}};
+    json odd;
+    try {
+        odd = compute_overlaps(map, {}, {});
+    } catch (const std::exception& e) {
+        std::printf("compute_overlaps threw: %s\n", e.what());
+    }
+    check(odd.is_array() && odd.size() == 1 && odd[0]["rva"].is_null() && odd[0]["foreign"]["offset"].is_null(),
+          "compute_overlaps survives null label, rva, module, offset, own and owner");
+}
+
+// The status names and the late phase's final status of a chain entry: one helper for boot.json and hooks.json.
+struct FakeLate {
+    size_t chain_index;
+    std::string status;
+};
+void chain_status_cases() {
+    const char* names[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped", "late"};
+    bool all = true;
+    for (uint32_t i = 0; i < 7; ++i) all = all && std::string(chain_status_name(i)) == names[i];
+    check(all && std::string(chain_status_name(7)) == "failed" && std::string(chain_status_name(99)) == "failed",
+          "chain_status_name: the seven names, an unknown value is failed");
+    KilnChainEntry plain{}, late{};
+    plain.status = KILN_CHAIN_REFUSED;
+    late.status = KILN_CHAIN_LATE;
+    const std::vector<FakeLate> rows = {{1, "pending"}, {2, "failed"}, {3, kLateAlreadyLoaded}, {4, "skipped"}, {5, "loaded"}};
+    check(chain_final_status(plain, 2, rows, "skipped") == "refused", "chain_final_status: a proxy status stays");
+    check(chain_final_status(late, 0, rows, "skipped") == "skipped" && chain_final_status(late, 0, rows, "late") == "late",
+          "chain_final_status: no row yet shows what the writer asks for (boot.json: skipped, hooks.json: late)");
+    check(chain_final_status(late, 1, rows, "skipped") == "skipped" && chain_final_status(late, 1, rows, "late") == "late",
+          "chain_final_status: a pending row is no answer");
+    check(chain_final_status(late, 2, rows, "late") == "failed" && chain_final_status(late, 4, rows, "late") == "skipped" &&
+          chain_final_status(late, 5, rows, "late") == "loaded", "chain_final_status: the late phase's status");
+    check(chain_final_status(late, 3, rows, "late") == kLateAlreadyLoaded && chain_reported_status(kLateAlreadyLoaded) == "loaded" &&
+          chain_reported_status("failed") == "failed", "an already loaded DLL is reported as loaded to readers of the six statuses");
+}
+
+ChainRow late_row(const char* file, const char* source = "chain") {
+    ChainRow r = row(file, "late", true, source);
+    return r;
+}
+
+// Rules and overlaps for the DLLs [late] cannot move (finding: EMF's loader, a DLL another loader started first).
+void late_limit_cases() {
+    ChainRow loader = row("emf-dinput8.dll", "loaded");
+    loader.loader = true;
+    ChainRow ignored = row("emf-x.dll", "loaded", true, "emf");
+    ignored.late_ignored = true;
+    ChainRow started = row("emf-y.dll", "loaded", false, "emf");
+    started.started_by_loader = true;
+    ChainRow plain = row("xhl-core.dll", "loaded");
+
+    // overlaps: `late` is only recommended for a DLL Kiln's proxy starts and the core can defer
+    json map = {{"targets", json::array({target("0x1000", "chat/ChatLogAdd", {"service:kiln-chat.dll"}, dest("emf-x.dll", "0x2a0"))})},
+                {"foreign", json::array()}};
+    json o = compute_overlaps(map, {ignored}, {});
+    check(o.size() == 1 && o[0]["fix"] == "rule" && o[0]["chainEntry"]["status"] == "loaded" && o[0]["chainEntry"]["late"] == false &&
+          o[0]["chainEntry"]["lateIgnored"] == true, "a late DLL another loader started: fix rule, chainEntry.late false, lateIgnored");
+    std::string msg = o[0]["message"].get<std::string>();
+    check(msg.find("already loads late") == std::string::npos && msg.find("already a late entry") == std::string::npos &&
+          msg.find("another loader started it first") != std::string::npos, "that overlap never says it already loads late: " + msg);
+    map["targets"][0]["foreignBefore"] = dest("emf-y.dll", "0x2a0");
+    o = compute_overlaps(map, {started}, {});
+    check(o.size() == 1 && o[0]["fix"] == "rule" && o[0]["message"].get<std::string>().find("started by EMF's loader") != std::string::npos,
+          "a dinput8-chain.ini DLL while EMF's loader is chained: fix rule, not late");
+    map["targets"][0]["foreignBefore"] = dest("emf-dinput8.dll", "0x2a0");
+    o = compute_overlaps(map, {loader}, {});
+    check(o.size() == 1 && o[0]["fix"] == "rule" && o[0]["message"].get<std::string>().find("starts EMF itself") != std::string::npos,
+          "EMF's loader itself: fix rule, not late");
+    map["targets"][0]["foreignBefore"] = dest("xhl-core.dll", "0x2a0");
+    o = compute_overlaps(map, {plain}, {});
+    check(o.size() == 1 && o[0]["fix"] == "late", "an ordinary chain entry still gets fix late");
+    o = compute_overlaps(map, {late_row("xhl-core.dll")}, {});
+    check(o.size() == 1 && o[0]["fix"] == "none" && o[0]["chainEntry"]["late"] == true && o[0]["chainEntry"].find("lateIgnored") == o[0]["chainEntry"].end(),
+          "a DLL the core loaded late: fix none, late true");
+    // refused (ShroudForge) with the culprit being one of those
+    const char* sf = R"j({"mode":"hosted","native":"game_thread=unavailable(game-thread:original-bytes-mismatch)"})j";
+    map = {{"targets", json::array()}, {"foreign", json::array({{{"symbol", "a/B"}, {"rva", "0x1"}, {"module", "emf-x.dll"}, {"offset", "0x5"}, {"own", false}}})}};
+    o = compute_overlaps(map, {ignored}, parse_sf_status(sf));
+    check(o.size() == 1 && o[0]["fix"] == "rule" && o[0]["message"].get<std::string>().find("already loads late") == std::string::npos,
+          "refused, culprit started by another loader: fix rule, never \"already loads late\"");
+
+    // rules
+    auto late_rule = [](const char* subject) {
+        json doc = {{"format", 1}, {"rules", json::array({{{"id", "r1"}, {"action", "late"}, {"subject", {{"module", subject}}}, {"message", "m"}}})}};
+        return parse_rules(doc.dump(), "test").rules.at(0);
+    };
+    RuleContext ctx;
+    Facts facts;
+    Outcome oc = outcome_of(late_rule("xhl-core.dll"), {plain}, facts, ctx);
+    check(!oc.applied && oc.note == "rule r1 asks xhl-core.dll to load late; apply it in the launcher", "late rule, ordinary entry: apply it in the launcher");
+    oc = outcome_of(late_rule("xhl-core.dll"), {late_row("xhl-core.dll")}, facts, ctx);
+    check(oc.applied && oc.note == "xhl-core.dll already loads late", "late rule, a late entry: already loads late");
+    oc = outcome_of(late_rule("emf-x.dll"), {ignored}, facts, ctx);
+    check(!oc.applied && oc.note.find("another loader started it first") != std::string::npos && oc.note.find("already loads late") == std::string::npos,
+          "late rule, a DLL another loader started first: not applied, " + oc.note);
+    oc = outcome_of(late_rule("emf-dinput8.dll"), {loader}, facts, ctx);
+    check(!oc.applied && oc.note.find("EMF's loader") != std::string::npos && oc.note.find("launcher") == std::string::npos,
+          "late rule on EMF's loader: not applied, no launcher advice: " + oc.note);
+    oc = outcome_of(late_rule("emf-y.dll"), {started}, facts, ctx);
+    check(!oc.applied && oc.note.find("started by EMF's loader") != std::string::npos, "late rule on a DLL EMF's loader starts: " + oc.note);
+    oc = outcome_of(late_rule("nothing.dll"), {plain}, facts, ctx);
+    check(!oc.applied && oc.note.find("no chain entry named nothing.dll") != std::string::npos, "late rule, no such entry");
+
+    // disable of a mod the profile lists: applied when the DLL was not running, not when the proxy had loaded it
+    json off = {{"format", 1}, {"rules", json::array({{{"id", "off1"}, {"action", "disable"}, {"subject", {{"mod", "native:fps"}}}, {"message", "clash"}}})}};
+    const Rule disable = parse_rules(off.dump(), "test").rules.at(0);
+    ctx.early.emplace_back("off1", "switched off in the profile before the plugins read it");
+    ctx.rule_off.insert("native:fps");
+    facts.mods = {"native:fps"};
+    oc = outcome_of(disable, {}, facts, ctx);
+    check(oc.applied && oc.note == "switched off in the profile before the plugins read it", "disable of a listed mod: applied");
+    ctx.proxy_loaded.insert("off1");
+    oc = outcome_of(disable, {}, facts, ctx);
+    check(!oc.applied && oc.note.find("loaded by the proxy before kiln-core started") != std::string::npos &&
+          oc.note.find("switched off") == std::string::npos && oc.note.find("activate the profile again") != std::string::npos,
+          "disable of a mod whose DLL the proxy had loaded: not applied, no \"switched off\": " + oc.note);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "schema/fixtures";
     rule_cases(dir);
     overlap_cases();
+    null_tolerance_cases();
+    chain_status_cases();
+    late_limit_cases();
     std::printf("compat_test: %d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

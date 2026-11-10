@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # Builds hooks_v2_test.exe and runs it under plain Wine (a scratch prefix under $KILN_OUT; no game, no window).
-# Runs it twice: with the caller-table TLS slot below 64 (TEB TlsSlots) and at/above 64 (TlsExpansionSlots).
+# Runs it twice: with the caller-table TLS slot below 64 (TEB TlsSlots) and at/above 64 (TlsExpansionSlots), then once
+# in "slots" mode (a process that uses up every link slot) and in "targets" mode (every target slot).
 # Exit code 0 = everything passed.
 #   KILN_OUT=<build dir> native/core/tests/test-hooks-v2.sh
 set -euo pipefail
@@ -15,7 +16,7 @@ mkdir -p "$WINEPREFIX"
 [[ -f $WINEPREFIX/system.reg ]] || wine wineboot -i >/dev/null 2>&1
 exe=$KILN_OUT/cmake/bin/hooksv2/hooks_v2_test.exe
 rc=0
-for mode in normal tls64; do
+for mode in normal tls64 slots targets; do
   echo "== hooks_v2_test ($mode)"
   wine "$exe" "$mode" || rc=1
 done

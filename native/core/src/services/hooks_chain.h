@@ -13,9 +13,13 @@
 //    and the flags, then jumps through the head cell.
 //  - Every link owns a "next cell" holding the entry of the link after it (or the safetyhook trampoline of the real
 //    function when it is the last live one). A raw link's continuation is a 6-byte `jmp [next cell]`; a structured
-//    link reaches its continuation from C++; a mid link captures a register context and continues through the cell.
+//    link reaches its continuation from C++; a mid link captures a register context (safetyhook's Context64 layout and
+//    trampoline_rsp rules) and continues through the cell.
 //  - Adding, ordering and revoking links only rewrites 8-byte cells (atomic on x64). Links, stubs and cells are never
-//    freed: a revoked link's continuation keeps forwarding to the next live link, so stale callers stay safe.
+//    freed: a revoked link's continuation keeps forwarding to the next live link, so stale callers stay safe. A
+//    revoked link leaves the chain order (map, stats and lookups walk live links only); installing the same handler
+//    again on the same target (same kind, user data, owner and label) revives it in its old slot.
+//  - A target holds at most one live raw link per handler function: installing it again replaces the earlier link.
 #pragma once
 #include <atomic>
 #include <cstddef>
@@ -31,10 +35,11 @@ enum class Kind : uint8_t { Raw, Structured, V1, Mid };
 const char* kind_name(Kind k);  // "raw" | "structured" | "v1" | "mid"
 
 constexpr size_t kMaxTargets = 512;      // distinct hooked addresses (one caller-table slot each)
-constexpr size_t kMaxLinks = 1u << 16;   // links ever created (stubs are never freed)
+constexpr size_t kMaxLinks = 1u << 16;   // link slots ever taken (stubs are never freed; revivals reuse a slot)
 
 struct Order {
     int32_t priority = 0;
+    bool newest_first = false;  // KILN_HOOK_NEWEST_FIRST: before the other links of this priority, the newest first
     std::string label, before, after;
 };
 
@@ -85,7 +90,9 @@ struct Stats {
     uint32_t targets = 0, detour_targets = 0, mid_targets = 0, links = 0, raw_links = 0;
     uint32_t foreign_before = 0, foreign_over = 0;   // another module's hook (not Kiln's own kiln-*.dll)
     uint32_t own_before = 0, own_over = 0;           // a Kiln module's own safetyhook hook on a registry target
-    uint64_t detour_calls = 0, mid_calls = 0;
+    uint64_t detour_calls = 0, mid_calls = 0;        // summed from the per-thread tables
+    uint32_t links_used = 0, links_cap = 0;          // link slots taken / kMaxLinks
+    uint32_t targets_cap = 0;                        // kMaxTargets
 };
 Stats stats();
 
@@ -133,9 +140,13 @@ using MapExtension = void (*)(void* json /* nlohmann::json* */, const char* phas
 void add_map_extension(MapExtension fn);
 std::string map_text(const std::vector<ForeignSym>& foreign, const char* phase);
 
-// For tests: number of links ever created, per-thread caller tables allocated, and a link's continuation / entry
+// sigdb's names may have changed (core resolve, a fragment loaded or unloaded): targets look their symbol up again.
+void refresh_symbols();
+
+// For tests: number of link slots taken, per-thread caller tables allocated, and a link's continuation / entry
 // addresses.
 size_t link_count();
+size_t code_bytes_used();  // stub memory taken from the arena
 size_t thread_tables();
 struct LinkInfo {
     bool live = false;
@@ -155,7 +166,7 @@ std::vector<KilnHandle> chain_of(uintptr_t target);
 extern "C" {
 void* kiln_hk_alloc_block(void);
 uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const uintptr_t* stack, void* link);
-void kiln_hk_mid_dispatch(void* regs);
+void kiln_hk_mid_dispatch(void* regs, void* link);
 // The machine code itself (hooks_chain_asm.cpp).
 void kiln_hk_slow(void);
 void kiln_hk_structured(void);
