@@ -32,6 +32,8 @@
 | An Impact loop without an exit | hangs the server's simulation step | the linter warns (`W_LOOP`): add an exit |
 | Many hits on one target in one step | the engine applies at most 4 impacts per target per step | Kiln defers the rest; don't rely on them landing in the same step |
 | Two mods detouring the same very hot function (advanced tier) | under Wine a hot reload of one can stall | one mod per hot function |
+| `_ReturnAddress()` in a native hook handler (advanced tier) | another link in front of yours hides the game's call site | `RawHook::caller()`, read before calling the original |
+| Hooking and revoking a native hook again and again | links are never freed; after 65,536 hooking fails | install once, switch a flag |
 | Testing against the live server | players see your half-done mod; a fault disables it in front of them | a separate local test server |
 | Claiming a client-side effect works after a server-only test | a dedicated server draws nothing, has no UI and no sound | list it as "needs a client check" |
 

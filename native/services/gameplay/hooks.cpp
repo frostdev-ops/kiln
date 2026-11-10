@@ -7,21 +7,18 @@
 //  - TerraformImpact: the impact function of impact_nodes::Terraforming; a zone makes it return the impact error result
 //    it returns itself when an argument is missing (code 0x18), before any voxel or inventory work.
 //  - CraftRecipe: observed only (result code and recipe).
-//  - QueueSpawn: called by random_spawner (identified by the return address); a zone makes it report "no entity"
+//  - QueueSpawn: called by random_spawner (identified by the call site, kiln.hooks caller()); a zone makes it report "no entity"
 //    (*out = 0), which the spawner handles as it does the engine refusing a template.
-#include <intrin.h>
 #include <windows.h>
 
 #include "internal.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_spawn.h"
-
-#pragma intrinsic(_ReturnAddress)
 
 namespace kg {
 namespace {
 
-SafetyHookInline h_craft, h_block, h_prop, h_dis, h_dis2, h_pick, h_terra, h_spawn;
+kiln::RawHook h_craft, h_block, h_prop, h_dis, h_dis2, h_pick, h_terra, h_spawn;
 const KilnSpawnApi* g_spawn = nullptr;
 
 struct Record {
@@ -71,7 +68,7 @@ inline bool want_build() {
 
 // ---- building ----
 // All five return the success flag (al) that the caller passes on to BuildFinish.
-uint8_t build_common(SafetyHookInline& h, uint32_t op_kind, uint32_t action, uint8_t* op, void* arg, uint32_t item,
+uint8_t build_common(kiln::RawHook& h, uint32_t op_kind, uint32_t action, uint8_t* op, void* arg, uint32_t item,
                      double x, double y, double z, KilnEntity target) {
     const KilnEntity player = op_player(op);
     const uint32_t zone = zone_check(player, x, y, z, action);
@@ -273,7 +270,7 @@ bool replacement(const uint8_t* guid, uint8_t out[16]) {
 
 // ---- random spawner's spawn ----
 uint32_t* __fastcall hk_spawn(void* a, uint32_t* out, void* c, uint32_t d, const uint8_t* guid, const int64_t* xf) {
-    if (reinterpret_cast<uintptr_t>(_ReturnAddress()) != fn.spawner_ret || !out || !xf)
+    if (h_spawn.caller() != fn.spawner_ret || !out || !xf)
         return h_spawn.call<uint32_t*>(a, out, c, d, guid, xf);
     const double x = fixed_to_m(xf[0]), y = fixed_to_m(xf[1]), z = fixed_to_m(xf[2]);
     const uint32_t zone = zone_check(0, x, y, z, KILN_GAMEPLAY_DENY_SPAWN);
@@ -303,9 +300,9 @@ uint32_t* __fastcall hk_spawn(void* a, uint32_t* out, void* c, uint32_t d, const
     return res;
 }
 
-bool hook(SafetyHookInline& h, uintptr_t target, void* detour, const char* what) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(target), detour);
-    if (!h) {
+bool hook(kiln::RawHook& h, uintptr_t target, void* detour, const char* what) {
+    const std::string label = std::string("gameplay/") + what;  // the sigdb symbol name
+    if (!h.install(g_api, g_owner, target, detour, label.c_str())) {
         KG_E("hooking %s at %p failed", what, reinterpret_cast<void*>(target));
         return false;
     }

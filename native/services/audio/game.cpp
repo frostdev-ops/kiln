@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// kiln.audio, the game layer: symbols from sigdb/symbols/client.d/audio.json, three inline hooks and SEH-guarded calls
+// kiln.audio, the game layer: symbols from sigdb/symbols/client.d/audio.json, three raw kiln.hooks links and SEH-guarded calls
 // into Keen's sound system (docs/re/audio.md section 3).
 //  - SoundScenesInit (post): runs once at start-up from the client state machine with (scene table, SoundSystem*,
 //    reverb id); after it the table holds the u32 scene ids [7] and listener ids [7] (keen::SoundSceneType order).
 //  - SoundStart (probe, pass-through): counts the game's own calls per thread (the one-thread rule: all sound calls
 //    on the main thread), and learns the SoundSystem pointer should the boot hook have missed it. Kiln's own calls go
-//    through the trampoline and are not counted. KILN_AUDIO_PROBE=0 turns it off.
+//    through the link's continuation and are not counted. KILN_AUDIO_PROBE=0 turns it off.
 //  - VoiceoverUpdate (pre + post): the voice-over manager's per-frame update (main thread, in game). Kiln runs its
 //    voice-over and narration requests right before it, with the manager the game passes (never a stored pointer),
 //    and reads the result right after.
@@ -16,7 +16,7 @@
 #include <cmath>
 
 #include "audio.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 namespace kau {
 
@@ -57,7 +57,7 @@ struct Fns {
     GetTransformFn get_transform = nullptr;
 } F;
 
-SafetyHookInline g_scenes_hook, g_start_hook, g_vo_hook;
+kiln::RawHook g_scenes_hook, g_start_hook, g_vo_hook;
 thread_local bool t_in_vo_hook = false;
 
 bool sym(const char* n, uintptr_t* out) {
@@ -253,8 +253,7 @@ bool game_init() {
     F.set_volume = reinterpret_cast<SoundSetVolumeFn>(a_vol);
     F.set_position = reinterpret_cast<SoundSetPositionFn>(a_pos);
     F.is_playing = reinterpret_cast<SoundIsPlayingFn>(a_play);
-    g_scenes_hook = safetyhook::create_inline(reinterpret_cast<void*>(a_scenes), reinterpret_cast<void*>(&hk_scenes_init));
-    if (!g_scenes_hook) {
+    if (!g_scenes_hook.install(g_api, g_owner, a_scenes, reinterpret_cast<void*>(&hk_scenes_init), "audio/SoundScenesInit")) {
         KA_W("audio: could not hook SoundScenesInit; kiln.audio unavailable");
         return false;
     }
@@ -262,8 +261,7 @@ bool game_init() {
 
     const char* probe_env = std::getenv("KILN_AUDIO_PROBE");
     if (!(probe_env && probe_env[0] == '0')) {
-        g_start_hook = safetyhook::create_inline(reinterpret_cast<void*>(a_start), reinterpret_cast<void*>(&hk_sound_start));
-        H.probe = static_cast<bool>(g_start_hook);
+        H.probe = g_start_hook.install(g_api, g_owner, a_start, reinterpret_cast<void*>(&hk_sound_start), "audio/SoundStart");
         if (!H.probe) KA_W("audio: SoundStart probe not installed (the game's thread statistics stay empty)");
     }
 
@@ -294,8 +292,7 @@ bool game_init() {
         F.vo_request = reinterpret_cast<VoRequestFn>(a_req);
         F.vo_set_position = reinterpret_cast<VoSetPositionFn>(a_vpos);
         if (lore) F.lore_push = reinterpret_cast<LorePushFn>(a_lore);
-        g_vo_hook = safetyhook::create_inline(reinterpret_cast<void*>(a_upd), reinterpret_cast<void*>(&hk_vo_update));
-        if (g_vo_hook) {
+        if (g_vo_hook.install(g_api, g_owner, a_upd, reinterpret_cast<void*>(&hk_vo_update), "audio/VoiceoverUpdate")) {
             H.voiceover = true;
             H.narration = lore && VL.lore_stride > 0 && VL.lore_max > 0 && VL.lore_count > VL.lore_max * VL.lore_stride;
         } else {
@@ -311,7 +308,7 @@ bool game_init() {
 bool g_sound_start(uint32_t scene_id, const uint8_t guid[16], const PlayParams* p, uint32_t* out) {
     const uintptr_t sys = g_sys.load(std::memory_order_acquire);
     if (!sys) return false;
-    // Through the trampoline when the probe is installed: Kiln's own calls are not counted as the game's.
+    // Through the link's continuation when the probe is installed: Kiln's own calls are not counted as the game's.
     const SoundStartFn fn = g_start_hook ? g_start_hook.original<SoundStartFn>() : F.start;
     return seh_start(fn, reinterpret_cast<void*>(sys), scene_id, guid, p, out);
 }

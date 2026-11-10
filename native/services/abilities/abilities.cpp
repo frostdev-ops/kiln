@@ -27,7 +27,7 @@
 #include "engine.h"
 #include "kiln_api.h"
 #include "nlohmann/json.hpp"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_abilities.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_spawn.h"
@@ -500,7 +500,7 @@ int alloc_slot() {  // g_mu held
 }
 
 // ---------------------------------------------------------------------------------------- hooks ----------------
-SafetyHookInline g_h_register, g_h_create, g_h_run;
+kiln::RawHook g_h_register, g_h_create, g_h_run;
 
 uint64_t __fastcall hk_register(uintptr_t registry, uint32_t hash, NativeFn fn, const void* name, uint8_t argc) {
     const uint64_t r = g_h_register.call<uint64_t>(registry, hash, fn, name, argc);
@@ -2077,9 +2077,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (feat("abilities.natives")) {
         E.register_native = reinterpret_cast<Engine::RegisterNativeFn>(sym("abilities/RegisterNative"));
         if (E.register_native) {
-            g_h_register = safetyhook::create_inline(reinterpret_cast<void*>(E.register_native),
-                                                     reinterpret_cast<void*>(&hk_register));
-            g_have_natives = static_cast<bool>(g_h_register);
+            g_have_natives = g_h_register.install(api, owner, reinterpret_cast<uintptr_t>(E.register_native),
+                                                  reinterpret_cast<void*>(&hk_register),
+                                                  "abilities/RegisterNative");
             // keep calling the game's function through the hook's trampoline (registrations of Kiln's own are
             // marked with t_kiln_registering so the capture skips them)
         }
@@ -2093,9 +2093,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         E.run_impact = reinterpret_cast<Engine::RunImpactFn>(sym("abilities/RunImpact"));
         E.instance_lookup = reinterpret_cast<Engine::InstanceLookupFn>(sym("abilities/InstanceLookup"));
         if (E.create_instance && E.run_impact && E.instance_lookup) {
-            g_h_create = safetyhook::create_inline(reinterpret_cast<void*>(E.create_instance),
-                                                   reinterpret_cast<void*>(&hk_create));
-            g_h_run = safetyhook::create_inline(reinterpret_cast<void*>(E.run_impact), reinterpret_cast<void*>(&hk_run));
+            g_h_create.install(api, owner, reinterpret_cast<uintptr_t>(E.create_instance), reinterpret_cast<void*>(&hk_create),
+                               "abilities/CreateInstance");
+            g_h_run.install(api, owner, reinterpret_cast<uintptr_t>(E.run_impact), reinterpret_cast<void*>(&hk_run),
+                            "abilities/RunImpact");
             g_have_instances = static_cast<bool>(g_h_create) && static_cast<bool>(g_h_run);
         }
     }

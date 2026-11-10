@@ -148,8 +148,8 @@ pos)`, `voiceover_stop`, `narrate(owner, vo, name_loca, desc_loca)`, `status_jso
 | Piece | Game function (client 26430625 RVA) | Kiln |
 |---|---|---|
 | capture | `SoundScenesInit` `0x845e10(table, SoundSystem*, reverb)`, once at start-up | post-hook: SoundSystem*, scene ids [7], listener ids [7]; log `audio: sound system 0x…, scenes music=… ui=… game=…` |
-| play | `SoundStart` `0x106ee50(sys, 0, scene, &guid, &PlayParams)` → instance (0 = failed) | called from the drain through the trampoline |
-| probe | the same, inline hook | counts the game's own calls per thread (`KILN_AUDIO_PROBE=0` turns it off); first call per thread and a 30 s summary in kiln.log |
+| play | `SoundStart` `0x106ee50(sys, 0, scene, &guid, &PlayParams)` → instance (0 = failed) | called from the drain through the probe link's continuation (when the probe is on), so Kiln's own calls are not counted |
+| probe | the same, a kiln.hooks raw link (`audio/SoundStart`) | counts the game's own calls per thread (`KILN_AUDIO_PROBE=0` turns it off); first call per thread and a 30 s summary in kiln.log |
 | stop / volume / position / alive | `0x106fc50`, `0x1069c10`, `0x1069ba0`, `0x105e8e0` (= the instance lookup `0x105b580` is non-null) | per handle in the drain |
 | follow | core `GetEntityTransform(clientWorld, id)` in the client-world Pre | `SoundSetPosition` when it moved |
 | dialogue voice-over | `VoiceoverUpdate` `0x1233520(mgr)` (every frame in game, main thread); `VoiceoverRequest` `0x1232500`, `VoiceoverSetPosition` `0x1233420` | requests run in a pre-hook with the manager the game passes (no stored pointer); the post-hook reads +pending/+playing/+instance |

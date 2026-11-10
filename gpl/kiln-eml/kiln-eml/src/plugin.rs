@@ -390,16 +390,18 @@ fn run_now() {
         Phase::Idle if out.restored => "kiln-eml: no EML mods; the game data was restored to vanilla (EML's .kfc.bak)".to_string(),
         Phase::Idle => "kiln-eml: no EML mods; game files untouched".to_string(),
         Phase::Done if out.cached => format!(
-            "kiln-eml: {} EML mod(s) loaded; nothing changed since the last run, the game files keep their patches ({:.0} ms)",
+            "kiln-eml: {} EML mod(s) loaded; nothing changed since the last run, the game files keep their patches ({:.0} ms{})",
             out.loaded(),
-            out.ms
+            out.ms,
+            fingerprint_note(&out)
         ),
         Phase::Done => format!(
-            "kiln-eml: {} EML mod(s) loaded, {} resource(s) patched in {} ({:.0} ms)",
+            "kiln-eml: {} EML mod(s) loaded, {} resource(s) patched in {} ({:.0} ms{})",
             out.loaded(),
             out.patched,
             out.file.as_deref().unwrap_or("?"),
-            out.ms
+            out.ms,
+            fingerprint_note(&out)
         ),
         Phase::Failed if out.start_blocked => format!("kiln-eml: {}; stopping this start before the game entry point",
             out.error.as_deref().unwrap_or("install lock failed")),
@@ -412,6 +414,11 @@ fn run_now() {
     klog(if out.phase == Phase::Failed { 1 } else { 3 }, &summary);
     publish(&out, state.as_deref());
     enforce_startup_safety(&out);
+}
+
+/// `; hashed 0 B, reused 57 file(s)`: what reading the game's files for the change cache cost this start.
+fn fingerprint_note(out: &Outcome) -> String {
+    out.fingerprint.map(|f| format!("; {}", f.brief())).unwrap_or_default()
 }
 
 fn enforce_startup_safety(out: &Outcome) {

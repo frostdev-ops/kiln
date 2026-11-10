@@ -1,7 +1,10 @@
 # kiln.hooks v2: one registry for every hook
 
-`kiln.hooks` hooks game functions for Kiln itself and for plugins and mods. Version 2 (dev.21) is meant to be the only
-place a hook is placed: Kiln's services move onto it during dev.21. For each game address the registry installs **one**
+`kiln.hooks` hooks game functions for Kiln itself and for plugins and mods. Since dev.21 every hook Kiln places on the
+game exe goes through it: the services, the core tick, kiln-emf, EMF mods' `hook` slot, Shroudtopia's `CreateDetour`
+and ShroudForge's engine hooks when Kiln hosts it. Only hooks on system DLL exports (`LoadLibraryExW`, Vulkan, XInput
+on the client) and EMF/Shroudtopia hooks on targets outside the game exe still use plain safetyhook (the registry places
+its own detours with safetyhook too). For each game address the registry installs **one**
 physical detour. Every handler on that address is a **link** in an ordered chain. Links of different kinds, from
 different owners, share the detour instead of layering on top of each other.
 
@@ -186,8 +189,22 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
 ## Threads
 
 - A handler runs on whatever thread the game calls the target on.
-- The **first** link on a target freezes the other threads briefly (safetyhook). Every later link on it freezes nothing:
-  Kiln rewrites 8-byte cells that threads read with one load.
+- The **first** link on a target stops every other thread of the game for a moment, writes the jump over the function's
+  first bytes, and lets the threads run again. A thread that was paused inside those bytes (right after the function's
+  first instruction, say) is moved to the same instruction in the trampoline first, so it never runs half a jump. Wine
+  needs about 70 microseconds per thread (5 ms for 66 threads); kiln.log at debug level says how long it took, and warns
+  above 50 ms. Every later link on the target stops nothing: Kiln rewrites 8-byte cells that threads read with one load.
+- Why Kiln stops the threads itself: safetyhook only makes the page non-executable while it writes, which catches a thread
+  that runs into the bytes but not one the scheduler has paused there. That thread resumes in the middle of the new jump.
+  On a loaded test machine under Wine this crashed 5 of 72 test runs. Windows can pause a thread the same way, so the race
+  is not specific to Wine.
+- What this does not cover: a thread that is created during those few milliseconds; a branch from elsewhere into the
+  middle of the replaced bytes, or a call made from inside them that has not returned yet (the 5 to 14 bytes at the
+  target: choose a hook address that nothing jumps or returns into). If Kiln cannot list the threads, or the
+  trampoline has a shape it does not know, it logs a warning and falls back to safetyhook's own enable, with the old
+  race; a thread it cannot open or stop keeps running and is counted in a warning. A mod that places its own safetyhook
+  hook on game code has the old race too. Two hook libraries that stop threads (Kiln and a MinHook-based DLL mod, say)
+  must not install at the same instant from two threads: each could stop the other.
 - Stack arguments, rcx/rdx/r8/r9, xmm0-3 and the flags reach your handler as the game left them. Handlers are called with the
   standard stack alignment.
 
@@ -210,8 +227,10 @@ counted per call (that would put an atomic on every game call).
 
 - `native/core/tests/test-hooks-v2.sh` (Wine, no game): chains of raw links with 9 arguments and `caller()` in each,
   floats, `detour2` with 9 arguments, ordering, mid links beside raw links, registers and flags, revoking the middle
-  link while 4 threads call, first installs under load, a foreign jump before and over Kiln, the map, the C++ header.
-  It runs twice, with the caller table in the TEB's TLS slots and in the expansion slots.
+  link while 4 threads call, first installs under load, threads parked inside the replaced bytes (they must come out in the
+  trampoline, also past a relocated short jump), a first install with 64 other threads alive, a foreign jump before and
+  over Kiln, the map, the C++ header. It runs twice, with the caller table in the TEB's TLS slots and in the expansion
+  slots.
 - `native/spikes/hookchain/run.sh`: how safetyhook chains with another engine's jump.
 - `native/spikes/hooksv2/foreign_stub.cpp` builds `foreign-stub.dll`, a stand-in for another engine for lab servers:
   chain it from `kiln/chain.ini` and give it `foreign-stub.ini` (`before=<rva,...>` hooks at load, before Kiln looks;

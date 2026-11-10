@@ -7,7 +7,7 @@
 #include "services/kiln_items.h"
 
 namespace kitems {
-bool pide_install(const KilnApi* api);  // feature items.pide_options; false: the options are refused
+bool pide_install(const KilnApi* api, KilnOwner owner);  // feature items.pide_options; false: the options are refused
 bool pide_available();
 bool pide_request_valid(uint32_t flags, uint8_t unlock);
 // Scoped to this give's item and thread. Cleanup also runs when the engine commit raises a structured exception.

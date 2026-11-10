@@ -24,7 +24,7 @@
 
 #include "engine.h"
 #include "names.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "xfer.h"
 
 namespace kitems {
@@ -132,8 +132,10 @@ bool g_install_failed = false;  // g_mu
 std::atomic<bool> g_broken{false};  // the game's transaction did not match what the hook expects: pass through
 char g_detail[160] = "";         // g_mu
 
-std::atomic<SafetyHookInline*> h_qs{nullptr};  // never destroyed: another loader may hook on top
-std::atomic<SafetyHookInline*> h_ma{nullptr};
+// Raw kiln.hooks links on quick stack and move all (kiln::RawHook is never unhooked by its destructor, and these are
+// never revoked either: another loader may hook on top). Installed in place: a game thread may enter the hook at once.
+kiln::RawHook h_qs;
+kiln::RawHook h_ma;
 
 std::deque<KilnItemsTransferReport> g_reports;  // g_mu
 std::atomic<uint32_t> g_reporters{0};
@@ -327,11 +329,11 @@ struct MaArgs {
 
 Result12* vanilla_qs(void* p) {
     auto* a = static_cast<QsArgs*>(p);
-    return h_qs.load(std::memory_order_acquire)->call<Result12*>(a->out, a->tx, a->to, a->from, a->feedback);
+    return h_qs.call<Result12*>(a->out, a->tx, a->to, a->from, a->feedback);
 }
 Result12* vanilla_ma(void* p) {
     auto* a = static_cast<MaArgs*>(p);
-    return h_ma.load(std::memory_order_acquire)->call<Result12*>(a->out, a->tx, a->from, a->to, a->mode, a->flag);
+    return h_ma.call<Result12*>(a->out, a->tx, a->from, a->to, a->mode, a->flag);
 }
 
 void queue_report(const Call& c, uint32_t flags, uint32_t moved) {
@@ -424,11 +426,12 @@ Result12* __fastcall hk_move_all(Result12* out, void* tx, uint32_t from, uint32_
     return around(KILN_TRANSFER_MOVE_ALL, tx, from, to, &vanilla_ma, &a, out);
 }
 
-// The first registration installs the hooks (g_mu held). Chains with any hook already on the functions: safetyhook
-// copies a jump at the entry into its trampoline, so the other loader's hook still runs, after ours.
-using HookFactory = SafetyHookInline* (*)(void*, void*);
-SafetyHookInline* make_hook(void* target, void* replacement) {
-    return new SafetyHookInline(safetyhook::create_inline(target, replacement, SafetyHookInline::StartDisabled));
+// The first registration installs the hooks (g_mu held). They are links in kiln.hooks' chain on each function: a hook
+// another loader already put there is chained over by the registry (logged as "chained over <module>") and still runs,
+// after ours.
+using HookFactory = bool (*)(kiln::RawHook& hook, uintptr_t target, void* replacement, const char* label);
+bool make_hook(kiln::RawHook& hook, uintptr_t target, void* replacement, const char* label) {
+    return hook.install(items_api(), items_owner(), target, replacement, label);
 }
 bool install_locked(HookFactory create = &make_hook) {
     if (g_installed.load()) return true;
@@ -438,13 +441,12 @@ bool install_locked(HookFactory create = &make_hook) {
         std::snprintf(g_detail, sizeof g_detail, "the quick-stack / move-all hook points are not available on this build");
         return false;
     }
-    auto* qs = create(reinterpret_cast<void*>(E.quick_stack), reinterpret_cast<void*>(&hk_quick_stack));
-    auto* ma = create(reinterpret_cast<void*>(E.move_all), reinterpret_cast<void*>(&hk_move_all));
-    // Publish both trampolines before enabling either hook. An enable failure may leave one active: it must still
-    // pass through safely, even though registration fails and g_active remains zero.
-    h_qs.store(qs, std::memory_order_release);
-    h_ma.store(ma, std::memory_order_release);
-    if (!qs || !ma || !*qs || !*ma || !qs->enable() || !ma->enable()) {
+    // A link is live as soon as it is registered, and both handlers pass straight through while g_active is zero, so a
+    // half-installed pair is safe: one link may stay active when the other fails, and registration then fails.
+    const bool qs = create(h_qs, reinterpret_cast<uintptr_t>(E.quick_stack), reinterpret_cast<void*>(&hk_quick_stack),
+                           "items/QuickStack");
+    const bool ma = create(h_ma, reinterpret_cast<uintptr_t>(E.move_all), reinterpret_cast<void*>(&hk_move_all), "items/MoveAll");
+    if (!qs || !ma) {
         // kept on purpose: a half-installed pair is never taken apart
         g_install_failed = true;
         std::snprintf(g_detail, sizeof g_detail, "hooking quick stack / move all failed");

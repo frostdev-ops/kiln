@@ -72,7 +72,8 @@ game folder, which already allows placing a DLL there); absolute, drive and `..`
 
 A DLL mod that hooks game functions (XHL-Core, Auto Loot Plus and similar closed-source mods) hooks them in its
 `DllMain`, before Kiln has hooked anything. Kiln then chains over that hook and works, but a hosted engine that insists on
-the game's original bytes (ShroudForge's engine hooks) can refuse. Name the DLL in `kiln/chain.ini` `[late]` and Kiln
+the game's original bytes can refuse (ShroudForge's engine hooks when ShroudForge hooks the game itself; with Kiln's
+bundled runtime they go through kiln.hooks and chain over the DLL instead). Name the DLL in `kiln/chain.ini` `[late]` and Kiln
 loads it **after** its own services, plugins and ShroudForge started: Kiln hooks first and the DLL hooks over Kiln.
 
 ```ini

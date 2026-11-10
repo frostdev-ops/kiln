@@ -235,3 +235,22 @@ thread. Content changes reach Kiln clients without any code (content sync); conf
 ## Client
 `Client.State` (`Menu`, `DedicatedServer`, `Hosting`, `Remote`), `Client.IsClient`, `IsHosting`, `LocalPlayer`,
 `Client.Tick += (in TickInfo t) => ...`, `Client.Post(action)`, `await Client.NextTick()`.
+
+## Hooks (advanced tier only) and other DLL mods
+Only when no service does the job, and only with `"advanced": true`. Since dev.21 every hook goes through one registry,
+`kiln.hooks` v2: one detour per game function, shared by Kiln's services, other engines and your mod. Your hook is a
+**link** in that chain.
+- C#: `Hooks.Detour(name, call => call.CallOriginal(), priority)` and `Hooks.Mid(name, (ref Registers r) => ..., priority)`.
+  Higher priority runs first. A detour sees the first four integer arguments; the original still gets all of them.
+  Floats: a mid hook or a native mod.
+- C++ (a native mod's `KilnNativeContext::api`/`owner`): `#include "kiln_hook.hpp"`, a global `kiln::RawHook g;` and
+  `g.install(api, owner, target, (void*)&hk, "mymod/Thing", priority, before, after)` (any signature; call on with
+  `g.call<R>(args...)`), or `kiln::MidHook2`. `before`/`after` are owner names (`kiln.chat`, `emf:coolmod`).
+- Need the game's call site? Read `g.caller()` first thing, before calling the original. Never `_ReturnAddress()`: another
+  link in front changes it.
+- Dropping a hook object does not remove it: `revoke()`. Links are never freed (65,536 per process), so don't hook and
+  revoke in a loop; keep the link and switch a flag.
+- `kiln/state/hooks.json` lists every link per function, and other modules' hooks found before or over Kiln.
+- Closed-source DLL mods (XHL, trainers) that clash: load them late (`kiln/chain.ini` `[late]`, or the launcher's "Load
+  after Kiln and ShroudForge"). kiln.log `compat: overlap:` lines and `hooks.json` `overlaps` name both sides.
+  `<configDir>/compat-rules.json` rules can `warn`, load a DLL `late` or `disable` it.

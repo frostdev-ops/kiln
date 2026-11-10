@@ -171,7 +171,16 @@ pub fn read(game_dir: &Path) -> Result<ChainIni> {
 // ---- writers ----
 
 const HEADER: &str = "; Kiln chain-load list (docs/kiln/launcher/contracts.md 5.3): [chain] = proxies the installer moved \
-aside (kiln/chain/), [profile] = native mods with phase dllmain of the active profile. A leading ; switches a line off.";
+aside (kiln/chain/), [profile] = native mods with phase dllmain of the active profile, [late] = entries kiln-core loads \
+after Kiln and ShroudForge. A leading ; switches a line off.";
+/// The header written before dev.21: still recognised (and replaced) when a file is rewritten.
+const OLD_HEADERS: &[&str] = &["; Kiln chain-load list (docs/kiln/launcher/contracts.md 5.3): [chain] = proxies the installer \
+moved aside (kiln/chain/), [profile] = native mods with phase dllmain of the active profile. A leading ; switches a line off."];
+
+fn is_header(line: &str) -> bool {
+    let l = line.trim_end();
+    l == HEADER || OLD_HEADERS.contains(&l)
+}
 
 /// The file split into blocks by section: (lower-case section name or None for the lines before any section, raw
 /// lines including their line ends).
@@ -218,7 +227,7 @@ fn rewrite_chain_ini(text: &str, mut edit: impl FnMut(&str, Vec<String>) -> Opti
     for (name, mut lines) in blocks(text) {
         ensure_eol(&mut lines, nl);
         match name.as_deref() {
-            None => chain.extend(lines.into_iter().filter(|l| l.trim_end() != HEADER)),
+            None => chain.extend(lines.into_iter().filter(|l| !is_header(l))),
             Some("chain") => chain.extend(lines.into_iter().skip(1)),
             Some(n @ ("profile" | "late")) => {
                 let i = (n == "late") as usize;
@@ -673,6 +682,27 @@ mod tests {
         write_profile_section(&d2, &[]).unwrap();
         let t4 = std::fs::read_to_string(d2.join("kiln/chain.ini")).unwrap();
         assert!(t4.starts_with("; Kiln chain-load list"), "{t4}");
+        assert!(t4.contains("[late] = "), "{t4}");
+        // a file written before dev.21: its header is replaced, not kept as a second comment
+        std::fs::write(d2.join("kiln/chain.ini"), format!("{}\r\n[chain]\r\nchain\\emf-dinput8.dll\r\n", OLD_HEADERS[0])).unwrap();
+        write_profile_section(&d2, &[]).unwrap();
+        let t5 = std::fs::read_to_string(d2.join("kiln/chain.ini")).unwrap();
+        assert_eq!(t5.matches("; Kiln chain-load list").count(), 1, "{t5}");
+        assert!(t5.starts_with(HEADER), "{t5}");
+        // only the exact old header goes: a player's own first-line comment (even one that starts like it) stays, and the
+        // old header with LF line ends and a trailing blank is still replaced
+        std::fs::write(
+            d2.join("kiln/chain.ini"),
+            format!("; Kiln chain-load list (mine, keep)\n{} \n; my note\n[chain]\nchain\\emf-dinput8.dll\n", OLD_HEADERS[0]),
+        )
+        .unwrap();
+        write_profile_section(&d2, &[]).unwrap();
+        let t6 = std::fs::read_to_string(d2.join("kiln/chain.ini")).unwrap();
+        assert!(t6.contains("; Kiln chain-load list (mine, keep)\n"), "{t6}");
+        assert!(t6.contains("; my note\n"), "{t6}");
+        assert_eq!(t6.matches("; Kiln chain-load list").count(), 2, "{t6}");
+        assert!(!t6.contains(OLD_HEADERS[0]), "{t6}");
+        assert!(t6.starts_with(HEADER), "{t6}");
         assert_eq!(parse(t4.as_bytes()).chain.len(), 1);
         assert!(t4.contains("[profile]"));
         write_once(&d2, &["a.dll".into()]).unwrap();

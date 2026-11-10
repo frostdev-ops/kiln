@@ -12,10 +12,13 @@
 
 #include <intrin.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -237,6 +240,7 @@ __declspec(noinline) uint64_t game_hdr(uint64_t a, int b) {
 GAME_LATE(1)
 GAME_LATE(2)
 GAME_LATE(3)
+GAME_LATE(4)
 __declspec(noinline) uint64_t game_chaos(uint64_t x) {
     g_real.fetch_add(1);
     return x * 3 + 7;
@@ -284,9 +288,30 @@ int game_asm_mid(int);
 int game_asm_mid2(int);
 int game_asm_mid3(int);
 int game_asm_mix(int);
+int game_asm_park(int);
+int game_asm_idle(int);
+int game_asm_idle2(int);
+int game_asm_park_jcc(int);
+void game_asm_park_done(void);
+void* g_exit_thread = nullptr;  // kernel32!ExitThread, for game_asm_park_done
 }
 __asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n" GAME_ASM(game_asm_fb) GAME_ASM(game_asm_fo)
             GAME_ASM(game_asm_mid) GAME_ASM(game_asm_mid2) GAME_ASM(game_asm_mid3) GAME_ASM(game_asm_mix) ".text\n");
+
+// Functions for threads that are paused inside the bytes a first detour replaces (test_parked_threads).
+//   game_asm_park:     push rbx (1 byte) | sub rsp,20h (4 bytes) ...      int f(int x) = x + 1
+//   game_asm_park_jcc: test ecx,ecx (2) | jne short (2; safetyhook relocates it to a 6-byte jcc) | mov eax,100 (5)
+//                      f(0) = 100, f(x) = x + 1. A thread paused after the jne is at offset 4 here and at offset 8 in the
+//                      trampoline.
+// game_asm_park_done is where a parked thread's crafted stack returns to: ExitThread(eax).
+__asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n" GAME_ASM(game_asm_park) GAME_ASM(game_asm_idle) GAME_ASM(game_asm_idle2)
+        ".globl game_asm_park_jcc\n.def game_asm_park_jcc; .scl 2; .type 32; .endef\ngame_asm_park_jcc:\n"
+        "  test ecx, ecx\n  jne 1f\n  mov eax, 100\n  ret\n1:\n  lea eax, [rcx + 1]\n  ret\n"
+        "  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n"
+        ".globl game_asm_park_done\n.def game_asm_park_done; .scl 2; .type 32; .endef\ngame_asm_park_done:\n"
+        "  mov ecx, eax\n  sub rsp, 8\n  jmp qword ptr [rip + g_exit_thread]\n"
+        "  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n"
+        ".text\n");
 
 // flags: `cmp ecx,5` then (hook point) `mov eax,0` (does not touch the flags), then `setz al`: 1 when x == 5. A hook at the
 // hook point sees live flags.
@@ -1241,6 +1266,71 @@ void test_chaos() {
     A->revoke_owner(5);
 }
 
+// A RawHook installed again in place reuses its `original` variable. A thread still inside the revoked link's handler
+// reads the variable and jumps through the new link's continuation the moment install() writes it: before the chain is
+// published. That cell must already name the link after the new one (here C): not 0 (it was, and the thread jumped to
+// address 0) and not the real function (C would be skipped for that call). The window is a few hundred nanoseconds wide,
+// so the test repeats it 400 times with a thread that spins on the variable and jumps at once.
+void test_reinstall_shares_original() {
+    constexpr int kRounds = 400;
+    std::puts("-- a thread inside a revoked raw link continues through the re-installed link: no jump to 0, no link skipped");
+    const uintptr_t t = reinterpret_cast<uintptr_t>(&game_late4);
+    static void* volatile ao = nullptr;
+    static std::atomic<int> inside{0};
+    static auto ah = +[](uint64_t x) -> uint64_t {
+        ran('A');
+        void* old = ao;
+        inside.fetch_add(1);
+        while (ao == old) _mm_pause();  // until install() hands out the new continuation
+        return reinterpret_cast<uint64_t (*)(uint64_t)>(ao)(x);
+    };
+    static uint64_t (*co)(uint64_t) = nullptr;
+    static auto ch = +[](uint64_t x) -> uint64_t { ran('C'); return co(x); };
+    take_order();
+    inside = 0;
+    const auto oc = ord(-5, "t/reinst-c"), oa = ord(5, "t/reinst-a");
+    KilnHandle cur = 0;
+    bool ok = A->raw_detour(6, t, &oc, reinterpret_cast<void*>(ch), reinterpret_cast<void**>(&co), nullptr) == KILN_OK;
+    ok = A->raw_detour(6, t, &oa, reinterpret_cast<void*>(ah), const_cast<void**>(&ao), &cur) == KILN_OK && ok;
+    std::atomic<int> finished{0}, taken{0};
+    std::atomic<uint64_t> wrong{0};
+    std::thread th([&] {
+        for (int i = 0; i < kRounds; ++i) {
+            while (taken.load() < i) _mm_pause();  // the previous round's record is taken before this one starts
+            if (game_late4(10) != 34) ++wrong;
+            finished.store(i + 1);
+        }
+    });
+    auto wait_for = [](const std::atomic<int>& v, int n) {
+        const auto t0 = std::chrono::steady_clock::now();
+        while (v.load() < n) {
+            if (std::chrono::steady_clock::now() - t0 > std::chrono::seconds(20)) return false;
+            _mm_pause();
+        }
+        return true;
+    };
+    int skipped = 0, rounds = 0;
+    for (int i = 0; i < kRounds && ok; ++i) {
+        if (!wait_for(inside, i + 1)) { ok = false; break; }  // the thread is inside the current A
+        A->revoke(cur);
+        ok = A->raw_detour(6, t, &oa, reinterpret_cast<void*>(ah), const_cast<void**>(&ao), &cur) == KILN_OK && ok;
+        if (!wait_for(finished, i + 1)) { ok = false; break; }
+        const std::string got = take_order();
+        if (got != "AC" && ++skipped <= 3) std::printf("  round %d ran '%s'\n", i, got.c_str());
+        ++rounds;
+        taken.store(i + 1);
+    }
+    if (!ok) {  // let a stuck thread out
+        taken = kRounds;
+        ao = reinterpret_cast<void*>(+[](uint64_t x) -> uint64_t { return x; });
+    }
+    th.join();
+    check(ok && rounds == kRounds, "every round installed A again while the thread was inside the old A", "rounds " + std::to_string(rounds));
+    check(skipped == 0 && wrong == 0, "the thread always went on through the new link to C and the real function",
+          "rounds that skipped C: " + std::to_string(skipped) + ", wrong results: " + std::to_string(wrong.load()));
+    A->revoke_owner(6);
+}
+
 void test_first_install_under_load() {
     std::puts("-- the first link on a target goes in while 4 threads call it");
     std::atomic<bool> stop{false};
@@ -1275,6 +1365,157 @@ void test_first_install_under_load() {
     for (auto& t : th) t.join();
     check(ok && bad == 0, "three first installs under load: every call still returned the right value", "bad=" + std::to_string(bad.load()));
     check(hit1 > 0 && hit3 > 0 && calls > 1000, "the new links were reached afterwards", "calls=" + std::to_string(calls.load()));
+    A->revoke_owner(6);
+}
+
+// A thread the scheduler stopped right after a function's first instruction sits inside the bytes the first detour
+// replaces. It must resume at the same instruction in the trampoline, not in the middle of the new jump. The test parks
+// threads there deliberately (a suspended thread with a crafted context), so the case does not wait for bad luck.
+HANDLE park_thread(const void* fn, size_t at, bool pushed_rbx, uint64_t rcx, bool zf) {
+    DWORD tid = 0;
+    HANDLE h = CreateThread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(const_cast<void*>(fn)), nullptr,
+                            CREATE_SUSPENDED, &tid);
+    if (!h) return nullptr;
+    CONTEXT c{};
+    c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+    if (!GetThreadContext(h, &c)) return TerminateThread(h, 1), CloseHandle(h), nullptr;
+    // the stack as it is just after `call fn` (rsp = 8 mod 16), then the instructions before `at` have run
+    const uint64_t entry_rsp = ((c.Rsp - 0x400) & ~uint64_t{15}) + 8;
+    auto* top = reinterpret_cast<uint64_t*>(entry_rsp);
+    top[0] = reinterpret_cast<uint64_t>(&game_asm_park_done);
+    c.Rsp = entry_rsp;
+    if (pushed_rbx) {
+        c.Rsp -= 8;
+        *reinterpret_cast<uint64_t*>(c.Rsp) = 0;
+    }
+    c.Rip = reinterpret_cast<uint64_t>(fn) + at;
+    c.Rcx = rcx;
+    c.EFlags = static_cast<DWORD>((c.EFlags & ~0x40u) | (zf ? 0x40u : 0u));
+    if (!SetThreadContext(h, &c)) return TerminateThread(h, 1), CloseHandle(h), nullptr;
+    CONTEXT back{};
+    back.ContextFlags = CONTEXT_CONTROL;
+    if (!GetThreadContext(h, &back) || back.Rip != c.Rip) return TerminateThread(h, 1), CloseHandle(h), nullptr;
+    return h;
+}
+
+void test_parked_threads() {
+    std::puts("-- threads paused inside the replaced bytes are moved to the trampoline (first detour, nobody runs)");
+    g_exit_thread = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "ExitThread"));
+    const auto park = reinterpret_cast<uintptr_t>(&game_asm_park), jcc = reinterpret_cast<uintptr_t>(&game_asm_park_jcc);
+    struct P {
+        uintptr_t fn;
+        size_t at;
+        bool pushed;
+        uint64_t rcx;
+        bool zf;
+        DWORD want;
+        const char* what;
+        HANDLE h = nullptr;
+    } ps[] = {
+        {park, 0, false, 9, false, 10, "at the function's first byte (stays: it runs the new jump into the chain)"},
+        {park, 1, true, 41, false, 42, "after push rbx (offset 1, inside the jmp's rel32)"},
+        {jcc, 2, false, 1, false, 2, "before the jne, jne taken (offset 2)"},
+        {jcc, 4, false, 0, true, 100, "after the jne (offset 4; the trampoline has it at 8)"},
+    };
+    bool parked = true;
+    for (P& p : ps) {
+        p.h = park_thread(reinterpret_cast<void*>(p.fn), p.at, p.pushed, p.rcx, p.zf);
+        parked = parked && p.h;
+    }
+    check(parked, "four threads parked at or inside the first bytes of two functions");
+    if (!parked) {
+        for (P& p : ps)
+            if (p.h) TerminateThread(p.h, 1), CloseHandle(p.h);
+        return;
+    }
+    static int (*po)(int) = nullptr;
+    static int (*jo)(int) = nullptr;
+    static std::atomic<int> phits{0}, jhits{0};
+    static auto ph = +[](int x) -> int { phits++; return po(x); };
+    static auto jh = +[](int x) -> int { jhits++; return jo(x); };
+    const auto o = ord(0, "t/park");
+    bool ok = A->raw_detour(6, park, &o, reinterpret_cast<void*>(ph), reinterpret_cast<void**>(&po), nullptr) == KILN_OK;
+    ok = A->raw_detour(6, jcc, &o, reinterpret_cast<void*>(jh), reinterpret_cast<void**>(&jo), nullptr) == KILN_OK && ok;
+    check(ok, "the first detours on both functions are in");
+    bool moved = true;
+    for (P& p : ps) {
+        CONTEXT c{};
+        c.ContextFlags = CONTEXT_CONTROL;
+        const bool got = GetThreadContext(p.h, &c);
+        const bool inside = got && c.Rip >= p.fn + 1 && c.Rip < p.fn + 16;
+        const bool kept = p.at != 0 || (got && c.Rip == p.fn);  // a thread at the first byte is left where it is
+        check(got && !inside && kept, (std::string("parked thread left the replaced bytes: ") + p.what).c_str(),
+              got ? "rip " + std::to_string(c.Rip - p.fn) + " bytes from the function" : "no context");
+        moved = moved && got && !inside && kept;
+    }
+    if (!moved) {  // resuming a thread in the middle of the jump would take the whole test down
+        for (P& p : ps) TerminateThread(p.h, 1), CloseHandle(p.h);
+        return;
+    }
+    for (P& p : ps) ResumeThread(p.h);
+    for (P& p : ps) {
+        DWORD code = 0xDEAD;
+        const bool done = WaitForSingleObject(p.h, 10000) == WAIT_OBJECT_0 && GetExitCodeThread(p.h, &code);
+        check(done && code == p.want, (std::string("it runs on from the trampoline to the right result: ") + p.what).c_str(),
+              "exit code " + std::to_string(code) + ", wanted " + std::to_string(p.want));
+        if (!done) TerminateThread(p.h, 1);
+        CloseHandle(p.h);
+    }
+    const bool live = game_asm_park(7) == 8 && game_asm_park_jcc(0) == 100 && game_asm_park_jcc(5) == 6;
+    // park: the thread parked at its first byte went through the detour (1) + the call here (1)
+    check(live && phits == 2 && jhits == 2, "the detours are live for threads that enter the functions normally",
+          "park hits " + std::to_string(phits.load()) + ", jcc hits " + std::to_string(jhits.load()));
+    check(log_has("1 thread(s) were paused inside the first bytes") && log_has("2 thread(s) were paused inside the first bytes"),
+          "kiln.log says how many threads were moved");
+    A->revoke_owner(6);
+}
+
+// The first install stops every other thread of the process. Many of them (the game has dozens): all must come back.
+void test_many_threads_stopped() {
+    std::puts("-- a first install with 64 other threads alive stops them, writes the jump and resumes every one");
+    HANDLE go = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    std::vector<HANDLE> th;
+    for (int i = 0; i < 64; ++i)
+        th.push_back(CreateThread(
+            nullptr, 0,
+            [](LPVOID ev) -> DWORD { return WaitForSingleObject(static_cast<HANDLE>(ev), 30000) == WAIT_OBJECT_0 ? 7 : 1; },
+            go, 0, nullptr));
+    Sleep(150);  // let them block in the wait
+    static int (*io)(int) = nullptr;
+    static int (*io2)(int) = nullptr;
+    static auto ih = +[](int x) -> int { return io(x); };
+    static auto ih2 = +[](int x) -> int { return io2(x); };
+    const auto o = ord(0, "t/idle");
+    const size_t lines_before = log_count("hooks: detour on rva");
+    // two first installs in a row: each lists, stops and resumes all threads again
+    bool ok = A->raw_detour(6, reinterpret_cast<uintptr_t>(&game_asm_idle), &o, reinterpret_cast<void*>(ih),
+                            reinterpret_cast<void**>(&io), nullptr) == KILN_OK;
+    ok = A->raw_detour(6, reinterpret_cast<uintptr_t>(&game_asm_idle2), &o, reinterpret_cast<void*>(ih2),
+                       reinterpret_cast<void**>(&io2), nullptr) == KILN_OK && ok;
+    SetEvent(go);
+    bool all = true;
+    for (HANDLE h : th) {
+        DWORD code = 0;
+        all = all && WaitForSingleObject(h, 10000) == WAIT_OBJECT_0 && GetExitCodeThread(h, &code) && code == 7;
+        CloseHandle(h);
+    }
+    CloseHandle(go);
+    check(ok && game_asm_idle(1) == 2 && game_asm_idle2(1) == 2, "the detours are in and work");
+    check(all, "all 64 threads were resumed (none left stopped)");
+    check(log_count("hooks: detour on rva") == lines_before + 2, "kiln.log reports each stop");
+    size_t least = SIZE_MAX;
+    {
+        std::lock_guard lock(g_log_mutex);
+        int shown = 0;
+        for (auto it = g_lines.rbegin(); it != g_lines.rend() && shown < 2; ++it)
+            if (const size_t at = it->find("hooks: detour on rva"); at != std::string::npos) {
+                std::printf("  info: %s\n", it->c_str());
+                const size_t w = it->find(" written with ", at);
+                least = std::min<size_t>(least, w == std::string::npos ? 0 : std::strtoull(it->c_str() + w + 14, nullptr, 10));
+                ++shown;
+            }
+    }
+    check(least >= 64, "each install listed the 64 waiting threads (and more) as stopped", "least " + std::to_string(least));
     A->revoke_owner(6);
 }
 
@@ -1443,7 +1684,10 @@ int main(int argc, char** argv) {
     test_map_file_and_extension();
     test_threads();
     test_chaos();
+    test_reinstall_shares_original();
     test_first_install_under_load();
+    test_parked_threads();
+    test_many_threads_stopped();
     test_client_header();
     test_thread_tables();
 

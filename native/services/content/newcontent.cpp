@@ -46,7 +46,7 @@
 #include "refs.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_ui.h"  // kiln.craftmenu (the crafting menu extension point, implemented here)
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 namespace kc {
 
@@ -1888,7 +1888,7 @@ struct LootSpan {
     uintptr_t data;
     uint64_t count;
 };
-SafetyHookInline g_lootitems_hook;
+kiln::RawHook g_lootitems_hook;
 struct LootCache {
     uintptr_t src = 0;
     uint64_t count = 0, gen = ~0ull;
@@ -3183,7 +3183,7 @@ int32_t shown_workshop(int32_t workshop, bool say) {
 }
 
 // The menu's category lookup (UI thread = main thread, while the crafting menu builds): the UI pointer is valid here.
-SafetyHookInline g_menu_hook;
+kiln::RawHook g_menu_hook;
 uint64_t __fastcall hk_menu(void* lists, void* p2, int32_t workshop, uint8_t p4) {
     cm_sync(shown_workshop(workshop, false));  // kiln.craftmenu: Kiln tabs / subcategories first, then the placement of new recipes
     menu_sync(g_ws[KILN_WORLD_CLIENT]);        // and the stations' own menus
@@ -3285,9 +3285,8 @@ void KILN_CALL on_client_pre(const KilnTickInfo* t, void*) {
 // (apply_armor: docs/re/content.md section 9). So a client world gets the definitions when its item registry finishes
 // loading, on the loading screen, whatever world came before it in this process. Each world has its own registry; the
 // binding comes from the game's own RegisterSingleton call, so a world at a reused address starts clean.
-SafetyHookInline g_regsingleton_hook, g_itemupdate_hook, g_itemfind_hook;
-// The trampolines, called directly: InlineHook::call locks a mutex for the whole call, and ItemRegistryFind is hot and
-// runs on job threads.
+kiln::RawHook g_regsingleton_hook, g_itemupdate_hook, g_itemfind_hook;
+// The continuations, called directly (a plain function pointer): ItemRegistryFind is hot and runs on job threads.
 using ItemFindFn = uintptr_t(__fastcall*)(uint32_t, uintptr_t);
 using FourArgFn = uintptr_t(__fastcall*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 ItemFindFn g_itemfind_orig = nullptr;
@@ -3561,7 +3560,7 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
 }
 
 // ============================================================================================= client hooks ====
-SafetyHookInline g_loca_hook, g_locarec_hook, g_uitex_hook, g_all_hook;
+kiln::RawHook g_loca_hook, g_locarec_hook, g_uitex_hook, g_all_hook;
 
 struct LocaRecResult {  // the game's Result<const LocaTagResource*>
     uint8_t error;
@@ -4224,16 +4223,16 @@ void early_boot() {
                  g_api->constant(KilnStr{"world.storage", 13}, &storage) == KILN_OK && g_api->constant(KilnStr{"storage.kind", 12}, &kind) == KILN_OK;
     if (early) {
         g_kind_off = storage + kind;
-        g_regsingleton_hook = safetyhook::create_inline(reinterpret_cast<void*>(reg_fn), reinterpret_cast<void*>(&hk_regsingleton));
-        g_itemupdate_hook = safetyhook::create_inline(reinterpret_cast<void*>(upd_fn), reinterpret_cast<void*>(&hk_itemupdate));
+        g_regsingleton_hook.install(g_api, g_owner, reg_fn, reinterpret_cast<void*>(&hk_regsingleton), "RegisterSingleton");
+        g_itemupdate_hook.install(g_api, g_owner, upd_fn, reinterpret_cast<void*>(&hk_itemupdate), "content/ItemRegistryUpdate");
         early = static_cast<bool>(g_regsingleton_hook) && static_cast<bool>(g_itemupdate_hook);
         if (g_regsingleton_hook) g_regsingleton_orig = g_regsingleton_hook.original<FourArgFn>();
         if (g_itemupdate_hook) g_itemupdate_orig = g_itemupdate_hook.original<FourArgFn>();
     }
     bool unknown = !file("no-unknown-items") && sym("content/ItemRegistryFind", &g_itemfind_fn);
     if (unknown) {
-        g_itemfind_hook = safetyhook::create_inline(reinterpret_cast<void*>(g_itemfind_fn), reinterpret_cast<void*>(&hk_itemfind));
-        unknown = static_cast<bool>(g_itemfind_hook);
+        unknown = g_itemfind_hook.install(g_api, g_owner, g_itemfind_fn, reinterpret_cast<void*>(&hk_itemfind),
+                                          "content/ItemRegistryFind");
         if (unknown) g_itemfind_orig = g_itemfind_hook.original<ItemFindFn>();
     }
     if (unknown) {
@@ -4299,23 +4298,20 @@ void nc_boot() {
                   cst("content/recipes.all_array", &N.all_array) && cst("content/recipes.resource", &all_res) &&
                   all_res == E.recipes_resource;
     if (N.loca) {
-        g_loca_hook = safetyhook::create_inline(reinterpret_cast<void*>(N.loca_fn), reinterpret_cast<void*>(&hk_loca));
-        g_locarec_hook = safetyhook::create_inline(reinterpret_cast<void*>(locarec), reinterpret_cast<void*>(&hk_locarec));
+        g_loca_hook.install(g_api, g_owner, N.loca_fn, reinterpret_cast<void*>(&hk_loca), "content/LocaLookup");
+        g_locarec_hook.install(g_api, g_owner, locarec, reinterpret_cast<void*>(&hk_locarec), "content/LocaRecord");
         N.loca = static_cast<bool>(g_loca_hook) && static_cast<bool>(g_locarec_hook);
     }
     if (N.uitex) {
-        g_uitex_hook = safetyhook::create_inline(reinterpret_cast<void*>(N.uitex_fn), reinterpret_cast<void*>(&hk_uitex));
-        N.uitex = static_cast<bool>(g_uitex_hook);
+        N.uitex = g_uitex_hook.install(g_api, g_owner, N.uitex_fn, reinterpret_cast<void*>(&hk_uitex), "content/UiTextureGet");
     }
     if (N.menu) {
-        g_menu_hook = safetyhook::create_inline(reinterpret_cast<void*>(menu_fn), reinterpret_cast<void*>(&hk_menu));
-        N.menu = static_cast<bool>(g_menu_hook);
+        N.menu = g_menu_hook.install(g_api, g_owner, menu_fn, reinterpret_cast<void*>(&hk_menu), "content/CraftMenuCategories");
     }
     if (N.menu)  // kiln.craftmenu: kiln.ui's crafting-menu extension point (tabs, subcategories, which workshop)
         g_api->register_service(g_owner, KilnStr{KILN_CRAFTMENU_SERVICE, std::strlen(KILN_CRAFTMENU_SERVICE)}, &kCraftMenu);
     if (N.recipe_ui) {
-        g_all_hook = safetyhook::create_inline(reinterpret_cast<void*>(N.recipe_all_fn), reinterpret_cast<void*>(&hk_all));
-        N.recipe_ui = static_cast<bool>(g_all_hook);
+        N.recipe_ui = g_all_hook.install(g_api, g_owner, N.recipe_all_fn, reinterpret_cast<void*>(&hk_all), "content/RecipeAll");
     }
     // random loot of new items: the candidate getter (server world; on a client it serves a hosted world)
     N.loot = E.loot && feat("content.loot_new") && sym("content/LootItems", &N.loot_items_fn) &&
@@ -4326,7 +4322,7 @@ void nc_boot() {
         N.loot = false;
     }
     if (N.loot) {
-        g_lootitems_hook = safetyhook::create_inline(reinterpret_cast<void*>(N.loot_items_fn), reinterpret_cast<void*>(&hk_lootitems));
+        g_lootitems_hook.install(g_api, g_owner, N.loot_items_fn, reinterpret_cast<void*>(&hk_lootitems), "content/LootItems");
         N.loot = static_cast<bool>(g_lootitems_hook) && loot_layout();
     }
     KilnHandle h = 0;

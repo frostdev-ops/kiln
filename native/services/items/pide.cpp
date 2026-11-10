@@ -15,8 +15,9 @@
 #include <atomic>
 #include <cstring>
 
+#include "kiln_hook.hpp"
 #include "pide.h"
-#include "safetyhook.hpp"
+#include "safetyhook.hpp"  // Context only: the mid handler keeps its safetyhook::Context& signature
 
 namespace kitems {
 namespace {
@@ -37,7 +38,7 @@ struct Override {
 static_assert(sizeof(Override) == 24);
 
 alignas(16) uint8_t g_zero_gem[16] = {};  // the appended gem slot's data (read by the spawn, never written)
-SafetyHookMid h_spawn;
+kiln::MidHook2 h_spawn;
 int64_t g_list = 0, g_count = 0, g_category = 0;  // rbp displacements (int8), ItemInfo offset
 const uint32_t* g_level_index = nullptr;         // createPide's current-level index into Level's values
 bool g_ok = false;
@@ -108,7 +109,7 @@ void hk_spawn(safetyhook::Context& c) {
 
 }  // namespace
 
-bool pide_install(const KilnApi* api) {
+bool pide_install(const KilnApi* api, KilnOwner owner) {
     auto sym = [api](const char* n, uintptr_t* out) {
         return api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK && *out;
     };
@@ -120,8 +121,7 @@ bool pide_install(const KilnApi* api) {
     // plausibility: rbp-relative slots of the list (pointer, count, capacity follow each other), a byte field of ItemInfo
     if (!layout_ok(g_list, g_count, g_category)) return false;
     g_level_index = reinterpret_cast<const uint32_t*>(index);
-    h_spawn = safetyhook::create_mid(reinterpret_cast<void*>(site), &hk_spawn);
-    g_ok = static_cast<bool>(h_spawn);
+    g_ok = h_spawn.install(api, owner, site, &hk_spawn, "items/PideSpawn");
     return g_ok;
 }
 

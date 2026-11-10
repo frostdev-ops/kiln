@@ -18,7 +18,8 @@
 // lookup, so that a combo cannot start another attack; and SetCurrentAttack as the one place every attack passes, which
 // counts the starts and corrects anything that got past the others.
 //
-// Hooks go in at first use and come out when nothing uses them, so a server without rule mods runs none of this.
+// Hooks go in at first use and come out when nothing uses them, so a server without rule mods runs none of this. kiln.hooks
+// never frees a link, so after kMaxRounds installs of a set its links stay in through idle spells and pass through.
 #include <windows.h>
 
 #include <intrin.h>
@@ -27,7 +28,8 @@
 #include <deque>
 
 #include "internal.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
 #include "services/kiln_time.h"
 
 namespace kcr {
@@ -103,7 +105,7 @@ std::atomic<uint32_t> g_pump{0};
 std::unordered_map<KilnEntity, uint64_t> g_lives;  // protected by g_want_mu, including the destroy observer
 uint64_t g_next_life = 1;  // never reset across worlds
 std::atomic<uintptr_t> g_life_storage{0};
-safetyhook::MidHook g_life_destroy;
+kiln::MidHook2 g_life_destroy;
 bool g_life_warned = false;
 
 uint64_t capture_life(KilnEntity e) {
@@ -194,8 +196,8 @@ using FindFn = int64_t* (*)(int64_t*, uint8_t*, uint32_t);
 using BeginFn = void (*)(uint8_t*, const uint64_t*, uint32_t, uint64_t);
 using TargetFn = uint32_t (*)(uint8_t*);
 
-safetyhook::InlineHook g_h_constraint, g_h_action, g_h_select, g_h_available, g_h_find;
-safetyhook::MidHook g_h_start;
+kiln::RawHook g_h_constraint, g_h_action, g_h_select, g_h_available, g_h_find;
+kiln::MidHook2 g_h_start;
 ConstraintFn g_o_constraint = nullptr;
 ActionFn g_o_action = nullptr;
 SelectFn g_o_select = nullptr;
@@ -203,7 +205,12 @@ AvailableFn g_o_available = nullptr;
 FindFn g_o_find = nullptr;
 BeginFn g_begin = nullptr;
 TargetFn g_current_target = nullptr;
-bool g_rule_hooks = false, g_attack_hooks = false;
+bool g_rule_hooks = false, g_attack_hooks = false;  // the sets in use (their links answer)
+// kiln.hooks never frees a link (65536 in all), so rules that come and go must not add links every time: each set is
+// installed at most kMaxRounds times; after that its links stay in through idle spells, where the handlers pass
+// through (no Kiln variant in any arsenal, no override, g_attack_hooks false). Tick thread, like the flags.
+constexpr uint32_t kMaxRounds = 64;
+uint32_t g_rule_rounds = 0, g_attack_rounds = 0;
 uintptr_t g_s_constraint = 0, g_s_action = 0, g_s_select = 0, g_s_available = 0, g_s_find = 0, g_s_start = 0;
 int64_t g_ctx_arsenal = -1;
 
@@ -481,7 +488,7 @@ void run_attack(uint8_t* ctx, const uint8_t guid[16]) {
             break;
         }
     }
-    if (index < 0 || !g_o_select || !g_begin) return;
+    if (index < 0 || !g_attack_hooks || !g_o_select || !g_begin) return;  // attack links absent or idle
     uint8_t out[32] = {};
     force_select(out, ctx, 0, index);
     if (out[0]) return;
@@ -528,14 +535,13 @@ uint64_t hk_action(uint8_t* ctx, uint32_t* rng, uint32_t* variant, uint64_t firs
     return 0;
 }
 
-bool make_inline(safetyhook::InlineHook& h, uintptr_t at, void* detour, const char* what) {
+bool make_inline(kiln::RawHook& h, uintptr_t at, void* detour, const char* what) {
     if (!at) return false;
-    auto r = safetyhook::create_inline(reinterpret_cast<void*>(at), detour);
-    if (!r.operator bool()) {
+    const std::string label = std::string("creatures/") + what;  // the sigdb symbol name
+    if (!h.install(g_api, g_owner, at, detour, label.c_str())) {
         KC_W("rules: the hook on %s (0x%llx) failed", what, static_cast<unsigned long long>(at));
         return false;
     }
-    h = std::move(r);
     return true;
 }
 
@@ -703,8 +709,7 @@ void rules_lifetime_init() {
         !g_api->feature || !g_api->feature(kstr("world.lifecycle")) || !g_api->subscribe_world || L.world_storage <= 0 ||
         g_api->symbol(kstr("spawn/DestroyEntity"), &at) != KILN_OK || !at ||
         g_api->subscribe_world(g_owner, &on_rules_world, nullptr, &h) != KILN_OK) return;
-    auto hook = safetyhook::MidHook::create(reinterpret_cast<void*>(at), &hk_life_destroy);
-    if (hook) g_life_destroy = std::move(*hook);
+    g_life_destroy.install(g_api, g_owner, at, &hk_life_destroy, "spawn/DestroyEntity");
 }
 
 void rules_lifetime_unload(void*) {
@@ -779,6 +784,12 @@ bool rules_attacks_resolved() { return g_s_select && g_s_available && g_s_find &
 bool rules_ensure_hooks() {
     if (g_rule_hooks) return true;
     if (!rules_dispatcher_resolved()) return false;
+    if (g_h_constraint && g_h_action) {  // kept in through an idle spell: they answer again
+        g_rule_hooks = true;
+        return true;
+    }
+    if (g_rule_rounds >= kMaxRounds) return false;  // only failed installs get here: stop adding links
+    ++g_rule_rounds;
     const uint64_t t0 = GetTickCount64();
     if (!make_inline(g_h_constraint, g_s_constraint, reinterpret_cast<void*>(&hk_constraint), "ConstraintEval")) return false;
     g_o_constraint = g_h_constraint.original<ConstraintFn>();
@@ -799,6 +810,12 @@ bool rules_ensure_attack_hooks() {
     if (!arsenal_layout_ready()) return false;
     // The rule-played sequence check sits in the action hook.
     if (rules_dispatcher_resolved() && !rules_ensure_hooks()) return false;
+    if (g_h_select && g_h_available && g_h_find && g_h_start) {  // kept in through an idle spell
+        g_attack_hooks = true;
+        return true;
+    }
+    if (g_attack_rounds >= kMaxRounds) return false;  // only failed installs get here: stop adding links
+    ++g_attack_rounds;
     const uint64_t t0 = GetTickCount64();
     if (!make_inline(g_h_select, g_s_select, reinterpret_cast<void*>(&hk_select), "SelectAttack")) return false;
     g_o_select = g_h_select.original<SelectFn>();
@@ -813,21 +830,21 @@ bool rules_ensure_attack_hooks() {
         return false;
     }
     g_o_find = g_h_find.original<FindFn>();
-    auto m = safetyhook::MidHook::create(reinterpret_cast<void*>(g_s_start), &hk_start);
-    if (!m) {
+    if (!g_h_start.install(g_api, g_owner, g_s_start, &hk_start, "creatures/SetCurrentAttack")) {
         KC_W("rules: the mid hook on SetCurrentAttack failed");
         g_h_select = {};
         g_h_available = {};
         g_h_find = {};
         return false;
     }
-    g_h_start = std::move(*m);
     g_attack_hooks = true;
     KC_I("rules: attack hooks installed (%llu ms)", static_cast<unsigned long long>(GetTickCount64() - t0));
     return true;
 }
 
-// Called in Pre when no job runs. Nothing left uses the hooks: take them out, the game's code is as it was.
+// Called in Pre when no job runs. Nothing left uses the hooks: revoke the links (assigning an empty hook revokes). The
+// registry keeps its pass-through detour on the function (it never unpatches game code), so it is an empty chain. A set
+// installed kMaxRounds times keeps its links (they pass through while idle) instead of adding new ones at the next use.
 void rules_unhook_if_idle() {
     if (!g_rule_hooks && !g_attack_hooks) return;
     const RuleUses u = arsenal_uses();
@@ -837,7 +854,11 @@ void rules_unhook_if_idle() {
     for (const auto& [e, t] : g_tracks) overrides |= !t.overrides.empty();
     const bool need_attacks = overrides || u.attack_action;
     const bool need_rules = need_attacks || handlers || u.any_kiln;
-    if (g_attack_hooks && !need_attacks) {
+    if (g_attack_hooks && !need_attacks && g_attack_rounds >= kMaxRounds) {
+        g_attack_hooks = false;  // g_o_select stays: hk_select still calls it
+        static bool said = false;
+        if (!said) said = true, KC_I("rules: attack hooks idle; their links stay in from now on (%u installs)", g_attack_rounds);
+    } else if (g_attack_hooks && !need_attacks) {
         g_attack_hooks = false;
         g_h_start = {};
         g_h_find = {};
@@ -846,7 +867,11 @@ void rules_unhook_if_idle() {
         g_o_select = nullptr;
         KC_I("rules: attack hooks removed");
     }
-    if (g_rule_hooks && !need_rules) {
+    if (g_rule_hooks && !need_rules && g_rule_rounds >= kMaxRounds) {
+        g_rule_hooks = false;
+        static bool said = false;
+        if (!said) said = true, KC_I("rules: constraint and action hooks idle; their links stay in from now on (%u installs)", g_rule_rounds);
+    } else if (g_rule_hooks && !need_rules) {
         g_rule_hooks = false;
         g_h_action = {};
         g_h_constraint = {};

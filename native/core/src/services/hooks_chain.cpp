@@ -16,6 +16,8 @@
 
 #include <windows.h>
 
+#include <tlhelp32.h>
+
 #include <intrin.h>
 
 #include <algorithm>
@@ -32,6 +34,11 @@
 #include "../log.h"
 #include "nlohmann/json.hpp"
 #include "safetyhook.hpp"
+// Zydis.h repeats the static-build defines the target already passes on the command line.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmacro-redefined"
+#include "Zydis.h"
+#pragma clang diagnostic pop
 
 namespace kiln::hooks {
 namespace seh {
@@ -354,9 +361,21 @@ std::vector<Link*> order_links(std::vector<Link*> live, Target& t) {
     return sorted;
 }
 
-// g_mutex held. Recomputes a target's chain and retargets the cells. Safe against concurrent callers: every cell
-// always names a valid entry (or the trampoline); a new link is wired before it becomes reachable.
-void rebuild(Target& t) {
+// What a target's chain should look like: every link (live or dead) in its place, the entry each link's cell must name,
+// and what the head cell must name. Computing it changes nothing; apply_plan() publishes it.
+struct Plan {
+    std::vector<Link*> merged;
+    std::vector<uintptr_t> next;
+    uintptr_t head = 0;
+    uintptr_t next_of(const Link* l) const {
+        for (size_t i = 0; i < merged.size(); ++i)
+            if (merged[i] == l) return next[i];
+        return 0;
+    }
+};
+
+// g_mutex held. Recomputes a target's chain (no cell is touched).
+Plan plan_chain(Target& t) {
     std::vector<Link*> live;
     for (Link* l : t.order)
         if (l->live.load(std::memory_order_acquire)) live.push_back(l);
@@ -384,20 +403,33 @@ void rebuild(Target& t) {
 
     // The entry each position leads to: the next live link at or after it, else the real function.
     auto entry_of = [](Link* l) { return reinterpret_cast<uintptr_t>(l->entry); };
-    std::vector<uintptr_t> next(merged.size());
+    Plan p;
+    p.next.resize(merged.size());
     uintptr_t following = t.trampoline;
     for (size_t i = merged.size(); i-- > 0;) {
-        next[i] = following;
+        p.next[i] = following;
         if (merged[i]->live.load(std::memory_order_acquire)) following = entry_of(merged[i]);
     }
-    // New links first (unreachable until a cell names them), then existing cells tail to head, head last.
-    for (size_t i = 0; i < merged.size(); ++i)
-        if (merged[i]->next->load(std::memory_order_relaxed) == 0) merged[i]->next->store(next[i], std::memory_order_release);
-    for (size_t i = merged.size(); i-- > 0;)
-        if (merged[i]->next->load(std::memory_order_relaxed) != next[i])
-            merged[i]->next->store(next[i], std::memory_order_release);
-    if (t.head->load(std::memory_order_relaxed) != following) t.head->store(following, std::memory_order_release);
-    t.order = std::move(merged);
+    p.head = following;
+    p.merged = std::move(merged);
+    return p;
+}
+
+// g_mutex held. Retargets the cells, tail to head and the head last, so a thread walking the chain always lands on a
+// valid entry (or the trampoline). A new link's own cell is filled by install() before this runs.
+void apply_plan(Target& t, Plan& p) {
+    for (size_t i = p.merged.size(); i-- > 0;)
+        if (p.merged[i]->next->load(std::memory_order_relaxed) != p.next[i])
+            p.merged[i]->next->store(p.next[i], std::memory_order_release);
+    if (t.head->load(std::memory_order_relaxed) != p.head) t.head->store(p.head, std::memory_order_release);
+    t.order = std::move(p.merged);
+}
+
+// g_mutex held. Recomputes a target's chain and retargets the cells. Safe against concurrent callers: every cell
+// always names a valid entry (or the trampoline).
+void rebuild(Target& t) {
+    Plan p = plan_chain(t);
+    apply_plan(t, p);
 }
 
 void notify_changed() {
@@ -550,6 +582,225 @@ std::string target_label(Target& t) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Writing the detour (the first link on a target)
+//
+// safetyhook's own enable() only catches a thread that *runs* into the bytes while it writes: it makes the page
+// non-executable for that moment and a vectored handler moves the thread (and not even that when the target is in the
+// same module as safetyhook, as in hooks_v2_test: the page stays executable then). A thread that is not running, because
+// the scheduler has paused it right after the function's first instruction, sits inside the bytes being replaced and
+// resumes in the middle of the new jump: garbage. On a loaded machine that crashed 5 of 72 test runs, always at
+// function+1 of a function being hooked for the first time. So Kiln does what MinHook does: stop every other thread, write
+// the jump, move each thread that is inside the replaced bytes to the same instruction in the trampoline, resume. From the
+// first SuspendThread to the last ResumeThread this code allocates nothing, logs nothing and takes no lock (a stopped
+// thread may hold the heap lock or the loader lock): it makes kernel calls and writes bytes.
+
+// Where each instruction boundary inside the replaced bytes lives in the trampoline. safetyhook copies the replaced
+// instructions one by one; a short jump grows when it is relocated, so the offsets can differ.
+struct IpMap {
+    uint8_t n = 0;
+    uint16_t from[24] = {};  // offset in the original function
+    uint16_t to[24] = {};    // offset of the same instruction in the trampoline
+};
+
+bool build_ip_map(const std::vector<uint8_t>& orig, const uint8_t* tramp, size_t tramp_size, IpMap& m) {
+    ZydisDecoder dec{};
+    if (!ZYAN_SUCCESS(ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64))) return false;
+    size_t o = 0, t = 0;
+    while (o < orig.size()) {
+        ZydisDecodedInstruction io{}, it{};
+        if (m.n >= 24 || tramp_size <= t) return false;
+        if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&dec, nullptr, orig.data() + o, orig.size() - o, &io))) return false;
+        if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&dec, nullptr, tramp + t, std::min<size_t>(15, tramp_size - t), &it)))
+            return false;
+        m.from[m.n] = static_cast<uint16_t>(o);
+        m.to[m.n] = static_cast<uint16_t>(t);
+        ++m.n;
+        o += io.length;
+        t += it.length;
+    }
+    return o == orig.size();
+}
+
+// The bytes that go over the function's start: `jmp rel32` to the jump in the trampoline's epilogue that safetyhook
+// built for our entry stub, else (a far trampoline) an absolute jump straight to the entry stub; nops after it.
+struct PatchBytes {
+    uint8_t b[32] = {};
+    size_t len = 0;
+};
+
+bool make_patch(const Target& t, PatchBytes& out) {
+    const auto& orig = t.hook.original_bytes();
+    const size_t L = orig.size();
+    if (L < 5 || L > sizeof out.b) return false;
+    const uint8_t* tr = t.hook.trampoline().data();
+    const size_t trn = t.hook.trampoline().size();
+    const uint64_t dest = static_cast<uint64_t>(t.hook.destination_address());
+    // safetyhook's epilogue: FF 25 00000000 <destination:8>
+    const uint8_t* epi = nullptr;
+    for (size_t i = 0; tr && i + 14 <= trn && !epi; ++i) {
+        uint64_t q = 0;
+        if (tr[i] == 0xFF && tr[i + 1] == 0x25 && !std::memcmp(tr + i + 2, "\0\0\0\0", 4)) {
+            std::memcpy(&q, tr + i + 6, 8);
+            if (q == dest) epi = tr + i;
+        }
+    }
+    std::memset(out.b, 0x90, L);
+    out.len = L;
+    if (epi) {
+        const int64_t rel = reinterpret_cast<intptr_t>(epi) - static_cast<intptr_t>(t.addr + 5);
+        if (rel < INT32_MIN || rel > INT32_MAX) return false;
+        out.b[0] = 0xE9;
+        const int32_t r32 = static_cast<int32_t>(rel);
+        std::memcpy(out.b + 1, &r32, 4);
+        return true;
+    }
+    if (L < 14) return false;
+    out.b[0] = 0xFF, out.b[1] = 0x25;
+    std::memset(out.b + 2, 0, 4);
+    std::memcpy(out.b + 6, &dest, 8);
+    return true;
+}
+
+struct Stopped {
+    HANDLE h = nullptr;
+    bool skip = false;  // the calling thread: listed (its handle is closed with the others) but never stopped
+    bool suspended = false;
+    bool has_rip = false;
+    uintptr_t rip = 0;
+};
+
+constexpr DWORD kThreadAccess = THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT |
+                                THREAD_QUERY_LIMITED_INFORMATION;
+
+// Every thread of the process, opened (not stopped yet), through ntdll's NtGetNextThread: one cheap call per thread (a
+// Toolhelp snapshot costs several milliseconds under Wine). False: not available here, nothing is left open.
+bool open_threads_nt(std::vector<Stopped>& out) {
+    using NtGetNextThreadFn = LONG(NTAPI*)(HANDLE process, HANDLE thread, ACCESS_MASK access, ULONG attributes,
+                                           ULONG flags, PHANDLE next);
+    static const auto next_thread = reinterpret_cast<NtGetNextThreadFn>(
+        reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtGetNextThread")));
+    if (!next_thread) return false;
+    constexpr LONG kNoMoreEntries = static_cast<LONG>(0x8000001A);
+    const DWORD me = GetCurrentThreadId();
+    const size_t first = out.size();
+    HANDLE prev = nullptr;
+    LONG status = 0;
+    for (;;) {
+        HANDLE h = nullptr;
+        status = next_thread(GetCurrentProcess(), prev, kThreadAccess, 0, 0, &h);
+        if (status < 0 || !h) break;
+        Stopped st;
+        st.h = prev = h;  // `prev` stays open: it is the cursor for the next call, and we close it with the rest
+        const DWORD id = GetThreadId(h);
+        st.skip = id == 0 || id == me;  // a thread whose id we cannot read is never stopped: it might be this one
+        out.push_back(st);
+    }
+    if (status == kNoMoreEntries) return true;
+    for (size_t i = first; i < out.size(); ++i) CloseHandle(out[i].h);
+    out.resize(first);
+    return false;
+}
+
+// The same through a Toolhelp snapshot. False: no list.
+bool open_threads_toolhelp(std::vector<Stopped>& out, size_t& unopened) {
+    const HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snap == INVALID_HANDLE_VALUE) return false;
+    THREADENTRY32 te{};
+    te.dwSize = sizeof te;
+    const DWORD pid = GetCurrentProcessId(), me = GetCurrentThreadId();
+    for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+        if (te.th32OwnerProcessID != pid || te.th32ThreadID == me) continue;
+        HANDLE h = OpenThread(kThreadAccess, FALSE, te.th32ThreadID);
+        if (!h) {
+            ++unopened;
+            continue;
+        }
+        Stopped st;
+        st.h = h;
+        out.push_back(st);
+    }
+    CloseHandle(snap);
+    return true;
+}
+
+struct FreezeReport {
+    size_t threads = 0, unopened = 0, unstopped = 0, in_range = 0, moved = 0, no_context = 0;
+    double stopped_ms = 0;  // how long the other threads stood still
+    double list_ms = 0;     // listing and opening them first (they still run)
+    bool written = false;
+};
+
+// Nothing in here may allocate, log, lock or throw: other threads are stopped.
+void write_with_threads_stopped(std::vector<Stopped>& th, uintptr_t addr, const PatchBytes& pb, const IpMap* map,
+                                uintptr_t tramp, FreezeReport& rep) {
+    LARGE_INTEGER t0, t1, freq;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t0);
+    for (Stopped& s : th) {
+        s.suspended = !s.skip && SuspendThread(s.h) != static_cast<DWORD>(-1);
+        if (!s.skip && !s.suspended) ++rep.unstopped;
+    }
+    alignas(16) CONTEXT ctx;
+    for (Stopped& s : th) {
+        if (!s.suspended) continue;
+        ctx.ContextFlags = CONTEXT_CONTROL;  // GetThreadContext also waits until the thread has really stopped
+        if (GetThreadContext(s.h, &ctx)) {
+            s.has_rip = true;
+            s.rip = static_cast<uintptr_t>(ctx.Rip);
+        } else {
+            ++rep.no_context;
+        }
+    }
+    DWORD old = 0;
+    if (VirtualProtect(reinterpret_cast<void*>(addr), pb.len, PAGE_EXECUTE_READWRITE, &old)) {
+        std::memcpy(reinterpret_cast<void*>(addr), pb.b, pb.len);
+        FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(addr), pb.len);
+        DWORD tmp = 0;
+        VirtualProtect(reinterpret_cast<void*>(addr), pb.len, old, &tmp);
+        rep.written = true;
+        // A thread stopped right after the first instruction would resume in the middle of the new jump.
+        for (Stopped& s : th) {
+            if (!s.has_rip || s.rip <= addr || s.rip >= addr + pb.len) continue;
+            ++rep.in_range;
+            uintptr_t to = tramp + (s.rip - addr);  // same offset unless a relocated instruction changed the layout
+            if (map)
+                for (uint8_t i = 0; i < map->n; ++i)
+                    if (map->from[i] == s.rip - addr) to = tramp + map->to[i];
+            ctx.ContextFlags = CONTEXT_CONTROL;
+            if (GetThreadContext(s.h, &ctx)) {
+                ctx.Rip = to;
+                if (SetThreadContext(s.h, &ctx)) ++rep.moved;
+            }
+        }
+    }
+    for (Stopped& s : th)
+        if (s.suspended) ResumeThread(s.h);
+    QueryPerformanceCounter(&t1);
+    rep.stopped_ms = 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq.QuadPart);
+}
+
+// g_mutex held. Writes the detour over the function's first bytes with the other threads stopped. False: could not (the
+// caller falls back to safetyhook's enable()); nothing was written then.
+bool enable_detour(Target& t, FreezeReport& rep) {
+    PatchBytes pb;
+    if (!make_patch(t, pb)) return false;
+    IpMap map;
+    const bool have_map = build_ip_map(t.hook.original_bytes(), t.hook.trampoline().data(), t.hook.trampoline().size(), map);
+    std::vector<Stopped> th;
+    th.reserve(512);  // the freeze must not allocate
+    LARGE_INTEGER l0, l1, freq;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&l0);
+    if (!open_threads_nt(th) && !open_threads_toolhelp(th, rep.unopened)) return false;
+    QueryPerformanceCounter(&l1);
+    rep.list_ms = 1000.0 * static_cast<double>(l1.QuadPart - l0.QuadPart) / static_cast<double>(freq.QuadPart);
+    for (const Stopped& s : th) rep.threads += s.skip ? 0 : 1;
+    write_with_threads_stopped(th, t.addr, pb, have_map ? &map : nullptr, t.trampoline, rep);
+    for (Stopped& s : th) CloseHandle(s.h);
+    return rep.written;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Targets
 
 // g_mutex held. Finds or creates the target: entry stub, head cell, the one safetyhook inline detour.
@@ -620,9 +871,32 @@ Target* target_for(uintptr_t addr) {
     t->hook = std::move(*hook);
     t->trampoline = t->hook.target_address() ? t->hook.trampoline().address() : 0;
     t->head->store(t->trampoline, std::memory_order_release);
-    if (!t->hook.enable()) {
-        KLOG_E("hooks: safetyhook could not enable the detour on rva %s", hex(rva_of(addr)).c_str());
-        return nullptr;
+    FreezeReport rep;
+    if (enable_detour(*t, rep)) {
+        KLOG_D("hooks: detour on rva %s written with %zu other thread(s) stopped for %.2f ms, %.2f ms to list and open them "
+               "(%zu not openable, %zu moved out of the replaced bytes, %zu without a context)",
+               hex(rva_of(addr)).c_str(), rep.threads, rep.stopped_ms, rep.list_ms, rep.unopened, rep.moved,
+               rep.no_context);
+        if (rep.stopped_ms > 50)
+            KLOG_W("hooks: the other threads stood still for %.1f ms while the detour on rva %s was written",
+                   rep.stopped_ms, hex(rva_of(addr)).c_str());
+        if (rep.moved)
+            KLOG_I("hooks: %zu thread(s) were paused inside the first bytes of rva %s and were moved to the trampoline",
+                   rep.moved, hex(rva_of(addr)).c_str());
+        if (rep.unopened || rep.unstopped || rep.no_context)
+            KLOG_W("hooks: rva %s: %zu thread(s) could not be opened or stopped and %zu stopped one(s) gave no context "
+                   "while the detour was written; they were not checked for the replaced bytes",
+                   hex(rva_of(addr)).c_str(), rep.unopened + rep.unstopped, rep.no_context);
+        if (rep.moved != rep.in_range)
+            KLOG_E("hooks: %zu thread(s) paused inside the first bytes of rva %s could not be moved; they may crash when they "
+                   "run on", rep.in_range - rep.moved, hex(rva_of(addr)).c_str());
+    } else {
+        // No thread list, or a trampoline of a shape we don't know: safetyhook's own way (page trap, no thread stops).
+        KLOG_W("hooks: rva %s: could not stop the other threads; using safetyhook's enable", hex(rva_of(addr)).c_str());
+        if (!t->hook.enable()) {
+            KLOG_E("hooks: safetyhook could not enable the detour on rva %s", hex(rva_of(addr)).c_str());
+            return nullptr;
+        }
     }
     read_guarded(addr, t->own, sizeof t->own);
     t->own_len = t->own[0] == 0xE9 ? 5 : 14;
@@ -682,6 +956,8 @@ KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& orde
         return KILN_ERR_UNAVAILABLE;
     }
     l->next = &cells[0];
+    // The cell is never 0 (the real function until the plan below fills in the right entry).
+    cells[0].store(t->trampoline, std::memory_order_relaxed);
     cells[1].store(reinterpret_cast<uintptr_t>(l.get()), std::memory_order_relaxed);
     Em e(stub);
     if (kind == Kind::Raw) {
@@ -703,14 +979,22 @@ KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& orde
         l->cont = cont;
     }
     flush(stub, 48);
-    if (original && kind == Kind::Raw) *original = l->cont;  // before the link can be reached
 
     Link* link = l.release();
     t->order.push_back(link);
     t->label_cache.clear();
+    // Place the link on paper first. `*original` is the continuation of the handler and is shared by every link its
+    // owner installed through that variable: a thread still inside a revoked link that used it (a RawHook installed again
+    // in place) jumps through the new link's cell the moment the variable changes, long before the cells are published.
+    // So the cell gets the entry the link will really lead to (the link after it in the new chain, else the real
+    // function) first, then `*original`, then the chain itself. The thread then runs exactly the links it would have run
+    // a moment later, none skipped.
+    Plan plan = plan_chain(*t);
+    link->next->store(plan.next_of(link), std::memory_order_release);
+    if (original && kind == Kind::Raw) *original = link->cont;
     s.links[index].store(link, std::memory_order_release);
     ++s.next_link;
-    rebuild(*t);
+    apply_plan(*t, plan);
     if (out) *out = link->handle;
     size_t live = 0;
     for (Link* x : t->order) live += x->live.load() ? 1 : 0;

@@ -9,7 +9,8 @@
 // Notes:
 //  - The registry never removes a physical detour (removing one while threads run is riskier than an empty chain that
 //    just reaches the original): revoking leaves the chain without the owner's links, atomically.
-//  - The first hook on a target freezes the other threads (safetyhook); later links on it freeze nothing.
+//  - The first link on a target stops the other threads while the detour is written and moves any thread paused inside the
+//    replaced bytes (hooks_chain.cpp, enable_detour); later links on it stop nothing.
 //  - hooks.json is written at boot end, at the first world, and when links change (at most once per second).
 #include <algorithm>
 #include <array>

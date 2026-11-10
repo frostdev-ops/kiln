@@ -13,7 +13,8 @@
 #include <unordered_set>
 
 #include "internal.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
 
 namespace kcr {
 
@@ -21,7 +22,7 @@ AiStats AS;
 
 namespace {
 
-safetyhook::MidHook g_cond_hook, g_set_hook, g_behavior_hook;
+kiln::MidHook2 g_cond_hook, g_set_hook, g_behavior_hook;
 std::atomic<uint32_t> g_interest{0};
 std::atomic<bool> g_diag{false}, g_guard{false};
 bool g_installed = false;
@@ -87,14 +88,12 @@ void hk_behavior(safetyhook::Context& c) {
         AS.copy_reads.fetch_add(1, std::memory_order_relaxed);
 }
 
-bool install_mid(safetyhook::MidHook& h, uintptr_t at, safetyhook::MidHookFn f, const char* what) {
+bool install_mid(kiln::MidHook2& h, uintptr_t at, void (*f)(safetyhook::Context&), const char* what, const char* label) {
     if (!at) return false;
-    auto m = safetyhook::MidHook::create(reinterpret_cast<void*>(at), f);
-    if (!m) {
+    if (!h.install(g_api, g_owner, at, f, label)) {
         KC_W("mid hook on %s (0x%llx) failed", what, static_cast<unsigned long long>(at));
         return false;
     }
-    h = std::move(*m);
     return true;
 }
 
@@ -146,15 +145,15 @@ bool ai_hooks_on() { return g_installed; }
 
 void ai_install() {
     if (!F.ai) return;
-    bool ok = install_mid(g_cond_hook, fn.handle_condition, &hk_condition, "HandleCondition") &&
-              install_mid(g_set_hook, fn.set_state, &hk_set_state, "SetState");
+    bool ok = install_mid(g_cond_hook, fn.handle_condition, &hk_condition, "HandleCondition", "creatures/HandleCondition") &&
+              install_mid(g_set_hook, fn.set_state, &hk_set_state, "SetState", "creatures/SetState");
     if (!ok) {
         g_cond_hook = {};
         g_set_hook = {};
         return;
     }
     g_installed = true;
-    if (file_exists(data_file("diag")) && install_mid(g_behavior_hook, fn.behavior_update, &hk_behavior, "BehaviorUpdate")) {
+    if (file_exists(data_file("diag")) && install_mid(g_behavior_hook, fn.behavior_update, &hk_behavior, "BehaviorUpdate", "creatures/BehaviorUpdate")) {
         g_diag = true;
         KC_I("diagnostics on (kiln/data/kiln.creatures/diag): counting behaviour updates that read a private copy");
     }
@@ -162,7 +161,7 @@ void ai_install() {
 
 void ai_behavior_guard_arm() {
     if (g_guard.load(std::memory_order_relaxed) || !fn.behavior_update) return;
-    if (!g_behavior_hook && !install_mid(g_behavior_hook, fn.behavior_update, &hk_behavior, "BehaviorUpdate")) return;
+    if (!g_behavior_hook && !install_mid(g_behavior_hook, fn.behavior_update, &hk_behavior, "BehaviorUpdate", "creatures/BehaviorUpdate")) return;
     g_guard.store(true, std::memory_order_relaxed);
 }
 

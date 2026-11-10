@@ -32,7 +32,8 @@
 #include "attr_table.h"
 #include "combat_internal.h"
 #include "kiln_api.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
 #include "services/kiln_assets.h"
 #include "services/kiln_combat.h"
 #include "services/kiln_spawn.h"
@@ -79,8 +80,8 @@ void logf(int32_t level, const char* fmt, ...) {
 // ---- feature state ----
 bool g_health_ok = false, g_hits_ok = false, g_deaths_ok = false;
 bool g_falls_ok = false, g_regen_ok = false, g_attr_ok = false;
-SafetyHookInline g_conclusion_hook, g_apply_hook;
-safetyhook::MidHook g_fall_check_hook, g_fall_store_hook, g_regen_hook, g_attr_hook;
+kiln::RawHook g_conclusion_hook, g_apply_hook;
+kiln::MidHook2 g_fall_check_hook, g_fall_store_hook, g_regen_hook, g_attr_hook;
 const KilnWorldApi* g_world_api = nullptr;
 const KilnSpawnApi* g_spawn_api = nullptr;
 KilnHandle g_died_program = 0;
@@ -1804,42 +1805,38 @@ void resolve() {
          g_hits_ok ? "on" : "OFF", static_cast<unsigned long long>(size), g_deaths_ok ? "on" : "OFF");
 }
 
-bool install_mid(safetyhook::MidHook& h, uintptr_t at, safetyhook::MidHookFn fn, const char* what) {
-    auto m = safetyhook::MidHook::create(reinterpret_cast<void*>(at), fn);
-    if (!m) {
-        LOGE("mid hook %s at %p failed (error %d)", what, reinterpret_cast<void*>(at), static_cast<int>(m.error().type));
+bool install_mid(kiln::MidHook2& h, uintptr_t at, void (*fn)(safetyhook::Context&), const char* what, const char* label) {
+    if (!h.install(g_api, g_owner, at, fn, label)) {
+        LOGE("mid hook %s at %p failed (%s)", what, reinterpret_cast<void*>(at), h.error());
         return false;
     }
-    h = std::move(*m);
     return true;
 }
 
 void install_mid_hooks() {
     if (g_falls_ok) {
-        g_falls_ok = install_mid(g_fall_check_hook, E.fall_check, &hk_fall_check, "fall check") &&
-                     install_mid(g_fall_store_hook, E.fall_store, &hk_fall_store, "fall store");
+        g_falls_ok = install_mid(g_fall_check_hook, E.fall_check, &hk_fall_check, "fall check", "combat/FallCheck") &&
+                     install_mid(g_fall_store_hook, E.fall_store, &hk_fall_store, "fall store", "combat/FallStore");
         if (!g_falls_ok) g_fall_check_hook = {}, g_fall_store_hook = {};
     }
-    if (g_regen_ok) g_regen_ok = install_mid(g_regen_hook, E.regen_add, &hk_regen, "regeneration add");
-    if (g_attr_ok) g_attr_ok = install_mid(g_attr_hook, E.attr_record, &hk_attr, "attribute change record");
+    if (g_regen_ok) g_regen_ok = install_mid(g_regen_hook, E.regen_add, &hk_regen, "regeneration add", "combat/RegenAdd");
+    if (g_attr_ok)
+        g_attr_ok = install_mid(g_attr_hook, E.attr_record, &hk_attr, "attribute change record", "combat/AttrChangeRecord");
     LOGI("mid hooks: fall_damage_infliction %s, health_recharge %s, changeAttributeValue %s", g_falls_ok ? "on" : "off",
          g_regen_ok ? "on" : "off", g_attr_ok ? "on" : "off");
 }
 
 bool install_hooks() {
     if (!g_hits_ok) return false;
-    auto c = safetyhook::InlineHook::create(reinterpret_cast<void*>(E.conclusion), reinterpret_cast<void*>(&hk_conclusion));
-    if (!c) {
+    if (!g_conclusion_hook.install(g_api, g_owner, E.conclusion, reinterpret_cast<void*>(&hk_conclusion), "combat/HitConclusion")) {
         LOGE("hooking impact_hit_conclusion failed");
         return false;
     }
-    auto h = safetyhook::InlineHook::create(reinterpret_cast<void*>(E.apply_hit), reinterpret_cast<void*>(&hk_apply_hit));
-    if (!h) {
+    if (!g_apply_hook.install(g_api, g_owner, E.apply_hit, reinterpret_cast<void*>(&hk_apply_hit), "combat/ApplyHit")) {
         LOGE("hooking applyHitToEntity failed");
+        g_conclusion_hook.revoke();  // both or neither, as before
         return false;
     }
-    g_conclusion_hook = std::move(*c);
-    g_apply_hook = std::move(*h);
     return true;
 }
 

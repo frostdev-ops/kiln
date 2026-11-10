@@ -78,8 +78,9 @@ public override void OnLoad()
 - A detour/mid handler runs on **whatever thread the target runs on** — often the tick thread, but the game's job
   threads too. Keep handlers short and thread-safe; do not call tick-thread-only APIs (most of `World`, `Items`, …)
   from them.
-- The first hook on a target freezes the other threads briefly (safetyhook); do it on the tick thread or in `OnLoad`.
-  Later hooks on the same target freeze nothing.
+- The first hook on a target stops the other threads for a few milliseconds while Kiln writes the jump
+  ([details](services/hooks.md#threads)); do it on the tick thread or in `OnLoad`. Later hooks on the same target stop
+  nothing.
 - The inline detour itself is **never uninstalled** while the process runs; revoking a mod removes its links from the
   chain atomically (a dead mod is never called), and when none remain the call goes straight to the original.
 
@@ -105,8 +106,8 @@ only ones on the hot path is fine (verified: 100 reloads, 0 failures). Prefer no
 detours on one function, or quiesce before a hot reload.
 
 ## v2 (dev.21): one registry
-Hooks placed through `kiln.hooks` (managed `Hooks.*`, kiln-emf's and kiln-set's, and Kiln's services as dev.21 moves
-them over) go through one registry that owns a single physical detour per game address, with ordering (`before` /
+Hooks placed through `kiln.hooks` (managed `Hooks.*`, Kiln's services and core tick, kiln-emf, kiln-set, EMF mods'
+`hook` slot, Shroudtopia and a hosted ShroudForge's engine hooks) go through one registry that owns a single physical detour per game address, with ordering (`before` /
 `after` / priority), the game's call site (`caller()`), detection of other modules' hooks and a map of all hooks in
 `state/hooks.json`. Native code uses it through `kiln_hook.hpp`. The full description is
 [services/hooks.md](services/hooks.md). Managed `Hooks.Detour` / `Hooks.Mid` are links in that chain at their
