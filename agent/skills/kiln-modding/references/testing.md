@@ -22,6 +22,15 @@ build runs vanilla and your mod never loads: kiln.log says so at boot.
 No player is needed for most checks. Design player-free checks: entities you spawn, containers, NPCs in the world,
 log lines. Write down what only a joined player can confirm (UI, client visuals, real hits) instead of claiming it.
 
+## Launcher notes (dev.21+)
+- Library Remove and Clean up are refused while Enshrouded runs ("Close Enshrouded first: the game may be reading this mod"),
+  also with force. Clean up never lists a version the game's active profile uses. A running server blocks Remove only when its
+  profile points into the Library.
+- A profile's native page lists each chain.ini entry with "Load after Kiln and ShroudForge", last session's hook overlaps with
+  "Load late", and the compat rules that apply.
+- Play-once with a profile follows that profile's chain and compat rules for that start only.
+- These pages and messages are covered by tests and mock data, not by a hand-run against a real install.
+
 ## Deploy and hot reload
 ```sh
 kiln deploy                   # copy into <server>/kiln/mods/<id>

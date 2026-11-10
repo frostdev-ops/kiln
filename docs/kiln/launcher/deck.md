@@ -8,7 +8,7 @@ Code: `launcher/src/deck/` (frontend), `launcher/src-tauri/src/deck/` (detection
 browser), `launcher/src-tauri/src/commands/deck.rs` (commands). Contracts: [contracts.md](contracts.md) section 9
 (`deck_*`, `AppInfo.deck`, `uiMode`), section 10 (`kiln://gamepad`).
 
-**Official 0.2.0-dev.20:** the Nexus Catalog, account controls and Mod Manager Download links are disabled on Deck
+**Official 0.2.0-dev.21 (as in dev.20):** the Nexus Catalog, account controls and Mod Manager Download links are disabled on Deck
 and desktop while OAuth approval is pending. Download mod archives in a browser and add them from Downloads.
 The Catalog descriptions below apply only to an enabled, approved future build; personal API keys are not a fallback.
 
@@ -178,7 +178,7 @@ steps instead:
   "Desktop UI" for those.
 - The game-art extraction (`GameArtAuto`) does not run in Deck mode (only the save editor and the admin map use it).
 - No on-screen keyboard of our own: no screen needs typing. The Catalog has no text search in Deck mode (X and Y
-  filter and sort). In an enabled build, Nexus account sign-in uses OAuth in desktop Settings; dev.20 has neither Catalog nor account controls.
+  filter and sort). In an enabled build, Nexus account sign-in uses OAuth in desktop Settings; dev.20 and dev.21 have neither Catalog nor account controls.
 - Rumble, gyro and the trackpads are not used. Steam's virtual controller sends the Deck's buttons; with Steam
   Input off, the Deck's own `hid-steam` device works the same.
 - WebKitGTK inside gamescope drew fine here (below). If a Deck shows a blank window, `WEBKIT_DISABLE_COMPOSITING_MODE=1`

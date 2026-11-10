@@ -2,7 +2,7 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.20` for this release, or a unique
+`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.21` for this release, or a unique
 `0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
 not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
 
@@ -34,7 +34,7 @@ installed MDK to confirm availability. These add typed blocks and/or `blocks/*.j
 
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.20">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.21">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>

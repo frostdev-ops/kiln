@@ -38,6 +38,9 @@ KL6xx licences. Findings can carry `fixes`.
 | KILN106 | thread, timer, watcher, socket, subscription never released | dispose in `OnUnload` |
 | KILN107 (error) | advanced API without `KilnAdvanced` | opt in, or don't use it |
 | KILN108 | service used but not in `KilnServices` | add it |
+| KILN110 (error) | bad or duplicate block name | rename it |
+| KILN111 | a name that is no block, or the wrong kind; only info for a game-style name (`Weapon_T1_...`) your local catalog lacks (dev.21+). Names from `content/*.json` and `ItemDefinition` count | define it, or use the handle `Blocks.Define` returned |
+| KILN112 (error) | `clients` too low for the mod's blocks | raise `clients` (`kiln` or `mod`) |
 
 KILN001-004 are manifest checks. KILN190: no catalog, so no game-id constants. Configure in `.editorconfig`
 (`dotnet_diagnostic.KILN105.severity`). Don't suppress one without saying why.

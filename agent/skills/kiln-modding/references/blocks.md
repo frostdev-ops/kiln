@@ -3,7 +3,7 @@
 Start with typed `Blocks.Define` in `OnLoad` or `blocks/*.json` and `<KilnServices>Blocks</KilnServices>`. Keep block names
 stable after release. Fields take inline blocks, handles, names in this mod, or supported `other-mod:name` references.
 `kiln lint` and `kiln blocks show <name>` expose errors and the lowered result. These additions require dev.20+; check the
-installed runtime and MDK. The current dev.20 includes them; older dev.19 installations do not.
+installed runtime and MDK. dev.20 and the current dev.21 include them; dev.19 installations do not.
 
 ## Items, loot and templates
 

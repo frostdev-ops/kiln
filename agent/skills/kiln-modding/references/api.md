@@ -144,6 +144,8 @@ first require `e.Name == "inventoryTransferAction"` and `e.CanCancel` on `Player
 with `Items.Transfers.ParseAction` and cancel the held action. The parser does not identify an action from its bytes.
 Joined-client events cannot cancel the server's action, and a Quick Stack Station has no such request. Rules and
 subscriptions end with the original mod lifetime.
+dev.21+: a native `transfer_listen` handler (kiln.items) also runs on a dry-run move (not a `Silent` one) with
+`KILN_TRANSFER_DRY_RUN` in `ev->flags`. Keep and cancel as usual; count, log and change nothing outside the transfer.
 Wiki: [inventory](https://frostdev.io/kiln/wiki/inventory).
 
 ## Persistent data
@@ -172,6 +174,9 @@ Registries: `Content.Items`, `Recipes`, `Loot`, `Drops`; game data: `Content.Tem
 `Buffs`, `Perks`, `Skills`. `entry.Get(path)`, `Original(path)`, `Set(path, value)`, `Reset(path)`.
 `Content.Dump()` writes every registry with its fields to `kiln/data/content/dump.json`: look names and paths up
 there instead of guessing. `Content.Status()`, `Content.PackReport()`.
+dev.21+: `Overrides.Claim`/`Release`/`RestoreAll` from a thread where no mod's code runs (`Task.Run`, a timer) throw
+`InvalidOperationException`; post to the tick thread with `Context.Scheduler.Post`. A `ReflectedResources` handle got in
+`OnLoad` stays your claim from any thread. `Assets.Reflect(key)` returns `null` on a build without kiln.types.
 
 ## Creatures
 `Creatures.Template(name)`, `Creatures.Of(entity)` → `CreatureRef` (`Level`, `Faction`, `Scale`, `Resistance[kind]`,
@@ -210,13 +215,16 @@ context, never a place to call tick-thread game services or retain component poi
 `Ui.Available` is false on a dedicated server. dev.20+: `WindowBlock`, `HudLineBlock`, `KeyBindingBlock` and the equivalent
 JSON sections bind config and safe `game.*` values without draw code: [blocks.md](blocks.md#ui-as-data).
 dev.20+: `StatusLines.Add(() => cachedText)` / `Set("state", text)` report mod status when asked, including on servers.
-A source may run on a worker: use a tick-produced snapshot, never game state or tick-held locks.
+A source may run on a worker: use a tick-produced snapshot, never game state or tick-held locks. dev.21+: the menu and the
+dashboard never wait for a source. They show the lines read last and refresh on a worker, so a new line appears a moment later.
 A UI `command` runs in this game's registry; it does not send chat to a joined server. Use `castAbility` / `applyEffect`
 with the same mod on the server for server-side actions. Old callbacks, queued edits and commands cannot outlive their mod load.
 
 **dev.20+ game text:** `Texts.Get/GetPlain(tag)` in `Kiln.Content` resolves English loca. A server needs a client catalog
 from the same game build (`kiln catalog build --side client`, local `kiln/catalog/client.json`). `Texts.Status` explains a
-missing catalog; `Preload` loads ahead of time. Catalogs contain game data and must not ship in a mod.
+missing catalog; `Preload` loads ahead of time. dev.21+: while another thread loads the catalog (`Preload`, or a first call),
+`Texts.Get` returns `null` at once instead of waiting; `Texts.Status` says "still loading". Catalogs contain game data and
+must not ship in a mod.
 
 ## Assets
 `assets/assets.json` entries `icon`, `texture`, `resource`, `blob`; loaded at boot. Icons and textures are client
@@ -237,20 +245,77 @@ thread. Content changes reach Kiln clients without any code (content sync); conf
 `Client.Tick += (in TickInfo t) => ...`, `Client.Post(action)`, `await Client.NextTick()`.
 
 ## Hooks (advanced tier only) and other DLL mods
-Only when no service does the job, and only with `"advanced": true`. Since dev.21 every hook goes through one registry,
-`kiln.hooks` v2: one detour per game function, shared by Kiln's services, other engines and your mod. Your hook is a
-**link** in that chain.
-- C#: `Hooks.Detour(name, call => call.CallOriginal(), priority)` and `Hooks.Mid(name, (ref Registers r) => ..., priority)`.
-  Higher priority runs first. A detour sees the first four integer arguments; the original still gets all of them.
-  Floats: a mid hook or a native mod.
-- C++ (a native mod's `KilnNativeContext::api`/`owner`): `#include "kiln_hook.hpp"`, a global `kiln::RawHook g;` and
-  `g.install(api, owner, target, (void*)&hk, "mymod/Thing", priority, before, after)` (any signature; call on with
-  `g.call<R>(args...)`), or `kiln::MidHook2`. `before`/`after` are owner names (`kiln.chat`, `emf:coolmod`).
-- Need the game's call site? Read `g.caller()` first thing, before calling the original. Never `_ReturnAddress()`: another
-  link in front changes it.
-- Dropping a hook object does not remove it: `revoke()`. Links are never freed (65,536 per process), so don't hook and
-  revoke in a loop; keep the link and switch a flag.
-- `kiln/state/hooks.json` lists every link per function, and other modules' hooks found before or over Kiln.
-- Closed-source DLL mods (XHL, trainers) that clash: load them late (`kiln/chain.ini` `[late]`, or the launcher's "Load
-  after Kiln and ShroudForge"). kiln.log `compat: overlap:` lines and `hooks.json` `overlaps` name both sides.
-  `<configDir>/compat-rules.json` rules can `warn`, load a DLL `late` or `disable` it.
+Only when no service does the job, and only with `"advanced": true`. Since dev.21 every hook Kiln places on the game exe goes
+through one registry, `kiln.hooks` v2: one detour per game function, shared by Kiln's services, EMF and Shroudtopia mod hooks
+and your mod. Your hook is a **link** in that function's chain. An address outside the game image is refused
+(`KILN_ERR_INVALID_ARGUMENT`); hooks on system DLL exports and EMF/Shroudtopia hooks outside the exe stay plain safetyhook.
+- **Order on one function:** `before`/`after` constraints, then priority (higher first), then registration order. EMF mods'
+  `hook`/`hook_pattern`/`hook_address` and Shroudtopia's `CreateDetour` are links owned by `emf:<id>` and `shroudtopia:<mod>` at
+  priority 1 with `KILN_HOOK_NEWEST_FIRST`: they run newest first, before Kiln's priority-0 links. To run ahead of them, take a
+  higher priority or `before` their owner.
+- C#: `Hooks.Detour(symbolOrAddress, call => call.CallOriginal(), priority)` and
+  `Hooks.Mid(symbolOrAddress, (ref Registers r) => { ... }, priority)` return a `HookHandle` (`Remove()`; unload removes it).
+  A detour reads and writes `call[0]`..`call[3]` (rcx, rdx, r8, r9); returning a value without `CallOriginal()` replaces the
+  function. Since dev.21 the original gets **every** argument, not only the first four. Floats: a mid hook (`r.XmmF(n)`) or a
+  native mod.
+- Mid hooks follow safetyhook's stack rules: `Rsp` is read-only, `TrampolineRsp` starts at `Rsp - 8`, and the game resumes with
+  `rsp = TrampolineRsp; ret`. Return early from a function's first instruction with `r.Rax = value; r.TrampolineRsp = r.Rsp;`
+  (C: `r->trampoline_rsp = r->rsp`).
+- C++ (a native mod's `KilnNativeContext::api` and `owner`): `#include "kiln_hook.hpp"`, a global `kiln::RawHook`, any signature:
+  ```cpp
+  static kiln::RawHook g;
+  static void hk(void* chat, int type, const char* text) {
+      if (g.caller() == g_player_line_ret) { /* the game's call site: read it before calling on, never _ReturnAddress() */ }
+      g.call<void>(chat, type, text);          // the rest of the chain, then the game (the game's exact argument types)
+  }
+  // install(api, owner, target, fn, label, priority = 0, before = nullptr, after = nullptr): here after "kiln.chat"
+  if (!g.install(api, owner, target, (void*)&hk, "mymod/Thing", 0, nullptr, "kiln.chat")) { /* g.error() says why */ }
+  ```
+  `before`/`after` are comma-separated owner names (`kiln.chat`, `emf:coolmod`; kind prefix and `.dll` optional); a constraint
+  that contradicts an earlier one is dropped with a kiln.log warning. Other kinds via `kiln::hooks_v2(api)`: `detour2` (up to 12
+  integer/pointer arguments, `KilnHookCall2` with `c->caller`) and `kiln::MidHook2` (`void(*)(Ctx&)`, `Ctx` = `KilnRegisters` or
+  `safetyhook::Context`).
+- **`KilnHookOrder.flags`** (set `size = sizeof(KilnHookOrder)`; a smaller size reads 0): `KILN_HOOK_NEWEST_FIRST` runs the
+  flagged links of one priority first, newest first. `RawHook::install` has no `flags` argument: call `hooks->raw_detour` with
+  your own `KilnHookOrder`.
+- **Same handler again:** installing the same raw handler on a function replaces the earlier link in one step (its handle stops
+  working; the handler never runs twice for one call). A replaced `MidHook2` can run its handler twice for one call at that moment.
+- **Link slots:** 65,536 per process, 512 hooked addresses (`KilnHooksStats.targets_cap`). A revoked link keeps its slot; an
+  identical re-install (kind, function, user pointer, owner, label) takes it back. Managed `Hooks.Detour`/`Hooks.Mid` take a new
+  slot on every install: install once, switch a flag. kiln.log warns at 75% and when full.
+- Dropping a hook object does not remove the link: `revoke()` or `revoke_owner(owner)`. Reordering links already installed is not
+  atomic: a call in flight at that moment can skip a link or run one twice (no crash).
+- `kiln/state/hooks.json`: every function with its links in chain order, `foreignBefore`/`foreignOver` (other modules' hooks
+  found before or over Kiln), `overlaps`, `rules`, `linkSlots` `{used, cap}`. kiln.log: `hooks: <label> chained over <module>+0x...`.
+
+**Closed-source DLL mods** (XHL-Core, Auto Loot Plus, trainers) hook in their `DllMain`, before Kiln, and Kiln chains over them.
+If a hosted engine needs Kiln's hook first, load the DLL late:
+- `kiln/chain.ini` `[late]` repeats the path of an entry that `[chain]`, `[profile]` or `dinput8-chain.ini` already holds. The
+  launcher's profile native page has the switch "Load after Kiln and ShroudForge" per chain entry and "Load late" on an overlap.
+  kiln-core then loads the DLL after Kiln's services, plugins and ShroudForge: Kiln hooks first, the DLL hooks over it. An older
+  proxy ignores `[late]` and loads the DLL early.
+- Limits: EMF's own loader is never deferred (the launcher says "Always loads first"). A DLL another loader already started is
+  `already-loaded` (`state/native.json` `chain.late`). A late DLL of a disabled or policy-refused native mod is skipped. An
+  `early` or `boot` native mod cannot `requires` a mod whose DLL is late; a `world` mod can.
+- A late DLL (or a native mod) may patch the game's entry point: the proxy puts the entry's own bytes back before the core
+  starts, and the patch runs before the game's own entry.
+- Play-once with a profile writes `kiln/chain/once.ini` with that profile's `[chain]` and `[late]`, so that start follows its
+  own compat rules; the next normal start is back to the active profile's.
+- Overlaps: kiln.log `compat: overlap:` lines and `hooks.json` `overlaps[]` (`foreign-before`, `foreign-over`, `refused`) name both
+  sides and a fix (`late` or `rule`).
+- `<configDir>/compat-rules.json` (after Kiln's `kiln/compat-rules.json`; the same `id` replaces it) rules can `warn`, load a
+  chain DLL `late`, or `disable` a chain DLL or a profile-listed mod. The launcher applies `late` and `disable` of chain entries
+  when it writes chain.ini; kiln-core logs `warn` rules, skips a disabled profile-listed mod and reports the rest as not applied,
+  also `disable` of a native mod whose DLL the proxy already loaded (activate the profile again in the launcher).
+
+## Other engines' mods next to yours (EML, EMF)
+- EML: each game file is read at most once per start, and not at all while the OS shows it unchanged (change stamps in
+  `kiln/eml/cache/files.json`). The first start after the update still reads all game files once (about 48 GiB on a full client
+  install). `KILN_EML_FULL_HASH=1` turns reuse off; set it for one start after a power loss or hard crash. `state/eml.json`
+  `fingerprint` and the kiln.log line `[eml] Fingerprints: hashed ... reused ...` show the cost. An EML mod whose `src/mod.lua`
+  cannot be read is switched off before the game-data step, with the reason in `state/eml.json` and kiln.log; the others run.
+- EMF portraits: `image_load("portrait:<key>")` from a tick or render thread returns a handle at once while the picture is still
+  being drawn. It shows nothing until the drawing finishes, then the picture; no retry is needed. Called while the mod's DLL loads, it
+  waits (at most 120 s for the whole start). kiln-eml's portrait cache codes: 5 busy and 7 cache I/O error (both tried again at
+  the next start), 6 full (delete unused folders in `emf/cache/portraits`). Use kiln-emf and kiln-eml from the same release.
+- Most of these paths were verified under Wine and on lab servers, not on a real client: report them as "needs a client check".

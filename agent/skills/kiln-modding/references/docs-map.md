@@ -37,6 +37,7 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | Terrain, props, schematics, zones | `world-edits` |
 | Menus, screens, crafting tabs, HUD, keys | `game-ui`; data blocks: `ui-blocks` |
 | Network channels, synced configs, client code | `multiplayer` |
+| Mods of other engines (EML, EMF, closed DLL mods), chain loading | `other-mods` |
 | Forge concepts | `forge` |
 | What works today | `status` |
 

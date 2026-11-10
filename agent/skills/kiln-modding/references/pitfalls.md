@@ -33,7 +33,7 @@
 | Many hits on one target in one step | the engine applies at most 4 impacts per target per step | Kiln defers the rest; don't rely on them landing in the same step |
 | Two mods detouring the same very hot function (advanced tier) | under Wine a hot reload of one can stall | one mod per hot function |
 | `_ReturnAddress()` in a native hook handler (advanced tier) | another link in front of yours hides the game's call site | `RawHook::caller()`, read before calling the original |
-| Hooking and revoking a native hook again and again | links are never freed; after 65,536 hooking fails | install once, switch a flag |
+| `Hooks.Detour`/`Hooks.Mid` per command, or a native hook whose label or user pointer changes each time | each such install takes a new link slot; links are never freed, and after 65,536 hooking fails | install once, switch a flag; an identical native re-install reuses its slot |
 | Testing against the live server | players see your half-done mod; a fault disables it in front of them | a separate local test server |
 | Claiming a client-side effect works after a server-only test | a dedicated server draws nothing, has no UI and no sound | list it as "needs a client check" |
 
@@ -47,3 +47,16 @@
 | Calling game services from an ECS worker callback | wrong thread and undeclared access | declared context access, or post tick work |
 | A UI block `command` intended for a joined server | runs only in this game's command registry | `castAbility` / `applyEffect` with the mod on the server |
 | A factory recipe with `NeedsProps` | refused: no nearby-prop context on that path | use a manual station |
+
+## dev.21+ additions
+
+| Mistake | Result | Use instead |
+|---|---|---|
+| A mid hook that sets `TrampolineRsp` to anything but `Rsp` to return early | the stub resumes with `rsp = TrampolineRsp; ret`, so any other value returns to the wrong address | at a function's first instruction: `r.Rax = value; r.TrampolineRsp = r.Rsp;` |
+| Installing the same raw handler twice on one function for two links | the second install replaces the first; one handler has one live link per function | one handler function per link |
+| Expecting a priority-0 link to run before an EMF or Shroudtopia mod's hook | their links run first (priority 1, newest first) | a higher priority, or `before` their owner (`emf:<id>`) |
+| An `early` or `boot` native mod that `requires` a mod whose DLL is in `chain.ini [late]` | it fails at startup (the late DLL loads after all plugins) | a `world`-phase mod, or load the DLL early |
+| `Overrides.Claim` (or a write through a resource got there) from `Task.Run` or a timer | `InvalidOperationException`; before dev.21 the change counted as Kiln's and was never given back | `Context.Scheduler.Post`; get handles in `OnLoad` |
+| Reading a `null` from `Texts.Get` as "no such text" | it also means another thread is loading the catalog | check `Texts.Status`; `await Texts.Preload()` first |
+| A native transfer handler that counts or logs every call | dry-run moves call it too (`KILN_TRANSFER_DRY_RUN`) | skip side effects when the flag is set |
+| File or folder names that end in a dot or a space in a mod zip | the launcher refuses the zip: Windows would turn them into other names | rename them |

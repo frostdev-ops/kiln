@@ -109,7 +109,7 @@ void on_entry(KilnRegisters* r, void*) {
 }
 ```
 
-(Before ur10, dev.21 started `trampoline_rsp` at `rsp - 16`; that early return then corrupted the caller's stack.)
+(An early dev.21 build started `trampoline_rsp` at `rsp - 16`, so that early return corrupted the caller's stack. The released dev.21 does not.)
 
 A mid link may share its address with raw and structured links. They run in chain order; each sees the registers the
 previous link left.

@@ -72,7 +72,7 @@ typedef uintptr_t(KILN_CALL* KilnDetourFn2)(KilnHookCall2* call, void* user);
  * follows safetyhook's rules: it starts at rsp - 8 (it points at the rip slot) and execution resumes with
  * `rsp = trampoline_rsp; ret`, so the top of that stack must be the address to resume at. A handler at a function's
  * first instruction returns early to the game's caller by setting rax and trampoline_rsp = rsp. Each xmm is 16 bytes.
- * (dev.21 before ur10 started trampoline_rsp at rsp - 16; that was a defect and is fixed.) */
+ * (An early dev.21 build started trampoline_rsp at rsp - 16; that was a defect and the released dev.21 does not.) */
 typedef struct KilnXmm {
     uint8_t bytes[16];
 } KilnXmm;
@@ -111,7 +111,7 @@ typedef struct KilnHookOrder {
     KilnStr label;       /* e.g. "chat/ChatLogAdd" */
     KilnStr before;      /* owners this link must run before */
     KilnStr after;       /* owners this link must run after */
-    /* ---- appended in dev.21 (ur8) ---- */
+    /* ---- appended in dev.21 ---- */
     uint32_t flags;      /* KILN_HOOK_* below */
 } KilnHookOrder;
 
@@ -131,11 +131,11 @@ typedef struct KilnHooksStats {
     uint32_t foreign_before;   /* targets that were already hooked/patched by someone else when Kiln hooked them */
     uint32_t foreign_over;     /* targets someone else hooked over Kiln's detour afterwards */
     uint32_t targets;          /* distinct hooked addresses */
-    /* ---- appended in dev.21 (ur10): filled only when `size` covers them ---- */
+    /* ---- appended in dev.21: filled only when `size` covers them ---- */
     uint32_t links_used;       /* link slots taken since boot (a revoked link keeps its slot; re-installing the same
                                   handler on the same target takes it again) */
     uint32_t links_cap;        /* link slots there are (65536); new hooks are refused when links_used reaches it */
-    /* ---- appended in dev.21 (ur8): filled only when `size` covers them ---- */
+    /* ---- appended in dev.21: filled only when `size` covers them ---- */
     uint32_t targets_cap;      /* distinct addresses kiln.hooks can hook (512); a new address is refused (KILN_ERR_UNAVAILABLE)
                                   when `targets` reaches it. Addresses already hooked still take links. 0 = not reported */
 } KilnHooksStats;

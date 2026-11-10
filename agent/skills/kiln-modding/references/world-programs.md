@@ -34,7 +34,9 @@ an entity query. Match real component/event names and exact unmanaged layouts fr
 sizes or copy private engine offsets.
 
 Inside the callback, `TryRead<T>` / `TryWrite<T>` use declared current-entity access; `TryReadOther<T>` /
-`TryWriteOther<T>` use declared other-entity access. Writes mark the game's replication/save tracking. `ReadEvents(name)`
+`TryWriteOther<T>` use declared other-entity access. They take the component size from kiln.types: without it they return
+false and the mod log says so once per program (dev.21+; calling them per entity allocates and locks nothing). Writes mark
+the game's replication/save tracking. `ReadEvents(name)`
 returns payload copies for each declared input; multiple event inputs work. `EmitEvent(name, bytes)` uses a declared
 output with the exact reflected payload size (less than 256 bytes), stamps GameEvent timestamps, and returns false when full. `QueueAdd` / `QueueRemove` apply at the end of the step. A context/component span
 cannot escape its callback. Send ordinary service work back with `Context.Scheduler.Post` and recheck lifetime/world state.
