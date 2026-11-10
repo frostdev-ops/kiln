@@ -165,6 +165,7 @@ fn players_with_profiles_keep_theirs() {
     profile::deactivate(&dirs, &g).unwrap();
     let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "third", "1.0.0", "")], false, &mut NoProgress).unwrap();
     assert_eq!((r.profile_id.as_deref(), r.added.len(), r.import.imported.len()), (None, 0, 1));
+    assert!(r.library_only.as_deref().is_some_and(|w| w.contains("only in your Library")), "{r:?}");
     assert!(profile::read_game_profile(&g.path).unwrap().is_none());
     assert!(quick::ensure_default_with(&dirs, &g, false).unwrap().is_none());
     // a profile.json of another data folder is left alone too
@@ -172,6 +173,7 @@ fn players_with_profiles_keep_theirs() {
     let other = DataDirs::at(t.0.join("other-data"));
     let r = quick::add_with(&other, &g, &[kiln_mod(&t.0, "fourth", "1.0.0", "")], false, &mut NoProgress).unwrap();
     assert!(r.profile_id.is_none() && !r.created);
+    assert!(r.library_only.as_deref().is_some_and(|w| w.contains("another Kiln data folder")), "{r:?}");
     assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().id, "ember-run");
 }
 
@@ -415,7 +417,7 @@ fn report_and_change_shapes_match_the_frontend() {
     let v = serde_json::to_value(quick::AddReport::default()).unwrap();
     let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort();
-    assert_eq!(keys, ["activation", "added", "already", "applied", "changes", "created", "import", "missing", "modpacks", "profileId", "profileName", "running"]);
+    assert_eq!(keys, ["activation", "added", "already", "applied", "changes", "created", "import", "libraryOnly", "missing", "modpacks", "profileId", "profileName", "resumed", "running"]);
     let from_ui = r#"[{"kind":"kiln","before":null,"after":{"id":"night-owl","version":"1.2.0","hash":"kdh1:00","enabled":true}},
         {"kind":"native","before":{"id":"fps","version":"1.0.0","hash":"kdh1:01","enabled":false},"after":{"id":"fps","version":"1.0.0","hash":"kdh1:01","enabled":true}}]"#;
     let changes: Vec<quick::ProfileChange> = serde_json::from_str(from_ui).unwrap();
@@ -423,4 +425,137 @@ fn report_and_change_shapes_match_the_frontend() {
     assert!(changes[0].before.is_none() && !changes[1].before.as_ref().unwrap().enabled);
     let missing = serde_json::to_value(quick::MissingMod { id: "ui-lib".into(), range: "^1.0".into(), by: "more-hotbars".into() }).unwrap();
     assert_eq!(missing, serde_json::json!({ "id": "ui-lib", "range": "^1.0", "by": "more-hotbars" }));
+}
+
+/// What an uninstall of Kiln leaves behind for the next drop: the game's `kiln/profile.json` goes with Kiln's files in the
+/// game folder, the launcher's profiles and its record of the profile it activated stay.
+fn kiln_uninstalled(g: &GameInstall) {
+    std::fs::remove_file(g.path.join("kiln/profile.json")).unwrap();
+    assert!(profile::read_game_profile(&g.path).unwrap().is_none());
+}
+
+#[test]
+fn after_a_reinstall_a_drop_goes_into_the_profile_the_player_had() {
+    let t = tmp("reinstall");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let first = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "night-owl", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    assert!(first.created && first.library_only.is_none() && !first.resumed);
+    kiln_uninstalled(&g);
+    // the profile is in the launcher, none is active in the game: the drop does not stop at the Library
+    assert_eq!(profile::list(&dirs).unwrap().len(), 1);
+    // while the game runs nothing is imported: turning the profile on again needs the game closed
+    let e = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "dawn-lamp", "1.0.0", "")], true, &mut NoProgress).unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning);
+    assert!(e.message.contains("My mods"), "{}", e.message);
+    assert_eq!(library::list(&dirs, None).unwrap().len(), 1, "nothing was imported");
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "dawn-lamp", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    assert!(r.resumed && r.applied && !r.created && r.library_only.is_none(), "{r:?}");
+    assert_eq!(r.profile_id.as_deref(), Some("my-mods"));
+    assert_eq!(r.added.len(), 1);
+    // the game boots both mods again, from the profile it had
+    assert_eq!(profile::active(&dirs, &g).unwrap().unwrap().profile_id, "my-mods");
+    let mods: Vec<String> = game_mods(&g).into_iter().map(|m| m.0).collect();
+    assert_eq!(mods, ["night-owl", "dawn-lamp"]);
+    assert_eq!(profile::list(&dirs).unwrap().len(), 1, "no second profile");
+    // Undo still takes the new mod out of that profile
+    quick::revert(&dirs, "my-mods", &r.changes).unwrap();
+    assert_eq!(profile::get(&dirs, "my-mods").unwrap().mods.kiln.len(), 1);
+}
+
+#[test]
+fn a_reinstall_with_the_players_own_profile_resumes_that_one() {
+    let t = tmp("reinstall-own");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let base = library::import(&dirs, &[kiln_mod(&t.0, "base", "1.0.0", "")], &mut NoProgress).unwrap().imported[0].clone();
+    let mut a = profile::create(&dirs, "Ember run", None).unwrap();
+    a.mods.kiln.push(ProfileMod { id: base.id.clone(), version: base.version.clone(), hash: base.hash.clone(), enabled: true });
+    let a = profile::save(&dirs, &a).unwrap();
+    profile::create(&dirs, "Other", None).unwrap();
+    profile::activate(&dirs, &a.id, &g).unwrap();
+    kiln_uninstalled(&g);
+    // the install flow: the remembered profile is active again without a drop
+    let act = quick::resume_active(&dirs, &g).unwrap().expect("resumed");
+    assert_eq!(act.profile_id, "ember-run");
+    assert!(quick::resume_active(&dirs, &g).unwrap().is_none(), "an active profile is left as it is");
+    kiln_uninstalled(&g);
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "extra", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    assert!(r.resumed && r.profile_id.as_deref() == Some("ember-run"), "{r:?}");
+    assert_eq!(game_mods(&g).iter().map(|m| m.0.as_str()).collect::<Vec<_>>(), ["base", "extra"]);
+}
+
+#[test]
+fn with_no_profile_to_know_the_result_says_it_is_in_the_library_and_a_profile_can_take_it() {
+    let t = tmp("library-only");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    // two profiles the player made, neither ever active in this game
+    let a = profile::create(&dirs, "Alpha", None).unwrap();
+    let b = profile::create(&dirs, "Beta", None).unwrap();
+    assert!(quick::resume_active(&dirs, &g).unwrap().is_none());
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "night-owl", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    assert_eq!((r.profile_id.as_deref(), r.added.len(), r.import.imported.len(), r.resumed), (None, 0, 1, false));
+    assert!(r.library_only.as_deref().is_some_and(|w| w.contains("only in your Library")), "{r:?}");
+    assert!(profile::read_game_profile(&g.path).unwrap().is_none(), "nothing is activated for a player who did not choose one");
+    // the player picks Beta: it takes the library entry; it is not active, so the game's file is not written
+    let got = quick::add_to_profile_with(&dirs, &g, &b.id, &r.import.imported, false, &mut NoProgress).unwrap();
+    assert_eq!((got.profile_id.as_deref(), got.added.len(), got.applied), (Some("beta"), 1, false));
+    assert_eq!(profile::get(&dirs, &b.id).unwrap().mods.kiln.len(), 1);
+    assert!(profile::get(&dirs, &a.id).unwrap().mods.kiln.is_empty());
+    assert!(profile::read_game_profile(&g.path).unwrap().is_none());
+    // Undo of that add works with the report's changes
+    quick::revert(&dirs, &b.id, &got.changes).unwrap();
+    assert!(profile::get(&dirs, &b.id).unwrap().mods.kiln.is_empty());
+    // a library entry that is not there is refused
+    let ghost = LibraryRef { kind: ModKind::Kiln, id: "ghost".into(), version: "1.0.0".into(), hash: "kdh1:00".into() };
+    assert!(quick::add_to_profile_with(&dirs, &g, &b.id, &[ghost], false, &mut NoProgress).is_err());
+}
+
+#[test]
+fn a_remembered_profile_that_is_gone_or_a_deliberate_no_profile_stays_library_only() {
+    let t = tmp("remembered-gone");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "night-owl", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    profile::create(&dirs, "Spare", None).unwrap();
+    // "No profile" on purpose: the record goes with it, a later drop keeps the choice
+    profile::deactivate(&dirs, &g).unwrap();
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "a", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    assert!(r.profile_id.is_none() && r.library_only.is_some() && !r.resumed, "{r:?}");
+    // an uninstall, then the remembered profile is deleted
+    profile::activate(&dirs, "my-mods", &g).unwrap();
+    kiln_uninstalled(&g);
+    profile::delete(&dirs, "my-mods").unwrap();
+    let r = quick::add_with(&dirs, &g, &[kiln_mod(&t.0, "b", "1.0.0", "")], false, &mut NoProgress).unwrap();
+    assert!(r.profile_id.is_none() && r.library_only.is_some() && !r.resumed, "{r:?}");
+}
+
+/// A real Hoarder's Helper package (EML's loader DLLs next to mods/HoardersHelper/): the mod lands in the profile and in
+/// the game's profile.json under its Kiln id; the manifest keeps its own id; the loader is one line of information.
+#[test]
+fn an_eml_mod_whose_manifest_id_is_no_kiln_id_goes_into_the_profile() {
+    use kiln_manage::pe::build_test_dll;
+    let t = tmp("eml-id");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0);
+    let pkg = t.0.join("HoardersHelper EML included");
+    put(&pkg, "dbghelp.dll", &build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_FILE_PATH"));
+    put(&pkg, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH"));
+    put(&pkg, "mods/HoardersHelper/mod.json", br#"{"id":"HoardersHelper","name":"Hoarder's Helper","version":"1.0.0","capabilities":["runtime"]}"#);
+    put(&pkg, "mods/HoardersHelper/src/mod.lua", b"return {}");
+    let r = quick::add_with(&dirs, &g, &[pkg], false, &mut NoProgress).unwrap();
+    assert!(r.import.skipped.is_empty(), "{:?}", r.import.skipped);
+    assert_eq!(r.import.notes.len(), 1);
+    assert_eq!((r.added[0].kind, r.added[0].id.as_str(), r.added[0].name.as_str()), (ModKind::Eml, "hoardershelper", "Hoarder's Helper"));
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(f.mods.eml.len(), 1);
+    assert_eq!(f.mods.eml[0].id, "hoardershelper");
+    // the plugin reads the library folder the profile names, and its manifest is as the author wrote it
+    let folder = library::path_of(&dirs, &r.import.imported[0]).unwrap();
+    assert!(f.mods.eml[0].path.contains("hoardershelper"), "{}", f.mods.eml[0].path);
+    assert!(std::fs::read_to_string(folder.join("mod.json")).unwrap().contains("\"id\":\"HoardersHelper\""));
+    // the same drop again: already there
+    let again = quick::add_with(&dirs, &g, &[t.0.join("HoardersHelper EML included")], false, &mut NoProgress).unwrap();
+    assert!(again.added.is_empty() && again.already.len() == 1, "{again:?}");
 }

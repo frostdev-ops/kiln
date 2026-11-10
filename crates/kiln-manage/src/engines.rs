@@ -289,23 +289,51 @@ pub fn mod_reason(engine: Engine, what: &str) -> String {
     }
 }
 
-/// Why a loader or tool DLL is not imported as a mod.
+/// The engine's name as a sentence uses it: "EML", "Ember", "Greeneye" (no parenthesis, no "Loader").
+pub fn short_name(engine: Engine) -> &'static str {
+    let n = engine.name();
+    let n = n.split(" (").next().unwrap_or(n);
+    n.strip_suffix(" Loader").unwrap_or(n)
+}
+
+/// Engines whose mods Kiln runs itself (a plugin per engine): their own loader in a package is not needed.
+pub fn kiln_runs(engine: Engine) -> bool {
+    matches!(engine, Engine::Emf | Engine::Eml | Engine::ShroudForge | Engine::Set | Engine::Greeneye | Engine::Flame
+        | Engine::Shroudtopia | Engine::Enshwick | Engine::Shroudlink | Engine::Ember)
+}
+
+/// Loaders of DLL mods that Kiln does itself (it chains DLLs and reads `dinput8-chain.ini`).
+fn is_chain_loader(engine: Engine) -> bool {
+    matches!(engine, Engine::ChainLoader | Engine::ModLoaderProxy)
+}
+
+/// A loader in a package that is only worth a line of information: the player has nothing to do.
+pub fn loader_is_note(engine: Engine) -> bool {
+    kiln_runs(engine) || is_chain_loader(engine)
+}
+
+/// A tool that runs on its own next to Kiln (not a loader of mods): a package built around it is left out whole,
+/// with one reason, instead of importing its helper DLLs one by one.
+pub fn is_standalone_tool(engine: Engine) -> bool {
+    matches!(engine, Engine::Aldrich | Engine::LiveMap | Engine::SharedXp | Engine::ReShade)
+}
+
+/// Why a loader or tool DLL is not imported as a mod: one short sentence, with what to do when the player has to
+/// do something. [`loader_is_note`] engines give information ("not needed"), the others a reason to act on.
 pub fn loader_reason(engine: Engine, file: &str) -> String {
     let n = engine.name();
+    let short = short_name(engine);
     match engine {
-        Engine::Kiln => "Kiln's own dinput8 proxy: install a runtime bundle instead".into(),
-        Engine::Emf => format!("{file} is EMF's own loader. Kiln runs EMF mods itself: add the EMF mods, not the loader"),
-        Engine::ShroudForge => format!("{file} is ShroudForge's loader, not a mod to import. Install Kiln with 'switch from ShroudForge' to back up its dinput8.dll; its other proxy files stay in place"),
+        Engine::Kiln => format!("{file} is Kiln's own loader: install or update Kiln on the Runtime page instead of adding it as a mod"),
+        Engine::Ember => "Ember's own loader is in this package: not needed, and Kiln can't run Ember mods yet".to_string(),
+        e if kiln_runs(e) => format!("{short}'s own loader is in this package: not needed, Kiln runs {short} mods"),
+        Engine::ChainLoader | Engine::ModLoaderProxy => format!("{file} is {n}: not needed, Kiln loads DLL mods itself"),
         Engine::LiveMap | Engine::SharedXp => format!(
-            "{file} is {n}, {}. It runs on its own next to the server and Kiln: copy it into the server folder by hand",
-            info(engine).what
+            "{file} is {n}, a stand-alone server mod: Kiln doesn't manage it, copy it into the server folder yourself"
         ),
-        Engine::ReShade => format!("{file} is {n}, {}. It runs on its own next to Kiln; Kiln doesn't install it", info(engine).what),
-        Engine::ChainLoader | Engine::ModLoaderProxy => format!(
-            "{file} is {n}, {}. Kiln chains such loaders when it is installed; it is not a mod to import",
-            info(engine).what
-        ),
-        _ => format!("{file} is {n}'s loader ({}), not a mod to import. Kiln chains it when installed over dinput8.dll; add its mods separately", info(engine).what),
+        Engine::ReShade => format!("{file} is ReShade, which runs on its own next to Kiln: Kiln doesn't manage it, copy it into the Enshrouded folder yourself"),
+        Engine::Aldrich => format!("{file} is {n}, which runs on its own from the Enshrouded folder: Kiln doesn't manage it, copy its files there yourself"),
+        _ => format!("{file} is {n}, {}: Kiln doesn't manage it, copy it into the Enshrouded folder yourself", info(engine).what),
     }
 }
 
@@ -550,7 +578,7 @@ fn folder_detected(kind: DetectKind, engine: Engine, dir: &Path, manifest: Optio
 }
 
 /// DLL files directly in `dir`.
-fn dlls_in(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn dlls_in(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -560,6 +588,13 @@ fn dlls_in(dir: &Path) -> Vec<PathBuf> {
         .collect();
     v.sort();
     v
+}
+
+/// A folder that holds mods instead of being one: the game's `mods` folder, or a package shaped like the game folder
+/// (a `mods` folder next to loader files and readmes). Its mods are the folders and DLLs inside.
+pub fn is_container(dir: &Path) -> bool {
+    let named = |p: &Path| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("mods"));
+    named(dir) || std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| e.path().is_dir() && named(&e.path()))
 }
 
 /// A mod folder made for another engine (None: not one; Kiln's own manifests are checked by the caller first). Order
@@ -591,6 +626,11 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
     if has("init.lua") && !has("native.json") {
         let m = read_json(&dir.join("mod.json"));
         return Some(folder_detected(DetectKind::Set, Engine::Set, dir, m.as_ref(), "this Shrouded Engine Tweaks mod"));
+    }
+    // The game folder's shape (a package with loader files and a `mods` folder, or the `mods` folder itself) holds
+    // mods; `shroudtopia.json` next to the loader is the loader's own settings, not a mod.
+    if is_container(dir) {
+        return None;
     }
     if has("shroudtopia.json") {
         return Some(folder_detected(DetectKind::Shroudtopia, Engine::Shroudtopia, dir, None, "this Shroudtopia setup"));

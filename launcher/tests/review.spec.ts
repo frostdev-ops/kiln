@@ -24,7 +24,7 @@ test("overlapping identical drops run one add, report skipped files, and Undo re
   await drop(page, ".k-hero", "night-owl-1.2.0.zip", "notes.txt");
   const toast = page.locator(".k-toast", { hasText: "Added Night Owl" });
   await expect(toast).toBeVisible();
-  await expect(toast).toContainText("1 skipped:");
+  await expect(toast).toContainText("notes.txt: No kiln.mod.json"); // what was left out and why, one short line
   expect(await calls(page, "library_add")).toBe(before + 1);
   await toast.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".k-toast", { hasText: "Removed Night Owl" })).toBeVisible();

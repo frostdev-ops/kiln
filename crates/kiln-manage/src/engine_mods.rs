@@ -188,8 +188,35 @@ fn safe_enshwick_id(id: &str) -> bool {
         && !id.ends_with('.') && !device && !id.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER)
 }
 
+/// The Kiln id an engine mod gets in the Library, from the id its own manifest gives (`manifest_id`).
+///
+/// Engine manifests have no id rule of Kiln's: real ids are `HoardersHelper`, `Less Dense Shroud Fog`, `antisocialian's
+/// tweaks`. (Enshwick and ShroudForge keep the strict id: their mods are copied into a folder those engines read, named
+/// by it.) A valid Kiln id is kept; any other becomes its slug ([`crate::library::id_from_name`]). The mod's files
+/// are never changed: the plugin reads the manifest's own id. Two different manifest ids never share a library id:
+/// when the slug belongs to another manifest id already (`Ember` and `ember`, `a b` and `a-b`), a short hash of the
+/// manifest id is added. Returns the library id.
+fn library_id_for(dirs: &DataDirs, kind: ModKind, manifest_id: &str) -> String {
+    let base = if crate::manifest::is_mod_id(manifest_id) { manifest_id.to_string() } else { crate::library::id_from_name(manifest_id) };
+    let mut candidate = base.clone();
+    for round in 0u32.. {
+        match crate::library::id_holder(dirs, kind, &candidate) {
+            None => return candidate,
+            Some(holder) if holder == manifest_id => return candidate,
+            Some(_) => {
+                let h = crate::hash::sha256_hex(format!("{manifest_id}\n{round}").as_bytes());
+                // at most 64 characters in all: `<slug>-<6 hex digits>`
+                let keep: String = base.chars().take(57).collect();
+                candidate = format!("{}-{}", keep.trim_end_matches(['-', '.', '_']), &h[..6]);
+            }
+        }
+    }
+    unreachable!()
+}
+
 /// The importer of every engine kind: the folder (or the lone mod DLL, wrapped into a folder with the manifest its
-/// engine needs) goes into `library/<kind>/<id>/<version>+<hash8>/`.
+/// engine needs) goes into `library/<kind>/<id>/<version>+<hash8>/`. The id is a Kiln id made from the manifest's
+/// ([`library_id_for`]); the manifest's own id stays in the import record (`manifestId`).
 pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     let d = ctx.detected;
     let skip = |report: &mut crate::library::ImportReport, why: String| {
@@ -213,28 +240,39 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
                 version = m.version;
                 name = Some(m.name);
             }
-            Err(e) => return skip(ctx.report, format!("{}: not a ShroudForge package it can run: {}", d.path, e.message)),
+            Err(e) => return skip(ctx.report, format!("not a ShroudForge package Kiln can run: {}", e.message)),
         }
     }
     if id.is_empty() && d.id.is_none() {
         id = crate::library::id_from_name(name.as_deref().unwrap_or_default());
     }
-    if !crate::manifest::is_mod_id(&id) || id.chars().any(char::is_control) {
-        // Do not silently rename an explicit manifest id: the plugin reads the unmodified manifest.
-        return skip(ctx.report, format!("{}: id {id:?} is not a valid mod id", d.path));
+    if id.is_empty() || id.chars().any(char::is_control) || id.chars().count() > 256 {
+        return skip(ctx.report, "its manifest gives no usable id (empty, with control characters, or longer than 256): ask the author for a fixed version".into());
     }
-    if kind == ModKind::Enshwick && id.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER) {
-        // kiln-enshwick copies the mod into <game>/mods/<id>/, and mods/enshwick/ is the loader's own folder
-        return skip(ctx.report, format!("{}: id \"enshwick\" is Enshwick's own loader folder, not a mod", d.path));
+    let manifest_id = id;
+    if kind == ModKind::ShroudForge && !crate::manifest::is_mod_id(&manifest_id) {
+        // Kiln places the package in ShroudForge's mods folder under its id, and ShroudForge's own runtime reads that
+        // folder: this is the one place where the id is a folder name of an engine Kiln can't check here
+        return skip(ctx.report, format!("the package id {manifest_id:?} is not a valid mod id (lower case letters, digits, . _ -, at most 64): Kiln places ShroudForge packages under their id, so the author has to change it"));
     }
     if kind == ModKind::Enshwick {
-        if !safe_enshwick_id(&id) {
-            return skip(ctx.report, format!("{}: id {id:?} is not a safe Windows mod folder", d.path));
+        // Enshwick copies a mod into <game>/mods/<id>/ itself and holds its authors to one id shape: no renaming here.
+        if !crate::manifest::is_mod_id(&manifest_id) {
+            return skip(ctx.report, format!("the pack id {manifest_id:?} is not a valid mod id: Enshwick packs use lower case letters, digits, . _ - (at most 64)"));
+        }
+        if manifest_id.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER) {
+            // kiln-enshwick copies the mod into <game>/mods/<id>/, and mods/enshwick/ is the loader's own folder
+            return skip(ctx.report, "the id \"enshwick\" is Enshwick's own loader folder, not a mod".into());
+        }
+        if !safe_enshwick_id(&manifest_id) {
+            return skip(ctx.report, format!("the pack id {manifest_id:?} is not a safe Windows folder name"));
         }
         if src.is_dir() && src.join("pack.toml").is_file() && crate::engines::pack_toml(src).is_none() {
-            return skip(ctx.report, format!("{}: invalid or unsupported pack.toml metadata", d.path));
+            return skip(ctx.report, "its pack.toml is invalid or uses metadata Kiln can't read".into());
         }
     }
+    let id = library_id_for(ctx.dirs, kind, &manifest_id);
+    let manifest_id = (manifest_id != id).then_some(manifest_id);
     let version = if let Ok(parsed) = crate::semver::SemVersion::parse(&version) {
         parsed.to_string()
     } else if version.is_empty() {
@@ -273,7 +311,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
                 ModKind::Enshwick => "invalid, unsupported or changed pack.toml, or no Enshwick mod DLL",
                 _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
             };
-            return skip(ctx.report, format!("{}: {why}", d.path));
+            return skip(ctx.report, why.to_string());
         }
         let required = match kind {
             ModKind::Greeneye | ModKind::Shroudtopia => Some("mod.json"),
@@ -281,7 +319,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             _ => None,
         };
         if required.is_some_and(|m| !work.join(m).is_file()) {
-            let dll = dll_of(&work, kind)?.ok_or_else(|| Error::invalid(format!("{}: no {} mod DLL", src.display(), kind.label())))?;
+            let dll = dll_of(&work, kind)?.ok_or_else(|| Error::invalid(format!("no {} mod DLL in it", kind.label())))?;
             let file = dll.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error::invalid("DLL name must be UTF-8"))?;
             size += write_dll_manifest(kind, &work, &id, &version, file)?;
         }
@@ -289,7 +327,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     } else {
         if kind == ModKind::Ember {
             // nothing in a lone DLL says it is Ember's; detection only names folders in ember/mods/
-            return skip(ctx.report, format!("{}: add the Ember mod's folder (ember/mods/<mod>/), not the DLL alone", d.path));
+            return skip(ctx.report, "add the Ember mod's folder (ember/mods/<mod>/), not the DLL alone".into());
         }
         std::fs::create_dir_all(&work).map_err(io_at(&work, "creating"))?;
         let file = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod.dll".into());
@@ -311,6 +349,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         side: Some(side),
         clients: Some(clients),
         file: None,
+        manifest_id,
     };
     crate::library::commit_folder(ctx.dirs, &work, rec, ctx.report)
 }

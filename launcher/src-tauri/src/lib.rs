@@ -172,6 +172,7 @@ pub fn run() {
             commands::update::update_skip,
             commands::update::update_ack,
             commands::library::library_add,
+            commands::library::library_add_to_profile,
             commands::profile::profile_revert,
             commands::profile::profile_ensure_default,
             commands::deck::deck_browse,
