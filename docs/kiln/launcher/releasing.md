@@ -335,10 +335,14 @@ Each release:
 5. `tools/release/publish.sh ~/Kiln-release/kiln-$V --host <the web server's ssh name>`: uploads to frostdev.io (files first, then the manifests),
    publishes the draft, points `updates-dev` at it. Launchers on that channel see it at their next check.
 6. After a stable release: raise `VERSION` to the next `-dev` version.
-
-7. Nexus Mods (optional): `python3 -I tools/release/nexus.py ~/Kiln-release/kiln-$V` shows what would go up (a dry
+7. The website's download page (`https://frostdev.io/kiln/download`, with the stable links `/kiln/download/windows`,
+   `/linux`, `/deb`, `/server`, `/runtime`) lists every file of the release with its size and SHA-256. In the site
+   repository: `node scripts/kiln-release-data.mjs ~/Kiln-release/kiln-$V --verify`, commit
+   `src/data/kilnRelease.json`, deploy. Do it after step 5, so the files are there when the page names them.
+8. Nexus Mods (optional): `python3 -I tools/release/nexus.py ~/Kiln-release/kiln-$V` shows what would go up (a dry
    run, GET calls only; release.sh runs it at the end when the key is there), then add `--publish` to upload. It
-   uploads the Nexus build (nexus/), never the direct one.
+   uploads the Nexus build (nexus/), never the direct one. When an upload fails half way (a storage error), run it
+   again with `--only` naming the kinds that are still missing: a kind that went up must not be uploaded twice.
 
 github-draft.sh stages only linux/ and windows/ (the direct build) of the launchers, plus the runtime files: the server
 pack as `kiln-server-<v>.zip`, and the systemd units as one `kiln-systemd-units-<v>.tar.gz` (GitHub replaces the `@`
