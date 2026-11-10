@@ -164,6 +164,8 @@ pub const NAMES: &[&str] = &[
     "eml_restore",
     "chain_view",
     "chain_set_late",
+    "report_save",
+    "report_summary",
 ];
 
 #[cfg(test)]

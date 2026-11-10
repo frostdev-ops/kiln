@@ -43,7 +43,8 @@ plugin and EMF mods to load (usually `Z:\…` paths into the launcher library), 
 folder. Steam's Play button then boots that profile. No profile.json = the drop-in folders as before. Another tool's
 `dinput8.dll` (EMF's loader) is moved to `kiln/chain/` and loaded by Kiln's proxy from `kiln/chain.ini`. Details:
 [profiles.md](profiles.md), [native-mods.md](native-mods.md). What the last start did: `kiln/logs/proxy.log`,
-`kiln/state/{boot,mods,native}.json`, or `tools/client/client.sh status`.
+`kiln/state/{boot,mods,native}.json`, or `tools/client/client.sh status`. For a bug report: the launcher's Logs page,
+"Save report...", or `kilnctl report --dir <client>` ([launcher/support-report.md](launcher/support-report.md)).
 
 ## Install, remove, inspect: `tools/client/client.sh`
 ```

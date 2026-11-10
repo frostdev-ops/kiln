@@ -1,5 +1,6 @@
 // /logs: kiln.log, the game log, proxy.log, mod logs, crash reports, tick stats. A full-height well; Follow, Pause and
-// Filter in the toolbar. LogsFor is reused by servers (their Logs page) with its own tabs.
+// Filter in the toolbar; the support report (one zip for a bug report) above the tabs. LogsFor is reused by servers
+// (their Logs page) with its own tabs.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import * as api from "../api/commands";
@@ -8,13 +9,14 @@ import { qk, useGame } from "../api/hooks";
 import { Button, EmptyState, LogView, Page, PageHeader, Select, Skeleton, Table, Tabs, WellInput, errorText, fmtAgo, fmtBytes, toast, type Column } from "../ui";
 import { TICKS, TickStats } from "./ticks";
 import { EngineStatusList, RestoreVanillaOffer } from "../components/EngineStatus";
+import { SupportReport } from "../components/SupportReport";
 
 export type LogTab = "kiln" | "game" | "proxy" | "mods" | "crash" | "ticks" | "engines";
 const TAB_LABEL: Record<LogTab, string> = { kiln: "Kiln", game: "Game", proxy: "Proxy", mods: "Mods", crash: "Crashes", ticks: "Tick stats", engines: "Engines" };
 
 export default function LogsPage() {
   const { game } = useGame();
-  if (!game) return <Page><PageHeader title="Logs" sub="No game yet. Find Enshrouded on Play first." /></Page>;
+  if (!game) return <Page><PageHeader title="Logs" sub="No game yet. Find Enshrouded on Play first." /><SupportReport target={null} /></Page>;
   return <LogsFor target={{ game: game.id }} folder={`${game.path}/kiln/logs`} />;
 }
 
@@ -44,6 +46,7 @@ export function LogsFor({ target, folder, embedded, tabs: wanted = ["kiln", "gam
   const body = (
     <>
       {!embedded && <PageHeader title="Logs" sub={say} actions={openFolder} />}
+      <SupportReport target={target} compact={embedded} />
       {tabs.length > 1 && <Tabs aria-label="Log" value={tab} onChange={setTab} items={tabs.map((t) => ({ id: t, label: TAB_LABEL[t], count: t === "mods" ? mods.length : undefined }))} />}
       {files.error ? <EmptyState title="The logs are not readable" hint={errorText(files.error)} /> : files.isLoading ? <Skeleton /> : (
         tab === "engines" && "game" in target ? (

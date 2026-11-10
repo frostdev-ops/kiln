@@ -1153,6 +1153,25 @@ export const logsRead = (target: LogTarget, file: string, offset: number | null 
 export const logsFollow = (target: LogTarget, file: string) => call<string>("logs_follow", { target, file });
 export const logsUnfollow = (subscription: string) => call<null>("logs_unfollow", { subscription });
 export const logsCrashReports = (target: LogTarget) => call<CrashReport[]>("logs_crash_reports", { target });
+/** kiln_manage::report::Finding: one check that explains a common failure. */
+export interface ReportFinding {
+  id: string;
+  level: "problem" | "warning" | "info";
+  text: string;
+}
+/** report_save's answer (launcher type). */
+export interface ReportSaved {
+  path: string;
+  size: number;
+  findings: ReportFinding[];
+  /** Sections that could not be read; the rest is in the zip. */
+  errors: string[];
+}
+/** Writes the support report zip (logs, state files, profile, listings, summary.txt; names and paths replaced) to
+ *  `path`. `target` null: the system and the launcher only. */
+export const reportSave = (target: LogTarget | null, path: string) => call<ReportSaved>("report_save", { target, path });
+/** A few lines for a forum post, redacted like the zip. */
+export const reportSummary = (target: LogTarget | null) => call<string>("report_summary", { target });
 
 // saves.rs
 export const savesList = (gameId: GameId) => call<SaveSlot[]>("saves_list", { gameId });
@@ -1323,6 +1342,7 @@ export const COMMANDS = [
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
   "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
+  "report_save", "report_summary",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
