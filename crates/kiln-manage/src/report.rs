@@ -749,103 +749,46 @@ fn failed_word(w: &str) -> bool {
 
 // ---------------------------------------------------------------- mods in the game folder
 
-/// A mod folder (or plugin DLL) in the game folder.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FolderMod {
-    pub kind: ModKind,
-    /// Game-relative, '/' separated.
-    pub path: String,
-    pub id: String,
-}
-
-/// Mod folders in the game folder's drop-in and engine folders (not the ones Kiln placed, not `.disabled` ones).
-pub fn folder_mods(game: &Path) -> Vec<FolderMod> {
-    let mut out: Vec<FolderMod> = Vec::new();
-    let mut push = |kind: ModKind, root: &str, name: &str, id: String| {
-        let path = format!("{root}/{name}");
-        if !out.iter().any(|m| m.path == path) {
-            out.push(FolderMod { kind, path, id });
-        }
+/// The game's `kiln/profile.json` as a launcher profile, for [`crate::found::scan`]: the same lists and the same
+/// `dropins`, so the report judges the game folder by what the game reads, with the rules of the launcher's Game folder
+/// panel.
+pub fn profile_view(file: &ProfileFile) -> crate::profile::Profile {
+    use crate::profile::ProfileMod;
+    let mut mods = crate::profile::ProfileMods::default();
+    for kind in ModKind::ALL {
+        let list: Vec<ProfileMod> = match file.mods.folders(kind) {
+            Some(l) => l.iter().map(|m| ProfileMod {
+                id: m.id.clone(), version: m.version.clone().unwrap_or_default(), hash: m.hash.clone().unwrap_or_default(), enabled: m.enabled,
+            }).collect(),
+            None => file.mods.plugin.iter().map(|m| ProfileMod {
+                id: m.id.clone().unwrap_or_else(|| {
+                    let name = m.path.rsplit(['/', '\\']).next().unwrap_or_default();
+                    name.strip_suffix(".dll").or_else(|| name.strip_suffix(".DLL")).unwrap_or(name).to_string()
+                }),
+                version: m.version.clone().unwrap_or_default(), hash: m.hash.clone().unwrap_or_default(), enabled: m.enabled,
+            }).collect(),
+        };
+        *mods.list_mut(kind) = list;
+    }
+    let dropins = match &file.dropins {
+        Dropins::All(true) => ModKind::ALL.to_vec(),
+        Dropins::All(false) => Vec::new(),
+        Dropins::Kinds(l) => l.clone(),
     };
-    let dirs_in = |root: &str| -> Vec<(String, PathBuf)> {
-        let mut v: Vec<(String, PathBuf)> = std::fs::read_dir(rel(game, root))
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-            .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-            .filter(|(n, p)| !n.starts_with('.') && !p.join(crate::paths::game::DISABLED_MARKER).exists() && engine_mods::marker(p).is_none())
-            .collect();
-        v.sort();
-        v
-    };
-    let core = [
-        (ModKind::Kiln, crate::paths::game::DROPIN_KILN),
-        (ModKind::Native, crate::paths::game::DROPIN_NATIVE),
-        (ModKind::Emf, crate::paths::game::DROPIN_EMF),
-    ];
-    for (kind, root) in core {
-        for (n, p) in dirs_in(root) {
-            let id = if kind == ModKind::Kiln { crate::manifest::read_kiln(&p).map(|m| m.id).unwrap_or_else(|_| n.clone()) } else { n.clone() };
-            push(kind, root, &n, id);
-        }
-    }
-    // other DLLs in kiln/plugins are drop-ins; kiln-*.dll are Kiln's own plugins
-    let mut dlls: Vec<String> = std::fs::read_dir(rel(game, crate::paths::game::DROPIN_PLUGIN))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.to_ascii_lowercase().ends_with(".dll") && !n.to_ascii_lowercase().starts_with("kiln-"))
-        .collect();
-    dlls.sort();
-    for n in dlls {
-        let id = n.trim_end_matches(".dll").trim_end_matches(".DLL").to_string();
-        push(ModKind::Plugin, crate::paths::game::DROPIN_PLUGIN, &n, id);
-    }
-    // engines: kiln/eml/mods, then the folders each engine reads (mods/ is shared by EML, Flame, Shroudtopia, Enshwick)
-    for (n, _) in dirs_in("kiln/eml/mods") {
-        push(ModKind::Eml, "kiln/eml/mods", &n, n.clone());
-    }
-    let mut roots: Vec<String> = vec!["mods".into()];
-    for k in ModKind::ALL.into_iter().filter(|k| k.is_engine() && *k != ModKind::Emf && *k != ModKind::Eml) {
-        if let Some(r) = engine_mods::server_root(k, game).and_then(|r| r.strip_prefix(game).ok().map(|x| x.to_string_lossy().replace('\\', "/"))) {
-            if !roots.contains(&r) {
-                roots.push(r);
-            }
-        }
-    }
-    for root in roots {
-        for (n, p) in dirs_in(&root) {
-            if root == "mods" && n.eq_ignore_ascii_case(engine_mods::ENSHWICK_LOADER_FOLDER) {
-                continue;
-            }
-            let Some(kind) = crate::library::detect(&p).ok().and_then(|d| ModKind::of_detect(d.kind)) else { continue };
-            if !kind.is_engine() || kind == ModKind::Emf {
-                continue;
-            }
-            let (id, _, _) = engine_mods::identity(&p);
-            push(kind, &root, &n, if id.is_empty() { n.clone() } else { id });
-        }
-    }
-    out
-}
-
-/// Does the active profile load the mods in this kind's game-side folder? (kiln-core for its kinds, kiln-eml for EML,
-/// the compat host for the other engines: docs/kiln/profiles.md, docs/kiln/eml.md, docs/kiln/engines/README.md.)
-pub fn folder_loaded(kind: ModKind, profile: Option<&ProfileFile>, profile_json: Option<&serde_json::Value>) -> bool {
-    let Some(p) = profile else { return true }; // legacy layout: every drop-in folder
-    match &p.dropins {
-        Dropins::All(true) => return true,
-        Dropins::Kinds(list) if list.contains(&kind) && (ModKind::CORE.contains(&kind) || kind == ModKind::Eml) => return true,
-        _ => {}
-    }
-    match kind {
-        k if ModKind::CORE.contains(&k) || k == ModKind::Eml => false,
-        // their own runtime reads its folder (the launcher places the profile's mods there)
-        ModKind::ShroudForge | ModKind::Set => true,
-        k => !profile_json.and_then(|v| v.get("mods")).and_then(|m| m.get(k.as_str())).is_some_and(|l| l.is_array()),
+    crate::profile::Profile {
+        format: 1,
+        id: file.id.clone(),
+        name: file.name.clone().unwrap_or_else(|| file.id.clone()),
+        created: String::new(),
+        updated: String::new(),
+        generation: file.generation,
+        notes: String::new(),
+        mods,
+        dropins,
+        dropins_engines: true,
+        data_dir: Default::default(),
+        server: file.server.clone(),
+        late: Vec::new(),
     }
 }
 
@@ -1085,8 +1028,6 @@ pub fn build(input: &ReportInput) -> Report {
 
     // ---- profile
     let mut pr = String::new();
-    let profile_text = std::fs::read(game.join(crate::paths::game::PROFILE)).ok();
-    let profile_json: Option<serde_json::Value> = profile_text.as_ref().and_then(|b| serde_json::from_slice(b.strip_prefix(b"\xef\xbb\xbf").unwrap_or(b)).ok());
     let profile = match crate::profile::read_game_profile(&game) {
         Ok(p) => p,
         Err(e) => {
@@ -1130,7 +1071,7 @@ pub fn build(input: &ReportInput) -> Report {
             let _ = writeln!(pr, "Active:        kiln/profile.json is broken");
         }
     }
-    check_unlisted(&mut cx, &game, profile.as_ref(), profile_json.as_ref());
+    check_unlisted(&mut cx, install.as_ref(), dirs.as_ref(), profile.as_ref());
 
     // ---- the last start
     let mut ls = String::new();
@@ -1460,20 +1401,25 @@ fn check_loaders_in_folder(cx: &mut Ctx, proxies: &[crate::engines::ProxySlot], 
     }
 }
 
-/// Mods in the game folder the active profile does not load (drop-ins switched off, an engine the profile manages).
-fn check_unlisted(cx: &mut Ctx, game: &Path, profile: Option<&ProfileFile>, json: Option<&serde_json::Value>) {
-    let Some(p) = profile else { return };
-    let listed = |kind: ModKind, id: &str| match p.mods.folders(kind) {
-        Some(l) => l.iter().any(|m| m.id.eq_ignore_ascii_case(id)),
-        None => p.mods.plugin.iter().any(|m| m.id.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(id))),
-    };
-    let off: Vec<FolderMod> = folder_mods(game).into_iter().filter(|m| !folder_loaded(m.kind, Some(p), json) && !listed(m.kind, &m.id)).collect();
+/// Mods in the game folder the active profile does not load (drop-ins switched off, an engine the profile manages):
+/// [`crate::found::scan`] over the game's profile.json, the same scan as the launcher's Game folder panel.
+fn check_unlisted(cx: &mut Ctx, install: Option<&GameInstall>, dirs: Option<&DataDirs>, profile: Option<&ProfileFile>) {
+    let (Some(p), Some(install)) = (profile, install) else { return };
+    // without the launcher's data folder (a server's report) no Library copy is known: the scan matches by id only
+    let none = DataDirs::at(install.path.join(crate::paths::game::KILN).join(".no-launcher-data"));
+    let found = crate::found::scan(dirs.unwrap_or(&none), install, &profile_view(p));
+    // Kiln not installed: the not-installed finding says what to do
+    if !found.kiln_installed {
+        return;
+    }
+    let off: Vec<&crate::found::FoundMod> = found.mods.iter().filter(|m| m.state == crate::found::FoundState::Off).collect();
     if off.is_empty() {
         return;
     }
-    let mut kinds: Vec<&str> = off.iter().map(|m| kind_name(m.kind)).collect();
+    let kind_of = |m: &crate::found::FoundMod| m.kind.map(kind_name).unwrap_or("folder");
+    let mut kinds: Vec<&str> = off.iter().map(|m| kind_of(m)).collect();
     kinds.dedup();
-    let shown: Vec<String> = off.iter().take(15).map(|m| format!("{} ({})", m.path, kind_name(m.kind))).collect();
+    let shown: Vec<String> = off.iter().take(15).map(|m| format!("{} ({})", m.path, kind_of(m))).collect();
     cx.find("unlisted-mods", Level::Warning, format!(
         "{} in the game folder {} not loaded by the profile '{}': {}{}. Add {} to the profile in the Library, or turn on drop-ins for {} in the profile's settings.",
         plural(off.len(), "mod", "mods"), if off.len() == 1 { "is" } else { "are" }, p.name.as_deref().unwrap_or(&p.id),

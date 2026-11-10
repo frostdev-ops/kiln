@@ -229,6 +229,23 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
     }
 }
 
+/// ShroudForge's own rule for a package id (mod.json `id`): 1 to 80 ASCII letters (either case), digits, `.`, `-`, `_`.
+/// Wider than a Kiln id: Kiln imports such a package under a slug Library id and keeps the files as they are.
+pub fn is_package_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 80 && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
+
+/// Another folder in ShroudForge's mods folder `root` (not `dst`) whose mod.json holds the package id of the package
+/// in `src`. ShroudForge finds packages by that id, not by folder name, and drops every package of an id it finds twice:
+/// such a folder (the player's own copy) means Kiln must not place a second one.
+pub fn other_holder(root: &Path, src: &Path, dst: &Path) -> Option<PathBuf> {
+    let id = read_json_file(&src.join("mod.json")).ok().and_then(|m| str_of(&m, "id"))?;
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path())
+        .filter(|p| p.is_dir() && p.as_path() != dst).collect();
+    dirs.sort();
+    dirs.into_iter().find(|p| read_json_file(&p.join("mod.json")).ok().and_then(|m| str_of(&m, "id")).as_deref() == Some(id.as_str()))
+}
+
 /// Reads one package (`folder` holds mod.json).
 pub fn read_mod(folder: &Path) -> Result<SfMod> {
     let m = read_json_file(&folder.join("mod.json"))?;

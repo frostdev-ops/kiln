@@ -2018,6 +2018,7 @@ dependencies = [
  "kiln-manage",
  "serde",
  "serde_json",
+ "sevenz-rust2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

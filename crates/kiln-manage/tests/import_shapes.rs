@@ -397,7 +397,7 @@ fn kilns_own_kinds_keep_the_strict_id() {
 
 #[test]
 fn engines_that_name_a_folder_after_the_id_keep_the_strict_id() {
-    // ShroudForge and Enshwick: Kiln places or copies the mod into a folder those engines read, named by its id
+    // Enshwick copies the mod into a folder named by its id; ShroudForge has its own id rule (no spaces), which Kiln checks
     let t = tmp("strict-engines");
     let dirs = DataDirs::at(t.0.join("data"));
     let sf = t.0.join("sf");
@@ -409,7 +409,7 @@ fn engines_that_name_a_folder_after_the_id_keep_the_strict_id() {
     let r = import_into(&dirs, &[sf, en]);
     assert!(r.imported.is_empty(), "{r:?}");
     assert_eq!(r.skipped.len(), 2);
-    assert!(r.skipped.iter().any(|s| s.reason.contains("ShroudForge packages under their id")), "{:?}", r.skipped);
+    assert!(r.skipped.iter().any(|s| s.reason.contains("not a valid ShroudForge package id")), "{:?}", r.skipped);
     assert!(r.skipped.iter().any(|s| s.reason.contains("Enshwick packs use")), "{:?}", r.skipped);
 }
 

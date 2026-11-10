@@ -12,7 +12,7 @@ import * as api from "../api/commands";
 import { totalCount } from "../api/kinds";
 import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
 import {
-  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, usePreStart, useProfiles, useRuntimeChanges,
+  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, usePoll, usePreStart, useProfiles, useRuntimeChanges,
 } from "../api/hooks";
 import { useFound } from "./profiles/GameFolder";
 import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
@@ -96,7 +96,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const state = useLaunchState(game.id);
   const active = useActiveProfile(game.id);
   const profiles = useProfiles();
-  const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: 15000 });
+  const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: usePoll(15000) });
   const activeId = active.data?.profileId ?? null;
   const preview = useQuery({ queryKey: qk.resolve(activeId ?? "", "client"), queryFn: () => api.profileResolve(activeId!, "client"), enabled: !!activeId });
   // mods extracted into the game folder that the active profile leaves out (kiln_manage::found)
@@ -305,8 +305,8 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
   } else if (ctl.stuck && s?.runtime.installed) {
     // the launch option is set (or not needed here) and Kiln still did not load: say so, never "Starting" forever
     out.push(
-      <Banner key="nokiln" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : "Kiln did not start"} actions={<Button size="s" onClick={() => nav("/logs")}>Logs</Button>}>
-        The game started without Kiln. Close it and send us <span className="k-mono">kiln/logs/proxy.log</span> from the game folder (no such file: Kiln's dinput8.dll never loaded), your Proton version and Steam's launch options for Enshrouded.
+      <Banner key="nokiln" tone="warn" title={ctl.kilnMissing ? "Kiln is not loading" : "Kiln did not start"} actions={<Button size="s" onClick={() => nav("/logs")}>Support report</Button>}>
+        The game started without Kiln. Close it, then save a support report on the Logs page and send us that zip: it explains most causes itself.
       </Banner>,
     );
   }

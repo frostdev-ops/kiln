@@ -299,7 +299,7 @@ void try_ready(uint64_t step, uint32_t kind, uintptr_t world) {
     LOGI("store lock at world load: %s", lock_report(true).c_str());
     // <kiln>/data/content/dump-on-start: write the registries once the packs are applied (for modders).
     const std::string marker = data_dir() + "\\content\\dump-on-start";
-    if (GetFileAttributesA(marker.c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (path_exists(marker)) {
         const std::string p = data_dir() + "\\content\\dump.json";
         std::string err;
         const auto t1 = std::chrono::steady_clock::now();

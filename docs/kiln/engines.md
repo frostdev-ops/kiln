@@ -170,9 +170,12 @@ engines' mods") and 5.8.
   own id goes into the import record (`manifestId`). The mod's files are not changed. Two manifest ids with one slug
   (`Ember` and `ember`) do not share an entry: the second gets a short hash (`ember-3fa9c2`). EML reads only a profile
   entry's `path` and `enabled` and reports each mod's own id and its `path`; the other engines' plugins take the
-  profile entry's id as the mod's id, which is the Library id. Enshwick and ShroudForge keep the strict id (Enshwick's
-  loader copies a mod into `mods/<id>/`, and Kiln places a ShroudForge package in its mods folder under its id, which
-  ShroudForge's runtime reads). Kiln's own kinds (`kiln`, `native`, `plugin`, `emf`) keep the strict id: their manifests are
+  profile entry's id as the mod's id, which is the Library id. Enshwick keeps the strict id (its loader copies a mod into
+  `mods/<id>/`). A ShroudForge package needs only ShroudForge's own id rule (ASCII letters of both cases, digits, `.-_`,
+  at most 80); Kiln places it in ShroudForge's mods folder as `<library id>/`, since ShroudForge finds a package by its
+  mod.json id, not its folder name, and leaves it out when a folder there (the player's own copy) holds the same package
+  id already: ShroudForge drops every package whose id it finds twice. A server's hand-placed engine mod folder is
+  listed under the same slug (`engine_mods::identity`), and switched by its folder name whatever that is. Kiln's own kinds (`kiln`, `native`, `plugin`, `emf`) keep the strict id: their manifests are
   Kiln's contract, and the reason says the author has to change it.
 - **A DLL mod with its files.** A plain DLL beside the files it reads (`dinput8.dll` + `.ini`/`.dat`/`.jpg`,
   `powrprof.dll` + a folder, a lone `winmm.dll`) is imported as one native mod: the whole package folder, with a
