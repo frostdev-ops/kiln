@@ -222,6 +222,10 @@ updates and accidents, not a program written to hide an edit: on Windows a progr
 does not keep a change time but passes the test above would defeat it too. `KILN_EML_FULL_HASH=1` removes the
 assumption.
 
+A power loss or a hard crash of the machine can also break it: a file's new data can reach the disk before its new
+change time does, so the file comes back changed with its old size and times. After such a crash, start once with
+`KILN_EML_FULL_HASH=1` (or let Steam verify the game files).
+
 Each run logs what it read (eml.log, and kiln.log as `[eml] Fingerprints: ...`), and the summary line and
 `kiln/state/eml.json` carry it:
 ```

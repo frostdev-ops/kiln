@@ -292,7 +292,8 @@ enum {
     /* dev.21, appended: every proxy check passed, but the entry's DLL is also named in kiln/chain.ini [late]: the proxy did
      * not load it. kiln-core loads it after Kiln's services, plugins and native mods ran (module is NULL here;
      * state/boot.json and state/native.json report the outcome). An older core reads an unknown status as failed. EMF's own
-     * loader (it holds the game's start by patching the exe's entry point) is never LATE: the proxy loads it in its place. */
+     * loader (it starts EMF itself, which kiln-emf has to see when the plugins start) is never LATE: the proxy loads it in
+     * its place. */
     KILN_CHAIN_LATE = 6,
 };
 

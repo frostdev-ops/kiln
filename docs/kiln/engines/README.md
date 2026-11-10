@@ -165,7 +165,7 @@ alone; kiln-core loads it after the services, plugins, native boot mods and the 
 hooks first and the DLL hooks over it, which Kiln handles. A DLL that fails to load, or whose `DllMain` faults, is a
 warning in kiln.log (`late: <path> failed to load (error 1114: its DllMain failed)`) and an entry in
 `state/native.json` `chain.late`; the game goes on. Some DLLs cannot be moved (EMF's own loader, a DLL EMF's loader already
-started, a DLL that patches the game's entry point): see the limits in
+started): see the limits in
 [../engines.md](../engines.md#loading-a-chained-dll-late-late).
 
 **Overlaps.** Kiln knows every hook it places (the [hook map](../services/hooks.md)). An *overlap* is a function where a

@@ -348,10 +348,10 @@ impl PlanEntry {
         matches!(self.engine.as_deref(), Some("kiln" | "shroudforge")) || (f.starts_with("kiln-") && f.ends_with(".dll"))
     }
 
-    /// EMF's own loader (a [chain] entry): it holds the game's start by patching the exe's entry point, which a late load
-    /// would lose, so kiln's proxy never defers it, whatever chain.ini [late] says. No rule moves it late and the profile
-    /// page does not offer the switch.
-    pub fn holds_start(&self) -> bool {
+    /// EMF's own loader (a [chain] entry). It starts EMF itself, and kiln-emf decides when Kiln's plugins start whether
+    /// the real EMF is in the process, so Kiln's proxy never defers it, whatever chain.ini [late] says. No rule moves it
+    /// late and the profile page does not offer the switch.
+    pub fn is_emf_loader(&self) -> bool {
         self.section == Section::Chain && self.engine.as_deref() == Some("emf")
     }
 
@@ -410,12 +410,12 @@ pub fn evaluate(rules: &[SourcedRule], facts: &Facts, entries: &[PlanEntry]) -> 
                     let matched: Vec<&PlanEntry> = entries.iter().filter(|e| e.matches(subject)).collect();
                     let late = r.action == RuleAction::Late;
                     // EMF's loader can be switched off by a rule, but never loaded late
-                    res.targets = matched.iter().filter(|e| !e.is_kiln_own() && !(late && e.holds_start())).map(|e| e.path.clone()).collect();
+                    res.targets = matched.iter().filter(|e| !e.is_kiln_own() && !(late && e.is_emf_loader())).map(|e| e.path.clone()).collect();
                     res.applied = !res.targets.is_empty();
                     if res.targets.is_empty() {
                         res.note = Some(match subject {
-                            _ if late && matched.iter().any(|e| e.holds_start()) => {
-                                "EMF's loader holds the game's start, so it always loads first and cannot be moved late".into()
+                            _ if late && matched.iter().any(|e| e.is_emf_loader()) => {
+                                "EMF's loader starts EMF itself, so it always loads first and cannot be moved late".into()
                             }
                             _ if !matched.is_empty() => "Kiln's own files and ShroudForge's proxy are never moved or switched off".into(),
                             Matcher::Mod(s) if r.action == RuleAction::Disable && canon_mod(s).split(':').next() != Some("kiln") => {
@@ -828,7 +828,7 @@ pub struct ChainViewEntry {
     pub late_by: Option<String>,
     /// A rule switches it off ("rule:<id>").
     pub off_by: Option<String>,
-    /// EMF's loader: it holds the game's start and always loads first (no late switch).
+    /// EMF's loader: it starts EMF itself and always loads first (no late switch).
     #[serde(default)]
     pub loader: bool,
 }
@@ -909,13 +909,13 @@ fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::L
     }
     .map(|l| LibraryHit { kind: l.kind, id: l.id.clone(), name: l.name.clone() });
     let late = hit.is_some_and(|e| e.late);
-    let loader = hit.is_some_and(|e| e.entry.holds_start());
+    let loader = hit.is_some_and(|e| e.entry.is_emf_loader());
     let owners = if o.owners.is_empty() { "Kiln".to_string() } else { o.owners.join(", ") };
     let name = if module.is_empty() { "another module".to_string() } else { module.clone() };
     let (fix, hint) = match (o.kind, hit) {
         _ if ambiguous => ("none", format!("{} chain entries are named {name}: switch the right one to load late in the list above.", named.len())),
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(_)) if loader => {
-            ("none", format!("{name} is EMF's loader: it holds the game's start, so it always loads first. Switch it or the other mod off, or add a compat rule."))
+            ("none", format!("{name} is EMF's loader: it starts EMF itself, so it always loads first. Switch it or the other mod off, or add a compat rule."))
         }
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(e)) if !late && e.off_by.is_none() => {
             ("late", format!("Load {} after Kiln and ShroudForge, so {owners} hook first and {name} chains after them.", e.entry.file))
@@ -972,7 +972,7 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
                 None
             };
             // the proxy loads EMF's loader at its place whatever chain.ini [late] says
-            let loader = e.holds_start();
+            let loader = e.is_emf_loader();
             ChainViewEntry { entry: e.clone(), late: !loader && late_by.is_some() && off_by.is_none(), late_by: if loader { None } else { late_by }, off_by, loader }
         })
         .collect();
@@ -1005,8 +1005,8 @@ pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &Plan
             if entry.is_kiln_own() {
                 return Err(Error::invalid(format!("{} is Kiln's own: it always loads first", entry.file)));
             }
-            if late && entry.holds_start() {
-                return Err(Error::invalid(format!("{} is EMF's loader: it holds the game's start, so it always loads first", entry.file)));
+            if late && entry.is_emf_loader() {
+                return Err(Error::invalid(format!("{} is EMF's loader: it starts EMF itself, so it always loads first", entry.file)));
             }
             // chain.ini is the proxy's input for the next start: not while a game that reads it is running
             crate::profile::refuse_running(install)?;
@@ -1195,7 +1195,7 @@ mod tests {
         ];
         let res = evaluate(&rules, &Facts::default(), &entries);
         assert_eq!(res[0].targets, ["chain\\emf-dinput8.dll"]);
-        assert!(res[1].targets.is_empty(), "EMF's loader holds the game's start: no rule loads it late");
+        assert!(res[1].targets.is_empty(), "EMF's loader starts EMF itself: no rule loads it late");
         assert!(!res[2].applied && res[2].note.as_deref().is_some_and(|n| n.contains("never")), "{:?}", res[2]);
         let install = GameInstall {
             id: "g".into(), kind: crate::game::GameKind::Client, path: std::env::temp_dir(), exe: "enshrouded.exe".into(),
@@ -1249,7 +1249,7 @@ mod tests {
     fn emf_s_loader_is_never_late() {
         let loader = entry("chain\\emf-dinput8.dll", Section::Chain, Some("emf"), None);
         let other = entry("chain\\xhl-core.dll", Section::Chain, None, None);
-        assert!(loader.holds_start() && !other.holds_start());
+        assert!(loader.is_emf_loader() && !other.is_emf_loader());
         let (rules, e) = parse_rules(br#"{ "format": 1, "rules": [
             { "id": "all-late", "action": "late", "subject": {"module": "*"} },
             { "id": "emf-late", "action": "late", "subject": {"engine": "emf"} },
@@ -1273,7 +1273,7 @@ mod tests {
         let err = set_entry_late(&install, &mut p, &loader, true).unwrap_err();
         assert!(err.message.contains("EMF's loader"), "{}", err.message);
         // the overlap hint for it: no one-click fix
-        let v = |e: PlanEntry| ChainViewEntry { loader: e.holds_start(), entry: e, late: false, late_by: None, off_by: None };
+        let v = |e: PlanEntry| ChainViewEntry { loader: e.is_emf_loader(), entry: e, late: false, late_by: None, off_by: None };
         let overlap = Overlap {
             symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()], hook: None,
             foreign: Some(ForeignDest { module: "emf-dinput8.dll".into(), offset: "0x1".into(), ..Default::default() }),

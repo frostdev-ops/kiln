@@ -260,9 +260,10 @@ Grammar (same dialect as 5.2):
   in the order of the lists they came from (not in `[late]` order). A `[late]` line that names no entry loads
   nothing (proxy.log says so). Refused, missing and duplicate entries keep that status. Play-once `no-mods` defers
   nothing (all entries are `skipped`). EMF's own loader (a `[chain]` entry with its exports or marker text) is never
-  deferred, whatever `[late]` says: it holds the game's start by patching the exe's entry point, which a late load would
-  lose; proxy.log says so. A DLL deferred this way runs inside the gate, so an entry-point patch it makes is put back
-  by the gate (proxy.log, kiln.log and boot.json `errors` warn). The core does not load a late DLL of a native mod that
+  deferred, whatever `[late]` says: it starts EMF itself, and kiln-emf decides when the plugins start whether the real
+  EMF is in the process; proxy.log says so. A deferred DLL may patch the game's entry point: the gate puts the entry's
+  bytes back before the core starts, so the patch saves the right bytes and runs when the gate continues (proxy.log
+  and kiln.log note it). The core does not load a late DLL of a native mod that
   is disabled, on the other side or refused by `native.policy`, and it says `already-loaded` for a DLL that was in the
   process before the late phase (EMF's loader starts the DLLs of `dinput8-chain.ini` itself). The launcher keeps an entry in its own section and adds the same path to
   `[late]`; a `;` line in front (`; kiln rule <id>`) is a comment like any other.

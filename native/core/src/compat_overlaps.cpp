@@ -63,7 +63,7 @@ const char* fix_for(const ChainRow* row) {
 // Why [late] cannot be the fix for this module (a sentence ending in a full stop).
 std::string why_not_late(const ChainRow* row, const std::string& module) {
     if (!row) return module.empty() ? "Kiln cannot tell which module that is." : module + " is not a chain entry, so Kiln cannot move it.";
-    if (row->loader) return module + " is EMF's loader: it holds the game's start, so it always loads first.";
+    if (row->loader) return module + " is EMF's loader: it starts EMF itself, so it always loads first.";
     if (row->late_ignored) return module + " is named in [late], but another loader started it first, so [late] had no effect.";
     if (row->started_by_loader) return module + " is started by EMF's loader (dinput8-chain.ini), so [late] cannot move it.";
     if (row->late) return module + " already loads late.";
@@ -289,7 +289,7 @@ Outcome outcome_of(const Rule& r, const std::vector<ChainRow>& rows, const Facts
         } else if (any_of(&ChainRow::loader)) {
             // the proxy loads EMF's loader normally whatever chain.ini says: it holds the start of the game
             o.applied = false;
-            o.note = r.subject.value + " is EMF's loader: it holds the game's start, so it always loads first and cannot be moved late";
+            o.note = r.subject.value + " is EMF's loader: it starts EMF itself, so it always loads first and cannot be moved late";
         } else if (any_of(&ChainRow::late_ignored)) {
             o.applied = false;
             o.note = r.subject.value + " is named in chain.ini [late], but another loader started it first, so it did not load late";

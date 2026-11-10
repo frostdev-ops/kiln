@@ -29,18 +29,19 @@
 //      plugins and native mods ran (a closed-source DLL that hooks the same functions then hooks over Kiln instead of
 //      under it). Matching is by canonical path (the resolved path when the file is missing), in every mode (also
 //      play-once mode=profile). A [late] line that names no entry loads nothing (proxy.log says so). An older proxy
-//      ignores the unknown section and loads the entry as before. Two limits: EMF's own loader (a [chain] entry that
-//      holds the game's start by patching the exe's entry point) is never deferred, [late] or not; and a late DLL runs
-//      inside the gate, where the entry point still holds Kiln's jump, so an entry patch it makes is put back by the
-//      gate (the proxy says so in proxy.log, and kiln-core in kiln.log and boot.json "errors").
+//      ignores the unknown section and loads the entry as before. One limit: EMF's own loader (a [chain] entry) is
+//      never deferred, [late] or not: it starts EMF itself, and kiln-emf decides when the plugins start whether the
+//      real EMF is in the process. A late DLL may patch the exe's entry point like an early one (step 4).
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
 //      (EMF holds a server's start this way) is what the gate saves as "original": at the entry, Kiln's gate runs first,
 //      puts those bytes back and jumps there, so the chained DLL's patch runs next and unwinds to the real entry
 //      (last in, first out).
-// The gate runs on the main thread after the loader lock is released and before any game code: it loads
-// <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v2, restores the entry bytes and
-// continues into the entry point. If anything fails the game starts vanilla.
+// The gate runs on the main thread after the loader lock is released and before any game code: it restores the entry
+// bytes, loads <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v2 and continues into the
+// entry point. The bytes go back before the core starts, so a DLL the core loads (a [late] entry, a native mod) that
+// patches the entry point saves the right bytes and its patch runs first when the gate continues: last in, first out
+// again. If anything fails the game starts vanilla.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -79,7 +80,6 @@ INIT_ONCE g_real_once = INIT_ONCE_STATIC_INIT;
 
 unsigned char* g_entry = nullptr;
 unsigned char g_original[14]{};
-unsigned char g_jump[14]{};  // what install_gate wrote over the entry point
 
 wchar_t g_game[kPath];  // directory of the exe, no trailing backslash
 wchar_t g_kiln[kPath];  // <game>\kiln
@@ -675,9 +675,10 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
     bool emf_loader = false;
     if (refusal == kAccept) refusal = classify(shown, &emf_loader);
     if (late_at >= 0 && refusal == kAccept && emf_loader && source == KILN_CHAIN_SOURCE_CHAIN) {
-        // EMF's loader holds the game's start (a server) by patching the exe's entry point; a late load runs inside the
-        // gate, which would put that patch back. It loads now, in its place in the chain, [late] or not.
-        plog(L"chain: %s: %s is EMF's loader: it holds the game's start, so chain.ini [late] does not defer it; loaded now",
+        // EMF's loader starts EMF itself (its core and the DLLs of dinput8-chain.ini). kiln-emf decides when the plugins
+        // start whether the real EMF is in the process; a loader that came after that would run EMF next to kiln-emf.
+        // It loads now, in its place in the chain, [late] or not.
+        plog(L"chain: %s: %s is EMF's loader: it starts EMF itself, so chain.ini [late] does not defer it; loaded now",
              source_name(source), shown);
         late_at = -1;
     }
@@ -1143,24 +1144,63 @@ bool restore_entry() {
     return FlushInstructionCache(GetCurrentProcess(), g_entry, sizeof g_original) != 0;
 }
 
+bool executable(const void* p) {
+    MEMORY_BASIC_INFORMATION m{};
+    if (!VirtualQuery(p, &m, sizeof m) || m.State != MEM_COMMIT || (m.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
+    return (m.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
+// The entry point was patched while the core booted. True when the patch is a plain jump (jmp rel32, jmp [rip+d] or
+// mov rax, imm64; jmp rax) whose target is not code any more: the DLL that wrote it was unloaded again (a DllMain that
+// failed after patching, a DLL the core refused as a plugin). Any other patch is taken as it is.
+bool entry_patch_is_dead() {
+    const unsigned char* e = g_entry;
+    const unsigned char* target = nullptr;
+    if (e[0] == 0xe9) {
+        int32_t rel = 0;
+        memcpy(&rel, e + 1, sizeof rel);
+        target = e + 5 + rel;
+    } else if (e[0] == 0xff && e[1] == 0x25) {
+        int32_t rel = 0;
+        memcpy(&rel, e + 2, sizeof rel);
+        const unsigned char* cell = e + 6 + rel;
+        MEMORY_BASIC_INFORMATION m{};
+        if (rel != 0 && (!VirtualQuery(cell, &m, sizeof m) || m.State != MEM_COMMIT || (m.Protect & (PAGE_GUARD | PAGE_NOACCESS))))
+            return true;  // the jump reads its target from memory that is gone
+        memcpy(&target, cell, sizeof target);
+    } else if (e[0] == 0x48 && e[1] == 0xb8 && e[10] == 0xff && e[11] == 0xe0) {
+        memcpy(&target, e + 2, sizeof target);
+    } else {
+        return false;
+    }
+    return !executable(target);
+}
+
 // Reached by a jmp from the exe's entry point, so the stack looks like a call to the entry: return its value.
 int __cdecl gate_entry() {
     if (g_log != INVALID_HANDLE_VALUE) {  // the core writes kiln.log from here on
         CloseHandle(g_log);
         g_log = INVALID_HANDLE_VALUE;
     }
+    // The saved bytes go back before the core starts, not after it. Nothing runs the entry point until this function
+    // continues into it (this thread is the one that would), so the order is free, and a DLL the core loads (chain.ini
+    // [late], a native mod) that patches the entry point then saves the real bytes instead of Kiln's jump. Saved over
+    // the jump, its patch could only be dropped: chaining to it would run this gate a second time.
+    if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);  // the entry point would jump back here for ever
     boot_core();
-    // A DLL that ran during boot (one loaded late, chain.ini [late]) can have patched the entry point on top of Kiln's
-    // jump, taking the jump's bytes as the "original". Chaining to it would run the gate again, so the saved bytes go
-    // back and that patch is lost: say so.
-    const bool patched = memcmp(g_entry, g_jump, sizeof g_jump) != 0;
-    if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);
-    if (patched)
-        log_after_boot(L"entry gate: the game's entry point was patched while Kiln started (by a DLL loaded after the gate "
-                       L"was set, e.g. through chain.ini [late]); that patch is lost, the original bytes are back. A loader "
-                       L"that holds the game's start this way must load before Kiln: take it out of [late]");
-    // The bytes put back may be another DLL's entry patch (a chained loader that holds the start): it runs now and
-    // unwinds to the real entry point in turn.
+    if (memcmp(g_entry, g_original, sizeof g_original) != 0) {
+        if (entry_patch_is_dead()) {
+            // Continuing would jump into memory that is gone. The saved bytes are the entry as it was before that DLL.
+            if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);
+            log_after_boot(L"entry gate: a DLL that loaded while Kiln started patched the game's entry point and is not in "
+                           L"the process any more; its patch was removed, the game starts without it");
+        } else {
+            log_after_boot(L"entry gate: a DLL that loaded while Kiln started (chain.ini [late], or a native mod) patched "
+                           L"the game's entry point; its patch runs now, before the game's own entry");
+        }
+    }
+    // The bytes at the entry point may be another DLL's patch (a chained loader that holds the start, or one from the
+    // boot above): it runs now and unwinds to the real entry point in turn.
     return reinterpret_cast<int(__cdecl*)()>(g_entry)();
 }
 
@@ -1177,16 +1217,16 @@ bool install_gate() {
     g_entry = image + nt->OptionalHeader.AddressOfEntryPoint;
     // jmp qword ptr [rip+0]; dq gate_entry. Preserves every register; the whole saved entry is put back before it
     // runs, so nothing needs relocating.
-    g_jump[0] = 0xff, g_jump[1] = 0x25;
+    unsigned char jump[14]{0xff, 0x25, 0, 0, 0, 0};
     auto target = &gate_entry;
-    memcpy(g_jump + 6, &target, sizeof target);
+    memcpy(jump + 6, &target, sizeof target);
     DWORD protection = 0;
-    if (!VirtualProtect(g_entry, sizeof g_jump, PAGE_EXECUTE_READWRITE, &protection)) return false;
+    if (!VirtualProtect(g_entry, sizeof jump, PAGE_EXECUTE_READWRITE, &protection)) return false;
     memcpy(g_original, g_entry, sizeof g_original);
-    memcpy(g_entry, g_jump, sizeof g_jump);
+    memcpy(g_entry, jump, sizeof jump);
     DWORD ignored = 0;
-    VirtualProtect(g_entry, sizeof g_jump, protection, &ignored);
-    return FlushInstructionCache(GetCurrentProcess(), g_entry, sizeof g_jump) != 0;
+    VirtualProtect(g_entry, sizeof jump, protection, &ignored);
+    return FlushInstructionCache(GetCurrentProcess(), g_entry, sizeof jump) != 0;
 }
 
 bool disabled() {

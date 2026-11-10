@@ -63,7 +63,7 @@ export function ChainCard({ profile, update }: { profile: Profile; update: (edit
                       {e.section === "chain" ? "Game" : "Profile"}
                     </Badge>
                     {e.engine && <span className="k-hint">{e.engine}</span>}
-                    {e.loader && <span className="k-hint" title="EMF's loader holds the game's start by patching the exe's entry point; loading it after Kiln would undo that.">Always loads first</span>}
+                    {e.loader && <span className="k-hint" title="EMF's loader starts EMF itself. Kiln's own EMF support checks for it when Kiln starts, so the loader cannot load after Kiln.">Always loads first</span>}
                     {off && <Badge tone="err" title={v.rules.find((x) => x.id === off)?.message}>Off by rule {off}</Badge>}
                     <span className="k-spacer" />
                     {!e.loader && (

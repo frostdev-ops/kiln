@@ -1048,8 +1048,8 @@ export interface ChainViewEntry {
   lateBy: string | null;
   /** "rule:<id>" when a compat rule switches it off. */
   offBy: string | null;
-  /** EMF's loader: it holds the game's start by patching the exe's entry point, so Kiln always loads it first and the
-   *  late switch is not offered. */
+  /** EMF's loader: it starts EMF itself, which Kiln's EMF support has to see when it starts, so Kiln always loads it
+   *  first and the late switch is not offered. */
   loader: boolean;
 }
 export type RuleAction = "warn" | "late" | "disable";

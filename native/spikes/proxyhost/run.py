@@ -250,7 +250,8 @@ kiln\\chain\\chain-b.dll
     check(g, sum(1 for line in g.lines if line.startswith("dll emf-x attach")) == 1, "emf-x attached once (dedupe)")
     check(g, not has(g.lines, "dll chain-b"), "commented-out and other-section lines are not loaded")
     check(g, not has(g.lines, "dll fake-sf"), "ShroudForge-marked DLL never loaded")
-    check(g, has(g.lines, "core entry bytes ff 25"), "at kiln_boot the entry still holds a jump (entrypatch-2's)")
+    check(g, has(g.lines, "core entry bytes ff 25") and has(g.lines, "core entry is kiln gate=0"),
+          "at kiln_boot the entry holds entrypatch-2's jump again: Kiln's gate put the saved bytes back before the core")
     check(g, has(g.lines, "main GetdfDIJoystick size=32 objsize=24 flags=1 datasize=80 objects=44"),
           "GetdfDIJoystick: c_dfDIJoystick (fallback under Wine)")
     check(g, has(g.lines, "main KilnProxyInfo abi=2"), "KilnProxyInfo export answers abi 2")
@@ -1217,8 +1218,9 @@ def s_late_already_loaded_realcore():
 
 
 def s_late_loader_and_entry():
-    """EMF's own loader is never deferred, even when [late] names it (it holds the game's start by patching the entry
-    point, which the gate would put back); any other DLL that patches the entry point from the late phase is warned about."""
+    """EMF's own loader is never deferred, even when [late] names it (it starts EMF itself, which kiln-emf has to see when
+    the plugins start). Any other DLL may patch the entry point from the late phase: the gate put the entry's bytes back
+    before the core started, so the patch saves the right bytes and runs before the game's entry, last in, first out."""
     g = Game("late-emf-loader")
     for n in ("emf-loader", "emf-loader-patch", "chain-a"):
         g.dll(n, f"kiln/chain/{n}.dll")
@@ -1230,12 +1232,13 @@ def s_late_loader_and_entry():
     c = g.chain()
     check(g, [(e["status"], e["module"]) for e in c] == [("0", "1"), ("0", "1"), ("6", "0")],
           f"EMF's loaders load in their place, the other entry is deferred ({[(e['status'], e['module']) for e in c]})")
-    check(g, sum(1 for x in g.proxy_log if "is EMF's loader: it holds the game's start" in x and "does not defer it" in x) == 2, "proxy.log: one line per loader")
+    check(g, sum(1 for x in g.proxy_log if "is EMF's loader: it starts EMF itself" in x and "does not defer it" in x) == 2, "proxy.log: one line per loader")
     check(g, ordered(g.lines, ["dll emf-loader-patch attach", "core boot", "gate emf-loader-patch", "main reached"]),
           "a loader that holds the start keeps its entry patch: Kiln's gate, then its gate, then the game")
-    check(g, not any("entry point was patched" in x for x in g.proxy_log), "no entry-patch warning for a patch made before the gate")
+    check(g, not any("entry point" in x and "patched" in x for x in g.proxy_log), "no entry-patch line for a patch made before the gate")
+    check(g, has(g.lines, "core entry bytes ff 25") and has(g.lines, "core entry is kiln gate=0"), "at kiln_boot the entry holds the loader's jump again, not Kiln's gate")
 
-    # a DLL deferred to the late phase that patches the entry point: its patch is lost, and every log says so
+    # a DLL deferred to the late phase that patches the entry point: it saves the game's own bytes and its gate runs
     r, lib, profile = realcore_game("late-entry-patch")
     empty_profile(profile)
     json.dump(profile, open(os.path.join(r.kiln, "profile.json"), "w"))
@@ -1243,26 +1246,57 @@ def s_late_loader_and_entry():
     r.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n[late]\nchain/entrypatch-1.dll\n")
     r.run()
     print(f"[late entry patch] rc {r.rc}")
-    check(r, has(r.lines, "patch entrypatch-1: entry patched") and not has(r.lines, "gate entrypatch-1") and has(r.lines, "main reached") and r.rc in (0, -9),
-          "the late DLL patched the entry; the gate put the original bytes back and the game started")
-    check(r, any("the game's entry point was patched while Kiln started" in x and "that patch is lost" in x for x in r.proxy_log), "proxy.log: the warning")
-    check(r, any(l.startswith("[W ") and "the game's entry point was patched while Kiln started" in l for l in kiln_log(r)), "kiln.log: the warning")
-    check(r, any("entry point was patched" in e for e in state(r, "boot.json").get("errors", [])), "boot.json errors: the warning")
+    saved = [l for l in r.lines if l.startswith("patch entrypatch-1: entry patched")]
+    check(r, len(saved) == 1 and "(saved ff 25)" not in saved[0], f"the late DLL saved the game's own entry bytes, not Kiln's jump ({saved})")
+    check(r, ordered(r.lines, ["probe entrypatch-1 kiln-core=1", "patch entrypatch-1: entry patched", "gate entrypatch-1", "main reached"]) and r.rc in (0, -9),
+          "the late DLL's gate runs before the game's entry, and the game starts")
+    check(r, sum(1 for l in r.lines if l.startswith("gate entrypatch-1")) == 1, "its gate runs once")
+    check(r, any("patched the game's entry point; its patch runs now" in x for x in r.proxy_log), "proxy.log notes the patch")
+    check(r, any(l.startswith("[I ") and "patched the game's entry point" in l for l in kiln_log(r)) and
+          not any(l.startswith(("[W ", "[E ")) and "entry point" in l for l in kiln_log(r)), "kiln.log notes it as information")
+    check(r, not any("entry point" in e for e in state(r, "boot.json").get("errors", [])), "boot.json errors: nothing about the entry point")
+
+    # an early patcher and a late one: last in, first out across the two phases
+    m, lib_m, profile_m = realcore_game("late-entry-mixed")
+    empty_profile(profile_m)
+    json.dump(profile_m, open(os.path.join(m.kiln, "profile.json"), "w"))
+    for n in ("entrypatch-1", "entrypatch-2"):
+        m.dll(n, f"kiln/chain/{n}.dll")
+    m.write("kiln/chain.ini", "[chain]\nchain/entrypatch-2.dll\nchain/entrypatch-1.dll\n[late]\nchain/entrypatch-1.dll\n")
+    m.run()
+    print(f"[late entry patch, mixed] rc {m.rc}")
+    check(m, ordered(m.lines, ["patch entrypatch-2: entry patched", "probe entrypatch-1 kiln-core=1", "patch entrypatch-1: entry patched (saved ff 25)",
+                               "gate entrypatch-1", "gate entrypatch-2", "main reached"]) and m.rc in (0, -9),
+          "the late patch saved the early loader's jump; gates run late one first, then the early one, then the game")
+    check(m, sum(1 for l in m.lines if l.startswith("gate ")) == 2, "each gate runs once")
+
+    # a late DLL that patches the entry point and then fails its DllMain is unloaded: its jump points into freed memory
+    d, lib_d, profile_d = realcore_game("late-entry-dead")
+    empty_profile(profile_d)
+    json.dump(profile_d, open(os.path.join(d.kiln, "profile.json"), "w"))
+    d.dll("entrypatch-fail", "kiln/chain/entrypatch-fail.dll")
+    d.write("kiln/chain.ini", "[chain]\nchain/entrypatch-fail.dll\n[late]\nchain/entrypatch-fail.dll\n")
+    d.run()
+    print(f"[late entry patch, DLL gone] rc {d.rc}")
+    check(d, ordered(d.lines, ["patch entrypatch-fail: entry patched", "main reached"]) and not has(d.lines, "gate entrypatch-fail") and d.rc in (0, -9),
+          "a patch whose DLL was unloaded again is removed and the game starts")
+    check(d, any("is not in the process any more; its patch was removed" in x for x in d.proxy_log), "proxy.log says the dead patch was removed")
+    check(d, any("entrypatch-fail.dll failed to load" in l for l in kiln_log(d)), "kiln.log: the late DLL failed to load")
     # the same DLL loaded early chains as before, and nothing is reported
     e = Game("late-entry-early")
     e.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
     e.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n")
     e.run()
-    check(e, ordered(e.lines, ["dll entrypatch-1 attach", "core boot", "gate entrypatch-1", "main reached"]) and not any("entry point was patched" in x for x in e.proxy_log),
-          "an entry patch made before the gate still unwinds last in, first out, with no warning")
+    check(e, ordered(e.lines, ["dll entrypatch-1 attach", "core boot", "gate entrypatch-1", "main reached"]) and not any("entry point" in x and "patched" in x for x in e.proxy_log),
+          "an entry patch made before the gate still unwinds last in, first out, with no line about it")
     q, lib2, profile2 = realcore_game("late-entry-quiet")
     empty_profile(profile2)
     json.dump(profile2, open(os.path.join(q.kiln, "profile.json"), "w"))
     q.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
     q.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n")
     q.run()
-    check(q, has(q.lines, "gate entrypatch-1") and not any("entry point was patched" in l for l in kiln_log(q)) and
-          not any("entry point was patched" in x for x in state(q, "boot.json").get("errors", [])), "the real core: no false warning when nothing patched the entry during boot")
+    check(q, has(q.lines, "gate entrypatch-1") and not any("entry point" in l for l in kiln_log(q)) and
+          not any("entry point" in x for x in state(q, "boot.json").get("errors", [])), "the real core: nothing said when nothing patched the entry during boot")
     return g
 
 
@@ -1313,11 +1347,35 @@ def s_late_oldproxy():
     return g
 
 
+def s_entry_gate_held():
+    """A proxy from before the gate put the entry bytes back first (dev.21 before its review fixes: HELD_PROXY=<its
+    dinput8.dll>, or $KILN_OUT/heldproxy/dinput8.dll) keeps its jump on the entry point while the core boots. A DLL that
+    patches the entry point then saves that jump, and the proxy drops the patch afterwards: the new core says so. Skipped
+    when there is no such proxy."""
+    held = os.environ.get("HELD_PROXY") or os.path.join(OUT, "heldproxy", "dinput8.dll")
+    if not os.path.isfile(held):
+        print("[entry gate held] skipped (no such proxy: set HELD_PROXY=<dinput8.dll that knows [late] and restores the entry after kiln_boot>)")
+        return None
+    g, lib, profile = realcore_game("entry-gate-held")
+    empty_profile(profile)
+    json.dump(profile, open(os.path.join(g.kiln, "profile.json"), "w"))
+    shutil.copy(held, os.path.join(g.dir, "dinput8.dll"))
+    g.dll("entrypatch-1", "kiln/chain/entrypatch-1.dll")
+    g.write("kiln/chain.ini", "[chain]\nchain/entrypatch-1.dll\n[late]\nchain/entrypatch-1.dll\n")
+    g.run()
+    print(f"[entry gate held] rc {g.rc}")
+    check(g, has(g.lines, "patch entrypatch-1: entry patched (saved ff 25)") and not has(g.lines, "gate entrypatch-1") and has(g.lines, "main reached"),
+          "with the older proxy the late DLL saves Kiln's jump and its patch is dropped; the game starts")
+    check(g, any(l.startswith("[W ") and "older Kiln proxy" in l and "that patch is lost" in l for l in kiln_log(g)), "kiln.log: the new core warns")
+    check(g, any("older Kiln proxy" in e for e in state(g, "boot.json").get("errors", [])), "boot.json errors: the warning")
+    return g
+
+
 SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
                                           s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_native_realcore, s_late_policy_realcore,
                                           s_late_requires_realcore, s_late_already_loaded_realcore, s_late_loader_and_entry, s_overlap_refused_realcore,
-                                          s_late_oldproxy)}
+                                          s_late_oldproxy, s_entry_gate_held)}
 
 
 def main():

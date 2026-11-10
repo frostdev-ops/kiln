@@ -98,30 +98,54 @@ struct BootFacts {
     std::vector<std::string> errors;
 };
 
-// The proxy's gate is a 14-byte jump (FF 25 00000000, target inside the proxy) over the exe's entry point until kiln_boot
-// returns. A DLL that ran during boot (one loaded late, chain.ini [late]) can have patched the entry on top of it; the proxy
-// puts its saved bytes back afterwards, so that patch is lost (proxy/dinput8.cpp gate_entry). Says so in kiln.log and
-// boot.json "errors". Nothing to say without a proxy gate.
-void check_entry_patch(BootFacts& f) {
+// The exe's entry point and the proxy's gate on it. The gate is a 14-byte jump (FF 25 00000000, target inside the
+// proxy). A dev.21 proxy puts the entry's own bytes back before it calls kiln_boot, so a DLL that loads during boot
+// (chain.ini [late], a native mod) and patches the entry point saves the right bytes and its patch runs when the gate
+// continues. An older proxy keeps its jump there until kiln_boot returns and then puts its saved bytes back, which
+// drops such a patch. snapshot_entry() runs first in boot(), check_entry_patch() at its end.
+constexpr size_t kGateSize = 14;
+uint8_t g_entry_at_boot[kGateSize]{};
+const uint8_t* g_entry = nullptr;   // null: no proxy, or the exe's headers cannot be read
+bool g_gate_held = false;           // the proxy's jump was on the entry point when kiln_boot started (an older proxy)
+
+bool is_proxy_gate(const uint8_t* entry) {
     const auto* proxy = reinterpret_cast<const uint8_t*>(g_boot_info.proxy_module);
-    const auto* base = reinterpret_cast<const uint8_t*>(image().base);
-    if (!proxy || !base) return;
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
     const auto* pdos = reinterpret_cast<const IMAGE_DOS_HEADER*>(proxy);
+    if (!proxy || pdos->e_magic != IMAGE_DOS_SIGNATURE) return false;
     const auto* pnt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(proxy + pdos->e_lfanew);
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE || nt->Signature != IMAGE_NT_SIGNATURE || pdos->e_magic != IMAGE_DOS_SIGNATURE ||
-        pnt->Signature != IMAGE_NT_SIGNATURE || !nt->OptionalHeader.AddressOfEntryPoint)
-        return;
-    const uint8_t* entry = base + nt->OptionalHeader.AddressOfEntryPoint;
+    if (pnt->Signature != IMAGE_NT_SIGNATURE) return false;
     uint64_t target = 0;
     std::memcpy(&target, entry + 6, sizeof target);
-    const bool ours = entry[0] == 0xFF && entry[1] == 0x25 && entry[2] == 0 && entry[3] == 0 && entry[4] == 0 && entry[5] == 0 &&
-                      target >= reinterpret_cast<uintptr_t>(proxy) && target < reinterpret_cast<uintptr_t>(proxy) + pnt->OptionalHeader.SizeOfImage;
-    if (ours) return;
-    const std::string what = "the game's entry point was patched while Kiln started (by a DLL loaded after the proxy's gate was set, "
-                             "e.g. through chain.ini [late]); the proxy puts the original bytes back, so that patch is lost. A loader "
-                             "that holds the game's start this way must load before Kiln: take it out of [late]";
+    return entry[0] == 0xFF && entry[1] == 0x25 && entry[2] == 0 && entry[3] == 0 && entry[4] == 0 && entry[5] == 0 &&
+           target >= reinterpret_cast<uintptr_t>(proxy) && target < reinterpret_cast<uintptr_t>(proxy) + pnt->OptionalHeader.SizeOfImage;
+}
+
+void snapshot_entry() {
+    const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+    if (!g_boot_info.proxy_module || !base) return;
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE || !nt->OptionalHeader.AddressOfEntryPoint ||
+        nt->OptionalHeader.AddressOfEntryPoint > nt->OptionalHeader.SizeOfImage - kGateSize)
+        return;
+    g_entry = base + nt->OptionalHeader.AddressOfEntryPoint;
+    std::memcpy(g_entry_at_boot, g_entry, kGateSize);
+    g_gate_held = is_proxy_gate(g_entry);
+}
+
+// A DLL that loaded during boot patched the entry point: says what happens to that patch (kiln.log; boot.json "errors"
+// when it is lost).
+void check_entry_patch(BootFacts& f) {
+    if (!g_entry || std::memcmp(g_entry, g_entry_at_boot, kGateSize) == 0) return;
+    if (!g_gate_held) {
+        KLOG_I("a DLL that loaded while Kiln started (chain.ini [late], or a native mod) patched the game's entry point; "
+               "the proxy runs it before the game's own entry (proxy.log says so if it had to drop it)");
+        return;
+    }
+    const std::string what = "the game's entry point was patched while Kiln started (by a DLL loaded late or a native mod), and "
+                             "this dinput8.dll is an older Kiln proxy that puts its saved bytes back afterwards, so that patch "
+                             "is lost. Install Kiln again so the proxy matches kiln-core";
     KLOG_W("%s", what.c_str());
     f.errors.push_back(what);
 }
@@ -213,6 +237,7 @@ void write_boot_json(const BootFacts& f) {
 }
 
 void boot() {
+    snapshot_entry();  // before anything loads a DLL
     init_paths();
     BootFacts f;
     f.started_ms = now_ms();

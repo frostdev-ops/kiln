@@ -87,7 +87,7 @@ export function chainMockHandlers({ profiles, library, reject }: Deps): Record<s
       const path = String(a.path ?? "");
       const e = view(p, library).entries.find((x) => eq(x.path, path)) ?? reject("not_found", `${path} is not in this profile's chain`);
       const on = !!a.late;
-      if (on && e.loader) reject("invalid_argument", `${e.file} is EMF's loader: it holds the game's start, so it always loads first.`);
+      if (on && e.loader) reject("invalid_argument", `${e.file} is EMF's loader: it starts EMF itself, so it always loads first.`);
       if (e.section === "chain") {
         if (on) playerLate.add(e.path.toLowerCase());
         else playerLate.delete(e.path.toLowerCase());

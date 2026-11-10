@@ -26,9 +26,10 @@ enshrouded_server.exe / enshrouded.exe
    `dinput8-chain.ini`, `kiln/chain.ini [profile]` = dllmain-phase native mods; [profiles.md](profiles.md)), then
    overwrites the exe's entry point with a 14-byte jump and returns. Results go to `kiln/logs/proxy.log` and, in
    `KilnBootInfo` v2, to the core.
-2. The jump lands in the proxy's gate on the main thread, before any game code. The gate loads `kiln/kiln-core.dll`
-   and calls `kiln_boot`, then restores the entry bytes and runs the real entry point. An entry patch a chained DLL
-   made is what the gate restored, so it runs next (last in, first out). Any failure: the game runs vanilla.
+2. The jump lands in the proxy's gate on the main thread, before any game code. The gate restores the entry bytes,
+   loads `kiln/kiln-core.dll`, calls `kiln_boot` and then runs the entry point. An entry patch a chained DLL made is
+   what the gate restored, so it runs next (last in, first out); a DLL loaded during `kiln_boot` (`[late]`, a native
+   mod) may patch the entry point too, and its patch runs first. Any failure: the game runs vanilla.
    `KILN_DISABLE=1` skips Kiln (no chain either).
 3. `kiln_boot`: paths and log, `kiln.json`, the profile (`kiln.profile`: play-once, `kiln/profile.json` or the legacy
    layout; sets `KILN_PATH_CONFIG`), image identity (13 ms to hash the exe), the build record, native mods `early`

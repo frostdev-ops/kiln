@@ -319,7 +319,7 @@ void late_limit_cases() {
           "a dinput8-chain.ini DLL while EMF's loader is chained: fix rule, not late");
     map["targets"][0]["foreignBefore"] = dest("emf-dinput8.dll", "0x2a0");
     o = compute_overlaps(map, {loader}, {});
-    check(o.size() == 1 && o[0]["fix"] == "rule" && o[0]["message"].get<std::string>().find("holds the game's start") != std::string::npos,
+    check(o.size() == 1 && o[0]["fix"] == "rule" && o[0]["message"].get<std::string>().find("starts EMF itself") != std::string::npos,
           "EMF's loader itself: fix rule, not late");
     map["targets"][0]["foreignBefore"] = dest("xhl-core.dll", "0x2a0");
     o = compute_overlaps(map, {plain}, {});

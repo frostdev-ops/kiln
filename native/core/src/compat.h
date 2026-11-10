@@ -31,8 +31,8 @@ struct ChainRow {
     // [late] had no effect: the DLL was in the process before the late phase (another loader started it). The row is
     // `loaded`, not a late entry.
     bool late_ignored = false;
-    // EMF's own loader (a [chain] entry): it holds the game's start by patching the exe's entry point, so the proxy never
-    // defers it and a `late` for it cannot apply.
+    // EMF's own loader (a [chain] entry): it starts EMF itself, which kiln-emf has to see when the plugins start, so the
+    // proxy never defers it and a `late` for it cannot apply.
     bool loader = false;
     // A dinput8-chain.ini entry while EMF's loader is chained: that loader starts the DLL itself, before [late] can.
     bool started_by_loader = false;
