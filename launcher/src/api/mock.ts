@@ -1231,7 +1231,8 @@ function foundAdd(gameId: string, pid: string, m: FoundMod): AddReport {
   if (active) { activate(pid, gameId); emitGame(gameId, "status"); }
   const added: AddedMod = { kind, id, version: v.version, hash: v.hash, name: m.name };
   return { import: { imported: [ref], existing: [], skipped: [], notes: [], names: { [`${kind}/${id}`]: m.name } }, profileId: pid, profileName: p.name, created: false, added: [added], already: [],
-    changes: [{ kind, before, after }], applied: active, running: !!running[gameId], activation: active ? activations[gameId] : null, missing: [], modpacks: [] };
+    changes: [{ kind, before, after }], applied: active, running: !!running[gameId], activation: active ? activations[gameId] : null, missing: [], modpacks: [],
+    resumed: false, libraryOnly: null };
 }
 
 /** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
