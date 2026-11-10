@@ -220,7 +220,7 @@ void net_world_started(uint8_t kind);
 void net_shutdown();
 void portraits_on_ready();  // offline generation through the separate GPL kiln-eml component (drawing on a worker)
 // image_load("portrait:<key>"): true when the picture is not being drawn (any more). While it is, the thread that started the
-// drawing waits (for 120 s all calls together); any other thread gets false at once and asks again later.
+// drawing waits (for 120 s all calls together); any other thread gets false at once (image_load then returns a pending handle).
 bool portraits_wait(const std::string& key);
 // true while the portrait worker is drawing `key`. Never waits.
 bool portraits_drawing(const std::string& key);

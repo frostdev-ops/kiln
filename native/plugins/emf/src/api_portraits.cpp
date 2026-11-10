@@ -546,8 +546,8 @@ bool portraits_wait(const std::string &key) {
     if (!g_working || !g_pending.contains(lower(key)))
         return true;
     // Only the thread that started the drawing waits: it would have drawn the picture itself before, so a mod that loads
-    // its pictures while it starts gets them. Any other thread (tick, render, a mod's own) is never held up: the call
-    // answers "not yet" and the mod can ask again.
+    // its pictures while it starts gets them. Any other thread (tick, render, a mod's own) is never held up: this
+    // answers false, and image_load hands the mod a handle that fills in when the drawing finishes (api_windows.cpp).
     if (std::this_thread::get_id() != g_boot_thread)
         return false;
     // bounded for all calls together: a renderer that hangs must not hold the start for 120 s per call
