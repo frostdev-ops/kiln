@@ -71,19 +71,19 @@ fn symlink_leaves_ancestors_and_dangling_links_are_refused() {
 #[test]
 fn symlinked_system_ancestors_above_the_root_are_accepted() {
     let t = tmp("system-ancestors");
-    // <t>/var/home/jame/.local/share/kiln is the data dir; <t>/home -> var/home (relative, like the real one).
-    let data = t.0.join("var/home/jame/.local/share/kiln");
+    // <t>/var/home/user/.local/share/kiln is the data dir; <t>/home -> var/home (relative, like the real one).
+    let data = t.0.join("var/home/user/.local/share/kiln");
     std::fs::create_dir_all(data.join("library/set/m/1.0.0")).unwrap();
     std::fs::write(data.join("library/set/m/1.0.0/init.lua"), b"x").unwrap();
     std::os::unix::fs::symlink("var/home", t.0.join("home")).unwrap();
-    let linked = t.0.join("home/jame/.local/share/kiln");
+    let linked = t.0.join("home/user/.local/share/kiln");
     for path in [linked.clone(), linked.join("library/set/m/1.0.0/init.lua"), linked.join("kiln/state/engine-mods.lock"),
                  linked.join("missing/child")] {
         refuse_symlink_path(&linked, &path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     }
     // a second linked ancestor, further up the chain
     std::os::unix::fs::symlink(t.0.join("var"), t.0.join("mnt")).unwrap();
-    let through_mnt = t.0.join("mnt/home/jame/.local/share/kiln");
+    let through_mnt = t.0.join("mnt/home/user/.local/share/kiln");
     refuse_symlink_path(&through_mnt, &through_mnt.join("library")).unwrap();
 }
 
@@ -92,11 +92,11 @@ fn symlinked_system_ancestors_above_the_root_are_accepted() {
 #[test]
 fn symlinks_inside_the_root_are_refused_behind_a_linked_ancestor() {
     let t = tmp("inside-root");
-    let real = t.0.join("var/home/jame/game");
+    let real = t.0.join("var/home/user/game");
     std::fs::create_dir_all(real.join("mods")).unwrap();
     std::fs::create_dir_all(t.0.join("elsewhere")).unwrap();
     std::os::unix::fs::symlink("var/home", t.0.join("home")).unwrap();
-    let game = t.0.join("home/jame/game");
+    let game = t.0.join("home/user/game");
     // a link below the root: directory, file, and a dangling one
     std::os::unix::fs::symlink(t.0.join("elsewhere"), real.join("mods/linked")).unwrap();
     std::os::unix::fs::symlink(t.0.join("elsewhere/none"), real.join("mods/dangling")).unwrap();
@@ -105,8 +105,8 @@ fn symlinks_inside_the_root_are_refused_behind_a_linked_ancestor() {
     }
     refuse_symlink_path(&game, &game.join("mods")).unwrap();
     // the root itself being a link is refused as before (only what lies above it is the system's)
-    std::os::unix::fs::symlink(&real, t.0.join("var/home/jame/game-link")).unwrap();
-    let linked_root = t.0.join("home/jame/game-link");
+    std::os::unix::fs::symlink(&real, t.0.join("var/home/user/game-link")).unwrap();
+    let linked_root = t.0.join("home/user/game-link");
     assert_eq!(refuse_symlink_path(&linked_root, &linked_root.join("mods")).unwrap_err().code, ErrorCode::Refused);
     assert_eq!(refuse_symlink_path(&linked_root, &linked_root).unwrap_err().code, ErrorCode::Refused);
     // a path that is not under the root gets the strict check from its first component: the link above it refuses

@@ -418,10 +418,10 @@ fn placement_refuses_modified_owned_trees_and_symlinked_roots() {
 #[test]
 fn placement_works_through_symlinked_system_ancestors_but_refuses_links_inside() {
     let t = tmp("system-ancestors");
-    std::fs::create_dir_all(t.0.join("var/home/jame")).unwrap();
+    std::fs::create_dir_all(t.0.join("var/home/user")).unwrap();
     std::os::unix::fs::symlink("var/home", t.0.join("home")).unwrap();
-    let dirs = DataDirs::at(t.0.join("home/jame/.local/share/kiln"));
-    let game = t.0.join("home/jame/game");
+    let dirs = DataDirs::at(t.0.join("home/user/.local/share/kiln"));
+    let game = t.0.join("home/user/game");
     let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
     let mut p = profile::create(&dirs, "atomic", None).unwrap();
     let sf = refs(&r, ModKind::ShroudForge, "sfpack");
@@ -434,7 +434,7 @@ fn placement_works_through_symlinked_system_ancestors_but_refuses_links_inside()
     assert!(game.join("mods/sfpack/mod.json").is_file());
     // a second pass keeps them, and settings and the EML-style status reads work through the link too
     assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap().kept.len(), 2);
-    let cfg = t.0.join("home/jame/config");
+    let cfg = t.0.join("home/user/config");
     let s = engine_mods::set_setting(ModKind::ShroudForge, "sfpack", "speed", &serde_json::json!(5), Some(&game), &cfg, None).unwrap();
     assert_eq!(s.values["speed"], 5);
     assert!(engine_mods::status(&game).iter().all(|s| s.error.is_none()));
@@ -444,7 +444,7 @@ fn placement_works_through_symlinked_system_ancestors_but_refuses_links_inside()
     assert!(!game.join("shrouded_engine_tweaks/mods/flymode").exists());
 
     // A link INSIDE the destination tree is refused, even behind the linked ancestor.
-    let elsewhere = t.0.join("home/jame/elsewhere");
+    let elsewhere = t.0.join("home/user/elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::remove_dir_all(game.join("shrouded_engine_tweaks")).unwrap();
     std::os::unix::fs::symlink(&elsewhere, game.join("shrouded_engine_tweaks")).unwrap();
@@ -455,7 +455,7 @@ fn placement_works_through_symlinked_system_ancestors_but_refuses_links_inside()
 
     // A link as the Library entry is refused too: the entry becomes a link to a copy of itself.
     let entry = library::path_of(&dirs, &set).unwrap();
-    let copy = t.0.join("home/jame/entry-copy");
+    let copy = t.0.join("home/user/entry-copy");
     kiln_manage::util::copy_tree(&entry, &copy).unwrap();
     std::fs::remove_dir_all(&entry).unwrap();
     std::os::unix::fs::symlink(&copy, &entry).unwrap();
