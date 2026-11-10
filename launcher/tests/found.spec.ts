@@ -30,28 +30,47 @@ test("the Mods tab lists the game folder's mods, and one click loads EML's", asy
   expect(p.dropinsEngines).toBe(true);
 });
 
-test("Add to this profile imports a Greeneye mod the profile's own Greeneye mods hide", async ({ page }) => {
+test("a Greeneye mod follows Greeneye's switch, whatever the profile lists", async ({ page }) => {
   await desktop(page, "/profiles/ember-run/engines");
   const sec = page.getByRole("region", { name: "In the game folder" });
   const row = sec.locator('[role="row"], tr').filter({ hasText: "Better Map" });
-  await expect(row).toContainText("only when every drop-in folder is on");
+  await expect(row).toContainText("Greeneye drop-ins are off");
+  await row.getByRole("button", { name: "Load the game-folder Greeneye mods" }).click();
+  await expect(row).toContainText("Loads");
+  const p = await api<{ dropins: string[] }>(page, "profileGet", "ember-run");
+  expect(p.dropins).toEqual(["greeneye"]);
+});
+
+test("Add to this profile imports a mod from a folder its loader does not read", async ({ page }) => {
+  await desktop(page, "/profiles/ember-run/mods");
+  const sec = page.getByRole("region", { name: "In the game folder" });
+  const row = sec.locator('[role="row"], tr').filter({ hasText: "Pack Mule" });
+  await expect(row).toContainText("Kiln looks for them in emf/mods");
   await row.getByRole("button", { name: "Add to this profile" }).click();
   await expect(row).toContainText("In this profile");
   const p = await api<{ mods: Record<string, { id: string }[]> }>(page, "profileGet", "ember-run");
-  expect(p.mods.greeneye.map((m) => m.id)).toContain("better-map");
+  expect(p.mods.emf.map((m) => m.id)).toContain("pack-mule");
 });
 
 test("profile settings switch every engine's folder, grouped", async ({ page }) => {
   await desktop(page, "/profiles/vanilla-plus/mods");
   await page.getByRole("button", { name: "Settings" }).first().click();
   const dlg = page.getByRole("dialog", { name: "Profile settings" });
-  for (const name of ["Kiln mods", "EMF mods", "EML mods", "ShroudForge mods", "Greeneye mods", "Flame mods", "Shroudtopia mods"]) {
+  for (const name of ["Kiln mods", "EMF mods", "EML mods", "ShroudForge mods", "Greeneye mods", "Flame mods", "Shroudtopia mods", "Enshwick mods"]) {
     await expect(dlg.getByRole("switch", { name: new RegExp(`^${name} `) })).toBeVisible();
   }
+  // "Vanilla plus" was made before dev.22, when these plugins read their folder without asking: shown as on
+  for (const name of ["Greeneye mods", "Flame mods", "Shroudtopia mods", "Enshwick mods"]) {
+    await expect(dlg.getByRole("switch", { name: new RegExp(`^${name} `) })).toBeChecked();
+  }
+  await expect(dlg.getByRole("switch", { name: /^EML mods / })).not.toBeChecked();
   await dlg.getByText("EML mods", { exact: true }).click();
   await expect(dlg.getByRole("switch", { name: /^EML mods / })).toBeChecked();
   await dlg.getByRole("button", { name: "Save" }).click();
-  await expect.poll(async () => (await api<{ dropins: string[] }>(page, "profileGet", "vanilla-plus")).dropins).toEqual(["eml"]);
+  // saved as the explicit list: what it loaded before, plus EML
+  await expect.poll(async () => (await api<{ dropins: string[] }>(page, "profileGet", "vanilla-plus")).dropins)
+    .toEqual(["eml", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"]);
+  expect((await api<{ dropinsEngines?: boolean }>(page, "profileGet", "vanilla-plus")).dropinsEngines).toBe(true);
 });
 
 test("Play says how many game-folder mods the active profile leaves out and links to them", async ({ page }) => {

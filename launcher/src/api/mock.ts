@@ -26,6 +26,7 @@ import bigStacksSchema from "../../../schema/examples/config-schema.json";
 import beastmasterSchema from "../../../schema/examples/config-schema-emf.json";
 import kilnJsonSnapshot from "../data/kiln-json.snapshot.json";
 import { MOD_KINDS, emptyMods } from "./kinds";
+import { DROPIN_KINDS, dropinKinds } from "../pages/profiles/dropins";
 import { deselectedFor, partRows, resolveParts, selectParts } from "../shell/parts";
 
 /** Kiln's own four kinds (the drop-in folders); MOD_KINDS (./kinds.ts) has every kind. */
@@ -189,7 +190,8 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
       eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
       flame: [], shroudtopia: [pm("shroudtopia", "fly-mode")], enshwick: [], shroudlink: [], ember: [],
     },
-    dropins: [], dataDir: "shared", server: null,
+    // made by a dev.22 launcher: the list names every kind that is on (none). "Vanilla plus" is from before dev.22.
+    dropins: [], dropinsEngines: true, dataDir: "shared", server: null,
   }],
   ["vanilla-plus", {
     format: 1, id: "vanilla-plus", name: "Vanilla plus", created: "2026-11-02T08:00:00Z", updated: "2026-11-03T21:15:00Z", generation: 2, notes: "",
@@ -1160,35 +1162,31 @@ function mockLibraryRemove(r: LibraryRef, force: boolean | string[]) {
 // ---------------------------------------------------------------- the game folder (kiln_manage::found)
 
 /** What a player extracted into the mock game folder. Kiln drops none of these there. */
-const gameFolder: { kind: ModKind | null; name: string; id: string | null; version: string | null; path: string; why?: string }[] = FRESH ? [] : [
+const gameFolder: { kind: ModKind | null; name: string; id: string | null; version: string | null; path: string; why?: string; wrong?: string }[] = FRESH ? [] : [
   { kind: "eml", name: "Hoarder's Helper", id: "HoardersHelper", version: "1.0.1", path: "mods/HoardersHelper" },
   { kind: "eml", name: "Less Dense Shroud Fog", id: "Less Dense Shroud Fog", version: "1.2.0", path: "mods/Less Dense Shroud Fog" },
   { kind: "greeneye", name: "Better Map", id: "better-map", version: "2.0.0", path: "greeneye/better-map" },
   { kind: "greeneye", name: "Zoom Out", id: "zoom-out", version: "1.1.0", path: "greeneye/zoom-out" },
   { kind: "set", name: "Fly Mode", id: "FlyMode", version: null, path: "shrouded_engine_tweaks/mods/FlyMode" },
+  // an EMF mod extracted into mods/, where nothing loads EMF mods from
+  { kind: "emf", name: "Pack Mule", id: "pack-mule", version: "0.3.0", path: "mods/pack-mule", wrong: "Nothing loads EMF mods from mods: Kiln looks for them in emf/mods." },
   { kind: null, name: "screenshots", id: null, version: null, path: "mods/screenshots", why: "No mod manifest, Lua code or mod DLL in this folder." },
 ];
-const DROPIN_SWITCHED: ModKind[] = ["kiln", "native", "plugin", "emf", "eml", "shroudforge", "greeneye", "flame", "shroudtopia", "shroudlink"];
-const SHORT: Partial<Record<ModKind, string>> = { eml: "EML", greeneye: "Greeneye", set: "SET" };
+const SHORT: Partial<Record<ModKind, string>> = { eml: "EML", greeneye: "Greeneye", set: "SET", emf: "EMF" };
 
 /** profile.json `dropins` as kiln_manage::profile::Profile::dropins_file says: true, or the kinds named. */
 function dropinsFile(p: Profile): true | ModKind[] {
   const core = ["kiln", "native", "plugin", "emf"] as ModKind[];
-  if (!p.dropinsEngines) return core.every((k) => p.dropins.includes(k)) ? true : [...p.dropins];
-  const on = DROPIN_SWITCHED.filter((k) => p.dropins.includes(k));
-  return on.length === DROPIN_SWITCHED.length ? true : on;
+  if (!p.dropinsEngines) return core.every((k) => p.dropins.includes(k)) ? true : dropinKinds(p).filter((k) => k !== "set");
+  const on = DROPIN_KINDS.filter((k) => p.dropins.includes(k));
+  return on.length === DROPIN_KINDS.length ? true : on;
 }
 
-/** kiln_manage::found's rules for the kinds the mock folder holds. */
+/** kiln_manage::found's rule for the kinds the mock folder holds: every plugin follows `dropins`; kiln-set always reads. */
 function foundState(p: Profile, kind: ModKind): { loads: boolean; reason: string } {
   const f = dropinsFile(p);
   const label = SHORT[kind] ?? kind;
   if (kind === "set") return { loads: true, reason: "kiln-set always reads shrouded_engine_tweaks/mods." };
-  if (kind === "greeneye") {
-    if (!(p.mods.greeneye ?? []).length) return { loads: true, reason: "This profile has no Greeneye mods of its own, so kiln-greeneye reads greeneye." };
-    if (f === true) return { loads: true, reason: "Every drop-in folder is on in this profile." };
-    return { loads: false, reason: "This profile has Greeneye mods of its own. kiln-greeneye then reads greeneye only when every drop-in folder is on." };
-  }
   const on = f === true || f.includes(kind);
   return { loads: on, reason: `${label} drop-ins are ${on ? "on" : "off"} in this profile.` };
 }
@@ -1202,17 +1200,13 @@ function foundScan(gameId: string, p: Profile): FoundReport {
     const mine = (p.mods[g.kind] ?? []).find((m) => g.id && (m.id.toLowerCase() === g.id.toLowerCase() || m.id === g.id.toLowerCase().replace(/[^a-z0-9._-]/g, "-")));
     if (mine) return { ...base, state: "inProfile", reason: mine.enabled ? "This profile has this mod too. The profile's copy loads." : "This profile has this mod too, switched off. The profile's copy wins.", profileMod: mine.id };
     if (!kiln) return { ...base, state: "off", reason: "Kiln is not installed in this game." };
+    if (g.wrong) return { ...base, state: "off", reason: g.wrong, fix: "add" };
     const st = foundState(p, g.kind);
     if (st.loads) return { ...base, state: "loads", via: "kiln", reason: st.reason };
-    const withIt: Profile = { ...p, dropins: [...new Set([...dropinKindsOf(p), g.kind])], dropinsEngines: true };
+    const withIt: Profile = { ...p, dropins: [...new Set([...dropinKinds(p), g.kind])], dropinsEngines: true };
     return { ...base, state: "off", reason: st.reason, fix: foundState(withIt, g.kind).loads ? "dropins" : "add" };
   });
   return { gameId, profileId: p.id, kilnInstalled: kiln, mods, loaders: [], unreadable: [], truncated: false };
-}
-
-function dropinKindsOf(p: Profile): ModKind[] {
-  const core = ["kiln", "native", "plugin", "emf"] as ModKind[];
-  return !p.dropinsEngines && core.every((k) => p.dropins.includes(k)) ? [...MOD_KINDS] : [...p.dropins];
 }
 
 /** found_add: the folder into the Library (an id as the Library makes it) and into the profile, enabled. */
