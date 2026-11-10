@@ -2016,6 +2016,7 @@ version = "0.2.0-dev"
 dependencies = [
  "evdev",
  "kiln-manage",
+ "libc",
  "serde",
  "serde_json",
  "sevenz-rust2",

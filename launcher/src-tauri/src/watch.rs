@@ -6,9 +6,9 @@
 use crate::events::{self, GameEvent, GameEventKind, LogEvent};
 use kiln_manage::Error;
 use kiln_manage::paths::game as gp;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter};
@@ -58,6 +58,49 @@ fn copy_back(g: &kiln_manage::game::GameInstall) {
     }
 }
 
+/// Set when this launcher is on its way out (closing, or restarting into an update). The watcher stops: a process
+/// that hangs in its exit handlers must not go on rewriting profile.json next to the launcher that replaced it.
+static LEAVING: AtomicBool = AtomicBool::new(false);
+
+pub fn leaving() {
+    LEAVING.store(true, Ordering::SeqCst);
+}
+
+/// How often `follow_profile` may answer a change of the game's profile.json itself (not of the profile) with a write
+/// of its own: REWRITES times in REWRITE_WINDOW. Two Kiln programs that render a profile differently (an older
+/// launcher that is still open, a kilnctl of another version) would otherwise answer each other's write for ever,
+/// about twice a second, copying the profile's mods every time.
+const REWRITES: usize = 3;
+const REWRITE_WINDOW: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct Rewrites {
+    at: VecDeque<Instant>,
+    /// the pause was logged (once per pause)
+    said: bool,
+}
+
+impl Rewrites {
+    /// May the watcher write now? Forgets the writes older than the window.
+    fn room(&mut self, now: Instant) -> bool {
+        while self.at.front().is_some_and(|t| now.duration_since(*t) >= REWRITE_WINDOW) {
+            self.at.pop_front();
+        }
+        self.at.len() < REWRITES
+    }
+
+    fn wrote(&mut self, now: Instant) {
+        self.at.push_back(now);
+        self.said = false;
+    }
+}
+
+#[derive(Default)]
+struct Followed {
+    seen: Option<ProfileSeen>,
+    rewrites: Rewrites,
+}
+
 /// The active profile as the watcher last saw it: profile.json's mtime, the profile it names and its meta.json's mtime.
 #[derive(Clone, PartialEq)]
 struct ProfileSeen {
@@ -79,19 +122,34 @@ fn profile_seen(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameIns
 
 /// The active profile changed outside this launcher's profile pages (kilnctl, another window) while the game is not
 /// running: write the game's profile.json again, so Steam's own Play button starts it as it is now. Once per change
-/// (and once at startup).
-fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, seen: &mut HashMap<String, ProfileSeen>) {
+/// (and once at startup). When something else keeps writing profile.json differently, the watcher stops answering
+/// after REWRITES writes and looks again when the minute is over.
+fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, followed: &mut HashMap<String, Followed>) {
     let Ok(d) = crate::state::dirs() else { return };
-    let now = profile_seen(&d, g, seen.get(&g.id));
-    if seen.get(&g.id) == Some(&now) {
+    let f = followed.entry(g.id.clone()).or_default();
+    let now = profile_seen(&d, g, f.seen.as_ref());
+    if f.seen.as_ref() == Some(&now) {
+        return;
+    }
+    // profile.json is not as this watcher left it: somebody else wrote it
+    let foreign = f.seen.as_ref().is_some_and(|s| s.file != now.file);
+    if foreign && !f.rewrites.room(Instant::now()) {
+        if !f.rewrites.said {
+            f.rewrites.said = true;
+            crate::commands::app::launcher_log("profile", &format!(
+                "{}: this launcher wrote it {REWRITES} times within a minute and found it changed again each time. Another Kiln program writes it too (an older launcher that is still open?). Left as it is for now; looked at again within a minute.",
+                g.path.join(gp::PROFILE).display()));
+        }
         return;
     }
     if now.id.is_some() && crate::commands::profile::reapply(&d, g) {
+        if foreign {
+            f.rewrites.wrote(Instant::now());
+        }
         emit_game(app, &g.id, GameEventKind::Status, None);
     }
     // what it looks like after the write, so the write itself is not a change
-    let after = profile_seen(&d, g, None);
-    seen.insert(g.id.clone(), after);
+    f.seen = Some(profile_seen(&d, g, None));
 }
 
 // ---------------------------------------------------------------- log follows
@@ -147,10 +205,13 @@ pub fn start(app: AppHandle) {
         .name("kiln-watch".into())
         .spawn(move || {
             let mut seen: HashMap<String, Seen> = HashMap::new();
-            let mut profiles: HashMap<String, ProfileSeen> = HashMap::new();
+            let mut profiles: HashMap<String, Followed> = HashMap::new();
             let mut games: Vec<kiln_manage::game::GameInstall> = Vec::new();
             let mut games_at = Instant::now() - Duration::from_secs(60);
             loop {
+                if LEAVING.load(Ordering::SeqCst) {
+                    return;
+                }
                 poll_follows(&app);
                 if games_at.elapsed() > Duration::from_secs(10) {
                     games = crate::state::dirs()
@@ -197,4 +258,32 @@ pub fn start(app: AppHandle) {
             }
         })
         .expect("watcher thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_watcher_writes_a_profile_three_times_a_minute_at_most() {
+        let t0 = Instant::now();
+        let mut r = Rewrites::default();
+        for i in 0..REWRITES as u64 {
+            assert!(r.room(t0 + Duration::from_secs(i)));
+            r.wrote(t0 + Duration::from_secs(i));
+        }
+        // a fourth change inside the minute waits
+        assert!(!r.room(t0 + Duration::from_secs(5)));
+        r.said = true;
+        assert!(!r.room(t0 + Duration::from_secs(59)));
+        // the oldest write leaves the window: one more
+        assert!(r.room(t0 + Duration::from_secs(60)));
+        r.wrote(t0 + Duration::from_secs(60));
+        assert!(!r.said, "the next pause is logged again");
+        assert!(!r.room(t0 + Duration::from_secs(60)));
+        assert!(r.room(t0 + Duration::from_secs(61)));
+        // quiet for a while: all of it again
+        assert!(r.room(t0 + Duration::from_secs(600)));
+        assert!(r.at.is_empty());
+    }
 }
