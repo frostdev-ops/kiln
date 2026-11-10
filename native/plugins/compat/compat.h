@@ -6,11 +6,12 @@
 // Profile rule, the same for every engine (docs/kiln/engines/README.md):
 //  - the profile's "mods.<engine>" entries load first, in the profile's order (kiln.profile keeps the file's text;
 //    the core ignores mod kinds it does not know, so these lists never make a profile invalid);
-//  - the engine's own folder (greeneye/, mods/ ...) is also read when the profile has no "mods.<engine>" list (the
-//    launcher does not manage that engine, so what the player installed by hand keeps working), or when the profile
-//    has "dropins": true, or with no profile at all (legacy layout);
+//  - the engine's own folder (greeneye/, mods/ ...) is also read when the active profile has "dropins": true or a
+//    "dropins" list naming the engine, or with no profile at all (legacy layout); otherwise not, whether or not the
+//    profile has a "mods.<engine>" list;
 //  - play-once no-mods and an invalid profile load nothing;
-//  - an id listed in the profile wins over a folder with the same id.
+//  - an id listed in the profile wins over a folder with the same id, and over a folder that is Kiln's copy of that
+//    profile entry (its .kiln-library.json marker names this engine and the entry's id; library_copy_of).
 #pragma once
 
 #include <windows.h>
@@ -29,6 +30,7 @@
 #include <vector>
 
 #include "kiln_api.h"
+#include "module_image.h"
 #include "nlohmann/json.hpp"
 #include "services/kiln_profile.h"
 
@@ -229,7 +231,15 @@ inline EnginePlan plan_engine(const Host& host, const char* engine) {
         plan.note = "the engine's profile list is invalid: nothing loads";
         return plan;
     }
-    bool dropins_all = doc.contains("dropins") && doc["dropins"].is_boolean() && doc["dropins"].get<bool>();
+    // "dropins": true reads every engine's folder; a list of kinds (["emf", "flame", ...]) reads the folders it names.
+    bool dropins_all = false;
+    if (doc.contains("dropins")) {
+        const auto& d = doc["dropins"];
+        if (d.is_boolean()) dropins_all = d.get<bool>();
+        else if (d.is_array())
+            for (const auto& k : d)
+                if (k.is_string() && k.get_ref<const std::string&>() == engine) dropins_all = true;
+    }
     const auto kiln_dir = host.path(KILN_PATH_KILN);
     if (doc.contains("mods") && doc["mods"].is_object() && doc["mods"].contains(engine) && doc["mods"][engine].is_array()) {
         plan.profile_lists_engine = true;
@@ -255,11 +265,13 @@ inline EnginePlan plan_engine(const Host& host, const char* engine) {
             plan.listed.push_back(std::move(r));
         }
     }
-    plan.read_folder = !plan.profile_lists_engine || dropins_all;
+    // An active profile reads the engine's own folder only with drop-ins on for this engine.
+    plan.read_folder = dropins_all;
     std::string name(sv(prof->id()));
     plan.note = "profile '" + name + "': " + std::to_string(plan.listed.size()) + " listed" +
-                (plan.read_folder ? (plan.profile_lists_engine ? ", plus the engine's folder (dropins)" : ", plus the engine's folder (the profile does not manage this engine)")
-                                  : "");
+                (plan.read_folder ? std::string(", plus the engine's folder (drop-ins for ") + engine + " are on)"
+                                  : std::string("; the engine's folder is not read (drop-ins for ") + engine +
+                                        " are off in this profile)");
     return plan;
 }
 
@@ -460,14 +472,130 @@ inline bool file_contains(const std::filesystem::path& file, std::string_view ma
     return read_file(file, &d) && d.find(marker) != std::string::npos;
 }
 
-// The module in this process whose file name is `name` and that lives in `dir` (not System32): 0 when none.
+// ---- Kiln's copies of profile mods in an engine's own folder ----------------------------------------------------
+// When an engine's own loader file is installed, the launcher copies the profile's enabled mods of that engine into
+// the folder that loader reads (<game>/mods/<id>/, greeneye/<id>/, emf/mods/<id>/), each with a marker
+// .kiln-library.json {"format":1,"kind":"<engine>","id":"<library id>","version":...,"hash":...}. <id> is the profile
+// entry's id (the Library id); the id in the mod's own manifest may differ.
+constexpr const wchar_t* kLibraryMarker = L".kiln-library.json";
+
+// A string usable as one folder name below an engine folder: no separators, drive or stream colons, "." / "..",
+// control characters, trailing dot or space.
+inline bool safe_component(std::string_view s) {
+    if (s.empty() || s.size() > 128 || s == "." || s == ".." || s.back() == '.' || s.back() == ' ') return false;
+    for (char c : s)
+        if (static_cast<unsigned char>(c) < 0x20 || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' ||
+            c == '<' || c == '>' || c == '|')
+            return false;
+    return true;
+}
+
+// The marker in `dir`: kind and id. False when there is none, it is a link or outside `dir`, larger than 64 KiB, or
+// not the expected JSON (fails soft: the folder is then an ordinary drop-in).
+inline bool read_library_marker(const std::filesystem::path& dir, std::string* kind, std::string* id) {
+    const auto file = dir / kLibraryMarker;
+    if (!kcompat::exists(file)) return false;
+    CheckedPath guard;
+    if (!guard.open(dir, file, true)) return false;
+    std::ifstream f(file, std::ios::binary | std::ios::ate);
+    if (!f) return false;
+    const auto n = f.tellg();
+    if (n <= 0 || n > 64 * 1024) return false;
+    std::string text(static_cast<size_t>(n), '\0');
+    f.seekg(0);
+    if (!f.read(text.data(), static_cast<std::streamsize>(n))) return false;
+    const auto j = nlohmann::json::parse(text, nullptr, false);
+    if (!j.is_object() || !j.contains("kind") || !j["kind"].is_string() || !j.contains("id") || !j["id"].is_string())
+        return false;
+    *kind = j["kind"].get<std::string>();
+    *id = j["id"].get<std::string>();
+    return !kind->empty() && !id->empty();
+}
+
+// The profile id (one of `ids`, compared case-insensitively) whose Kiln copy `dir` is, for the engine `kind`; empty
+// when `dir` is no such copy (no marker, another engine's, or an id the profile does not list: an ordinary drop-in).
+inline std::string library_copy_of(const std::filesystem::path& dir, std::string_view kind, const std::vector<std::string>& ids) {
+    std::string k, id;
+    if (ids.empty() || !read_library_marker(dir, &k, &id) || k != kind) return {};
+    const std::string want = lower(id);
+    for (const auto& i : ids)
+        if (!i.empty() && lower(i) == want) return i;
+    return {};
+}
+
+inline std::vector<std::string> listed_ids(const EnginePlan& plan) {
+    std::vector<std::string> ids;
+    for (const auto& r : plan.listed)
+        if (!r.id.empty()) ids.push_back(r.id);
+    return ids;
+}
+
+inline std::string library_copy_of(const std::filesystem::path& dir, std::string_view kind, const EnginePlan& plan) {
+    return library_copy_of(dir, kind, listed_ids(plan));
+}
+
+// What one profile entry of an engine does while the adapter steps aside for that engine's own loader.
+enum class Aside { Off, OwnLoader, NotLoaded };
+inline const char* aside_word(Aside a) {
+    return a == Aside::OwnLoader ? "own-loader" : a == Aside::NotLoaded ? "not-loaded" : "disabled";
+}
+struct AsideReport {
+    Aside state = Aside::NotLoaded;
+    std::string reason;
+    std::filesystem::path copy;  // the copy the own loader reads (OwnLoader), else empty
+};
+
+// `own_folder`: the folder the own loader reads (<game>/mods ...); `folder_text`: the same for sentences ("mods",
+// "emf\\mods"); `loader`: the engine's name ("Flame").
+inline AsideReport aside_report(std::string_view id, const std::filesystem::path& path, bool enabled, std::string_view kind,
+                                const std::filesystem::path& own_folder, std::string_view loader, std::string_view folder_text) {
+    AsideReport r;
+    if (!enabled) {
+        r.state = Aside::Off;
+        r.reason = "switched off in the profile";
+        return r;
+    }
+    const std::string own = std::string(loader) + "'s own loader";
+    std::error_code ec;
+    if (!path.empty() && std::filesystem::equivalent(path.parent_path(), own_folder, ec)) {
+        r.state = Aside::OwnLoader;
+        r.copy = path;
+        r.reason = "runs under " + own + " (the profile entry is in " + std::string(folder_text) + ", where it reads)";
+        return r;
+    }
+    if (safe_component(id)) {
+        const auto dir = own_folder / to_wide(id);
+        std::string k, marker_id;
+        if (read_library_marker(dir, &k, &marker_id) && k == kind && lower(marker_id) == lower(id)) {
+            r.state = Aside::OwnLoader;
+            r.copy = dir;
+            r.reason = "runs under " + own + " (Kiln copied it to " + std::string(folder_text) + "\\" + std::string(id) + ")";
+            return r;
+        }
+    }
+    r.state = Aside::NotLoaded;
+    r.reason = own + " runs this start and reads only <game>\\" + std::string(folder_text) +
+               "; this mod is in Kiln's Library, so it does not load. Activate the profile again in the Kiln launcher "
+               "to copy it there, or remove " + std::string(loader) + "'s loader to let Kiln run it";
+    return r;
+}
+
+// One log line per reported entry: WARN for a profile mod that does not load, INFO otherwise.
+inline void log_aside(const Host& host, std::string_view id, const AsideReport& r) {
+    host.logf(r.state == Aside::NotLoaded ? KILN_LOG_WARN : KILN_LOG_INFO, "profile mod %s: %s: %s",
+              std::string(id.empty() ? "?" : id).c_str(), aside_word(r.state), r.reason.c_str());
+}
+
+// The module in this process whose file name is `name` and that lives in `dir` (not System32): 0 when none, and 0
+// for Wine's builtin of that name, which reports the game-folder path without running its file (module_image.h).
 inline HMODULE module_in_dir(const wchar_t* name, const std::filesystem::path& dir) {
     HMODULE h = GetModuleHandleW(name);
     if (!h) return nullptr;
     wchar_t p[MAX_PATH] = L"";
     GetModuleFileNameW(h, p, MAX_PATH);
     std::error_code ec;
-    return std::filesystem::equivalent(std::filesystem::path(p).parent_path(), dir, ec) ? h : nullptr;
+    const std::filesystem::path file(p);
+    return std::filesystem::equivalent(file.parent_path(), dir, ec) && module_is_file(h, file) ? h : nullptr;
 }
 
 }  // namespace kcompat

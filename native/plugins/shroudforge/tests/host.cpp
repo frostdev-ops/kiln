@@ -8,6 +8,7 @@
 #include <vector>
 #include "kiln_api.h"
 #include "services/kiln_hooks.h"
+#include "services/kiln_profile.h"
 static std::filesystem::path game;
 static KilnResult path(int32_t kind, char* out, size_t cap, size_t* len) {
     auto p = game;
@@ -52,7 +53,28 @@ static KilnResult f_mid2(KilnOwner owner, uintptr_t target, const KilnHookOrder*
 }
 static KilnResult f_revoke(KilnHandle h) { std::printf("[fake kiln.hooks] revoke %llu\n", (unsigned long long)h); return KILN_OK; }
 static uintptr_t f_image_base() { return 0; }
+// A fake kiln.profile (KILN_SF_PROFILE=<file>): an active profile whose text is that file.
+static std::string profile_text;
+static uint32_t p_mode() { return KILN_PROFILE_ACTIVE; }
+static KilnStr p_json() { return KilnStr{profile_text.data(), profile_text.size()}; }
+static KilnProfileApi fake_profile{};
 static const void* service(KilnStr name, uint32_t min) {
+    if (text(name) == KILN_PROFILE_SERVICE) {
+        wchar_t file[1024];
+        const DWORD n = GetEnvironmentVariableW(L"KILN_SF_PROFILE", file, 1024);
+        if (!n || n >= 1024 || min > 1) return nullptr;
+        if (FILE* f = _wfopen(file, L"rb")) {
+            char buf[4096];
+            size_t got;
+            profile_text.clear();
+            while ((got = std::fread(buf, 1, sizeof buf, f)) > 0) profile_text.append(buf, got);
+            std::fclose(f);
+        }
+        fake_profile.header = {sizeof fake_profile, KILN_PROFILE_VERSION};
+        fake_profile.mode = p_mode;
+        fake_profile.json = p_json;
+        return &fake_profile;
+    }
     if (!GetEnvironmentVariableW(L"KILN_SF_FAKE_HOOKS", nullptr, 0) || text(name) != KILN_HOOKS_SERVICE || min > 2) return nullptr;
     fake.header = {sizeof fake, 2};
     fake.image_base = f_image_base;

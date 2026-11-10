@@ -230,9 +230,45 @@ uint32_t KILN_CALL p_mode() { return g_profile_mode; }
 KilnStr KILN_CALL p_id() { static std::string id = "testprofile"; return g_profile_mode == KILN_PROFILE_ACTIVE ? ks(id) : KilnStr{"", 0}; }
 KilnStr KILN_CALL p_name() { return KilnStr{"", 0}; }
 uint64_t KILN_CALL p_generation() { return 1; }
-uint32_t KILN_CALL p_count(uint32_t) { return 0; }
-KilnResult KILN_CALL p_get(uint32_t, uint32_t, KilnProfileMod*) { return KILN_ERR_NOT_FOUND; }
-uint32_t KILN_CALL p_dropins() { return g_profile_mode == KILN_PROFILE_LEGACY ? 0xFu : 0u; }
+// The emf list of kiln/profile.json as the core serves it (absolute paths in the test profiles); other kinds: none.
+struct HostEntry { std::string id, version, path; bool enabled = true; };
+std::vector<HostEntry> g_emf_entries;
+uint32_t g_dropin_bits = 0;
+void parse_profile_lists() {
+    const auto doc = nlohmann::json::parse(g_profile_text, nullptr, false);
+    if (!doc.is_object()) return;
+    if (doc.contains("dropins")) {
+        const auto& d = doc["dropins"];
+        if (d.is_boolean() && d.get<bool>()) g_dropin_bits = 0xFu;
+        if (d.is_array())
+            for (const auto& k : d)
+                if (k.is_string() && k.get<std::string>() == "emf") g_dropin_bits |= 1u << KILN_PROFILE_KIND_EMF;
+    }
+    if (!doc.contains("mods") || !doc["mods"].is_object() || !doc["mods"].contains("emf") || !doc["mods"]["emf"].is_array()) return;
+    for (const auto& m : doc["mods"]["emf"]) {
+        if (!m.is_object()) continue;
+        HostEntry e;
+        e.id = m.value("id", std::string());
+        e.version = m.value("version", std::string());
+        e.path = m.value("path", std::string());
+        e.enabled = m.value("enabled", true);
+        g_emf_entries.push_back(std::move(e));
+    }
+}
+uint32_t KILN_CALL p_count(uint32_t kind) {
+    return kind == KILN_PROFILE_KIND_EMF && g_profile_mode == KILN_PROFILE_ACTIVE ? static_cast<uint32_t>(g_emf_entries.size()) : 0;
+}
+KilnResult KILN_CALL p_get(uint32_t kind, uint32_t index, KilnProfileMod* out) {
+    if (!out || kind != KILN_PROFILE_KIND_EMF || index >= p_count(kind)) return KILN_ERR_NOT_FOUND;
+    const auto& e = g_emf_entries[index];
+    out->kind = kind;
+    out->id = ks(e.id);
+    out->version = ks(e.version);
+    out->path = ks(e.path);
+    out->enabled = e.enabled ? 1u : 0u;
+    return KILN_OK;
+}
+uint32_t KILN_CALL p_dropins() { return g_profile_mode == KILN_PROFILE_LEGACY ? 0xFu : g_dropin_bits; }
 KilnStr KILN_CALL p_config_dir() { return ks(g_cfg_u8); }
 KilnStr KILN_CALL p_data_dir() { return ks(g_data_u8); }
 KilnStr KILN_CALL p_json() { return ks(g_profile_text); }
@@ -382,6 +418,7 @@ int wmain(int argc, wchar_t** argv) {
         g_profile_mode = KILN_PROFILE_ACTIVE;
         g_cfg_u8 = u8(g_game + L"\\kiln\\config");
         g_data_u8 = u8(g_game + L"\\kiln\\data");
+        parse_profile_lists();
     }
     g_services[KILN_PROFILE_SERVICE] = &kProfile;
     g_services[KILN_HOOKS_SERVICE] = &kHooks;

@@ -63,6 +63,10 @@ default that happens in Kiln's early plugin phase (`kiln_plugin_early`), before 
 1. **Step aside** when Enshwick's own stub runs in this process. That covers three cases: a `powrprof.dll` from the
    game folder carrying the stub's texts is loaded, the stub's claim `Local\enshwick-stub-<pid>` already exists, or a
    module exporting `enshwick_start` is loaded. In those cases Enshwick runs its mods itself and Kiln starts nothing.
+   Since dev.22 Kiln still copies the profile's new entries into `mods/` (staged, one rename), so Enshwick's loader
+   runs them, from the next start at the latest; it never refreshes or removes a copy the running loader may hold.
+   `enshwick.json` lists each profile entry as `own-loader` or `not-loaded` (a warning in kiln.log)
+   ([README.md](README.md#the-profiles-mods-while-the-own-loader-runs)).
 2. Otherwise **take the stub's claim**, so a stub that starts later (for example one chained by another tool) stays
    idle. That is the stub's own rule for two copies.
 3. Sync the profile into `mods/` (above).

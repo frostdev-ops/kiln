@@ -315,7 +315,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     crate::library::commit_folder(ctx.dirs, &work, rec, ctx.report)
 }
 
-// ---- placing ShroudForge and SET mods in their engine's folder ----
+// ---- placing mods in their engine's folder: ShroudForge and SET always, the others for their own loader ----
 
 /// The folder a kind's mod `id` is placed in for its engine (None: the plugin reads the library folder itself).
 pub fn placed_folder(kind: ModKind, game_dir: &Path, id: &str) -> Option<PathBuf> {
@@ -354,8 +354,16 @@ pub struct PlaceReport {
     pub removed: Vec<String>,
     /// ShroudForge mods whose `extended.mod.json` switch changed.
     pub switched: Vec<String>,
-    /// A folder with the mod's name that the player put there: left as it is.
+    /// A folder with the mod's name that the player put there: left as it is. For the own-loader kinds also a
+    /// player's folder holding the same mod (the same manifest id): the own loader runs that one.
     pub own: Vec<String>,
+    /// Kiln's copy for an own loader changed since it was placed (the mod or the player wrote into it): left as it
+    /// is, neither refreshed nor removed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<String>,
+    /// What each installed own loader means for the profile (own_loaders::notes, after placing).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own_loaders: Vec<crate::own_loaders::OwnLoaderNote>,
 }
 
 /// Refuse symlinks (including dangling links and Windows junctions) from `root` down to `path`.
@@ -574,8 +582,40 @@ fn remove_copy(game: &Path, dst: &Path, persist: impl FnOnce() -> Result<()>) ->
     Ok(())
 }
 
+/// The `id` a mod's own manifest names (`mod.json`, for EML, EMF, Greeneye, Flame and Shroudtopia 1.0), as written.
+fn manifest_id_raw(dir: &Path) -> Option<String> {
+    let file = dir.join("mod.json");
+    if std::fs::metadata(&file).ok()?.len() > 1024 * 1024 { return None; }
+    read_json(&file)?.get("id")?.as_str().map(str::to_owned)
+}
+
+/// A folder in `root` other than `dst` that holds the same mod (the same manifest id, case ignored) and is not one of
+/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id.
+fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
+    let id = manifest_id_raw(src)?;
+    std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
+        .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
+        .find(|p| manifest_id_raw(p).is_some_and(|other| other.eq_ignore_ascii_case(&id)))
+}
+
 /// Reconcile only copies authorized by the install's receipt. Markers shipped in archives do not grant ownership.
+///
+/// ShroudForge and SET: always (their plugins read only their own folder). EML, EMF, Greeneye, Flame and Shroudtopia
+/// (own_loaders::PLACED_FOR_LOADER): only while that engine's own loader is installed ([`crate::own_loaders::find`]),
+/// because that loader reads only its own folder and never the Library. Then the profile's enabled mods are copied
+/// there as `<folder>/<library id>/` with the marker, current copies are kept, Kiln's copies of mods switched off or
+/// gone from the profile are removed. Without that loader Kiln's copies of the kind are removed again (the plugin runs
+/// the mods from the Library and skips marked copies). Player folders are never touched.
 pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path) -> Result<PlaceReport> {
+    let view = crate::own_loaders::ProfileView::of_profile(profile);
+    let loaders = crate::own_loaders::find(game_dir, Some(&view));
+    let mut rep = place_with(dirs, profile, game_dir, &loaders)?;
+    rep.own_loaders = crate::own_loaders::notes(game_dir, &loaders, Some(&view));
+    Ok(rep)
+}
+
+fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, loaders: &[crate::own_loaders::OwnLoader])
+              -> Result<PlaceReport> {
     let _lock = engine_lock(game_dir, &game_dir.join("kiln/state"))?;
     let mut rep = PlaceReport::default();
     let mut receipts = placements(game_dir)?;
@@ -651,6 +691,69 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
                 crate::shroudforge::set_enabled(dst, false)?;
                 rep.switched.push(tag(&receipt.marker.id));
             }
+        }
+    }
+    for kind in crate::own_loaders::PLACED_FOR_LOADER {
+        let loader = crate::own_loaders::of_kind(loaders, kind).filter(|l| l.delivery == crate::own_loaders::Delivery::Placed);
+        let root = loader.map(|l| l.root(game_dir));
+        let list = profile.mods.list(kind);
+        let tag = |id: &str| format!("{}:{id}", kind.as_str());
+        // A changed copy (a mod writing its settings into its folder, the player editing it) is not Kiln's to replace.
+        let soft = |r: Result<Option<&Placement>>| match r {
+            Ok(h) => Ok(Some(h.cloned())),
+            Err(e) if e.code == ErrorCode::Refused => Ok(None),
+            Err(e) => Err(e),
+        };
+        if let Some(root) = &root {
+            refuse_symlink_path(game_dir, root)?;
+            for m in list.iter().filter(|m| m.enabled) {
+                let src = crate::library::path_of(dirs, &crate::library::LibraryRef {
+                    kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
+                let dst = root.join(&m.id);
+                let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+                let Some(have) = soft(owned(game_dir, &receipts, &dst, kind, &m.id))? else {
+                    rep.changed.push(tag(&m.id));
+                    continue;
+                };
+                if have.is_none() && dst.exists() {
+                    rep.own.push(tag(&m.id));
+                    continue;
+                }
+                if have.as_ref().is_some_and(|h| h.marker == want) {
+                    rep.kept.push(tag(&m.id));
+                    continue;
+                }
+                if have.is_none() && same_mod_elsewhere(root, kind, &src, &dst).is_some() {
+                    rep.own.push(tag(&m.id));
+                    continue;
+                }
+                copy_in(Roots { data: &dirs.root, game: game_dir }, &src, &dst, &want, &[], true, |receipt| {
+                    receipts.retain(|r| r.path != dst);
+                    receipts.push(receipt.clone());
+                    save_placements(game_dir, &receipts)
+                })?;
+                rep.placed.push(tag(&m.id));
+            }
+        }
+        // Kiln's copies the loader should not run (switched off, gone from the profile, no loader, another folder).
+        let stale: Vec<_> = receipts.iter().filter(|r| r.marker.kind == kind && !root.as_ref().is_some_and(|root|
+            r.path.parent() == Some(root.as_path()) && list.iter().any(|m| m.enabled && m.id == r.marker.id))).cloned().collect();
+        for receipt in stale {
+            let dst = &receipt.path;
+            if !dst.exists() {
+                receipts.retain(|r| r.path != *dst);
+                save_placements(game_dir, &receipts)?;
+                continue;
+            }
+            if soft(owned(game_dir, &receipts, dst, kind, &receipt.marker.id))?.is_none() {
+                rep.changed.push(tag(&receipt.marker.id));
+                continue;
+            }
+            remove_copy(game_dir, dst, || {
+                receipts.retain(|r| r.path != *dst);
+                save_placements(game_dir, &receipts)
+            })?;
+            rep.removed.push(tag(&receipt.marker.id));
         }
     }
     Ok(rep)
@@ -932,6 +1035,10 @@ pub struct EngineStatus {
     pub error: Option<String>,
     /// The file's host path.
     pub file: String,
+    /// This engine's own loader, when one is installed in the game, and what it means for the active profile's mods
+    /// of the kind (`text`: one sentence for the launcher). None: no own loader of this engine is installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_loader: Option<crate::own_loaders::OwnLoaderNote>,
 }
 
 /// The state file name of a kind's plugin.
@@ -954,6 +1061,8 @@ pub fn state_file(kind: ModKind) -> Option<&'static str> {
 /// Every engine plugin's state in `<game>/kiln/state/` (EMF, EML, ShroudForge, Greeneye, Flame, Shroudtopia, SET,
 /// Enshwick, shroudlink, Ember).
 pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
+    let view = crate::profile::read_game_profile(game_dir).ok().flatten().map(|f| crate::own_loaders::ProfileView::of_file(&f));
+    let notes = crate::own_loaders::notes(game_dir, &crate::own_loaders::find(game_dir, view.as_ref()), view.as_ref());
     ModKind::ALL
         .into_iter()
         .filter_map(|k| {
@@ -968,6 +1077,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 state,
                 error,
                 file: f.display().to_string(),
+                own_loader: notes.iter().find(|n| n.loader.kind == k).cloned(),
             })
         })
         .collect()

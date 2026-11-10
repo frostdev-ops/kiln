@@ -37,6 +37,7 @@ struct IMAGE_DOS_HEADER { uint16_t e_magic; int32_t e_lfanew; };
 struct IMAGE_NT_HEADERS64 { uint32_t Signature; struct { uint32_t TimeDateStamp; } FileHeader; };
 namespace loader_test {
 inline std::wstring system;
+inline std::wstring exe;  // GetModuleFileNameW(nullptr): the game's exe (empty: unknown)
 inline std::vector<std::wstring> modules;
 inline size_t cursor = 0;
 // Counters and controls for the per-frame cost regression test.
@@ -105,6 +106,10 @@ inline void* GetProcAddress(HMODULE h, const char* name) {
         ? reinterpret_cast<void*>(1) : nullptr;
 }
 inline DWORD GetModuleFileNameW(HMODULE h, wchar_t* out, DWORD n) {
+    if (!h) {
+        if (loader_test::exe.empty() || loader_test::exe.size() >= n) return 0;
+        std::wcscpy(out, loader_test::exe.c_str()); return loader_test::exe.size();
+    }
     const size_t i = reinterpret_cast<uintptr_t>(h) - 2;
     if (i >= loader_test::modules.size() || loader_test::modules[i].size() >= n) return 0;
     std::wcscpy(out, loader_test::modules[i].c_str()); return loader_test::modules[i].size();

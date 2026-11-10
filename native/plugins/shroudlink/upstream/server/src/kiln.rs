@@ -305,7 +305,12 @@ pub fn plan_from(mode: Option<u32>, profile_id: &str, text: &str, kiln: &Path) -
     if list.is_some_and(|l| !l.is_array()) {
         return invalid("the profile's shroudlink list is invalid: nothing loads");
     }
-    let dropins = obj.get("dropins").and_then(Value::as_bool).unwrap_or(false);
+    // kiln: `"dropins": true` reads every engine's folder; a list of kinds reads the folders it names.
+    let dropins = match obj.get("dropins") {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Array(kinds)) => kinds.iter().any(|k| k.as_str() == Some(ENGINE)),
+        _ => false,
+    };
     if let Some(list) = list.and_then(Value::as_array) {
         for m in list {
             let path = m.get("path").and_then(Value::as_str).filter(|p| !p.is_empty() && !p.contains('\0'));
@@ -320,15 +325,16 @@ pub fn plan_from(mode: Option<u32>, profile_id: &str, text: &str, kiln: &Path) -
                 enabled: m.get("enabled").and_then(Value::as_bool).unwrap_or(true),
             });
         }
-        plan.read_folder = dropins;
     }
+    // kiln: an active profile reads shroudlink_mods/ only with drop-ins on for shroudlink, list or no list.
+    plan.read_folder = dropins;
     plan.note = format!(
         "profile '{profile_id}': {} listed{}",
         plan.listed.len(),
-        match (plan.read_folder, list.is_some()) {
-            (false, _) => "",
-            (true, true) => ", plus shroudlink_mods/ (dropins)",
-            (true, false) => ", plus shroudlink_mods/ (the profile does not manage shroudlink)",
+        if plan.read_folder {
+            ", plus shroudlink_mods/ (drop-ins for shroudlink are on)"
+        } else {
+            "; shroudlink_mods/ is not read (drop-ins for shroudlink are off in this profile)"
         }
     );
     plan
@@ -497,6 +503,32 @@ fn module_path(m: HMODULE) -> String {
 
 // ---- state --------------------------------------------------------------------------------------------------------
 
+/// kiln: what an enabled profile entry does while this plugin stands aside for shroudlink's own core. That core reads
+/// only `<game>/shroudlink_mods/*.dll`; Kiln copies nothing there, so an entry runs only when its DLL already is one of
+/// those files (`own-loader`), else it does not load (`not-loaded`).
+pub fn aside_entry(e: &Entry, game: &Path) -> (&'static str, String) {
+    let dir = game.join(plugins::DIR);
+    let flat_dll = e.path.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"))
+        && e.path.parent().is_some_and(|p| p == dir.as_path() || (p.exists() && dir.exists() && same_dir(p, &dir)));
+    if flat_dll {
+        ("own-loader", format!("runs under shroudlink's own core (the profile entry is in {}, where it reads)", plugins::DIR))
+    } else {
+        ("not-loaded", format!(
+            "shroudlink's own core runs this start and reads only <game>\\{}\\*.dll; this mod is in Kiln's Library, so it \
+             does not load. Remove shroudlink's own core (steam_api64.dll, crashhandler64.dll or dinput8.dll in the game \
+             folder) to let Kiln run it",
+            plugins::DIR
+        ))
+    }
+}
+
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
 struct State {
     plan_note: String,
     stepped_aside: String,
@@ -528,6 +560,14 @@ fn write_state() {
         .collect();
     for e in st.profile_mods.iter().filter(|e| !e.enabled) {
         mods.push(json!({ "id": e.id, "dll": e.path.display().to_string(), "status": "skipped", "reason": "switched off in the profile" }));
+    }
+    // kiln: standing aside (a real core runs, or another core claimed the process): the enabled profile entries too
+    if !st.stepped_aside.is_empty() || st.claimed_elsewhere {
+        let game = kiln_path(PATH_GAME).unwrap_or_default();
+        for e in st.profile_mods.iter().filter(|e| e.enabled) {
+            let (status, reason) = aside_entry(e, &game);
+            mods.push(json!({ "id": e.id, "dll": e.path.display().to_string(), "status": status, "reason": reason }));
+        }
     }
     let (on, off): (Vec<Value>, serde_json::Map<String, Value>) = if st.started {
         let on = hooks::working().into_iter().map(Value::from).collect();
@@ -652,6 +692,15 @@ pub unsafe extern "C" fn kiln_plugin_main(api: *const KilnApi, owner: u64, info:
     KILN_OK
 }
 
+/// kiln: one line per enabled profile entry while standing aside; WARN for those that do not load.
+fn log_aside(plan: &Plan, game: &Path) {
+    for e in plan.listed.iter().filter(|e| e.enabled) {
+        let (status, reason) = aside_entry(e, game);
+        let id = if e.id.is_empty() { "?" } else { &e.id };
+        klog(if status == "not-loaded" { LOG_WARN } else { LOG_INFO }, &format!("profile mod {id}: {status}: {reason}"));
+    }
+}
+
 unsafe extern "C" fn on_ready(_user: *mut c_void) {
     let mut plan = plan();
     let game = kiln_path(PATH_GAME).unwrap_or_else(chestsort_common::game_dir);
@@ -673,6 +722,7 @@ unsafe extern "C" fn on_ready(_user: *mut c_void) {
     if let Some(core) = real_core_in_process() {
         let why = format!("shroudlink's own core runs in this process ({core}); its mods in shroudlink_mods/ load there");
         klog(LOG_INFO, &format!("{PLUGIN_ID} steps aside: {why}"));
+        log_aside(&plan, &game);
         STATE.lock().unwrap_or_else(|e| e.into_inner()).stepped_aside = why;
         write_state();
         return;
@@ -689,6 +739,7 @@ unsafe extern "C" fn on_ready(_user: *mut c_void) {
     klog(LOG_INFO, &format!("starting shroudlink's core for {} mod DLL(s)", dlls.len()));
     chestsort_common::log::set_sink(sink);
     let shadow = kiln_path(PATH_DATA).unwrap_or_else(|| game.join("kiln").join("data")).join("shroudlink").join("loaded");
+    let (plan_for_log, game_for_log) = (plan.clone(), game.clone());
     // as the core's own DllMain: on a thread of its own, so the game goes on starting while it scans and hooks
     std::thread::spawn(move || {
         let started = crate::start(move || plugins::load_from(roots, shadow));
@@ -704,6 +755,7 @@ unsafe extern "C" fn on_ready(_user: *mut c_void) {
             klog(LOG_INFO, &format!("shroudlink core running: features [{}]", hooks::working().join(", ")));
         } else {
             klog(LOG_INFO, &format!("{PLUGIN_ID} steps aside: another shroudlink core claimed this process first"));
+            log_aside(&plan_for_log, &game_for_log);
         }
         write_state();
     });
@@ -856,9 +908,30 @@ mod tests {
         let with = plan_from(Some(1), "main", &text.replace("{\"mods\"", "{\"dropins\":true,\"mods\""), &kiln());
         assert!(with.read_folder);
         assert_eq!(roots(&with, Path::new("C:\\g")).last().unwrap(), &Path::new("C:\\g").join("shroudlink_mods"));
-        // a profile that does not list shroudlink keeps the hand-installed folder
+        // kiln: a profile that does not list shroudlink reads the folder only with drop-ins on
         let other = plan_from(Some(1), "main", r#"{"mods":{"kiln":[]}}"#, &kiln());
-        assert!(other.load && other.read_folder);
+        assert!(other.load && !other.read_folder);
+        let other_on = plan_from(Some(1), "main", r#"{"dropins":true,"mods":{"kiln":[]}}"#, &kiln());
+        assert!(other_on.read_folder);
+        // kiln: a "dropins" list reads the folder only when it names shroudlink
+        let named = plan_from(Some(1), "main", &text.replace("{\"mods\"", "{\"dropins\":[\"emf\",\"shroudlink\"],\"mods\""), &kiln());
+        assert!(named.read_folder);
+        let unnamed = plan_from(Some(1), "main", &text.replace("{\"mods\"", "{\"dropins\":[\"emf\"],\"mods\""), &kiln());
+        assert!(!unnamed.read_folder);
+    }
+
+    #[test]
+    fn standing_aside_reports_profile_entries_truthfully() {
+        let game = Path::new("C:\\g");
+        let library = Entry { id: "chestsort".into(), path: PathBuf::from("C:\\g\\kiln\\library\\chestsort\\chestsort.dll"), enabled: true };
+        let (status, reason) = aside_entry(&library, game);
+        assert_eq!(status, "not-loaded");
+        assert!(reason.contains("reads only <game>\\shroudlink_mods\\*.dll"), "{reason}");
+        let flat = Entry { id: "meter".into(), path: game.join("shroudlink_mods").join("meter.dll"), enabled: true };
+        assert_eq!(aside_entry(&flat, game).0, "own-loader");
+        // the launcher's per-mod folders are Kiln's layout: upstream's core does not read them
+        let nested = Entry { id: "meter".into(), path: game.join("shroudlink_mods").join("meter").join("meter.dll"), enabled: true };
+        assert_eq!(aside_entry(&nested, game).0, "not-loaded");
     }
 
     /// The loader over Kiln's roots, with shroudlink's own example mod (hello_mod.dll next to the test binary's

@@ -26,7 +26,8 @@ pub struct Entry {
     pub name: Option<String>,
     pub source: String,
     pub path: String,
-    /// `loaded` | `failed` | `skipped` | `disabled` | `duplicate` | `pending`
+    /// `loaded` | `failed` | `skipped` | `disabled` | `duplicate` | `pending`; while another loader runs the EML mods
+    /// (phase `aside`): `own-loader` (in that loader's folder, it runs there) | `not-loaded` (only in the Library)
     pub state: String,
     pub reason: Option<String>,
     pub capabilities: Vec<String>,
@@ -60,6 +61,64 @@ pub fn profile_dropins(profile_json: &str) -> bool {
         Some(serde_json::Value::Array(a)) => a.iter().any(|k| k.as_str() == Some("eml")),
         _ => false,
     }
+}
+
+/// The `id` of each `mods.eml` entry of a Kiln profile (the launcher's Library ids), in order.
+pub fn profile_ids(profile_json: &str) -> Vec<(String, bool)> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(profile_json.trim_start_matches('\u{feff}')) else {
+        return Vec::new();
+    };
+    let Some(list) = v.pointer("/mods/eml").and_then(|l| l.as_array()) else { return Vec::new() };
+    list.iter().filter_map(|e| Some((e.get("id")?.as_str()?.to_owned(),
+        e.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true)))).collect()
+}
+
+/// The marker the Kiln launcher writes into the copy it places in an EML loader's folder for that loader
+/// (`.kiln-library.json`: `{format, kind, id, version, hash}`; `id` is the Library id, which need not be the mod's own
+/// manifest id). Some(id) when `dir` is the launcher's copy of the EML mod `id`.
+pub fn kiln_copy_of(dir: &Utf8Path) -> Option<String> {
+    let file = dir.join(".kiln-library.json");
+    let m = std::fs::symlink_metadata(&file).ok()?;
+    if !m.is_file() || m.len() > 64 * 1024 { return None; }
+    let v: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&file).ok()?.trim_start_matches('\u{feff}')).ok()?;
+    if v.get("kind")?.as_str()? != "eml" { return None; }
+    v.get("id")?.as_str().map(str::to_owned)
+}
+
+/// Drop-ins without the launcher's copies of the profile's own EML mods: such a copy is the same mod as the profile
+/// entry (placed for EML's own loader), so it neither runs a second time nor shows as a duplicate.
+pub fn without_profile_copies(candidates: Vec<Candidate>, profile: &[(String, bool)]) -> (Vec<Candidate>, Vec<Utf8PathBuf>) {
+    let mut skipped = Vec::new();
+    let kept = candidates.into_iter().filter(|c| {
+        let ours = kiln_copy_of(&c.path).is_some_and(|id| profile.iter().any(|(p, _)| p.eq_ignore_ascii_case(&id)));
+        if ours { skipped.push(c.path.clone()); }
+        !ours
+    }).collect();
+    (kept, skipped)
+}
+
+/// What becomes of the profile's EML mods while another loader runs the EML mods (EML's own dbghelp.dll, or
+/// ShroudForge): that loader reads only its own mods folder (`roots`, the first is named in reasons), never the
+/// Library. A mod with the launcher's copy there runs under it (`own-loader`); any other enabled mod does not load
+/// (`not-loaded`).
+pub fn aside_entries(profile_json: &str, kiln_dir: &Utf8Path, roots: &[Utf8PathBuf], who: &str) -> Vec<Entry> {
+    let ids = profile_ids(profile_json);
+    let paths = profile_candidates(profile_json, kiln_dir);
+    let folder = roots.first().map(|r| r.to_string()).unwrap_or_else(|| "mods".into());
+    ids.into_iter().enumerate().map(|(i, (id, enabled))| {
+        let path = paths.get(i).map(|c| c.path.to_string()).unwrap_or_default();
+        let copy = roots.iter().map(|r| r.join(&id)).find(|d| kiln_copy_of(d).is_some_and(|m| m == id));
+        let (state, reason) = if !enabled {
+            ("disabled", "switched off in the profile".to_string())
+        } else if let Some(c) = &copy {
+            ("own-loader", format!("runs under {who} (Kiln copied it to {c})"))
+        } else {
+            ("not-loaded", format!("{who} runs this start and reads only {folder}; this mod is in Kiln's Library, so it does \
+                not load. Activate the profile again in the Kiln launcher to copy it there, or remove that loader to let Kiln run it"))
+        };
+        Entry { id: Some(id), version: None, name: None, source: "profile".into(),
+            path: copy.map(|c| c.to_string()).unwrap_or(path), state: state.into(), reason: Some(reason), capabilities: Vec::new() }
+    }).collect()
 }
 
 /// The entries of a drop-in folder, sorted by name: folders and `.zip` files, without hidden ones (EML's rule).
@@ -398,6 +457,40 @@ mod tests {
         assert!(!profile_dropins(r#"{"dropins":["emf"]}"#));
         assert!(profile_dropins(r#"{"dropins":true}"#));
         assert!(profile_candidates("not json", Utf8Path::new("/game/kiln")).is_empty());
+    }
+
+    #[test]
+    fn launcher_copies_of_profile_mods_are_not_drop_ins() {
+        let d = tmp("copies");
+        let copy = eml_mod(&d, "mods/hoarders-helper", "HoardersHelper");
+        std::fs::write(copy.join(".kiln-library.json"), r#"{"format":1,"kind":"eml","id":"hoarders-helper","version":"1.0.0","hash":"h"}"#).unwrap();
+        let other = eml_mod(&d, "mods/other", "other");
+        std::fs::write(other.join(".kiln-library.json"), r#"{"format":1,"kind":"eml","id":"other","version":"1.0.0","hash":"h"}"#).unwrap();
+        let sf = eml_mod(&d, "mods/sf", "sf");
+        std::fs::write(sf.join(".kiln-library.json"), r#"{"format":1,"kind":"shroudforge","id":"hoarders-helper","version":"1.0.0","hash":"h"}"#).unwrap();
+        let j = r#"{"mods":{"eml":[{"id":"hoarders-helper","path":"Z:\\lib\\eml\\hoarders-helper\\1.0.0+h"}]},"dropins":true}"#;
+        let ids = profile_ids(j);
+        assert_eq!(ids, [("hoarders-helper".to_string(), true)]);
+        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &ids);
+        assert_eq!(skipped, [copy]);
+        // a marked copy the profile does not list, or a copy of another kind, stays an ordinary drop-in
+        assert_eq!(kept.iter().map(|c| c.path.file_name().unwrap()).collect::<Vec<_>>(), ["other", "sf"]);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn aside_lists_the_profile_mods_truthfully() {
+        let d = tmp("aside");
+        let copy = eml_mod(&d, "mods/a", "A");
+        std::fs::write(copy.join(".kiln-library.json"), r#"{"format":1,"kind":"eml","id":"a","version":"1.0.0","hash":"h"}"#).unwrap();
+        let j = r#"{"mods":{"eml":[{"id":"a","path":"/lib/a"},{"id":"b","path":"/lib/b"},{"id":"c","path":"/lib/c","enabled":false}]}}"#;
+        let e = aside_entries(j, &d.join("kiln"), &[d.join("mods")], "EML's own loader");
+        let states: Vec<_> = e.iter().map(|x| (x.id.as_deref().unwrap(), x.state.as_str())).collect();
+        assert_eq!(states, [("a", "own-loader"), ("b", "not-loaded"), ("c", "disabled")]);
+        assert_eq!(e[0].path, copy.as_str());
+        assert!(e[1].reason.as_deref().unwrap().starts_with("EML's own loader runs this start and reads only"));
+        assert_eq!(e[1].path, "/lib/b");
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     #[test]

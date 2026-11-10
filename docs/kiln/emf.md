@@ -59,7 +59,11 @@ Evidence, design and the mapping of each function: [docs/re/emf-compat.md](../re
 ### When EMF itself is installed
 - **kiln-emf steps aside** when EMF's real core runs in the same process: `emf_core.dll` is loaded, or EMF's loader
   was chained by Kiln's proxy (`kiln/chain.ini [chain]`, `dinput8-chain.ini`). The log says
-  `kiln-emf steps aside: ...`. Then EMF loads the EMF mods, never both.
+  `kiln-emf steps aside: ...`. Then EMF loads the EMF mods, never both. EMF reads only `emf/mods`: while its loader
+  is installed, the launcher copies the profile's enabled EMF mods there as `emf/mods/<id>/` with Kiln's marker at
+  activation, and removes those copies again when the loader is gone
+  ([engines/README.md](engines/README.md#the-profiles-mods-while-the-own-loader-runs)). Under the real EMF, EMF's own
+  switch `emf/config/<id>.ini` (`enabled=`) decides whether such a mod starts.
 - **The older EMF 0.3.3 core went idle on the tested game build.** It reports `a required signature is
   missing: EMF stays idle`. kiln-emf notices this about 2 s in and logs how to hand the mods back. Put `;` in front of EMF's line in `kiln/chain.ini` (or remove it from `dinput8-chain.ini`), then
   restart. EMF's files can stay in `emf/`; only its loader must not run.

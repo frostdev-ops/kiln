@@ -74,6 +74,7 @@ pub mod playonce;
 pub mod profile;
 pub mod quick;
 pub mod engine_mods;
+pub mod own_loaders;
 pub mod shroudforge;
 pub mod resolver;
 pub mod semver;

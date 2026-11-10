@@ -306,6 +306,40 @@ def step_aside_stub_loaded():
     return g
 
 
+def step_aside_profile():
+    """Enshwick's own stub runs: Kiln copies only new profile mods into mods/ (staged, one rename; never refreshes or
+    removes a copy the running loader may read) and reports each entry as own-loader or not-loaded."""
+    g = Game("step_aside_profile")
+    g.bundled()
+    g.pack("kiln/library/enshwick/you.keep", "you.keep")
+    g.pack("kiln/library/enshwick/you.gone", "you.gone")
+    g.profile([{"id": "you.keep", "path": "library/enshwick/you.keep"}, {"id": "you.gone", "path": "library/enshwick/you.gone"}])
+    g.run()  # Kiln runs Enshwick: both are copied, with receipts
+    g.expect(os.path.isfile(g.p("mods/you.keep/.kiln-managed")) and os.path.isfile(g.p("mods/you.gone/.kiln-managed")),
+             "first start copied both")
+    g.pack("kiln/library/enshwick/you.new", "you.new")
+    g.profile([{"id": "you.keep", "path": "library/enshwick/you.keep"},
+               {"id": "you.gone", "path": "library/enshwick/you.gone", "enabled": False},
+               {"id": "you.new", "path": "library/enshwick/you.new"},
+               {"id": "you.lost", "path": "library/enshwick/you.lost"}])
+    g.copy(os.path.join(TESTS, "powrprof_stub.dll"), "powrprof.dll")
+    g.run(1500, "--load", "powrprof.dll")
+    g.status("stepped-aside")
+    g.expect(not g.state().get("loader"), "Kiln started no loader")
+    mods = {m["folder"]: m for m in g.state().get("mods", [])}
+    def act(folder):
+        return mods.get(folder, {}).get("action")
+    g.expect(act("you.keep") == "own-loader" and "is current" in mods["you.keep"]["note"], f"you.keep own-loader: {mods.get('you.keep')}")
+    g.expect(act("you.new") == "own-loader" and "next start" in mods["you.new"]["note"], f"you.new copied: {mods.get('you.new')}")
+    g.expect(os.path.isfile(g.p("mods/you.new/pack.toml")), "mods/you.new copied while standing aside")
+    g.expect(act("you.gone") == "own-loader" and "switched off" in mods["you.gone"]["note"], f"you.gone: {mods.get('you.gone')}")
+    g.expect(os.path.isfile(g.p("mods/you.gone/pack.toml")), "a copy is never removed while Enshwick's own loader runs")
+    g.expect(act("you.lost") == "not-loaded", f"you.lost not-loaded: {mods.get('you.lost')}")
+    g.has("[W] [enshwick] kiln-enshwick: mods/you.lost")
+    g.expect(len([m for m in g.state().get("mods", []) if m["folder"] == "you.keep"]) == 1, "each folder reported once")
+    return g
+
+
 def stub_present_not_loaded():
     """Enshwick's powrprof.dll is there but did not load (Wine without the override): Kiln runs Enshwick."""
     g = Game("stub_present_not_loaded")
@@ -399,6 +433,7 @@ def real_loader():
 
 
 SCENARIOS = [bundled_server, game_loader_preferred, no_enshwick_mods, bundled_by_config, profile_sync, no_mods, step_aside_stub_loaded,
+             step_aside_profile,
              stub_present_not_loaded, other_powrprof, stub_claimed, client_no_hold, hold_expires, no_loader,
              broken_loader, renamed_loader_loaded, unsafe_source_preserves_copy]
 

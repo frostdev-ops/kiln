@@ -247,12 +247,12 @@ internal static class ModCatalog
         if (word is null) return ModRunState.NotLoaded;
         var w = word.ToLowerInvariant();
         if (w.Contains("fail") || w.Contains("error") || w.Contains("refus") || w.Contains("reject") || w.Contains("fault") ||
-            w is "missing" or "conflict" or "unsupported") return ModRunState.Failed;
+            w is "missing" or "conflict" or "unsupported" or "not-loaded") return ModRunState.Failed;
         if (w is "disabled" or "off" or "inactive" or "policy") return ModRunState.Disabled;
         if (w.Contains("pending") || w.Contains("waiting") || w is "candidate" or "registered" or "starting" or "deferred")
             return ModRunState.Waiting;
         if (w is "loaded" or "active" or "running" or "started" or "ok" or "done" or "hosted" or "script" or "copy" or "refresh" or
-            "keep" or "run" or "already-loaded") return ModRunState.Loaded;
+            "keep" or "run" or "already-loaded" or "own-loader") return ModRunState.Loaded;
         return ModRunState.NotLoaded;  // skipped, unloaded, duplicate, remove, idle, and words we do not know
     }
 
@@ -743,12 +743,15 @@ internal static class ModCatalog
                     reason ??= "Ember mods cannot run yet: Ember has not published a way for mods to run.";
                     help = "Nothing to do now. The mod stays in your profile and runs once Kiln supports Ember mods.";
                 }
-                else if (aside && state != ModRunState.Failed)
+                // own-loader: the engine's own loader runs it (Kiln copied it into that loader's folder)
+                else if (aside && state != ModRunState.Failed && line.State != "own-loader")
                 {
                     state = ModRunState.NotLoaded;
                     reason ??= Str(d, "steppedAsideReason");
                 }
-                if (state == ModRunState.Failed)
+                if (line.State == "not-loaded")
+                    help = $"{EngineName(kind)}'s own loader runs the {EngineName(kind)} mods this start and reads only its own folder. Activate the profile again in the Kiln launcher (it copies the mod there), then start the game again.";
+                else if (state == ModRunState.Failed)
                     help = $"Read the reason above. Update the mod in the Kiln launcher, then start the game again. kiln/logs/kiln.log has the {EngineName(kind)} lines.";
                 var (mname, mversion) = line.Name is null ? Manifest(line.Folder) : (line.Name, null);
                 b.Add(new CatalogMod

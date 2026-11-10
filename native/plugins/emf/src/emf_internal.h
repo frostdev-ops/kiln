@@ -102,6 +102,8 @@ struct Mod {
     std::string main;              // script mods: entry file ("main.lua")
     std::string source;            // EmfModInfo.source: "clock\" or "old_mod.dll"
     std::string origin;            // "legacy" | "profile"
+    std::string profile_id;        // origin "profile": the entry's id (Kiln's Library id; the manifest id may differ)
+    std::string state;             // state-file word when kiln-emf stands aside ("own-loader", "not-loaded"), else ""
     uint32_t emf_min = 1;
     bool loose = false;
     bool enabled_default = true;
@@ -131,6 +133,8 @@ const char* mod_name(const Mod* m);         // "?" for none
 
 // discover + order + load (mods.cpp). Returns the number of mods that loaded.
 void discover_mods();
+// While kiln-emf stands aside for the real EMF: lists the profile's EMF entries with what happens to each.
+void aside_mods();
 void load_mods(const EmfApi* table);
 bool valid_mod_id(std::string_view id);
 

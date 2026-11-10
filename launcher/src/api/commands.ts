@@ -304,6 +304,33 @@ export interface Activation {
   copied: number;
   fingerprint: string;
   activated: string;
+  /** Other engines' own loaders installed in this game (own_loaders.rs); absent or empty: none. Each `text` is one
+   * sentence for the Play and profile pages. */
+  ownLoaders?: OwnLoaderNote[];
+}
+/** An engine's own loader next to the game (EML's dbghelp.dll, a chained Flame loader...) and what it means for the
+ * profile's mods of that engine. While it runs, it runs them only from its own folder. */
+export interface OwnLoaderNote {
+  kind: ModKind;
+  /** The engine the loader file belongs to (ShroudForge's loader runs EML mods too): "eml", "shroudforge", "flame"... */
+  engine: string;
+  /** Game-relative file: "dbghelp.dll", "kiln/chain/flame-dinput8.dll", "kiln/plugins/kiln-shroudforge.dll". */
+  file: string;
+  /** proxy: under a proxy name next to the game (on Linux it runs only with a DLL override); chain: kiln/chain.ini;
+   * emf-chain: dinput8-chain.ini; hosted-shroud-forge: Kiln hosts ShroudForge for this profile. */
+  via: "proxy" | "chain" | "emf-chain" | "hosted-shroud-forge";
+  /** Game-relative folder the loader reads ("mods", "emf/mods"). */
+  folder: string;
+  /** placed: the launcher copies the profile's mods there; plugin: Kiln's plugin does; none: nothing can. */
+  delivery: "placed" | "plugin" | "none";
+  /** The profile's enabled mods of this kind. */
+  enabled: number;
+  /** Ids with Kiln's copy in the loader's folder (they run under it). */
+  copied: string[];
+  /** Ids not in that folder: they do not load while the loader runs. */
+  notCopied: string[];
+  /** "EML's own loader (dbghelp.dll) is installed: it runs the EML mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it." */
+  text: string;
 }
 export type ModState = "pending" | "loaded" | "disabled" | "failed" | "skipped";
 export interface Rejection {
@@ -1014,6 +1041,8 @@ export interface EngineStatus {
   file: string;
   /** A present state file could not be read or parsed. */
   error?: string | null;
+  /** This engine's own loader, when installed, and what it means for the active profile's mods of the kind. */
+  ownLoader?: OwnLoaderNote | null;
 }
 /** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
 export interface EmlBackup {

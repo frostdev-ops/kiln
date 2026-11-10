@@ -40,7 +40,8 @@ The plugin **steps aside**. If shroudlink's core is loaded in the process as `st
 by its export pair `CrashHandlerFactory` + `DirectInput8Create` or its file name, together with shroudlink's own core
 strings in the file. Unrelated proxies exporting the same names do not make Kiln step aside. kiln.log then says
 `kiln-shroudlink steps aside: shroudlink's own core runs in this process (...)`, and that core loads
-`shroudlink_mods/` as usual. Profile entries are not passed to the real core.
+`shroudlink_mods/` as usual. Profile entries are not passed to the real core: `shroudlink.json` lists them as
+`not-loaded` (a warning in kiln.log), except an entry that is a DLL directly in `shroudlink_mods/` (`own-loader`).
 As a backstop, both copies use shroudlink's per-process claim (`chestsort_server_<pid>`): whichever claims first runs
 and the other stays idle.
 

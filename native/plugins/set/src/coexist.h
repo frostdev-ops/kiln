@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include "../../compat/module_watch.h"
+#include "../../compat/module_image.h"
 #endif
 #include <string>
 #include <string_view>
@@ -88,8 +89,12 @@ inline std::string runtime_conflict() {
         const DWORD length = GetModuleFileNameW(mod.hModule, module_path, 32768);
         if (!length || length >= 32768) return "a loaded module's path could not be inspected";
         const std::filesystem::path file(module_path);
+        // Wine's builtin powrprof.dll reports a game-folder powrprof.dll's path without running that file: only a
+        // module whose mapped image is the file at its path counts (module_image.h).
+        if (!kcompat::module_is_file(mod.hModule, file)) continue;
         if (kset::power_proxy(file, system)) return "a non-system powrprof.dll is loaded (" + utf8(file) + ")";
-        if (GetProcAddress(mod.hModule, "kiln_plugin_main")) continue;
+        // Kiln's own files name SET too (kiln\host\Kiln.Ui.dll's mod catalogue, plugins, the proxy): never SET's runtime.
+        if (kcompat::kiln_own_module(mod.hModule, file)) continue;
         std::error_code ec;
         if (std::filesystem::equivalent(file.parent_path(), system, ec) && !ec) continue;
         auto it = inspected.find(file);

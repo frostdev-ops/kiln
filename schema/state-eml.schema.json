@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-eml.schema.json",
+  "title": "kiln-eml state (<game>/kiln/state/eml.json), format 1",
+  "description": "Written by kiln-eml (gpl/kiln-eml/kiln-eml/src/plugin.rs) once per start, read by the launcher (engine_mods::status) and the in-game mod list (Kiln.Ui ModCatalog). Readers ignore fields they do not know; new fields and state words are only ever added. docs/kiln/eml.md 'Logs and state'.",
+  "type": "object",
+  "required": ["format", "pid", "phase", "mods"],
+  "properties": {
+    "format": { "const": 1 },
+    "pid": { "type": "integer", "minimum": 0 },
+    "kilnEml": { "type": "string" },
+    "eml": { "type": "string" },
+    "phase": {
+      "enum": ["done", "failed", "aside", "idle"],
+      "description": "aside: another loader runs the EML mods this start (EML's own dbghelp.dll, ShroudForge's, or ShroudForge hosted by Kiln); 'aside' says which."
+    },
+    "file": { "type": ["string", "null"] },
+    "patched": { "type": "integer", "minimum": 0 },
+    "cached": { "type": "boolean" },
+    "restored": { "type": "boolean" },
+    "ms": { "type": "number" },
+    "error": { "type": ["string", "null"] },
+    "aside": { "type": ["string", "null"] },
+    "fingerprint": { "type": ["object", "null"] },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "path", "state"],
+        "properties": {
+          "id": { "type": ["string", "null"], "description": "The mod's manifest id; with phase aside the profile entry's id (the Library id)." },
+          "version": { "type": ["string", "null"] },
+          "name": { "type": ["string", "null"] },
+          "source": { "type": "string", "description": "profile, kiln-dropin, game-mods, or the name of the plugin that handed the mod in." },
+          "path": { "type": "string" },
+          "state": {
+            "type": "string",
+            "description": "loaded | failed | skipped | disabled | duplicate | pending; with phase aside: own-loader (Kiln copied the profile mod into that loader's folder, it runs there) | not-loaded (the mod is only in Kiln's Library, the running loader never reads it). Readers treat unknown words as not loaded.",
+            "examples": ["loaded", "failed", "skipped", "disabled", "duplicate", "pending", "own-loader", "not-loaded"]
+          },
+          "reason": { "type": ["string", "null"] },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}
