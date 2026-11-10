@@ -22,7 +22,9 @@ CT = os.path.join(BIN, "compat-tests")
 PLUGINS = os.path.join(BIN, "plugins")
 WORK = os.path.join(OUT, "compat")
 PFX = os.path.join(WORK, "pfx")
-RUN = os.path.join(WORK, "run")
+# The scenario folders sit under a name with a space, parentheses, Cyrillic and CJK letters (a Windows player's Steam library
+# or user folder): Wine's ANSI code page lacks them, so a narrow path call in a plugin fails here as on such a PC.
+RUN = os.path.join(WORK, "run", "Игры (x86) 日本語")
 WINE = os.environ.get("COMPAT_WINE", "wine")
 
 

@@ -957,8 +957,9 @@ void selftest_programs(uintptr_t preg) {
     char path[1024];
     size_t n = 0;
     if (g_api->path(KILN_PATH_DATA, path, sizeof path, &n) != KILN_OK) return;
-    const std::string flag = std::string(path, n) + "\\kiln.abilities\\selftest";
-    if (GetFileAttributesA(flag.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    std::error_code ec;  // the data folder is UTF-8: build the path from UTF-8, not from the ANSI code page
+    const std::u8string data(reinterpret_cast<const char8_t*>(path), n);
+    if (!std::filesystem::exists(std::filesystem::path(data) / "kiln.abilities" / "selftest", ec)) return;
     std::vector<uint32_t> ids(4096);
     std::vector<const uint8_t*> progs(4096);
     const size_t total = program_map_snapshot(preg, ids.data(), progs.data(), ids.size());

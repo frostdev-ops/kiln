@@ -313,11 +313,11 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
             const fs::path& f = files[i];
             qb::ojson doc = qb::ojson::parse(read_file(f), nullptr, false, true);
             if (doc.is_discarded() || !doc.is_object()) {
-                KW("native: %s/%s is not valid JSON: skipped", m.id.c_str(), f.filename().string().c_str());
+                KW("native: %s/%s is not valid JSON: skipped", m.id.c_str(), reinterpret_cast<const char*>(f.filename().u8string().c_str()));
                 continue;
             }
             m.documents.push_back(std::move(doc));
-            m.files.push_back(f.filename().string());
+            m.files.push_back(reinterpret_cast<const char*>(f.filename().u8string().c_str()));
         }
         if (files.size() == own_files && has_blocks) push_blocks();
         const qb::ojson audio = qb::ojson::parse(read_file(base / L"assets" / L"cooked" / L"audio.json"), nullptr, false, true);

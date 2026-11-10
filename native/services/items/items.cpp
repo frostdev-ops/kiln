@@ -1649,7 +1649,7 @@ void sc_finish() {
     LOGI("items selftest: handler scenario done, %d failure(s)", g_sc.failures);
     std::error_code ec;
     std::filesystem::remove(g_st_dir / "selftest-run", ec);
-    if (FILE* f = std::fopen((g_st_dir / "selftest-run.done").string().c_str(), "wb")) {
+    if (FILE* f = _wfopen((g_st_dir / "selftest-run.done").c_str(), L"wb")) {
         std::fprintf(f, "%s%s\n", g_sc.report.c_str(), g_sc.failures ? "RESULT fail" : "RESULT ok");
         std::fclose(f);
     }

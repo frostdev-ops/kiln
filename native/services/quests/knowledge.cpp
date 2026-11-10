@@ -1131,7 +1131,7 @@ void read_settings_file(bool log) {
     std::error_code ec;
     const auto t = std::filesystem::last_write_time(g_cfg_path, ec);
     if (ec) {
-        if (log) KI("settings: %s not found; security checks off (the defaults)", g_cfg_path.string().c_str());
+        if (log) KI("settings: %s not found; security checks off (the defaults)", reinterpret_cast<const char*>(g_cfg_path.u8string().c_str()));
         return;
     }
     if (!log && t == g_cfg_time) return;
@@ -1157,7 +1157,7 @@ void read_settings_file(bool log) {
            g_set.veto_client ? "ON" : "off", g_set.check_dialogue ? "ON" : "off", g_set.dialogue_range, g_allow.size(),
            g_set.log_client ? "on" : "off");
     } catch (const std::exception& e) {
-        KW("settings: %s is unreadable (%s); keeping the previous values", g_cfg_path.string().c_str(), e.what());
+        KW("settings: %s is unreadable (%s); keeping the previous values", reinterpret_cast<const char*>(g_cfg_path.u8string().c_str()), e.what());
     }
 }
 

@@ -442,9 +442,9 @@ uintptr_t ctx_module_base(const std::string& name) {
     const std::string want = kcompat::lower(name);
     const DWORD n = std::min<DWORD>(needed / sizeof(HMODULE), 1024);
     for (DWORD i = 0; i < n; ++i) {
-        char path[MAX_PATH] = "";
-        if (!K32GetModuleFileNameExA(GetCurrentProcess(), mods[i], path, MAX_PATH)) continue;
-        if (kcompat::lower(path).find(want) != std::string::npos) return reinterpret_cast<uintptr_t>(mods[i]);
+        wchar_t path[MAX_PATH] = L"";
+        if (!K32GetModuleFileNameExW(GetCurrentProcess(), mods[i], path, MAX_PATH)) continue;
+        if (kcompat::lower(kcompat::to_utf8(path)).find(want) != std::string::npos) return reinterpret_cast<uintptr_t>(mods[i]);
     }
     return 0;
 }
