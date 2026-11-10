@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"\"}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: entryAssembly '' must be a .dll file name in the mod folder"
+  }
+}

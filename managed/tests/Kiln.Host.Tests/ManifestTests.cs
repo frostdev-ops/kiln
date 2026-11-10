@@ -74,6 +74,19 @@ public sealed class ManifestTests
     }
 
     [Fact]
+    public void A_mod_without_entryAssembly_is_a_mod_of_data_only()
+    {
+        var m = Manifest.Parse("""{"id":"pack-only","version":"1.0.0","apiVersion":"0.2","side":"both","clients":"kiln"}""");
+        Assert.Equal("", m.EntryAssembly);
+        Assert.False(m.HasCode);
+        Assert.Equal(ManifestClients.Kiln, m.Clients);
+        Assert.Empty(m.Warnings);
+        Assert.True(Manifest.Parse("""{"id":"c","version":"1.0.0","apiVersion":"0.2","entryAssembly":"C.dll"}""").HasCode);
+        // an explicit null is the same as no key
+        Assert.False(Manifest.Parse("""{"id":"n","version":"1.0.0","apiVersion":"0.2","entryAssembly":null}""").HasCode);
+    }
+
+    [Fact]
     public void A_v1_manifest_needs_nothing_on_clients()
     {
         var m = Manifest.Parse("""{"id":"hello","version":"0.1.0","apiVersion":"0.1","entryAssembly":"Hello.dll"}""");
@@ -118,7 +131,7 @@ public sealed class ManifestTests
     [InlineData("""{"id":"ok","version":"1","apiVersion":"0.1","entryAssembly":"a.dll","dependencies":{"ok":"*"}}""", "itself")]
     [InlineData("""{"id":"ok","version":"1","apiVersion":"0.1","entryAssembly":"a.dll","loadAfter":["a"],"loadBefore":["a"]}""", "both")]
     [InlineData("""{"id":"ok","version":"1","apiVersion":"0.1","entryAssembly":"a.dll","exports":["sub/x.dll"]}""", "exports")]
-    [InlineData("""{"id":"ok","version":"1","apiVersion":"0.1"}""", "entryAssembly")]
+    [InlineData("""{"id":"ok","version":"1","apiVersion":"0.1","entryAssembly":""}""", "entryAssembly")]
     [InlineData("""[1, 2]""", "one JSON object")]
     [InlineData("""{"id":""", "not valid JSON")]
     public void Rejects(string json, string field)

@@ -518,6 +518,47 @@ mapping, a 2 GB block at `0x7fff0000`. What is left is a few MB of holes that mo
 - A clone served by kiln.assets lives in the ordinary heap, above 4 GB at this load, where 8 GB of allocations can leave no hole within 2 GB. It has 8 KB of spare room at
   the end of its own resource for the lists its rules add.
 
+### Native Windows: the arena was out of reach (GitHub issue 14, fixed in dev.22) **[log]**
+A dedicated server on Windows 10 (build 26430253, started directly) parsed a pack's cloned item and recipe and registered neither:
+```
+near memory: 128 MB set aside at 0000000070000000
+near memory: nothing free within 2 GB of 0000000152F5D230 for 2112 bytes (0 chunks)
+new content: item KilnTest_WispBottle (8b60593c-...) not registered in the server world: no memory near the base item
+near memory: nothing free within 2 GB of 0000000160A80F00 for 384 bytes (0 chunks)
+```
+There the item data was at 5.3 GB and the recipe data at 5.8 GB (the server world at 6.9 GB; 4.4 GB working set, 11.9 GB virtual), 3.8 GB above
+the boot arena, which was put where the Wine layout needs it. `reserve_near` then found nothing. Two causes were possible and the report could not tell
+them apart: a neighbourhood that is full, or a scan that gave up (it queried at most 4096 regions per direction). Both are covered now:
+- **What must be near what.** Every clone (item, recipe, template, skill node, a rule's list) keeps the i32 self-relative offsets of the data it was copied
+  from, so it must lie within 2 GB of that data; there is no single place for all of them, only a window around each target. The item data (the base
+  item) and the recipe data of the report lie 0.2 GB apart, so one arena in reach of both serves both; targets in other resources (skill nodes,
+  templates, the UI bundle) can need their own neighbourhood. A neighbourhood is "the window of 2 GB less 16 MB around the target".
+- **When it can be reserved.** Only before the game allocates there. The first moment a target is known is the define, after the registry has loaded its
+  resources (657 ms after the first step in the report), and by then the heap around the data has been filled: nothing near the registry or the world
+  is a stand-in either (under Wine the registry is at 3.8 GB, the data below 0.3 GB). So the reservation is made at boot and the policy only scans as
+  a last resort.
+- **What is reserved at boot** (`native/services/content/nearmem.cpp`, `boot()`). The low arena (Wine) as before, then a ladder of arenas above 4 GB:
+  from the first free run of 1 GB at or above the system's next default allocation (a `VirtualAlloc(NULL)` probe, never below 4 GB: whatever the runtime
+  reserved before that is skipped) one 128 MB arena every 3.5 GB for 24 GB (7 arenas, 896 MB of address space, nothing committed). A stride under 2 x reach means every address from the first arena to the last arena + 1.98 GB has an
+  arena in reach; a gap of 3.4 GB still holds the game's biggest blocks (2 GB). The ladder is relative to the system's own front, not to the executable image:
+  the server's image (preferred base 0x140000000, 31 MB) is `DYNAMICBASE | HIGH_ENTROPY_VA`, so Windows can load it anywhere and it says nothing of where the data lands.
+- **When nothing is in reach** `find` walks the window: both directions, the nearer side first, no limit of 4096 regions (the limit is now 262,144 regions
+  a direction, which a 4 GB window of 64 KB regions never reaches), and reserves the first free run that holds the block (an arena of up to 8 MB
+  of it, so one walk serves a neighbourhood). A scan that found nothing is remembered per 64 MB for 5 s, so a pack of hundreds of definitions does not walk the
+  window for each; the failure is logged once per neighbourhood, with the target, the window, the regions seen on each side and why each walk stopped, the
+  largest free run and why it did not fit, and the nearest arena (in reach / out of reach / full).
+- **Wine reports a different `BaseAddress`.** `VirtualQuery` returns the start of the run on Windows, the queried page under Wine (`RegionSize` and
+  `AllocationBase` are right in both). The old downward scan hopped by `AllocationBase`; a plain "step to the base of the last region" crawls a page at a time
+  through a free run (520,192 regions for a 2 GB window instead of 32,512, found by the Wine test). So the part below the target is walked in blocks of
+  64 MB, each upward from its start, and a used allocation is skipped whole.
+- **Cost** (Wine, `tests/near_win_test.cpp`: 65,536 back-to-back 64 KB reservations around the target, no hole): the full window, 32,512 regions each way, takes
+  0.31 s (4.8 us per region); with a hole 600 MB away the walk stops there after 51,585 regions (116 ms). A window the budget cuts short says so. The usual
+  allocation takes no scan: a chunk or an arena in reach.
+- **Evidence without a Windows machine.** `native/services/content/tests/run.sh` replays maps of address spaces on the host (the layout above with 4 GB of
+  adjacent 128 KB regions and holes beyond 4096 regions: dev.21's scan returns nothing there, the new one finds the hole; the same layout filled
+  completely after the boot arenas were reserved; the Wine layout with the real targets 0x1714260 and 0xd7a83f0; no hole; a hole that is too small; the budget;
+  targets at the bottom and the top of the address space), each twice: with Windows' and with Wine's answers to a query.
+
 Limits found by defining many blocks at once (whole lab mod set, server 26430253). All of them are refused by name in the log, none crashes:
 
 | What | Limit | Why | Message |

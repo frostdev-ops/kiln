@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // kiln.content: internal declarations shared by the service's files.
-//   game.cpp       guarded memory access, page-protection-aware writes, near allocation, the game's hash maps
+//   game.cpp       guarded memory access, page-protection-aware writes, near allocation (nearmem.h / nearwin.h), the game's hash maps
 //   refl.cpp       the game's reflection (TypeByHash) -> flattened field schemas
 //   registries.cpp items / recipes / random-loot items / drop tables
 //   store.cpp      per-owner layers over the game's original bytes; conflicts
@@ -85,7 +85,8 @@ struct WriteStats {
 WriteStats write_stats();  // totals since boot
 // One byte of code (the stack guard): PAGE_EXECUTE_READ made writable for the write, instruction cache flushed.
 bool patch_code_byte(uintptr_t address, uint8_t expect, uint8_t value);
-// Memory within +-1.5 GB of `target` (for self-relative BlobArray offsets into the game's data). Never freed.
+// Memory within 2 GB (less 16 MB) of `target` (for self-relative BlobArray offsets into the game's data). Never freed. The policy,
+// and why it reserves at boot, is nearmem.h; a failure is logged there with what the scan saw.
 void near_alloc_boot();  // at boot, before the game fills the address space near its resources
 void* near_alloc(uintptr_t target, size_t n);
 void near_alloc_add(uintptr_t base, size_t size);  // memory of Kiln's own that near_alloc may hand out (a clone's spare room)

@@ -4,7 +4,7 @@
   "title": "Kiln mod manifest (kiln.mod.json), v2",
   "description": "Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.Host/Manifest.cs is the reference). Comments and trailing commas are allowed. Docs: docs/kiln/modding/manifest.md.",
   "type": "object",
-  "required": ["id", "version", "apiVersion", "entryAssembly"],
+  "required": ["id", "version", "apiVersion"],
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$", "not": { "enum": ["kiln", "kiln.api", "game", "enshrouded", "native", "permissions"] } },
     "range": {
@@ -78,7 +78,7 @@
       ]
     },
     "features": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Kiln features that must be available on this game build (Game.HasFeature), e.g. tick, log.mirror." },
-    "entryAssembly": { "$ref": "#/$defs/dll", "description": "The mod's assembly, in the mod folder." },
+    "entryAssembly": { "$ref": "#/$defs/dll", "description": "The mod's assembly, in the mod folder. Leave it out for a mod of data only (content packs, assets): Kiln loads it with no code to run, so it takes its place in the load order and its data applies." },
     "entryType": { "type": "string", "description": "Full name of the Kiln.Mod subclass (default: the only public one)." },
     "exports": { "type": "array", "items": { "$ref": "#/$defs/dll" }, "description": "Assemblies dependents compile against; at run time they get these copies (shared types and state)." },
     "advanced": { "type": "boolean", "default": false, "description": "Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced." },

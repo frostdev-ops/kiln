@@ -10,6 +10,7 @@
 #include <mutex>
 
 #include "content.h"
+#include "nearwin.h"
 
 namespace kc {
 
@@ -244,128 +245,39 @@ bool patch_code_byte(uintptr_t address, uint8_t expect, uint8_t value) {
     return ok;
 }
 
-// ---- target allocation: chunks of 256 KB within reach of the data they point into ----
+// ---- target allocation: chunks of 256 KB within reach of the data they point into (the policy: nearmem.cpp) ----
 namespace {
-struct Chunk {
-    uintptr_t base, used, size;
-};
-std::vector<Chunk> g_chunks;
 std::mutex g_alloc_mu;
-// Each caller stores a signed 32-bit offset from a field at or next to the target, and checks it. So 2 GB is the limit; kReach leaves 16 MB for how far that field can be from the target.
-constexpr intptr_t kReach = 0x7F000000;
-constexpr intptr_t kNear = 0x40000000;  // a chunk further off than this is used only when there is no room for a new one
 
-// Address space set aside at boot, committed a chunk at a time. By the time definitions go in, the game and the runtime have filled what is near their resources.
-constexpr size_t kArena = 0x8000000;  // 128 MB
-uintptr_t g_arena = 0;
-size_t g_arena_used = 0;
-
-uintptr_t from_arena(uintptr_t target, size_t size, intptr_t reach) {
-    if (!g_arena || g_arena_used + size > kArena) return 0;
-    const uintptr_t at = g_arena + g_arena_used;
-    const intptr_t from = std::abs(static_cast<intptr_t>(at) - static_cast<intptr_t>(target));
-    const intptr_t to = std::abs(static_cast<intptr_t>(at + size) - static_cast<intptr_t>(target));
-    if (std::max(from, to) >= reach || !VirtualAlloc(reinterpret_cast<void*>(at), size, MEM_COMMIT, PAGE_READWRITE)) return 0;
-    g_arena_used += size;
-    return at;
-}
-
-// A free block within `reach` of the target, or 0.
-uintptr_t reserve_near(uintptr_t target, size_t size, intptr_t reach) {
-    SYSTEM_INFO si{};
-    GetSystemInfo(&si);
-    const uintptr_t gran = si.dwAllocationGranularity ? si.dwAllocationGranularity : 0x10000;
-    const uintptr_t lo = target > static_cast<uintptr_t>(reach) + 0x10000 ? target - reach : 0x10000;
-    const uintptr_t hi = target + reach;
-    // Search upwards from `target`, then downwards.
-    for (int dir = 0; dir < 2; ++dir) {
-        uintptr_t a = dir == 0 ? (target + gran - 1) & ~(gran - 1) : (target - size) & ~(gran - 1);
-        for (int tries = 0; tries < 4096 && a >= lo && a + size <= hi; ++tries) {
-            MEMORY_BASIC_INFORMATION mbi{};
-            if (!VirtualQuery(reinterpret_cast<void*>(a), &mbi, sizeof mbi)) break;
-            if (mbi.State == MEM_FREE) {
-                const uintptr_t fbase = (reinterpret_cast<uintptr_t>(mbi.BaseAddress) + gran - 1) & ~(gran - 1);
-                const uintptr_t fend = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-                const uintptr_t at = dir == 0 ? std::max(fbase, a) : std::min(a, (fend - size) & ~(gran - 1));
-                if (at >= fbase && at + size <= fend) {
-                    if (void* p = VirtualAlloc(reinterpret_cast<void*>(at), size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
-                        return reinterpret_cast<uintptr_t>(p);
-                }
-            }
-            if (dir == 0) a = (reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize + gran - 1) & ~(gran - 1);
-            else {
-                const uintptr_t b = reinterpret_cast<uintptr_t>(mbi.AllocationBase ? mbi.AllocationBase : mbi.BaseAddress);
-                if (b < size + gran) break;
-                a = (b - size) & ~(gran - 1);
-            }
-        }
-    }
-    return 0;
+nearmem::NearMemory& near_memory() {
+    static nearmem::WinSpace space;
+    static nearmem::NearMemory memory(space, nearmem::Config{}, [](int level, const std::string& text) {
+        if (level) LOGW("%s", text.c_str());
+        else LOGI("%s", text.c_str());
+    });
+    return memory;
 }
 }  // namespace
 
 void near_alloc_boot() {
     std::lock_guard lock(g_alloc_mu);
-    // Under Wine the game's data lands in the low 4 GB, and from the middle of them 2 GB reaches nearly all of it. Elsewhere there is free space around any target, and this goes unused.
-    for (const uintptr_t at : {0x78000000ull, 0x70000000ull, 0x60000000ull, 0x50000000ull, 0x40000000ull}) {
-        g_arena = reinterpret_cast<uintptr_t>(VirtualAlloc(reinterpret_cast<void*>(at), kArena, MEM_RESERVE, PAGE_READWRITE));
-        if (g_arena) break;
-    }
-    LOGI("near memory: %zu MB set aside at %p", kArena >> 20, reinterpret_cast<void*>(g_arena));
+    near_memory().boot();
 }
 
 void* near_alloc(uintptr_t target, size_t n) {
     PhaseTimer pt(PH_NEAR_ALLOC);
-    n = (n + 15) & ~size_t(15);
     std::lock_guard lock(g_alloc_mu);
-    // Free address space near a resource can be scarce: under Wine the low 4 GB are nearly full. So a target uses the nearest chunk with room, or, when that is far off, a new
-    // chunk nearer than it: what a far target leaves free stays for those that can reach nothing else.
-    Chunk* nearest = nullptr;
-    intptr_t nearest_d = 0;
-    for (Chunk& c : g_chunks) {
-        if (c.used + n > c.size) continue;
-        const intptr_t from = std::abs(static_cast<intptr_t>(c.base + c.used) - static_cast<intptr_t>(target));
-        const intptr_t to = std::abs(static_cast<intptr_t>(c.base + c.used + n) - static_cast<intptr_t>(target));
-        const intptr_t d = std::max(from, to);
-        if (d < kReach && (!nearest || d < nearest_d)) {
-            nearest = &c;
-            nearest_d = d;
-        }
-    }
-    const auto take = [&](Chunk& c) {
-        void* p = reinterpret_cast<void*>(c.base + c.used);
-        c.used += n;
-        return p;
-    };
-    if (nearest && nearest_d < kNear) return take(*nearest);
-    const size_t size = std::max<size_t>(0x40000, (n + 0xFFFF) & ~size_t(0xFFFF));
-    const intptr_t window = nearest ? kNear : kReach;
-    uintptr_t base = from_arena(target, size, window);
-    if (!base) base = reserve_near(target, size, window);
-    if (base) {
-        g_chunks.push_back(Chunk{base, n, size});
-        LOGI("near memory: chunk %zu at %p, %zu KB, for target %p", g_chunks.size(), reinterpret_cast<void*>(base), size / 1024, reinterpret_cast<void*>(target));
-        return reinterpret_cast<void*>(base);
-    }
-    if (nearest) return take(*nearest);
-    LOGW("near memory: nothing free within 2 GB of %p for %zu bytes (%zu chunks)", reinterpret_cast<void*>(target), n, g_chunks.size());
-    return nullptr;
+    return reinterpret_cast<void*>(near_memory().alloc(target, n));
 }
 
 void near_alloc_add(uintptr_t base, size_t size) {
-    const uintptr_t at = (base + 15) & ~uintptr_t(15);
-    if (at - base >= size) return;
     std::lock_guard lock(g_alloc_mu);
-    g_chunks.push_back(Chunk{at, 0, size - (at - base)});
+    near_memory().add(base, size);
 }
 
 std::string near_alloc_report() {
     std::lock_guard lock(g_alloc_mu);
-    size_t reserved = 0, used = 0;
-    for (const Chunk& c : g_chunks) reserved += c.size, used += c.used;
-    char b[128];
-    std::snprintf(b, sizeof b, "%zu chunks, %zu of %zu KB used, %zu of %zu MB set aside taken", g_chunks.size(), used / 1024, reserved / 1024, g_arena_used >> 20, kArena >> 20);
-    return b;
+    return near_memory().report();
 }
 
 }  // namespace kc

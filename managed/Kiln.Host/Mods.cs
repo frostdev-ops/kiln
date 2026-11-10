@@ -119,6 +119,10 @@ internal sealed class ModLoadContext(string id, string directory, Func<AssemblyN
     }
 }
 
+/// <summary>What a mod without an <c>entryAssembly</c> runs: nothing. It is a mod like any other for the load order, the
+/// mod list, dependencies and unload; its folder's data (kiln.content packs, kiln.assets) belongs to it.</summary>
+internal sealed class DataOnlyMod : Kiln.Mod;
+
 internal sealed class LoadedMod
 {
     public required Manifest Manifest { get; init; }
@@ -371,6 +375,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
             loaded.Add(m.Id);
             var shared = Find(m.Id)!.ResolvedDependencies;
             _host.Log(LogLevel.Info, $"mod {m.Id} {m.Version} loaded in {sw.Elapsed.TotalMilliseconds:F1} ms" +
+                                     (m.HasCode ? "" : " (data only: no entryAssembly)") +
                                      (shared.Count > 0 ? $" (after {string.Join(", ", shared.Order(StringComparer.Ordinal))})" : ""));
         }
         PublishSnapshot();
@@ -443,13 +448,19 @@ internal sealed class ModManager : IModsBackend, IDisposable
         ulong owner = 0;
         try
         {
-            var assembly = alc.LoadFile(System.IO.Path.Combine(directory, manifest.EntryAssembly));
-            var type = manifest.EntryType is { } name
-                ? assembly.GetType(name, throwOnError: true)!
-                : assembly.GetExportedTypes().SingleOrDefault(t => t.IsSubclassOf(typeof(Kiln.Mod)) && !t.IsAbstract)
-                  ?? throw new InvalidDataException($"{manifest.EntryAssembly} has no public Kiln.Mod subclass (or set entryType)");
-            if (!type.IsSubclassOf(typeof(Kiln.Mod))) throw new InvalidDataException($"{type} does not derive from Kiln.Mod");
-            var instance = (Kiln.Mod)Activator.CreateInstance(type)!;
+            Kiln.Mod instance;
+            if (!manifest.HasCode)
+                instance = new DataOnlyMod();  // no entryAssembly: a mod of data (content packs, assets), with nothing to run
+            else
+            {
+                var assembly = alc.LoadFile(System.IO.Path.Combine(directory, manifest.EntryAssembly));
+                var type = manifest.EntryType is { } name
+                    ? assembly.GetType(name, throwOnError: true)!
+                    : assembly.GetExportedTypes().SingleOrDefault(t => t.IsSubclassOf(typeof(Kiln.Mod)) && !t.IsAbstract)
+                      ?? throw new InvalidDataException($"{manifest.EntryAssembly} has no public Kiln.Mod subclass (or set entryType)");
+                if (!type.IsSubclassOf(typeof(Kiln.Mod))) throw new InvalidDataException($"{type} does not derive from Kiln.Mod");
+                instance = (Kiln.Mod)Activator.CreateInstance(type)!;
+            }
             owner = _host.OwnerCreate("mod:" + manifest.Id);
             var context = HostAccess.CreateContext(Info(manifest, directory), owner, System.IO.Path.Combine(_dataDirectory, manifest.Id));
             HostAccess.Bind(instance, context);

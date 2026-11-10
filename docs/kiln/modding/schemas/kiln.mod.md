@@ -20,7 +20,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `clients` | `"none"` \| `"kiln"` \| `"mod"` |  | What a player's game needs to join a server running this mod: none (vanilla clients join), kiln (Kiln on the client; the server sends the mod's definitions), mod (the mod itself, delivered by the server's modpack). Default from side: server -> none, client and both -> mod. |
 | `dependencies` | object or array of object |  | Mods (or "kiln", the core version) this mod needs. Required ones load first and must match; optional ones load first when present and must match when present. |
 | `description` | string |  |  |
-| `entryAssembly` | [dll](#dll) | yes | The mod's assembly, in the mod folder. |
+| `entryAssembly` | [dll](#dll) |  | The mod's assembly, in the mod folder. Leave it out for a mod of data only (content packs, assets): Kiln loads it with no code to run, so it takes its place in the load order and its data applies. |
 | `entryType` | string |  | Full name of the Kiln.Mod subclass (default: the only public one). |
 | `exports` | array of [dll](#dll) |  | Assemblies dependents compile against; at run time they get these copies (shared types and state). |
 | `features` | array of string |  | Kiln features that must be available on this game build (Game.HasFeature), e.g. tick, log.mirror. |
