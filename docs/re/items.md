@@ -465,7 +465,7 @@ template metadata is retried rather than cached permanently. Regression: two sam
 restart read neither tag; a placed chest restores `chest-persistence-control`. Lab: `items-test` 95 PASS before the
 save and 15 PASS after the restart, no failures.
 
-The pinned MIT Enshwick source (`945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad`, alpha.13),
+The MIT Enshwick source at alpha.13 (`945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad`),
 `crates/internal/loader/src/item_data.rs` and `item_data/{attach,world_file,carried}.rs`, uses per-session item entity ids
 and saved inventory/character anchors with item checks. Ambiguous or missing anchors are set aside and cannot later
 attach to another item. `stats/affixes.rs` serializes rolled `ItemStats` into that store and its own stat engine

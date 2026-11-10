@@ -16,8 +16,8 @@
 # --examples also builds the example mods the plugin's lab test runs (hello-c).
 set -euo pipefail
 
-TAG="v1.0.0-alpha.13"
-COMMIT="945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad"
+TAG="v1.0.0-alpha.14"
+COMMIT="8fa382949551f0256a6505ed161cb28e5a0ea8f5"
 REPO="https://github.com/enshwick/enshwick.git"
 OUT=""
 EXAMPLES=0
@@ -115,7 +115,7 @@ echo "enshwick source: $SRC ($TAG, $head)"
 CARGO=(cargo)
 [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]] || CARGO=(cargo xwin)
 PKGS=(-p enshwick-loader)
-[[ $EXAMPLES -eq 1 ]] && PKGS+=(-p hello-c)
+[[ $EXAMPLES -eq 1 ]] && PKGS+=(-p enshwick-example-hello-c)
 # Both forms override Enshwick's target config. Preserve Cargo's precedence and whitespace splitting for RUSTFLAGS,
 # then restore its CRT/CPU settings. Remap the private random path too, keeping release builds reproducible.
 CARGO_ENCODED_RUSTFLAGS="$(python3 -I - "$build_src" <<'PY'

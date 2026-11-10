@@ -78,7 +78,7 @@ class Game:
 
     def bundled(self, real=False):
         self.copy(REAL if real else os.path.join(TESTS, "enshwick.dll"), "kiln/plugins/enshwick/enshwick.dll")
-        self.put("kiln/plugins/enshwick/enshwick-version.txt", "v1.0.0-alpha.13\n")
+        self.put("kiln/plugins/enshwick/enshwick-version.txt", "v1.0.0-alpha.14\n")
 
     def game_loader(self):
         self.copy(os.path.join(TESTS, "enshwick.dll"), "mods/enshwick/enshwick.dll")
@@ -152,7 +152,7 @@ def bundled_server():
     g.run()
     g.status("started")
     g.has("loader ")
-    g.has("(bundled, v1.0.0-alpha.13)")
+    g.has("(bundled, v1.0.0-alpha.14)")
     g.has("mods/you.material-stacks (pack, folder): run")
     g.has("mods/you.welcome (luau, folder): run")
     g.has("mods/you.dllmod (dll, folder): run")
@@ -428,7 +428,7 @@ def real_loader():
     g.pack("mods/you.a", "you.a")
     g.run(8000)
     g.status("started")
-    g.ens_has("Enshwick 1.0.0-alpha.13 starting on")
+    g.ens_has("Enshwick 1.0.0-alpha.14 starting on")
     g.has("Enshwick's start returned")
     g.has("[enshwick:log]")
     return g

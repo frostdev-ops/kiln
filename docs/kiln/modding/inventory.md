@@ -140,7 +140,7 @@ dev.20 does not add these. What the research found, so the next step starts ther
 - **No free-form payload was found in the inspected item components.** A piece of gear is a "pide" entity with fixed components: `Level`,
   `PerkContainerNew`, `ItemState`, `Durability`, `OwnerRelationship`, `WeaponGemSlot`, `Fuel`. A plain stack is `{item, count}`
   in an `Inventory` component. There is no spare field to put a mod's value in.
-- **Enshwick (MIT) keeps it beside the game.** At the pinned
+- **Enshwick (MIT) keeps it beside the game.** At the
   [alpha.13 commit](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/item_data.rs),
   its `item_data_*` is a table keyed by the item entity within a session and by
   its *place* (the placed container and the slot, or the character and the slot) on a save. Its affixes are rolled

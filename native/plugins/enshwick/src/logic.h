@@ -13,7 +13,7 @@
 namespace kenshwick {
 
 // What Enshwick's loader exports and what its powrprof.dll stub passes it (crates/internal/stub/src/lib.rs,
-// crates/internal/loader/src/lib.rs, Enshwick v1.0.0-alpha.13):
+// crates/internal/loader/src/lib.rs, Enshwick v1.0.0-alpha.14):
 //   enshwick_start(stub_abi, missing_forwards, release), release() -> 1 held until now / 2 hold ran out / 0 none.
 constexpr const char* kStartExport = "enshwick_start";
 constexpr uint32_t kStubAbi = 2;
