@@ -363,7 +363,11 @@ fn run_now() {
     if let Some(d) = &export_dir {
         let _ = std::fs::create_dir_all(d);
     }
+    // the core's progress window (kiln.progress; none on a server, with KILN_UI_DISABLE=1 or in an older kiln-core)
+    let table = api().map_or(std::ptr::null(), |a| unsafe { (a.service)(KilnStr::lit("kiln.progress"), 1) });
+    let progress = Some(std::sync::Arc::new(unsafe { crate::progress::Display::new(state.clone(), table) }));
     let cfg = RunConfig {
+        progress,
         game_dir: game.clone(),
         file_name: std::env::current_exe().ok().and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase())),
         cache_dir: kiln.join("eml").join("cache"),

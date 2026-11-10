@@ -34,6 +34,7 @@
 //! | [`found`] | mods in the game folder Kiln did not put there: whether each loads with a profile, and adding one |
 //! | [`shroudforge`] | ShroudForge mods next to Kiln: install detection, mod packages, switches, settings, status (owner: sf) |
 //! | [`playonce`] | `kiln/play-once.ini` |
+//! | [`prestart`] | what kiln-eml is doing before the game's window exists (`kiln/state/eml.json`, phase running) |
 //! | [`config`] | offline mod configs, `.schema/` snapshots, `config/native.json` |
 //! | [`jsonc`] | JSONC CST value edits |
 //! | [`saves`] | save slots, save backups, the save editor's commands |
@@ -77,6 +78,7 @@ pub mod archive;
 pub mod library;
 pub mod manifest;
 pub mod playonce;
+pub mod prestart;
 pub mod profile;
 pub mod quick;
 pub mod engine_mods;

@@ -626,6 +626,22 @@ export interface BootState {
   /** kiln.log's error lines for the run that wrote boot.json (null: kiln.log is another run's or missing). */
   log?: { errors: number; first: string[] } | null;
 }
+/** What kiln-eml is doing before the game's window exists (kiln/state/eml.json, phase running): `launch_prestart`. */
+export interface PreStart {
+  /** starting | checking | prepare | mods | writing | saving */
+  stage: string;
+  label: string;
+  doneBytes: number;
+  totalBytes: number;
+  filesDone: number;
+  filesTotal: number;
+  /** The file being read now. */
+  file?: string | null;
+  /** Milliseconds since a byte was last read (while a file is being read). */
+  quietMs: number;
+  /** The sentence for the launch status ("Preparing the game data for EML mods: 12.3 GiB of 48.6 GiB. ..."). */
+  message: string;
+}
 export interface RequiredMod {
   id: string;
   version: string;
@@ -1200,6 +1216,7 @@ export const configKilnReset = (gameId: GameId, path: string) => call<ConfigDocu
 // launch.rs
 export const launchPlay = (gameId: GameId, request: LaunchRequest) => call<LaunchResult>("launch_play", { gameId, request });
 export const launchState = (gameId: GameId) => call<BootState>("launch_state", { gameId });
+export const launchPrestart = (gameId: GameId) => call<PreStart | null>("launch_prestart", { gameId });
 
 // logs.rs
 export const logsList = (target: LogTarget) => call<LogFile[]>("logs_list", { target });
@@ -1377,7 +1394,7 @@ export const COMMANDS = [
   "profile_deactivate", "profile_active",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
-  "launch_play", "launch_state",
+  "launch_play", "launch_state", "launch_prestart",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",
   "saves_list", "saves_backups", "saves_backup", "saves_restore", "saves_delete",
   "editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_zstd_compress",

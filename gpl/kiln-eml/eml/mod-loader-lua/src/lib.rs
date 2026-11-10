@@ -7,6 +7,8 @@ use crate::{alias::Path, cache::{CacheDiff, FileStateCache, Fingerprints}, env::
 
 // kiln-eml: what a run spent fingerprinting the game's files (bytes read, files reused), for the log and Kiln's state.
 pub use cache::FingerprintStats;
+// kiln-eml: what a run is doing, for the people waiting for it (progress.rs).
+pub use progress::{Event, Progress, ProgressGuard, Sink, Stage, Timing};
 
 mod runner;
 mod definition;
@@ -14,6 +16,7 @@ mod env;
 mod util;
 mod log;
 mod cache;
+mod progress;
 mod alias;
 mod load;
 mod transaction;
@@ -56,30 +59,63 @@ pub struct RunResult {
 
 pub fn run(
     env: &ModEnvironment,
-    mut args: RunArgs,
+    args: RunArgs,
+) -> anyhow::Result<RunResult> {
+    // kiln-eml: progress lines in the log, no sink
+    let progress = Progress::start(None);
+    run_with(env, args, &progress)
+}
+
+/// `run`, reporting what it does into `progress` (a stage, and while it reads game files the file and the bytes done and
+/// to do): see progress.rs.
+pub fn run_with(
+    env: &ModEnvironment,
+    args: RunArgs,
+    progress: &Progress,
 ) -> anyhow::Result<RunResult> {
     info!("Running lua with options: {:?}", args);
 
-    let cache_key = format!("{}|{:?}", args.file_name, args.options);
-    let file_name = args.file_name.clone();
     // kiln-eml: one memo of file fingerprints for the whole run (cache/prints.rs): every barrier below re-stats its files
     // and reads only those that changed since they were hashed, so the game data is read once, not four times.
-    let mut prints = Fingerprints::new(env.game_dir().as_std_path());
+    let mut prints = Fingerprints::new(env.game_dir().as_std_path()).with_progress(progress.clone());
+    // what an interrupted run had read, and a journal for this one (removed when it ends well)
+    prints.resume_from(env.cache_dir().as_std_path());
+    let result = run_steps(env, args, progress, &mut prints);
+    if result.is_ok() {
+        prints.finish();
+    }
+    result
+}
+
+fn run_steps(
+    env: &ModEnvironment,
+    mut args: RunArgs,
+    progress: &Progress,
+    prints: &mut Fingerprints,
+) -> anyhow::Result<RunResult> {
+    let cache_key = format!("{}|{:?}", args.file_name, args.options);
+    let file_name = args.file_name.clone();
     let current_cache = (!args.options.skip_cache).then(|| FileStateCache::read(env.cache_dir()));
     if let Some(saved) = &current_cache {
         prints.seed(saved);
     }
+    progress.stage(Stage::Checking);
     let mut mods_before = FileStateCache::default();
-    track_mods(&mut mods_before, env, &mut prints);
+    track_mods(&mut mods_before, env, prints);
 
     // check cache if files have changed
 
     let cache_diff = if let Some(current_cache) = &current_cache {
         let mut new_cache = FileStateCache::default();
         new_cache.configuration(&cache_key);
+        // kiln-eml: another build of the cache (or none): this start patches whatever the files say, so no game file is
+        // read to be compared with the saved fingerprints (prints.rs)
+        if new_cache.diff(current_cache).build_id_changed() {
+            prints.patch_certain();
+        }
 
-        new_cache.track_game_files(env.game_dir(), &mut prints);
-        track_mods(&mut new_cache, env, &mut prints);
+        new_cache.track_game_files(env.game_dir(), prints);
+        track_mods(&mut new_cache, env, prints);
 
         let cache_diff = new_cache.diff(current_cache);
 
@@ -102,11 +138,13 @@ pub fn run(
         cache_diff
     } else {
         info!("Skipping cache check");
+        prints.patch_certain();
         CacheDiff::new_dirty()
     };
 
     // create a new app state
 
+    progress.stage(Stage::Prepare);
     let app_state = match AppState::new(
         env.clone(),
         args,
@@ -116,8 +154,9 @@ pub fn run(
         Err(_) => anyhow::bail!("Failed to create AppState"),
     };
     let vanilla_containers = app_state.kfc_file().containers().len();
+    progress.stage(Stage::Checking);
     let mut inputs_before = FileStateCache::default();
-    inputs_before.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers, &mut prints);
+    inputs_before.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers, prints);
 
     // setup and run all mods
 
@@ -131,6 +170,7 @@ pub fn run(
     }
 
     info!("Running mods...");
+    progress.stage(Stage::Mods);
 
     // TODO: move this somewhere else, maybe to the GameContext?
 
@@ -141,12 +181,14 @@ pub fn run(
     let mut patched = 0;
 
     if app_state.has_feature(AppFeatures::PATCH) {
+        progress.stage(Stage::Checking);
         let mut inputs_now = FileStateCache::default();
-        inputs_now.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers, &mut prints);
+        inputs_now.track_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers, prints);
         if inputs_before.diff(&inputs_now).is_some() {
             anyhow::bail!("Game inputs changed or became unreadable during patch preparation");
         }
         info!("Applying patches...");
+        progress.stage(Stage::Writing);
 
         let mut buf = Vec::new();
         let mut writer = app_state.take_writer();
@@ -199,12 +241,13 @@ pub fn run(
     // create a new cache file
 
     if app_state.has_feature(AppFeatures::PATCH) {
+        progress.stage(Stage::Saving);
         let mut mods_after = FileStateCache::default();
-        track_mods(&mut mods_after, env, &mut prints);
+        track_mods(&mut mods_after, env, prints);
         let mut new_cache = mods_after.clone();
         new_cache.configuration(&cache_key);
 
-        new_cache.track_game_files(env.game_dir(), &mut prints);
+        new_cache.track_game_files(env.game_dir(), prints);
         // Reuse the exact fingerprints being saved; a second independent after-snapshot can hide an ABA edit.
         let inputs_after = new_cache.clone().only_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
         if mods_before.diff(&mods_after).is_none() && inputs_before.diff(&inputs_after).is_none() { new_cache.write(env.cache_dir()); }

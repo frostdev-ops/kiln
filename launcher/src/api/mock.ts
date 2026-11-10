@@ -7,7 +7,7 @@ import type {
   Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
   EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
-  NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
+  NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
 import { adminMockHandlers } from "../admin/mock";
@@ -87,6 +87,8 @@ let failNextInstall: string | null = null;
 /** Steam does not load Kiln's proxy (tests: `__kilnMock.setNoProxy`): starts keep play-once.ini, write no boot.json, the
  *  launch option is not set, and the process "started" 31 s before the launch so the launcher's grace has passed. */
 let noProxy = false;
+/** What `launch_prestart` answers while the fake game runs (tests: `__kilnMock.setPreStart`); null: nothing before boot. */
+let preStart: PreStart | null = null;
 /** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
 const newerMods: Record<string, NewerKilnMod[]> = {};
 
@@ -979,6 +981,10 @@ const handlers: Record<string, Handler> = {
     return { boot, mods: boot ? (modsExample as unknown as ModsJson) : null, native: boot ? (nativeExample as unknown as NativeJson) : null, stale: !r && !!boot, log };
   },
 
+  // what kiln-eml does before the game's window exists: only on request (tests: `__kilnMock.setPreStart`), so that a plain
+  // start still says "Waiting for Kiln to boot."
+  launch_prestart: (a): PreStart | null => (running[S(a.gameId)] ? preStart : null),
+
   // logs
   logs_list: (a) => {
     const t = a.target as LogTarget;
@@ -1364,6 +1370,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
+  setPreStart: (p: PreStart | null) => { preStart = p; },
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

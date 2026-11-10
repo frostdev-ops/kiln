@@ -24,6 +24,7 @@
 #include "guard.h"
 #include "log.h"
 #include "profile.h"
+#include "progress.h"
 #include "registry.h"
 
 namespace kiln::early_plugins {
@@ -152,6 +153,8 @@ void run() {
             reg::owner_revoke(e.owner);
         }
     }
+    // The progress window (kiln.progress) of a plugin that did not end its task, or faulted: the game's own window is next.
+    progress::close_all();
 }
 
 }  // namespace kiln::early_plugins

@@ -146,6 +146,27 @@ test("the mouth is the Play button and follows the game state", async ({ page })
   await expect(play).toHaveAccessibleName(/^Play /);
 });
 
+test("while kiln-eml prepares the game data the launch status says how far it is", async ({ page }) => {
+  type M = { __kilnMock: { stopGame: () => void; setPreStart: (p: unknown) => void } };
+  await open(page, "/");
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setPreStart({
+    stage: "checking", label: "Checking the game data", doneBytes: 13194139533, totalBytes: 52183056384, filesDone: 12, filesTotal: 55,
+    file: "enshrouded_012.dat", quietMs: 0,
+    message: "Preparing the game data for EML mods: 12.3 GiB of 48.6 GiB. Only the first start after a game update takes this long.",
+  }));
+  await page.locator(".k-door").click();
+  const hero = page.locator(".k-hero");
+  await expect(hero.getByText("Preparing the game data for EML mods: 12.3 GiB of 48.6 GiB.")).toBeVisible();
+  await expect(hero.getByText("Only the first start after a game update takes this long.")).toBeVisible();
+  await expect(hero.getByText("Waiting for Kiln to boot.")).toHaveCount(0);
+  // Kiln boots (boot.json is written): the launch status moves on
+  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 8000 });
+  await expect(hero.getByText("Preparing the game data for EML mods")).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as M).__kilnMock.setPreStart(null));
+  await page.evaluate(() => (window as unknown as M).__kilnMock.stopGame());
+  await expect(page.locator(".k-head-state")).toHaveText("Stopped");
+});
+
 test("Without mods when Steam does not load Kiln: No Kiln and the Steam setting, never Starting forever", async ({ page }) => {
   type M = { __kilnMock: { stopGame: () => void; setNoProxy: (on: boolean) => void } };
   await open(page, "/");

@@ -109,6 +109,13 @@ pub fn create_backup(
     // kiln-eml: reject links and malformed data; a version change refreshes the backup atomically.
     crate::transaction::regular(path.as_std_path()).map_err(|_| ())?;
     if bak_path.exists() { crate::transaction::regular(bak_path.as_std_path()).map_err(|_| ())?; }
+    // kiln-eml: the checks below read the backup pair (and a new backup copies the live pair): hundreds of MiB on a real
+    // client, so say so before it starts (the run's log would otherwise be silent for as long as it takes)
+    let size = |p: &Path| std::fs::metadata(p.as_std_path()).map_or(0, |m| m.len());
+    let resources_bak = path.with_extension("kfc_resources.bak");
+    if bak_path.exists() {
+        info!("Checking the vanilla backup against its seal: {} read, twice", crate::progress::human(size(bak_path) + size(&resources_bak)));
+    }
     // A crash can leave the old seal after both new backups were published. Only repair it when both backups
     // are byte-identical to the untouched live files; never bless a mismatching backup from a patched install.
     if bak_path.exists() && !validate_backup(path, bak_path) && backups_equal_live(path, bak_path) {
@@ -121,6 +128,12 @@ pub fn create_backup(
         if old == current { return Err(()); }
     }
     if !bak_path.exists() || !validate_backup(path, bak_path) {
+        let live = path.with_extension("kfc_resources");
+        info!(
+            "Backing up the vanilla game data: {} and {} ({}) are copied, then read back for the seal",
+            path.file_name().unwrap_or("the header"), live.file_name().unwrap_or("the resource file"),
+            crate::progress::human(size(path) + size(&live))
+        );
         KFCFile::from_path(path, false).map_err(|_| ())?;
         // Snapshot resources before committing the matching header backup. Existing EML-only backups may lack this.
         let resources = path.with_extension("kfc_resources");
@@ -365,7 +378,12 @@ pub fn load_type_registry(
 
     let (type_registry, is_dirty) = match type_registry {
         Some(type_registry) => (type_registry, false),
-        None => match TypeRegistry::load_from_executable(&exe_path) {
+        None => match {
+            // kiln-eml: reads the whole exe and takes a moment (once per game version): say so
+            let bytes = std::fs::metadata(exe_path.as_std_path()).map_or(0, |m| m.len());
+            info!("Reading the game's reflection types from {} ({}), once per game version", exe_path.file_name().unwrap_or("the exe"), crate::progress::human(bytes));
+            TypeRegistry::load_from_executable(&exe_path)
+        } {
             Ok(mut registry) => {
                 if let Some(version_tag) = version_tag {
                     registry.version = version_tag;
@@ -654,6 +672,45 @@ mod kiln_tests {
         assert!(patch.fingerprint.hashed_bytes <= patched_before - backups + game_bytes() - backups + mod_bytes(), "{}", patch.fingerprint);
         assert!(patch.fingerprint.reused_files >= 5, "{}", patch.fingerprint);
         println!("first: {}\nhit:   {}\npatch: {}", first.fingerprint, hit.fingerprint, patch.fingerprint);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_first_start_does_not_read_the_containers_and_a_change_to_one_is_found_without_reading_it() {
+        crate::cache::RACY_WINDOW_OVERRIDE.with(|w| w.set(Some(std::time::Duration::ZERO)));
+        let (dir, env, args) = patch_fixture();
+        const MIB: usize = 1 << 20;
+        for i in 0..3 {
+            std::fs::write(dir.join(format!("g_{i:03}.dat")), vec![i as u8 + 1; 2 * MIB]).unwrap();
+        }
+        let progress = crate::Progress::none();
+
+        // no cache at all: the containers are recorded by their stamps and never read
+        let first = crate::run_with(&env, args.clone(), &progress).unwrap();
+        assert!(!first.cached && env.cache_dir().join("files.json").exists());
+        assert!(first.fingerprint.hashed_bytes < MIB as u64, "no container is read: {}", first.fingerprint);
+        assert!(first.fingerprint.recorded_files >= 3 && first.fingerprint.recorded_bytes >= 6 * MIB as u64, "{}", first.fingerprint);
+        let saved = std::fs::read_to_string(env.cache_dir().join("files.json")).unwrap();
+        assert!(saved.contains("\"unread\""), "the cache file says which fingerprints are stamps");
+        assert_eq!(progress.snapshot().map(|e| e.stage), Some(crate::Stage::Saving), "the run reported its stages");
+
+        let hit = crate::run(&env, args.clone()).unwrap();
+        assert!(hit.cached && hit.fingerprint.hashed_bytes == 0, "{}", hit.fingerprint);
+
+        // a container changes (same length, last-write time put back): the patch runs again, and no container is read
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let container = dir.join("g_001.dat");
+        let modified = std::fs::metadata(&container).unwrap().modified().unwrap();
+        let mut bytes = std::fs::read(&container).unwrap();
+        bytes[0] ^= 0x55;
+        let mut f = std::fs::OpenOptions::new().write(true).open(&container).unwrap();
+        f.write_all(&bytes).unwrap();
+        f.set_modified(modified).unwrap();
+        drop(f);
+        let again = crate::run(&env, args.clone()).unwrap();
+        assert!(!again.cached, "a changed container is a change");
+        assert!(again.fingerprint.hashed_bytes < MIB as u64, "{}", again.fingerprint);
+        assert!(crate::run(&env, args).unwrap().cached);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

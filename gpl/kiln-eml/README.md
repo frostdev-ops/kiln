@@ -20,7 +20,7 @@ behaviour, never from this code.
 | Path | What |
 |---|---|
 | `eml/` | EML's crates from kfc-parser v0.2.0 (tag `v0.2.0`, commit `16708594d686b030d909f2d835b199d879ea9ad8`): `kfc`, `kfc-base`, `kfc-content`, `kfc-resource`, `mod-loader`, `mod-loader-base`, `mod-loader-lua`, `mod-loader-runtime`. EML's proxies (`dbghelp-proxy`, `dinput8-proxy`), CLI and GUI are not used. |
-| `kiln-eml/` | The plugin: `discover` (which mods), `runner` (one fail-soft run), `logging`, `plugin` (the DLL exports), and the host runner `kiln-eml-run`. |
+| `kiln-eml/` | The plugin: `discover` (which mods), `runner` (one fail-soft run), `progress` (the live state file and the progress window), `logging`, `plugin` (the DLL exports), and the host runner `kiln-eml-run`. |
 | `build.sh` | `cargo xwin` build to `$KILN_OUT/cmake/bin/plugins/kiln-eml.dll` (static CRT); `--host` also builds `kiln-eml-run`, `--test` runs the tests. |
 | `NOTICE.txt` | Shipped next to the DLL as `kiln-eml.NOTICE.txt`, with `LICENSE` as `kiln-eml.LICENSE.txt`. |
 
@@ -75,6 +75,23 @@ Each is marked `kiln-eml:` in the source.
    `eml.json` report the bytes hashed and files reused. The problem, and OS change stamps as the way out, were
    analysed by the reporter of [bisdat/kiln-mods#17](https://github.com/bisdat/kiln-mods/issues/17) (whose draft
    PR 18 explored the same idea); this code is written independently.
+
+10. `mod-loader-lua/cache` (`prints.rs`, `mod.rs`, `io.rs`, `track.rs`, `tests.rs`), `lib.rs`, `progress.rs`: a start
+    that has to read nothing does not (dev.22). A game file nobody needs the bytes of (`Need::Identity`: `track_game_files`
+    and `track_game_inputs`; the mods' files stay `Need::Content`) is recorded by its stamp alone, where the stamp can be
+    trusted by the rules of change 9: its third fingerprint number is a digest of the stamp and its name is in the new
+    optional `unread` list of `files.json`. A later stamp change is a changed file (the patch runs again) instead of a CRC
+    comparison with a CRC that was never computed; a saved CRC is still compared by reading the file until the start
+    knows it must patch anyway (another build id, no cache, a file that already differs: `Fingerprints::patch_certain`,
+    and the same on the first fingerprint that differs from the saved one). A file read earlier in a run stays a read
+    file in it (`pinned`), so that its fingerprints compare. `files.partial.json` (`resume_from`, `finish`) keeps the
+    fingerprints a run has read, replaced whole about every two seconds, with no build id; the next start takes them like
+    saved fingerprints. `Fingerprints::announce` says before a step what it will read and why (a log line), and the
+    run reports into `Progress` (`progress.rs`: stage, bytes done and to do, the file; a ticker thread logs a line every five
+    seconds, a warning when a read moves no byte, and hands each change to the host's `Sink`). `run_with` takes the
+    `Progress`; `run` is `run_with` with log lines only. `kiln-eml/src/progress.rs` is the sink: the live state file
+    (`phase: running` and `progress`) and the `kiln.progress` window of kiln-core; `runner.rs` creates the `Progress`,
+    gives the sink the mods, and says what the no-mods restore check reads.
 
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.

@@ -117,6 +117,14 @@ pub async fn launch_play(app: AppHandle, game_id: String, request: LaunchRequest
     Ok(r)
 }
 
+/// `launch_prestart`: what kiln-eml is doing before the game's window exists (a first start that fingerprints the game's data
+/// files, a patch run): `kiln/state/eml.json` with phase `running`, while the game runs and the file is fresh. None otherwise.
+/// The Play page polls it faster than `launch_state` while it waits for Kiln to boot.
+#[tauri::command]
+pub async fn launch_prestart(game_id: String) -> Result<Option<kiln_manage::prestart::PreStart>, Error> {
+    blocking(move || kiln_manage::prestart::read(&crate::state::game(&game_id)?)).await
+}
+
 #[tauri::command]
 pub async fn launch_state(game_id: String) -> Result<BootState, Error> {
     blocking(move || {

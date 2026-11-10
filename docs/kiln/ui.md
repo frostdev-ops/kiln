@@ -325,6 +325,7 @@ tables in the same header.
 - Work under the overlay (kiln.screen) is called only while it says it has something to do; otherwise the present reads one counter.
 - No wheel open: the wheel costs one atomic read per frame and per input message. `is_item_clicked` costs nothing unless a
   window asks. With a wheel open it is one more ImGui window with a few shapes.
-- `KILN_UI_DISABLE=1` turns the overlay off (the service is then unavailable).
+- `KILN_UI_DISABLE=1` turns the overlay off (the service is then unavailable). It also turns off the progress window of the
+  early step (`kiln.progress`, [eml.md](eml.md#what-you-see-while-it-runs)).
 - The game-UI hooks cost one check per UI frame and per menu-entry call (a return-address compare); entries draw only
   while their menu is open. `KILN_NO_MENU_LOAD=1` keeps the mods' load at the first world step.
