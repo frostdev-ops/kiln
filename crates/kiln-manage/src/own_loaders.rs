@@ -136,11 +136,19 @@ pub fn find(game_dir: &Path, profile: Option<&ProfileView>) -> Vec<OwnLoader> {
             }
         }
     };
+    // shroudlink's client addon (its dinput8.dll: the MODS tab) is not shroudlink's core. It starts a core of its own
+    // only from `shroudlink_core.dll` in the game folder (singleplayer).
+    let addon_only = |kind: ProxyKind, host: &Path| kind == ProxyKind::Shroudlink && crate::engines::shroudlink_addon_at(host)
+        && !game_dir.join("shroudlink_core.dll").is_file();
     for slot in crate::engines::scan_proxies(game_dir) {
+        if addon_only(slot.class.kind, &game_dir.join(&slot.name)) { continue; }
         add(slot.class.kind, slot.name, Via::Proxy);
     }
     for (file, host) in chained(game_dir) {
-        if let Ok(c) = crate::pe::classify_proxy(&host) { add(c.kind, file, Via::Chain); }
+        if let Ok(c) = crate::pe::classify_proxy(&host) {
+            if addon_only(c.kind, &host) { continue; }
+            add(c.kind, file, Via::Chain);
+        }
     }
     for (file, host) in emf_chained(game_dir) {
         if let Ok(c) = crate::pe::classify_proxy(&host) { add(c.kind, file, Via::EmfChain); }

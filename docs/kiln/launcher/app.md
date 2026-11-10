@@ -4,7 +4,7 @@ The desktop app in `launcher/`: React 18 + TypeScript + Vite (bun) in a Tauri 2 
 `kiln-launcher`) on `crates/kiln-manage`. Contracts: [contracts.md](contracts.md) (formats, section 9 commands, section 10
 events). Design system: [design-system.md](design-system.md).
 
-**Official 0.2.0-dev.21 (as in dev.20):** Catalog, Nexus account/settings and `nxm://` handling are disabled while OAuth approval is
+**Official 0.2.0-dev.22 (as in dev.20 and dev.21):** Catalog, Nexus account/settings and `nxm://` handling are disabled while OAuth approval is
 pending. Browser downloads and manual Library import remain available. Nexus routes below describe the enabled
 implementation for a future approved build; no personal API key flow is supported. See [catalog.md](catalog.md).
 

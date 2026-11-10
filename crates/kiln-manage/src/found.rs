@@ -221,11 +221,6 @@ fn short(kind: ModKind) -> &'static str {
     }
 }
 
-/// The plugin that reads a kind's folder, for a sentence.
-fn reader_of(kind: ModKind) -> &'static str {
-    crate::engine_mods::plugin_of(kind).unwrap_or("Kiln")
-}
-
 // ---- the engines' own loaders ----
 
 /// The kinds an engine's own loader runs from the game folder. ShroudForge's loader also runs EML packages (and carries
@@ -258,9 +253,13 @@ fn own_loaders(game: &Path) -> (Vec<OwnLoader>, bool) {
             out.push(OwnLoader { engine: e, name: e.name().to_string(), kinds, file });
         }
     };
+    // shroudlink's client addon alone (no shroudlink_core.dll for it to start) runs no shroudlink mods
+    let addon_only = |e: Engine, file: &Path| e == Engine::Shroudlink && crate::engines::shroudlink_addon_at(file)
+        && !game.join("shroudlink_core.dll").is_file();
     for slot in crate::engines::scan_proxies(game) {
         match Engine::of_proxy(slot.class.kind) {
             Some(Engine::Kiln) => kiln = true,
+            Some(e) if addon_only(e, &game.join(&slot.name)) => {}
             Some(e) => push(e, slot.name),
             None => {}
         }
@@ -274,6 +273,7 @@ fn own_loaders(game: &Path) -> (Vec<OwnLoader>, bool) {
             let file = game.join(crate::paths::game::KILN).join(&rel);
             if let Ok(class) = crate::pe::classify_proxy(&file)
                 && let Some(e) = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln)
+                && !addon_only(e, &file)
             {
                 push(e, format!("kiln/{rel}"));
             }

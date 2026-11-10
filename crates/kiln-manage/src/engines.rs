@@ -347,6 +347,27 @@ const FLAME_MOD_EXPORT: &str = "FlameStartRuntime";
 /// shroudlink's mod DLLs (its server looks for `shroudlink_mod_v2`, then `_v1`).
 const SHROUDLINK_MOD_EXPORTS: [&str; 2] = ["shroudlink_mod_v2", "shroudlink_mod_v1"];
 
+/// shroudlink's client addon: its `dinput8.dll` draws the in-game MODS tab, the chest search and the slot locks. It
+/// is a mod of its own, not a loader Kiln replaces: kiln-shroudlink is shroudlink's server core, and the addon is what
+/// shows that core's windows. The core is told apart by the export `CrashHandlerFactory` (it also runs as
+/// crashhandler64.dll) or by naming Steam's renamed DLL (it is the server's Steam proxy). `file`: the file name, also
+/// a chained one (`shroudlink-dinput8.dll`).
+pub fn is_shroudlink_addon(file: &str, bytes: &[u8], exports: &[String]) -> bool {
+    let has = |e: &str| exports.iter().any(|x| x == e);
+    let lower: Vec<u8> = bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+    let names = |t: &str| find_any(&lower, &[t.as_bytes().to_vec(), utf16(t)]).iter().any(|f| *f);
+    file.to_ascii_lowercase().ends_with("dinput8.dll") && has("DirectInput8Create") && !has("CrashHandlerFactory")
+        && names("shroudlink") && !names("steam_api64_o.dll")
+}
+
+/// [`is_shroudlink_addon`] for a file on disk (false when it cannot be read).
+pub fn shroudlink_addon_at(path: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(path) else { return false };
+    let Ok(pe) = crate::pe::parse(&bytes) else { return false };
+    let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    is_shroudlink_addon(&file, &bytes, &pe.exports)
+}
+
 fn detected(kind: DetectKind, engine: Option<Engine>, path: &Path, reason: String) -> Detected {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
     Detected {
@@ -387,6 +408,10 @@ pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detec
     let engine = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln)?; // Kiln's own proxy: library's rule
     // a plain DLL that merely mentions "dinput8-chain.ini" or "reshade" keeps Kiln's own rules unless it is one by name
     if matches!(engine, Engine::ChainLoader | Engine::ReShade | Engine::Aldrich) && !is_proxy_name(&file) {
+        return None;
+    }
+    // shroudlink's client addon is a DLL mod (Kiln chains it), not a loader Kiln replaces
+    if engine == Engine::Shroudlink && is_shroudlink_addon(&file, bytes, exports) {
         return None;
     }
     Some(detected(DetectKind::Proxy, Some(engine), path, loader_reason(engine, &file)))
@@ -783,6 +808,18 @@ mod tests {
         assert_eq!(kind_of(&[d8], b"FlameStartRuntime\0flame.json"), ProxyKind::Flame);
         assert_eq!(kind_of(&["SteamAPI_Init"], b"shroudlink server"), ProxyKind::Shroudlink);
         assert_eq!(kind_of(&["SteamAPI_Init"], b"LoadLibraryW steam_api64_o.dll"), ProxyKind::Shroudlink);
+        // shroudlink's client addon (the MODS tab) is a mod, its core is not
+        let exports = |e: &[&str]| e.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(is_shroudlink_addon("dinput8.dll", b"shroudlink addon", &exports(&[d8])));
+        assert!(is_shroudlink_addon("shroudlink-dinput8.dll", b"shroudlink addon", &exports(&[d8])));
+        assert!(!is_shroudlink_addon("dinput8.dll", b"shroudlink core", &exports(&[d8, "CrashHandlerFactory"])));
+        assert!(!is_shroudlink_addon("dinput8.dll", b"shroudlink steam_api64_o.dll", &exports(&[d8])));
+        assert!(!is_shroudlink_addon("steam_api64.dll", b"shroudlink", &exports(&["SteamAPI_Init"])));
+        assert!(!is_shroudlink_addon("dinput8.dll", b"some other mod", &exports(&[d8])));
+        let addon = build_test_dll(&[d8], b"shroudlink addon");
+        assert!(detect_dll(Path::new("dinput8.dll"), &addon, &exports(&[d8])).is_none(), "left to the Library's DLL rule: a native mod");
+        let core = build_test_dll(&[d8, "CrashHandlerFactory"], b"shroudlink core");
+        assert_eq!(detect_dll(Path::new("dinput8.dll"), &core, &exports(&[d8, "CrashHandlerFactory"])).unwrap().kind, DetectKind::Proxy);
         assert_eq!(kind_of(&["PowerGetActiveScheme"], b"crates\\ember-loader\\src\\lib.rs"), ProxyKind::Ember);
         assert_eq!(kind_of(&[d8], &utf16("ChainLoader.ini")), ProxyKind::ModLoaderProxy);
         assert_eq!(kind_of(&[d8, "IsUltimateASILoader"], b""), ProxyKind::UltimateAsiLoader);
