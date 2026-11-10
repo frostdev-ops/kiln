@@ -205,7 +205,8 @@ void apply_packs(bool reload) {
     gd_packs_end();
 #endif
     rep.skipped = skipped;
-    for (const std::string& m : skipped) LOGI("data packs of %s skipped: the mod is not loaded", m.c_str());
+    for (const std::string& m : skipped)
+        LOGW("data packs of %s skipped: Kiln.Host did not load the mod (its \"mod ... not loaded\" / \"skipped\" line above and kiln/logs/mods.txt say why)", m.c_str());
     g_report = report_json(rep);
     g_generation.store(rep.generation);
     g_modified_stale = true;

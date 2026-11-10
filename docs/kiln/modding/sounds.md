@@ -29,7 +29,8 @@ to copy that cue's other fields. Never put game audio, or audio decoded from the
 ```
 mods/MySounds/
   kiln.mod.json            side "both" (or "client"), clients "mod": every player needs the audio
-  MySounds.dll             a tiny Mod class is enough (the loader needs an entryAssembly today)
+  MySounds.dll             optional: a mod of sounds only has no code, so leave entryAssembly out of kiln.mod.json
+                           (a tiny Mod class was needed before dev.22)
   audio/                   your sources, committed
     ui/click.wav
     sfx/boom_1.flac  sfx/boom_2.ogg

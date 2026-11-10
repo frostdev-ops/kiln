@@ -656,8 +656,8 @@ files.
 - manifest: `{raw, syntax?, expect: {ok: true, manifest: {id, name, version, parsedVersion, apiVersion,
   entryAssembly, entryType, side, clients, authors, description, license, url, dependencies[{id, range, optional}],
   loadBefore, loadAfter, incompatible[{id, range}], features, exports, advanced, tests, warnings}} | {ok: false,
-  error}}`. With `syntax: true` (invalid JSON) only the prefix `kiln.mod.json: not valid JSON` must match; other
-  errors match exactly.
+  error}}`. `entryAssembly` is `""` when the manifest has none (a mod of data only, dev.22). With `syntax: true` (invalid JSON) only the
+  prefix `kiln.mod.json: not valid JSON` must match; other errors match exactly.
 - semver: `parse.json` (`cases[{text, expect{ok, major, minor, patch, pre, build, text}}]`), `ranges.json`
   (`cases[{range, version, satisfies}]`, `invalid[{range, ok:false}]`), `order.json` (`ordered[]`, `equal[[a,b]]`),
   `api.json` (`cases[{api, current, satisfies}]`).
