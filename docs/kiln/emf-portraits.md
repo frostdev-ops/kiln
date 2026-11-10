@@ -23,11 +23,13 @@ Only missing or changed pictures are redrawn. An index records their model, text
 manifests, game files and renderer are unchanged and every picture is still in the cache, Kiln does not call the
 renderer at all. Otherwise drawing runs on its own thread, so the game's start does not wait for it. A mod that calls
 `image_load("portrait:<key>")` while its DLL loads waits until the pictures are drawn (at most 120 s for the whole
-start). Any other thread (a tick, a window callback) gets 0 at once while that picture is being drawn: ask again a
-moment later. A failed picture is remembered until the manifest, game archive or renderer changes. A full cache (over
+start). Any other thread (a tick, a window callback) gets a handle at once while that picture is being drawn. The
+handle draws nothing until the drawing finishes, then shows the picture; no retry is needed. If the picture cannot be
+loaded after drawing, the log says so once and the handle stays empty. A failed picture is remembered until the manifest, game archive or renderer changes. A full cache (over
 128 folders or 512 MiB) or an entry the renderer refuses is remembered while the folders in `emf/cache/portraits`
 stay as they are: the log says so once; delete unused folders there and the next start draws again. Cache
-contention (another generator holds the cache) is retried at the next start. Old cached pictures remain usable when the renderer is unavailable. There are at most 32 pictures and
+contention (another generator holds the cache) and an I/O error on the cache (a file in use, a drive briefly gone) are
+retried at the next start. Old cached pictures remain usable when the renderer is unavailable. There are at most 32 pictures and
 32 Mi output pixels per start, 128 cached portrait folders and a 512 MiB generation budget. Symlinks and reparse points in cache paths are refused; whole-folder replacement
 keeps the previous drawing when a write fails.
 

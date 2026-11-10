@@ -197,6 +197,37 @@ fn users_counts_the_files_the_game_holds() {
     library::remove_with(&dirs, &other, false, &mut nothing).unwrap();
 }
 
+/// A confirmation goes past exactly the users it showed: one it did not show (the game's profile file, read after the
+/// dialog answered or while its list was not loaded) stays a Conflict.
+#[test]
+fn removal_goes_past_only_the_users_the_dialog_showed() {
+    use library::Force;
+    let t = tmp("shown");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = import(&dirs, &t.0, "new-items", "1.0.0", "a");
+    let game_dir = t.0.join("Enshrouded");
+    game::write_record(&dirs, &install(&game_dir, "client", GameKind::Client, PathMode::Z), None).unwrap();
+    let z = kiln_manage::winpath::unix_to_z(&library::path_of(&dirs, &r).unwrap()).unwrap();
+    write_profile_file(&game_dir, "kiln/profile.json", "work", serde_json::json!([{ "id": "new-items", "path": z }]));
+    let users = library::users(&dirs, &r);
+    assert_eq!(users, ["work (active in Enshrouded)"]);
+    // the dialog showed nothing (or other users): a conflict that names the user
+    for shown in [vec![], vec!["default".to_string()]] {
+        let e = library::remove_with(&dirs, &r, Force::Past(shown), &mut nothing).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Conflict);
+        assert!(e.message.contains("work (active in Enshrouded)"), "{}", e.message);
+    }
+    assert!(library::path_of(&dirs, &r).unwrap().is_dir());
+    // the dialog showed it (and more than is there now): removed
+    let mut shown = users.clone();
+    shown.push("gone (active in Enshrouded)".into());
+    library::remove_with(&dirs, &r, Force::Past(shown), &mut nothing).unwrap();
+    assert!(library::path_of(&dirs, &r).map_or(true, |p| !p.exists()));
+    // an unused version needs nothing shown
+    let unused = import(&dirs, &t.0, "other-mod", "1.0.0", "c");
+    library::remove_with(&dirs, &unused, Force::Past(vec![]), &mut nothing).unwrap();
+}
+
 #[test]
 fn a_left_over_play_once_file_does_not_pin_its_versions() {
     // "Play once" with profile tryout, then normal starts: the proxy deleted play-once.ini at that start, and nothing

@@ -65,3 +65,39 @@ test("a running game stops Clean up before anything is removed", async ({ page }
   await expect(page.getByRole("alert").filter({ hasText: "Close Enshrouded first" })).toBeVisible();
   expect(await unused(page)).toEqual(all);
 });
+
+const planCommand = (page: Page, cmd: string, plan: unknown) => page.evaluate(([c, p]) =>
+  (window as unknown as { __kilnMock: { planCommand: (c: string, p: unknown) => void } }).__kilnMock.planCommand(c as string, p), [cmd, plan] as const);
+
+// Remove goes past only the users the dialog named: Confirm waits for the backend's list, and a failed list forces past
+// nobody (a user the dialog did not show stays a conflict).
+test("Remove waits for what uses the version and never forces past users the dialog did not show", async ({ page }) => {
+  await library(page);
+  const [r] = await unused(page);
+  const name = await page.evaluate(async (id) => (await (await import("/src/api/commands.ts")).libraryList()).find((e) => e.id === id)!.name, r.id);
+  await gameFileUsers(page, { [key(r)]: ["ember-run (active in Enshrouded)"] });
+  await page.getByLabel("Filter").fill(name);
+  const open = async () => {
+    await page.getByRole("button", { name: `More for ${name}` }).click();
+    await page.getByRole("menuitem", { name: `Remove ${r.version}` }).click();
+    return page.getByRole("dialog", { name: `Remove ${name} ${r.version}?` });
+  };
+  // still loading: Confirm stays disabled even with the word typed
+  await planCommand(page, "library_users", { delay: 1500 });
+  let dialog = await open();
+  await dialog.getByRole("textbox").fill(r.id);
+  await expect(dialog).toContainText("Checking what uses it.");
+  await expect(dialog.getByRole("button", { name: "Remove" })).toBeDisabled();
+  await expect(dialog).toContainText("Used by Ember run (active in Enshrouded).");
+  await expect(dialog.getByRole("button", { name: "Remove" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  // the check failed: the dialog says so, and Remove stops at the user it could not name
+  for (let i = 0; i < 2; i++) await planCommand(page, "library_users", { error: { code: "io", message: "Profiles are unreadable" } }); // and its one retry
+  dialog = await open();
+  await expect(dialog).toContainText("could not check what uses it", { timeout: 10_000 });
+  await dialog.getByRole("textbox").fill(r.id);
+  await dialog.getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "is used by profile(s) ember-run (active in Enshrouded)" })).toBeVisible();
+  expect(await inLibrary(page, r)).toBe(true);
+});

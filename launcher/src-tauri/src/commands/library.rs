@@ -69,9 +69,14 @@ pub async fn library_add(app: AppHandle, game_id: String, paths: Vec<String>) ->
 }
 
 /// Refuses (game_running) while a game runs, or a server whose profile file points into the library, whatever `force`
-/// says (it may be reading the mod).
+/// says (it may be reading the mod). With `shown` (the `library_users` answer a confirmation named), it goes past
+/// exactly those users: anything else that lists the version now is a conflict, whatever `force` says.
 #[tauri::command]
-pub async fn library_remove(entry: LibraryRef, force: bool) -> Result<(), Error> {
+pub async fn library_remove(entry: LibraryRef, force: bool, shown: Option<Vec<String>>) -> Result<(), Error> {
+    let force = match shown {
+        Some(shown) => library::Force::Past(shown),
+        None => library::Force::from(force),
+    };
     blocking(move || library::remove(&dirs()?, &entry, force)).await
 }
 

@@ -1102,8 +1102,9 @@ export const libraryImport = (paths: string[]) => call<TaskId>("library_import",
 /** Task result: AddReport. Import + add to the game's active profile ("My mods" for a first-time player) + write the
  *  game's profile.json, in one task. Rejects at once (unsupported) when Kiln is not in the game. */
 export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("library_add", { gameId, paths });
-/** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod). */
-export const libraryRemove = (entry: LibraryRef, force = false) => call<null>("library_remove", { entry, force });
+/** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod).
+ *  `shown`: the libraryUsers answer a confirmation named. Removal goes past exactly those; any other user is a conflict, whatever `force` says. */
+export const libraryRemove = (entry: LibraryRef, force = false, shown?: string[]) => call<null>("library_remove", { entry, force, shown: shown ?? null });
 /** Clean up: one look at the running processes and the profiles for the whole batch. Rejects with game_running (nothing
  *  removed) while a game runs, or a server may read one of the versions; otherwise reports the versions not removed. */
 export const libraryRemoveMany = (entries: LibraryRef[], force = false) => call<RemoveReport>("library_remove_many", { entries, force });

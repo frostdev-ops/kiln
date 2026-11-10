@@ -109,20 +109,26 @@ export default function LibraryPage() {
   ];
 
   // The version the Remove dialog is about, and what lists it: the backend sees the games' own profile files too (the
-  // game reads those), which the profiles here do not show. Remove forces past exactly what the dialog named.
+  // game reads those), which the profiles here do not show. Remove goes past exactly what the dialog named (the backend
+  // checks it); Confirm waits for the answer.
   const rmRef: LibraryRef | null = useMemo(() => {
     const v = rm?.e.versions.find((x) => x.version === rm.version);
     return rm && v ? { kind: rm.e.kind, id: rm.e.id, version: v.version, hash: v.hash } : null;
   }, [rm]);
-  const rmUsers = useQuery({ queryKey: ["library_users", rmRef], queryFn: () => api.libraryUsers(rmRef!), enabled: !!rmRef, staleTime: 0, gcTime: 0 });
+  const rmUsers = useQuery({ queryKey: ["library_users", rmRef], queryFn: () => api.libraryUsers(rmRef!), enabled: !!rmRef, staleTime: 0, gcTime: 0, retry: 1 });
   const profileName = (id: string) => profiles.data?.find((p) => p.id === id)?.name ?? id;
   // "work" or "work (active in Enshrouded)": the profile by its name
   const userLabel = (u: string) => {
     const m = /^(.*) \((active|play-once) in (.*)\)$/.exec(u);
     return m ? `${profileName(m[1])} (${m[2]} in ${m[3]})` : profileName(u);
   };
-  // what the dialog names: the backend's list, or the profiles here until it answers
-  const rmUsedBy = !rm ? [] : rmUsers.data ? rmUsers.data.map(userLabel) : usage.uses(rm.e.kind, rm.e.id, rm.version) ? usage.names(rm.e.kind, rm.e.id) : [];
+  // what the dialog names and the removal may go past: the backend's list only. A failed check names nothing, so
+  // removal stops at any user (a conflict) instead of forcing past users nobody saw.
+  const rmShown = rmUsers.data ?? [];
+  const rmUsedBy = rmShown.map(userLabel);
+  const rmMessage = rmUsers.isError ? <>Kiln could not check what uses it ({errorText(rmUsers.error)}). Remove stops if something does.</>
+    : !rmUsers.data ? "Checking what uses it."
+    : rmUsedBy.length ? <>Used by {rmUsedBy.join(", ")}. They will show it as missing.</> : "Its files leave the library.";
 
   // The backend knows what profiles and the games' own profile files list (the game reads those), so it names what is unused.
   const cleanUp = async () => {
@@ -159,10 +165,10 @@ export default function LibraryPage() {
       <DetectModal detected={detected} onClose={() => setDetected(null)} onImport={doImport} />
       <ReportModal report={report} onClose={() => setReport(null)} />
       <ConfirmDanger open={!!rm} onClose={() => setRm(null)} title={`Remove ${rm?.e.name} ${rm?.version}?`} word={rm?.e.id ?? ""} action="Remove"
-        message={rmUsedBy.length ? <>Used by {rmUsedBy.join(", ")}. They will show it as missing.</> : "Its files leave the library."}
+        message={rmMessage} disabled={rmUsers.isPending || rmUsers.isFetching}
         onConfirm={async () => {
-          // force only past what the dialog named (a conflict the dialog did not show stays a conflict)
-          try { await api.libraryRemove(rmRef!, rmUsedBy.length > 0); toast.ok("Removed"); refresh(); }
+          // past only what the dialog named: the backend refuses (conflict) a user the dialog did not show
+          try { await api.libraryRemove(rmRef!, false, rmShown); toast.ok("Removed"); refresh(); }
           catch (e) { toast.error(e); void rmUsers.refetch(); throw e; }
         }} />
       <ConfirmDanger open={!!gc && gc.length > 0} onClose={() => setGc(null)} title={`Remove ${gc?.length ?? 0} unused?`} word="clean" action="Remove"

@@ -23,6 +23,10 @@ pub const ITEMS_FAILED: i32 = 4;
 // other BAD_REQUEST is lasting until the inputs change.
 pub const CACHE_BUSY: i32 = 5; // another generator holds the cache lock: try again later
 pub const CACHE_FULL: i32 = 6; // the cache is over its folder, entry or size budget: lasting until it is cleaned
+// Appended in dev.21 (review of PR #7): reading or locking the cache failed with an I/O error (a sharing violation, a
+// drive briefly gone, a permission problem). Transient: try again at a later start. A link, an invalid entry or a bad
+// path in the cache stays BAD_REQUEST.
+pub const CACHE_IO: i32 = 7;
 
 #[cfg(any(windows, test))]
 mod plugin;

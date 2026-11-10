@@ -6,6 +6,7 @@
 #include "portrait_bridge.h"
 #include "v26_model.h"
 #include "nlohmann/json.hpp"
+#include <atomic>
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -219,9 +220,9 @@ json picture_fact(const std::filesystem::path &folder, int frames) {
     return index;
 }
 
-// The renderer's request-level codes (gpl/kiln-eml lib.rs). Busy is transient. Every other refusal of the whole request
-// lasts until the inputs change or the cache does ("blocked", below).
-constexpr int64_t kBadRequest = 2, kCacheBusy = 5, kCacheFull = 6;
+// The renderer's request-level codes (gpl/kiln-eml lib.rs). Busy and an I/O error on the cache are transient. Every other
+// refusal of the whole request lasts until the inputs change or the cache does ("blocked", below).
+constexpr int64_t kBadRequest = 2, kCacheBusy = 5, kCacheFull = 6, kCacheIo = 7;
 
 // The names of the cache's folders (not the ".kiln-" files, which every run rewrites). A refusal that depends on what is
 // in the cache is asked again once the user has cleaned it, as the log line advises.
@@ -264,6 +265,8 @@ int g_wait_ms = 120000;
 constexpr int g_wait_ms = 120000;
 #endif
 
+std::atomic<void (*)()> g_when_drawn{nullptr}; // portraits_when_drawn
+
 void finish_job() {
     {
         std::lock_guard lock(g_work_mu);
@@ -271,6 +274,13 @@ void finish_job() {
         g_pending.clear();
     }
     g_work_cv.notify_all();
+    if (const auto fn = g_when_drawn.load()) {
+        try {
+            fn();
+        } catch (...) {
+            logf(KILN_LOG_WARN, "EMF portraits: loading the drawn pictures failed; the game continues");
+        }
+    }
 }
 
 void draw_job(Job &job) {
@@ -313,6 +323,13 @@ void draw_job(Job &job) {
     if (status == kCacheBusy ||
         (status == kBadRequest && message.rfind("another portrait generator", 0) == 0)) {
         logf(KILN_LOG_WARN, "EMF portraits: another generator holds the cache this start; retrying next time");
+        return;
+    }
+    // An I/O error on the cache (a sharing violation, a drive briefly gone) is transient too: nothing is remembered. A
+    // kiln-eml without code 7 reports it as code 2 with the OS error text ("... (os error N)").
+    if (status == kCacheIo || (status == kBadRequest && message.find("(os error ") != std::string::npos)) {
+        logf(KILN_LOG_WARN, "EMF portraits: could not read the picture cache this start (%s); retrying next time",
+             message.c_str());
         return;
     }
     // A lasting refusal of the whole request (a full cache, an entry the renderer will not touch): said once here, and
@@ -519,6 +536,11 @@ void portraits_on_ready() {
         logf(KILN_LOG_WARN, "EMF portraits: preparation failed; the game continues");
     }
 }
+bool portraits_drawing(const std::string &key) {
+    std::lock_guard lock(g_work_mu);
+    return g_working && g_pending.contains(lower(key));
+}
+void portraits_when_drawn(void (*fn)()) { g_when_drawn.store(fn); }
 bool portraits_wait(const std::string &key) {
     std::unique_lock lock(g_work_mu);
     if (!g_working || !g_pending.contains(lower(key)))

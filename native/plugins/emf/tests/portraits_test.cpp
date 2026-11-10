@@ -54,7 +54,7 @@ static int32_t draw(const uint8_t *in, size_t n, char *out, size_t cap, size_t *
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     request = json::parse(std::string_view(reinterpret_cast<const char *>(in), n));
     json items = json::array();
-    const bool whole = forced_code == 2 || forced_code == 5 || forced_code == 6; // request-level: no items
+    const bool whole = forced_code == 2 || forced_code == 5 || forced_code == 6 || forced_code == 7; // request-level: no items
     for (const auto &e : request["items"]) {
         if (whole)
             break;
@@ -207,49 +207,62 @@ int main(int argc, char **argv) {
     CHECK(calls == 8);
     ready();
     CHECK(calls == 9); // code 2 with the old busy message is contention too: retried
-    forced_message = "portrait cache contains an invalid entry";
+    forced_code = 7;
+    forced_message = "Permission denied (os error 13)";
     ready();
     CHECK(calls == 10);
     ready();
-    CHECK(calls == 10); // a lasting refusal (an invalid cache entry, a link) is remembered until inputs or the cache change
+    CHECK(calls == 11); // an I/O error on the cache is transient: retried, not blocked
+    CHECK(!json::parse(read(memory)).contains("blocked"));
+    forced_code = 2;
+    ready();
+    CHECK(calls == 12);
+    ready();
+    CHECK(calls == 13); // code 2 with an OS error text (a kiln-eml without code 7) is retried too
+    CHECK(!json::parse(read(memory)).contains("blocked"));
+    forced_message = "portrait cache contains an invalid entry";
+    ready();
+    CHECK(calls == 14);
+    ready();
+    CHECK(calls == 14); // a lasting refusal (an invalid cache entry, a link) is remembered until inputs or the cache change
     CHECK(json::parse(read(memory))["failed"].empty() && json::parse(read(memory)).contains("blocked"));
     std::filesystem::create_directory(cache / "unused.folder");
     ready();
-    CHECK(calls == 11); // the user changed the cache's folders: asked again
+    CHECK(calls == 15); // the user changed the cache's folders: asked again
     ready();
-    CHECK(calls == 11);
+    CHECK(calls == 15);
     std::filesystem::remove(cache / "unused.folder");
     forced_code = 6;
     write(file, manifest(5).dump());
     ready();
-    CHECK(calls == 12);
+    CHECK(calls == 16);
     ready();
-    CHECK(calls == 12); // a full cache is remembered too
+    CHECK(calls == 16); // a full cache is remembered too
     std::filesystem::create_directory(cache / "extra");
     std::filesystem::remove(cache / "extra");
     ready();
-    CHECK(calls == 12); // the same folders again: still remembered
+    CHECK(calls == 16); // the same folders again: still remembered
     std::filesystem::create_directory(cache / "other");
     ready();
-    CHECK(calls == 13); // delete-and-add changes the folders: asked again (the log advises deleting unused folders)
+    CHECK(calls == 17); // delete-and-add changes the folders: asked again (the log advises deleting unused folders)
     std::filesystem::remove(cache / "other");
     forced_message = "fake";
     forced_code = 0;
     write(file, manifest(3).dump());
     ready();
-    CHECK(calls == 14);
+    CHECK(calls == 18);
     write(memory, json({{"stamp", 42}, {"failed", json::array()}}).dump());
     ready();
-    CHECK(calls == 15); // malformed attempt memory cannot disable future generation
+    CHECK(calls == 19); // malformed attempt memory cannot disable future generation
     ready();
-    CHECK(calls == 15);
+    CHECK(calls == 19);
     {
         auto m = json::parse(read(memory));
         m["current"] = 7;
         write(memory, m.dump());
     }
     ready();
-    CHECK(calls == 16); // nor can a malformed current list
+    CHECK(calls == 20); // nor can a malformed current list
     {
         auto m = json::parse(read(memory));
         m["current"] = {{"beastmaster.wolf", nullptr}};
@@ -257,14 +270,14 @@ int main(int argc, char **argv) {
         std::filesystem::remove_all(cache / "beastmaster.wolf");
     }
     ready();
-    CHECK(calls == 17); // nor a null fact standing for a picture that is missing
+    CHECK(calls == 21); // nor a null fact standing for a picture that is missing
     write(P.state / "shroudforge.json", R"({"mode":"self-hosted"})");
     std::filesystem::remove_all(cache / "beastmaster.wolf");
     ready();
-    CHECK(calls == 17); // no archive read racing an external startup writer
+    CHECK(calls == 21); // no archive read racing an external startup writer
     write(P.state / "shroudforge.json", R"({"mode":"hosted"})");
     ready();
-    CHECK(calls == 18);
+    CHECK(calls == 22);
     // image_load of a picture still being drawn: the starting thread waits for it, no other thread does, other keys never
     std::filesystem::remove_all(cache / "beastmaster.wolf");
     hold = true;
@@ -277,6 +290,9 @@ int main(int argc, char **argv) {
     std::thread other([&] { tick_thread_answer = portraits_wait("beastmaster.wolf"); });
     other.join();
     CHECK(!tick_thread_answer && drawing); // another thread is told "not yet", at once
+    CHECK(portraits_drawing("BeastMaster.Wolf") && !portraits_drawing("other.key")); // never waits
+    static std::atomic<int> drawn_calls{0};
+    portraits_when_drawn([] { drawn_calls++; });
     std::thread release([] {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         hold = false;
@@ -285,8 +301,10 @@ int main(int argc, char **argv) {
     CHECK(!drawing && std::filesystem::is_regular_file(cache / "beastmaster.wolf/02.png"));
     release.join();
     portraits_test_join();
-    CHECK(calls == 19);
+    CHECK(calls == 23);
     CHECK(portraits_wait("beastmaster.wolf")); // nothing is drawing any more
+    CHECK(drawn_calls == 1 && !portraits_drawing("beastmaster.wolf")); // the image handles' loader ran once, after drawing
+    portraits_when_drawn(nullptr);
     // a renderer that hangs: the wait is bounded, and later calls do not wait again
     std::filesystem::remove_all(cache / "beastmaster.wolf");
     portraits_test_wait_ms(150);

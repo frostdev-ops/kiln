@@ -682,7 +682,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |
-| library | `library_remove` | entry: LibraryRef, force: boolean | null (`game_running` while a game runs, or a server whose `profile.json` points into the library, even with `force`; `conflict` while `library_users` lists it, unless `force`) |
+| library | `library_remove` | entry: LibraryRef, force: boolean, shown?: string[] \| null | null (`game_running` while a game runs, or a server whose `profile.json` points into the library, even with `force`; `conflict` while `library_users` lists it, unless `force`. With `shown` (the `library_users` answer a dialog named): `conflict` when it lists anything not in `shown`, whatever `force` says) |
 | library | `library_remove_many` | entries: LibraryRef[], force: boolean | `RemoveReport` {removed: LibraryRef[], failed: {entry: LibraryRef, error: KilnError}[]} (Clean up: one look at the running processes and the profiles for the batch; `game_running` for the whole batch, nothing removed, as `library_remove`; otherwise each version not removed is in `failed`) |
 | library | `library_unused` | | `LibraryRef[]` (in no profile, no known game's `profile.json`, and no `profile.once.json` while the game's `play-once.ini` asks for it) |
 | library | `library_users` | entry: LibraryRef | `string[]` (profile ids, then `<profile> (active in <game folder>)` / `(play-once in <game folder>)`: what `library_remove` refuses over without `force`) |

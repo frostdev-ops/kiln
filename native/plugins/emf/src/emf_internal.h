@@ -222,6 +222,10 @@ void portraits_on_ready();  // offline generation through the separate GPL kiln-
 // image_load("portrait:<key>"): true when the picture is not being drawn (any more). While it is, the thread that started the
 // drawing waits (for 120 s all calls together); any other thread gets false at once and asks again later.
 bool portraits_wait(const std::string& key);
+// true while the portrait worker is drawing `key`. Never waits.
+bool portraits_drawing(const std::string& key);
+// `fn` runs on the portrait worker once its drawing has finished (EMF's image handles of pictures that were still drawing).
+void portraits_when_drawn(void (*fn)());
 bool commands_is_admin(uint32_t entity, uint64_t account);  // same policy as command_sender.admin
 
 // tick hooks of the parts
