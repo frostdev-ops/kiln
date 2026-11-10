@@ -25,8 +25,11 @@
 //  - A RawHook is not unhooked by its destructor: the link lives until revoke(), revoke_owner(), or the process ends
 //    (static destruction order must never call into the core). The small state block behind it is leaked on purpose.
 //  - Assigning to a hook that holds a live link (`g = RawHook::create(...)`, `g = {}`) revokes that link, like assigning
-//    a safetyhook hook. install() on a live hook replaces it: the new link goes in first, then the old one is revoked
-//    (if the new install fails, the old link stays). A handler still running on the old link keeps a valid original().
+//    a safetyhook hook. install() on a live hook replaces it. The registry keeps one live raw link per handler and
+//    target, so the old link leaves the chain in the same step the new one enters it (if the new install fails, the
+//    old link stays): a call never runs the handler twice and never loops through it, whatever the priorities. A
+//    handler still running on the old link keeps a valid original(). install() with another target than the live
+//    hook's revokes the old link first (one handler cannot continue two functions).
 //  - install() writes the continuation before the link can be reached, so the handler may call original() on its very
 //    first run. create() returns by value: a hook installed after the game started, stored in a global, can run before
 //    the assignment finishes; use install() on the global for those.
@@ -63,7 +66,14 @@ struct State {
     void* original = nullptr;
     KilnHandle handle = 0;
     const KilnHooksApi* api = nullptr;
+    uintptr_t target = 0;
 };
+
+// The register layout kiln.hooks' mid stub builds (safetyhook's Context64).
+static_assert(offsetof(KilnRegisters, rflags) == 0x100 && offsetof(KilnRegisters, rsp) == 0x180 &&
+                  offsetof(KilnRegisters, trampoline_rsp) == 0x188 && offsetof(KilnRegisters, rip) == 0x190 &&
+                  sizeof(KilnRegisters) == 0x198,
+              "KilnRegisters must keep safetyhook's Context64 layout");
 
 inline KilnHookOrder make_order(int32_t priority, const char* label, const char* before, const char* after) {
     KilnHookOrder o{};
@@ -108,7 +118,9 @@ public:
         auto* st = new (std::nothrow) hook_detail::State;
         if (!st) return error_ = "out of memory", false;
         hook_detail::State* old = s_;
+        if (old && old->handle && old->target != target) revoke_state(old);  // another function: out first
         st->api = h;
+        st->target = target;
         st->original = old ? old->original : nullptr;  // a handler still running on the old link stays valid
         s_ = st;  // before raw_detour: a handler running at once reads s_->original
         const KilnHookOrder o = hook_detail::make_order(priority, label, before, after);
@@ -191,6 +203,8 @@ public:
     bool install(const KilnApi* api, KilnOwner owner, uintptr_t target, void (*fn)(Ctx&), const char* label,
                  int32_t priority = 0, const char* before = nullptr, const char* after = nullptr) {
         static_assert(sizeof(Ctx) == sizeof(KilnRegisters), "the context must have KilnRegisters' layout");
+        static_assert(std::is_standard_layout_v<Ctx> && std::is_trivially_copyable_v<Ctx>,
+                      "the context must be a plain struct with KilnRegisters' field order (safetyhook::Context64 is)");
         error_ = nullptr;
         const KilnHooksApi* h = hooks_v2(api);
         if (!h) return error_ = "kiln.hooks v2 is not available", false;

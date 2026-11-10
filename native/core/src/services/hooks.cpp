@@ -56,6 +56,25 @@ std::vector<Patch>& patches() {
 std::mutex g_mutex;  // patches
 std::atomic<KilnHandle> g_next_handle{1};  // patch handles: small numbers; link handles carry their index in the high half
 
+// Nothing may escape a C ABI function or a thread-pool callback: runs `f`, and on an exception (bad_alloc, a json error)
+// logs once per site and returns `fallback`.
+template <class R, class F>
+R guarded(const char* what, std::atomic<bool>& once, R fallback, F&& f) noexcept {
+    try {
+        return f();
+    } catch (const std::exception& e) {
+        if (!once.exchange(true)) KLOG_E("hooks: %s failed: %s", what, e.what());
+    } catch (...) {
+        if (!once.exchange(true)) KLOG_E("hooks: %s failed (unknown exception)", what);
+    }
+    return fallback;
+}
+#define KILN_GUARD(what, fallback, ...)                                                                                \
+    do {                                                                                                               \
+        static std::atomic<bool> once_{false};                                                                         \
+        return guarded(what, once_, static_cast<KilnResult>(fallback), [&]() -> KilnResult { __VA_ARGS__ });          \
+    } while (0)
+
 // ---- memory ----
 bool poke(uintptr_t addr, const void* bytes, size_t n) {
     if (!addr || n == 0) return false;
@@ -117,6 +136,7 @@ KilnResult KILN_CALL h_load_symbols(KilnOwner owner, KilnStr modid, KilnStr json
     KLOG_I("hooks: mod %s symbols: %zu/%zu symbols, %zu/%zu constants, %zu/%zu features (%.1f ms)", id.c_str(),
            fs.symbols_ok, fs.symbols, fs.constants_ok, fs.constants, fs.features_ok, fs.features, fs.ms);
     for (const std::string& problem : fs.problems) KLOG_W("hooks: mod %s symbol %s", id.c_str(), problem.c_str());
+    chain::refresh_symbols();  // hooked addresses may have a name now
     if (summary && summary->size >= sizeof(KilnHooksSigSummary)) {
         summary->symbols = static_cast<uint32_t>(fs.symbols);
         summary->symbols_ok = static_cast<uint32_t>(fs.symbols_ok);
@@ -130,7 +150,9 @@ KilnResult KILN_CALL h_load_symbols(KilnOwner owner, KilnStr modid, KilnStr json
 }
 
 KilnResult KILN_CALL h_unload_symbols(KilnStr modid) {
-    return sigdb::unload_fragment(sv(modid)) ? KILN_OK : KILN_ERR_NOT_FOUND;
+    if (!sigdb::unload_fragment(sv(modid))) return KILN_ERR_NOT_FOUND;
+    chain::refresh_symbols();
+    return KILN_OK;
 }
 
 KilnResult KILN_CALL h_read(uintptr_t addr, void* dst, size_t n) {
@@ -189,15 +211,14 @@ chain::Order order_of(const KilnHookOrder* o) {
 KilnResult KILN_CALL h_detour(KilnOwner owner, uintptr_t target, int32_t priority, KilnDetourFn fn, void* user,
                               KilnHandle* out) {
     if (!fn || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
-    return chain::install_v1(owner, target, priority, fn, user, out);
+    KILN_GUARD("detour", KILN_ERR_INTERNAL, return chain::install_v1(owner, target, priority, fn, user, out););
 }
 
 KilnResult KILN_CALL h_mid(KilnOwner owner, uintptr_t target, int32_t priority, KilnMidFn fn, void* user,
                            KilnHandle* out) {
     if (!fn || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
-    chain::Order o;
-    o.priority = priority;
-    return chain::install_mid(owner, target, o, fn, user, out);
+    KILN_GUARD("mid", KILN_ERR_INTERNAL, chain::Order o; o.priority = priority;
+               return chain::install_mid(owner, target, o, fn, user, out););
 }
 
 uintptr_t KILN_CALL h_call_original(KilnHookCall* call) { return chain::call_original_v1(call); }
@@ -205,7 +226,7 @@ uintptr_t KILN_CALL h_call_original(KilnHookCall* call) { return chain::call_ori
 KilnResult KILN_CALL h_raw_detour(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, void* fn,
                                   void** original, KilnHandle* out) {
     if (!fn || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
-    return chain::install_raw(owner, target, order_of(order), fn, original, out);
+    KILN_GUARD("raw_detour", KILN_ERR_INTERNAL, return chain::install_raw(owner, target, order_of(order), fn, original, out););
 }
 
 uintptr_t KILN_CALL h_caller(KilnHandle h) { return chain::caller_of(h); }
@@ -213,7 +234,8 @@ uintptr_t KILN_CALL h_caller(KilnHandle h) { return chain::caller_of(h); }
 KilnResult KILN_CALL h_detour2(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, uint32_t arg_count,
                                KilnDetourFn2 fn, void* user, KilnHandle* out) {
     if (!fn || arg_count > 12 || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
-    return chain::install_structured(owner, target, order_of(order), arg_count, fn, user, out);
+    KILN_GUARD("detour2", KILN_ERR_INTERNAL,
+               return chain::install_structured(owner, target, order_of(order), arg_count, fn, user, out););
 }
 
 uintptr_t KILN_CALL h_call_original2(KilnHookCall2* call) { return chain::call_original2(call); }
@@ -221,16 +243,17 @@ uintptr_t KILN_CALL h_call_original2(KilnHookCall2* call) { return chain::call_o
 KilnResult KILN_CALL h_mid2(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, KilnMidFn fn, void* user,
                             KilnHandle* out) {
     if (!fn || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
-    return chain::install_mid(owner, target, order_of(order), fn, user, out);
+    KILN_GUARD("mid2", KILN_ERR_INTERNAL, return chain::install_mid(owner, target, order_of(order), fn, user, out););
 }
 
 KilnResult KILN_CALL h_revoke(KilnHandle handle) {
-    if (chain::is_link_handle(handle)) return chain::revoke(handle);
+    if (chain::is_link_handle(handle)) KILN_GUARD("revoke", KILN_ERR_INTERNAL, return chain::revoke(handle););
     return h_unpatch(handle);
 }
 
 KilnResult KILN_CALL h_revoke_owner(KilnOwner owner) {
-    size_t removed = chain::revoke_owner(owner);
+    static std::atomic<bool> once{false};
+    size_t removed = guarded("revoke_owner", once, size_t{0}, [&] { return chain::revoke_owner(owner); });
     {
         std::lock_guard lock(g_mutex);
         auto& ps = patches();
@@ -251,8 +274,11 @@ KilnResult KILN_CALL h_revoke_owner(KilnOwner owner) {
 
 KilnResult KILN_CALL h_stats(KilnHooksStats* out) {
     constexpr uint32_t kV1 = static_cast<uint32_t>(offsetof(KilnHooksStats, raw_links));  // the v1 layout's size
+    constexpr uint32_t kV2 = static_cast<uint32_t>(offsetof(KilnHooksStats, links_used));  // dev.21's first v2 layout
     if (!out || out->size < kV1) return KILN_ERR_INVALID_ARGUMENT;
-    const chain::Stats c = chain::stats();
+    static std::atomic<bool> once{false};
+    chain::Stats c;
+    if (!guarded("stats", once, false, [&] { return c = chain::stats(), true; })) return KILN_ERR_INTERNAL;
     out->detour_targets = c.detour_targets;
     out->mid_targets = c.mid_targets;
     out->handlers = c.links;
@@ -262,11 +288,15 @@ KilnResult KILN_CALL h_stats(KilnHooksStats* out) {
     }
     out->detour_calls = c.detour_calls;
     out->mid_calls = c.mid_calls;
-    if (out->size >= sizeof(KilnHooksStats)) {
+    if (out->size >= kV2) {
         out->raw_links = c.raw_links;
         out->foreign_before = c.foreign_before;
         out->foreign_over = c.foreign_over;
         out->targets = c.targets;
+    }
+    if (out->size >= sizeof(KilnHooksStats)) {
+        out->links_used = c.links_used;
+        out->links_cap = c.links_cap;
     }
     return KILN_OK;
 }
@@ -292,18 +322,24 @@ std::atomic<bool> g_world_seen{false};
 HANDLE g_timer = nullptr;
 
 KilnResult KILN_CALL h_map_json(char* buf, size_t cap, size_t* len) {
-    const std::string text = chain::map_text(foreign_symbols(), "query");
-    if (len) *len = text.size();
-    if (!buf || cap < text.size() + 1) return KILN_ERR_BUFFER_TOO_SMALL;
-    std::memcpy(buf, text.data(), text.size());
-    buf[text.size()] = 0;
-    return KILN_OK;
+    KILN_GUARD("map_json", KILN_ERR_INTERNAL, {
+        const std::string text = chain::map_text(foreign_symbols(), "query");
+        if (len) *len = text.size();
+        if (!buf || cap < text.size() + 1) return KILN_ERR_BUFFER_TOO_SMALL;
+        std::memcpy(buf, text.data(), text.size());
+        buf[text.size()] = 0;
+        return KILN_OK;
+    });
 }
 
 void CALLBACK on_map_timer(PVOID, BOOLEAN) {
     g_timer_armed.store(false, std::memory_order_release);
-    chain::sweep();
-    write_map("change");
+    static std::atomic<bool> once{false};
+    guarded("the hook-map timer", once, false, [] {
+        chain::sweep();
+        write_map("change");
+        return true;
+    });
 }
 
 // Called by the engine with its mutex held: only arms a one-shot timer, so a burst of installs writes once.
@@ -317,8 +353,19 @@ void map_changed() {
         g_timer_armed.store(false, std::memory_order_release);
 }
 
+void world_check();
+
 void KILN_CALL on_world_event(const KilnWorldEvent* e, void*) {
     if (!e || e->event != KILN_WORLD_STARTED || g_world_seen.exchange(true)) return;
+    static std::atomic<bool> once{false};
+    guarded("the first-world hook check", once, false, [] {
+        world_check();
+        return true;
+    });
+}
+
+void world_check() {
+    chain::refresh_symbols();
     chain::sweep();
     const size_t over = chain::check_foreign();
     chain::note_world_checked();
@@ -365,6 +412,7 @@ std::mutex g_ready_mutex;
 
 bool init() {
     if (!ensure_ready()) return false;
+    chain::refresh_symbols();  // sigdb has resolved by now; links an early plugin placed get their target's name
     KilnHandle h = 0;
     tick::subscribe_world(0, &on_world_event, nullptr, &h);  // first world: foreign check + hooks.json
     KLOG_I("hooks: ready (v2 registry, %zu target slots)", chain::kMaxTargets);
@@ -393,14 +441,29 @@ bool ensure_ready() {
 
 void write_map(const char* phase) {
     if (!chain::ready()) return;
-    std::lock_guard lock(g_map_mutex);
-    const std::string text = chain::map_text(foreign_symbols(), phase);
-    const auto file = paths().state / L"hooks.json";
-    if (!write_file_atomic(file, text)) KLOG_W("hooks: cannot write %s", u8(file).c_str());
+    static std::atomic<bool> once{false};
+    guarded("writing state/hooks.json", once, false, [&] {
+        std::lock_guard lock(g_map_mutex);
+        const std::string text = chain::map_text(foreign_symbols(), phase);
+        const auto file = paths().state / L"hooks.json";
+        if (!write_file_atomic(file, text)) KLOG_W("hooks: cannot write %s", u8(file).c_str());
+        return true;
+    });
 }
+
+static void boot_check();
 
 void boot_complete() {
     if (!chain::ready()) return;
+    static std::atomic<bool> once{false};
+    guarded("the boot-end hook check", once, false, [] {
+        boot_check();
+        return true;
+    });
+}
+
+static void boot_check() {
+    chain::refresh_symbols();
     chain::sweep();
     const size_t over = chain::check_foreign();
     g_map_enabled.store(true, std::memory_order_release);

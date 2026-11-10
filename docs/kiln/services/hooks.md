@@ -60,14 +60,18 @@ if (!g_add.install(api, owner, target, reinterpret_cast<void*>(&hk_chat_add), "c
 
 Rules:
 
-- `original` is written **before** the link can be reached, so the handler may call it on its first run. It must be
-  storage that belongs to this one link: two links that share a variable would overwrite each other's continuation.
+- `original` is written **before** the link can be reached, so the handler may call it on its first run.
+- One handler, one live link per target: a raw handler reads one `original`, so it cannot tell two links apart.
+  Installing the same function again on the same target **replaces** the earlier link in one step (its handle stops
+  working). A call that is inside the old link at that moment goes on after the new link's place: the handler never
+  runs twice for one call and never loops into itself, whatever the priorities.
 - A continuation is never freed. After `revoke` it forwards to the next link, so a handler that still holds it is safe.
 - Pass `call<R>(...)` the game's exact argument types (`uint64_t`, not `int`, for a 64-bit parameter). Or take
   `original<R (*)(A, B)>()` once and call that.
 - Dropping a `RawHook` object does not remove its link. Call `revoke()`, or `revoke_owner(owner)`. Assigning to a hook
   that holds a link (`g = RawHook::create(...)`, `g = {}`) revokes the old link, like a safetyhook hook, and calling
-  `install()` again replaces the link. `MidHook2` behaves the same.
+  `install()` again replaces the link (see above). `MidHook2` behaves the same, except that a mid link is replaced
+  after the new one is in: a call at that moment may run the handler twice (never in a loop).
 - `install()` on a global is the safe way to hook after the game started. `create()` returns the hook by value and a
   game thread can run the handler before your global is assigned.
 
@@ -93,7 +97,19 @@ inside the rest of the chain is not blamed on the handler: it goes on to the gam
 ## Mid links
 
 `mid2` runs a handler with the registers at `target`. The handler may change them (`KilnRegisters`, the same layout as
-safetyhook's `Context64`; `kiln::MidHook2` accepts a handler taking `safetyhook::Context&` as is).
+safetyhook's `Context64`; `kiln::MidHook2` accepts a handler taking `safetyhook::Context&` as is). The rules are
+safetyhook's, for `mid2` and the v1 `mid`: `rsp` is read-only; `rip` is where execution goes on; `trampoline_rsp`
+starts at `rsp - 8` and the stub resumes with `rsp = trampoline_rsp; ret`. A handler on a function's first instruction
+can skip the function:
+
+```cpp
+void on_entry(KilnRegisters* r, void*) {
+    r->rax = 0;                    // the return value
+    r->trampoline_rsp = r->rsp;    // [rsp] is the game's return address: return to the caller
+}
+```
+
+(Before ur10, dev.21 started `trampoline_rsp` at `rsp - 16`; that early return then corrupted the caller's stack.)
 
 A mid link may share its address with raw and structured links. They run in chain order; each sees the registers the
 previous link left.
@@ -157,6 +173,7 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
   "phase": "boot",
   "worldChecked": false,
   "generated": "2026-11-09T14:20:33Z",
+  "linkSlots": { "used": 214, "cap": 65536 },
   "targets": [
     { "rva": "0x9151f0", "symbol": "chat/ChatLogAdd", "label": "chat/ChatLogAdd",
       "links": [
@@ -173,6 +190,7 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
 
 - `phase` is what wrote the file last: `boot`, `world` (the first world) or `change`. `worldChecked` is true once the
   first-world check of other modules' hooks has run.
+- `linkSlots`: link slots taken since the game started, and how many there are (see Limits).
 - `kind` is `raw`, `structured`, `v1` or `mid`. `links` are in chain order: the first one runs first.
 - `symbol` is the sigdb name of the address, or null. `label` is the symbol name, else the first link's label.
 - `foreignBefore` and `foreignOver` are `{module, offset, address, own}` or null. `module` is empty when the jump goes
@@ -213,15 +231,27 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
 | What | Limit |
 |---|---|
 | Hooked addresses | 512 |
-| Links ever created | 65,536 (stubs are never freed) |
+| Link slots | 65,536 per process (stubs are never freed) |
 | `detour2` arguments | 12 |
 
 `raw_detour`, `detour2` and `mid2` return `KILN_ERR_INVALID_ARGUMENT` for an address outside the game image or a null
 handler, and `KILN_ERR_UNAVAILABLE` when safetyhook cannot place the detour (kiln.log says why) or a table is full.
 Nothing crashes: the feature that wanted the hook just turns off.
 
-`stats()` counts: targets, raw links, targets chained over a foreign hook, targets hooked over. Raw links are not
-counted per call (that would put an atomic on every game call).
+A revoked link keeps its slot, because a call may still be inside it. It leaves the chain (the map and `stats()` show
+live links only). Installing the same handler on the same target again (same kind, function, user data, owner and label)
+takes the revoked link's slot back, with a new handle: a service that toggles its hook, or a mod that re-installs one
+static handler, costs one slot. A different user pointer or label each time costs a new slot each time (managed
+`Hooks.Detour` / `Hooks.Mid` do that). kiln.log warns once when 75% of the slots are used and once when all are; after
+that only revived links can be installed. `stats()` (`links_used`, `links_cap`) and hooks.json (`linkSlots`) show the
+use.
+
+A target whose first detour safetyhook refuses is remembered with its bytes: the same request is refused at once, with no
+new log line and no memory, until the bytes there change.
+
+`stats()` counts: targets, raw links, targets chained over a foreign hook, targets hooked over, link slots. Raw links
+are not counted per call. Structured and mid dispatches are counted by each thread in its own table (`detour_calls`,
+`mid_calls` are the sums when you ask), so no cache line is shared between threads on the call path.
 
 ## Tests
 
@@ -229,8 +259,10 @@ counted per call (that would put an atomic on every game call).
   floats, `detour2` with 9 arguments, ordering, mid links beside raw links, registers and flags, revoking the middle
   link while 4 threads call, first installs under load, threads parked inside the replaced bytes (they must come out in the
   trampoline, also past a relocated short jump), a first install with 64 other threads alive, a foreign jump before and
-  over Kiln, the map, the C++ header. It runs twice, with the caller table in the TEB's TLS slots and in the expansion
-  slots.
+  over Kiln, the map, the C++ header, mid hooks that return early or redirect `rip` at a function entry, RawHook
+  re-installed on a live hook while threads call it (raised and equal priority, `create()`, new labels: no nesting, one
+  run per call), revival, an invalid UTF-8 label and a throwing map extension, a refused target. It runs twice, with
+  the caller table in the TEB's TLS slots and in the expansion slots, then once in `slots` mode (every link slot used).
 - `native/spikes/hookchain/run.sh`: how safetyhook chains with another engine's jump.
 - `native/spikes/hooksv2/foreign_stub.cpp` builds `foreign-stub.dll`, a stand-in for another engine for lab servers:
   chain it from `kiln/chain.ini` and give it `foreign-stub.ini` (`before=<rva,...>` hooks at load, before Kiln looks;

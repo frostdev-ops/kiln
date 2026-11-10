@@ -13,6 +13,12 @@
     "phase": { "enum": ["boot", "world", "change", "query"], "description": "What wrote the file last. `query` only comes from map_json." },
     "worldChecked": { "type": "boolean", "description": "The first-world check of other modules' hooks over Kiln's has run." },
     "generated": { "$ref": "common.schema.json#/$defs/time" },
+    "linkSlots": {
+      "type": "object",
+      "description": "Link slots taken since the game started (a revoked link keeps its slot; re-installing the same handler on the same target takes it again) and how many there are.",
+      "properties": { "used": { "type": "integer", "minimum": 0 }, "cap": { "type": "integer", "minimum": 1 } },
+      "required": ["used", "cap"]
+    },
     "targets": { "type": "array", "items": { "$ref": "#/$defs/target" }, "description": "Every game function Kiln hooks, one entry per physical detour." },
     "foreign": { "type": "array", "items": { "$ref": "#/$defs/foreignSymbol" }, "description": "Every sigdb symbol whose live code differed from the exe file's before Kiln hooked anything (someone else patched it), Kiln-hooked or not." },
     "overlaps": { "type": "array", "items": { "$ref": "#/$defs/overlap" }, "description": "Closed-DLL report. Absent in a core without it (dev.20)." },

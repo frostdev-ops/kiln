@@ -139,7 +139,11 @@ bool file_bytes(uintptr_t a, uint8_t* out, size_t n) {
     std::memcpy(out, reinterpret_cast<const void*>(a), n);  // "the file" equals the live code unless a hooker patched it
     return true;
 }
-std::string symbol_name_at(uintptr_t) { return {}; }
+std::atomic<int> g_sym_calls{0};
+std::string symbol_name_at(uintptr_t) {
+    ++g_sym_calls;
+    return {};
+}
 std::vector<LiveDiff> live_differs() { return g_live_diffs; }
 }  // namespace sigdb
 namespace svc {
@@ -241,6 +245,14 @@ GAME_LATE(1)
 GAME_LATE(2)
 GAME_LATE(3)
 GAME_LATE(4)
+__declspec(noinline) uint64_t game_rr(uint64_t x) {
+    g_real.fetch_add(1);
+    return x * 3 + 5;
+}
+__declspec(noinline) uint64_t game_rv(uint64_t x) {
+    g_real.fetch_add(1);
+    return x * 3 + 6;
+}
 __declspec(noinline) uint64_t game_chaos(uint64_t x) {
     g_real.fetch_add(1);
     return x * 3 + 7;
@@ -293,8 +305,32 @@ int game_asm_idle(int);
 int game_asm_idle2(int);
 int game_asm_park_jcc(int);
 void game_asm_park_done(void);
+int game_asm_er1(int);
+int game_asm_er2(int);
+int game_asm_er3(int);
+int game_asm_alt(int);
+extern unsigned char game_asm_bad[];
+int kiln_check_call(void* fn, int x);
 void* g_exit_thread = nullptr;  // kernel32!ExitThread, for game_asm_park_done
 }
+// Mid hooks at a function entry that return early, redirect or do nothing (test_mid_entry_semantics):
+//   game_asm_er*: x + 1 (GAME_ASM). game_asm_alt: x + 1000. game_asm_bad: bytes no decoder takes (push es is invalid in
+//   64-bit mode), so the first detour on it is refused; the test rewrites them into GAME_ASM's code later.
+// kiln_check_call(fn, x): calls fn(x) and returns 0xBADBAD when rsp after the call is not what it was before (a mid
+// stub that resumed with a wrong rsp).
+__asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n" GAME_ASM(game_asm_er1) GAME_ASM(game_asm_er2) GAME_ASM(game_asm_er3)
+        ".globl game_asm_alt\n.def game_asm_alt; .scl 2; .type 32; .endef\ngame_asm_alt:\n"
+        "  lea eax, [rcx + 1000]\n  ret\n"
+        "  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n"
+        ".globl game_asm_bad\ngame_asm_bad:\n"
+        "  .byte 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06\n"
+        "  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n  int3\n"
+        ".text\n"
+        ".globl kiln_check_call\n.def kiln_check_call; .scl 2; .type 32; .endef\n.seh_proc kiln_check_call\nkiln_check_call:\n"
+        "  push rbx\n  .seh_pushreg rbx\n  sub rsp, 0x20\n  .seh_stackalloc 0x20\n  .seh_endprologue\n"
+        "  mov rbx, rsp\n  mov rax, rcx\n  mov ecx, edx\n  call rax\n  cmp rsp, rbx\n  je 1f\n"
+        "  mov rsp, rbx\n  mov eax, 0xBADBAD\n"
+        "1:\n  add rsp, 0x20\n  pop rbx\n  ret\n.seh_endproc\n");
 __asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n" GAME_ASM(game_asm_fb) GAME_ASM(game_asm_fo)
             GAME_ASM(game_asm_mid) GAME_ASM(game_asm_mid2) GAME_ASM(game_asm_mid3) GAME_ASM(game_asm_mix) ".text\n");
 
@@ -1313,7 +1349,11 @@ void test_reinstall_shares_original() {
     for (int i = 0; i < kRounds && ok; ++i) {
         if (!wait_for(inside, i + 1)) { ok = false; break; }  // the thread is inside the current A
         A->revoke(cur);
-        ok = A->raw_detour(6, t, &oa, reinterpret_cast<void*>(ah), const_cast<void**>(&ao), &cur) == KILN_OK && ok;
+        // a label of its own each round: a new link (the same label would revive the revoked one, and its continuation,
+        // the value the thread waits to change, would stay the same)
+        const std::string lab = "t/reinst-a" + std::to_string(i);
+        const auto oai = ord(5, lab.c_str());
+        ok = A->raw_detour(6, t, &oai, reinterpret_cast<void*>(ah), const_cast<void**>(&ao), &cur) == KILN_OK && ok;
         if (!wait_for(finished, i + 1)) { ok = false; break; }
         const std::string got = take_order();
         if (got != "AC" && ++skipped <= 3) std::printf("  round %d ran '%s'\n", i, got.c_str());
@@ -1515,7 +1555,8 @@ void test_many_threads_stopped() {
                 ++shown;
             }
     }
-    check(least >= 64, "each install listed the 64 waiting threads (and more) as stopped", "least " + std::to_string(least));
+    check(least >= 64, "each install stopped the 64 waiting threads (and more)", "least " + std::to_string(least));
+    check(log_count("could not be opened or stopped") == 0, "no thread failed to open or stop (the count is of stopped threads)");
     A->revoke_owner(6);
 }
 
@@ -1626,6 +1667,362 @@ void test_thread_tables() {
     check(err == 0xBEEF, "the first hooked call of a thread preserves GetLastError()", std::to_string(err));
 }
 
+
+// ---- finding 1: mid links keep safetyhook's trampoline_rsp contract (v1 mid and mid2)
+std::atomic<int> g_er_mode{0};  // 0 = leave alone, 1 = early return (rax = 777, trampoline_rsp = rsp), 2 = rip -> alt
+std::atomic<int> g_er_hits{0};
+void KILN_CALL er_cb(KilnRegisters* r, void*) {
+    ++g_er_hits;
+    const int m = g_er_mode.load();
+    if (m == 1) {
+        r->rax = 777;
+        r->trampoline_rsp = r->rsp;  // safetyhook's rule: the top of that stack is where execution resumes
+    } else if (m == 2) {
+        r->rip = reinterpret_cast<uintptr_t>(&game_asm_alt);
+    }
+}
+
+void test_mid_entry_semantics() {
+    std::puts("-- mid links at a function entry: early return with trampoline_rsp = rsp, rip redirect, no change (v1 mid, mid2)");
+    KilnRegisters probe{};
+    check(reinterpret_cast<uint8_t*>(&probe.trampoline_rsp) - reinterpret_cast<uint8_t*>(&probe) == 0x188 &&
+              reinterpret_cast<uint8_t*>(&probe.rip) - reinterpret_cast<uint8_t*>(&probe) == 0x190,
+          "KilnRegisters keeps Context64's offsets");
+    KilnHandle h1 = 0, h2 = 0;
+    check(A->mid(6, reinterpret_cast<uintptr_t>(&game_asm_er1), 0, er_cb, nullptr, &h1) == KILN_OK, "v1 mid at an entry");
+    const auto o = ord(0, "t/er2");
+    check(A->mid2(6, reinterpret_cast<uintptr_t>(&game_asm_er2), &o, er_cb, nullptr, &h2) == KILN_OK, "mid2 at an entry");
+    struct {
+        int (*fn)(int);
+        const char* api;
+    } cases[] = {{&game_asm_er1, "v1 mid"}, {&game_asm_er2, "mid2"}};
+    for (auto& c : cases) {
+        void* f = reinterpret_cast<void*>(c.fn);
+        g_er_hits = 0;
+        g_er_mode = 0;
+        const int a = kiln_check_call(f, 41);
+        g_er_mode = 1;
+        const int b = kiln_check_call(f, 41);
+        g_er_mode = 2;
+        const int d = kiln_check_call(f, 41);
+        g_er_mode = 0;
+        // the same from a fresh thread (its first hooked call takes the slow path)
+        int e = 0;
+        g_er_mode = 1;
+        std::thread([&] { e = kiln_check_call(f, 5); }).join();
+        g_er_mode = 0;
+        check(a == 42, (std::string(c.api) + ": a handler that changes nothing: the function runs, the stack is intact").c_str(),
+              std::to_string(a));
+        check(b == 777, (std::string(c.api) + ": early return (rax = 777, trampoline_rsp = rsp) returns to the caller with its stack").c_str(),
+              std::to_string(b));
+        check(d == 1041, (std::string(c.api) + ": rip redirected to another function at the entry").c_str(), std::to_string(d));
+        check(e == 777 && g_er_hits == 4, (std::string(c.api) + ": early return on a thread's first hooked call").c_str(),
+              std::to_string(e));
+    }
+    // in a chain: a mid link that changes nothing, then one that returns early; the raw link after them never runs
+    static std::atomic<int> plain{0}, raw_after{0};
+    static int (*o3)(int) = nullptr;
+    static auto plain_cb = +[](KilnRegisters*, void*) { ++plain; };
+    static auto raw3 = +[](int x) -> int { ++raw_after; return o3(x); };
+    const auto op = ord(10, "t/er3-plain"), oe = ord(5, "t/er3-early"), orr = ord(0, "t/er3-raw");
+    bool ok = A->mid2(6, reinterpret_cast<uintptr_t>(&game_asm_er3), &op, plain_cb, nullptr, nullptr) == KILN_OK;
+    ok = A->mid2(6, reinterpret_cast<uintptr_t>(&game_asm_er3), &oe, er_cb, nullptr, nullptr) == KILN_OK && ok;
+    ok = A->raw_detour(6, reinterpret_cast<uintptr_t>(&game_asm_er3), &orr, reinterpret_cast<void*>(raw3),
+                       reinterpret_cast<void**>(&o3), nullptr) == KILN_OK && ok;
+    g_er_mode = 1;
+    const int r = kiln_check_call(reinterpret_cast<void*>(&game_asm_er3), 1);
+    g_er_mode = 0;
+    const int r2 = kiln_check_call(reinterpret_cast<void*>(&game_asm_er3), 1);
+    check(ok && r == 777 && plain == 2 && raw_after == 1 && r2 == 2,
+          "mid, early-return mid, raw on one target: the early return skips the rest of the chain, stack intact",
+          std::to_string(r) + "/" + std::to_string(r2));
+    A->revoke_owner(6);
+}
+
+// ---- findings 3 and 8: RawHook re-installed on a live hook while threads call it
+kiln::RawHook g_rr;
+thread_local int t_rr_depth = 0;
+std::atomic<int> g_rr_max{0};
+std::atomic<uint64_t> g_rr_runs{0};
+uint64_t rr_fn(uint64_t x) {
+    const int d = ++t_rr_depth;
+    int m = g_rr_max.load();
+    while (d > m && !g_rr_max.compare_exchange_weak(m, d)) {}
+    g_rr_runs.fetch_add(1);
+    uint64_t r = 0xDEAD;
+    if (d < 64) r = g_rr.call<uint64_t>(x);  // stop long before the stack overflows: the check below fails instead
+    --t_rr_depth;
+    return r;
+}
+
+void test_reinstall_live(int mode) {
+    static const char* names[] = {"priority raised on each re-install", "same priority", "g = RawHook::create(...) with raised priority",
+                                  "a new label each time, raised priority"};
+    std::printf("-- RawHook re-installed on a live hook 300 times while 4 threads call it: %s\n", names[mode]);
+    KilnApi api{};
+    api.size = sizeof api;
+    api.abi_version = KILN_ABI_VERSION;
+    api.service = &fake_service;
+    g_fake_table = A;
+    const uintptr_t t = reinterpret_cast<uintptr_t>(&game_rr);
+    static uint64_t (*other_o)(uint64_t) = nullptr;  // another link after it: must run exactly once per call too
+    static std::atomic<uint64_t> other_runs{0};
+    static auto other = +[](uint64_t x) -> uint64_t { ++other_runs; return other_o(x); };
+    const auto oo = ord(-100, "t/rr-other");
+    bool ok = A->raw_detour(5, t, &oo, reinterpret_cast<void*>(other), reinterpret_cast<void**>(&other_o), nullptr) == KILN_OK;
+    ok = g_rr.install(&api, 6, t, reinterpret_cast<void*>(&rr_fn), "t/rr", 0) && ok;
+    g_rr_max = 0;
+    g_rr_runs = 0;
+    other_runs = 0;
+    std::atomic<bool> stop{false};
+    std::atomic<uint64_t> wrong{0}, calls{0};
+    const uint64_t real0 = g_real.load();
+    std::vector<std::thread> th;
+    for (int i = 0; i < 4; ++i)
+        th.emplace_back([&] {
+            volatile uint64_t v = 10;
+            while (!stop.load(std::memory_order_relaxed)) {
+                if (game_rr(v) != 35) wrong.fetch_add(1);
+                calls.fetch_add(1);
+            }
+        });
+    for (int i = 1; i <= 300 && ok; ++i) {
+        const int prio = mode == 1 ? 0 : i;
+        if (mode == 2) {
+            g_rr = kiln::RawHook::create(&api, 6, t, reinterpret_cast<void*>(&rr_fn), "t/rr", prio);
+            ok = static_cast<bool>(g_rr);
+        } else if (mode == 3) {
+            const std::string lab = "t/rr-" + std::to_string(i);
+            ok = g_rr.install(&api, 6, t, reinterpret_cast<void*>(&rr_fn), lab.c_str(), prio);
+        } else {
+            ok = g_rr.install(&api, 6, t, reinterpret_cast<void*>(&rr_fn), "t/rr", prio);
+        }
+        if (i % 50 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    stop = true;
+    for (auto& x : th) x.join();
+    const uint64_t n = calls.load(), real = g_real.load() - real0;
+    check(ok && chain::chain_of(t).size() == 2, "every re-install succeeded; one link of the handler is left");
+    check(g_rr_max == 1, "the handler never ran nested (no recursion through the shared original)",
+          "deepest nesting " + std::to_string(g_rr_max.load()));
+    check(wrong == 0 && g_rr_runs == n && other_runs == n && real == n,
+          "each call ran the handler once, the link after it once and the real function once",
+          "calls " + std::to_string(n) + ", handler " + std::to_string(g_rr_runs.load()) + ", other " +
+              std::to_string(other_runs.load()) + ", real " + std::to_string(real) + ", wrong " + std::to_string(wrong.load()));
+    g_rr.revoke();
+    A->revoke_owner(5);
+    A->revoke_owner(6);
+}
+
+// ---- finding 4: revoked links leave the chain order and an identical re-install takes the old slot again
+void test_revival() {
+    std::puts("-- revival: the same handler installed again after a revoke takes its old link slot");
+    const uintptr_t t = reinterpret_cast<uintptr_t>(&game_rv);
+    static std::atomic<int> sruns{0};
+    static auto sfn = +[](KilnHookCall2* c, void*) -> uintptr_t { ++sruns; return A->call_original2(c); };
+    static int tag = 0;
+    const auto o = ord(0, "t/rev-s");
+    KilnHandle h1 = 0, h2 = 0, h3 = 0;
+    A->detour2(6, t, &o, 1, sfn, &tag, &h1);
+    const size_t n0 = chain::link_count();
+    check(A->revoke(h1) == KILN_OK && A->detour2(6, t, &o, 1, sfn, &tag, &h2) == KILN_OK, "structured: revoke, install again");
+    check(chain::link_count() == n0 && h2 != h1, "...it took the same slot with a new handle", std::to_string(chain::link_count() - n0));
+    check(A->revoke(h1) == KILN_ERR_NOT_FOUND && chain::chain_of(t).size() == 1, "the old handle no longer revokes it");
+    sruns = 0;
+    check(game_rv(1) == 9 && sruns == 1, "the revived link runs");
+    const auto o2 = ord(0, "t/rev-s2");
+    A->detour2(6, t, &o2, 1, sfn, &tag, &h3);
+    check(chain::link_count() == n0 + 1, "another label is another link");
+    A->revoke(h2);
+    A->revoke(h3);
+    for (int i = 0; i < 50; ++i) {  // a service that toggles its hook
+        KilnHandle h = 0;
+        A->detour2(6, t, &o, 1, sfn, &tag, &h);
+        A->revoke(h);
+    }
+    check(chain::link_count() == n0 + 1, "50 install/revoke rounds of one handler take no new slot");
+    // raw: a thread inside the old incarnation's handler finishes correctly after the revival
+    static uint64_t (*ro)(uint64_t) = nullptr;
+    static std::atomic<int> rruns{0}, inside{0};
+    static std::atomic<bool> hold{false};
+    static auto rfn = +[](uint64_t x) -> uint64_t {
+        ++rruns;
+        if (hold.load()) {
+            ++inside;
+            while (hold.load()) _mm_pause();
+        }
+        return ro(x);
+    };
+    const auto orw = ord(0, "t/rev-raw");
+    KilnHandle r1 = 0, r2 = 0;
+    A->raw_detour(6, t, &orw, reinterpret_cast<void*>(rfn), reinterpret_cast<void**>(&ro), &r1);
+    const size_t n1 = chain::link_count();
+    void* const cont1 = reinterpret_cast<void*>(ro);
+    rruns = 0;
+    g_real = 0;
+    hold = true;
+    uint64_t got = 0;
+    std::thread th([&] { got = game_rv(2); });
+    while (inside.load() == 0) _mm_pause();
+    A->revoke(r1);
+    A->raw_detour(6, t, &orw, reinterpret_cast<void*>(rfn), reinterpret_cast<void**>(&ro), &r2);
+    hold = false;
+    th.join();
+    check(chain::link_count() == n1 && reinterpret_cast<void*>(ro) == cont1, "raw: revived in its slot, the same continuation");
+    check(got == 12 && rruns == 1 && g_real == 1, "a call inside the old incarnation goes on once to the real function",
+          std::to_string(got) + " runs " + std::to_string(rruns.load()));
+    rruns = 0;
+    check(game_rv(2) == 12 && rruns == 1, "a new call runs the revived link once");
+    // the map and stats walk live links only
+    size_t live_rows = 0;
+    for (const auto& ti : chain::targets())
+        if (ti.address == t) live_rows = ti.links.size();
+    check(live_rows == 1, "targets(): only the live link is listed", std::to_string(live_rows));
+    KilnHooksStats st{};
+    st.size = sizeof st;
+    const KilnResult src = A->stats(&st);
+    check(src == KILN_OK && st.links_used == chain::link_count() && st.links_cap == chain::kMaxLinks,
+          "stats: links_used / links_cap", std::to_string(st.links_used) + "/" + std::to_string(st.links_cap));
+    struct V2Stats {  // dev.21's first v2 layout (without links_used/links_cap)
+        uint32_t size, a, b, c, d;
+        uint64_t e, f;
+        uint32_t raw_links, fb, fo, targets;
+    } old{};
+    old.size = sizeof old;
+    check(A->stats(reinterpret_cast<KilnHooksStats*>(&old)) == KILN_OK && old.targets == st.targets && old.raw_links == st.raw_links,
+          "stats: the earlier v2 size still gets its v2 fields");
+    A->revoke_owner(6);
+}
+
+// ---- finding 2: the map writer never throws
+void test_map_robust() {
+    std::puts("-- the hook map: an invalid UTF-8 label and a throwing extension");
+    static uint64_t (*o)(uint64_t) = nullptr;
+    static auto fn = +[](uint64_t x) -> uint64_t { return o(x); };
+    const auto bad = ord(0, "t/bad\xff\xfe label");
+    check(A->raw_detour(6, reinterpret_cast<uintptr_t>(&game_ord3), &bad, reinterpret_cast<void*>(fn), reinterpret_cast<void**>(&o),
+                        nullptr) == KILN_OK, "a link with an invalid UTF-8 label");
+    static auto thrower = +[](void* j, const char*) {
+        auto& doc = *static_cast<nlohmann::ordered_json*>(j);
+        nlohmann::ordered_json x = 5;
+        x.push_back(1);  // json type_error
+        doc["never"] = x;
+    };
+    kiln::hooks::add_map_extension(thrower);
+    bool all = true;
+    for (int i = 0; i < 2; ++i) {
+        size_t len = 0;
+        A->map_json(nullptr, 0, &len);
+        std::string buf(len + 1, '\0');
+        const KilnResult rc = A->map_json(buf.data(), buf.size(), &len);
+        json j = json::parse(buf.data(), buf.data() + len, nullptr, false);
+        bool label = false;
+        if (j.is_object())
+            for (auto& t : j["targets"])
+                for (auto& l : t["links"]) label = label || l.value("label", "").rfind("t/bad", 0) == 0;
+        all = all && rc == KILN_OK && j.is_object() && j.contains("overlaps") && !j.contains("never") && label &&
+              j["linkSlots"].value("cap", 0) == 65536 && j["linkSlots"].value("used", 0) > 0;
+    }
+    check(all, "map_json works twice: the label is replaced, the other extensions' sections stay, linkSlots is there");
+    check(log_count("hook-map extension failed") == 1, "the failing extension is logged once");
+    kiln::hooks::write_map("test");
+    std::ifstream in(g_state_dir / "hooks.json");
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const json written = json::parse(text, nullptr, false);
+    check(written.is_object() && written.value("phase", "") == "test", "hooks.json is still written");
+    A->revoke_owner(6);
+}
+
+// ---- finding 5: a refused address costs no stub memory and no new log line
+void test_refused_target() {
+    std::puts("-- a target whose first detour is refused: refused again at once, retried when its bytes change");
+    static int (*o)(int) = nullptr;
+    static auto fn = +[](int x) -> int { return o(x) + 100; };
+    const auto ob = ord(0, "t/bad-bytes");
+    const uintptr_t t = reinterpret_cast<uintptr_t>(&game_asm_bad[0]);
+    const size_t c0 = chain::code_bytes_used(), l0 = log_count("could not detour");
+    const KilnResult r1 = A->raw_detour(6, t, &ob, reinterpret_cast<void*>(fn), reinterpret_cast<void**>(&o), nullptr);
+    const size_t c1 = chain::code_bytes_used();
+    const KilnResult r2 = A->raw_detour(6, t, &ob, reinterpret_cast<void*>(fn), reinterpret_cast<void**>(&o), nullptr);
+    const KilnResult r3 = A->raw_detour(6, t, &ob, reinterpret_cast<void*>(fn), reinterpret_cast<void**>(&o), nullptr);
+    check(r1 == KILN_ERR_UNAVAILABLE && log_count("could not detour") == l0 + 1, "the first attempt fails and is logged",
+          std::to_string(r1));
+    check(r2 == KILN_ERR_UNAVAILABLE && r3 == KILN_ERR_UNAVAILABLE && chain::code_bytes_used() == c1 &&
+              log_count("could not detour") == l0 + 1,
+          "the next attempts are refused at once: no stub memory, no new line", std::to_string(c1 - c0) + " bytes once");
+    const uint8_t good[] = {0x53, 0x48, 0x83, 0xEC, 0x20, 0x89, 0xC8, 0x83, 0xC0, 0x01, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3};
+    DWORD old = 0;
+    VirtualProtect(game_asm_bad, sizeof good, PAGE_EXECUTE_READWRITE, &old);
+    std::memcpy(game_asm_bad, good, sizeof good);
+    VirtualProtect(game_asm_bad, sizeof good, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), game_asm_bad, sizeof good);
+    const KilnResult r4 = A->raw_detour(6, t, &ob, reinterpret_cast<void*>(fn), reinterpret_cast<void**>(&o), nullptr);
+    check(r4 == KILN_OK && reinterpret_cast<int (*)(int)>(t)(1) == 102,
+          "after the bytes changed it is tried again and works", std::to_string(r4));
+    check(chain::code_bytes_used() == c1 + 48, "the failed target's entry stub was used again (only the link's stub is new)",
+          std::to_string(chain::code_bytes_used() - c1));
+    A->revoke_owner(6);
+}
+
+// ---- findings 7 and 10: the map does not look symbols up again; mid calls are counted per thread
+void test_symbol_cache_and_counts() {
+    std::puts("-- the map reuses each target's symbol name; dispatch counts stay per thread");
+    size_t len = 0;
+    A->map_json(nullptr, 0, &len);
+    const int a = kiln::sigdb::g_sym_calls.load();
+    A->map_json(nullptr, 0, &len);
+    A->map_json(nullptr, 0, &len);
+    const int b = kiln::sigdb::g_sym_calls.load();
+    chain::refresh_symbols();
+    A->map_json(nullptr, 0, &len);
+    const int c = kiln::sigdb::g_sym_calls.load();
+    check(b == a && c > b, "two map builds look up no symbol; after refresh_symbols() each target is asked once",
+          std::to_string(b - a) + ", then " + std::to_string(c - b));
+    static auto m = +[](KilnRegisters*, void*) {};
+    const auto o = ord(0, "t/count");
+    A->mid2(6, reinterpret_cast<uintptr_t>(&game_asm_mid), &o, m, nullptr, nullptr);
+    KilnHooksStats s0{}, s1{};
+    s0.size = s1.size = sizeof s0;
+    A->stats(&s0);
+    std::vector<std::thread> th;
+    for (int k = 0; k < 4; ++k)
+        th.emplace_back([] {
+            for (int i = 0; i < 1000; ++i) game_asm_mid(i);
+        });
+    for (auto& x : th) x.join();
+    A->stats(&s1);
+    check(s1.mid_calls - s0.mid_calls == 4000, "stats mid_calls sums the threads' own counts",
+          std::to_string(s1.mid_calls - s0.mid_calls));
+    A->revoke_owner(6);
+}
+
+// ---- finding 4c: the link-slot cap (its own process: it uses up every slot)
+void test_slots() {
+    std::puts("-- every link slot used: one warning at 75%, one at 100%, then new links are refused, revivals still work");
+    static auto sfn = +[](KilnHookCall2* c, void*) -> uintptr_t { return A->call_original2(c); };
+    const uintptr_t ts[] = {reinterpret_cast<uintptr_t>(&game_ord1), reinterpret_cast<uintptr_t>(&game_ord2),
+                            reinterpret_cast<uintptr_t>(&game_ord3), reinterpret_cast<uintptr_t>(&game_ord4),
+                            reinterpret_cast<uintptr_t>(&game_late1), reinterpret_cast<uintptr_t>(&game_late2),
+                            reinterpret_cast<uintptr_t>(&game_late3), reinterpret_cast<uintptr_t>(&game_late4)};
+    const auto o = ord(0, "t/slot");
+    KilnResult last = KILN_OK;
+    size_t made = 0;
+    for (uintptr_t i = 0; last == KILN_OK && i < chain::kMaxLinks + 10; ++i) {
+        KilnHandle h = 0;
+        last = A->detour2(6, ts[i % 8], &o, 1, sfn, reinterpret_cast<void*>(i + 1), &h);
+        if (last == KILN_OK) ++made, A->revoke(h);
+    }
+    check(made == chain::kMaxLinks && last == KILN_ERR_UNAVAILABLE, "65536 links, then refused", std::to_string(made));
+    check(log_count("of 65536 link slots are used") == 1 && log_count("all 65536 link slots are used") == 1,
+          "one warning at 75% and one at 100%");
+    KilnHandle h = 0;
+    check(A->detour2(6, ts[3], &o, 1, sfn, reinterpret_cast<void*>(uintptr_t{4}), &h) == KILN_OK && game_ord4(1) == 7,
+          "a revoked handler can still be installed again (its slot is revived)");
+    KilnHooksStats st{};
+    st.size = sizeof st;
+    A->stats(&st);
+    check(st.links_used == st.links_cap && st.links_cap == 65536 && st.handlers == 1, "stats: every slot used, one live link");
+}
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1648,7 +2045,23 @@ int main(int argc, char** argv) {
     }
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
-    g_state_dir = std::filesystem::path(tmp) / L"kiln-hooks-v2-test";
+    // per process: the stress run starts several copies at once, and each reads back the hooks.json it wrote
+    g_state_dir = std::filesystem::path(tmp) / (L"kiln-hooks-v2-test-" + std::to_wstring(GetCurrentProcessId()));
+    if (argc > 1 && !std::strcmp(argv[1], "chaos")) {  // the churn alone, many times (hunting rare chain states)
+        g_service->init();
+        A = static_cast<const KilnHooksApi*>(g_service->table);
+        for (int i = 0; i < 20; ++i) test_chaos();
+        std::printf("%d passed, %d failed\n", g_pass, g_fail);
+        return g_fail ? 1 : 0;
+    }
+    if (argc > 1 && !std::strcmp(argv[1], "slots")) {
+        g_service->init();
+        A = static_cast<const KilnHooksApi*>(g_service->table);
+        test_slots();
+        std::printf("%d passed, %d failed\n", g_pass, g_fail);
+        std::puts(g_fail ? "FAILED" : "all passed");
+        return g_fail ? 1 : 0;
+    }
     if (argc > 1 && !std::strcmp(argv[1], "tls64"))  // push the caller-table slot into TlsExpansionSlots
         for (int i = 0; i < 70; ++i) TlsAlloc();
     std::printf("hooks_v2_test: game section %p +0x%zx, tls %s\n", reinterpret_cast<void*>(kiln::g_image.base),
@@ -1690,15 +2103,23 @@ int main(int argc, char** argv) {
     test_many_threads_stopped();
     test_client_header();
     test_thread_tables();
+    test_mid_entry_semantics();
+    for (int mode = 0; mode < 4; ++mode) test_reinstall_live(mode);
+    test_revival();
+    test_map_robust();
+    test_refused_target();
+    test_symbol_cache_and_counts();
 
     {
         std::lock_guard lock(g_log_mutex);
         size_t errors = 0;
         for (const auto& l : g_lines)
-            if (l[0] == 'E' && l.find("faulted") == std::string::npos) ++errors, std::printf("  unexpected log: %s\n", l.c_str());
+            if (l[0] == 'E' && l.find("faulted") == std::string::npos && l.find("t/bad-bytes") == std::string::npos && l.find("could not detour rva") == std::string::npos) ++errors, std::printf("  unexpected log: %s\n", l.c_str());
         if (errors) ++g_fail;
     }
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     std::puts(g_fail ? "FAILED" : "all passed");
+    std::error_code ec;
+    std::filesystem::remove_all(g_state_dir, ec);
     return g_fail ? 1 : 0;
 }

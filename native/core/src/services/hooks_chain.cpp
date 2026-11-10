@@ -7,11 +7,18 @@
 //   entry stub  (per target)  push rcx; rcx = this thread's caller table (TEB TlsSlots, no call); record [rsp];
 //                             pop; jmp [head cell]. First call of a thread: call kiln_hk_slow once (flags saved).
 //   adapter     (per structured link)  r11 = Link; jmp kiln_hk_structured
-//   mid stub    (per mid link)         push Link; push [next cell]; jmp kiln_hk_mid
+//   mid stub    (per mid link)         push [next cell]; push Link; jmp kiln_hk_mid
 //   continuation(per raw/structured link)  jmp [next cell]
 //
 // Locking: g_mutex serialises every mutation (install, revoke, rebuild, map). Dispatch never takes it: it reads cells,
-// Link fields that never change after publication, and the atomic `live` flag.
+// Link fields that never change after publication, the atomic `live` flag and `handle` (relaxed: a plain load), and
+// counts calls in the calling thread's own table (no shared cache line).
+//
+// Link slots: a revoked link is never freed (a call in flight may still be inside it, and a raw link's continuation may
+// be held forever), but it leaves its target's chain order: Target::order holds the live links only, Target::dead the
+// revoked ones, whose cells rebuild() keeps forwarding. An install whose target, kind, handler, user data, argument
+// count, owner and label equal a revoked link's revives that link (same slot, same stubs, a new handle) instead of
+// taking a new slot; see revive() for why a call still in flight through the old incarnation stays correct.
 #include "hooks_chain.h"
 
 #include <windows.h>
@@ -64,7 +71,7 @@ constexpr size_t kFootprint = 16;  // bytes of the target compared/recorded for 
 // caller (a revoked link's continuation, a dispatch racing a revoke) always lands on valid memory.
 struct Target;
 struct Link {
-    KilnHandle handle = 0;
+    std::atomic<KilnHandle> handle{0};       // changes when the link is revived (an old handle must not revoke it)
     KilnOwner owner = 0;
     std::string owner_name, owner_key;       // owner_key = normalised for before/after matching
     std::string label, before, after;
@@ -81,6 +88,8 @@ struct Link {
     uint8_t* cont = nullptr;                 // continuation stub (raw, structured, v1); null for mid
     std::atomic<uintptr_t>* next = nullptr;  // cell: entry of the following live link, or the trampoline
     std::vector<std::string> warned;         // dropped constraints already reported
+    Link* anchor = nullptr;                  // dead: the live link it hung after when it died (null = chain start)
+    KilnHandle h() const { return handle.load(std::memory_order_relaxed); }
 };
 
 struct Target {
@@ -90,8 +99,11 @@ struct Target {
     uint8_t* entry_stub = nullptr;
     std::atomic<uintptr_t>* head = nullptr;
     uintptr_t trampoline = 0;
-    std::vector<Link*> order;                // every link ever added, live or dead, in chain order
+    std::vector<Link*> order;                // the live links in chain order (what the map, stats and lookups walk)
+    std::vector<Link*> dead;                 // revoked links: never freed, their cells still forward (rebuild only)
     std::string label_cache;
+    std::string symbol;                      // sigdb name of addr, cached (refreshed when symbol_gen changes)
+    uint64_t symbol_gen = ~uint64_t{0};
     uint8_t own[kFootprint] = {};
     size_t own_len = 5;
     bool before_present = false;
@@ -106,6 +118,9 @@ struct Target {
 struct Block {
     uintptr_t caller[kMaxTargets] = {};
     DWORD tid = 0;
+    // Dispatches counted on the thread that made them (only it writes; stats() sums the tables). A table is one heap
+    // block per thread, so hot links on different threads never share a cache line for these.
+    std::atomic<uint64_t> detour_calls{0}, mid_calls{0};
 };
 
 struct Arena {
@@ -132,8 +147,20 @@ struct State {
 
     std::atomic<Link*> links[kMaxLinks];
     std::vector<MapExtension> extensions;
+    bool warned_75 = false, warned_full = false;  // link-slot use (one warning each)
+    uint64_t symbol_gen = 0;                      // bumped by refresh_symbols()
 
-    std::atomic<uint64_t> detour_calls{0}, mid_calls{0};
+    // Addresses the physical detour could not be placed on, with the bytes they had then: the same bytes are refused
+    // at once (no allocation, no new log line); different bytes are tried again.
+    struct Refusal {
+        uint8_t bytes[kFootprint] = {};
+        bool readable = false;
+    };
+    std::map<uintptr_t, Refusal> refused;
+    // The head cell and entry stub of a target whose detour failed, kept for the next new target (no arena leak).
+    std::atomic<uintptr_t>* spare_head = nullptr;
+    uint8_t* spare_stub = nullptr;
+
     std::atomic<bool> world_checked{false};
 
     // thread tables: plain Win32 so the slow path can never throw
@@ -361,73 +388,92 @@ std::vector<Link*> order_links(std::vector<Link*> live, Target& t) {
     return sorted;
 }
 
-// What a target's chain should look like: every link (live or dead) in its place, the entry each link's cell must name,
-// and what the head cell must name. Computing it changes nothing; apply_plan() publishes it.
+// g_mutex held. Moves a link out of the live order into the dead list. Its anchor is the live link before it, so its
+// cell keeps forwarding to whatever follows that position. The caller has cleared `live` (or a fault did).
+void retire(Target& t, Link* l) {
+    auto it = std::find(t.order.begin(), t.order.end(), l);
+    if (it == t.order.end()) return;
+    l->anchor = it == t.order.begin() ? nullptr : *(it - 1);
+    t.order.erase(it);
+    t.dead.push_back(l);
+}
+
+// g_mutex held. Retires links a fault disabled (dispatch cleared `live` without the mutex).
+void normalize(Target& t) {
+    for (size_t i = 0; i < t.order.size();) {
+        if (t.order[i]->live.load(std::memory_order_acquire)) {
+            ++i;
+            continue;
+        }
+        retire(t, t.order[i]);
+    }
+}
+
+// What a target's chain should look like: the live links in their order, the entry each one's cell must name, what
+// each dead link's cell must name, and what the head cell must name. Computing it changes nothing; apply_plan()
+// publishes it.
 struct Plan {
-    std::vector<Link*> merged;
+    std::vector<Link*> live;
     std::vector<uintptr_t> next;
+    std::vector<std::pair<Link*, uintptr_t>> dead;
     uintptr_t head = 0;
     uintptr_t next_of(const Link* l) const {
-        for (size_t i = 0; i < merged.size(); ++i)
-            if (merged[i] == l) return next[i];
+        for (size_t i = 0; i < live.size(); ++i)
+            if (live[i] == l) return next[i];
         return 0;
     }
 };
 
-// g_mutex held. Recomputes a target's chain (no cell is touched).
+// g_mutex held, normalize() done. Recomputes a target's chain (no cell is touched).
 Plan plan_chain(Target& t) {
-    std::vector<Link*> live;
-    for (Link* l : t.order)
-        if (l->live.load(std::memory_order_acquire)) live.push_back(l);
-    std::vector<Link*> sorted = order_links(live, t);
-
-    // Dead links keep their place (after the live link that preceded them) so their continuations forward sensibly.
-    std::map<Link*, std::vector<Link*>> hanging;
-    std::vector<Link*> lead;
-    Link* last_live = nullptr;
-    for (Link* l : t.order) {
-        if (l->live.load(std::memory_order_acquire)) {
-            last_live = l;
-        } else if (last_live) {
-            hanging[last_live].push_back(l);
-        } else {
-            lead.push_back(l);
-        }
-    }
-    std::vector<Link*> merged = lead;
-    for (Link* l : sorted) {
-        merged.push_back(l);
-        auto it = hanging.find(l);
-        if (it != hanging.end()) merged.insert(merged.end(), it->second.begin(), it->second.end());
-    }
-
-    // The entry each position leads to: the next live link at or after it, else the real function.
-    auto entry_of = [](Link* l) { return reinterpret_cast<uintptr_t>(l->entry); };
     Plan p;
-    p.next.resize(merged.size());
+    p.live = order_links(t.order, t);
+    p.next.resize(p.live.size());
     uintptr_t following = t.trampoline;
-    for (size_t i = merged.size(); i-- > 0;) {
+    for (size_t i = p.live.size(); i-- > 0;) {
         p.next[i] = following;
-        if (merged[i]->live.load(std::memory_order_acquire)) following = entry_of(merged[i]);
+        following = reinterpret_cast<uintptr_t>(p.live[i]->entry);
     }
     p.head = following;
-    p.merged = std::move(merged);
+    // A dead link forwards to what follows its place: the link after its (nearest live) anchor, else the head. A dead
+    // raw link whose handler has a live raw link on this target (it was replaced or re-installed) forwards to what
+    // follows that link instead: both share one handler, and the handler reads one continuation variable, so a call
+    // that already ran the handler goes on after the live link's place and never enters the handler again.
+    p.dead.reserve(t.dead.size());
+    for (Link* d : t.dead) {
+        uintptr_t to = 0;
+        if (d->kind == Kind::Raw)
+            for (size_t i = 0; i < p.live.size() && !to; ++i)
+                if (p.live[i]->kind == Kind::Raw && p.live[i]->fn == d->fn) to = p.next[i];
+        if (!to) {
+            Link* a = d->anchor;
+            while (a && !a->live.load(std::memory_order_acquire)) a = a->anchor;
+            d->anchor = a;  // path compression (same meaning)
+            to = a ? p.next_of(a) : p.head;
+            if (!to) to = p.head;  // cannot happen: a live anchor is in the plan
+        }
+        p.dead.emplace_back(d, to);
+    }
     return p;
 }
 
-// g_mutex held. Retargets the cells, tail to head and the head last, so a thread walking the chain always lands on a
-// valid entry (or the trampoline). A new link's own cell is filled by install() before this runs.
+// g_mutex held. Retargets the cells: the dead links' first (they only name live entries of the new plan), then the
+// live ones tail to head and the head last, so a thread walking the chain always lands on a valid entry (or the
+// trampoline). A new or revived link's own cell is filled by install() before this runs.
 void apply_plan(Target& t, Plan& p) {
-    for (size_t i = p.merged.size(); i-- > 0;)
-        if (p.merged[i]->next->load(std::memory_order_relaxed) != p.next[i])
-            p.merged[i]->next->store(p.next[i], std::memory_order_release);
+    for (auto& [d, to] : p.dead)
+        if (d->next->load(std::memory_order_relaxed) != to) d->next->store(to, std::memory_order_release);
+    for (size_t i = p.live.size(); i-- > 0;)
+        if (p.live[i]->next->load(std::memory_order_relaxed) != p.next[i])
+            p.live[i]->next->store(p.next[i], std::memory_order_release);
     if (t.head->load(std::memory_order_relaxed) != p.head) t.head->store(p.head, std::memory_order_release);
-    t.order = std::move(p.merged);
+    t.order = std::move(p.live);
 }
 
 // g_mutex held. Recomputes a target's chain and retargets the cells. Safe against concurrent callers: every cell
 // always names a valid entry (or the trampoline).
 void rebuild(Target& t) {
+    normalize(t);
     Plan p = plan_chain(t);
     apply_plan(t, p);
 }
@@ -566,10 +612,22 @@ json dest_json(const Dest& d) {
     return j;
 }
 
+// g_mutex held. The sigdb name of the target's address, looked up once per symbol generation (sigdb's lookup scans
+// every symbol; the map writer asks for every target).
+const std::string& target_symbol(Target& t) {
+    State& s = S();
+    if (t.symbol_gen != s.symbol_gen) {
+        t.symbol = s.env.symbol_at ? s.env.symbol_at(t.addr) : std::string();
+        t.symbol_gen = s.symbol_gen;
+        t.label_cache.clear();
+    }
+    return t.symbol;
+}
+
 std::string target_label(Target& t) {
+    const std::string& sym = target_symbol(t);  // may clear the cache
     if (!t.label_cache.empty()) return t.label_cache;
-    std::string name;
-    if (S().env.symbol_at) name = S().env.symbol_at(t.addr);
+    std::string name = sym;
     if (name.empty())
         for (Link* l : t.order)
             if (!l->label.empty()) {
@@ -724,7 +782,9 @@ bool open_threads_toolhelp(std::vector<Stopped>& out, size_t& unopened) {
 }
 
 struct FreezeReport {
-    size_t threads = 0, unopened = 0, unstopped = 0, in_range = 0, moved = 0, no_context = 0;
+    size_t threads = 0;   // other threads listed and opened (candidates for stopping)
+    size_t stopped = 0;   // of those, the ones SuspendThread really stopped
+    size_t unopened = 0, unstopped = 0, in_range = 0, moved = 0, no_context = 0;
     double stopped_ms = 0;  // how long the other threads stood still
     double list_ms = 0;     // listing and opening them first (they still run)
     bool written = false;
@@ -738,6 +798,7 @@ void write_with_threads_stopped(std::vector<Stopped>& th, uintptr_t addr, const 
     QueryPerformanceCounter(&t0);
     for (Stopped& s : th) {
         s.suspended = !s.skip && SuspendThread(s.h) != static_cast<DWORD>(-1);
+        if (s.suspended) ++rep.stopped;
         if (!s.skip && !s.suspended) ++rep.unstopped;
     }
     alignas(16) CONTEXT ctx;
@@ -803,10 +864,20 @@ bool enable_detour(Target& t, FreezeReport& rep) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Targets
 
-// g_mutex held. Finds or creates the target: entry stub, head cell, the one safetyhook inline detour.
-Target* target_for(uintptr_t addr) {
+// g_mutex held. Finds or creates the target: entry stub, head cell, the one safetyhook inline detour. *refused_quietly
+// is set when the address was refused before with the same bytes (nothing allocated, nothing logged).
+Target* target_for(uintptr_t addr, bool* refused_quietly) {
     State& s = S();
     if (auto it = s.by_addr.find(addr); it != s.by_addr.end()) return it->second;
+    if (auto it = s.refused.find(addr); it != s.refused.end()) {
+        uint8_t now[kFootprint] = {};
+        const bool readable = read_guarded(addr, now, sizeof now);
+        if (readable == it->second.readable && (!readable || !std::memcmp(now, it->second.bytes, sizeof now))) {
+            *refused_quietly = true;
+            return nullptr;
+        }
+        s.refused.erase(it);  // the bytes changed: try again
+    }
     if (s.targets.size() >= kMaxTargets) {
         KLOG_W("hooks: no free target slot (%zu in use)", kMaxTargets);
         return nullptr;
@@ -814,12 +885,31 @@ Target* target_for(uintptr_t addr) {
     auto t = std::make_unique<Target>();
     t->addr = addr;
     t->slot = static_cast<uint32_t>(s.targets.size());
-    t->head = alloc_cells(1);
-    t->entry_stub = alloc_code(96);
+    if (s.spare_head) {
+        t->head = s.spare_head;
+        t->entry_stub = s.spare_stub;
+        s.spare_head = nullptr;
+        s.spare_stub = nullptr;
+    } else {
+        t->head = alloc_cells(1);
+        t->entry_stub = alloc_code(96);
+    }
     if (!t->head || !t->entry_stub) {
         KLOG_E("hooks: out of stub memory");
         return nullptr;
     }
+    // From here a failure gives the cell and the stub back for the next target, and (when the bytes decide it)
+    // remembers the address so the same request is refused at once.
+    auto fail = [&](bool remember) -> Target* {
+        s.spare_head = t->head;
+        s.spare_stub = t->entry_stub;
+        if (remember) {
+            State::Refusal r;
+            r.readable = read_guarded(addr, r.bytes, sizeof r.bytes);
+            s.refused[addr] = r;
+        }
+        return nullptr;
+    };
     // Foreign hook already there? Compare the live bytes with the exe file's (the file is never patched).
     uint8_t live[kFootprint] = {}, file[kFootprint] = {};
     const bool have_live = read_guarded(addr, live, sizeof live);
@@ -864,18 +954,19 @@ Target* target_for(uintptr_t addr) {
     auto hook = safetyhook::InlineHook::create(reinterpret_cast<void*>(addr), t->entry_stub,
                                                safetyhook::InlineHook::StartDisabled);
     if (!hook) {
-        KLOG_E("hooks: safetyhook could not detour rva %s (error %d)", hex(rva_of(addr)).c_str(),
-               static_cast<int>(hook.error().type));
-        return nullptr;
+        KLOG_E("hooks: safetyhook could not detour rva %s (error %d); later requests for it are refused while its bytes "
+               "stay the same", hex(rva_of(addr)).c_str(), static_cast<int>(hook.error().type));
+        // An allocation failure (no memory near the target) is not the bytes' fault: not remembered.
+        return fail(hook.error().type != safetyhook::InlineHook::Error::BAD_ALLOCATION);
     }
     t->hook = std::move(*hook);
     t->trampoline = t->hook.target_address() ? t->hook.trampoline().address() : 0;
     t->head->store(t->trampoline, std::memory_order_release);
     FreezeReport rep;
     if (enable_detour(*t, rep)) {
-        KLOG_D("hooks: detour on rva %s written with %zu other thread(s) stopped for %.2f ms, %.2f ms to list and open them "
-               "(%zu not openable, %zu moved out of the replaced bytes, %zu without a context)",
-               hex(rva_of(addr)).c_str(), rep.threads, rep.stopped_ms, rep.list_ms, rep.unopened, rep.moved,
+        KLOG_D("hooks: detour on rva %s written with %zu other thread(s) stopped (of %zu listed) for %.2f ms, %.2f ms to "
+               "list and open them (%zu not openable, %zu moved out of the replaced bytes, %zu without a context)",
+               hex(rva_of(addr)).c_str(), rep.stopped, rep.threads, rep.stopped_ms, rep.list_ms, rep.unopened, rep.moved,
                rep.no_context);
         if (rep.stopped_ms > 50)
             KLOG_W("hooks: the other threads stood still for %.1f ms while the detour on rva %s was written",
@@ -895,7 +986,8 @@ Target* target_for(uintptr_t addr) {
         KLOG_W("hooks: rva %s: could not stop the other threads; using safetyhook's enable", hex(rva_of(addr)).c_str());
         if (!t->hook.enable()) {
             KLOG_E("hooks: safetyhook could not enable the detour on rva %s", hex(rva_of(addr)).c_str());
-            return nullptr;
+            t->hook = {};  // frees the trampoline; nothing was written
+            return fail(true);
         }
     }
     read_guarded(addr, t->own, sizeof t->own);
@@ -911,96 +1003,199 @@ Link* lookup(KilnHandle h) {
     const uint64_t hi = h >> 32;
     if (hi == 0 || hi > kMaxLinks) return nullptr;
     Link* l = S().links[hi - 1].load(std::memory_order_acquire);
-    return l && l->handle == h ? l : nullptr;
+    return l && l->h() == h ? l : nullptr;
 }
 
+KilnHandle make_handle(uint32_t index, uint64_t seq) {
+    return (static_cast<uint64_t>(index + 1) << 32) | static_cast<uint32_t>(seq);
+}
+
+// g_mutex held. One warning when 75% of the link slots are taken and one when the last is.
+void note_slot_use() {
+    State& s = S();
+    if (!s.warned_75 && s.next_link >= kMaxLinks / 4 * 3) {
+        s.warned_75 = true;
+        KLOG_W("hooks: %u of %zu link slots are used (links are never freed; a revoked link's slot is taken again only by "
+               "the same handler on the same target). See hooks.json \"linkSlots\"", s.next_link, kMaxLinks);
+    }
+    if (!s.warned_full && s.next_link >= kMaxLinks) {
+        s.warned_full = true;
+        KLOG_W("hooks: all %zu link slots are used: new hooks are refused until the game restarts (re-installing a "
+               "revoked handler still works)", kMaxLinks);
+    }
+}
+
+// Installs a link. Three cases, all published in one plan under the mutex:
+//  - new: a fresh slot, stubs and cells.
+//  - revived: a revoked link of this target with the same kind, handler, user data, argument count, owner and label
+//    takes its slot again (a new handle; order fields from this call). Why a call still in flight through the old
+//    incarnation stays correct: it is inside the same stubs and the same handler (fn and user are what made it a
+//    match), and whatever it continues through (a raw link's continuation `jmp [next]`, a structured link's
+//    run_rest -> cont, a mid link's continuation pushed from the same cell) reads the link's one next cell when it gets
+//    there, which names the next link of the current chain. Structured and mid dispatch read `live` on entry: a
+//    thread that reached the adapter while the link was dead forwards, one that reaches it after the revival runs the
+//    handler, as for any link added while threads run. The fields dispatch reads (kind, fn, user, arg_count, slot,
+//    target, entry, cont, next, label, owner name) are identical by the match and never written; only handle (atomic),
+//    priority, before/after, seq and warned (read under the mutex only) change.
+//  - a raw link whose handler already has a live raw link on this target replaces it: a raw handler reads one
+//    continuation variable, so two live links with one handler always loop or run it twice (RawHook::install on a
+//    live hook, `g = RawHook::create(...)`). The old link leaves the plan in the same publish, and its cell follows
+//    the new link's (plan_chain), so a call that already ran the handler as the old link goes on after the new link's
+//    place: no recursion, no second run. If the old and new links are otherwise equal, the old one is simply kept
+//    (revived in place).
 KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& order, void* fn, void* user,
                    uint32_t arg_count, void** original, KilnHandle* out) {
     State& s = S();
     if (!fn || !addr) return KILN_ERR_INVALID_ARGUMENT;
     if (!s.ready) return KILN_ERR_UNAVAILABLE;
     std::lock_guard lock(s.mutex);
-    if (s.next_link >= kMaxLinks) {
-        KLOG_W("hooks: link table full (%zu)", kMaxLinks);
-        return KILN_ERR_UNAVAILABLE;
-    }
     const bool had_target = s.by_addr.count(addr) != 0;
-    Target* t = target_for(addr);
+    if (!had_target && s.next_link >= kMaxLinks) return KILN_ERR_UNAVAILABLE;  // a new target has nothing to revive
+    bool quiet = false;
+    Target* t = target_for(addr, &quiet);
     if (!t) return KILN_ERR_UNAVAILABLE;
-    auto l = std::make_unique<Link>();
-    l->owner = owner;
-    l->owner_name = s.env.owner_name ? s.env.owner_name(owner) : std::string("owner ") + std::to_string(owner);
-    l->owner_key = norm_owner(l->owner_name);
-    if (!order.label.empty()) {
-        l->label = order.label;
+    normalize(*t);
+    const std::string owner_name =
+        s.env.owner_name ? s.env.owner_name(owner) : std::string("owner ") + std::to_string(owner);
+    std::string label = order.label;
+    if (label.empty()) {
+        const std::string& sym = target_symbol(*t);
+        label = sym.empty() ? owner_name + "@" + hex(rva_of(addr)) : sym;
+    }
+    auto same = [&](const Link* x) {
+        return x->kind == kind && x->fn == fn && x->user == user && x->arg_count == arg_count && x->owner == owner &&
+               x->label == label;
+    };
+    Link* replaced = nullptr;
+    if (kind == Kind::Raw)
+        for (Link* x : t->order)
+            if (x->kind == Kind::Raw && x->fn == fn) {
+                replaced = x;
+                break;
+            }
+    Link* link = nullptr;
+    if (replaced && same(replaced)) {
+        link = replaced;  // kept: re-ordered and given a new handle
+        replaced = nullptr;
+    }
+    for (size_t i = 0; i < t->dead.size() && !link; ++i)
+        if (same(t->dead[i])) link = t->dead[i];
+    const bool fresh = link == nullptr;
+    const bool kept = !fresh && link->live.load(std::memory_order_acquire);
+    uint32_t index = 0;
+    uint8_t* stub = nullptr;
+    std::atomic<uintptr_t>* cells = nullptr;
+    std::unique_ptr<Link> made;
+    if (fresh) {
+        if (s.next_link >= kMaxLinks) {
+            KLOG_D("hooks: no free link slot for \"%s\"", label.c_str());
+            return KILN_ERR_UNAVAILABLE;
+        }
+        cells = alloc_cells(2);  // [0] = next, [1] = self (the mid stub pushes it)
+        stub = alloc_code(48);
+        if (!cells || !stub) {
+            KLOG_E("hooks: out of stub memory");
+            return KILN_ERR_UNAVAILABLE;
+        }
+        made = std::make_unique<Link>();
+        made->owner = owner;
+        made->owner_name = owner_name;
+        made->owner_key = norm_owner(owner_name);
+        made->label = label;
+        made->kind = kind;
+        made->target = t;
+        made->slot = t->slot;
+        made->fn = fn;
+        made->user = user;
+        made->arg_count = arg_count;
+        index = s.next_link;
+    }
+    // ---- from here nothing fails before the publish ----
+    const uint64_t seq = s.next_seq++;
+    KilnHandle old_handle = 0;
+    if (replaced) {
+        old_handle = replaced->h();
+        replaced->live.store(false, std::memory_order_release);
+        retire(*t, replaced);
+    }
+    if (fresh) {
+        made->seq = seq;
+        made->handle.store(make_handle(index, seq), std::memory_order_relaxed);
+        made->next = &cells[0];
+        // The cell is never 0 (the real function until the plan below fills in the right entry).
+        cells[0].store(t->trampoline, std::memory_order_relaxed);
+        cells[1].store(reinterpret_cast<uintptr_t>(made.get()), std::memory_order_relaxed);
+        Em e(stub);
+        if (kind == Kind::Raw) {
+            made->entry = static_cast<uint8_t*>(fn);
+            e.jmp_cell(made->next);  // continuation
+            made->cont = stub;
+        } else if (kind == Kind::Mid) {
+            made->entry = stub;
+            e.push_cell(made->next);  // ctx.rip: the continuation
+            e.push_cell(&cells[1]);   // the Link* (kiln_hk_mid moves it out; the slot becomes ctx.trampoline_rsp)
+            e.jmp_cell(s.cell_mid);
+        } else {  // structured, v1
+            made->entry = stub;  // adapter
+            e.b(0x49), e.b(0xBB), e.q(reinterpret_cast<uint64_t>(made.get()));  // mov r11, Link
+            e.jmp_cell(s.cell_structured);
+            uint8_t* cont = stub + ((e.size() + 15) & ~size_t{15});
+            Em c(cont);
+            c.jmp_cell(made->next);
+            made->cont = cont;
+        }
+        flush(stub, 48);
+        link = made.release();
+        t->order.push_back(link);
     } else {
-        const std::string sym = s.env.symbol_at ? s.env.symbol_at(addr) : std::string();
-        l->label = sym.empty() ? l->owner_name + "@" + hex(rva_of(addr)) : sym;
+        if (!kept) {
+            t->dead.erase(std::find(t->dead.begin(), t->dead.end(), link));
+            t->order.push_back(link);
+        }
+        old_handle = kept ? link->h() : old_handle;
+        link->seq = seq;
+        link->priority = order.priority;
+        link->before = order.before;
+        link->after = order.after;
+        link->warned.clear();
+        link->anchor = nullptr;
     }
-    l->before = order.before;
-    l->after = order.after;
-    l->priority = order.priority;
-    l->seq = s.next_seq++;
-    l->kind = kind;
-    l->target = t;
-    l->slot = t->slot;
-    l->fn = fn;
-    l->user = user;
-    l->arg_count = arg_count;
-    const uint32_t index = s.next_link;
-    l->handle = (static_cast<uint64_t>(index + 1) << 32) | static_cast<uint32_t>(l->seq);
-    auto* cells = alloc_cells(2);  // [0] = next, [1] = self (the mid stub pushes it)
-    uint8_t* stub = alloc_code(48);
-    if (!cells || !stub) {
-        KLOG_E("hooks: out of stub memory");
-        return KILN_ERR_UNAVAILABLE;
+    if (fresh) {
+        link->before = order.before;
+        link->after = order.after;
+        link->priority = order.priority;
     }
-    l->next = &cells[0];
-    // The cell is never 0 (the real function until the plan below fills in the right entry).
-    cells[0].store(t->trampoline, std::memory_order_relaxed);
-    cells[1].store(reinterpret_cast<uintptr_t>(l.get()), std::memory_order_relaxed);
-    Em e(stub);
-    if (kind == Kind::Raw) {
-        l->entry = static_cast<uint8_t*>(fn);
-        e.jmp_cell(l->next);  // continuation
-        l->cont = stub;
-    } else if (kind == Kind::Mid) {
-        l->entry = stub;
-        e.push_cell(&cells[1]);
-        e.push_cell(l->next);
-        e.jmp_cell(s.cell_mid);
-    } else {  // structured, v1
-        l->entry = stub;  // adapter
-        e.b(0x49), e.b(0xBB), e.q(reinterpret_cast<uint64_t>(l.get()));  // mov r11, Link
-        e.jmp_cell(s.cell_structured);
-        uint8_t* cont = stub + ((e.size() + 15) & ~size_t{15});
-        Em c(cont);
-        c.jmp_cell(l->next);
-        l->cont = cont;
-    }
-    flush(stub, 48);
-
-    Link* link = l.release();
-    t->order.push_back(link);
     t->label_cache.clear();
-    // Place the link on paper first. `*original` is the continuation of the handler and is shared by every link its
-    // owner installed through that variable: a thread still inside a revoked link that used it (a RawHook installed again
-    // in place) jumps through the new link's cell the moment the variable changes, long before the cells are published.
+    // Place the link on paper first. `*original` is the continuation of the handler and may be shared with a link this
+    // install replaced or revived (RawHook installed again in place, or after a revoke): a thread still inside that
+    // link's handler jumps through this link's cell the moment the variable changes, before the cells are published.
     // So the cell gets the entry the link will really lead to (the link after it in the new chain, else the real
-    // function) first, then `*original`, then the chain itself. The thread then runs exactly the links it would have run
-    // a moment later, none skipped.
+    // function) first, then `*original`, then the chain itself. That entry is never the handler again: the plan holds
+    // one live raw link per handler and the replaced one is out of it, so the thread goes on after this link's place.
+    // A revived structured/mid link is live from here: a thread still inside its adapter from the old incarnation runs
+    // the handler and continues through its cell, which names a valid entry at every moment.
+    if (!fresh && !kept) link->live.store(true, std::memory_order_release);
     Plan plan = plan_chain(*t);
     link->next->store(plan.next_of(link), std::memory_order_release);
     if (original && kind == Kind::Raw) *original = link->cont;
-    s.links[index].store(link, std::memory_order_release);
-    ++s.next_link;
+    if (!fresh) link->handle.store(make_handle(static_cast<uint32_t>((link->h() >> 32) - 1), seq), std::memory_order_relaxed);
+    if (fresh) {
+        s.links[index].store(link, std::memory_order_release);
+        ++s.next_link;
+        note_slot_use();
+    }
     apply_plan(*t, plan);
-    if (out) *out = link->handle;
-    size_t live = 0;
-    for (Link* x : t->order) live += x->live.load() ? 1 : 0;
-    KLOG_I("hooks: %s link \"%s\" on rva %s prio %d (handle %llu, owner %s, %zu on target%s)", kind_name(kind),
-           link->label.c_str(), hex(rva_of(addr)).c_str(), link->priority, static_cast<unsigned long long>(link->handle),
-           link->owner_name.c_str(), live, had_target ? "" : ", new detour");
+    if (out) *out = link->h();
+    const char* how = fresh ? "" : kept ? ", kept in place" : ", revived";
+    if (old_handle)
+        KLOG_I("hooks: %s link \"%s\" on rva %s prio %d (handle %llu, owner %s, %zu on target%s, replaces handle %llu)",
+               kind_name(kind), link->label.c_str(), hex(rva_of(addr)).c_str(), link->priority,
+               static_cast<unsigned long long>(link->h()), link->owner_name.c_str(), t->order.size(), how,
+               static_cast<unsigned long long>(old_handle));
+    else
+        KLOG_I("hooks: %s link \"%s\" on rva %s prio %d (handle %llu, owner %s, %zu on target%s%s)", kind_name(kind),
+               link->label.c_str(), hex(rva_of(addr)).c_str(), link->priority, static_cast<unsigned long long>(link->h()),
+               link->owner_name.c_str(), t->order.size(), had_target ? "" : ", new detour", how);
     if (!had_target && t->before_present) {
         if (!t->before.module.empty() || t->before.address)
             KLOG_I("hooks: %s chained over %s", target_label(*t).c_str(), dest_text(t->before).c_str());
@@ -1107,8 +1302,11 @@ extern "C" uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const ui
     for (int i = 0; i < 4; ++i) f.args[i] = regs[i];
     for (int i = 0; i < 8; ++i) f.args[4 + i] = stack[i];
     if (!link->live.load(std::memory_order_acquire)) return run_rest(&f);  // revoked or disabled: just forward
-    S().detour_calls.fetch_add(1, std::memory_order_relaxed);
-    if (Block* b = current_block()) f.caller = b->caller[link->slot];
+    if (Block* b = current_block()) {
+        f.caller = b->caller[link->slot];
+        // this thread's own count (no read-modify-write on a shared line)
+        b->detour_calls.store(b->detour_calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    }
     uintptr_t ret = 0;
     unsigned long code = 0;
     bool ok;
@@ -1116,7 +1314,7 @@ extern "C" uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const ui
         KilnHookCall c{};
         c.size = sizeof c;
         c.arg_count = 4;
-        c.hook = link->handle;
+        c.hook = link->h();
         for (int i = 0; i < 4; ++i) c.args[i] = f.args[i];
         c.reserved = &f;
         ok = kiln::hooks::seh::call_detour(reinterpret_cast<KilnDetourFn>(link->fn), &c, link->user, &ret, &code,
@@ -1125,7 +1323,7 @@ extern "C" uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const ui
         KilnHookCall2 c{};
         c.size = sizeof c;
         c.arg_count = link->arg_count;
-        c.hook = link->handle;
+        c.hook = link->h();
         for (int i = 0; i < 12; ++i) c.args[i] = f.args[i];
         c.caller = f.caller;
         c.reserved = &f;
@@ -1136,24 +1334,25 @@ extern "C" uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const ui
     link->live.store(false, std::memory_order_release);
     link->target->dirty.store(true, std::memory_order_release);
     KLOG_E("hooks: %s link \"%s\" (handle %llu, owner %s) faulted (0x%08lx) and was disabled",
-           kind_name(link->kind), link->label.c_str(), static_cast<unsigned long long>(link->handle),
+           kind_name(link->kind), link->label.c_str(), static_cast<unsigned long long>(link->h()),
            link->owner_name.c_str(), code);
     if (S().env.changed) S().env.changed();
     return f.called ? f.original_ret : run_rest(&f);
 }
 
-extern "C" void kiln_hk_mid_dispatch(void* ctx) {
+extern "C" void kiln_hk_mid_dispatch(void* ctx, void* lp) {
     using namespace kiln::hooks::chain;
     auto* regs = static_cast<KilnRegisters*>(ctx);
-    auto* link = *reinterpret_cast<Link**>(regs->trampoline_rsp + 8);
+    auto* link = static_cast<Link*>(lp);  // kiln_hk_mid took it from the stub's slot before that became trampoline_rsp
     if (!link->live.load(std::memory_order_acquire)) return;
-    S().mid_calls.fetch_add(1, std::memory_order_relaxed);
+    if (Block* b = current_block())  // this thread's own count (no read-modify-write on a shared line)
+        b->mid_calls.store(b->mid_calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
     unsigned long code = 0;
     if (!kiln::hooks::seh::call_mid(reinterpret_cast<KilnMidFn>(link->fn), regs, link->user, &code)) {
         link->live.store(false, std::memory_order_release);
         link->target->dirty.store(true, std::memory_order_release);
         KLOG_E("hooks: mid link \"%s\" (handle %llu, owner %s) faulted (0x%08lx) and was disabled",
-               link->label.c_str(), static_cast<unsigned long long>(link->handle), link->owner_name.c_str(), code);
+               link->label.c_str(), static_cast<unsigned long long>(link->h()), link->owner_name.c_str(), code);
         if (S().env.changed) S().env.changed();
     }
 }
@@ -1190,10 +1389,11 @@ KilnResult revoke(KilnHandle h) {
     Link* l = lookup(h);
     if (!l) return KILN_ERR_NOT_FOUND;
     std::lock_guard lock(s.mutex);
+    if (l->h() != h) return KILN_ERR_NOT_FOUND;  // revived meanwhile under a new handle
     if (!l->live.exchange(false, std::memory_order_acq_rel)) return KILN_ERR_NOT_FOUND;
     rebuild(*l->target);
     KLOG_D("hooks: revoked %s link \"%s\" on rva %s (handle %llu)", kind_name(l->kind), l->label.c_str(),
-           hex(rva_of(l->target->addr)).c_str(), static_cast<unsigned long long>(l->handle));
+           hex(rva_of(l->target->addr)).c_str(), static_cast<unsigned long long>(h));
     notify_changed();
     return KILN_OK;
 }
@@ -1204,7 +1404,7 @@ size_t revoke_owner(KilnOwner owner) {
     size_t removed = 0;
     for (Target* t : s.targets) {
         bool any = false;
-        for (Link* l : t->order)
+        for (Link* l : t->order)  // live links only (a faulted one is retired by the rebuild either way)
             if (l->owner == owner && l->live.exchange(false, std::memory_order_acq_rel)) any = true, ++removed;
         if (any) rebuild(*t);
     }
@@ -1231,8 +1431,16 @@ Stats stats() {
         if (t->before_present) (t->before.own ? r.own_before : r.foreign_before)++;
         if (t->over_present) (t->over.own ? r.own_over : r.foreign_over)++;
     }
-    r.detour_calls = s.detour_calls.load(std::memory_order_relaxed);
-    r.mid_calls = s.mid_calls.load(std::memory_order_relaxed);
+    r.links_used = s.next_link;
+    r.links_cap = static_cast<uint32_t>(kMaxLinks);
+    AcquireSRWLockShared(&s.block_lock);
+    for (size_t i = 0; i < s.block_count; ++i) {
+        r.detour_calls += s.blocks[i]->detour_calls.load(std::memory_order_relaxed);
+        r.mid_calls += s.blocks[i]->mid_calls.load(std::memory_order_relaxed);
+    }
+    ReleaseSRWLockShared(&s.block_lock);
+    r.detour_calls += s.overflow.detour_calls.load(std::memory_order_relaxed);
+    r.mid_calls += s.overflow.mid_calls.load(std::memory_order_relaxed);
     return r;
 }
 
@@ -1296,7 +1504,7 @@ std::vector<TargetInfo> targets() {
         TargetInfo ti;
         ti.address = t->addr;
         ti.rva = rva_of(t->addr);
-        ti.symbol = s.env.symbol_at ? s.env.symbol_at(t->addr) : std::string();
+        ti.symbol = target_symbol(*t);
         ti.label = target_label(*t);
         for (Link* l : t->order)
             if (l->live.load(std::memory_order_acquire))
@@ -1318,6 +1526,13 @@ std::string map_text(const std::vector<ForeignSym>& foreign, const char* phase) 
     doc["phase"] = phase ? phase : "";
     doc["worldChecked"] = s.world_checked.load(std::memory_order_acquire);
     doc["generated"] = utc_now();
+    {
+        std::lock_guard lock(s.mutex);
+        json slots;
+        slots["used"] = s.next_link;
+        slots["cap"] = kMaxLinks;
+        doc["linkSlots"] = std::move(slots);
+    }
     json jts = json::array();
     for (const TargetInfo& t : targets()) {
         json jt;
@@ -1354,7 +1569,18 @@ std::string map_text(const std::vector<ForeignSym>& foreign, const char* phase) 
         std::lock_guard lock(s.mutex);
         ext = s.extensions;
     }
-    for (MapExtension fn : ext) fn(&doc, phase);
+    for (MapExtension fn : ext) {
+        // An extension's error (a json type error, bad_alloc) costs its section, never the map or the caller's thread.
+        try {
+            fn(&doc, phase);
+        } catch (const std::exception& e) {
+            static std::atomic<bool> once{false};
+            if (!once.exchange(true)) KLOG_W("hooks: a hook-map extension failed (%s); its section is left out", e.what());
+        } catch (...) {
+            static std::atomic<bool> once{false};
+            if (!once.exchange(true)) KLOG_W("hooks: a hook-map extension failed; its section is left out");
+        }
+    }
     return doc.dump(2, ' ', false, json::error_handler_t::replace) + "\n";  // never throw on a bad label
 }
 
@@ -1362,6 +1588,13 @@ std::string map_text(const std::vector<ForeignSym>& foreign, const char* phase) 
 // Introspection for the test and the map
 
 size_t link_count() { return S().next_link; }
+size_t code_bytes_used() { return S().arena.code_used; }
+
+void refresh_symbols() {
+    State& s = S();
+    std::lock_guard lock(s.mutex);
+    ++s.symbol_gen;
+}
 
 size_t thread_tables() {
     State& s = S();
@@ -1394,7 +1627,7 @@ std::vector<KilnHandle> chain_of(uintptr_t target) {
     auto it = s.by_addr.find(target);
     if (it == s.by_addr.end()) return out;
     for (Link* l : it->second->order)
-        if (l->live.load()) out.push_back(l->handle);
+        if (l->live.load()) out.push_back(l->h());
     return out;
 }
 
