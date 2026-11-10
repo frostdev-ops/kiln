@@ -282,6 +282,9 @@ export interface Profile {
   notes: string;
   mods: Record<ModKind, ProfileMod[]>;
   dropins: ModKind[];
+  /** `dropins` names the engine kinds too (dev.22). Absent (older profiles): all four Kiln kinds on means every kind.
+   *  pages/profiles/dropins.ts reads and writes both. */
+  dropinsEngines?: boolean;
   dataDir: "shared" | "profile";
   server: BoundServer | null;
   /** Native mod ids whose dllmain DLLs load after Kiln and ShroudForge (chain.ini [late]); absent when none. */
@@ -1114,6 +1117,39 @@ export const chainView = (profileId: ProfileId, gameId: GameId) => call<ChainVie
 export const chainSetLate = (profileId: ProfileId, gameId: GameId, path: string, late: boolean) =>
   call<ChainView>("chain_set_late", { profileId, gameId, path, late });
 
+// found.rs (kiln_manage::found): mods in the game folder that Kiln did not put there
+/** loads: at the next start with this profile (`via`); off: not with this profile (`reason`, `fix`); inProfile: the
+ *  profile has the same mod and its copy wins; cannotRun: nothing Kiln can run. */
+export type FoundState = "loads" | "off" | "inProfile" | "cannotRun";
+export interface FoundMod {
+  kind: ModKind | null;
+  name: string;
+  id: string | null;
+  version: string | null;
+  /** Relative to the game folder, with "/". */
+  path: string;
+  state: FoundState;
+  via?: "kiln" | "ownLoader";
+  /** One plain sentence. */
+  reason: string;
+  /** dropins: switch on the profile's drop-in folder of `kind`; add: found_add. */
+  fix?: "dropins" | "add";
+  profileMod?: string;
+}
+export interface OwnLoader { engine: string; name: string; kinds: ModKind[]; file: string }
+export interface FoundReport {
+  gameId: GameId;
+  profileId: ProfileId;
+  kilnInstalled: boolean;
+  mods: FoundMod[];
+  loaders: OwnLoader[];
+  unreadable: { path: string; reason: string }[];
+  truncated: boolean;
+}
+export const foundScan = (gameId: GameId, profileId: ProfileId) => call<FoundReport>("found_scan", { gameId, profileId });
+/** Task result: AddReport (`import.skipped` says why the Library refused it). */
+export const foundAdd = (gameId: GameId, profileId: ProfileId, path: string) => call<TaskId>("found_add", { gameId, profileId, path });
+
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
@@ -1340,6 +1376,7 @@ export const COMMANDS = [
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
   "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
+  "found_scan", "found_add",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

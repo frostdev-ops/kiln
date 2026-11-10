@@ -1275,7 +1275,7 @@ mod tests {
         };
         let mut p = Profile {
             format: 1, id: "p".into(), name: "p".into(), created: String::new(), updated: String::new(), generation: 1,
-            notes: String::new(), mods: Default::default(), dropins: vec![], data_dir: Default::default(), server: None, late: vec![],
+            notes: String::new(), mods: Default::default(), dropins: vec![], dropins_engines: false, data_dir: Default::default(), server: None, late: vec![],
         };
         assert!(set_entry_late(&install, &mut p, &entries[1], true).is_err(), "Kiln's own proxy always loads first");
     }
@@ -1339,7 +1339,7 @@ mod tests {
         };
         let mut p = Profile {
             format: 1, id: "p".into(), name: "p".into(), created: String::new(), updated: String::new(), generation: 1,
-            notes: String::new(), mods: Default::default(), dropins: vec![], data_dir: Default::default(), server: None, late: vec![],
+            notes: String::new(), mods: Default::default(), dropins: vec![], dropins_engines: false, data_dir: Default::default(), server: None, late: vec![],
         };
         let err = set_entry_late(&install, &mut p, &loader, true).unwrap_err();
         assert!(err.message.contains("EMF's loader"), "{}", err.message);

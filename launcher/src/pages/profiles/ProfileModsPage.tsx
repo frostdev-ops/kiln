@@ -1,6 +1,7 @@
 // /profiles/:id/mods: the profile's Kiln mods as the load order the resolver gives (client or server side): numerals,
 // flame toggles (light a mod or put it out and the order closes up), name and id, version, and why a mod stays out.
 // Rows glide to their new slots, keyed by mod id. The aside holds the side switch, the resolver's sentence and Add mod.
+// Below: "In the game folder" (GameFolder.tsx), the mods of every kind a player put in the game folder by hand.
 import { useQuery } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
@@ -8,6 +9,7 @@ import * as api from "../../api/commands";
 import type { ProfileMod, RunSide } from "../../api/commands";
 import { qk, useLibrary } from "../../api/hooks";
 import { Banner, Button, FlameToggle, Menu, Segmented, Skeleton, errorText, type MenuItem } from "../../ui";
+import { GameFolderSection } from "./GameFolder";
 import { AddModsModal, libName } from "./ModList";
 import { ProfileAside, useActivation, useOpenSettings } from "./ProfileLayout";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
@@ -82,6 +84,7 @@ export default function ProfileModsPage() {
             })}
           </ol>
         )}
+        <div style={{ marginTop: 24 }}><GameFolderSection profileId={id} /></div>
       </div>
       <ProfileAside>
         <span className="k-label" style={{ fontSize: 16 }}>Load order for</span>

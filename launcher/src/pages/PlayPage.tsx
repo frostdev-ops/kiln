@@ -3,6 +3,7 @@
 // The mouth (shell/AppShell.tsx) is the Play button. Banners (refusal, launch option, Steam update) sit above the name.
 // A first start: the launcher looks for the game by itself (shell/firstRun.tsx), then Install Kiln runs right here (the
 // mouth and the link open its confirm; the task shows in place of the sentence's links).
+// One line links to the profile's "In the game folder" section when the active profile leaves such mods unloaded.
 // The modpack offer is a working dialog (src/pages/servers/ModpackOffer.tsx, loaded when it exists).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
@@ -13,6 +14,7 @@ import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/comma
 import {
   invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
 } from "../api/hooks";
+import { useFound } from "./profiles/GameFolder";
 import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
 import {
@@ -97,6 +99,9 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: 15000 });
   const activeId = active.data?.profileId ?? null;
   const preview = useQuery({ queryKey: qk.resolve(activeId ?? "", "client"), queryFn: () => api.profileResolve(activeId!, "client"), enabled: !!activeId });
+  // mods extracted into the game folder that the active profile leaves out (kiln_manage::found)
+  const found = useFound(status.data?.runtime.installed ? game.id : null, activeId);
+  const unloaded = found.data?.mods.filter((m) => m.state === "off").length ?? 0;
   const [onceOpen, setOnceOpen] = useState(false);
   const [vanillaOpen, setVanillaOpen] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
@@ -183,6 +188,11 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         ) : (
           <div className="k-hero-state" key="stop">
             <p className="k-hero-say">{say}</p>
+            {rt?.installed && activeId && unloaded > 0 && (
+              <button type="button" className="k-link k-tone-warn" style={{ alignSelf: "flex-start" }} onClick={() => nav(`/profiles/${activeId}/mods#game-folder`)}>
+                {unloaded} {unloaded === 1 ? "mod" : "mods"} in the game folder {unloaded === 1 ? "does" : "do"} not load with this profile.
+              </button>
+            )}
             {rt?.installed ? (
               <div className="k-hero-once">
                 <span className="k-sc k-muted" style={{ fontSize: 17 }}>Just once:</span>
