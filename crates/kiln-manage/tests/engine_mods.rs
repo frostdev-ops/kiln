@@ -139,7 +139,8 @@ fn every_engine_kind_is_imported_profiled_placed_and_rendered() {
     assert!(engine_mods::marker(&game.path.join("mods/handmade")).is_none());
     // the file lists the engine kinds only when they have entries
     let text = std::fs::read_to_string(game.path.join("kiln/profile.json")).unwrap();
-    assert!(text.contains("\"shroudtopia\"") && !text.contains("\"enshwick\""));
+    let listed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(listed["mods"].get("shroudtopia").is_some() && listed["mods"].get("enshwick").is_none(), "{}", listed["mods"]);
     assert_ne!(file.fingerprint, None);
 
     // settings: ShroudForge on the placed copy, kept across a new activation

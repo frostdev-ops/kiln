@@ -122,7 +122,9 @@ Drop-ins with an active profile: every plugin reads its engine's folder when the
 kiln-enshwick, kiln-shroudlink and kiln-ember before dev.22; kiln-emf reads the core's bitmask, which has it).
 kiln-shroudforge hosts ShroudForge with an active profile when the profile lists an enabled ShroudForge mod, and since
 dev.22 also when ShroudForge drop-ins are on and its mods folder has a ShroudForge package. kiln-set reads only
-`shrouded_engine_tweaks/mods`, where the launcher places the profile's SET mods.
+`shrouded_engine_tweaks/mods`, where the launcher places the profile's SET mods. A profile made before dev.22 keeps
+loading the folders it loaded: the launcher names those kinds in the `dropins` list it writes
+([../profiles.md](../profiles.md#drop-in-folders)).
 
 **Under Wine without a DLL override** the loader file is in the folder but Wine loads its own builtin DLL of that name
 and reports the game folder's path for it. A check that reads the file at a loaded module's path would then see the

@@ -17,12 +17,14 @@ use serde::{Deserialize, Serialize};
 /// How each reader takes it (docs/kiln/profiles.md "Drop-in folders"):
 /// - kiln-core (`kiln`, `native`, `plugin`, `emf`, through `kiln.profile` `dropins()`) and kiln-eml (`eml`): `true`, or
 ///   a list naming the kind. A missing key is `false`.
-/// - compat.h's engines (Greeneye, Flame, Shroudtopia, Enshwick, Ember) and kiln-shroudlink: their folder is read when
-///   the profile has no `mods.<engine>` list, or when `dropins` is `true`. A list is not read by them.
+/// - compat.h's engines (Greeneye, Flame, Shroudtopia, Enshwick, Ember) and kiln-shroudlink: the same rule since dev.22
+///   (`true`, or a list naming the engine). Before dev.22 they ignored a list and read their folder whenever the profile
+///   had no `mods.<engine>` list; [`Profile::dropins_file`] keeps that for profiles made before dev.22.
 /// - kiln-shroudforge hosts ShroudForge (which runs its whole mods folder) when `mods.shroudforge` has an enabled entry,
-///   or (from dev.22) when `dropins` is `true` or names `shroudforge`.
-/// - kiln-set always reads `shrouded_engine_tweaks/mods`; Enshwick's loader runs every folder in `<game>/mods`. Neither
-///   reads `dropins`.
+///   or (from dev.22) when `dropins` is `true` or names `shroudforge` and that folder holds a ShroudForge package.
+/// - kiln-enshwick starts Enshwick's loader for a hand-installed folder only when `dropins` is `true` or names
+///   `enshwick`; once the loader runs (the profile has an Enshwick mod), it runs every folder in `<game>/mods`.
+/// - kiln-set always reads `shrouded_engine_tweaks/mods` and does not read `dropins`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dropins {
@@ -45,16 +47,16 @@ impl Dropins {
         }
     }
 
-    /// `true` itself (the only form compat.h's engines and kiln-shroudlink read).
+    /// `true` itself: every kind's folder.
     pub fn is_all(&self) -> bool {
         matches!(self, Dropins::All(true))
     }
 }
 
 /// The kinds whose plugin reads the profile's `dropins` for its own folder, in [`ModKind::ALL`] order: the switches the
-/// launcher offers. `dropins: true` is written when a profile has every one of them on. SET and Enshwick do not read
-/// `dropins` (see [`Dropins`]); Ember's mods do not run.
-pub const DROPIN_KINDS: [ModKind; 10] = [
+/// launcher offers. `dropins: true` is written when a profile has every one of them on. SET does not read `dropins`
+/// (see [`Dropins`]); Ember's mods do not run, so it has no switch.
+pub const DROPIN_KINDS: [ModKind; 11] = [
     ModKind::Kiln,
     ModKind::Native,
     ModKind::Plugin,
@@ -64,8 +66,14 @@ pub const DROPIN_KINDS: [ModKind; 10] = [
     ModKind::Greeneye,
     ModKind::Flame,
     ModKind::Shroudtopia,
+    ModKind::Enshwick,
     ModKind::Shroudlink,
 ];
+
+/// Engine kinds whose plugin, before dev.22, read its own folder whenever the profile listed no mod of that engine,
+/// whatever `dropins` said. A profile made before dev.22 keeps loading those folders ([`Profile::dropin_kinds`]).
+const READ_WHEN_UNLISTED: [ModKind; 5] =
+    [ModKind::Greeneye, ModKind::Flame, ModKind::Shroudtopia, ModKind::Shroudlink, ModKind::Ember];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -355,27 +363,36 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// The kinds whose drop-in folders this profile switches on, as the player sees them, in [`ModKind::ALL`] order. A
-    /// profile from before `dropinsEngines` with all four Kiln kinds on means every kind (older launchers wrote
-    /// `dropins: true` for it, which the engine plugins read as "my folder too").
+    /// The kinds whose drop-in folders this profile switches on, as the player sees them, in [`ModKind::ALL`] order.
+    ///
+    /// A profile from before `dropinsEngines` keeps what it loaded then. With all four Kiln kinds on that is every
+    /// kind (older launchers wrote `dropins: true` for it). Otherwise it is its list, plus the folders the engine
+    /// plugins read without asking `dropins`: Enshwick's always, and Greeneye's, Flame's, Shroudtopia's, shroudlink's
+    /// and Ember's while the profile lists no mod of that engine.
     pub fn dropin_kinds(&self) -> Vec<ModKind> {
-        if !self.dropins_engines && ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
+        if self.dropins_engines {
+            return ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k)).collect();
+        }
+        if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
             return ModKind::ALL.to_vec();
         }
-        ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k)).collect()
+        ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k) || *k == ModKind::Enshwick
+            || (READ_WHEN_UNLISTED.contains(k) && self.mods.list(*k).is_empty())).collect()
     }
 
-    /// profile.json `dropins` for this profile. Older profiles (no `dropinsEngines`) are written as before: `true` when
-    /// all four Kiln kinds are on, else their list. With `dropinsEngines`: `true` when every kind of [`DROPIN_KINDS`] is
-    /// on, `false` when none is, else the list of those that are (kinds whose plugin does not read `dropins` are left
-    /// out, so the file says the same to every reader).
+    /// profile.json `dropins` for this profile: `true` when every folder is on, `false` when none is, else the list of
+    /// the kinds that are. Every plugin reads it the same way since dev.22 ([`Dropins`]), so the list names exactly the
+    /// folders [`Profile::dropin_kinds`] shows. With `dropinsEngines`, "every" means every kind of [`DROPIN_KINDS`],
+    /// and kinds without a switch are left out. A profile from before `dropinsEngines` gets `true` with all four Kiln
+    /// kinds on, as older launchers wrote it.
     pub fn dropins_file(&self) -> Dropins {
         if !self.dropins_engines {
-            return match self.dropins.len() {
-                0 => Dropins::All(false),
-                _ if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) => Dropins::All(true),
-                _ => Dropins::Kinds(self.dropins.clone()),
-            };
+            if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
+                return Dropins::All(true);
+            }
+            // SET's plugin does not read `dropins`
+            let on: Vec<ModKind> = self.dropin_kinds().into_iter().filter(|k| *k != ModKind::Set).collect();
+            return if on.is_empty() { Dropins::All(false) } else { Dropins::Kinds(on) };
         }
         let on: Vec<ModKind> = DROPIN_KINDS.into_iter().filter(|k| self.dropins.contains(k)).collect();
         match on.len() {

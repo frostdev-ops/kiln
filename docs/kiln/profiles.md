@@ -55,23 +55,31 @@ play-once.ini.
 ## Drop-in folders
 
 The launcher's profile settings have one switch per kind whose plugin reads `dropins`, grouped as Kiln's own folders
-and other engines' folders:
+and other engines' folders. Since dev.22 every plugin reads the key the same way: with an active profile its folder
+is read when `dropins` is `true` or a list naming the kind, and not otherwise.
 
-| Switch | Folder | Read by, with an active profile |
+| Switch | Folder | Read by |
 |---|---|---|
-| Kiln, Native, Plugins, EMF | `kiln/mods`, `kiln/native`, `kiln/plugins`, `emf/mods` | kiln-core, kiln-emf: `true` or a list naming the kind |
-| EML | `mods`, `kiln/eml/mods` | kiln-eml: `true` or a list naming `eml` |
-| ShroudForge | ShroudForge's mods folder (`mods` unless its config says otherwise) | kiln-shroudforge hosts ShroudForge (which runs that whole folder) when the profile has an enabled ShroudForge mod, or with ShroudForge drop-ins on (`true` or `shroudforge` in the list; the drop-in half from dev.22) |
-| Greeneye, Flame, Shroudtopia, shroudlink | `greeneye`, `mods`, `mods`, `shroudlink_mods` | compat.h / kiln-shroudlink: the folder is read when the profile has no mods of that engine, or with `true`. A list does not reach them, so with mods of that engine in the profile the folder needs every switch on |
+| Kiln, Native, Plugins, EMF | `kiln/mods`, `kiln/native`, `kiln/plugins`, `emf/mods` | kiln-core, kiln-emf |
+| EML | `mods`, `kiln/eml/mods` | kiln-eml |
+| ShroudForge | ShroudForge's mods folder (`mods` unless its config says otherwise) | kiln-shroudforge hosts ShroudForge when that folder holds a ShroudForge package. It also hosts it for an enabled ShroudForge mod of the profile, and ShroudForge then runs the whole folder, switch or not |
+| Greeneye, Flame, Shroudtopia, shroudlink | `greeneye`, `mods`, `mods`, `shroudlink_mods` | kiln-greeneye, kiln-flame, kiln-shroudtopia, kiln-shroudlink |
+| Enshwick | `mods` | kiln-enshwick starts Enshwick's loader for a hand-installed folder. Once the loader runs (the profile has an Enshwick mod), it runs every folder in `mods`, switch or not |
 
-There is no switch for SET (`shrouded_engine_tweaks/mods` always loads), Enshwick (its loader runs every folder in
-`mods`) or Ember (its mods do not run yet).
+There is no switch for SET (`shrouded_engine_tweaks/mods` always loads) or Ember (its mods do not run yet).
 
 The launcher's `meta.json` keeps the switches in `dropins`. Since dev.22 it also writes `"dropinsEngines": true`: the
 list then names the engine kinds too, and profile.json gets `true` only when every switch is on, `false` when none is,
-otherwise the list of the switched kinds (`kiln_manage::profile::Profile::dropins_file`). A profile without
-`dropinsEngines` (made before dev.22) loads as before: all four Kiln kinds on means `dropins: true`, every kind's
-folder; any other list is written as it is. The settings dialog shows such a profile with every switch on.
+otherwise the list of the switched kinds (`kiln_manage::profile::Profile::dropins_file`).
+
+**Profiles made before dev.22** (no `dropinsEngines`) keep loading what they loaded. Before dev.22 the engine plugins
+did not all ask `dropins`: Greeneye, Flame, Shroudtopia, shroudlink and Ember read their folder whenever the profile
+had no mod of that engine, and Enshwick's loader ran for every hand-installed folder. So for such a profile:
+- all four Kiln kinds on: `dropins: true`, every kind's folder, as before;
+- otherwise profile.json gets its list plus `enshwick`, and `greeneye`, `flame`, `shroudtopia`, `shroudlink`, `ember`
+  while the profile has no mod of that engine.
+
+The settings dialog shows these switches as on. Saving the dialog writes the explicit list with `dropinsEngines`.
 
 ## Mods in the game folder
 
@@ -84,8 +92,8 @@ entries. The Library's detection says what each is. Each mod gets one state:
 
 | State | When | What the player can do |
 |---|---|---|
-| Loads | the kind's plugin reads the folder with this profile, or the engine's own loader is in the game folder (`dbghelp.dll`, `powrprof.dll` and the other proxy names, or a loader `kiln/chain.ini [chain]` chains): it runs the folder itself and Kiln's plugin steps aside | nothing |
-| Not loaded | drop-ins of that kind are off; a ShroudForge mod without ShroudForge drop-ins or ShroudForge mods; a Greeneye (Flame, Shroudtopia, shroudlink) mod while the profile has mods of that engine and not every switch is on; a mod in a folder its loader does not read (an EMF mod in `mods`); a folder of several mods; Kiln not installed | **Load the game-folder <engine> mods** (that kind's switch on) when that is enough, else **Add to this profile** (`found_add`: the Library imports the folder and the profile lists it, enabled; the player's folder stays) |
+| Loads | the kind's plugin reads the folder with this profile, or the engine's own loader runs the folder itself and Kiln's plugin steps aside: a loader `kiln/chain.ini [chain]` chains, or on Windows a loader under a proxy name in the game folder (`dbghelp.dll`, `powrprof.dll` ...). Under Wine and Proton such a file runs only with a DLL override, which the launcher cannot see: there the mod counts as loading only when Kiln's plugin reads the folder, and the reason names the loader | nothing |
+| Not loaded | drop-ins of that kind are off (for ShroudForge and Enshwick: and the profile has no enabled mod of that engine); a mod in a folder its loader does not read (an EMF mod in `mods`); a folder of several mods; Kiln not installed | **Load the game-folder <engine> mods** (that kind's switch on) when that is enough, else **Add to this profile** (`found_add`: the Library imports the folder and the profile lists it, enabled; the player's folder stays) |
 | In this profile | the profile lists the same mod (same id, case ignored, or the Library copy was imported from that folder) | nothing: the profile's copy wins |
 | Can't run | not a mod Kiln knows, a link, an Ember mod, a DLL over 64 MiB | nothing; the reason is the detection's |
 

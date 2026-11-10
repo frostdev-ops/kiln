@@ -196,9 +196,7 @@ impl ProfileView {
         for k in ModKind::ALL {
             for m in p.mods.list(k) { mods.push((k, m.id.clone(), m.enabled)); }
         }
-        // as profile::render writes `dropins` (every Kiln kind on: `true`)
-        let dropins_shroudforge = p.dropins.contains(&ModKind::ShroudForge) || ModKind::CORE.iter().all(|k| p.dropins.contains(k));
-        ProfileView { mods, dropins_shroudforge }
+        ProfileView { mods, dropins_shroudforge: names_shroudforge(&p.dropins_file()) }
     }
 
     pub fn of_file(f: &crate::profile::ProfileFile) -> Self {
@@ -282,7 +280,9 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                     not_copied.len(), names(&not_copied))),
             }
         }
-        if l.via == Via::Proxy && l.file.to_ascii_lowercase() != "dinput8.dll" {
+        // On Windows the game imports these names, so the file always runs. A launcher built for Linux manages games
+        // that run under Wine or Proton.
+        if cfg!(not(windows)) && l.via == Via::Proxy && !l.file.eq_ignore_ascii_case("dinput8.dll") {
             text.push_str(". Under Wine or Proton it runs only with a DLL override; without one Kiln runs these mods itself");
         }
         out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, text });

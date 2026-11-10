@@ -100,15 +100,15 @@ const KILN_DROPINS: DropinRow[] = [
   { kind: "plugin", label: "Plugins", folder: "kiln/plugins" },
   { kind: "emf", label: "EMF mods", folder: "emf/mods" },
 ];
-const ONLY_UNLISTED = (k: string) => `Off stops them only while this profile has ${k} mods of its own.`;
 /** Other engines' folders (each engine plugin's own folder, where their mod pages say to extract). */
 const ENGINE_DROPINS: DropinRow[] = [
   { kind: "eml", label: "EML mods", folder: "mods, kiln/eml/mods" },
   { kind: "shroudforge", label: "ShroudForge mods", folder: "ShroudForge's mods folder (mods)" },
-  { kind: "greeneye", label: "Greeneye mods", folder: "greeneye", hint: ONLY_UNLISTED("Greeneye") },
-  { kind: "flame", label: "Flame mods", folder: "mods", hint: ONLY_UNLISTED("Flame") },
-  { kind: "shroudtopia", label: "Shroudtopia mods", folder: "mods", hint: ONLY_UNLISTED("Shroudtopia") },
-  { kind: "shroudlink", label: "shroudlink mods (servers)", folder: "shroudlink_mods", hint: ONLY_UNLISTED("shroudlink") },
+  { kind: "greeneye", label: "Greeneye mods", folder: "greeneye" },
+  { kind: "flame", label: "Flame mods", folder: "mods" },
+  { kind: "shroudtopia", label: "Shroudtopia mods", folder: "mods" },
+  { kind: "enshwick", label: "Enshwick mods", folder: "mods", hint: "Enshwick's loader runs every folder in mods once this profile has an Enshwick mod." },
+  { kind: "shroudlink", label: "shroudlink mods (servers)", folder: "shroudlink_mods" },
 ];
 
 function ProfileSettingsModal({ open, onClose, onSave, ...init }: {

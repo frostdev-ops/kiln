@@ -289,38 +289,18 @@ fn own_loaders(game: &Path) -> (Vec<OwnLoader>, bool) {
 fn folder_read(kind: ModKind, p: &Profile) -> (bool, String) {
     let file = p.dropins_file();
     let label = short(kind);
-    let listed = !p.mods.list(kind).is_empty();
+    let on = || (true, format!("{label} drop-ins are on in this profile."));
+    let off = || (false, format!("{label} drop-ins are off in this profile."));
     match kind {
-        ModKind::Kiln | ModKind::Native | ModKind::Plugin | ModKind::Emf | ModKind::Eml => {
-            if file.names(kind) {
-                (true, format!("{label} drop-ins are on in this profile."))
-            } else {
-                (false, format!("{label} drop-ins are off in this profile."))
-            }
-        }
-        ModKind::Greeneye | ModKind::Flame | ModKind::Shroudtopia | ModKind::Shroudlink | ModKind::Ember => {
-            let (reader, folder) = (reader_of(kind), folders_of(kind));
-            if !listed {
-                (true, format!("This profile has no {label} mods of its own, so {reader} reads {folder}."))
-            } else if file.is_all() {
-                (true, "Every drop-in folder is on in this profile.".to_string())
-            } else {
-                (false, format!("This profile has {label} mods of its own. {reader} then reads {folder} only when every drop-in folder is on."))
-            }
-        }
-        ModKind::Enshwick => (true, "Enshwick's loader runs every folder in mods.".to_string()),
         ModKind::Set => (true, "kiln-set always reads shrouded_engine_tweaks/mods.".to_string()),
-        // kiln-shroudforge hosts ShroudForge, which runs its whole mods folder, for an enabled profile entry or with
-        // ShroudForge drop-ins on (the drop-in half is WP ownloader's dev.22 plugin change)
-        ModKind::ShroudForge => {
-            if file.names(kind) {
-                (true, "ShroudForge drop-ins are on in this profile.".to_string())
-            } else if p.mods.shroudforge.iter().any(|m| m.enabled) {
-                (true, "This profile has a ShroudForge mod, so ShroudForge runs its whole mods folder.".to_string())
-            } else {
-                (false, "ShroudForge drop-ins are off in this profile.".to_string())
-            }
-        }
+        _ if file.names(kind) => on(),
+        // kiln-shroudforge hosts ShroudForge, which runs its whole mods folder, for an enabled profile entry too
+        ModKind::ShroudForge if p.mods.shroudforge.iter().any(|m| m.enabled) =>
+            (true, "This profile has a ShroudForge mod, so ShroudForge runs its whole mods folder.".to_string()),
+        // kiln-enshwick starts Enshwick's loader for an enabled profile entry; the loader then runs every folder
+        ModKind::Enshwick if p.mods.enshwick.iter().any(|m| m.enabled) =>
+            (true, "This profile has an Enshwick mod, so Enshwick's loader runs every folder in mods.".to_string()),
+        _ => off(),
     }
 }
 
@@ -381,6 +361,8 @@ struct Ctx<'a> {
     profile: &'a Profile,
     loaders: &'a [OwnLoader],
     kiln: bool,
+    /// Wine or Proton: a loader under a proxy name next to the game runs only with a DLL override for that name.
+    wine: bool,
 }
 
 fn found(name: String, path: String, state: FoundState, reason: String) -> FoundMod {
@@ -438,18 +420,32 @@ fn entry(cx: &Ctx, root: &Root, abs: &Path, file_name: &str, is_zip: bool) -> Fo
         m.profile_mod = Some(pm.id.clone());
         return m;
     }
-    if let Some(l) = cx.loaders.iter().find(|l| l.kinds.contains(&kind)) {
+    let loader = cx.loaders.iter().find(|l| l.kinds.contains(&kind));
+    // A chained loader always runs. One under a proxy name always runs on Windows (the game imports those names);
+    // under Wine and Proton only with a DLL override, which the launcher cannot see.
+    let maybe = loader.filter(|l| cx.wine && !l.file.contains('/'));
+    if let Some(l) = loader.filter(|_| maybe.is_none()) {
         m.state = FoundState::Loads;
         m.via = Some(FoundVia::OwnLoader);
         m.reason = format!("{}'s own loader ({}) is in the game folder and loads it itself.", short_engine(l), l.file);
         return m;
     }
     if !cx.kiln {
-        m.reason = "Kiln is not installed in this game.".into();
+        m.reason = match maybe {
+            Some(l) => format!("Kiln is not installed in this game. {}'s own loader ({}) loads it only when the game starts with a DLL override for that file.",
+                short_engine(l), l.file),
+            None => "Kiln is not installed in this game.".into(),
+        };
         return m;
     }
     let (reads, why) = folder_read(kind, cx.profile);
-    m.reason = why;
+    m.reason = match maybe {
+        Some(l) if reads => format!("{why} {}'s own loader ({}) loads it instead when the game starts with a DLL override for that file.",
+            short_engine(l), l.file),
+        Some(l) => format!("{why} {}'s own loader ({}) is in the game folder, but on Linux it runs only when the game starts with a DLL override for that file.",
+            short_engine(l), l.file),
+        None => why,
+    };
     if reads {
         m.state = FoundState::Loads;
         m.via = Some(FoundVia::Kiln);
@@ -492,7 +488,7 @@ pub fn scan(dirs: &DataDirs, install: &GameInstall, profile: &Profile) -> FoundR
     let kiln_installed = kiln_proxy || receipt.is_some();
     // Kiln's own files in kiln/plugins (kiln-*.dll, and anything its receipt lists)
     let shipped: Vec<String> = receipt.iter().flat_map(|r| r.files.iter().map(|f| f.path.replace('\\', "/").to_ascii_lowercase())).collect();
-    let cx = Ctx { dirs, game, profile, loaders: &loaders, kiln: kiln_installed };
+    let cx = Ctx { dirs, game, profile, loaders: &loaders, kiln: kiln_installed, wine: install.platform != crate::game::Platform::Windows };
     let mut rep = FoundReport {
         game_id: install.id.clone(),
         profile_id: profile.id.clone(),

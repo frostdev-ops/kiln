@@ -92,10 +92,23 @@ fn own_loader_runs_its_folder() {
     let g = game(&t.0, true);
     eml_mod(&g.path, "ChestSlots");
     put(&g.path, "dbghelp.dll", &build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_FILE_PATH"));
-    let r = scan(&dirs, &g, &profile(&[], true));
+    // on Windows the game imports dbghelp.dll, so EML's loader runs and reads mods/ itself
+    let mut win = g.clone();
+    win.platform = Platform::Windows;
+    let r = scan(&dirs, &win, &profile(&[], true));
     assert!(r.loaders.iter().any(|l| l.engine == Engine::Eml && l.file == "dbghelp.dll" && l.kinds == [ModKind::Eml]), "{:?}", r.loaders);
     let m = one(&r, "mods/ChestSlots");
     assert_eq!((m.state, m.via), (FoundState::Loads, Some(FoundVia::OwnLoader)), "{m:?}");
+    assert!(m.reason.contains("dbghelp.dll"), "{}", m.reason);
+    // under Proton it runs only with a DLL override the launcher cannot see: without EML drop-ins nothing is promised
+    let r = scan(&dirs, &g, &profile(&[], true));
+    let m = one(&r, "mods/ChestSlots");
+    assert_eq!((m.state, m.via, m.fix), (FoundState::Off, None, Some(FoundFix::Dropins)), "{m:?}");
+    assert!(m.reason.contains("dbghelp.dll") && m.reason.contains("DLL override"), "{}", m.reason);
+    // with EML drop-ins on it loads either way: by Kiln, or by EML's loader when the override is set
+    let r = scan(&dirs, &g, &profile(&[ModKind::Eml], true));
+    let m = one(&r, "mods/ChestSlots");
+    assert_eq!((m.state, m.via), (FoundState::Loads, Some(FoundVia::Kiln)), "{m:?}");
     assert!(m.reason.contains("dbghelp.dll"), "{}", m.reason);
     // a loader Kiln's installer moved into kiln/chain/ counts too
     std::fs::remove_file(g.path.join("dbghelp.dll")).unwrap();
@@ -137,17 +150,24 @@ fn compat_engines_read_their_folder_unless_the_profile_lists_the_engine() {
     let g = game(&t.0, true);
     put(&g.path, "greeneye/zoom/mod.json", br#"{"id":"zoom","name":"Zoom Out","version":"1.0.0","dll":"zoom.dll"}"#);
     put(&g.path, "greeneye/zoom/zoom.dll", &build_test_dll(&["GreeneyeModStart"], b""));
-    let mut p = profile(&[], true);
+    // a profile from before dev.22 with no Greeneye mods of its own: kiln-greeneye read the folder then, and still does
+    let mut p = profile(&[], false);
     let m = scan(&dirs, &g, &p);
     let z = one(&m, "greeneye/zoom");
     assert_eq!((z.kind, z.state), (Some(ModKind::Greeneye), FoundState::Loads), "{z:?}");
-    // the profile has Greeneye mods of its own: the folder is read only with `dropins: true`
+    assert!(p.dropins_file().names(ModKind::Greeneye));
+    // ... and stopped reading it once the profile had Greeneye mods of its own
     p.mods.greeneye.push(pm("other"));
     let z = scan(&dirs, &g, &p).mods.remove(0);
-    assert_eq!((z.state, z.fix), (FoundState::Off, Some(FoundFix::Add)), "Greeneye's switch alone does not help: {z:?}");
-    p.dropins = crate::profile::DROPIN_KINDS.iter().copied().filter(|k| *k != ModKind::Greeneye).collect();
+    assert_eq!((z.state, z.fix), (FoundState::Off, Some(FoundFix::Dropins)), "{z:?}");
+    // a dev.22 profile: Greeneye's switch decides, whatever the profile lists
+    let mut p = profile(&[], true);
     let z = scan(&dirs, &g, &p).mods.remove(0);
-    assert_eq!((z.state, z.fix), (FoundState::Off, Some(FoundFix::Dropins)), "the last switch makes it true: {z:?}");
+    assert_eq!((z.state, z.fix), (FoundState::Off, Some(FoundFix::Dropins)), "{z:?}");
+    p.dropins = vec![ModKind::Greeneye];
+    p.mods.greeneye.push(pm("other"));
+    let z = scan(&dirs, &g, &p).mods.remove(0);
+    assert_eq!(z.state, FoundState::Loads, "{z:?}");
     // the same mod in the profile: the profile's copy wins
     p.mods.greeneye.push(pm("zoom"));
     let z = scan(&dirs, &g, &p).mods.remove(0);
@@ -244,15 +264,26 @@ fn add_imports_into_a_profile_that_is_not_active() {
 
 #[test]
 fn dropins_of_old_profiles_are_written_as_before() {
+    // The engine plugins that read their folder without asking `dropins` before dev.22 (Enshwick always; Greeneye,
+    // Flame, Shroudtopia, shroudlink and Ember while the profile listed no mod of theirs) are named in the list now,
+    // so an old profile loads the same folders under the one rule.
+    use ModKind as K;
+    let unasked = [K::Greeneye, K::Flame, K::Shroudtopia, K::Enshwick, K::Shroudlink, K::Ember];
+    let with = |own: &[ModKind]| ModKind::ALL.into_iter().filter(|k| own.contains(k) || unasked.contains(k)).collect::<Vec<_>>();
     for (kinds, want) in [
-        (vec![], Dropins::All(false)),
-        (vec![ModKind::Plugin], Dropins::Kinds(vec![ModKind::Plugin])),
-        (ModKind::CORE.to_vec(), Dropins::All(true)),
-        (ModKind::ALL.to_vec(), Dropins::All(true)),
-        (vec![ModKind::Kiln, ModKind::Eml], Dropins::Kinds(vec![ModKind::Kiln, ModKind::Eml])),
+        (vec![], Dropins::Kinds(with(&[]))),
+        (vec![K::Plugin], Dropins::Kinds(with(&[K::Plugin]))),
+        (K::CORE.to_vec(), Dropins::All(true)),
+        (K::ALL.to_vec(), Dropins::All(true)),
+        (vec![K::Kiln, K::Eml], Dropins::Kinds(with(&[K::Kiln, K::Eml]))),
     ] {
         assert_eq!(profile(&kinds, false).dropins_file(), want, "{kinds:?}");
     }
+    // a profile with Flame mods of its own did not read Flame's folder: it still does not
+    let mut p = profile(&[], false);
+    p.mods.flame.push(pm("lamp"));
+    assert!(!p.dropins_file().names(K::Flame) && p.dropins_file().names(K::Greeneye) && !p.dropins_file().names(K::Eml));
+    assert!(!p.dropin_kinds().contains(&K::Flame) && p.dropin_kinds().contains(&K::Enshwick));
     // an old meta.json reads with dropinsEngines off, and writes back without it
     let old = r#"{"format":1,"id":"p","name":"P","created":"","updated":"","generation":3,"mods":{"kiln":[]},"dropins":["kiln","native","plugin","emf"]}"#;
     let p: Profile = serde_json::from_str(old).unwrap();
@@ -271,7 +302,8 @@ fn dropins_with_engine_switches_round_trip() {
         (all.clone(), Dropins::All(true)),
         (K::ALL.to_vec(), Dropins::All(true)),
         // kinds whose plugin does not read dropins are left out of the file
-        (vec![K::Set, K::Enshwick, K::Ember], Dropins::All(false)),
+        (vec![K::Set, K::Ember], Dropins::All(false)),
+        (vec![K::Set, K::Enshwick, K::Ember], Dropins::Kinds(vec![K::Enshwick])),
         (vec![K::Greeneye, K::Kiln, K::Set], Dropins::Kinds(vec![K::Kiln, K::Greeneye])),
     ] {
         let p = profile(&kinds, true);
