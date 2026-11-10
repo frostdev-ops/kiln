@@ -87,6 +87,7 @@ internal static unsafe class UiEngine
     private static readonly UiDraw Draw = new();
     private static uint _lastDemand = uint.MaxValue, _lastCapture = uint.MaxValue, _lastHover = uint.MaxValue;
     private static string? _remapping;  // binding id waiting for "press a key"
+    private static bool _pageHost;      // this Kiln.Ui draws the Kiln menu inside the game's main menu (kiln.ui v4)
 
     public static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, "ui: " + text);
 
@@ -100,11 +101,15 @@ internal static unsafe class UiEngine
         }
         KeyBindings.Load();
         ApplyMenuKey(KeyBindings.MenuKey);
+        // the game page needs the layout calls (v3) for the page itself and v4 for the page state
+        _pageHost = UiNative.T3 != null && GamePageHost.Claim();
+        var page = _pageHost ? GamePageHost.Read() : null;
         Ui.Screens.Start();
         RefusalNotice.Start();
         Recount();
         Log(LogLevel.Info, $"Kiln.Ui ready; Kiln menu on {KeyBindings.MenuKey}; game UI {(UiNative.HasGameUi && Ui.Screens.Available ? "on" : "off")}, " +
-                           $"crafting menu extension {(UiNative.Craft != null ? "on" : "off")}");
+                           $"crafting menu extension {(UiNative.Craft != null ? "on" : "off")}, " +
+                           $"Kiln menu in the game's main menu {(page is { Available: true } ? "on" : "off")}");
     }
 
     public static void ApplyMenuKey(KeyChord k)
@@ -329,11 +334,22 @@ internal static unsafe class UiEngine
         Draw.Frame = f;
         var ui = Draw;
         RenderDispatch.Frame(ui);  // RenderFrameEvent handlers (they draw on the background list, under everything below)
-        if (f.MenuOpen != 0)
+        // the Kiln menu: inside the game's main menu (the game page), or the full-display mod manager over the game; an
+        // older kiln.ui without the layout calls keeps the small window
+        var page = _pageHost ? GamePageHost.Read() ?? default : default;
+        switch (MenuHosts.Choose(f.MenuOpen != 0, page))
         {
-            // the full-display mod manager; an older kiln.ui without the layout calls keeps the small window
-            if (ui.HasLayout) ModManagerHost.Draw(ui);
-            else Menu(ui);
+            case MenuHost.GamePage:
+                GamePageHost.Draw(ui, page);
+                break;
+            case MenuHost.Standalone:
+                GamePageHost.NotShown();
+                if (ui.HasLayout) ModManagerHost.Draw(ui);
+                else Menu(ui);
+                break;
+            default:
+                GamePageHost.NotShown();
+                break;
         }
         UiWindow[] windows;
         HudLine[] hud;

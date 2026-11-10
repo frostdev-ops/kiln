@@ -195,6 +195,33 @@ internal static unsafe class UiNative
         public delegate* unmanaged[Cdecl]<float, void> SetScrollHereY;
     }
 
+    /// <summary>KilnUiMenuPage (kiln_ui.h v4): the Kiln page inside the game's main menu.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MenuPage
+    {
+        public uint Size;
+        public byte Available, State, ErrorPopup, Metrics, OpenedBy;
+        public byte R0, R1, R2, R3, R4, R5, R6;
+        public ulong UiFrame, OpenedFrame, ShownFrame;
+        public float CanvasWidth, CanvasHeight, ViewportX, ViewportY, ViewportWidth, ViewportHeight, PixelsPerUnit;
+        public float PadLeft, PadTop, PadRight, PadBottom;
+        public float X0, Y0, X1, Y1;
+        public uint Reserved2;
+    }
+
+    /// <summary>The whole kiln.ui v4 table: <see cref="Table3"/>, then the main-menu page and the font choice.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table4
+    {
+        public Table3 Base;
+        public delegate* unmanaged[Cdecl]<MenuPage*, int> GetMenuPage;
+        public delegate* unmanaged[Cdecl]<void> MenuPageDrawn;
+        public delegate* unmanaged[Cdecl]<void> MenuPageLeave;
+        public delegate* unmanaged[Cdecl]<uint, void> MenuPageHost;
+        public delegate* unmanaged[Cdecl]<uint, byte> PushFont;
+        public delegate* unmanaged[Cdecl]<void> PopFont;
+    }
+
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CraftMenuTable
@@ -237,6 +264,7 @@ internal static unsafe class UiNative
     private static Table* _table;
     private static Table2* _table2;
     private static Table3* _table3;
+    private static Table4* _table4;
     public static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.ui", 1));
 
     /// <summary>The v2 table (right clicks, the wheel), or null on a kiln.ui without them.</summary>
@@ -246,12 +274,16 @@ internal static unsafe class UiNative
     /// an older kiln.ui (version below 3, or a table that ends before the v3 slots).</summary>
     public static Table3* T3 => _table3 != null ? _table3 : (_table3 = Services.Get<Table3>("kiln.ui", 3));
 
+    /// <summary>The v4 table (the main-menu page, the font choice), or null on an older kiln.ui.</summary>
+    public static Table4* T4 => _table4 != null ? _table4 : (_table4 = Services.Get<Table4>("kiln.ui", 4));
+
     /// <summary>Forgets the cached tables (tests swap the backend).</summary>
     internal static void ResetForTests()
     {
         _table = null;
         _table2 = null;
         _table3 = null;
+        _table4 = null;
     }
 
     public static bool Available => T != null;

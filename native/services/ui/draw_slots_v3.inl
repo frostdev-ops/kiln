@@ -16,12 +16,20 @@ inline int& var_depth() {
     thread_local int depth = 0;
     return depth;
 }
+inline int& font_depth() {  // v4 push_font (draw_slots_v4.inl)
+    thread_local int depth = 0;
+    return depth;
+}
 
 // End of frame (ui.cpp, the preview): pushes a callback left open.
 inline void v3_frame_end() {
     while (font_size_depth() > 0) {
         ImGui::PopFont();
         --font_size_depth();
+    }
+    while (font_depth() > 0) {
+        ImGui::PopFont();
+        --font_depth();
     }
     if (color_depth() > 0) ImGui::PopStyleColor(color_depth());
     if (var_depth() > 0) ImGui::PopStyleVar(var_depth());

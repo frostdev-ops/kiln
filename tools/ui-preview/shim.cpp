@@ -49,9 +49,10 @@ KilnHandle next_handle() {
 namespace {
 using namespace kui_draw;
 
-// ---- the fake kiln.assets: one keen::UiFontResource whose font 0 is the TTF given ----
-std::vector<uint8_t> g_ttf;
-std::vector<uint8_t> g_font_res;  // fonts {off 16, count 1}, groups {0, 0}, then the record (a KilnContentHash)
+// ---- the fake kiln.assets: one keen::UiFontResource whose font 0 is the TTF given (and font 1 its bold face, when given)
+std::vector<uint8_t> g_ttf, g_bold_ttf;
+std::string g_bold_path;
+std::vector<uint8_t> g_font_res;  // fonts, then (with a bold face) one default language group with a regular and a bold set
 
 KilnResult KILN_CALL a_resource_list(uint32_t, KilnAssetKey* out, size_t cap, size_t* n) {
     if (n) *n = g_ttf.empty() ? 0 : 1;
@@ -65,9 +66,11 @@ KilnResult KILN_CALL a_resource_read(const KilnAssetKey*, void* buf, size_t cap,
     return KILN_OK;
 }
 KilnResult KILN_CALL a_blob_read(const KilnContentHash* h, void* buf, size_t cap, size_t* len) {
-    if (g_ttf.empty() || !h || h->size != g_ttf.size()) return KILN_ERR_NOT_FOUND;
-    if (len) *len = g_ttf.size();
-    if (buf && cap >= g_ttf.size()) std::memcpy(buf, g_ttf.data(), g_ttf.size());
+    if (g_ttf.empty() || !h) return KILN_ERR_NOT_FOUND;
+    const std::vector<uint8_t>& ttf = h->hash0 == 2 ? g_bold_ttf : g_ttf;  // hash0: 1 regular, 2 bold
+    if (ttf.empty() || h->size != ttf.size()) return KILN_ERR_NOT_FOUND;
+    if (len) *len = ttf.size();
+    if (buf && cap >= ttf.size()) std::memcpy(buf, ttf.data(), ttf.size());
     return KILN_OK;
 }
 KilnAssetsApi g_assets{};
@@ -145,6 +148,40 @@ KilnResult KILN_CALL p_pre(KilnOwner, KilnUiPreOverlayFn, KilnUiSwapchainGoneFn,
 KilnResult KILN_CALL p_wheel_open(KilnOwner, const KilnUiWheel*, KilnUiWheelFn, void*, KilnHandle*) { return KILN_ERR_UNAVAILABLE; }
 KilnResult KILN_CALL p_wheel_close(KilnHandle) { return KILN_ERR_NOT_FOUND; }
 bool KILN_CALL p_wheel_active() { return false; }
+
+// ---- the main-menu page (v4): kiln_preview_page() sets it; the canvas is what the game's UI system computes for the
+// window size (1920x1080 UI units at 1 pixel per unit, grown along the longer side; 0xa4fb40) ----
+bool g_page = false;
+uint64_t g_ui_frame = 0;
+int g_page_drawn = 0, g_page_leaves = 0;
+KilnResult KILN_CALL p_menu_page(KilnUiMenuPage* out) {
+    if (!out || out->size < sizeof(KilnUiMenuPage)) return KILN_ERR_INVALID_ARGUMENT;
+    std::memset(out, 0, sizeof *out);
+    out->size = sizeof *out;
+    out->available = 1;
+    out->ui_frame = g_ui_frame;
+    out->pad_left = out->pad_right = 80;
+    out->pad_top = out->pad_bottom = 50;
+    if (!g_page) return KILN_OK;
+    out->state = KILN_UI_PAGE_SHOWN;
+    out->opened_by = KILN_UI_PAGE_BY_ENTRY;
+    out->shown_frame = g_ui_frame;
+    const float ppu = std::min(g_w / 1920.0f, g_h / 1080.0f);
+    out->metrics = 1;
+    out->pixels_per_unit = ppu;
+    out->canvas_width = g_w / ppu;
+    out->canvas_height = g_h / ppu;
+    out->viewport_width = g_w;
+    out->viewport_height = g_h;
+    out->x0 = 80 * ppu;
+    out->y0 = 50 * ppu;
+    out->x1 = (out->canvas_width - 80) * ppu;
+    out->y1 = (out->canvas_height - 50) * ppu;
+    return KILN_OK;
+}
+void KILN_CALL p_menu_page_drawn() { ++g_page_drawn; }
+void KILN_CALL p_menu_page_leave() { ++g_page_leaves; }
+void KILN_CALL p_menu_page_host(uint32_t) {}
 
 KilnUiApi make_table() {
     KilnUiApi t{};
@@ -247,6 +284,12 @@ KilnUiApi make_table() {
     t.key_pressed = &t_key_pressed;
     t.key_mods = &t_key_mods;
     t.set_scroll_here_y = &t_set_scroll_here_y;
+    t.menu_page = &p_menu_page;
+    t.menu_page_drawn = &p_menu_page_drawn;
+    t.menu_page_leave = &p_menu_page_leave;
+    t.menu_page_host = &p_menu_page_host;
+    t.push_font = &t_push_font;
+    t.pop_font = &t_pop_font;
     return t;
 }
 KilnUiApi g_table;
@@ -342,8 +385,39 @@ void raster_tri(const ImDrawVert& a, const ImDrawVert& b, const ImDrawVert& c, c
     }
 }
 
+// A stand-in for the game's close-up shot behind its own pages (the camera near the character: a dark, warm, blurred
+// scene) with the vignette the game draws over every PreGame page (black at the edges).
+void paint_page_backdrop() {
+    const int W = static_cast<int>(g_w), H = static_cast<int>(g_h);
+    for (int y = 0; y < H; ++y) {
+        const float t = static_cast<float>(y) / H;
+        for (int x = 0; x < W; ++x) {
+            const float u = static_cast<float>(x) / W;
+            float r = 52 + 40 * t, g = 46 + 22 * t, b = 50 + 6 * t;
+            const float fx = u - 0.62f, fy = t - 0.45f;  // a figure lit from the side
+            const float body = std::exp(-(fx * fx * 18 + fy * fy * 5));
+            r += 120 * body;
+            g += 80 * body;
+            b += 50 * body;
+            const float lx = u - 0.2f, ly = t - 0.3f;  // a lamp far behind
+            const float lamp = std::exp(-(lx * lx * 40 + ly * ly * 60));
+            r += 90 * lamp;
+            g += 60 * lamp;
+            b += 20 * lamp;
+            const float ex = std::max(std::fabs(u - 0.5f) * 2, std::fabs(t - 0.5f) * 2);  // vignette
+            const float v = 1 - 0.45f * std::clamp((ex - 0.45f) / 0.55f, 0.f, 1.f);
+            uint8_t* d = &g_pixels[(static_cast<size_t>(y) * W + x) * 4];
+            d[0] = static_cast<uint8_t>(std::clamp(r * v, 0.f, 255.f));
+            d[1] = static_cast<uint8_t>(std::clamp(g * v, 0.f, 255.f));
+            d[2] = static_cast<uint8_t>(std::clamp(b * v, 0.f, 255.f));
+            d[3] = 255;
+        }
+    }
+}
+
 // A stand-in for the game's picture behind the menu: dusk sky, a warm horizon, a few soft shapes.
 void paint_backdrop() {
+    if (g_page) return paint_page_backdrop();
     const int W = static_cast<int>(g_w), H = static_cast<int>(g_h);
     for (int y = 0; y < H; ++y) {
         const float t = static_cast<float>(y) / H;
@@ -425,13 +499,27 @@ __attribute__((visibility("default"))) const KilnUiApi* kiln_preview_open(int wi
     g_kapi.service = &k_service;
     kui::g_api = &g_kapi;
     if (font && *font && read_file(font, g_ttf)) {
-        g_font_res.assign(48, 0);
-        const int32_t off = 16;
-        const uint32_t count = 1;
-        std::memcpy(&g_font_res[0], &off, 4);
-        std::memcpy(&g_font_res[4], &count, 4);
+        const bool bold = !g_bold_path.empty() && read_file(g_bold_path.c_str(), g_bold_ttf);
+        // fonts {off 16, count}; with a bold face, groups {off, 1}: one default group whose glyph sets are font 0 regular
+        // (variant mask 0) and font 1 bold (mask 1), as the game's resource has them
+        g_font_res.assign(bold ? 144 : 48, 0);
+        auto put = [](size_t at, uint32_t v) { std::memcpy(&g_font_res[at], &v, 4); };
+        put(0, 16);
+        put(4, bold ? 2 : 1);
         KilnContentHash h{static_cast<uint32_t>(g_ttf.size()), 1, 2, 3};
         std::memcpy(&g_font_res[16], &h, sizeof h);
+        if (bold) {
+            KilnContentHash hb{static_cast<uint32_t>(g_bold_ttf.size()), 2, 2, 3};
+            std::memcpy(&g_font_res[48], &hb, sizeof hb);
+            put(8, 80 - 8);          // groups: the group record at 80
+            put(12, 1);
+            put(80 + 8, 104 - 88);   // its glyph sets at 104
+            put(80 + 12, 2);
+            g_font_res[80 + 0x14] = 1;  // the default language group
+            put(104, 0);             // set 0: font 0, mask 0
+            put(124, 1);             // set 1: font 1, mask 1 (bold)
+            g_font_res[124 + 0x10] = 1;
+        }
     }
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -455,6 +543,12 @@ __attribute__((visibility("default"))) const KilnUiApi* kiln_preview_open(int wi
     return &g_table;
 }
 
+// The game's bold UI face (call before kiln_preview_open; the game's resource has it as a second glyph set).
+__attribute__((visibility("default"))) void kiln_preview_bold_font(const char* path) { g_bold_path = path ? path : ""; }
+
+// The Kiln page inside the game's main menu: shown (1) or not (0). The backdrop becomes the close-up shot's stand-in.
+__attribute__((visibility("default"))) void kiln_preview_page(int shown) { g_page = shown != 0; }
+
 // Feeds input before the next frame: a key (ImGuiKey value) down/up, or the mouse (x, y, left button).
 __attribute__((visibility("default"))) void kiln_preview_key(int key, int down) {
     ImGui::GetIO().AddKeyEvent(static_cast<ImGuiKey>(key), down != 0);
@@ -470,6 +564,7 @@ __attribute__((visibility("default"))) const uint8_t* kiln_preview_frame(int men
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(g_w, g_h);
     io.DeltaTime = 1.0f / 60.0f;
+    ++g_ui_frame;
     kui::style_frame_begin();
     ImGui::NewFrame();
     KilnUiFrame f{};

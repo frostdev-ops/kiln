@@ -1,7 +1,7 @@
 {
   "format": 1,
   "side": "client",
-  "comment": "kiln.ui's game-UI integration on the client (enshrouded.exe 26404966). Evidence: docs/re/game-ui.md. The game's UI is immediate mode: GameUiSystem calls its update fn (GameUiFrame, registered at app start) once per UI frame on the UI thread; the frame context sits in the global UiApp only while that call runs. GameUiFrame's first argument is the GameUiSystem+0x10; its +sys.data is the persistent GameUiData (first field: the GameUi state, whose byte +state.ui_state is keen::UiState and +state.play the play data, whose byte +play.hud_screen is keen::HudScreenType and +play.interaction the entity the player interacts with). Menu entries are drawn by two entry renderers: MainMenuEntry(state, {text, len, fnv64, 8 option bytes}) in the main menu builder and SystemMenuEntry({text, len, fnv64}, 1, attention) in the system (pause) menu and a few other lists; both return true on activation and take part in the frame's focus/gamepad navigation. kiln.ui draws its entries through them right before the Settings entry (main menu: both layout branches, ShroudForge 1.7.6's insertion point; system menu: the Settings entry), identified by the call's return address. CraftingMenu is the crafting menu builder (every frame while one is open); its last selected recipe id is stored at data+data.craft_recipe (the player's own menu) or *(data+data.station_recipe) (a station).",
+  "comment": "kiln.ui's game-UI integration on the client (enshrouded.exe 26404966). Evidence: docs/re/game-ui.md. The game's UI is immediate mode: GameUiSystem calls its update fn (GameUiFrame, registered at app start) once per UI frame on the UI thread; the frame context sits in the global UiApp only while that call runs. GameUiFrame's first argument is the GameUiSystem+0x10; its +sys.data is the persistent GameUiData (first field: the GameUi state, whose byte +state.ui_state is keen::UiState and +state.play the play data, whose byte +play.hud_screen is keen::HudScreenType and +play.interaction the entity the player interacts with). Menu entries are drawn by two entry renderers: MainMenuEntry(state, {text, len, fnv64, 8 option bytes}) in the main menu builder and SystemMenuEntry({text, len, fnv64}, 1, attention) in the system (pause) menu and a few other lists; both return true on activation and take part in the frame's focus/gamepad navigation. kiln.ui draws its entries through them right before the Settings entry (main menu: both layout branches, ShroudForge 1.7.6's insertion point; system menu: the Settings entry), identified by the call's return address. CraftingMenu is the crafting menu builder (every frame while one is open); its last selected recipe id is stored at data+data.craft_recipe (the player's own menu) or *(data+data.station_recipe) (a station). Main-menu page (feature ui.menu_page, docs/re/game-ui.md \"Main-menu pages\", client 26430625, static analysis): the PreGame state block (never cached: the UI's state store frees blocks not touched in a frame) keeps the current page at +pregame.page; PreGameGoTo(pregame, page) only compares and writes it. MainMenuEntry's first argument is pregame+pregame.main_menu at the Settings and Credits call sites. Kiln's MODS entry calls PreGameGoTo(pregame, pregame.page_credits); its hook on PreGameCredits (bool(void)) answers only the call from the PreGame page switch (return address PreGameCreditsRet): true stays, false makes the game go back to page_main_menu itself. The UI system's update writes the canvas (sys.canvas_w/h, UI units), the viewport (sys.viewport: x, y, w, h floats, pixels) and pixels per unit (sys.px_per_unit) at system offsets; GameUiFrame's first argument is system+sys.frame_arg. The error popup shows while the byte at frame_arg-relative sys.popups + popups.error is set. ui.menu_page_sound: UiPlaySound(*UiApp, &copy of cfg+cfg.sound_entry_cancel) as PlaySelection's back does.",
   "symbols": {
     "ui/PlayStateUi": {
       "find": [
@@ -108,6 +108,77 @@
           "pattern": "39 9D ?? ?? 00 00 75 1B 48 05 {ui/data.craft_recipe:d32} BF ?? ?? ?? ?? 48 39 5C 24 ?? 48 0F 45 F8 48 89 7C 24 ?? EB 1C 48 05 {ui/data.station_recipe:d32} B9"
         }
       ]
+    },
+    "ui/PreGameGoTo": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 81 EC 80 00 00 00 83 B9 {ui/pregame.page:d32} 0A 8B FA 48 8B D9 75 0C 48 8B 0D {ui/UiApp:rel32} E8 ?? ?? ?? ?? 83 BB {ui/pregame.page:d32} 03 75 ?? 83 FF 08"
+        }
+      ]
+    },
+    "ui/PreGameCredits": {
+      "find": [
+        {
+          "pattern": "48 8B C4 55 53 56 57 41 56 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 0F 29 70 A8 48 8D 54 24 40 0F 29 78 98 48 8D 8D ?? ?? 00 00 44 0F 29 40 88 41 B9 09 00 00 00"
+        }
+      ]
+    },
+    "ui/PreGameCreditsRet": {
+      "find": [
+        {
+          "pattern": "84 C0 0F 85 ?? ?? ?? ?? BA {ui/pregame.page_main_menu:d32} 48 8B CE E8 {ui/PreGameGoTo:rel32} E9 ?? ?? ?? ?? 33 D2 B1 03 E8 ?? ?? ?? ?? EB DB E8 {ui/PreGameCredits:rel32} EB D4",
+          "offset": 42
+        }
+      ]
+    },
+    "@ui/MainMenu.credits": {
+      "find": [
+        {
+          "pattern": "48 8D 4F {ui/pregame.main_menu:d8} F2 0F 10 4C 24 ?? 48 8D 54 24 ?? 0F 29 44 24 ?? 0F 10 44 24 ?? F2 0F 10 C1 0F 11 44 24 ?? 0F 29 44 24 ?? E8 {ui/MainMenuEntry:rel32} 84 C0 74 0D BA {ui/pregame.page_credits:d32} 48 8B CF E8 {ui/PreGameGoTo:rel32} 33 C0 C7 44 24"
+        }
+      ]
+    },
+    "@ui/MainMenu.settings_state": {
+      "find": [
+        {
+          "pattern": "48 8D 4F {ui/pregame.main_menu:d8} 33 C0 F2 0F 10 4D ?? 48 8D 54 24 ?? 0F 29 44 24 ?? 48 89 44 24 ?? 66 89 44 24 ?? C7 44 24 ?? 01 00 00 00 0F 10 44 24 ?? F2 0F 10 C1 0F 11 44 24 ?? 0F 29 44 24 ?? E8 {ui/MainMenuEntry:rel32} 84 C0 74 0D BA 05 00 00 00 48 8B CF E8 {ui/PreGameGoTo:rel32}"
+        }
+      ]
+    },
+    "@ui/UiSystemUpdate.metrics": {
+      "find": [
+        {
+          "pattern": "F3 0F 11 4B {ui/sys.canvas_h:d8} F3 0F 11 43 {ui/sys.canvas_w:d8} 48 8B 83 ?? ?? 00 00 F3 0F 11 5B {ui/sys.px_per_unit:d8} 48 85 C0 74 09 48 8B D6 48 8D 4B {ui/sys.frame_arg:d8} FF D0"
+        }
+      ]
+    },
+    "@ui/UiSystemUpdate.viewport": {
+      "find": [
+        {
+          "pattern": "F3 0F 11 4B ?? 0F 11 4B {ui/sys.viewport:d8} 0F C6 C9 55 F3 0F 11 4B ?? 0F 28 CD F3 41 0F 5E D0"
+        }
+      ]
+    },
+    "@ui/PlaySelection.back": {
+      "find": [
+        {
+          "pattern": "48 8B 0D {ui/UiApp:rel32} 48 8D 54 24 ?? 48 8B 81 {ui/ui.config:d32} 0F 10 80 {ui/cfg.sound_entry_cancel:d32} 0F 29 44 24 ?? E8 {ui/UiPlaySound:rel32} 83 BF {ui/pregame.page:d32} 0A"
+        }
+      ]
+    },
+    "@ui/GameUiPopups.base": {
+      "find": [
+        {
+          "pattern": "48 8B 41 10 0F 10 40 {ui/sys.data:d8} 48 8B C2 0F 11 02 C3 CC 48 8B 41 10 48 05 {ui/sys.popups:d32} C3"
+        }
+      ]
+    },
+    "@ui/ErrorPopup.flag": {
+      "find": [
+        {
+          "pattern": "48 8B C4 55 56 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 80 B9 {ui/popups.error:d32} 00 48 8B F1 0F 84"
+        }
+      ]
     }
   },
   "constants": {
@@ -139,6 +210,45 @@
       "min_votes": 1
     },
     "ui/data.station_recipe": {
+      "min_votes": 1
+    },
+    "ui/pregame.page": {
+      "min_votes": 2
+    },
+    "ui/pregame.page_credits": {
+      "min_votes": 1
+    },
+    "ui/pregame.page_main_menu": {
+      "min_votes": 1
+    },
+    "ui/pregame.main_menu": {
+      "min_votes": 2
+    },
+    "ui/sys.canvas_w": {
+      "min_votes": 1
+    },
+    "ui/sys.canvas_h": {
+      "min_votes": 1
+    },
+    "ui/sys.px_per_unit": {
+      "min_votes": 1
+    },
+    "ui/sys.frame_arg": {
+      "min_votes": 1
+    },
+    "ui/sys.viewport": {
+      "min_votes": 1
+    },
+    "ui/ui.config": {
+      "min_votes": 1
+    },
+    "ui/cfg.sound_entry_cancel": {
+      "min_votes": 1
+    },
+    "ui/sys.popups": {
+      "min_votes": 1
+    },
+    "ui/popups.error": {
       "min_votes": 1
     }
   },
@@ -190,6 +300,47 @@
       "constants": [
         "ui/sys.data",
         "ui/data.loca_pool"
+      ]
+    },
+    "ui.menu_page": {
+      "symbols": [
+        "ui/GameUiFrame",
+        "ui/MainMenuEntry",
+        "ui/MainMenuSettingsA",
+        "ui/MainMenuSettingsB",
+        "ui/PreGameGoTo",
+        "ui/PreGameCredits",
+        "ui/PreGameCreditsRet"
+      ],
+      "constants": [
+        "ui/pregame.page",
+        "ui/pregame.page_credits",
+        "ui/pregame.page_main_menu",
+        "ui/pregame.main_menu",
+        "ui/sys.frame_arg",
+        "ui/sys.canvas_w",
+        "ui/sys.canvas_h",
+        "ui/sys.viewport",
+        "ui/sys.px_per_unit"
+      ]
+    },
+    "ui.menu_page_sound": {
+      "symbols": [
+        "ui/UiApp",
+        "ui/UiPlaySound"
+      ],
+      "constants": [
+        "ui/ui.config",
+        "ui/cfg.sound_entry_cancel"
+      ]
+    },
+    "ui.error_popup": {
+      "symbols": [
+        "ui/GameUiFrame"
+      ],
+      "constants": [
+        "ui/sys.popups",
+        "ui/popups.error"
       ]
     }
   }

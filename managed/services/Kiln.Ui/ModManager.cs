@@ -4,8 +4,10 @@
 //    draws into a rectangle it is given at a scale it is given, so another host (the game's own menu page, later) can
 //    draw it after its own title and transition.
 //  - ModManagerHost: the stand-alone host: a full-display page over a dimmed background with a large title and a
-//    footer of key hints, opened by everything that opens the Kiln menu (its key, the game menus' MODS entries) and
-//    closed by Escape (kiln.ui closes the menu natively).
+//    footer of key hints, opened by the pause menu's MODS entry, the menu key in a world and every build without the
+//    game page; closed by Escape (kiln.ui closes the menu natively).
+//  - GamePageHost (GamePage.cs): the page inside the game's own main menu (feature ui.menu_page).
+//  - ModManagerChrome: the title and the footer, with a look for each host.
 // Render thread only. Nothing here reads a file: the mod list is ModCatalog.Snapshot (a worker refreshes it), status
 // lines are StatusLines.Snapshot. Strings shown per row are made when the list changes, not per frame.
 namespace Kiln;
@@ -618,12 +620,11 @@ internal sealed class ModManagerPage
 }
 
 /// <summary>The stand-alone host of <see cref="ModManagerPage"/>: the whole display, a dimmed background, the title and the
-/// footer. Shown while the Kiln menu is open; Escape closes it (kiln.ui does that natively).</summary>
+/// footer. Shown while the Kiln menu is open outside the game page (the pause menu's MODS entry, the menu key in a world,
+/// a build without feature ui.menu_page); Escape closes it (kiln.ui does that natively).</summary>
 internal static class ModManagerHost
 {
     public static readonly ModManagerPage Page = new();
-    private static string? _subtitle;
-    private static long _subtitleAt;
 
     public static void Draw(UiDraw ui)
     {
@@ -648,26 +649,19 @@ internal static class ModManagerHost
             }
             ui.NextWindowPos(0, 0, 1);
             ui.NextWindowSize(w, h, 1);
-            const uint flags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8);
             using var pad = ui.PushVar(UiStyleVar.WindowPadding, 0, 0);
             using var border = ui.PushVar(UiStyleVar.WindowBorderSize, 0);
-            if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.main", flags))
+            if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.main", ModManagerChrome.PageWindowFlags))
             {
                 var margin = Math.Max(48 * s, w * 0.055f);
                 var top = Math.Max(36 * s, h * 0.055f);
                 var footerH = 64 * s;
-                // the title
-                using (ui.FontSize(46 * k))
-                {
-                    var titleSize = ui.Cursor.FontSize;
-                    ui.DrawText(UiLayer.Window, margin, top, "Mod Manager", GameColors.Text, titleSize);
-                    var sub = Subtitle();
-                    ui.DrawText(UiLayer.Window, margin + 2 * s, top + titleSize + 6 * s, sub, GameColors.Muted, 16 * s);
-                }
+                ModManagerChrome.Title(ui, ChromeLook.Standalone, margin, top, w - margin, 46 * s, s);
                 var bodyTop = top + 46 * s + 44 * s;
                 var body = new PageRect(margin, bodyTop, w - 2 * margin, h - bodyTop - footerH - 18 * s);
                 Page.Draw(ui, body, s);
-                Footer(ui, margin, h - footerH, w - 2 * margin, footerH, s);
+                if (ModManagerChrome.Footer(ui, ChromeLook.Standalone, margin, h - footerH, w - 2 * margin, footerH, s, Page.Hints))
+                    Ui.MenuOpen = false;
             }
             ui.EndWindow();
         }
@@ -677,7 +671,64 @@ internal static class ModManagerHost
         }
     }
 
-    private static string Subtitle()
+    internal static void ResetForTests() => ModManagerChrome.ResetForTests();
+}
+
+/// <summary>The two looks of the mod manager's title and footer.</summary>
+internal enum ChromeLook
+{
+    /// <summary>The stand-alone page: a large regular title with the subtitle under it, a gold line over the footer.</summary>
+    Standalone,
+    /// <summary>Inside the game's main menu: its page header (bold, upper case, letter-spaced, white) and its hint bar.</summary>
+    GamePage,
+}
+
+/// <summary>The title and the footer of the mod manager, shared by both hosts.</summary>
+internal static class ModManagerChrome
+{
+    // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings
+    public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8);
+
+    /// <summary>The game page's title: what its own pages show for "Mods" (made once: drawn a letter at a time).</summary>
+    internal const string GameTitle = "MODS";
+    private static readonly string[] GameTitleLetters = GameTitle.Select(c => c.ToString()).ToArray();
+    /// <summary>The game's header tracking: 0.05 of the font size between letters (namedStyles.menu.header1).</summary>
+    internal const float Tracking = 0.05f;
+
+    private static string? _subtitle;
+    private static long _subtitleAt;
+
+    /// <summary>The title at (x, y) in pixels, <paramref name="size"/> pixels high; the subtitle under it (stand-alone) or
+    /// right-aligned to <paramref name="right"/> on the title's line (game page).</summary>
+    public static void Title(UiDraw ui, ChromeLook look, float x, float y, float right, float size, float s)
+    {
+        var sub = Subtitle();
+        if (look == ChromeLook.Standalone)
+        {
+            using (ui.FontSize(size / (ui.Scale > 0 ? ui.Scale : 1)))
+            {
+                var titleSize = ui.Cursor.FontSize;
+                ui.DrawText(UiLayer.Window, x, y, "Mod Manager", GameColors.Text, titleSize);
+                ui.DrawText(UiLayer.Window, x + 2 * s, y + titleSize + 6 * s, sub, GameColors.Muted, 16 * s);
+            }
+            return;
+        }
+        // bold when the game's bold face is loaded, else the game look's regular face; upper case either way
+        using (ui.Font(UiFont.GameBold))
+        {
+            var cx = x;
+            foreach (var letter in GameTitleLetters)
+            {
+                ui.DrawText(UiLayer.Window, cx, y, letter, Color.White, size);
+                cx += ui.MeasureText(letter, size, 0).Width + Tracking * size;
+            }
+        }
+        var (sw, _) = ui.MeasureText(sub, 16 * s, 0);
+        ui.DrawText(UiLayer.Window, right - sw, y + size - 22 * s, sub, GameColors.Muted, 16 * s);
+    }
+
+    /// <summary>Kiln's version, the profile and how many mods loaded (made at most every 2 seconds).</summary>
+    public static string Subtitle()
     {
         var now = Environment.TickCount64;
         if (_subtitle is not null && now - _subtitleAt < 2000) return _subtitle;
@@ -692,28 +743,46 @@ internal static class ModManagerHost
 
     internal static void ResetForTests() => _subtitle = null;
 
-    private static void Footer(UiDraw ui, float x, float y, float w, float h, float s)
+    /// <summary>The key hints, right to left from the right edge like the game's own hint bar. The "Back" hint is also a
+    /// button: true when it was clicked (or activated with the keyboard / gamepad) this frame.</summary>
+    public static bool Footer(UiDraw ui, ChromeLook look, float x, float y, float w, float h, float s, IReadOnlyList<(string Keys, string Label)> hints)
     {
-        ui.DrawRect(UiLayer.Window, x, y, x + w, y + 1 * s, GameColors.Gold.WithAlpha(70));
-        var ty = y + (h - 16 * s) / 2;
-        // key hints, right to left from the right edge like the game's own action bar
+        var game = look == ChromeLook.GamePage;
+        if (!game) ui.DrawRect(UiLayer.Window, x, y, x + w, y + 1 * s, GameColors.Gold.WithAlpha(70));
+        var labelSize = (game ? 18 : 16) * s;
+        var keySize = (game ? 15 : 14) * s;
+        var capH = (game ? 28 : 26) * s;
+        var ty = y + (h - labelSize) / 2;
         var right = x + w;
-        var hints = Page.Hints;
+        var back = false;
         for (var i = hints.Count - 1; i >= 0; i--)
         {
             var (keys, label) = hints[i];
-            var (lw, _) = ui.MeasureText(label, 16 * s, 0);
-            var (kw, _) = ui.MeasureText(keys, 14 * s, 0);
+            var (lw, _) = ui.MeasureText(label, labelSize, 0);
+            var (kw, _) = ui.MeasureText(keys, keySize, 0);
             var capW = kw + 16 * s;
             var start = right - lw - 10 * s - capW;
-            ui.DrawRect(UiLayer.Window, start, ty - 4 * s, start + capW, ty + 22 * s, GameColors.Text.WithAlpha(22), 3 * s);
-            ui.DrawRect(UiLayer.Window, start, ty - 4 * s, start + capW, ty + 22 * s, GameColors.Muted.WithAlpha(120), 3 * s, 1 * s);
-            ui.DrawText(UiLayer.Window, start + 8 * s, ty, keys, GameColors.Text, 14 * s);
-            ui.DrawText(UiLayer.Window, start + capW + 10 * s, ty - 1 * s, label, GameColors.Muted, 16 * s);
+            var capY = ty + (labelSize - capH) / 2;
+            if (label == "Back")
+            {
+                // a click target over the whole hint (key cap and label)
+                var c = ui.Cursor;
+                ui.SetCursor(start - 6 * s - c.WindowX, capY - 4 * s - c.WindowY);
+                using (ui.PushColor(UiColorSlot.Header, Color.FromRgba(0x00000000)))
+                using (ui.PushColor(UiColorSlot.HeaderHovered, GameColors.Tile.WithAlpha(150)))
+                using (ui.PushColor(UiColorSlot.HeaderActive, GameColors.GoldDeep.WithAlpha(150)))
+                    back = ui.Selectable("##kiln.back", false, right - start + 12 * s, capH + 8 * s);
+            }
+            var capFill = game ? Color.Black.WithAlpha(110) : GameColors.Text.WithAlpha(22);
+            ui.DrawRect(UiLayer.Window, start, capY, start + capW, capY + capH, capFill, 3 * s);
+            ui.DrawRect(UiLayer.Window, start, capY, start + capW, capY + capH, (game ? GameColors.Text : GameColors.Muted).WithAlpha(game ? (byte)150 : (byte)120), 3 * s, 1 * s);
+            ui.DrawText(UiLayer.Window, start + 8 * s, capY + (capH - keySize) / 2, keys, GameColors.Text, keySize);
+            ui.DrawText(UiLayer.Window, start + capW + 10 * s, ty, label, game ? GameColors.Text : GameColors.Muted, labelSize);
             right = start - 30 * s;
         }
         const string pad = "Gamepad: LB / RB sections, A choose, B back";
         if (ui.MeasureText(pad, 15 * s, 0).Width + 40 * s < right - x)
-            ui.DrawText(UiLayer.Window, x, ty - 1 * s, pad, GameColors.Faint, 15 * s);
+            ui.DrawText(UiLayer.Window, x, ty, pad, GameColors.Faint, 15 * s);
+        return back;
     }
 }

@@ -4,7 +4,8 @@ Renders the mod manager (`managed/services/Kiln.Ui/ModManager.cs`) on Linux with
 be judged and iterated.
 
 ```sh
-tools/ui-preview/preview.sh                                  # every scene at 1920x1080, 2560x1440 and 1920x1080 at UI scale 1.5
+tools/ui-preview/preview.sh                                  # every scene at 1920x1080, 2560x1440 and 1920x1080 at UI scale 1.5;
+                                                             # the game-page scene also at 3440x1440
 tools/ui-preview/preview.sh --scene problems --size 2560x1440 --scale 1.25
 tools/ui-preview/preview.sh --font ~/fonts/Some.ttf          # another TTF for the game look
 ```
@@ -20,14 +21,16 @@ How it works:
   open. Each scene writes sample state files and a profile into `$KILN_OUT/preview/work/<scene>/kiln/`, and the real
   `ModCatalog` reads them, so the preview also exercises the reader.
 - The game's UI font: `game_font.py` picks it as `style.cpp` does (keen::UiFontResource, the default language group's
-  regular font) and reads it from the local game with `tools/kfc` into `$KILN_OUT/ui-preview/game-ui-font.ttf`. It is
+  regular font, and its bold face for the game page's title) and reads them from the local game with `tools/kfc` into
+`$KILN_OUT/ui-preview/game-ui-font.ttf` and `game-ui-font-bold.ttf`. It is
   never copied into the tree. Without the game the preview uses a system TTF (DejaVu Sans / Noto Sans) or ImGui's own font.
 
 Scenes (`Kiln.Ui.Preview/Program.cs`, `Scenes`): `typical` (25 mods over Kiln, EMF, EML, SET and ShroudForge, one failed,
 one switched off), `typical-emf` (one engine), `typical-search`, `typical-config` (a mod's settings inline),
 `typical-keys` (three Down presses: the selection follows the focus), `problems` (failed mods in several engines, a
 missing folder, ShroudForge not installed, Ember, a stale and a cut-off report), `problems-ember`, `empty`, `network`,
-`keys`, `overlay`. Add one by writing its files in a new method and listing it in `Scenes.All`.
+`keys`, `overlay`, and `game-page` / `game-page-problems`: the page inside the game's main menu (`GamePageHost`), with
+the rectangle and scale the game would publish at that size and a stand-in for the close-up shot and its vignette. Add one by writing its files in a new method and listing it in `Scenes.All`.
 
 Limits: the backdrop is not the game's picture; ImGui is rasterised on the CPU (close to the GPU result, not equal); the
 game's own menu entries and transitions are not drawn; the gamepad is not simulated (keys are: `Scene.Keys`).

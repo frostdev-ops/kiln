@@ -234,9 +234,9 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
   Escape closes the menu.
 
 ## The Kiln menu (the mod manager)
-A full-display page in the game's look (its colours and its UI font), opened by the menu key (Insert), the main menu's
-and the pause menu's **Mods** entry; Escape (gamepad B) goes back. A large title, a tab row of sections, a footer of key
-hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad move; Enter or A chooses; Ctrl+F jumps to the search box.
+A page in the game's look (its colours and its UI font), opened by the menu key (Insert), the main menu's and the
+pause menu's **Mods** entry; Escape (gamepad B) or the **Back** hint goes back. A title, a tab row of sections, a footer
+of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad move; Enter or A chooses; Ctrl+F jumps to the search box.
 - **Mods**: three columns.
   - Left: **All mods**, **Needs attention** (only when a mod failed or its folder is missing), then one row per engine
     that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, ShroudForge, SET, Greeneye, Flame,
@@ -267,10 +267,27 @@ count. The state words are read as the launcher reads them (`EngineStatus.tsx`),
 Cost: nothing while the menu is closed. While it is open the list is read on a worker at most every 2 seconds; the render
 thread only draws the last list (no file access, no waiting); rows are made when the list, the filter or the search change.
 
-The page draws into a rectangle at a scale (`ModManagerPage.Draw(ui, rect, scale)`), apart from its host
-(`ModManagerHost`: the background, the title, the footer, the size of the display), so it can later be shown inside the
-game's own menu page. On a kiln.ui without the layout calls below the old small Kiln window is drawn. If no managed code
+### Two hosts
+The page draws into a rectangle at a scale (`ModManagerPage.Draw(ui, rect, scale)`). Two hosts give it that rectangle;
+they share the title and the footer (`ModManagerChrome`, one look each).
+- **In the game's main menu** (`GamePageHost`, `GamePage.cs`). Used when the main menu's **Mods** entry is clicked, or
+  Insert is pressed while the main menu shows its entries, on a build with feature `ui.menu_page`. The game moves to a
+  page of its own (its Credits slot, which Kiln leaves empty): the camera glides to the close-up shot, the main menu
+  goes, the game's vignette stays. The Kiln page draws from the first frame the game shows it, inside the game's page
+  padding (80 / 50 UI units), at the game's UI scale, with no background of its own: the title is the game's header
+  (bold, upper case, white), the footer its hint bar. Leaving asks kiln.ui (`menu_page_leave`); the game goes back
+  itself, with its back sound and camera. If the game leaves the page by itself (an invite), the page just goes.
+  While a game error popup shows, the page steps aside and the game gets the input.
+- **Stand-alone** (`ModManagerHost`): the whole display over a dimmed game, a large title. Used for the pause menu's
+  **Mods** entry, Insert in a world, and every case where the game page is not available.
+
+Fallback: when a symbol of `ui.menu_page` does not resolve (another game build), the page is not where the main menu
+is (another page shows), the game faults in its page switch, or no host draws the page for about a second, the **Mods**
+entry opens the stand-alone page, as before. An older Kiln.Ui (it never calls `menu_page_host(1)`) also gets the
+stand-alone page. On a kiln.ui without the layout calls below the old small Kiln window is drawn. If no managed code
 subscribed to the overlay, the native side draws a minimal Kiln window saying the managed host is not running.
+How the game side works, and what still has to be checked on a real client: [docs/re/game-ui.md](../re/game-ui.md)
+"Main-menu pages".
 
 `tools/ui-preview/` renders the page to PNGs on Linux without the game (its README).
 
@@ -289,7 +306,11 @@ the wheel: `wheel_open(owner, &KilnUiWheel, fn, user, &handle)` (`fn(choice, use
 `draw_rect_in` / `draw_text_in` (`KILN_UI_LAYER_*`), `text_size_ex`, `push_color` / `pop_color` (`KILN_UI_COLOR_*`),
 `push_var` / `pop_var` (`KILN_UI_VAR_*`), `key_pressed` (`KILN_UI_KEY_*`, `KILN_UI_KEYQ_REPEAT|CLAIM`), `key_mods`,
 `set_scroll_here_y`, and the window flags `KILN_UI_WINDOW_NO_SAVED_SETTINGS`, `NO_BRING_TO_FRONT`,
-`ALWAYS_VERTICAL_SCROLLBAR`. Colours, vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
+`ALWAYS_VERTICAL_SCROLLBAR`. Version 4 appends the main-menu page (check `header.size >= offsetof(KilnUiApi, pop_font) +
+sizeof(void*)`): `menu_page(&KilnUiMenuPage)` (state `KILN_UI_PAGE_HIDDEN/OPENING/SHOWN`, the game's canvas, viewport,
+pixels per unit, padding and the content rectangle `x0..y1` in pixels, `error_popup`), `menu_page_drawn()`,
+`menu_page_leave()`, `menu_page_host(on)`, and `push_font(KILN_UI_FONT_GAME / GAME_BOLD)` / `pop_font()` (C#:
+`using (ui.Font(UiFont.GameBold)) …`). Colours, vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
 slots live in `native/services/ui/draw_slots.h`, shared with the preview shim. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate
 tables in the same header.

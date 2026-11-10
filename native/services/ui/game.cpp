@@ -146,6 +146,7 @@ uint64_t g_frame_no = 0;
 DWORD g_ui_thread = 0;
 
 kiln::RawHook g_frame_hook, g_main_hook, g_sys_hook, g_craft_hook;
+KilnHandle g_builtin[2] = {0, 0};  // Kiln's own "Mods" entries (main menu, pause menu)
 using MainEntryFn = bool(__fastcall*)(void*, const MainDesc*);
 using SysEntryFn = bool(__fastcall*)(const GameText*, uint8_t, uint8_t);
 
@@ -265,11 +266,18 @@ void activated(KilnHandle h) {
 bool __fastcall hk_main_entry(void* state, const MainDesc* d) {
     const uintptr_t r = g_main_hook.caller();  // the game's call site, read before the original
     if (d && (r == L.main_ret_a || r == L.main_ret_b)) {
+        page_main_menu_drawn(state);  // a menu-key request for the main-menu page is served here (menu_page.cpp)
         for (const Entry& e : entries_of(KILN_UI_MENU_MAIN)) {
             MainDesc c = *d;  // the Settings entry's option bytes: same style, same behaviour
             c.text = GameText{e.text->c_str(), e.text->size(), e.fnv};
             g_draws.fetch_add(1, std::memory_order_relaxed);
-            if (g_main_hook.call<bool>(state, &c)) activated(e.handle);
+            if (!g_main_hook.call<bool>(state, &c)) continue;
+            // Kiln's own MODS entry: the game's own page switch, here as the game does for its entries (menu_page.cpp)
+            if (e.handle == g_builtin[0] && page_open_from_entry(state)) {
+                g_clicks.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+            activated(e.handle);
         }
     }
     return g_main_hook.call<bool>(state, d);
@@ -304,6 +312,7 @@ void* __fastcall hk_craft(uint64_t packed, int32_t select) {
 void after_frame(uintptr_t sys10) {
     ++g_frame_no;
     g_frames.store(g_frame_no, std::memory_order_relaxed);
+    page_after_frame(sys10, g_frame_no);
     g_ui_thread = GetCurrentThreadId();
     Raw raw{};
     const bool ok = read_state(sys10, &raw);
@@ -397,8 +406,8 @@ void KILN_CALL on_craftmenu(const KilnCraftMenuInfo* info, void*) {
     g_workshop_station.store(t_builder_station, std::memory_order_relaxed);
 }
 
-// Kiln's own "Mods" entry in both menus: opens the Kiln menu (works without the managed host).
-KilnHandle g_builtin[2] = {0, 0};
+// Kiln's own "Mods" entry in both menus: opens the Kiln menu (works without the managed host). In the main menu with
+// feature ui.menu_page and a host, the entry hook opens the game page instead and this is not called.
 void KILN_CALL on_builtin(KilnHandle, void*) {
     g_menu_open = true;
     logf(KILN_LOG_DEBUG, "ui: Kiln menu opened from the game's menu");
@@ -444,6 +453,7 @@ bool game_install() {
         g_main_hook.install(g_api, g_owner, main_fn, reinterpret_cast<void*>(&hk_main_entry), "ui/MainMenuEntry");
         L.main_menu = static_cast<bool>(g_main_hook);
     }
+    const bool page = page_install(L.main_menu);
     if (L.system_menu) {
         g_sys_hook.install(g_api, g_owner, sys_fn, reinterpret_cast<void*>(&hk_sys_entry), "ui/SystemMenuEntry");
         L.system_menu = static_cast<bool>(g_sys_hook);
@@ -453,8 +463,9 @@ bool game_install() {
         L.crafting = static_cast<bool>(g_craft_hook);
     }
     add_builtin_entries();
-    logf(KILN_LOG_INFO, "ui: game UI hooked: screens on, main menu %s, pause menu %s, crafting %s, language %s",
-         L.main_menu ? "on" : "off", L.system_menu ? "on" : "off", L.crafting ? "on" : "off", L.language ? "on" : "off");
+    logf(KILN_LOG_INFO, "ui: game UI hooked: screens on, main menu %s, pause menu %s, crafting %s, language %s, main-menu page %s",
+         L.main_menu ? "on" : "off", L.system_menu ? "on" : "off", L.crafting ? "on" : "off", L.language ? "on" : "off",
+         page ? "on" : "off");
     return true;
 }
 
@@ -566,10 +577,12 @@ bool game_unsubscribe(KilnHandle h) {
 }
 
 void game_status_line(char* out, size_t cap) {
-    std::snprintf(out, cap, "screens %s, main menu %s, pause menu %s, crafting %s; frames %llu, entries drawn %llu, activated %llu",
+    char page[192];
+    page_status_line(page, sizeof page);
+    std::snprintf(out, cap, "screens %s, main menu %s, pause menu %s, crafting %s; frames %llu, entries drawn %llu, activated %llu; %s",
                   L.screens ? "on" : "off", L.main_menu ? "on" : "off", L.system_menu ? "on" : "off", L.crafting ? "on" : "off",
                   static_cast<unsigned long long>(g_frames.load()), static_cast<unsigned long long>(g_draws.load()),
-                  static_cast<unsigned long long>(g_clicks.load()));
+                  static_cast<unsigned long long>(g_clicks.load()), page);
 }
 
 }  // namespace kui

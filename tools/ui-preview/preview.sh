@@ -20,7 +20,7 @@ while (($#)); do
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
-if [[ -n $size ]]; then sizes=("$size $scale"); else sizes=("1920x1080 1" "2560x1440 1" "1920x1080 1.5"); fi
+if [[ -n $size ]]; then sizes=("$size $scale"); else sizes=("1920x1080 1" "2560x1440 1" "1920x1080 1.5" "3440x1440 1"); fi
 
 # the shim: Dear ImGui + kiln.ui's drawing slots and looks (the game's code) + the rasteriser
 imgui=$repo/native/third_party/imgui
@@ -46,6 +46,8 @@ for s in "${sizes[@]}"; do
   read -r size scale <<<"$s"
   args=(--shim "$b/libkiln_ui_preview.so" --out "$out" --size "$size" --scale "$scale")
   [[ -n $font ]] && args+=(--font "$font")
+  bold=${font%.ttf}-bold.ttf  # game_font.py writes the game's bold face next to the regular one
+  [[ -n $font && -f $bold ]] && args+=(--bold-font "$bold")
   [[ -n $scene ]] && args+=(--scene "$scene")
   dotnet "$app" "${args[@]}"
 done

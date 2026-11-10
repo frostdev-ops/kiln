@@ -243,12 +243,16 @@ bool build_frame(float width, float height, float dpi) {
 }
 
 bool dispatch_key(const KilnUiKey& key) {
-    // the menu key first (works without the managed host)
+    // the menu key first (works without the managed host); in the main menu it opens or leaves the game page
     if (key.down && !key.repeat && !key.text_input && key.vk == g_menu_vk.load() && key.mods == g_menu_mods.load()) {
+        if (page_menu_key()) return true;
         g_menu_open = !g_menu_open.load();
         logf(KILN_LOG_DEBUG, "ui: Kiln menu %s", g_menu_open ? "open" : "closed");
         return true;
     }
+    // Escape (and gamepad B, which input.cpp turns into Escape) on the game page: back to the game's main menu. In a
+    // text field it goes to ImGui first (it leaves the field).
+    if (key.down && key.vk == VK_ESCAPE && !key.text_input && page_escape()) return true;
     if (key.down && key.vk == VK_ESCAPE && g_menu_open.load() && !key.text_input) {
         g_menu_open = false;
         return true;
@@ -295,7 +299,7 @@ KilnResult KILN_CALL t_status(KilnUiStatus* out) {
     out->size = sizeof *out;
     vk_status(out);
     out->window = input_attached() ? 1 : 0;
-    out->menu_open = g_menu_open.load() ? 1 : 0;
+    out->menu_open = g_menu_open.load() || page_active() ? 1 : 0;  // the Kiln menu shows, in either host
     out->capturing = capturing() ? 1 : 0;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
@@ -409,7 +413,14 @@ void per_caller(PerCaller& pc, std::atomic<uint32_t>& published, void* ret, uint
 
 void KILN_CALL t_set_demand(uint32_t n) { per_caller(g_demand_by, g_demand, _ReturnAddress(), n); }
 void KILN_CALL t_set_capture(uint32_t n) { per_caller(g_capture_by, g_interactive, _ReturnAddress(), n); }
-void KILN_CALL t_set_menu(int32_t open) { g_menu_open = open < 0 ? !g_menu_open.load() : open != 0; }
+void KILN_CALL t_set_menu(int32_t open) {
+    // the game page counts as the Kiln menu: closing (or toggling) the menu leaves it; opening keeps it
+    if (page_active()) {
+        if (open <= 0) page_leave();
+        return;
+    }
+    g_menu_open = open < 0 ? !g_menu_open.load() : open != 0;
+}
 void KILN_CALL t_set_menu_key(uint32_t vk, uint32_t mods) {
     if (vk == 0 || vk > 255) return;
     g_menu_vk = vk;
@@ -440,6 +451,15 @@ KilnResult KILN_CALL t_subscribe_pre_overlay(KilnOwner, KilnUiPreOverlayFn fn, K
     return vk_subscribe_pre_overlay(fn, gone, user, out);
 }
 
+// v4: the main-menu page and fonts
+KilnResult KILN_CALL t_menu_page(KilnUiMenuPage* out) { return page_state(out); }
+void KILN_CALL t_menu_page_drawn() { page_drawn(); }
+void KILN_CALL t_menu_page_leave() { page_leave(); }
+void KILN_CALL t_menu_page_host(uint32_t on) {
+    page_host(on);
+    logf(KILN_LOG_INFO, "ui: a host %s the main-menu page", on ? "draws" : "no longer draws");
+}
+
 // kiln.ui.tick (for Kiln.Host)
 KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, KilnHandle* out) { return game_subscribe_frame_tick(o, fn, u, out); }
 KilnResult KILN_CALL tt_unsubscribe(KilnHandle h) { return game_unsubscribe(h) ? KILN_OK : KILN_ERR_NOT_FOUND; }
@@ -451,6 +471,11 @@ static_assert(offsetof(KilnUiApi, is_item_clicked) == offsetof(KilnUiApi, set_ho
               "kiln.ui v2 slots follow add_swapchain_usage");
 static_assert(offsetof(KilnUiApi, push_font_size) == offsetof(KilnUiApi, wheel_active) + sizeof(void*),
               "kiln.ui v3 slots follow wheel_active");
+static_assert(offsetof(KilnUiApi, menu_page) == offsetof(KilnUiApi, set_scroll_here_y) + sizeof(void*),
+              "kiln.ui v4 slots follow set_scroll_here_y");
+static_assert(sizeof(KilnUiMenuPage) == 104 && offsetof(KilnUiMenuPage, ui_frame) == 16 &&
+              offsetof(KilnUiMenuPage, canvas_width) == 40 && offsetof(KilnUiMenuPage, x0) == 84,
+              "KilnUiMenuPage layout (UiNative.MenuPage)");
 static_assert(sizeof(KilnUiCursor) == 60 && sizeof(KilnUiItem) == 28, "KilnUiCursor / KilnUiItem layout (UiNative.Cursor / Item)");
 static_assert(sizeof(KilnUiWheel) == 40 && offsetof(KilnUiWheel, hold_key) == 36, "KilnUiWheel layout");
 
@@ -477,6 +502,8 @@ const KilnUiApi kTable = {
     &t_item, &t_selectable_ex, &t_set_keyboard_focus_here, &t_set_item_default_focus, &t_draw_rect_in, &t_draw_text_in,
     &t_text_size_ex, &t_push_color, &t_pop_color, &t_push_var, &t_pop_var, &t_key_pressed, &t_key_mods,
     &t_set_scroll_here_y,
+    // v4
+    &t_menu_page, &t_menu_page_drawn, &t_menu_page_leave, &t_menu_page_host, &t_push_font, &t_pop_font,
 };
 
 std::string api_path(int kind) {

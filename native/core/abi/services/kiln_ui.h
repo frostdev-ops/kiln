@@ -3,7 +3,8 @@
  * input (keys for key bindings, mouse + keyboard capture while a Kiln screen is open), and an immediate-mode drawing
  * table for the managed Kiln.Ui. v2 appends right clicks on items and a radial wheel; v3 appends font sizes, child
  * regions with flags, cursor and item queries, sized selectables, focus, layered drawing, colour/spacing pushes and
- * key queries (the last slots of the table).
+ * key queries; v4 appends the main-menu page (the Kiln menu inside the game's own menu) and a font choice (the last
+ * slots of the table).
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -31,8 +32,9 @@ extern "C" {
 #endif
 
 #define KILN_UI_SERVICE "kiln.ui"
-#define KILN_UI_VERSION 3u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
-                              look slots for full-display screens (after wheel_active): check header.size */
+#define KILN_UI_VERSION 4u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
+                              look slots for full-display screens (after wheel_active); v4 appends the main-menu page and
+                              font choice (after set_scroll_here_y): check header.size */
 
 /* Colours are 0xRRGGBBAA. */
 
@@ -385,6 +387,51 @@ typedef struct KilnUiItem {
     uint8_t deactivated;            /* stopped being active this frame */
 } KilnUiItem;
 
+/* ---- v4: the Kiln menu as a page of the game's main menu (docs/kiln/ui.md "Two hosts", docs/re/game-ui.md
+ * "Main-menu pages"). Feature ui.menu_page: the main menu's MODS entry makes the game go to its Credits page slot, whose
+ * content kiln.ui hooks and leaves empty, so the game moves its camera and hides its main menu as for its own pages;
+ * the managed host draws the Kiln menu into the rectangle below. menu_page_leave makes the game go back. Without the
+ * feature (or before a host called menu_page_host(1)) the MODS entry opens the stand-alone Kiln menu as before. ---- */
+
+/* KilnUiMenuPage.state */
+enum {
+    KILN_UI_PAGE_HIDDEN = 0,
+    KILN_UI_PAGE_OPENING = 1,  /* the game was asked to go to the page; it shows from the next UI frame */
+    KILN_UI_PAGE_SHOWN = 2,    /* the game shows the page (shown_frame: the last UI frame it did) */
+};
+
+/* KilnUiMenuPage.opened_by */
+enum {
+    KILN_UI_PAGE_BY_ENTRY = 1,  /* the main menu's MODS entry */
+    KILN_UI_PAGE_BY_KEY = 2,    /* the menu key while the main menu showed */
+};
+
+/* push_font fonts */
+enum {
+    KILN_UI_FONT_DEFAULT = 0,    /* the current look's font */
+    KILN_UI_FONT_GAME = 1,       /* the game's UI font, regular */
+    KILN_UI_FONT_GAME_BOLD = 2,  /* the game's UI font, bold (its page titles) */
+};
+
+typedef struct KilnUiMenuPage {
+    uint32_t size;          /* sizeof(KilnUiMenuPage) */
+    uint8_t available;      /* feature ui.menu_page on, its hook in, a host claimed it, and not given up this session */
+    uint8_t state;          /* KILN_UI_PAGE_* */
+    uint8_t error_popup;    /* the game shows an error popup now (feature ui.error_popup; 0 when unknown) */
+    uint8_t metrics;        /* the canvas, viewport and pixels-per-unit fields are the game's (else 0) */
+    uint8_t opened_by;      /* KILN_UI_PAGE_BY_* */
+    uint8_t reserved[7];
+    uint64_t ui_frame;      /* the game's UI frames finished so far */
+    uint64_t opened_frame;  /* the UI frame the page was asked for */
+    uint64_t shown_frame;   /* the last UI frame the game showed the page */
+    float canvas_width, canvas_height;  /* the game's UI canvas in UI units (1920x1080, wider/taller to fit the window) */
+    float viewport_x, viewport_y, viewport_width, viewport_height;  /* where the canvas is drawn, pixels */
+    float pixels_per_unit;  /* pixels per UI unit */
+    float pad_left, pad_top, pad_right, pad_bottom;  /* the game's page padding, UI units (its Play page: 80 / 50) */
+    float x0, y0, x1, y1;   /* the page's content rectangle in pixels: the viewport inside the padding */
+    uint32_t reserved2;
+} KilnUiMenuPage;           /* 104 bytes */
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
@@ -621,6 +668,27 @@ typedef struct KilnUiApi {
 
     /* set_scroll_here_y: scrolls the current window so the cursor sits at ratio (0 top, 0.5 middle, 1 bottom). */
     void(KILN_CALL* set_scroll_here_y)(float ratio);
+
+    /* ================================================================================================================
+     * v4 (appended; check header.size >= offsetof(KilnUiApi, pop_font) + sizeof(void*) before calling these).
+     * ============================================================================================================== */
+
+    /* menu_page: the main-menu page's state (KilnUiMenuPage; set out->size first). Any thread. KILN_ERR_UNAVAILABLE
+     *   (with out->available = 0) when the feature is off on this build.
+     * menu_page_drawn: the host drew the page in this overlay frame (render thread). The page leaves by itself when no
+     *   host drew it for about half a second, so a player is never left on an empty page.
+     * menu_page_leave: go back to the main menu (Escape, gamepad B, the page's Back control). Any thread. The game
+     *   plays its back sound and moves the camera back itself.
+     * menu_page_host: 1 = a host can draw the page (the MODS entry then opens it), 0 = not any more. */
+    KilnResult(KILN_CALL* menu_page)(KilnUiMenuPage* out);
+    void(KILN_CALL* menu_page_drawn)(void);
+    void(KILN_CALL* menu_page_leave)(void);
+    void(KILN_CALL* menu_page_host)(uint32_t on);
+
+    /* push_font: text drawn until pop_font uses a KILN_UI_FONT_* font at the current size. False (and nothing to pop)
+     *   when that font is not loaded (the game's font comes from its data; it may not be there yet). Inside a frame. */
+    bool(KILN_CALL* push_font)(uint32_t font);
+    void(KILN_CALL* pop_font)(void);
 } KilnUiApi;
 
 /* ====================================================================================================================

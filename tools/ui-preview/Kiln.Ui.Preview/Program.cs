@@ -21,13 +21,14 @@ internal static unsafe class Program
         {
             if (level >= LogLevel.Warn) Console.Error.WriteLine($"[{level}] {text}");
         }
-        public nint Service(string name, uint minVersion) => name == "kiln.ui" && minVersion <= 3 ? table : 0;
+        public nint Service(string name, uint minVersion) => name == "kiln.ui" && minVersion <= 4 ? table : 0;
     }
 
     private static delegate* unmanaged[Cdecl]<int, int, float, byte*, byte*, nint> _open;
     private static delegate* unmanaged[Cdecl]<int, byte*> _frame;
     private static delegate* unmanaged[Cdecl]<int, int, void> _key;
     private static delegate* unmanaged[Cdecl]<float, float, int, void> _mouse;
+    private static delegate* unmanaged[Cdecl]<int, void> _page;
 
     private static int Main(string[] args)
     {
@@ -42,6 +43,7 @@ internal static unsafe class Program
         int w = int.Parse(size[0]), h = int.Parse(size[1]);
         var scale = float.Parse(Arg("--scale", "1")!, System.Globalization.CultureInfo.InvariantCulture);
         var font = Arg("--font");
+        var bold = Arg("--bold-font");
         var only = Arg("--scene");
         var suffix = Arg("--suffix", $"{w}x{h}" + (scale != 1 ? $"@{scale:0.##}" : ""))!;
         Directory.CreateDirectory(outDir);
@@ -51,6 +53,13 @@ internal static unsafe class Program
         _frame = (delegate* unmanaged[Cdecl]<int, byte*>)NativeLibrary.GetExport(lib, "kiln_preview_frame");
         _key = (delegate* unmanaged[Cdecl]<int, int, void>)NativeLibrary.GetExport(lib, "kiln_preview_key");
         _mouse = (delegate* unmanaged[Cdecl]<float, float, int, void>)NativeLibrary.GetExport(lib, "kiln_preview_mouse");
+        _page = (delegate* unmanaged[Cdecl]<int, void>)NativeLibrary.GetExport(lib, "kiln_preview_page");
+        if (bold is not null)
+        {
+            var setBold = (delegate* unmanaged[Cdecl]<byte*, void>)NativeLibrary.GetExport(lib, "kiln_preview_bold_font");
+            var b = System.Text.Encoding.UTF8.GetBytes(bold + "\0");
+            fixed (byte* p = b) setBold(p);
+        }
         nint table;
         var fontBytes = System.Text.Encoding.UTF8.GetBytes((font ?? "") + "\0");
         fixed (byte* f = fontBytes) table = _open(w, h, scale, font is null ? null : f, null);
@@ -68,6 +77,7 @@ internal static unsafe class Program
         {
             if (only is not null && only != "all" && !scene.Name.Equals(only, StringComparison.OrdinalIgnoreCase)) continue;
             if (scene.OnlyAt is { } at && at != suffix && only is null) continue;
+            if (suffix == "3440x1440" && !scene.GamePage && only is null) continue;  // the ultrawide size is for the game page
             var root = Path.Combine(work, scene.Name);
             if (Directory.Exists(root)) Directory.Delete(root, true);
             var kilnMods = scene.Build(root);
@@ -82,19 +92,23 @@ internal static unsafe class Program
             page.Search = scene.Search;
             page.Selected = scene.Selected;
             ModManagerHost.ResetForTests();
+            GamePageHost.ResetForTests();
+            // the game page: kiln.ui says the game shows it; the Kiln menu itself is not "open" (the stand-alone host)
+            _page(scene.GamePage ? 1 : 0);
+            var menu = scene.GamePage ? 0 : 1;
             byte* px = null;
-            for (var i = 0; i < 4; i++) px = _frame(1);
+            for (var i = 0; i < 4; i++) px = _frame(menu);
             Thread.Sleep(250);  // the game font loads on a worker (style.cpp), as in the game
-            for (var i = 0; i < 4; i++) px = _frame(1);
+            for (var i = 0; i < 4; i++) px = _frame(menu);
             foreach (var (key, times) in scene.Keys)
                 for (var t = 0; t < times; t++)
                 {
                     _key(key, 1);
-                    _frame(1);
+                    _frame(menu);
                     _key(key, 0);
-                    _frame(1);
+                    _frame(menu);
                 }
-            for (var i = 0; i < 3; i++) px = _frame(1);
+            for (var i = 0; i < 3; i++) px = _frame(menu);
             var file = Path.Combine(outDir, $"{scene.Name}-{suffix}.png");
             WritePng(file, px, w, h);
             Console.WriteLine($"{file}  ({ModCatalog.Snapshot(TimeSpan.FromHours(1)).Mods.Count} mods)");
@@ -194,6 +208,8 @@ internal sealed record Scene(string Name, Func<string, IReadOnlyList<KilnModInpu
     /// <summary>Render only at this size suffix unless named with --scene.</summary>
     public string? OnlyAt { get; init; }
     public bool Summary { get; init; }
+    /// <summary>Inside the game's main menu (GamePageHost) instead of the stand-alone page; also rendered at 3440x1440.</summary>
+    public bool GamePage { get; init; }
 }
 
 internal static class Scenes
@@ -235,6 +251,8 @@ internal static class Scenes
         new("network", Typical) { Section = ModManagerSection.Network, OnlyAt = "1920x1080" },
         new("keys", Typical) { Section = ModManagerSection.Keys, OnlyAt = "1920x1080" },
         new("overlay", Typical) { Section = ModManagerSection.Overlay, OnlyAt = "1920x1080" },
+        new("game-page", Typical) { Selected = "kiln/storage-labels", GamePage = true },
+        new("game-page-problems", Problems) { Filter = EngineFilter.Attention, GamePage = true, OnlyAt = "1920x1080" },
     ];
 
     private static void Boot(string kiln, string profileFile, params object[] plugins) =>

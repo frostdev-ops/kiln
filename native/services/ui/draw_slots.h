@@ -19,6 +19,7 @@ namespace kui {
 bool in_frame();
 void style_push(uint32_t style);
 void style_pop();
+bool style_push_font(uint32_t font);  // KILN_UI_FONT_*: pushes it at the current size; false = not loaded, nothing pushed
 void image_draw(KilnHandle h, float w, float hgt);
 bool image_button(const char* id, KilnHandle h, float w, float hgt);
 }  // namespace kui
@@ -176,6 +177,7 @@ bool KILN_CALL t_is_item_clicked(uint32_t button) {
 }
 
 #include "draw_slots_v3.inl"
+#include "draw_slots_v4.inl"
 
 }  // namespace
 }  // namespace kui_draw

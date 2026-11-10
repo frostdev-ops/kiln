@@ -301,3 +301,36 @@ public sealed unsafe partial class UiDraw
         if (t != null) t->SetScrollHereY(ratio);
     }
 }
+
+/// <summary>A font for <see cref="UiDraw.Font"/> (kiln.ui v4).</summary>
+public enum UiFont : uint
+{
+    /// <summary>The current look's font.</summary>
+    Default = 0,
+    /// <summary>The game's UI font (regular).</summary>
+    Game = 1,
+    /// <summary>The game's UI font, bold: what its page titles use.</summary>
+    GameBold = 2,
+}
+
+public sealed unsafe partial class UiDraw
+{
+    /// <summary>Text drawn inside the scope uses <paramref name="font"/> at the current size:
+    /// <c>using (ui.Font(UiFont.GameBold)) ui.Text("MODS");</c>. <see cref="FontChoice.Pushed"/> is false (and nothing changes)
+    /// when that font is not loaded or kiln.ui is older than v4.</summary>
+    public FontChoice Font(UiFont font)
+    {
+        var t = UiNative.T4;
+        return new FontChoice(t != null && t->PushFont((uint)font) != 0);
+    }
+
+    public readonly struct FontChoice(bool pushed) : IDisposable
+    {
+        public bool Pushed => pushed;
+
+        public void Dispose()
+        {
+            if (pushed) UiNative.T4->PopFont();
+        }
+    }
+}
