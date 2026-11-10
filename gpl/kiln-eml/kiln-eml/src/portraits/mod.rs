@@ -620,19 +620,28 @@ mod tests {
     }
 
     fn run_fake(cache: &TempDir, items: Value, edition: u32, broken: Option<&str>) -> Run {
-        let calls = Rc::new(Calls::default());
-        let request: Request = serde_json::from_value(json!({
-            "game_dir": "C:\\Game", "cache_dir": cache.utf8(), "items": items
-        }))
-        .unwrap();
-        let c = calls.clone();
-        let reply = run(request, "enshrouded", move |dir: &Path, name: &str| {
-            assert_eq!(dir, Path::new("C:\\Game"));
-            assert_eq!(name, "enshrouded");
-            c.opened.set(c.opened.get() + 1);
-            Ok(Fake { calls: c.clone(), edition, broken: broken.map(str::to_string) })
-        });
-        Run { calls, reply }
+        // Other tests of this binary start child processes (the install-lock tests). Between its fork and its exec a
+        // child holds a copy of every open file, so the cache lock of the run before this one can still look taken
+        // for a moment after that run closed it. A busy cache is the answer to try again, so try again.
+        for attempt in 0.. {
+            let calls = Rc::new(Calls::default());
+            let request: Request = serde_json::from_value(json!({
+                "game_dir": "C:\\Game", "cache_dir": cache.utf8(), "items": items
+            }))
+            .unwrap();
+            let c = calls.clone();
+            let reply = run(request, "enshrouded", move |dir: &Path, name: &str| {
+                assert_eq!(dir, Path::new("C:\\Game"));
+                assert_eq!(name, "enshrouded");
+                c.opened.set(c.opened.get() + 1);
+                Ok(Fake { calls: c.clone(), edition, broken: broken.map(str::to_string) })
+            });
+            if reply.code != crate::CACHE_BUSY || attempt == 200 {
+                return Run { calls, reply };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        unreachable!()
     }
 
     fn frame_files(folder: &Path) -> Vec<String> {
