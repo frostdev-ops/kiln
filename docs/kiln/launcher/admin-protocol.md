@@ -283,3 +283,10 @@ A remote server without KAP (an old Kiln.Admin) is not reachable from the launch
 handled once on the tick thread and deleted, `results/<id>.json` = `{ok, op, ms, data | error}`, `state.json` about
 once a second, all written through a temp file + rename. No push: the client polls `state.json`. External
 tools keep using it while the launcher uses TCP.
+
+One responder per folder. The Emberwatch Lua mod (a ShroudForge mod, `mods/emberwatch-admin`) answers the same folder
+in the same way, and Kiln's ShroudForge support runs it next to Kiln.Admin when both are installed: each request is
+then answered by whichever reads it first, and `state.json` alternates between the two forms (the Lua mod's has no
+`kiln`, and its empty lists are `{}`). Kiln.Admin logs a warning at load when it finds such a state.json. Remove one of
+the two, or give Kiln.Admin its own folder with `"bridge"`. The launcher's `auto` transport leaves the bridge for TCP
+as soon as Kiln.Admin's listener answers, so it is not affected.

@@ -20,6 +20,14 @@ public sealed class AdminMod : Mod
         var config = ReadConfig();
         _bridge = new Bridge(ResolveDirectory(config), Log);
         _bridge.EnsureDirectories();
+        if (_bridge.ForeignState() is { } age)
+        {
+            Log.Warn($"another admin mod writes {Path.Combine(_bridge.Directory, "state.json")} too (last {age:0.0} s ago, not in Kiln.Admin's form). " +
+                "Each request in that folder is answered by whichever of the two reads it first, and state.json changes between their two forms. " +
+                "With Kiln's ShroudForge support this is usually the Emberwatch Lua mod (mods/emberwatch-admin), whose work Kiln.Admin does: " +
+                "remove that mod, or give Kiln.Admin a folder of its own with \"bridge\" in kiln/data/kiln-admin/config.json. " +
+                "The Kiln Launcher is not affected (it talks to Kiln.Admin over KAP).");
+        }
         _bridge.Register("ping", _ => new JsonObject { ["pong"] = true, ["clock"] = _step / 24.5, ["kiln"] = Game.KilnVersion });
         _bridge.Register("status", _ => Status());
         Ops.DataDirectory = Context.DataDirectory;
