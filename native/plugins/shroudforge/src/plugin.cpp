@@ -244,7 +244,10 @@ bool wanted(std::string* reason) {
     if (mode == KILN_PROFILE_LEGACY) return legacy_wanted(reason);
     // an active profile: on when its "mods.shroudforge" list has an enabled entry (the launcher writes each mod's
     // switch into ShroudForge's own extended.mod.json; this list says that the profile uses ShroudForge at all)
+    // Drop-ins on for ShroudForge ("dropins": true, or a "dropins" list naming "shroudforge"): the packages in its own
+    // mods folder run too, so ShroudForge is on when there is one (legacy_wanted's check), as without a profile.
     const KilnStr js = profile->json();
+    bool dropins = false;
     try {
         const auto doc = nlohmann::json::parse(std::string(js.ptr, js.len));
         const auto mods = doc.value("mods", nlohmann::json::object());
@@ -252,7 +255,18 @@ bool wanted(std::string* reason) {
         if (it != mods.end() && it->is_array())
             for (const auto& e : *it)
                 if (e.is_object() && e.value("enabled", true)) return true;
+        if (const auto d = doc.find("dropins"); d != doc.end()) {
+            if (d->is_boolean()) dropins = d->get<bool>();
+            else if (d->is_array())
+                for (const auto& k : *d)
+                    if (k.is_string() && k.get<std::string>() == "shroudforge") dropins = true;
+        }
     } catch (...) {
+    }
+    if (dropins) {
+        if (legacy_wanted(reason)) return true;
+        *reason = "the active profile lists no ShroudForge mods, and ShroudForge's own mods folder (drop-ins on) has " + *reason;
+        return false;
     }
     *reason = "the active profile lists no ShroudForge mods";
     return false;

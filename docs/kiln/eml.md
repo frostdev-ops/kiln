@@ -107,7 +107,9 @@ The candidates, in this order (the first mod with an id wins; later ones are `du
    schema; kiln-eml reads the list from the profile text (`kiln.profile` `json()`).
 2. Folders other engine plugins add through `kiln.eml` `add_mod` (source = the plugin's name).
 3. Drop-ins: `<game>/kiln/eml/mods/*`, then EML's own `<game>/mods/*`. These load without a profile (legacy), or when
-   the profile has `"dropins": true` or lists `"eml"`. This is the same rule as every other Kiln kind.
+   the profile has `"dropins": true` or lists `"eml"`. This is the same rule as every other Kiln kind. A drop-in
+   folder holding the launcher's marker `.kiln-library.json` (kind `eml`) with the id of a profile entry is that
+   entry's copy, placed for EML's own loader: it is skipped (logged at debug level in `eml.log`), so the mod runs once.
 
 Each candidate is classified. Only EML mods run; everything else is logged and listed with a reason:
 
@@ -344,12 +346,29 @@ Two engines must never write the KFC one after the other: the second write would
 
 When EML's own proxy is **loaded in this process**, kiln-eml stands aside: EML has already patched in its `DllMain`.
 The same holds for ShroudForge's, which carries EML. kiln-eml enumerates the modules named `dbghelp.dll`/`dinput8.dll`
-or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH`, and leaves out Kiln proxies.
+or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH`, and leaves out Kiln proxies. The
+loaded image's PE header (time stamp, image size, entry point) must be the file's: under Wine without a DLL override
+the process holds Wine's builtin `dbghelp.dll` under the game folder's path, and kiln-eml then runs the mods (lab,
+dev.22; before, it stood aside there and nothing ran them).
 - kiln.log says `kiln-eml: standing aside: <path> is loaded: EML's own loader patched the game files this start`.
 - `state/eml.json` has `phase: "aside"`.
 
+**The profile's EML mods** live in Kiln's Library, which EML's own loader never reads. Since dev.22 the launcher copies
+them into the folder that loader reads while it is installed: `<game>/mods/<library id>/` for EML's own
+`dbghelp.dll`/`dinput8.dll`, ShroudForge's mods folder for ShroudForge's loader or when Kiln hosts ShroudForge for the
+profile ([engines/README.md](engines/README.md#the-profiles-mods-while-the-own-loader-runs)). Standing aside, kiln-eml
+lists each profile entry in `state/eml.json`: `own-loader` (Kiln's copy is in that folder, so EML applied it) or
+`not-loaded` (it is only in the Library), with the reason, and logs a warning per mod that does not load:
+```
+[W] kiln-eml: profile EML mod stacks does not load: EML's own loader runs this start and reads only Z:\...\mods; ...
+kiln-eml: 2 of the profile's 2 EML mod(s) run under EML's own loader
+```
+Kiln never places a second copy of a mod the player already has in `mods/` (the same manifest id under another
+folder name): EML stops the game on a duplicate id. The player's copy runs.
+
 When EML's `dbghelp.dll` only sits in the folder but is **not loaded** (Wine without the override), kiln-eml runs the
-mods, which is the Linux case EML can't handle by itself. The installer (agent `detect`) may chain EML's `dinput8.dll`
+mods, which is the Linux case EML can't handle by itself. The profile's entries then run from the Library and the
+launcher's copies in `mods/` are skipped as drop-ins. The installer (agent `detect`) may chain EML's `dinput8.dll`
 in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab server (section 5).
 
 ### Logs and state
@@ -359,7 +378,8 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
 - `kiln/logs/eml.log`: everything, debug included.
 - `kiln/state/eml.json` (format 1, for the launcher and `Kiln.Eml`):
   `{ pid, phase: done|failed|aside|idle|running, file, patched, cached, restored, ms, fingerprint, error, aside, mods: [{ id, version, name, source, path, state, reason, capabilities }], progress }`
-  ([schema](../../schema/state-eml.schema.json)).
+  ([schema](../../schema/state-eml.schema.json)). With phase `aside`, `mods` holds the profile's EML entries with state
+  `own-loader`, `not-loaded` or `disabled` (dev.22; before, it was empty).
   `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }` plus,
   since dev.22, `recordedFiles` and `recordedBytes` (files recorded by their stamp, not read): what reading the game's
   files for the change cache cost this start. `phase: "running"` and `progress` (dev.22, only while the run goes on) are
@@ -702,7 +722,9 @@ that only knows the v1 prefix cover compatibility.
 - A bundled SF DLL alone does not claim an EML-only legacy installation: hosting needs an enabled SF package or
   previous SF startup state, an active SF profile, or `KILN_SHROUDFORGE=1`.
 - When SF owns startup, EML packages must live in SF's configured mods folder. Kiln-only EML profile paths and
-  `kiln/eml/mods` are not forwarded into SF; the `aside` outcome explicitly identifies the selected writer.
+  `kiln/eml/mods` are not forwarded into SF; the `aside` outcome explicitly identifies the selected writer. Since
+  dev.22 the launcher copies the profile's EML mods into SF's mods folder when the profile makes Kiln host SF (it lists
+  an enabled ShroudForge mod), so SF writes them; `eml.json` lists them as `own-loader`.
 - An older kiln-eml table cannot coordinate SF's writer; the adapter refuses to run a second writer.
 - A self-hosted EML/SF proxy still takes precedence. No second startup writer should be chained.
 
@@ -757,4 +779,5 @@ Mods we need from the user (Nexus downloads, which agents can't fetch):
   Real EML mods have `"capabilities": ["patch"]`, so they show as ShroudForge (for detect).
 - The launcher could read `state/eml.json` and show each EML mod's state (dev.22 reads it for the start progress only).
   When the player turns kiln-eml off, it could offer EML's restore (copy `.kfc.bak` over `.kfc`).
-- Forwarding Kiln-only EML profile/private-root packages into SF when SF owns startup requires a separate integration.
+- `kiln/eml/mods` drop-ins are still not forwarded into SF when SF owns startup (profile EML mods are, by placement
+  since dev.22).

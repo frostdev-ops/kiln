@@ -30,6 +30,12 @@ Launcher server sync (marked `kiln:`):
 |---|---|
 | `server/src/kiln.rs` | `roots` also takes the direct subfolders of `shroudlink_mods/` (`mod_folders`: not hidden, not an EML folder, no links), where the launcher's server sync puts each mod (`shroudlink_mods/<id>/`). Discovery keeps the outermost listed root as its path-check boundary; the running loader retains checked directory handles for its automatic dropin root from before discovery until process exit, preventing root/ancestor replacement between discovery, copying and hot reload while allowing DLL updates. Handles use `OwnedHandle` for ownership and cross-thread transfer. Discovery deduplicates DLLs by volume/file identity and exact contents, including hard links and separately copied/renamed DLLs, with the first profile/dropin occurrence winning. Content comparisons hold checked paths and use bounded buffers for equal-sized files; distinct DLLs sharing a filename remain separate. Profile order, then sorted flat DLLs, then sorted subfolders and their DLLs determine load order. Overlapping-root/copy/hard-link, directory-pinning/update and replaced-dropin-root regression tests. Upstream's own core still reads only `shroudlink_mods/*.dll`. |
 
+Own loader and drop-ins (dev.22, marked `kiln:`):
+
+| File | Change |
+|---|---|
+| `server/src/kiln.rs` | With an active profile `shroudlink_mods/` is read only with drop-ins on for shroudlink (`"dropins": true` or a list naming `shroudlink`), whether or not the profile lists shroudlink mods (before, a profile without a `mods.shroudlink` list read it too). While standing aside (a real core runs, or another core claimed the process), `kiln/state/shroudlink.json` lists every enabled profile entry: `own-loader` when its DLL is a file directly in `shroudlink_mods/` (the only place upstream's core reads), else `not-loaded` with the reason, and each `not-loaded` entry is logged at WARN. Host test `standing_aside_reports_profile_entries_truthfully`. |
+
 The enclosing workspace enables `Win32_Storage_FileSystem` and `Win32_Security` for those checked handles.
 `../build.sh --test` also includes the common crate's tests. `../src/guard.c` and `../tests/nearby/` are Kiln's own
 integration code/tests outside the vendored crates.

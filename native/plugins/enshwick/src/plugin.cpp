@@ -320,7 +320,11 @@ ModForm form_of(const fs::path& dir) {
 }
 
 // Brings <game>/mods in line with the profile's Enshwick list and records what runs in g_mods.
-void sync_profile(const kcompat::EnginePlan& plan, const fs::path& mods) {
+// aside: Enshwick's own stub runs the loader this start, and its loader thread may already be reading mods/. Then
+// only new copies are made (staged outside mods/, published by one rename, so the loader sees a folder whole or not
+// at all); a copy is never refreshed or removed, since the running loader may hold files of it. Each profile entry is
+// reported as own-loader (its copy is in mods/) or not-loaded.
+void sync_profile(const kcompat::EnginePlan& plan, const fs::path& mods, bool aside = false) {
     std::error_code receipt_error;
     fs::create_directories(receipt_file().parent_path(), receipt_error);
     kcompat::CheckedPath receipt_dir_guard;
@@ -389,12 +393,58 @@ void sync_profile(const kcompat::EnginePlan& plan, const fs::path& mods) {
         const fs::path dst = mods / to_wide(a.folder);
         std::string note = a.note;
         std::string action = act_name(a.act);
+        if (aside) {
+            const std::string where = "mods\\" + a.folder;
+            if (a.act == Act::Copy) {
+                if (replace_copy(mods, a, &note)) {
+                    action = "own-loader";
+                    note = "Kiln copied it to " + where + " this start; Enshwick's own loader, already running, may see it "
+                           "only from the next start";
+                } else {
+                    action = "not-loaded";
+                    note = "Enshwick's own loader runs this start and reads only <game>\\mods; copying this mod there "
+                           "failed (" + note + "), so it does not load";
+                }
+            } else if (a.act == Act::Keep) {
+                action = "own-loader";
+                note = "runs under Enshwick's own loader (Kiln's copy in " + where + " is current)";
+            } else if (a.act == Act::Refresh) {
+                action = "own-loader";
+                note = "runs under Enshwick's own loader from Kiln's earlier copy in " + where + "; the Library's newer "
+                       "files are copied at a start where Kiln runs Enshwick (a folder the running loader may read is "
+                       "never replaced)";
+            } else if (a.act == Act::Remove) {
+                const std::string still = "Kiln's earlier copy in " + where + " still runs under Enshwick's own loader; "
+                                          "Kiln removes it at a start where it runs Enshwick itself";
+                bool listed = false;
+                for (auto& m : g_mods)
+                    if (m.origin == "profile" && lower(m.folder) == lower(a.folder) &&
+                        (m.action == "off" || m.action == "missing" || m.action == "failed")) {
+                        m.note = (m.action == "off" ? "switched off in the profile, but " : m.note + "; ") + still;
+                        m.action = "own-loader", listed = true;
+                        m.form = form_name(form_of(dst));
+                    }
+                if (!listed) g_mods.push_back({a.folder, form_name(form_of(dst)), "kiln", "run", "no longer enabled in the profile; " + still});
+                continue;
+            }
+            const std::string form = form_name(form_of(kcompat::exists(dst) ? dst : fs::path(to_wide(a.source))));
+            g_mods.push_back({a.folder, form, "profile", action, note});
+            continue;
+        }
         if (a.act == Act::Copy || a.act == Act::Refresh || a.act == Act::Remove) {
             if (!replace_copy(mods, a, &note)) action = "failed";
         }
         const std::string form = a.act == Act::Remove ? "" : form_name(form_of(kcompat::exists(dst) ? dst : fs::path(to_wide(a.source))));
         g_mods.push_back({a.folder, form, a.act == Act::Remove ? "kiln" : "profile", action, note});
     }
+    // Standing aside: a listed mod whose Library folder is missing or unusable has no copy for Enshwick's own loader.
+    if (aside)
+        for (auto& m : g_mods)
+            if (m.origin == "profile" && (m.action == "missing" || m.action == "failed")) {
+                m.note = "Enshwick's own loader runs this start and reads only <game>\\mods; Kiln could not copy this mod "
+                         "there (" + m.note + "), so it does not load";
+                m.action = "not-loaded";
+            }
     // Folders the player put into mods/ by hand: Enshwick's loader reads every one of them.
     for (const auto& e : existing) {
         if (e.managed || listed_folders.count(kcompat::lower(e.folder))) continue;
@@ -615,6 +665,33 @@ void run_flow(const char* phase) {
         if (!aside.empty()) {
             set_status("stepped-aside", aside);
             Log(KILN_LOG_INFO, "kiln-enshwick steps aside: %s", aside.c_str());
+            // Enshwick's own loader reads only <game>/mods: copy the profile's new Enshwick mods there (it may pick
+            // them up only from the next start) and say for each whether it runs.
+            if (!plan.listed.empty()) {
+                try {
+                    const fs::path mods = g_game / L"mods";
+                    std::error_code ec;
+                    fs::create_directories(mods, ec);
+                    kcompat::CheckedPath mods_guard;
+                    if (ec || !mods_guard.open(mods, mods, false)) throw std::runtime_error("unsafe or unavailable mods folder");
+                    sync_profile(plan, mods, true);
+                } catch (const std::exception& e) {
+                    std::lock_guard lock(g_mu);
+                    for (const auto& r : plan.listed) {
+                        const std::string folder = r.id.empty() ? to_utf8(r.path.filename().wstring()) : r.id;
+                        bool seen = false;
+                        for (const auto& m : g_mods) seen |= lower(m.folder) == lower(folder);
+                        if (!seen && r.enabled)
+                            g_mods.push_back({folder, "unknown", "profile", "not-loaded",
+                                              std::string("Enshwick's own loader runs this start and reads only <game>\\mods; "
+                                                          "Kiln could not copy this mod there (") + e.what() + "), so it does not load"});
+                    }
+                }
+                for (const auto& m : g_mods)
+                    Log(m.action == "not-loaded" ? KILN_LOG_WARN : KILN_LOG_INFO, "kiln-enshwick: mods/%s (%s, %s): %s%s%s",
+                        m.folder.c_str(), m.form.c_str(), m.origin.c_str(), m.action.c_str(), m.note.empty() ? "" : ": ",
+                        m.note.c_str());
+            }
             write_status();
             return;
         }
@@ -636,11 +713,24 @@ void run_flow(const char* phase) {
         size_t running = 0;
         // The real loader reads physical folders, including a hand-installed folder also listed/disabled in the
         // profile. Report conflicts honestly and still start for those mods. Unknown folders alone do not hook.
-        for (const auto& d : fs::directory_iterator(mods))
-            if (d.is_directory() && lower(path_utf8(d.path().filename())) != kLoaderFolder &&
-                form_of(d.path()) != ModForm::Unknown) ++running;
+        // Folders installed by hand count only with drop-ins on for enshwick (or without a profile): the loader, once
+        // started, still runs every folder in mods/, and the report says so.
+        for (const auto& d : fs::directory_iterator(mods)) {
+            if (!d.is_directory() || lower(path_utf8(d.path().filename())) == kLoaderFolder ||
+                form_of(d.path()) == ModForm::Unknown) continue;
+            const std::string folder = lower(path_utf8(d.path().filename()));
+            bool listed = false;
+            for (const auto& m : g_mods) listed |= m.origin == "profile" && m.action != "off" && lower(m.folder) == folder;
+            if (listed || plan.read_folder) ++running;
+        }
         if (!should_start(running, always)) {
-            set_status("nothing", "no Enshwick mod in mods/ or the profile");
+            for (auto& m : g_mods)
+                if (m.origin == "folder" && m.action == "run")
+                    m.action = "off", m.note = "installed by hand; drop-ins for enshwick are off in this profile, so Kiln does "
+                                               "not start Enshwick's loader for it (once started, the loader runs every "
+                                               "folder in mods/)";
+            set_status("nothing", plan.read_folder ? "no Enshwick mod in mods/ or the profile"
+                                                   : "no Enshwick mod in the profile (drop-ins for enshwick are off in this profile)");
             Log(KILN_LOG_INFO, "kiln-enshwick: no Enshwick mods; the loader does not start (\"always\": true starts it anyway)");
             write_status();
             return;

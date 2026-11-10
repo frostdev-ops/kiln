@@ -64,6 +64,14 @@ bool g_foreign_started = false;
 bool g_handoff = false;
 
 std::string own_loader_in_process();
+// While standing aside: the profile's entries that kiln-shroudtopia did not register, with what happens to each
+// (own-loader: Kiln's copy in <game>/mods/<id>/ runs under Shroudtopia's loader; not-loaded; switched off).
+struct AsideLine {
+    std::string id, status, reason;
+    fs::path path;
+};
+std::vector<AsideLine> g_aside;  // under g_mu
+void report_aside();
 // The worker observes the loader every wait slice (up to 20 Hz); the full check enumerates every module, stats paths
 // and reads DLL files, wineserver round trips under Wine. Re-check only after a DLL load or a module-list change.
 kcompat::ModuleWatch g_loader_watch;
@@ -78,6 +86,7 @@ bool observe_own_loader() {
     g_handoff = true;
     loader_log(KILN_LOG_WARN, "kiln-shroudtopia steps aside: " + reason +
         (g_foreign_started ? "; stopping scheduling; already-installed mod hooks remain mapped" : "; no mod was started"));
+    report_aside();
     return true;
 }
 
@@ -92,6 +101,9 @@ void write_status() {
             mods.push_back({{"name", m->name},     {"id", m->id},         {"version", m->version}, {"author", m->author},
                             {"target", m->target}, {"client", m->client}, {"server", m->server},   {"origin", m->origin},
                             {"status", m->status}, {"reason", m->reason}, {"updates", m->updates}, {"dll", path_utf8(m->dll)}});
+        for (const auto& a : g_aside)
+            mods.push_back({{"name", a.id}, {"id", a.id}, {"origin", "profile"}, {"status", a.status},
+                            {"reason", a.reason}, {"updates", 0}, {"dll", path_utf8(a.path)}});
         for (const auto& [p, why] : g_refused) refused.push_back({{"dll", to_utf8(p)}, {"reason", why}});
     }
     json doc = {{"format", 1},
@@ -256,9 +268,17 @@ std::vector<Candidate> scan() {
     }
     std::sort(dirs.begin(), dirs.end());
     std::sort(files.begin(), files.end());
+    const auto ids = kcompat::listed_ids(g_plan);
     for (const auto& d : dirs) {
         if (!kcompat::contained_path(mods, d)) continue;
         if (!kcompat::exists(d / L"mod.json")) continue;
+        // Kiln's copy of a profile entry (for Shroudtopia's own loader): the profile entry is that mod.
+        if (const auto id = kcompat::library_copy_of(d, "shroudtopia", ids); !id.empty()) {
+            static std::set<std::wstring> told;  // scan() runs every cycle on the loader thread
+            if (told.insert(d.wstring()).second)
+                H.logf(KILN_LOG_INFO, "%s: Kiln's copy of profile mod %s; the profile entry is used", path_utf8(d).c_str(), id.c_str());
+            continue;
+        }
         if (kcompat::exists(d / L"flame.json") || kcompat::exists(d / L"src" / L"mod.lua")) continue;  // other loaders
         Candidate c;
         if (folder_dll(d, {}, &c, nullptr)) {
@@ -474,6 +494,9 @@ std::string own_loader_in_process() {
         const auto n = GetModuleFileNameW(modules[i], p, static_cast<DWORD>(std::size(p)));
         if (!n || n == std::size(p)) continue;
         const fs::path file(p);
+        // Wine's builtin winmm.dll reports a game-folder winmm.dll's path without running that file.
+        if (!kcompat::module_is_file(modules[i], file)) continue;
+        if (kcompat::kiln_own_module(modules[i], file)) continue;  // Kiln's proxy and plugins name every engine
         if (kcompat::lower(path_utf8(file.filename())) == "shroudtopia.dll" &&
             !kcompat::pe_exports_name(file, "CreateModInstance"))
             return "Shroudtopia's loader is loaded (" + to_utf8(p) + ")";
@@ -492,6 +515,27 @@ std::string own_loader_in_process() {
             return "a Shroudtopia loader proxy is loaded (" + to_utf8(p) + ")";
     }
     return {};
+}
+
+void report_aside() {
+    std::set<std::string> registered;
+    {
+        std::lock_guard lock(g_mu);
+        for (const auto& m : g_mods)
+            if (m->origin == "profile") registered.insert(kcompat::lower(m->id));
+        if (!g_aside.empty()) return;
+    }
+    std::vector<AsideLine> lines;
+    for (const auto& r : g_plan.listed) {
+        if (registered.count(kcompat::lower(r.id))) continue;  // started by Kiln before the loader arrived
+        const auto rep = kcompat::aside_report(r.id, r.path, r.enabled, "shroudtopia", g_game / L"mods", "Shroudtopia", "mods");
+        lines.push_back({r.id.empty() ? to_utf8(r.path.filename().wstring()) : r.id,
+                         rep.state == kcompat::Aside::Off ? "skipped" : kcompat::aside_word(rep.state), rep.reason,
+                         rep.copy.empty() ? r.path : rep.copy});
+        if (rep.state != kcompat::Aside::Off) kcompat::log_aside(H, lines.back().id, rep);
+    }
+    std::lock_guard lock(g_mu);
+    if (g_aside.empty()) g_aside = std::move(lines);
 }
 
 void note_idle_loader() {
@@ -542,6 +586,7 @@ void KILN_CALL on_ready(void*) {
     g_stepped_aside = own_loader_in_process();
     if (!g_stepped_aside.empty()) {
         H.logf(KILN_LOG_WARN, "kiln-shroudtopia steps aside: %s; the Shroudtopia mods are its to load", g_stepped_aside.c_str());
+        report_aside();
         write_status();
         return;
     }

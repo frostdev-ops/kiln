@@ -116,6 +116,8 @@ public sealed class ModCatalogTests : IDisposable
     [InlineData("skipped", ModRunState.NotLoaded)]
     [InlineData("duplicate", ModRunState.NotLoaded)]
     [InlineData("something new", ModRunState.NotLoaded)]
+    [InlineData("own-loader", ModRunState.Loaded)]
+    [InlineData("not-loaded", ModRunState.Failed)]
     internal void Engine_words_map_to_states(string word, ModRunState state) => Assert.Equal(state, ModCatalog.StateOf(word));
 
     // ---- each engine's file ----

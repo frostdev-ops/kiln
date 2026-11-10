@@ -56,6 +56,19 @@ int main(int argc, char** argv) {
     // Startup, in on_ready's order: arm the DLL-load notification, then the one full check.
     assert(g_modules.arm() && g_modules.notifying() && g_modules.fingerprinting() && loader_test::registrations == 1);
     assert(set_in_process().empty());
+    // Kiln's own files name SET (kiln\host\Kiln.Ui.dll's mod catalogue): never SET's runtime. The same file chained
+    // from kiln\chain\ is a foreign loader and still counts.
+    loader_test::exe = (root / "enshrouded.exe").wstring();
+    std::filesystem::create_directories(root / "kiln/host");
+    std::filesystem::create_directories(root / "kiln/chain");
+    std::ofstream(root / "kiln/host/Kiln.Ui.dll") << "mods for Shrouded Engine Tweaks, Flame, Shroudtopia";
+    std::ofstream(root / "kiln/chain/Kiln.Ui.dll") << "mods for Shrouded Engine Tweaks, Flame, Shroudtopia";
+    loader_test::modules = {(root / "kiln/host/Kiln.Ui.dll").wstring()};
+    assert(set_in_process().empty());
+    loader_test::modules = {(root / "kiln/chain/Kiln.Ui.dll").wstring()};
+    assert(set_in_process().find("SET-branded") != std::string::npos);
+    loader_test::modules = clean;
+    loader_test::exe.clear();
     g_running = true;
     // Steady state: 1000 UI frames and 1000 server steps over 16 s never re-run the module check (it was once per
     // frame/step), not even at the 3 s safety rounds: those only fingerprint the PEB list, which has not changed.

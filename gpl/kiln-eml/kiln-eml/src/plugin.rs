@@ -216,7 +216,7 @@ fn init_logging(logs: Option<&Utf8Path>) {
 /// EML's own proxy (dbghelp.dll, or dinput8.dll chained by Kiln), or ShroudForge's (which carries EML), loaded in this
 /// process: it already patched the game files in its DllMain, so kiln-eml must not patch them a second time.
 #[cfg(windows)]
-fn eml_loader_loaded() -> Option<String> {
+fn eml_loader_loaded() -> Option<(String, &'static str)> {
     use windows::Win32::Foundation::HMODULE;
     use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
     use windows::Win32::System::ProcessStatus::EnumProcessModules;
@@ -254,18 +254,86 @@ fn eml_loader_loaded() -> Option<String> {
         if has(b"KilnProxy/") || !has(b"EML_LOG_FILE_PATH") {
             continue;
         }
+        // Wine without a DLL override loads its builtin dbghelp but reports the game folder's path for it: the file
+        // there is EML's, the code in the process is not. The loaded image's PE header must be the file's.
+        // A header that cannot be read on either side keeps the old answer: the file's loader counts as running.
+        // SAFETY: a loaded module's base maps at least its first page (the headers, 4 KiB on x64).
+        let image = unsafe { std::slice::from_raw_parts(m.0 as *const u8, 4096) };
+        if let (Some(loaded), Some(file)) = (pe_identity(image), pe_identity(&bytes))
+            && loaded != file
+        {
+            tracing::info!("{path}: EML's loader is in the folder but this process loaded another dbghelp.dll \
+                (Wine's builtin, without a DLL override): kiln-eml runs the EML mods");
+            continue;
+        }
         let who = if has(b"shroudforge") || has(b"ShroudForge") {
             "ShroudForge's loader (it runs EML packages itself)"
         } else {
             "EML's own loader"
         };
-        return Some(format!("{path} is loaded: {who} patched the game files this start"));
+        let short = if who.starts_with("ShroudForge") { "ShroudForge's loader" } else { "EML's own loader" };
+        return Some((format!("{path} is loaded: {who} patched the game files this start"), short));
     }
     None
 }
 
+/// (TimeDateStamp, SizeOfImage, AddressOfEntryPoint) of a PE image's headers: the same for a file and its loaded image.
+fn pe_identity(b: &[u8]) -> Option<(u32, u32, u32)> {
+    let u32_at = |o: usize| b.get(o..o + 4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]));
+    if b.get(0..2)? != b"MZ" { return None; }
+    let pe = u32_at(0x3c)? as usize;
+    if pe > 2048 || b.get(pe..pe + 4)? != b"PE\0\0" { return None; }
+    let opt = pe + 24;
+    Some((u32_at(pe + 8)?, u32_at(opt + 56)?, u32_at(opt + 16)?))
+}
+
 #[cfg(not(windows))]
-fn eml_loader_loaded() -> Option<String> { None }
+fn eml_loader_loaded() -> Option<(String, &'static str)> { None }
+
+/// The folders another EML runner reads: EML's `<game>/mods`, and ShroudForge's configured mods folder.
+fn loader_roots(game: &Utf8Path) -> Vec<Utf8PathBuf> {
+    let mut roots = Vec::new();
+    let sf = std::fs::read_to_string(game.join("shroudforge/config/modloader-config.json")).ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t.trim_start_matches('\u{feff}')).ok())
+        .and_then(|v| v.pointer("/paths/mods").and_then(|m| m.as_str()).map(str::to_owned))
+        .filter(|m| !m.trim().is_empty());
+    if let Some(m) = sf {
+        let p = Utf8PathBuf::from(m.replace('\\', "/"));
+        roots.push(if p.is_absolute() { p } else { game.join(p) });
+    }
+    roots.push(game.join("mods"));
+    roots
+}
+
+/// The `aside` outcome: `why` names the loader that runs the EML mods; the profile's EML mods are listed as running
+/// under it (Kiln's copy is in its folder) or not loading (only in the Library), the latter as warnings.
+fn aside_outcome(why: &str, who: &str) -> Outcome {
+    let mut out = Outcome::new(Phase::Aside, Vec::new());
+    out.aside = Some(why.into());
+    let (Some(game), Some(kiln)) = (kpath(KILN_PATH_GAME), kpath(KILN_PATH_KILN)) else { return out };
+    let Some(p) = profile() else { return out };
+    let mode = unsafe { (p.mode)() };
+    if mode != KILN_PROFILE_ACTIVE && mode != KILN_PROFILE_ONCE { return out; }
+    let json = unsafe { (p.json)().to_string() };
+    out.mods = discover::aside_entries(&json, &kiln, &loader_roots(&game), who);
+    let (mut runs, mut lost) = (0, 0);
+    for m in &out.mods {
+        match m.state.as_str() {
+            "own-loader" => runs += 1,
+            "not-loaded" => {
+                lost += 1;
+                klog(2, &format!("kiln-eml: profile EML mod {} does not load: {}", m.id.as_deref().unwrap_or("?"),
+                    m.reason.as_deref().unwrap_or("")));
+            }
+            _ => {}
+        }
+    }
+    if runs + lost > 0 {
+        klog(if lost > 0 { 2 } else { 3 }, &format!("kiln-eml: {runs} of the profile's {} EML mod(s) run under {who}{}",
+            runs + lost, if lost > 0 { format!("; {lost} do not load (kiln/state/eml.json)") } else { String::new() }));
+    }
+    out
+}
 
 // Validate the headers before forming references to append-only ABI tables.
 fn valid_api(api: *const KilnApi, info: *mut KilnPluginInfo, ready: bool) -> bool {
@@ -355,8 +423,16 @@ fn run_now() {
     }
     candidates.extend(ADDED.lock().unwrap().iter().cloned());
     if dropins {
-        candidates.extend(discover::folder_candidates(&kiln.join("eml").join("mods"), "kiln-dropin"));
-        candidates.extend(discover::folder_candidates(&game.join("mods"), "game-mods"));
+        // The launcher's copies of the profile's own mods (placed for EML's own loader) are those profile entries.
+        let ids = profile().map(|p| discover::profile_ids(&unsafe { (p.json)().to_string() })).unwrap_or_default();
+        for dir in [kiln.join("eml").join("mods"), game.join("mods")] {
+            let source = if dir.starts_with(&kiln) { "kiln-dropin" } else { "game-mods" };
+            let (kept, skipped) = discover::without_profile_copies(discover::folder_candidates(&dir, source), &ids);
+            for s in skipped {
+                tracing::info!("{s}: Kiln's copy of a profile mod (placed for EML's own loader); the profile entry runs");
+            }
+            candidates.extend(kept);
+        }
     }
     let (mods, entries) = discover::resolve(&candidates);
     let (export, export_dir) = eml_json(&game);
@@ -471,11 +547,10 @@ fn start(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo, with_ready:
     if rc != KILN_OK {
         tracing::debug!(rc, "kiln.eml not published");
     }
-    if let Some(why) = eml_loader_loaded() {
+    if let Some((why, who)) = eml_loader_loaded() {
         RAN.store(true, Ordering::Release);
         klog(3, &format!("kiln-eml: standing aside: {why}. Remove it to let Kiln run the EML mods (kiln/state/eml.json)"));
-        let mut out = Outcome::new(Phase::Aside, Vec::new());
-        out.aside = Some(why);
+        let out = aside_outcome(&why, who);
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
     }
     KILN_OK
@@ -564,8 +639,7 @@ unsafe extern "C" fn eml_stand_aside(reason: KilnStr) -> i32 {
             if runner::lock_game(&game).is_err() { return KILN_ERR_UNAVAILABLE; }
         } else { return KILN_ERR_UNAVAILABLE; }
         RAN.store(true, Ordering::Release);
-        let mut out = Outcome::new(Phase::Aside, Vec::new());
-        out.aside = Some(reason.into());
+        let out = aside_outcome(reason, "ShroudForge (hosted by Kiln)");
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
         KILN_OK
     })).unwrap_or(KILN_ERR_INTERNAL)
@@ -590,6 +664,22 @@ unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pe_identity_reads_the_header_fields() {
+        let mut b = vec![0u8; 512];
+        b[0..2].copy_from_slice(b"MZ");
+        b[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        b[0x80..0x84].copy_from_slice(b"PE\0\0");
+        b[0x88..0x8c].copy_from_slice(&0x1234u32.to_le_bytes());
+        b[0x98 + 16..0x98 + 20].copy_from_slice(&0x1000u32.to_le_bytes());
+        b[0x98 + 56..0x98 + 60].copy_from_slice(&0x9000u32.to_le_bytes());
+        assert_eq!(pe_identity(&b), Some((0x1234, 0x9000, 0x1000)));
+        let mut other = b.clone();
+        other[0x88] = 0x35;
+        assert_ne!(pe_identity(&other), pe_identity(&b), "a builtin with another header is not the file");
+        assert_eq!(pe_identity(b"MZ"), None);
+    }
+
     #[test]
     fn a_busy_install_cannot_return_to_the_game_entry_point() {
         const CHILD: &str = "KILN_EML_BUSY_START_TEST";
