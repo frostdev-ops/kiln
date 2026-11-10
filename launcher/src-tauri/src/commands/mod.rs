@@ -71,6 +71,7 @@ pub const NAMES: &[&str] = &[
     "config_native_set",
     "launch_play",
     "launch_state",
+    "launch_prestart",
     "logs_list",
     "logs_read",
     "logs_follow",

@@ -41,6 +41,20 @@ impl FileStateCache {
         }
     }
 
+    /// A cache-shaped file that may not be there (the journal of an interrupted run): None when it is missing or does not
+    /// parse. Says nothing about either at warning level: it is a best-effort help.
+    pub fn read_file(path: &std::path::Path) -> Option<Self> {
+        let file = std::fs::File::open(path).ok()?;
+        serde_json::from_reader::<_, Self>(BufReader::new(file)).ok()
+    }
+
+    /// Replaces `path` whole (`atomic_write`); a failure only costs the help the file gives.
+    pub fn write_file(&self, path: &std::path::Path) {
+        if let Ok(bytes) = serde_json::to_vec(self) {
+            let _ = crate::transaction::atomic_write(path, &bytes);
+        }
+    }
+
     pub fn write(
         &self,
         cache_dir: impl AsRef<Path>

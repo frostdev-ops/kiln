@@ -7,7 +7,7 @@ import { create } from "zustand";
 const READ_ONLY = new Set([
   "app_settings_get", "task_list", "game_list", "game_status", "runtime_list", "runtime_status", "runtime_classify",
   "profile_list", "profile_get", "profile_resolve", "profile_active", "library_list", "library_detect",
-  "config_list", "config_read", "config_native_state", "config_kiln_read", "launch_state", "logs_list", "logs_read",
+  "config_list", "config_read", "config_native_state", "config_kiln_read", "launch_state", "launch_prestart", "logs_list", "logs_read",
   "logs_crash_reports", "saves_list", "saves_backups", "editor_list_saves", "editor_game_running", "editor_list_backups",
   "server_list", "server_get", "server_status", "server_settings_get", "server_mods", "server_backups", "server_query",
   "server_modpack_status", "modpack_pending", "admin_sessions",

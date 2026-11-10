@@ -728,6 +728,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | config | `config_native_set` | target, modId: string, enabled: boolean \| null | `NativeUserState` |
 | launch | `launch_play` | gameId, request: LaunchRequest {mode: 'profile'\|'vanilla'\|'no-mods'\|'once', profileId?, skipBackup?} | `LaunchResult` |
 | launch | `launch_state` | gameId | `BootState` {boot, mods, native, stale} (launcher type) |
+| launch | `launch_prestart` | gameId | `PreStart` or null: what kiln-eml is doing before the game's window exists (`kiln/state/eml.json`, phase running), while the game runs (`kiln_manage::prestart`) |
 | logs | `logs_list` | target: LogTarget | `LogFile[]` |
 | logs | `logs_read` | target, file: string, offset: number \| null, maxBytes: number \| null | `LogChunk` |
 | logs | `logs_follow` | target, file: string | string (subscription; lines in `kiln://log`) |

@@ -8,14 +8,16 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use mod_loader::lua::{self, FingerprintStats, RunArgs, RunOptions};
+use mod_loader::lua::{self, FingerprintStats, Progress, RunArgs, RunOptions, Sink, Stage};
 use mod_loader::{Capability, ModEnvironment};
 use serde::Serialize;
 
 use crate::discover::Entry;
+use crate::progress::{Display, Live};
 
 #[derive(Clone, Debug, Default)]
 pub struct RunConfig {
@@ -28,6 +30,8 @@ pub struct RunConfig {
     pub export: bool,
     pub export_dir: Option<PathBuf>,
     pub skip_cache: bool,
+    /// Where the run reports what it is doing (the live state file and the progress window), when the host has one.
+    pub progress: Option<Arc<Display>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -37,6 +41,8 @@ pub enum Phase {
     Failed,
     Aside,
     Idle,
+    /// The state file while the run is going on (kiln_eml.h KILN_EML_RUNNING): never the result.
+    Running,
 }
 
 impl Phase {
@@ -47,6 +53,7 @@ impl Phase {
             Phase::Failed => 2,
             Phase::Aside => 3,
             Phase::Idle => 4,
+            Phase::Running => 5,
         }
     }
 }
@@ -75,6 +82,9 @@ pub struct Outcome {
     pub error: Option<String>,
     pub aside: Option<String>,
     pub mods: Vec<Entry>,
+    // kiln-eml: only in the state file of a run that is going on (`phase: running`): what it is doing (progress.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Live>,
 }
 
 impl Outcome {
@@ -95,6 +105,7 @@ impl Outcome {
             error: None,
             aside: None,
             mods,
+            progress: None,
         }
     }
 
@@ -277,16 +288,17 @@ pub(crate) fn lock_game(game: &Utf8Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn files_differ(a: &Utf8Path, b: &Utf8Path) -> bool {
+fn files_differ(a: &Utf8Path, b: &Utf8Path, progress: &Progress) -> bool {
     use std::io::Read;
     let compare = || -> std::io::Result<bool> {
         let mut a = std::fs::File::open(a)?;
         let mut b = std::fs::File::open(b)?;
         if a.metadata()?.len() != b.metadata()?.len() { return Ok(true); }
-        let mut x = [0u8; 65536]; let mut y = [0u8; 65536];
+        let mut x = vec![0u8; 1 << 20]; let mut y = vec![0u8; 1 << 20];
         loop {
             let n = a.read(&mut x)?;
             b.read_exact(&mut y[..n])?;
+            progress.add(2 * n as u64);
             if x[..n] != y[..n] { return Ok(true); }
             if n == 0 { return Ok(false); }
         }
@@ -321,14 +333,35 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         return finish(out);
     }
 
+    // what the run does is reported into the live state file and the progress window (progress.rs), and to the log
+    let progress = Progress::start(cfg.progress.clone().map(|d| d as Arc<dyn Sink>));
+    if let Some(display) = &cfg.progress {
+        display.set_base(&out);
+    }
+
     let backup = cfg.game_dir.join(format!("{file}.kfc.bak"));
     if mods.is_empty() {
         // no EML mod (left): put the game data back byte for byte from EML's backup, once
         out.phase = Phase::Idle;
         let kfc = cfg.game_dir.join(format!("{file}.kfc"));
         let resources_backup = cfg.game_dir.join(format!("{file}.kfc_resources.bak"));
-        let resource_difference = resources_backup.exists() && files_differ(&cfg.game_dir.join(format!("{file}.kfc_resources")), &resources_backup);
-        if backup.exists() && cfg.patch && (files_differ(&kfc, &backup) || resource_difference) {
+        // comparing the live files with the backup reads both (hundreds of MiB on a real client): say so
+        let len = |p: &Utf8Path| std::fs::metadata(p.as_std_path()).map_or(0, |m| m.len());
+        let live_resources = cfg.game_dir.join(format!("{file}.kfc_resources"));
+        let comparing = cfg.patch && backup.exists();
+        if comparing {
+            let bytes = 2 * (len(&kfc) + len(&live_resources) * u64::from(resources_backup.exists()));
+            tracing::info!("No EML mods: comparing the game data with the vanilla backup ({} read) to see whether it needs restoring", mib(bytes));
+            progress.stage(Stage::Checking);
+            progress.announce(if resources_backup.exists() { 4 } else { 2 }, bytes);
+            progress.begin_file(resources_backup.file_name().unwrap_or("the vanilla backup"));
+        }
+        let resource_difference = resources_backup.exists() && files_differ(&live_resources, &resources_backup, &progress);
+        let differ = backup.exists() && cfg.patch && (files_differ(&kfc, &backup, &progress) || resource_difference);
+        if comparing {
+            progress.end_file();
+        }
+        if differ {
             out.restored = lua::restore(&cfg.game_dir, &file);
             if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
             let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
@@ -389,7 +422,10 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
                 export_dir: cfg.export_dir.clone(),
             },
         };
-        let result = catch_unwind(AssertUnwindSafe(|| lua::run(&env, args)))
+        if let Some(display) = &cfg.progress {
+            display.set_base(&out); // the mods as they stand: one may have been switched off since the last attempt
+        }
+        let result = catch_unwind(AssertUnwindSafe(|| lua::run_with(&env, args, &progress)))
             .unwrap_or_else(|p| Err(anyhow::anyhow!("panic: {}", panic_text(p))));
         match result {
             Ok(r) => {
@@ -440,6 +476,11 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
     }
     finish(out)
+}
+
+/// `224.4 MiB`
+fn mib(bytes: u64) -> String {
+    format!("{:.1} MiB", bytes as f64 / (1u64 << 20) as f64)
 }
 
 #[cfg(test)]
@@ -723,6 +764,40 @@ mod tests {
         // EML's restore checks the version tag of both files; fake files have none, so it refuses: no damage done
         assert!(!o.restored);
         assert_eq!(std::fs::read(d.join("enshrouded.kfc")).unwrap(), b"KFC patched");
+    }
+
+    #[test]
+    fn the_live_state_is_written_when_the_run_starts_and_the_vanilla_check_counts_what_it_reads() {
+        let d = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-eml-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        // game data identical to its backup: nothing to restore, but the check reads both pairs
+        for name in ["enshrouded.kfc", "enshrouded.kfc.bak", "enshrouded.kfc_resources", "enshrouded.kfc_resources.bak"] {
+            std::fs::write(d.join(name), vec![7u8; 3 << 20]).unwrap();
+        }
+        let display = std::sync::Arc::new(Display::with_window(Some(d.join("state")), None));
+        let cfg = RunConfig { game_dir: d.clone(), cache_dir: d.join("cache"), patch: true, progress: Some(display), ..Default::default() };
+        let o = run(&cfg, Vec::new(), Vec::new());
+        assert_eq!((o.phase, o.restored), (Phase::Idle, false));
+        // the plugin publishes the result over it; until then the file says what the run is doing, with the mods list of a state
+        let live: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(d.join("state/eml.json")).unwrap()).unwrap();
+        assert_eq!((live["phase"].as_str(), live["format"].as_u64(), live["file"].as_str()), (Some("running"), Some(1), Some("enshrouded")));
+        assert!(live["mods"].is_array() && live["progress"]["stage"].is_string(), "{live}");
+
+        // `files_differ` counts the bytes it reads into the progress, and still finds a single changed byte
+        let progress = Progress::none();
+        progress.stage(Stage::Checking);
+        progress.announce(2, 12 << 20);
+        let (a, b) = (d.join("enshrouded.kfc"), d.join("enshrouded.kfc.bak"));
+        assert!(!files_differ(&a, &b, &progress));
+        assert_eq!(progress.snapshot().unwrap().done, 6 << 20);
+        let mut bytes = std::fs::read(&b).unwrap();
+        bytes[(3 << 20) - 1] ^= 1;
+        std::fs::write(&b, &bytes).unwrap();
+        assert!(files_differ(&a, &b, &progress));
+        std::fs::write(&b, b"short").unwrap();
+        assert!(files_differ(&a, &b, &progress), "another length");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

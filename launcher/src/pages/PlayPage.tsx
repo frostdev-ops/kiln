@@ -11,7 +11,7 @@ import * as api from "../api/commands";
 import { totalCount } from "../api/kinds";
 import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
 import {
-  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, useProfiles, useRuntimeChanges,
+  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, usePreStart, useProfiles, useRuntimeChanges,
 } from "../api/hooks";
 import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
@@ -105,6 +105,8 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const v = ctl.view;
   const boot = state.data?.boot ?? null;
   const fresh = !!boot && !state.data?.stale;
+  // what kiln-eml does before the game's window exists (fingerprinting the game's data files): said instead of "Waiting"
+  const prep = usePreStart(game.id, (ctl.starting || ctl.running) && !fresh).data ?? null;
   const list = profiles.data ?? [];
   const cur = list.find((p) => p.id === activeId) ?? null;
   const rt = s?.runtime;
@@ -132,7 +134,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
     say = `${order.length} of ${total} mods load on this client.` + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} on the server.` : "");
   } else say = `${cur.counts.kiln} Kiln mods in this profile.`;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
-  const runLine = v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
+  const runLine = prep && !fresh ? prep.message : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
     : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${preview.data ? ` and ${preview.data.kiln.order.length} mods` : ""}.`;
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
@@ -165,7 +167,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         )}
         {starting ? (
           <div className="k-hero-state" key="start">
-            <p className="k-hero-say">Waiting for Kiln to boot.</p>
+            <p className="k-hero-say" role="status">{prep ? prep.message : "Waiting for Kiln to boot."}</p>
             <ol className="k-boot" aria-label="Boot stages">
               {stages.map((t, i) => (
                 <li key={t}>

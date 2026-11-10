@@ -70,6 +70,10 @@ export const useGameStatus = (g: GameId | null | undefined) =>
   useQuery({ queryKey: qk.gameStatus(g ?? ""), queryFn: () => api.gameStatus(g!), enabled: !!g, refetchInterval: 4000 });
 export const useLaunchState = (g: GameId | null | undefined) =>
   useQuery({ queryKey: qk.launchState(g ?? ""), queryFn: () => api.launchState(g!), enabled: !!g, refetchInterval: 5000 });
+/** What kiln-eml does before the game's window exists (`launch_prestart`), polled every 1.5 s while `on` (the game is
+ *  starting, or runs and Kiln has not booted yet): null when nothing, or the sentence for the launch status. */
+export const usePreStart = (g: GameId | null | undefined, on: boolean) =>
+  useQuery({ queryKey: ["launch_prestart", g ?? ""] as const, queryFn: () => api.launchPrestart(g!), enabled: !!g && on, refetchInterval: 1500 });
 export const useProfiles = () => useQuery({ queryKey: qk.profiles, queryFn: api.profileList });
 export const useProfile = (p: ProfileId | null | undefined) => useQuery({ queryKey: qk.profile(p ?? ""), queryFn: () => api.profileGet(p!), enabled: !!p });
 export const useActiveProfile = (g: GameId | null | undefined) =>

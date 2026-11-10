@@ -12,6 +12,7 @@
 #include "image.h"
 #include "log.h"
 #include "profile.h"
+#include "progress.h"
 #include "registry.h"
 #include "sigdb.h"
 #include "config.h"
@@ -113,6 +114,8 @@ std::vector<Published> g_published;
 const void* KILN_CALL api_service(KilnStr name, uint32_t min_version) {
     // kiln.profile works in safe idle too: early native mods and the managed host read it to find their mods/configs.
     if (sv(name) == KILN_PROFILE_SERVICE) return min_version <= KILN_PROFILE_VERSION ? profile::table() : nullptr;
+    // kiln.progress too: the early plugins show their long work with it, before hooks are decided (and in safe idle).
+    if (sv(name) == KILN_PROGRESS_SERVICE) return min_version <= KILN_PROGRESS_VERSION ? progress::table() : nullptr;
     // kiln.hooks is the one service early plugins may use before hooks are decided (hooks::serve_early; its `available`
     // flag says whether it is on, and boot clears it again in safe idle).
     // Only the core's own table, never a published one of the same name.
