@@ -39,7 +39,8 @@
 
 #include "knowledge_internal.h"
 #include "nlohmann/json.hpp"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
+#include "safetyhook.hpp"  // safetyhook::Context: the mid handlers' register view
 #include "services/kiln_world.h"
 
 namespace kiln::knowledge {
@@ -526,7 +527,7 @@ void apply_request(uintptr_t reg, void* sink, const Req& q, Done& d) {
                                                    : "no change (the value was already that)");
 }
 
-safetyhook::InlineHook g_apply_hook;
+kiln::RawHook g_apply_hook;
 
 void hk_apply_queue(void* reg, void* queue, void* sink) {
     uint32_t n = 0;
@@ -706,7 +707,7 @@ void update_flags_locked() {
 
 // handle_knowledge_trigger_input, just before the game's KnowledgeQueuePush: rdx = the operation (16 bytes). A vetoed
 // operation keeps its slot with id 0 (the game drops unknown ids), so the input still counts as consumed.
-safetyhook::MidHook g_input_hook, g_dialog_hook;
+kiln::MidHook2 g_input_hook, g_dialog_hook;
 
 void hk_input(safetyhook::Context& c) {
     uint8_t op[16] = {};
@@ -1798,30 +1799,22 @@ bool load_layout() {
 
 void install_hooks() {
     if (g_changes_ok) {
-        auto h = safetyhook::InlineHook::create(reinterpret_cast<void*>(F.apply_queue), reinterpret_cast<void*>(&hk_apply_queue));
-        if (!h) {
+        if (!g_apply_hook.install(g_api, g_owner, F.apply_queue, reinterpret_cast<void*>(&hk_apply_queue),
+                                  "quests/KnowledgeApplyQueue")) {
             set_reason("detour on KnowledgeApplyQueue failed: no revoke/set");
             g_changes_ok = false;
-        } else {
-            g_apply_hook = std::move(*h);
         }
     }
     if (g_input_ok) {
-        auto m = safetyhook::MidHook::create(reinterpret_cast<void*>(F.input_site), &hk_input);
-        if (!m) {
+        if (!g_input_hook.install(g_api, g_owner, F.input_site, &hk_input, "quests/KnowledgeInputPush")) {
             set_reason("mid hook on the client knowledge input failed: no client veto");
             g_input_ok = false;
-        } else {
-            g_input_hook = std::move(*m);
         }
     }
     if (g_dialogue_ok) {
-        auto m = safetyhook::MidHook::create(reinterpret_cast<void*>(F.dialog_site), &hk_dialog);
-        if (!m) {
+        if (!g_dialog_hook.install(g_api, g_owner, F.dialog_site, &hk_dialog, "quests/DialogLineFound")) {
             set_reason("mid hook on the dialogue-line knowledge failed: no dialogue hold");
             g_dialogue_ok = false;
-        } else {
-            g_dialog_hook = std::move(*m);
         }
     }
 }

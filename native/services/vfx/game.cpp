@@ -20,7 +20,7 @@
 #include <cstring>
 
 #include "game.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 namespace kvx {
 
@@ -62,7 +62,8 @@ struct Fns {
     GetTransformFn get_transform = nullptr;
 } F;
 
-SafetyHookInline g_create_hook, g_start_hook, g_update_hook;
+kiln::RawHook g_create_hook, g_start_hook, g_update_hook;
+KilnOwner g_owner = 0;
 
 std::atomic<bool> g_guard_on{false};    // hooked and not found wrong
 
@@ -507,8 +508,9 @@ void real_game_trace(double seconds) {
     if (ms) KV_I("vfx: trace on (kiln/config/vfx.json): every VFX the game creates within %.1f s of a play from Kiln is logged, %d lines at most", ms / 1000.0, kTraceLines);
 }
 
-Game* real_game(const KilnApi* api) {
+Game* real_game(const KilnApi* api, KilnOwner owner) {
     g_api = api;
+    g_owner = owner;
     if (!feat("vfx.guard")) {
         KV_W("vfx: the guard's signatures did not resolve on this game build (sigdb client.d/vfx.json): kiln.vfx is off, mods play nothing");
         return nullptr;
@@ -521,7 +523,7 @@ Game* real_game(const KilnApi* api) {
         return nullptr;
     }
     F.resolve = reinterpret_cast<ResolveFn>(a_resolve);
-    g_create_hook = safetyhook::create_inline(reinterpret_cast<void*>(a_create), reinterpret_cast<void*>(&hk_create));
+    g_create_hook.install(api, owner, a_create, reinterpret_cast<void*>(&hk_create), "vfx/CreateInstance");
     if (!g_create_hook) {
         KV_W("vfx: could not hook VfxCreateInstance: kiln.vfx is off, mods play nothing");
         return nullptr;
@@ -552,8 +554,8 @@ Game* real_game(const KilnApi* api) {
     F.render_create = reinterpret_cast<RenderCreateFn>(a_render);
     if (sym("GetEntityTransform", &a_tf)) F.get_transform = reinterpret_cast<GetTransformFn>(a_tf);
     else KV_W("vfx: GetEntityTransform missing: effects on an entity won't start");
-    g_start_hook = safetyhook::create_inline(reinterpret_cast<void*>(a_start), reinterpret_cast<void*>(&hk_fx_start));
-    g_update_hook = safetyhook::create_inline(reinterpret_cast<void*>(a_update), reinterpret_cast<void*>(&hk_fx_update));
+    g_start_hook.install(api, owner, a_start, reinterpret_cast<void*>(&hk_fx_start), "vfx/FxStart");
+    g_update_hook.install(api, owner, a_update, reinterpret_cast<void*>(&hk_fx_update), "vfx/FxUpdate");
     if (!g_start_hook || !g_update_hook) {
         KV_W("vfx: could not hook the FxController: the guard runs, mods play nothing");
         return &g_real;

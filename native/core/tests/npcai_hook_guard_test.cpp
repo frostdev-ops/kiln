@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
-// The actual npcai lifecycle with fake hook objects and explicit, writable code footprints.
+// The actual npcai lifecycle with fake kiln.hooks links (services/npcai/tests/stubs/kiln_hook.hpp). Since dev.21 the
+// hooks are kiln.hooks v2 links: turning them off revokes the link and never touches the game's bytes, so a foreign
+// hook over Kiln's detour can no longer be stripped (the old HookGuard checks are gone with the unhooking).
 #include "../../services/npcai/npcai.cpp"
 #include <cassert>
 
@@ -17,47 +19,37 @@ int main() {
         g_at[i] = reinterpret_cast<uintptr_t>(code[i].data());
     }
     g_resolved = 31;
+    const auto before = code;
     assert(prepare() && install() && g_installed == 31 && g_answering);
+    for (auto& h : g_h) assert(h);
     uninstall();
     assert(g_installed == 0 && !g_answering && warnings == 0);
-    for (auto& h : g_h) assert(!h.enabled());
+    for (auto& h : g_h) assert(!h && h.original<void*>());  // revoked; the continuation stays callable
 
-    assert(install());
-    for (auto& c : code) ++c[1];  // a foreign E9 over every Kiln hook, including the same opcode
+    const int revokes = kiln::test::revokes;
+    assert(install() && g_answering);  // links come back on the next relation
+    for (auto& c : code) ++c[1];       // a foreign hook over Kiln's detour: nothing of ours reads or restores it
     uninstall();
-    assert(g_installed == 31 && !g_answering && warnings == 5);
-    for (auto& h : g_h) assert(h.enabled());
-    uninstall();
-    assert(warnings == 5);  // no repeated warnings or recaptured foreign footprints
-    assert(install() && g_answering);  // all hooks retained: answers must resume on the fast path too
-    uninstall();
-    assert(!g_answering && warnings == 5);
-    for (auto& c : code) --c[1];  // the foreign engine unhooks, restoring Kiln's jump
-    uninstall();
-    assert(g_installed == 0 && warnings == 5);
+    uninstall();                       // idempotent
+    assert(g_installed == 0 && warnings == 0 && kiln::test::revokes == revokes + 5);
+    for (auto& c : code) --c[1];
+    assert(code == before);
 
     std::array<uint8_t, 32> observer{};
-    observer[0] = 0xE9;
     g_destroy_at = reinterpret_cast<uintptr_t>(observer.data());
-    g_destroy = *safetyhook::MidHook::create(nullptr, nullptr, safetyhook::MidHook::StartDisabled);
     KilnWorldApi world{};
     g_world = &world;
     g_faction_hash = 1;
     g_lifecycle = true;
     g_storage_offset = 0;
-    assert(entity_support() && g_destroy.enabled());
+    assert(entity_support() && g_destroy);
+    assert(entity_support() && g_destroy);  // already linked: no second link
     uninstall();
-    assert(!g_destroy.enabled() && warnings == 5);
-    assert(entity_support());
-    ++observer[1];
-    uninstall();
-    uninstall();
-    assert(g_destroy.enabled() && warnings == 6);
-    assert(entity_support());  // do not adopt a covering jump as our own
-    uninstall();
-    assert(g_destroy.enabled() && warnings == 6);
-    --observer[1];
-    uninstall();
-    assert(!g_destroy.enabled() && warnings == 6);
-    std::puts("PASS npcai: normal disable, covered inline/mid hooks, one warning per hook, and resuming answers");
+    assert(!g_destroy && warnings == 0);
+    kiln::test::fail_target = g_destroy_at;
+    assert(!entity_support() && !g_destroy && warnings == 1);  // refused once: one warning
+    assert(!entity_support() && warnings == 1);
+    kiln::test::fail_target = 0;
+    assert(entity_support() && g_destroy);
+    std::puts("PASS npcai: links revoked (never unhooked), re-added on demand, lifetime observer linked once");
 }

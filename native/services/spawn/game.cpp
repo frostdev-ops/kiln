@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 namespace kspawn {
 
@@ -91,7 +91,7 @@ bool g_have_entities = false, g_have_templates = false;
 // The server world: from the core (KilnApi.server_world, set at the first server-world step) or, with an older core
 // that lacks it, from a capture-only hook chained in front of the core's SimStep hook.
 uintptr_t(KILN_CALL* g_core_world)(void) = nullptr;
-SafetyHookInline g_capture;
+kiln::RawHook g_capture;
 std::atomic<uintptr_t> g_captured{0};  // storage pointer seen by the fallback hook
 
 uintptr_t __fastcall hk_sim_step(uintptr_t storage, uintptr_t ticked, uintptr_t r8, uintptr_t r9) {
@@ -357,7 +357,7 @@ bool cst(const KilnApi* api, const char* name, int64_t* out) {
 
 }  // namespace
 
-bool init(const KilnApi* api, std::string& why) {
+bool init(const KilnApi* api, KilnOwner owner, std::string& why) {
     uintptr_t sim = 0, spawn = 0, xform = 0, comp = 0, destroy = 0;
     if (!sym(api, "SimStep", &sim)) return why = "SimStep unresolved", false;
     if (!sym(api, "SpawnWrapper", &spawn)) return why = "SpawnWrapper unresolved", false;
@@ -390,9 +390,9 @@ bool init(const KilnApi* api, std::string& why) {
         g_core_world = api->server_world;
         return true;
     }
-    auto hook = safetyhook::InlineHook::create(reinterpret_cast<void*>(sim), reinterpret_cast<void*>(&hk_sim_step));
-    if (!hook) return why = "could not hook SimStep for the world pointer (old core without server_world)", false;
-    g_capture = std::move(*hook);
+    // Runs before the core's own SimStep link, as the old layered hook did.
+    if (!g_capture.install(api, owner, sim, reinterpret_cast<void*>(&hk_sim_step), "spawn/SimStep", 0, "kiln"))
+        return why = "could not hook SimStep for the world pointer (old core without server_world)", false;
     return true;
 }
 

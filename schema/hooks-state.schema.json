@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hooks-state.schema.json",
+  "title": "Hook map and compatibility report (<game>/kiln/state/hooks.json), format 1",
+  "description": "Written atomically by kiln-core (kiln.hooks v2) at the end of boot, at the first world, and when links change (at most once per second; a few seconds after boot once more). `kiln.hooks.map_json` returns the same text with phase `query`. `targets` and `foreign` are the hook registry's view (WP-E); `overlaps` and `rules` are the closed-DLL report (WP-G1): where another module's hook and a Kiln-hosted hook meet, and which compat rules fired. Offsets, RVAs and addresses are hex strings (`0x...`). Readers ignore unknown keys. `pid` (added by the closed-DLL report) names the writing process; a file whose pid is not a live process is the last session's, which is what the launcher reads.",
+  "type": "object",
+  "required": ["format", "kiln", "phase", "worldChecked", "generated", "targets", "foreign"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "kiln": { "type": "string", "description": "Kiln version of the writer." },
+    "pid": { "type": "integer", "minimum": 1, "description": "The writing process. Absent in a core without the closed-DLL report." },
+    "phase": { "enum": ["boot", "world", "change", "query"], "description": "What wrote the file last. `query` only comes from map_json." },
+    "worldChecked": { "type": "boolean", "description": "The first-world check of other modules' hooks over Kiln's has run." },
+    "generated": { "$ref": "common.schema.json#/$defs/time" },
+    "targets": { "type": "array", "items": { "$ref": "#/$defs/target" }, "description": "Every game function Kiln hooks, one entry per physical detour." },
+    "foreign": { "type": "array", "items": { "$ref": "#/$defs/foreignSymbol" }, "description": "Every sigdb symbol whose live code differed from the exe file's before Kiln hooked anything (someone else patched it), Kiln-hooked or not." },
+    "overlaps": { "type": "array", "items": { "$ref": "#/$defs/overlap" }, "description": "Closed-DLL report. Absent in a core without it (dev.20)." },
+    "rules": { "type": "array", "items": { "$ref": "#/$defs/ruleResult" }, "description": "The compat rules that fired this session. Absent in a core without it." },
+    "ruleFiles": { "type": "array", "items": { "$ref": "#/$defs/ruleFile" }, "description": "The rule files that exist (shipped defaults, then the player's); a missing file is not listed." }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "hex": { "type": "string", "pattern": "^0x[0-9a-f]+$" },
+    "foreignDest": {
+      "type": "object",
+      "required": ["module", "offset", "own"],
+      "properties": {
+        "module": { "type": "string", "description": "File name of the module the jump goes into; empty when it goes to memory outside any module (a relay stub)." },
+        "offset": { "$ref": "#/$defs/hex", "description": "Destination minus the module's base." },
+        "address": { "$ref": "#/$defs/hex", "description": "The destination itself in this session (absent when no jump could be followed)." },
+        "inPlace": { "const": true, "description": "Bytes were changed in place, no jump was found." },
+        "own": { "type": "boolean", "description": "The module is one of Kiln's (`kiln-*.dll`): not an overlap." }
+      },
+      "additionalProperties": true
+    },
+    "link": {
+      "type": "object",
+      "required": ["owner", "kind", "priority", "label"],
+      "properties": {
+        "owner": { "type": "string", "description": "The registry's owner name: `service:kiln-chat.dll`, `plugin:kiln-emf.dll`, `emf:<mod id>`, `native:<id>`, a managed mod id..." },
+        "kind": { "enum": ["raw", "structured", "v1", "mid"] },
+        "priority": { "type": "integer" },
+        "label": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "target": {
+      "type": "object",
+      "required": ["rva", "symbol", "label", "links", "foreignBefore", "foreignOver"],
+      "properties": {
+        "rva": { "$ref": "#/$defs/hex" },
+        "symbol": { "type": ["string", "null"], "description": "The sigdb name of the address, null when it has none." },
+        "label": { "type": "string", "description": "The symbol, else the first link's label, else `rva 0x...`." },
+        "links": { "type": "array", "items": { "$ref": "#/$defs/link" }, "description": "In chain order: the first one runs first." },
+        "foreignBefore": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/foreignDest" }], "description": "Another module's jump was on the function when Kiln hooked it: Kiln's detour sits in front, the call goes on into it." },
+        "foreignOver": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/foreignDest" }], "description": "Another module hooked over Kiln's detour (found at the boot-end or first-world check). Kiln's detour stays armed behind their jump." }
+      },
+      "additionalProperties": true
+    },
+    "foreignSymbol": {
+      "allOf": [
+        { "$ref": "#/$defs/foreignDest" },
+        {
+          "type": "object",
+          "required": ["symbol", "rva"],
+          "properties": { "symbol": { "type": "string" }, "rva": { "$ref": "#/$defs/hex" } }
+        }
+      ]
+    },
+    "overlapForeign": {
+      "type": "object",
+      "required": ["module", "offset"],
+      "properties": {
+        "module": { "type": ["string", "null"], "description": "The other side's DLL file name. For `refused`: the only module that patched game code (probably the culprit), or null when Kiln cannot tell, and `suspects` then lists the modules that patched game code." },
+        "offset": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hex" }] },
+        "address": { "$ref": "#/$defs/hex" },
+        "inPlace": { "const": true }
+      },
+      "additionalProperties": true
+    },
+    "overlap": {
+      "type": "object",
+      "required": ["symbol", "rva", "kind", "foreign", "owners"],
+      "properties": {
+        "symbol": { "type": ["string", "null"], "description": "The sigdb symbol of the contested function. null for a `refused` hook that has no sigdb symbol (see `hook`)." },
+        "rva": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hex" }] },
+        "kind": {
+          "enum": ["foreign-before", "foreign-over", "refused"],
+          "description": "foreign-before: another module's hook was on the function before a Kiln-hosted link (Kiln chained over it). foreign-over: another module hooked over Kiln's detour. refused: a hosted engine could not hook the function and said so (ShroudForge's engine hooks)."
+        },
+        "foreign": { "$ref": "#/$defs/overlapForeign" },
+        "owners": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The Kiln-hosted side: who has links on the function (refused: who was refused). Names are short: the registry's `service:` / `plugin:` prefix, a leading `kiln-` and `.dll` are dropped (`shroudforge`, `chat`); engine mod owners keep their prefix (`emf:coolmod`)."
+        },
+        "hook": { "type": "string", "description": "refused: the engine's own name for the hook (`game-thread`, `entity-manager`)." },
+        "reason": { "type": "string", "description": "refused: the engine's reason (`original-bytes-mismatch`, `signature-not-unique-or-missing`...)." },
+        "suspects": { "type": "array", "items": { "type": "string" }, "description": "refused with an unknown `foreign.module`: the distinct modules in `foreign` (sigdb) that patched game code." },
+        "fix": {
+          "enum": ["late", "rule", "none"],
+          "description": "late: the other module is a chain entry that loads early: load it late (chain.ini [late], the launcher's `Load after Kiln and ShroudForge`). rule: the other module is not a chain entry (another loader starts it): add a compat rule or switch one side off. none: nothing to fix (it already loads late, or it is harmless)."
+        },
+        "chainEntry": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["path", "source", "status"],
+              "properties": {
+                "path": { "type": "string", "description": "The proxy's canonical path of the DLL (Windows form)." },
+                "source": { "enum": ["chain", "emf", "profile"] },
+                "status": { "enum": ["loaded", "failed", "duplicate", "skipped", "refused", "missing"] },
+                "late": { "type": "boolean" }
+              }
+            }
+          ],
+          "description": "The chain entry whose file name is `foreign.module`, when there is one."
+        },
+        "message": { "type": "string", "description": "The sentence kiln.log carries (both sides, and the fix)." }
+      },
+      "additionalProperties": true
+    },
+    "matcher": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "module": { "type": "string" },
+        "engine": { "type": "string" },
+        "mod": { "type": "string" },
+        "symbol": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ruleResult": {
+      "type": "object",
+      "required": ["id", "action", "applied", "message"],
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "enum": ["warn", "late", "disable"] },
+        "applied": {
+          "type": "boolean",
+          "description": "warn: true (it was logged). late: the subject is already a chain.ini [late] entry in this session. disable: the subject did not load (a hosted mod the core switched off, or a chain entry that is off). false: nothing was changed this session; `note` says what to do (`apply it in the launcher`)."
+        },
+        "message": { "type": "string", "description": "The rule's message." },
+        "subject": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/matcher" }] },
+        "source": { "enum": ["shipped", "user"], "description": "Which file the rule came from." },
+        "note": { "type": "string", "description": "Why `applied` is false, or what was done." }
+      },
+      "additionalProperties": true
+    },
+    "ruleFile": {
+      "type": "object",
+      "required": ["path", "source", "rules"],
+      "properties": {
+        "path": { "type": "string" },
+        "source": { "enum": ["shipped", "user"] },
+        "rules": { "type": "integer", "minimum": 0, "description": "Rules read from the file that validated." },
+        "error": { "type": ["string", "null"], "description": "Why the file (or some of its rules) was not used; null when all fine." }
+      },
+      "additionalProperties": true
+    }
+  }
+}

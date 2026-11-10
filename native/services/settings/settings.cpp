@@ -30,7 +30,7 @@
 #include "config.h"
 #include "game.h"
 #include "kiln_api.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_settings.h"
 
 namespace {
@@ -41,7 +41,7 @@ const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
 Layout L;
 TypeByHashFn g_type_by_hash = nullptr;
-SafetyHookInline g_hook;
+kiln::RawHook g_hook;
 uintptr_t g_image = 0;
 
 constexpr const char* kTypeName = "keen::ecs::GameSettings";
@@ -824,7 +824,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_type_by_hash = reinterpret_cast<TypeByHashFn>(type_by_hash_fn);
     g_client = api->side() == KILN_SIDE_CLIENT;
     init_paths();
-    g_hook = safetyhook::create_inline(reinterpret_cast<void*>(send), reinterpret_cast<void*>(&hk_send_server_info));
+    g_hook.install(api, owner, send, reinterpret_cast<void*>(&hk_send_server_info), "settings/SendServerInfo");
     if (!g_hook) {
         logf(KILN_LOG_ERROR, "settings: hooking SendServerInfo at %p failed; unavailable", reinterpret_cast<void*>(send));
         return KILN_ERR_UNAVAILABLE;

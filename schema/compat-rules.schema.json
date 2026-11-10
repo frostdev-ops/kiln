@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "compat-rules.schema.json",
+  "title": "Kiln compatibility rules (<kiln>/compat-rules.json, <configDir>/compat-rules.json), format 1",
+  "description": "Rules for closed-source DLL mods and other engines. A rule fires when every `when` matcher is present in this start (no matcher: it always fires). Actions: warn (tell the player), late (load the subject DLL after Kiln and ShroudForge: chain.ini [late]), disable (do not load the subject). The launcher applies `late` and `disable` of chain entries when it writes chain.ini; kiln-core evaluates the same rules at boot end and at the first world, logs warnings, reports what is not applied yet, and switches off a mod the profile lists. Two files are read, the shipped defaults (<game>/kiln/compat-rules.json, may be empty) and then the player's (<configDir>/compat-rules.json, default <game>/kiln/config; the launcher's copy is <data>/profiles/<profile>/config/compat-rules.json): a rule of the second file with the same id replaces the first file's rule in place; other rules are appended. To switch a shipped rule off, replace it with a rule of the same id whose `when` cannot hold. A rule that does not validate (an unknown key included) is dropped with a warning and the others stay; a file that is not one JSON object with `format` 1 is ignored. Plain JSON: no comments. Matching and evaluation fixtures shared by the C++ core and the launcher's Rust reader: schema/fixtures/compat-rules/cases.json. Docs: docs/kiln/engines/README.md#closed-source-dll-mods.",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "maxItems": 512 }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "matcher": {
+      "description": "Exactly one key: module, engine, mod or symbol. Each value is 1 to 260 characters.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["module"],
+          "properties": {
+            "module": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 260,
+              "anyOf": [
+                { "pattern": "^[^*?]*$" },
+                { "maxLength": 64, "pattern": "^[^*]*(\\*[^*]*){0,4}$" }
+              ],
+              "description": "A DLL file name, case-insensitive; `*` matches any run of characters, `?` one character (`xhl-*.dll`). Matches the whole file name (give no path). A pattern with wildcards has at most 64 characters and 4 `*`. Present: a chain entry that is on (not switched off, not refused) or a module loaded in the process."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["engine"],
+          "properties": {
+            "engine": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 260,
+              "description": "An engine word as in crates/kiln-manage/src/engines.rs (`word`): emf, shroudforge, eml, set, enshwick, greeneye, shroudtopia, flame, shroudlink, ember, modloader-proxy, ultimate-asi-loader, aldrich-modmenu, livemap, shared-xp, reshade, chain-loader, and `kiln` (always present). Case ignored. Present: the profile lists an enabled mod of that engine, or one of its loaders is in the chain or the process. kiln-core knows an engine from the profile lists, ShroudForge's state and a few well-known DLL names; the launcher knows more (it classifies the chain DLLs)."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["mod"],
+          "properties": {
+            "mod": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 260,
+              "pattern": ":",
+              "description": "<engine>:<mod id>, e.g. `emf:coolmod`. Kiln's own native mods are `kiln:<id>` or `native:<id>` (the same mods); managed Kiln mods and plugins are `kiln:<id>`. The engine word ignores case, the id does not. Present: the active profile lists the mod and it is enabled."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["symbol"],
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 260,
+              "description": "A sigdb symbol name (`chat/ChatLogAdd`). Present: the hook map has an overlap on that symbol (hooks.json `overlaps`). kiln-core evaluates it from this session's overlaps, so only at boot end and at the first world; the launcher from the last session's hooks.json."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "required": ["id", "action"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "description": "Unique in a file (the first of a repeated id stays). A rule of the player's file with a shipped rule's id replaces it."
+        },
+        "when": { "type": "array", "items": { "$ref": "#/$defs/matcher" }, "maxItems": 8, "description": "Every matcher must be present for the rule to fire (at most 8). Empty or absent: the rule always fires." },
+        "action": { "enum": ["warn", "late", "disable"] },
+        "subject": {
+          "$ref": "#/$defs/matcher",
+          "description": "What the action is about: required for late and disable, optional for warn. late: a `module` (a chain entry; nothing else can load late). disable: a `module` (chain entries: the launcher leaves them out of chain.ini) or a `mod` (the core switches it off in the profile before the plugins read it; the launcher switches it off in the profile it writes) or an `engine` (the launcher leaves that engine's chain entries out; the core can only report it). Subjects the core cannot apply show in hooks.json `rules` with `applied: false`."
+        },
+        "message": { "type": "string", "maxLength": 2000, "description": "Plain sentence for the player: what clashes and what Kiln does about it. Shown in the launcher and logged by the core." }
+      },
+      "if": { "properties": { "action": { "enum": ["late", "disable"] } }, "required": ["action"] },
+      "then": { "required": ["subject"] },
+      "additionalProperties": false
+    }
+  }
+}

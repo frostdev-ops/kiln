@@ -43,6 +43,7 @@
 #include "services/kiln_profile.h"
 #include "sf_internal.h"
 #include "contract.h"
+#include "kfc_host.h"
 #include "services/kiln_eml.h"
 
 #include <psapi.h>
@@ -455,6 +456,34 @@ void seed_profiles(const std::filesystem::path& src) {
     if (copied) logf(KILN_LOG_INFO, "copied %u bundled game profile(s) to %s", copied, to_utf8(dst.wstring()).c_str());
 }
 
+// dev.21 (WP-F4): the bundled native runtime can take its engine hooks from kiln.hooks (kfc_host.h), so that a DLL which
+// hooked one of its places first no longer turns it off. It asks through the optional export KfcRuntimeSetHost, before
+// KfcRuntimeInitialize (the hooks are placed there). A runtime without the export (the player's installed ShroudForge,
+// an older bundle), a start without kiln.hooks v2 (safe idle) or KILN_SF_ENGINE_HOOKS=self leave it hooking the game
+// itself, exactly as before.
+void offer_engine_hooks() {
+    const auto set_host = reinterpret_cast<KfcSetHost>(GetProcAddress(g_kfc, "KfcRuntimeSetHost"));
+    wchar_t env[16] = L"";
+    const DWORD n = GetEnvironmentVariableW(L"KILN_SF_ENGINE_HOOKS", env, 16);
+    const char* why = nullptr;
+    const KfcHost* table = nullptr;
+    if (n > 0 && n < 16 && std::wstring(env) == L"self") why = "KILN_SF_ENGINE_HOOKS=self";
+    else if (!set_host) why = "this kfc-runtime.dll has no host interface (KfcRuntimeSetHost)";
+    else if (!(table = host_table(g_api, g_owner))) why = "kiln.hooks v2 is not available to this plugin (safe idle?)";
+    if (!why) {
+        bool accepted = false;
+        if (invoke(set_host, &accepted, table) && accepted) {
+            logf(KILN_LOG_INFO, "ShroudForge's native runtime takes its engine hooks from kiln.hooks (host interface v%u)",
+                 table->version);
+            set_status("engineHooks", "kiln.hooks");
+            return;
+        }
+        why = "kfc-runtime.dll refused the host interface";
+    }
+    logf(KILN_LOG_INFO, "ShroudForge's native runtime hooks the game itself: %s", why);
+    set_status("engineHooks", "self");
+}
+
 void start_worker() {
     if (!g_prepared || g_worker) return;
     g_stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -689,6 +718,7 @@ void KILN_CALL on_ready(void*) {
         uint32_t v = 0;
         if (abi) invoke(abi, &v);
         set_status("nativeAbi", v);
+        if (abi && init && supported_abi(v)) offer_engine_hooks();
         if (!abi || !init || !g_kfc_tick || !g_kfc_shutdown || !g_kfc_status) {
             logf(KILN_LOG_WARN, "kfc-runtime.dll lacks the provider exports: ShroudForge mods get no live game access");
             g_kfc_tick = g_kfc_shutdown = nullptr;

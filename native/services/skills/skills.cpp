@@ -30,7 +30,7 @@
 
 #include "kiln_api.h"
 #include "kiln_skills.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_assets.h"
 #include "services/kiln_profile.h"
 #include "services/kiln_world.h"
@@ -474,7 +474,7 @@ uint32_t kind_of_tree(uintptr_t tree) {
     return g_api->side() == KILN_SIDE_SERVER ? KILN_WORLD_SERVER : 99;
 }
 
-SafetyHookInline g_load_hook, g_login_hook;
+kiln::RawHook g_load_hook, g_login_hook;
 
 // Runs before the game's loader when the tree's data is 0. Never throws.
 void before_load(void* T) {
@@ -1347,7 +1347,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (!fns) set_reason("feature skills.functions is off on this build (diagnostics off)");
     void* load = nullptr;
     if (api->feature(kstr("skills.tree_load")) && sym("skills/TreeLoad", &load)) {
-        g_load_hook = safetyhook::create_inline(load, reinterpret_cast<void*>(&hk_tree_load));
+        g_load_hook.install(api, owner, reinterpret_cast<uintptr_t>(load), reinterpret_cast<void*>(&hk_tree_load), "skills/TreeLoad");
         g_load_on = static_cast<bool>(g_load_hook);
         if (!g_load_on) set_reason("the skill-tree loader hook did not install");
     } else {
@@ -1356,7 +1356,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     void* login = nullptr;
     if (api->feature(kstr("skills.login_guard")) && sym("skills/LoginCheck", &login) && sym("skills/NodeById", &G.node_by_id) &&
         sym("skills/WriteAccess", &G.write_access)) {
-        g_login_hook = safetyhook::create_inline(login, reinterpret_cast<void*>(&hk_login));
+        g_login_hook.install(api, owner, reinterpret_cast<uintptr_t>(login), reinterpret_cast<void*>(&hk_login), "skills/LoginCheck");
         g_guard_on = static_cast<bool>(g_login_hook);
         if (!g_guard_on) set_reason("the login-check hook did not install");
     } else {

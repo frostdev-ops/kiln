@@ -7,7 +7,7 @@ namespace kvx {
 
 // Resolves symbols and installs the hooks: the guard (features vfx.guard), the FxController capture and calls (vfx.play). nullptr:
 // the guard's signatures did not resolve; nothing was hooked and the service stays off.
-Game* real_game(const KilnApi* api);
+Game* real_game(const KilnApi* api, KilnOwner owner);
 // kiln/config/vfx.json "trace": log every VFX the game creates within `seconds` of a play from Kiln (0 = off). Call before real_game.
 void real_game_trace(double seconds);
 

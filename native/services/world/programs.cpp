@@ -11,7 +11,7 @@
 #include <set>
 #include <shared_mutex>
 
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "world_internal.h"
 #include "services/kiln_types.h"
 
@@ -69,7 +69,7 @@ struct Program {
 std::mutex g_mutex;
 std::vector<Program*> g_programs;  // never freed: the engine keeps pointers into each descriptor
 Program* g_by_slot[kMaxPrograms] = {};
-SafetyHookInline g_hook;
+kiln::RawHook g_hook;
 std::atomic<bool> g_registered_once{false};
 std::atomic<uintptr_t> g_finalize_checked{0};
 thread_local ProgramCtx* t_context = nullptr;
@@ -407,7 +407,7 @@ void internal_update(ProgramCtx* ctx) {
 
 bool programs_init() {
     if (!F.programs) return false;
-    g_hook = safetyhook::create_inline(reinterpret_cast<void*>(fn.register_all), reinterpret_cast<void*>(&hk_register_all));
+    g_hook.install(g_api, g_owner, fn.register_all, reinterpret_cast<void*>(&hk_register_all), "world/RegisterAllPrograms");
     if (!g_hook) {
         KW_E("hooking RegisterAllPrograms at %p failed", reinterpret_cast<void*>(fn.register_all));
         return false;

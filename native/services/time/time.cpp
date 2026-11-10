@@ -26,7 +26,7 @@
 
 #include "kiln_api.h"
 #ifndef KILN_TIME_HOST_TEST
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #endif
 #include "services/kiln_time.h"
 
@@ -96,7 +96,7 @@ GetGameTimeFn g_get_game_time = nullptr;
 GameToTodFn g_game_to_tod = nullptr;
 RemoveInstanceFn g_remove_instance = nullptr;
 
-SafetyHookInline g_set_hook, g_weather_hook, g_info_hook, g_scale_hook;
+kiln::RawHook g_set_hook, g_weather_hook, g_info_hook, g_scale_hook;
 bool g_can_set = false, g_can_weather = false, g_can_probe = false, g_can_scale = false;
 std::atomic<uint8_t*> g_daytime{nullptr};
 std::atomic<uint8_t*> g_ws{nullptr};
@@ -189,7 +189,7 @@ double hours_of(int64_t ns) { return static_cast<double>(ns) / kNsPerHour; }
 
 // ---- hooks ----
 uintptr_t __fastcall hk_set_time_of_day(uint8_t* daytime, int64_t tod, int64_t ecs_time) {
-    const uintptr_t ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    const uintptr_t ret = g_set_hook.caller();  // the game's call site, read before the original
     const uintptr_t r = g_set_hook.call<uintptr_t>(daytime, tod, ecs_time);
     uint8_t* server = g_server_daytime.load();
     if (server && daytime != server) {  // another world's Daytime (a client's own world): not kiln.time's
@@ -516,8 +516,8 @@ bool cst(const char* name, int64_t* out) {
 bool feat(const char* name) { return g_api->feature(KilnStr{name, std::strlen(name)}); }
 
 template <typename F>
-bool hook(SafetyHookInline& h, uintptr_t target, F* detour, const char* what) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(target), reinterpret_cast<void*>(detour));
+bool hook(kiln::RawHook& h, uintptr_t target, F* detour, const char* what, const char* label) {
+    h.install(g_api, g_owner, target, reinterpret_cast<void*>(detour), label);
     if (!h) {
         logf(KILN_LOG_ERROR, "time: hooking %s at rva 0x%llx failed", what,
              static_cast<unsigned long long>(target - g_base));
@@ -554,7 +554,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_can_set = feat("time.set") && sym("time/TodToGameTime", &tod_to_game);
     g_tod_to_game = reinterpret_cast<TodToGameFn>(tod_to_game);
 
-    if (!hook(g_set_hook, set_fn, &hk_set_time_of_day, "setTimeOfDay")) return KILN_ERR_UNAVAILABLE;
+    if (!hook(g_set_hook, set_fn, &hk_set_time_of_day, "setTimeOfDay", "time/SetTimeOfDay")) return KILN_ERR_UNAVAILABLE;
 
     uintptr_t weather = 0, remove = 0;
     if (feat("time.weather") && sym("time/WeatherUpdate", &weather) && sym("time/WeatherRemoveInstance", &remove) &&
@@ -562,15 +562,15 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         cst("time/weather.layer_count", &W.count) && cst("time/weather.layer_stride", &W.stride) &&
         cst("time/weather.layer_cur", &W.cur) && cst("time/weather.layer_prev", &W.prev)) {
         g_remove_instance = reinterpret_cast<RemoveInstanceFn>(remove);
-        g_can_weather = hook(g_weather_hook, weather, &hk_weather_update, "WeatherSystem_update");
+        g_can_weather = hook(g_weather_hook, weather, &hk_weather_update, "WeatherSystem_update", "time/WeatherUpdate");
     }
     uintptr_t set_scale = 0;
     if (feat("time.scale") && sym("time/SetTimeScale", &set_scale))
-        g_can_scale = hook(g_scale_hook, set_scale, &hk_set_scale, "the daytime speed setter");
+        g_can_scale = hook(g_scale_hook, set_scale, &hk_set_scale, "the daytime speed setter", "time/SetTimeScale");
     uintptr_t send_info = 0;
     if (feat("time.sync_probe") && sym("time/SendServerInfo", &send_info) && cst("time/gs.daytime_synced", &g_gs_synced) &&
         cst("time/gs.server_game", &g_gs_server_game) && cst("time/sg.daytime", &g_sg_daytime))
-        g_can_probe = hook(g_info_hook, send_info, &hk_send_server_info, "SendServerInfo");
+        g_can_probe = hook(g_info_hook, send_info, &hk_send_server_info, "SendServerInfo", "time/SendServerInfo");
 
     KilnHandle h = 0;
     api->subscribe_world(owner, &on_world, nullptr, &h);

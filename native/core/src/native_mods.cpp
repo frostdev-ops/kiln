@@ -51,6 +51,7 @@ struct Dll {
     int32_t error = 0;
     double ms = -1;
     HMODULE module = nullptr;
+    std::wstring late_canon;  // phase dllmain, deferred to the late phase: the DLL's lower-case final path
 };
 
 struct Mod {
@@ -87,6 +88,16 @@ int g_next_index = 0;
 const char* g_last_phase = nullptr;
 std::atomic<bool> g_world_ran{false};
 std::set<std::wstring> g_loaded_paths;  // canonical, lower-case: DLLs loaded by native mods
+
+// chain.ini [late]: the proxy's KILN_CHAIN_LATE entries, in chain order (collected by discover()).
+struct LateDll {
+    LateRow row;
+    std::wstring canon;  // lower-case final path (matches Dll::late_canon)
+    HMODULE module = nullptr;
+};
+std::vector<LateDll> g_late;
+bool g_late_collected = false;
+bool g_late_ran = false;
 
 void fail(Mod& m, St st, std::string reason) {
     m.state = st;
@@ -309,7 +320,8 @@ void add_candidate(const fs::path& folder, const std::string& source, const prof
     }
     std::error_code ec;
     const auto u = user.find(m.id);
-    if (entry && !entry->enabled) fail(m, St::Disabled, "disabled in the profile");
+    if (entry && !entry->enabled)
+        fail(m, St::Disabled, entry->disabled_by.empty() ? "disabled in the profile" : entry->disabled_by);
     else if (u != user.end() && !u->second) fail(m, St::Disabled, "switched off in " + u8(paths().config / L"native.json"));
     else if (u == user.end() && off_by_default) fail(m, St::Disabled, "off by default (native.json \"enabled\": false)");
     else if (!entry && fs::exists(folder / L".disabled", ec)) fail(m, St::Disabled, "disabled by a .disabled file");
@@ -514,7 +526,7 @@ void resolve() {
     const KilnBootInfo& bi = boot_info();
     for (Mod& m : g_mods) {
         if (m.state != St::Pending || m.phase != KILN_NATIVE_PHASE_DLLMAIN) continue;
-        int found = 0, loaded = 0;
+        int found = 0, loaded = 0, late = 0;
         std::string bad;
         for (Dll& d : m.dlls) {
             std::string f = d.file;
@@ -524,6 +536,12 @@ void resolve() {
                 const KilnChainEntry& e = bi.chain[i];
                 if (e.source != KILN_CHAIN_SOURCE_PROFILE || lower(to_wide(sv(e.path))) != c) continue;
                 static const char* const kStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped"};
+                if (e.status == KILN_CHAIN_LATE) {  // chain.ini [late]: run_late() loads it and finishes the mod
+                    ++found;
+                    ++late;
+                    d.late_canon = c;
+                    break;
+                }
                 d.status = e.status <= 5 ? kStatus[e.status] : "failed";
                 d.error = e.error;
                 d.module = static_cast<HMODULE>(e.module);
@@ -536,7 +554,10 @@ void resolve() {
         if (found == 0)
             fail(m, St::Skipped, "phase dllmain: not in kiln/chain.ini [profile] (the launcher writes it when it activates the profile)");
         else if (!bad.empty()) fail(m, St::Failed, "the proxy did not load it: " + bad);
-        else if (loaded < static_cast<int>(m.dlls.size())) fail(m, St::Failed, "the proxy loaded only some of its DLLs");
+        else if (late > 0 && loaded + late == static_cast<int>(m.dlls.size())) {
+            m.reason = "loads late: chain.ini [late] puts its DLL after the plugins";  // stays Pending until run_late()
+            m.notes.push_back("phase dllmain, deferred by chain.ini [late]");
+        } else if (loaded < static_cast<int>(m.dlls.size())) fail(m, St::Failed, "the proxy loaded only some of its DLLs");
         else {
             m.state = St::Loaded;
             m.load_index = g_next_index++;
@@ -619,6 +640,16 @@ void write_state() {
                 {"hooks", g_hooks},
                 {"mods", mods}};
     if (g_last_phase) doc["phase"] = g_last_phase;
+    if (!g_late.empty()) {  // chain.ini [late]: what the core did with the DLLs the proxy left to it
+        json late = json::array();
+        for (const LateDll& l : g_late) {
+            json o = {{"path", l.row.path}, {"source", l.row.source}, {"status", l.row.status}, {"error", l.row.error},
+                      {"order", l.row.order}};
+            if (l.row.ms >= 0) o["ms"] = l.row.ms;
+            late.push_back(std::move(o));
+        }
+        doc["chain"] = {{"late", std::move(late)}};
+    }
     if (!write_file_atomic(paths().state / L"native.json", doc.dump(2) + "\n"))
         KLOG_W("native: cannot write %s", u8(paths().state / L"native.json").c_str());
 }
@@ -741,6 +772,26 @@ void run_phase(uint32_t phase) {
     write_state();
 }
 
+const char* const kChainSources[] = {"chain", "profile", "emf"};
+
+// The proxy's KILN_CHAIN_LATE entries, in its list order.
+void collect_late() {
+    g_late_collected = true;
+    g_late.clear();
+    const KilnBootInfo& bi = boot_info();
+    for (uint32_t i = 0; i < bi.chain_count; ++i) {
+        const KilnChainEntry& e = bi.chain[i];
+        if (e.status != KILN_CHAIN_LATE) continue;
+        LateDll l;
+        l.row.chain_index = i;
+        l.row.path = std::string(sv(e.path));
+        l.row.source = e.source < 3 ? kChainSources[e.source] : "chain";
+        l.row.order = static_cast<int>(g_late.size()) + 1;
+        l.canon = final_path(fs::path(to_wide(l.row.path)));
+        g_late.push_back(std::move(l));
+    }
+}
+
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     const uint32_t kind = image().side == KILN_SIDE_CLIENT ? KILN_WORLD_CLIENT : KILN_WORLD_SERVER;
     if (ev->event != KILN_WORLD_STARTED || ev->kind != kind) return;
@@ -753,6 +804,7 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
 void discover(bool verified) {
     std::lock_guard lock(g_mutex);
     g_verified = verified;
+    collect_late();
     const auto& prof = profile::state();
     const auto user = read_user_state();
     for (const auto& e : prof.mods[KILN_PROFILE_KIND_NATIVE]) add_candidate(to_wide(e.path), "profile", &e, user);
@@ -782,6 +834,85 @@ void discover(bool verified) {
 }
 
 void run_early() { run_phase(KILN_NATIVE_PHASE_EARLY); }
+
+void run_late() {
+    std::lock_guard lock(g_mutex);
+    if (g_late_ran) return;
+    g_late_ran = true;
+    if (!g_late_collected) collect_late();  // safe idle before discover() (the game image cannot be parsed)
+    if (g_late.empty()) return;
+    KLOG_I("native: loading %zu chain DLL(s) named in kiln/chain.ini [late], after the plugins", g_late.size());
+    for (LateDll& l : g_late) {
+        const fs::path path = to_wide(l.row.path);
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec)) {
+            l.row.status = "missing";
+            KLOG_W("late: %s is gone since the proxy checked it; not loaded", l.row.path.c_str());
+            continue;
+        }
+        if (g_loaded_paths.count(l.canon)) {
+            l.row.status = "duplicate";
+            KLOG_I("late: %s was loaded already (as a native mod DLL)", l.row.path.c_str());
+            continue;
+        }
+        const double t0 = now_ms();
+        DWORD error = 0;
+        HMODULE h = guarded_load(path.c_str(), &error);
+        l.row.ms = now_ms() - t0;
+        if (!h) {
+            l.row.status = "failed";
+            l.row.error = static_cast<int32_t>(error);
+            KLOG_W("late: %s failed to load (error %lu%s)", l.row.path.c_str(), error,
+                   error == ERROR_DLL_INIT_FAILED ? ": its DllMain failed" : "");
+            continue;
+        }
+        l.module = h;
+        l.row.status = "loaded";
+        g_loaded_paths.insert(l.canon);
+        KLOG_I("late: %s loaded at %p (%.1f ms)", l.row.path.c_str(), static_cast<void*>(h), l.row.ms);
+    }
+    // A dllmain native mod whose DLL was late finishes here.
+    for (Mod& m : g_mods) {
+        if (m.state != St::Pending || m.phase != KILN_NATIVE_PHASE_DLLMAIN) continue;
+        bool any = false;
+        std::string bad;
+        for (Dll& d : m.dlls) {
+            if (d.late_canon.empty()) continue;
+            any = true;
+            const auto it = std::find_if(g_late.begin(), g_late.end(), [&](const LateDll& l) { return l.canon == d.late_canon; });
+            if (it == g_late.end()) {
+                d.status = "failed";
+                if (bad.empty()) bad = d.file + ": not handed to the late phase";
+                continue;
+            }
+            d.status = it->row.status;
+            d.error = it->row.error;
+            d.ms = it->row.ms;
+            d.module = it->module;
+            if (it->row.status != "loaded" && it->row.status != "duplicate" && bad.empty())
+                bad = d.file + ": " + it->row.status + (it->row.error ? " (error " + std::to_string(it->row.error) + ")" : "");
+        }
+        if (!any) continue;
+        m.reason.clear();
+        if (!bad.empty()) {
+            fail(m, St::Failed, "the late phase did not load it: " + bad);
+            KLOG_E("native mod %s %s failed: %s", m.id.c_str(), m.version.c_str(), m.reason.c_str());
+        } else {
+            m.state = St::Loaded;
+            m.load_index = g_next_index++;
+            KLOG_I("native mod %s %s loaded (phase dllmain, deferred to the late phase by chain.ini [late])", m.id.c_str(),
+                   m.version.c_str());
+        }
+    }
+    write_state();
+}
+
+std::vector<LateRow> late_rows() {
+    std::lock_guard lock(g_mutex);
+    std::vector<LateRow> out;
+    for (const LateDll& l : g_late) out.push_back(l.row);
+    return out;
+}
 
 void run_boot() {
     g_hooks = hooks_enabled();

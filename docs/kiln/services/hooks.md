@@ -27,6 +27,15 @@ const KilnHooksApi* hooks = kiln::hooks_v2(api);   // api->service("kiln.hooks",
 A core without v2 is refused, not worked around: services and the core ship together. A plugin that must also run
 on an older Kiln checks `hooks == nullptr` and turns its feature off.
 
+### Early plugins
+
+A plugin that exports `kiln_plugin_early` runs before sigdb and the services start (docs: [../engines/README.md](../engines/README.md)).
+Since dev.21 the core makes `kiln.hooks` v2 answer `api->service()` for such a plugin already, when the build is verified or
+the policy is `any` (the same condition as for hooks at all). The registry is ready; `scan` reads the exe file's code.
+Links an early plugin places are ordinary links. If the start then turns out to be safe idle (no sigdb definitions), the
+service goes away again for later callers and the early links stay. `kiln-shroudforge` uses this to hand ShroudForge's
+native runtime its six engine hooks ([../shroudforge-compat.md](../shroudforge-compat.md#engine-hooks-through-kilnhooks)).
+
 ## A raw link: any signature
 
 `raw_detour` takes a function with the **target's own signature**: any arguments, floats, stack arguments, any return
@@ -168,8 +177,11 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
   `own: true` means the module is one of Kiln's own (`kiln-*.dll`).
 - `foreign` is sigdb's list of every symbol whose live bytes differed from the exe file's before Kiln hooked
   anything (the `code.live_differs_symbols` of `sigdb-report.json`), with the module each one jumps into.
-- The writer is extensible: other parts of the core add sections (`overlaps`, `rules`) with `add_map_extension`
-  (`native/core/src/services/hooks_internal.h`).
+- The writer is extensible: other parts of the core add sections with `add_map_extension`
+  (`native/core/src/services/hooks_internal.h`). The closed-DLL report adds `pid`, `overlaps` (where another module's
+  hook and a Kiln-hosted link meet: `foreign-before`, `foreign-over`, ShroudForge's `refused`), `rules` (the compat rules
+  that fired) and `ruleFiles`; what they mean and how to fix an overlap:
+  [../engines/README.md](../engines/README.md#closed-source-dll-mods). Schema: `schema/hooks-state.schema.json`.
 
 ## Threads
 
@@ -205,3 +217,5 @@ counted per call (that would put an atomic on every game call).
   chain it from `kiln/chain.ini` and give it `foreign-stub.ini` (`before=<rva,...>` hooks at load, before Kiln looks;
   `over=<rva,...>` hooks over Kiln's detours once `state/hooks.json` exists). Used on the dev.21 lab to see the
   `chained over` and `hooked over` lines and the `foreign` list.
+- `native/plugins/shroudforge/tests/test-host-chain.sh` (Wine, no game): ShroudForge's six hooks placed through this
+  registry by the `kiln-shroudforge` adapter, with a foreign `jmp` on one of the places first.

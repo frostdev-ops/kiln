@@ -26,7 +26,7 @@
 #include "log_tracker.h"
 #include "playerstate.h"
 #include "progression.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_players.h"
 
 namespace {
@@ -62,7 +62,7 @@ struct Layout {
 uintptr_t g_get_transform = 0;  // core symbol GetEntityTransform: WorldTransform*(world, entity)
 
 std::atomic<uintptr_t> g_world{0}, g_server_players{0}, g_basic_infos{0}, g_world_infos{0};
-SafetyHookInline g_reg_hook;
+kiln::RawHook g_reg_hook;
 
 // Set once (kiln_plugin_main, then the first scan), read from any thread.
 std::atomic<bool> g_records_ok{false};  // records usable (validated at the first scan)
@@ -944,7 +944,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     }
     uintptr_t reg = 0;
     if (api->symbol(KilnStr{"players/RegisterSingleton", 25}, &reg) == KILN_OK) {
-        g_reg_hook = safetyhook::create_inline(reinterpret_cast<void*>(reg), reinterpret_cast<void*>(&hk_register_singleton));
+        g_reg_hook.install(g_api, g_owner, reg, reinterpret_cast<void*>(&hk_register_singleton), "players/RegisterSingleton");
         if (!g_reg_hook) logf(KILN_LOG_WARN, "players: hooking RegisterSingleton at %p failed", reinterpret_cast<void*>(reg));
     }
     if (!g_reg_hook) {

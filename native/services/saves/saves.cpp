@@ -29,7 +29,7 @@
 
 #include "kiln_api.h"
 #include "nlohmann/json.hpp"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_saves.h"
 
 // The managed mirror (managed/services/Kiln.Saves/Native.cs) relies on these sizes.
@@ -55,7 +55,7 @@ using RequestFn = void(__fastcall*)(uintptr_t inst);
 using WaitJobsFn = void(__cdecl*)(uintptr_t world);
 RequestFn g_request_fn = nullptr;
 WaitJobsFn g_wait_jobs = nullptr;
-SafetyHookInline g_h_request, g_h_write, g_h_load;
+kiln::RawHook g_h_request, g_h_write, g_h_load;
 
 // ---- logging ----
 void logv(int level, const char* fmt, va_list ap) {
@@ -359,7 +359,7 @@ uint32_t classify(void* ret) {
 }
 
 void __fastcall hk_request(uintptr_t inst) {
-    void* ret = _ReturnAddress();
+    void* ret = reinterpret_cast<void*>(g_h_request.caller());  // the game's call site, read before the original
     if (inst) g_inst.store(inst);
     uintptr_t ss = 0;
     uint8_t before = 0xFF, after = 0xFF;
@@ -870,8 +870,8 @@ bool cst(const char* name, int64_t* out) { return g_api->constant(KilnStr{name, 
 bool feat(const char* name) { return g_api->feature(KilnStr{name, std::strlen(name)}); }
 
 template <typename F>
-bool hook(SafetyHookInline& h, uintptr_t target, F* detour, const char* what) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(target), reinterpret_cast<void*>(detour));
+bool hook(kiln::RawHook& h, uintptr_t target, F* detour, const char* what, const char* label) {
+    h.install(g_api, g_owner, target, reinterpret_cast<void*>(detour), label);
     if (!h) {
         logf(KILN_LOG_ERROR, "saves: hooking %s at rva 0x%llx failed", what,
              static_cast<unsigned long long>(target - g_base));
@@ -938,10 +938,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         logf(KILN_LOG_WARN, "saves: features saves.request and saves.write are unavailable on this build; kiln.saves is off");
         return KILN_ERR_UNAVAILABLE;
     }
-    if (g_can_write && !hook(g_h_write, write, &hk_write, "save2WriteWorld")) g_can_write = false;
-    if (g_can_load && !hook(g_h_load, load, &hk_load, "loadSavegameStep")) g_can_load = false;
+    if (g_can_write && !hook(g_h_write, write, &hk_write, "save2WriteWorld", "saves/Save2WriteWorld")) g_can_write = false;
+    if (g_can_load && !hook(g_h_load, load, &hk_load, "loadSavegameStep", "saves/LoadSavegameStep")) g_can_load = false;
     if (g_can_request) {
-        if (hook(g_h_request, req, &hk_request, "requestServerSave")) {
+        if (hook(g_h_request, req, &hk_request, "requestServerSave", "saves/RequestServerSave")) {
             g_request_fn = reinterpret_cast<RequestFn>(req);
         } else {
             g_can_request = g_can_reason = false;

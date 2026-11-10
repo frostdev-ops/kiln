@@ -256,6 +256,37 @@ const char* kind_name(uint32_t kind) {
 
 bool dropins(uint32_t kind) { return kind < KILN_PROFILE_KINDS && (g_state.dropins & (1u << kind)) != 0; }
 
+bool disable_entry(std::string_view engine, std::string_view id, std::string_view reason) {
+    if (g_state.mode != KILN_PROFILE_ACTIVE && g_state.mode != KILN_PROFILE_ONCE) return false;
+    std::vector<Entry>* list = nullptr;
+    for (uint32_t i = 0; i < KILN_PROFILE_KINDS; ++i)
+        if (engine == kKinds[i]) list = &g_state.mods[i];
+    for (uint32_t i = 0; i < kEngineKindCount; ++i)
+        if (engine == kEngineKinds[i]) list = &g_state.engine_mods[i];
+    if (!list) return false;
+    bool found = false;
+    for (Entry& e : *list) {
+        if (e.id != id || !e.enabled) continue;
+        e.enabled = false;
+        e.disabled_by = std::string(reason);
+        found = true;
+    }
+    if (!found) return false;
+    // The text other engines' plugins parse (kiln.profile json()): same document, the entry's "enabled" false.
+    try {
+        json doc = json::parse(g_state.text, nullptr, true, true);
+        const std::string key(engine);
+        if (doc.contains("mods") && doc["mods"].is_object() && doc["mods"].contains(key) && doc["mods"][key].is_array())
+            for (auto& m : doc["mods"][key])
+                if (m.is_object() && m.contains("id") && m["id"].is_string() && m["id"].get<std::string>() == id)
+                    m["enabled"] = false;
+        g_state.text = doc.dump();
+    } catch (const std::exception&) {
+        // the entries above are off for the core's own readers; the text keeps what it said
+    }
+    return true;
+}
+
 fs::path resolve(std::string_view game_path) {
     std::string p(game_path);
     for (char& c : p)

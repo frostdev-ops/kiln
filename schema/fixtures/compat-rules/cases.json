@@ -1,0 +1,1595 @@
+{
+  "description": "Shared fixtures for compat-rules.json (schema/compat-rules.schema.json). The C++ core (native/core/src/compat_rules.cpp, run by native/core/tests/test-compat.sh) and the launcher's Rust reader (crates/kiln-manage/src/compat.rs) must give the same results. glob: a module matcher against a DLL file name. parse: one file's text (`input`: a string is the raw file text, anything else is the JSON) -> `ok` (false: the whole file is ignored), the ids of the rules that stay, in order, and `dropped` (how many rules did not validate; the reasons are informative). merge: the shipped file's rules and the player's file's rules -> the final rule ids in order. evaluate: rules (already validated) against the facts of one start -> the ids of the rules that fire, in order. facts: modules = DLL file names present, engines = engine words present, mods = `<engine>:<id>` of the enabled profile mods, symbols = sigdb symbols with an overlap.",
+  "glob": [
+    {
+      "pattern": "xhl-core.dll",
+      "name": "xhl-core.dll",
+      "match": true
+    },
+    {
+      "pattern": "xhl-core.dll",
+      "name": "XHL-Core.DLL",
+      "match": true
+    },
+    {
+      "pattern": "XHL*.dll",
+      "name": "xhl-core.dll",
+      "match": true
+    },
+    {
+      "pattern": "xhl*.dll",
+      "name": "xhl.dll",
+      "match": true
+    },
+    {
+      "pattern": "*.dll",
+      "name": "anything.dll",
+      "match": true
+    },
+    {
+      "pattern": "*",
+      "name": "x",
+      "match": true
+    },
+    {
+      "pattern": "x*l*.dll",
+      "name": "xhl-core-all.dll",
+      "match": true
+    },
+    {
+      "pattern": "xhl*.dll",
+      "name": "my-xhl.dll",
+      "match": false
+    },
+    {
+      "pattern": "xhl",
+      "name": "xhl.dll",
+      "match": false
+    },
+    {
+      "pattern": "xhl.dll",
+      "name": "xhl.dll.bak",
+      "match": false
+    },
+    {
+      "pattern": "a*b*c",
+      "name": "abc",
+      "match": true
+    },
+    {
+      "pattern": "a*b*c",
+      "name": "acb",
+      "match": false
+    },
+    {
+      "pattern": "a?c.dll",
+      "name": "abc.dll",
+      "match": true
+    },
+    {
+      "pattern": "a?c.dll",
+      "name": "ac.dll",
+      "match": false
+    },
+    {
+      "pattern": "a?c.dll",
+      "name": "a?c.dll",
+      "match": true
+    },
+    {
+      "pattern": "??.dll",
+      "name": "ab.dll",
+      "match": true
+    },
+    {
+      "pattern": "??.dll",
+      "name": "abc.dll",
+      "match": false
+    },
+    {
+      "pattern": "xhl-*.dll",
+      "name": "xhl-.dll",
+      "match": true
+    },
+    {
+      "pattern": "ü*.dll",
+      "name": "Ü-mod.dll",
+      "match": true
+    },
+    {
+      "pattern": "*.dll",
+      "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dll",
+      "match": false
+    }
+  ],
+  "parse": [
+    {
+      "name": "empty list",
+      "input": {
+        "format": 1,
+        "rules": []
+      },
+      "ok": true,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "no rules key",
+      "input": {
+        "format": 1
+      },
+      "ok": true,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "one of each action",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "w",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "l",
+            "action": "late",
+            "when": [
+              {
+                "module": "a.dll"
+              },
+              {
+                "engine": "shroudforge"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "module": "a.dll"
+            }
+          },
+          {
+            "id": "d",
+            "action": "disable",
+            "when": [
+              {
+                "symbol": "chat/ChatLogAdd"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "mod": "emf:coolmod"
+            }
+          },
+          {
+            "id": "d2",
+            "action": "disable",
+            "when": [
+              {
+                "mod": "emf:coolmod"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "module": "b.dll"
+            }
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "w",
+        "l",
+        "d",
+        "d2"
+      ],
+      "dropped": 0
+    },
+    {
+      "name": "warn may name a subject of any kind, or none",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "w0",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "w1",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "engine": "emf"
+            }
+          },
+          {
+            "id": "w2",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "symbol": "x/Y"
+            }
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "w0",
+        "w1",
+        "w2"
+      ],
+      "dropped": 0
+    },
+    {
+      "name": "late and disable need a subject",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "s1",
+            "action": "late",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "s2",
+            "action": "late",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "engine": "emf"
+            }
+          },
+          {
+            "id": "s3",
+            "action": "disable",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "s4",
+            "action": "disable",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "engine": "chain-loader"
+            }
+          },
+          {
+            "id": "s5",
+            "action": "disable",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "module": ""
+            }
+          },
+          {
+            "id": "s6",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": {
+              "module": "a.dll"
+            }
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "s2",
+        "s4",
+        "s6"
+      ],
+      "dropped": 3
+    },
+    {
+      "name": "ids: 1-128 characters of letters, digits and . _ - :",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "has space",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "a/b",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "action": "warn",
+            "message": "m"
+          },
+          {
+            "id": 5,
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "action": "warn",
+            "message": "m"
+          },
+          {
+            "id": "Upper",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "fine.id_1-x:y",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "Upper",
+        "fine.id_1-x:y",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "dropped": 6
+    },
+    {
+      "name": "action, when and message",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "a1",
+            "action": "explode",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "a2",
+            "action": "WARN",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "a3",
+            "when": {
+              "module": "a.dll"
+            },
+            "action": "warn",
+            "message": "m"
+          },
+          {
+            "id": "a4",
+            "action": "warn",
+            "when": [],
+            "message": "m"
+          },
+          {
+            "id": "a5",
+            "action": "warn",
+            "message": "m"
+          },
+          {
+            "id": "a6",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "action": "warn"
+          },
+          {
+            "id": "a7",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "action": "warn",
+            "message": 5
+          },
+          {
+            "id": "a8",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "id": "a9",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "a4",
+        "a5",
+        "a6",
+        "a9"
+      ],
+      "dropped": 5
+    },
+    {
+      "name": "matchers",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "m1",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll",
+                "engine": "emf"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m2",
+            "action": "warn",
+            "when": [
+              {}
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m3",
+            "action": "warn",
+            "when": [
+              {
+                "dll": "a.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m4",
+            "action": "warn",
+            "when": [
+              {
+                "module": ""
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m5",
+            "action": "warn",
+            "when": [
+              {
+                "module": 5
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m6",
+            "action": "warn",
+            "when": [
+              {
+                "mod": "nocolon"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m7",
+            "action": "warn",
+            "when": [
+              {
+                "engine": ""
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m8",
+            "action": "warn",
+            "when": [
+              "a.dll"
+            ],
+            "message": "m"
+          },
+          {
+            "id": "m9",
+            "action": "warn",
+            "when": [
+              {
+                "module": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "good",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              },
+              {
+                "engine": "Emf"
+              },
+              {
+                "mod": "native:x.y-z_1"
+              },
+              {
+                "symbol": "gameplay/InventoryTransfer"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "good"
+      ],
+      "dropped": 9
+    },
+    {
+      "name": "a repeated id: the first stays",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "same",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "first"
+          },
+          {
+            "id": "same",
+            "action": "warn",
+            "when": [
+              {
+                "module": "b.dll"
+              }
+            ],
+            "message": "second"
+          },
+          {
+            "id": "other",
+            "action": "warn",
+            "when": [
+              {
+                "module": "b.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "same",
+        "other"
+      ],
+      "dropped": 1
+    },
+    {
+      "name": "a rule with an unknown key is dropped",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "off",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "enabled": false
+          },
+          {
+            "id": "extra",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "url": "https://example.com"
+          },
+          {
+            "id": "fine",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "fine"
+      ],
+      "dropped": 2
+    },
+    {
+      "name": "unknown top-level keys are ignored",
+      "input": {
+        "format": 1,
+        "$schema": "compat-rules.schema.json",
+        "note": "x",
+        "rules": [
+          {
+            "id": "w",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "w"
+      ],
+      "dropped": 0
+    },
+    {
+      "name": "comments are not JSON here",
+      "input": "{\"format\": 1, \"rules\": [] // none\n}",
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "not JSON",
+      "input": "format = 1",
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "empty file",
+      "input": "",
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "BOM is skipped",
+      "input": "﻿{\"format\": 1, \"rules\": []}",
+      "ok": true,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "a larger format is ignored",
+      "input": {
+        "format": 2,
+        "rules": []
+      },
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "format must be the number 1",
+      "input": {
+        "format": "1",
+        "rules": []
+      },
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "no format",
+      "input": {
+        "rules": []
+      },
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "rules must be a list",
+      "input": {
+        "format": 1,
+        "rules": {}
+      },
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "top level must be an object",
+      "input": [],
+      "ok": false,
+      "rules": [],
+      "dropped": 0
+    },
+    {
+      "name": "an entry that is not an object",
+      "input": {
+        "format": 1,
+        "rules": [
+          5,
+          "x",
+          null,
+          {
+            "id": "w",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "w"
+      ],
+      "dropped": 3
+    },
+    {
+      "name": "limits: at most 8 when matchers, wildcard module patterns of at most 64 characters and 4 *",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "when8",
+            "action": "warn",
+            "when": [
+              {
+                "module": "m0.dll"
+              },
+              {
+                "module": "m1.dll"
+              },
+              {
+                "module": "m2.dll"
+              },
+              {
+                "module": "m3.dll"
+              },
+              {
+                "module": "m4.dll"
+              },
+              {
+                "module": "m5.dll"
+              },
+              {
+                "module": "m6.dll"
+              },
+              {
+                "module": "m7.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "when9",
+            "action": "warn",
+            "when": [
+              {
+                "module": "m0.dll"
+              },
+              {
+                "module": "m1.dll"
+              },
+              {
+                "module": "m2.dll"
+              },
+              {
+                "module": "m3.dll"
+              },
+              {
+                "module": "m4.dll"
+              },
+              {
+                "module": "m5.dll"
+              },
+              {
+                "module": "m6.dll"
+              },
+              {
+                "module": "m7.dll"
+              },
+              {
+                "module": "m8.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "glob64",
+            "action": "warn",
+            "when": [
+              {
+                "module": "*aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "glob65",
+            "action": "warn",
+            "when": [
+              {
+                "module": "*aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "stars4",
+            "action": "warn",
+            "when": [
+              {
+                "module": "*a*b*c*.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "stars5",
+            "action": "warn",
+            "when": [
+              {
+                "module": "*a*b*c*d*.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "plain260",
+            "action": "warn",
+            "when": [
+              {
+                "module": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "plain261",
+            "action": "warn",
+            "when": [
+              {
+                "module": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "when8",
+        "glob64",
+        "stars4",
+        "plain260"
+      ],
+      "dropped": 4
+    },
+    {
+      "name": "lengths count characters, not bytes",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "msg2000",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          },
+          {
+            "id": "msg2001",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          },
+          {
+            "id": "module260",
+            "action": "warn",
+            "when": [
+              {
+                "module": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé.dll"
+              }
+            ],
+            "message": "m"
+          },
+          {
+            "id": "module261",
+            "action": "warn",
+            "when": [
+              {
+                "module": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "msg2000",
+        "module260"
+      ],
+      "dropped": 2
+    },
+    {
+      "name": "a null subject is not a matcher",
+      "input": {
+        "format": 1,
+        "rules": [
+          {
+            "id": "null-subject",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m",
+            "subject": null
+          },
+          {
+            "id": "ok",
+            "action": "warn",
+            "when": [
+              {
+                "module": "a.dll"
+              }
+            ],
+            "message": "m"
+          }
+        ]
+      },
+      "ok": true,
+      "rules": [
+        "ok"
+      ],
+      "dropped": 1
+    }
+  ],
+  "merge": [
+    {
+      "name": "no player file",
+      "shipped": [
+        {
+          "id": "a",
+          "action": "warn",
+          "when": [
+            {
+              "module": "a.dll"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "b",
+          "action": "warn",
+          "when": [
+            {
+              "module": "b.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "user": null,
+      "ids": [
+        "a",
+        "b"
+      ],
+      "replaced": []
+    },
+    {
+      "name": "the player's rule replaces in place and others are appended",
+      "shipped": [
+        {
+          "id": "a",
+          "action": "warn",
+          "when": [
+            {
+              "module": "a.dll"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "b",
+          "action": "warn",
+          "when": [
+            {
+              "module": "b.dll"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "c",
+          "action": "warn",
+          "when": [
+            {
+              "module": "c.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "user": [
+        {
+          "id": "b",
+          "action": "warn",
+          "when": [
+            {
+              "module": "b2.dll"
+            }
+          ],
+          "message": "mine"
+        },
+        {
+          "id": "d",
+          "action": "warn",
+          "when": [
+            {
+              "module": "d.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "ids": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "replaced": [
+        "b"
+      ],
+      "messages": {
+        "b": "mine"
+      }
+    },
+    {
+      "name": "no shipped file",
+      "shipped": null,
+      "user": [
+        {
+          "id": "u",
+          "action": "warn",
+          "when": [
+            {
+              "module": "a.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "ids": [
+        "u"
+      ],
+      "replaced": []
+    }
+  ],
+  "evaluate": [
+    {
+      "name": "every matcher present",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "module": "xhl*.dll"
+            },
+            {
+              "engine": "shroudforge"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [
+          "XHL-core.dll",
+          "kiln-core.dll"
+        ],
+        "engines": [
+          "shroudforge",
+          "kiln"
+        ],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": [
+        "r"
+      ]
+    },
+    {
+      "name": "one matcher missing",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "module": "xhl*.dll"
+            },
+            {
+              "engine": "emf"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [
+          "xhl-core.dll"
+        ],
+        "engines": [
+          "shroudforge"
+        ],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": []
+    },
+    {
+      "name": "mod and symbol",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "mod": "emf:coolmod"
+            },
+            {
+              "symbol": "chat/ChatLogAdd"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [],
+        "mods": [
+          "emf:coolmod",
+          "kiln:other"
+        ],
+        "symbols": [
+          "chat/ChatLogAdd"
+        ]
+      },
+      "fires": [
+        "r"
+      ]
+    },
+    {
+      "name": "mod ids and symbols are exact",
+      "rules": [
+        {
+          "id": "r1",
+          "action": "warn",
+          "when": [
+            {
+              "mod": "emf:cool"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "r2",
+          "action": "warn",
+          "when": [
+            {
+              "symbol": "chat/ChatLog"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "r3",
+          "action": "warn",
+          "when": [
+            {
+              "mod": "emf:CoolMod"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [],
+        "mods": [
+          "emf:coolmod"
+        ],
+        "symbols": [
+          "chat/ChatLogAdd"
+        ]
+      },
+      "fires": []
+    },
+    {
+      "name": "the engine word of a mod ignores case",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "mod": "EMF:coolmod"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [],
+        "mods": [
+          "emf:coolmod"
+        ],
+        "symbols": []
+      },
+      "fires": [
+        "r"
+      ]
+    },
+    {
+      "name": "native: and kiln: name the same mod",
+      "rules": [
+        {
+          "id": "n",
+          "action": "warn",
+          "when": [
+            {
+              "mod": "native:fps"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "k",
+          "action": "warn",
+          "when": [
+            {
+              "mod": "kiln:fps"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [],
+        "mods": [
+          "kiln:fps"
+        ],
+        "symbols": []
+      },
+      "fires": [
+        "n",
+        "k"
+      ]
+    },
+    {
+      "name": "engine words ignore case",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "engine": "ShroudForge"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [
+          "shroudforge"
+        ],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": [
+        "r"
+      ]
+    },
+    {
+      "name": "an engine is not a module",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "engine": "emf"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [
+          "emf.dll"
+        ],
+        "engines": [
+          "shroudforge"
+        ],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": []
+    },
+    {
+      "name": "no matcher: always",
+      "rules": [
+        {
+          "id": "a",
+          "action": "warn",
+          "when": [],
+          "message": "m"
+        },
+        {
+          "id": "b",
+          "action": "warn",
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "name": "several fire, in rule order",
+      "rules": [
+        {
+          "id": "z",
+          "action": "warn",
+          "when": [
+            {
+              "module": "a.dll"
+            }
+          ],
+          "message": "m"
+        },
+        {
+          "id": "a",
+          "action": "late",
+          "when": [
+            {
+              "module": "a.dll"
+            }
+          ],
+          "message": "m",
+          "subject": {
+            "module": "a.dll"
+          }
+        },
+        {
+          "id": "m",
+          "action": "warn",
+          "when": [
+            {
+              "module": "b.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [
+          "a.dll"
+        ],
+        "engines": [],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": [
+        "z",
+        "a"
+      ]
+    },
+    {
+      "name": "glob with ?",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "module": "xhl-?.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [
+          "xhl-2.dll"
+        ],
+        "engines": [],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": [
+        "r"
+      ]
+    },
+    {
+      "name": "nothing present",
+      "rules": [
+        {
+          "id": "r",
+          "action": "warn",
+          "when": [
+            {
+              "module": "a.dll"
+            }
+          ],
+          "message": "m"
+        }
+      ],
+      "facts": {
+        "modules": [],
+        "engines": [],
+        "mods": [],
+        "symbols": []
+      },
+      "fires": []
+    }
+  ]
+}

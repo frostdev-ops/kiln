@@ -417,3 +417,19 @@ void mark_map_dirty() { map_changed(); }
 }  // namespace kiln::hooks
 
 KILN_SERVICE(hooks, KILN_HOOKS_SERVICE, KILN_HOOKS_VERSION, &kiln::hooks::kTable, &kiln::hooks::init);
+
+namespace kiln::hooks {
+// dev.21 (WP-F4): early plugins (kiln_plugin_early) run before sigdb and the services, but ShroudForge's native runtime
+// installs its engine hooks while it initialises there. boot() calls serve_early() before them so that api->service
+// ("kiln.hooks", 2) answers already; init() later (svc::init_all) is unchanged and adds the first-world subscription.
+// withdraw_early() takes the service away again when the start turns out to be safe idle (nothing is hooked then; links
+// the early plugins already placed stay).
+bool serve_early() {
+    if (!ensure_ready()) return false;
+    kiln_service_hooks.available = true;
+    KLOG_I("hooks: serving early plugins (v2 registry, before sigdb and the services)");
+    return true;
+}
+
+void withdraw_early() { kiln_service_hooks.available = false; }
+}  // namespace kiln::hooks

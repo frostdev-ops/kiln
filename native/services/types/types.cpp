@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 #include "kiln_api.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "scan.h"
 #include "runtime.h"
 #include "system_hooks.h"
@@ -58,7 +58,7 @@ int64_t g_qpf = 1;
 std::mutex g_sys_mu;
 ProfileSession g_profile;
 SystemOwners g_system_owners;
-SafetyHookInline g_runner;
+kiln::RawHook g_runner;
 std::atomic<bool> g_systems_ok{false};
 // When native SET may have appeared since the startup check: after a DLL load or a module-list change (3 s
 // fingerprint, no wineserver call), never per tick (the check reaches wineserver once per loaded module under Wine).
@@ -70,7 +70,7 @@ constexpr size_t kMaxSystemHooks = 64;
 struct SystemHook {
     uint64_t fn = 0;
     SystemHookCallbacks callbacks;
-    SafetyHookInline detour;
+    kiln::RawHook detour;
 };
 std::array<std::atomic<std::shared_ptr<SystemHook>>, kMaxSystemHooks> g_hooks;
 std::mutex g_hooks_mu;
@@ -348,7 +348,7 @@ void call_system_hook(size_t index, void* ctx) {
     auto hook = g_hooks[index].load(std::memory_order_acquire);
     if (!hook) return; // published before enable, never reclaimed while the process runs
     run_system_update(hook->callbacks,ctx,[&](void* context) {
-        // The trampoline is immutable and retained: keep parallel worlds/slices parallel (call() holds a mutex).
+        // The continuation is immutable and retained: keep parallel worlds/slices parallel.
         hook->detour.original<void (*)(void*)>()(context);
     },[](KilnSystemHookFn callback,void* context,void* user,KilnHandle handle) {
         if (guarded_system_hook(callback,context,user)) return true;
@@ -381,15 +381,17 @@ KilnResult KILN_CALL system_hook(KilnOwner owner, uint32_t index, KilnSystemHook
     if (!hook) {
         hook=std::make_shared<SystemHook>();
         hook->fn=g_sys[index].fn;
-        hook->detour=safetyhook::create_inline(reinterpret_cast<void*>(hook->fn),
-            reinterpret_cast<void*>(kSystemHookTrampolines[slot]),safetyhook::InlineHook::StartDisabled);
-        if (!hook->detour) return KILN_ERR_UNAVAILABLE;
         HMODULE pin=nullptr;
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN|GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                 reinterpret_cast<LPCWSTR>(&call_system_hook),&pin)) return KILN_ERR_UNAVAILABLE;
-        // Fully initialize the original trampoline before any world's thread can enter the destination.
+        // Publish the slot before its link can be reached: a world's thread entering the trampoline finds the hook,
+        // and install() writes the continuation before the link is live.
         g_hooks[slot].store(hook,std::memory_order_release);
-        if (!hook->detour.enable()) { g_hooks[slot].store({}); return KILN_ERR_UNAVAILABLE; }
+        if (!hook->detour.install(g_api,g_owner,static_cast<uintptr_t>(hook->fn),
+                reinterpret_cast<void*>(kSystemHookTrampolines[slot]),"types/system-update")) {
+            g_hooks[slot].store({});
+            return KILN_ERR_UNAVAILABLE;
+        }
         g_retained_updates=true;
     }
     const KilnHandle handle=g_next_hook++;
@@ -531,7 +533,7 @@ void KILN_CALL on_unload(void*) {
         g_system_owners.disabled.clear();
         publish_system_switches();
     }
-    if (!g_external_runner && !g_retained_updates) g_runner.reset();
+    if (!g_external_runner && !g_retained_updates) g_runner.revoke();
 }
 
 // ---- events: registered inline types, bounded maps/pages/posters, copied callback data ----
@@ -658,7 +660,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     const std::string conflict = kset::runtime_conflict();
     if (!conflict.empty()) add_detail("system runner disabled: " + conflict);
     if (conflict.empty() && n && feat("types.systems") && sym("types/ProgramRunner", &runner) && g_im.text.has(runner, 40)) {
-        g_runner = safetyhook::create_inline(reinterpret_cast<void*>(runner), reinterpret_cast<void*>(&runner_detour));
+        g_runner.install(g_api, g_owner, runner, reinterpret_cast<void*>(&runner_detour), "types/ProgramRunner");
         g_systems_ok = static_cast<bool>(g_runner);
         if (!g_systems_ok) add_detail("hooking the program runner failed");
     } else {
@@ -670,7 +672,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
             g_api->subscribe_world(g_owner, &on_world, nullptr, &world) != KILN_OK) {
             if (tick) g_api->unsubscribe(tick);
             if (world) g_api->unsubscribe(world);
-            g_runner.reset();
+            g_runner.revoke();
             g_systems_ok = false;
             add_detail("system owner/world cleanup unavailable");
         }

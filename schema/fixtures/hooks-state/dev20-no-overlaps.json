@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.21",
+  "phase": "boot",
+  "worldChecked": false,
+  "generated": "2026-11-09T14:20:33Z",
+  "targets": [
+    {
+      "rva": "0x9151f0",
+      "symbol": "chat/ChatLogAdd",
+      "label": "chat/ChatLogAdd",
+      "links": [{ "owner": "service:kiln-chat.dll", "kind": "raw", "priority": 0, "label": "chat/ChatLogAdd" }],
+      "foreignBefore": null,
+      "foreignOver": null
+    }
+  ],
+  "foreign": []
+}

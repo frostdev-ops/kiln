@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1',
                WAYLAND_DISPLAY='kiln-no-display', WINEDLLOVERRIDES='winedbg.exe=d')
     env.pop('DISPLAY', None)
-    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None):
+    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None):
         game = root / name
         if linked_layout:
             layout = root / (name + '-steam-library')
@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             dest.mkdir(parents=True)
             (dest / 'version.json').write_text(json.dumps({'version': '1.7.9'}))
             (dest / 'profiles').mkdir()
-            shutil.copyfile(build / ('bad_kfc.dll' if mode == 'bad-abi' else 'good_kfc.dll'), dest / 'kfc-runtime.dll')
+            shutil.copyfile(build / ({'bad-abi': 'bad_kfc.dll', 'old': 'old_kfc.dll'}.get(mode, 'good_kfc.dll')), dest / 'kfc-runtime.dll')
             if mode == 'corrupt':
                 (dest / 'shroudforge-runtime.dll').write_bytes(b'not a DLL')
             else:
@@ -43,6 +43,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             call_env['KILN_SF_BUSY_LOCK'] = '1'
         if reservation:
             call_env['KILN_SF_' + reservation] = '1'
+        call_env.update(extra_env or {})
         cmd = ['wine', str(build / 'sfhost.exe'), str(game), str(adapter)] + (['early'] if early else [])
         result = subprocess.run(cmd, env=call_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=40)
         if busy:
@@ -69,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         assert status['runtime'] == 'stopped', status
         if fault:
             assert status['mode'] == 'failed', status
+        if verify:
+            verify(status, calls, result.stdout.decode(errors='replace'))
         print('PASS', name)
     case('installed-corrupt', installed='corrupt')
     case('installed-bad-abi', installed='bad-abi')
@@ -79,3 +82,37 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('standalone-busy-install', busy=True)
     case('closed-reservation', installed='corrupt', early=True, reservation='DENY_RESERVATION')
     case('short-eml-table', installed='corrupt', early=True, reservation='SHORT_EML_TABLE')
+
+    # ---- dev.21 (WP-F4): the engine hooks of the bundled native runtime through kiln.hooks ----
+    def offered(status, calls, out):
+        # the table is set before KfcRuntimeInitialize, which then finds the place and hooks it three ways
+        assert status['engineHooks'] == 'kiln.hooks', status
+        assert 'takes its engine hooks from kiln.hooks' in out, out
+        assert calls.index('set-host') < calls.index('init'), calls
+        assert 'find 1 1000 0' in calls and 'find-mismatch 3 0 0' in calls and 'find-ambiguous 2 0 0' in calls and 'find-none 0 0 0' in calls, calls
+        assert 'installed 1 1 1' in calls, calls
+        for label in ('shroudforge/game_thread', 'shroudforge/world_building_dispatch', 'shroudforge/world_cursor'):
+            assert f'label={label} target=0x1000' in out, (label, out)
+        # the host fired each hook with r15=0x15 rbp=0xbb rcx=0xc7 r14=0x14 r13=0x13
+        assert 'cb-plain 15 bb 0' in calls, calls                 # plain: (r15, rbp)
+        assert 'cb-context c7 0 0' in calls, calls                # context: (rcx, 0)
+        assert 'cb-cursor 284 13 bb' in calls, calls             # cursor: (r14 + 0x270, r13, rbp)
+        # KfcRuntimeShutdown takes the three hooks away again (newest first), through the host
+        assert calls.count('removed') == 3 and out.count('[fake kiln.hooks] revoke') == 3, (calls, out)
+        assert calls.index('shutdown') < calls.index('removed'), calls
+    def self_hooking(reason, absent=True):
+        def verify(status, calls, out):
+            assert status['engineHooks'] == 'self', status
+            assert 'hooks the game itself: ' in out and reason in out, out
+            assert 'set-host' not in calls and 'find' not in ' '.join(calls), calls
+        return verify
+    hook_env = {'KILN_SF_FAKE_HOOKS': '1'}
+    case('engine-hooks-offered', installed='corrupt', extra_env=hook_env, verify=offered)
+    case('engine-hooks-offered-early', installed='corrupt', early=True, extra_env=hook_env, verify=offered)
+    case('engine-hooks-no-kiln-hooks', installed='corrupt', verify=self_hooking('kiln.hooks v2 is not available'))
+    case('engine-hooks-old-runtime', installed='corrupt', bundled='old', extra_env=hook_env, verify=self_hooking('no host interface'))
+    case('engine-hooks-switched-off', installed='corrupt', extra_env=dict(hook_env, KILN_SF_ENGINE_HOOKS='self'), verify=self_hooking('KILN_SF_ENGINE_HOOKS=self'))
+    def refused(status, calls, out):
+        assert status['engineHooks'] == 'self' and 'set-host-refused' in calls and 'find' not in ' '.join(calls), (status, calls)
+        assert 'hooks the game itself: kfc-runtime.dll refused the host interface' in out, out
+    case('engine-hooks-refused', installed='corrupt', extra_env=dict(hook_env, KILN_SF_REFUSE_HOST='1'), verify=refused)

@@ -47,6 +47,8 @@ Machine-readable copies:
 | `<game>/kiln/state/boot.json` | kiln-core | launcher | `state-boot.schema.json`, `examples/state-boot.json` |
 | `<game>/kiln/state/mods.json` | Kiln.Host | launcher | `state-mods.schema.json`, `examples/state-mods.json` |
 | `<game>/kiln/state/native.json` | native loader (core) | launcher | `state-native.schema.json`, `examples/state-native.json` |
+| `<game>/kiln/state/hooks.json` | kiln-core (kiln.hooks v2, compat report) | launcher | `hooks-state.schema.json`, `examples/hooks-state.json`, `fixtures/hooks-state/` |
+| `<game>/kiln/compat-rules.json`, `<configDir>/compat-rules.json` | Kiln (shipped, may be missing) / the player | kiln-core, launcher | `compat-rules.schema.json`, `examples/compat-rules.json`, `fixtures/compat-rules/cases.json` |
 | `<game>/kiln/state/emf.json` | kiln-emf | launcher | format in `docs/re/emf-compat.md` |
 | `<game>/kiln/state/last-server.json` | Kiln.Network (client) | launcher | `state-last-server.schema.json`, `examples/state-last-server.json` |
 | `<server>/kiln/data/kiln-admin/endpoint.json` | Kiln.Admin | launcher, kilnctl | `admin-endpoint.schema.json`, `examples/admin-endpoint.json` |
@@ -245,8 +247,20 @@ chain\emf-dinput8.dll
 Z:\home\user\.local\share\kiln\library\native\fps-unlock\2.0.0+00000000\fpsunlock.dll
 ```
 Grammar (same dialect as 5.2):
-- Sections `[chain]` and `[profile]`, case-insensitive; lines before any section count as `[chain]` (in `once.ini`:
-  as `[profile]`). Other sections are ignored (they may belong to other tools).
+- Sections `[chain]`, `[profile]` and `[late]`, case-insensitive; lines before any section count as `[chain]` (in
+  `once.ini`: as `[profile]`). Other sections are ignored (they may belong to other tools); an older proxy ignores
+  `[late]` the same way and loads the entries early.
+- `[late]` (dev.21) does not add DLLs. It names DLLs that the other lists already hold: an entry of `[chain]`,
+  `<game>/dinput8-chain.ini` or `[profile]` (also `once.ini`'s) whose DLL is named in `[late]` is **deferred**: the
+  proxy runs every check on it but does not load it, and kiln-core loads it after Kiln's services, plugins, native
+  boot-phase mods and the managed host started (also in safe idle, and also in play-once `mode=profile`). Paths are
+  read like `[chain]` paths (relative to `<game>/kiln/`; a relative line whose file is not there is tried relative
+  to `<game>/`, for `dinput8-chain.ini` entries); entries and `[late]` lines are matched by canonical path, so
+  spelling, case and `..` do not matter, and a missing file is matched by its resolved path. Deferred entries load
+  in the order of the lists they came from (not in `[late]` order). A `[late]` line that names no entry loads
+  nothing (proxy.log says so). Refused, missing and duplicate entries keep that status. Play-once `no-mods` defers
+  nothing (all entries are `skipped`). The launcher keeps an entry in its own section and adds the same path to
+  `[late]`; a `;` line in front (`; kiln rule <id>`) is a comment like any other.
 - One DLL per line. A `key = value` line counts by its value. Only values ending in `.dll` (case-insensitive) count;
   other lines are ignored.
 - Paths: absolute (`Z:\…` under Proton, real paths on Windows, UNC) or relative to `<game>/kiln/`; `/` is read as `\`.
@@ -267,12 +281,13 @@ Load order, all in the proxy's `DllMain` before it installs the gate (so entry p
 Decisions per entry (`KilnChainEntry`, `state/boot.json` `chain[]`): dedupe by canonical path (`duplicate`, loaded
 once); refuse (`refused` + detail): `self` (the proxy itself), `system` (the system dinput8 or Wine's builtin), `kiln`
 (a Kiln proxy or kiln-core.dll), `shroudforge`, `not-dll` (not a 64-bit PE DLL), `outside`, `too-many`; `missing`;
-`failed` (LoadLibrary error, `error` = Win32 code); `skipped` (play-once no-mods); else `loaded`. The proxy never
-calls FreeLibrary on a chained DLL. One line per decision goes to `kiln/logs/proxy.log` (rewritten at each start).
+`failed` (LoadLibrary error, `error` = Win32 code); `skipped` (play-once no-mods); `late` (dev.21, in `KilnChainEntry`
+only: deferred to the core, see `[late]`); else `loaded`. The proxy never calls FreeLibrary on a chained DLL. One line per decision goes to `kiln/logs/proxy.log` (rewritten at each start).
 
 `KilnChainEntry` (kiln_api.h) = `{KilnStr path; u32 status; i32 error; void* module; u32 source; u32 detail}`
 (`detail` = `KILN_CHAIN_REFUSED_SELF=1, _SYSTEM=2, _KILN=3, _SHROUDFORGE=4, _NOT_DLL=5, _OUTSIDE=6, _TOO_MANY=7`;
 the native loader renames an older `reserved` field, layout unchanged). `source`: `chain=0, profile=1, emf=2`.
+`status` adds `KILN_CHAIN_LATE = 6` (appended; an older core reads an unknown status as `failed`).
 
 Proxy exports: `DirectInput8Create` (forwarded), `GetdfDIJoystick` (forwarded to the system DLL if it exports it,
 else the proxy's own `c_dfDIJoystick`), and `const KilnProxyInfoData* __cdecl KilnProxyInfo(void)` returning
@@ -432,7 +447,8 @@ All written atomically; a file whose `pid` is not a live process is stale.
   `bootMs`, `side`, `exe{name,sha256,verified}`, `policy`, `hooks`, `safeIdle`, `playOnce{mode, nonce}` (mode `none`,
   `no-mods`, `profile`, `ignored-expired`, `ignored-undeletable`, `ignored-server`, `ignored-invalid`),
   `profile{mode, id, name, generation, file, error, configDir, dataDir, counts}` (mode `legacy|active|once|no-mods|
-  invalid`), `paths` (every KILN_PATH_*), `chain[]` (`{path, source: chain|emf|profile, status, detail, error}`),
+  invalid`), `paths` (every KILN_PATH_*), `chain[]` (`{path, source: chain|emf|profile, status, detail, error}`; an entry deferred by
+  `[late]` keeps its place, carries `late: true` and the status of the core's load),
   `services[]` (`name@version`), `plugins[]` (`{file, id, version, status, error}`), `native{loaded, failed, pending}`,
   `clr{started, error}`, `errors[]`.
 - `mods.json` (Kiln.Host, after every resolve/load/unload/reload; `generation` grows): `pid`, `written`, `generation`,
@@ -440,7 +456,12 @@ All written atomically; a file whose `pid` is not a live process is stale.
   pending|loaded|disabled|failed|skipped|unloaded, reason, loadIndex, side, clients, faults}`).
 - `native.json` (native loader, after each phase): `pid`, `written`, `policy`, `phase`, `mods[]` (`{id, version,
   folder, source, phase, state: pending|loaded|failed|disabled|skipped|policy|unsupported, reason, notes[], loadIndex,
-  dlls[]{file, status, error, ms}, init{export, result, fault, ms}}`).
+  dlls[]{file, status, error, ms}, init{export, result, fault, ms}}`), and `chain.late[]` (`{path, source, status:
+  pending|loaded|failed|missing|duplicate, error, ms, order}`) when chain DLLs were left to the core ([late]).
+- `hooks.json` (kiln-core, boot end, first world, link changes; `hooks-state.schema.json`, `kiln/services/hooks.md`):
+  the hook registry's map, plus the closed-DLL report: `overlaps[]` (`{symbol, rva, kind: foreign-before|foreign-over|
+  refused, foreign{module, offset}, owners[], fix, chainEntry, message}`), `rules[]` (`{id, action, applied, message,
+  subject, source, note}`) and `ruleFiles[]`. No `pid` before dev.21 (`pid` names the writing process).
 - `last-server.json` (Kiln.Network on a client): `written`, `outcome` (`rejected|welcome|vanilla`), `reason`,
   `server{id, name, address, kiln}`, `modpack`, `required[]`, `truncated`, `missing[]`, `history[]` (<= 20 earlier
   entries, newest first, without their own history).
@@ -487,7 +508,8 @@ kms1 differs from the game's last launched kms1 backs up the saves first.
   covers them (`KILN_BOOT_INFO_HAS`); a v1 proxy (16 bytes) reads as play-once NONE, empty chain
   (`kiln::boot_info()`). `KILN_PLAY_ONCE_*`: NONE 0, VANILLA 1, NO_MODS 2, PROFILE 3, IGNORED_EXPIRED 16,
   IGNORED_UNDELETABLE 17, IGNORED_SERVER 18, IGNORED_INVALID 19. `KILN_CHAIN_*`: LOADED 0, FAILED 1, MISSING 2,
-  REFUSED 3, DUPLICATE 4, SKIPPED 5.
+  REFUSED 3, DUPLICATE 4, SKIPPED 5, LATE 6 (dev.21, appended; `KilnBootInfo` is unchanged: a late entry is an ordinary
+  `chain[]` entry with status 6).
 - `kiln_native.h`: `KilnNativeContext {size, abi_version, phase, side, api, owner, module, id, version, directory,
   config_dir (<configDir>/native/<id>), data_dir (<dataDir>/<id>), hooks_enabled, play_once}`,
   `typedef int (KILN_CALL* KilnNativeInitFn)(const KilnNativeContext*)`, phases, `KILN_NATIVE_INIT_{OK,FAILED,UNSUPPORTED}`.

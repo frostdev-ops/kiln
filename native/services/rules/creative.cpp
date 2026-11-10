@@ -31,12 +31,13 @@
 #include "creative.h"
 #include "creative_math.h"
 #include "kiln_flame.h"
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 
 namespace kiln_rules_creative {
 namespace {
 
 const KilnApi* g_api = nullptr;
+KilnOwner g_owner = 0;
 
 void logf(int level, const char* fmt, ...) {
     char b[512];
@@ -78,7 +79,7 @@ std::atomic<uint32_t> g_hooks{0};
 // =========================================================================================== map reveal ========
 
 using FogDiscoverFn = void(__fastcall*)(void* fow, const float* pos, float range);
-SafetyHookInline h_fog;
+kiln::RawHook h_fog;
 std::atomic<uint32_t> g_map_mode{KILN_RULES_MAP_DEFAULT};
 std::atomic<float> g_map_radius{400.0f};
 // the sweep (only the fog_of_war system calls FogDiscover, once a frame, so one thread at a time; the mutex is a guard)
@@ -156,7 +157,7 @@ void __fastcall hk_fog(void* fow, const float* pos, float range) {
 // ============================================================================================ free crafting ======
 
 using PayFn = uint32_t(__fastcall*)(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra);
-SafetyHookInline h_alt;
+kiln::RawHook h_alt;
 uintptr_t g_recipe_ret = 0;  // the recipe function's call to the inventory payment returns here
 int64_t g_tx_operator = 0;
 
@@ -179,7 +180,7 @@ bool craft_free(void* tx, uint32_t owner) {
 
 uint32_t __fastcall hk_alt(void* tx, int64_t* costs, uint32_t owner, uint32_t multiplier, void* extra) {
     // This payer must be scoped just as tightly as InventoryPay: other callers must still pay.
-    if (g_recipe_ret && reinterpret_cast<uintptr_t>(_ReturnAddress()) == g_recipe_ret + 7 && craft_free(tx, owner)) {
+    if (g_recipe_ret && h_alt.caller() == g_recipe_ret + 7 && craft_free(tx, owner)) {
         S.crafts.fetch_add(1, std::memory_order_relaxed);
         return 0;
     }
@@ -189,7 +190,7 @@ uint32_t __fastcall hk_alt(void* tx, int64_t* costs, uint32_t owner, uint32_t mu
 // ============================================================================================ craft buttons ======
 
 using CraftableFn = uint32_t(__fastcall*)(void* ui, uint32_t recipe, uint32_t cap, const void* selections);
-SafetyHookInline h_craftable;
+kiln::RawHook h_craftable;
 
 uint32_t __fastcall hk_craftable(void* ui, uint32_t recipe, uint32_t cap, const void* selections) {
     const uint32_t n = h_craftable.call<uint32_t>(ui, recipe, cap, selections);
@@ -213,7 +214,7 @@ struct Result12 {  // InventoryRemoveItems' result: {u8 error; pad; u32 zero; u3
 };
 static_assert(sizeof(Result12) == 12);
 using RemoveFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t owner, uint32_t item, uint64_t slot, uint32_t count);
-SafetyHookInline h_remove;
+kiln::RawHook h_remove;
 uintptr_t g_ammo_ret = 0, g_cost_ret = 0, g_buff_ret = 0;
 
 bool keep_removal(Result12* out, uintptr_t ret, uint32_t owner, uint32_t count) {
@@ -234,14 +235,13 @@ bool keep_removal(Result12* out, uintptr_t ret, uint32_t owner, uint32_t count) 
 }
 
 Result12* __fastcall hk_remove(Result12* out, void* tx, uint32_t owner, uint32_t item, uint64_t slot, uint32_t count) {
-    const auto ret = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    const uintptr_t ret = h_remove.caller();  // the game's call site, read before the original
     if (tx && item && keep_removal(out, ret, owner, count)) return out;
     return h_remove.call<Result12*>(out, tx, owner, item, slot, count);
 }
 
-template <typename H>
-bool inline_hook(H& h, uintptr_t target, void* detour, const char* what) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(target), detour);
+bool inline_hook(kiln::RawHook& h, uintptr_t target, void* detour, const char* what, const char* label) {
+    h.install(g_api, g_owner, target, detour, label);
     if (!h) logf(KILN_LOG_ERROR, "hooking %s failed", what);
     return static_cast<bool>(h);
 }
@@ -277,8 +277,9 @@ void pay_hook_failed() {
     g_hooks &= ~KILN_RULES_HOOK_CRAFT;
 }
 
-uint32_t install(const KilnApi* api, std::string& off) {
+uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off) {
     g_api = api;
+    g_owner = owner;
     auto note = [&off](const char* s) { off += off.empty() ? s : std::string(", ") + s; };
     const bool client = api->side() == KILN_SIDE_CLIENT;
     uint32_t hooks = 0;
@@ -292,7 +293,7 @@ uint32_t install(const KilnApi* api, std::string& off) {
     uintptr_t pay = 0, alt = 0, recipe_ret = 0;
     if (feat("rules.craft") && cst("items/tx.operator", &g_tx_operator) && sym("rules/InventoryPay", &pay) &&
         sym("rules/RecipePaid", &recipe_ret) && sym("rules/RecipePayAlt", &alt) && call_returns_to(recipe_ret, pay) &&
-        call_returns_to(recipe_ret + 7, alt) && inline_hook(h_alt, alt, reinterpret_cast<void*>(&hk_alt), "the second recipe payer")) {
+        call_returns_to(recipe_ret + 7, alt) && inline_hook(h_alt, alt, reinterpret_cast<void*>(&hk_alt), "the second recipe payer", "rules/RecipePayAlt")) {
         g_recipe_ret = recipe_ret;
         hooks |= KILN_RULES_HOOK_CRAFT;
         logf(KILN_LOG_INFO, "free crafting: the recipe's payments (rva 0x%llx returns to 0x%llx; second payer 0x%llx)",
@@ -308,7 +309,7 @@ uint32_t install(const KilnApi* api, std::string& off) {
     const bool ammo_ok = have_remove && feat("rules.consume") && sym("rules/AmmoConsumed", &ammo) &&
                          sym("rules/CostConsumed", &cost) && call_returns_to(ammo, remove) && call_returns_to(cost, remove);
     const bool buff_ok = have_remove && feat("rules.consume_buff") && sym("rules/BuffConsumed", &buff) && call_returns_to(buff, remove);
-    if ((ammo_ok || buff_ok) && inline_hook(h_remove, remove, reinterpret_cast<void*>(&hk_remove), "the inventory removal")) {
+    if ((ammo_ok || buff_ok) && inline_hook(h_remove, remove, reinterpret_cast<void*>(&hk_remove), "the inventory removal", "items/InventoryRemoveItems")) {
         if (ammo_ok) {
             g_ammo_ret = ammo;
             g_cost_ret = cost;
@@ -328,11 +329,11 @@ uint32_t install(const KilnApi* api, std::string& off) {
     if (client) {
         uintptr_t fog = 0, craftable = 0;
         if (feat("rules.map_reveal") && sym("rules/client.FogDiscover", &fog) &&
-            inline_hook(h_fog, fog, reinterpret_cast<void*>(&hk_fog), "the fog of war's discover call"))
+            inline_hook(h_fog, fog, reinterpret_cast<void*>(&hk_fog), "the fog of war's discover call", "rules/client.FogDiscover"))
             hooks |= KILN_RULES_HOOK_MAP;
         else note("map reveal (rules.map_reveal)");
         if (feat("rules.craft_ui") && sym("rules/client.CraftableAmount", &craftable) &&
-            inline_hook(h_craftable, craftable, reinterpret_cast<void*>(&hk_craftable), "the craftable amount"))
+            inline_hook(h_craftable, craftable, reinterpret_cast<void*>(&hk_craftable), "the craftable amount", "rules/client.CraftableAmount"))
             hooks |= KILN_RULES_HOOK_CRAFT_UI;
         else note("craft buttons (rules.craft_ui)");
     }

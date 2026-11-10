@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 // kiln_boot: called by the dinput8 proxy on the main thread, at the game's entry point, before any game code ran.
 //   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", sigdb, hooks,
-//   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, state/boot.json.
+//   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
+//   chain.ini [late], state/boot.json, state/hooks.json.
 #include "api.h"
 #include "clr.h"
+#include "compat.h"
 #include "config.h"
 #include "image.h"
 #include "log.h"
@@ -57,11 +59,11 @@ const char* play_once_name(uint32_t v) {
         default: return "none";
     }
 }
-const char* const kChainStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped"};
+const char* const kChainStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped", "late"};
 const char* const kChainSource[] = {"chain", "profile", "emf"};
 const char* const kChainDetail[] = {nullptr, "self", "system", "kiln", "shroudforge", "not-dll", "outside", "too-many"};
 
-const char* chain_status(uint32_t s) { return s < 6 ? kChainStatus[s] : "failed"; }
+const char* chain_status(uint32_t s) { return s < 7 ? kChainStatus[s] : "failed"; }
 const char* chain_source(uint32_t s) { return s < 3 ? kChainSource[s] : "chain"; }
 const char* chain_detail(uint32_t d) { return d < 8 ? kChainDetail[d] : nullptr; }
 
@@ -99,12 +101,23 @@ void write_boot_json(const BootFacts& f) {
     using nlohmann::json;
     const auto& prof = profile::state();
     json chain = json::array();
+    const auto late_rows = native_mods::late_rows();  // chain.ini [late]: the core loaded these after the plugins
     for (uint32_t i = 0; i < g_boot_info.chain_count; ++i) {
         const KilnChainEntry& e = g_boot_info.chain[i];
         json o = {{"path", std::string(sv(e.path))}, {"source", chain_source(e.source)}, {"status", chain_status(e.status)}};
         const char* d = e.status == KILN_CHAIN_REFUSED ? chain_detail(e.detail) : nullptr;
         o["detail"] = d ? json(d) : json(nullptr);
         if (e.status == KILN_CHAIN_FAILED) o["error"] = e.error;
+        if (e.status == KILN_CHAIN_LATE) {
+            // The launcher's readers know the six proxy statuses: report the final one (the core's), flag it "late".
+            std::string status = "skipped";
+            for (const auto& row : late_rows)
+                if (row.chain_index == i && row.status != "pending") status = row.status;
+            o["status"] = status;
+            o["late"] = true;
+            for (const auto& row : late_rows)
+                if (row.chain_index == i && row.error) o["error"] = row.error;
+        }
         chain.push_back(o);
     }
     json missing = json::array();
@@ -179,12 +192,14 @@ void boot() {
     log_proxy();
     load_config();
     profile::load();
+    compat::init();  // compat-rules.json (shipped, then the player's); adds overlaps and rules to state/hooks.json
     if (profile::state().mode == KILN_PROFILE_INVALID)
         f.errors.push_back("profile " + profile::state().file + " is invalid (" + profile::state().error + "): no mods loaded");
     if (!init_image()) {
         KLOG_E("cannot parse the game image; staying idle");
         f.safe_idle = "the game image cannot be parsed";
         f.errors.push_back(f.safe_idle);
+        native_mods::run_late();  // the player's chain DLLs named in chain.ini [late] still load
         write_boot_json(f);
         return;
     }
@@ -195,8 +210,12 @@ void boot() {
     const bool verified = build_verified(side, image().sha256, &note);
     f.verified = verified;
     // Native mods: discovered and resolved now; phase early runs before anything is hooked (also in safe idle).
+    compat::apply_early();  // rules that switch a listed mod off: before anything reads the profile
     native_mods::discover(verified);
     native_mods::run_early();
+    // kiln.hooks for early plugins that hook game code (kiln-shroudforge's native runtime does it while it initialises);
+    // taken away again below when this start is safe idle.
+    const bool early_hooks = (verified || config().policy_any) && hooks::serve_early();
     early_plugins::run();  // kiln/plugins/kiln-*.dll exporting kiln_plugin_early (EML's pre-game patching)
 
     const auto definitions = paths().sigdb / to_wide(std::string(side_name(side)) + ".json");  // + <side>.d/*.json
@@ -225,6 +244,7 @@ void boot() {
         }
     }
     f.hooks = hooks;
+    if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
@@ -241,8 +261,10 @@ void boot() {
         f.clr_started = clr::boot(api());
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
     }
+    native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     write_boot_json(f);
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
+    compat::boot_done();
     KLOG_I("boot complete; handing control to the game");
 }
 

@@ -12,15 +12,35 @@
 #include "image.h"
 #include "log.h"
 #include "registry.h"
-#include "safetyhook.hpp"
+#include "services/hooks_internal.h"
 #include "sigdb.h"
 #include "worldinfo.h"
 
 namespace kiln::tick {
 namespace {
 
-SafetyHookInline g_hook;
-SafetyHookInline g_destroy_hook;
+constexpr int32_t kBasePriority = -1000000;  // below every other link: the tick is the innermost, see Link::install
+
+// A kiln.hooks v2 raw link (owner 0 = "kiln"): `original` is the chain's continuation (the rest of the chain, then the
+// game's function). Links live for the process, like the safetyhook hooks they replace.
+struct Link {
+    void* original = nullptr;
+    KilnHandle handle = 0;
+    template <class R, class... A>
+    R call(A... a) const { return reinterpret_cast<R (*)(A...)>(original)(a...); }
+    explicit operator bool() const { return handle != 0; }
+    bool install(uintptr_t target, void* fn, const char* label) {
+        if (!hooks::ensure_ready()) return false;
+        hooks::chain::Order o;
+        o.label = label;
+        // The tick wraps the game's function itself, as it did when it was the first hook put on it: every link added
+        // later (a service's, a mod's) runs before it.
+        o.priority = kBasePriority;
+        return hooks::chain::install_raw(0, target, o, fn, &original, &handle) == KILN_OK;
+    }
+};
+Link g_hook;
+Link g_destroy_hook;
 bool g_installed = false;
 bool g_lifecycle = false;
 std::atomic<bool> g_faulted{false};
@@ -446,8 +466,7 @@ bool install() {
     uintptr_t wait = 0;
     if (sigdb::feature("tick.wait_jobs") && sigdb::symbol("WaitWorldJobs", &wait))
         g_wait_jobs = reinterpret_cast<WaitWorldJobsFn>(wait);
-    g_hook = safetyhook::create_inline(reinterpret_cast<void*>(sim_step), reinterpret_cast<void*>(&hk_sim_step));
-    if (!g_hook) {
+    if (!g_hook.install(sim_step, reinterpret_cast<void*>(&hk_sim_step), "tick/SimStep")) {
         KLOG_E("tick: hooking SimStep at %p failed", reinterpret_cast<void*>(sim_step));
         return false;
     }
@@ -459,9 +478,7 @@ bool install() {
            g_wait_jobs ? "waits for world jobs" : "disabled");
     uintptr_t destroy = 0;
     if (sigdb::feature("world.lifecycle") && sigdb::symbol("WorldDestroy", &destroy)) {
-        g_destroy_hook =
-            safetyhook::create_inline(reinterpret_cast<void*>(destroy), reinterpret_cast<void*>(&hk_world_destroy));
-        g_lifecycle = static_cast<bool>(g_destroy_hook);
+        g_lifecycle = g_destroy_hook.install(destroy, reinterpret_cast<void*>(&hk_world_destroy), "tick/WorldDestroy");
         if (g_lifecycle)
             KLOG_I("tick: WorldDestroy hooked (rva 0x%llx): world stops are seen",
                    static_cast<unsigned long long>(rva_of(destroy)));

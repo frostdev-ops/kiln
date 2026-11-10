@@ -112,11 +112,11 @@ int main() {
     check(c.rax == flight_math::kBuildingFlying, "after handing over, a third-party flight is left alone");
     kiln_rules_creative::test_idle = false;
     std::string off;
-    check(f::install(&api, off) == 0 && off.find("rules.flight") != std::string::npos,
+    check(f::install(&api, 0, off) == 0 && off.find("rules.flight") != std::string::npos,
           "a missing flight feature disables flight alone without changing other rule snapshots");
     api.feature = &have_feature; api.symbol = &symbol; api.constant = &constant;
-    safetyhook::test_fail_inline = true;
-    check(f::install(&api, off) == 0 && !f::h_state && !f::h_grav && !f::h_mover,
+    kiln::test::fail_all = true;
+    check(f::install(&api, 0, off) == 0 && !f::h_state && !f::h_grav && !f::h_mover,
           "a failed mover hook removes both state and gravity hooks too");
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

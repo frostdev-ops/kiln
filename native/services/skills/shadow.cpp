@@ -29,7 +29,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "safetyhook.hpp"
+#include "kiln_hook.hpp"
 #include "services/kiln_client.h"
 #include "services/kiln_world.h"
 
@@ -69,7 +69,7 @@ using GetComponentFn = void (*)(Slice* out, uintptr_t world, uint32_t hash, uint
 uintptr_t a_is = 0, a_set = 0, a_reach = 0, a_spent = 0, a_reset = 0, a_ui = 0;
 GetComponentFn g_get_component = nullptr;
 int64_t L_unlocked = 0x80, L_records = 0, L_masks = 0, L_record = 0x44;
-SafetyHookInline h_is, h_set, h_reach, h_spent, h_reset, h_ui;
+kiln::RawHook h_is, h_set, h_reach, h_spent, h_reset, h_ui;
 std::atomic<uint32_t> g_level{0};
 std::string g_why;
 
@@ -398,8 +398,8 @@ void hk_ui(void* ctx) {
 }
 
 template <class F>
-bool hook(SafetyHookInline& h, uintptr_t at, F* fn, const char* what) {
-    h = safetyhook::create_inline(reinterpret_cast<void*>(at), reinterpret_cast<void*>(fn));
+bool hook(kiln::RawHook& h, uintptr_t at, F* fn, const char* what, const char* label) {
+    h.install(g_api, g_owner, at, reinterpret_cast<void*>(fn), label);
     if (!h) logf(KILN_LOG_WARN, "skills: the %s hook did not install", what);
     return static_cast<bool>(h);
 }
@@ -419,9 +419,11 @@ bool init(const KilnApi* api, KilnOwner owner) {
         g_why = "feature skills.shadow is off on this build: nodes past the game's caps are refused";
         return false;
     }
-    const bool ok = hook(h_is, a_is, &hk_is, "IsUnlocked") && hook(h_set, a_set, &hk_set, "NodeSet") &&
-                    hook(h_reach, a_reach, &hk_reach, "Reachable") && hook(h_spent, a_spent, &hk_spent, "PointsSpent") &&
-                    hook(h_reset, a_reset, &hk_reset, "Reset");
+    const bool ok = hook(h_is, a_is, &hk_is, "IsUnlocked", "skills/IsUnlocked") &&
+                    hook(h_set, a_set, &hk_set, "NodeSet", "skills/NodeSet") &&
+                    hook(h_reach, a_reach, &hk_reach, "Reachable", "skills/Reachable") &&
+                    hook(h_spent, a_spent, &hk_spent, "PointsSpent", "skills/PointsSpent") &&
+                    hook(h_reset, a_reset, &hk_reset, "Reset", "skills/Reset");
     if (!ok) {
         // all or nothing: a partial set would answer some queries and not others
         h_is = {}, h_set = {}, h_reach = {}, h_spent = {}, h_reset = {};
@@ -439,7 +441,7 @@ bool init(const KilnApi* api, KilnOwner owner) {
             L_records = rec;
             L_masks = masks;
             if (api->constant(kstr("skills/ui.record_size"), &rs) == KILN_OK && rs > 0x43) L_record = rs;
-            if (hook(h_ui, a_ui, &hk_ui, "skill-tree screen")) g_level = 2;
+            if (hook(h_ui, a_ui, &hk_ui, "skill-tree screen", "skills/TreeUi")) g_level = 2;
         }
         if (g_level < 2) {
             g_why = "the skill-tree screen hook (feature skills.shadow_ui) is off: nodes past the game's caps are hidden on this client";

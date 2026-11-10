@@ -976,7 +976,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     }
     std::string why;
     try {
-        if (!game::init(api, why)) {
+        if (!game::init(api, owner, why)) {
             logw("kiln.spawn: unavailable: %s", why.c_str());
             return KILN_ERR_UNAVAILABLE;
         }

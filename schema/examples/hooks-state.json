@@ -1,0 +1,119 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.21",
+  "pid": 412,
+  "phase": "world",
+  "worldChecked": true,
+  "generated": "2026-11-09T14:20:33Z",
+  "targets": [
+    {
+      "rva": "0x9151f0",
+      "symbol": "chat/ChatLogAdd",
+      "label": "chat/ChatLogAdd",
+      "links": [
+        { "owner": "service:kiln-chat.dll", "kind": "raw", "priority": 0, "label": "chat/ChatLogAdd" },
+        { "owner": "plugin:kiln-emf.dll", "kind": "raw", "priority": 0, "label": "emf/ChatLogAdd" }
+      ],
+      "foreignBefore": { "module": "xhl-core.dll", "offset": "0x11ea80", "address": "0x7ffc1a2bea80", "own": false },
+      "foreignOver": null
+    },
+    {
+      "rva": "0x19e860",
+      "symbol": "gameplay/InventoryTransfer",
+      "label": "gameplay/InventoryTransfer",
+      "links": [
+        { "owner": "service:kiln-items.dll", "kind": "structured", "priority": 0, "label": "items/InventoryTransfer" },
+        { "owner": "emf:coolmod", "kind": "raw", "priority": 0, "label": "InventoryTransfer" }
+      ],
+      "foreignBefore": null,
+      "foreignOver": { "module": "xhl-core.dll", "offset": "0x4410", "address": "0x7ffc1a2a4410", "own": false }
+    },
+    {
+      "rva": "0x31c0a0",
+      "symbol": null,
+      "label": "rva 0x31c0a0",
+      "links": [
+        { "owner": "native:fps-unlock", "kind": "mid", "priority": 0, "label": "" }
+      ],
+      "foreignBefore": null,
+      "foreignOver": null
+    }
+  ],
+  "foreign": [
+    {
+      "symbol": "gameplay/InventoryTransfer",
+      "rva": "0x19e860",
+      "module": "xhl-core.dll",
+      "offset": "0x4410",
+      "address": "0x7ffc1a2a4410",
+      "own": false
+    },
+    {
+      "symbol": "time/WorldClockTick",
+      "rva": "0x5d2210",
+      "module": "",
+      "offset": "0x0",
+      "address": "0x1b2c3d4e0000",
+      "inPlace": true,
+      "own": false
+    }
+  ],
+  "overlaps": [
+    {
+      "symbol": "chat/ChatLogAdd",
+      "rva": "0x9151f0",
+      "kind": "foreign-before",
+      "foreign": { "module": "xhl-core.dll", "offset": "0x11ea80", "address": "0x7ffc1a2bea80" },
+      "owners": ["chat", "emf"],
+      "fix": "late",
+      "chainEntry": { "path": "Z:\\home\\user\\.local\\share\\kiln\\library\\proxy\\xhl\\xhl-core.dll", "source": "chain", "status": "loaded", "late": false },
+      "message": "xhl-core.dll+0x11ea80 hooked chat/ChatLogAdd before chat, emf. Load xhl-core.dll late (kiln/chain.ini [late], or the launcher's \"Load after Kiln and ShroudForge\"): Kiln then hooks first and xhl-core.dll hooks over it."
+    },
+    {
+      "symbol": "gameplay/InventoryTransfer",
+      "rva": "0x19e860",
+      "kind": "foreign-over",
+      "foreign": { "module": "xhl-core.dll", "offset": "0x4410", "address": "0x7ffc1a2a4410" },
+      "owners": ["items", "emf:coolmod"],
+      "fix": "none",
+      "chainEntry": { "path": "Z:\\home\\user\\.local\\share\\kiln\\library\\proxy\\xhl\\xhl-core.dll", "source": "chain", "status": "loaded", "late": false },
+      "message": "xhl-core.dll+0x4410 hooked over Kiln's gameplay/InventoryTransfer (items, emf:coolmod). Kiln's detour stays armed behind their jump; nothing to fix unless a feature misbehaves."
+    },
+    {
+      "symbol": null,
+      "rva": null,
+      "kind": "refused",
+      "foreign": { "module": "xhl-core.dll", "offset": null },
+      "owners": ["shroudforge"],
+      "hook": "game-thread",
+      "reason": "original-bytes-mismatch",
+      "suspects": ["xhl-core.dll"],
+      "fix": "late",
+      "chainEntry": { "path": "Z:\\home\\user\\.local\\share\\kiln\\library\\proxy\\xhl\\xhl-core.dll", "source": "chain", "status": "loaded", "late": false },
+      "message": "ShroudForge refused its game-thread hook (original-bytes-mismatch): another module patched game code first, probably xhl-core.dll. Load xhl-core.dll late."
+    }
+  ],
+  "rules": [
+    {
+      "id": "xhl-and-shroudforge",
+      "action": "late",
+      "applied": false,
+      "message": "XHL hooks the same functions as ShroudForge. It loads after Kiln so both work.",
+      "subject": { "module": "xhl-core.dll" },
+      "source": "shipped",
+      "note": "rule xhl-and-shroudforge asks xhl-core.dll to load late; apply it in the launcher"
+    },
+    {
+      "id": "user-note",
+      "action": "warn",
+      "applied": true,
+      "message": "xhl-core.dll and emf:coolmod both change the inventory.",
+      "subject": null,
+      "source": "user"
+    }
+  ],
+  "ruleFiles": [
+    { "path": "Z:\\home\\user\\.steam\\steam\\steamapps\\common\\Enshrouded\\kiln\\compat-rules.json", "source": "shipped", "rules": 1, "error": null },
+    { "path": "Z:\\home\\user\\.steam\\steam\\steamapps\\common\\Enshrouded\\kiln\\config\\compat-rules.json", "source": "user", "rules": 1, "error": "rule #2: \"when\" must hold at least one matcher; dropped" }
+  ]
+}
