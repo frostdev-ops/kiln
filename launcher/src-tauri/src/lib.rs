@@ -214,8 +214,25 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")
         .run(|_, event| {
-            if matches!(event, tauri::RunEvent::Exit) { deck::gamepad::stop(); }
+            if matches!(event, tauri::RunEvent::Exit) {
+                watch::leaving();
+                leave_for_sure();
+                deck::gamepad::stop();
+            }
         });
+}
+
+/// After `RunEvent::Exit` the process should be gone within moments. It was seen to stay instead (the old launcher
+/// next to the new one for most of a minute after an update's restart, its background threads still working), so a
+/// process that is still here after a few seconds ends without the C library's exit handlers. Nothing of the
+/// launcher's is unsaved at this point.
+fn leave_for_sure() {
+    #[cfg(unix)]
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        // SAFETY: _exit only ends the process.
+        unsafe { libc::_exit(0) }
+    });
 }
 
 /// Debug builds (and QA builds with the `dev-eval` feature) only: runs every `*.js` dropped into `$KILN_DEV_EVAL_DIR`

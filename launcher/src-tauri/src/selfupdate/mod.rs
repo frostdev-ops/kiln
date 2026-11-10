@@ -654,6 +654,8 @@ pub fn restart(app: &AppHandle) -> Result<(), Error> {
     };
     if ready.installed {
         log(&format!("restarting into {}", ready.version));
+        // from here on this process writes nothing more into a game folder: the new launcher takes over
+        crate::watch::leaving();
         app.restart();
     }
     let pending = state().pending.take();

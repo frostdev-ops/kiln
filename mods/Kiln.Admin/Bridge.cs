@@ -60,6 +60,25 @@ internal sealed partial class Bridge(string directory, Logger log)
         System.IO.Directory.CreateDirectory(_results);
     }
 
+    /// <summary>Seconds since something else wrote this folder's state.json: a file newer than
+    /// <paramref name="fresh"/> that is not Kiln.Admin's (its state always has "kiln"). Null when there is none. Asked
+    /// before the first write of a load, so a state.json found then is not this instance's.</summary>
+    public double? ForeignState(double fresh = 5)
+    {
+        try
+        {
+            var file = new FileInfo(Path.Combine(directory, "state.json"));
+            if (!file.Exists) return null;
+            var age = (DateTime.UtcNow - file.LastWriteTimeUtc).TotalSeconds;
+            if (age > fresh) return null;
+            return JsonNode.Parse(File.ReadAllText(file.FullName)) is JsonObject o && o.ContainsKey("kiln") ? null : Math.Max(0, age);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>File bridge: handles up to <paramref name="max"/> pending requests (oldest first).</summary>
     public int Poll(int max = 16)
     {

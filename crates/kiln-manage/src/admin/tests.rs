@@ -401,6 +401,67 @@ fn auto_falls_back_to_the_file_bridge() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// The server was still starting, or another mod answers the bridge folder too: Auto takes the file bridge, and
+/// leaves it for Kiln.Admin's listener as soon as that answers.
+#[test]
+fn auto_moves_from_the_file_bridge_to_the_listener() {
+    let dir = temp_dir("upgrade");
+    let bridge = dir.join("shroudforge/exports/emberwatch");
+    let stop = Arc::new(AtomicBool::new(false));
+    let (b, st) = (bridge.clone(), stop.clone());
+    let server = std::thread::spawn(move || fake_bridge_server(b, st));
+    assert!(wait_for(|| bridge.join("state.json").exists(), 3));
+    // an endpoint.json left by the last run: nothing listens on its port
+    let dead = {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    let a = dir.join("kiln/data/kiln-admin");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::write(a.join("admin-token"), format!("{}\n", crate::hash::hex(&TOKEN))).unwrap();
+    std::fs::write(
+        a.join("endpoint.json"),
+        serde_json::to_vec(&json!({"format": 1, "protocol": "kap/1", "host": "127.0.0.1", "port": dead, "pid": 1, "kiln": "0.2.0-dev", "admin": "0.2.0",
+            "started": "2026-11-04T12:00:00Z", "server": {"id": "srv-test", "name": "Test"}, "token": "admin-token"})).unwrap(),
+    )
+    .unwrap();
+    let c = AdminClient::connect_dir(&dir, "srv-test", Transport::Auto).unwrap();
+    assert_eq!(c.session().transport, Transport::File);
+    // the stale file alone changes nothing
+    let end = Instant::now() + Duration::from_millis(2600);
+    while Instant::now() < end {
+        assert!(!matches!(c.next_event(Duration::from_millis(200)).unwrap(), Some(AdminEvent::Closed { .. })), "left the bridge for a dead port");
+    }
+    // Kiln.Admin comes up and writes its endpoint
+    let m = Mock::start(TOKEN, false);
+    m.write_endpoint(&dir, &TOKEN);
+    let mut closed = None;
+    let end = Instant::now() + Duration::from_secs(6);
+    while closed.is_none() && Instant::now() < end {
+        if let Some(AdminEvent::Closed { reason, retry }) = c.next_event(Duration::from_millis(200)).unwrap() {
+            closed = Some((reason, retry));
+        }
+    }
+    let (reason, retry) = closed.expect("the file session closes when the listener answers");
+    assert!(retry, "{reason}");
+    assert!(reason.contains("Kiln.Admin"), "{reason}");
+    c.shutdown();
+    // what the hub's reconnect does
+    let c = AdminClient::connect_dir(&dir, "srv-test", Transport::Auto).unwrap();
+    assert_eq!(c.session().transport, Transport::Tcp);
+    c.shutdown();
+    // a session the user asked the file bridge for stays on it
+    let c = AdminClient::connect_dir(&dir, "srv-test", Transport::File).unwrap();
+    let end = Instant::now() + Duration::from_millis(2600);
+    while Instant::now() < end {
+        assert!(!matches!(c.next_event(Duration::from_millis(200)).unwrap(), Some(AdminEvent::Closed { .. })), "a File session was moved");
+    }
+    c.shutdown();
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// Against a running lab (Kiln.Admin): every read-only op answers the same over TCP and the file bridge.
 #[test]
 #[ignore]

@@ -194,6 +194,22 @@ function loadTransport(id: ServerId): AdminTransport {
   }
 }
 
+/** The lists of a state push. Kiln.Admin sends arrays; the Emberwatch Lua mod (a ShroudForge mod that answers the
+ * same file bridge) writes an empty Lua table as `{}`, and one with gaps as an object keyed by index. */
+const STATE_LISTS = ["players", "deaths", "combatDeaths"] as const;
+
+/** A state push with its lists as arrays, whoever wrote it. The same object when nothing had to change. */
+function normalizeState(raw: Record<string, unknown>): AdminState {
+  let st = raw;
+  for (const k of STATE_LISTS) {
+    const v = raw[k];
+    if (v === undefined || Array.isArray(v)) continue;
+    if (st === raw) st = { ...raw };
+    st[k] = v && typeof v === "object" ? Object.values(v) : [];
+  }
+  return st as unknown as AdminState;
+}
+
 // one listener for every session's events (registered on first use)
 let listening: Promise<() => void> | null = null;
 function listen() {
@@ -202,7 +218,7 @@ function listen() {
     if (!c?.session || c.session.session !== session) return;
     if (event.kind === "push") {
       if (event.topic === "state" && event.data && typeof event.data === "object" && !Array.isArray(event.data)) {
-        const st = event.data as unknown as AdminState;
+        const st = normalizeState(event.data as Record<string, unknown>);
         const gap = c.stateSeq > 0 && event.seq > c.stateSeq + 1 ? 1 : 0;
         patch(serverId, { state: st, stateSeq: event.seq, stateAt: Date.now(), gaps: c.gaps + gap });
         for (const l of stateListeners) {

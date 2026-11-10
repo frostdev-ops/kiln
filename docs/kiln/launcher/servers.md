@@ -119,7 +119,11 @@ local servers). It holds the shared admin session while the server runs.
 its id stable across reconnects. `admin_connect(serverId, transport)` returns the existing session when there is one.
 Transports: `tcp` (endpoint.json + admin-token on this machine), `file` (the file bridge; state.json polled into
 `state` pushes), `ssh` (remote: endpoint and token over `ssh cat`, then a `ssh -N -L` tunnel), `auto` (local: tcp, else
-the file bridge when its state.json is fresh; remote: ssh; an auth failure never falls back). Events, as
+the file bridge when its state.json is fresh; remote: ssh; an auth failure never falls back). An `auto` session on
+the file bridge keeps looking at endpoint.json: when Kiln.Admin answers a handshake there (the server was still
+starting, or another mod answers the bridge folder too), the session closes with `retry` and comes back on tcp. The
+lists of a `state` push (`players`, `deaths`, `combatDeaths`) reach the pages as arrays whoever wrote them: the
+Emberwatch Lua mod writes an empty one as `{}`. Events, as
 `kiln://admin {session, serverId, event}`: `push {topic, seq, data}`, `ready {transport, ops, topics}` after every
 (re)connect, `closed {reason, retry}` (`retry: true`: the hub reconnects with backoff 1, 2, 4 ... 30 s and re-subscribes
 every topic; `false`: final, after admin_disconnect or an auth failure), `error {message}`. `admin_call` errors:

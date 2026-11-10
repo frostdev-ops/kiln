@@ -374,8 +374,40 @@ struct FileLink {
     poller: Mutex<Option<JoinHandle<()>>>,
 }
 
+/// An Auto session that had to take the file bridge keeps looking for Kiln.Admin's own listener: the server may have
+/// been starting still, and the bridge folder may be answered by another mod as well (the Emberwatch Lua mod under
+/// ShroudForge writes its own state.json there, before Kiln.Admin is up). Once a KAP handshake succeeds the session
+/// closes with `retry`, and the reconnect takes TCP.
+struct Upgrade {
+    server_dir: PathBuf,
+    server_id: String,
+    /// endpoint.json's mtime before the TCP attempt that failed
+    seen: Option<std::time::SystemTime>,
+}
+
+/// endpoint.json is looked at this often; a full handshake is tried when it changed, and every UPGRADE_RETRY anyway.
+const UPGRADE_LOOK: Duration = Duration::from_secs(2);
+const UPGRADE_RETRY: Duration = Duration::from_secs(30);
+
+fn endpoint_mtime(server_dir: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(super::discover::admin_dir(server_dir).join(protocol::ENDPOINT_FILE)).and_then(|m| m.modified()).ok()
+}
+
+impl Upgrade {
+    /// True when Kiln.Admin answers a handshake now (the probe's own connection is closed again).
+    fn ready(&mut self, last_try: &mut Instant) -> bool {
+        let m = endpoint_mtime(&self.server_dir);
+        if m.is_none() || (m == self.seen && last_try.elapsed() < UPGRADE_RETRY) {
+            return false;
+        }
+        self.seen = m;
+        *last_try = Instant::now();
+        AdminClient::connect_local_tcp(&self.server_dir, &self.server_id).is_ok()
+    }
+}
+
 impl FileLink {
-    fn open(bridge: FileBridge, server_id: String, events: Sender<AdminEvent>) -> Result<(FileLink, AdminSession)> {
+    fn open(bridge: FileBridge, server_id: String, events: Sender<AdminEvent>, upgrade: Option<Upgrade>) -> Result<(FileLink, AdminSession)> {
         let status = bridge.call("status", serde_json::Map::new(), Duration::from_secs(10))?;
         let ops: Vec<String> = status
             .get("ops")
@@ -389,7 +421,7 @@ impl FileLink {
         let (b, t, st) = (bridge.clone(), topics.clone(), stop.clone());
         let poller = std::thread::Builder::new()
             .name(format!("kap-file {server_id}"))
-            .spawn(move || file_poller(&b, &t, &st, events))
+            .spawn(move || file_poller(&b, &t, &st, events, upgrade))
             .map_err(|e| Error::new(ErrorCode::Internal, format!("spawning the bridge poller: {e}")))?;
         let session = AdminSession {
             session: format!("file-{}", crate::hash::hex(&crate::util::random_bytes::<6>()?)),
@@ -411,13 +443,25 @@ impl FileLink {
     }
 }
 
-/// state.json -> `state` pushes while subscribed; Closed when the server stops writing it for 15 s.
-fn file_poller(b: &FileBridge, topics: &Mutex<BTreeSet<String>>, stop: &AtomicBool, events: Sender<AdminEvent>) {
+/// state.json -> `state` pushes while subscribed; Closed when the server stops writing it for 15 s, and (an Auto
+/// session) when Kiln.Admin's own listener answers.
+fn file_poller(b: &FileBridge, topics: &Mutex<BTreeSet<String>>, stop: &AtomicBool, events: Sender<AdminEvent>, mut upgrade: Option<Upgrade>) {
     let mut last: Option<std::time::SystemTime> = None;
     let mut seq = 0u64;
     let mut stale_since: Option<Instant> = None;
+    let mut looked = Instant::now();
+    let mut tried = Instant::now();
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(250));
+        if let Some(u) = upgrade.as_mut()
+            && looked.elapsed() >= UPGRADE_LOOK
+        {
+            looked = Instant::now();
+            if u.ready(&mut tried) {
+                let _ = events.send(AdminEvent::Closed { reason: "Kiln.Admin's own connection is up; switching to it".into(), retry: true });
+                return;
+            }
+        }
         let m = std::fs::metadata(b.dir.join("state.json")).and_then(|m| m.modified()).ok();
         if m.is_some() && m != last {
             last = m;
@@ -462,19 +506,24 @@ impl AdminClient {
             Transport::Tcp => AdminClient::connect_local_tcp(server_dir, server_id),
             Transport::File => AdminClient::connect_file(FileBridge::locate(server_dir)?, server_id),
             Transport::Ssh => Err(Error::new(ErrorCode::Unsupported, "ssh is for remote servers")),
-            Transport::Auto => match AdminClient::connect_local_tcp(server_dir, server_id) {
-                Ok(c) => Ok(c),
-                Err(e) if e.code == ErrorCode::AuthFailed => Err(e),
-                Err(tcp) => {
-                    let bridge = FileBridge::locate(server_dir)?;
-                    if bridge.alive(Duration::from_secs(10)) {
-                        AdminClient::connect_file(bridge, server_id)
-                    } else {
-                        Err(Error::new(ErrorCode::AdminUnavailable, format!("no admin transport reaches {server_id}: {}; the file bridge is idle", tcp.message))
-                            .with_detail(serde_json::json!({ "tcp": tcp.message, "bridge": bridge.dir })))
+            Transport::Auto => {
+                // read before the attempt: a listener that comes up during it still counts as a change
+                let seen = endpoint_mtime(server_dir);
+                match AdminClient::connect_local_tcp(server_dir, server_id) {
+                    Ok(c) => Ok(c),
+                    Err(e) if e.code == ErrorCode::AuthFailed => Err(e),
+                    Err(tcp) => {
+                        let bridge = FileBridge::locate(server_dir)?;
+                        if bridge.alive(Duration::from_secs(10)) {
+                            let upgrade = Upgrade { server_dir: server_dir.to_path_buf(), server_id: server_id.into(), seen };
+                            AdminClient::open_file(bridge, server_id, Some(upgrade))
+                        } else {
+                            Err(Error::new(ErrorCode::AdminUnavailable, format!("no admin transport reaches {server_id}: {}; the file bridge is idle", tcp.message))
+                                .with_detail(serde_json::json!({ "tcp": tcp.message, "bridge": bridge.dir })))
+                        }
                     }
                 }
-            },
+            }
         }
     }
 
@@ -502,8 +551,12 @@ impl AdminClient {
     }
 
     pub fn connect_file(bridge: FileBridge, server_id: &str) -> Result<AdminClient> {
+        AdminClient::open_file(bridge, server_id, None)
+    }
+
+    fn open_file(bridge: FileBridge, server_id: &str, upgrade: Option<Upgrade>) -> Result<AdminClient> {
         let (tx, rx) = mpsc::channel();
-        let (link, session) = FileLink::open(bridge, server_id.into(), tx)?;
+        let (link, session) = FileLink::open(bridge, server_id.into(), tx, upgrade)?;
         Ok(AdminClient { session, inner: Inner::File(link), events: Mutex::new(rx) })
     }
 

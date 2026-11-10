@@ -496,6 +496,21 @@ test("destructive actions need the typed word, in the arch", async ({ page }) =>
   await expect(page.getByRole("row").filter({ hasText: "Throwaway" })).toHaveCount(0);
 });
 
+test("a state push from the Emberwatch Lua mod (empty lists as {}) does not break the server pages", async ({ page }) => {
+  await open(page, "/servers/lab/overview");
+  await expect(page.getByRole("log", { name: "Server console" })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { __kilnAdminMock: { luaState: (on: boolean) => void } }).__kilnAdminMock.luaState(true));
+  // two pushes (one a second) reach the pages that read the player list
+  await page.waitForTimeout(2300);
+  await expect(page.getByText("This page failed")).toHaveCount(0);
+  await expect(page.getByRole("log", { name: "Server console" })).toBeVisible();
+  for (const r of ["permissions", "players", "map", "items", "spawn", "zones", "combat"]) {
+    await open(page, `/servers/lab/admin/${r}`);
+    await page.waitForTimeout(1200);
+    await expect(page.getByText("This page failed"), r).toHaveCount(0);
+  }
+});
+
 test("one grouped list per server: Run, World, Data, Files", async ({ page }) => {
   await open(page, "/servers/lab/admin/players");
   const list = page.getByRole("navigation", { name: "Server" });
