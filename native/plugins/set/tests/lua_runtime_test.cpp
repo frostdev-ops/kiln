@@ -336,13 +336,19 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
  std::ofstream(root/"two"/"init.lua")<<"Systems.enable('stamina_depletion_sprint',false);print('good init');Tick.add(print); Tick.add(function() print('good tick') end);registerForEvent('onShutdown',function() print('good shutdown') end)";
  static int reported=0;rt::onModsReported([]{++reported;});
  std::ofstream(root/"two"/"mod.json")<<"{\"name\": \"Two Good\", \"version\": \"1.2.0\"}";
+ // a mod folder with a space, Cyrillic and CJK in its name (a Windows player's Steam library and user names look like this): found,
+ // loaded, and its io.open / require reach the folder's own files
+ const std::filesystem::path unicodeDir=root/std::filesystem::path(u8"Мод 日本語");std::filesystem::create_directories(unicodeDir);
+ std::ofstream(unicodeDir/"init.lua")<<"local f=assert(io.open('данные.txt','w'));f:write('ok');f:close();local g=assert(io.open('данные.txt'));assert(g:read('a')=='ok');g:close();assert(require('util')==7)";
+ std::ofstream(unicodeDir/"util.lua")<<"return 7";
  rt::frame();assert(rt::modsLoaded());
  // what kiln-set writes into state/set.json: each folder's result, with mod.json's name and version
  {auto r=rt::modReports();assert(reported==1);
   auto find=[&](const char* n){for(auto& m:r)if(m.name==n)return m;return rt::ModReport{};};
   auto one=find("one"),two=find("two");
   assert(one.status=="failed"&&one.reason.find("bad init")!=std::string::npos);
-  assert(two.status=="loaded"&&two.title=="Two Good"&&two.version=="1.2.0"&&two.reason.empty()&&two.folder.find("two")!=std::string::npos);}
+  assert(two.status=="loaded"&&two.title=="Two Good"&&two.version=="1.2.0"&&two.reason.empty()&&two.folder.find("two")!=std::string::npos);
+  auto unicode=find(reinterpret_cast<const char*>(u8"Мод 日本語"));assert(unicode.status=="loaded"&&unicode.reason.empty());}
  rt::requestReload();rt::frame();assert(reported==2);rt::onModsReported(nullptr);rt::gameClosing();
  unsigned numeric=0;for(auto& l:logs){char* end=nullptr;strtod(l.c_str(),&end);if(end!=l.c_str()&&*end==0)++numeric;}assert(numeric==2);
  unsigned good=0,bad=0,shutdown=0;for(auto& l:logs){if(l=="good tick")++good;if(l=="bad callback")++bad;if(l=="good shutdown")++shutdown;}assert(good>=2&&bad==0&&shutdown==2&&!released.empty()&&disabled.empty());

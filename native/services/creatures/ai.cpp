@@ -10,6 +10,7 @@
 // Targets: SelectedTargets.targets[0] of creatures whose AI is active (a state event in the last 2 minutes) is
 // compared every other Pre; a change is a target event.
 #include <cstdio>
+#include <filesystem>
 #include <unordered_set>
 
 #include "internal.h"
@@ -106,10 +107,9 @@ std::string data_file(const char* name) {
 
 bool file_exists(const std::string& p) {
     if (p.empty()) return false;
-    FILE* f = std::fopen(p.c_str(), "rb");
-    if (!f) return false;
-    std::fclose(f);
-    return true;
+    // p is UTF-8: std::fopen would read it in the ANSI code page
+    std::error_code ec;
+    return std::filesystem::is_regular_file(std::filesystem::path(std::u8string(p.begin(), p.end())), ec);
 }
 
 void resolve_targets() {

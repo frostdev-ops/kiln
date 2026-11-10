@@ -17,6 +17,16 @@
 #endif
 
 namespace kset::sandbox {
+#ifdef _WIN32
+// root and path are UTF-8 (the mod folder and the name Lua passes): the narrow CreateFileA would read them in the ANSI code page.
+inline std::wstring widen(std::string_view s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring w(static_cast<size_t>(n > 0 ? n : 0), L'\0');
+    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+#endif
 inline bool relative(std::string_view path) {
     if (path.empty() || path.find_first_of(":*?\"<>|") != path.npos) return false;
     for (unsigned char c : path) if (c < 32) return false;
@@ -53,10 +63,10 @@ inline FILE* open(const std::string& root, std::string_view path, const char* mo
     std::vector<HANDLE> dirs;
     auto closeDirs = [&] { for (HANDLE h : dirs) CloseHandle(h); dirs.clear(); };
     struct CloseOnExit { decltype(closeDirs)& fn; ~CloseOnExit() { fn(); } } cleanup{closeDirs};
-    std::string current = root;
+    std::wstring current = widen(root);
     // Root itself may not be redirected to somebody else's folder.
     for (size_t i = 0; i < parts.size(); ++i) {
-        HANDLE d = CreateFileA(current.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        HANDLE d = CreateFileW(current.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         BY_HANDLE_FILE_INFORMATION info{};
         if (d == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(d, &info) ||
@@ -65,10 +75,10 @@ inline FILE* open(const std::string& root, std::string_view path, const char* mo
             closeDirs(); return nullptr;
         }
         try { dirs.push_back(d); } catch (...) { CloseHandle(d); throw; }
-        current += "\\" + parts[i];
+        current += L"\\" + widen(parts[i]);
     }
     DWORD access = (m[0] == 'r' || plus ? GENERIC_READ : 0) | (m[0] != 'r' || plus ? GENERIC_WRITE : 0);
-    HANDLE f = CreateFileA(current.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+    HANDLE f = CreateFileW(current.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                           m[0] == 'r' ? OPEN_EXISTING : OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     BY_HANDLE_FILE_INFORMATION info{};
     bool ok = f != INVALID_HANDLE_VALUE && GetFileType(f) == FILE_TYPE_DISK && GetFileInformationByHandle(f, &info) &&

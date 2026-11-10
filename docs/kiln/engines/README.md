@@ -79,6 +79,16 @@ DLL contents stable from export validation through loading. A callable, file-bac
 data exports do not qualify.
 The export precheck does not validate dependencies or make native mod code safe.
 
+**Path encoding.** Paths cross the C ABI as UTF-8 (`KilnApi::path`, `kiln.profile`, `KilnNativeContext`), and a player's
+game folder and Library often hold a Windows user name or Steam library folder in Cyrillic, CJK or accented Latin. A
+narrow path (`char*`, a `std::string` handed to `fopen`, `std::ifstream`, `std::filesystem::path`, a `*A` Win32 call)
+is read in the ANSI code page, which lacks those letters, and `std::filesystem::path::string()` throws for them. So a
+plugin or service converts a UTF-8 path once (`to_wide`, `std::filesystem::path(std::u8string(...))`) and uses the
+wide calls (`CreateFileW`, `GetFileAttributesW`, `FindFirstFileW`, `LoadLibraryExW`, `_wfopen`), `path::u8string()` for
+log text, and never `path::string()`. A third-party API that takes only `char*` gets the bytes instead (read the
+file yourself) or its UTF-8 entry point. `tools/lab/winpaths.py` builds a server lab under such a path with one mod of
+every kind; `PROXYHOST_WINPATHS=1 native/spikes/proxyhost/run.py` runs the proxy under one.
+
 Compatibility runtimes and entered mod DLLs stay mapped for the process lifetime. Revoking a plugin stops queued
 work and cancellable watchers; it cannot terminate foreign threads or reclaim trampolines they may still call.
 Fault guards cover synchronous loader-invoked initialization and lifecycle calls. Mod-owned threads and

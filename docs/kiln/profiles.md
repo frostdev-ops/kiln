@@ -26,7 +26,9 @@ play-once.ini.
             "plugin": [{ "path": "Z:\\...\\my-plugin.dll" }], "emf": [] } }
 ```
 - **Paths** are game-side: absolute (`Z:\…` under Proton, real paths on Windows, UNC), or relative to
-  `<game>/kiln/` (copy mode: `profiles/<id>/kiln/<mod>`). `/` and `\` both work; `..` is refused.
+  `<game>/kiln/` (copy mode: `profiles/<id>/kiln/<mod>`). `/` and `\` both work; `..` is refused. They are text in
+  UTF-8 and may hold any Unicode letters (a Windows user name or Steam library folder in Cyrillic or Chinese, spaces,
+  parentheses); `chain.ini` is read as UTF-8, UTF-16LE with a BOM, or in the ANSI code page.
 - An entry whose folder (or plugin DLL) is **missing** is skipped: `kiln.log` warns and boot.json lists it in
   `profile.missing[]`.
 - **Other engines' mods** have their own lists (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`;

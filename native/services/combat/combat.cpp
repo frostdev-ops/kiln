@@ -1841,12 +1841,15 @@ bool install_hooks() {
 }
 
 void KILN_CALL on_ready(void*) {
-    char path[MAX_PATH] = {};
+    char path[1024] = {};
     size_t len = 0;
     if (g_api->path(KILN_PATH_DATA, path, sizeof path - 32, &len) == KILN_OK) {
         std::string p(path, len);
         p += "\\kiln.combat\\watch-all";
-        g_watch_all = GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES;
+        // p is UTF-8: a narrow Win32 call would read it in the ANSI code page
+        std::wstring w(static_cast<size_t>(MultiByteToWideChar(CP_UTF8, 0, p.data(), static_cast<int>(p.size()), nullptr, 0)), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, p.data(), static_cast<int>(p.size()), w.data(), static_cast<int>(w.size()));
+        g_watch_all = GetFileAttributesW(w.c_str()) != INVALID_FILE_ATTRIBUTES;
         if (g_watch_all) LOGI("lab switch watch-all: RESPAWNED for every revived victim");
     }
     g_spawn_api = static_cast<const KilnSpawnApi*>(

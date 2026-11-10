@@ -256,10 +256,10 @@ void selftest_init() {
     char buf[1024];
     size_t len = 0;
     if (g_api->path(KILN_PATH_DATA, buf, sizeof buf, &len) != KILN_OK) return;
-    g_dir = std::filesystem::path(std::string(buf, len)) / "kiln.build";
+    g_dir = std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(buf), len)) / "kiln.build";  // UTF-8
     std::error_code ec;
     g_enabled = std::filesystem::exists(g_dir / "debug", ec);
-    if (g_enabled) KB_I("build debug channel on: %s", (g_dir / "cmd").string().c_str());
+    if (g_enabled) KB_I("build debug channel on: %s", reinterpret_cast<const char*>((g_dir / "cmd").u8string().c_str()));
 }
 
 void selftest_pre(uint64_t step) {
