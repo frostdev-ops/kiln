@@ -3,7 +3,10 @@
 //   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", sigdb, hooks,
 //   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
 //   chain.ini [late], state/boot.json, state/hooks.json.
+#include <cstring>
+
 #include "api.h"
+#include "chain_status.h"
 #include "clr.h"
 #include "compat.h"
 #include "config.h"
@@ -59,11 +62,9 @@ const char* play_once_name(uint32_t v) {
         default: return "none";
     }
 }
-const char* const kChainStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped", "late"};
 const char* const kChainSource[] = {"chain", "profile", "emf"};
 const char* const kChainDetail[] = {nullptr, "self", "system", "kiln", "shroudforge", "not-dll", "outside", "too-many"};
 
-const char* chain_status(uint32_t s) { return s < 7 ? kChainStatus[s] : "failed"; }
 const char* chain_source(uint32_t s) { return s < 3 ? kChainSource[s] : "chain"; }
 const char* chain_detail(uint32_t d) { return d < 8 ? kChainDetail[d] : nullptr; }
 
@@ -79,7 +80,7 @@ void log_proxy() {
         const char* detail = e.status == KILN_CHAIN_REFUSED ? chain_detail(e.detail) : nullptr;
         log::writef(e.status == KILN_CHAIN_FAILED || e.status == KILN_CHAIN_MISSING ? KILN_LOG_WARN : KILN_LOG_INFO, "kiln",
                     "proxy: chain %u (%s) %.*s: %s%s%s%s", i + 1, chain_source(e.source), static_cast<int>(e.path.len),
-                    e.path.ptr ? e.path.ptr : "", chain_status(e.status), detail ? " (" : "", detail ? detail : "",
+                    e.path.ptr ? e.path.ptr : "", chain_status_name(e.status), detail ? " (" : "", detail ? detail : "",
                     detail ? ")" : "");
         if (e.status == KILN_CHAIN_FAILED) KLOG_W("proxy: chain %u: error %d", i + 1, e.error);
     }
@@ -97,6 +98,34 @@ struct BootFacts {
     std::vector<std::string> errors;
 };
 
+// The proxy's gate is a 14-byte jump (FF 25 00000000, target inside the proxy) over the exe's entry point until kiln_boot
+// returns. A DLL that ran during boot (one loaded late, chain.ini [late]) can have patched the entry on top of it; the proxy
+// puts its saved bytes back afterwards, so that patch is lost (proxy/dinput8.cpp gate_entry). Says so in kiln.log and
+// boot.json "errors". Nothing to say without a proxy gate.
+void check_entry_patch(BootFacts& f) {
+    const auto* proxy = reinterpret_cast<const uint8_t*>(g_boot_info.proxy_module);
+    const auto* base = reinterpret_cast<const uint8_t*>(image().base);
+    if (!proxy || !base) return;
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto* pdos = reinterpret_cast<const IMAGE_DOS_HEADER*>(proxy);
+    const auto* pnt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(proxy + pdos->e_lfanew);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || nt->Signature != IMAGE_NT_SIGNATURE || pdos->e_magic != IMAGE_DOS_SIGNATURE ||
+        pnt->Signature != IMAGE_NT_SIGNATURE || !nt->OptionalHeader.AddressOfEntryPoint)
+        return;
+    const uint8_t* entry = base + nt->OptionalHeader.AddressOfEntryPoint;
+    uint64_t target = 0;
+    std::memcpy(&target, entry + 6, sizeof target);
+    const bool ours = entry[0] == 0xFF && entry[1] == 0x25 && entry[2] == 0 && entry[3] == 0 && entry[4] == 0 && entry[5] == 0 &&
+                      target >= reinterpret_cast<uintptr_t>(proxy) && target < reinterpret_cast<uintptr_t>(proxy) + pnt->OptionalHeader.SizeOfImage;
+    if (ours) return;
+    const std::string what = "the game's entry point was patched while Kiln started (by a DLL loaded after the proxy's gate was set, "
+                             "e.g. through chain.ini [late]); the proxy puts the original bytes back, so that patch is lost. A loader "
+                             "that holds the game's start this way must load before Kiln: take it out of [late]";
+    KLOG_W("%s", what.c_str());
+    f.errors.push_back(what);
+}
+
 void write_boot_json(const BootFacts& f) {
     using nlohmann::json;
     const auto& prof = profile::state();
@@ -104,17 +133,18 @@ void write_boot_json(const BootFacts& f) {
     const auto late_rows = native_mods::late_rows();  // chain.ini [late]: the core loaded these after the plugins
     for (uint32_t i = 0; i < g_boot_info.chain_count; ++i) {
         const KilnChainEntry& e = g_boot_info.chain[i];
-        json o = {{"path", std::string(sv(e.path))}, {"source", chain_source(e.source)}, {"status", chain_status(e.status)}};
+        json o = {{"path", std::string(sv(e.path))}, {"source", chain_source(e.source)}, {"status", chain_status_name(e.status)}};
         const char* d = e.status == KILN_CHAIN_REFUSED ? chain_detail(e.detail) : nullptr;
         o["detail"] = d ? json(d) : json(nullptr);
         if (e.status == KILN_CHAIN_FAILED) o["error"] = e.error;
         if (e.status == KILN_CHAIN_LATE) {
-            // The launcher's readers know the six proxy statuses: report the final one (the core's), flag it "late".
-            std::string status = "skipped";
-            for (const auto& row : late_rows)
-                if (row.chain_index == i && row.status != "pending") status = row.status;
-            o["status"] = status;
+            // The launcher's readers know the six proxy statuses: report the final one (the core's), flag it "late". An
+            // entry the late phase has not decided on shows "skipped"; one another loader had started shows "loaded"
+            // with "lateIgnored": [late] moved nothing.
+            const std::string final_status = chain_final_status(e, i, late_rows, "skipped");
+            o["status"] = chain_reported_status(final_status);
             o["late"] = true;
+            if (final_status == kLateAlreadyLoaded) o["lateIgnored"] = true;
             for (const auto& row : late_rows)
                 if (row.chain_index == i && row.error) o["error"] = row.error;
         }
@@ -200,6 +230,7 @@ void boot() {
         f.safe_idle = "the game image cannot be parsed";
         f.errors.push_back(f.safe_idle);
         native_mods::run_late();  // the player's chain DLLs named in chain.ini [late] still load
+        check_entry_patch(f);
         write_boot_json(f);
         return;
     }
@@ -262,6 +293,7 @@ void boot() {
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
     }
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
+    check_entry_patch(f);
     write_boot_json(f);
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();

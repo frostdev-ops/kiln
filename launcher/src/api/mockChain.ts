@@ -44,11 +44,11 @@ function view(p: Profile, library: LibraryEntry[]): ChainView {
   const entries: ChainViewEntry[] = [
     ...CHAIN.map((c): ChainViewEntry => {
       const by = ruleLate(c.path) ? `rule:${ruleLate(c.path)!.id}` : playerLate.has(c.path.toLowerCase()) ? "player" : null;
-      return { path: c.path, file: file(c.path), section: "chain", engine: c.engine, modId: null, late: !!by, lateBy: by, offBy: null };
+      return { path: c.path, file: file(c.path), section: "chain", engine: c.engine, modId: null, late: !!by, lateBy: by, offBy: null, loader: c.engine === "emf" };
     }),
     ...profileEntries(p, library).map((e): ChainViewEntry => {
       const by = late.includes(e.id) ? "profile" : null;
-      return { path: e.path, file: file(e.path), section: "profile", engine: null, modId: e.id, late: !!by, lateBy: by, offBy: null };
+      return { path: e.path, file: file(e.path), section: "profile", engine: null, modId: e.id, late: !!by, lateBy: by, offBy: null, loader: false };
     }),
   ];
   const at = (module: string) => entries.find((e) => eq(e.file, module)) ?? null;
@@ -87,6 +87,7 @@ export function chainMockHandlers({ profiles, library, reject }: Deps): Record<s
       const path = String(a.path ?? "");
       const e = view(p, library).entries.find((x) => eq(x.path, path)) ?? reject("not_found", `${path} is not in this profile's chain`);
       const on = !!a.late;
+      if (on && e.loader) reject("invalid_argument", `${e.file} is EMF's loader: it holds the game's start, so it always loads first.`);
       if (e.section === "chain") {
         if (on) playerLate.add(e.path.toLowerCase());
         else playerLate.delete(e.path.toLowerCase());

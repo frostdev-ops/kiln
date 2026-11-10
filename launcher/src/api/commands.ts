@@ -1048,6 +1048,9 @@ export interface ChainViewEntry {
   lateBy: string | null;
   /** "rule:<id>" when a compat rule switches it off. */
   offBy: string | null;
+  /** EMF's loader: it holds the game's start by patching the exe's entry point, so Kiln always loads it first and the
+   *  late switch is not offered. */
+  loader: boolean;
 }
 export type RuleAction = "warn" | "late" | "disable";
 export interface CompatRuleResult {
@@ -1062,8 +1065,11 @@ export interface CompatRuleResult {
 }
 export type OverlapKind = "foreign-before" | "foreign-over" | "refused" | "other";
 export interface ChainOverlap {
+  /** Empty for a target without a sigdb name and for a refused hook (kiln-core writes null; the launcher reads it as ""). */
   symbol: string;
   rva: string;
+  /** refused: the hosted engine's name for the hook ("game-thread"), which labels a row without a symbol. */
+  hook?: string | null;
   kind: OverlapKind;
   foreign: { module: string; offset: string; own?: boolean } | null;
   owners: string[];

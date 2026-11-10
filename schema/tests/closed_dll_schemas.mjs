@@ -69,7 +69,8 @@ for (const c of cases.parse) {
   must(rulesFile, { ...doc, rules: [] }, `parse "${c.name}": the file shell`);
   let valid = 0;
   const seen = new Set();
-  for (const r of doc.rules ?? []) {
+  const counted = (doc.rules ?? []).slice(0, 512);  // the first 512 count (maxItems); the rest are dropped with one summary line
+  for (const r of counted) {
     const ok = ruleOnly(r);
     if (ok && !seen.has(r.id)) { valid++; assert(c.rules.includes(r.id), `parse "${c.name}": ${r.id} validates but is dropped`); }
     if (ok) seen.add(r.id);

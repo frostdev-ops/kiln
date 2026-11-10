@@ -27,20 +27,29 @@ void arm_world(bool hooks);
 
 // chain.ini [late] (dev.21): the chain entries the proxy checked but left to the core (KILN_CHAIN_LATE). run_late() loads them
 // in the proxy's list order after Kiln's plugins, native boot mods and the managed host started (also in safe idle: they
-// are the player's own chain DLLs). A dllmain native mod whose DLL is late finishes loading here. Reported in
-// state/native.json "chain.late" and boot.json chain[] (the final status, "late": true). Once; a no-op without late entries.
+// are the player's own chain DLLs). A dllmain native mod whose DLL is late finishes loading here; a DLL whose native mod
+// is disabled, on the wrong side or refused by the policy is not loaded, and one that another loader started first is
+// reported as such ([late] had no effect). Reported in state/native.json "chain.late" and boot.json chain[] (the final
+// status, "late": true). Once; a no-op without late entries.
 void run_late();
 
 struct LateRow {
     size_t chain_index = 0;       // position in the proxy's chain list (kiln::boot_info().chain)
     std::string path;             // the proxy's canonical path, UTF-8
     std::string source;           // chain | emf | profile
-    std::string status = "pending";  // pending | loaded | failed | missing | duplicate
+    // pending | loaded | failed | missing | duplicate | skipped (its native mod is not loadable) | already-loaded
+    // (chain_status.h kLateAlreadyLoaded: the DLL was in the process before the late phase, [late] had no effect)
+    std::string status = "pending";
+    std::string note;             // why, for skipped and already-loaded
     int32_t error = 0;
     double ms = -1;
     int order = 0;                // 1-based load order
 };
 std::vector<LateRow> late_rows();
+
+// A dllmain native mod whose DLL the proxy loaded before kiln-core started (chain.ini [profile], not deferred). Switching
+// such a mod off in the profile (a compat rule, native.json, a profile entry) cannot stop it any more. Valid after discover().
+bool loaded_by_proxy(const std::string& mod_id);
 
 struct Summary {
     int loaded = 0, failed = 0, pending = 0;

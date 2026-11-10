@@ -18,7 +18,7 @@ use crate::manifest::{ModKind, NativePhase};
 use crate::paths::DataDirs;
 use crate::profile::Profile;
 use crate::{Error, ErrorCode, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 
 /// `<game>/kiln/state/hooks.json` (kiln.hooks' map of the last session).
@@ -132,9 +132,9 @@ pub fn parse_rules(bytes: &[u8], source: RuleSource) -> (Vec<SourcedRule>, Vec<S
     };
     let mut out: Vec<SourcedRule> = Vec::new();
     for (i, r) in list.iter().enumerate() {
-        // the first MAX_RULES entries of the list count (schema maxItems; kiln-core drops the same ones)
+        // the first MAX_RULES entries of the list count (schema maxItems; kiln-core drops the same ones, with this line)
         if i >= MAX_RULES {
-            errors.push(format!("more than {MAX_RULES} rules: the rest are ignored"));
+            errors.push(format!("more than {MAX_RULES} rules: the last {} are ignored", list.len() - MAX_RULES));
             break;
         }
         // a matcher is an object: `"subject": null` is not one (serde would read it as no subject)
@@ -348,6 +348,13 @@ impl PlanEntry {
         matches!(self.engine.as_deref(), Some("kiln" | "shroudforge")) || (f.starts_with("kiln-") && f.ends_with(".dll"))
     }
 
+    /// EMF's own loader (a [chain] entry): it holds the game's start by patching the exe's entry point, which a late load
+    /// would lose, so kiln's proxy never defers it, whatever chain.ini [late] says. No rule moves it late and the profile
+    /// page does not offer the switch.
+    pub fn holds_start(&self) -> bool {
+        self.section == Section::Chain && self.engine.as_deref() == Some("emf")
+    }
+
     fn matches(&self, m: &Matcher) -> bool {
         match m {
             Matcher::Module(g) => glob(g, &self.file),
@@ -401,10 +408,15 @@ pub fn evaluate(rules: &[SourcedRule], facts: &Facts, entries: &[PlanEntry]) -> 
                 (RuleAction::Warn, _) => res.applied = true,
                 (_, Some(subject)) => {
                     let matched: Vec<&PlanEntry> = entries.iter().filter(|e| e.matches(subject)).collect();
-                    res.targets = matched.iter().filter(|e| !e.is_kiln_own()).map(|e| e.path.clone()).collect();
+                    let late = r.action == RuleAction::Late;
+                    // EMF's loader can be switched off by a rule, but never loaded late
+                    res.targets = matched.iter().filter(|e| !e.is_kiln_own() && !(late && e.holds_start())).map(|e| e.path.clone()).collect();
                     res.applied = !res.targets.is_empty();
                     if res.targets.is_empty() {
                         res.note = Some(match subject {
+                            _ if late && matched.iter().any(|e| e.holds_start()) => {
+                                "EMF's loader holds the game's start, so it always loads first and cannot be moved late".into()
+                            }
                             _ if !matched.is_empty() => "Kiln's own files and ShroudForge's proxy are never moved or switched off".into(),
                             Matcher::Mod(s) if r.action == RuleAction::Disable && canon_mod(s).split(':').next() != Some("kiln") => {
                                 "Kiln skips this mod when the game starts".into()
@@ -454,19 +466,37 @@ pub fn apply(entries: &[PlanEntry], profile_late: &[String], results: &[RuleResu
 // ---------------------------------------------------------------------------------------------------------------------
 // hooks.json (kiln.hooks' map, WP-E) and overlaps (WP-G1)
 
+/// kiln-core writes `null` where it does not know: a `refused` hook has no sigdb symbol or RVA, and often no culprit
+/// module or offset; a target without a sigdb name has no symbol. A plain `String` field would make serde reject the whole
+/// hooks.json, so these fields read `null` as the empty string (the public shape stays `String`).
+fn null_string<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
+fn null_bool<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(d)?.unwrap_or_default())
+}
+
+/// A missing, `null` or unknown kind reads as `other`: one odd row does not hide the rest of hooks.json.
+fn kind_or_other<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<OverlapKind, D::Error> {
+    Ok(Option::<OverlapKind>::deserialize(d)?.unwrap_or(OverlapKind::Other))
+}
+
 /// A jump destination in another module.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForeignDest {
-    #[serde(default)]
+    /// Empty when the jump goes outside any module, or (a `refused` overlap) when the culprit is not known: `null` in the
+    /// file.
+    #[serde(default, deserialize_with = "null_string")]
     pub module: String,
-    /// Hex text ("0x1a2b").
-    #[serde(default)]
+    /// Hex text ("0x1a2b"); empty for `null` (a `refused` overlap has no offset).
+    #[serde(default, deserialize_with = "null_string")]
     pub offset: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
     /// A `kiln-*.dll` (not foreign for overlaps).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_bool")]
     pub own: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub in_place: bool,
@@ -475,25 +505,25 @@ pub struct ForeignDest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HookLink {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub owner: String,
     /// raw | structured | v1 | mid
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub kind: String,
     #[serde(default)]
     pub priority: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub label: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HookTarget {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub rva: String,
     #[serde(default)]
     pub symbol: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub label: String,
     #[serde(default)]
     pub links: Vec<HookLink>,
@@ -506,9 +536,9 @@ pub struct HookTarget {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForeignSymbol {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub symbol: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub rva: String,
     #[serde(flatten)]
     pub dest: ForeignDest,
@@ -536,31 +566,36 @@ impl OverlapKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overlap {
-    #[serde(default)]
+    /// Empty for a target without a sigdb name and for a `refused` hook (`null` in the file).
+    #[serde(default, deserialize_with = "null_string")]
     pub symbol: String,
-    #[serde(default)]
+    /// Hex text; empty for a `refused` hook (`null` in the file).
+    #[serde(default, deserialize_with = "null_string")]
     pub rva: String,
     /// A missing or unknown kind reads as `other`: one odd row does not hide the rest of hooks.json.
-    #[serde(default = "OverlapKind::other")]
+    #[serde(default = "OverlapKind::other", deserialize_with = "kind_or_other")]
     pub kind: OverlapKind,
     #[serde(default)]
     pub foreign: Option<ForeignDest>,
     /// Kiln-hosted owners on that target ("shroudforge", "emf:foo", "kiln-chat.dll", ...).
     #[serde(default)]
     pub owners: Vec<String>,
+    /// `refused`: the hosted engine's name for the hook ("game-thread"); it labels a row that has no symbol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
 }
 
 /// A rule's result as kiln-core reported it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreRule {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub action: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_bool")]
     pub applied: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string")]
     pub message: String,
 }
 
@@ -638,6 +673,7 @@ pub fn overlaps(s: &HooksState) -> Vec<Overlap> {
                     kind,
                     foreign: Some(d.clone()),
                     owners: owners.clone(),
+                    hook: None,
                 });
             }
         }
@@ -792,6 +828,9 @@ pub struct ChainViewEntry {
     pub late_by: Option<String>,
     /// A rule switches it off ("rule:<id>").
     pub off_by: Option<String>,
+    /// EMF's loader: it holds the game's start and always loads first (no late switch).
+    #[serde(default)]
+    pub loader: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -870,10 +909,14 @@ fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::L
     }
     .map(|l| LibraryHit { kind: l.kind, id: l.id.clone(), name: l.name.clone() });
     let late = hit.is_some_and(|e| e.late);
+    let loader = hit.is_some_and(|e| e.entry.holds_start());
     let owners = if o.owners.is_empty() { "Kiln".to_string() } else { o.owners.join(", ") };
     let name = if module.is_empty() { "another module".to_string() } else { module.clone() };
     let (fix, hint) = match (o.kind, hit) {
         _ if ambiguous => ("none", format!("{} chain entries are named {name}: switch the right one to load late in the list above.", named.len())),
+        (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(_)) if loader => {
+            ("none", format!("{name} is EMF's loader: it holds the game's start, so it always loads first. Switch it or the other mod off, or add a compat rule."))
+        }
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(e)) if !late && e.off_by.is_none() => {
             ("late", format!("Load {} after Kiln and ShroudForge, so {owners} hook first and {name} chains after them.", e.entry.file))
         }
@@ -928,7 +971,9 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
             } else {
                 None
             };
-            ChainViewEntry { entry: e.clone(), late: late_by.is_some() && off_by.is_none(), late_by, off_by }
+            // the proxy loads EMF's loader at its place whatever chain.ini [late] says
+            let loader = e.holds_start();
+            ChainViewEntry { entry: e.clone(), late: !loader && late_by.is_some() && off_by.is_none(), late_by: if loader { None } else { late_by }, off_by, loader }
         })
         .collect();
     let hooks = read_hooks(&install.path).ok().flatten();
@@ -959,6 +1004,9 @@ pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &Plan
         (Section::Chain, _) => {
             if entry.is_kiln_own() {
                 return Err(Error::invalid(format!("{} is Kiln's own: it always loads first", entry.file)));
+            }
+            if late && entry.holds_start() {
+                return Err(Error::invalid(format!("{} is EMF's loader: it holds the game's start, so it always loads first", entry.file)));
             }
             // chain.ini is the proxy's input for the next start: not while a game that reads it is running
             crate::profile::refuse_running(install)?;
@@ -1147,7 +1195,7 @@ mod tests {
         ];
         let res = evaluate(&rules, &Facts::default(), &entries);
         assert_eq!(res[0].targets, ["chain\\emf-dinput8.dll"]);
-        assert_eq!(res[1].targets, ["chain\\emf-dinput8.dll"]);
+        assert!(res[1].targets.is_empty(), "EMF's loader holds the game's start: no rule loads it late");
         assert!(!res[2].applied && res[2].note.as_deref().is_some_and(|n| n.contains("never")), "{:?}", res[2]);
         let install = GameInstall {
             id: "g".into(), kind: crate::game::GameKind::Client, path: std::env::temp_dir(), exe: "enshrouded.exe".into(),
@@ -1161,13 +1209,87 @@ mod tests {
         assert!(set_entry_late(&install, &mut p, &entries[1], true).is_err(), "Kiln's own proxy always loads first");
     }
 
+    /// What kiln-core writes (native/core/src/compat_overlaps.cpp, services/hooks_chain.cpp): `refused` rows carry null for
+    /// symbol, rva, module and offset; an rva-only target has a null symbol. The whole file must still read.
+    #[test]
+    fn reads_the_nulls_the_core_writes() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema");
+        let example = parse_hooks(&std::fs::read(dir.join("examples/hooks-state.json")).unwrap()).unwrap();
+        let rows = overlaps(&example);
+        assert_eq!(rows.iter().map(|o| o.kind).collect::<Vec<_>>(), [OverlapKind::ForeignBefore, OverlapKind::ForeignOver, OverlapKind::Refused]);
+        assert_eq!((rows[2].symbol.as_str(), rows[2].rva.as_str()), ("", ""), "the refused row: null symbol and rva");
+        assert_eq!(rows[2].foreign.as_ref().map(|f| (f.module.as_str(), f.offset.as_str())), Some(("xhl-core.dll", "")));
+        assert_eq!(rows[2].hook.as_deref(), Some("game-thread"));
+        assert_eq!(example.rules.len(), 2);
+
+        let s = parse_hooks(&std::fs::read(dir.join("fixtures/hooks-state/refused-no-culprit.json")).unwrap()).unwrap();
+        let rows = overlaps(&s);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind, OverlapKind::ForeignBefore);
+        assert_eq!((rows[0].symbol.as_str(), rows[0].rva.as_str()), ("", "0x31c0a0"), "an rva-only target: null symbol");
+        let refused = &rows[1];
+        assert_eq!(refused.kind, OverlapKind::Refused);
+        assert_eq!((refused.symbol.as_str(), refused.rva.as_str()), ("", ""));
+        let f = refused.foreign.as_ref().unwrap();
+        assert_eq!((f.module.as_str(), f.offset.as_str(), f.own), ("", "", false), "no culprit: null module and offset");
+        assert_eq!((refused.hook.as_deref(), refused.owners.as_slice()), (Some("game-thread"), ["shroudforge".to_string()].as_slice()));
+        assert_eq!(s.rules.len(), 1);
+        // every member that can be null reads as empty, in a target, a foreign symbol, a link and a rule too
+        let t = parse_hooks(br#"{ "format": 1,
+            "targets": [{ "rva": null, "symbol": null, "label": null, "links": [{ "owner": null, "kind": null, "priority": 0, "label": null }],
+                          "foreignBefore": { "module": null, "offset": null, "own": null }, "foreignOver": null }],
+            "foreign": [{ "symbol": null, "rva": null, "module": null, "offset": null, "own": null }],
+            "overlaps": [{ "symbol": null, "rva": null, "kind": null, "foreign": null, "owners": [] }],
+            "rules": [{ "id": null, "action": null, "applied": null, "message": null }] }"#).unwrap();
+        assert_eq!((t.targets[0].label.as_str(), t.targets[0].links[0].owner.as_str(), t.foreign[0].dest.module.as_str()), ("", "", ""));
+        assert_eq!(overlaps(&t)[0].kind, OverlapKind::Other, "a null kind reads as other");
+    }
+
+    #[test]
+    fn emf_s_loader_is_never_late() {
+        let loader = entry("chain\\emf-dinput8.dll", Section::Chain, Some("emf"), None);
+        let other = entry("chain\\xhl-core.dll", Section::Chain, None, None);
+        assert!(loader.holds_start() && !other.holds_start());
+        let (rules, e) = parse_rules(br#"{ "format": 1, "rules": [
+            { "id": "all-late", "action": "late", "subject": {"module": "*"} },
+            { "id": "emf-late", "action": "late", "subject": {"engine": "emf"} },
+            { "id": "emf-off", "action": "disable", "subject": {"engine": "emf"} }
+        ] }"#, RuleSource::User);
+        assert!(e.is_empty());
+        let entries = vec![loader.clone(), other.clone()];
+        let res = evaluate(&rules, &Facts::default(), &entries);
+        assert_eq!(res[0].targets, ["chain\\xhl-core.dll"], "a late rule moves the other entry, never EMF's loader");
+        assert!(!res[1].applied && res[1].targets.is_empty() && res[1].note.as_deref().is_some_and(|n| n.contains("EMF's loader")), "{:?}", res[1]);
+        assert_eq!(res[2].targets, ["chain\\emf-dinput8.dll"], "switching the loader off stays possible");
+        let install = GameInstall {
+            id: "g".into(), kind: crate::game::GameKind::Client, path: std::env::temp_dir(), exe: "enshrouded.exe".into(),
+            app_id: crate::CLIENT_APP_ID, library: None, platform: crate::game::Platform::Proton, prefix: None, build_id: None,
+            exe_sha256: None, steam_flavor: None, path_mode: crate::game::PathMode::Copy, source: "manual".into(),
+        };
+        let mut p = Profile {
+            format: 1, id: "p".into(), name: "p".into(), created: String::new(), updated: String::new(), generation: 1,
+            notes: String::new(), mods: Default::default(), dropins: vec![], data_dir: Default::default(), server: None, late: vec![],
+        };
+        let err = set_entry_late(&install, &mut p, &loader, true).unwrap_err();
+        assert!(err.message.contains("EMF's loader"), "{}", err.message);
+        // the overlap hint for it: no one-click fix
+        let v = |e: PlanEntry| ChainViewEntry { loader: e.holds_start(), entry: e, late: false, late_by: None, off_by: None };
+        let overlap = Overlap {
+            symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()], hook: None,
+            foreign: Some(ForeignDest { module: "emf-dinput8.dll".into(), offset: "0x1".into(), ..Default::default() }),
+        };
+        let view = overlap_view(overlap, &[v(loader), v(other)], &[]);
+        assert_eq!(view.fix, "none");
+        assert!(view.hint.contains("EMF's loader"), "{}", view.hint);
+    }
+
     #[test]
     fn two_entries_with_one_file_name_get_no_one_click_fix() {
         let v = |path: &str, section, mod_id: Option<&str>| ChainViewEntry {
-            entry: entry(path, section, None, mod_id), late: false, late_by: None, off_by: None,
+            entry: entry(path, section, None, mod_id), late: false, late_by: None, off_by: None, loader: false,
         };
         let overlap = Overlap {
-            symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()],
+            symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()], hook: None,
             foreign: Some(ForeignDest { module: "Hook.dll".into(), offset: "0x1".into(), ..Default::default() }),
         };
         let one = overlap_view(overlap.clone(), &[v("chain\\hook.dll", Section::Chain, None)], &[]);

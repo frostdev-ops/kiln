@@ -63,11 +63,14 @@ export function ChainCard({ profile, update }: { profile: Profile; update: (edit
                       {e.section === "chain" ? "Game" : "Profile"}
                     </Badge>
                     {e.engine && <span className="k-hint">{e.engine}</span>}
+                    {e.loader && <span className="k-hint" title="EMF's loader holds the game's start by patching the exe's entry point; loading it after Kiln would undo that.">Always loads first</span>}
                     {off && <Badge tone="err" title={v.rules.find((x) => x.id === off)?.message}>Off by rule {off}</Badge>}
                     <span className="k-spacer" />
-                    <Toggle checked={e.late} disabled={!!r || !!off || setChain.isPending} onChange={(on) => setLate(e, on)}
-                      label="Load after Kiln and ShroudForge"
-                      hint={r ? `Rule ${r}` : e.section === "chain" && e.late ? "Every profile of this game" : undefined} />
+                    {!e.loader && (
+                      <Toggle checked={e.late} disabled={!!r || !!off || setChain.isPending} onChange={(on) => setLate(e, on)}
+                        label="Load after Kiln and ShroudForge"
+                        hint={r ? `Rule ${r}` : e.section === "chain" && e.late ? "Every profile of this game" : undefined} />
+                    )}
                   </div>
                 );
               })}
@@ -84,7 +87,7 @@ export function ChainCard({ profile, update }: { profile: Profile; update: (edit
                       <div key={`${o.symbol}-${o.foreign?.module}-${o.kind}`} className="k-list-item" role="listitem" style={{ flexWrap: "wrap", alignItems: "flex-start", padding: "8px" }}>
                         <div className="k-stack" style={{ gap: 2, flex: "1 1 280px", minWidth: 0 }}>
                           <div className="k-row">
-                            <span className="k-mono">{o.symbol || o.rva}</span>
+                            <span className="k-mono">{o.symbol || o.rva || o.hook || "?"}</span>
                             <Badge tone={KIND[o.kind].tone} title={KIND[o.kind].title}>{KIND[o.kind].word}</Badge>
                           </div>
                           <span className="k-hint">

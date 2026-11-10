@@ -106,7 +106,7 @@
         "suspects": { "type": "array", "items": { "type": "string" }, "description": "refused with an unknown `foreign.module`: the distinct modules in `foreign` (sigdb) that patched game code." },
         "fix": {
           "enum": ["late", "rule", "none"],
-          "description": "late: the other module is a chain entry that loads early: load it late (chain.ini [late], the launcher's `Load after Kiln and ShroudForge`). rule: the other module is not a chain entry (another loader starts it): add a compat rule or switch one side off. none: nothing to fix (it already loads late, or it is harmless)."
+          "description": "late: the other module is a chain entry that loads early: load it late (chain.ini [late], the launcher's `Load after Kiln and ShroudForge`). rule: the other module is not a chain entry, or another loader starts it (a dinput8-chain.ini DLL while EMF's loader is chained, a DLL named in [late] that was running before the late phase, EMF's own loader, which is never deferred): add a compat rule or switch one side off. none: nothing to fix (it already loads late, or it is harmless)."
         },
         "chainEntry": {
           "oneOf": [
@@ -118,7 +118,8 @@
                 "path": { "type": "string", "description": "The proxy's canonical path of the DLL (Windows form)." },
                 "source": { "enum": ["chain", "emf", "profile"] },
                 "status": { "enum": ["loaded", "failed", "duplicate", "skipped", "refused", "missing"] },
-                "late": { "type": "boolean" }
+                "late": { "type": "boolean", "description": "The DLL loads late (named in [late] and loaded by the core after the plugins). false for a DLL named in [late] that another loader started first." },
+                "lateIgnored": { "const": true, "description": "dev.21: named in [late], but another loader had started the DLL first, so [late] moved nothing." }
               }
             }
           ],
@@ -148,7 +149,7 @@
         "action": { "enum": ["warn", "late", "disable"] },
         "applied": {
           "type": "boolean",
-          "description": "warn: true (it was logged). late: the subject is already a chain.ini [late] entry in this session. disable: the subject did not load (a hosted mod the core switched off, or a chain entry that is off). false: nothing was changed this session; `note` says what to do (`apply it in the launcher`)."
+          "description": "warn: true (it was logged). late: the subject is already a chain.ini [late] entry in this session (false for EMF's own loader, which is never deferred, and for a DLL another loader started first). disable: the subject did not load (a hosted mod the core switched off before its DLL ran, or a chain entry that is off); false for a dllmain native mod whose DLL the proxy loaded before kiln-core started. false: nothing was changed this session; `note` says what to do (`apply it in the launcher`, activate the profile again)."
         },
         "message": { "type": "string", "description": "The rule's message." },
         "subject": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/matcher" }] },

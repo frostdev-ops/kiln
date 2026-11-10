@@ -8,6 +8,7 @@
 #include <set>
 
 #include "api.h"
+#include "chain_status.h"
 #include "common.h"
 #include "log.h"
 #include "native_mods.h"
@@ -35,32 +36,43 @@ std::set<std::string> g_logged;                    // lines logged once
 std::set<std::string> g_prev_late;                 // `late` rules the last session's hooks.json reports as applied
 bool g_inited = false;
 
-const char* const kProxyStatus[] = {"loaded", "failed", "missing", "refused", "duplicate", "skipped", "late"};
-
 std::string file_name_of(const std::string& path) {
     const size_t at = path.find_last_of("\\/");
     return at == std::string::npos ? path : path.substr(at + 1);
 }
 
-// The proxy's chain entries, a late one with the status the late phase gave it.
+// EMF's own loader, loaded by the proxy: it exports one of the names the proxy recognises it by (dinput8.cpp classify).
+bool is_emf_loader(const KilnChainEntry& e) {
+    if (e.source != KILN_CHAIN_SOURCE_CHAIN || !e.module || (e.status != KILN_CHAIN_LOADED && e.status != KILN_CHAIN_DUPLICATE))
+        return false;
+    const HMODULE m = static_cast<HMODULE>(e.module);
+    return GetProcAddress(m, "emf_loader_identity") || GetProcAddress(m, "emf_loader_play_once");
+}
+
+// The proxy's chain entries, a late one with the status the late phase gave it (still "late" while it has not run).
 std::vector<ChainRow> chain_rows() {
     std::vector<ChainRow> rows;
     const KilnBootInfo& bi = boot_info();
     const auto late = native_mods::late_rows();
+    bool emf_chained = false;
     for (uint32_t i = 0; i < bi.chain_count; ++i) {
         const KilnChainEntry& e = bi.chain[i];
         ChainRow r;
         r.path = std::string(sv(e.path));
         r.file = file_name_of(r.path);
         r.source = e.source == KILN_CHAIN_SOURCE_EMF ? "emf" : e.source == KILN_CHAIN_SOURCE_PROFILE ? "profile" : "chain";
-        r.status = e.status < 7 ? kProxyStatus[e.status] : "failed";
-        if (e.status == KILN_CHAIN_LATE) {
-            r.late = true;
-            for (const auto& l : late)
-                if (l.chain_index == i && l.status != "pending") r.status = l.status;
-        }
+        const std::string status = chain_final_status(e, i, late, "late");
+        r.status = chain_reported_status(status);
+        r.late = e.status == KILN_CHAIN_LATE;
+        r.late_ignored = status == kLateAlreadyLoaded;
+        r.loader = is_emf_loader(e);
+        emf_chained = emf_chained || r.loader;
         rows.push_back(std::move(r));
     }
+    // EMF's loader (chained) reads dinput8-chain.ini and starts those DLLs itself
+    if (emf_chained)
+        for (ChainRow& r : rows)
+            if (r.source == "emf") r.started_by_loader = true;
     return rows;
 }
 
@@ -129,82 +141,6 @@ std::string read_state_file(const wchar_t* name) {
 
 bool log_once(const std::string& key) { return g_logged.insert(key).second; }
 
-std::string overlap_key(const ojson& o) {
-    return o.value("kind", std::string()) + "|" + (o.contains("symbol") && o["symbol"].is_string() ? o["symbol"].get<std::string>() : o.value("hook", std::string())) +
-           "|" + o["foreign"].value("module", std::string()) + "|" + (o["foreign"].contains("offset") && o["foreign"]["offset"].is_string() ? o["foreign"]["offset"].get<std::string>() : std::string());
-}
-
-struct Outcome {
-    bool applied = true;
-    std::string note;
-};
-
-bool subject_rows(const Rule& r, const std::vector<ChainRow>& rows, std::vector<const ChainRow*>* on) {
-    bool any = false;
-    for (const ChainRow& row : rows) {
-        if (!glob_match(r.subject.value, row.file)) continue;
-        any = true;
-        if (row.on()) on->push_back(&row);
-    }
-    return any;
-}
-
-Outcome outcome_of(const Rule& r, const std::vector<ChainRow>& rows, const Facts& facts) {
-    Outcome o;
-    if (r.action == "warn") return o;
-    const std::string what = matcher_text(r.subject);
-    if (r.action == "late") {
-        if (r.subject.kind != Matcher::Kind::Module) {
-            o.applied = false;
-            o.note = "only a chain entry (a module) can load late, not " + what + "; nothing was changed";
-            return o;
-        }
-        std::vector<const ChainRow*> on;
-        subject_rows(r, rows, &on);
-        if (on.empty()) {
-            o.applied = false;
-            o.note = "no chain entry named " + r.subject.value + " in this start; nothing to move";
-        } else if (std::all_of(on.begin(), on.end(), [](const ChainRow* c) { return c->late; })) {
-            o.note = r.subject.value + " already loads late";
-        } else {
-            o.applied = false;
-            o.note = "rule " + r.id + " asks " + r.subject.value + " to load late; apply it in the launcher";
-        }
-        return o;
-    }
-    // disable
-    if (r.subject.kind == Matcher::Kind::Module) {
-        std::vector<const ChainRow*> on;
-        subject_rows(r, rows, &on);
-        const bool loaded = !on.empty() || (present(r.subject, facts));
-        if (loaded) {
-            o.applied = false;
-            o.note = "rule " + r.id + " asks " + r.subject.value + " to be disabled; apply it in the launcher";
-        } else {
-            o.note = r.subject.value + " is not loaded in this start";
-        }
-    } else if (r.subject.kind == Matcher::Kind::Mod) {
-        const auto early = std::find_if(g_early.begin(), g_early.end(), [&](const auto& e) { return e.first == r.id; });
-        if (early != g_early.end()) {
-            o.note = early->second;
-        } else if (present(r.subject, facts) && g_rule_off.count(r.subject.value) == 0) {
-            o.applied = false;
-            o.note = "rule " + r.id + " asks " + r.subject.value + " to be disabled, but it is not in the profile's lists "
-                     "(a drop-in folder?); apply it in the launcher";
-        } else {
-            o.note = r.subject.value + " is not in this start";
-        }
-    } else {
-        if (present(r.subject, facts)) {
-            o.applied = false;
-            o.note = "rule " + r.id + " asks " + what + " to be disabled; apply it in the launcher";
-        } else {
-            o.note = what + " is not in this start";
-        }
-    }
-    return o;
-}
-
 ojson matcher_json(const Matcher& m) {
     ojson o;
     o[matcher_key(m.kind)] = m.value;
@@ -216,9 +152,13 @@ ojson matcher_json(const Matcher& m) {
 // would otherwise switch itself off and put the DLL back to the proxy at the next start (the overlap would return).
 bool sticky_late(const Rule& r, const std::vector<ChainRow>& rows) {
     if (r.action != "late" || !g_prev_late.count(r.id) || r.subject.kind != Matcher::Kind::Module) return false;
-    std::vector<const ChainRow*> on;
-    subject_rows(r, rows, &on);
-    return !on.empty() && std::all_of(on.begin(), on.end(), [](const ChainRow* c) { return c->late; });
+    bool any = false;
+    for (const ChainRow& row : rows) {
+        if (!glob_match(r.subject.value, row.file) || !row.on()) continue;
+        if (!row.late || row.late_ignored) return false;
+        any = true;
+    }
+    return any;
 }
 
 // The "rules" section: the rules that fire in this start, with what became of them. Logs each once.
@@ -226,10 +166,22 @@ ojson rules_report(const std::vector<ChainRow>& rows, const Facts& facts) {
     ojson out = ojson::array();
     std::set<const Rule*> fired;
     for (const Rule* r : evaluate(g_rules, facts)) fired.insert(r);
+    RuleContext ctx;
+    ctx.early = g_early;
+    ctx.rule_off = g_rule_off;
+    for (const Rule& r : g_rules) {  // a mod a rule switched off whose DLL the proxy started before the rule could be read
+        const bool early = std::any_of(g_early.begin(), g_early.end(), [&](const auto& e) { return e.first == r.id; });
+        if (!early || r.subject.kind != Matcher::Kind::Mod) continue;
+        const std::string& ref = r.subject.value;
+        std::string engine = ref.substr(0, ref.find(':'));
+        for (char& c : engine) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if ((engine == "kiln" || engine == "native" || engine == "plugin") && native_mods::loaded_by_proxy(ref.substr(ref.find(':') + 1)))
+            ctx.proxy_loaded.insert(r.id);
+    }
     for (const Rule& r : g_rules) {
         const bool early = std::any_of(g_early.begin(), g_early.end(), [&](const auto& e) { return e.first == r.id; });
         if (!fired.count(&r) && !early && !sticky_late(r, rows)) continue;
-        const Outcome oc = outcome_of(r, rows, facts);
+        const Outcome oc = outcome_of(r, rows, facts, ctx);
         ojson o;
         o["id"] = r.id;
         o["action"] = r.action;
@@ -243,6 +195,8 @@ ojson rules_report(const std::vector<ChainRow>& rows, const Facts& facts) {
             if (log_once("rule|" + r.id)) KLOG_W("compat: rule %s: %s", r.id.c_str(), r.message.c_str());
         } else if (!oc.applied) {
             if (log_once("rule|" + r.id + "|" + oc.note)) KLOG_W("compat: %s (%s)", oc.note.c_str(), r.message.c_str());
+        } else if (early && log_once("rule|" + r.id + "|off")) {  // switched off in the profile (apply_early), its DLL is not running
+            KLOG_W("compat: rule %s switched %s off: %s", r.id.c_str(), r.subject.value.c_str(), r.message.c_str());
         }
     }
     return out;
@@ -268,12 +222,12 @@ void fill(ojson& doc) {
     const auto rows = chain_rows();
     const std::string sf = read_state_file(L"shroudforge.json");
     const ojson overlaps = compute_overlaps(doc, rows, parse_sf_status(sf));
+    doc["overlaps"] = overlaps;  // the sections go in before anything is logged: one odd row must not drop them
     std::vector<std::string> symbols;
     for (const auto& o : overlaps) {
         if (o.contains("symbol") && o["symbol"].is_string()) add_unique(symbols, o["symbol"].get<std::string>());
-        if (log_once("overlap|" + overlap_key(o))) KLOG_W("compat: overlap: %s", o.value("message", std::string()).c_str());
+        if (log_once("overlap|" + overlap_key(o))) KLOG_W("compat: overlap: %s", json_text(o, "message").c_str());
     }
-    doc["overlaps"] = overlaps;
     const Facts facts = gather_facts(rows, symbols, sf_running(sf));
     doc["rules"] = rules_report(rows, facts);
     doc["ruleFiles"] = files_json();
@@ -333,7 +287,7 @@ void init() {
             const ojson prev = ojson::parse(text, nullptr, false);
             if (prev.is_object() && prev.contains("rules") && prev["rules"].is_array())
                 for (const auto& r : prev["rules"])
-                    if (r.is_object() && r.value("action", std::string()) == "late" && r.value("applied", false) && r.contains("id") && r["id"].is_string())
+                    if (r.is_object() && json_text(r, "action") == "late" && json_flag(r, "applied") && r.contains("id") && r["id"].is_string())
                         g_prev_late.insert(r["id"].get<std::string>());
         } catch (const std::exception&) {
             g_prev_late.clear();  // an edited or damaged file (a key of another type): no sticky rules this start
@@ -369,8 +323,8 @@ void apply_early() {
         }
         if (!done) continue;
         g_rule_off.insert(ref);
+        // The report (rules_report) says whether that held: a dllmain native mod's DLL may be running already.
         g_early.emplace_back(r->id, "switched off in the profile before the plugins read it");
-        KLOG_W("compat: rule %s switched %s off: %s", r->id.c_str(), ref.c_str(), r->message.c_str());
     }
 }
 

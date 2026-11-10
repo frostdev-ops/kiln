@@ -29,7 +29,10 @@
 //      plugins and native mods ran (a closed-source DLL that hooks the same functions then hooks over Kiln instead of
 //      under it). Matching is by canonical path (the resolved path when the file is missing), in every mode (also
 //      play-once mode=profile). A [late] line that names no entry loads nothing (proxy.log says so). An older proxy
-//      ignores the unknown section and loads the entry as before.
+//      ignores the unknown section and loads the entry as before. Two limits: EMF's own loader (a [chain] entry that
+//      holds the game's start by patching the exe's entry point) is never deferred, [late] or not; and a late DLL runs
+//      inside the gate, where the entry point still holds Kiln's jump, so an entry patch it makes is put back by the
+//      gate (the proxy says so in proxy.log, and kiln-core in kiln.log and boot.json "errors").
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
 //      (EMF holds a server's start this way) is what the gate saves as "original": at the entry, Kiln's gate runs first,
@@ -76,6 +79,7 @@ INIT_ONCE g_real_once = INIT_ONCE_STATIC_INIT;
 
 unsigned char* g_entry = nullptr;
 unsigned char g_original[14]{};
+unsigned char g_jump[14]{};  // what install_gate wrote over the entry point
 
 wchar_t g_game[kPath];  // directory of the exe, no trailing backslash
 wchar_t g_kiln[kPath];  // <game>\kiln
@@ -532,7 +536,8 @@ bool marker(const unsigned char* b, size_t n, const char (&text)[N]) {
     return false;
 }
 
-uint32_t classify(const wchar_t* path) {
+// `emf_loader` (optional): set when the DLL is EMF's own loader (its exports or marker text).
+uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE) return kAccept;  // LoadLibrary reports the real error
@@ -551,7 +556,10 @@ uint32_t classify(const wchar_t* path) {
                 if (memcmp(b + 0x40, kWine, sizeof kWine - 1) == 0) result = kSystem;
                 else if ((flags & 1) || contains(b, n, kCore, sizeof kCore - sizeof(wchar_t)) || marker(b, n, "KilnProxy/"))
                     result = kKiln;
-                else if ((flags & 2) || marker(b, n, "EMF-LOADER-7d3c9f")) result = kAccept;
+                else if ((flags & 2) || marker(b, n, "EMF-LOADER-7d3c9f")) {
+                    result = kAccept;
+                    if (emf_loader) *emf_loader = true;
+                }
                 else if ((flags & 4) || marker(b, n, "shroudforge")) result = kShroudForge;
                 else result = kAccept;
             }
@@ -619,7 +627,7 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
     wchar_t full[kPath];
     if (!resolve(base, raw, full)) lstrcpynW(full, raw, kPath);
     const wchar_t* canon = canonical(full);  // nullptr when the file cannot be opened (missing)
-    const int late_at = find_late(canon, full);  // [late] names this file: it passes every check, the core loads it
+    int late_at = find_late(canon, full);  // [late] names this file: it passes every check, the core loads it
     if (late_at >= 0) g_late[late_at].used = true;
     if (pre_refusal != kAccept) {
         if (auto* e = add(source, full, KILN_CHAIN_REFUSED)) e->detail = pre_refusal;
@@ -664,7 +672,15 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
             return;
         }
     }
-    if (refusal == kAccept) refusal = classify(shown);
+    bool emf_loader = false;
+    if (refusal == kAccept) refusal = classify(shown, &emf_loader);
+    if (late_at >= 0 && refusal == kAccept && emf_loader && source == KILN_CHAIN_SOURCE_CHAIN) {
+        // EMF's loader holds the game's start (a server) by patching the exe's entry point; a late load runs inside the
+        // gate, which would put that patch back. It loads now, in its place in the chain, [late] or not.
+        plog(L"chain: %s: %s is EMF's loader: it holds the game's start, so chain.ini [late] does not defer it; loaded now",
+             source_name(source), shown);
+        late_at = -1;
+    }
     KilnChainEntry* e = add(source, shown, KILN_CHAIN_LOADED);
     if (!e) return;
     g_canon[g_count - 1] = canon;
@@ -1106,6 +1122,18 @@ void boot_core() {
     boot(&g_info);
 }
 
+// proxy.log was closed before the core started (it writes kiln.log from there): append one line to it.
+void log_after_boot(const wchar_t* line) {
+    wchar_t path[kPath];
+    lstrcpynW(path, g_kiln, kPath - 32);
+    lstrcatW(path, L"\\logs\\proxy.log");
+    g_log = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+    plog(L"%s", line);
+    if (g_log != INVALID_HANDLE_VALUE) CloseHandle(g_log);
+    g_log = INVALID_HANDLE_VALUE;
+}
+
 bool restore_entry() {
     DWORD protection = 0;
     if (!VirtualProtect(g_entry, sizeof g_original, PAGE_EXECUTE_READWRITE, &protection)) return false;
@@ -1122,7 +1150,15 @@ int __cdecl gate_entry() {
         g_log = INVALID_HANDLE_VALUE;
     }
     boot_core();
+    // A DLL that ran during boot (one loaded late, chain.ini [late]) can have patched the entry point on top of Kiln's
+    // jump, taking the jump's bytes as the "original". Chaining to it would run the gate again, so the saved bytes go
+    // back and that patch is lost: say so.
+    const bool patched = memcmp(g_entry, g_jump, sizeof g_jump) != 0;
     if (!restore_entry()) ExitProcess(ERROR_DLL_INIT_FAILED);
+    if (patched)
+        log_after_boot(L"entry gate: the game's entry point was patched while Kiln started (by a DLL loaded after the gate "
+                       L"was set, e.g. through chain.ini [late]); that patch is lost, the original bytes are back. A loader "
+                       L"that holds the game's start this way must load before Kiln: take it out of [late]");
     // The bytes put back may be another DLL's entry patch (a chained loader that holds the start): it runs now and
     // unwinds to the real entry point in turn.
     return reinterpret_cast<int(__cdecl*)()>(g_entry)();
@@ -1141,16 +1177,16 @@ bool install_gate() {
     g_entry = image + nt->OptionalHeader.AddressOfEntryPoint;
     // jmp qword ptr [rip+0]; dq gate_entry. Preserves every register; the whole saved entry is put back before it
     // runs, so nothing needs relocating.
-    unsigned char jump[14]{0xff, 0x25, 0, 0, 0, 0};
+    g_jump[0] = 0xff, g_jump[1] = 0x25;
     auto target = &gate_entry;
-    memcpy(jump + 6, &target, sizeof target);
+    memcpy(g_jump + 6, &target, sizeof target);
     DWORD protection = 0;
-    if (!VirtualProtect(g_entry, sizeof jump, PAGE_EXECUTE_READWRITE, &protection)) return false;
+    if (!VirtualProtect(g_entry, sizeof g_jump, PAGE_EXECUTE_READWRITE, &protection)) return false;
     memcpy(g_original, g_entry, sizeof g_original);
-    memcpy(g_entry, jump, sizeof jump);
+    memcpy(g_entry, g_jump, sizeof g_jump);
     DWORD ignored = 0;
-    VirtualProtect(g_entry, sizeof jump, protection, &ignored);
-    return FlushInstructionCache(GetCurrentProcess(), g_entry, sizeof jump) != 0;
+    VirtualProtect(g_entry, sizeof g_jump, protection, &ignored);
+    return FlushInstructionCache(GetCurrentProcess(), g_entry, sizeof g_jump) != 0;
 }
 
 bool disabled() {

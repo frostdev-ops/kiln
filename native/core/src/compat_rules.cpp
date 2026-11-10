@@ -230,15 +230,12 @@ ParseResult parse_rules(std::string_view text, const char* source) {
     }
     std::set<std::string> seen;
     size_t n = 0;
-    for (const auto& j : doc["rules"]) {
+    const auto& list = doc["rules"];
+    for (const auto& j : list) {
+        if (n >= kMaxRules) break;  // the first 512 count (schema maxItems); the rest get one summary below
         ++n;
         std::string why;
         Rule r;
-        if (n > kMaxRules) {
-            ++out.dropped;
-            out.problems.push_back("rule #" + std::to_string(n) + ": more than 512 rules; dropped");
-            continue;
-        }
         if (!parse_rule(j, source, &r, &why)) {
             ++out.dropped;
             out.problems.push_back("rule #" + std::to_string(n) + (r.id.empty() ? "" : " (" + r.id + ")") + ": " + why + "; dropped");
@@ -250,6 +247,11 @@ ParseResult parse_rules(std::string_view text, const char* source) {
             continue;
         }
         out.rules.push_back(std::move(r));
+    }
+    if (list.size() > kMaxRules) {  // one line, not one per rule: the file's size is the player's to bound, the log's is ours
+        const size_t extra = list.size() - kMaxRules;
+        out.dropped += static_cast<int>(extra);
+        out.problems.push_back("more than " + std::to_string(kMaxRules) + " rules: the last " + std::to_string(extra) + " are ignored");
     }
     out.ok = true;
     return out;

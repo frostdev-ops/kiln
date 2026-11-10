@@ -259,7 +259,12 @@ Grammar (same dialect as 5.2):
   spelling, case and `..` do not matter, and a missing file is matched by its resolved path. Deferred entries load
   in the order of the lists they came from (not in `[late]` order). A `[late]` line that names no entry loads
   nothing (proxy.log says so). Refused, missing and duplicate entries keep that status. Play-once `no-mods` defers
-  nothing (all entries are `skipped`). The launcher keeps an entry in its own section and adds the same path to
+  nothing (all entries are `skipped`). EMF's own loader (a `[chain]` entry with its exports or marker text) is never
+  deferred, whatever `[late]` says: it holds the game's start by patching the exe's entry point, which a late load would
+  lose; proxy.log says so. A DLL deferred this way runs inside the gate, so an entry-point patch it makes is put back
+  by the gate (proxy.log, kiln.log and boot.json `errors` warn). The core does not load a late DLL of a native mod that
+  is disabled, on the other side or refused by `native.policy`, and it says `already-loaded` for a DLL that was in the
+  process before the late phase (EMF's loader starts the DLLs of `dinput8-chain.ini` itself). The launcher keeps an entry in its own section and adds the same path to
   `[late]`; a `;` line in front (`; kiln rule <id>`) is a comment like any other.
 - One DLL per line. A `key = value` line counts by its value. Only values ending in `.dll` (case-insensitive) count;
   other lines are ignored.
@@ -448,7 +453,8 @@ All written atomically; a file whose `pid` is not a live process is stale.
   `no-mods`, `profile`, `ignored-expired`, `ignored-undeletable`, `ignored-server`, `ignored-invalid`),
   `profile{mode, id, name, generation, file, error, configDir, dataDir, counts}` (mode `legacy|active|once|no-mods|
   invalid`), `paths` (every KILN_PATH_*), `chain[]` (`{path, source: chain|emf|profile, status, detail, error}`; an entry deferred by
-  `[late]` keeps its place, carries `late: true` and the status of the core's load),
+  `[late]` keeps its place, carries `late: true` and the status of the core's load; `lateIgnored: true` with status `loaded`
+  when another loader had started the DLL before the late phase, so `[late]` moved nothing),
   `services[]` (`name@version`), `plugins[]` (`{file, id, version, status, error}`), `native{loaded, failed, pending}`,
   `clr{started, error}`, `errors[]`.
 - `mods.json` (Kiln.Host, after every resolve/load/unload/reload; `generation` grows): `pid`, `written`, `generation`,
@@ -457,10 +463,13 @@ All written atomically; a file whose `pid` is not a live process is stale.
 - `native.json` (native loader, after each phase): `pid`, `written`, `policy`, `phase`, `mods[]` (`{id, version,
   folder, source, phase, state: pending|loaded|failed|disabled|skipped|policy|unsupported, reason, notes[], loadIndex,
   dlls[]{file, status, error, ms}, init{export, result, fault, ms}}`), and `chain.late[]` (`{path, source, status:
-  pending|loaded|failed|missing|duplicate, error, ms, order}`) when chain DLLs were left to the core ([late]).
+  pending|loaded|failed|missing|duplicate|skipped|already-loaded, note, error, ms, order}`) when chain DLLs were left to the
+  core ([late]); `skipped`: its native mod is disabled, on the other side or refused, so the DLL was not loaded;
+  `already-loaded`: the DLL was in the process before the late phase; `note` says why for those two.
 - `hooks.json` (kiln-core, boot end, first world, link changes; `hooks-state.schema.json`, `kiln/services/hooks.md`):
   the hook registry's map, plus the closed-DLL report: `overlaps[]` (`{symbol, rva, kind: foreign-before|foreign-over|
-  refused, foreign{module, offset}, owners[], fix, chainEntry, message}`), `rules[]` (`{id, action, applied, message,
+  refused, foreign{module, offset}, owners[], fix: late|rule|none, chainEntry{path, source, status, late, lateIgnored?},
+  message}`; a `refused` row has `null` for symbol, rva and often module and offset), `rules[]` (`{id, action, applied, message,
   subject, source, note}`) and `ruleFiles[]`. No `pid` before dev.21 (`pid` names the writing process).
 - `last-server.json` (Kiln.Network on a client): `written`, `outcome` (`rejected|welcome|vanilla`), `reason`,
   `server{id, name, address, kiln}`, `modpack`, `required[]`, `truncated`, `missing[]`, `history[]` (<= 20 earlier
