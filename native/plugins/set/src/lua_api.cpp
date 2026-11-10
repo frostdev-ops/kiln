@@ -60,6 +60,10 @@ std::mutex gQueueMx;
 std::vector<std::string> gQueue;
 std::atomic<bool> gOverlayOpen, gHasDraw;
 std::atomic<uint32_t> gBuild;  // the game build (rt::setGameBuild), for GetGameBuild() and mod.json
+// What the last loadMods did with each mod folder (rt::modReports, for kiln-set's state/set.json).
+std::mutex gReportMx;
+std::vector<rt::ModReport> gReports;
+void (*gOnReports)() = nullptr;
 
 // Lua runs on the server thread (tick) or the main thread (frame), and on the render thread (Draw). gLuaMx keeps them
 // apart; gInDraw marks the render-thread side, where game memory is off limits because the game mutates it
@@ -68,6 +72,7 @@ std::mutex gLuaMx;
 bool gInDraw;
 bool gInConsole, gHookShutdown;
 std::string gCurrentMod;
+std::string gLastCallError;  // the error text of the last call() that failed (loadMods reports it)
 std::map<std::string, uint64_t> gSystemOwners;
 struct HookHandler {
     int sub, ref;
@@ -1053,7 +1058,8 @@ bool call(lua_State* L, int nargs, int nres) {
     if (rc == LUA_OK) return true;
     discardAdmin(gCurrentMod);
     const char* error = lua_tostring(L, -1);
-    gSink((LV_BAD + std::string(error ? error : "Lua error")).c_str());
+    gLastCallError = error ? error : "Lua error";
+    gSink((LV_BAD + gLastCallError).c_str());
     lua_pop(L, 1);
     return false;
 }
@@ -1508,6 +1514,7 @@ void unloadMod(lua_State* L, const std::string& mod) {
 struct ModInfo {
     std::string needs;  // "requires" in mod.json
     std::vector<uint32_t> builds;
+    std::string title, version;  // optional "name" and "version" (Kiln's mod manager shows them)
 };
 
 ModInfo readModJson(lua_State* L, const std::string& name) {
@@ -1531,6 +1538,10 @@ ModInfo readModJson(lua_State* L, const std::string& name) {
         return info;
     }
     if (lua_getfield(L, -1, "requires") == LUA_TSTRING) info.needs = lua_tostring(L, -1);
+    lua_pop(L, 1);
+    if (lua_getfield(L, -1, "name") == LUA_TSTRING) info.title = lua_tostring(L, -1);
+    lua_pop(L, 1);
+    if (lua_getfield(L, -1, "version") == LUA_TSTRING) info.version = lua_tostring(L, -1);
     lua_pop(L, 1);
     if (lua_getfield(L, -1, "builds") == LUA_TTABLE) {
         for (lua_Integer i = 1; lua_rawgeti(L, -1, i) == LUA_TNUMBER; i++, lua_pop(L, 1))
@@ -1564,6 +1575,10 @@ std::string modLine(const std::string& name, bool ok, const ModInfo& info) {
 // What init.lua returns is kept for GetMod (true if it returns nothing).
 void loadMods(lua_State* L) {
     int loaded = 0, failed = 0;
+    std::vector<rt::ModReport> reports;
+    auto report = [&](const std::string& name, const char* status, std::string reason, const ModInfo& info) {
+        reports.push_back({name, status, std::move(reason), info.title, info.version, gModsDir + "\\" + name});
+    };
     lua_getfield(L, LUA_REGISTRYINDEX, kMods);
     int mods = lua_gettop(L);
     WIN32_FIND_DATAA fd;
@@ -1573,6 +1588,7 @@ void loadMods(lua_State* L) {
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || name[0] == '.') continue;
         if (GetFileAttributesA(init.c_str()) == INVALID_FILE_ATTRIBUTES) {
             gSink((LV_WARN "Mod skipped: " + name + " (no init.lua)").c_str());
+            report(name, "skipped", "the folder has no init.lua", ModInfo{});
             continue;
         }
         ModInfo info = readModJson(L, name);
@@ -1580,15 +1596,20 @@ void loadMods(lua_State* L) {
             failed++;
             gSink((LV_BAD "Mod skipped: " + name + " (needs Shrouded Engine Tweaks " + info.needs +
                    ", this is " RUNTIME_VERSION ")").c_str());
+            report(name, "failed", "needs Shrouded Engine Tweaks " + info.needs + ", this is " RUNTIME_VERSION, info);
             continue;
         }
         bool ok = loadText(L, (std::filesystem::u8path(gModsDir) / name).string(), "init.lua", ("@" + name + "/init.lua").c_str());
+        std::string why;
         if (!ok) {
-            gSink((LV_BAD + std::string(lua_tostring(L, -1))).c_str());  // call() prints its own errors
+            const char* e = lua_tostring(L, -1);
+            why = e ? e : "init.lua could not be read";
+            gSink((LV_BAD + why).c_str());  // call() prints its own errors
         } else {
             pushModEnv(L, name);
             lua_setupvalue(L, -2, 1);  // a main chunk's only upvalue is _ENV
             ok = call(L, 0, 1);
+            if (!ok) why = gLastCallError.empty() ? "init.lua raised an error" : gLastCallError;
         }
         if (ok) {
             if (lua_isnil(L, -1)) lua_pushboolean(L, 1);
@@ -1599,10 +1620,21 @@ void loadMods(lua_State* L) {
             unloadMod(L, name);
         }
         lua_settop(L, mods);
-        gSink(modLine(name, ok, info).c_str());
+        if (const auto nl = why.find('\n'); nl != std::string::npos) why.resize(nl);  // the error, without the traceback
+        const std::string line = modLine(name, ok, info);
+        gSink(line.c_str());
+        // the note about game builds (modLine's parentheses) is the reason a loaded mod may misbehave
+        const auto paren = line.find(" (made for game build");
+        report(name, ok ? "loaded" : "failed",
+               ok ? (paren == std::string::npos ? std::string() : line.substr(paren + 2, line.size() - paren - 3)) : why, info);
     }
     if (h != INVALID_HANDLE_VALUE) FindClose(h);
     lua_pop(L, 1);
+    {
+        std::lock_guard lock(gReportMx);
+        gReports = std::move(reports);
+    }
+    if (gOnReports) gOnReports();
     gSink(((failed ? LV_WARN "Mods: " : LV_OK "Mods: ") + std::to_string(loaded) + " loaded, " + std::to_string(failed) + " failed").c_str());
 }
 
@@ -2313,6 +2345,13 @@ void rt::setOverlayOpen(bool open) { gOverlayOpen = open; }
 void rt::requestReload() { gReload = true; }
 void rt::setGameBuild(uint32_t build) { gBuild = build; }
 bool rt::modsLoaded() { return gLoaded; }
+
+std::vector<rt::ModReport> rt::modReports() {
+    std::lock_guard lock(gReportMx);
+    return gReports;
+}
+
+void rt::onModsReported(void (*fn)()) { gOnReports = fn; }
 
 void rt::bindKiln(const KilnApi* api, KilnOwner owner) {
     gKApi = api;

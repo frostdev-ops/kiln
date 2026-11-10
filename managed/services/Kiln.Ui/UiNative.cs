@@ -150,6 +150,51 @@ internal static unsafe class UiNative
         public delegate* unmanaged[Cdecl]<byte> WheelActive;
     }
 
+    /// <summary>KilnUiCursor (kiln_ui.h v3).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Cursor
+    {
+        public uint Size;
+        public float X, Y, ScreenX, ScreenY, AvailWidth, AvailHeight, WindowX, WindowY, WindowWidth, WindowHeight;
+        public float FontSize, LineHeight, ScrollY, ScrollMaxY;
+    }
+
+    /// <summary>KilnUiItem (kiln_ui.h v3).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Item
+    {
+        public uint Size;
+        public float MinX, MinY, MaxX, MaxY;
+        public byte Hovered, Active, Focused, Clicked, Visible, Edited, Activated, Deactivated;
+    }
+
+    /// <summary>The whole kiln.ui v3 table: <see cref="Table2"/>, then the layout and look slots for full-display screens.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table3
+    {
+        public Table2 Base;
+        public delegate* unmanaged[Cdecl]<float, void> PushFontSize;
+        public delegate* unmanaged[Cdecl]<void> PopFontSize;
+        public delegate* unmanaged[Cdecl]<NativeStr, float, float, uint, uint, byte> BeginChildEx;
+        public delegate* unmanaged[Cdecl]<float, void> SetNextItemWidth;
+        public delegate* unmanaged[Cdecl]<Cursor*, void> GetCursor;
+        public delegate* unmanaged[Cdecl]<float, float, void> SetCursorPos;
+        public delegate* unmanaged[Cdecl]<Item*, void> GetItem;
+        public delegate* unmanaged[Cdecl]<NativeStr, byte, uint, float, float, byte> SelectableEx;
+        public delegate* unmanaged[Cdecl]<int, void> SetKeyboardFocusHere;
+        public delegate* unmanaged[Cdecl]<void> SetItemDefaultFocus;
+        public delegate* unmanaged[Cdecl]<uint, float, float, float, float, uint, float, float, void> DrawRectIn;
+        public delegate* unmanaged[Cdecl]<uint, float, float, uint, float, float, NativeStr, void> DrawTextIn;
+        public delegate* unmanaged[Cdecl]<NativeStr, float, float, float*, float*, void> TextSizeEx;
+        public delegate* unmanaged[Cdecl]<uint, uint, void> PushColor;
+        public delegate* unmanaged[Cdecl]<uint, void> PopColor;
+        public delegate* unmanaged[Cdecl]<uint, float, float, void> PushVar;
+        public delegate* unmanaged[Cdecl]<uint, void> PopVar;
+        public delegate* unmanaged[Cdecl]<uint, uint, byte> KeyPressed;
+        public delegate* unmanaged[Cdecl]<uint> KeyMods;
+        public delegate* unmanaged[Cdecl]<float, void> SetScrollHereY;
+    }
+
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CraftMenuTable
@@ -191,16 +236,22 @@ internal static unsafe class UiNative
 
     private static Table* _table;
     private static Table2* _table2;
+    private static Table3* _table3;
     public static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.ui", 1));
 
     /// <summary>The v2 table (right clicks, the wheel), or null on a kiln.ui without them.</summary>
     public static Table2* T2 => _table2 != null ? _table2 : (_table2 = Services.Get<Table2>("kiln.ui", 2));
+
+    /// <summary>The v3 table (font sizes, child flags, cursor and item queries, layered drawing, key queries), or null on
+    /// an older kiln.ui (version below 3, or a table that ends before the v3 slots).</summary>
+    public static Table3* T3 => _table3 != null ? _table3 : (_table3 = Services.Get<Table3>("kiln.ui", 3));
 
     /// <summary>Forgets the cached tables (tests swap the backend).</summary>
     internal static void ResetForTests()
     {
         _table = null;
         _table2 = null;
+        _table3 = null;
     }
 
     public static bool Available => T != null;

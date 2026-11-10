@@ -11,6 +11,7 @@
 #include <tlhelp32.h>
 
 #include <algorithm>
+#include <chrono>
 #include <atomic>
 #include <vector>
 #include <cstdio>
@@ -66,6 +67,95 @@ std::string u8(const std::filesystem::path& p) {
 
 void log(int level, const std::string& s) { g_api->log(g_owner, level, KilnStr{s.data(), s.size()}); }
 
+// ---- state/set.json (docs/kiln/launcher/contracts.md 5.9): what kiln-set did this start, as its sibling plugins write
+// theirs. Written at on_ready and after every mod load (start, reload()), never per frame. ----
+std::string json_str(const std::string& v) {
+    std::string o = "\"";
+    for (const unsigned char c : v) {
+        switch (c) {
+            case '"': o += "\\\""; break;
+            case '\\': o += "\\\\"; break;
+            case '\n': o += "\\n"; break;
+            case '\r': o += "\\r"; break;
+            case '\t': o += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char b[8];
+                    std::snprintf(b, sizeof b, "\\u%04x", c);
+                    o += b;
+                } else {
+                    o += static_cast<char>(c);
+                }
+        }
+    }
+    return o + "\"";
+}
+
+std::filesystem::path g_state;
+std::string g_state_status = "idle", g_state_reason;
+std::mutex g_state_mx;
+
+// The folders with an init.lua, before the mods load (they show as pending until then).
+std::vector<rt::ModReport> pending_mods(const std::filesystem::path& dir) {
+    std::vector<rt::ModReport> out;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec)) return out;
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+        const std::string name = u8(e.path().filename());
+        if (!e.is_directory(ec) || name.empty() || name[0] == '.' || !std::filesystem::exists(e.path() / "init.lua", ec)) continue;
+        out.push_back({name, "pending", "", "", "", u8(e.path())});
+        if (out.size() >= 1024) break;
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+    return out;
+}
+
+void write_state(const std::string& status, const std::string& reason, const std::vector<rt::ModReport>& mods) {
+    std::lock_guard lock(g_state_mx);
+    g_state_status = status;
+    g_state_reason = reason;
+    if (g_state.empty()) return;
+    const auto unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string j = "{\n  \"format\": 1,\n  \"plugin\": \"kiln-set\",\n  \"version\": \"0.1.1\",\n";
+    j += "  \"pid\": " + std::to_string(GetCurrentProcessId()) + ",\n";
+    j += std::string("  \"side\": \"") + (g_api->side() == KILN_SIDE_SERVER ? "server" : "client") + "\",\n";
+    j += "  \"status\": " + json_str(status) + ",\n";
+    j += "  \"reason\": " + json_str(reason) + ",\n";
+    j += std::string("  \"steppedAside\": ") + (status == "stepped-aside" ? "true" : "false") + ",\n";
+    j += "  \"steppedAsideReason\": " + json_str(status == "stepped-aside" ? reason : std::string()) + ",\n";
+    j += "  \"modsDir\": " + json_str(u8(g_game / "shrouded_engine_tweaks" / "mods")) + ",\n";
+    j += "  \"updatedUnixMs\": " + std::to_string(unix_ms) + ",\n  \"mods\": [";
+    for (size_t i = 0; i < mods.size(); ++i) {
+        const auto& m = mods[i];
+        j += i ? ",\n    {" : "\n    {";
+        j += "\"id\": " + json_str(m.name) + ", \"name\": " + json_str(m.title.empty() ? m.name : m.title) +
+             ", \"version\": " + json_str(m.version) + ", \"status\": " + json_str(m.status) + ", \"reason\": " + json_str(m.reason) +
+             ", \"folder\": " + json_str(m.folder) + "}";
+    }
+    j += mods.empty() ? "]\n}\n" : "\n  ]\n}\n";
+    std::error_code ec;
+    std::filesystem::create_directories(g_state, ec);
+    const auto file = g_state / "set.json";
+    auto tmp = file;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return;
+        f << j;
+        if (!f) return;
+    }
+    std::filesystem::rename(tmp, file, ec);  // replaces the old file in one step
+    if (ec) log(KILN_LOG_WARN, "kiln-set: cannot write " + u8(file) + ": " + ec.message());
+}
+
+// rt::onModsReported: after every mod load.
+void on_mods_reported() {
+    const auto mods = rt::modReports();
+    const bool any_failed = std::any_of(mods.begin(), mods.end(), [](const auto& m) { return m.status == "failed"; });
+    const size_t loaded = static_cast<size_t>(std::count_if(mods.begin(), mods.end(), [](const auto& m) { return m.status == "loaded"; }));
+    write_state("running", any_failed ? std::to_string(loaded) + " of " + std::to_string(mods.size()) + " mods loaded; see the failed ones" : "", mods);
+}
+
 // SET's sink: an optional level marker byte, then the line. Kiln's log keeps the level.
 void sink(const char* line) {
     const lv::Level l = lv::of(line);
@@ -89,6 +179,7 @@ bool may_run() {
     g_running = false;
     log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside);
     rt::gameClosing();
+    write_state("stepped-aside", g_aside, {});
     return false;
 }
 
@@ -163,12 +254,14 @@ void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
 void KILN_CALL on_ready(void*) {
     g_game = api_path(KILN_PATH_GAME);
     g_control = api_path(KILN_PATH_CONTROL);
+    g_state = api_path(KILN_PATH_STATE);
     // Armed before the startup check, so a DLL loading in between is still re-checked.
     const bool notified = g_modules.arm();
     g_aside = set_in_process();
     if (!g_aside.empty()) {
         g_modules.disarm();
         log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside + "; its Lua mods are SET's to run");
+        write_state("stepped-aside", g_aside, {});
         return;
     }
     // play-once without mods and an invalid profile load no mod of any engine (the launcher places a profile's SET
@@ -178,8 +271,9 @@ void KILN_CALL on_ready(void*) {
         const uint32_t mode = prof->mode();
         if (mode == KILN_PROFILE_NO_MODS || mode == KILN_PROFILE_INVALID) {
             g_modules.disarm();
-            log(KILN_LOG_INFO, std::string("kiln-set: no SET mods this start (") +
-                                   (mode == KILN_PROFILE_NO_MODS ? "play-once without mods" : "the profile is invalid") + ")");
+            const std::string why = mode == KILN_PROFILE_NO_MODS ? "play-once without mods" : "the profile is invalid";
+            log(KILN_LOG_INFO, "kiln-set: no SET mods this start (" + why + ")");
+            write_state("off", "no SET mods this start: " + why, {});
             return;
         }
     }
@@ -191,6 +285,7 @@ void KILN_CALL on_ready(void*) {
     hk::setLog(&sink);
     const auto mods = g_game / "shrouded_engine_tweaks" / "mods";
     rt::configure(u8(mods), &sink);
+    rt::onModsReported(&on_mods_reported);
     g_initialized = true;
     {  // GetGameBuild(): the exe's link time stamp, as SET reports it
         const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
@@ -222,6 +317,9 @@ void KILN_CALL on_ready(void*) {
     std::error_code ec;
     const bool has_dir = std::filesystem::is_directory(mods, ec);
     g_running = a == KILN_OK && b == KILN_OK;
+    if (!g_running) write_state("failed", "kiln-set could not subscribe to the game's ticks", {});
+    else if (!has_dir) write_state("idle", "no shrouded_engine_tweaks/mods folder: no SET mods", {});
+    else write_state("waiting", "", pending_mods(mods));
     log(g_running ? KILN_LOG_INFO : KILN_LOG_WARN,
         std::string("kiln-set 0.1.1 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
             (has_dir ? "" : " (folder missing: no SET mods)") + ", ticks " + (g_running ? "on" : "off") + ", overlay " +

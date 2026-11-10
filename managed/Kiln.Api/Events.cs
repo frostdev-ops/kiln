@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Kiln.Api.Tests")]
 [assembly: InternalsVisibleTo("Kiln.Ui.Tests")]
+[assembly: InternalsVisibleTo("Kiln.Ui.Preview")]
 
 namespace Kiln;
 

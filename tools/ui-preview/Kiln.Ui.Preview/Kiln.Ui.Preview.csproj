@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The mod manager preview (tools/ui-preview/README.md): runs Kiln.Ui's real drawing code against the headless kiln.ui shim
+       (tools/ui-preview/shim.cpp) and writes PNGs of sample scenes. Linux, no game. Not shipped. -->
+  <Import Project="../../../managed/Directory.Build.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/services/Kiln.Ui/Kiln.Ui.csproj" />
+  </ItemGroup>
+</Project>

@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Ui.Tests" />
+    <InternalsVisibleTo Include="Kiln.Ui.Preview" />
     <InternalsVisibleTo Include="Kiln.Admin" />
   </ItemGroup>
   <ItemGroup>

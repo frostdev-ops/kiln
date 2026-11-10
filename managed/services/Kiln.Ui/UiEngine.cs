@@ -329,7 +329,12 @@ internal static unsafe class UiEngine
         Draw.Frame = f;
         var ui = Draw;
         RenderDispatch.Frame(ui);  // RenderFrameEvent handlers (they draw on the background list, under everything below)
-        if (f.MenuOpen != 0) Menu(ui);
+        if (f.MenuOpen != 0)
+        {
+            // the full-display mod manager; an older kiln.ui without the layout calls keeps the small window
+            if (ui.HasLayout) ModManagerHost.Draw(ui);
+            else Menu(ui);
+        }
         UiWindow[] windows;
         HudLine[] hud;
         lock (Lock)
@@ -394,8 +399,16 @@ internal static unsafe class UiEngine
         {
             var o = s.Options;
             ui.PushStyleRaw(o.Style);
-            ui.NextWindowSize(o.Width * s0, o.Height * s0, 8 /* appearing */);
-            ui.NextWindowPos(ui.Width / 2, ui.Height / 2, 8, 0.5f, 0.5f);
+            if (o.FullScreen)
+            {
+                ui.NextWindowPos(0, 0, 1);
+                ui.NextWindowSize(ui.Width, ui.Height, 1);
+            }
+            else
+            {
+                ui.NextWindowSize(o.Width * s0, o.Height * s0, 8 /* appearing */);
+                ui.NextWindowPos(ui.Width / 2, ui.Height / 2, 8, 0.5f, 0.5f);
+            }
             if (s.FocusNext)
             {
                 s.FocusNext = false;
@@ -404,9 +417,10 @@ internal static unsafe class UiEngine
             uint flags = (1u << 5);  // no collapse
             if (!o.Resizable) flags |= 1u << 1;
             if (!o.TitleBar) flags |= 1u << 0;
+            if (o.FullScreen) flags |= (1u << 0) | (1u << 1) | (1u << 2) | (1u << 8);  // no title bar, resize, move or saved settings
             var keep = true;
             ui.CurrentScreen = s;
-            var visible = o.CloseButton ? ui.BeginWindow($"{s.Title}{s.Id}", ref keep, flags) : ui.BeginWindowNoClose($"{s.Title}{s.Id}", flags);
+            var visible = o.CloseButton && !o.FullScreen ? ui.BeginWindow($"{s.Title}{s.Id}", ref keep, flags) : ui.BeginWindowNoClose($"{s.Title}{s.Id}", flags);
             if (visible && !UiModCalls.Invoke(s.Owner, s.Draw, ui, $"screen '{s.Title}'") && Fault(s, s.Owner, $"screen '{s.Title}'")) keep = false;
             ui.EndWindow();
             ui.CurrentScreen = null;
@@ -648,6 +662,24 @@ internal static unsafe class UiEngine
         }
     }
 
+    /// <summary>A mod's config inline in the mod manager's details: the generated pages (ConfigScreens) and the pages it
+    /// registered with Ui.AddConfigPage, under a "SETTINGS" label.</summary>
+    internal static void DrawConfig(UiDraw ui, string modId, float s, Action<UiDraw, string, float> label)
+    {
+        (string ModId, Action<UiDraw> Draw, ModContext? Owner, Handle H)[] pages;
+        lock (Lock) pages = _configPages;
+        var generated = ConfigScreens.HasConfigs(modId);
+        var any = generated;
+        foreach (var p in pages)
+            if (p.ModId == modId) { any = true; break; }
+        if (!any) return;
+        label(ui, "SETTINGS", s);
+        if (generated) ConfigScreens.Draw(ui, modId);
+        foreach (var p in pages)
+            if (p.ModId == modId && !UiModCalls.Invoke(p.Owner, p.Draw, ui, $"config page {modId}") && Fault(p.Draw, p.Owner, $"config page {modId}"))
+                p.H.Dispose();
+    }
+
     /// <summary>What mods say about themselves (<see cref="StatusLines"/>): the last snapshot; the sources run on a worker about
     /// twice a second, never on the render thread.</summary>
     private static void StatusSection(UiDraw ui)
@@ -663,12 +695,13 @@ internal static unsafe class UiEngine
         }
     }
 
-    private static void NetworkTab(UiDraw ui)
+    internal static void NetworkTab(UiDraw ui)
     {
         var st = Network.Status;
-        ui.Text($"Kiln.Network {(st.Available ? "available" : "unavailable")}: roles {(st.ServerRole ? "server " : "")}{(st.ClientRole ? "client" : "")}, " +
-                $"max frame {st.MaxFrame} B, channels {st.Channels}");
-        ui.Text($"frames in/out {st.FramesIn}/{st.FramesOut}, dropped {st.Dropped}");
+        ui.Text(st.Available ? "Kiln's network is on: mods can talk between this game and a Kiln server."
+                             : "Kiln's network is not running in this session.");
+        var roles = st.ServerRole && st.ClientRole ? "server and client" : st.ServerRole ? "server" : st.ClientRole ? "client" : "none";
+        ui.TextDisabled($"Role: {roles}. Messages in {st.FramesIn}, out {st.FramesOut}, dropped {st.Dropped}. Channels: {st.Channels}. Largest message: {st.MaxFrame} bytes.");
         if (Network.Server is { } srv)
         {
             ui.Separator("Server");
@@ -732,7 +765,7 @@ internal static unsafe class UiEngine
         }
     }
 
-    private static void KeysTab(UiDraw ui)
+    internal static void KeysTab(UiDraw ui)
     {
         ui.TextDisabled("Click a key, then press the new one (Escape cancels). Saved to kiln/config/keybinds.json.");
         if (!ui.BeginTable("kiln.keys", "Action", "Key", "Default", "")) return;
@@ -757,7 +790,7 @@ internal static unsafe class UiEngine
         ui.EndTable();
     }
 
-    private static void OverlayTab(UiDraw ui)
+    internal static void OverlayTab(UiDraw ui)
     {
         var s = Ui.Status;
         ui.Text($"{s.Width}x{s.Height}, format {s.Format}, scale {s.Scale:F2}");

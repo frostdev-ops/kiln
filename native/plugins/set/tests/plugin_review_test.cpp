@@ -14,6 +14,8 @@ void setOverlayOpen(bool) {} bool hasDraw() { return false; }
 bool tryLockDraw() { return false; } void drawLocked() {}
 void setSystemsAvailable(bool) {} void bindKiln(const KilnApi*, KilnOwner) {}
 void configure(const std::string&, Sink) {} void setGameBuild(uint32_t) {}
+std::vector<ModReport> reports; void (*reported)() = nullptr;
+std::vector<ModReport> modReports() { return reports; } void onModsReported(void (*fn)()) { reported = fn; }
 void queue(std::string) { if (throw_queue) throw std::runtime_error("queue failed"); ++queued; }
 }
 namespace hk { void setLog(Log) {} }
@@ -288,6 +290,34 @@ int main(int argc, char** argv) {
     check(g_running && g_modules.due(), "on_ready preserves a load during its startup scan");
     on_unload(nullptr);
     check(loader_test::registrations == 0, "on_unload explicitly unregisters");
+    // state/set.json: kiln-set's report in its siblings' shape (pid, updatedUnixMs, status, mods[] with id/status/reason)
+    {
+        g_state = root / "state";
+        g_game = root;
+        std::filesystem::remove_all(g_state);
+        rt::reports = {{"good", "loaded", "", "Good \"Mod\"", "1.0.0", "C:\\g\\good"},
+                       {"bad", "failed", "init.lua:1: boom\nline two", "", "", "C:\\g\\bad"}};
+        check(rt::reported == &on_mods_reported, "on_ready asks for the load reports");
+        rt::reported();
+        std::ifstream f(g_state / "set.json");
+        std::stringstream ss;
+        ss << f.rdbuf();
+        const std::string j = ss.str();
+        auto has = [&](const char* t) { return j.find(t) != std::string::npos; };
+        check(has("\"format\": 1") && has("\"plugin\": \"kiln-set\"") && has("\"pid\": 1") && has("\"updatedUnixMs\": ") &&
+                  has("\"status\": \"running\"") && has("1 of 2 mods loaded"),
+              "set.json has the sibling fields and the overall status");
+        check(has("{\"id\": \"good\", \"name\": \"Good \\\"Mod\\\"\", \"version\": \"1.0.0\", \"status\": \"loaded\"") &&
+                  has("\"id\": \"bad\", \"name\": \"bad\"") && has("boom\\nline two") && has("C:\\\\g\\\\bad"),
+              "set.json lists each mod with escaped text");
+        check(!std::filesystem::exists(g_state / "set.json.tmp"), "set.json is written through a temporary file");
+        write_state("stepped-aside", "SET's own powrprof.dll runs", {});
+        std::ifstream f2(g_state / "set.json");
+        std::stringstream s2;
+        s2 << f2.rdbuf();
+        check(s2.str().find("\"steppedAside\": true") != std::string::npos && s2.str().find("\"mods\": []") != std::string::npos,
+              "stepping aside is reported with no mods");
+    }
     check(failures == 0, "all edge cases");
     if (failures) return 1;
     std::puts("plugin coexistence/lifecycle/per-frame cost review: PASS");

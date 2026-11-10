@@ -83,6 +83,8 @@ KeyBindings.Register("mymod.waypoints", "F6", screen.Toggle);       // a key ope
 - Widgets: everything in `UiDraw` (below) plus `Image` / `ImageButton` (PNG via `Ui.LoadImage`), `Combo`,
   `InputMultiline`, `Space`, `WindowRect`, `CloseScreen`.
 - Open from the game's menus (`Ui.Menus`), a key binding, a command or code (any thread).
+- `FullScreen = true`: the whole display, no title bar, not movable or resizable (Width/Height are ignored); draw your own
+  title and layout with the calls in "Layout for full screens". Escape still closes it.
 - Screens are Kiln overlay windows (ImGui), not game widgets. Gamepad: while Kiln has the input the game sees an idle
   pad (XInputGetState hooked) and the pad drives ImGui's navigation (d-pad / left stick move, A activates, LB/RB
   switch tabs, B closes the top screen like Escape). Native menu entries use the game's own pad navigation. Under Proton the mouse works wherever the game leaves the pointer free (main menu, pause menu, crafting
@@ -147,6 +149,31 @@ w.Toggle();   // Show / Hide / Open = true; the X button closes it too
   (server world, when hosting).
 - A window belongs to its mod and goes away when the mod unloads. A draw that throws 5 times closes the window.
 
+### Layout for full screens
+For pages laid out like the game's own menus (the Kiln menu uses these). Sizes are pixels; multiply your own by `ui.Scale`.
+```csharp
+using (ui.FontSize(36)) ui.Text("Waypoints");                         // a title: 36 px at scale 1, the game's font kept
+if (ui.BeginChild("list", 320 * ui.Scale, 0, UiChildFlags.NavFlattened))  // columns the d-pad can cross
+{
+    foreach (var w in _points)
+    {
+        if (ui.Selectable("##" + w.Id, w == _sel, 0, 48 * ui.Scale)) _sel = w;   // a tall row
+        var it = ui.LastItem;                                          // its rectangle, hovered/focused/...
+        ui.DrawText(UiLayer.Window, it.MinX + 12, it.MinY + 8, w.Name, Color.White, 18 * ui.Scale);
+    }
+}
+ui.EndChild();
+using (ui.PushColor(UiColorSlot.Text, Color.Yellow)) ui.TextWrapped("Hint");
+if (ui.KeyPressed(UiKey.Tab, claim: true)) NextTab();                  // claim: ImGui's own focus does not move too
+```
+- `FontSize(px)` (scope), `BeginChild(id, w, h, UiChildFlags, UiWindowFlags)` (no border unless `Border`), `NextItemWidth`,
+  `Cursor` (position, space left, window rectangle, font size) and `SetCursor(x, y)`, `LastItem`, `Selectable(label,
+  selected, width, height, flags)`, `FocusKeyboardHere()` (type into the next text field), `DefaultFocus()`,
+  `DrawRect` / `DrawText` on a `UiLayer` (the current window, behind or over everything), `MeasureText(text, size, wrap)`,
+  `PushColor(UiColorSlot, color)` / `PushVar(UiStyleVar, x, y)` (scopes), `KeyPressed(UiKey, repeat, claim)`, `HeldMods`,
+  `ScrollHere(ratio)`.
+- `ui.HasLayout` is false on an older kiln.ui: each call then falls back to the older one or does nothing.
+
 ## Radial wheel
 A wheel in the middle of the screen: 1 to 64 entries, 8 per page. It is what EMF's `wheel_open` draws. From any thread:
 ```csharp
@@ -206,17 +233,46 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
 - `kiln.menu` (default **Insert**) opens the Kiln menu. Its toggle is native, so it works without the managed host.
   Escape closes the menu.
 
-## The Kiln menu
-Tabs:
-- **Mods**: every mod Kiln found, with version, side, state and errors. A **Config** button appears for every mod with
-  a registered config (a page generated from its schema, `ConfigScreens.cs`; server configs are read-only while
-  connected) or a page registered with `Ui.AddConfigPage(modId, ui => …)`; **Kiln settings** edits Kiln's own configs.
+## The Kiln menu (the mod manager)
+A full-display page in the game's look (its colours and its UI font), opened by the menu key (Insert), the main menu's
+and the pause menu's **Mods** entry; Escape (gamepad B) goes back. A large title, a tab row of sections, a footer of key
+hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad move; Enter or A chooses; Ctrl+F jumps to the search box.
+- **Mods**: three columns.
+  - Left: **All mods**, **Needs attention** (only when a mod failed or its folder is missing), then one row per engine
+    that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, ShroudForge, SET, Greeneye, Flame,
+    Shroudtopia, Enshwick, shroudlink, Ember) with its count and a mark (green fine, grey idle, red a problem), and
+    **Kiln settings** (Kiln's own configs) when there are any.
+  - Middle: the mods of that row (name, version, a state chip: Loaded, Waiting, Off, Failed, Not loaded, Missing; the
+    engine when mixed), a search box that filters as you type (every word must match the name, id or engine), the engine's
+    one-line state when it matters ("ShroudForge: runtime hosted by Kiln.", "EMF: stepped aside for the real EMF",
+    "Ember: mods are found but cannot run yet."), and an empty state that says what to do.
+  - Right: the selected mod: name, id, version, state, engine and side chips, the full reason or error and what to do
+    about it, the engine, the folder; for Kiln mods also the load order, what it needs, its status lines
+    (`StatusLines`) and its settings inline: the page generated from its config schema (`ConfigScreens.cs`; server
+    configs are read-only while connected) and the pages it registered with `Ui.AddConfigPage(modId, ui => …)`.
+  The selection follows the gamepad / keyboard focus and is kept while the game runs.
 - **Network**: Kiln.Network's status, the server's Kiln version, warnings and mods, and clients and channels when hosting.
 - **Keys**: every binding, with remap and reset.
 - **Overlay**: resolution, scale, frame cost, error, a test toast.
 
-If no managed code subscribed to the overlay, the native side draws a minimal Kiln window saying the managed host
-is not running.
+Where the list comes from (`ModCatalog.cs`, internal; usable on a dedicated server, which has no menu):
+`Mods.All` for Kiln mods; `<game>/kiln/state/` for the rest: `boot.json` (chain DLLs, Kiln plugins, the profile in use),
+`native.json`, and each engine plugin's file (`emf.json`, `eml.json`, `set.json`, `greeneye.json`, `flame.json`,
+`shroudtopia.json`, `shroudlink.json`, `ember.json`; contracts.md 5.9). ShroudForge and Enshwick report no per-mod result:
+their mods come from the profile and their mods folder, their state from `shroudforge.json` / `enshwick.json`. A mod the
+profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not
+loaded, with the reason. A file from an earlier start (another `pid`, or written before this process started) does not
+count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.
+
+Cost: nothing while the menu is closed. While it is open the list is read on a worker at most every 2 seconds; the render
+thread only draws the last list (no file access, no waiting); rows are made when the list, the filter or the search change.
+
+The page draws into a rectangle at a scale (`ModManagerPage.Draw(ui, rect, scale)`), apart from its host
+(`ModManagerHost`: the background, the title, the footer, the size of the display), so it can later be shown inside the
+game's own menu page. On a kiln.ui without the layout calls below the old small Kiln window is drawn. If no managed code
+subscribed to the overlay, the native side draws a minimal Kiln window saying the managed host is not running.
+
+`tools/ui-preview/` renders the page to PNGs on Linux without the game (its README).
 
 ## C (native plugins)
 `kiln_ui.h` (later additions, check `header.size`): `screen`, `subscribe_screen`, `subscribe_ui_tick`,
@@ -226,7 +282,15 @@ is not running.
 appends `is_item_clicked(button)` (a click of `KILN_UI_MOUSE_LEFT/RIGHT/MIDDLE` on the item drawn last, inside a frame callback) and
 the wheel: `wheel_open(owner, &KilnUiWheel, fn, user, &handle)` (`fn(choice, user)` once on the render thread; -1 = cancelled),
 `wheel_close(handle)` (ends it without `fn`) and `wheel_active()`. The pure rules (pages, hit test, hold key, tap) are in
-`native/services/ui/wheel_math.h`, tested by `native/services/ui/tests/run.sh`. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
+`native/services/ui/wheel_math.h`, tested by `native/services/ui/tests/run.sh`. Version 3 appends the layout calls above
+(check `header.size >= offsetof(KilnUiApi, set_scroll_here_y) + sizeof(void*)`): `push_font_size` / `pop_font_size`,
+`begin_child_ex` (`KILN_UI_CHILD_*`), `set_next_item_width`, `cursor` (`KilnUiCursor`), `set_cursor_pos`, `item`
+(`KilnUiItem`), `selectable_ex` (`KILN_UI_SELECTABLE_*`), `set_keyboard_focus_here`, `set_item_default_focus`,
+`draw_rect_in` / `draw_text_in` (`KILN_UI_LAYER_*`), `text_size_ex`, `push_color` / `pop_color` (`KILN_UI_COLOR_*`),
+`push_var` / `pop_var` (`KILN_UI_VAR_*`), `key_pressed` (`KILN_UI_KEY_*`, `KILN_UI_KEYQ_REPEAT|CLAIM`), `key_mods`,
+`set_scroll_here_y`, and the window flags `KILN_UI_WINDOW_NO_SAVED_SETTINGS`, `NO_BRING_TO_FRONT`,
+`ALWAYS_VERTICAL_SCROLLBAR`. Colours, vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
+slots live in `native/services/ui/draw_slots.h`, shared with the preview shim. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate
 tables in the same header.
 

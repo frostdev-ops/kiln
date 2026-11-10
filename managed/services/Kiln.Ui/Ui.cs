@@ -12,7 +12,7 @@ namespace Kiln;
 /// <remarks>Runs on the game's render thread, once per frame while visible. Keep it quick, read game state through
 /// snapshots the mod keeps, and hop to the game's threads to act (<c>Client.Post</c> for the client world,
 /// <c>Context.Scheduler.Post</c> for the server world).</remarks>
-public sealed unsafe class UiDraw
+public sealed unsafe partial class UiDraw
 {
     internal UiDraw() { }
 
