@@ -168,6 +168,8 @@ pub const NAMES: &[&str] = &[
     "chain_set_late",
     "found_scan",
     "found_add",
+    "report_save",
+    "report_summary",
 ];
 
 #[cfg(test)]

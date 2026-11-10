@@ -57,3 +57,62 @@ pub async fn logs_unfollow(subscription: String) -> Result<(), Error> {
 pub async fn logs_crash_reports(target: LogTarget) -> Result<Vec<CrashReport>, Error> {
     blocking(move || logs::crash_reports(&target_dir(&target)?)).await
 }
+
+// ---------------------------------------------------------------- support report (kiln_manage::report)
+
+/// `report_save`'s answer (launcher type).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportSaved {
+    /// The zip written.
+    pub path: String,
+    pub size: u64,
+    pub findings: Vec<kiln_manage::report::Finding>,
+    /// Sections that could not be read (the rest is in the zip).
+    pub errors: Vec<String>,
+}
+
+/// What a report covers: a game, a local server, or (None) the system and the launcher only. Reads every time, keeps
+/// nothing between calls.
+fn report_input(app: &tauri::AppHandle, target: Option<LogTarget>) -> Result<kiln_manage::report::ReportInput, Error> {
+    let mut input = kiln_manage::report::ReportInput {
+        tool: format!("kiln-launcher {}", app.package_info().version),
+        dirs: crate::state::dirs().ok(),
+        deck: Some(crate::deck::detect::current().detected),
+        roots: Some(crate::state::steam_roots()),
+        ..Default::default()
+    };
+    match target {
+        Some(LogTarget::Game(id)) => input.install = Some(crate::state::game(&id)?),
+        Some(t @ LogTarget::Server(_)) => input.game_dir = Some(target_dir(&t)?),
+        None => {}
+    }
+    Ok(input)
+}
+
+/// Writes the support report zip to `path` (".zip" added when missing).
+#[tauri::command]
+pub async fn report_save(app: tauri::AppHandle, target: Option<LogTarget>, path: String) -> Result<ReportSaved, Error> {
+    if path.trim().is_empty() {
+        return Err(Error::invalid("Choose where to save the report."));
+    }
+    let input = report_input(&app, target)?;
+    blocking(move || {
+        let mut out = PathBuf::from(&path);
+        if !out.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+            out.as_mut_os_string().push(".zip");
+        }
+        let r = kiln_manage::report::build(&input);
+        let size = kiln_manage::report::write_zip(&r, &out)?;
+        crate::commands::app::launcher_log("report", &format!("support report written ({size} bytes, {} findings)", r.findings.len()));
+        Ok(ReportSaved { path: out.display().to_string(), size, findings: r.findings, errors: r.errors })
+    })
+    .await
+}
+
+/// The short summary for a forum post ("Copy summary"), redacted like the zip.
+#[tauri::command]
+pub async fn report_summary(app: tauri::AppHandle, target: Option<LogTarget>) -> Result<String, Error> {
+    let input = report_input(&app, target)?;
+    blocking(move || Ok(kiln_manage::report::build(&input).short)).await
+}

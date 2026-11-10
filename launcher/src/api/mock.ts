@@ -4,7 +4,7 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, Detected, Distribution,
+  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
   EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
@@ -583,6 +583,9 @@ const logFiles: Record<string, string[]> = {
 const kindOf = (n: string): LogFile["kind"] => (n.endsWith("proxy.log") ? "proxy" : n.includes("/mods/") ? "mod" : n.startsWith("kiln/") ? "kiln" : "game");
 const follows = new Map<string, ReturnType<typeof setInterval>>();
 let subSeq = 0;
+const mockReportFindings: ReportFinding[] = [
+  { id: "crash", level: "warning", text: "Kiln wrote a crash report on 2026-11-03T22:10:04Z: kiln/crash-reports/2026-11-03T22-10-04Z-night-sky.txt (1 in all; the newest is in this report)." },
+];
 const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", created: "2026-11-03T22:10:04Z", size: 4_211 }];
 
 // ---------------------------------------------------------------- settings, servers
@@ -1001,6 +1004,22 @@ const handlers: Record<string, Handler> = {
   },
   logs_unfollow: (a) => { clearInterval(follows.get(S(a.subscription))); follows.delete(S(a.subscription)); return null; },
   logs_crash_reports: () => crashes,
+  report_save: (a) => {
+    if (!S(a.path).trim()) reject("invalid_argument", "Choose where to save the report.");
+    const path = /\.zip$/i.test(S(a.path)) ? S(a.path) : `${S(a.path)}.zip`;
+    return { path, size: 48_213, findings: mockReportFindings, errors: [] } satisfies ReportSaved;
+  },
+  report_summary: () => [
+    "Kiln support report, 2026-11-10T12:00:00Z",
+    "kiln-launcher 0.2.0-dev (mock); Kiln in the game: 0.2.0-dev",
+    "OS: Arch Linux; Proton: GE-Proton10-3; Steam Deck: no",
+    "Game: client, Steam build 26430253, known to Kiln: yes",
+    "Profile: Ember run (4 mods)",
+    "Last start: 2026-11-04T12:01:02Z, hooks on",
+    "Findings:",
+    ...mockReportFindings.filter((f) => f.level !== "info").map((f) => `- ${f.text}`),
+    "",
+  ].join("\n"),
 
   // saves
   saves_list: (a) => { gameOf(a.gameId); return saveSlots; },

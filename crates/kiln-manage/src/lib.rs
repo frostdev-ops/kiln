@@ -37,6 +37,7 @@
 //! | [`jsonc`] | JSONC CST value edits |
 //! | [`saves`] | save slots, save backups, the save editor's commands |
 //! | [`logs`] | log files, tail/follow, crash reports |
+//! | [`report`] | support reports: summary, findings, redacted files, the zip (`zip`) |
 //! | [`control`] | `kiln/control/*.cmd`, `kiln/control/console/*.cmd` |
 //! | [`util`] | paths, UTC time formatting, atomic writes, external commands (from kilnctl) |
 //! | [`wine`] | Wine runner selection and environment of server instances (from kilnctl) |
@@ -87,6 +88,7 @@ pub mod config;
 pub mod control;
 pub mod jsonc;
 pub mod logs;
+pub mod report;
 pub mod saves;
 pub mod state;
 
