@@ -332,8 +332,14 @@ fn mods_in_the_game_folder_the_profile_skips() {
     assert!(u.text.contains("kiln/mods/extra-mod"), "{}", u.text);
     assert!(!u.text.contains("chat-plus"), "the profile lists it: {}", u.text);
     assert!(!u.text.contains("old-mod"), "switched off: {}", u.text);
-    assert!(!u.text.contains("BiggerTorch"), "the profile has no Flame list, so Flame's folder is read: {}", u.text);
-    // a Flame list in the profile: then the folder is not read
+    // every plugin follows `dropins` (dev.22): `false` reads no folder, Flame's included
+    assert!(u.text.contains("mods/BiggerTorch"), "{}", u.text);
+    // a list naming flame (what the launcher writes for a profile from before dev.22 without Flame mods): read
+    f.profile(serde_json::json!(["flame"]), serde_json::json!({"kiln": [{"id": "chat-plus", "version": "1.0.0", "path": "x"}]}));
+    let r = build(&f.input());
+    let u = finding(&r, "unlisted-mods");
+    assert!(u.text.contains("kiln/mods/extra-mod") && !u.text.contains("BiggerTorch"), "{}", u.text);
+    // a list without flame: Flame's folder is not read, whether or not the profile has Flame mods
     f.profile(serde_json::json!(["kiln"]), serde_json::json!({"kiln": [], "flame": [{"id": "other", "path": "x"}]}));
     let r = build(&f.input());
     let u = finding(&r, "unlisted-mods");
