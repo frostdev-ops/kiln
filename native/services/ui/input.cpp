@@ -21,6 +21,7 @@
 #include "imgui.h"
 #include "safetyhook.hpp"
 #include "ui.h"
+#include "wndproc_chain.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -36,8 +37,10 @@ struct Msg {
 
 std::mutex g_qmu;
 std::deque<Msg> g_queue;
-WNDPROC g_old_proc = nullptr;
+// Kiln's place in the game window's procedure chain (wndproc_chain.h). `below` is what wndproc passes messages on to.
+chain::State g_chain;
 HWND g_attached = nullptr;
+bool g_loop_said = false;
 bool g_raw_keyboard_seen = false;
 std::atomic<bool> g_down[256] = {};  // keys down, as the window's messages told (the wheel asks from other threads)
 bool g_consumed[256] = {};  // vk consumed by a binding: swallow its legacy messages too
@@ -125,6 +128,18 @@ bool is_button_up(UINT m) {
 }
 
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    // A loop in the window's procedure chain (another module subclassing over and over) would end the window thread's
+    // stack. The message leaves the loop here; input_attach never closes one itself.
+    const chain::Depth depth;
+    if (depth.looped()) {
+        if (!g_loop_said) {
+            g_loop_said = true;
+            logf(KILN_LOG_ERROR, "ui: the game window's procedures call each other in a loop (message 0x%x, %d levels deep): "
+                 "another module subclassed the window in a way that leads back to Kiln's. Kiln stops passing such messages on; "
+                 "the game may miss input", m, chain::kMaxDepth);
+        }
+        return DefWindowProcW(h, m, w, l);
+    }
     const bool cap = capturing();
     switch (m) {
         case kShowCursorMsg:
@@ -227,7 +242,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             break;
     }
-    return CallWindowProcW(g_old_proc, h, m, w, l);
+    return CallWindowProcW(g_chain.below, h, m, w, l);
 }
 
 BOOL WINAPI hk_set_cursor_pos(int x, int y) {
@@ -399,22 +414,69 @@ void input_install_iat() {
          b ? "hooked" : "not found");
 }
 
-void input_attach(HWND hwnd) {
-    if (!hwnd || !IsWindow(hwnd)) return;
-    const auto current = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(hwnd, GWLP_WNDPROC));
-    if (g_attached == hwnd && current == &wndproc) return;
-    if (!current) return;
-    // first time, or the game set its WndProc again: (re)subclass. The previous procedure is stored before the swap:
-    // the window thread may call ours at once.
-    if (current != &wndproc) g_old_proc = current;
-    const auto prev = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&wndproc)));
-    if (!prev) {
-        logf(KILN_LOG_WARN, "ui: subclassing window %p failed (%lu)", reinterpret_cast<void*>(hwnd), GetLastError());
-        return;
+namespace {
+
+// `p` belongs to the game's own executable (not to a mod, a system DLL or a thunk handle).
+bool games_procedure(WNDPROC p) {
+    HMODULE m = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(p), &m))
+        return false;
+    return m && m == GetModuleHandleW(nullptr);
+}
+
+// "<file name>+0x<offset>" of a procedure, for the log.
+void describe_procedure(WNDPROC p, char* out, size_t cap) {
+    HMODULE m = nullptr;
+    wchar_t path[MAX_PATH] = {};
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(p), &m) && m && GetModuleFileNameW(m, path, MAX_PATH)) {
+        const wchar_t* name = path;
+        for (const wchar_t* c = path; *c; ++c)
+            if (*c == L'\\' || *c == L'/') name = c + 1;
+        char narrow[MAX_PATH] = {};
+        WideCharToMultiByte(CP_UTF8, 0, name, -1, narrow, sizeof(narrow) - 1, nullptr, nullptr);
+        snprintf(out, cap, "%s+0x%llx", narrow,
+                 static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(p) - reinterpret_cast<uintptr_t>(m)));
+    } else {
+        snprintf(out, cap, "%p", reinterpret_cast<void*>(p));
     }
-    if (prev != &wndproc && prev != current) g_old_proc = prev;  // changed in between
-    if (g_attached != hwnd) logf(KILN_LOG_INFO, "ui: game window %p subclassed", reinterpret_cast<void*>(hwnd));
-    g_attached = hwnd;
+}
+
+}  // namespace
+
+void input_attach(HWND hwnd) {
+    const WNDPROC above_before = g_chain.hwnd == hwnd ? g_chain.above : nullptr;
+    switch (chain::attach(g_chain, hwnd, &wndproc, games_procedure)) {
+        case chain::Result::Subclassed:
+            logf(KILN_LOG_INFO, "ui: game window %p subclassed", reinterpret_cast<void*>(hwnd));
+            g_attached = hwnd;
+            break;
+        case chain::Result::Again:
+            logf(KILN_LOG_INFO, "ui: the game set its own window procedure again; game window %p subclassed again",
+                 reinterpret_cast<void*>(hwnd));
+            g_attached = hwnd;
+            break;
+        case chain::Result::Unchanged:
+            g_attached = hwnd;
+            break;
+        case chain::Result::Below:
+            // Said once per procedure: this is looked at every second.
+            if (g_chain.above != above_before) {
+                char who[MAX_PATH + 32];
+                describe_procedure(g_chain.above, who, sizeof(who));
+                logf(KILN_LOG_INFO, "ui: %s subclassed the game window after Kiln; Kiln's procedure stays in the chain below it", who);
+            }
+            break;
+        case chain::Result::Failed: {
+            static HWND said_for = nullptr;  // once per window: this is looked at every second
+            if (hwnd && IsWindow(hwnd) && g_attached != hwnd && said_for != hwnd) {
+                said_for = hwnd;
+                logf(KILN_LOG_WARN, "ui: subclassing window %p failed (%lu)", reinterpret_cast<void*>(hwnd), GetLastError());
+            }
+            break;
+        }
+    }
 }
 
 bool input_attached() { return g_attached != nullptr; }

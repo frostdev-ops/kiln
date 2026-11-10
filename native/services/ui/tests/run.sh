@@ -4,12 +4,16 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 : "${KILN_OUT:=$here/../../../build}"
+export KILN_OUT
 out=$KILN_OUT/ui-host-test
 mkdir -p "$out"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/render_math_test.cpp" -o "$out/render_math_test"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/wheel_math_test.cpp" -o "$out/wheel_math_test"
 "$out/wheel_math_test"
 "$out/render_math_test"
+# the window procedure chain (another mod subclassing the game window after Kiln): fake window functions
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/chain_host" "$here/wndproc_chain_test.cpp" -o "$out/wndproc_chain_test"
+"$out/wndproc_chain_test"
 g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
     -I"$here/stubs" -I"$here/../../../core/abi" "$here/menu_page_host_test.cpp" -o "$out/menu_page_host_test"
 "$out/menu_page_host_test"
