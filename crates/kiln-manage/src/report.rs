@@ -65,7 +65,7 @@ struct PathNeedle {
 struct Word {
     text: Vec<char>,
     token: &'static str,
-    /// Only between non-word characters (short or common names); else anywhere (`jame-pc`, `JAME~1`).
+    /// Only between non-word characters (short or common names); else anywhere (`ivan-pc`, `IVAN~1`).
     whole: bool,
 }
 
