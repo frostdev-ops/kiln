@@ -1,0 +1,31 @@
+{
+  "file": "once",
+  "expect": {
+    "profile": [
+      {
+        "path": "Z:\\mods\\once-p.dll",
+        "relative": false,
+        "status": "ok"
+      }
+    ],
+    "chain": [
+      {
+        "path": "chain\\a-dinput8.dll",
+        "relative": true,
+        "status": "ok"
+      },
+      {
+        "path": "chain\\b-dinput8.dll",
+        "relative": true,
+        "status": "ok"
+      }
+    ],
+    "late": [
+      {
+        "path": "chain\\b-dinput8.dll",
+        "relative": true,
+        "status": "ok"
+      }
+    ]
+  }
+}

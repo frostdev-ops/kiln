@@ -60,6 +60,17 @@ inline const KilnHooksApi* hooks_v2(const KilnApi* api) {
     return t && t->header.version >= 2 && t->header.size >= sizeof(KilnHooksApi) ? t : nullptr;
 }
 
+// True when kiln.hooks has no free target slot left (stats().targets reached targets_cap, 512). Then a raw_detour /
+// detour2 / mid2 that answers KILN_ERR_UNAVAILABLE for an address it does not hook yet means "full", not "refused": no
+// Kiln link can ever join that address (a new address is refused for good, targets are never freed), so a plain
+// safetyhook detour there cannot meet a Kiln chain later. False when kiln.hooks does not say (a core without targets_cap).
+inline bool hooks_targets_full(const KilnHooksApi* h) {
+    if (!h || !h->stats) return false;
+    KilnHooksStats st{};
+    st.size = sizeof st;
+    return h->stats(&st) == KILN_OK && st.targets_cap != 0 && st.targets >= st.targets_cap;
+}
+
 namespace hook_detail {
 
 struct State {

@@ -14,7 +14,9 @@
 //      stick). Ignored when older than 600 s, in the future, invalid, or on a dedicated server.
 //        mode=vanilla  no chain, no gate: this start is vanilla.
 //        mode=no-mods  the chain is listed but not loaded (SKIPPED); the core boots without any mod.
-//        mode=profile  kiln/chain/once.ini instead of kiln/chain.ini; the core boots from kiln/profile.once.json.
+//        mode=profile  kiln/chain/once.ini instead of kiln/chain.ini [profile]; the core boots from kiln/profile.once.json.
+//                      once.ini may carry its own [chain] and [late] (dev.21): the play-once profile's compat rules
+//                      applied. A section it has replaces chain.ini's for this start; one it lacks leaves chain.ini's.
 //   3. Chain loading (docs/kiln/launcher/contracts.md, "chain.ini"), in this order:
 //        kiln/chain.ini [chain]    proxies the installer displaced (EMF's loader, unknown dinput8 mods)
 //        <game>/dinput8-chain.ini  EMF's chain file, [Chain], [EMF] (the DLLs EMF 0.5's installer renamed) and lines
@@ -733,8 +735,9 @@ struct List {
 struct Section {
     const wchar_t* name;
     List* list;
+    bool seen = false;  // the file has this section's header
 };
-void read_dll_list(const wchar_t* file, List* first, const Section* sections, size_t nsections) {
+void read_dll_list(const wchar_t* file, List* first, Section* sections, size_t nsections) {
     DWORD error = 0;
     wchar_t* text = read_text(file, &error);
     if (!text) {
@@ -749,7 +752,7 @@ void read_dll_list(const wchar_t* file, List* first, const Section* sections, si
         if (section_of(line, section, 128)) {
             current = nullptr;
             for (size_t i = 0; i < nsections; ++i)
-                if (lstrcmpW(section, sections[i].name) == 0) current = sections[i].list;
+                if (lstrcmpW(section, sections[i].name) == 0) current = sections[i].list, sections[i].seen = true;
             return;
         }
         if (!current) return;  // other sections belong to other tools
@@ -870,7 +873,9 @@ bool profile_well_formed(const wchar_t* file) {
 
 // kiln\chain.ini [chain] (lines before any section count as [chain]) -> <game>\dinput8-chain.ini ([Chain], [EMF] and
 // lines before any section, EMF's rules) -> kiln\chain.ini [profile], or with play-once mode=profile kiln\chain\once.ini
-// ([profile], lines before any section count) in place of chain.ini [profile].
+// ([profile], lines before any section count) in place of chain.ini [profile]. once.ini may have a [chain] and a [late]
+// of its own (the play-once profile's compat rules applied, written by the launcher); each one it has replaces the
+// same section of chain.ini for this start, each it lacks leaves chain.ini's (a once.ini from before dev.21).
 void load_chain(bool profile_once, bool skip) {
     g_game_canon = canonical(g_game);
     wchar_t buf[kPath];
@@ -884,19 +889,28 @@ void load_chain(bool profile_once, bool skip) {
     wchar_t file[kPath];
     lstrcpynW(file, g_kiln, kPath - 32);
     lstrcatW(file, L"\\chain.ini");
-    const Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}, {L"late", &late}};
+    Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}, {L"late", &late}};
     read_dll_list(file, &chain, chain_sections, 3);
     if (profile_once) {
+        List once_chain, once_late;
         lstrcpynW(file, g_kiln, kPath - 32);
         lstrcatW(file, L"\\chain\\once.ini");
-        const Section once_sections[] = {{L"profile", &profile}};
-        read_dll_list(file, &profile, once_sections, 1);
+        Section once_sections[] = {{L"profile", &profile}, {L"chain", &once_chain}, {L"late", &once_late}};
+        read_dll_list(file, &profile, once_sections, 3);
+        if (once_sections[1].seen) {
+            chain = once_chain;
+            plog(L"chain: %s has its own [chain] (%u entries): used for this start instead of chain.ini's", file, chain.count);
+        }
+        if (once_sections[2].seen) {
+            late = once_late;
+            plog(L"chain: %s has its own [late] (%u entries): used for this start instead of chain.ini's", file, late.count);
+        }
     }
     lstrcpynW(file, g_game, kPath - 32);
     lstrcatW(file, L"\\dinput8-chain.ini");
     // [EMF]: the DLLs EMF 0.5's installer renamed (only EMF's loader read them). One list with [Chain], in file
     // order, as EMF's own reader takes them; a DLL that EMF's chained loader also starts is loaded once by Windows.
-    const Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
+    Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
     read_dll_list(file, &emf, emf_sections, 2);
     const uint32_t late_n = late.count < kMaxPerList ? late.count : kMaxPerList;  // [late] has no overflow report
     const uint32_t total = chain.count + emf.count + profile.count;  // [late] adds no entries of its own

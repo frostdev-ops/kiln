@@ -1044,7 +1044,8 @@ export interface ChainViewEntry {
   /** [profile]: the native mod's id. */
   modId: string | null;
   late: boolean;
-  /** "player" ([chain], game-wide), "profile", or "rule:<id>". */
+  /** "player" ([chain], game-wide), "profile", or "rule:<id>" (a rule of this profile, or one that wrote the chain.ini
+   *  [late] line, which is then not the player's to switch off). */
   lateBy: string | null;
   /** "rule:<id>" when a compat rule switches it off. */
   offBy: string | null;

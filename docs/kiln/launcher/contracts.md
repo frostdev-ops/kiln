@@ -234,7 +234,8 @@ What the proxy does, in this order:
 6. Apply: `vanilla` loads nothing (no chain, no core); `no-mods` loads no chain entry and boots the core with
    `KILN_PLAY_ONCE_NO_MODS` (Kiln and its own services run; no managed, native, EMF, plugin or chained mod);
    `profile` boots with `KILN_PLAY_ONCE_PROFILE` and `play_once_profile` = the absolute profile path, and reads
-   `kiln/chain/once.ini` instead of chain.ini `[profile]`.
+   `kiln/chain/once.ini` instead of chain.ini `[profile]` (and, when `once.ini` has them, instead of `[chain]` and
+   `[late]`, see 5.3).
 An ignored flag boots as `NONE` and is reported (`state/boot.json` `playOnce.mode` = `ignored-…`, proxy.log).
 
 ### 5.3 `chain.ini`, `chain/once.ini`, `dinput8-chain.ini`
@@ -250,6 +251,14 @@ Grammar (same dialect as 5.2):
 - Sections `[chain]`, `[profile]` and `[late]`, case-insensitive; lines before any section count as `[chain]` (in
   `once.ini`: as `[profile]`). Other sections are ignored (they may belong to other tools); an older proxy ignores
   `[late]` the same way and loads the entries early.
+- `once.ini` (play-once `mode=profile`) is read instead of chain.ini `[profile]`. Since dev.21 it may also have a
+  `[chain]` and a `[late]`: what chain.ini would hold if the play-once profile were active, with that profile's compat
+  rules applied (a displaced proxy its rules switch off is left out, one the *active* profile's rules switched off is
+  back, its `late` rules and late natives are in `[late]`, the active profile's are not). A section the file has, even an
+  empty one, **replaces** chain.ini's same section for that one start; a section it lacks leaves chain.ini's in effect
+  (a `once.ini` from before dev.21 has neither). The launcher always writes all three. chain.ini itself is not touched.
+  An older proxy reads only `[profile]` and uses chain.ini's `[chain]` and `[late]`. A normal start never reads `once.ini`.
+  proxy.log says when `once.ini` supplied a section.
 - `[late]` (dev.21) does not add DLLs. It names DLLs that the other lists already hold: an entry of `[chain]`,
   `<game>/dinput8-chain.ini` or `[profile]` (also `once.ini`'s) whose DLL is named in `[late]` is **deferred**: the
   proxy runs every check on it but does not load it, and kiln-core loads it after Kiln's services, plugins, native
@@ -273,8 +282,8 @@ Grammar (same dialect as 5.2):
 - At most 256 entries per section: the first entry past the limit is reported as REFUSED with detail `too-many`, and
   any further entries are discarded (not reported).
 - Writers: the installer owns `[chain]`, profile activation owns `[profile]`; each rewrites the whole file atomically
-  and keeps the other section's lines byte-identical. The launcher writes `once.ini` (its `[profile]`) together with
-  play-once.ini for launch mode once and deletes it at the next activation.
+  and keeps the other section's lines byte-identical. The launcher writes `once.ini` (its `[profile]`, `[chain]` and
+  `[late]`) together with play-once.ini for launch mode once and deletes it at the next activation.
 
 Load order, all in the proxy's `DllMain` before it installs the gate (so entry patches unwind last-in, first-out):
 1. `kiln/chain.ini [chain]`;
@@ -282,7 +291,8 @@ Load order, all in the proxy's `DllMain` before it installs the gate (so entry p
    installer renamed), in file order; `;`/`#`/`//` comments, a `key=value` counts by its value, only DLLs inside the
    game folder: an entry outside is REFUSED `outside`; at most 256 entries across both sections, with the same
    overflow rule as above);
-3. `kiln/chain.ini [profile]`, or `kiln/chain/once.ini` for play-once mode=profile.
+3. `kiln/chain.ini [profile]`, or `kiln/chain/once.ini` for play-once mode=profile (whose `[chain]` and `[late]`, when it
+   has them, were used for steps 1 and the deferral instead of chain.ini's).
 
 Decisions per entry (`KilnChainEntry`, `state/boot.json` `chain[]`): dedupe by canonical path (`duplicate`, loaded
 once); refuse (`refused` + detail): `self` (the proxy itself), `system` (the system dinput8 or Wine's builtin), `kiln`
@@ -594,7 +604,8 @@ entry changed since is left alone; then `profile.json` is written again where th
 ### Launch (`launch_play`)
 1. Refuse while the game runs (`game_running`).
 2. Mode `profile`: nothing to write (Steam's Play button does the same). Modes `vanilla`/`no-mods`: write
-   play-once.ini. Mode `once`: render the profile into `kiln/profile.once.json` (+ `kiln/chain/once.ini`), then
+   play-once.ini. Mode `once`: render the profile into `kiln/profile.once.json` (+ `kiln/chain/once.ini`: its dllmain
+   natives and its chain plan, so the single start follows this profile's compat rules and late list), then
    play-once.ini `mode=profile`.
 3. Save backup when the kms1 of what will load differs from the game's last launched kms1 (unless `skipBackup`);
    vanilla and no-mods count as the empty set.
@@ -802,7 +813,7 @@ or emits `kiln://update`; its UI calls none of these commands.
 | engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?}` (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`) |
 | engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ; read/hash errors and symlinks are refused) |
 | engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
-| compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it, the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
+| compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it (`lateBy`: `player`, `profile` or `rule:<id>`; a `[late]` line that a rule wrote into chain.ini, marked `; kiln rule <id>`, is that rule's even when it is another profile's), the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
 | compat | `chain_set_late` | profileId, gameId, path: string, late: boolean | `ChainView` (a `[profile]` entry changes the profile's late list, saved and re-applied where it is active; a `[chain]` entry changes the game's `chain.ini [late]` for every profile and is refused with `game_running` while the game runs; `not_found` when `path` is not in the profile's chain) |
 
 `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added: AddedMod[], already:
@@ -933,8 +944,8 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `winpath` | `unix_to_z(&Path)`, `z_to_unix(&str)`, `z_drive_ok(&Path)`, `to_game(&Path, &GameInstall)`, `to_host(&str, &GameInstall)` |
 | `bundle` | `read(&Path)`, `verify(&Path, &mut dyn Progress)`, `create(&Path, &Path, &CreateOptions)`, `list(&DataDirs)`, `import(&DataDirs, &Path)`; `RuntimeManifest`, `RuntimeComponent`, `RuntimeFile`, `RuntimeBuilds`, `RuntimeBuild`, `RuntimeBundle`, `CreateOptions` |
 | `install` | `read_receipt(&Path)`, `status`, `install(&DataDirs, &GameInstall, &Path, &InstallOptions, &mut dyn Progress)`, `uninstall`, `rollback`, `plan`; `InstallReceipt`, `ReceiptRuntime`, `ReceiptGame`, `ReceiptFile`, `ReplacedFile`, `ReplacedClass`, `ReplacedAction`, `InstallOptions`, `InstallState` |
-| `chain` | `parse(&[u8]) -> ChainIni`, `parse_once(&[u8]) -> OnceIni`, `read(&Path)`, `read_raw`, `write_chain_section`, `write_profile_section`, `write_profile_plan(&Path, &ProfilePlan)`, `write_once`, `is_late`, `set_late(&Path, &str, bool)`, `add_chain_entry`, `remove_chain_entry`, `rule_off_entries`, `plan_is_current`, `game_path`; `ChainEntry`, `ChainIni`, `OnceIni`, `EntryStatus`, `ProfilePlan` |
-| `compat` | `parse_rules`, `load_rules`, `evaluate(&[SourcedRule], &Facts, &[PlanEntry])`, `apply`, `glob`, `file_name`, `parse_hooks`, `read_hooks(&Path)`, `overlaps(&HooksState)`, `plan`, `dllmain_entries`, `view(&DataDirs, &Profile, &GameInstall) -> Result<ChainView>`, `set_entry_late`, `kind_engine`; `Matcher`, `Rule`, `RuleAction`, `RuleSource`, `SourcedRule`, `Facts`, `Section`, `PlanEntry`, `RuleResult`, `HooksState`, `HookTarget`, `HookLink`, `ForeignDest`, `ForeignSymbol`, `Overlap`, `OverlapKind`, `CoreRule`, `Plan`, `ChainView`, `ChainViewEntry`, `OverlapView`, `LibraryHit`, `SessionInfo` |
+| `chain` | `parse(&[u8]) -> ChainIni`, `parse_once(&[u8]) -> OnceIni` (`profile`; `chain` and `late` only when the file has the section), `read(&Path)`, `read_raw`, `write_chain_section`, `write_profile_section`, `write_profile_plan(&Path, &ProfilePlan)`, `write_once(&Path, &ProfilePlan)`, `rule_late_entries`, `is_late`, `set_late(&Path, &str, bool)`, `add_chain_entry`, `remove_chain_entry`, `rule_off_entries`, `plan_is_current`, `game_path`; `ChainEntry`, `ChainIni`, `OnceIni`, `EntryStatus`, `ProfilePlan` |
+| `compat` | `parse_rules`, `load_rules`, `evaluate(&[SourcedRule], &Facts, &[PlanEntry])`, `apply`, `glob`, `file_name`, `parse_hooks`, `read_hooks(&Path)`, `overlaps(&HooksState)`, `plan` (returns what it read of chain.ini and hooks.json too: `Plan.chain_text`, `.ini`, `.hooks`), `dllmain_entries`, `view(&DataDirs, &Profile, &GameInstall) -> Result<ChainView>` (reads each file once), `find_entry(&DataDirs, &Profile, &GameInstall, &str) -> Result<PlanEntry>` (one entry by path, without the view), `set_entry_late`, `kind_engine`; `Matcher`, `Rule`, `RuleAction`, `RuleSource`, `SourcedRule`, `Facts`, `Section`, `PlanEntry`, `RuleResult`, `HooksState`, `HookTarget`, `HookLink`, `ForeignDest`, `ForeignSymbol`, `Overlap`, `OverlapKind`, `CoreRule`, `Plan`, `ChainView`, `ChainViewEntry`, `OverlapView`, `LibraryHit`, `SessionInfo` |
 | `manifest` | `parse_kiln(&str) -> Result<KilnManifest>`, `read_kiln`, `parse_native(&str) -> Result<NativeManifest>`, `read_native`; `Side`, `RunSide`, `Clients::default_for`, `ModKind`, `KilnManifest`, `Dependency`, `Incompatibility`, `TestsSpec`, `NativeManifest`, `NativePhase`, `IncompatibleSpec`, `OneOrMany` |
 | `semver` | `SemVersion::{parse, compare, release}`, `VersionRange::{parse, at_least_same_major, satisfies, is_any}` |
 | `resolver` | `resolve(&[Candidate], &Environment) -> Result<Resolution>`; `Candidate`, `Environment`, `ModState`, `Rejection`, `Resolution` |

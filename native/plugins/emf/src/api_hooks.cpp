@@ -121,6 +121,8 @@ std::string link_label(const char* name) {
 }
 
 // Mods' links run before Kiln's own (priority 0), a later one before an earlier one (EMF: the new detour runs first).
+// Every mod link of every engine (kiln-shroudtopia uses the same pair) has this priority and asks the registry for
+// newest-first, so the newest detour on a function runs first whichever engine installed it.
 constexpr int32_t kModLinkPriority = 1;
 
 bool install(Mod* m, const char* label, uintptr_t target, void* detour, void** original, const char* fn) {
@@ -131,7 +133,7 @@ bool install(Mod* m, const char* label, uintptr_t target, void* detour, void** o
     h->name = link_label(label);
     h->mod = m;
     h->target = target;
-    size_t earlier = 0;  // hooks already on this target (every mod's)
+    size_t earlier = 0;  // hooks of EMF mods already on this target (for the log line only)
     for (const auto& o : g_hooks) earlier += o->target == target;
     const uintptr_t exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     const KilnHooksApi* hooks = kiln::hooks_v2(g_api);
@@ -141,12 +143,30 @@ bool install(Mod* m, const char* label, uintptr_t target, void* detour, void** o
     const KilnOwner owner = m && m->owner ? m->owner : g_owner;
     KilnHookOrder order{};
     order.size = sizeof order;
-    order.priority = kModLinkPriority + static_cast<int32_t>(std::min<size_t>(earlier, 1000));
+    order.priority = kModLinkPriority;
+    order.flags = KILN_HOOK_NEWEST_FIRST;
     order.label = KilnStr{h->name.data(), h->name.size()};
     const KilnResult rc = hooks->raw_detour(owner, target, &order, detour, original, &h->link);
     bool in_chain = rc == KILN_OK;
+    // Where kiln.hooks cannot take the target, the hook is a plain safetyhook detour, as before dev.21:
+    //  - INVALID_ARGUMENT: not the game exe (another module's code), which kiln.hooks does not reach.
+    //  - UNAVAILABLE with every target slot taken (512): a new address is refused for good, so no Kiln link can ever join
+    //    this function and a plain detour cannot meet a Kiln chain later. (An address kiln.hooks already hooks never fails
+    //    for the target cap. If it fails for lack of link slots while the target slots are used up too, the plain detour
+    //    layers over Kiln's: the foreign-over case the registry tolerates, and where a mod's link sits anyway, before
+    //    Kiln's own.)
+    // Any other UNAVAILABLE is a refusal (the detour could not be placed, or the link slots are used): no fallback.
+    const char* outside = nullptr;
     if (rc == KILN_ERR_INVALID_ARGUMENT) {
-        // Not the game exe (another module's code): kiln.hooks does not reach it. Plain safetyhook detour, as before.
+        outside = " (outside the game exe: not in Kiln's hook chain)";
+    } else if (rc == KILN_ERR_UNAVAILABLE && kiln::hooks_targets_full(hooks)) {
+        static std::atomic<bool> told{false};
+        if (!told.exchange(true))
+            logf(KILN_LOG_WARN, "kiln.hooks has no free target slot (512 hooked functions): mod hooks on further functions are plain "
+                                "safetyhook detours, not links in Kiln's hook chain");
+        outside = " (kiln.hooks is full: not in Kiln's hook chain)";
+    }
+    if (outside) {
         auto r = safetyhook::InlineHook::create(reinterpret_cast<void*>(target), detour, safetyhook::InlineHook::StartDisabled);
         if (!r) return refuse(m, fn, format("%s: the hook could not be made (safetyhook error %d)", h->name.c_str(),
                                             static_cast<int>(r.error().type)).c_str()),
@@ -158,13 +178,13 @@ bool install(Mod* m, const char* label, uintptr_t target, void* detour, void** o
             return refuse(m, fn, format("%s: enabling the hook failed", h->name.c_str()).c_str()), false;
         }
     } else if (rc != KILN_OK) {
-        return refuse(m, fn, format("%s: the hook could not be made (kiln.hooks result %d; see kiln.log)", h->name.c_str(),
-                                    static_cast<int>(rc)).c_str()),
+        return refuse(m, fn, format("%s: the hook could not be made (kiln.hooks result %d: it refused the target or ran out of link "
+                                    "slots; see kiln.log)", h->name.c_str(), static_cast<int>(rc)).c_str()),
                false;
     }
     mod_logf(m, KILN_LOG_INFO, "hook %s at exe+0x%llx%s%s", h->name.c_str(),
              static_cast<unsigned long long>(target - exe),
-             in_chain ? " (in Kiln's hook chain)" : " (outside the game exe: not in Kiln's hook chain)",
+             in_chain ? " (in Kiln's hook chain)" : outside,
              earlier ? " (chained over an earlier hook)" : "");
     g_hooks.push_back(std::move(h));
     return true;

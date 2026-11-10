@@ -1,0 +1,8 @@
+{
+  "file": "once",
+  "expect": {
+    "profile": [],
+    "chain": [],
+    "late": []
+  }
+}

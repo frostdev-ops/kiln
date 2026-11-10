@@ -126,6 +126,12 @@ KilnHookOrder o{sizeof o, /*priority*/ 0, KilnStr{"emf/ChatLogAdd", 14}, {}, Kil
   are optional and `-` equals `.`. A service loaded as `service:kiln-chat.dll` matches `kiln.chat` and `kiln-chat`;
   an EMF mod owner `emf:coolmod` matches `coolmod`.
 - Links of the same owner are never ordered by constraints (use priority).
+- `flags = KILN_HOOK_NEWEST_FIRST` (in `KilnHookOrder`, read only when its `size` covers it, so older plugins are
+  unchanged): at one priority the flagged links run before the others, **newest first**; the others keep registration
+  order. A (re)install counts as the newest: a revived link, or the same handler installed again in place. This is how
+  mods of different engines stack on one function. kiln-emf and kiln-shroudtopia give every mod detour priority 1 and
+  this flag, so the latest detour sees the game's call first whichever engine placed it, as layered inline hooks did
+  before dev.21, and all of them run before Kiln's own links (priority 0).
 - A constraint that contradicts an earlier one is dropped, with a warning in kiln.log. The earlier link keeps its
   constraint.
 - Adding or revoking a link while threads call through the chain is safe. Moving links that are already installed
@@ -230,13 +236,21 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
 
 | What | Limit |
 |---|---|
-| Hooked addresses | 512 |
+| Hooked addresses | 512 (`stats().targets_cap`) |
 | Link slots | 65,536 per process (stubs are never freed) |
 | `detour2` arguments | 12 |
 
 `raw_detour`, `detour2` and `mid2` return `KILN_ERR_INVALID_ARGUMENT` for an address outside the game image or a null
 handler, and `KILN_ERR_UNAVAILABLE` when safetyhook cannot place the detour (kiln.log says why) or a table is full.
 Nothing crashes: the feature that wanted the hook just turns off.
+
+`stats()` reports `targets` and `targets_cap` (512), so a client can tell "the target table is full" from "this address was
+refused": `kiln::hooks_targets_full(hooks)` in `kiln_hook.hpp` does the comparison. A full table refuses every new address for
+good (targets are never freed), so no Kiln link can ever join it. kiln-emf and kiln-shroudtopia use that: when
+`raw_detour` answers UNAVAILABLE and the table is full, a mod's hook on that function becomes a plain safetyhook detour
+(logged once, "kiln.hooks has no free target slot"), as for a function outside the game exe. Any other UNAVAILABLE (the
+detour could not be placed, or the link slots are used) fails the mod's hook with that reason; the plugins do not
+work around it.
 
 A revoked link keeps its slot, because a call may still be inside it. It leaves the chain (the map and `stats()` show
 live links only). Installing the same handler on the same target again (same kind, function, user data, owner and label)
@@ -256,13 +270,14 @@ are not counted per call. Structured and mid dispatches are counted by each thre
 ## Tests
 
 - `native/core/tests/test-hooks-v2.sh` (Wine, no game): chains of raw links with 9 arguments and `caller()` in each,
-  floats, `detour2` with 9 arguments, ordering, mid links beside raw links, registers and flags, revoking the middle
+  floats, `detour2` with 9 arguments, ordering, newest-first links of several owners, mid links beside raw links, registers and flags, revoking the middle
   link while 4 threads call, first installs under load, threads parked inside the replaced bytes (they must come out in the
   trampoline, also past a relocated short jump), a first install with 64 other threads alive, a foreign jump before and
   over Kiln, the map, the C++ header, mid hooks that return early or redirect `rip` at a function entry, RawHook
   re-installed on a live hook while threads call it (raised and equal priority, `create()`, new labels: no nesting, one
   run per call), revival, an invalid UTF-8 label and a throwing map extension, a refused target. It runs twice, with
-  the caller table in the TEB's TLS slots and in the expansion slots, then once in `slots` mode (every link slot used).
+  the caller table in the TEB's TLS slots and in the expansion slots, then once in `slots` mode (every link slot used) and
+  once in `targets` mode (every target slot used, a new address refused, a hooked one still takes links).
 - `native/spikes/hookchain/run.sh`: how safetyhook chains with another engine's jump.
 - `native/spikes/hooksv2/foreign_stub.cpp` builds `foreign-stub.dll`, a stand-in for another engine for lab servers:
   chain it from `kiln/chain.ini` and give it `foreign-stub.ini` (`before=<rva,...>` hooks at load, before Kiln looks;

@@ -76,6 +76,7 @@ struct Link {
     std::string owner_name, owner_key;       // owner_key = normalised for before/after matching
     std::string label, before, after;
     int32_t priority = 0;
+    bool newest_first = false;               // see Order; read under the mutex only
     uint64_t seq = 0;
     Kind kind = Kind::Raw;
     std::atomic<bool> live{true};
@@ -328,7 +329,8 @@ std::string target_label(Target& t);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ordering: constraints (a stable topological sort, earlier-registered constraints win a cycle), then priority
-// (higher first), then registration order.
+// (higher first), then, at one priority, the links that ask for it (KILN_HOOK_NEWEST_FIRST) newest first, then the
+// others in registration order.
 
 std::vector<Link*> order_links(std::vector<Link*> live, Target& t) {
     std::sort(live.begin(), live.end(), [](const Link* a, const Link* b) { return a->seq < b->seq; });
@@ -374,11 +376,18 @@ std::vector<Link*> order_links(std::vector<Link*> live, Target& t) {
     }
     std::vector<Link*> sorted;
     std::vector<char> done(n, 0);
+    // i runs before best: higher priority; at one priority the newest-first links precede the others and run newest
+    // first (live is in registration order, so a larger index is newer); the others keep registration order
+    auto before_best = [&](size_t i, size_t best) {
+        if (live[i]->priority != live[best]->priority) return live[i]->priority > live[best]->priority;
+        if (live[i]->newest_first != live[best]->newest_first) return live[i]->newest_first;
+        return live[i]->newest_first && i > best;
+    };
     for (size_t step = 0; step < n; ++step) {
         size_t best = n;
         for (size_t i = 0; i < n; ++i) {
             if (done[i] || indeg[i]) continue;
-            if (best == n || live[i]->priority > live[best]->priority) best = i;  // seq order breaks ties (ascending i)
+            if (best == n || before_best(i, best)) best = i;
         }
         if (best == n) break;  // cannot happen: edges that close a cycle were dropped
         done[best] = 1;
@@ -1155,6 +1164,7 @@ KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& orde
         old_handle = kept ? link->h() : old_handle;
         link->seq = seq;
         link->priority = order.priority;
+        link->newest_first = order.newest_first;
         link->before = order.before;
         link->after = order.after;
         link->warned.clear();
@@ -1164,6 +1174,7 @@ KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& orde
         link->before = order.before;
         link->after = order.after;
         link->priority = order.priority;
+        link->newest_first = order.newest_first;
     }
     t->label_cache.clear();
     // Place the link on paper first. `*original` is the continuation of the handler and may be shared with a link this
@@ -1433,6 +1444,7 @@ Stats stats() {
     }
     r.links_used = s.next_link;
     r.links_cap = static_cast<uint32_t>(kMaxLinks);
+    r.targets_cap = static_cast<uint32_t>(kMaxTargets);
     AcquireSRWLockShared(&s.block_lock);
     for (size_t i = 0; i < s.block_count; ++i) {
         r.detour_calls += s.blocks[i]->detour_calls.load(std::memory_order_relaxed);

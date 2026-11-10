@@ -330,6 +330,9 @@ def shroudtopia_legacy_server():
     # exe image, which kiln.hooks refuses, so it is a plain safetyhook detour
     g.expect(g.result("hooks_raw_links") == "1", f"CreateDetour on the exe: one kiln.hooks raw link: {g.result('hooks_raw_links')}")
     g.expect(g.result("hooks_outside_image") == "1", f"CreateDetour outside the exe: refused by kiln.hooks, safetyhook: {g.result('hooks_outside_image')}")
+    g.expect(g.result("hooks_unordered") == "0" and g.result("hooks_refused") == "0",
+             f"the link asks for priority 1 and newest-first (so the newest detour runs first across engines): {g.result('hooks_unordered')}")
+    g.lacks("no free target slot")
     with open(g.p("kiln", "config", "shroudtopia", "shroudtopia.json"), encoding="utf-8") as f:
         kcfg = json.load(f)
     g.expect(kcfg.get("mods", {}).get("stfolder", {}).get("speed") == 3, "manifest defaults written to Kiln's settings")
@@ -338,6 +341,41 @@ def shroudtopia_legacy_server():
     g.expect(any(r.endswith("random.dll") for r in refused), "random.dll refused without loading")
     g.expect(g.mod_status("shroudtopia", "Kiln Test Mod", "name") == "inactive", "state: test mod inactive after switch-off")
     g.expect(os.path.isfile(g.p("kiln", "logs", "shroudtopia.log")), "logs/shroudtopia.log written")
+    return g
+
+
+def shroudtopia_hooks_game(name):
+    g = Game(name, server=True)
+    g.put("shroudtopia.json", {"active": True, "bootDelay": 200, "updateDelay": 50, "enableLogging": True, "logLevel": "INFO",
+                               "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+    g.dll("shroudtopia_test.dll", "mods/shroudtopia_test.dll")
+    return g
+
+
+def shroudtopia_hooks_full():
+    """kiln.hooks has no free target slot (the host's stand-in answers UNAVAILABLE and says the table is full): the mod's
+    CreateDetour on the exe falls back to a plain safetyhook detour, as before dev.21, and says so once; the mod's checks
+    all pass (the detour runs and its original is callable)."""
+    g = shroudtopia_hooks_game("shroudtopia-hooks-full")
+    g.run(g.plugin("kiln-shroudtopia.dll"), 1500, "--hooks-full")
+    g.checks_pass("shroudtopia:Kiln Test Mod", 26)
+    g.expect(g.result("gt_target") == str(5 + 7), f"the detour still runs: {g.result('gt_target')}")
+    g.expect(g.result("hooks_raw_links") == "0" and (g.result("hooks_refused") or "0") != "0",
+             f"no kiln.hooks link, the registry was asked: {g.result('hooks_raw_links')}/{g.result('hooks_refused')}")
+    g.expect(g.log.count("kiln.hooks has no free target slot") == 1, "the full table is reported once")
+    return g
+
+
+def shroudtopia_hooks_refused():
+    """A refusal that is not a full table (the detour could not be placed there) gets no plain-detour fallback: the mod's
+    CreateDetour fails, nothing is hooked, and the log says kiln.hooks refused."""
+    g = shroudtopia_hooks_game("shroudtopia-hooks-refused")
+    g.run(g.plugin("kiln-shroudtopia.dll"), 1500, "--hooks-refuse")
+    g.has("[shroudtopia:Kiln Test Mod] CHECK create_detour fail")
+    g.has("Failed to install detour: kiln.hooks refused the target")
+    g.lacks("no free target slot")
+    g.expect(g.result("gt_target") == "5", f"nothing hooked the target: {g.result('gt_target')}")
+    g.expect(g.result("hooks_raw_links") == "0", f"no link: {g.result('hooks_raw_links')}")
     return g
 
 
@@ -759,7 +797,7 @@ def shroudtopia_loader_named_mod():
 SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_legacy_client, greeneye_profile_server, greeneye_hot_reload_server, greeneye_aside, greeneye_nomods,
     flame_legacy, flame_profile, flame_aside,
-    shroudtopia_legacy_server, shroudtopia_profile_client, shroudtopia_aside, idle_without_mods,
+    shroudtopia_legacy_server, shroudtopia_hooks_full, shroudtopia_hooks_refused, shroudtopia_profile_client, shroudtopia_aside, idle_without_mods,
     invalid_profiles, path_boundaries, flame_dllmain_fault, flame_fault_running, flame_lifetime, flame_late_loader, flame_dependency_loader,
     greeneye_hot_factory_faults, shroudtopia_late_loader, shroudtopia_lifetime, shroudtopia_renamed_loader,
     shroudtopia_config_replacements, shroudtopia_faults, profile_id_precedence,

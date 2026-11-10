@@ -376,9 +376,8 @@ uint8_t* alloc_near(uintptr_t near_addr, size_t size) {
 }
 
 std::mutex g_detour_mu;
-std::vector<std::unique_ptr<safetyhook::InlineHook>> g_detours;  // targets outside the game exe, kept for the process life
+std::vector<std::unique_ptr<safetyhook::InlineHook>> g_detours;  // plain detours (outside the game exe, or kiln.hooks full), kept for the process life
 std::map<std::string, KilnOwner> g_mod_owners;                   // "shroudtopia:<mod>", for the hook map (never revoked)
-std::map<uintptr_t, int32_t> g_links_on;                         // CreateDetour links per target (for their order)
 
 // A mod's name (from its own GetMetaData: any bytes, any length) as it may appear in an owner or link label: printable
 // ASCII, at most 64 bytes. Both go into kiln.log and state/hooks.json (the JSON writer refuses invalid UTF-8).
@@ -510,17 +509,32 @@ bool ctx_create_detour(LPVOID target, LPVOID detour, void** trampoline) {
     const std::string mod = current_mod();
     const std::string label = "shroudtopia/" + link_name(mod);  // names the link in kiln.log and hooks.json
     // As before dev.21 (a detour layered over Kiln's own hooks and the earlier ones): mods' links run before Kiln's own
-    // (priority 0), a later one on the same function before an earlier one, so a mod's detour still sees the game's call.
-    int32_t& earlier = g_links_on[reinterpret_cast<uintptr_t>(target)];
+    // (priority 0), and the newest on a function runs first, whichever engine (EMF uses the same pair) installed it, so
+    // a mod's detour still sees the game's call.
     KilnHookOrder order{};
     order.size = sizeof order;
-    order.priority = 1 + std::min<int32_t>(earlier, 1000);
+    order.priority = 1;
+    order.flags = KILN_HOOK_NEWEST_FIRST;
     order.label = KilnStr{label.data(), label.size()};
     KilnHandle link = 0;
     const KilnResult rc = hooks->raw_detour(owner_of(mod), reinterpret_cast<uintptr_t>(target), &order, detour, trampoline, &link);
-    if (rc == KILN_OK) ++earlier;
-    if (rc == KILN_ERR_INVALID_ARGUMENT) {
-        // Not the game exe (another module's code): kiln.hooks does not reach it. A plain safetyhook detour, as before.
+    // Where kiln.hooks cannot take the target, a plain safetyhook detour, as before dev.21:
+    //  - INVALID_ARGUMENT: not the game exe (another module's code), which kiln.hooks does not reach.
+    //  - UNAVAILABLE with every target slot taken (512): a new address is refused for good, so no Kiln link can ever join
+    //    this function and a plain detour cannot meet a Kiln chain later. (An address kiln.hooks already hooks never fails
+    //    for the target cap. If it fails for lack of link slots while the target slots are used up too, the plain detour
+    //    layers over Kiln's: the foreign-over case the registry tolerates, and where a mod's link sits anyway, before
+    //    Kiln's own.)
+    // Any other UNAVAILABLE is a refusal (the detour could not be placed, or the link slots are used): no fallback.
+    bool plain = rc == KILN_ERR_INVALID_ARGUMENT;
+    if (rc == KILN_ERR_UNAVAILABLE && kiln::hooks_targets_full(hooks)) {
+        static std::atomic<bool> told{false};
+        if (!told.exchange(true))
+            loader_log(KILN_LOG_WARN, "kiln.hooks has no free target slot (512 hooked functions): mod detours on further "
+                                      "functions are plain safetyhook detours, not links in Kiln's hook chain");
+        plain = true;
+    }
+    if (plain) {
         auto hook = safetyhook::InlineHook::create(target, detour, safetyhook::InlineHook::StartDisabled);
         if (!hook) {
             ctx_log("Failed to install detour");
@@ -543,7 +557,7 @@ bool ctx_create_detour(LPVOID target, LPVOID detour, void** trampoline) {
             return false;
         }
     } else if (rc != KILN_OK) {
-        ctx_log("Failed to install detour");
+        ctx_log("Failed to install detour: kiln.hooks refused the target or ran out of link slots (see kiln.log)");
         return false;
     }
     ctx_log("Successfully installed detour");

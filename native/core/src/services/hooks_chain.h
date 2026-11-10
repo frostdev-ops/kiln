@@ -39,6 +39,7 @@ constexpr size_t kMaxLinks = 1u << 16;   // link slots ever taken (stubs are nev
 
 struct Order {
     int32_t priority = 0;
+    bool newest_first = false;  // KILN_HOOK_NEWEST_FIRST: before the other links of this priority, the newest first
     std::string label, before, after;
 };
 
@@ -91,6 +92,7 @@ struct Stats {
     uint32_t own_before = 0, own_over = 0;           // a Kiln module's own safetyhook hook on a registry target
     uint64_t detour_calls = 0, mid_calls = 0;        // summed from the per-thread tables
     uint32_t links_used = 0, links_cap = 0;          // link slots taken / kMaxLinks
+    uint32_t targets_cap = 0;                        // kMaxTargets
 };
 Stats stats();
 

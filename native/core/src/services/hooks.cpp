@@ -199,11 +199,14 @@ bool valid_target(uintptr_t target) { return target >= image().base && target < 
 
 chain::Order order_of(const KilnHookOrder* o) {
     chain::Order r;
-    if (o && o->size >= sizeof(KilnHookOrder)) {
+    // read as far as the caller's `size` covers: a plugin built before `flags` was appended passes the smaller size
+    constexpr uint32_t kBase = static_cast<uint32_t>(offsetof(KilnHookOrder, flags));
+    if (o && o->size >= kBase) {
         r.priority = o->priority;
         r.label = std::string(sv(o->label));
         r.before = std::string(sv(o->before));
         r.after = std::string(sv(o->after));
+        if (o->size >= kBase + sizeof(o->flags)) r.newest_first = (o->flags & KILN_HOOK_NEWEST_FIRST) != 0;
     }
     return r;
 }
@@ -275,6 +278,7 @@ KilnResult KILN_CALL h_revoke_owner(KilnOwner owner) {
 KilnResult KILN_CALL h_stats(KilnHooksStats* out) {
     constexpr uint32_t kV1 = static_cast<uint32_t>(offsetof(KilnHooksStats, raw_links));  // the v1 layout's size
     constexpr uint32_t kV2 = static_cast<uint32_t>(offsetof(KilnHooksStats, links_used));  // dev.21's first v2 layout
+    constexpr uint32_t kLinks = static_cast<uint32_t>(offsetof(KilnHooksStats, targets_cap));  // ... with links_used / links_cap
     if (!out || out->size < kV1) return KILN_ERR_INVALID_ARGUMENT;
     static std::atomic<bool> once{false};
     chain::Stats c;
@@ -294,10 +298,11 @@ KilnResult KILN_CALL h_stats(KilnHooksStats* out) {
         out->foreign_over = c.foreign_over;
         out->targets = c.targets;
     }
-    if (out->size >= sizeof(KilnHooksStats)) {
+    if (out->size >= kLinks) {
         out->links_used = c.links_used;
         out->links_cap = c.links_cap;
     }
+    if (out->size >= kLinks + sizeof(out->targets_cap)) out->targets_cap = c.targets_cap;
     return KILN_OK;
 }
 

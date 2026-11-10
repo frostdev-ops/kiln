@@ -2,12 +2,13 @@
 // compathost.exe: a stand-in for the game and kiln-core for the compatibility plugins (kiln-greeneye, kiln-flame,
 // kiln-shroudtopia). run.py copies it into a scratch game folder as enshrouded.exe or enshrouded_server.exe and runs
 // it under plain Wine:
-//   compathost.exe <plugin.dll> <wait ms> [--claim-greeneye] [--load <dll>] [--at <ms> --copy <src> <dst>]
+//   compathost.exe <plugin.dll> <wait ms> [--claim-greeneye] [--load <dll>] [--hooks-full|--hooks-refuse] [--at <ms> --copy <src> <dst>]
 // It serves a minimal KilnApi (log, paths, side, build info, kiln.profile from kiln/profile.json, a kiln.hooks v2 stand-in
 // that places raw_detour links with safetyhook, register_service / service), loads the plugin, runs kiln_plugin_main and on_ready, waits, then calls the test targets below and prints
 // RESULT lines that run.py checks together with kiln/logs/kiln.log and kiln/state/*.json.
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -166,8 +167,12 @@ KilnResult KILN_CALL f_session(KilnSessionInfo*) { return KILN_ERR_UNAVAILABLE; 
 // continuation to *original before the hook is live, and never removes a link. Counts links and refusals for RESULT lines.
 std::vector<std::unique_ptr<safetyhook::InlineHook>> g_links;
 std::mutex g_links_mu;
-int g_raw_links = 0, g_raw_outside = 0;
-KilnResult KILN_CALL hk_raw_detour(KilnOwner, uintptr_t target, const KilnHookOrder*, void* fn, void** original,
+int g_raw_links = 0, g_raw_outside = 0, g_raw_refused = 0, g_raw_unordered = 0;
+// --hooks-full: every target slot is taken (an address in the exe is refused with KILN_ERR_UNAVAILABLE and stats() says
+// the table is full); --hooks-refuse: the same refusal without a full table (the detour could not be placed).
+enum { kHooksNormal = 0, kHooksFull = 1, kHooksRefuse = 2 } g_hooks_mode = kHooksNormal;
+constexpr uint32_t kTargetCap = 512;
+KilnResult KILN_CALL hk_raw_detour(KilnOwner, uintptr_t target, const KilnHookOrder* order, void* fn, void** original,
                                    KilnHandle* out) {
     const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
@@ -175,6 +180,14 @@ KilnResult KILN_CALL hk_raw_detour(KilnOwner, uintptr_t target, const KilnHookOr
     if (!fn || target < base || target >= base + nt->OptionalHeader.SizeOfImage) {
         ++g_raw_outside;
         return KILN_ERR_INVALID_ARGUMENT;
+    }
+    // what mod links must ask for: one priority above Kiln's own, newest first (kiln-emf asks the same)
+    if (order && order->size >= offsetof(KilnHookOrder, flags) + sizeof(order->flags) &&
+        (order->priority != 1 || !(order->flags & KILN_HOOK_NEWEST_FIRST)))
+        ++g_raw_unordered;
+    if (g_hooks_mode != kHooksNormal) {
+        ++g_raw_refused;
+        return KILN_ERR_UNAVAILABLE;
     }
     auto hook = safetyhook::InlineHook::create(reinterpret_cast<void*>(target), fn, safetyhook::InlineHook::StartDisabled);
     if (!hook) return KILN_ERR_UNAVAILABLE;
@@ -188,9 +201,17 @@ KilnResult KILN_CALL hk_raw_detour(KilnOwner, uintptr_t target, const KilnHookOr
 }
 uintptr_t KILN_CALL hk_caller(KilnHandle) { return 0; }
 KilnResult KILN_CALL hk_revoke(KilnHandle) { return KILN_OK; }
+KilnResult KILN_CALL hk_stats(KilnHooksStats* out) {
+    if (!out || out->size < offsetof(KilnHooksStats, targets_cap) + sizeof(out->targets_cap)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_links_mu);
+    out->targets = g_hooks_mode == kHooksFull ? kTargetCap : static_cast<uint32_t>(g_raw_links);
+    out->targets_cap = kTargetCap;
+    return KILN_OK;
+}
 KilnHooksApi make_hooks() {
     KilnHooksApi t{};
     t.header = {sizeof(KilnHooksApi), KILN_HOOKS_VERSION};
+    t.stats = &hk_stats;
     t.raw_detour = &hk_raw_detour;
     t.caller = &hk_caller;
     t.revoke = &hk_revoke;
@@ -335,6 +356,10 @@ int wmain(int argc, wchar_t** argv) {
             line("[host] holding Greeneye Loader's claim");
         } else if (!wcscmp(argv[i], L"--prehook")) {
             prehook = true;
+        } else if (!wcscmp(argv[i], L"--hooks-full")) {
+            g_hooks_mode = kHooksFull;
+        } else if (!wcscmp(argv[i], L"--hooks-refuse")) {
+            g_hooks_mode = kHooksRefuse;
         } else if (!wcscmp(argv[i], L"--load") && i + 1 < argc) {
             HMODULE h = LoadLibraryW((g_game + L"\\" + argv[++i]).c_str());
             line("[host] preloaded " + u8(argv[i]) + (h ? " ok" : " FAILED"));
@@ -441,6 +466,8 @@ int wmain(int argc, wchar_t** argv) {
         std::lock_guard lock(g_links_mu);
         line("[host] RESULT hooks_raw_links=" + std::to_string(g_raw_links));
         line("[host] RESULT hooks_outside_image=" + std::to_string(g_raw_outside));
+        line("[host] RESULT hooks_refused=" + std::to_string(g_raw_refused));
+        line("[host] RESULT hooks_unordered=" + std::to_string(g_raw_unordered));
     }
     line("[host] RESULT done");
     std::fflush(stdout);

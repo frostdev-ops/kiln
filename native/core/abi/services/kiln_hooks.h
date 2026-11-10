@@ -99,14 +99,23 @@ typedef struct KilnHooksSigSummary {
 /* Where a link goes in a target's chain (v2). Order on a target: constraints, then priority (higher first), then
  * registration order. `before` / `after` are comma-separated owner names (a plugin's or mod's id: "kiln.chat",
  * "emf:coolmod", "native:foo"; the kind prefix and a ".dll" suffix are optional, '-' and '.' are alike). An
- * unsatisfiable constraint is dropped with a warning in kiln.log. `label` names the link in kiln.log and the hook map. */
+ * unsatisfiable constraint is dropped with a warning in kiln.log. `label` names the link in kiln.log and the hook map.
+ * `flags` (appended in dev.21, read only when `size` covers it; an older caller's size leaves it 0):
+ * KILN_HOOK_NEWEST_FIRST makes the link run before the other links of its priority, the newest one first. Hook engines
+ * that stack their mods' detours (EMF, Shroudtopia) use one priority and this flag, so across engines the latest
+ * detour sees the game's call first, as layered inline hooks did. Every (re)install counts as the newest. Links without
+ * the flag at that priority keep registration order and come after the flagged ones. */
 typedef struct KilnHookOrder {
     uint32_t size;       /* sizeof(KilnHookOrder) */
     int32_t priority;    /* higher runs first */
     KilnStr label;       /* e.g. "chat/ChatLogAdd" */
     KilnStr before;      /* owners this link must run before */
     KilnStr after;       /* owners this link must run after */
+    /* ---- appended in dev.21 (ur8) ---- */
+    uint32_t flags;      /* KILN_HOOK_* below */
 } KilnHookOrder;
+
+#define KILN_HOOK_NEWEST_FIRST 1u  /* among links of the same priority: newest first, before those without the flag */
 
 typedef struct KilnHooksStats {
     uint32_t size;
@@ -126,6 +135,9 @@ typedef struct KilnHooksStats {
     uint32_t links_used;       /* link slots taken since boot (a revoked link keeps its slot; re-installing the same
                                   handler on the same target takes it again) */
     uint32_t links_cap;        /* link slots there are (65536); new hooks are refused when links_used reaches it */
+    /* ---- appended in dev.21 (ur8): filled only when `size` covers them ---- */
+    uint32_t targets_cap;      /* distinct addresses kiln.hooks can hook (512); a new address is refused (KILN_ERR_UNAVAILABLE)
+                                  when `targets` reaches it. Addresses already hooked still take links. 0 = not reported */
 } KilnHooksStats;
 
 typedef struct KilnHooksApi {

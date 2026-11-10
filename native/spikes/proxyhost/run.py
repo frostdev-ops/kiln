@@ -438,7 +438,7 @@ def s_profile():
     for n in ("chain-a", "chain-b", "chain-c"):
         g.dll(n, f"kiln/chain/{n}.dll")
     g.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\n[profile]\nchain/chain-c.dll\n")
-    g.write("kiln/chain/once.ini", "chain/chain-b.dll\n[chain]\nchain/chain-c.dll\n")
+    g.write("kiln/chain/once.ini", "chain/chain-b.dll\n[other]\nchain/chain-c.dll\n")
     created = (datetime.now(timezone(timedelta(hours=1)))).strftime("%Y-%m-%dT%H:%M:%S.123+01:00")
     f = g.play_once("profile", created=created, nonce="once-1")
     g.run()
@@ -448,7 +448,67 @@ def s_profile():
           any(line.endswith("\\kiln\\profile.once.json chain=2") for line in g.lines),
           "core sees PROFILE with kiln\\profile.once.json (offset +01:00 accepted)")
     check(g, ordered(g.lines, ["dll chain-a attach", "dll chain-b attach"]) and not has(g.lines, "dll chain-c"),
-          "chain.ini [chain] + chain\\once.ini (lines before a section = [profile]; its [chain] ignored)")
+          "chain.ini [chain] + chain\\once.ini (lines before a section = [profile]; other sections ignored; no [chain] or [late] in it: chain.ini's stay)")
+    return g
+
+
+def s_profile_rules():
+    """dev.21: chain\\once.ini may carry its own [chain] and [late] (the play-once profile's compat rules applied by the
+    launcher). Each section it has replaces chain.ini's for this start; each it lacks leaves chain.ini's; a normal start
+    never reads once.ini."""
+    def game(name, once):
+        g = Game(name)
+        for n in ("chain-a", "chain-b", "chain-c", "chain-d"):
+            g.dll(n, f"kiln/chain/{n}.dll")
+        # what the active profile's activation left: a switched off (a comment), b late by its rule, c a native of its own
+        g.write("kiln/chain.ini", "[chain]\nchain/chain-b.dll\n; kiln rule active-off off: chain/chain-a.dll\n[profile]\nchain/chain-c.dll\n"
+                "[late]\n; kiln rule active-late\nchain/chain-b.dll\n")
+        g.write("kiln/chain/once.ini", once)
+        return g
+
+    def entries(g):
+        return [(e["status"], e["source"], os.path.basename(e["path"].replace("\\", "/")).lower()) for e in g.chain()]
+
+    # both sections: a is back, b is out, d is the play-once profile's late rule; chain.ini's [late] (b) is gone
+    g = game("profile-rules", "[profile]\nchain/chain-c.dll\n[chain]\nchain/chain-a.dll\nchain/chain-d.dll\n[late]\nchain/chain-d.dll\n")
+    g.play_once("profile", nonce="rules-1")
+    g.run()
+    print(f"[profile-rules] rc {g.rc}")
+    check(g, entries(g) == [("0", "0", "chain-a.dll"), ("6", "0", "chain-d.dll"), ("0", "1", "chain-c.dll")],
+          f"once.ini [chain] replaces chain.ini's (a back, b out), [late] replaces chain.ini's (d late): {entries(g)}")
+    check(g, has(g.lines, "dll chain-a attach") and not has(g.lines, "dll chain-b") and not has(g.lines, "dll chain-d"),
+          "the proxy loaded a (and c), not b, and deferred d")
+    check(g, ordered(g.lines, ["dll chain-a attach", "dll chain-c attach"]), "chain order is once.ini's [chain] then [profile]")
+    check(g, any("chain\\once.ini has its own [chain] (2 entries)" in x for x in g.proxy_log) and
+          any("chain\\once.ini has its own [late] (1 entries)" in x for x in g.proxy_log), "proxy.log says which sections once.ini supplied")
+    check(g, not any("names no entry" in x for x in g.proxy_log), "chain.ini's [late] line for b is not applied (no orphan warning either)")
+
+    # [late] only: chain.ini's [chain] stays (b), the empty [late] ends chain.ini's deferral of b
+    g = game("profile-rules-late", "[profile]\nchain/chain-c.dll\n[late]\n")
+    g.play_once("profile", nonce="rules-2")
+    g.run()
+    check(g, entries(g) == [("0", "0", "chain-b.dll"), ("0", "1", "chain-c.dll")],
+          f"an empty [late] in once.ini replaces chain.ini's; chain.ini's [chain] stays: {entries(g)}")
+
+    # [chain] only: chain.ini's [late] stays (it names b, which once.ini's [chain] has)
+    g = game("profile-rules-chain", "[profile]\n[chain]\nchain/chain-b.dll\nchain/chain-a.dll\n")
+    g.play_once("profile", nonce="rules-3")
+    g.run()
+    check(g, entries(g) == [("6", "0", "chain-b.dll"), ("0", "0", "chain-a.dll")],
+          f"[chain] in once.ini, [late] from chain.ini: {entries(g)}")
+
+    # an empty [chain] means no displaced proxy this start (the play-once profile's rules switched them all off)
+    g = game("profile-rules-empty", "[chain]\n[late]\n[profile]\nchain/chain-d.dll\n")
+    g.play_once("profile", nonce="rules-4")
+    g.run()
+    check(g, entries(g) == [("0", "1", "chain-d.dll")] and not has(g.lines, "dll chain-b"),
+          f"an empty [chain] in once.ini: only the profile's DLL loads: {entries(g)}")
+
+    # not a play-once profile start: once.ini is not read, chain.ini decides
+    g = game("profile-rules-normal", "[chain]\nchain/chain-a.dll\n[late]\n[profile]\nchain/chain-d.dll\n")
+    g.run()
+    check(g, entries(g) == [("6", "0", "chain-b.dll"), ("0", "1", "chain-c.dll")] and not any("chain\\once.ini" in x for x in g.proxy_log),
+          f"a normal start ignores chain/once.ini: {entries(g)}")
     return g
 
 
@@ -1371,7 +1431,7 @@ def s_entry_gate_held():
     return g
 
 
-SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_expired, s_future, s_invalid,
+SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_profile_rules, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
                                           s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_native_realcore, s_late_policy_realcore,
                                           s_late_requires_realcore, s_late_already_loaded_realcore, s_late_loader_and_entry, s_overlap_refused_realcore,

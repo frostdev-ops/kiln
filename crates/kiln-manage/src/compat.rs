@@ -633,8 +633,16 @@ pub fn parse_hooks(bytes: &[u8]) -> Result<HooksState> {
     Ok(s)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread read hooks.json (up to 8 MiB each): the tests check a view reads it once.
+    static HOOKS_READS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 /// The last session's hooks.json; None when the game never wrote one.
 pub fn read_hooks(game_dir: &Path) -> Result<Option<HooksState>> {
+    #[cfg(test)]
+    HOOKS_READS.with(|c| c.set(c.get() + 1));
     let p = game_dir.join(HOOKS_JSON);
     match read_capped(&p, MAX_HOOKS_BYTES) {
         Ok(b) => parse_hooks(&b).map(Some),
@@ -709,7 +717,7 @@ pub fn kind_engine(k: ModKind) -> &'static str {
 }
 
 /// Everything [`plan`] worked from, and what it writes.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
     /// [chain] entries (switched-off ones too) then the profile's [profile] entries.
@@ -720,27 +728,55 @@ pub struct Plan {
     pub rule_errors: Vec<String>,
     #[serde(skip)]
     pub chain: ProfilePlan,
+    /// What [`plan`] read and parsed, for [`view`] to use instead of reading the same files again (hooks.json can be
+    /// 8 MiB): chain.ini as text and parsed, and the last session's hooks.json (None: there is none, or it did not read).
+    #[serde(skip)]
+    pub chain_text: String,
+    #[serde(skip)]
+    pub ini: chain::ChainIni,
+    #[serde(skip)]
+    pub hooks: Option<HooksState>,
+    /// chain.ini did not read (the plan then worked from an empty one; [`view`] reports it).
+    #[serde(skip)]
+    pub chain_error: Option<Error>,
+}
+
+/// The chain.ini entries of [chain], in file order, then the ones a rule switched off (`; kiln rule <id> off:`): the
+/// whole list a profile's rules work on. Duplicates (case ignored) count once.
+fn chain_paths(ini: &chain::ChainIni, text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let all = ini.chain.iter().filter(|e| e.status == chain::EntryStatus::Ok).map(|e| e.path.clone())
+        .chain(chain::rule_off_entries(text).into_iter().map(|(_, p)| p));
+    for p in all {
+        if !out.iter().any(|o| o.eq_ignore_ascii_case(&p)) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// A [chain] entry: its DLL is classified (PE headers read) to name the engine its markers show.
+fn chain_entry(install: &GameInstall, path: String) -> PlanEntry {
+    let engine = entry_host_path(install, &path).and_then(|h| engine_word_of(&h));
+    PlanEntry { file: file_name(&path).to_string(), path, section: Section::Chain, engine, mod_id: None }
+}
+
+fn profile_entry(id: &str, path: &str) -> PlanEntry {
+    PlanEntry { path: path.to_string(), file: file_name(path).to_string(), section: Section::Profile, engine: None, mod_id: Some(id.to_string()) }
 }
 
 /// The chain.ini plan of a profile in an install. `profile_dlls`: (native mod id, game-side DLL path) of its enabled
 /// dllmain natives (profile.rs computes them from the rendered profile). Reads chain.ini, the proxies next to the
-/// game, the last hooks.json and both rule files; never fails on a broken one (rule_errors says so).
+/// game, the last hooks.json and both rule files; never fails on a broken one (rule_errors says so). What it read of
+/// chain.ini and hooks.json comes back in the [`Plan`] (`chain_text`, `ini`, `hooks`).
 pub fn plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, profile_dlls: &[(String, String)]) -> Plan {
-    let text = chain::read_raw(&install.path).unwrap_or_default();
+    let (text, chain_error) = match chain::read_raw(&install.path) {
+        Ok(t) => (t, None),
+        Err(e) => (String::new(), Some(e)),
+    };
     let ini = chain::parse(text.as_bytes());
-    let mut entries: Vec<PlanEntry> = Vec::new();
-    let chain_paths = ini.chain.iter().filter(|e| e.status == chain::EntryStatus::Ok).map(|e| e.path.clone())
-        .chain(chain::rule_off_entries(&text).into_iter().map(|(_, p)| p));
-    for p in chain_paths {
-        if entries.iter().any(|e| e.path.eq_ignore_ascii_case(&p)) {
-            continue;
-        }
-        let engine = entry_host_path(install, &p).and_then(|h| engine_word_of(&h));
-        entries.push(PlanEntry { file: file_name(&p).to_string(), path: p, section: Section::Chain, engine, mod_id: None });
-    }
-    for (id, p) in profile_dlls {
-        entries.push(PlanEntry { path: p.clone(), file: file_name(p).to_string(), section: Section::Profile, engine: None, mod_id: Some(id.clone()) });
-    }
+    let mut entries: Vec<PlanEntry> = chain_paths(&ini, &text).into_iter().map(|p| chain_entry(install, p)).collect();
+    entries.extend(profile_dlls.iter().map(|(id, p)| profile_entry(id, p)));
 
     let mut facts = Facts::default();
     facts.add_engine("kiln");
@@ -768,13 +804,14 @@ pub fn plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, profile_d
             }
         }
     }
-    if let Ok(Some(h)) = read_hooks(&install.path) {
+    let hooks = read_hooks(&install.path).ok().flatten();
+    if let Some(h) = &hooks {
         for f in &h.foreign {
             if !f.dest.own && !f.dest.module.is_empty() {
                 facts.add_module(&f.dest.module);
             }
         }
-        for o in overlaps(&h) {
+        for o in overlaps(h) {
             if let Some(f) = &o.foreign {
                 facts.add_module(&f.module);
             }
@@ -789,7 +826,7 @@ pub fn plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, profile_d
     let results = evaluate(&rules, &facts, &entries);
     let late_paths: Vec<String> = profile_dlls.iter().filter(|(id, _)| profile.late.contains(id)).map(|(_, p)| p.clone()).collect();
     let chain = apply(&entries, &late_paths, &results);
-    Plan { entries, facts, rules: results, rule_errors, chain }
+    Plan { entries, facts, rules: results, rule_errors, chain, chain_text: text, ini, hooks, chain_error }
 }
 
 /// The profile's enabled native mods with phase dllmain: (mod id, game-side DLL path), from its rendered file.
@@ -914,6 +951,11 @@ fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::L
     let name = if module.is_empty() { "another module".to_string() } else { module.clone() };
     let (fix, hint) = match (o.kind, hit) {
         _ if ambiguous => ("none", format!("{} chain entries are named {name}: switch the right one to load late in the list above.", named.len())),
+        // a rule keeps it from loading in this profile: the overlap is from a start before that (or another profile's)
+        (_, Some(e)) if e.off_by.is_some() => {
+            let by = e.off_by.as_deref().unwrap_or_default();
+            ("none", format!("{name} is switched off by {} for this profile, so it does not load here. This overlap is from an earlier start.", by.replacen("rule:", "rule ", 1)))
+        }
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(_)) if loader => {
             ("none", format!("{name} is EMF's loader: it starts EMF itself, so it always loads first. Switch it or the other mod off, or add a compat rule."))
         }
@@ -935,22 +977,32 @@ fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::L
     OverlapView { overlap: o, entry: hit.map(|e| e.entry.path.clone()), section: hit.map(|e| e.entry.section), library, late, fix: fix.into(), hint }
 }
 
-/// The profile page's chain view: the plan for `profile` in `install`, which entries load late and why, the rules,
-/// and the last session's overlaps mapped to chain entries and Library items.
-pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<ChainView> {
+/// The rendered profile's dllmain natives: (mod id, game-side DLL path), or why they are not known (the profile does not
+/// render: a mod is missing from the Library).
+fn profile_dlls(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<(Vec<(String, String)>, Option<String>)> {
     let mode = crate::game::path_mode(install, dirs)?;
-    let (dlls, error) = match crate::profile::render(dirs, profile, install, mode)
+    Ok(match crate::profile::render(dirs, profile, install, mode)
         .or_else(|e| if e.code == ErrorCode::Unsupported { crate::profile::render(dirs, profile, install, crate::game::PathMode::Copy) } else { Err(e) })
         .and_then(|f| dllmain_entries(dirs, profile, &f))
     {
         Ok(d) => (d, None),
         Err(e) => (Vec::new(), Some(e.message)),
-    };
+    })
+}
+
+/// The profile page's chain view: the plan for `profile` in `install`, which entries load late and why, the rules,
+/// and the last session's overlaps mapped to chain entries and Library items. chain.ini and hooks.json are read once
+/// (by [`plan`]).
+pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<ChainView> {
+    let (dlls, error) = profile_dlls(dirs, profile, install)?;
     let p = plan(dirs, profile, install, &dlls);
-    let text = chain::read_raw(&install.path)?;
-    let ini = chain::parse(text.as_bytes());
+    if let Some(e) = &p.chain_error {
+        return Err(e.clone());
+    }
     let active = crate::profile::read_game_profile(&install.path).ok().flatten().is_some_and(|f| f.id == profile.id);
-    let current = active && error.is_none() && chain::plan_is_current(&text, &p.chain);
+    let current = active && error.is_none() && chain::plan_is_current(&p.chain_text, &p.chain);
+    // the [late] lines a rule wrote into chain.ini: they show as the rule's, not as the player's
+    let rule_marks = chain::rule_late_entries(&p.chain_text);
     let entries: Vec<ChainViewEntry> = p
         .entries
         .iter()
@@ -966,8 +1018,12 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
                 Some("profile".to_string())
             } else if let Some((id, _)) = p.chain.rule_late.iter().find(|(_, d)| eq(d)) {
                 Some(format!("rule:{id}"))
-            } else if e.section == Section::Chain && chain::is_late(&ini, &e.path) {
-                Some("player".to_string())
+            } else if e.section == Section::Chain && chain::is_late(&p.ini, &e.path) {
+                // a line another profile's rule wrote is that rule's (switching it off is undone by the next activation)
+                Some(match rule_marks.iter().find(|(_, d)| eq(d)) {
+                    Some((id, _)) => format!("rule:{id}"),
+                    None => "player".to_string(),
+                })
             } else {
                 None
             };
@@ -976,11 +1032,26 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
             ChainViewEntry { entry: e.clone(), late: !loader && late_by.is_some() && off_by.is_none(), late_by: if loader { None } else { late_by }, off_by, loader }
         })
         .collect();
-    let hooks = read_hooks(&install.path).ok().flatten();
     let lib = crate::library::list(dirs, None).unwrap_or_default();
-    let overlaps = hooks.as_ref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib)).collect();
-    let session = hooks.map(|h| SessionInfo { generated: h.generated, phase: h.phase, kiln: h.kiln, world_checked: h.world_checked });
+    let overlaps = p.hooks.as_ref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib)).collect();
+    let session = p.hooks.as_ref().map(|h| SessionInfo { generated: h.generated.clone(), phase: h.phase.clone(), kiln: h.kiln.clone(), world_checked: h.world_checked });
     Ok(ChainView { entries, rules: p.rules, rule_errors: p.rule_errors, session, overlaps, active, current, error })
+}
+
+/// One chain entry of the profile page by its path (case ignored), without building the whole [`view`]: hooks.json and
+/// the Library are not read, and only this entry's DLL is classified. `not_found` when the profile's chain has no such
+/// entry. The late switch ([`set_entry_late`]) needs the entry, nothing else.
+pub fn find_entry(dirs: &DataDirs, profile: &Profile, install: &GameInstall, path: &str) -> Result<PlanEntry> {
+    let text = chain::read_raw(&install.path)?;
+    let ini = chain::parse(text.as_bytes());
+    if let Some(p) = chain_paths(&ini, &text).into_iter().find(|p| p.eq_ignore_ascii_case(path)) {
+        return Ok(chain_entry(install, p));
+    }
+    let (dlls, _) = profile_dlls(dirs, profile, install)?;
+    dlls.iter()
+        .find(|(_, p)| p.eq_ignore_ascii_case(path))
+        .map(|(id, p)| profile_entry(id, p))
+        .ok_or_else(|| Error::not_found(format!("{path} is not in this profile's chain")))
 }
 
 /// The late switch of one chain entry of the view: a [profile] entry changes the profile (`late` list; the caller
@@ -1297,5 +1368,98 @@ mod tests {
         let two = overlap_view(overlap, &[v("chain\\hook.dll", Section::Chain, None), v("Z:\\a\\hook.dll", Section::Profile, Some("a"))], &[]);
         assert_eq!((two.fix.as_str(), two.entry.as_deref()), ("none", None));
         assert!(two.hint.contains("2 chain entries"), "{}", two.hint);
+    }
+
+    fn view_entry(path: &str, section: Section, off_by: Option<&str>, late: bool) -> ChainViewEntry {
+        ChainViewEntry { entry: entry(path, section, None, None), late, late_by: late.then(|| "player".to_string()), off_by: off_by.map(Into::into), loader: false }
+    }
+
+    /// An entry a compat rule switches off does not load in this profile: the hint says so, and never "loads late already".
+    #[test]
+    fn a_rule_disabled_entry_is_not_said_to_load_late() {
+        let overlap = |kind| Overlap {
+            symbol: "S".into(), rva: "0x1".into(), kind, owners: vec!["kiln.chat".into()], hook: None,
+            foreign: Some(ForeignDest { module: "hook.dll".into(), offset: "0x1".into(), ..Default::default() }),
+        };
+        let off = [view_entry("chain\\hook.dll", Section::Chain, Some("rule:xhl-off"), false)];
+        for kind in [OverlapKind::ForeignBefore, OverlapKind::Refused, OverlapKind::ForeignOver] {
+            let v = overlap_view(overlap(kind), &off, &[]);
+            assert_eq!(v.fix, "none", "{kind:?}");
+            assert!(v.hint.contains("switched off by rule xhl-off"), "{kind:?}: {}", v.hint);
+            assert!(!v.hint.contains("loads late already"), "{kind:?}: {}", v.hint);
+        }
+        // not switched off: the old hints stay
+        let late = [view_entry("chain\\hook.dll", Section::Chain, None, true)];
+        assert!(overlap_view(overlap(OverlapKind::ForeignBefore), &late, &[]).hint.contains("loads late already"));
+        let plain = [view_entry("chain\\hook.dll", Section::Chain, None, false)];
+        assert_eq!(overlap_view(overlap(OverlapKind::ForeignBefore), &plain, &[]).fix, "late");
+    }
+
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch_install(tag: &str) -> (Scratch, DataDirs, GameInstall) {
+        let t = Scratch(std::env::temp_dir().join(format!("km-compat-{tag}-{}", std::process::id())));
+        let _ = std::fs::remove_dir_all(&t.0);
+        std::fs::create_dir_all(t.0.join("game/kiln/state")).unwrap();
+        std::fs::write(t.0.join("game/enshrouded.exe"), b"MZ").unwrap();
+        let install = GameInstall {
+            id: "g".into(), kind: crate::game::GameKind::Client, path: t.0.join("game"), exe: "enshrouded.exe".into(),
+            app_id: crate::CLIENT_APP_ID, library: None, platform: crate::game::Platform::Proton, prefix: None, build_id: None,
+            exe_sha256: None, steam_flavor: None, path_mode: crate::game::PathMode::Copy, source: "manual".into(),
+        };
+        let dirs = DataDirs::at(t.0.join("data"));
+        (t, dirs, install)
+    }
+
+    /// A late switch needs the entry only: the view reads hooks.json once (plan() hands over what it parsed), and
+    /// find_entry reads none and finds the same entry the view lists.
+    #[test]
+    fn a_view_reads_hooks_json_once_and_find_entry_reads_none() {
+        let (t, dirs, install) = scratch_install("reads");
+        let game = &install.path;
+        std::fs::create_dir_all(game.join("kiln/chain")).unwrap();
+        for f in ["a.dll", "b.dll"] {
+            std::fs::write(game.join("kiln/chain").join(f), crate::pe::build_test_dll(&[], f.as_bytes())).unwrap();
+        }
+        std::fs::write(game.join("kiln/chain.ini"), "[chain]\r\nchain\\a.dll\r\nchain\\b.dll\r\n[late]\r\nchain\\b.dll\r\n").unwrap();
+        let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema");
+        std::fs::copy(schema.join("examples/hooks-state.json"), game.join(HOOKS_JSON)).unwrap();
+        let p = crate::profile::create(&dirs, "Reads", None).unwrap();
+
+        HOOKS_READS.with(|c| c.set(0));
+        let v = view(&dirs, &p, &install).unwrap();
+        assert_eq!(HOOKS_READS.with(|c| c.get()), 1, "view() read hooks.json once");
+        assert!(v.session.is_some() && !v.overlaps.is_empty(), "and still has the session and its overlaps: {v:?}");
+        assert_eq!(v.entries.iter().map(|e| (e.entry.file.as_str(), e.late_by.as_deref())).collect::<Vec<_>>(), [("a.dll", None), ("b.dll", Some("player"))]);
+
+        HOOKS_READS.with(|c| c.set(0));
+        let e = find_entry(&dirs, &p, &install, "CHAIN\\B.dll").unwrap();
+        assert_eq!(HOOKS_READS.with(|c| c.get()), 0, "find_entry() reads no hooks.json");
+        assert_eq!(e, v.entries[1].entry);
+        assert_eq!(find_entry(&dirs, &p, &install, "chain\\none.dll").unwrap_err().code, ErrorCode::NotFound);
+        drop(t);
+    }
+
+    /// A [late] line another profile's rule wrote shows as that rule's, not as the player's game-wide choice.
+    #[test]
+    fn a_rule_made_late_line_shows_its_rule() {
+        let (t, dirs, install) = scratch_install("rulemark");
+        let game = &install.path;
+        std::fs::write(
+            game.join("kiln/chain.ini"),
+            "[chain]\r\nchain\\xhl.dll\r\nchain\\mine.dll\r\n[late]\r\n; kiln rule other-profile\r\nchain\\xhl.dll\r\nchain\\mine.dll\r\n",
+        )
+        .unwrap();
+        let p = crate::profile::create(&dirs, "Marks", None).unwrap();
+        let v = view(&dirs, &p, &install).unwrap();
+        let by = |f: &str| v.entries.iter().find(|e| e.entry.file == f).map(|e| (e.late, e.late_by.clone())).unwrap();
+        assert_eq!(by("xhl.dll"), (true, Some("rule:other-profile".to_string())));
+        assert_eq!(by("mine.dll"), (true, Some("player".to_string())));
+        drop(t);
     }
 }

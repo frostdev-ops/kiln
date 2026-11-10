@@ -59,7 +59,9 @@ std::map<KilnOwner, std::string> g_owner_names = {{0, "kiln"},
                                                   {3, "emf:coolmod"},
                                                   {4, "native:alpha"},
                                                   {5, "native:beta"},
-                                                  {6, "test"}};
+                                                  {6, "test"},
+                                                  {7, "shroudtopia:modx"},
+                                                  {8, "emf:mody"}};
 }  // namespace
 
 namespace kiln {
@@ -232,6 +234,7 @@ GAME_ORD(1)
 GAME_ORD(2)
 GAME_ORD(3)
 GAME_ORD(4)
+GAME_ORD(5)
 __declspec(noinline) uint64_t game_hdr(uint64_t a, int b) {
     g_real.fetch_add(1);
     return a * 10 + static_cast<uint64_t>(b);
@@ -303,6 +306,7 @@ int game_asm_mix(int);
 int game_asm_park(int);
 int game_asm_idle(int);
 int game_asm_idle2(int);
+extern char game_many[];
 int game_asm_park_jcc(int);
 void game_asm_park_done(void);
 int game_asm_er1(int);
@@ -333,6 +337,12 @@ __asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n" GAME_ASM(game_asm_er1)
         "1:\n  add rsp, 0x20\n  pop rbx\n  ret\n.seh_endproc\n");
 __asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n" GAME_ASM(game_asm_fb) GAME_ASM(game_asm_fo)
             GAME_ASM(game_asm_mid) GAME_ASM(game_asm_mid2) GAME_ASM(game_asm_mid3) GAME_ASM(game_asm_mix) ".text\n");
+
+// 600 small functions, 32 bytes apart, `int f(int x)` = x + 1, for the target-cap test (512 distinct addresses to hook).
+__asm__(".intel_syntax noprefix\n.section .game,\"xr\"\n.balign 32, 0xCC\n"
+        ".globl game_many\n.def game_many; .scl 2; .type 32; .endef\ngame_many:\n"
+        ".rept 600\n  push rbx\n  sub rsp, 0x20\n  mov eax, ecx\n  add eax, 1\n  add rsp, 0x20\n  pop rbx\n  ret\n  .balign 32, 0xCC\n.endr\n"
+        ".text\n");
 
 // Functions for threads that are paused inside the bytes a first detour replaces (test_parked_threads).
 //   game_asm_park:     push rbx (1 byte) | sub rsp,20h (4 bytes) ...      int f(int x) = x + 1
@@ -444,6 +454,19 @@ KilnHandle add_ord(uintptr_t target, KilnOwner owner, int prio, const char* befo
     const std::string label = std::string("ord") + static_cast<char>('a' + N);
     const KilnHookOrder o = ord(prio, label.c_str(), before, after);
     // the label pointer only has to live for the call
+    const KilnResult r = A->raw_detour(owner, target, &o, reinterpret_cast<void*>(&LO<N>::fn),
+                                       reinterpret_cast<void**>(&LO<N>::orig), &h);
+    return r == KILN_OK ? h : 0;
+}
+
+// An ordering link with order flags; `size` lets a test pass the KilnHookOrder of a plugin built before `flags` existed.
+template <int N>
+KilnHandle add_ord_flags(uintptr_t target, KilnOwner owner, int prio, uint32_t flags, uint32_t size = sizeof(KilnHookOrder)) {
+    KilnHandle h = 0;
+    const std::string label = std::string("ord") + static_cast<char>('a' + N);
+    KilnHookOrder o = ord(prio, label.c_str());
+    o.flags = flags;
+    o.size = size;
     const KilnResult r = A->raw_detour(owner, target, &o, reinterpret_cast<void*>(&LO<N>::fn),
                                        reinterpret_cast<void**>(&LO<N>::orig), &h);
     return r == KILN_OK ? h : 0;
@@ -681,6 +704,53 @@ void test_ordering() {
         check(got == "ab", "a contradictory constraint is dropped; the earlier one holds", got);
         check(log_has("contradicts an earlier constraint"), "the dropped constraint is logged");
     }
+}
+
+// ---- ur8 finding 5: mods of different engines hooking one function: the newest detour runs first
+void test_newest_first() {
+    std::puts("-- KILN_HOOK_NEWEST_FIRST: equal-priority mod links of different engines run newest first");
+    // owners: 3 = emf:coolmod, 8 = emf:mody (two EMF mods), 7 = shroudtopia:modx; 4/5/6 = other owners
+    take_order();
+    const uintptr_t t = reinterpret_cast<uintptr_t>(&game_ord5);
+    constexpr uint32_t F = KILN_HOOK_NEWEST_FIRST;
+    const KilnHandle ha = add_ord_flags<0>(t, 3, 1, F);  // a: first
+    const KilnHandle hb = add_ord_flags<1>(t, 7, 1, F);  // b: a Shroudtopia mod, second (installed again below)
+    const KilnHandle hc = add_ord_flags<2>(t, 8, 1, F);  // c: another EMF mod, third
+    check(ha && hb && hc, "the three links are installed");
+    (void)hb;
+    game_ord5(1);
+    std::string got = take_order();
+    check(got == "cba", "three mod links of three owners at one priority: the newest runs first, as layered detours did", got);
+
+    // Kiln's own links (priority 0), a link without the flag at the mods' priority, and a higher priority
+    const KilnHandle hd = add_ord<3>(t, 4, 0);                   // d: priority 0, no flag
+    const KilnHandle he = add_ord_flags<4>(t, 5, 1, 0);          // e: the mods' priority, no flag
+    const KilnHandle hf = add_ord_flags<5>(t, 5, 2, F);          // f: higher priority
+    game_ord5(1);
+    got = take_order();
+    check(got == "fcbaed", "priority first; at one priority the flagged links (newest first) precede the others (registration order)", got);
+
+    // installing the oldest again (revoke, then the same install: a revival) makes it the newest
+    A->revoke(ha);
+    const KilnHandle ha2 = add_ord_flags<0>(t, 3, 1, F);
+    game_ord5(1);
+    got = take_order();
+    check(ha2 && got == "facbed", "a revived link counts as the newest", got);
+    // installing a live link again (replaces it in place) does too
+    const KilnHandle hb2 = add_ord_flags<1>(t, 7, 1, F);
+    game_ord5(1);
+    got = take_order();
+    check(hb2 && got == "fbaced", "a link installed again in place counts as the newest", got);
+
+    // a plugin built before `flags` existed passes the smaller KilnHookOrder: the flag is not read, the link is a plain one
+    const KilnHandle hg = add_ord_flags<6>(t, 6, 1, F, static_cast<uint32_t>(offsetof(KilnHookOrder, flags)));
+    game_ord5(1);
+    got = take_order();
+    check(hg && got == "fbacegd", "an order without the flags field (older size) is read as before: no flag", got);
+
+    for (KilnHandle h : {hb2, ha2, hc, hd, he, hf, hg}) A->revoke(h);
+    take_order();
+    check(game_ord5(2) == 2 * 3 + 5 && take_order().empty(), "all revoked: the real function alone");
 }
 
 void test_mid() {
@@ -1996,6 +2066,48 @@ void test_symbol_cache_and_counts() {
     A->revoke_owner(6);
 }
 
+// ---- ur8 finding 6: the target cap (its own process: it uses up every target slot)
+void test_target_cap() {
+    std::puts("-- every target slot used: a new address is refused and the plugins can tell; hooked addresses still take links");
+    static auto pass = +[](KilnHookCall2* c, void*) -> uintptr_t { return A->call_original2(c); };
+    static int (*orig2)(int) = nullptr;
+    static auto plus10 = +[](int x) -> int { return orig2(x) + 10; };
+    const auto o = ord(1, "t/cap");
+    KilnHooksStats st{};
+    st.size = sizeof st;
+    const KilnResult sr0 = A->stats(&st);
+    check(sr0 == KILN_OK && st.targets == 0 && st.targets_cap == chain::kMaxTargets && !kiln::hooks_targets_full(A),
+          "an empty registry reports its target cap and is not full", std::to_string(st.targets_cap));
+    const uintptr_t first = reinterpret_cast<uintptr_t>(game_many);
+    size_t made = 0;
+    KilnResult last = KILN_OK;
+    for (size_t i = 0; i < chain::kMaxTargets + 5 && last == KILN_OK; ++i) {
+        last = A->detour2(6, first + 32 * i, &o, 1, pass, nullptr, nullptr);
+        if (last == KILN_OK) ++made;
+    }
+    check(made == chain::kMaxTargets && last == KILN_ERR_UNAVAILABLE, "512 addresses, then the next one is refused with UNAVAILABLE",
+          std::to_string(made) + " / " + std::to_string(last));
+    check(log_has("no free target slot"), "kiln.log says why");
+    st = {};
+    st.size = sizeof st;
+    const KilnResult sr1 = A->stats(&st);
+    check(sr1 == KILN_OK && st.targets == st.targets_cap && st.targets_cap == 512 && kiln::hooks_targets_full(A),
+          "stats: targets == targets_cap, and the client header says the table is full",
+          std::to_string(st.targets) + "/" + std::to_string(st.targets_cap));
+    // an older client's stats size gets links_used / links_cap but no targets_cap
+    KilnHooksStats older{};
+    older.size = static_cast<uint32_t>(offsetof(KilnHooksStats, targets_cap));
+    check(A->stats(&older) == KILN_OK && older.links_cap == chain::kMaxLinks && older.targets_cap == 0 && older.targets == 512,
+          "an older stats size still gets its fields and no targets_cap");
+    // an address that is hooked already takes more links, and the chain runs
+    const auto o2 = ord(2, "t/cap-more");
+    const KilnResult more = A->raw_detour(4, first + 32 * 3, &o2, reinterpret_cast<void*>(plus10), reinterpret_cast<void**>(&orig2), nullptr);
+    check(more == KILN_OK && reinterpret_cast<int (*)(int)>(first + 32 * 3)(1) == 12, "a hooked address still takes a link and the chain runs",
+          std::to_string(more));
+    check(A->raw_detour(4, first + 32 * 512, &o2, reinterpret_cast<void*>(plus10), reinterpret_cast<void**>(&orig2), nullptr) == KILN_ERR_UNAVAILABLE,
+          "the refused address stays refused");
+}
+
 // ---- finding 4c: the link-slot cap (its own process: it uses up every slot)
 void test_slots() {
     std::puts("-- every link slot used: one warning at 75%, one at 100%, then new links are refused, revivals still work");
@@ -2062,6 +2174,14 @@ int main(int argc, char** argv) {
         std::puts(g_fail ? "FAILED" : "all passed");
         return g_fail ? 1 : 0;
     }
+    if (argc > 1 && !std::strcmp(argv[1], "targets")) {
+        g_service->init();
+        A = static_cast<const KilnHooksApi*>(g_service->table);
+        test_target_cap();
+        std::printf("%d passed, %d failed\n", g_pass, g_fail);
+        std::puts(g_fail ? "FAILED" : "all passed");
+        return g_fail ? 1 : 0;
+    }
     if (argc > 1 && !std::strcmp(argv[1], "tls64"))  // push the caller-table slot into TlsExpansionSlots
         for (int i = 0; i < 70; ++i) TlsAlloc();
     std::printf("hooks_v2_test: game section %p +0x%zx, tls %s\n", reinterpret_cast<void*>(kiln::g_image.base),
@@ -2087,6 +2207,7 @@ int main(int argc, char** argv) {
     test_floats();
     test_structured();
     test_ordering();
+    test_newest_first();
     test_mid();
     test_mid_registers_and_flags();
     test_v1_compat();
