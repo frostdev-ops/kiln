@@ -283,7 +283,7 @@ KilnResult wheel_open(KilnOwner owner, const KilnUiWheel* def, KilnUiWheelFn fn,
     w->fn = fn;
     w->user = user;
     w->opened_ms = now_ms();
-    if (g_menu_open.load()) return KILN_ERR_UNAVAILABLE;  // the Kiln menu has the input
+    if (g_menu_open.load() || g_page_capture.load()) return KILN_ERR_UNAVAILABLE;  // the Kiln menu has the input
     KilnUiStatus status{};
     vk_status(&status);
     if (!input_attached() || !status.swapchain) return KILN_ERR_UNAVAILABLE;  // nothing could draw it

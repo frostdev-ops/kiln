@@ -217,6 +217,11 @@ JSON sections bind config and safe `game.*` values without draw code: [blocks.md
 dev.20+: `StatusLines.Add(() => cachedText)` / `Set("state", text)` report mod status when asked, including on servers.
 A source may run on a worker: use a tick-produced snapshot, never game state or tick-held locks. dev.21+: the menu and the
 dashboard never wait for a source. They show the lines read last and refresh on a worker, so a new line appears a moment later.
+dev.22+: `new UiScreenOptions { FullScreen = true }` is a whole-display screen (no title bar, not movable); draw your own
+layout with `ui.FontSize(36)`, `ui.BeginChild(id, w, h, UiChildFlags.NavFlattened)`, `ui.Cursor` / `ui.SetCursor`, `ui.LastItem`,
+`ui.Selectable(label, selected, width, height)`, `ui.DrawRect(UiLayer.Window, ...)`, `ui.PushColor` / `PushVar` and
+`ui.KeyPressed(UiKey.Tab, claim: true)` (docs/kiln/ui.md "Layout for full screens"); `ui.HasLayout` is false on an older kiln.ui.
+The Kiln menu (Insert, the MODS entries) lists every engine's mods; `Ui.AddConfigPage` pages show inline in its details.
 A UI `command` runs in this game's registry; it does not send chat to a joined server. Use `castAbility` / `applyEffect`
 with the same mod on the server for server-side actions. Old callbacks, queued edits and commands cannot outlive their mod load.
 

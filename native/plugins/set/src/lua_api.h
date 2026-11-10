@@ -35,6 +35,16 @@ bool hasDraw();                                      // any Draw callback regist
 void setOverlayOpen(bool open);                      // Overlay.isOpen(); Keys.on stays silent while open
 void requestReload();                                // reload() at the mods' next tick or frame, from the toolbar
 bool modsLoaded();
+// What the last mod load did with each folder of the mods directory (Kiln's state/set.json; docs/kiln/launcher/contracts.md).
+struct ModReport {
+    std::string name;    // the folder's name (SET's mod id)
+    std::string status;  // loaded | failed | skipped
+    std::string reason;  // the Lua error, the version it needs, a game-build note, or ""
+    std::string title, version;  // mod.json "name" / "version", "" when absent
+    std::string folder;
+};
+std::vector<ModReport> modReports();
+void onModsReported(void (*fn)());  // after every load (start and reload()), on the thread that loaded them
 void bindKiln(const KilnApi* api, KilnOwner owner);  // Admin.* services                                   // a Lua state with the mods exists
 int keyFromName(const char* name);                   // virtual-key code, or 0 for an unknown name
 void setSystemsAvailable(bool ok);                   // the program runner is hooked; Systems.enable errors until then

@@ -334,9 +334,18 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
  // Failed initialization removes callbacks and releases this mod's system owner; reload runs shutdown and creates a fresh state.
  std::ofstream(root/"one"/"init.lua")<<"Systems.enable('stamina_depletion_sprint',false);Tick.add(print);Tick.add(function() print('bad callback') end);Tick.add(assert(load(\"return function() print('bad callback') end\"))()); error('bad init')";
  std::ofstream(root/"two"/"init.lua")<<"Systems.enable('stamina_depletion_sprint',false);print('good init');Tick.add(print); Tick.add(function() print('good tick') end);registerForEvent('onShutdown',function() print('good shutdown') end)";
- rt::frame();assert(rt::modsLoaded());rt::requestReload();rt::frame();rt::gameClosing();
+ static int reported=0;rt::onModsReported([]{++reported;});
+ std::ofstream(root/"two"/"mod.json")<<"{\"name\": \"Two Good\", \"version\": \"1.2.0\"}";
+ rt::frame();assert(rt::modsLoaded());
+ // what kiln-set writes into state/set.json: each folder's result, with mod.json's name and version
+ {auto r=rt::modReports();assert(reported==1);
+  auto find=[&](const char* n){for(auto& m:r)if(m.name==n)return m;return rt::ModReport{};};
+  auto one=find("one"),two=find("two");
+  assert(one.status=="failed"&&one.reason.find("bad init")!=std::string::npos);
+  assert(two.status=="loaded"&&two.title=="Two Good"&&two.version=="1.2.0"&&two.reason.empty()&&two.folder.find("two")!=std::string::npos);}
+ rt::requestReload();rt::frame();assert(reported==2);rt::onModsReported(nullptr);rt::gameClosing();
  unsigned numeric=0;for(auto& l:logs){char* end=nullptr;strtod(l.c_str(),&end);if(end!=l.c_str()&&*end==0)++numeric;}assert(numeric==2);
  unsigned good=0,bad=0,shutdown=0;for(auto& l:logs){if(l=="good tick")++good;if(l=="bad callback")++bad;if(l=="good shutdown")++shutdown;}assert(good>=2&&bad==0&&shutdown==2&&!released.empty()&&disabled.empty());
  std::filesystem::remove_all(root);
- std::cout<<"SET Lua sandbox, budgets, isolation, reload, reflection bounds: PASS\n";
+ std::cout<<"SET Lua sandbox, budgets, isolation, reload, reflection bounds, mod reports: PASS\n";
 }

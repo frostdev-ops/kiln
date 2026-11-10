@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: MIT
  * kiln.ui v1 (client only): an in-game overlay drawn with Dear ImGui on top of the game's frames, the game window's
  * input (keys for key bindings, mouse + keyboard capture while a Kiln screen is open), and an immediate-mode drawing
- * table for the managed Kiln.Ui. v2 appends right clicks on items and a radial wheel (the last slots of the table).
+ * table for the managed Kiln.Ui. v2 appends right clicks on items and a radial wheel; v3 appends font sizes, child
+ * regions with flags, cursor and item queries, sized selectables, focus, layered drawing, colour/spacing pushes and
+ * key queries; v4 appends the main-menu page (the Kiln menu inside the game's own menu) and a font choice (the last
+ * slots of the table).
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -29,7 +32,9 @@ extern "C" {
 #endif
 
 #define KILN_UI_SERVICE "kiln.ui"
-#define KILN_UI_VERSION 2u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage): check header.size */
+#define KILN_UI_VERSION 4u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
+                              look slots for full-display screens (after wheel_active); v4 appends the main-menu page and
+                              font choice (after set_scroll_here_y): check header.size */
 
 /* Colours are 0xRRGGBBAA. */
 
@@ -43,6 +48,10 @@ enum {
     KILN_UI_WINDOW_ALWAYS_AUTO_RESIZE = 1 << 6,
     KILN_UI_WINDOW_NO_BACKGROUND = 1 << 7,
     KILN_UI_WINDOW_NO_INPUTS = (1 << 9) | (1 << 18) | (1 << 19), /* NoMouseInputs | NoNavInputs | NoNavFocus */
+    /* v3 (same ImGui values; older kiln.ui passes them on to ImGui as well) */
+    KILN_UI_WINDOW_NO_SAVED_SETTINGS = 1 << 8,       /* no imgui.ini entry (position and size are the caller's) */
+    KILN_UI_WINDOW_NO_BRING_TO_FRONT = 1 << 13,      /* a click does not raise it above other windows */
+    KILN_UI_WINDOW_ALWAYS_VERTICAL_SCROLLBAR = 1 << 14,
 };
 
 /* Conditions for set_next_window_* (ImGuiCond values). */
@@ -251,6 +260,178 @@ typedef struct KilnUiWheel {
  * before the call, so fn may open another wheel. */
 typedef void(KILN_CALL* KilnUiWheelFn)(int32_t choice, void* user);
 
+/* ---- v3: layout and look ---- */
+
+/* begin_child_ex child_flags (ImGuiChildFlags values) */
+enum {
+    KILN_UI_CHILD_BORDERS = 1 << 0,         /* an outline (and the window padding) */
+    KILN_UI_CHILD_ALWAYS_PADDING = 1 << 1,  /* the window padding without an outline */
+    KILN_UI_CHILD_AUTO_RESIZE_Y = 1 << 5,   /* as tall as its contents (height 0) */
+    KILN_UI_CHILD_FRAME_STYLE = 1 << 7,     /* looks like a frame (frame colours and padding) */
+    KILN_UI_CHILD_NAV_FLATTENED = 1 << 8,   /* gamepad/keyboard navigation crosses into and out of it like plain widgets */
+};
+
+/* selectable_ex flags (ImGuiSelectableFlags values) */
+enum {
+    KILN_UI_SELECTABLE_SPAN_ALL_COLUMNS = 1 << 1,
+    KILN_UI_SELECTABLE_ALLOW_DOUBLE_CLICK = 1 << 2,
+    KILN_UI_SELECTABLE_DISABLED = 1 << 3,
+    KILN_UI_SELECTABLE_ALLOW_OVERLAP = 1 << 4,  /* widgets drawn over it later take their own clicks */
+    KILN_UI_SELECTABLE_HIGHLIGHT = 1 << 5,      /* drawn as if hovered */
+};
+
+/* draw_rect_in / draw_text_in layers */
+enum {
+    KILN_UI_LAYER_WINDOW = 0,
+    KILN_UI_LAYER_BACKGROUND = 1,
+    KILN_UI_LAYER_FOREGROUND = 2,
+};
+
+/* push_color slots (Kiln's own numbers, mapped to the ImGui build Kiln ships) */
+enum {
+    KILN_UI_COLOR_TEXT = 0,
+    KILN_UI_COLOR_TEXT_DISABLED = 1,
+    KILN_UI_COLOR_WINDOW_BG = 2,
+    KILN_UI_COLOR_CHILD_BG = 3,
+    KILN_UI_COLOR_BORDER = 4,
+    KILN_UI_COLOR_FRAME_BG = 5,
+    KILN_UI_COLOR_FRAME_BG_HOVERED = 6,
+    KILN_UI_COLOR_FRAME_BG_ACTIVE = 7,
+    KILN_UI_COLOR_BUTTON = 8,
+    KILN_UI_COLOR_BUTTON_HOVERED = 9,
+    KILN_UI_COLOR_BUTTON_ACTIVE = 10,
+    KILN_UI_COLOR_HEADER = 11,          /* selectables: selected */
+    KILN_UI_COLOR_HEADER_HOVERED = 12,  /* selectables: hovered */
+    KILN_UI_COLOR_HEADER_ACTIVE = 13,   /* selectables: held */
+    KILN_UI_COLOR_SEPARATOR = 14,
+    KILN_UI_COLOR_SCROLLBAR_BG = 15,
+    KILN_UI_COLOR_SCROLLBAR_GRAB = 16,
+    KILN_UI_COLOR_NAV_CURSOR = 17,      /* the gamepad/keyboard focus outline */
+    KILN_UI_COLOR_CHECK_MARK = 18,
+    KILN_UI_COLOR_SLIDER_GRAB = 19,
+    KILN_UI_COLOR_COUNT = 20,
+};
+
+/* push_var slots: pixels (multiply by the UI scale yourself); _ALIGN ones are 0..1 */
+enum {
+    KILN_UI_VAR_WINDOW_PADDING = 0,      /* x, y */
+    KILN_UI_VAR_FRAME_PADDING = 1,       /* x, y */
+    KILN_UI_VAR_ITEM_SPACING = 2,        /* x, y */
+    KILN_UI_VAR_ITEM_INNER_SPACING = 3,  /* x, y */
+    KILN_UI_VAR_FRAME_ROUNDING = 4,
+    KILN_UI_VAR_FRAME_BORDER_SIZE = 5,
+    KILN_UI_VAR_CHILD_ROUNDING = 6,
+    KILN_UI_VAR_CHILD_BORDER_SIZE = 7,
+    KILN_UI_VAR_SELECTABLE_TEXT_ALIGN = 8, /* x, y */
+    KILN_UI_VAR_BUTTON_TEXT_ALIGN = 9,     /* x, y */
+    KILN_UI_VAR_SCROLLBAR_SIZE = 10,
+    KILN_UI_VAR_WINDOW_BORDER_SIZE = 11,
+    KILN_UI_VAR_COUNT = 12,
+};
+
+/* key_pressed keys (Kiln's own numbers) */
+enum {
+    KILN_UI_KEY_TAB = 1,
+    KILN_UI_KEY_LEFT = 2,
+    KILN_UI_KEY_RIGHT = 3,
+    KILN_UI_KEY_UP = 4,
+    KILN_UI_KEY_DOWN = 5,
+    KILN_UI_KEY_PAGE_UP = 6,
+    KILN_UI_KEY_PAGE_DOWN = 7,
+    KILN_UI_KEY_HOME = 8,
+    KILN_UI_KEY_END = 9,
+    KILN_UI_KEY_ENTER = 10,
+    KILN_UI_KEY_ESCAPE = 11,
+    KILN_UI_KEY_BACKSPACE = 12,
+    KILN_UI_KEY_F = 13,                 /* the letter F (Ctrl+F: find) */
+    KILN_UI_KEY_GAMEPAD_LB = 14,        /* left shoulder */
+    KILN_UI_KEY_GAMEPAD_RB = 15,        /* right shoulder */
+    KILN_UI_KEY_GAMEPAD_X = 16,         /* face button left (Xbox X) */
+    KILN_UI_KEY_GAMEPAD_Y = 17,         /* face button top (Xbox Y) */
+    KILN_UI_KEY_GAMEPAD_START = 18,
+    KILN_UI_KEY_GAMEPAD_BACK = 19,
+    KILN_UI_KEY_COUNT = 20,
+};
+
+/* key_pressed flags */
+enum {
+    KILN_UI_KEYQ_REPEAT = 1u,
+    KILN_UI_KEYQ_CLAIM = 2u,
+};
+
+/* cursor(): positions are window-local (x, y, as set_cursor_pos takes them) and screen pixels (screen_x/y, as the
+ * draw_* calls take them) */
+typedef struct KilnUiCursor {
+    uint32_t size;                  /* sizeof(KilnUiCursor) */
+    float x, y;                     /* where the next widget goes, window-local (scrolling included) */
+    float screen_x, screen_y;       /* the same in screen pixels */
+    float avail_width, avail_height;/* space left in the current window or child from the cursor */
+    float window_x, window_y;       /* the current window's (or child's) top-left, screen pixels */
+    float window_width, window_height;
+    float font_size;                /* the current font size in pixels (UI scale applied) */
+    float line_height;              /* one text line plus the item spacing */
+    float scroll_y, scroll_max_y;
+} KilnUiCursor;
+
+/* item(): the widget drawn last */
+typedef struct KilnUiItem {
+    uint32_t size;                  /* sizeof(KilnUiItem) */
+    float min_x, min_y, max_x, max_y; /* screen pixels */
+    uint8_t hovered;
+    uint8_t active;                 /* held (mouse down on it, or a text field being edited) */
+    uint8_t focused;                /* has the gamepad/keyboard navigation focus */
+    uint8_t clicked;                /* the left button went down over it this frame */
+    uint8_t visible;                /* not clipped away */
+    uint8_t edited;                 /* its value changed this frame */
+    uint8_t activated;              /* became active this frame */
+    uint8_t deactivated;            /* stopped being active this frame */
+} KilnUiItem;
+
+/* ---- v4: the Kiln menu as a page of the game's main menu (docs/kiln/ui.md "Two hosts", docs/re/game-ui.md
+ * "Main-menu pages"). Feature ui.menu_page: the main menu's MODS entry makes the game go to its Credits page slot, whose
+ * content kiln.ui hooks and leaves empty, so the game moves its camera and hides its main menu as for its own pages;
+ * the managed host draws the Kiln menu into the rectangle below. menu_page_leave makes the game go back. Without the
+ * feature (or before a host called menu_page_host(1)) the MODS entry opens the stand-alone Kiln menu as before. ---- */
+
+/* KilnUiMenuPage.state */
+enum {
+    KILN_UI_PAGE_HIDDEN = 0,
+    KILN_UI_PAGE_OPENING = 1,  /* the game was asked to go to the page; it shows from the next UI frame */
+    KILN_UI_PAGE_SHOWN = 2,    /* the game shows the page (shown_frame: the last UI frame it did) */
+};
+
+/* KilnUiMenuPage.opened_by */
+enum {
+    KILN_UI_PAGE_BY_ENTRY = 1,  /* the main menu's MODS entry */
+    KILN_UI_PAGE_BY_KEY = 2,    /* the menu key while the main menu showed */
+};
+
+/* push_font fonts */
+enum {
+    KILN_UI_FONT_DEFAULT = 0,    /* the current look's font */
+    KILN_UI_FONT_GAME = 1,       /* the game's UI font, regular */
+    KILN_UI_FONT_GAME_BOLD = 2,  /* the game's UI font, bold (its page titles) */
+};
+
+typedef struct KilnUiMenuPage {
+    uint32_t size;          /* sizeof(KilnUiMenuPage) */
+    uint8_t available;      /* feature ui.menu_page on, its hook in, a host claimed it, and not given up this session */
+    uint8_t state;          /* KILN_UI_PAGE_* */
+    uint8_t error_popup;    /* the game shows an error popup now (feature ui.error_popup; 0 when unknown) */
+    uint8_t metrics;        /* the canvas, viewport and pixels-per-unit fields are the game's (else 0) */
+    uint8_t opened_by;      /* KILN_UI_PAGE_BY_* */
+    uint8_t reserved[7];
+    uint64_t ui_frame;      /* the game's UI frames finished so far */
+    uint64_t opened_frame;  /* the UI frame the page was asked for */
+    uint64_t shown_frame;   /* the last UI frame the game showed the page */
+    float canvas_width, canvas_height;  /* the game's UI canvas in UI units (1920x1080, wider/taller to fit the window) */
+    float viewport_x, viewport_y, viewport_width, viewport_height;  /* where the canvas is drawn, pixels */
+    float pixels_per_unit;  /* pixels per UI unit */
+    float pad_left, pad_top, pad_right, pad_bottom;  /* the game's page padding, UI units (its Play page: 80 / 50) */
+    float x0, y0, x1, y1;   /* the page's content rectangle in pixels: the viewport inside the padding */
+    uint32_t reserved2;
+} KilnUiMenuPage;           /* 104 bytes */
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
@@ -422,6 +603,92 @@ typedef struct KilnUiApi {
     KilnResult(KILN_CALL* wheel_open)(KilnOwner owner, const KilnUiWheel* wheel, KilnUiWheelFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* wheel_close)(KilnHandle wheel);
     bool(KILN_CALL* wheel_active)(void);
+
+    /* ================================================================================================================
+     * v3 (appended; check header.size >= offsetof(KilnUiApi, set_scroll_here_y) + sizeof(void*) before calling these).
+     * Layout and look for full-display screens (the Kiln mod manager uses them; so may mods). All of them work only
+     * inside a frame callback (elsewhere they do nothing and return false / zeros). Sizes are pixels unless said.
+     * ============================================================================================================== */
+
+    /* push_font_size: text drawn until pop_font_size uses this size, in pixels at UI scale 1 (the UI scale is applied
+     *   on top, as for the default size); the current font stays (the game's font under KILN_UI_STYLE_GAME). 0 = the
+     *   style's default size. Pushes nest; a frame callback that forgets a pop is balanced at the end of the frame. */
+    void(KILN_CALL* push_font_size)(float size);
+    void(KILN_CALL* pop_font_size)(void);
+
+    /* begin_child_ex: a child region of width x height (0 = the rest, < 0 = the rest minus that much) with
+     *   KILN_UI_CHILD_* flags (no border unless KILN_UI_CHILD_BORDERS) and KILN_UI_WINDOW_* flags. Returns whether
+     *   it is visible; call end_child either way. */
+    bool(KILN_CALL* begin_child_ex)(KilnStr id, float width, float height, uint32_t child_flags, uint32_t window_flags);
+
+    /* set_next_item_width: the width of the next widget (> 0 pixels; < 0 = the rest of the line minus that much). */
+    void(KILN_CALL* set_next_item_width)(float width);
+
+    /* cursor: where the next widget goes and the space left (KilnUiCursor; set out->size first).
+     * set_cursor_pos: moves the next widget to (x, y), window-local like KilnUiCursor.x/y. */
+    void(KILN_CALL* cursor)(KilnUiCursor* out);
+    void(KILN_CALL* set_cursor_pos)(float x, float y);
+
+    /* item: the rectangle and state of the widget drawn last (KilnUiItem; set out->size first). */
+    void(KILN_CALL* item)(KilnUiItem* out);
+
+    /* selectable_ex: a selectable row of width x height (0 = the rest of the line / one text line) with
+     *   KILN_UI_SELECTABLE_* flags. True when clicked or activated (Enter, gamepad A). */
+    bool(KILN_CALL* selectable_ex)(KilnStr label, bool selected, uint32_t flags, float width, float height);
+
+    /* set_keyboard_focus_here: the keyboard goes to the next widget (offset 0) or the one after (1)... use it on a text
+     *   field to type into it at once. set_item_default_focus: the widget drawn last gets the gamepad/keyboard
+     *   navigation focus when the window appears. */
+    void(KILN_CALL* set_keyboard_focus_here)(int32_t offset);
+    void(KILN_CALL* set_item_default_focus)(void);
+
+    /* draw_rect_in / draw_text_in: like draw_rect / draw_text on a KILN_UI_LAYER_*: WINDOW = the current window's own
+     *   list (clipped to it, scrolls with it, under widgets drawn after it), BACKGROUND = behind every window,
+     *   FOREGROUND = over everything. thickness 0 fills the rectangle, else draws its outline. Text: size in pixels
+     *   (0 = the current font size), wrap_width > 0 wraps at that width, no shadow. */
+    void(KILN_CALL* draw_rect_in)(uint32_t layer, float x0, float y0, float x1, float y1, uint32_t rgba, float rounding, float thickness);
+    void(KILN_CALL* draw_text_in)(uint32_t layer, float x, float y, uint32_t rgba, float size, float wrap_width, KilnStr text);
+    /* text_size_ex: like text_size, wrapped at wrap_width when > 0. */
+    void(KILN_CALL* text_size_ex)(KilnStr text, float size, float wrap_width, float* width, float* height);
+
+    /* push_color: a colour of the current look (KILN_UI_COLOR_*) until pop_color(count) takes `count` pushes off.
+     * push_var: a spacing or rounding of the current look (KILN_UI_VAR_*; y is ignored for one-value vars) until
+     *   pop_var(count). Unknown slots are ignored (and must not be popped). */
+    void(KILN_CALL* push_color)(uint32_t slot, uint32_t rgba);
+    void(KILN_CALL* pop_color)(uint32_t count);
+    void(KILN_CALL* push_var)(uint32_t var, float x, float y);
+    void(KILN_CALL* pop_var)(uint32_t count);
+
+    /* key_pressed: KILN_UI_KEY_* went down this frame (keyboard or gamepad; only while Kiln has the input).
+     *   KILN_UI_KEYQ_REPEAT also answers auto-repeat. KILN_UI_KEYQ_CLAIM takes the key from ImGui's own navigation
+     *   for this frame and the next (Tab then stops moving the focus; claim it every frame you use it).
+     * key_mods: KILN_UI_MOD_* held now. */
+    bool(KILN_CALL* key_pressed)(uint32_t key, uint32_t flags);
+    uint32_t(KILN_CALL* key_mods)(void);
+
+    /* set_scroll_here_y: scrolls the current window so the cursor sits at ratio (0 top, 0.5 middle, 1 bottom). */
+    void(KILN_CALL* set_scroll_here_y)(float ratio);
+
+    /* ================================================================================================================
+     * v4 (appended; check header.size >= offsetof(KilnUiApi, pop_font) + sizeof(void*) before calling these).
+     * ============================================================================================================== */
+
+    /* menu_page: the main-menu page's state (KilnUiMenuPage; set out->size first). Any thread. KILN_ERR_UNAVAILABLE
+     *   (with out->available = 0) when the feature is off on this build.
+     * menu_page_drawn: the host drew the page in this overlay frame (render thread). The page leaves by itself when no
+     *   host drew it for about half a second, so a player is never left on an empty page.
+     * menu_page_leave: go back to the main menu (Escape, gamepad B, the page's Back control). Any thread. The game
+     *   plays its back sound and moves the camera back itself.
+     * menu_page_host: 1 = a host can draw the page (the MODS entry then opens it), 0 = not any more. */
+    KilnResult(KILN_CALL* menu_page)(KilnUiMenuPage* out);
+    void(KILN_CALL* menu_page_drawn)(void);
+    void(KILN_CALL* menu_page_leave)(void);
+    void(KILN_CALL* menu_page_host)(uint32_t on);
+
+    /* push_font: text drawn until pop_font uses a KILN_UI_FONT_* font at the current size. False (and nothing to pop)
+     *   when that font is not loaded (the game's font comes from its data; it may not be there yet). Inside a frame. */
+    bool(KILN_CALL* push_font)(uint32_t font);
+    void(KILN_CALL* pop_font)(void);
 } KilnUiApi;
 
 /* ====================================================================================================================

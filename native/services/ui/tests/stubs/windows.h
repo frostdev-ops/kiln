@@ -11,3 +11,6 @@ inline uint64_t GetTickCount64() {
 #define EXCEPTION_EXECUTE_HANDLER 1
 #define __try try
 #define __except(x) catch (...)
+#ifndef __fastcall
+#define __fastcall
+#endif

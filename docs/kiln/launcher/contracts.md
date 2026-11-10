@@ -482,6 +482,14 @@ All written atomically; a file whose `pid` is not a live process is stale.
   refused, foreign{module, offset}, owners[], fix: late|rule|none, chainEntry{path, source, status, late, lateIgnored?},
   message}`; a `refused` row has `null` for symbol, rva and often module and offset), `rules[]` (`{id, action, applied, message,
   subject, source, note}`) and `ruleFiles[]`. No `pid` before dev.21 (`pid` names the writing process).
+- `set.json` (kiln-set, at start and after every mod load or `reload()`; dev.22): `format` 1, `plugin` `kiln-set`, `version`,
+  `pid`, `side`, `status` (`waiting`: mods load at the main menu / first tick; `running`: loaded, see `mods`; `idle`: no
+  `shrouded_engine_tweaks/mods` folder; `off`: play-once no-mods or an invalid profile; `stepped-aside`: SET's own
+  powrprof.dll runs; `failed`: kiln-set could not start), `reason`, `steppedAside`, `steppedAsideReason`, `modsDir`,
+  `updatedUnixMs`, `mods[]` (`{id: the folder name, name: mod.json "name" or the id, version: mod.json "version" or "",
+  status: pending|loaded|failed|skipped, reason: the Lua error's first line, the SET version it needs, a game-build note
+  or "", folder}`). Example: `{"format":1,"plugin":"kiln-set","pid":388,"status":"running","mods":[{"id":"sprint",
+  "name":"Sprint Forever","version":"1.0.0","status":"loaded","reason":"","folder":"…\\shrouded_engine_tweaks\\mods\\sprint"}]}`.
 - `last-server.json` (Kiln.Network on a client): `written`, `outcome` (`rejected|welcome|vanilla`), `reason`,
   `server{id, name, address, kiln}`, `modpack`, `required[]`, `truncated`, `missing[]`, `history[]` (<= 20 earlier
   entries, newest first, without their own history).

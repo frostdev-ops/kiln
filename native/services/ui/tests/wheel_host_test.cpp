@@ -15,6 +15,7 @@
 namespace kui {
 std::atomic<uint32_t> g_interactive{0};
 std::atomic<bool> g_menu_open{false};
+std::atomic<bool> g_page_capture{false};
 static uint64_t g_now = 1000;
 static bool g_attached = true, g_swapchain = true;
 static bool g_held[256];

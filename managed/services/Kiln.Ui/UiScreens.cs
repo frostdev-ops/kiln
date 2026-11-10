@@ -28,6 +28,11 @@ public sealed record UiScreenOptions
     public bool Resizable { get; init; }
     /// <summary>A close button (X) in the title bar.</summary>
     public bool CloseButton { get; init; } = true;
+
+    /// <summary>The whole display: no title bar, not movable or resizable, no frame (Width and Height are ignored). Draw
+    /// your own title and layout; <see cref="UiDraw.Width"/> / <see cref="UiDraw.Height"/> are the display's size.
+    /// Escape still closes it.</summary>
+    public bool FullScreen { get; init; }
 }
 
 /// <summary>A full screen of a mod: a menu with lists, buttons, sliders, text fields and images. Open it from a

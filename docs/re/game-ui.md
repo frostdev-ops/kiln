@@ -65,6 +65,8 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
   game's quit). A second layout branch (`+0x5fa0`…) has its own Settings entry. **[dis]**
 - PreGame pages: `0xd49980(pregame, page)` ("[GameUi] PreGame: Go to %k", page at `+0x24c`); the main menu's own
   sub-pages `0xd497e0` (Landing 0 / CharacterSelection 1 / CharacterCreation 2, at `+0x4c`). **[dis]**
+  Corrected on 26430625 (see "Main-menu pages" below): the `+0x6010` entry's page 6 is **Credits**;
+  MainMenuEntry's first argument is `pregame+8`, not the PreGame block; the sub-page byte is `pregame+0x54`.
 
 ### The system (pause) menu
 - `0xcd55b0` ("SystemMenu", "systemMenuContent", "menuLayouter"; "[GameUi] System Menu opened"), drawn while the HUD
@@ -139,6 +141,82 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
   appended; the tree header is pointed at the copy; labels are new LocaTagReference GUIDs whose tag ids content's loca
   hooks answer. Info panels next to the menu are Kiln overlay windows (they know station, workshop and selected
   recipe). **[dis] [rt]**
+
+## 5b. Main-menu pages (client 26430625, static analysis only)
+Nothing in this section has been seen running. Source: `kiln-wave/dev22/re/REPORT-main-menu.md` (Ghidra headless,
+capstone, `tools/kfc`), re-checked in the disassembly where Kiln relies on it. RVAs are 26430625's (functions sit
++0xe0 from the 26404966 RVAs above). Symbols: `ui.json` feature `ui.menu_page`. Kiln's use: `native/services/ui/menu_page.cpp`.
+
+**The PreGame block.** 0x250 bytes in the UI's hash-keyed state store (key `0xca244aa5e0cf3615`). The store frees
+blocks a frame does not touch, so a pointer to it is only good inside the frame. `+0x24c` i32 current page;
+`+0x54` u8 main-menu sub-page; `+0xd0` / `+0xec` current / target camera view (`keen::FbUiCharacterView`).
+There is no previous page, no target page and no transition timer. **[dis]**
+
+**Pages** (names from 0xd41440; the enum is not reflected). The PreGame frame 0xc6a050 calls the page's draw
+function from a jump table each UI frame:
+
+| id | page | draw | camera | leaves by |
+|---|---|---|---|---|
+| 3 | MainMenu | 0xc2a400(pregame) | mainMenu shot | entries call GoTo(8 / 5 / 6) |
+| 5 | Settings | 0xbe87d0(3, 0) | postMainMenu (close-up) | returns false → GoTo(3) |
+| 6 | Credits | 0xb81b20() `bool(void)` | postMainMenu | returns false → GoTo(3) |
+| 8 | PlaySelection | 0xc5d720(pregame) | postMainMenu | back: sound + page = 3 |
+
+Others: 0 HdrCalibration, 1 EULA, 2 PS5 preset, 4 UserFeedback, 7 News, 9 SessionStarter, 10 PlayJoin,
+11 BaseSharingBrowser; ids above 11 draw nothing.
+
+- **PreGameGoTo 0xd49a60** `(pregame, page)`: compares (page 10, 3 → 8, page 5), writes `+0x24c`, logs
+  "[GameUi] PreGame: Go to %k". No queue, no sound. **[dis]**
+- **Main menu entries** call `MainMenuEntry(pregame+8, desc)` then, when it returns true, `GoTo(pregame, page)` at once,
+  inside the main menu's draw: Settings 0xc2b460 / 0xc2babe (→ 5), Credits 0xc2bcb3 (→ 6). **[dis]**
+- **Credits slot.** `call 0xb81b20` at 0xc6aac0 returns to 0xc6aac5 (`ui/PreGameCreditsRet`), which jumps to
+  0xc6aa9b: `test al,al; jne skip; GoTo(rsi = pregame, 3)`. Credits has one other caller (0xbd1578, the end-game
+  credits state). **[dis]**
+- **Camera.** The view switch after the page switch picks the target from the page (5, 6, 8, 10 → postMainMenu) and the
+  camera eases there (about 97 % in 0.5 s). Page functions read no transition state: a new page draws on the next frame
+  while the camera moves. **[dis]**
+- **Invite.** With a pending invite (data+0x12f20) and a page above 2 the frame writes page 3 directly (0xc6a894) and
+  logs "[GameUi] going from %k to MainMenu to accept invite"; no page function runs that frame. **[dis]**
+- **Back sound.** PlaySelection's back: `UiPlaySound 0xa4f310(*UiApp, &copy of cfg+0x124f0)`
+  (`sounds.menu.entryCancel`). **[dis]**
+- **Canvas** (UI system update 0xa4fb40; GameUiFrame gets `system+0x10`): `system+0x30/+0x34` canvas in UI units
+  (1920x1080 times the scale at `+0xf48`, grown along the longer side), `+0x38..+0x44` viewport x, y, w, h (floats,
+  pixels), `+0x48` pixels per UI unit = min(w / 1920s, h / 1080s). **[dis]**
+- **Padding.** PlaySelection uses `FbUiPreGame.playMenusPadding` = 80 / 50 / 80 / 50 units **[data]**, raised to the
+  safe-area insets **[dis]**. Kiln uses the 80 / 50 values (the bundle field is not read at run time).
+- **Error popup.** "errorMessageWindow" (layer 31) draws while the byte at `sys10 + 0x120 + 0x550` is set
+  (0xa4c050 returns `sys10 + 0x120`; 0xbae4b0 tests `+0x550`). **[dis]**
+- **Title look.** `namedStyles.menu.header1`: bold, upper case, tracking 0.05, white, 46 units. The bold face is the
+  default language group's glyph set with `keen::UiFontVariantMask` bit 0 (Bold): font 24 of 28. **[data] [refl]**
+
+**What Kiln does** (feature `ui.menu_page`; needs the MainMenuEntry hook): inside its MainMenuEntry hook, when its own
+MODS entry returns true, it checks `*(pregame+0x24c) == 3` and calls `GoTo(pregame, 6)` there, as the game does for its
+entries. A hook on Credits answers only calls returning to `ui/PreGameCreditsRet` while Kiln's page is open: true
+(stay), or false once to leave. Nothing is written into the PreGame block.
+
+### Client checklist (needs the real game)
+1. Click MODS: the camera glides to the Settings close-up; the main menu is gone on the next frame; no credits text,
+   music or sound; the Kiln page shows. Log: `ui: Kiln page in the main menu opened by the MODS entry`.
+2. Escape, then gamepad B, then the Back hint: each goes back once, with the back sound; the camera glides back; no
+   quit dialog. Log: `closed (left; the game goes back to its main menu)`.
+3. After coming back: a main-menu entry has the focus and works with keyboard and pad, as after Settings.
+4. The game's own Credits after using MODS: the real credits show and leave normally.
+5. A Steam invite while the page is open: the log shows "going from Credits to MainMenu to accept invite" and
+   `closed (the game left the page by itself)`; the Kiln page disappears.
+6. 1920x1080, 2560x1440, 3440x1440, 1920x1200: the title's left edge and the hint bar line up with PlaySelection's
+   header and tiles (80 / 50 units in).
+7. Settings, frame by frame: is the game's page fully drawn on its first frame while the camera still moves? (Kiln
+   draws from the first frame the page shows.)
+8. The mouse cursor is visible on the page and the game's cursor does not fight Kiln's.
+9. Back to the main menu from a world, then MODS again: it still works (the PreGame block is new).
+10. With ShroudForge's main-menu entry installed: both entries work.
+11. Insert in the main menu opens the page (`opened by the menu key`); Insert on the page leaves; Insert in a world
+    opens the stand-alone menu.
+12. A game error popup (for example, pull the network while joining): the page steps aside and the popup takes the
+    mouse, keys and pad; Escape closes the popup, not the page.
+13. The page stays readable over the real close-up shot (it has no background of its own).
+14. Kill Kiln.Ui's drawing (a build without the managed host): the page leaves by itself after about a second and MODS
+    then opens the stand-alone menu (`no host drew it for a while`).
 
 ## 6. Other strings worth knowing
 "[GameUi] … opened" log lines exist for every menu (Backpack, Map, Journal, Skill Tree, Settings, Social, NPC dialog,

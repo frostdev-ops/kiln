@@ -188,7 +188,9 @@ std::vector<Pushed> g_stack;
 // ---- the game's font ----
 std::atomic<int> g_font_state{0};  // 0 not asked, 1 loading, 2 bytes ready, 3 added, 4 failed
 std::vector<uint8_t> g_font_bytes;  // kept alive for the atlas (FontDataOwnedByAtlas = false)
+std::vector<uint8_t> g_bold_bytes;  // the same group's bold face (empty when it has none)
 ImFont* g_game_font = nullptr;
+ImFont* g_game_bold = nullptr;
 std::string g_font_note;
 
 struct BlobArray {
@@ -221,8 +223,9 @@ void load_game_font() {
     };
     const BlobArray fonts = arr(0), groups = arr(8);
     if (!fonts.count || fonts.count > 64) return fail("no fonts in UiFontResource");
-    // the default group (isDefaultLanguageGroup +0x14), else the first; its first glyph set without variants
-    uint32_t font_index = 0;
+    // the default group (isDefaultLanguageGroup +0x14), else the first; its first glyph set without variants, and its
+    // first bold one (keen::UiFontVariantMask: bit 0 Bold, bit 1 Italic; 26430625: fonts 0 and 24)
+    uint32_t font_index = 0, bold_index = UINT32_MAX;
     const size_t gbase = 8 + static_cast<size_t>(groups.off);
     size_t pick = SIZE_MAX;
     for (uint32_t i = 0; i < groups.count && i < 64; ++i) {
@@ -236,28 +239,39 @@ void load_game_font() {
     }
     if (pick != SIZE_MAX) {
         const BlobArray sets = arr(pick + 8);
+        bool regular = false;
         const size_t sbase = pick + 8 + static_cast<size_t>(sets.off);
         for (uint32_t i = 0; i < sets.count && i < 64; ++i) {
             const size_t s = sbase + i * 20ull;
             if (s + 20 > res.size()) break;
-            if (res[s + 0x10] == 0) {  // fontVariantMask: none (regular)
+            if (res[s + 0x10] == 0 && !regular) {  // fontVariantMask: none (regular)
                 std::memcpy(&font_index, res.data() + s, 4);
-                break;
+                regular = true;
             }
+            if (res[s + 0x10] == 1 && bold_index == UINT32_MAX) std::memcpy(&bold_index, res.data() + s, 4);  // bold only
+            if (regular && bold_index != UINT32_MAX) break;
         }
     }
     if (font_index >= fonts.count) font_index = 0;
-    const size_t f = 0 + static_cast<size_t>(fonts.off) + font_index * 32ull;
-    if (f + 16 > res.size()) return fail("font record out of range");
-    KilnContentHash h{};
-    std::memcpy(&h, res.data() + f, sizeof h);
-    if (h.size < 1024 || h.size > (32u << 20)) return fail("font blob size implausible");
-    std::vector<uint8_t> ttf(h.size);
-    size_t got = 0;
-    if (a->blob_read(&h, ttf.data(), ttf.size(), &got) != KILN_OK || got != h.size) return fail("font blob unreadable");
+    // one font's TTF content blob; empty when out of range or unreadable
+    auto ttf_of = [&](uint32_t index) -> std::vector<uint8_t> {
+        const size_t f = 0 + static_cast<size_t>(fonts.off) + index * 32ull;
+        if (index >= fonts.count || f + 16 > res.size()) return {};
+        KilnContentHash h{};
+        std::memcpy(&h, res.data() + f, sizeof h);
+        if (h.size < 1024 || h.size > (32u << 20)) return {};
+        std::vector<uint8_t> ttf(h.size);
+        size_t got = 0;
+        if (a->blob_read(&h, ttf.data(), ttf.size(), &got) != KILN_OK || got != h.size) return {};
+        return ttf;
+    };
+    std::vector<uint8_t> ttf = ttf_of(font_index);
+    if (ttf.empty()) return fail("font blob unreadable");
+    if (bold_index != UINT32_MAX && bold_index != font_index) g_bold_bytes = ttf_of(bold_index);
     g_font_bytes.swap(ttf);
-    char b[96];
-    std::snprintf(b, sizeof b, "font %u of %u, %u bytes", font_index, fonts.count, h.size);
+    char b[128];
+    std::snprintf(b, sizeof b, "font %u of %u, %zu bytes; bold %s", font_index, fonts.count, g_font_bytes.size(),
+                  g_bold_bytes.empty() ? "none" : std::to_string(bold_index).c_str());
     g_font_note = b;
     g_font_state = 2;
 }
@@ -307,6 +321,20 @@ void style_push(uint32_t style) {
     g_stack.push_back(p);
 }
 
+bool style_push_font(uint32_t font) {
+    ImFont* f = nullptr;
+    if (font == KILN_UI_FONT_DEFAULT) {
+        ImGuiIO& io = ImGui::GetIO();
+        f = io.FontDefault ? io.FontDefault : (io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr);
+    } else if (font == KILN_UI_FONT_GAME || font == KILN_UI_FONT_GAME_BOLD) {
+        ensure_game_font();
+        f = font == KILN_UI_FONT_GAME ? g_game_font : g_game_bold;
+    }
+    if (!f) return false;
+    ImGui::PushFont(f, 0.0f);  // the current size
+    return true;
+}
+
 void style_pop() {
     if (g_stack.empty()) return;
     Pushed p = g_stack.back();
@@ -326,6 +354,12 @@ void style_frame_begin() {
         cfg.FontDataOwnedByAtlas = false;
         std::snprintf(cfg.Name, sizeof cfg.Name, "Enshrouded UI (game data)");
         g_game_font = io.Fonts->AddFontFromMemoryTTF(g_font_bytes.data(), static_cast<int>(g_font_bytes.size()), 17.0f, &cfg);
+        if (g_game_font && !g_bold_bytes.empty()) {
+            ImFontConfig bold;
+            bold.FontDataOwnedByAtlas = false;
+            std::snprintf(bold.Name, sizeof bold.Name, "Enshrouded UI bold (game data)");
+            g_game_bold = io.Fonts->AddFontFromMemoryTTF(g_bold_bytes.data(), static_cast<int>(g_bold_bytes.size()), 17.0f, &bold);
+        }
         g_font_state = g_game_font ? 3 : 4;
         logf(g_game_font ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: the game's UI font %s (%s)", g_game_font ? "loaded" : "rejected by ImGui",
              g_font_note.c_str());

@@ -40,9 +40,11 @@ extern std::atomic<HWND> g_hwnd;             // the game window (from the swapch
 extern std::atomic<bool> g_text_input;       // ImGui wants text input (last frame)
 extern std::atomic<bool> g_want_mouse;       // ImGui wants the mouse (last frame)
 extern std::atomic<bool> g_wheel_active;     // a radial wheel is open (wheel.cpp)
+extern std::atomic<bool> g_page_capture;     // the Kiln page in the game's main menu is opening or shown (menu_page.cpp)
 inline bool wheel_active() { return g_wheel_active.load(std::memory_order_relaxed); }
 inline bool capturing() {
-    return g_menu_open.load(std::memory_order_relaxed) || g_interactive.load(std::memory_order_relaxed) > 0 || wheel_active();
+    return g_menu_open.load(std::memory_order_relaxed) || g_page_capture.load(std::memory_order_relaxed) ||
+           g_interactive.load(std::memory_order_relaxed) > 0 || wheel_active();
 }
 // Something to draw this frame. The native fallback menu counts too.
 extern std::atomic<uint32_t> g_render_demand;  // kiln.render acquire_frames handles (render.cpp)
@@ -95,6 +97,22 @@ KilnResult game_menu_add(KilnOwner owner, uint32_t menu, int32_t order, KilnStr 
 KilnResult game_menu_set(KilnHandle entry, KilnStr text, uint32_t flags);
 bool game_unsubscribe(KilnHandle h);
 void game_status_line(char* out, size_t cap);
+
+// ---- menu_page.cpp (the Kiln menu as a page of the game's main menu: feature ui.menu_page) ----
+bool page_install(bool main_menu_hooked);  // game_install, after the MainMenuEntry hook: resolve, hook Credits
+bool page_usable();                        // the feature, its hook and a host (menu_page_host(1)), not given up
+bool page_active();                        // opening or shown (any thread)
+bool page_open_from_entry(void* entry_state);  // UI thread, MainMenuEntry hook: Kiln's MODS entry activated; true = opened
+void page_main_menu_drawn(void* entry_state);  // UI thread, MainMenuEntry hook at the Settings call site, every frame
+void page_after_frame(uintptr_t sys10, uint64_t frame);  // UI thread, after each UI frame
+bool page_menu_key();                      // window thread: the menu key; true = handled (leave, or the page will open)
+bool page_escape();                        // window thread: Escape / gamepad B; true = consumed (leave)
+void page_leave();                         // any thread
+void page_drawn();                         // render thread: a host drew the page this overlay frame
+void page_host(uint32_t on);
+KilnResult page_state(KilnUiMenuPage* out);
+void page_status_line(char* out, size_t cap);
+bool style_push_font(uint32_t font);       // style.cpp: KILN_UI_FONT_*; false = not loaded (nothing pushed)
 
 // ---- style.cpp (Kiln's and the game's look, the game font, images) ----
 void style_apply_base(float scale);          // the default (Kiln ember) style, scaled

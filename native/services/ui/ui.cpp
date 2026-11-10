@@ -21,6 +21,7 @@
 #include "services/kiln_render.h"
 #include "ui.h"
 #include "slider.h"
+#include "draw_slots.h"
 
 namespace kui {
 
@@ -94,22 +95,6 @@ bool guarded_key(KilnUiKeyFn fn, const KilnUiKey* k, void* user, bool* consumed)
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
-}
-
-// KilnStr -> NUL-terminated (labels); a few rotating buffers per thread.
-const char* z(KilnStr s) {
-    thread_local std::string buf[8];
-    thread_local int i = 0;
-    std::string& b = buf[i++ & 7];
-    b.assign(s.ptr ? s.ptr : "", s.ptr ? s.len : 0);
-    return b.c_str();
-}
-
-ImU32 col(uint32_t rgba) {
-    return IM_COL32((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF, rgba & 0xFF);
-}
-ImVec4 col4(uint32_t rgba) {
-    return ImVec4(((rgba >> 24) & 0xFF) / 255.f, ((rgba >> 16) & 0xFF) / 255.f, ((rgba >> 8) & 0xFF) / 255.f, (rgba & 0xFF) / 255.f);
 }
 
 void apply_style(float scale) {
@@ -248,6 +233,7 @@ bool build_frame(float width, float height, float dpi) {
     }
     if (wheel_active()) wheel_frame(width, height, dpi);  // on top of the windows
     if (f.menu_open && subs.empty()) fallback_menu();
+    kui_draw::v3_frame_end();  // font sizes, colours and spacings a callback left pushed
     style_frame_end();
     t_in_frame = false;
     ImGui::Render();
@@ -257,12 +243,16 @@ bool build_frame(float width, float height, float dpi) {
 }
 
 bool dispatch_key(const KilnUiKey& key) {
-    // the menu key first (works without the managed host)
+    // the menu key first (works without the managed host); in the main menu it opens or leaves the game page
     if (key.down && !key.repeat && !key.text_input && key.vk == g_menu_vk.load() && key.mods == g_menu_mods.load()) {
+        if (page_menu_key()) return true;
         g_menu_open = !g_menu_open.load();
         logf(KILN_LOG_DEBUG, "ui: Kiln menu %s", g_menu_open ? "open" : "closed");
         return true;
     }
+    // Escape (and gamepad B, which input.cpp turns into Escape) on the game page: back to the game's main menu. In a
+    // text field it goes to ImGui first (it leaves the field).
+    if (key.down && key.vk == VK_ESCAPE && !key.text_input && page_escape()) return true;
     if (key.down && key.vk == VK_ESCAPE && g_menu_open.load() && !key.text_input) {
         g_menu_open = false;
         return true;
@@ -301,6 +291,7 @@ bool dispatch_key(const KilnUiKey& key) {
 
 namespace {
 using namespace kui;
+using namespace kui_draw;
 
 KilnResult KILN_CALL t_status(KilnUiStatus* out) {
     if (!out || out->size < sizeof(KilnUiStatus)) return KILN_ERR_INVALID_ARGUMENT;
@@ -308,7 +299,7 @@ KilnResult KILN_CALL t_status(KilnUiStatus* out) {
     out->size = sizeof *out;
     vk_status(out);
     out->window = input_attached() ? 1 : 0;
-    out->menu_open = g_menu_open.load() ? 1 : 0;
+    out->menu_open = g_menu_open.load() || page_active() ? 1 : 0;  // the Kiln menu shows, in either host
     out->capturing = capturing() ? 1 : 0;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
@@ -422,7 +413,14 @@ void per_caller(PerCaller& pc, std::atomic<uint32_t>& published, void* ret, uint
 
 void KILN_CALL t_set_demand(uint32_t n) { per_caller(g_demand_by, g_demand, _ReturnAddress(), n); }
 void KILN_CALL t_set_capture(uint32_t n) { per_caller(g_capture_by, g_interactive, _ReturnAddress(), n); }
-void KILN_CALL t_set_menu(int32_t open) { g_menu_open = open < 0 ? !g_menu_open.load() : open != 0; }
+void KILN_CALL t_set_menu(int32_t open) {
+    // the game page counts as the Kiln menu: closing (or toggling) the menu leaves it; opening keeps it
+    if (page_active()) {
+        if (open <= 0) page_leave();
+        return;
+    }
+    g_menu_open = open < 0 ? !g_menu_open.load() : open != 0;
+}
 void KILN_CALL t_set_menu_key(uint32_t vk, uint32_t mods) {
     if (vk == 0 || vk > 255) return;
     g_menu_vk = vk;
@@ -430,106 +428,6 @@ void KILN_CALL t_set_menu_key(uint32_t vk, uint32_t mods) {
 }
 void KILN_CALL t_key_name(uint32_t vk, char* buf, size_t cap) { key_name(vk, buf, cap); }
 
-#define IN_FRAME(ret) \
-    if (!t_in_frame) return ret
-
-bool KILN_CALL t_begin(KilnStr title, bool* open, uint32_t flags) {
-    IN_FRAME(false);
-    return ImGui::Begin(z(title), open, static_cast<ImGuiWindowFlags>(flags));
-}
-void KILN_CALL t_end() { IN_FRAME(); ImGui::End(); }
-void KILN_CALL t_text(KilnStr s) { IN_FRAME(); ImGui::TextUnformatted(s.ptr, s.ptr + s.len); }
-void KILN_CALL t_text_colored(uint32_t rgba, KilnStr s) {
-    IN_FRAME();
-    ImGui::PushStyleColor(ImGuiCol_Text, col4(rgba));
-    ImGui::TextUnformatted(s.ptr, s.ptr + s.len);
-    ImGui::PopStyleColor();
-}
-void KILN_CALL t_text_wrapped(KilnStr s) {
-    IN_FRAME();
-    ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextUnformatted(s.ptr, s.ptr + s.len);
-    ImGui::PopTextWrapPos();
-}
-void KILN_CALL t_text_disabled(KilnStr s) {
-    IN_FRAME();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-    ImGui::TextUnformatted(s.ptr, s.ptr + s.len);
-    ImGui::PopStyleColor();
-}
-bool KILN_CALL t_button(KilnStr l, float w, float h) { IN_FRAME(false); return ImGui::Button(z(l), ImVec2(w, h)); }
-bool KILN_CALL t_small_button(KilnStr l) { IN_FRAME(false); return ImGui::SmallButton(z(l)); }
-bool KILN_CALL t_checkbox(KilnStr l, bool* v) { IN_FRAME(false); return v && ImGui::Checkbox(z(l), v); }
-bool KILN_CALL t_slider_float(KilnStr l, float* v, float a, float b) { IN_FRAME(false); return v && kui::slider_float(z(l), v, a, b); }
-bool KILN_CALL t_slider_int(KilnStr l, int32_t* v, int32_t a, int32_t b) { IN_FRAME(false); return v && ImGui::SliderInt(z(l), v, a, b); }
-bool KILN_CALL t_input_text(KilnStr l, char* buf, size_t cap, uint32_t flags) {
-    IN_FRAME(false);
-    return buf && cap && ImGui::InputText(z(l), buf, cap, static_cast<ImGuiInputTextFlags>(flags));
-}
-bool KILN_CALL t_collapsing_header(KilnStr l, uint32_t flags) { IN_FRAME(false); return ImGui::CollapsingHeader(z(l), static_cast<ImGuiTreeNodeFlags>(flags)); }
-bool KILN_CALL t_tree_node(KilnStr l) { IN_FRAME(false); return ImGui::TreeNode(z(l)); }
-void KILN_CALL t_tree_pop() { IN_FRAME(); ImGui::TreePop(); }
-bool KILN_CALL t_selectable(KilnStr l, bool sel) { IN_FRAME(false); return ImGui::Selectable(z(l), sel); }
-void KILN_CALL t_separator() { IN_FRAME(); ImGui::Separator(); }
-void KILN_CALL t_separator_text(KilnStr s) { IN_FRAME(); ImGui::SeparatorText(z(s)); }
-void KILN_CALL t_same_line(float off, float sp) { IN_FRAME(); ImGui::SameLine(off, sp); }
-void KILN_CALL t_spacing() { IN_FRAME(); ImGui::Spacing(); }
-void KILN_CALL t_push_id(KilnStr id) { IN_FRAME(); ImGui::PushID(id.ptr, id.ptr + id.len); }
-void KILN_CALL t_pop_id() { IN_FRAME(); ImGui::PopID(); }
-void KILN_CALL t_set_next_window_pos(float x, float y, uint32_t cond, float px, float py) {
-    IN_FRAME();
-    ImGui::SetNextWindowPos(ImVec2(x, y), static_cast<ImGuiCond>(cond), ImVec2(px, py));
-}
-void KILN_CALL t_set_next_window_size(float w, float h, uint32_t cond) { IN_FRAME(); ImGui::SetNextWindowSize(ImVec2(w, h), static_cast<ImGuiCond>(cond)); }
-void KILN_CALL t_set_next_window_bg_alpha(float a) { IN_FRAME(); ImGui::SetNextWindowBgAlpha(a); }
-void KILN_CALL t_progress_bar(float f, float w, float h, KilnStr overlay) {
-    IN_FRAME();
-    ImGui::ProgressBar(f, ImVec2(w, h), overlay.len ? z(overlay) : nullptr);
-}
-bool KILN_CALL t_begin_table(KilnStr id, int32_t cols, uint32_t flags) {
-    IN_FRAME(false);
-    return cols > 0 && cols <= 64 && ImGui::BeginTable(z(id), cols, static_cast<ImGuiTableFlags>(flags));
-}
-void KILN_CALL t_table_setup_column(KilnStr l, uint32_t flags, float w) { IN_FRAME(); ImGui::TableSetupColumn(z(l), static_cast<ImGuiTableColumnFlags>(flags), w); }
-void KILN_CALL t_table_headers_row() { IN_FRAME(); ImGui::TableHeadersRow(); }
-void KILN_CALL t_table_next_row() { IN_FRAME(); ImGui::TableNextRow(); }
-bool KILN_CALL t_table_next_column() { IN_FRAME(false); return ImGui::TableNextColumn(); }
-void KILN_CALL t_end_table() { IN_FRAME(); ImGui::EndTable(); }
-bool KILN_CALL t_begin_tab_bar(KilnStr id) { IN_FRAME(false); return ImGui::BeginTabBar(z(id)); }
-bool KILN_CALL t_begin_tab_item(KilnStr l) { IN_FRAME(false); return ImGui::BeginTabItem(z(l)); }
-void KILN_CALL t_end_tab_item() { IN_FRAME(); ImGui::EndTabItem(); }
-void KILN_CALL t_end_tab_bar() { IN_FRAME(); ImGui::EndTabBar(); }
-bool KILN_CALL t_begin_child(KilnStr id, float w, float h, uint32_t flags) {
-    IN_FRAME(false);
-    return ImGui::BeginChild(z(id), ImVec2(w, h), ImGuiChildFlags_Borders, static_cast<ImGuiWindowFlags>(flags));
-}
-void KILN_CALL t_end_child() { IN_FRAME(); ImGui::EndChild(); }
-bool KILN_CALL t_is_item_hovered() { IN_FRAME(false); return ImGui::IsItemHovered(); }
-void KILN_CALL t_set_tooltip(KilnStr s) { IN_FRAME(); ImGui::SetTooltip("%s", z(s)); }
-void KILN_CALL t_draw_text(float x, float y, uint32_t rgba, float size, KilnStr s) {
-    IN_FRAME();
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    const float fs = size > 0 ? size : ImGui::GetFontSize();
-    dl->AddText(ImGui::GetFont(), fs, ImVec2(x + 1, y + 1), IM_COL32(0, 0, 0, (rgba & 0xFF) * 3 / 4), s.ptr, s.ptr + s.len);
-    dl->AddText(ImGui::GetFont(), fs, ImVec2(x, y), col(rgba), s.ptr, s.ptr + s.len);
-}
-void KILN_CALL t_draw_rect(float x0, float y0, float x1, float y1, uint32_t rgba, float rounding, int32_t filled) {
-    IN_FRAME();
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    if (filled) dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col(rgba), rounding);
-    else dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), col(rgba), rounding);
-}
-void KILN_CALL t_text_size(KilnStr s, float size, float* w, float* h) {
-    if (!t_in_frame) {
-        if (w) *w = 0;
-        if (h) *h = 0;
-        return;
-    }
-    const float fs = size > 0 ? size : ImGui::GetFontSize();
-    const ImVec2 v = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, s.ptr, s.ptr + s.len);
-    if (w) *w = v.x;
-    if (h) *h = v.y;
-}
 uint32_t KILN_CALL t_take_pressed_key(uint32_t* mods) { return input_take_pressed(mods); }
 
 // ---- later additions ----
@@ -540,39 +438,10 @@ KilnResult KILN_CALL t_menu_add(KilnOwner o, uint32_t menu, int32_t order, KilnS
     return game_menu_add(o, menu, order, text, fn, u, out);
 }
 KilnResult KILN_CALL t_menu_set(KilnHandle e, KilnStr text, uint32_t flags) { return game_menu_set(e, text, flags); }
-void KILN_CALL t_push_style(uint32_t s) { IN_FRAME(); style_push(s); }
-void KILN_CALL t_pop_style() { IN_FRAME(); style_pop(); }
 KilnHandle KILN_CALL t_image_load(KilnOwner o, const void* png, size_t len) { return image_load(o, png, len); }
 bool KILN_CALL t_image_size(KilnHandle h, uint32_t* w, uint32_t* hh) { return image_size(h, w, hh); }
-void KILN_CALL t_image(KilnHandle h, float w, float hh) { IN_FRAME(); image_draw(h, w, hh); }
-bool KILN_CALL t_image_button(KilnStr id, KilnHandle h, float w, float hh) { IN_FRAME(false); return image_button(z(id), h, w, hh); }
 void KILN_CALL t_image_free(KilnHandle h) { image_free(h); }
-void KILN_CALL t_set_next_window_focus() { IN_FRAME(); ImGui::SetNextWindowFocus(); }
-bool KILN_CALL t_combo(KilnStr l, int32_t* index, const char* items) {
-    IN_FRAME(false);
-    return index && items && ImGui::Combo(z(l), index, items);
-}
-bool KILN_CALL t_input_multiline(KilnStr l, char* buf, size_t cap, float w, float h) {
-    IN_FRAME(false);
-    return buf && cap && ImGui::InputTextMultiline(z(l), buf, cap, ImVec2(w, h));
-}
-void KILN_CALL t_dummy(float w, float h) { IN_FRAME(); ImGui::Dummy(ImVec2(w, h)); }
-void KILN_CALL t_window_rect(float* x, float* y, float* w, float* h) {
-    ImVec2 p(0, 0), s(0, 0);
-    if (t_in_frame) {
-        p = ImGui::GetWindowPos();
-        s = ImGui::GetWindowSize();
-    }
-    if (x) *x = p.x;
-    if (y) *y = p.y;
-    if (w) *w = s.x;
-    if (h) *h = s.y;
-}
 void KILN_CALL t_set_hover_capture(uint32_t n) { g_hover_panels = n; }
-bool KILN_CALL t_is_item_clicked(uint32_t button) {
-    IN_FRAME(false);
-    return button < 3 && ImGui::IsItemClicked(static_cast<ImGuiMouseButton>(button));
-}
 KilnResult KILN_CALL t_wheel_open(KilnOwner o, const KilnUiWheel* def, KilnUiWheelFn fn, void* user, KilnHandle* out) {
     return wheel_open(o, def, fn, user, out);
 }
@@ -580,6 +449,15 @@ KilnResult KILN_CALL t_wheel_close(KilnHandle h) { return wheel_close(h); }
 bool KILN_CALL t_wheel_active() { return wheel_active(); }
 KilnResult KILN_CALL t_subscribe_pre_overlay(KilnOwner, KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out) {
     return vk_subscribe_pre_overlay(fn, gone, user, out);
+}
+
+// v4: the main-menu page and fonts
+KilnResult KILN_CALL t_menu_page(KilnUiMenuPage* out) { return page_state(out); }
+void KILN_CALL t_menu_page_drawn() { page_drawn(); }
+void KILN_CALL t_menu_page_leave() { page_leave(); }
+void KILN_CALL t_menu_page_host(uint32_t on) {
+    page_host(on);
+    logf(KILN_LOG_INFO, "ui: a host %s the main-menu page", on ? "draws" : "no longer draws");
 }
 
 // kiln.ui.tick (for Kiln.Host)
@@ -591,6 +469,14 @@ const KilnUiTickApi kTickTable = {{sizeof(KilnUiTickApi), KILN_UI_TICK_VERSION},
 // Kiln.Ui's managed table mirrors these (UiNative.Table2, WheelDef; managed/tests/Kiln.Ui.Tests/WheelTests.cs checks the same numbers)
 static_assert(offsetof(KilnUiApi, is_item_clicked) == offsetof(KilnUiApi, set_hover_capture) + 4 * sizeof(void*),
               "kiln.ui v2 slots follow add_swapchain_usage");
+static_assert(offsetof(KilnUiApi, push_font_size) == offsetof(KilnUiApi, wheel_active) + sizeof(void*),
+              "kiln.ui v3 slots follow wheel_active");
+static_assert(offsetof(KilnUiApi, menu_page) == offsetof(KilnUiApi, set_scroll_here_y) + sizeof(void*),
+              "kiln.ui v4 slots follow set_scroll_here_y");
+static_assert(sizeof(KilnUiMenuPage) == 104 && offsetof(KilnUiMenuPage, ui_frame) == 16 &&
+              offsetof(KilnUiMenuPage, canvas_width) == 40 && offsetof(KilnUiMenuPage, x0) == 84,
+              "KilnUiMenuPage layout (UiNative.MenuPage)");
+static_assert(sizeof(KilnUiCursor) == 60 && sizeof(KilnUiItem) == 28, "KilnUiCursor / KilnUiItem layout (UiNative.Cursor / Item)");
 static_assert(sizeof(KilnUiWheel) == 40 && offsetof(KilnUiWheel, hold_key) == 36, "KilnUiWheel layout");
 
 const KilnUiApi kTable = {
@@ -611,6 +497,13 @@ const KilnUiApi kTable = {
     &t_subscribe_pre_overlay, &vk_set_pre_overlay_demand, &vk_add_swapchain_usage,
     // v2
     &t_is_item_clicked, &t_wheel_open, &t_wheel_close, &t_wheel_active,
+    // v3
+    &t_push_font_size, &t_pop_font_size, &t_begin_child_ex, &t_set_next_item_width, &t_cursor, &t_set_cursor_pos,
+    &t_item, &t_selectable_ex, &t_set_keyboard_focus_here, &t_set_item_default_focus, &t_draw_rect_in, &t_draw_text_in,
+    &t_text_size_ex, &t_push_color, &t_pop_color, &t_push_var, &t_pop_var, &t_key_pressed, &t_key_mods,
+    &t_set_scroll_here_y,
+    // v4
+    &t_menu_page, &t_menu_page_drawn, &t_menu_page_leave, &t_menu_page_host, &t_push_font, &t_pop_font,
 };
 
 std::string api_path(int kind) {
