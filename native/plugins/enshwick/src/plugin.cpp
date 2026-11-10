@@ -38,7 +38,7 @@ using kcompat::to_wide;
 
 constexpr const char* kPluginId = "kiln-enshwick";
 constexpr const char* kPluginVersion = "1.0.0";
-constexpr const char* kUpstream = "Enshwick v1.0.0-alpha.13";
+constexpr const char* kUpstream = "Enshwick v1.0.0-alpha.14";
 
 kcompat::Host H{nullptr, 0, "enshwick"};
 std::once_flag g_host_once;
