@@ -2,12 +2,11 @@
 // commands (launcher/src-tauri/src/commands/nexus.rs, kiln_manage::nexus; docs/kiln/launcher/catalog.md). The browser
 // mock answers from ./mockNexus.ts. OAuth credentials never reach the frontend: the account contains only connection status, name and premium.
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { isTauri, toKilnError, type AddReport, type GameId, type KilnError, type TaskId } from "./commands";
-import { mockInvoke } from "./mock";
+import { isTauri, loadMock, toKilnError, type AddReport, type GameId, type KilnError, type TaskId } from "./commands";
 
 async function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   try {
-    return isTauri() ? await tauriInvoke<T>(cmd, args) : await mockInvoke<T>(cmd, args);
+    return isTauri() ? await tauriInvoke<T>(cmd, args) : await (await loadMock()).mockInvoke<T>(cmd, args);
   } catch (e) {
     throw toKilnError(e);
   }

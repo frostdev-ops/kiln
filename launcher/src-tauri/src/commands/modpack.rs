@@ -47,7 +47,7 @@ fn worth_showing(last: &LastServer, dismissed: Option<&BTreeMap<String, String>>
     }
 }
 
-fn pending_for(game_id: &str) -> Result<Option<LastServer>, Error> {
+pub(crate) fn pending_for(game_id: &str) -> Result<Option<LastServer>, Error> {
     let g = game(game_id)?;
     let Some(last) = kiln_manage::state::read_last_server(&g.path)? else { return Ok(None) };
     let wanted = worth_showing(&last, dismissed().get(game_id));

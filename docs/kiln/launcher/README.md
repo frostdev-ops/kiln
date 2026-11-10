@@ -8,6 +8,7 @@
 | [releasing.md](releasing.md) | versions, the launcher's self-update (sources, channels, signatures), the release folder and the steps to publish |
 | [catalog.md](catalog.md) | the online catalog on Nexus Mods: the Kiln-mod rule, Nexus's rules for apps, adding and updates, Mod Manager Download (nxm://), tests, the real-API checklist; for mod authors: [catalog-authors.md](catalog-authors.md) |
 | [deck.md](deck.md) | the Steam Deck UI: how it is chosen, controls, screens, the Steam rule, tests and the Deck tester checklist |
+| [perf.md](perf.md) | what the launcher costs idle and per click, the caches and poll rules that keep it low, and the two harnesses that measure it |
 
 Machine-readable contracts:
 - `schema/`: JSON Schemas (`*.schema.json`, draft 2020-12), `examples/`, `fixtures/` (resolver, semver, manifest

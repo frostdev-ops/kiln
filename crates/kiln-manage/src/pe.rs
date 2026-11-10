@@ -298,6 +298,13 @@ pub fn classify_bytes(b: &[u8]) -> ProxyClass {
 
 /// What the file at `path` is (ProxyKind::None when it does not exist).
 pub fn classify_proxy(path: &Path) -> Result<ProxyClass> {
+    // the status poll, chain views and activations classify the same few DLLs again and again (a read, a sha256 and a
+    // parse of each): once per file while it is unchanged
+    static CLASSES: std::sync::LazyLock<crate::filecache::Memo<ProxyClass>> = std::sync::LazyLock::new(|| crate::filecache::Memo::new(256));
+    CLASSES.get(path, classify_proxy_uncached)
+}
+
+fn classify_proxy_uncached(path: &Path) -> Result<ProxyClass> {
     match std::fs::read(path) {
         Ok(b) => Ok(classify_bytes(&b)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

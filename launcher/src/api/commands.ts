@@ -5,9 +5,12 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { canFallBack, noteFallback } from "./fallback";
-import { mockInvoke, mockListen } from "./mock";
+import { loadMock } from "./mockLoad";
 
 // ---------------------------------------------------------------- plumbing
+
+/** The browser mock: a chunk of its own in a build (./mockLoad.ts). */
+export { loadMock };
 
 /** True inside the Tauri webview; false in a plain browser (the mock layer answers then). */
 export const isTauri = (): boolean => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -37,13 +40,13 @@ export function toKilnError(e: unknown): KilnError {
 
 async function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   try {
-    return isTauri() ? await tauriInvoke<T>(cmd, args) : await mockInvoke<T>(cmd, args);
+    return isTauri() ? await tauriInvoke<T>(cmd, args) : await (await loadMock()).mockInvoke<T>(cmd, args);
   } catch (e) {
     const err = toKilnError(e);
     // Development aid (./fallback.ts): read-only commands the crate does not implement yet answer from the mock.
     if (isTauri() && err.code === "not_implemented" && canFallBack(cmd)) {
       noteFallback(cmd);
-      return mockInvoke<T>(cmd, args).catch((m) => { throw toKilnError(m); });
+      return loadMock().then((m) => m.mockInvoke<T>(cmd, args)).catch((m) => { throw toKilnError(m); });
     }
     throw err;
   }
@@ -1348,5 +1351,5 @@ export type KilnEventName = keyof KilnEvents;
 /** Subscribes to a launcher event; resolves to the unsubscribe function. */
 export async function onKilnEvent<E extends KilnEventName>(name: E, handler: (payload: KilnEvents[E]) => void): Promise<() => void> {
   if (isTauri()) return tauriListen<KilnEvents[E]>(name, (e) => handler(e.payload));
-  return mockListen(name, handler as (payload: unknown) => void);
+  return (await loadMock()).mockListen(name, handler as (payload: unknown) => void);
 }

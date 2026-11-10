@@ -10,6 +10,7 @@
 //! | [`task`] | progress reporting for long operations |
 //! | [`paths`] | launcher data dirs, game-side file names |
 //! | [`hash`] | kdh1 directory hash, kms1 fingerprint, sha256 |
+//! | [`filecache`] | sha256s and parsed files remembered while the file is unchanged (the launcher keeps the sha256s across starts) |
 //! | [`vdf`] | Valve KeyValues text reader |
 //! | [`steam`] | Steam roots, libraryfolders, app manifests, compat tool, launch options (read-only) |
 //! | [`game`] | game installs: detection, platform, path mode |
@@ -53,6 +54,7 @@ pub mod util;
 
 // discovery and system
 pub mod game;
+pub mod filecache;
 pub mod hash;
 pub mod launch;
 pub mod paths;

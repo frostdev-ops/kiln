@@ -213,29 +213,10 @@ fn side_of(install: &GameInstall) -> RunSide {
     }
 }
 
-/// sha256 of a file, remembered per (path, size, mtime) for this process: `status` re-hashes only files that
-/// changed since the last call (the first call hashes everything).
+/// sha256 of a file, remembered while it is unchanged (crate::filecache: size, mtime, inode/ctime; across launcher
+/// starts too): `status` re-hashes only files that changed since the last call.
 fn cached_sha(p: &Path) -> Option<String> {
-    use std::sync::{Mutex, OnceLock};
-    type Key = (u64, Option<std::time::SystemTime>);
-    static CACHE: OnceLock<Mutex<std::collections::HashMap<PathBuf, (Key, String)>>> = OnceLock::new();
-    let md = std::fs::metadata(p).ok()?;
-    let key: Key = (md.len(), md.modified().ok());
-    let cache = CACHE.get_or_init(Default::default);
-    if let Some((k, h)) = cache.lock().ok()?.get(p)
-        && *k == key
-        && key.1.is_some()
-    {
-        return Some(h.clone());
-    }
-    let (h, _) = crate::hash::sha256_file(p).ok()?;
-    if let Ok(mut c) = cache.lock() {
-        if c.len() > 100_000 {
-            c.clear();
-        }
-        c.insert(p.to_path_buf(), (key, h.clone()));
-    }
-    Some(h)
+    crate::filecache::sha256(p).ok()
 }
 
 /// Receipt files whose content changed since the install (missing files count; config files never do). A file whose
@@ -291,6 +272,7 @@ pub fn status(dirs: &DataDirs, install: &GameInstall) -> Result<InstallState> {
             })
             .map(|b| b.version)
     });
+    crate::filecache::flush();
     Ok(InstallState { installed: receipt.is_some(), receipt, proxy, modified, upgrade_available, missing_parts })
 }
 
