@@ -20,6 +20,8 @@
 //     3. pick the runtime (above), LoadLibrary its shroudforge-runtime.dll, copy missing bundled game profiles,
 //        shroudforge_prepare_startup(<game>) (startup asset mods, DLL Manager), then kfc-runtime.dll:
 //        KfcRuntimeInitialize (native game access; a failure leaves metadata-only mode, as in ShroudForge);
+//   on a client, before the worker: the game window's key records from kiln.ui go to the runtime's host key feed, when
+//     it has one, in place of ShroudForge's shroudforge.exe helper (key_feed.cpp);
 //   a worker thread (ShroudForge's own mods loop, same timing): shroudforge_create(<game>), then every 16 ms
 //     KfcRuntimeTick + shroudforge_update(handle, dt); next to it a writer thread, every 2 s: the heartbeat file
 //     ShroudForge's tools read, ShroudForge's log mirrored into kiln.log ("[sf] ..."), <state>/shroudforge.json for the
@@ -411,6 +413,7 @@ void run_loop() {
             // Only this serial worker joins, never on_unload/DllMain. Even on
             // an update exception, finish the writer before runtime teardown.
             heartbeat.stop();
+            key_feed_stop();  // the last host key feed call, before the runtime goes (key_feed.cpp)
             if (handle) invoke_void(g_destroy, handle);
             if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
             g_initialized = false;
@@ -568,10 +571,18 @@ void start_worker() {
         stop_helper_processes();
         return finish("failed", "could not create the stop event");
     }
+    // Mod shortcuts: Kiln's host key feed, ShroudForge's own helper, or none. The feed begins before the worker's
+    // shroudforge_create, as input_host.h asks (mods ask for input while they load).
+    const KeySource keys = key_feed_start(g_api, g_owner, g_runtime, g_game, g_server);
+    set_status("keys", nlohmann::json{{"source", keys.source}, {"reason", keys.reason}});
+    logf(KILN_LOG_INFO, "ShroudForge mod shortcuts: key state from %s: %s",
+         !std::strcmp(keys.source, "kiln") ? "Kiln" : !std::strcmp(keys.source, "helper") ? "ShroudForge's own input" : "nowhere",
+         keys.reason.c_str());
     set_status("runtime", "starting");
     finish("hosted", "");
     g_worker = CreateThread(nullptr, 0, worker, nullptr, 0, nullptr);
     if (!g_worker) {
+        key_feed_stop();
         if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
         g_initialized = g_prepared = false;
         stop_helper_processes();

@@ -34,4 +34,18 @@ void stop_helper_processes();
 struct KfcHost;
 const KfcHost* host_table(const KilnApi* api, KilnOwner owner);
 
+// Where ShroudForge's mod shortcuts get their key state this start (key_feed.cpp): source "kiln" (Kiln's host key
+// feed), "helper" (ShroudForge's own shroudforge.exe --keyboard-input or input already running) or "none", and why.
+struct KeySource {
+    const char* source;
+    std::string reason;
+};
+// Client, a runtime with all seven host key feed exports (the fork's kiln/abi/input_host.h, version 1) and kiln.ui v5:
+// subscribes to the game window's input records and calls begin. Call before shroudforge_create, on the thread of
+// on_ready; `runtime` must stay loaded. Anything missing: no export is called and nothing changes.
+KeySource key_feed_start(const KilnApi* api, KilnOwner owner, HMODULE runtime, const std::filesystem::path& game, bool server);
+// Unsubscribes (waiting for a record in flight) and ends the feed; no feed export is called afterwards. Call before
+// shroudforge_destroy. Does nothing without a feed.
+void key_feed_stop();
+
 }  // namespace ksf

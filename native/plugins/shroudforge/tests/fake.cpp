@@ -5,10 +5,18 @@
 #include <cstdint>
 #include <string>
 #include "services/kiln_eml.h"
+// One line per call. Several threads write (the mods worker, kiln.ui's window thread): an append-only handle and one
+// WriteFile per line, so no line overwrites another (the CRT's "a" mode seeks to the end, then writes).
 static void mark(const char* what) {
     wchar_t file[32768]{};
     GetEnvironmentVariableW(L"KILN_SF_TEST_LOG", file, 32768);
-    if (FILE* f = _wfopen(file, L"ab")) { std::fprintf(f, "%s\n", what); std::fclose(f); }
+    HANDLE f = CreateFileW(file, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    const std::string line = std::string(what) + "\n";
+    DWORD written = 0;
+    WriteFile(f, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+    CloseHandle(f);
 }
 static void timing(const char* operation, double dt = 0) {
     if (!GetEnvironmentVariableW(L"KILN_SF_SLOW_HEARTBEAT", nullptr, 0)) return;
@@ -18,7 +26,62 @@ static void timing(const char* operation, double dt = 0) {
 }
 #if TEST_bootstrap
 extern "C" __declspec(dllexport) void ShroudforgeStop() {}
-#elif TEST_runtime
+#elif TEST_runtime || TEST_runtime_feed || TEST_runtime_feed_partial
+#if TEST_runtime_feed || TEST_runtime_feed_partial
+// The host key feed (the fork's kiln/abi/input_host.h): every call is written down. A call before begin, after end or
+// after shroudforge_destroy is written as "feed-out-of-turn <what>". runtime_feed_partial lacks one of the seven.
+// KILN_SF_FEED_VERSION, KILN_SF_FEED_BEGIN: what version() and begin() answer (default 1). KILN_SF_FEED_SLOW: each call
+// takes 2 ms (teardown races).
+#include <atomic>
+static std::atomic<int> feed_state{0};  // 0 before begin, 1 fed, 2 ended
+static std::atomic<bool> destroyed{false};
+static uint32_t env_number(const wchar_t* name, uint32_t fallback) {
+    wchar_t v[16] = L"";
+    return GetEnvironmentVariableW(name, v, 16) ? static_cast<uint32_t>(_wtoi(v)) : fallback;
+}
+static void feed_mark(const char* what, bool needs_feed = true) {
+    if (GetEnvironmentVariableW(L"KILN_SF_FEED_SLOW", nullptr, 0)) Sleep(2);
+    if (needs_feed && (feed_state.load() != 1 || destroyed.load())) {
+        char text[160];
+        std::snprintf(text, sizeof text, "feed-out-of-turn %s", what);
+        mark(text);
+        return;
+    }
+    mark(what);
+}
+extern "C" __declspec(dllexport) uint32_t shroudforge_input_host_version() {
+    feed_mark("feed-version", false);
+    return env_number(L"KILN_SF_FEED_VERSION", 1);
+}
+extern "C" __declspec(dllexport) uint32_t shroudforge_input_host_begin() {
+    feed_mark("feed-begin", false);
+    const uint32_t took = env_number(L"KILN_SF_FEED_BEGIN", 1);
+    if (took == 1) feed_state = 1;
+    return took;
+}
+extern "C" __declspec(dllexport) void shroudforge_input_host_raw_key(uint32_t make_code, uint32_t flags, uint32_t vkey) {
+    char text[64];
+    std::snprintf(text, sizeof text, "feed-raw %x %x %x", make_code, flags, vkey);
+    feed_mark(text);
+}
+extern "C" __declspec(dllexport) void shroudforge_input_host_window_key(uintptr_t wparam, intptr_t lparam) {
+    char text[64];
+    std::snprintf(text, sizeof text, "feed-window %llx %llx", (unsigned long long)wparam, (unsigned long long)lparam);
+    feed_mark(text);
+}
+#if !TEST_runtime_feed_partial
+extern "C" __declspec(dllexport) void shroudforge_input_host_mouse_button(uint32_t button, uint32_t down) {
+    char text[64];
+    std::snprintf(text, sizeof text, "feed-mouse %u %u", button, down);
+    feed_mark(text);
+}
+#endif
+extern "C" __declspec(dllexport) void shroudforge_input_host_reset() { feed_mark("feed-reset"); }
+extern "C" __declspec(dllexport) void shroudforge_input_host_end() {
+    feed_mark("feed-end");
+    feed_state = 2;
+}
+#endif
 extern "C" __declspec(dllexport) bool shroudforge_prepare_startup(const wchar_t* root) { mark(root && *root ? "prepare" : "bad-root"); return root && *root; }
 extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t* root) {
     mark("create");
@@ -41,7 +104,13 @@ extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) {
     if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr);
     return h && std::isfinite(dt) && dt >= 0;
 }
-extern "C" __declspec(dllexport) void shroudforge_destroy(void*) { timing("destroy"); mark("destroy"); }
+extern "C" __declspec(dllexport) void shroudforge_destroy(void*) {
+    timing("destroy");
+    mark("destroy");
+#if TEST_runtime_feed || TEST_runtime_feed_partial
+    destroyed = true;
+#endif
+}
 #elif TEST_eml
 static KilnResult reserve(KilnStr reason) {
     mark(reason.ptr && reason.len ? "reserve" : "bad-reason");

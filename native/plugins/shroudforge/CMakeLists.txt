@@ -6,6 +6,7 @@
 kiln_plugin(shroudforge
     src/plugin.cpp
     src/host_hooks.cpp
+    src/key_feed.cpp
     src/processes.cpp)
 
 # sf_host_chain_test.exe: the adapter's host table (src/host_hooks.cpp) against the real kiln.hooks registry, with a foreign
