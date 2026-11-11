@@ -34,11 +34,12 @@ internal static unsafe class CreativeFlame
           "if its menu does not open, it switched itself off until it is updated: switch it off in the Kiln profile to use Kiln's /creative"
         : IdleNote;
 
-    /// <summary>Why Kiln's creative mode is available although Creative Mode was started (null otherwise): it has no
-    /// symbols for this game build and switched its game features off.</summary>
+    /// <summary>Why Kiln's creative mode is available although Creative Mode is in the profile (null otherwise): it has
+    /// no symbols for this game build, and by its own rule it then switches its game features off. Concluded from its
+    /// files before it runs; nothing observes the mod itself.</summary>
     public static string? SwitchedOff => Volatile.Read(ref _state) == 2
-        ? $"Creative Mode (the Flame mod \"creative\") was started, but it has no symbol file for this game build ({_sigs}) " +
-          "and no recipes, so it switched its game features off: Kiln's creative mode is available. To use Creative Mode " +
+        ? $"Creative Mode (the Flame mod \"creative\") is in the profile, but it has no symbol file for this game build ({_sigs}) " +
+          "and no recipes: by its own rule it switches its game features off, so Kiln's creative mode is available. To use Creative Mode " +
           "instead, activate the profile again in the Kiln launcher (it places the mod in the game's mods folder, where it " +
           "reads its files) or update Creative Mode"
         : null;

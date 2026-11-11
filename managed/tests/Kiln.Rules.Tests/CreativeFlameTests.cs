@@ -34,7 +34,7 @@ public sealed class CreativeFlameTests : IDisposable
         Assert.False(CreativeFlame.Running);
         Assert.False((CreativeServer.StateOf(P).Access & CreativeAccess.Idle) != 0);
         var status = Creative.Status();
-        Assert.Contains("switched its game features off", status);
+        Assert.Contains("switches its game features off", status);
         Assert.Contains(Sigs, status);
         Assert.Contains("Kiln's creative mode is available", status);
         Assert.DoesNotContain(CreativeFlame.Note, status);

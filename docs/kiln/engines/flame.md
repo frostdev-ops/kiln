@@ -97,11 +97,12 @@ the failed entry may already have installed hooks or launched threads.
 A Creative Mode that cannot do its job does not count. kiln.rules (`native/services/rules/creative.cpp`) and Kiln.Rules
 (`CreativeFlame.cs`) also ask `symbols("creative")`:
 
-- `none` (no `sigs\<build key>.json` and no recipes in the folder it reads): by its own rule the mod switched its game
-  features off and hooks nothing of the game. Kiln's creative mode stays available: its hooks install, `/creative on`
-  works, its menu is there. kiln.log, `/creative status` and the `/creative on` reply say why (`Creative Mode (the Flame
-  mod "creative") was started, but it has no symbol file for this game build (...) and no recipes, so it switched its
-  game features off: Kiln's creative mode is available ...`).
+- `none` (no `sigs\<build key>.json` and no recipes in the folder it reads): by its own rule the mod switches its game
+  features off. This is concluded from the files, once, before the mod runs; Kiln does not observe what the mod then
+  does, and the rule itself rests on one log of Creative Mode 3.2.0. Kiln's creative mode stays available: its hooks
+  install, `/creative on` works, its menu is there. kiln.log, `/creative status` and the `/creative on` reply say why
+  (`Creative Mode (the Flame mod "creative") is in the profile, but it has no symbol file for this game build (...) and
+  no recipes: by its own rule it switches its game features off, so Kiln's creative mode is available ...`).
 - `recipes` (no symbol file for the build, recipes there): the mod may resolve the build and hook the same functions,
   so Kiln's creative mode stays idle; every refusal (`/creative`, the menu) adds that it has no symbol file for this
   build and, if its menu does not open, to switch it off in the Kiln profile to use Kiln's `/creative`.

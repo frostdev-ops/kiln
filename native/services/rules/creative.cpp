@@ -270,9 +270,11 @@ bool flame_creative() {
         KilnStr file{};
         if (f->symbols(KilnStr{"creative", 8}, &file) == KILN_FLAME_SYMBOLS_NONE) {
             if (!g_flame_off.exchange(true))
-                logf(KILN_LOG_INFO, "Creative Mode (the Flame mod \"creative\") was started, but it has no symbol file for "
-                                    "this game build (%.*s) and no recipes, so it switched its game features off: Kiln's "
-                                    "creative hooks stay on", static_cast<int>(file.len), file.ptr ? file.ptr : "");
+                // said from the files, before the mod has run: nothing here observes the mod itself
+                logf(KILN_LOG_INFO, "Creative Mode (the Flame mod \"creative\") is in the profile, but it has no symbol "
+                                    "file for this game build (%.*s) and no recipes: by its own rule it switches its game "
+                                    "features off, so Kiln's creative hooks stay on", static_cast<int>(file.len),
+                     file.ptr ? file.ptr : "");
             return false;
         }
     }
