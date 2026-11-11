@@ -108,6 +108,15 @@ extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) {
     mark("update");
     if (GetEnvironmentVariableW(L"KILN_SF_STALL_UPDATE", nullptr, 0)) Sleep(4400);  // past the writer's second turn (host.cpp)
     if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr);
+    // KILN_SF_FAULT_AFTER_SUBSCRIBE: the first update waits until the host's fake kiln.ui is inside a subscribe call
+    // (host.cpp, KILN_SF_STOP_IN_SUBSCRIBE), then faults: the mods worker tears down during the adapter's attach.
+    if (GetEnvironmentVariableW(L"KILN_SF_FAULT_AFTER_SUBSCRIBE", nullptr, 0)) {
+        HANDLE go = CreateEventW(nullptr, TRUE, FALSE,
+                                 (L"Local\\Kiln.SfTest.Subscribing." + std::to_wstring(GetCurrentProcessId())).c_str());
+        const bool entered = go && WaitForSingleObject(go, 10000) == WAIT_OBJECT_0;
+        mark(entered ? "update-saw-subscribe" : "update-timed-out-waiting-for-subscribe");
+        RaiseException(0xc0000005, 0, 0, nullptr);
+    }
     return h && std::isfinite(dt) && dt >= 0;
 }
 extern "C" __declspec(dllexport) void shroudforge_destroy(void*) {

@@ -21,7 +21,9 @@
 //        shroudforge_prepare_startup(<game>) (startup asset mods, DLL Manager), then kfc-runtime.dll:
 //        KfcRuntimeInitialize (native game access; a failure leaves metadata-only mode, as in ShroudForge);
 //   on a client, before the worker: the game window's key records from kiln.ui go to the runtime's host key feed, when
-//     it has one, in place of ShroudForge's shroudforge.exe helper (key_feed.cpp);
+//     it has one, in place of ShroudForge's shroudforge.exe helper (key_feed.cpp). The worker starts from the early
+//     on_ready, before kiln.ui exists: the feed begins there and attaches to kiln.ui at Kiln's plugin step, whose
+//     on_ready comes later (on_ready below, the g_runtime branch);
 //   a worker thread (ShroudForge's own mods loop, same timing): shroudforge_create(<game>), then every 16 ms
 //     KfcRuntimeTick + shroudforge_update(handle, dt); next to it a writer thread, every 2 s: the heartbeat file
 //     ShroudForge's tools read, ShroudForge's log mirrored into kiln.log ("[sf] ..."), <state>/shroudforge.json for the
@@ -387,6 +389,24 @@ public:
     ~HeartbeatWriter() { stop(); }
 };
 
+// keys in shroudforge.json and its kiln.log line (key_feed.cpp says which source and why).
+void report_keys(const KeySource& keys) {
+    set_status("keys", nlohmann::json{{"source", keys.source}, {"reason", keys.reason}});
+    const char* from = !std::strcmp(keys.source, "kiln")      ? "Kiln"
+                       : !std::strcmp(keys.source, "waiting") ? "Kiln, waiting for kiln.ui"
+                       : !std::strcmp(keys.source, "helper")  ? "ShroudForge's own input"
+                                                               : "nowhere";
+    logf(KILN_LOG_INFO, "ShroudForge mod shortcuts: key state from %s: %s", from, keys.reason.c_str());
+}
+
+// The key feed's teardown, before shroudforge_destroy. A feed still waiting for the plugin step gets its last word here.
+void stop_key_feed() {
+    KeySource last{};
+    if (!key_feed_stop(&last)) return;
+    report_keys(last);
+    write_status();
+}
+
 std::string kfc_status() {
     if (!g_kfc_status) return {};
     char text[2048] = {};
@@ -413,7 +433,7 @@ void run_loop() {
             // Only this serial worker joins, never on_unload/DllMain. Even on
             // an update exception, finish the writer before runtime teardown.
             heartbeat.stop();
-            key_feed_stop();  // the last host key feed call, before the runtime goes (key_feed.cpp)
+            stop_key_feed();  // the last host key feed call, before the runtime goes (key_feed.cpp)
             if (handle) invoke_void(g_destroy, handle);
             if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
             g_initialized = false;
@@ -562,7 +582,9 @@ void offer_engine_hooks() {
     set_status("engineHooks", "self");
 }
 
-void start_worker() {
+// plugin_step_later: called by the early on_ready (kiln_plugin_early), before Kiln has loaded kiln.ui; Kiln's plugin
+// step and its on_ready come later in this start, unless it is safe idle.
+void start_worker(bool plugin_step_later) {
     if (!g_prepared || g_worker) return;
     g_stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!g_stop) {
@@ -573,16 +595,12 @@ void start_worker() {
     }
     // Mod shortcuts: Kiln's host key feed, ShroudForge's own helper, or none. The feed begins before the worker's
     // shroudforge_create, as input_host.h asks (mods ask for input while they load).
-    const KeySource keys = key_feed_start(g_api, g_owner, g_runtime, g_game, g_server);
-    set_status("keys", nlohmann::json{{"source", keys.source}, {"reason", keys.reason}});
-    logf(KILN_LOG_INFO, "ShroudForge mod shortcuts: key state from %s: %s",
-         !std::strcmp(keys.source, "kiln") ? "Kiln" : !std::strcmp(keys.source, "helper") ? "ShroudForge's own input" : "nowhere",
-         keys.reason.c_str());
+    report_keys(key_feed_start(g_api, g_owner, g_runtime, g_game, g_server, plugin_step_later));
     set_status("runtime", "starting");
     finish("hosted", "");
     g_worker = CreateThread(nullptr, 0, worker, nullptr, 0, nullptr);
     if (!g_worker) {
-        key_feed_stop();
+        stop_key_feed();
         if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
         g_initialized = g_prepared = false;
         stop_helper_processes();
@@ -644,7 +662,17 @@ bool reserve_writer() {
 }
 
 void KILN_CALL on_ready(void*) {
-    if (g_runtime) { start_worker(); return; }
+    if (g_runtime) {
+        // Kiln's plugin step, after the early pass prepared the runtime (and its on_ready started the worker): kiln.ui is
+        // published now, so a key feed that began early attaches to it.
+        start_worker(false);
+        KeySource keys{};
+        if (key_feed_attach(g_api, g_owner, &keys)) {
+            report_keys(keys);
+            write_status();
+        }
+        return;
+    }
     g_game = api_path(KILN_PATH_GAME);
     g_state = api_path(KILN_PATH_STATE);
     if (g_game.empty() || !safe_path(g_game, g_game)) return finish("failed", "invalid game path");
@@ -823,7 +851,7 @@ void KILN_CALL on_ready(void*) {
              GetLastError());
     }
     g_prepared = true;
-    if (!g_early) start_worker();
+    if (!g_early) start_worker(false);
 }
 
 void KILN_CALL on_unload(void*) {
@@ -890,7 +918,9 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_early(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     const auto result = kiln_plugin_main(api, owner, info);
     if (result != KILN_OK) return result;
-    info->on_ready = [](void*) { ksf::start_worker(); };
+    // The core runs this right after the early phase, before any service DLL: the worker starts here (in safe idle too,
+    // where Kiln's plugin step never comes); kiln.ui is published only at that step (on_ready, g_runtime branch).
+    info->on_ready = [](void*) { ksf::start_worker(true); };
     info->on_unload = nullptr;
     ksf::g_early = true;
     try { ksf::on_ready(nullptr); }

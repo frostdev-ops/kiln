@@ -47,7 +47,7 @@ evidence is separate from the older observations below; neither is a client rend
 | Main menu | SF's native runtime (`kfc-runtime.dll`, hosted or SF's own) rewrites the game's two Settings calls in the main menu to enter its own function, which calls the entry renderer itself: for a "ShroudForge" row while SF's Modloader window is there (never under Kiln's bundled runtime), then for the Settings entry. Kiln draws its menu entries (**Mods**, mods' entries) before the Settings entry and knew that entry by the renderer's return address, so with SF's native runtime in the process the main menu had none of Kiln's entries (a real client, 2026-11-11; the pause menu and the menu key in a world were not affected). | kiln.ui also takes a renderer call from outside the game's image whose stack has one of the two Settings return addresses above it (`native/services/ui/menu_site.h`; 0x4a8 bytes up in Kiln's build of the 1.7.9 runtime, looked for within 4 KiB), draws its entries before the first such call of a UI frame, and says once in `kiln.log` through which module the entry is drawn. Host-tested logic only; not yet seen in a client. |
 | Shared game state | SF writes ECS components, resources and named services (e.g. `ecs::GameSettings`) from its own thread, with claims and readback. Kiln services write some of the same (e.g. `kiln.settings`). | Last writer wins, as with any two mods. SF restores its baselines when a mod switches off. Documented for players. The lab shows SF's guarded write confirmed next to Kiln's services. |
 | Tick | SF: its own 16 ms update loop. Kiln: the server-world tick. | Kept separate. Hosted SF uses a serial native/Lua worker and a separate filesystem-only writer thread for the heartbeat, `shroudforge.json` and the `[sf]` log mirror, so slow file I/O no longer blocks its updates. The heartbeat records the last update turn, not writer activity. Runtime work in the loop (the native status read every 2 s) can still delay it; this is not a guarantee of gameplay or input parity. |
-| UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Mod keybinds (`shroudforge.input.is_keybind_down`/`was_keybind_pressed`) get their key state from the same exe, started by the runtime as a hidden `--keyboard-input` child that reports keys over a pipe. | Client only. The bundled runtime (fork `112d939`) has an optional host key feed: Kiln passes it the game window's own key, button and focus records (kiln.ui v5), and the runtime starts no helper (section 5.6). Without the feed (an installed upstream SF, an older bundle, kiln.ui off, `KILN_SF_KEY_FEED=off`) the runtime starts the installed `shroudforge.exe --keyboard-input` itself, and with no SF installed mod keybinds never fire (`Keyboard shortcuts unavailable`). `kiln/state/shroudforge.json` `keys` says which (`kiln`, `helper`, `none`) and why. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
+| UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Mod keybinds (`shroudforge.input.is_keybind_down`/`was_keybind_pressed`) get their key state from the same exe, started by the runtime as a hidden `--keyboard-input` child that reports keys over a pipe. | Client only. The bundled runtime (fork `112d939`) has an optional host key feed: Kiln passes it the game window's own key, button and focus records (kiln.ui v5), and the runtime starts no helper (section 5.6). Without the feed (an installed upstream SF, an older bundle, kiln.ui off, safe idle, `KILN_SF_KEY_FEED=off`, or SF's `shroudforge.exe` installed: the helper then keeps the key state) the runtime starts the installed `shroudforge.exe --keyboard-input` itself, and with no SF installed mod keybinds never fire (`Keyboard shortcuts unavailable`). `kiln/state/shroudforge.json` `keys` says which (`kiln`, `waiting` until Kiln's plugin step, `helper`, `none`) and why. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
 | Native DLL mods | Both read `<game>/dinput8-chain.ini`. | The same file loads once (same canonical path, `LoadLibrary` reference count). SF reports an issue for a DirectInput provider without its `dinput8.dll` host. |
 | Updates | SF's updater replaces its managed paths, **`dinput8.dll` included**, and its repair check requires them to exist. | In hosted mode kiln-shroudforge runs neither the startup update check nor the pending install, so SF never overwrites Kiln. In self-hosted mode an SF update can replace Kiln's `dinput8.dll`. The launcher must then put Kiln's proxy back (detect: classify at launch). The repair check only tests that the file exists, so Kiln's `dinput8.dll` satisfies it. |
 | Wine / Proton | SF needs `dbghelp=n,b;winmm=n,b`. | Not in hosted mode. kiln-shroudforge loads `shroudforge-runtime.dll` (not a system DLL name) by full path. The lab ran with Kiln's default `mshtml=;dinput8=n,b` only. This fixes the Steam Deck case. |
@@ -309,12 +309,32 @@ any thread; the mods' queries never wait for them.
 kiln-shroudforge feeds it (`native/plugins/shroudforge/src/key_feed.cpp`):
 
 - **When.** A client start that Kiln hosts (bundled or installed runtime), when the chosen DLL has all seven exports
-  and answers version 1, kiln.ui v5 is there (`subscribe_window_input`, [ui.md](ui.md#c-native-plugins)), and
-  `KILN_SF_KEY_FEED` is not `off`. Otherwise no export is called and the runtime's own path is unchanged: an installed
-  `shroudforge.exe` helper, or no shortcuts. Upstream SF and fork builds before `9d586f1` have no exports; a dedicated
-  server has no window.
-- **Start.** In `on_ready`, before the mods worker's `shroudforge_create` (mods ask for input while they load): subscribe
-  with forwarding shut, then `begin`. A 0 means SF's own input already runs: unsubscribe and feed nothing.
+  and answers version 1, kiln.ui v5 comes (`subscribe_window_input`, [ui.md](ui.md#c-native-plugins)), no
+  `<game>/shroudforge/shroudforge.exe` is installed, and `KILN_SF_KEY_FEED` is not `off`. Otherwise no export is called
+  and the runtime's own path is unchanged: an installed `shroudforge.exe` helper, or no shortcuts. Upstream SF and fork
+  builds before `9d586f1` have no exports; a dedicated server has no window.
+- **Begin, then attach.** The adapter starts SF's mods worker, and so `shroudforge_create`, from the `on_ready` of its
+  early pass (`kiln_plugin_early`): the core runs it right after the early phase, before it loads any service DLL
+  (`native/core/src/early_plugins.cpp`, `boot.cpp`), and in safe idle nothing of Kiln's comes after it. kiln.ui is
+  published by `kiln-ui.dll` only at Kiln's plugin step, whose `on_ready` (the adapter's second one) comes later on the
+  same boot thread (a real start: early `on_ready` 14:37:19.570, `kiln.ui v5 published` 14:37:20.008). `begin` has to
+  come before `shroudforge_create` (mods ask for input while they load), so it is decided at the early `on_ready`, and
+  the subscription is made at the plugin step:
+  - no `shroudforge.exe`, and kiln.hooks served to the early plugins (the core serves it on every start that may hook,
+    so this start has a plugin step): `begin` at once (`waiting`). At the plugin step the adapter subscribes (`kiln`), or
+    says why it cannot (`none`: no kiln.ui v5 there either, or it refused the subscription). No record is passed in
+    between; the game window does not exist yet. Nothing is lost by beginning: without the feed and the helper there
+    are no shortcuts at all.
+  - `shroudforge.exe` installed: no `begin`; the helper keeps the key state (`helper`). `begin` gives the helper up for
+    the session (`end` does not bring it back), and kiln.ui may not come at the plugin step (a `kiln-ui.dll` that did not
+    load or is older, policy `any` on a game build whose UI places do not resolve).
+  - kiln.hooks not served at the early `on_ready`: a safe idle start (an unverified build with policy `verified`), which
+    has no plugin step. No `begin`; `none` (or `helper`) at once.
+  - kiln.ui already there when the worker starts (a start in which the early pass did not start it, the old test
+    order): subscribe with forwarding shut, then `begin`, as one step.
+
+  A `begin` that answers 0 means SF's own input already runs (`helper`): the adapter unsubscribes, if it had subscribed,
+  and feeds nothing.
 - **Records.** Each key goes through one of the two key functions, as `input_host.h` asks: every raw keyboard record,
   and window key messages only while the window has given no raw keyboard record. The game registers raw input without
   `RIDEV_NOLEGACY`, so most keys arrive both ways, and the window can take `WM_INPUT` ahead of the messages
@@ -329,17 +349,38 @@ kiln-shroudforge feeds it (`native/plugins/shroudforge/src/key_feed.cpp`):
   then `end` under the adapter's lock, then `shroudforge_destroy`. The chosen runtime DLL is never unloaded. No export
   is called after `end` or destroy, even when the window thread delivers a record during teardown or kiln.ui's
   unsubscribe fails. The fork keeps the feed's state in process-wide statics, so `end` and destroy could come in either
-  order; `end` first is what the fork advises.
+  order; `end` first is what the fork advises. A feed still `waiting` (the runtime stopped before the plugin step) is
+  ended the same way and gets `none`.
 - **Threads.** The window thread holds the adapter's lock for one record and the runtime's feed lock inside the export.
   The mods loop takes neither; its queries take only the runtime's short state locks. Kiln calls the feed from the
   window thread, and once from the worker (`end`) after it unsubscribed, so the window thread never waits for the mods
-  loop.
-- **Status.** `kiln/state/shroudforge.json` `keys`: `{"source": "kiln" | "helper" | "none", "reason": "..."}`, and one
-  kiln.log line: `ShroudForge mod shortcuts: key state from Kiln: ...` (or `from ShroudForge's own input`, `from
-  nowhere`, with the reason). SF's own log says `[hotkeys] Keyboard and mouse input is fed by the host`. `kiln` means
-  that Kiln passes the records; it is not a check that a mod's shortcut fires.
+  loop. The attach runs on the boot thread while the worker may already be inside `shroudforge_create` or its loop: it
+  subscribes holding nothing and makes the subscription live under the adapter's lock only while the teardown has not
+  begun. An attach that loses to a teardown removes its own subscription again (holding nothing), and the teardown's
+  word stands; no record is passed after `end` either way.
+- **Status.** `kiln/state/shroudforge.json` `keys`: `{"source": ..., "reason": "..."}`, one of:
+  - `waiting`: `begin` was called at the early `on_ready`; nothing is passed until the plugin step attaches the
+    subscription, so no shortcut fires yet. Replaced at the plugin step, or when the runtime stops. It stays only in a
+    start that served kiln.hooks to the early plugins and still turned out safe idle (the symbol definitions are
+    missing: boot.json `safeIdle`).
+  - `kiln`: Kiln passes the game window's records (since the attach). It is not a check that a mod's shortcut fires.
+  - `helper`: SF's own `shroudforge.exe --keyboard-input` gives the key state, or SF's own input already runs.
+  - `none`: no shortcuts this start; the reason says why (a server, no feed in this runtime, safe idle, no kiln.ui at
+    the plugin step, the runtime stopped before the attach, the switch, a fault).
+
+  kiln.log has one line per word: `ShroudForge mod shortcuts: key state from Kiln, waiting for kiln.ui: ...` at the early
+  `on_ready`, then `key state from Kiln: ...` (or `from nowhere: ...`) at the plugin step; a final answer at the early
+  `on_ready` is `from ShroudForge's own input: ...` or `from nowhere: ...`. SF's own log says `[hotkeys] Keyboard and
+  mouse input is fed by the host` after `begin`, and `Keyboard shortcuts unavailable` without it and without a helper.
+  Kiln.Ui and the launcher do not read `keys` yet.
 - **Switch.** `KILN_SF_KEY_FEED=off` in the launch environment gives the runtime its own path back (an installed
-  `shroudforge.exe`). With SF installed next to Kiln and the bundled runtime chosen, the feed replaces that helper.
+  `shroudforge.exe`, else no shortcuts). With SF installed next to Kiln the helper keeps the key state in a real start
+  (above); the feed replaces it only when kiln.ui is already there as the worker starts.
+
+The first dev.24 builds asked for kiln.ui at the early `on_ready` only, where it never is: every real start said `none`
+(`kiln.ui v5 ... is not available in this start`), the runtime tried its helper (`Could not start isolated SDL input`,
+`Keyboard shortcuts unavailable`), and the feed never began. Their test host had offered its fake kiln.ui from the first
+call.
 
 Not covered, by design: recording a new shortcut (press to capture) is still SF's Modloader window, or the setting's
 text on Kiln's page (editable `SDL:` strings). AltGr through window messages counts as Ctrl+Alt (Windows adds a fake
@@ -356,12 +397,21 @@ Checks (none with a game window):
   with a subscriber; captured or consumed records still arrive; oversized HID records are not decoded; raw registration
   removal and target changes; per-subscriber focus coalescing and clearing Kiln's held keys; subscribe/cancel during
   delivery, cross-thread and reentrant unsubscribe; a faulting subscriber is removed).
-- `native/plugins/shroudforge/tests/run.py`, cases `keys-*` (23): a fake runtime and a fake kiln.ui. Begin before
-  create, each kind forwarded unchanged and in order under the rule above, reset, unsubscribe before end before
-  destroy; raw registration removal resumes legacy keys and buttons without duplicating returning raw taps; one export
-  missing, another version, begin refused, a dedicated server, no or an older kiln.ui, the switch; faults in all seven
-  exports; a teardown while the window thread sends records without a pause, with and without a working unsubscribe
-  (no export after end or destroy; a copy that never shut the gate and one that ended first both fail it).
+- `native/plugins/shroudforge/tests/run.py`, cases `keys-*` (34): a fake runtime and a fake kiln.ui. Most replay the
+  real boot order (`host.cpp` `KILN_SF_REAL_ORDER`: the early pass and its `on_ready` with kiln.hooks and no kiln.ui,
+  then kiln.ui appears, then `kiln_plugin_main` and `on_ready` of the plugin step, then the window's records; the host
+  prints `shroudforge.json` after each step). Begin before create and before the subscription, `waiting` then `kiln`;
+  each kind forwarded unchanged and in order under the rule above, reset, unsubscribe before end before destroy; raw
+  registration removal resumes legacy keys and buttons without duplicating returning raw taps; one export missing,
+  another version, begin refused, a dedicated server, the switch; kiln.ui missing or older at the plugin step (begun,
+  never fed, ended, `none`), the same with `shroudforge.exe` installed (no begin, `helper` from the start), safe idle
+  without kiln.hooks (no begin, the final word at once, with and without the helper), no plugin step although kiln.hooks
+  was served (`waiting` until the runtime stops); the worker stopping right before the attach and while the attach is
+  inside kiln.ui's subscribe with a record handed over at once (no record after end, no subscription left, the
+  teardown's `none`; a copy of the adapter that kept that subscription fails it); faults in all seven exports; a
+  teardown while the window thread sends records without a pause, with and without a working unsubscribe (no export
+  after end or destroy; a copy that never shut the gate and one that ended first both fail it). Six cases keep the old
+  order, kiln.ui from the first call (`kiln_plugin_main` alone, or the early pass with kiln.ui already there).
 - `native/plugins/shroudforge/tests/real_keys.py`: the component built from `112d939` by its `kiln/build.sh` behind
   the adapter, in a scratch game folder with no SF installed and a probe mod with three shortcut settings (`SDL:66`,
   `Ctrl+SDL:66`, `Mouse:4`). SF's API needs the game's type registry and archive reader, so copies of the client's
@@ -374,7 +424,8 @@ Checks (none with a game window):
   ever fires.
 
 A real client has to show: an SF mod's shortcut (any `keybind` setting, for example World Editor's F3..F8) reacts in game on an
-install without ShroudForge, `keys` says `kiln`, and kiln.log has no `Keyboard shortcuts unavailable`; a held shortcut
+install without ShroudForge, `keys` says `kiln`, kiln.log has `key state from Kiln, waiting for kiln.ui` and then, after
+`service kiln.ui v5 published`, `key state from Kiln:`, and no `Keyboard shortcuts unavailable`; a held shortcut
 lets go after Alt+Tab; one tap is one action (a toggle does not toggle twice); a key Kiln's menu or a Kiln binding
 takes (Insert, a bound key) still reaches SF's shortcut state; Print Screen bound as a shortcut fires once.
 
@@ -453,7 +504,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | settings `value` + label/description/control/min/max/step/options/enabledWhen/applyAt | plugin; launcher SchemaForm and in-game Mods panel edit the same file | `[Config]` classes + SchemaForm | shared Rust/managed fixtures; rendered SF panel still a client check |
 | live settings (`shroudforge.settings.get` in callbacks) | plugin | `Config` reload events | done; **lab**: survival all off → "Runtime settings applied live", effect `no-change: All Survival settings are off`; probe off → restore |
 | groups | launcher `x-kiln-group`; in-game labels, descriptions, settings and action buttons | config sections | managed package/action tests; execution client check |
-| keybind settings (`control: keybind`) | plugin (SF's hotkeys); key state from Kiln's host key feed (bundled runtime, client), else from an installed `shroudforge/shroudforge.exe` (section 5.6) | `Kiln.Ui.KeyBindings` | feed: Wine harnesses and the real runtime with fed records (section 5.6), not a game client; before dev.24 bundled-only: never pressed (player log r1110); installed: client |
+| keybind settings (`control: keybind`) | plugin (SF's hotkeys); key state from Kiln's host key feed (bundled runtime, client, no `shroudforge.exe` installed), else from an installed `shroudforge/shroudforge.exe` (section 5.6) | `Kiln.Ui.KeyBindings` | feed: Wine harnesses and the real runtime with fed records (section 5.6), not a game client; before dev.24 bundled-only: never pressed (player log r1110); installed: client |
 | locales `locales/*.json`, `shroudforge.i18n.get`, `shroudforge.locale()` | plugin | Kiln mod localisation | plugin; — |
 | dependencies (SemVer, optional) | plugin (SF's load order) | resolver | plugin; — |
 | `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | mixed-server lab: 89 resources committed, item count +2; second boot reused identical patched archive hashes |
@@ -472,7 +523,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | public action request files; toggle event opens installed helper, or Kiln's SF page when hosted without it | `Kiln.Ui` screens | action-file managed tests, event native Wine tests; actual action execution/rendering client check |
 | `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
 | `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
-| `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin (`is_key_down` raises since SF 1.7.6); held/pressed state from Kiln's host key feed, else from an installed `shroudforge.exe` (section 5.6) | `Kiln.Ui.KeyBindings` | feed: real runtime with fed records under Wine, not a game client; before dev.24 bundled-only: always false (player log r1110); installed: client |
+| `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin (`is_key_down` raises since SF 1.7.6); held/pressed state from Kiln's host key feed (no `shroudforge.exe` installed), else from an installed `shroudforge.exe` (section 5.6) | `Kiln.Ui.KeyBindings` | feed: real runtime with fed records under Wine, not a game client; before dev.24 bundled-only: always false (player log r1110); installed: client |
 | `shroudforge.log.trace/debug/info/warn/error`, `version`, `mod_id`, `mod_kind` | plugin (also in kiln.log as `[sf]`) | `Mod.Log` | lab (probe's `log.info` lines) |
 
 ### 8.3 `runtime.*` (in-game API, `runtime_api.lua`)
