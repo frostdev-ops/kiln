@@ -309,8 +309,31 @@ public sealed class ShroudForgePageTests : IDisposable
         finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
     }
 
-    /// <summary>A request that cannot be written (a file is where the actions folder would be) fails with a message, not
-    /// a silent worker.</summary>
+    /// <summary>A request an earlier game start left (another pid) is still one waiting: ShroudForge keeps it and may run
+    /// it at a later start, so Kiln adds none and says so.</summary>
+    [Fact]
+    public void A_request_an_earlier_game_left_counts_as_waiting()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            Directory.CreateDirectory(Actions(folder));
+            var old = Path.Combine(Actions(folder), $"notes-1762800000000000000-{Guid.NewGuid():N}-{Environment.ProcessId + 1}.json");
+            File.WriteAllText(old, """{"modId":"notes","action":"reset","createdAt":1762800000}""");
+            File.WriteAllText(Path.Combine(Actions(folder), $"notes-extra-1762800000000000000-{Guid.NewGuid():N}-7.json"), "{}");  // another mod's
+            var line = ClickAction(Page(Mod(folder) with { Active = true }));
+            Assert.NotNull(line);
+            Assert.Contains("still waiting", line);
+            Assert.Equal(2, Directory.EnumerateFiles(Actions(folder)).Count());
+            File.Delete(old);
+            Assert.StartsWith("Requested", ClickAction(Page(Mod(folder) with { Active = true })));  // another mod's file is not this one's
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    /// <summary>A request that cannot be written (ShroudForge's config names a ui folder with a NUL in it, which no file
+    /// call takes) fails with a message, not a silent worker.</summary>
     [Fact]
     public void An_action_that_cannot_be_sent_says_why()
     {
@@ -318,8 +341,9 @@ public sealed class ShroudForgePageTests : IDisposable
         try
         {
             var folder = ActionPackage();
-            Directory.CreateDirectory(Path.GetDirectoryName(Actions(folder))!);
-            File.WriteAllText(Actions(folder), "not a folder");
+            var config = Path.Combine(_root, "shroudforge", "config");
+            Directory.CreateDirectory(config);
+            File.WriteAllText(Path.Combine(config, "modloader-config.json"), """{ "paths": { "ui": "a\u0000b" } }""");
             var line = ClickAction(Page(Mod(folder) with { Active = true }));
             Assert.NotNull(line);
             Assert.Contains("could not be sent", line);

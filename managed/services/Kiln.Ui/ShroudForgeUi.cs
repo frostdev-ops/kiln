@@ -696,7 +696,8 @@ internal static class ShroudForgeUi
                         if (Waiting(game, p.Id))
                         {
                             ok = false;
-                            text = $"{label}: an earlier request for {p.Name} is still waiting for ShroudForge; nothing new was queued.";
+                            text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
+                                   "which runs it once the mod takes it; nothing new was queued.";
                         }
                         else
                         {
@@ -723,14 +724,15 @@ internal static class ShroudForgeUi
 
     internal static string GameDir() => ModCatalog.Sources().GameDir;
 
-    /// <summary>A request this process queued for mod <paramref name="id"/> is still in ShroudForge's actions folder
-    /// (ShroudForgePackages.QueueAction names them <c>&lt;id&gt;-&lt;time&gt;-&lt;guid&gt;-&lt;pid&gt;.json</c>).</summary>
+    /// <summary>A request Kiln queued for mod <paramref name="id"/>, in this game or an earlier one, is still in ShroudForge's
+    /// actions folder (ShroudForgePackages.QueueAction names them <c>&lt;id&gt;-&lt;time&gt;-&lt;guid&gt;-&lt;pid&gt;.json</c>).
+    /// ShroudForge never drops one by age, so one from an earlier start may still run.</summary>
     private static bool Waiting(string game, string id)
     {
         var dir = Path.Combine(ShroudForgePackages.Folder(game, "ui"), "actions");
         if (!Directory.Exists(dir)) return false;
         var ours = new System.Text.RegularExpressions.Regex(
-            "^" + System.Text.RegularExpressions.Regex.Escape(id) + "-[0-9]+-[0-9a-f]{32}-" + Environment.ProcessId + "\\.json$",
+            "^" + System.Text.RegularExpressions.Regex.Escape(id) + "-[0-9]+-[0-9a-f]{32}-[0-9]+\\.json$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         return Directory.EnumerateFiles(dir, "*.json").Any(f => ours.IsMatch(Path.GetFileName(f)));
     }

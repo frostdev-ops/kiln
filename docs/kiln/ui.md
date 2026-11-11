@@ -257,7 +257,8 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     ShroudForge mods have an enabled switch and settings from `extended.mod.json`, grouped and conditionally enabled,
     with live/restart hints, typed options, text lengths and declared action buttons. An action is sent only while
     ShroudForge's runtime runs the mod in this game (its `state.json` lists it active), and only one request of Kiln's
-    per mod waits in ShroudForge's actions folder at a time (ShroudForge keeps a request it cannot hand over for ever). Slider writes settle for 350 ms;
+    per mod waits in ShroudForge's actions folder at a time, one left by an earlier game start included (ShroudForge keeps
+    a request it cannot hand over for ever and may run it at a later start; the page then says one is still waiting). Slider writes settle for 350 ms;
     text saves when the field loses focus (Tab and LB / RB do not switch sections while a field has the keyboard, and
     text typed into a field that goes away before it is left is dropped, never shown as the value); a field holds the whole value, and one too long to edit (64 KiB on one line,
     1 MiB in a text area) is shown, not edited. Choices use combos (including radio/segmented), colors use text, and SF
