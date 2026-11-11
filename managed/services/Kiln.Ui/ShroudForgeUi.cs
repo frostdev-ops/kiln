@@ -389,11 +389,14 @@ internal static class ShroudForgeUi
         public bool Empty;
         /// <summary>Settings the package has that the page does not draw.</summary>
         public int Hidden;
+        /// <summary>The last build had too many settings or too much value text to repeat on the render thread.</summary>
+        public bool RebuildOnWorker;
     }
 
     private static View ViewOf(string folder, SfPackage p)
     {
-        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder };
+        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder,
+            RebuildOnWorker = p.Settings.Count > DrawnSettings };
         // The setting cap alone does not bound a frame: one list can have thousands of checkboxes, as can the
         // groups/actions outside settings. Do not truncate editable options (a write could then lose selections).
         var metadataLeft = 1000;
@@ -413,14 +416,14 @@ internal static class ShroudForgeUi
     }
 
     /// <summary>The view to draw this frame, or null while none is made. A view made before the last edit or error is made
-    /// again: at once for a package the page draws whole, on a worker for a larger one (this frame draws the last).</summary>
+    /// again: at once for a small view, on a worker for a larger one (this frame draws the last).</summary>
     private static View? ViewFor(string folder, Entry e, State now)
     {
         if (now.Package is not { } p) return null;
         var version = Interlocked.Read(ref _version);
         var view = now.View is { } v && ReferenceEquals(v.Package, p) ? v : null;
         if (view is not null && view.Version == version) return view;
-        if (p.Settings.Count <= DrawnSettings)
+        if (view is { RebuildOnWorker: false })
         {
             view = ViewOf(folder, p);
             Keep(e, p, view);
@@ -458,6 +461,7 @@ internal static class ShroudForgeUi
         }
         var rule = new EnabledRule(byKey, values);
         var made = 0;
+        var textLeft = 4096;
         Item Make(SfSettingDef d)
         {
             var value = values.TryGetValue(d.Key, out var v) ? v : d.Value;
@@ -472,6 +476,9 @@ internal static class ShroudForgeUi
             }
             var labels = d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray();
             var text = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
+            // Even a one-setting package can have a huge list. Remember its cost on this worker instead of
+            // serializing it again on the render thread just because another setting was edited.
+            view.RebuildOnWorker |= (textLeft -= text.Length) < 0;
             var chosen = value as JsonArray;
             var combo = 0;
             for (var oi = 0; oi < d.Options.Count; oi++)

@@ -248,6 +248,24 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.Equal(before, File.ReadAllBytes(Path.Combine(folder, "extended.mod.json")));
     }
 
+    [Fact]
+    public void A_small_package_with_a_large_list_rebuilds_its_view_off_the_render_thread()
+    {
+        var selected = string.Join(",", Enumerable.Repeat("\"v0\"", 40_000));
+        var folder = Package("{\"choices\":{\"value\":[" + selected + "],\"options\":{\"v0\":\"Option\"}},\"level\":{\"value\":false}}");
+        var mod = Mod(folder);
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+        ShroudForgeUi.Edit(folder, "level", JsonValue.Create(true), 30_000);
+        try
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.True(allocated < 96 * 1024, $"a frame rebuilt a large value: {allocated} bytes allocated on the render thread");
+        }
+        finally { ShroudForgeUi.ResetForTests(); }
+    }
+
     private static string Chain(int n)
     {
         var parts = new List<string>();

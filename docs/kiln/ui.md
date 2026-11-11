@@ -299,8 +299,9 @@ Cost: no catalog refresh while the menu is closed. While it is open the list is 
 the selected SF package refreshes at most once per second, and files whose bytes did not change make no new package.
 What the page needs of a package (its first 300 settings by group, which can be changed now, its texts cut to 2000
 characters) is made on the worker that read it, and again after an edit or an error (at once for a package of at most
-300 settings, on a worker for a larger one), never per frame. A package with more settings shows the first 300 and a
-line saying how many more it has. Choices, groups and actions have a separate combined limit of 1000; a package over
+300 settings whose value text totals at most 4096 characters, on a worker for a larger view), never per frame. A package
+with more settings shows the first 300 and a line saying how many more it has. Choices, groups and actions have a
+separate combined limit of 1000; a package over
 that limit is not edited here, with a message pointing to its unchanged `extended.mod.json` (choices are never cut
 and saved back as a partial list). A package with a value no reader can use (a string with an unpaired surrogate escape, a number
 no double holds) is found on the read worker and shown as "cannot be shown", never thrown on the render thread. The render thread draws snapshots (no file access or waiting);
