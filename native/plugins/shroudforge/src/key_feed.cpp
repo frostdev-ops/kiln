@@ -17,6 +17,7 @@
 // so every export call is under g_mu (g_mu before the runtime's feed lock, always), and none comes after end. reset
 // (about 500 GetKeyNameTextW calls) runs on the window thread only, once per focus loss (kiln.ui sends one record per
 // loss).
+#include <atomic>
 #include <mutex>
 
 #include "../../../services/ui/raw_input_source.h"
@@ -48,6 +49,9 @@ const KilnUiApi* g_ui = nullptr;
 KilnHandle g_sub = 0;
 std::mutex g_mu;
 bool g_live = false;              // begin returned 1 and end has not been called (g_mu)
+// Teardown has begun: records are dropped before they ask for g_mu. A window thread that delivers without a pause (and
+// a kiln.ui that could not remove the subscription) would otherwise keep taking the lock ahead of the worker's end.
+std::atomic<bool> g_stopping{false};
 bool g_raw_keys = false;          // the window has given a raw keyboard record (g_mu)
 bool g_raw_buttons = false;       // ...a raw mouse button record (g_mu)
 
@@ -69,6 +73,7 @@ template <class F> bool guarded_value(F fn, uint32_t* out) {
 // is removed or targets a different window, resume legacy input, including the release of an already held raw key.
 void KILN_CALL on_window_input(const KilnUiWindowInput* r, void*) {
     if (!r || r->size < sizeof(KilnUiWindowInput)) return;
+    if (g_stopping.load(std::memory_order_acquire)) return;
     std::lock_guard lock(g_mu);
     if (!g_live) return;
     bool ok = true;
@@ -161,12 +166,14 @@ KeySource key_feed_start(const KilnApi* api, KilnOwner owner, HMODULE runtime, c
         std::lock_guard lock(g_mu);
         g_raw_keys = g_raw_buttons = false;
         g_live = true;
+        g_stopping.store(false, std::memory_order_release);
     }
     return {"kiln", "Kiln passes the game window's key, mouse button and focus records to the runtime (host key feed v1); "
                     "this is not a check that a mod's shortcut fires"};
 }
 
 void key_feed_stop() {
+    g_stopping.store(true, std::memory_order_release);
     if (g_sub && g_ui) {
         const KilnResult r = g_ui->unsubscribe(g_sub);
         if (r != KILN_OK)

@@ -81,6 +81,27 @@ static void mark(const char* what) {  // the same call log as the fake runtime's
     WriteFile(f, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
     CloseHandle(f);
 }
+// Does the call log hold the line `what`? (The race cases wait for the worker's last call instead of a fixed time.)
+static bool marked(const char* what) {
+    wchar_t file[32768]{};
+    if (!GetEnvironmentVariableW(L"KILN_SF_TEST_LOG", file, 32768)) return false;
+    HANDLE f = CreateFileW(file, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    // the worker's last calls are at the end of the log: the last 64 KiB are enough, however many records came before
+    LARGE_INTEGER size{};
+    GetFileSizeEx(f, &size);
+    LARGE_INTEGER from{};
+    from.QuadPart = size.QuadPart > 65536 ? size.QuadPart - 65536 : 0;
+    SetFilePointerEx(f, from, nullptr, FILE_BEGIN);
+    std::string text(65536, '\0');
+    DWORD got = 0;
+    ReadFile(f, text.data(), static_cast<DWORD>(text.size()), &got, nullptr);
+    CloseHandle(f);
+    text.resize(got);
+    const std::string line = std::string("\n") + what + "\n";
+    return text.find(line) != std::string::npos || text.rfind(std::string(what) + "\n", 0) == 0;
+}
 static std::mutex ui_gate, ui_mu;
 static KilnUiWindowInputFn ui_fn = nullptr;
 static void* ui_user = nullptr;
@@ -509,6 +530,10 @@ int main(int argc, char** argv) {
     if (info.on_unload) info.on_unload(info.user);
     Sleep(delayed ? 2500 : 150); // allow signalled, serial worker cleanup (slow writer join + final status) before exit
     if (window.joinable()) {
+        // The window thread never pauses here (and with a stuck kiln.ui it keeps taking the adapter's lock), so on a
+        // busy machine the worker's cleanup can need longer than the pause above: wait for its last call, the
+        // runtime's shutdown, before the records after it are counted as "after the teardown".
+        for (int i = 0; i < 400 && !marked("shutdown"); ++i) Sleep(50);
         torn_down = true;  // the worker's teardown (unsubscribe, end, destroy) is done by now; records keep coming
         Sleep(300);
         window_stop = true;
