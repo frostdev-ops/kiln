@@ -543,6 +543,10 @@ kms1 differs from the game's last launched kms1 backs up the saves first.
   IGNORED_UNDELETABLE 17, IGNORED_SERVER 18, IGNORED_INVALID 19. `KILN_CHAIN_*`: LOADED 0, FAILED 1, MISSING 2,
   REFUSED 3, DUPLICATE 4, SKIPPED 5, LATE 6 (dev.21, appended; `KilnBootInfo` is unchanged: a late entry is an ordinary
   `chain[]` entry with status 6).
+- `KilnBootInfo` v3 (dev.24, 72 bytes) appends `u64 addon_log_size`: the length of `<game>\shroudlink_client.log`
+  before the proxy loaded any chained DLL (0 without the file, `KILN_BOOT_LOG_UNKNOWN` = `UINT64_MAX` when it could not
+  tell). The core's wait for shroudlink's client addon reads only what follows. With an older proxy the core takes it as
+  unknown: then only the addon's UI hook can end that wait.
 - `kiln_native.h`: `KilnNativeContext {size, abi_version, phase, side, api, owner, module, id, version, directory,
   config_dir (<configDir>/native/<id>), data_dir (<dataDir>/<id>), hooks_enabled, play_once}`,
   `typedef int (KILN_CALL* KilnNativeInitFn)(const KilnNativeContext*)`, phases, `KILN_NATIVE_INIT_{OK,FAILED,UNSUPPORTED}`.

@@ -34,7 +34,6 @@ struct Fake {
     WaitEnv env() {
         WaitEnv e;
         e.module = kModule;
-        e.not_before = kNow - 2;
         e.now_ms = [this] { return t; };
         e.sleep_ms = [this](uint32_t ms) {
             t += ms;
@@ -108,7 +107,7 @@ int main() {
     CHECK(read_addon_log(start_line(kNow, "0x6ffff9980000junk") + ready, kModule, kNow).state == AddonState::Unknown);
     CHECK(read_addon_log(owner + start, kModule, kNow).state == AddonState::Unknown);  // last start wins
     CHECK(read_addon_log(start + line(kNow, "native UI ready-ish"), kModule, kNow).state == AddonState::Unknown);
-    CHECK(read_addon_log(start + ready, kModule, kNow + 1).state == AddonState::Unknown);  // ambiguous first second excluded
+    CHECK(read_addon_log(start + ready, kModule, kNow + 1).state == AddonState::Unknown);  // a caller's own time boundary
     CHECK(read_addon_log(start + line(kNow, "could not inspect the game executable"), kModule, kNow).state == AddonState::Off);
 
     // Safe, bounded hook attribution: only jumps reaching the addon, never arbitrary changed bytes.
@@ -159,6 +158,33 @@ int main() {
         CHECK(relative(base, 5, -5) == base);
         auto inaccessible = [](uintptr_t, void*, size_t) { return false; };
         CHECK(!hook_reaches(addon, addon, 10, inaccessible));  // final target also needs readable executable ownership
+    }
+
+    // ---- this start's part of the log: after its length before the chain loaded (KilnBootInfo.addon_log_size) ----
+    {
+        const std::string before = earlier;  // an earlier start at the same module address, with its "ready"
+        const std::string now = start_line(kNow, "0x6ffff9980000") +
+                                line(kNow, "native UI disabled: pattern not found: 89 4C 24 08 48 83 EC 28 85 C9 74 ??");
+        const std::string file = before + now;
+        uint64_t at = 0;
+        CHECK(this_start(before.size(), file.size(), kLogTail, at) && at == before.size());
+        // The addon's own reason, written in the second the process was created (the usual case): Kiln goes on at once
+        // with it. A second-rounded process time used to drop these lines, so Kiln waited the whole 10 s for nothing.
+        Fake f;
+        auto e = f.env();
+        e.log_text = [&] { return file.substr(at); };
+        const auto w = wait_for_addon(e, kWaitMs);
+        CHECK(w.end == WaitEnd::SwitchedOff && w.waited_ms == 0 && w.line.find("pattern not found: 89 4C 24 08") != std::string::npos);
+        // this start has not written its first line yet: the earlier start's "ready" is not in its part
+        CHECK(this_start(before.size(), before.size(), kLogTail, at) && read_addon_log(before.substr(at), kModule).state == AddonState::Unknown);
+        CHECK(read_addon_log(before, kModule).state == AddonState::Ready);  // (it would be, read from the start)
+        // the file got shorter (replaced, cut) or the proxy could not tell: nothing in it is this start's
+        CHECK(!this_start(before.size(), before.size() - 1, kLogTail, at));
+        CHECK(!this_start(kLogUnknown, file.size(), kLogTail, at));
+        // a long start: only its newest bytes; an empty or missing log at the start
+        CHECK(this_start(10, 10 + 2 * kLogTail, kLogTail, at) && at == 10 + kLogTail);
+        CHECK(this_start(0, 0, kLogTail, at) && at == 0);
+        CHECK(this_start(0, 5, kLogTail, at) && at == 0);
     }
 
     // ---- the wait ----
