@@ -26,15 +26,19 @@ play-once.ini.
             "plugin": [{ "path": "Z:\\...\\my-plugin.dll" }], "emf": [] } }
 ```
 - **Paths** are game-side: absolute (`Z:\…` under Proton, real paths on Windows, UNC), or relative to
-  `<game>/kiln/` (copy mode: `profiles/<id>/kiln/<mod>`). `/` and `\` both work; `..` is refused. They are text in
+  `<game>/kiln/` (copy mode: `profiles/<id>/kiln/<mod>`). `/` and `\` both work; `..` is refused, except for the
+  copies Kiln places in the game folder itself: `../mods/<folder>` in `mods.eml` and `mods.xhl`, `../greeneye/<id>` in
+  `mods.greeneye` (a core of `profileReader` 2 or more), `../mods/<id>` in `mods.flame` (3 or more; contracts.md 5.1
+  and 6). They are text in
   UTF-8 and may hold any Unicode letters (a Windows user name or Steam library folder in Cyrillic or Chinese, spaces,
   parentheses); `chain.ini` is read as UTF-8, UTF-16LE with a BOM, or in the ANSI code page.
 - An entry whose folder (or plugin DLL) is **missing** is skipped: `kiln.log` warns and boot.json lists it in
   `profile.missing[]`.
 - **Other engines' mods** have their own lists (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`;
   `enshwick`, `shroudlink` and `ember` are reserved). Each engine's plugin reads its list. ShroudForge and SET mods
-  are copied into those engines' own folders at activation. Details: [engines.md](engines.md) "Managing every engine's
-  mods" and contracts.md 5.1.
+  are copied into those engines' own folders at activation, enabled Greeneye mods into `greeneye/<id>/` and enabled
+  Flame mods into `mods/<id>/` (the folder a Flame mod reads its own files from), and the list names those copies.
+  Details: [engines.md](engines.md) "Managing every engine's mods" and contracts.md 5.1.
 - `enabled: false`: listed but off. Managed mods show as `skipped` ("disabled in profile"), native mods as `disabled`.
   A mod that requires it fails with the reason.
 - The profile entry's `id` must be the mod's own id (`kiln.mod.json` / `native.json`); otherwise that mod fails

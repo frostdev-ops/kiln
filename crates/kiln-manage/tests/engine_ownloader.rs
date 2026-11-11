@@ -250,21 +250,26 @@ fn chained_flame_greeneye_and_emf_loaders() {
     p.mods.flame = vec![pm(&f, true)];
     p.mods.greeneye = vec![pm(&g, true)];
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    // Greeneye mods run from greeneye/<id>/ with or without Greeneye's loader (they write their settings there)
-    assert!(!game.join("mods/creative").exists() && engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
-    assert_eq!(rep.placed, ["greeneye:worstmap"]);
-    // Flame's dinput8.dll chained by the installer, Greeneye's dbgcore.dll next to the game
+    // Greeneye mods run from greeneye/<id>/ and Flame mods from mods/<id>/ with or without their engine's loader (they
+    // read and write their own files there)
+    assert!(engine_mods::marker(&game.join("mods/creative")).is_some() && engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
+    assert_eq!(rep.placed, ["greeneye:worstmap", "flame:creative"]);
+    // Flame's dinput8.dll chained by the installer, Greeneye's dbgcore.dll next to the game: the same copies serve them
     put(&game, "kiln/chain/flame-dinput8.dll", &build_test_dll(&[], b"FlameStartRuntime flame.json"));
     put(&game, "kiln/chain.ini", b"[chain]\nchain\\flame-dinput8.dll\n");
     put(&game, "dbgcore.dll", &build_test_dll(&[], b"greeneye"));
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!((rep.placed.clone(), rep.kept.clone()), (vec!["flame:creative".to_string()], vec!["greeneye:worstmap".to_string()]));
-    assert!(engine_mods::marker(&game.join("mods/creative")).is_some());
-    assert!(engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
-    // the chain line switched off: Flame's copy goes, Greeneye's stays
+    assert_eq!((rep.placed.clone(), rep.kept.clone()), (Vec::<String>::new(), vec!["greeneye:worstmap".to_string(), "flame:creative".to_string()]));
+    assert!(rep.own_loaders.iter().any(|n| n.loader.kind == ModKind::Flame && n.copied == ["creative"]), "{rep:?}");
+    // the chain line switched off: both copies stay, the profile still has them on
     put(&game, "kiln/chain.ini", b"[chain]\n;chain\\flame-dinput8.dll\n");
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!((rep.removed.clone(), rep.kept.clone()), (vec!["flame:creative".to_string()], vec!["greeneye:worstmap".to_string()]));
+    assert_eq!((rep.removed.clone(), rep.kept.clone()), (Vec::<String>::new(), vec!["greeneye:worstmap".to_string(), "flame:creative".to_string()]));
+    // switched off in the profile: Flame's copy goes
+    p.mods.flame[0].enabled = false;
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.removed, ["flame:creative"]);
+    assert!(!game.join("mods/creative").exists());
 }
 
 fn game_with_z(t: &Path) -> GameInstall {

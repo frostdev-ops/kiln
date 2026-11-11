@@ -62,6 +62,21 @@ pub const SHROUDLINK_MODS: &str = "shroudlink_mods";
 /// content-addressed Library entry is neither where players and mod authors look for those files nor a place that
 /// survives the next version.
 pub const GREENEYE_MODS: &str = "greeneye";
+/// Where a Flame mod reads its own files, relative to the game: `<game>\mods\<id>\`, whatever folder its DLL was loaded
+/// from (Creative Mode 3.2.0 run by kiln-flame from the Library logs "Mod directory: ...\Enshrouded\mods\creative" and
+/// looks for `sigs\<build key>.json` and `symbols\` there). Flame mods always run from Kiln's copy there
+/// ([`game_path_of`]), and write their logs, notice and settings into it.
+pub const FLAME_MODS: &str = "mods";
+
+/// The game folder a kind's mods always run from, as Kiln's copy `<folder>/<library id>/` ([`place`]), with or without
+/// that engine's own loader: Greeneye ([`GREENEYE_MODS`]) and Flame ([`FLAME_MODS`]). None for the other kinds.
+pub fn run_folder(kind: ModKind) -> Option<&'static str> {
+    match kind {
+        ModKind::Greeneye => Some(GREENEYE_MODS),
+        ModKind::Flame => Some(FLAME_MODS),
+        _ => None,
+    }
+}
 /// Ember's mods folder, relative to the server: `ember/mods/<mod>/`, one library each.
 pub const EMBER_MODS: &str = "ember/mods";
 /// Enshwick's loader keeps its own files in `<game>/mods/enshwick/`: no mod may take that folder name.
@@ -1102,10 +1117,11 @@ pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
             if !dst.exists() { return Ok(Vec::new()); }
             let have = owned(game_dir, &receipts, dst, kind, &receipt.marker.id)?
                 .ok_or_else(|| Error::new(ErrorCode::Refused, "placement ownership could not be verified"))?;
-            // Greeneye: a copy its mod only added files to (settings, logs) goes, those files wait in kept_dir as on a
-            // switch-off: left in greeneye/ it would run without the profile (kiln-greeneye's drop-in scan of the
-            // legacy layout, Greeneye Loader). A changed file Kiln placed still keeps the whole copy (owned refuses).
-            if kind == ModKind::Greeneye { return Ok(have.player); }
+            // Greeneye and Flame: a copy its mod only added files to (settings, logs) goes, those files wait in kept_dir
+            // as on a switch-off: left in greeneye/ or mods/ it would run without the profile (the plugins' drop-in
+            // scan of the legacy layout, the engines' own loaders). A changed file Kiln placed still keeps the whole
+            // copy (owned refuses).
+            if run_folder(kind).is_some() { return Ok(have.player); }
             if !have.player.is_empty() {
                 return Err(Error::new(ErrorCode::Refused, format!(
                     "player files or runtime settings were added or changed: {}", some_names(&have.player))));
@@ -1188,7 +1204,8 @@ fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Opt
 
 /// Reconcile only copies authorized by the install's receipt. Markers shipped in archives do not grant ownership.
 ///
-/// ShroudForge and SET: always (their plugins read only their own folder). EML, EMF, Greeneye, Flame and Shroudtopia
+/// ShroudForge and SET: always (their plugins read only their own folder). Greeneye and Flame: always, in their
+/// [`run_folder`] (their mods read and write their own files there). EML, EMF and Shroudtopia
 /// (own_loaders::PLACED_FOR_LOADER): only while that engine's own loader is installed ([`crate::own_loaders::find`]),
 /// because that loader reads only its own folder and never the Library. Then the profile's enabled mods are copied
 /// there as `<folder>/<library id>/` with the marker, current copies are kept, Kiln's copies of mods switched off or
@@ -1424,8 +1441,8 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
     // in the same activation, and the files a removed copy wrote are kept before its new copy looks for them.
     let kinds = || crate::own_loaders::PLACED_FOR_LOADER.into_iter().chain([ModKind::Native, ModKind::Xhl]);
     for (placing, kind) in [false, true].into_iter().flat_map(|placing| kinds().map(move |k| (placing, k))) {
-        if kind == ModKind::Greeneye {
-            if placing { place_greeneye(dirs, profile, game_dir, roots, &mut receipts, &mut rep); }
+        if run_folder(kind).is_some() {
+            if placing { place_run_folder(dirs, profile, game_dir, roots, kind, &mut receipts, &mut rep); }
             continue;
         }
         let loader = crate::own_loaders::of_kind(loaders, kind).filter(|l| l.delivery == crate::own_loaders::Delivery::Placed);
@@ -1632,21 +1649,23 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
     Ok(rep)
 }
 
-// ---- Greeneye mods: always in <game>/greeneye/<library id>/ ----
+// ---- Greeneye and Flame mods: always in <game>/<run folder>/<library id>/ ----
 
-/// Greeneye mods are copied to `<game>/greeneye/<library id>/` ([`GREENEYE_MODS`]) with or without Greeneye's own loader:
-/// they write their settings and logs into the folder they run from. One mod that cannot be placed (its Library entry
-/// changed or unreadable, a linked `greeneye` folder, an I/O error) never stops the rest of the placement, the profile
+/// Greeneye mods are copied to `<game>/greeneye/<library id>/` ([`GREENEYE_MODS`]), Flame mods to
+/// `<game>/mods/<library id>/` ([`FLAME_MODS`]), with or without the engine's own loader: they read and write their own
+/// files in that folder (Greeneye: settings and logs in the folder its API names; Flame: `sigs\`, `symbols\`, logs,
+/// notice and settings in `<game>\mods\<id>\` wherever its DLL was loaded from). One mod that cannot be placed (its
+/// Library entry changed or unreadable, a linked folder, an I/O error) never stops the rest of the placement, the profile
 /// switch or Play: the profile names its Library entry, as before dev.24 ([`game_path_of`] names only a copy whose
-/// receipt is current), and the result says why. A copy that stays in `greeneye/` (the player edited it, it could not be
-/// updated or removed) is in [`PlaceReport::retained`], since Greeneye's own loader may still run it; a mod with no
-/// copy there is in [`PlaceReport::warnings`]. An id that is no safe Windows folder name ([`is_game_folder_name`]) is
-/// not placed either. Copies of mods switched off or gone from the profile are removed, the files the mod wrote kept in
-/// [`kept_dir`].
-fn place_greeneye(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, roots: Roots,
-                  receipts: &mut Vec<Placement>, rep: &mut PlaceReport) {
-    let kind = ModKind::Greeneye;
-    let root = game_dir.join(GREENEYE_MODS);
+/// receipt is current), and the result says why. A copy that stays (the player edited it, it could not be updated or
+/// removed) is in [`PlaceReport::retained`], since the engine's own loader may still run it; a mod with no copy there
+/// is in [`PlaceReport::warnings`]. An id that is no safe Windows folder name ([`is_game_folder_name`]) is not placed
+/// either. Copies of mods switched off or gone from the profile are removed, the files the mod wrote kept in
+/// [`kept_dir`]. A player's folder under the mod's name stays theirs ([`PlaceReport::own`]); for Flame, a folder there
+/// that only holds files a mod wrote (no manifest, no code: [`written_files_only`]) takes Kiln's copy and keeps them.
+fn place_run_folder(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, roots: Roots, kind: ModKind,
+                    receipts: &mut Vec<Placement>, rep: &mut PlaceReport) {
+    let root = game_dir.join(run_folder(kind).expect("a kind with a run folder"));
     let list = profile.mods.list(kind);
     let tag = |id: &str| format!("{}:{id}", kind.as_str());
     // a copy that stays where it is, or a mod without one: the mod runs from its Library entry either way
@@ -1672,23 +1691,40 @@ fn place_greeneye(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: 
         }
         let dst = root.join(&m.id);
         wanted.push(dst.clone());
-        if let Err(e) = place_greeneye_one(dirs, game_dir, roots, receipts, rep, m, &root, &dst) {
+        if let Err(e) = place_run_folder_one(dirs, game_dir, roots, kind, receipts, rep, m, &root, &dst) {
             kept(rep, &m.id, &dst, &e.message);
         }
     }
     let stale: Vec<Placement> = receipts.iter()
         .filter(|r| r.marker.kind == kind && !r.game_folder && !wanted.contains(&r.path)).cloned().collect();
     for receipt in stale {
-        if let Err(e) = remove_greeneye_copy(game_dir, receipts, rep, &receipt) {
+        if let Err(e) = remove_run_folder_copy(game_dir, receipts, rep, &receipt) {
             kept(rep, &receipt.marker.id, &receipt.path, &e.message);
         }
     }
 }
 
+/// Top-level files that make a folder in the game's `mods` a mod of some engine (EML, ShroudForge, Flame, Shroudtopia,
+/// Enshwick, XHL-Core) or Kiln's copy: a folder with one is never taken for files a mod only wrote.
+const MOD_MANIFESTS: [&str; 7] = ["mod.json", "flame.json", "shroudtopia.json", "pack.toml", "extended.mod.json", XHL_PLUGIN_INI, MARKER];
+
+/// The files of `dst`, a folder at a Flame mod's place in `<game>/mods/` that no receipt names, when it holds no mod:
+/// only files a mod wrote there. Creative Mode makes `<game>\mods\creative\` and writes `logs\` and `notice.txt` into it
+/// even when its DLL runs from elsewhere (Kiln 0.2.0-dev.23 ran it from the Library), so that folder holds no flame.json.
+/// None: a manifest of any engine ([`MOD_MANIFESTS`]), code ([`is_game_code`]), a link or anything that is no regular
+/// file is in it (a mod, or something else of the player's), or it cannot be read.
+fn written_files_only(dst: &Path) -> Option<Vec<String>> {
+    let names: Vec<String> = std::fs::read_dir(dst).ok()?.map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect::<std::io::Result<_>>().ok()?;
+    if names.iter().any(|n| MOD_MANIFESTS.iter().any(|m| m.eq_ignore_ascii_case(n))) { return None; }
+    let files = placement_files(dst, ModKind::Flame).ok()?;
+    if files.keys().any(|rel| is_game_code(rel)) { return None; }
+    Some(files.into_keys().filter(|rel| !rel.ends_with('/')).collect())
+}
+
 #[allow(clippy::too_many_arguments)]
-fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: &mut Vec<Placement>, rep: &mut PlaceReport,
-                      m: &crate::profile::ProfileMod, root: &Path, dst: &Path) -> Result<()> {
-    let kind = ModKind::Greeneye;
+fn place_run_folder_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, kind: ModKind, receipts: &mut Vec<Placement>,
+                        rep: &mut PlaceReport, m: &crate::profile::ProfileMod, root: &Path, dst: &Path) -> Result<()> {
     let tag = format!("{}:{}", kind.as_str(), m.id);
     let src = crate::library::path_of(dirs, &crate::library::LibraryRef {
         kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
@@ -1702,7 +1738,11 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
         }
         Err(e) => return Err(e),
     };
-    if have.is_none() && dst.exists() {
+    // Flame: the files a mod wrote into its folder while it ran from elsewhere are the player's, and the folder is the
+    // one the mod reads: Kiln's copy goes into it and they stay in it (never a folder another receipt names)
+    let written = (have.is_none() && kind == ModKind::Flame && dst.is_dir() && !receipts.iter().any(|r| r.path == dst))
+        .then(|| written_files_only(dst)).flatten();
+    if have.is_none() && dst.exists() && written.is_none() {
         rep.own.push(tag);
         return Ok(());
     }
@@ -1720,9 +1760,10 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
     };
     let kept_at = kept_dir(game_dir, kind, &m.id);
     let published = (|| {
-        let carry = match &have {
-            Some(h) => Some(Carry { from: dst, entries: h.player.clone(), from_kept: false }),
-            None => kept_carry(game_dir, &kept_at, kind)?,
+        let carry = match (&have, &written) {
+            (Some(h), _) => Some(Carry { from: dst, entries: h.player.clone(), from_kept: false }),
+            (None, Some(files)) => Some(Carry { from: dst, entries: files.clone(), from_kept: false }),
+            (None, None) => kept_carry(game_dir, &kept_at, kind)?,
         };
         // the new receipt list is written first and only then taken: a failed write leaves the list as on disk, so a
         // later save of this run cannot record a copy that was rolled back
@@ -1746,18 +1787,22 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
             return Err(e);
         }
     };
+    if let Some(files) = written.filter(|f| !f.is_empty()) {
+        rep.kept_files.push(format!("{tag}: {} held only files the mod wrote there earlier ({}); Kiln placed the mod in that \
+            folder, where it reads its own files, and they stay in it", dst.display(), some_names(&files)));
+    }
     rep.kept_files.extend(said);
     rep.warnings.extend(warned);
     rep.placed.push(tag);
     Ok(())
 }
 
-fn remove_greeneye_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &mut PlaceReport, receipt: &Placement) -> Result<()> {
+fn remove_run_folder_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &mut PlaceReport, receipt: &Placement) -> Result<()> {
     check_placement_path(game_dir, receipt)?;
-    let kind = ModKind::Greeneye;
+    let kind = receipt.marker.kind;
     let dst = &receipt.path;
     let tag = format!("{}:{}", kind.as_str(), receipt.marker.id);
-    // the list without this receipt, taken only once it is written (see place_greeneye_one)
+    // the list without this receipt, taken only once it is written (see place_run_folder_one)
     let without = || receipts.iter().filter(|r| r.path != *dst).cloned().collect::<Vec<_>>();
     if !dst.exists() {
         let next = without();
@@ -1797,12 +1842,13 @@ pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::Profil
 /// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
 /// A hand installation's name need not pass [`is_game_folder_name`]: Copy mode then keeps the kiln/profiles copy
 /// (profile::render checks the name before it writes `../mods/<folder>`).
-/// Greeneye: Kiln's copy in `<game>/greeneye/<id>/` once [`place`] has made it for this version (its receipt and marker
-/// name it), else None (the Library entry: a folder the player put there, a play-once version, a switched-off mod).
+/// Greeneye and Flame: Kiln's copy in `<game>/greeneye/<id>/` or `<game>/mods/<id>/` ([`run_folder`]) once [`place`]
+/// has made it for this version (its receipt and marker name it), else None (the Library entry: a folder the player put
+/// there, a play-once version, a switched-off mod).
 pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {
-    if kind == ModKind::Greeneye {
+    if let Some(folder) = run_folder(kind) {
         if !m.enabled || !is_game_folder_name(&m.id) { return None; }
-        let dst = game.join(GREENEYE_MODS).join(&m.id);
+        let dst = game.join(folder).join(&m.id);
         let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
         let placed = placements(game).ok()?.iter().any(|r| r.path == dst && r.marker == want);
         return (placed && marker(&dst).as_ref() == Some(&want)).then_some(dst);

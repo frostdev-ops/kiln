@@ -76,9 +76,10 @@ constexpr std::string_view kPlacedOnlyKind = "xhl";
 
 // The one folder of the game a kind's Copy-mode entry may name with "..": EML/native companions have exactly one
 // physical game/mods copy shared with the native DLL (../mods/<folder>), Kiln places enabled Greeneye mods in
-// game/greeneye/<id> (../greeneye/<id>). Nothing else may leave kiln/.
+// game/greeneye/<id> (../greeneye/<id>) and enabled Flame mods in game/mods/<id>, where a Flame mod reads its own files
+// (../mods/<id>, from KILN_PROFILE_READER 3). Nothing else may leave kiln/.
 const char* placed_root(std::string_view kind) {
-    if (kind == "eml") return "mods";
+    if (kind == "eml" || kind == "flame") return "mods";
     if (kind == "greeneye") return "greeneye";
     return nullptr;
 }

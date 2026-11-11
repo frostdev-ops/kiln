@@ -160,7 +160,8 @@ int main(int argc, char** argv) try {
     if (!names_file) throw std::runtime_error(std::string("cannot read ") + argv[2]);
     const json names = json::parse(names_file);
     size_t checked = 0;
-    for (const auto& [kind, root] : {std::pair{"eml", "mods"}, std::pair{"greeneye", "greeneye"}}) {
+    // mods.flame: Kiln's copy of a Flame mod in game/mods/<id>, where the mod reads its own files (KILN_PROFILE_READER 3)
+    for (const auto& [kind, root] : {std::pair{"eml", "mods"}, std::pair{"greeneye", "greeneye"}, std::pair{"flame", "mods"}}) {
         for (const char* verdict : {"accept", "reject"}) {
             for (const auto& n : names.at(verdict)) {
                 const std::string path = std::string("../") + root + "/" + n.get<std::string>();
@@ -179,7 +180,10 @@ int main(int argc, char** argv) try {
     // each kind has its one folder: no other kind's, and none for the rest
     for (const auto& [kind, path] : {std::pair{"eml", "../greeneye/safe"}, std::pair{"greeneye", "../mods/safe"},
                                      std::pair{"native", "../greeneye/safe"}, std::pair{"shroudforge", "../greeneye/safe"},
-                                     std::pair{"greeneye", "../greeneye/../outside"}, std::pair{"greeneye", "../greeneye/a/b"}}) {
+                                     std::pair{"greeneye", "../greeneye/../outside"}, std::pair{"greeneye", "../greeneye/a/b"},
+                                     std::pair{"flame", "../greeneye/safe"}, std::pair{"flame", "../mods/a/b"},
+                                     std::pair{"flame", "../mods/../outside"}, std::pair{"shroudtopia", "../mods/safe"},
+                                     std::pair{"enshwick", "../mods/safe"}}) {
         p = profile(); p["mods"][kind] = {{{"id", "safe"}, {"path", path}}};
         invalid(p, "path");
     }

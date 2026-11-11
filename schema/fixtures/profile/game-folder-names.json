@@ -1,5 +1,5 @@
 {
-  "description": "Folder names for Copy mode's ../mods/<folder> (an EML mod a native DLL reads in the game's mods folder, an XHL companion). One table for the three validators: kiln-manage engine_mods::is_game_folder_name, the native core's placed_game_path (native/core/src/profile.cpp) and schema/profile.schema.json's pattern. accept: every one takes the name; reject: none does.",
+  "description": "Folder names for Copy mode's ../mods/<folder> (an EML mod a native DLL reads in the game's mods folder, an XHL companion, a Flame mod Kiln placed where it reads its own files) and ../greeneye/<id>. One table for the three validators: kiln-manage engine_mods::is_game_folder_name, the native core's placed_game_path (native/core/src/profile.cpp) and schema/profile.schema.json's pattern. accept: every one takes the name; reject: none does.",
   "accept": [
     "auto-loot-plus",
     "XHL-Auto-Loot",
