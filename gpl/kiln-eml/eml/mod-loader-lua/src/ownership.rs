@@ -101,68 +101,150 @@ struct Receipt {
     stem: String,
     files: BTreeMap<String, Digest>,
     backups: BTreeMap<String, Digest>,
+    /// The owned output that was live when this receipt was written ahead of a publication. Until that publication's
+    /// first change the live files are still these, so they stay proof; dropped once the new header is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    previous: Option<BTreeMap<String, Digest>>,
 }
 
-fn backups(root: &Path, stem: &str) -> io::Result<BTreeMap<String, Digest>> {
-    let mut result = BTreeMap::new();
-    for extension in ["kfc.bak", "kfc_resources.bak", "kfc.bak.integrity"] {
-        let name = format!("{stem}.{extension}");
-        let path = root.join(&name);
-        if path.try_exists()? { result.insert(name, digest(root, &path)?); }
+fn output_set(stem: &str, files: &BTreeMap<String, Digest>) -> bool {
+    files.len() >= 2 && files.contains_key(&format!("{stem}.kfc")) && files.contains_key(&format!("{stem}.kfc_resources"))
+        && files.keys().all(|n| valid_name(stem, n))
+}
+
+fn receipt_path(root: &Path, stem: &str) -> io::Result<PathBuf> {
+    check_stem(stem)?;
+    let path = root.join("kiln/eml/ownership").join(format!("{stem}.json"));
+    checked_path(root, &path)?;
+    Ok(path)
+}
+
+/// The receipt of `stem`, None when there is none. Err: a receipt Kiln does not understand (kept for recovery).
+fn read_receipt(root: &Path, stem: &str) -> io::Result<Option<Receipt>> {
+    let path = receipt_path(root, stem)?;
+    if !path.try_exists()? { return Ok(None); }
+    let receipt: Receipt = serde_json::from_slice(&bounded(root, &path)?).map_err(|_| invalid("invalid EML ownership receipt"))?;
+    if receipt.format != 1 || receipt.stem != stem || !output_set(stem, &receipt.files)
+        || receipt.previous.as_ref().is_some_and(|p| !output_set(stem, p)) {
+        return Err(invalid("unknown EML ownership receipt"));
     }
-    if !result.contains_key(&format!("{stem}.kfc.bak")) { return Err(invalid("no working baseline")); }
-    Ok(result)
+    Ok(Some(receipt))
+}
+
+/// The files of the game folder, each read (SHA-256) at most once per check, and only once its size matches.
+struct Live<'a> { root: &'a Path, memo: BTreeMap<String, Option<Digest>> }
+
+impl<'a> Live<'a> {
+    fn new(root: &'a Path) -> Self { Self { root, memo: BTreeMap::new() } }
+
+    /// Size from metadata, None when the file is missing.
+    fn size(&self, name: &str) -> io::Result<Option<u64>> {
+        if let Some(known) = self.memo.get(name) { return Ok(known.as_ref().map(|d| d.size)); }
+        let path = self.root.join(name);
+        checked_path(self.root, &path)?;
+        match fs::symlink_metadata(&path) {
+            Ok(m) => Ok(Some(m.len())),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn digest(&mut self, name: &str) -> io::Result<Option<Digest>> {
+        if let Some(known) = self.memo.get(name) { return Ok(known.clone()); }
+        let path = self.root.join(name);
+        let found = if self.size(name)?.is_some() { Some(digest(self.root, &path)?) } else { None };
+        self.memo.insert(name.to_owned(), found.clone());
+        Ok(found)
+    }
+
+    /// Is every file exactly as listed? Sizes are compared first, so another writer's output is rejected unread.
+    fn matches(&mut self, files: &BTreeMap<String, Digest>) -> io::Result<bool> {
+        for (name, expected) in files {
+            if self.size(name)? != Some(expected.size) { return Ok(false); }
+        }
+        for (name, expected) in files {
+            if self.digest(name)?.as_ref() != Some(expected) { return Ok(false); }
+        }
+        Ok(true)
+    }
+
+    /// The backups present, exactly as listed (and no other): the working baseline the output was built from.
+    fn same_backups(&mut self, stem: &str, expected: &BTreeMap<String, Digest>) -> io::Result<bool> {
+        for extension in ["kfc.bak", "kfc_resources.bak", "kfc.bak.integrity"] {
+            let name = format!("{stem}.{extension}");
+            if self.size(&name)? != expected.get(&name).map(|d| d.size) { return Ok(false); }
+        }
+        self.matches(expected)
+    }
+
+    fn backups(&mut self, stem: &str) -> io::Result<BTreeMap<String, Digest>> {
+        let mut result = BTreeMap::new();
+        for extension in ["kfc.bak", "kfc_resources.bak", "kfc.bak.integrity"] {
+            let name = format!("{stem}.{extension}");
+            if let Some(d) = self.digest(&name)? { result.insert(name, d); }
+        }
+        if !result.contains_key(&format!("{stem}.kfc.bak")) { return Err(invalid("no working baseline")); }
+        Ok(result)
+    }
+
+    /// The generation of `receipt` that is live and was built from the backups present, if one is.
+    fn owned(&mut self, stem: &str, receipt: &Receipt) -> io::Result<Option<BTreeMap<String, Digest>>> {
+        if !self.same_backups(stem, &receipt.backups)? { return Ok(None); }
+        if self.matches(&receipt.files)? { return Ok(Some(receipt.files.clone())); }
+        match &receipt.previous {
+            Some(previous) if self.matches(previous)? => Ok(Some(previous.clone())),
+            _ => Ok(None),
+        }
+    }
 }
 
 /// Exact output and original working-baseline proof. Legacy performance caches never authorize restoration.
 pub fn owns_output(root: &Path, stem: &str) -> io::Result<bool> {
-    check_stem(stem)?;
-    let path = root.join("kiln/eml/ownership").join(format!("{stem}.json"));
-    checked_path(root, &path)?;
-    if !path.try_exists()? { return Ok(false); }
-    let receipt: Receipt = serde_json::from_slice(&bounded(root, &path)?).map_err(|_| invalid("invalid EML ownership receipt"))?;
-    if receipt.format != 1 || receipt.stem != stem || receipt.files.len() < 2 ||
-        !receipt.files.contains_key(&format!("{stem}.kfc")) ||
-        !receipt.files.contains_key(&format!("{stem}.kfc_resources")) ||
-        receipt.files.keys().any(|n| !valid_name(stem, n)) {
-        return Err(invalid("unknown EML ownership receipt"));
-    }
-    if backups(root, stem)? != receipt.backups { return Ok(false); }
-    for (name, expected) in receipt.files {
-        if digest(root, &root.join(name))? != expected { return Ok(false); }
-    }
-    Ok(true)
+    let Some(receipt) = read_receipt(root, stem)? else { return Ok(false) };
+    Ok(Live::new(root).owned(stem, &receipt)?.is_some())
 }
 
-/// Write ahead: only the exact staged set can later match this proof, including after a publication failure.
+/// Write ahead: only the exact staged set can later match this proof, including after a publication failure. The
+/// owned output still live is kept as the previous generation until the publication's last step (`committed`).
 /// The returned guard (SF's locks, when SF's state was handed over) is held until the last archive is published.
 pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
     let path = directory(root)?.join(format!("{stem}.json"));
-    if path.try_exists()? {
-        let previous: Receipt = serde_json::from_slice(&bounded(root, &path)?)?;
-        if previous.format != 1 || previous.stem != stem {
+    let earlier = if path.try_exists()? {
+        let earlier: Receipt = serde_json::from_slice(&bounded(root, &path)?)?;
+        if earlier.format != 1 || earlier.stem != stem {
             return Err(invalid("unknown EML ownership receipt; retain it for recovery before retrying"));
         }
-    }
+        Some(earlier)
+    } else { None };
+    let mut live = Live::new(root);
     let mut output = BTreeMap::new();
     let mut changed = false;
     for path in files {
         let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| invalid("invalid output name"))?;
         if !valid_name(stem, name) { return Err(invalid("unexpected EML output file")); }
         let expected = digest(root, path)?;
-        let target = root.join(name);
-        checked_path(root, &target)?;
-        if !target.try_exists()? || digest(root, &target)? != expected { changed = true; }
+        if live.size(name)? != Some(expected.size) || live.digest(name)?.as_ref() != Some(&expected) { changed = true; }
         output.insert(name.to_owned(), expected);
     }
     if !output.contains_key(&format!("{stem}.kfc")) || !output.contains_key(&format!("{stem}.kfc_resources")) {
         return Err(invalid("incomplete EML output set"));
     }
-    let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: backups(root, stem)? };
+    let previous = match &earlier {
+        Some(earlier) if output_set(stem, &earlier.files) => live.owned(stem, earlier)?.filter(|p| *p != output),
+        _ => None,
+    };
+    let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous };
     let guard = if changed { handoff(root, stem)? } else { None };
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
     Ok(guard)
+}
+
+/// The publication's patched header is live: the previous generation is no longer what the game runs.
+pub(crate) fn committed(root: &Path, stem: &str) -> io::Result<()> {
+    let Some(mut receipt) = read_receipt(root, stem)? else { return Ok(()) };
+    if receipt.previous.take().is_none() { return Ok(()); }
+    super::transaction::atomic_write(&receipt_path(root, stem)?, &serde_json::to_vec(&receipt)?)
 }
 
 /// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
