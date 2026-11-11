@@ -215,6 +215,12 @@ std::shared_ptr<const Table> table() {
     if (gTable) return gTable;
     const auto now = std::chrono::steady_clock::now();
     if (gFailedAt.time_since_epoch().count() != 0 && now - gFailedAt < std::chrono::seconds(60)) return nullptr;
+    // The load is Kiln's, not the mod's: the calling callback's time budget doesn't pay for it (lua_budget.h). Reached
+    // until a table loads, at most once per 60 s, and a refused file is not parsed again: a mod can't farm it.
+    struct Excuse {
+        std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+        ~Excuse() { kset::budget::excuse(std::chrono::steady_clock::now() - t0); }
+    } excuse;
     std::string why;
     std::string tried;
     for (const auto& file : candidates()) {

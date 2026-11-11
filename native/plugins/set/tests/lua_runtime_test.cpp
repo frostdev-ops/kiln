@@ -413,6 +413,40 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("not a readable catalog")!=std::string::npos);
   setenv("KILN_CATALOG",(root/"nowhere").string().c_str(),1);settexts::reset();logs.clear();
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("no client catalog found")!=std::string::npos);
+  {
+   // The first lookup reads the whole client catalog: the real one has 16,740 texts in 21.6 MB and takes 80-140 ms, more
+   // than a callback's 50 ms. That one-time load is Kiln's work, not the mod's: the callback runs to its end. The rest
+   // of the callback stands in for settest's onWorldEnter after its first Res.text (thousands of instructions).
+   auto writeBig=[&](const std::filesystem::path& file,bool loca){
+    std::ofstream f(file,std::ios::binary);f<<"{\"format\":1,\"game\":{\"steamBuild\":\"1\",\"svn\":\"2\"},\"sections\":{\"items\":[";
+    for(int i=0;i<190000;++i)f<<(i?",":"")<<"{\"name\":\"Filler_Item_"<<i<<"\",\"id\":\"0x"<<std::hex<<i<<std::dec<<"\",\"text\":\"an entry the reader skips, as the real catalog's items\"}";
+    f<<"]";
+    if(loca){
+     f<<",\"loca\":[";
+     for(int i=0;i<16739;++i)f<<"{\"id\":\"0x"<<std::hex<<(0x10000000+i)<<std::dec<<"\",\"text\":\"Loca text "<<i<<", about as long as one of the game's own texts\"},";
+     f<<"{\"id\":\""<<hex<<"\",\"text\":\"Shock Resistance\"}]";
+    }
+    f<<"}}";};
+   const auto big=catalog/"big-client.json";writeBig(big,true);
+   setenv("KILN_CATALOG",big.string().c_str(),1);settexts::reset();logs.clear();
+   const auto t0=std::chrono::steady_clock::now();
+   const bool ran=run(L,two,("local t=Res.text('"+guidText+"');local n=0;for i=1,20000 do n=n+i end;firstText=t").c_str());
+   const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+   std::cerr<<"texts: "<<std::filesystem::file_size(big)/1000000<<" MB catalog, first lookup's callback "<<ms<<" ms\n";
+   if(!ran){std::cerr<<"texts: the first lookup's catalog load stopped the callback:";for(auto& l:logs)std::cerr<<" ["<<l<<"]";std::cerr<<"\n";}
+   assert(ms>50&&ran&&settexts::table()&&settexts::table()->text.size()==16740);
+   must(L,two,"assert(firstText=='Shock Resistance')");
+   // The 50 ms still hold for the mod's own code, in that callback and in the next ones (the table is loaded once).
+   settexts::reset();
+   assert(!run(L,two,("local t=Res.text('"+guidText+"');while true do end").c_str()));
+   assert(!run(L,two,("while true do Res.text('"+guidText+"') end").c_str()));
+   // Nor can a mod farm the excuse: a refused catalog is parsed once, and a lookup loop then ends at the budget.
+   writeBig(big,false);settexts::reset();
+   const size_t before=settexts::gParses;const auto t1=std::chrono::steady_clock::now();
+   assert(!run(L,two,("while true do Res.text('"+guidText+"') end").c_str()));
+   assert(settexts::gParses==before+1&&std::chrono::steady_clock::now()-t1<std::chrono::seconds(10));
+   std::filesystem::remove(big);
+  }
   unsetenv("KILN_CATALOG");settexts::reset();logs.clear();
   for(auto& [n,v]:savedEnv)setenv(n.c_str(),v.c_str(),1);
  }
