@@ -142,10 +142,11 @@ fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, followed:
         }
         return;
     }
-    if now.id.is_some() && crate::commands::profile::reapply(&d, g) {
+    if now.id.is_some() && let Some(a) = crate::commands::profile::reapply(&d, g) {
         if foreign {
             f.rewrites.wrote(Instant::now());
         }
+        let _ = app.emit(events::ACTIVATION, &a);
         emit_game(app, &g.id, GameEventKind::Status, None);
     }
     // what it looks like after the write, so the write itself is not a change

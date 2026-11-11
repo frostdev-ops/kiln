@@ -1,5 +1,5 @@
 // Deck UI pieces: big focusable buttons and rows, the screen frame, dialogs (a layer each), hold-to-confirm, and the
-// toasts (top centre, a short title only). Every control is a real <button>: A clicks it, a tap clicks it.
+// toasts (top centre, a short title only; a notice that stays until closed is a dialog). Every control is a real <button>: A clicks it, a tap clicks it.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useToasts } from "../ui";
@@ -245,7 +245,9 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
 
 // ---------------------------------------------------------------- toasts
 
-/** The shared toasts (ui/Toast.tsx), drawn big at the top; errors go after 6 s here (nothing to click them away with). */
+/** The shared toasts (ui/Toast.tsx), drawn big at the top; errors go after 6 s here (nothing to click them away with).
+ *  A notice that stays until it is closed (mod folders Kiln kept, their paths and what to do) is a dialog instead, one
+ *  at a time with all its text: A on OK or B closes it, so a pad alone can read and dismiss it. */
 export function DeckToaster() {
   const { items, dismiss } = useToasts();
   useEffect(() => {
@@ -254,16 +256,28 @@ export function DeckToaster() {
     const t = setTimeout(() => errs.forEach((e) => dismiss(e.id)), 6000);
     return () => clearTimeout(t);
   }, [items, dismiss]);
-  if (!items.length) return null;
+  const lasting = (t: (typeof items)[number]) => !!t.persistent && t.kind !== "err";
+  const notice = items.find(lasting);
+  const bar = items.filter((t) => !lasting(t));
   return (
-    <div className="deck-toasts" aria-live="polite">
-      {items.slice(-2).map((t) => (
-        <div key={t.id} className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={() => dismiss(t.id)}>
-          <span className="deck-toast-title">{t.title}</span>
-          {t.kind === "err" && t.detail && <span className="deck-toast-detail">{t.detail}</span>}
+    <>
+      {bar.length > 0 && (
+        <div className="deck-toasts" aria-live="polite">
+          {bar.slice(-2).map((t) => (
+            <div key={t.id} className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={() => dismiss(t.id)}>
+              <span className="deck-toast-title">{t.title}</span>
+              {t.kind === "err" && t.detail && <span className="deck-toast-detail">{t.detail}</span>}
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
+      )}
+      {notice && (
+        <Dialog key={notice.id} name="notice" title={notice.title} onClose={() => dismiss(notice.id)} backLabel="Close"
+          buttons={<DeckButton primary onClick={() => dismiss(notice.id)}>OK</DeckButton>}>
+          {notice.detail && <p style={{ overflowWrap: "anywhere" }}>{notice.detail}</p>}
+        </Dialog>
+      )}
+    </>
   );
 }
 

@@ -8,6 +8,7 @@ import * as api from "../../api/commands";
 import type { ModKind } from "../../api/commands";
 import { invalidateGame, showActive, useActiveProfile, useGame, useGameStatus } from "../../api/hooks";
 import { Banner, Button, EmptyState, Field, Modal, NavTabs, Page, PageHeader, Segmented, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../../ui";
+import { notifyActivation } from "../../shell/notices";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
 import { ENGINE_KINDS, KIND_SHORT } from "../../api/kinds";
 import { dropinKinds, setDropins } from "./dropins";
@@ -36,8 +37,7 @@ export function useActivation() {
     onSuccess: (a) => {
       invalidateGame(qc, game!.id);
       toast.ok(stale ? "Applied" : "Profile active", "Steam's Play button uses it too.");
-      if (a?.keptFiles?.length) toast.info("Mod settings kept", a.keptFiles.join(" "));
-      if (a?.warnings?.length) toast.info("Profile notes", a.warnings.join(" "));
+      notifyActivation(a);
     },
     onError: (e, _v, undo) => { undo?.(); toast.error(e); },
   });

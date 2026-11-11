@@ -9,6 +9,7 @@ import { toast, runTask, notifyPlacementCleanup } from "../ui";
 import { totalCount } from "../api/kinds";
 import { useKilnInstall } from "../shell/firstRun";
 import { installBundle } from "../shell/runtimeChange";
+import { notifyActivation } from "../shell/notices";
 import { focusEl, focusFirst } from "./focus";
 import { useLayer } from "./layers";
 import { DeckButton, Dialog, Overlay, Row, Word, dialogFirst, useFirstFocus, useReturnFocus } from "./ui";
@@ -32,6 +33,7 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
       qc.setQueryData(qk.active(game.id), r);
       invalidateGame(qc, game.id);
       toast.ok(pid ? list.find((p) => p.id === pid)?.name ?? pid : "No profile");
+      notifyActivation(r);
     },
     onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });

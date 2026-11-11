@@ -23,14 +23,12 @@ pub async fn chain_view(profile_id: String, game_id: String) -> Result<ChainView
 #[tauri::command]
 pub async fn chain_set_late(app: AppHandle, profile_id: String, game_id: String, path: String, late: bool) -> Result<ChainView, Error> {
     let (view, applied) = blocking(move || set_late(&profile_id, &game_id, &path, late)).await?;
-    for g in applied {
-        crate::commands::profile::emit_status_later(app.clone(), g);
-    }
+    crate::commands::profile::announce_applied(&app, applied);
     Ok(view)
 }
 
 /// chain_set_late's work: the fresh view and the games whose profile.json was written again.
-pub(crate) fn set_late(profile_id: &str, game_id: &str, path: &str, late: bool) -> Result<(ChainView, Vec<String>), Error> {
+pub(crate) fn set_late(profile_id: &str, game_id: &str, path: &str, late: bool) -> Result<(ChainView, Vec<kiln_manage::profile::Activation>), Error> {
     let d = dirs()?;
     let g = crate::state::game(game_id)?;
     let mut p = profile::get(&d, profile_id)?;

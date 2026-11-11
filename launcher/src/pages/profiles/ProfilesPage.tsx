@@ -9,6 +9,7 @@ import type { ProfileSummary } from "../../api/commands";
 import { invalidateGame, qk, showActive, useActiveProfile, useGame, useGameStatus, useProfiles } from "../../api/hooks";
 import { ENGINE_KINDS, KIND_SHORT } from "../../api/kinds";
 import { Button, ConfirmDanger, EmptyState, Field, Menu, Modal, NameId, Page, PageHeader, Select, Skeleton, Table, TextInput, errorText, fmtAgo, toast, type Column } from "../../ui";
+import { notifyActivation } from "../../shell/notices";
 
 export default function ProfilesPage() {
   const profiles = useProfiles();
@@ -22,7 +23,7 @@ export default function ProfilesPage() {
   const activate = useMutation({
     mutationFn: (pid: string) => api.profileActivate(pid, game!.id),
     onMutate: (pid) => (game ? showActive(qc, game.id, pid) : undefined),
-    onSuccess: () => { if (game) invalidateGame(qc, game.id); toast.ok("Profile active", "Steam's Play button uses it too."); },
+    onSuccess: (a) => { if (game) invalidateGame(qc, game.id); toast.ok("Profile active", "Steam's Play button uses it too."); notifyActivation(a); },
     onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });
   const running = !!status.data?.running;

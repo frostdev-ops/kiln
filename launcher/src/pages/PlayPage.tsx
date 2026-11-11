@@ -17,6 +17,7 @@ import {
 import { useFound } from "./profiles/GameFolder";
 import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
+import { notifyActivation } from "../shell/notices";
 import {
   ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, TaskProgress, errorText, notifyPlacementCleanup, toast,
 } from "../ui";
@@ -335,6 +336,7 @@ function ProfileName({ gameId, name, running }: { gameId: string; name: string; 
       qc.setQueryData(qk.active(gameId), r);
       invalidateGame(qc, gameId);
       toast.ok(pid ? `Active profile: ${list.find((p) => p.id === pid)?.name ?? pid}` : "No profile", "Steam's Play button uses it too.");
+      notifyActivation(r);
     },
     onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });

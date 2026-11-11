@@ -241,6 +241,10 @@ export interface InstallResult extends InstallReceipt {
   backup?: string | null;
   restoredShroudforge?: string[];
   warnings?: string[];
+  /** runtime_install and runtime_rollback: the profile the launcher remembers for the game, made active again. */
+  resumedProfile?: string | null;
+  /** ... and its activation (what it kept in the game folder). */
+  activation?: Activation | null;
 }
 export interface InstallOptions {
   components?: string[] | null;
@@ -318,8 +322,13 @@ export interface Activation {
   /** Files mods wrote into their placed folders (their settings) that activation moved to `kiln/kept-mod-files` or put
    * back from there (engine_mods.rs PlaceReport::kept_files): one sentence per mod. Absent or empty: none. */
   keptFiles?: string[];
-  /** Safety repairs applied only to the game-side profile; Library sources and saved profiles are unchanged. */
+  /** Safety repairs applied only to the game-side profile (Library sources and saved profiles are unchanged), and
+   * per-mod notes of the placement (a ShroudForge setting a new version refuses, earlier settings that cannot be read). */
   warnings?: string[];
+  /** Placed copies the activation left in the game folder although the profile switched them off, removed them or
+   * wants another version (their code changed, or Kiln cannot inspect or carry what is in them): the objects
+   * profile_deactivate and uninstall return. Their own loader may still run them. Absent or empty: none. */
+  retained?: RetainedPlacement[];
 }
 /** An engine's own loader next to the game (EML's dbghelp.dll, a chained Flame loader...) and what it means for the
  * profile's mods of that engine. While it runs, it runs them only from its own folder. */
@@ -575,6 +584,8 @@ export interface LaunchResult {
   backup: SaveBackup | null;
   uri: string;
   started: string;
+  /** Mode profile: the activation when the active profile had changed and was written again before the start. */
+  activation?: Activation;
 }
 export type ChainStatus = "loaded" | "failed" | "missing" | "refused" | "duplicate" | "skipped";
 export type RefusalDetail = "self" | "system" | "kiln" | "shroudforge" | "not-dll" | "outside" | "too-many";
@@ -1040,9 +1051,16 @@ export const runtimeStatus = (gameId: GameId) => call<InstallState>("runtime_sta
 /** Task result: InstallReceipt. */
 export const runtimeInstall = (gameId: GameId, version: string, options: InstallOptions = {}) =>
   call<TaskId>("runtime_install", { gameId, version, options });
+/** A placed mod folder Kiln left where it is (engine_mods.rs RetainedPlacement): `mayRun`, its own loader may still run
+ * it whatever the profile says. */
+export interface RetainedPlacement {
+  path: string;
+  reason: string;
+  mayRun: boolean;
+}
 export interface PlacementCleanup {
   removed: string[];
-  retained: { path: string; reason: string; mayRun: boolean }[];
+  retained: RetainedPlacement[];
 }
 export interface UninstallResult {
   removed: number;
@@ -1496,6 +1514,8 @@ export interface KilnEvents {
   "kiln://gamepad": GamepadEvent;
   /** An Enshrouded Mod Manager Download (nxm://) link arrived: `count` wait in nexus_links (api/nexus.ts). */
   "kiln://nxm": { count: number };
+  /** A profile written again without profile_activate (after a profile edit, or a change outside the launcher). */
+  "kiln://activation": Activation;
 }
 export type KilnEventName = keyof KilnEvents;
 

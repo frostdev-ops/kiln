@@ -214,6 +214,10 @@ function fingerprint(p: Profile): string {
   return "kms1:" + hex(parts.join("\n"));
 }
 
+/** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
+ *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
+let activationPlan: Pick<Activation, "retained" | "keptFiles" | "warnings"> | null = null;
+
 function activate(pid: string, gameId: string): Activation {
   const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
   const g = gameOf(gameId);
@@ -221,8 +225,9 @@ function activate(pid: string, gameId: string): Activation {
   const prev = activations[gameId];
   const a: Activation = {
     gameId, profileId: pid, generation: (prev?.generation ?? 6) + 1, pathMode: g.pathMode, profileJson: `${g.path}/kiln/profile.json`,
-    copied: 0, fingerprint: fingerprint(p), activated: now(),
+    copied: 0, fingerprint: fingerprint(p), activated: now(), ...activationPlan,
   };
+  activationPlan = null;
   activations[gameId] = a;
   remembered[gameId] = pid;
   return a;
@@ -739,6 +744,7 @@ const handlers: Record<string, Handler> = {
     if (cur.generation !== p.generation) reject("conflict", "The profile changed elsewhere. Reload it.");
     const next = { ...clone(p), generation: p.generation + 1, updated: now() };
     profiles.set(p.id, next);
+    reapplyWhereActive(p.id);
     return clone(next);
   },
   profile_delete: (a) => {
@@ -1127,11 +1133,12 @@ function makeDefault(): Profile {
   return p;
 }
 
-/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again. */
+/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again, and the
+ *  launcher hears what that kept in the game folder (kiln://activation). */
 function reapplyWhereActive(pid: string) {
   for (const [g, act] of Object.entries(activations)) {
     if (act?.profileId !== pid || running[g]) continue;
-    activate(pid, g);
+    mockEmit("kiln://activation", activate(pid, g));
     emitGame(g, "status");
   }
 }
@@ -1362,6 +1369,7 @@ export function mockEmit(name: string, payload: unknown): void {
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   calls: () => [...commandCalls],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
+  planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },

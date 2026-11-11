@@ -6,6 +6,7 @@ import { create } from "zustand";
 import * as api from "./commands";
 import type { Distribution, GameId, GameInstall, ModKind, ProfileId } from "./commands";
 import { distributionOf } from "./distribution";
+import { notifyActivation } from "../shell/notices";
 
 /** Query keys, one place. */
 export const qk = {
@@ -175,6 +176,8 @@ export function useBackendEvents() {
       invalidateGame(qc, e.gameId);
     }));
     add(api.onKilnEvent("kiln://last-server", (e) => qc.invalidateQueries({ queryKey: qk.pending(e.gameId) })));
+    // a profile written again after an edit (or a change outside the launcher): what it kept in the game folder
+    add(api.onKilnEvent("kiln://activation", (a) => { notifyActivation(a); invalidateGame(qc, a.gameId); }));
     return () => { live = false; offs.forEach((f) => f()); };
   }, [qc]);
 }

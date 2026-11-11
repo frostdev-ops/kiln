@@ -37,47 +37,58 @@ pub async fn profile_save(app: AppHandle, profile: Profile) -> Result<Profile, E
         Ok((saved.clone(), reapply_where_active(&d, &saved.id)))
     })
     .await?;
-    for g in applied {
-        emit_status_later(app.clone(), g);
-    }
+    announce_applied(&app, applied);
     Ok(saved)
 }
 
 /// The client games whose profile.json names `profile_id` (and that are not running), re-applied when it changed.
-/// Returns the ids of the games written.
-pub(crate) fn reapply_where_active(d: &kiln_manage::paths::DataDirs, profile_id: &str) -> Vec<String> {
+/// Returns the activations written.
+pub(crate) fn reapply_where_active(d: &kiln_manage::paths::DataDirs, profile_id: &str) -> Vec<Activation> {
     let games = kiln_manage::game::known(d).unwrap_or_default();
     let mut applied = Vec::new();
     for g in games.iter().filter(|g| g.kind == kiln_manage::game::GameKind::Client) {
         let active_here = profile::read_game_profile(&g.path).ok().flatten().is_some_and(|f| f.id == profile_id);
-        if active_here && reapply(d, g) {
-            applied.push(g.id.clone());
+        if active_here && let Some(a) = reapply(d, g) {
+            applied.push(a);
         }
     }
     applied
 }
 
-/// `profile::refresh_active` for one game that is not running, logged to launcher.log. True when it wrote.
+/// A profile written again without profile_activate: `kiln://activation` with what it kept in the game folder (the
+/// launcher shows it as profile_activate's answer), then the game's fresh status.
+pub(crate) fn announce_applied(app: &AppHandle, applied: Vec<Activation>) {
+    use tauri::Emitter;
+    for a in applied {
+        let _ = app.emit(crate::events::ACTIVATION, &a);
+        emit_status_later(app.clone(), a.game_id);
+    }
+}
+
+/// `profile::refresh_active` for one game that is not running, logged to launcher.log. The activation when it wrote.
 ///
 /// One at a time: a profile page's save and the watcher both come here for the same change. Side by side they both
 /// found the file out of date, both activated the profile (copying its mods twice at once) and both wrote the same
 /// generation (seen in a player's launcher.log as every "written again" line twice). The second one now waits, finds
 /// the file current and writes nothing.
-pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> bool {
+pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> Option<Activation> {
     static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     if kiln_manage::proc::find_game(g).ok().flatten().is_some() {
-        return false;
+        return None;
     }
     match profile::refresh_active(d, g) {
         Ok(Some(a)) => {
             crate::commands::app::launcher_log("profile", &format!("{} changed: written again to {} (generation {})", a.profile_id, g.path.display(), a.generation));
-            true
+            for r in &a.retained {
+                crate::commands::app::launcher_log("profile", &format!("kept {} in the game folder: {}", r.path.display(), r.reason));
+            }
+            Some(a)
         }
-        Ok(None) => false,
+        Ok(None) => None,
         Err(e) => {
             crate::commands::app::launcher_log("profile", &format!("the active profile of {} changed but does not apply: {}", g.path.display(), e.message));
-            false
+            None
         }
     }
 }
@@ -144,9 +155,7 @@ pub async fn profile_revert(app: AppHandle, profile_id: String, changes: Vec<Pro
         Ok((saved.clone(), reapply_where_active(&d, &saved.id)))
     })
     .await?;
-    for g in applied {
-        emit_status_later(app.clone(), g);
-    }
+    announce_applied(&app, applied);
     Ok(saved)
 }
 

@@ -9,6 +9,10 @@ pub const LOG: &str = "kiln://log";
 pub const LAST_SERVER: &str = "kiln://last-server";
 pub const SERVER: &str = "kiln://server";
 pub const ADMIN: &str = "kiln://admin";
+/// `kiln://activation` carries a whole [`kiln_manage::profile::Activation`]: a profile written again without a
+/// profile_activate call (after a profile edit, a profile change outside the launcher), so the launcher can show what
+/// it kept in the game folder (`retained`, `keptFiles`, `warnings`).
+pub const ACTIVATION: &str = "kiln://activation";
 
 /// `kiln://task` carries a whole [`crate::commands::app::Task`].
 pub type TaskEvent = crate::commands::app::Task;

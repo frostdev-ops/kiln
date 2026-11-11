@@ -412,3 +412,29 @@ test("screenshots of every Deck screen (KILN_DECK_SHOTS)", async ({ page }) => {
   await page.screenshot({ path: `${dir}/12-kiln-holding.png` });
   await page.keyboard.up("Enter");
 });
+
+test.describe("notices", () => {
+  test("the retained-folder warning shows its paths and reasons and a pad closes it", async ({ page }) => {
+    await openDeck(page);
+    await page.evaluate(() => (window as unknown as { __kilnMock: { planActivation: (r: unknown) => void } }).__kilnMock.planActivation({
+      retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini)", mayRun: true }],
+      keptFiles: ["xhl:xhl-vein-mining: kept runtime settings (config.txt) in kiln/state/placed-settings/xhl/xhl-vein-mining"],
+    }));
+    await page.keyboard.press("ArrowLeft");
+    expect(await focused(page)).toBe("switch-profile");
+    await pad(page, "a");
+    await expect(page.locator('[data-deck-dialog="profiles"]')).toBeVisible();
+    await page.locator('[data-deck-id="profile-vanilla-plus"]').click();
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("Some mod folders were kept");
+    await expect(notice).toContainText("mods/XHL-Vein-Mining");
+    await expect(notice).toContainText("native-plugin.ini");
+    await expect(notice).toContainText("may still run");
+    // A on its OK closes it; the next notice follows, B closes that one
+    await pad(page, "a");
+    await expect(notice).toContainText("Mod settings kept");
+    await expect(notice).toContainText("placed-settings");
+    await pad(page, "b");
+    await expect(notice).toHaveCount(0);
+  });
+});
