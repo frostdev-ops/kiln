@@ -10,7 +10,7 @@ import type { GameInstall, LaunchMode } from "../api/commands";
 import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { toast } from "../ui";
 import { playState, runStarted, type GameStateView } from "./gameState";
-import { notifyActivation } from "./notices";
+import { notifyActivation, notifyActivationOf } from "./notices";
 
 // A shared monotonic clock: changing the system clock while a start is pending cannot restart its grace period.
 const epoch = Date.now(), tick = performance.now();
@@ -74,7 +74,8 @@ export function usePlayControl(): PlayControl {
       toast.ok(r.mode === "vanilla" ? "Starting vanilla" : r.mode === "no-mods" ? "Starting without mods" : "Starting", r.backup ? "Saves backed up first." : "Through Steam.");
       notifyActivation(r.activation);
     },
-    onError: (e) => toast.error(e),
+    // the re-apply before the start may have kept copies even when the start then failed
+    onError: (e) => { notifyActivationOf(e); toast.error(e); },
   });
 
   // Missing or skewed process timestamps fall back to when this session first saw it running. The launch request

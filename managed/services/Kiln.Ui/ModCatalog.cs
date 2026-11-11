@@ -184,12 +184,16 @@ internal static class ModCatalog
     private static string? Str(JsonElement o, string name)
     {
         if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(name, out var v)) return null;
-        return v.ValueKind switch
+        try
         {
-            JsonValueKind.String => v.GetString() is { Length: > 0 } s ? s : null,
-            JsonValueKind.Number => v.GetRawText(),
-            _ => null,
-        };
+            return v.ValueKind switch
+            {
+                JsonValueKind.String => v.GetString() is { Length: > 0 } s ? s : null,
+                JsonValueKind.Number => v.GetRawText(),
+                _ => null,
+            };
+        }
+        catch (InvalidOperationException) { return null; }  // a lone surrogate escape ("\ud83d", a cut emoji): no string to show
     }
 
     private static bool? Bool(JsonElement o, string name) =>
@@ -295,8 +299,9 @@ internal static class ModCatalog
             error = "it is cut off or not valid JSON";
             return null;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
+            // ArgumentException / NotSupportedException: a path no file call takes (a NUL in a folder another config names)
             error = "the file could not be read: " + e.Message;
             return null;
         }
@@ -502,6 +507,20 @@ internal static class ModCatalog
             l.Add(m with { SearchText = $"{m.Name} {m.Id} {EngineName(m.Engine)}".ToLowerInvariant() });
         }
 
+        /// <summary>The folder in <c>&lt;game&gt;/mods</c> that still holds a profile entry's copy: the entry's own folder
+        /// when it is placed there (XHL companions, EML mods a DLL reads there), Kiln's copy for Enshwick's loader.</summary>
+        private string? KeptInGameMods(string kind, ProfileEntry e, string id)
+        {
+            var mods = NormPath(Path.Combine(Src.GameDir, "mods"));
+            if (ParentOf(e.Path) is { } parent && string.Equals(NormPath(parent), mods, StringComparison.OrdinalIgnoreCase))
+                return DirExists(e.Path) ? e.Path : null;
+            if (kind != "enshwick") return null;
+            string copy;
+            try { copy = Path.Combine(Src.GameDir, "mods", id); }
+            catch (Exception) { return null; }
+            return DirExists(copy) ? copy : null;
+        }
+
         public void Engine(string kind, string? word, EngineHealth health, string? note, bool reported) =>
             Engines[kind] = (word, health, note, reported);
 
@@ -515,14 +534,25 @@ internal static class ModCatalog
                 var id = e.Id ?? LeafName(e.Path);
                 var (name, version) = Manifest(e.Path);
                 var missing = MissingPaths.Contains(e.Path) || !DirExists(e.Path);
+                // switched off, but a copy is still in <game>/mods (kept because it was changed there, say), where a loader
+                // that reads the folder may still run it
+                var kept = e.Enabled ? null : KeptInGameMods(kind, e, id);
                 Add(new CatalogMod
                 {
                     Engine = kind, Id = id, Name = name ?? id, Version = e.Version ?? version ?? "", Folder = e.Path, Source = "profile",
                     Missing = missing && e.Enabled,
                     State = !e.Enabled ? ModRunState.Disabled : missing ? ModRunState.Failed : notReportedState,
                     Word = !e.Enabled ? "disabled" : missing ? "missing" : "not reported",
-                    Reason = !e.Enabled ? "Switched off in the profile." : missing ? "Its folder is missing: " + e.Path : notReportedReason,
-                    Help = !e.Enabled ? "Turn it on in the Kiln launcher (Profiles), then start the game again."
+                    Reason = kept is { } k
+                        ? $"Switched off in the profile, but its folder is still in the game's mods folder ({LeafName(k)}), so {(kind switch
+                        {
+                            "xhl" => "XHL-Core may still load it",
+                            "enshwick" => "Enshwick's loader, which runs every folder there, may still run it",
+                            _ => "a mod or loader that reads that folder may still use it",
+                        })}."
+                        : !e.Enabled ? "Switched off in the profile." : missing ? "Its folder is missing: " + e.Path : notReportedReason,
+                    Help = kept is not null ? "Remove it in the Kiln launcher, or move that folder out of the game's mods folder, to be sure it does not run."
+                        : !e.Enabled ? "Turn it on in the Kiln launcher (Profiles), then start the game again."
                         : missing ? "Repair or remove it in the Kiln launcher (Library), then start the game again." : notReportedHelp,
                 });
             }
@@ -937,6 +967,14 @@ internal static class ModCatalog
             seen.Add(id);
         }
         var start = b.Mods.TryGetValue("shroudforge", out var before) ? before.Count : 0;
+        // while ShroudForge runs, a mod is only as far as its own report says: unconfirmed until SfRefine reads it, so a
+        // failure before that (the engine line names it) never leaves a row looking Loaded
+        var runs = mode is "hosted" or "self-hosted";
+        if (runs)
+        {
+            state = ModRunState.Waiting;
+            why = "ShroudForge runs, but Kiln could not read what it says about this mod (see the engine line). This is not proof the mod is active.";
+        }
         b.ProfileRest("shroudforge", _ => false, why ?? "", state, help);
         // mods the player put into ShroudForge's folder by hand (ShroudForge reads the whole folder)
         var dir = modsDir ?? SfFolder(b.Src.GameDir, "mods");
@@ -950,12 +988,12 @@ internal static class ModCatalog
             b.Add(new CatalogMod
             {
                 Engine = "shroudforge", Id = sid ?? name, Name = sname ?? name, Version = sversion ?? "",
-                Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? mode ?? "" : "disabled",
+                Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? runs ? "unconfirmed" : mode ?? "" : "disabled",
                 Reason = on ? why : "Switched off in ShroudForge's settings.", Help = on ? help : null,
             });
         }
         // what ShroudForge's runtime says per mod (its state.json, this process), and its own switch in the mod's files
-        if (mode is "hosted" or "self-hosted" && b.Mods.TryGetValue("shroudforge", out var list))
+        if (runs && b.Mods.TryGetValue("shroudforge", out var list))
         {
             var runtime = SfRuntime(b.Src);
             for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, b.Src.Side);
@@ -963,8 +1001,9 @@ internal static class ModCatalog
         b.Engine("shroudforge", mode, health, note, f.Current);
     }
 
-    /// <summary><see cref="ShroudForgePackages.Folder"/> for mods or state, or its default when ShroudForge's config cannot be
-    /// read at all (duplicate keys get through its own catch): the list is still read, never left unrefined.</summary>
+    /// <summary><see cref="ShroudForgePackages.Folder"/> for mods or state. Folder catches what it knows of (the config
+    /// unreadable, cut off, a repeated key); this catch is kept for anything it may let through later, so the list is still
+    /// read from ShroudForge's default folder.</summary>
     private static string SfFolder(string gameDir, string key)
     {
         try { return ShroudForgePackages.Folder(gameDir, key); }
@@ -1023,11 +1062,19 @@ internal static class ModCatalog
         SfPackage p;
         try { p = ShroudForgePackages.Read(folder); }
         catch (Exception) { return m with { State = m.State == ModRunState.Disabled ? m.State : ModRunState.Waiting, Word = "unconfirmed", Reason = "Its package settings cannot be read; ShroudForge's per-mod activation is not confirmed." }; }
+        var repair = ShroudForgeUi.RepairNote(p);
         if (!p.Enabled)
             return m with
             {
-                State = ModRunState.Disabled, Word = "disabled", Reason = "Switched off in ShroudForge's settings (the mod's extended.mod.json).",
+                State = ModRunState.Disabled, Word = "disabled",
+                Reason = "Switched off in ShroudForge's settings (the mod's extended.mod.json)." + (repair is null ? "" : " " + repair),
                 Help = "Switch it on below.",
+            };
+        if (repair is not null)
+            return m with
+            {
+                State = ModRunState.Failed, Word = "needs repair", Reason = repair,
+                Help = "Change any of its settings, or switch it off and on, in Kiln's menu once: that repairs it.",
             };
         if (side.Length > 0 && p.Targets.Count > 0 && !p.Targets.Contains(side))
             return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = $"It runs on the {string.Join(" and ", p.Targets)} only.", Help = null };

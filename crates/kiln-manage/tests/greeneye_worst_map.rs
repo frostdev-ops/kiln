@@ -187,9 +187,13 @@ fn runtime_in_game(dirs: &DataDirs, g: &GameInstall, reader: Option<u32>, git: &
     let opts = kiln_manage::bundle::CreateOptions { source_date_epoch: 1_794_000_000, git: git.into() };
     let zip = kiln_manage::bundle::create(&s, &g.path.parent().unwrap().join(format!("out-{git}")), &opts).unwrap();
     let b = kiln_manage::bundle::import(dirs, &zip).unwrap();
+    // the core file the receipt lists, in the game, as an install leaves them
+    let core = format!("core {git}");
+    put(&g.path, "kiln/kiln-core.dll", core.as_bytes());
     put(&g.path, "kiln/.install.json", serde_json::to_string_pretty(&serde_json::json!({
         "format": 1, "installId": "c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b", "installed": "2026-11-11T00:00:00Z",
-        "runtime": { "version": b.version, "components": ["core"] }, "side": "client", "files": [],
+        "runtime": { "version": b.version, "components": ["core"] }, "side": "client",
+        "files": [{ "path": "kiln/kiln-core.dll", "sha256": kiln_manage::hash::sha256_hex(core.as_bytes()), "component": "core" }],
     })).unwrap().as_bytes());
 }
 
@@ -271,6 +275,38 @@ fn the_mod_runs_from_greeneye_in_the_game_folder_and_keeps_what_it_wrote_across_
     assert_eq!(std::fs::read_to_string(copy.join("minimap_config.ini")).unwrap(), "[MinimapV2]\nZoom=3\n", "and come back with it");
 }
 
+/// A profile.json an older Kiln wrote names the Library entry, and no copy is in greeneye/ yet. The first launcher
+/// start (the watcher's refresh) or Play places the copy; the file is written again to name it, so the next start
+/// runs the copy that holds the mod's settings, not the Library entry they were taken from.
+#[test]
+fn a_profile_json_naming_the_library_entry_is_written_again_once_the_copy_is_placed() {
+    use kiln_manage::launch::{LaunchMode, LaunchRequest};
+    for through_play in [false, true] {
+        let t = tmp(&format!("dev23-file-{through_play}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Z);
+        let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
+        let pid = profile::create(&dirs, "Map", None).unwrap().id;
+        activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
+        // as dev.23 left it: the file names the Library entry, nothing is placed
+        let copy = g.path.join("greeneye/unlock-map-markers");
+        std::fs::remove_dir_all(&copy).unwrap();
+        std::fs::remove_file(g.path.join("kiln/state/library-placements.json")).unwrap();
+        let file = g.path.join("kiln/profile.json");
+        let mut f: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        f["mods"]["greeneye"][0]["path"] = z(&library::path_of(&dirs, &v47).unwrap()).into();
+        std::fs::write(&file, serde_json::to_vec(&f).unwrap()).unwrap();
+        if through_play {
+            let req = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+            kiln_manage::launch::play_with(&dirs, &g, &req, Some(&[]), &|_| Ok(())).unwrap();
+        } else {
+            profile::refresh_active(&dirs, &g).unwrap();
+        }
+        assert!(copy.join(MOD_FILES[0]).is_file());
+        assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().mods.greeneye[0].path, z(&copy), "Play {through_play}");
+    }
+}
+
 #[test]
 fn copy_mode_names_the_same_copy() {
     let t = tmp("copy-mode");
@@ -291,6 +327,15 @@ fn copy_mode_names_the_same_copy() {
     let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
     assert_eq!(file.mods.greeneye[0].path, "../greeneye/unlock-map-markers");
     assert!(g.path.join("greeneye/unlock-map-markers/mod.json").is_file());
+    // the profile names the copy in greeneye/: no unused copy under kiln/profiles/ (the earlier one goes)
+    let a = profile::activate(&dirs, &pid, &g).unwrap();
+    assert!(!g.path.join(format!("kiln/profiles/{pid}/greeneye/unlock-map-markers")).exists());
+    assert_eq!(a.copied, 0, "{a:?}");
+    // back to a runtime from before the form: the copy under kiln/profiles/ again, which the profile names
+    runtime_in_game(&dirs, &g, None, "e3d6185");
+    let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
+    assert_eq!(file.mods.greeneye[0].path, format!("profiles/{pid}/greeneye/unlock-map-markers"));
+    assert!(g.path.join(format!("kiln/profiles/{pid}/greeneye/unlock-map-markers/mod.json")).is_file());
 }
 
 #[test]
@@ -531,4 +576,42 @@ fn a_linked_greeneye_folder_does_not_stop_the_activation() {
     let file = profile::read_game_profile(&g.path).unwrap().unwrap();
     assert_eq!(file.mods.greeneye[0].path, z(&library::path_of(&dirs, &v47).unwrap()));
     assert!(std::fs::read_dir(t.0.join("elsewhere")).unwrap().next().is_none(), "nothing written through the link");
+}
+
+/// Review R6 (the cleanup matrix's Greeneye row): "No profile" (deactivate) and uninstall (unplace) must stop a
+/// profile's Greeneye mods. A copy the mod only wrote its own files into is removed, those files wait in
+/// kiln/kept-mod-files/greeneye/<id>/ and come back with the next activation; kiln-greeneye's drop-in scan of the legacy
+/// layout and Greeneye Loader would otherwise run the copy without the profile. A copy whose shipped files changed is
+/// the player's edit and stays, reported.
+#[test]
+fn no_profile_stops_greeneye_mods_and_keeps_what_they_wrote() {
+    for (uninstall, shipped) in [(false, false), (true, false), (false, true), (true, true)] {
+        let t = tmp(&format!("cleanup-{uninstall}-{shipped}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Z);
+        let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
+        let pid = profile::create(&dirs, "Map", None).unwrap().id;
+        activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
+        let copy = g.path.join("greeneye/unlock-map-markers");
+        put(&copy, "minimap_config.ini", b"[MinimapV2]\nZoom=3\n");
+        put(&copy, "unlock_map_markers.log", b"loaded\n");
+        if shipped { put(&copy, "veins.bin", b"edited by the player"); }
+        let report = if uninstall { engine_mods::unplace(&g.path).unwrap() } else { profile::deactivate_report(&dirs, &g).unwrap() };
+        let kept = g.path.join("kiln/kept-mod-files/greeneye/unlock-map-markers");
+        if shipped {
+            assert!(report.retained.iter().any(|r| r.path == copy && r.may_run), "{uninstall}/{shipped}: {report:?}");
+            assert_eq!(std::fs::read(copy.join("veins.bin")).unwrap(), b"edited by the player");
+            assert!(copy.join("minimap_config.ini").is_file(), "the whole folder stays");
+            continue;
+        }
+        assert!(!copy.exists() && report.removed.contains(&copy), "{uninstall}: the copy no longer runs: {report:?}");
+        assert!(report.retained.is_empty(), "{report:?}");
+        assert_eq!(std::fs::read_to_string(kept.join("minimap_config.ini")).unwrap(), "[MinimapV2]\nZoom=3\n");
+        assert!(kept.join("unlock_map_markers.log").is_file());
+        if !uninstall {
+            let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
+            assert_eq!(file.mods.greeneye[0].path, z(&copy));
+            assert_eq!(std::fs::read_to_string(copy.join("minimap_config.ini")).unwrap(), "[MinimapV2]\nZoom=3\n", "back with the profile");
+        }
+    }
 }

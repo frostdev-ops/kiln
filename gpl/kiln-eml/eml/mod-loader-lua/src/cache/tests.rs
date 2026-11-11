@@ -1075,3 +1075,41 @@ fn bench_game_data_steps() {
         println!("| {row} | {mode} | {read:.2} GiB | {wall:.1} s |");
     }
 }
+
+// kiln-eml: a backup an earlier release recorded by its change stamp only (`unread`) is proof for adoption
+// (ownership.rs `adopt`) exactly while that stamp, length and last-write time are the file's, on a volume that passes
+// the scratch-file test; a same-size edit with the last-write time put back moves the stamp and is no proof.
+#[test]
+fn describes_takes_a_stamp_record_only_while_the_stamp_is_the_files() {
+    let dir = Dir::new();
+    let path = dir.file("g.kfc.bak", b"vanilla backup");
+    let meta = fs::metadata(&path).unwrap();
+    let mtime = meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let saved: Stamp = stamp::read(&File::open(&path).unwrap()).expect("this file system keeps stamps");
+    let mut cache = FileStateCache::default();
+    cache.files.insert(path.clone(), (meta.len(), mtime, 0x5eed));
+    cache.stamps.insert(path.clone(), saved);
+    cache.unread.insert(path.clone());
+    let content = (meta.len(), 0);
+    assert_eq!(cache.describes(&path, content, &mut None), Ok(()));
+    // the same record without its stamp is no proof
+    let mut stampless = cache.clone();
+    stampless.stamps.clear();
+    assert!(stampless.describes(&path, content, &mut None).is_err());
+    // a same-size rewrite with the last-write time put back
+    std::thread::sleep(SETTLE);
+    let mut f = OpenOptions::new().write(true).open(&path).unwrap();
+    f.write_all(b"VANILLA BACKUP").unwrap();
+    f.set_modified(meta.modified().unwrap()).unwrap();
+    drop(f);
+    assert_eq!(fs::metadata(&path).unwrap().len(), meta.len());
+    assert_eq!(cache.describes(&path, content, &mut None), Err("it changed since the last run saved it".into()));
+    // a volume that failed the scratch-file test vouches for nothing
+    let mut failed = Some(Err("the test failed".to_owned()));
+    let mut fresh = cache.clone();
+    fresh.stamps.insert(path.clone(), stamp::read(&File::open(&path).unwrap()).unwrap());
+    let now = fs::metadata(&path).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    fresh.files.insert(path.clone(), (meta.len(), now, 0x5eed));
+    assert_eq!(fresh.describes(&path, content, &mut None), Ok(()));
+    assert!(fresh.describes(&path, content, &mut failed).is_err());
+}

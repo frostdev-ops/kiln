@@ -8,6 +8,7 @@ import * as api from "../../api/commands";
 import type { GameId, LastServer, ModpackInstallResult } from "../../api/commands";
 import { qk, useSettings } from "../../api/hooks";
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, fmtBytes, runTask, shortHash, toast } from "../../ui";
+import { notifyActivation, notifyActivationOf } from "../../shell/notices";
 
 export default function ModpackOffer({ gameId, lastServer, open, onClose }: { gameId: GameId; lastServer: LastServer; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
@@ -29,6 +30,7 @@ export default function ModpackOffer({ gameId, lastServer, open, onClose }: { ga
         { done: "Modpack installed" },
       );
       setDone(r);
+      notifyActivation(r.activation);
       qc.invalidateQueries({ queryKey: qk.profiles });
       qc.invalidateQueries({ queryKey: qk.active(gameId) });
       qc.invalidateQueries({ queryKey: qk.pending(gameId) });
@@ -43,9 +45,11 @@ export default function ModpackOffer({ gameId, lastServer, open, onClose }: { ga
   };
   const launch = async () => {
     try {
-      await api.launchPlay(gameId, { mode: "profile", profileId: done?.profile.id });
+      const r = await api.launchPlay(gameId, { mode: "profile", profileId: done?.profile.id });
+      notifyActivation(r.activation);
       onClose();
     } catch (e) {
+      notifyActivationOf(e);
       toast.error(e, "Launch failed");
     }
   };

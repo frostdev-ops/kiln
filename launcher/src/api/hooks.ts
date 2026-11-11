@@ -176,8 +176,10 @@ export function useBackendEvents() {
       invalidateGame(qc, e.gameId);
     }));
     add(api.onKilnEvent("kiln://last-server", (e) => qc.invalidateQueries({ queryKey: qk.pending(e.gameId) })));
-    // a profile written again after an edit (or a change outside the launcher): what it kept in the game folder
-    add(api.onKilnEvent("kiln://activation", (a) => { notifyActivation(a); invalidateGame(qc, a.gameId); }));
+    // a profile written again after an edit, a change outside the launcher or at start-up: what it kept in the game
+    // folder waits in the backend until taken here, so a re-apply before this listener existed is shown too, once
+    const take = () => api.activationNotices().then((list) => list.forEach((a) => { notifyActivation(a); invalidateGame(qc, a.gameId); })).catch(() => {});
+    add(api.onKilnEvent("kiln://activation", () => void take()).then((off) => { void take(); return off; }));
     return () => { live = false; offs.forEach((f) => f()); };
   }, [qc]);
 }

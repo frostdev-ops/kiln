@@ -78,18 +78,25 @@ Escape or the window's close button releases their input capture. No real-client
   plus current/previous Kiln logs (the last 1 MiB of each, from a line start, so a long session keeps its end).
   Explicit **Copy to Clipboard** / **Copy last session's logs** buttons copy Unicode logs on Windows/Wine (bytes that
   are not UTF-8 become U+FFFD), with a local-file fallback if the clipboard is unavailable. The
-  `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in any path shaped
-  `\home\<name>`, `/home/<name>`, `\Users\<name>` or `/Users/<name>` (either separator, doubled as in JSON, any case;
-  Wine's `Z:\home\<name>` among them). Other personal text in mod names or log lines is not; review before sharing.
+  `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in a path that starts
+  with a home root: `home`, `Users` or `media` as the first part of an absolute path, the second (`/var/home`,
+  `/run/media`: a Steam library on a second drive) or, after `\\server\share`, the third (`\\wsl$\Ubuntu\home`).
+  Either separator, doubled as in JSON, any case; Wine's `Z:\home\<name>` among them. Only the name is replaced, not
+  the rest of the line, and a mod folder called `home` or `users` is left alone. Other personal text in mod names or
+  log lines is not redacted; review before sharing.
   Nothing is uploaded or opens a report website.
   **Debug logs** adds tool lifecycle diagnostics to `kiln.log`, not the Lua console; it defaults on and is saved in `kiln/control/set-ui.ini`,
   not upstream's `settings.ini`.
 - **Last Session**: on the next client start, a notice opens when the game wrote a crash report
-  (`crash_dumps/*/enshrouded.info`, no earlier than a minute before the previous session's `kiln.prev.log` ends) and
-  `kiln/control/set-session.txt` shows that SET ran in that session. The marker alone opens nothing: Kiln's core does
-  not run a plugin's unload at a normal game exit, so the marker is not cleared then. The notice shows the report's
-  reason and does not blame a mod. It only draws and never takes the game's mouse or keyboard; Escape hides it. Its
-  copy, report and **Dismiss** buttons are in SET tools opened from the game's menu. No report or clipboard write
+  (`crash_dumps/*/enshrouded.info`) while the previous SET session ran: after `kiln/control/set-session.txt` was
+  written as that session's SET started, and no later than a minute after its `kiln.prev.log` ends. A start that runs
+  no SET (play once without mods, an invalid profile, SET's own runtime) clears the marker. The marker alone opens
+  nothing: Kiln's core does not run a plugin's unload at a normal game exit, so the marker is not cleared then. The
+  match is by times only: the notice does not say what caused the crash. The notice shows the report's
+  reason and does not blame a mod. It only draws: mouse, keyboard and controller stay the game's, and SET mods' keys
+  keep working. Escape hides it (that one press does not reach the game); a controller's B does not, so with a
+  controller open SET tools from the game's menu and close them. Its copy, report and **Dismiss** buttons are in SET
+  tools opened from the game's menu. No report or clipboard write
   happens until chosen.
 
 ## What works
@@ -140,7 +147,7 @@ matching Kiln C# API and how each was tested, is in
   | Id | On Kiln |
   |---|---|
   | `game_build` | compatible on SET's three client builds and on the server build 1793791038 (Kiln's lab) |
-  | `resources` | kiln.assets is there; available once the game's data is loaded (the scan runs on a world's thread; SET tools show its result) |
+  | `resources` | kiln.assets is there. The game's data is checked on a world's thread (the first step of a world you host, or the first `Features()` there); until then, as in the main menu, it counts as available and SET tools show "not checked yet". `Res` itself needs a world's thread |
   | `english_names` | always (item and template names; other tags need the client text catalog) |
   | `game_options`, `field_of_view` | never: "Not available on Kiln" |
   | `systems` | kiln.types can switch systems (only two may be switched off, see below) |
@@ -154,8 +161,9 @@ matching Kiln C# API and how each was tested, is in
   at once on a reload. Kiln's core does not run a plugin's unload when the game exits, so nothing extra is saved then
   and `onShutdown` does not run at game exit: a change made in the last second before quitting can be lost. Unknown
   keys in the file are kept. A wrong type falls back to the default with a yellow line. A broken file becomes
-  `settings.json.bad` (`settings.json.bad.2` and so on while an earlier one is still there; none is replaced). Edit
-  in the SET tools page, or edit the file by hand while the game is closed.
+  `settings.json.bad` (`settings.json.bad.2` and so on, up to `.bad.100`, while earlier ones are still there). Past
+  that, or if the rename fails, the broken file stays where it is and the next save replaces it; the yellow line says
+  so. Edit in the SET tools page, or edit the file by hand while the game is closed.
 - **`settings.json` belongs to `Settings.define`**: `io.open("settings.json", "w")` returns nil and a message. Reading
   works.
 - **Key names**: Space, Enter, Tab, arrows, numpad, and punctuation by its US name (`Semicolon`, `Equals`, ...).

@@ -68,13 +68,17 @@ std::string jsonValue(const mset::Field& f) {
 }
 
 // Written next to the file and swapped in, so an interrupted save never leaves half a file. dir is the mod's folder.
-bool writeFile(const std::string& dir, const std::string& text) {
+// sync: on the disk first, for a player's own edit or a mod's last save; not for the saves a mod's own writes cause
+// (as often as once a second, on the server's thread in a world).
+bool writeFile(const std::string& dir, const std::string& text, bool sync) {
     FILE* f = kset::sandbox::open(dir, "settings.json.tmp", "wb");
     if (!f) return false;
     bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
-    // On the disk before the rename swaps it in, so a crash or power cut just after can't leave an empty file.
-    // Best effort: a file system without it still saves.
-    if (ok && fflush(f) == 0) {
+    // A failed flush fails the save: the stream drops its buffer then, so fclose would report success for a short
+    // file. Synced, it is on the disk before the rename swaps it in, so a crash or power cut just after can't leave an
+    // empty file; the sync itself is best effort (a file system without it still saves).
+    ok = ok && fflush(f) == 0;
+    if (ok && sync) {
 #ifdef _WIN32
         (void)_commit(_fileno(f));
 #else
@@ -89,9 +93,14 @@ bool writeFile(const std::string& dir, const std::string& text) {
     return !ec;
 }
 
+struct Pending {
+    std::string mod, text;
+    bool sync;
+};
+
 // Writes the given pages, outside the lock; a failed one is marked changed again, and reported once.
-void write(const std::vector<std::pair<std::string, std::string>>& out, mset::Sink sink) {
-    for (const auto& [mod, text] : out) {
+void write(const std::vector<Pending>& out, mset::Sink sink) {
+    for (const auto& [mod, text, sync] : out) {
         std::string path;
         {
             std::lock_guard lock(gMx);
@@ -99,23 +108,24 @@ void write(const std::vector<std::pair<std::string, std::string>>& out, mset::Si
             if (p == gPages.end()) continue;
             path = p->second.path;
         }
-        bool ok = writeFile(path, text);
+        bool ok = writeFile(path, text, sync);
         std::lock_guard lock(gMx);
         auto p = gPages.find(mod);
         if (p == gPages.end() || ok) continue;
         p->second.dirty = true;
+        p->second.edited |= sync;
         if (!std::exchange(p->second.told, true)) sink((LV_WARN "Settings: Couldn't save " + mod + "\\settings.json, trying again").c_str());
     }
 }
 
-// The changed pages' text, taken under the lock. mod empty: all of them.
-std::vector<std::pair<std::string, std::string>> changed(const std::string& mod) {
+// The changed pages' text, taken under the lock. mod empty: all of them. last: the mod stops (drop): synced.
+std::vector<Pending> changed(const std::string& mod, bool last) {
     std::lock_guard lock(gMx);
-    std::vector<std::pair<std::string, std::string>> out;
+    std::vector<Pending> out;
     for (auto& [m, p] : gPages)
         if (p.dirty && (mod.empty() || m == mod)) {
-            out.emplace_back(m, mset::toJson(p));
-            p.dirty = false;
+            out.push_back({m, mset::toJson(p), last || p.edited});
+            p.dirty = p.edited = false;
         }
     return out;
 }
@@ -164,6 +174,7 @@ bool mset::set(const std::string& mod, const std::string& key, double num, const
     if (next.num == f->num && next.text == f->text) return true;
     *f = std::move(next);
     gPages[mod].dirty = true;
+    if (edit) gPages[mod].edited = true;
     std::pair<std::string, std::string> e{mod, key};
     if (edit && std::find(gEdits.begin(), gEdits.end(), e) == gEdits.end()) gEdits.push_back(std::move(e));
     return true;
@@ -194,21 +205,21 @@ void mset::save(bool now, Sink sink) {
     static std::chrono::steady_clock::time_point last;
     auto t = std::chrono::steady_clock::now();
     if (!now && t - last < std::chrono::seconds(1)) return;
-    auto out = changed("");
+    auto out = changed("", false);
     if (out.empty()) return;
     last = t;
     write(out, sink);
 }
 
 void mset::drop(const std::string& mod, Sink sink) {
-    write(changed(mod), sink);
+    write(changed(mod, true), sink);
     std::lock_guard lock(gMx);
     gPages.erase(mod);
     std::erase_if(gEdits, [&](const auto& e) { return e.first == mod; });
 }
 
 void mset::dropAll(Sink sink) {
-    write(changed(""), sink);
+    write(changed("", true), sink);
     std::lock_guard lock(gMx);
     gPages.clear();
     gEdits.clear();

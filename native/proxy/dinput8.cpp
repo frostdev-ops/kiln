@@ -41,7 +41,7 @@
 //      puts those bytes back and jumps there, so the chained DLL's patch runs next and unwinds to the real entry
 //      (last in, first out).
 // The gate runs on the main thread after the loader lock is released and before any game code: it restores the entry
-// bytes, loads <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v2 and continues into the
+// bytes, loads <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v3 and continues into the
 // entry point. The bytes go back before the core starts, so a DLL the core loads (a [late] entry, a native mod) that
 // patches the entry point saves the right bytes and its patch runs first when the gate continues: last in, first out
 // again. If anything fails the game starts vanilla.

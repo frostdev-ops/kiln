@@ -459,6 +459,22 @@ fn a_hand_installed_folder_is_the_players() {
     assert_eq!(rep.own, ["eml:auto-loot-plus"]);
 }
 
+/// A profile entry the player's own folder serves is said once per activation, in plain words, as a note and not as a
+/// kept copy: the game uses that folder, Kiln places nothing beside it.
+#[test]
+fn an_entry_the_players_own_folder_serves_is_a_plain_note() {
+    let t = tmp("own-note");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    eml_mod(&g.path, "mods/auto-loot-plus", "auto-loot-plus");
+    let z = zip(&t, "alp-full", "AutoLootPlus 1.1.8");
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[z], false, &mut NoProgress).unwrap();
+    let a = r.activation.expect("activated");
+    let own = g.path.join("mods/auto-loot-plus");
+    assert!(a.warnings.iter().any(|w| w.contains(&format!("the game uses your own folder {}", own.display()))), "{a:?}");
+    assert!(a.retained.is_empty(), "{a:?}");
+}
+
 /// EML's own dbghelp.dll in the game folder (Windows loads it): every EML mod of the profile is in mods/ for it, the
 /// game-folder ones under their folder name, and the launcher says all of them run under it.
 #[test]
@@ -631,6 +647,89 @@ fn copies_activation_has_to_keep_are_reported_as_retained_by_every_activation_pa
     let a = profile::activate(&dirs, &p.id, &g).unwrap();
     assert_eq!(std::fs::read(copy.join("src/mod.lua")).unwrap(), b"-- the player's code");
     assert!(retains(&a, &copy), "own loader: {}", serde_json::to_string(&a).unwrap());
+}
+
+/// The reason of the copy at `copy` in an activation's `retained`.
+fn reason_for(a: &profile::Activation, copy: &Path) -> String {
+    retained_of(a).into_iter().find(|(p, _)| p == copy).map(|(_, r)| r).unwrap_or_else(|| panic!("{} not retained: {a:?}", copy.display()))
+}
+
+/// Each kept copy says what still runs: an enabled mod's changed copy is what runs (nothing to move), an update leaves
+/// the old version running, a switched-off mod may still be loaded from there.
+#[test]
+fn retained_copies_say_what_still_runs() {
+    let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+    let copy = d.g.path.join("mods/XHL-Vein-Mining");
+    put(&copy, "native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\nVerbose=1\n");
+    let a = profile::activate(&d.dirs, "my-mods", &d.g).unwrap();
+    assert!(reason_for(&a, &copy).contains("It is on in the profile, and this changed copy is what runs"), "{a:?}");
+    let update = d._t.0.join("update");
+    layout(&update, "xhl-plugin");
+    put(&update, "mods/XHL-Vein-Mining/new-data.bin", b"new data");
+    let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[update], false, &mut NoProgress).unwrap();
+    let a = r.activation.expect("applied");
+    assert!(reason_for(&a, &copy).contains("keeps running instead of"), "{a:?}");
+    let mut p = my_mods(&d);
+    p.mods.xhl[0].enabled = false;
+    let p = profile::save(&d.dirs, &p).unwrap();
+    let a = profile::activate(&d.dirs, &p.id, &d.g).unwrap();
+    assert!(reason_for(&a, &copy).contains("It is off in the profile, but its own loader may still load it"), "{a:?}");
+}
+
+/// A placed copy the player changed after the last activation is reported when Play reconciles the fixed folders, also
+/// with the profile unchanged; and what a re-apply before the start kept is not lost when the start then fails.
+#[test]
+fn play_reports_what_the_game_folder_holds_even_when_the_start_fails() {
+    use kiln_manage::launch::{LaunchMode, LaunchRequest};
+    let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+    let copy = d.g.path.join("mods/XHL-Vein-Mining");
+    let req = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+    put(&copy, "native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\nVerbose=1\n");
+    let r = kiln_manage::launch::play_with(&d.dirs, &d.g, &req, Some(&[]), &|_| Ok(())).unwrap();
+    let a = r.activation.expect("Play reports the kept copy of an unchanged profile");
+    assert!(retains(&a, &copy), "{a:?}");
+    let mut p = my_mods(&d);
+    p.mods.xhl[0].enabled = false;
+    profile::save(&d.dirs, &p).unwrap();
+    let e = kiln_manage::launch::play_with(&d.dirs, &d.g, &req, Some(&[]), &|_| Err(kiln_manage::Error::invalid("no desktop"))).unwrap_err();
+    let a: profile::Activation = serde_json::from_value(e.detail.clone().unwrap_or_default()["activation"].clone())
+        .unwrap_or_else(|x| panic!("the error carries the activation: {e:?}: {x}"));
+    assert!(retains(&a, &copy), "{a:?}");
+}
+
+/// Auto Loot Plus Lite, then the full package (the same native id by design): in one activation Lite's settings copy
+/// leaves mods/auto-loot-plus and the full package's EML part takes the folder, so the profile never names a missing one.
+#[test]
+fn lite_then_full_leaves_the_eml_part_in_place_after_one_activation() {
+    let d = drop_on_launcher("alp-lite", "AutoLootPlus Lite 1.1.8");
+    let copy = d.g.path.join("mods/auto-loot-plus");
+    assert!(copy.join("config.txt").is_file());
+    let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[zip(&d._t, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
+    assert!(r.applied, "{r:?}");
+    assert!(copy.join("mod.json").is_file(), "the EML part is placed: {:?}", tree(&d.g.path));
+    assert_eq!(kiln_manage::engine_mods::marker(&copy).map(|m| m.kind), Some(ModKind::Eml));
+}
+
+/// A settings stash Kiln cannot read (a link where kiln/state/placed-settings/<kind>/<id> was) leaves the mod with its
+/// own settings and a note; tidying the stash afterwards does not undo the activation.
+#[test]
+fn an_unreadable_settings_stash_never_fails_the_activation() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let copy = d.g.path.join("mods/auto-loot-plus");
+    put(&copy, "config.txt", b"radius=42");
+    let mut p = my_mods(&d);
+    p.mods.eml[0].enabled = false;
+    let mut p = activate(&d, &p);
+    let stash = d.g.path.join("kiln/state/placed-settings/eml/auto-loot-plus");
+    let elsewhere = d._t.0.join("elsewhere");
+    std::fs::rename(&stash, &elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &stash).unwrap();
+    p.mods.eml[0].enabled = true;
+    let p = profile::save(&d.dirs, &p).unwrap();
+    let a = profile::activate(&d.dirs, &p.id, &d.g);
+    assert!(a.is_ok(), "{:?}", a.err());
+    assert!(a.unwrap().warnings.iter().any(|w| w.contains("cannot be read")));
+    assert_eq!(std::fs::read(elsewhere.join("config.txt")).unwrap(), b"radius=42", "the stash is left as it is");
 }
 
 /// A log or data file the plugin wrote beside itself is the player's, like its settings: it does not freeze the copy as
@@ -1240,9 +1339,13 @@ fn runtime_in_game(dirs: &DataDirs, g: &GameInstall, reader: Option<u32>, git: &
     let opts = kiln_manage::bundle::CreateOptions { source_date_epoch: 1_794_000_000, git: git.into() };
     let zip = kiln_manage::bundle::create(&s, &g.path.parent().unwrap().join(format!("out-{git}")), &opts).unwrap();
     let b = kiln_manage::bundle::import(dirs, &zip).unwrap();
+    // the core file the receipt lists, in the game, as an install leaves them
+    let core = format!("core {git}");
+    put(&g.path, "kiln/kiln-core.dll", core.as_bytes());
     put(&g.path, "kiln/.install.json", serde_json::to_string_pretty(&serde_json::json!({
         "format": 1, "installId": "c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b", "installed": "2026-11-11T00:00:00Z",
-        "runtime": { "version": b.version, "components": ["core"] }, "side": "client", "files": [],
+        "runtime": { "version": b.version, "components": ["core"] }, "side": "client",
+        "files": [{ "path": "kiln/kiln-core.dll", "sha256": kiln_manage::hash::sha256_hex(core.as_bytes()), "component": "core" }],
     })).unwrap().as_bytes());
     b.version
 }
@@ -1283,9 +1386,51 @@ fn a_runtime_rollback_rewrites_the_active_profile_for_the_older_core() {
     let eml = || profile::read_game_profile(&g.path).unwrap().unwrap().mods.eml[0].path.replace('\\', "/");
     assert_eq!(eml(), "../mods/auto-loot-plus");
     runtime_in_game(&d.dirs, &g, None, "e3d6185"); // rolled back to dev.23
-    kiln_manage::quick::resume_active(&d.dirs, &g).unwrap();
+    let a = kiln_manage::quick::resume_active(&d.dirs, &g).unwrap().expect("the activation of the rewrite, for the install's result");
+    assert_eq!(a.profile_id, "my-mods");
     assert_eq!(eml(), "profiles/my-mods/eml/auto-loot-plus");
     assert!(g.path.join("kiln/profiles/my-mods/eml/auto-loot-plus/mod.json").is_file(), "the copy the old core runs");
+}
+
+/// A dedicated server's active profile follows its runtime too: the rewrite after an install or rollback runs for every
+/// install kind, not only for a client.
+#[test]
+fn a_servers_active_profile_follows_its_runtime_too() {
+    let t = tmp("server-rollback");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let mut g = game_with_z(&t.0);
+    g.kind = GameKind::Server;
+    g.exe = "enshrouded_server.exe".into();
+    g.prefix = None;
+    g.path_mode = PathMode::Copy;
+    put(&g.path, "enshrouded_server.exe", b"MZ");
+    let r = library::import(&dirs, &[zip(&t, "alp-full", "AutoLootPlus 1.1.8")], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "Server mods", None).unwrap();
+    for r in r.imported {
+        p.mods.list_mut(r.kind).push(profile::ProfileMod { id: r.id, version: r.version, hash: r.hash, enabled: true });
+    }
+    let p = profile::save(&dirs, &p).unwrap();
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    let eml = || profile::read_game_profile(&g.path).unwrap().unwrap().mods.eml[0].path.replace('\\', "/");
+    assert_eq!(eml(), "../mods/auto-loot-plus");
+    runtime_in_game(&dirs, &g, None, "e3d6185"); // rolled back to dev.23
+    let a = kiln_manage::quick::resume_active(&dirs, &g);
+    assert!(a.as_ref().is_ok_and(|a| a.is_some()), "{a:?}");
+    assert_eq!(eml(), "profiles/server-mods/eml/auto-loot-plus");
+}
+
+/// An older runtime unzipped by hand over a launcher install keeps the newer receipt: the profile form the receipt's
+/// bundle reads is believed only while the core file in the game is the one the receipt lists.
+#[test]
+fn an_older_core_unzipped_over_an_install_gets_the_older_profile_form() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let p = my_mods(&d);
+    let path = || profile::render(&d.dirs, &p, &d.g, PathMode::Copy).unwrap().mods.eml[0].path.replace('\\', "/");
+    runtime_in_game(&d.dirs, &d.g, Some(2), "a633659");
+    assert_eq!(path(), "../mods/auto-loot-plus");
+    put(&d.g.path, "kiln/kiln-core.dll", b"core e3d6185, unzipped by hand");
+    assert_eq!(path(), "profiles/my-mods/eml/auto-loot-plus");
 }
 
 /// manage-import F5, native-core-sf F4/F5, docs-contracts F3: every Copy-mode profile.json the launcher writes for an

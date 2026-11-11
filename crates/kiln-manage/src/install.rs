@@ -1153,12 +1153,20 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
     let adopted: BTreeSet<String> =
         originals.iter().filter(|r| r.action == ReplacedAction::Adopted).map(|r| r.path.clone()).collect();
     originals.retain(|r| r.action != ReplacedAction::Adopted);
+    // the chained copy, the backup in the game folder, else that backup's second copy in the launcher's data folder
     let source = |r: &ReplacedFile| -> Option<PathBuf> {
         let ok = |p: PathBuf| file_sha(&p).is_some_and(|(h, _)| h == r.sha256).then_some(p);
+        let mirrored = |b: &String| b.strip_prefix(&format!("{}/", crate::paths::game::BACKUPS))
+            .map(|rest| dirs.backups().join("install").join(&receipt.install_id).join(rest));
         r.chain_path.as_ref().and_then(|c| ok(game_dir.join(c))).or_else(|| r.backup.as_ref().and_then(|b| ok(game_dir.join(b))))
+            .or_else(|| r.backup.as_ref().and_then(mirrored).and_then(ok))
     };
+    let in_place = |r: &ReplacedFile| file_sha(&game_dir.join(&r.path)).is_some_and(|(h, _)| h == r.sha256);
+    // a ShroudForge helper an early switch-from-ShroudForge displaced: a courtesy restore, as on install
+    let helper = |r: &ReplacedFile| r.class == Some(ReplacedClass::ShroudForge) && r.action == ReplacedAction::BackedUp
+        && matches!(r.path.as_str(), "dbghelp.dll" | "winmm.dll");
     for r in &originals {
-        if source(r).is_none() {
+        if source(r).is_none() && !in_place(r) && !helper(r) {
             return Err(Error::new(ErrorCode::HashMismatch, format!(
                 "cannot restore the original {}: neither {} nor {} holds it (sha256 {})",
                 r.path,
@@ -1198,7 +1206,16 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
     }
     for r in originals {
         let target = game_dir.join(&r.path);
-        let src = source(r).expect("checked above");
+        let Some(src) = source(r) else {
+            // let through above: already the original, or a ShroudForge helper with no backup left anywhere
+            if !in_place(r) {
+                let warning = format!("Did not restore ShroudForge's {}: its backup {} is missing or changed, and the launcher's backups hold no copy either.",
+                    r.path, r.backup.as_deref().unwrap_or("(none recorded)"));
+                progress.report(None, &warning);
+                report.warnings.push(warning);
+            }
+            continue;
+        };
         if occupied(&target)? {
             if file_sha(&target).is_some_and(|(h, _)| h == r.sha256) {
                 // Already the original (e.g. a recovered legacy SF helper): do not replace the same path again.

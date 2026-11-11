@@ -55,6 +55,7 @@ pub const NAMES: &[&str] = &[
     "profile_activate",
     "profile_deactivate",
     "profile_active",
+    "activation_notices",
     "library_list",
     "library_detect",
     "library_import",

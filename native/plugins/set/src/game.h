@@ -129,7 +129,10 @@ struct Blob {
     uint32_t rel, count, hash;
 };
 bool ready();
-bool scanned();  // ready()'s last answer without scanning or waiting: for threads that must not scan (the renderer)
+// ready()'s last answer without scanning or waiting, for threads that must not scan (the renderer, the main menu, where
+// a scan could also cache an incomplete list): Unchecked until a scan on the tick thread.
+enum class Scan : uint8_t { Unchecked, Found, None };
+Scan scanned();
 bool write(void* dst, const void* src, size_t n, uint32_t& prot);
 size_t count();
 uint8_t* data(const Entry& e, uint32_t* size = nullptr);

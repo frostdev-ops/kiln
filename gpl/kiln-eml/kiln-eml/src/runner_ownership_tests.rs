@@ -150,6 +150,8 @@ fn all_mods_dropped_leaves_a_restorable_set_written_by_another_loader() {
     let out = run(&g.cfg, mods, entries);
     assert_eq!((out.phase, out.restored), (Phase::Idle, false), "{out:?}");
     assert_eq!(g.archives(), live);
+    // R3: this idle branch says why it left the data too
+    assert!(out.reason.as_deref().is_some_and(|r| r.contains("no ownership receipt")), "{out:?}");
 }
 
 // F8, gate on the failed path: a run that fails without naming a mod (a game input changed while it ran) restores
@@ -218,8 +220,9 @@ fn sf_applied(g: &Game, mods: serde_json::Value) -> Utf8PathBuf {
     state
 }
 
-// SF asset mods and EML mods both active (hosted SF): both build on the same vanilla backup, so kiln-eml's publication
-// drops SF's asset patches. That must not be silent: the state names the SF mods this start's game data lacks.
+// kiln-eml publishes only in a start where ShroudForge does not run (hosted SF reserves the writer and kiln-eml stands
+// aside). If SF's state still says it prepared asset mods in an earlier start, this start's data drops them: the state
+// names them and says why.
 #[test]
 fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
     let g = published("sf-displaced", CONTENT);
@@ -230,7 +233,8 @@ fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
     assert_eq!((out.phase, out.error.as_deref()), (Phase::Done, None), "{out:?}");
     let reason = out.reason.as_deref().unwrap_or_default();
     assert!(reason.contains("better-chests 1.2.0") && reason.contains("unlock-blueprints 0.4.1"), "{reason:?}");
-    assert!(reason.contains("two full rewrites per start"), "{reason:?}");
+    assert!(reason.contains("ShroudForge did not run this start") && reason.contains("prepares them again the next time it runs"), "{reason:?}");
+    assert!(!reason.contains("every start") && !reason.contains("rewrites"), "{reason:?}");
     let json = serde_json::to_value(&out).unwrap();
     assert_eq!(json["sfDisplaced"], serde_json::json!(["better-chests 1.2.0", "unlock-blueprints 0.4.1"]));
     let sf: serde_json::Value = serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
@@ -244,4 +248,54 @@ fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
     assert!(serde_json::to_value(&out).unwrap().get("sfDisplaced").is_none());
     let unchanged = g.with_mod();
     assert_eq!((unchanged.phase, unchanged.cached, unchanged.reason.as_deref()), (Phase::Done, true, None), "{unchanged:?}");
+}
+
+// R1: adoption lists only the containers the adopted header references. A container file above them (a leftover of a
+// bigger earlier output, or a player's own) that the old cache happens to name by content is not that run's output.
+#[test]
+fn adoption_lists_only_the_containers_the_adopted_header_references() {
+    let g = Game::new("legacy-extra", CONTENT);
+    let extra = g.game().join("enshrouded_009.dat");
+    std::fs::write(&extra, "not written by that run").unwrap();
+    let out = g.with_mod();
+    assert_eq!(out.phase, Phase::Done, "{out:?}");
+    let cache: serde_json::Value = serde_json::from_slice(&std::fs::read(g.cfg.cache_dir.join("files.json")).unwrap()).unwrap();
+    assert!(cache["files"].get(extra.as_str()).is_some() && !cache["unread"].as_array().is_some_and(|u| u.iter().any(|p| p == extra.as_str())),
+        "the old cache names it by content");
+    g.as_released_before_receipts();
+    let out = g.without_mods();
+    assert_eq!((out.phase, out.restored), (Phase::Idle, true), "{out:?}");
+    assert_eq!(std::fs::read(&extra).unwrap(), b"not written by that run", "a file that run did not write stays");
+    assert!(!g.game().join("enshrouded_001.dat").exists(), "the container it wrote goes");
+}
+
+// R2: after a game update the backup is of the earlier build. The game data is not compared with it and nothing is
+// claimed about it: no reason (Steam's verify could not clear it anyway), one info line, `staleBackup` for the banner.
+#[test]
+fn a_backup_of_an_earlier_game_build_is_not_reported_as_unproven_data() {
+    let g = published("stale-backup", CONTENT);
+    assert!(g.without_mods().restored, "EML switched off once: vanilla data, backups and receipt stay");
+    // Steam updates the game: new vanilla files of another build
+    for entry in std::fs::read_dir(g.game()).unwrap().flatten() {
+        if entry.file_name().to_string_lossy().ends_with(".dat") { std::fs::remove_file(entry.path()).unwrap(); }
+    }
+    for name in ARCHIVES { std::fs::File::create(g.game().join(name)).unwrap(); }
+    let mut update = KFCWriter::<Rc<KFCFile>, _>::new(g.game().as_std_path(), "enshrouded", Rc::new(TypeRegistry::default()), "fixture 2").unwrap();
+    update.write_content(&ContentHash::from_data(b"updated blob"), b"updated blob").unwrap();
+    update.finalize().unwrap();
+    let live = g.archives();
+    for _ in 0..2 {
+        let out = g.without_mods();
+        assert_eq!((out.phase, out.restored, out.reason.as_deref()), (Phase::Idle, false, None), "{out:?}");
+        assert_eq!(serde_json::to_value(&out).unwrap()["staleBackup"], true);
+        assert_eq!(g.archives(), live);
+    }
+    // the next start with an EML mod makes a backup of the new build and patches from it (the fixture has no exe to read
+    // the new build's types from: give it their cache, as the exe of a real update would)
+    let mut types = TypeRegistry::default();
+    types.version = "fixture 2".into();
+    std::fs::write(g.cfg.cache_dir.join("enshrouded-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
+    let out = g.with_mod();
+    assert_eq!((out.phase, out.error.as_deref()), (Phase::Done, None), "{out:?}");
+    assert_eq!(std::fs::read(g.game().join("enshrouded.kfc.bak")).unwrap(), live[0]);
 }

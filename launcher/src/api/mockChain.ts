@@ -1,5 +1,6 @@
-// Mock answers for chain_view / chain_set_late (browser mock mode; src/api/mock.ts registers them). The game has two
-// [chain] entries (EMF's displaced proxy and XHL-Core); a profile's enabled dllmain natives are its [profile] entries.
+// Mock answers for chain_view / chain_set_late (browser mock mode; src/api/mock.ts registers them). The game has three
+// [chain] entries (EMF's displaced proxy, XHL-Core, and shroudlink's client addon in the installer's second chain slot,
+// still late from an older Kiln that allowed it); a profile's enabled dllmain natives are its [profile] entries.
 // The "last session" saw XHL-Core hook ChatLogAdd before Kiln, ReShade hook over a ShroudForge target, and
 // ShroudForge refuse SpawnNpc because FPS Unlock patched it first. Rules: the shipped "xhl-after-sf" (fires when the
 // profile runs ShroudForge mods) and a warn on the chat overlap.
@@ -14,10 +15,12 @@ interface Deps {
 
 const LIB = "Z:\\home\\player\\.local\\share\\kiln\\library\\native";
 /** [chain] entries the player loads late (game-wide in chain.ini). */
-const playerLate = new Set<string>();
-const CHAIN: { path: string; engine: string | null }[] = [
+const playerLate = new Set<string>(["chain\\shroudlink-dinput8-2.dll"]);
+/** gated: shroudlink's client addon (compat::is_gated_addon), never switched late. */
+const CHAIN: { path: string; engine: string | null; gated?: boolean }[] = [
   { path: "chain\\emf-dinput8.dll", engine: "emf" },
   { path: "chain\\xhl-core.dll", engine: null },
+  { path: "chain\\shroudlink-dinput8-2.dll", engine: null, gated: true },
 ];
 const file = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -44,11 +47,11 @@ function view(p: Profile, library: LibraryEntry[]): ChainView {
   const entries: ChainViewEntry[] = [
     ...CHAIN.map((c): ChainViewEntry => {
       const by = ruleLate(c.path) ? `rule:${ruleLate(c.path)!.id}` : playerLate.has(c.path.toLowerCase()) ? "player" : null;
-      return { path: c.path, file: file(c.path), section: "chain", engine: c.engine, modId: null, late: !!by, lateBy: by, offBy: null, loader: c.engine === "emf" };
+      return { path: c.path, file: file(c.path), section: "chain", engine: c.engine, modId: null, late: !!by, lateBy: by, offBy: null, loader: c.engine === "emf", gated: !!c.gated };
     }),
     ...profileEntries(p, library).map((e): ChainViewEntry => {
       const by = late.includes(e.id) ? "profile" : null;
-      return { path: e.path, file: file(e.path), section: "profile", engine: null, modId: e.id, late: !!by, lateBy: by, offBy: null, loader: false };
+      return { path: e.path, file: file(e.path), section: "profile", engine: null, modId: e.id, late: !!by, lateBy: by, offBy: null, loader: false, gated: false };
     }),
   ];
   const at = (module: string) => entries.find((e) => eq(e.file, module)) ?? null;
@@ -88,6 +91,7 @@ export function chainMockHandlers({ profiles, library, reject }: Deps): Record<s
       const e = view(p, library).entries.find((x) => eq(x.path, path)) ?? reject("not_found", `${path} is not in this profile's chain`);
       const on = !!a.late;
       if (on && e.loader) reject("invalid_argument", `${e.file} is EMF's loader: it starts EMF itself, so it always loads first.`);
+      if (on && e.gated) reject("invalid_argument", `${e.file} is shroudlink's client addon: it must find the game's functions before Kiln hooks them, and Kiln waits for it at the start. Loaded late, it switches its MODS tab off ("native UI disabled").`);
       if (e.section === "chain") {
         if (on) playerLate.add(e.path.toLowerCase());
         else playerLate.delete(e.path.toLowerCase());

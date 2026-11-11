@@ -3159,10 +3159,15 @@ std::vector<rt::Feature> rt::features() {
     out.push_back({"game_build", "Game Build " + std::to_string(build),
                    tested ? "" : "Not tested with this version: Each feature checks itself", tested, tested});
     const bool assets = kset::has("assets");
-    // The first ready() scans every resource type: only on the tick thread, never in a present (the tools' tabs).
-    const bool tick = kset::tickThread(), resources = tick ? res::ready() : res::scanned();
-    if (assets && !tick && !resources) gScanAsked = true;
-    add("resources", "Resources (Res)", assets, resources, assets ? "Not loaded yet" : "kiln.assets is not running");
+    // The first ready() scans every resource type: only on the tick thread, never in a present (the tools' tabs) or the
+    // main menu. Not checked yet counts as available, as it was for a mod at load (Res itself needs a world's thread);
+    // the SET tools and the report say "not checked yet", and the next tick of a world checks.
+    const bool tick = kset::tickThread();
+    const res::Scan scan = tick ? (res::ready() ? res::Scan::Found : res::Scan::None) : res::scanned();
+    const bool unchecked = assets && scan == res::Scan::Unchecked;
+    if (unchecked) gScanAsked = true;
+    add("resources", "Resources (Res)", assets, unchecked || scan == res::Scan::Found, assets ? "Not loaded yet" : "kiln.assets is not running");
+    out.back().unchecked = unchecked;
     add("english_names", "English Names (Res.text)", true, true, "");
     add("game_options", "Game Options (GameOptions)", false, false, "Not available on Kiln");
     add("field_of_view", "Live Field of View", false, false, "Needs GameOptions: Not available on Kiln");

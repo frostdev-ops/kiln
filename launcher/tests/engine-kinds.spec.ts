@@ -144,6 +144,20 @@ test("archive guidance gives the way back that works, and the writer's reason wh
   await expect(page.locator('[data-engine="eml"]')).toContainText("cannot prove it is its own EML output");
 });
 
+test("archive guidance names a backup of an earlier game build instead of unproven data", async ({ page }) => {
+  await page.addInitScript(() => {
+    const eml = { kind: "eml", plugin: "kiln-eml", file: "eml.json", state: { phase: "idle", staleBackup: true, mods: [] } };
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = { engine_status: Array.from({ length: 20 }, () => ({ result: [eml] })) };
+  });
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });
+  await expect(notice).toContainText("The backup is of an earlier game build");
+  await expect(notice).toContainText("Nothing needs doing");
+  await expect(notice).not.toContainText("Verify integrity");
+  await expect(notice).not.toContainText("On the last start without EML mods");
+});
+
 test("no removal guidance while the active profile runs an EML mod", async ({ page }) => {
   await desktop(page, "/profiles/ember-run/engines");
   const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });

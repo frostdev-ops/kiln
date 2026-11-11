@@ -113,6 +113,35 @@
  if(slurp(root/"two"/"settings.json.bad")!="{ nope")std::cerr<<"settings: the second broken file replaced settings.json.bad\n";
  assert(slurp(root/"two"/"settings.json.bad")=="{ nope"&&slurp(root/"two"/"settings.json.bad.2")=="{ second"&&logged("Renamed to settings.json.bad.2"));
  std::filesystem::remove(root/"two"/"settings.json.bad.2");
+ // A save that can't be written (a full disk, a quota) keeps the old settings.json and is tried again. The new text
+ // fits the stdio buffer, so the first real write is the flush; RLIMIT_FSIZE makes it fail as a full disk would.
+ {const auto dir=root/"fsz";std::filesystem::create_directories(dir);
+  const std::string old="{\n  \"a\": 1\n}\n";std::ofstream(dir/"settings.json")<<old;
+  mset::Page pg;pg.mod="fsz";pg.path=dir.string();pg.fields={{"a","a",mset::Int}};pg.fields[0].num=1;mset::define(pg);
+  assert(mset::set("fsz","a",1234567,"",false));logs.clear();
+  signal(SIGXFSZ,SIG_IGN);rlimit was{};getrlimit(RLIMIT_FSIZE,&was);rlimit small=was;small.rlim_cur=8;setrlimit(RLIMIT_FSIZE,&small);
+  mset::save(true,sink);
+  setrlimit(RLIMIT_FSIZE,&was);signal(SIGXFSZ,SIG_DFL);
+  if(slurp(dir/"settings.json")!=old)std::cerr<<"settings: a failed write replaced settings.json with ["<<slurp(dir/"settings.json")<<"]\n";
+  assert(slurp(dir/"settings.json")==old&&logged("Couldn't save fsz"));
+  mset::save(true,sink);assert(slurp(dir/"settings.json")=="{\n  \"a\": 1234567\n}\n");   // tried again
+  mset::drop("fsz",sink);std::filesystem::remove_all(dir);}
+ // The tick saves a changed page once a second, on the server's thread in a world. A save the mod's own writes cause
+ // (a counter it bumps every tick) is written and swapped in without a disk sync; one that follows an edit from the
+ // SET tools is synced, and so is a stopped mod's last save (reload, a failed load). Measured with a 25 ms sync.
+ {const auto dir=root/"sync";std::filesystem::create_directories(dir);
+  mset::Page pg;pg.mod="sync";pg.path=dir.string();pg.fields={{"a","a",mset::Int}};mset::define(pg);
+  auto timed=[&](auto fn){fsyncCalls=0;const auto t0=std::chrono::steady_clock::now();fn();return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();};
+  slowSyncMs=25;
+  const double byMod=timed([&]{for(int i=1;i<=5;++i){mset::set("sync","a",i,"",false);mset::save(true,sink);}});
+  const unsigned modSyncs=fsyncCalls;
+  std::cerr<<"settings sync: 5 saves of a mod's own writes "<<byMod<<" ms, "<<modSyncs<<" sync(s)\n";
+  assert(modSyncs==0&&slurp(dir/"settings.json")=="{\n  \"a\": 5\n}\n");
+  const double byTools=timed([&]{mset::set("sync","a",6,"",true);mset::save(true,sink);});
+  assert(fsyncCalls==1&&byTools>=25);mset::takeEdits();
+  timed([&]{mset::set("sync","a",7,"",false);mset::drop("sync",sink);});
+  assert(fsyncCalls==1&&slurp(dir/"settings.json")=="{\n  \"a\": 7\n}\n");
+  slowSyncMs=0;std::filesystem::remove_all(dir);}
  std::filesystem::remove(root/"two"/"settings.json");std::filesystem::remove(root/"two"/"settings.json.bad");
 
  // ---- Hooks.rule on a mod's own pattern ----

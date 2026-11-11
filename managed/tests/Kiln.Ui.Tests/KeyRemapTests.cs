@@ -27,6 +27,7 @@ public sealed class KeyRemapTests : IDisposable
     public void Dispose()
     {
         Remapping.SetValue(null, null);
+        UiEngine.EndMenuFrame();  // a test that drew the Keys tab leaves no frame open
         _binding.Dispose();
         Backend.Current = _previous;
         UiNative.ResetForTests();
@@ -74,6 +75,24 @@ public sealed class KeyRemapTests : IDisposable
         Assert.Null(Remapping.GetValue(null));
         FakeUiTable.MenuOpen = true;
         Assert.False(Press(0x4B));
+        Assert.Equal("F2", _binding.Key.ToString());
+    }
+    /// <summary>Escape closes the menu inside kiln.ui and no frame is built while it is closed, so the Keys tab is the
+    /// first to see that time passed: reopened later, it no longer waits for a key.</summary>
+    [Fact]
+    public void A_rebind_armed_before_the_menu_closed_is_gone_when_it_opens_again()
+    {
+        var ui = new UiDraw();
+        UiEngine.KeysTab(ui);  // the tab on screen; the player clicks the binding
+        Remapping.SetValue(null, _binding.Id);
+        UiEngine.KeysTab(ui);  // "press a key..." on screen
+        UiEngine.KeysTab(ui);  // the next frame: still waiting
+        Assert.Equal(_binding.Id, Remapping.GetValue(null));
+        Thread.Sleep(300);      // Escape: the menu is closed, nothing is drawn
+        FakeUiTable.MenuOpen = true;
+        UiEngine.KeysTab(ui);  // opened again on Keys
+        Assert.Null(Remapping.GetValue(null));
+        Assert.False(Press(0x09));  // Tab, to change section: not taken as the binding
         Assert.Equal("F2", _binding.Key.ToString());
     }
 }

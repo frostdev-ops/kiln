@@ -140,10 +140,14 @@ export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
   const eml = engines.data?.find((s) => s.kind === "eml")?.state;
   const unproven = isObj(eml) && eml.phase === "idle" ? str(eml.reason) : null;
+  // the backup is of an earlier game build (the game was updated since): nothing to compare or restore against
+  const stale = isObj(eml) && eml.phase === "idle" && eml.staleBackup === true;
   return (
     <Banner tone={unproven ? "warn" : "info"} title="Shared archive backup differs">
       {names} {patched.length === 1 ? "differs" : "differ"} from the shared backup; this does not identify which loader wrote it.
-      {unproven ? <>{" "}On the last start without EML mods: {unproven}.</> : <>
+      {stale ? <>{" "}The backup is of an earlier game build: the game was updated since it was made. Kiln does not compare
+        the game data with it and restores nothing from it; the next start with an EML mod makes a new backup. Nothing
+        needs doing.</> : unproven ? <>{" "}On the last start without EML mods: {unproven}.</> : <>
         {" "}To remove EML changes, disable EML mods and start the game through Kiln: its archive writer checks ownership and
         restores only output it can prove it wrote (earlier Kiln versions' too). When it cannot, it leaves the data alone
         and says why here; then enable any EML mod for one start and disable it again, or use Steam's "Verify integrity of

@@ -219,9 +219,9 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
 ```
 - Keys are written like `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Insert`, `Numpad5`, `Backquote`, `None`.
 - The player's choice is kept in `kiln/config/keybinds.json` (`{"bindings": {"mymod.toggle": "F9"}}`). The Kiln menu's
-  **Keys** tab remaps keys by press: click the key, press the new one; a second click cancels, and so does Escape, which
-  also closes the menu. A pending "press a key" ends whenever the Keys tab is not on screen, so a key pressed in play is
-  never taken for it.
+  **Keys** tab remaps keys by press: click the key, press the new one; a second click cancels. Escape cancels too and
+  closes the menu (kiln.ui closes it before Kiln.Ui sees the key). A pending "press a key" ends when the menu closes or
+  another section shows: a key pressed in play is never taken for it, and reopening the menu shows the key unchanged.
 - Handlers run on the game's main thread (the window thread) when the key goes down, but not while a Kiln text field
   has focus, and not while a Kiln screen has the input unless `WhileCapturing` is set.
 - A matching binding keeps the key from the game (`Consume`, default true), including its raw-input press.
@@ -257,11 +257,14 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     ShroudForge mods have an enabled switch and settings from `extended.mod.json`, grouped and conditionally enabled,
     with live/restart hints, typed options, text lengths and declared action buttons. An action is sent only while
     ShroudForge's runtime runs the mod in this game (its `state.json` lists it active), and only one request of Kiln's
-    per mod waits in ShroudForge's actions folder at a time (ShroudForge keeps a request it cannot hand over for ever). Slider writes settle for 350 ms;
+    per mod waits in ShroudForge's actions folder at a time, one left by an earlier game start included (ShroudForge keeps
+    a request it cannot hand over for ever and may run it at a later start; the page then says one is still waiting). Slider writes settle for 350 ms;
     text saves when the field loses focus (Tab and LB / RB do not switch sections while a field has the keyboard, and
     text typed into a field that goes away before it is left is dropped, never shown as the value); a field holds the whole value, and one too long to edit (64 KiB on one line,
     1 MiB in a text area) is shown, not edited. Choices use combos (including radio/segmented), colors use text, and SF
-    keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged.
+    keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged. A mod whose settings an earlier Kiln wrote without
+    their fraction (ShroudForge refuses such a mod) shows Failed, "needs repair", with a line on its page: changing any
+    setting or its switch once repairs it.
     Reads/writes are off the render thread, bounded to 2 MiB per package file, and refuse linked package files.
     Comments and formatting survive value edits. A profile-controlled switch is marked because profile activation
     reapplies it at launch. See [shroudforge.md](shroudforge.md) for SF shortcut/helper ownership and remaining client checks.
@@ -285,15 +288,19 @@ come from the profile and mods folder, with loader state from `enshwick.json`; a
 (a profile entry of another kind, a `native-plugin.ini`, a `mod.json`, or Kiln's placement marker of another kind) is
 not listed as Enshwick's. XHL companions (the profile's `mods.xhl`, and folders with XHL-Core's `native-plugin.ini` in
 `<game>/mods/`) are their own group: "placed for XHL-Core; Kiln does not load it", with the XHL-Core prerequisite, never
-Loaded, since Kiln never runs them and nothing reports whether XHL-Core did. A mod the
+Loaded, since Kiln never runs them and nothing reports whether XHL-Core did. A switched-off entry whose folder is still
+in `<game>/mods/` (XHL, EML mods a DLL reads there, Kiln's copy for Enshwick) says that a loader reading that folder may
+still run it. A mod the
 profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not
 loaded, with the reason. A file from an earlier start (another `pid`, or written before this process started) does not
 count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.
 
 Cost: no catalog refresh while the menu is closed. While it is open the list is read on a worker at most every 2 seconds;
-the selected SF package refreshes at most once per second. What the page needs of a package (its settings by key and
-group, which can be changed now, its texts cut to 2000 characters) is worked out when the package, an edit or an error
-changes, not per frame. A package with a value no reader can use (a string with an unpaired surrogate escape, a number
+the selected SF package refreshes at most once per second, and files whose bytes did not change make no new package.
+What the page needs of a package (its first 300 settings by group, which can be changed now, its texts cut to 2000
+characters) is made on the worker that read it, and again after an edit or an error (at once for a package of at most
+300 settings, on a worker for a larger one), never per frame. A package with more settings shows the first 300 and a
+line saying how many more it has. A package with a value no reader can use (a string with an unpaired surrogate escape, a number
 no double holds) is found on the read worker and shown as "cannot be shown", never thrown on the render thread. The render thread draws snapshots (no file access or waiting);
 rows are made when the list, filter or search change. SF's fallback shortcut worker watches host state at low frequency,
 then waits on its named toggle event with a two-second lifecycle check; it exits when SF stops or owns its own helper.

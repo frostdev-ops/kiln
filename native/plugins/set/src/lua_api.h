@@ -62,6 +62,7 @@ bool systemsAvailable();                             // the Systems window, any 
 struct Feature {
     std::string id, label, reason;  // reason: why compatible or available is false, else empty
     bool compatible, available;
+    bool unchecked = false;  // available only because nothing has been checked yet (the SET tools and report say so)
 };
 // The plugin's part: "overlay" (kiln.ui is there, on a client). Other ids are read from Kiln's services when asked,
 // and are ignored here. ready false: compatible, but not usable.

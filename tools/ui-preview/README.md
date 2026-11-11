@@ -9,7 +9,11 @@ tools/ui-preview/preview.sh                                  # every scene at 19
 tools/ui-preview/preview.sh --scene problems --size 2560x1440 --scale 1.25
 tools/ui-preview/preview.sh --font ~/fonts/Some.ttf          # another TTF for the game look
 tools/ui-preview/preview.sh --check-z                        # a window opened over the page (SET's tools) stays in front
-                                                             # when the page is clicked; exit 1 when the page covers it
+                                                             # when the page is clicked, and the menu opened over a mod's
+                                                             # full-screen screen is in front of it; exit 1 otherwise
+tools/ui-preview/preview.sh --check-text                     # types 3 KB into a ShroudForge text and text-area setting;
+                                                             # exit 1 when ImGui is given a buffer size its own copy of the
+                                                             # active text does not have (it would write past it)
 ```
 Output: `$KILN_OUT/preview/<scene>-<size>[@scale].png` (and a text summary of the mod list for some scenes);
 `KILN_OUT` defaults to `<repo>/.out`. Needs g++, python3 and the .NET SDK.

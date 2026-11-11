@@ -90,19 +90,39 @@ pub(crate) fn install_result(receipt: &InstallReceipt, report: &install::Install
 
 /// After an install: the profile the launcher remembers for the game becomes the active one again
 /// ([`kiln_manage::quick::resume_active`]), so a reinstall after an uninstall loads the player's mods without a step.
-/// Fails soft: the install stands whatever happens here. Returns the activation, if a profile was made active.
-fn resume_profile(d: &kiln_manage::paths::DataDirs, g: &GameInstall, p: &mut dyn Progress) -> Option<kiln_manage::profile::Activation> {
+/// Fails soft: the install stands whatever happens here. The active profile is written again for the runtime the game
+/// has now (any install kind). Returns `resumedProfile` (a remembered profile made active), the activation (resumed or
+/// written again: what it kept in the game folder) and a note when that could not be done, for the task's result.
+pub(crate) fn resume_profile(d: &kiln_manage::paths::DataDirs, g: &GameInstall, p: &mut dyn Progress)
+                             -> (Option<String>, Option<kiln_manage::profile::Activation>, Option<String>) {
+    let active_before = kiln_manage::profile::read_game_profile(&g.path).ok().flatten().is_some();
     match kiln_manage::quick::resume_active(d, g) {
-        Ok(Some(a)) => {
+        Ok(Some(a)) if !active_before => {
             p.report(Some(0.98), &format!("profile {} is active again", a.profile_id));
-            Some(a)
+            (Some(a.profile_id.clone()), Some(a), None)
         }
-        Ok(None) => None,
-        // the game started during the install: the player activates the profile later
-        Err(e) if e.code == ErrorCode::GameRunning => None,
+        Ok(a) => (None, a, None),
+        // the game started during the install: the next Play writes the profile again
+        Err(e) if e.code == ErrorCode::GameRunning => (None, None, Some(format!("The game is running: the profile is written again for this Kiln at the next Play ({}).", e.message))),
         Err(e) => {
-            eprintln!("runtime install: the remembered profile was not made active again: {e}");
-            None
+            let note = format!("The active or remembered profile was not written again for this Kiln: {}", e.message);
+            p.report(None, &note);
+            (None, None, Some(note))
+        }
+    }
+}
+
+/// Puts what [`resume_profile`] found into an install task's result: `resumedProfile`, `activation`, and its note
+/// among `warnings`.
+pub(crate) fn add_resumed(v: &mut serde_json::Value, (resumed, activation, note): (Option<String>, Option<kiln_manage::profile::Activation>, Option<String>)) {
+    if let Some(o) = v.as_object_mut() {
+        o.insert("resumedProfile".into(), serde_json::json!(resumed));
+        o.insert("activation".into(), serde_json::json!(activation));
+        if let Some(note) = note {
+            match o.get_mut("warnings").and_then(|w| w.as_array_mut()) {
+                Some(w) => w.push(note.into()),
+                None => { o.insert("warnings".into(), serde_json::json!([note])); }
+            }
         }
     }
 }
@@ -157,10 +177,7 @@ pub async fn runtime_install(app: AppHandle, game_id: String, version: String, o
         check_applied(&g, &b.version, &r, p)?;
         let resumed = resume_profile(&d, &g, p);
         let mut v = install_result(&r, &report)?;
-        if let Some(o) = v.as_object_mut() {
-            o.insert("resumedProfile".into(), serde_json::json!(resumed.as_ref().map(|a| &a.profile_id)));
-            o.insert("activation".into(), serde_json::json!(resumed));
-        }
+        add_resumed(&mut v, resumed);
         Ok(v)
     }))
 }
@@ -207,10 +224,7 @@ pub async fn runtime_rollback(app: AppHandle, game_id: String, version: String) 
         check_applied(&g, &b.version, &r, p)?;
         let resumed = resume_profile(&d, &g, p);
         let mut v = install_result(&r, &report)?;
-        if let Some(o) = v.as_object_mut() {
-            o.insert("resumedProfile".into(), serde_json::json!(resumed.as_ref().map(|a| &a.profile_id)));
-            o.insert("activation".into(), serde_json::json!(resumed));
-        }
+        add_resumed(&mut v, resumed);
         Ok(v)
     }))
 }

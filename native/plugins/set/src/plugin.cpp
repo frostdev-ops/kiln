@@ -259,7 +259,7 @@ void KILN_CALL on_ui_tick(uint64_t, void*) {
 void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
     if (!g_running.load()) return;
     setui::draw();
-    rt::setOverlayOpen((f && f->menu_open) || setui::isOpen());
+    rt::setOverlayOpen((f && f->menu_open) || setui::hasInput());  // the crash notice alone leaves mods their keys
     if (!rt::hasDraw()) return;
     if (rt::tryLockDraw()) rt::drawLocked();
 }
@@ -272,8 +272,11 @@ void KILN_CALL on_ready(void*) {
     const bool notified = g_modules.arm();
     g_gate.reset();
     g_aside = g_gate.startup();
+    // A client start that runs no SET says so in the session marker, so a crash in it is not blamed on SET next time.
+    const auto no_set = [] { if (g_api->side() == KILN_SIDE_CLIENT) setui::sessionOff(g_control); };
     if (!g_aside.empty()) {
         g_modules.disarm();
+        no_set();
         log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside + "; its Lua mods are SET's to run");
         write_state("stepped-aside", g_aside, {});
         return;
@@ -285,6 +288,7 @@ void KILN_CALL on_ready(void*) {
         const uint32_t mode = prof->mode();
         if (mode == KILN_PROFILE_NO_MODS || mode == KILN_PROFILE_INVALID) {
             g_modules.disarm();
+            no_set();
             const std::string why = mode == KILN_PROFILE_NO_MODS ? "play-once without mods" : "the profile is invalid";
             log(KILN_LOG_INFO, "kiln-set: no SET mods this start (" + why + ")");
             write_state("off", "no SET mods this start: " + why, {});

@@ -14,7 +14,7 @@ import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfil
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 import { useInstallPrompt } from "./firstRun";
 import { detailsAction, leftOutLine, names as nameList, summarize, usePickProfile } from "./importResult";
-import { notifyActivation } from "./notices";
+import { notifyActivation, notifyAdd } from "./notices";
 
 /** "Night Owl", "Night Owl and Dawn Lamp", "3 mods". */
 function names(m: { name: string }[]): string {
@@ -83,6 +83,7 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
   /** After the player picked a profile for a mod that only reached the Library. */
   const pickedAdd = (r: AddReport, game: GameInstall) => {
     refresh(r.profileId, game.id);
+    notifyAdd(r); // what writing the picked profile again kept in the game folder, and what else changed in it
     if (r.added.length) {
       toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, r.applied ? undefined : `${r.profileName ?? "It"} is not the active profile: turn it on on Play.`,
         { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
@@ -106,7 +107,7 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       r = await runTask<AddReport>(() => api.libraryAdd(game.id, paths), { failed: "Not added" });
     } catch { return null; }
     refresh(r.profileId, game.id);
-    notifyActivation(r.activation); // what writing the profile again kept in the game folder
+    notifyAdd(r); // what writing the profile again kept in the game folder, and what else changed in it
     if (r.modpacks.length) offerModpacks(game, r.modpacks);
     const found = [...r.import.imported, ...r.import.existing];
     const sum = summarize(r.import);
@@ -246,6 +247,7 @@ function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
     try {
       const r = await runTask<ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
       setDone(r);
+      notifyActivation(r.activation);
       invalidateGame(qc, game.id);
       qc.invalidateQueries({ queryKey: ["library_list"] });
     } catch { /* toasted */ } finally { setBusy(false); }
