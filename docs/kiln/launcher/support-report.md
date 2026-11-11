@@ -22,7 +22,7 @@ Code: `crates/kiln-manage/src/report.rs` (`build`, `redact`, `write_zip`), the T
 | `summary.txt` | readable in a post: findings, then the system, the game, Kiln in the game, the profile, the last start, sections that could not be read, the file list, what was left out |
 | `report.json` | the findings and the unreadable sections as JSON (`{format, written, tool, findings: [{id, level, text}], errors}`) |
 | `game/kiln/logs/kiln.log` | the last 1 MiB |
-| `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log` | the last 192 KiB |
+| `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log`, `game/shroudlink_client.log` | the last 192 KiB of each, when present; addon initialization, input and menu-state diagnostics use the same path/name/Steam ID/IP redaction as Kiln's logs |
 | `game/kiln/crash-reports/<newest>` | the last 64 KiB of the newest crash report |
 | `game/kiln/state/*.json` | every state file (boot, mods, native, last-server, hooks, each engine's), at most 1 MiB each |
 | `game/kiln/profile.json`, `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`, `dinput8-chain.ini` | as they are, redacted |

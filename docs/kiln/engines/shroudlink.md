@@ -58,6 +58,38 @@ loader; with `shroudlink_core.dll` in the game folder it is. In singleplayer the
 With kiln-shroudlink in the client and shroudlink mods present, Kiln's copy usually claims first and the addon's copy
 stays idle. That case is on the client checklist.
 
+### Client startup and input
+
+The addon scans the **live** executable on its own initialization thread. If Kiln hooks the item-registry lookup
+before that scan, shroudlink 0.8.0 reports `native UI disabled: pattern not found: 89 4C 24 08 ...` even though its
+host-link hooks initialized. Kiln now waits at the game entry point, outside the loader lock, after early native
+mods load and before serving its game hooks. This covers the normally imported `dllmain` addon and early native
+mods, not an addon explicitly configured to load after Kiln's hooks.
+
+The gate recognizes the addon's module-owned `shroudlink_shutdown` and `DirectInput8Create` exports. It proceeds
+when that copy logs a complete, current startup result or when its first UI hook demonstrably jumps into that
+copy. Stale/partial logs, unrelated hooks and forwarded exports are not readiness. The whole boot has one 10-second
+wait budget; an unrecognized or failed addon cannot block Kiln forever. No addon code or signature semantics are
+changed. `kiln/logs/kiln.log` records the outcome and `kiln/state/boot.json` includes `waitedFor` entries (`ready`,
+`hooked`, `switched-off` or `timeout`, elapsed milliseconds and an available diagnostic line).
+
+Kiln also leaves an addon's later window subclass above its own instead of reinstalling itself and forming a
+procedure loop. The headless real-DLL test exercises both subclass orders, keys, shutdown and hot reload. These
+checks do **not** establish that every missing MODS tab has the scan-order cause, nor verify rendered game menus.
+
+`native UI ready` means the addon installed its hooks, not that a later player-menu frame emitted the tab. The
+0.8.0 addon recognizes a row of exactly seven game tabs, remembers its last key/template, then appends Mods when
+that key is drawn. Its native-tab path returns without appending if the template's input action is `0x8b` (none).
+The actual-DLL harness reproduces both conditional suppression paths after successful initialization; it does not
+establish that any particular controller mode, game build or player report supplies those inputs. Server handshake
+and received menu entries do not gate the tab itself. Missing tab, empty shroudlink page, and Kiln's separate Mods
+page are different symptoms.
+
+Support reports include the bounded, redacted `shroudlink_client.log` when present. For a missing tab, reproduce
+once after closing Kiln's own menu, try the addon's configured MODS key (default `K`) in the player menu, then save
+a fresh report. A screenshot of the whole player tab row and whether keyboard/mouse differs from controller input
+help distinguish a tab-recognition issue from startup or input delivery; do not infer the cause from slot locking alone.
+
 ## Install a mod
 
 Unpack its zip into the server folder (`shroudlink_mods/<name>.dll`, or `shroudlink_mods/<name>/`), import it in the
@@ -87,7 +119,7 @@ shroudlink's mod API is the `shroudlink-sdk` crate: the `HostApi` table, the `Mo
 protocol to the addon (`shroudlink::ui`), and SDK helpers. Because the plugin *is* shroudlink's host, every item is
 implemented by shroudlink's own code. **Coverage: 23/23 host functions, 10/10 mod callbacks, 2/2 entry exports, 9/9
 server-to-addon messages, 10/10 UI node kinds: all implemented.** "Tested" names the evidence: `host` = host tests
-(`native/plugins/shroudlink/build.sh --test`, 10 tests under Wine, among them upstream's
+(`native/plugins/shroudlink/build.sh --test`, tests under Wine, among them upstream's
 `plugins::tests::example_plugin_round_trip` and `link_host::tests::full_session`); `lab` = shroudlink's own in-server
 self-test (`shroudlink_selftest` marker) on a Kiln lab server, build 26430253, 2026-11-07, `RESULT ok`.
 
@@ -172,6 +204,18 @@ without a Kiln C# equivalent.
 
 - `native/plugins/shroudlink/build.sh --test` (with `SHROUDLINK_SRC=<clone of v0.8.0>` to build the example mod):
   upstream's host tests plus Kiln's (profile rules, roots, EML detection, loading a real mod from a profile root).
+  The example-DLL tests can silently skip if `hello_mod.dll` is absent beside the test executable's `deps` folder;
+  check `--nocapture` output for `skipped: build hello_mod first`, especially with a separate Cargo build directory.
+- `KILN_OUT=<build-output> native/core/tests/test-foreign-scan.sh`: ASan/UBSan host tests for readiness parsing,
+  bounded hook attribution, success, failure, stale/partial logs and timeout behavior.
+- `KILN_OUT=<build-output> SHROUDLINK_ADDON=<existing-client-dinput8.dll> native/services/ui/tests/test-addon-wine.sh`:
+  optional Wine integration using the unmodified operator-supplied addon and production Kiln input/startup code.
+  Eight scenarios cover the scan-order failure and fix, both subclass orders, shutdown/reload, shared-budget timeout,
+  forwarded-export rejection, and actual addon tab-list/widget calls (six/seven/eight tabs, action-none suppression,
+  restored action, native K-label override and Kiln capture flags). The tab checks run without server/menu entries.
+  Synthetic source-backed game functions and message-only window discovery adapters need no game or display.
+  This is not a real-game render, layout/controller test, server connection or Storage/Assistants feature test.
+- `KILN_OUT=<build-output> native/services/ui/tests/run.sh`: Kiln's regular UI/input host regressions.
 - Lab: deploy Kiln (`tools/deploy-server.sh` builds `kiln-shroudlink` like every plugin), put mod DLLs built from
   shroudlink's repo (`cargo build --release` in its `mod/`) into `shroudlink_mods/`, create the file
   `shroudlink_selftest` next to the server exe and start it. `shroudlink_selftest.txt` ends with `RESULT ok`. The test
@@ -201,8 +245,8 @@ Nearby's thread/bounds harness is `native/plugins/shroudlink/tests/nearby/Nearby
 
 1. Server: lab or your server with Kiln + the shroudlink mods (no `steam_api64.dll` proxy). Client: shroudlink's
    addon `dinput8.dll` installed through Kiln (it lands in `kiln/chain/`). Join.
-2. The player menu shows the **MODS** tab with chestsort, assistants, storage, meter, gemforge. kiln.log on the
-   server: `[shroudlink] mod 'chestsort' registered` for each.
+2. The player menu shows the **Mods** tab with Chest categories, Assistants, Storage and Damage meter for the
+   bundled mods (gemforge has no menu entry). kiln.log on the server lists each of the five mod IDs as registered.
 3. Rename a chest "Ores", press quick stack: iron bars go in. Press `L` on a backpack slot: gold rim, and quick stack
    leaves it.
 4. MODS -> Storage lists the chests within 40 m; click an item: it comes from every chest.

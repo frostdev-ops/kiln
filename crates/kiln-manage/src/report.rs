@@ -10,7 +10,7 @@
 //! - [`write_zip`] (feature `zip`) writes the zip.
 //!
 //! Layout of the zip: `summary.txt` (for a forum post), `report.json` (findings and failed sections), `game/<path>`
-//! (tails of kiln.log, proxy.log, eml.log, the newest crash report; `kiln/state/*.json`, `kiln/profile.json`,
+//! (tails of kiln.log, proxy.log, eml.log, shroudlink_client.log, the newest crash report; `kiln/state/*.json`, `kiln/profile.json`,
 //! `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`), `launcher/launcher.log` (tail), `listings/*.txt` (names,
 //! sizes and times of the game folder's top level, `kiln/` two levels deep, each engine's mods folder).
 
@@ -29,7 +29,7 @@ use std::time::SystemTime;
 
 /// Tail of kiln.log in the zip.
 pub const KILN_LOG_MAX: u64 = 1 << 20;
-/// Tail of proxy.log, eml.log, launcher.log.
+/// Tail of proxy.log, eml.log, shroudlink_client.log, launcher.log.
 pub const SMALL_LOG_MAX: u64 = 192 * 1024;
 /// The newest crash report.
 pub const CRASH_MAX: u64 = 64 * 1024;
@@ -1257,6 +1257,9 @@ pub fn build(input: &ReportInput) -> Report {
     }
     let proxy_log = cx.add_tail(crate::paths::game::PROXY_LOG, SMALL_LOG_MAX);
     cx.add_tail("kiln/logs/eml.log", SMALL_LOG_MAX);
+    // Native UI initialization and later player-menu visibility are separate addon paths; kiln.log alone cannot
+    // distinguish them. Read only this bounded log, not the addon's key bindings or per-server mod settings.
+    cx.add_tail("shroudlink_client.log", SMALL_LOG_MAX);
     check_not_loaded(&mut cx, install.as_ref(), dirs.as_ref(), receipt.is_some() || dinput8.as_ref().is_some_and(|d| d.kind == ProxyKind::Kiln),
         boot.as_ref(), boot_time, proxy_log.is_some(), &facts);
     if receipt.is_some() {
