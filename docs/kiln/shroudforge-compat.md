@@ -310,6 +310,18 @@ statically. kiln-eml becomes relevant in three places:
 3. **SF's in-game API ported to Kiln's C# API (section 8).** It must not use kfc. Kiln's own reflection and type data
    (`kiln.assets`, typegen) cover it.
 
+**Limit: SF asset mods and EML mods do not combine (dev.24).** Both write the game's data files, and both build them
+from the same vanilla backup (`<exe>.kfc.bak`), so whoever writes second drops the other's patches. Under hosted SF the
+order in a start is fixed: SF prepares its startup asset mods first (in `kiln_plugin_early`), kiln-eml publishes its
+EML patches after it (in `on_ready`) and sets SF's prepared-output state to `failed`. The game therefore runs with the
+EML patches only, and the SF asset mods' changes are missing. On the next start SF sees `failed`, puts the vanilla
+backups back and prepares again, and kiln-eml replaces that again: two full rewrites of the game data every start,
+for nothing. It is not silent: kiln-eml writes `ShroudForge's asset mods <id> <version>, ... are not in this start's
+game data ...` as a warning into kiln.log and as `reason` (with the list in `sfDisplaced`) into
+`kiln/state/eml.json`, which the launcher's Engines row shows. To have the SF asset mods, turn off the EML mods, or
+the other way round. SF mods that change the game at run time only (no startup asset patch) are not affected.
+Combining both (one writer building on the other's output) is not designed yet.
+
 ## 8. API coverage
 
 Under Kiln every SF function runs as SF's own code (column "Under Kiln": **plugin** = hosted SF runtime). The Kiln C#

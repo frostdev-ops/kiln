@@ -97,7 +97,10 @@ The early step:
 
 kiln-eml publishes `kiln.eml` in its `kiln_plugin_early` and runs the mods in `on_ready`, so other early plugins can
 hand it mods first (section 6). It does not run with kiln.json `"plugins": false`, play-once no-mods, or an invalid
-profile. Later in the same boot the plugin step loads the DLL again: `kiln_plugin_main` returns OK and does nothing.
+profile. **Limit:** in those starts, and in a play-once vanilla start (no Kiln code at all), nothing puts the game data
+back, so the archives keep the last EML patch: such a start runs vanilla code on EML-patched data. To get truly vanilla
+data, switch the EML mods off in the active profile and start once normally through Kiln (that start restores what
+kiln-eml wrote), or use Steam's "Verify integrity of game files" ([client.md](client.md#boot-and-side)). Later in the same boot the plugin step loads the DLL again: `kiln_plugin_main` returns OK and does nothing.
 With an older kiln-core that has no early step, the run happens there instead, still before the game's entry point.
 
 ### Which mods
@@ -145,7 +148,10 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   and leaves the seal. Either way kiln-eml takes up the new pair by the unsealed rule (the live build, the live
   resource prefix) and seals it; a sealed pair counts as replaced, not damaged, only when the files' lengths differ
   from what the seal recorded, and a same-length mismatch stays refused. The old receipt then lists other backups, so
-  nothing is taken for EML's output and the old build's bytes never go back.
+  nothing is taken for EML's output and the old build's bytes never go back. ShroudForge writes its backup copies to
+  `<exe>.kfc.bak.partial` and `<exe>.kfc_resources.bak.partial` first (fork 112d939), and one can stay after a killed
+  start: kiln-eml looks up backups only by their exact names, so it never reads, seals, compares or restores from a
+  `.partial` file, and its tidy-up never removes one (it is SF's).
 - **Publication:** the writer builds privately in the game filesystem, flushes every output, publishes the vanilla
   header from its validated private snapshot before replacing mod-owned containers/resources, and publishes the
   patched header last. Vanilla containers
@@ -203,6 +209,14 @@ It fails soft:
   handoff, SF journals (`kiln/eml/ownership/sf-handoff-<uuid>.json`). The next run removes them under the install lock,
   by their exact shape only: a stage folder that holds anything but staged game files is left (with a warning in the
   log), and the 16 newest journals stay.
+- **ShroudForge asset mods and EML mods together** (hosted SF): both build the game data from the same vanilla
+  backup, so they do not combine. SF prepares its startup asset mods first in each start, kiln-eml publishes over them
+  and sets SF's state to `failed`; the game runs with the EML patches only. Every start SF prepares again and kiln-eml
+  replaces it again: two full rewrites of the game data per start. kiln-eml says so each time it happens, naming the
+  SF mods whose patches the start does not have: a warning in kiln.log (`kiln-eml: ShroudForge's asset mods ... are
+  not in this start's game data ...`) and `reason` plus `sfDisplaced` in `kiln/state/eml.json`, shown on the launcher's
+  Engines row. To have them, turn off either the EML mods or those SF asset mods. A merge of the two is not designed
+  yet ([shroudforge-compat.md](shroudforge-compat.md#7-what-shroudforge-needs-from-kiln-eml)).
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
@@ -425,9 +439,11 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
 - `kiln/state/eml.json` (format 1, for the launcher and `Kiln.Eml`):
   `{ pid, phase: done|failed|aside|idle|running, file, patched, cached, restored, ms, fingerprint, error, aside, reason, mods: [{ id, version, name, source, path, state, reason, capabilities }], progress }`
   ([schema](../../schema/state-eml.schema.json)). With phase `aside`, `mods` holds the profile's EML entries with state
-  `own-loader`, `not-loaded` or `disabled` (dev.22; before, it was empty). `reason` (dev.24, phase `idle` only, absent
-  otherwise): the game data differs from the vanilla backup and kiln-eml could not prove it wrote it, so it left it;
-  one sentence for the player with what to do (see "It fails soft").
+  `own-loader`, `not-loaded` or `disabled` (dev.22; before, it was empty). `reason` (dev.24, absent otherwise), one
+  sentence for the player: with phase `idle`, the game data differs from the vanilla backup and kiln-eml could not
+  prove it wrote it, so it left it, and what to do (see "It fails soft"); with phase `done`, the ShroudForge asset
+  mods whose patches this start's game data does not have, listed in `sfDisplaced` as `<id> <version>` (see
+  "ShroudForge asset mods and EML mods together" below).
   `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }` plus,
   since dev.22, `recordedFiles` and `recordedBytes` (files recorded by their stamp, not read): what reading the game's
   files for the change cache cost this start, and since dev.24 `ownershipBytes` (what the ownership receipt's SHA-256

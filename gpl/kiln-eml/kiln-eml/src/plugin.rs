@@ -501,6 +501,9 @@ fn run_now() {
         ),
     };
     klog(if out.phase == Phase::Failed { 1 } else if out.reason.is_some() { 2 } else { 3 }, &summary);
+    if out.phase == Phase::Done && let Some(reason) = &out.reason {
+        klog(2, &format!("kiln-eml: {reason}"));
+    }
     publish(&out, state.as_deref());
     enforce_startup_safety(&out);
 }

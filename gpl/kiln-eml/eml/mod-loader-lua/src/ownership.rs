@@ -11,7 +11,13 @@ thread_local! { static READ: std::cell::Cell<u64> = const { std::cell::Cell::new
 
 /// Bytes the ownership checks of this thread hashed since `reset_read` (they are outside the change cache's counter).
 pub(crate) fn read() -> u64 { READ.with(|r| r.get()) }
-pub(crate) fn reset_read() { READ.with(|r| r.set(0)); }
+pub(crate) fn reset_read() { READ.with(|r| r.set(0)); DISPLACED.with(|d| d.borrow_mut().clear()); }
+
+thread_local! { static DISPLACED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+/// The ShroudForge asset mods (`<id> <version>`) whose prepared output a publication of this thread replaced since
+/// `reset_read`: both loaders build on the same vanilla backup, so this start's game data does not have their patches.
+pub(crate) fn displaced() -> Vec<String> { DISPLACED.with(|d| d.borrow().clone()) }
 fn count(n: usize) { READ.with(|r| r.set(r.get() + n as u64)); }
 
 fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
@@ -282,7 +288,7 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         _ => None,
     };
     let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous };
-    let guard = if changed { handoff(root, stem)? } else { None };
+    let guard = if changed { handoff(root, stem, true)? } else { None };
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
     Ok(guard)
 }
@@ -524,7 +530,7 @@ pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGua
         let (backup, current) = (format!("{stem}.{extension}.bak"), format!("{stem}.{extension}"));
         let Some(size) = live.size(&backup)? else { continue };
         if live.size(&current)? != Some(size) || live.digest(&backup)? != live.digest(&current)? {
-            return handoff(root, stem);
+            return handoff(root, stem, false);
         }
     }
     Ok(None)
@@ -571,7 +577,8 @@ fn sf_publication_pending(root: &Path, stem: &str) -> io::Result<()> {
 // Only invalidate a recognized, unchanged prepared-output cache, never settings or the rest of state.json.
 // Keep the exact original bytes and replacement in a recovery journal. Do not restore a now-false "applied" claim.
 // Recognition follows SF's own rules (asset-preparation.schema.json, update_loader_state.rs); any other shape refuses.
-fn handoff(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
+// `publishing`: the archives are about to get EML's output (not vanilla data back): SF's asset mods drop out of them.
+fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGuard>> {
     let config_dir = root.join("shroudforge/config");
     let config_path = config_dir.join("modloader-config.json");
     checked_path(root, &config_path)?;
@@ -617,6 +624,10 @@ fn handoff(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
         !matches!(assets.get("phase").and_then(|v| v.as_str()), Some("prepare" | "startup")) {
         return Err(invalid("unknown ShroudForge prepared-output cache; refusing archive handoff"));
     }
+    let mods: Vec<String> = assets["mods"].as_array().into_iter().flatten().filter_map(|m| {
+        let id = m.get("id")?.as_str()?;
+        Some(match m.get("version").and_then(|v| v.as_str()) { Some(v) => format!("{id} {v}"), None => id.to_owned() })
+    }).collect();
     assets["status"] = "failed".into();
     assets["error"] = "Kiln's EML writer changed game data; ShroudForge must prepare its asset mods again".into();
     let replacement = serde_json::to_vec_pretty(&value)?;
@@ -626,6 +637,7 @@ fn handoff(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     if bounded(root, &state)? != original { return Err(invalid("ShroudForge state changed during handoff; original retained")); }
     super::transaction::atomic_write(&state, &replacement)?;
     tracing::info!(path = %state.display(), recovery = %recovery.display(), "Invalidated only ShroudForge's stale prepared-output cache before EML changed game data; settings retained");
+    if publishing && !mods.is_empty() { DISPLACED.with(|d| d.borrow_mut().extend(mods)); }
     Ok(Some(guard))
 }
 
@@ -839,6 +851,25 @@ mod tests {
             assert!(fs::read(root.join("g.kfc_resources")).unwrap().starts_with(&resources), "{what}");
             fs::remove_dir_all(root).unwrap();
         }
+    }
+    // ShroudForge (112d939) writes its backup copies to `<backup>.partial` first; one can stay after a killed start.
+    // They are SF's and never a backup to kiln-eml: not read, sealed, restored from, compared or removed.
+    #[test]
+    fn shroudforge_partial_backup_copies_are_never_backups_and_never_removed() {
+        let root = real_patch(2, &[b"content"]);
+        for n in ["g.kfc.bak.partial", "g.kfc_resources.bak.partial"] { fs::write(root.join(n), "half an SF copy").unwrap(); }
+        let seal = fs::read(root.join("g.kfc.bak.integrity")).unwrap();
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        assert!(owns_output(&root, "g").unwrap());
+        assert!(crate::load::create_backup(path.join("g.kfc")).is_ok());
+        assert_eq!(fs::read(root.join("g.kfc.bak.integrity")).unwrap(), seal, "the seal still describes the real pair");
+        prune(&root, "g");
+        assert!(crate::restore(path, "g"));
+        for n in ["g.kfc.bak.partial", "g.kfc_resources.bak.partial"] {
+            assert_eq!(fs::read(root.join(n)).unwrap(), b"half an SF copy", "{n} is SF's and stays");
+        }
+        assert_ne!(fs::read(root.join("g.kfc")).unwrap(), b"half an SF copy");
+        fs::remove_dir_all(root).unwrap();
     }
     // A damaged backup at the same game build (same length, other bytes) under its seal is still refused.
     #[test]
@@ -1137,7 +1168,7 @@ mod tests {
         let (root, _) = fixture();
         let (state, _) = sf(&root, false);
         fs::create_dir_all(root.join("shroudforge/runtime")).unwrap();
-        let guard = handoff(&root, "g").unwrap();
+        let guard = handoff(&root, "g", true).unwrap();
         assert!(guard.is_some());
         let busy = || fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap().try_lock().is_err();
         assert!(busy());

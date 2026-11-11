@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "pid": 4120,
+  "kilnEml": "0.1.0",
+  "eml": "0.2.0",
+  "phase": "done",
+  "file": "enshrouded",
+  "patched": 3,
+  "cached": false,
+  "restored": false,
+  "ms": 18342.0,
+  "fingerprint": {
+    "hashedBytes": 235929600,
+    "hashedFiles": 2,
+    "reusedFiles": 0,
+    "reusedBytes": 0,
+    "recordedFiles": 55,
+    "recordedBytes": 51539607552,
+    "ms": 1180.0,
+    "ownershipBytes": 471859200
+  },
+  "error": null,
+  "aside": null,
+  "reason": "ShroudForge's asset mods better-chests 1.2.0, unlock-blueprints 0.4.1 are not in this start's game data: kiln-eml's EML patches replaced what ShroudForge prepared, because both build on the same vanilla backup. Every start ShroudForge prepares them again and kiln-eml replaces them again (two full rewrites per start). To have them, turn off either the EML mods or those ShroudForge asset mods",
+  "sfDisplaced": [
+    "better-chests 1.2.0",
+    "unlock-blueprints 0.4.1"
+  ],
+  "mods": [
+    {
+      "id": "HoardersHelper",
+      "version": "1.2.0",
+      "name": "Hoarder's Helper",
+      "source": "profile",
+      "path": "S:\\steamapps\\common\\Enshrouded\\mods\\HoardersHelper",
+      "state": "loaded",
+      "reason": null,
+      "capabilities": [
+        "patch"
+      ]
+    }
+  ]
+}

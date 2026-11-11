@@ -208,3 +208,40 @@ fn an_earlier_cache_proves_only_a_patch_run_of_this_stem_that_read_the_output() 
         assert!(!g.receipt().exists(), "{what}");
     }
 }
+
+/// ShroudForge's state after it prepared its asset mods for this target (asset-preparation.schema.json).
+fn sf_applied(g: &Game, mods: serde_json::Value) -> Utf8PathBuf {
+    let state = g.game().join("shroudforge/state.json");
+    std::fs::create_dir_all(g.game().join("shroudforge/config")).unwrap();
+    std::fs::write(&state, serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"assets":{"schemaVersion":1,
+        "status":"applied","phase":"startup","target":"enshrouded","fingerprint":"a".repeat(64),"completedAt":42,"mods":mods}})).unwrap()).unwrap();
+    state
+}
+
+// SF asset mods and EML mods both active (hosted SF): both build on the same vanilla backup, so kiln-eml's publication
+// drops SF's asset patches. That must not be silent: the state names the SF mods this start's game data lacks.
+#[test]
+fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
+    let g = published("sf-displaced", CONTENT);
+    let state = sf_applied(&g, serde_json::json!([{"id":"better-chests","version":"1.2.0"},{"id":"unlock-blueprints","version":"0.4.1"}]));
+    // a changed EML mod: this start publishes over what SF prepared
+    std::fs::write(g.root.join("mods/a/src/mod.lua"), r#"game.assets.create_content(buffer.wrap("another content"))"#).unwrap();
+    let out = g.with_mod();
+    assert_eq!((out.phase, out.error.as_deref()), (Phase::Done, None), "{out:?}");
+    let reason = out.reason.as_deref().unwrap_or_default();
+    assert!(reason.contains("better-chests 1.2.0") && reason.contains("unlock-blueprints 0.4.1"), "{reason:?}");
+    assert!(reason.contains("two full rewrites per start"), "{reason:?}");
+    let json = serde_json::to_value(&out).unwrap();
+    assert_eq!(json["sfDisplaced"], serde_json::json!(["better-chests 1.2.0", "unlock-blueprints 0.4.1"]));
+    let sf: serde_json::Value = serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
+    assert_eq!(sf["assets"]["status"], "failed", "SF prepares again next start");
+    // nothing to name: an SF state with no asset mods, and a start that publishes nothing new
+    let g = published("sf-none", CONTENT);
+    sf_applied(&g, serde_json::json!([]));
+    std::fs::write(g.root.join("mods/a/src/mod.lua"), r#"game.assets.create_content(buffer.wrap("another content"))"#).unwrap();
+    let out = g.with_mod();
+    assert_eq!((out.phase, out.reason.as_deref()), (Phase::Done, None), "{out:?}");
+    assert!(serde_json::to_value(&out).unwrap().get("sfDisplaced").is_none());
+    let unchanged = g.with_mod();
+    assert_eq!((unchanged.phase, unchanged.cached, unchanged.reason.as_deref()), (Phase::Done, true, None), "{unchanged:?}");
+}
