@@ -102,6 +102,13 @@ pub fn create_backup(
     kfc_path: impl AsRef<Path>
 ) -> Result<PathBuf, ()> {
     let path = kfc_path.as_ref();
+    // kiln-eml: baseline writes happen before final publication. SF's lock/status must protect this shared pair too,
+    // or a refused handoff can already have replaced the backups an active SF preparation is using.
+    let root = path.parent().ok_or(())?;
+    let stem = path.file_stem().ok_or(())?;
+    let _sf = crate::ownership::before_baseline(root.as_std_path(), stem).map_err(|error| {
+        error!(%error, "Refusing vanilla backup changes while ShroudForge owns the archive writer");
+    })?;
     let mut bak_path = path.to_string();
     bak_path.push_str(".bak");
     let bak_path = Path::new(&bak_path);

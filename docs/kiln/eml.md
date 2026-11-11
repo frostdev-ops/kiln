@@ -250,8 +250,10 @@ It fails soft:
   backup is stale. Inspect them before manual cleanup; Steam verification can leave extra containers behind.
 - **Writer handoff:** exact output/backup SHA-256 receipts live in `kiln/eml/ownership/`. Before changing archives,
   kiln-eml invalidates only a recognized ShroudForge prepared-asset cache under ShroudForge's installation lock.
-  Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. Unknown
-  schemas, busy locks and unsafe paths refuse the handoff. This does not automatically repair pre-existing stale SF state.
+  Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. The same
+  lock and state checks protect shared backup capture and resealing, before publication; checking or refreshing a
+  baseline alone does not invalidate SF's applied state. Unknown schemas, busy locks and unsafe paths refuse the work.
+  This does not automatically repair pre-existing stale SF state.
 - **Launcher:** an archive differing from a shared backup does not prove EML wrote it. The old direct-restore command
   now refuses instead of copying a header without its resources, ownership checks or loader-state handoff. Disable EML
   mods and start the game through Kiln to let its archive writer restore proven EML output; when it cannot prove it,

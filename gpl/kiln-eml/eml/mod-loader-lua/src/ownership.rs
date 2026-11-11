@@ -534,6 +534,13 @@ pub(crate) fn remove_unreferenced(root: &Path, stem: &str, files: &BTreeMap<Stri
     Ok(())
 }
 
+/// Capture or reseal shared vanilla backups only while SF cannot begin preparing or replace the pair itself.
+/// Taking the lock is not a handoff: no live archive changes here, so leave an applied SF state unchanged.
+pub(crate) fn before_baseline(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
+    check_stem(stem)?;
+    handoff(root, stem, false, false)
+}
+
 /// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
 pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
@@ -743,6 +750,30 @@ pub(crate) mod tests {
         patch.finalize().unwrap();
         assert!(owns_output(&root, "g").unwrap());
         (root, header, resources)
+    }
+    #[test]
+    fn baseline_refresh_cannot_replace_shared_backups_while_sf_is_busy_or_preparing() {
+        for busy in [true, false] {
+            let (root, _, _) = real_published();
+            let header = root.join("g.kfc");
+            let mut updated = fs::read(&header).unwrap();
+            let version = updated.windows(7).position(|w| w == b"fixture").unwrap();
+            updated[version..version + 7].copy_from_slice(b"updated");
+            fs::write(&header, updated).unwrap();
+            let snapshot = || ["g.kfc.bak", "g.kfc_resources.bak", "g.kfc.bak.integrity"].map(|n| fs::read(root.join(n)).unwrap());
+            let before = snapshot();
+            let lock = fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+            if busy { lock.lock().unwrap(); }
+            else {
+                fs::write(root.join("shroudforge/state.json"), br#"{"schemaVersion":1,"assets":{"schemaVersion":1,"status":"preparing","target":"g"}}"#).unwrap();
+            }
+            let path = camino::Utf8Path::from_path(&header).unwrap();
+            let result = crate::load::create_backup(path);
+            assert!(snapshot() == before, "shared backups changed while ShroudForge was busy/preparing, busy={busy}");
+            assert!(result.is_err(), "an active SF writer must refuse baseline capture, busy={busy}");
+            drop(lock);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     /// A real publication over a vanilla pair of `vanilla` containers (one content each), with `content` new blobs.
     /// The writer pads the container count to a power of two with empty files, as on a real client (55 + 1 -> 64).
