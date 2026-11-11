@@ -89,7 +89,11 @@ inline UINT GetSystemDirectoryW(wchar_t* out, UINT n) {
     if (loader_test::system.size() >= n) return n;
     std::wcscpy(out, loader_test::system.c_str()); return loader_test::system.size();
 }
-inline bool GetModuleHandleExW(DWORD, LPCWSTR, HMODULE* out) { *out = reinterpret_cast<void*>(1); return true; }
+inline bool GetModuleHandleExW(DWORD flags, LPCWSTR address, HMODULE* out) {
+    *out = flags & GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT ? reinterpret_cast<void*>(1) : const_cast<wchar_t*>(address);
+    return true;
+}
+inline bool FreeLibrary(HMODULE) { return true; }
 inline HMODULE GetModuleHandleW(LPCWSTR name) {
     return name && std::wstring(name) == L"ntdll.dll" ? loader_test::ntdll : nullptr;
 }

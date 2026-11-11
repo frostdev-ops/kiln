@@ -100,16 +100,21 @@ inline Inspection inspect_runtime() {
     std::map<std::filesystem::path, Marker> current;
     do {
         if (mod.hModule == self) continue;
+        // A Toolhelp snapshot does not keep its modules loaded. Hold a reference until the image/export reads finish.
+        HMODULE held = nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(mod.hModule), &held))
+            return failed("a loaded module could not be retained for inspection");
+        struct Release { HMODULE h; ~Release() { FreeLibrary(h); } } release{held};
         wchar_t module_path[32768]{};
-        const DWORD length = GetModuleFileNameW(mod.hModule, module_path, 32768);
+        const DWORD length = GetModuleFileNameW(held, module_path, 32768);
         if (!length || length >= 32768) return failed("a loaded module's path could not be inspected");
         const std::filesystem::path file(module_path);
         // Wine's builtin powrprof.dll reports a game-folder powrprof.dll's path without running that file: only a
         // module whose mapped image is the file at its path counts (module_image.h).
-        if (!kcompat::module_is_file(mod.hModule, file)) continue;
+        if (!kcompat::module_is_file(held, file)) continue;
         if (kset::power_proxy(file, system)) return foreign("a non-system powrprof.dll is loaded (" + utf8(file) + ")");
         // Kiln's own files name SET too (kiln\host\Kiln.Ui.dll's mod catalogue, plugins, the proxy): never SET's runtime.
-        if (kcompat::kiln_own_module(mod.hModule, file)) continue;
+        if (kcompat::kiln_own_module(held, file)) continue;
         std::error_code ec;
         if (std::filesystem::equivalent(file.parent_path(), system, ec) && !ec) continue;
         auto it = inspected.find(file);
