@@ -322,6 +322,58 @@ or huge, and the client's health-bar line of sight then runs for seconds per ent
 camera, health-bar line of sight, and a frozen client").
 Not done: a hit still ends a glide (the hit list could be hidden from the step, but its layout was not followed).
 
+### 7.1 The glider's pitch: `actor_rotation` **[refl] [dis] [cap]**
+The glide step above never turns the glider. Its orientation is integrated in `actor_rotation` (descriptor server
+`0x133e3b0` / client `0x1de6a00`, name `actor_rotation`, update at +0x10 = `0x80720` / `0x26e620`, flags 0: no host-only
+bit, so a client's prediction runs it too; reads `ActorInput`, optional `PlayerInput`, writes `Actor`,
+`CurrentTransform`) **[dis]**. The two functions are the same code: instruction by instruction over the glider branch
+(`0x81300`-`0x81a00` / `0x26f200`-`0x26f900`) only call targets differ, every operand, displacement and constant is the
+same **[dis]**. A sweep of both `.text` sections finds no other reader of the glider's three rates **[dis]** (the
+researcher's sweep; the hook site's reads were rechecked).
+
+**The glider branch, per step** (server RVAs) **[dis]**:
+- **Measure** (`0x81394`-`0x814e2`): yaw `-atan2(...)` into `[rsp+0x40]`, pitch `sign x acos(F . F_horizontal)` into
+  `[rsp+0x70]` (-90..90 degrees, + = nose down), roll; from `CurrentTransform`'s rotation against gravity. The four
+  helpers are taken to be atan2/acos/fmod/sin **[hyp]**.
+- **Inputs** (`0x815a6`): `[rbp-0x28]` = ActorInput; `desiredLocalMoveInput` x, y at +0x18c (x stored at
+  `[rbp+0xc60]`), z at +0x194 into edx (W +1, S -1); `[rbp+0x10]` = PlayerInput (null for anything but a player: mode
+  0), `fromClient.movementStickInputMode` at +0x2c8 into al (`keen::ecs::DirectionalInputMode`: 0
+  `YawSpeedPitchSpeed`, 1 `YawSpeedPitchTargetAngle` **[refl]**; reflection: `fromClient` +8, `movementStick` +0x2b8,
+  the mode +0x2c0). xmm14 = the pitch, xmm10 = dt (`[rbp+0x1688]`, the step's ns x 1e-9), rdi = the glider's
+  ItemInfo (`gliderConfig` at +0x4c0: `yawAngleSpeed` +0x4d0, `pitchAngleSpeed` +0x4d4, `rollAngleSpeed` +0x4d8
+  **[refl]**).
+- **Targets** (`0x815e0`-`0x8165c`): yaw `yaw - yawAngleSpeed x deg2rad x x x dt`; pitch by mode: 0 `pitch +
+  pitchAngleSpeed x deg2rad x z x dt`, 1 `z x pi/2`, any other value the pitch itself; roll `-x x 55 degrees`. A
+  turbulence branch (`[rbp-0x80]` non-null) adds to yaw and roll; its pitch term is multiplied by xmm12 = 0
+  (`xorps xmm12, xmm12` in the prologue), so nothing.
+- **Bound** (`0x817d8`-`0x81823`): the pitch target is clamped to 5..80 degrees nose down (`0.0872665`, `1.3962634`),
+  or set to 5 degrees when the y of a vector from `0x162aa0` (taken to be the `Impulse` sum **[hyp]**) is above 0.
+- **Step** (`0x8189e`-`0x818ed`): `xmm2 = pitchAngleSpeed x deg2rad (xmm4) x dt (xmm10)`, `xmm6 = target - xmm14`; if
+  `|xmm6| > xmm2` then `xmm6 = sign x xmm2` (0 stays 0). So a negative rate gives a step away from the target, a rate
+  of 0 none (what SF Unlimited Flight writes into the shared ItemInfo).
+- **Use** (`0x81a55`): `addss xmm6, xmm14`: the new pitch, the angle of the rebuilt orientation's pitch rotation (yaw,
+  pitch, roll), written as the rotation target; xmm6 and xmm14 are not written between `0x818f1` and there (callee-saved
+  registers across the calls) **[dis]**.
+
+**Kiln's change** (`native/services/rules/steer.cpp`; the math `glide_steer_math.h`): a mid hook on `0x818f1` / client
+`0x26f7f1`, the roll-rate load `movss xmm2, [rdi+0x4d8]` (8 bytes; the only branch to it is the step's `jbe` at
+`0x818ca`, none lands inside it). For an entity whose rules have `GLIDE_STEER` (keyed as the glide step's: the
+per-entity rules, else the local player's for the local player) it replaces xmm6 with `steer_step(xmm6, xmm14, xmm2, z,
+mode, limit)`: S `-min(xmm2 x |z|, pitch + limit)`, centred (`|z| <= 0.1`) drops a positive step while the pitch is
+below 5 degrees, W keeps the game's step, a nose above the limit comes back at xmm2; mode != 0, a non-finite value or
+`xmm2 <= 0` keeps the game's step. Only xmm6 changes, only to a finite value; the ItemInfo is never written. The
+ProgramContext is its home slot `[rbp+0x1670]` (the prologue's `mov [rsp+8], rcx`, two pushes, `lea rbp, [rsp-0x1658]`),
+which the function passes to `CurrentEntityId` itself (`0x82001`); the install checks that call's target is
+`rules/CurrentEntityId`. **[cap]** for the layout, **[dis]** for the roles. Not seen at runtime: the prediction world
+running this program for the local player (follows from flags 0, as for the glide step), the order of
+`actor_rotation` and `locomotion_execution` within a step (at most one step of lag either way), and which devices
+send mode 1 (taken to be gyro aiming: the options have `InputSettingsGyroDeviceConfiguration.glider` **[hyp]**).
+
+With steering, the glide step's `GLIDE_BOOST` is not the plane path: after the game's step it only raises the speed along
+F (the nose) while sprint is held, limits the slow-down above the game's speed by `glide_coast`, and caps the climb rate
+while boosting; `glide_sink` 0 no longer holds the altitude. The rules reach both worlds only together: Kiln.Rules
+strips `GLIDE_STEER` for a player whose game has not confirmed the hook (kiln:rules message 2).
+
 ## 8. Signatures
 `sigdb/symbols/server.d/rules.json`, unique on the server and the client; `client.d/rules.json` extends it with the
 client's two guards (docs/re/client.md):
@@ -340,6 +392,9 @@ client's two guards (docs/re/client.md):
 | `@rules/Input.stick` (`rules/input.stick` 0x2c0, the second capture beside `@rules/Loco.input`; the write to `ActorInput.desiredLocalMoveInput` 0x18c / 0x194 is literal) | `0xcd6c1` | `0x2e1721` | `rules.glide_stick` (optional: without it the plane takes the camera's pitch) |
 | `@rules/Input.camera` (`rules/input.camera_rot` 0x40, `rules/input.attack_dir` 0x5ad fixed; `QuatRotate` captured again) | `0xd2cde` | `0x2e6d3e` | `rules.glide_view` (optional: without it the plane takes F's pitch) |
 | `rules/GlideStamina` (offset 88) | `0xdcfda` | `0x2f103a` | `rules.glide` |
+| `rules/GlideSteerInput` (`rules/rot.actor_input` 0xd8 = -0x28, `rules/rot.move_z` 0x194, `rules/rot.player_input` 0x10, `rules/input.stick_mode` 0x2c8, `rules/glider.yaw_speed` 0x4d0, `rules/glider.pitch_speed` 0x4d4) | `0x815a6` | `0x26f4a6` | `rules.glide_steer` (optional: without it no steering, GlideSteer is denied) |
+| `rules/GlideSteer` (offset 83, scoped to `rules/GlideSteerInput`; `rules/glider.pitch_speed` again, 2 votes; `rules/glider.roll_speed` 0x4d8) | `0x818f1` | `0x26f7f1` | `rules.glide_steer` |
+| `@rules/GlideSteer.ctx` (scoped to `rules/GlideSteer` + 2048; `rules/rot.ctx` 0x1670; the call's target captured as `rules/GlideSteerEntityId`, which must be `rules/CurrentEntityId`) | `0x82001` | `0x26ff01` | `rules.glide_steer` |
 | `rules/ApplyMaterials` | `0x22d480` | `0x495f20` | `rules.costs` (+ `items/tx.operator`, `world/programs.*`) |
 | `rules/TerrainDamage` | `0x22c970` | `0x495410` | `rules.dig` (+ `gameplay/TerraformImpact` and its argument constants) |
 | `rules/client.HealthbarRay` (offset 73, scoped to `rules/client.Healthbar` `0x30bd70`; `rules/client.LineOfSight` `0xe88ee0` checked; `rules/client.hb.player_z` 0x278 fixed) | - | `0x30c4af` | `rules.healthbar_guard` (client.d only) |
