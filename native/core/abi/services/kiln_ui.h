@@ -741,7 +741,8 @@ typedef struct KilnUiApi {
      *     each button message; a click usually arrives both ways too.
      *   - FOCUS_LOST: on WM_KILLFOCUS or WM_ACTIVATEAPP with wparam 0, once per loss: the second of the two messages
      *     of one loss gives no record. The next loss gives one again after WM_SETFOCUS, WM_ACTIVATEAPP with wparam
-     *     other than 0, or any key or button record.
+     *     other than 0, or any key or button record. Coalesced per subscription: a new subscriber gets its first loss
+     *     without rearming existing subscribers.
      *   Only what reaches Kiln's procedure: a module that subclassed the window above Kiln and keeps a message from it
      *   keeps it from fn too. Characters, mouse motion and the wheel are not delivered. While nobody subscribed the
      *   window procedure pays one relaxed load per message. A fault in fn removes the subscription, with a log line.

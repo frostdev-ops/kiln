@@ -463,6 +463,14 @@ void lifetime() {
     check(got.lines == second.lines && got.lines.size() == 1, "two subscribers get the same records");
     // A new subscription starts with the focus as "not lost": its first loss gives a record.
     send(WM_KILLFOCUS, 0, 0);
+    const auto old_loss = got.lines;
+    Got late;
+    KilnHandle hl = 0;
+    kui::input_feed_subscribe(5, &collect, &late, &hl);
+    send(WM_ACTIVATEAPP, FALSE, 0);  // the second notification of the same loss, with a new subscriber in between
+    check(got.lines == old_loss, "adding a subscriber does not deliver the same focus loss twice to existing subscribers");
+    check(late.lines == std::vector<std::string>{"focus-lost 001c 0"}, "the late subscriber gets its first loss notification");
+    kui::input_feed_unsubscribe(hl);
     kui::input_feed_unsubscribe(hg);
     kui::input_feed_unsubscribe(h2);
     Got fresh;
