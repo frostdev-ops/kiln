@@ -135,7 +135,8 @@ pub fn owns_output(root: &Path, stem: &str) -> io::Result<bool> {
 }
 
 /// Write ahead: only the exact staged set can later match this proof, including after a publication failure.
-pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<()> {
+/// The returned guard (SF's locks, when SF's state was handed over) is held until the last archive is published.
+pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
     let path = directory(root)?.join(format!("{stem}.json"));
     if path.try_exists()? {
@@ -159,43 +160,70 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         return Err(invalid("incomplete EML output set"));
     }
     let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: backups(root, stem)? };
-    if changed { invalidate_sf(root, stem)?; }
+    let guard = if changed { handoff(root, stem)? } else { None };
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
-    Ok(())
+    Ok(guard)
 }
 
-pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<()> {
+/// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
+pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
     for extension in ["kfc", "kfc_resources"] {
         let backup = root.join(format!("{stem}.{extension}.bak"));
         if backup.try_exists()? && digest(root, &backup)? != digest(root, &root.join(format!("{stem}.{extension}")))? {
-            return invalidate_sf(root, stem);
+            return handoff(root, stem);
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+/// ShroudForge's own locks, held from the state edit until the last archive write is done. SF writes `preparing`
+/// under the write lock before its standalone prepare touches an archive, and its startup pass writes the archives
+/// holding `<runtime>/startup-assets.lock` (lock_startup_assets.rs): with both held, no SF preparation interleaves.
+pub(crate) struct SfGuard { _write: fs::File, _lease: Option<fs::File> }
+
+/// The folders SF itself uses for `key` (`state`, `runtime`): resolve_installation_paths.rs. SF reads its config with
+/// serde_json and its schema (`paths.*`: a non-empty string or null) and uses its defaults for every path when that
+/// fails: a BOM, a damaged file or an empty path all mean the defaults there, so they do here.
+fn sf_dir(root: &Path, config: Option<&serde_json::Value>, key: &str) -> PathBuf {
+    let paths = config.and_then(|c| c.get("paths"));
+    let valid = paths.is_none_or(|p| p.as_object().is_some_and(|p| p.values().all(|v| v.is_null() || v.as_str().is_some_and(|s| !s.is_empty()))));
+    match paths.filter(|_| valid).and_then(|p| p.get(key)).and_then(|v| v.as_str()) {
+        Some(text) => { let path = PathBuf::from(text); if path.is_absolute() { path } else { root.join(path) } },
+        None if key == "state" => root.join("shroudforge"),
+        None => root.join("shroudforge").join(key),
+    }
+}
+
+fn sf_config(root: &Path, path: &Path) -> io::Result<Option<serde_json::Value>> {
+    if !path.try_exists()? { return Ok(None); }
+    Ok(serde_json::from_slice(&bounded(root, path)?).ok())
+}
+
+/// Opens `path` the way SF's startup lease does (Windows: no sharing at all), never waiting.
+fn lease(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(windows)] { use std::os::windows::fs::OpenOptionsExt; options.share_mode(0); }
+    let file = options.open(path).map_err(|e| invalid(&format!("ShroudForge's asset startup is active: {e}")))?;
+    // Unix (host tools and tests): SF takes no lock there; an advisory lock lets two Kiln writers exclude each other
+    #[cfg(not(windows))]
+    file.try_lock().map_err(|e| invalid(&format!("ShroudForge's asset startup is active: {e}")))?;
+    Ok(file)
 }
 
 // Only invalidate a recognized, unchanged prepared-output cache, never settings or the rest of state.json.
 // Keep the exact original bytes and replacement in a recovery journal. Do not restore a now-false "applied" claim.
-fn invalidate_sf(root: &Path, stem: &str) -> io::Result<()> {
+// Recognition follows SF's own rules (asset-preparation.schema.json, update_loader_state.rs); any other shape refuses.
+fn handoff(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     let config_dir = root.join("shroudforge/config");
     let config_path = config_dir.join("modloader-config.json");
     checked_path(root, &config_path)?;
-    let state_dir = if config_path.try_exists()? {
-        let config: serde_json::Value = serde_json::from_slice(&bounded(root, &config_path)?)?;
-        match config.pointer("/paths/state") {
-            None | Some(serde_json::Value::Null) => root.join("shroudforge"),
-            Some(serde_json::Value::String(s)) if s.is_empty() => root.join("shroudforge"),
-            Some(serde_json::Value::String(s)) => {
-                let path = PathBuf::from(s);
-                if path.is_absolute() { path } else { root.join(path) }
-            },
-            _ => return Err(invalid("unknown ShroudForge state path")),
-        }
-    } else { root.join("shroudforge") };
+    let config = sf_config(root, &config_path)?;
+    let state_dir = sf_dir(root, config.as_ref(), "state");
     let state = state_dir.join("state.json");
     checked_path(root, &state)?;
-    if !state.try_exists()? { return Ok(()); }
+    if !state.try_exists()? { return Ok(None); }
     // Same installation lock as ShroudForge's document writer. Never wait on an active standalone loader.
     checked_path(root, &config_dir)?;
     fs::create_dir_all(&config_dir)?;
@@ -203,19 +231,31 @@ fn invalidate_sf(root: &Path, stem: &str) -> io::Result<()> {
     checked_path(root, &lock_path)?;
     let lock = fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&lock_path)?;
     lock.try_lock().map_err(|e| invalid(&format!("ShroudForge state is in use: {e}")))?;
+    // The startup lease, where SF has a runtime folder (it creates it before its first startup pass)
+    let runtime = sf_dir(root, config.as_ref(), "runtime");
+    checked_path(root, &runtime.join("startup-assets.lock"))?;
+    let lease = if runtime.is_dir() { Some(lease(&runtime.join("startup-assets.lock"))?) } else { None };
+    let guard = SfGuard { _write: lock, _lease: lease };
     // Recheck the configured destination under the lock, not only the state bytes.
-    if config_path.try_exists()? {
-        let config: serde_json::Value = serde_json::from_slice(&bounded(root, &config_path)?)?;
-        let current = config.pointer("/paths/state").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
-            .map(|s| { let p = PathBuf::from(s); if p.is_absolute() { p } else { root.join(p) } })
-            .unwrap_or_else(|| root.join("shroudforge"));
-        if current != state_dir { return Err(invalid("ShroudForge state path changed during handoff")); }
+    if sf_dir(root, sf_config(root, &config_path)?.as_ref(), "state") != state_dir {
+        return Err(invalid("ShroudForge state path changed during handoff"));
     }
     let original = bounded(root, &state)?;
     let mut value: serde_json::Value = serde_json::from_slice(&original)?;
-    let Some(assets) = value.get_mut("assets") else { return Ok(()); };
-    if assets.get("status").and_then(|v| v.as_str()) != Some("applied") { return Ok(()); }
-    if assets.get("target").and_then(|v| v.as_str()) != Some(stem) { return Ok(()); }
+    if value.get("schemaVersion").is_some_and(|v| v.as_u64() != Some(1)) {
+        return Err(invalid("unknown ShroudForge state schema; refusing archive handoff"));
+    }
+    let Some(assets) = value.get_mut("assets") else { return Ok(Some(guard)); };
+    let target = assets.get("target").and_then(|v| v.as_str());
+    let other = |t: Option<&str>| matches!(t, Some(t @ ("enshrouded" | "enshrouded_server")) if t != stem);
+    match assets.get("status").and_then(|v| v.as_str()) {
+        Some("failed") => return Ok(Some(guard)),
+        Some("preparing" | "applied") if other(target) => return Ok(Some(guard)),
+        Some("preparing") if target == Some(stem) => return Err(invalid(&format!(
+            "ShroudForge is preparing its asset mods for {stem} (or its last preparation did not finish): let it finish, then start again"))),
+        Some("applied") if target == Some(stem) => {},
+        _ => return Err(invalid("unknown ShroudForge prepared-output cache; refusing archive handoff")),
+    }
     let fingerprint = assets.get("fingerprint").and_then(|v| v.as_str()).unwrap_or("");
     if assets.get("schemaVersion").and_then(|v| v.as_u64()) != Some(1) || fingerprint.len() != 64 ||
         !fingerprint.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) ||
@@ -233,7 +273,7 @@ fn invalidate_sf(root: &Path, stem: &str) -> io::Result<()> {
     if bounded(root, &state)? != original { return Err(invalid("ShroudForge state changed during handoff; original retained")); }
     super::transaction::atomic_write(&state, &replacement)?;
     tracing::info!(path = %state.display(), recovery = %recovery.display(), "Invalidated only ShroudForge's stale prepared-output cache before EML changed game data; settings retained");
-    Ok(())
+    Ok(Some(guard))
 }
 
 #[cfg(test)]
@@ -396,6 +436,91 @@ mod tests {
         assert!(owns_output(&root, "g").unwrap());
         assert_eq!(fs::read_to_string(state).unwrap(), original);
         assert_eq!(fs::read(root.join("kiln/eml/ownership/g.json")).unwrap(), original_receipt);
+        fs::remove_dir_all(root).unwrap();
+    }
+    fn edit_sf(state: &Path, edit: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+        let mut value: serde_json::Value = serde_json::from_slice(&fs::read(state).unwrap()).unwrap();
+        edit(&mut value);
+        let bytes = serde_json::to_vec(&value).unwrap();
+        fs::write(state, &bytes).unwrap();
+        bytes
+    }
+    // SF's own rules (asset-preparation.schema.json, update_loader_state.rs): an `applied` claim names its target,
+    // the root schema is version 1. Any other shape is not something Kiln may rewrite.
+    #[test]
+    fn sf_state_shapes_outside_sf_rules_refuse_and_another_target_is_left_alone() {
+        let cases: [(&str, fn(&mut serde_json::Value), bool); 6] = [
+            ("no target", |v| { v["assets"].as_object_mut().unwrap().remove("target"); }, false),
+            ("target not a string", |v| v["assets"]["target"] = 7.into(), false),
+            ("unknown target", |v| v["assets"]["target"] = "game".into(), false),
+            ("root schema 2", |v| v["schemaVersion"] = 2.into(), false),
+            ("unknown status", |v| v["assets"]["status"] = "done".into(), false),
+            ("the other side's archives", |v| v["assets"]["target"] = "enshrouded_server".into(), true),
+        ];
+        for (what, edit, publishes) in cases {
+            let (root, files) = fixture();
+            let (state, _) = sf(&root, false);
+            let bytes = edit_sf(&state, edit);
+            assert_eq!(prepare(&root, "g", &files).is_ok(), publishes, "{what}");
+            assert_eq!(fs::read(&state).unwrap(), bytes, "{what}: SF state untouched");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    // SF reads its config with serde_json and falls back to its default paths when that fails (read_loader(root).ok()?):
+    // a BOM or a damaged config means the state SF uses is the default one, which is the one to hand over.
+    #[test]
+    fn unreadable_sf_config_means_sf_default_state_path() {
+        for config in [b"\xef\xbb\xbf{\"paths\":{\"state\":\"custom-state\"}}".as_slice(), b"{not json", b"", b"{\"paths\":{\"state\":\"\"}}"] {
+            let (root, files) = fixture();
+            let (state, original) = sf(&root, false);
+            fs::write(root.join("shroudforge/config/modloader-config.json"), config).unwrap();
+            prepare(&root, "g", &files).unwrap();
+            let current: serde_json::Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+            assert_eq!(current["assets"]["status"], "failed", "{:?}", String::from_utf8_lossy(config));
+            assert_ne!(fs::read(&state).unwrap(), original);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    // SF's standalone prepare writes `preparing` and then rewrites the archives holding no lock (only "game stopped").
+    #[test]
+    fn sf_preparation_in_progress_blocks_archive_handoff() {
+        let (root, files) = fixture();
+        let (state, _) = sf(&root, false);
+        let bytes = edit_sf(&state, |v| v["assets"] = serde_json::json!({"schemaVersion":1,"status":"preparing","target":"g"}));
+        assert!(prepare(&root, "g", &files).is_err());
+        assert!(before_restore(&root, "g").is_err());
+        assert_eq!(fs::read(&state).unwrap(), bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+    // The startup pass writes the archives under <runtime>/startup-assets.lock, not under the write lock.
+    #[test]
+    fn sf_startup_lease_blocks_archive_handoff() {
+        let (root, files) = fixture();
+        let (state, original) = sf(&root, false);
+        fs::create_dir_all(root.join("shroudforge/runtime")).unwrap();
+        let lease = fs::File::create(root.join("shroudforge/runtime/startup-assets.lock")).unwrap();
+        lease.lock().unwrap();
+        assert!(prepare(&root, "g", &files).is_err());
+        assert_eq!(fs::read(&state).unwrap(), original);
+        drop(lease);
+        assert!(prepare(&root, "g", &files).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+    // SF writes `preparing` under its write lock before it touches an archive: holding that lock (and the startup
+    // lease) until the last archive write means an SF preparation cannot interleave with Kiln's.
+    #[test]
+    fn sf_locks_are_held_until_the_archives_are_written() {
+        let (root, _) = fixture();
+        let (state, _) = sf(&root, false);
+        fs::create_dir_all(root.join("shroudforge/runtime")).unwrap();
+        let guard = handoff(&root, "g").unwrap();
+        assert!(guard.is_some());
+        let busy = |name: &str| fs::OpenOptions::new().read(true).write(true).open(root.join(name)).unwrap().try_lock().is_err();
+        assert!(busy("shroudforge/config/.shroudforge-write.lock") && busy("shroudforge/runtime/startup-assets.lock"));
+        drop(guard);
+        assert!(!busy("shroudforge/config/.shroudforge-write.lock") && !busy("shroudforge/runtime/startup-assets.lock"));
+        let current: serde_json::Value = serde_json::from_slice(&fs::read(state).unwrap()).unwrap();
+        assert_eq!(current["assets"]["status"], "failed");
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

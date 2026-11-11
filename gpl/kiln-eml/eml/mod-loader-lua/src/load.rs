@@ -184,7 +184,8 @@ pub fn restore_backup(
 
     let root = path.parent().ok_or(())?;
     let stem = path.file_stem().ok_or(())?;
-    crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
+    // SF's locks (when its prepared-output state was handed over) stay held until both copies are done
+    let _sf = crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
         error!(%error, "Refusing archive restore: ShroudForge prepared-output cache could not be safely invalidated");
     })?;
     if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {

@@ -121,7 +121,8 @@ impl PatchWriter {
         data.retain(|p| p.file_name() != Some(std::ffi::OsStr::new(VANILLA_HEADER)));
         data.sort();
         for p in &data { regular(p)?; OpenOptions::new().read(true).write(true).open(p)?.sync_all()?; }
-        crate::ownership::prepare(&self.game, &self.name, &data)?;
+        // SF's locks (when its prepared-output state was handed over) stay held until the patched header is live
+        let _sf = crate::ownership::prepare(&self.game, &self.name, &data)?;
         // No old patched header may refer to the containers we are about to replace.
         atomic_copy(&self.stage.join(VANILLA_HEADER), &self.game.join(&header))?;
         boundary(0)?;
