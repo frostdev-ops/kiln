@@ -204,6 +204,9 @@ It fails soft:
   `_055` with the content and `_056` to `_063` empty): only those the receipt lists, each only while it is exactly the
   listed file, and never one the vanilla header references. A player's own file is never touched. A publication with
   fewer containers than the output it replaces removes the old ones the new header no longer references the same way.
+  Before publication, any existing destination DAT also needs matching per-file receipt proof (including adopted
+  legacy output). Otherwise the run refuses before changing live archives and names the container it retained; inspect
+  it and move it aside manually if appropriate. Enabling a mod cannot establish ownership by overwriting unproven data.
 - **Output of dev.20 to dev.23 (before receipts):** once, when there is no receipt, kiln-eml checks the change cache that
   release left (`kiln/eml/cache/files.json`, written only after a completed publication or a start that changed
   nothing). It is proof only when it is the record of a patch run of this stem, names the live `<exe>.kfc` and

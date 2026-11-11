@@ -278,6 +278,18 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| invalid("invalid output name"))?;
         if !valid_name(stem, name) { return Err(invalid("unexpected EML output file")); }
         let expected = digest(root, path)?;
+        // Appended and padding DATs may already be a player's or another loader's files. Their index/name (or even
+        // equality to the new output) grants no permission to replace them and then claim ownership in our receipt.
+        // Per-file proof survives a partial publication or an updated baseline; restoring still needs the whole set.
+        if container_index(stem, name).is_some() && live.size(name)?.is_some() {
+            let current = live.digest(name)?;
+            let proven = earlier.as_ref().is_some_and(|r| output_set(stem, &r.files)
+                && (r.files.get(name).is_some_and(|d| Some(d) == current.as_ref())
+                    || r.previous.as_ref().and_then(|p| p.get(name)).is_some_and(|d| Some(d) == current.as_ref())));
+            if !proven {
+                return Err(invalid(&format!("existing container {name} retained: cannot prove kiln-eml wrote its current bytes; inspect and move it aside before retrying")));
+            }
+        }
         if live.size(name)? != Some(expected.size) || live.digest(name)?.as_ref() != Some(&expected) { changed = true; }
         output.insert(name.to_owned(), expected);
     }
@@ -620,7 +632,8 @@ pub(crate) mod tests {
         fs::create_dir_all(root.join("stage")).unwrap();
         let mut files = Vec::new();
         for (name, old, new) in [("g.kfc", "SF header", "EML header"), ("g.kfc_resources", "SF resources", "EML resources"), ("g_010.dat", "", "content")] {
-            fs::write(root.join(name), old).unwrap();
+            // This fixture appends a new EML container; an existing unproven DAT must instead refuse publication.
+            if !name.ends_with(".dat") { fs::write(root.join(name), old).unwrap(); }
             let path = root.join("stage").join(name);
             fs::write(&path, new).unwrap();
             files.push(path);
@@ -1089,6 +1102,7 @@ pub(crate) mod tests {
     #[test]
     fn unchanged_output_never_mutates_sf_state() {
         let (root, files) = fixture();
+        prepare(&root, "g", &files).unwrap();
         publish(&root, &files);
         let (state, original) = sf(&root, false);
         prepare(&root, "g", &files).unwrap();

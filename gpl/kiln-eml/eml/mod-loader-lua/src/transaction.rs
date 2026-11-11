@@ -180,7 +180,7 @@ pub(crate) mod tests {
             let game = std::env::temp_dir().join(format!("kiln-transaction-{}", uuid::Uuid::new_v4()));
             let stage = game.join("stage");
             fs::create_dir_all(&stage).unwrap();
-            for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old"), ("g_002.dat", "old")] {
+            for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old")] {
                 fs::write(game.join(n), b).unwrap();
             }
             for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] {
@@ -247,7 +247,7 @@ pub(crate) mod tests {
         let game = std::env::temp_dir().join(format!("kiln-sf-lock-{}", uuid::Uuid::new_v4()));
         let stage = game.join("stage");
         fs::create_dir_all(&stage).unwrap();
-        for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old"), ("g_002.dat", "old")] {
+        for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old")] {
             fs::write(game.join(n), b).unwrap();
         }
         for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] { fs::write(stage.join(n), b).unwrap(); }

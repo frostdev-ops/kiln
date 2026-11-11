@@ -76,6 +76,33 @@ fn published(tag: &str, lua: &str) -> Game {
     g
 }
 
+// A leftover or player container is not writable just because it occupies the next mod-container index.
+#[test]
+fn publication_refuses_unproven_container_collisions_before_changing_live_archives() {
+    for (tag, existing) in [("foreign-content", b"player content".as_slice()), ("foreign-padding", b"".as_slice())] {
+        let g = Game::new(tag, CONTENT);
+        let collision = g.game().join("enshrouded_001.dat");
+        std::fs::write(&collision, existing).unwrap();
+        let live = g.archives();
+        let out = g.with_mod();
+        assert_eq!(std::fs::read(&collision).unwrap(), existing, "unproven container was overwritten: {out:?}");
+        assert_eq!(g.archives(), live, "refuse before the vanilla-header barrier");
+        assert_eq!(out.phase, Phase::Failed, "{out:?}");
+        assert!(!g.receipt().exists(), "a collision cannot mint ownership of player data");
+    }
+    let g = published("edited-owned-container", CONTENT);
+    let collision = g.game().join("enshrouded_001.dat");
+    std::fs::write(&collision, b"changed by player").unwrap();
+    let live = g.archives();
+    let receipt = std::fs::read(g.receipt()).unwrap();
+    std::fs::write(g.root.join("mods/a/src/mod.lua"), r#"game.assets.create_content(buffer.wrap("different patch"))"#).unwrap();
+    let out = g.with_mod();
+    assert_eq!(out.phase, Phase::Failed, "{out:?}");
+    assert_eq!(std::fs::read(&collision).unwrap(), b"changed by player");
+    assert_eq!(g.archives(), live);
+    assert_eq!(std::fs::read(g.receipt()).unwrap(), receipt);
+}
+
 // F1: dev.21 to dev.23 published without receipts. Their change cache names the output exactly: switching EML mods
 // off after the update must restore it, as those releases did.
 #[test]
