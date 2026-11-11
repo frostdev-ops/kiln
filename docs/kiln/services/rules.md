@@ -339,8 +339,10 @@ nose down. `GlideSteer` changes that one step for the player (`native/services/r
   lowered limit comes back to it at the same rate.
 - Letting go (a stick within 0.1 of centre) **holds** the pitch: the game's own step back toward 5 degrees nose down is
   dropped while the nose is above it; any other correction of the game stands.
-- **W** is the game's own: back through level into its dive (at most 80 degrees down). A W held from before the glider
-  opened is ignored until released once, as in the game.
+- **W** is the game's own: back through level into its dive (at most 80 degrees down). From a climb an analog stick
+  lowers the nose in proportion, as S raises it (the game would take its full rate for any forward stick there); a
+  keyboard's W is exactly the game's. A W held from before the glider opened is ignored until released once, as in the
+  game.
 - Input mode 1 (the game's pitch-to-an-angle stick mode) keeps the game's step, and the whole glide is then as without
   `GlideSteer` (`GlideBoost`'s plane path, sink 0's altitude hold), in the server's world and the player's prediction
   alike (both read the same replicated mode byte). A glider whose `pitchAngleSpeed` another mod set to 0 or less (SF

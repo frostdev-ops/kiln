@@ -10,7 +10,8 @@
 //    level, at most kMaxSteerLimit: never across vertical, where the game's pitch measure folds);
 //  - a centred stick (|z| <= kSteerCentre) holds a climb: the game's levelling step toward 5 degrees is dropped while
 //    the nose is above it; the rest of the game's step stands;
-//  - W keeps the game's step (back through level into its dive);
+//  - W keeps the game's step (back through level into its dive), from a climb at most the stick's share of the max step
+//    (the game would take all of it for any forward stick there);
 //  - a nose above the limit (the limit was lowered) comes back toward it at the max step;
 //  - input mode other than 0, any non-finite value, or a max step of 0 or less (another mod owns the rate: SF
 //    Unlimited Flight writes a negative or zero pitchAngleSpeed) keeps the game's step untouched.
@@ -60,6 +61,10 @@ inline float steer_step(float game_step, float pitch, float max_step, float z, u
     } else if (z <= kSteerCentre) {
         // centred: no levelling while the nose is above the game's top
         if (pitch < kGameTopPitch && game_step > 0.0f) step = 0.0f;
+    } else if (pitch < kGameTopPitch) {
+        // W from a climb: the game aims at its top, far below, and would take its full step for any stick; at most the
+        // stick's share, as S (a full stick: the game's step exactly)
+        step = std::min(game_step, max_step * std::min(z, 1.0f));
     }
     // never above the limit: back toward it (a lowered limit), at the max step
     if (pitch + step < top) step = std::min(max_step, top - pitch);
