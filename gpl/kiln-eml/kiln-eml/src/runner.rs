@@ -85,6 +85,10 @@ pub struct Outcome {
     /// prove it wrote it. One player-facing sentence with what to do; the launcher shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// ShroudForge asset mods (`<id> <version>`) whose prepared output this start's publication replaced (phase `done`):
+    /// this start's game data does not have their patches. `reason` says so in a sentence.
+    #[serde(rename = "sfDisplaced", skip_serializing_if = "Vec::is_empty")]
+    pub sf_displaced: Vec<String>,
     pub mods: Vec<Entry>,
     // kiln-eml: only in the state file of a run that is going on (`phase: running`): what it is doing (progress.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +113,7 @@ impl Outcome {
             error: None,
             aside: None,
             reason: None,
+            sf_displaced: Vec::new(),
             mods,
             progress: None,
         }
@@ -454,6 +459,10 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
                 out.patched = r.patched;
                 out.cached = r.cached;
                 out.fingerprint = Some(r.fingerprint);
+                if !r.sf_displaced.is_empty() {
+                    out.reason = Some(displaced_sentence(&r.sf_displaced));
+                    out.sf_displaced = r.sf_displaced;
+                }
                 for p in &mods {
                     set_state(&mut out.mods, p, "loaded", None);
                 }
@@ -517,6 +526,14 @@ fn owned(cfg: &RunConfig, file: &str) -> Result<(), String> {
     };
     tracing::warn!("Game data is not output Kiln's EML writer can prove it published ({why}); leaving it and the shared .bak files alone");
     Err(why)
+}
+
+/// The `reason` of a start whose publication replaced ShroudForge's prepared asset patches.
+fn displaced_sentence(mods: &[String]) -> String {
+    format!("ShroudForge's asset mods {} are not in this start's game data: kiln-eml's EML patches replaced what \
+        ShroudForge prepared, because both build on the same vanilla backup. Every start ShroudForge prepares them again \
+        and kiln-eml replaces them again (two full rewrites per start). To have them, turn off either the EML mods or \
+        those ShroudForge asset mods", mods.join(", "))
 }
 
 /// The `reason` of an idle start whose game data differs from the backup and is not provably EML's.

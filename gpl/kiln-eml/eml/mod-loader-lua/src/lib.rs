@@ -58,6 +58,8 @@ pub struct RunResult {
     pub patched: usize,
     /// What the change cache and the input barriers read of the game's files.
     pub fingerprint: FingerprintStats,
+    /// kiln-eml: ShroudForge asset mods (`<id> <version>`) whose prepared output this run's publication replaced.
+    pub sf_displaced: Vec<String>,
 }
 
 pub fn run(
@@ -291,6 +293,7 @@ fn run_steps(
         cached,
         patched,
         fingerprint: stats(prints),
+        sf_displaced: ownership::displaced(),
         dlls: app_state.registered_dlls()
             .into_iter()
             .map(|path| path.into_std_path_buf())
