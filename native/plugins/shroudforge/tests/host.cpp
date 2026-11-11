@@ -69,7 +69,10 @@ static KilnProfileApi fake_profile{};
 // ends before the slot). Its window thread hands records over as kiln.ui does: under a gate per call; unsubscribe
 // clears the callback, then waits at the gate for a call in flight. KILN_SF_FAKE_UI_STUCK=1: unsubscribe fails
 // (KILN_ERR_WRONG_THREAD) and keeps calling, so only the adapter's own guard stands between a record and its runtime.
+// KILN_SF_REAL_ORDER (main): service() answers for it only from Kiln's plugin step on, as kiln-ui.dll publishes it.
 static KilnUiApi fake_ui{};
+static bool ui_published = true;
+static std::atomic<int> ui_subscriptions{0};  // subscribed and not removed again
 static void mark(const char* what) {  // the same call log as the fake runtime's, written the same way (fake.cpp)
     wchar_t file[32768]{};
     if (!GetEnvironmentVariableW(L"KILN_SF_TEST_LOG", file, 32768)) return;
@@ -106,14 +109,32 @@ static std::mutex ui_gate, ui_mu;
 static KilnUiWindowInputFn ui_fn = nullptr;
 static void* ui_user = nullptr;
 static constexpr KilnHandle kUiHandle = 0x5eed;
+static bool ui_deliver(KilnUiWindowInput r);
+static KilnUiWindowInput raw(uint32_t make_code, uint32_t flags, uint32_t vkey);
 static KilnResult ui_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out) {
     if (!fn) return KILN_ERR_INVALID_ARGUMENT;
-    std::lock_guard lock(ui_mu);
-    ui_fn = fn;
-    ui_user = user;
-    if (out) *out = kUiHandle;
+    // KILN_SF_STOP_IN_SUBSCRIBE: the adapter's teardown runs while its attach is inside this call. The fake runtime's
+    // update (KILN_SF_FAULT_AFTER_SUBSCRIBE, fake.cpp) faults once this event is set, which ends the mods worker; this
+    // call returns only after the worker's last call (the runtime's shutdown), then hands the window's next record to
+    // the new subscriber at once, as the window thread could.
+    const bool stop_inside = GetEnvironmentVariableW(L"KILN_SF_STOP_IN_SUBSCRIBE", nullptr, 0) != 0;
+    if (stop_inside) {
+        HANDLE go = CreateEventW(nullptr, TRUE, FALSE,
+                                 (L"Local\\Kiln.SfTest.Subscribing." + std::to_wstring(GetCurrentProcessId())).c_str());
+        if (go) SetEvent(go);
+        for (int i = 0; i < 400 && !marked("shutdown"); ++i) Sleep(25);
+        std::printf("[fake kiln.ui] subscribe returns after the worker's teardown: %s\n", marked("shutdown") ? "yes" : "no");
+    }
+    {
+        std::lock_guard lock(ui_mu);
+        ui_fn = fn;
+        ui_user = user;
+        if (out) *out = kUiHandle;
+    }
+    ++ui_subscriptions;
     std::printf("[fake kiln.ui] subscribe_window_input owner=%llu\n", (unsigned long long)owner);
     mark("ui-subscribe");
+    if (stop_inside) ui_deliver(raw(0x43, 0, VK_F9));
     return KILN_OK;
 }
 static KilnResult ui_unsubscribe(KilnHandle h) {
@@ -128,6 +149,7 @@ static KilnResult ui_unsubscribe(KilnHandle h) {
         ui_fn = nullptr;
     }
     std::lock_guard call(ui_gate);
+    --ui_subscriptions;
     std::printf("[fake kiln.ui] unsubscribe\n");
     mark("ui-unsubscribe");
     return KILN_OK;
@@ -307,6 +329,7 @@ static void* ui_table() {
 }
 static const void* service(KilnStr name, uint32_t min) {
     if (text(name) == KILN_UI_SERVICE) {
+        if (!ui_published) return nullptr;
         const auto* t = static_cast<const KilnUiApi*>(ui_table());
         return t && t->header.version >= min ? t : nullptr;  // as the core: a version at least `min`
     }
@@ -410,6 +433,14 @@ static bool patch_import(HMODULE module, const char* function, void* with, void*
     }
     return false;
 }
+// The adapter's kiln/state/shroudforge.json as it stands now, on one line (run.py reads the "keys" of each moment).
+static void print_status(const char* when) {
+    std::ifstream in(game / L"kiln/state/shroudforge.json", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), {});
+    for (char& c : text)
+        if (c == '\n' || c == '\r') c = ' ';
+    std::printf("[host] status %s: %s\n", when, text.c_str());
+}
 static bool slow_heartbeat(HMODULE module) {
     return patch_import(module, "MoveFileExW", reinterpret_cast<void*>(&slow_move), reinterpret_cast<void**>(&original_move)) &&
            patch_import(module, "CreateFileW", reinterpret_cast<void*>(&slow_create), reinterpret_cast<void**>(&original_create));
@@ -437,12 +468,33 @@ int main(int argc, char** argv) {
     if (delayed && !slow_heartbeat(h)) return 8;
     auto fn = reinterpret_cast<KilnPluginMainFn>(GetProcAddress(h, argc > 3 ? "kiln_plugin_early" : "kiln_plugin_main"));
     if (!fn) return 4;
+    // KILN_SF_REAL_ORDER (with `early`): the order of a real start (native/core/src/boot.cpp). The early pass and its
+    // on_ready (the worker starts), with no kiln.ui; then Kiln's plugin step: kiln-ui.dll publishes kiln.ui, the
+    // plugins' kiln_plugin_main, every on_ready. Only then does the window thread deliver records. Without it the early
+    // case keeps the old order: kiln.ui answers from the first call, and the plugin step comes after the records.
+    // KILN_SF_PLUGIN_STEP_AFTER_STOP: the plugin step only after the worker's teardown (its runtime's shutdown).
+    // KILN_SF_NO_PLUGIN_STEP: none (safe idle); kiln_plugin_main only hands this host the adapter's on_unload, which test
+    // hosts may call (kiln_api.h), so that the worker ends before this process does.
+    const bool real_order = argc > 3 && GetEnvironmentVariableW(L"KILN_SF_REAL_ORDER", nullptr, 0) != 0;
+    const bool no_plugin_step = real_order && GetEnvironmentVariableW(L"KILN_SF_NO_PLUGIN_STEP", nullptr, 0) != 0;
+    if (real_order) ui_published = false;
     KilnApi api{}; api.size = sizeof api; api.abi_version = KILN_ABI_VERSION;
     api.path = path; api.log = log; api.service = service; api.side = side;
     KilnPluginInfo info{}; info.size = sizeof info;
     if (fn(&api, 1, &info) != KILN_OK) return 5;
     const bool real = GetEnvironmentVariableW(L"KILN_SF_REAL_KEYS", nullptr, 0) != 0;
     if (info.on_ready) info.on_ready(info.user);
+    if (real_order) {
+        print_status("after the early phase");
+        if (GetEnvironmentVariableW(L"KILN_SF_PLUGIN_STEP_AFTER_STOP", nullptr, 0))
+            for (int i = 0; i < 400 && !marked("shutdown"); ++i) Sleep(25);
+        auto normal = reinterpret_cast<KilnPluginMainFn>(GetProcAddress(h, "kiln_plugin_main"));
+        if (!no_plugin_step) ui_published = true;
+        info = {}; info.size = sizeof info;
+        if (normal(&api, 2, &info) != KILN_OK) return 6;
+        if (!no_plugin_step && info.on_ready) info.on_ready(info.user);
+        print_status("after the plugin step");
+    }
     if (real) game_window_in_front();
     // kiln.ui's window thread (KILN_SF_FAKE_UI): the script once, or (KILN_SF_FEED_RACE) key records without a pause
     // until the subscription is gone, while this thread tears the adapter down below.
@@ -521,7 +573,7 @@ int main(int argc, char** argv) {
         l.fn(&regs, l.user);
     }
     // The core may call normal main again after the early pass; it must not prepare or start a second worker.
-    if (argc > 3) {
+    if (argc > 3 && !real_order) {
         auto normal = reinterpret_cast<KilnPluginMainFn>(GetProcAddress(h, "kiln_plugin_main"));
         info = {}; info.size = sizeof info;
         if (normal(&api, 2, &info) != KILN_OK) return 6;
@@ -541,5 +593,7 @@ int main(int argc, char** argv) {
         std::printf("[fake kiln.ui] window thread delivered %ld records, %ld after the teardown\n", window_records.load(),
                     window_late.load());
     }
+    if (GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", nullptr, 0))
+        std::printf("[fake kiln.ui] subscriptions left: %d\n", ui_subscriptions.load());
     return 0;
 }
