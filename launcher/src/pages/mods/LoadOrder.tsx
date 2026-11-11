@@ -43,6 +43,8 @@ export function steps(rows: ModRow[], preview: ResolvePreview | null, side: RunS
     { id: "menu", title: side === "client" ? "At the main menu" : "When the server world starts", hint: "Kiln mods, in the order Kiln resolves from what each needs and comes after.", rows: numbered(kiln) },
     { id: "world", title: side === "client" ? "With your world" : "At the first world", hint: side === "client" ? "When you play alone or friends join you: Kiln mods for the server side, and native mods of the world phase." : "Native mods of the world phase.",
       rows: [...world.map((row) => ({ row })), ...numbered(nat("world"))] },
+    { id: "folder", title: "From the game folder", hint: "Mods put there by hand, which load by their kind's rules; Kiln did not place them.",
+      rows: rows.filter((r) => r.found?.state === "loads").map((row) => ({ row, note: "Game folder" })) },
   ];
   return { steps: s.filter((x) => x.rows.length || x.groups?.length), notLoading, off: rows.filter((r) => !r.on && !r.found) };
 }
@@ -67,7 +69,7 @@ export default function LoadOrder() {
   const row = (r: ModRow, num?: number, note?: string): ReactNode => (
     <li key={r.key} className={"k-mod k-order-mod" + (r.on ? " on" : "")} data-kind={r.kind ?? undefined}>
       <span className="k-order-n" aria-hidden>{num ?? ""}</span>
-      <FlameToggle asSwitch on={r.on} label={r.name} onChange={(v) => mods.toggle(r, v)} />
+      {r.found ? <span className="k-mod-place" aria-hidden title="In the game folder" /> : <FlameToggle asSwitch on={r.on} label={r.name} onChange={(v) => mods.toggle(r, v)} />}
       <span className="k-mod-text">
         <span className="k-mod-name" title={r.id}>{r.name}</span>
         {note && <span className="k-mod-note"><span title={note}>{note}</span></span>}
@@ -75,7 +77,7 @@ export default function LoadOrder() {
       <span className="k-mod-kind">{r.kind && <Badge tone={KIND_TONE[r.kind]} title={KIND_NAME[r.kind]}>{KIND_SHORT[r.kind]}</Badge>}</span>
       <span className="k-mono k-mod-ver">{r.version ?? ""}</span>
       <Menu label={`More for ${r.name}`} icon={<MoreHorizontal />} size="s" items={[
-        { label: r.on ? "Switch off" : "Switch on", onSelect: () => mods.toggle(r, !r.on) },
+        ...(r.found ? [] : [{ label: r.on ? "Switch off" : "Switch on", onSelect: () => mods.toggle(r, !r.on) }]),
         ...(r.kind === "native" ? [{ label: "Order in its phase", onSelect: () => nav("/mods/native") }] : []),
         { label: "Show in the list", onSelect: () => nav("/") },
       ]} />

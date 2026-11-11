@@ -186,7 +186,17 @@ test("Load order and Engines are reached from the list", async ({ page }) => {
   await desktop(page);
   await page.locator(".k-hero").getByRole("link", { name: "Load order" }).click({ timeout: 10_000 });
   await expect(page).toHaveURL(/#\/mods\/order$/);
-  await expect(page.getByRole("list", { name: "Load order on a client" })).toBeVisible();
+  const order = page.getByRole("list", { name: "Load order on a client" });
+  await expect(order).toBeVisible();
+  // every kind, not only Kiln's: the native phases, the other loaders' plugins with their mods, Kiln's resolved order,
+  // the world, and the game folder's mods that load
+  for (const [step, name] of [["In the proxy, before Kiln", "FPS Unlock"], ["As Kiln starts", "Creative Mode"], ["Kiln's plugins", "Beastmaster"], ["Kiln's plugins", "Better Chests"],
+    ["Kiln's plugins", "Zoom Out"], ["Kiln's plugins", "Fly Mode"], ["At the main menu", "New Items"], ["At the main menu", "Weather Plus"], ["With your world", "HUD Tweaks"],
+    ["From the game folder", "Fly Mode"]]) {
+    await expect(order.locator(".k-order-step").filter({ hasText: step }).getByText(name, { exact: true }).first(), `${step}: ${name}`).toBeVisible();
+  }
+  await expect(page.getByRole("region", { name: "On, but not loading" })).toContainText("More Hotbars");
+  await expect(page.getByText("10 mods load on a client. 2 on but not loading.")).toBeVisible();
   await page.getByRole("link", { name: "Native and DLLs" }).click();
   await expect(page.getByText("Dllmain", { exact: false }).first()).toBeVisible();
   await desktop(page);
