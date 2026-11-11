@@ -1120,14 +1120,13 @@ fn manifest_id_raw(dir: &Path) -> Option<String> {
 }
 
 /// A folder in `root` other than `dst` that holds the same mod (the same manifest id, case ignored) and is not one of
-/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id. A folder whose
-/// name the game cannot be pointed at (hidden, a trailing dot or space, a character Windows has no name with) is no
-/// installation the game loads: Kiln places its own copy, and the profile never names that folder.
+/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id, so Kiln places
+/// no second copy beside it, whatever its folder is called; Copy mode names it only under the core's folder name rule
+/// (profile::render falls back to the copy under kiln/profiles/).
 fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
     let id = manifest_id_raw(src)?;
     std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
         .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(is_game_folder_name))
         .find(|p| manifest_id_raw(p).is_some_and(|other| other.eq_ignore_ascii_case(&id)))
 }
 
@@ -1604,8 +1603,8 @@ pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::Profil
 }
 
 /// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
-/// Its name always passes [`is_game_folder_name`] (the record's folder, or a hand installation [`same_mod_elsewhere`]
-/// accepts), so Copy mode's `../mods/<folder>` is one the native core reads.
+/// A hand installation's name need not pass [`is_game_folder_name`]: Copy mode then keeps the kiln/profiles copy
+/// (profile::render checks the name before it writes `../mods/<folder>`).
 /// Greeneye: Kiln's copy in `<game>/greeneye/<id>/` once [`place`] has made it for this version (its receipt and marker
 /// name it), else None (the Library entry: a folder the player put there, a play-once version, a switched-off mod).
 pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {

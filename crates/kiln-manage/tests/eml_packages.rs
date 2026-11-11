@@ -1333,8 +1333,10 @@ fn copy_mode_profiles_pass_the_native_cores_own_parser() {
     eml_mod(&g.path, "mods/.auto-loot-plus", "auto-loot-plus");
     kiln_manage::quick::add_with(&dirs, &g, &[zip(&t3, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
     let f = profile::read_game_profile(&g.path).unwrap().unwrap();
-    assert_eq!(eml(&f), ["../mods/auto-loot-plus"], "a hidden folder is no installation the game loads: Kiln places its own copy");
-    assert!(g.path.join("mods/.auto-loot-plus/mod.json").is_file() && g.path.join("mods/auto-loot-plus/mod.json").is_file());
+    // the player's own copy stays the only one in the mods folder (rr-placement R11), and Copy mode cannot name a
+    // folder the core refuses: that entry runs Kiln's copy under kiln/profiles/
+    assert_eq!(eml(&f), ["profiles/my-mods/eml/auto-loot-plus"]);
+    assert!(g.path.join("mods/.auto-loot-plus/mod.json").is_file() && !g.path.join("mods/auto-loot-plus").exists(), "{:?}", tree(&g.path));
     write("hidden-copy", &f, &t3);
 
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native/core/tests/test-profile.sh");

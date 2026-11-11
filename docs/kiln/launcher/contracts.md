@@ -600,7 +600,8 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
   the rule of `schema/fixtures/profile/game-folder-names.json`. Every kiln-core before `profileReader` 2 calls a profile
   with such an EML or Greeneye path invalid and loads no mods, so the launcher writes these forms only when the bundle
   the game's receipt names declares `profileReader` 2 or more; otherwise (an older runtime, a rollback, or a runtime the
-  launcher has no bundle of) those entries keep their `profiles/<pid>/<kind>/<id>` copy. After a runtime install or
+  launcher has no bundle of), and for a hand-installed copy whose folder name the rule refuses (Kiln places no second
+  copy beside it), those entries keep their `profiles/<pid>/<kind>/<id>` copy. After a runtime install or
   rollback the active profile is written again for the runtime the game has then (`quick::resume_active`).
 - Reverse (reading state files): `Z:\a\b` -> `/a/b`; `C:\…` -> `<pfx>/drive_c/…`; other letters through
   `<pfx>/dosdevices/<l>:`; relative -> `<game>/kiln/…`.
