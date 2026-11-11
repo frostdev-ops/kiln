@@ -213,6 +213,7 @@ export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path
     setBusy(true);
     try {
       const r = await runTask<api.ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
+      notifyActivation(r.activation);
       invalidateGame(qc, game.id);
       qc.invalidateQueries({ queryKey: ["library_list"] });
       toast.ok(`${r.profile.name} is active`);

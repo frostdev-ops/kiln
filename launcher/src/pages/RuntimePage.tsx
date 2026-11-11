@@ -136,8 +136,8 @@ export default function RuntimePage() {
         onInstall={(b, components) => { setPick(null); install(b, { components }); }} />
       <ConfirmDanger open={uninstall} onClose={() => setUninstall(false)} title="Uninstall Kiln?" word="uninstall" action="Uninstall"
         message={<>
-          <p>Kiln's unchanged files leave the game folder and the files it replaced come back, such as the original dinput8.dll. Unchanged mod copies it placed outside kiln/ go too; changed ones stay and are listed. kiln/ (configs, data, logs) stays.</p>
-          <p>Game archives EML patched stay patched: to undo that, switch the EML mods off and start the game once through Kiln first.</p>
+          <p>Kiln's unchanged files leave the game folder and the files it replaced come back, such as the original dinput8.dll, unless another loader's file has taken its name since: that one stays, and the result says where the original is. Unchanged mod copies it placed outside kiln/ go too; changed ones stay and are listed. kiln/ (configs, data, logs) stays.</p>
+          <p>Game archives EML patched stay patched. To undo that, switch the EML mods off and start the game once through Kiln first; that restores only archives Kiln's EML plugin wrote and that are unchanged since. Archives another loader patched stay as they are.</p>
         </>}
         onConfirm={() => { setUninstall(false); return go("Uninstall", null, "Kiln removed", () => api.runtimeUninstall(game.id)); }} />
       <ConfirmDanger open={!!switchSf} onClose={() => setSwitchSf(null)} title="Switch from ShroudForge?" word="switch" action="Switch"

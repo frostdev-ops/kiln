@@ -414,10 +414,76 @@ test("screenshots of every Deck screen (KILN_DECK_SHOTS)", async ({ page }) => {
 });
 
 test.describe("notices", () => {
+  const KEPT = { retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }] };
+  const plan = (page: Page, r: unknown = KEPT) => page.evaluate((r) => (window as unknown as { __kilnMock: { planActivation: (r: unknown) => void } }).__kilnMock.planActivation(r), r);
+
+  test("adding a mod or a modpack from Downloads says what writing the profile kept", async ({ page }) => {
+    await openDeck(page);
+    await page.goto("/?deck=steamdeck#/deck/add");
+    await expect.poll(() => focused(page)).toBe("file-lantern-glow-1.2.0.zip");
+    await plan(page);
+    await pad(page, "a");
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("mods/XHL-Vein-Mining");
+    await pad(page, "a");
+    await expect(notice).toHaveCount(0);
+    await page.locator('[data-deck-id="file-server-ember-isles-modpack.zip"]').focus();
+    await pad(page, "a");
+    const install = page.locator('[data-deck-dialog="modpack"]').getByRole("button", { name: "Install", exact: true });
+    await expect(install).toBeEnabled();
+    await plan(page);
+    await install.click();
+    await expect(notice).toContainText("mods/XHL-Vein-Mining", { timeout: 8000 });
+  });
+
+  test("a long notice scrolls with the right stick, shows how often it came, and focus goes back after several", async ({ page }) => {
+    await openDeck(page);
+    const many = Array.from({ length: 12 }, (_, i) => ({ path: `/home/player/.local/share/Steam/steamapps/common/Enshrouded/mods/Mod-${i}`, reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }));
+    await page.keyboard.press("ArrowLeft");
+    expect(await focused(page)).toBe("switch-profile");
+    await page.evaluate(async (retained) => {
+      const { notifyActivation } = await import("/src/shell/notices.ts");
+      const a = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", retained };
+      notifyActivation(a as never);
+      notifyActivation(a as never);
+      notifyActivation({ ...a, retained: [], warnings: ["a second notice"] } as never);
+    }, many);
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("Some mod folders were kept (2 times)");
+    const body = notice.locator("[data-deck-notice]");
+    const fits = await body.evaluate((el) => el.scrollHeight <= el.clientHeight);
+    expect(fits, "a dozen folders do not fit at 1280x800").toBe(false);
+    const send = (value: number) => page.evaluate((v) => (window as unknown as { __kilnMock: { emit: (n: string, v: unknown) => void } }).__kilnMock
+      .emit("kiln://gamepad", { kind: "axis", axis: "ry", value: v, device: "event9" }), value);
+    for (let i = 0; i < 20; i++) await send(1);
+    await send(0);
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await pad(page, "a");
+    await expect(notice).toContainText("Profile notes");
+    await pad(page, "a");
+    await expect(notice).toHaveCount(0);
+    await expect.poll(() => focused(page)).toBe("switch-profile");
+  });
+
+  test("an error folded into the earlier notices goes after six seconds; the folded notices stay", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    await page.evaluate(async () => {
+      const { toast } = await import("/src/ui/Toast.tsx");
+      toast.error({ code: "io", message: "an old error" });
+      for (let i = 0; i < 9; i++) toast.info(`Kept folder ${i}`, `mods/Mod-${i}: may still run`, { ms: 0 });
+    });
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("earlier notices");
+    await page.clock.fastForward(7000);
+    await expect(notice).toContainText("Kept folder 0");
+    await expect(notice).not.toContainText("an old error");
+  });
+
   test("the retained-folder warning shows its paths and reasons and a pad closes it", async ({ page }) => {
     await openDeck(page);
     await page.evaluate(() => (window as unknown as { __kilnMock: { planActivation: (r: unknown) => void } }).__kilnMock.planActivation({
-      retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini)", mayRun: true }],
+      retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }],
       keptFiles: ["xhl:xhl-vein-mining: kept runtime settings (config.txt) in kiln/state/placed-settings/xhl/xhl-vein-mining"],
     }));
     await page.keyboard.press("ArrowLeft");
@@ -429,7 +495,7 @@ test.describe("notices", () => {
     await expect(notice).toContainText("Some mod folders were kept");
     await expect(notice).toContainText("mods/XHL-Vein-Mining");
     await expect(notice).toContainText("native-plugin.ini");
-    await expect(notice).toContainText("may still run");
+    await expect(notice).toContainText("may still load it");
     // A on its OK closes it; the next notice follows, B closes that one
     await pad(page, "a");
     await expect(notice).toContainText("Mod settings kept");

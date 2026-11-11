@@ -83,6 +83,7 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
   /** After the player picked a profile for a mod that only reached the Library. */
   const pickedAdd = (r: AddReport, game: GameInstall) => {
     refresh(r.profileId, game.id);
+    notifyActivation(r.activation); // what writing the picked profile again kept in the game folder
     if (r.added.length) {
       toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, r.applied ? undefined : `${r.profileName ?? "It"} is not the active profile: turn it on on Play.`,
         { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
@@ -246,6 +247,7 @@ function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
     try {
       const r = await runTask<ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
       setDone(r);
+      notifyActivation(r.activation);
       invalidateGame(qc, game.id);
       qc.invalidateQueries({ queryKey: ["library_list"] });
     } catch { /* toasted */ } finally { setBusy(false); }

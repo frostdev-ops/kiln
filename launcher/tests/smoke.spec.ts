@@ -3,7 +3,7 @@
 // every main page fits 1024×640, and screenshots of the main pages at 1024×640 and 1920×1080 go to
 // .out/launcher/shots/ (SHOTS=0 skips them).
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SHOTS = join(import.meta.dirname, "..", "..", ".out", "launcher", "shots");
@@ -117,6 +117,19 @@ test("import → add to profile → light → resolver preview", async ({ page }
   expect(errors).toEqual([]);
 });
 
+/** A `pub const NAME: &str = "...";` of kiln-manage's profile.rs: the backend's own words, not the mock's copy. */
+function rustConst(name: string): string {
+  const rust = readFileSync(new URL("../../crates/kiln-manage/src/profile.rs", import.meta.url), "utf8");
+  const m = rust.match(new RegExp(`pub const ${name}: &str = "((?:[^"\\\\]|\\\\.)*)";`));
+  if (!m) throw new Error(`no ${name} in profile.rs`);
+  return m[1].replace(/\\"/g, '"');
+}
+
+test("the mock's world sentences are the backend's", () => {
+  const mock = readFileSync(new URL("../src/api/mock.ts", import.meta.url), "utf8");
+  for (const name of ["WITH_WORLD", "HOSTED_OFF", "WORLD_FAILS"]) expect(mock).toContain(JSON.stringify(rustConst(name)));
+});
+
 // Player report (Nexus, 2026-11-11): Loot Leveler and Enemy Leveler (side "server") read "not loaded on a client" here,
 // so the player took them for server-only. On a client they start with the player's own world (Kiln.Host StartHosting).
 test("a server mod on a client profile starts with the player's own world", async ({ page }) => {
@@ -125,7 +138,7 @@ test("a server mod on a client profile starts with the player's own world", asyn
     await page.getByRole("button", { name: "Light Big Stacks" }).click();
     const row = page.locator(".k-order-row", { hasText: "big-stacks" });
     await expect(row.getByText("Starts with your world", { exact: true })).toBeVisible();
-    await expect(row.locator(".k-order-note")).toHaveAttribute("title", "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.");
+    await expect(row.locator(".k-order-note")).toHaveAttribute("title", rustConst("WITH_WORLD"));
     await expect(page.getByText(/not loaded on a client/)).toHaveCount(0);
     await expect(page.getByText("2 mods load on a client. 1 starts with your world. 2 stay out.")).toBeVisible();
     // players look for their mods in the game folder: the page says where they are
@@ -139,7 +152,7 @@ test("a server mod on a client profile starts with the player's own world", asyn
     await page.evaluate(() => (window as unknown as { __kilnMock: { setKilnJson: (path: string, value: unknown) => void } }).__kilnMock.setKilnJson("mods.hosted", false));
     await open(page, "/profiles/ember-run/mods");
     await page.getByRole("radio", { name: "Client" }).click();
-    await expect(row.locator(".k-order-note")).toHaveText("Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).");
+    await expect(row.locator(".k-order-note")).toHaveText(rustConst("HOSTED_OFF"));
     await expect(page.getByText("2 mods load on a client. 3 stay out.")).toBeVisible();
     await open(page, "/");
     await expect(page.locator(".k-hero").getByText("2 of 5 mods load on this client. Big Stacks stays off in this game.")).toBeVisible();
@@ -653,4 +666,8 @@ test("the uninstall confirmation says what leaves the game folder and what stays
   await expect(dialog).toContainText("kiln/ (configs, data, logs) stays");
   await expect(dialog).toContainText("Game archives EML patched stay patched");
   await expect(dialog).toContainText("switch the EML mods off and start the game once through Kiln");
+  // only what is true: another loader's file at an original's name stays (install.rs uninstall_report), and the start
+  // through Kiln restores only archives Kiln's EML plugin wrote and that are unchanged (engine_mods::eml_restore_vanilla)
+  await expect(dialog).toContainText("unless another loader's file has taken its name since");
+  await expect(dialog).toContainText("that restores only archives Kiln's EML plugin wrote and that are unchanged since");
 });

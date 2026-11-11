@@ -171,6 +171,38 @@ test("a modpack zip asks for consent before anything is installed", async ({ pag
   await expect(page.getByRole("button", { name: "Active profile: Server: Ember Isles. Change profile." })).toBeVisible({ timeout: 5000 });
 });
 
+// What the activation a dropped modpack or a picked profile writes kept in the game folder (shell/notices.ts).
+const KEPT = { retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }] };
+const ACT = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x/kiln/profile.json", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", ...KEPT };
+type PlanMock = { __kilnMock: { planActivation: (r: unknown) => void; planCommand: (c: string, p: unknown) => void } };
+
+test("a dropped modpack's activation says what it kept in the game folder", async ({ page }) => {
+  await start(page, "fresh");
+  await installOnPlay(page);
+  await page.evaluate((r) => (window as unknown as PlanMock).__kilnMock.planActivation(r), KEPT);
+  await dropOn(page, page.locator(".k-hero"), "ember-isles-modpack-3.zip");
+  const dialog = page.getByRole("dialog", { name: "Install this modpack?" });
+  await dialog.getByText("I trust it and want its mods").click();
+  await dialog.getByRole("button", { name: "Install" }).click();
+  await expect(toastWith(page, "Some mod folders were kept")).toContainText("mods/XHL-Vein-Mining", { timeout: 8000 });
+});
+
+test("a mod added to a picked profile says what writing that profile kept in the game folder", async ({ page }) => {
+  await start(page, null, "/");
+  await page.getByRole("button", { name: /^Active profile: Ember run/ }).click();
+  await page.getByRole("option", { name: /^No profile/ }).click();
+  await expect(page.getByRole("button", { name: /^Active profile: Drop-in mods/ })).toBeVisible({ timeout: 5000 });
+  await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip");
+  await toastWith(page, "Imported Night Owl").getByRole("button", { name: "Add to a profile" }).click();
+  await page.evaluate((a) => (window as unknown as PlanMock).__kilnMock.planCommand("library_add_to_profile", { result: {
+    import: { imported: [], existing: [], skipped: [], notes: [] }, profileId: "ember-run", profileName: "Ember run", created: false, resumed: false,
+    added: [{ kind: "kiln", id: "night-owl", version: "1.2.0", name: "Night Owl" }], already: [], changes: [], applied: true, running: false,
+    activation: a, missing: [], libraryOnly: null, modpacks: [] } }), ACT);
+  await page.getByRole("dialog", { name: "Add to which profile?" }).getByRole("button", { name: /Ember run/ }).click();
+  await expect(toastWith(page, "Added Night Owl to Ember run")).toBeVisible({ timeout: 5000 });
+  await expect(toastWith(page, "Some mod folders were kept")).toContainText("mods/XHL-Vein-Mining");
+});
+
 test("players with profiles: a drop goes into the active one; the setting can turn that off", async ({ page }) => {
   await start(page, null, "/library");
   // Library's niche, setting on (the default): into the active profile (Ember run)

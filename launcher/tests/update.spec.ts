@@ -55,8 +55,12 @@ test("an update: notice, Update, Restart, then Update game", async ({ page }) =>
   await expect(updated.getByRole("button", { name: "Update game" })).toBeEnabled({ timeout: 6000 });
   await expect(word(page, "Updated")).toBeVisible();
   await shot(page, "update-installed-runtime-next");
+  // the update writes the active profile again for the new runtime: what that kept is shown (shell/notices.ts)
+  await page.evaluate(() => (window as unknown as { __kilnMock: { planActivation: (r: unknown) => void } }).__kilnMock.planActivation({
+    retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed. It is on in the profile, and this changed copy is what runs; nothing to do if you changed it on purpose.", mayRun: true }] }));
   await updated.getByRole("button", { name: "Update game" }).click();
   await expect(page.locator(".k-toast", { hasText: "Kiln 0.2.0-dev+20261104.0f1ffa6 installed" })).toBeVisible({ timeout: 8000 });
+  await expect(page.locator(".k-toast", { hasText: "Some mod folders were kept" })).toContainText("this changed copy is what runs");
   await expect(page.locator(".k-upd")).toHaveCount(0);
 });
 

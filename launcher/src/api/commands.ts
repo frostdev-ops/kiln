@@ -1094,6 +1094,9 @@ export const profileResolve = (profileId: ProfileId, side: RunSide, gameId: Game
 export const profileActivate = (profileId: ProfileId, gameId: GameId) => call<Activation>("profile_activate", { profileId, gameId });
 export const profileDeactivate = (gameId: GameId) => call<PlacementCleanup>("profile_deactivate", { gameId });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });
+/** The activations of re-applies the window has not shown yet (after a profile edit, a change outside the launcher, the
+ *  watcher's start-up pass); each is returned once. Taken when `kiln://activation` arrives and once at start. */
+export const activationNotices = () => call<Activation[]>("activation_notices");
 /** Undoes a library_add (its changes); the game's profile.json follows where the profile is active. */
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
 /** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
@@ -1477,7 +1480,7 @@ export const COMMANDS = [
   "game_list", "game_detect", "game_add", "game_remove", "game_status",
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
-  "profile_deactivate", "profile_active",
+  "profile_deactivate", "profile_active", "activation_notices",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state", "launch_prestart",
@@ -1522,8 +1525,8 @@ export interface KilnEvents {
   "kiln://gamepad": GamepadEvent;
   /** An Enshrouded Mod Manager Download (nxm://) link arrived: `count` wait in nexus_links (api/nexus.ts). */
   "kiln://nxm": { count: number };
-  /** A profile written again without profile_activate (after a profile edit, or a change outside the launcher). */
-  "kiln://activation": Activation;
+  /** A profile was written again without profile_activate and its notices wait: take them with activation_notices. */
+  "kiln://activation": { gameId: GameId };
 }
 export type KilnEventName = keyof KilnEvents;
 

@@ -445,6 +445,8 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   if (req.mode === "once" && !req.profileId) reject("invalid_argument", "Pick a profile to play once.");
   const st = runtime[gameId];
   if (!st?.installed && req.mode !== "vanilla") reject("unsupported", "Kiln is not installed in this game.");
+  // Play writes a changed profile again first (profile::refresh_active): a planned report stands for what that kept
+  const act = req.mode === "profile" && activationPlan && activations[gameId] ? activate(activations[gameId]!.profileId, gameId) : undefined;
   const pid = ++pidSeq;
   const nonce = req.mode === "profile" ? null : hex(String(pid)).slice(0, 32);
   const profile = req.mode === "once" ? req.profileId ?? null : req.mode === "profile" ? activations[gameId]?.profileId ?? null : null;
@@ -455,7 +457,7 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   setTimeout(() => emitGame(gameId, "started"), 300);
   setTimeout(() => emitGame(gameId, "boot"), 2600);
   setTimeout(() => emitGame(gameId, "mods"), 3200);
-  return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now() };
+  return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now(), ...(act ? { activation: act } : {}) };
 }
 
 /** Dev/test helper: the fake game was started outside the launcher (Steam) `secondsAgo` seconds ago. */
@@ -747,7 +749,9 @@ const handlers: Record<string, Handler> = {
       runtime[gameId] = { installed: true, receipt, proxy: kilnProxy, modified: [], upgradeAvailable: null };
       emitGame(g.id, "status");
       const backup = changed.length ? `/home/player/.local/share/kiln/backups/install/${receipt.installId}/install-${now().replace(/[-:]/g, "").slice(0, 15)}Z` : null;
-      return { ...receipt, changedBackedUp: changed, backup } satisfies InstallResult;
+      // the active profile, written again for this runtime (quick::resume_active): a planned report stands for what it kept
+      const activation = activationPlan && activations[gameId] ? activate(activations[gameId]!.profileId, gameId) : null;
+      return { ...receipt, changedBackedUp: changed, backup, resumedProfile: null, activation } satisfies InstallResult;
     });
   },
   runtime_uninstall: (a) => {
@@ -782,7 +786,7 @@ const handlers: Record<string, Handler> = {
     if (cur.generation !== p.generation) reject("conflict", "The profile changed elsewhere. Reload it.");
     const next = { ...clone(p), generation: p.generation + 1, updated: now() };
     profiles.set(p.id, next);
-    reapplyWhereActive(p.id);
+    if (rendered(next) !== rendered(cur)) reapplyWhereActive(p.id);
     return clone(next);
   },
   profile_delete: (a) => {
@@ -803,6 +807,7 @@ const handlers: Record<string, Handler> = {
   },
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
+  activation_notices: () => notices.splice(0),
   profile_revert: (a) => {
     const id = S(a.profileId);
     const p = clone(profiles.get(id) ?? reject("not_found", `No profile '${id}'.`));
@@ -1177,15 +1182,28 @@ function makeDefault(): Profile {
   return p;
 }
 
-/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again, and the
- *  launcher hears what that kept in the game folder (kiln://activation). */
+/** Re-applies' activations the window has not taken (activation_notices), as the backend keeps them; tests put some
+ *  there before the page loads with `window.__kilnMockNotices` (a re-apply before the window listened). */
+const notices: Activation[] = typeof window === "undefined" ? [] :
+  [...((window as unknown as { __kilnMockNotices?: Activation[] }).__kilnMockNotices ?? [])];
+
+/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again, and what that
+ *  kept in the game folder waits for the window (kiln://activation says so). */
 function reapplyWhereActive(pid: string) {
   for (const [g, act] of Object.entries(activations)) {
     if (act?.profileId !== pid || running[g]) continue;
-    mockEmit("kiln://activation", activate(pid, g));
+    const a = activate(pid, g);
+    if (a.retained?.length || a.keptFiles?.length || a.warnings?.length) {
+      notices.push(a);
+      mockEmit("kiln://activation", { gameId: g });
+    }
     emitGame(g, "status");
   }
 }
+
+/** What profile.json holds of a profile (profile::render): its name and notes are not in it, so editing those writes
+ *  nothing (refresh_active finds the file current). */
+const rendered = (p: Profile) => JSON.stringify([p.mods, p.dropins, p.dataDir, p.late ?? []]);
 
 /** Games' profile files listing a version without a profile listing it (tests: `__kilnMock.setGameFileUsers`):
  *  `<profile> (active in <game>)` per `<kind>/<id>/<version>`. */
