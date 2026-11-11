@@ -11,6 +11,6 @@
   "ms": 412.7,
   "error": null,
   "aside": null,
-  "reason": "The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output (it has no ownership receipt, and it is not the output the earlier change cache recorded), so it was left as it is. If ShroudForge asset mods or another loader wrote it, nothing needs doing. If it still carries EML mods you switched off: enable any EML mod for one start and disable it again, or use Steam's \"Verify integrity of game files\"",
+  "reason": "The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output (it has no ownership receipt, and it is not the output the earlier change cache recorded), so it was left as it is. If ShroudForge asset mods or another loader wrote it, nothing needs doing. If it still carries EML mods you switched off: enable any EML mod for one start and disable it again; Kiln preserves unproven destination containers in kiln/eml/displaced rather than deleting them. Or use Steam's \"Verify integrity of game files\" (which may leave extra containers)",
   "mods": []
 }

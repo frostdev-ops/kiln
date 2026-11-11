@@ -90,6 +90,7 @@ pub(crate) fn finish_stage(root: &Path, name: &str) {
 
 /// Next-start cleanup under the installation lock. Unrecorded game-folder copies are never deletion candidates.
 pub fn prune(root: &Path, stem: &str) {
+    crate::displacement::reset();
     if check_stem(stem).is_err() { return; }
     let dir = root.join("kiln/eml/ownership");
     if checked_path(root, &dir).is_err() { return; }
@@ -127,6 +128,46 @@ fn inventory(root: &Path, path: &Path, out: &mut Vec<String>, depth: usize) -> i
     Ok(bytes)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn malformed_cleanup_records_never_authorize_a_live_file_or_an_escape() {
+        for name in ["g.kfc", "../g.kfc", "sub/g.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] {
+            let root = std::env::temp_dir().join(format!("kiln-invalid-cleanup-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&root).unwrap();
+            fs::write(root.join("g.kfc"), "live archive").unwrap();
+            let dir = directory(&root).unwrap();
+            let record = dir.join(format!("cleanup-{}.json", uuid::Uuid::new_v4()));
+            fs::write(&record, serde_json::to_vec(&Record { format: 1, stem: "g".into(), name: name.into() }).unwrap()).unwrap();
+            prune(&root, "g");
+            assert!(record.exists(), "unrecognized records stay, not consumed");
+            assert_eq!(fs::read(root.join("g.kfc")).unwrap(), b"live archive");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn a_recorded_stage_replaced_by_a_link_never_cleans_its_target() {
+        let root = std::env::temp_dir().join(format!("kiln-linked-cleanup-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let name = format!(".kiln-eml-stage-{}", uuid::Uuid::new_v4());
+        let proof = record(&root, "g", &name).unwrap();
+        assert!(!root.join(&name).exists(), "proof is flushed before the future stage exists");
+        fs::create_dir(root.join("foreign")).unwrap();
+        fs::write(root.join("foreign/g.kfc"), "foreign data").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("foreign"), root.join(&name)).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(root.join("foreign"), root.join(&name)).unwrap();
+        prune(&root, "g");
+        assert_eq!(fs::read(root.join("foreign/g.kfc")).unwrap(), b"foreign data");
+        assert!(proof.exists());
+        assert!(recovery_guidance(&root, "g").unwrap().join(" ").contains(&name));
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// Player-facing state/log guidance. A recorded stage with foreign children becomes an unrecorded retained folder.
 pub fn recovery_guidance(root: &Path, stem: &str) -> io::Result<Vec<String>> {
     check_stem(stem)?;
@@ -141,6 +182,13 @@ pub fn recovery_guidance(root: &Path, stem: &str) -> io::Result<Vec<String>> {
         }
     }
     paths.sort();
-    if paths.is_empty() { return Ok(Vec::new()); }
-    Ok(vec![format!("Recovery files retained without cleanup proof: {}. Inspect them before manual cleanup; Kiln will not delete these files", paths.join(", "))])
+    let mut messages = Vec::new();
+    if !paths.is_empty() {
+        messages.push(format!("Recovery files retained without cleanup proof: {}. Inspect them before manual cleanup; Kiln will not delete these files", paths.join(", ")));
+    }
+    match crate::displacement::guidance(root) {
+        Ok(displaced) => messages.extend(displaced),
+        Err(error) => messages.push(format!("Archive recovery folders could not be inventoried: {error}. Inspect kiln/eml/displaced manually; no recovery files were deleted")),
+    }
+    Ok(messages)
 }

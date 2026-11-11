@@ -49,6 +49,11 @@ impl Game {
     /// The state an earlier kiln-eml (no receipts) left after a patch run: its output, sealed backups and change cache.
     fn as_released_before_receipts(&self) {
         std::fs::remove_file(self.receipt()).unwrap();
+        let path = self.cfg.cache_dir.join("files.json");
+        let mut cache: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        cache.as_object_mut().unwrap().remove("owner");
+        cache["build_id"] = format!("pre-receipt-{}", cache["build_id"].as_str().unwrap()).into();
+        std::fs::write(path, serde_json::to_vec(&cache).unwrap()).unwrap();
     }
     /// The same archives and backups, but nothing that proves who wrote them: another loader built on the shared backup.
     fn as_written_by_another_loader(&self) {
@@ -110,31 +115,42 @@ fn published(tag: &str, lua: &str) -> Game {
     g
 }
 
-// A leftover or player container is not writable just because it occupies the next mod-container index.
+fn saved_container(g: &Game, name: &str) -> Utf8PathBuf {
+    let folders = std::fs::read_dir(g.game().join("kiln/eml/displaced")).unwrap();
+    let files: Vec<_> = folders.flatten().map(|e| Utf8PathBuf::from_path_buf(e.path()).unwrap().join(name)).filter(|p| p.is_file()).collect();
+    assert_eq!(files.len(), 1, "exactly one saved original of {name}");
+    files[0].clone()
+}
+
 #[test]
-fn publication_refuses_unproven_container_collisions_before_changing_live_archives() {
+fn publication_displaces_unproven_content_and_padding_without_blocking_the_patch() {
     for (tag, existing) in [("foreign-content", b"player content".as_slice()), ("foreign-padding", b"".as_slice())] {
         let g = Game::new(tag, CONTENT);
-        let collision = g.game().join("enshrouded_001.dat");
-        std::fs::write(&collision, existing).unwrap();
-        let live = g.archives();
+        let name = "enshrouded_001.dat";
+        std::fs::write(g.game().join(name), existing).unwrap();
         let out = g.with_mod();
-        assert_eq!(std::fs::read(&collision).unwrap(), existing, "unproven container was overwritten: {out:?}");
-        assert_eq!(g.archives(), live, "refuse before the vanilla-header barrier");
-        assert_eq!(out.phase, Phase::Failed, "{out:?}");
-        assert!(!g.receipt().exists(), "a collision cannot mint ownership of player data");
+        assert_eq!(out.phase, Phase::Done, "unproven collision blocked upgrade: {out:?}");
+        let saved = saved_container(&g, name);
+        assert_eq!(std::fs::read(&saved).unwrap(), existing);
+        let reason = out.reason.as_deref().unwrap_or("");
+        assert!(reason.contains(name) && reason.contains(&format!("{} bytes", existing.len())) && reason.contains("kiln/eml/displaced/"), "displacement not reported: {out:?}");
+        assert!(g.receipt().exists());
+        assert!(g.without_mods().restored);
+        assert_eq!(std::fs::read(&saved).unwrap(), existing, "restore never deletes the saved original");
+        let later = g.without_mods();
+        let reason = later.reason.as_deref().unwrap_or("");
+        assert!(reason.contains("kiln/eml/displaced/") && !reason.contains("Archive containers moved aside:"), "later start must name the folder, not repeat this-start moves: {later:?}");
+        std::fs::remove_dir_all(saved.parent().unwrap()).unwrap();
+        let later = g.without_mods();
+        assert!(!later.reason.as_deref().unwrap_or("").contains("kiln/eml/displaced/"), "removed folder must stop being reported");
     }
     let g = published("edited-owned-container", CONTENT);
-    let collision = g.game().join("enshrouded_001.dat");
-    std::fs::write(&collision, b"changed by player").unwrap();
-    let live = g.archives();
-    let receipt = std::fs::read(g.receipt()).unwrap();
+    let name = "enshrouded_001.dat";
+    std::fs::write(g.game().join(name), b"changed by player").unwrap();
     std::fs::write(g.root.join("mods/a/src/mod.lua"), r#"game.assets.create_content(buffer.wrap("different patch"))"#).unwrap();
     let out = g.with_mod();
-    assert_eq!(out.phase, Phase::Failed, "{out:?}");
-    assert_eq!(std::fs::read(&collision).unwrap(), b"changed by player");
-    assert_eq!(g.archives(), live);
-    assert_eq!(std::fs::read(g.receipt()).unwrap(), receipt);
+    assert_eq!(out.phase, Phase::Done, "{out:?}");
+    assert_eq!(std::fs::read(saved_container(&g, name)).unwrap(), b"changed by player");
 }
 
 // F1: dev.21 to dev.23 published without receipts. Their change cache names the output exactly: switching EML mods
@@ -405,7 +421,7 @@ fn idle_reports_extra_containers_even_when_archives_are_vanilla_or_no_backup_exi
 }
 
 #[test]
-fn enabled_mod_never_claims_unproven_legacy_client_containers_even_after_update() {
+fn enabled_mod_preserves_all_nine_legacy_containers_and_patches_after_update() {
     for updated in [false, true] {
         for cache in [false, true] {
             let g = legacy_client(&format!("client-on-{updated}-{cache}"), cache, updated);
@@ -414,20 +430,27 @@ fn enabled_mod_never_claims_unproven_legacy_client_containers_even_after_update(
                 types.version = "updated".into();
                 std::fs::write(g.cfg.cache_dir.join("enshrouded-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
             }
+            let extra: Vec<_> = (55..64).map(|i| {
+                let name = format!("enshrouded_{i:03}.dat");
+                let bytes = std::fs::read(g.game().join(&name)).unwrap();
+                (name, bytes)
+            }).collect();
             let out = g.with_mod();
+            assert_eq!(out.phase, Phase::Done, "legacy upgrade blocked: {out:?}");
+            assert!(!out.cached, "the changed release runs a real publication: {out:?}");
+            assert!(g.receipt().exists());
             if cache && !updated {
-                assert_eq!(out.phase, Phase::Done, "{out:?}");
-                assert!(g.receipt().exists());
-                assert!(g.without_mods().restored);
+                assert!(!g.game().join("kiln/eml/displaced").exists(), "content-proven legacy output is replaced in place");
             } else {
-                assert_eq!(out.phase, Phase::Failed, "{out:?}");
-                assert!(!g.receipt().exists());
-                for i in 55..64 {
-                    let name = format!("enshrouded_{i:03}.dat");
-                    assert!(g.game().join(&name).exists());
-                    assert!(out.reason.as_deref().is_some_and(|r| r.contains(&name)), "{out:?}");
+                for (name, bytes) in &extra {
+                    assert_eq!(std::fs::read(saved_container(&g, name)).unwrap(), *bytes);
+                    assert!(out.reason.as_deref().is_some_and(|r| r.contains(name) && r.contains(&format!("{} bytes", bytes.len()))), "{out:?}");
                 }
-                assert_eq!(g.archives(), g.vanilla);
+            }
+            assert!(g.without_mods().restored);
+            for (name, bytes) in extra {
+                assert!(!g.game().join(&name).exists());
+                if !cache || updated { assert_eq!(std::fs::read(saved_container(&g, &name)).unwrap(), bytes); }
             }
         }
     }

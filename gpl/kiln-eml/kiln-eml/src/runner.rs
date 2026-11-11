@@ -574,9 +574,9 @@ fn displaced_sentence(mods: &[String]) -> String {
 fn unproven_sentence(why: &str) -> String {
     format!("The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output ({why}), so it \
         was left as it is. If ShroudForge asset mods or another loader wrote it, nothing needs doing. If it still carries \
-        EML mods you switched off: enable any EML mod for one start and disable it again only if no unproven container \
-        collision is reported; otherwise inspect and move those containers aside first, or use Steam's \"Verify \
-        integrity of game files\" (which may leave extra containers)")
+        EML mods you switched off: enable any EML mod for one start and disable it again; Kiln preserves unproven \
+        destination containers in kiln/eml/displaced rather than deleting them. Or use Steam's \"Verify integrity of \
+        game files\" (which may leave extra containers)")
 }
 
 /// `224.4 MiB`

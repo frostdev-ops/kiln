@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Digest { size: u64, sha256: String }
+pub(crate) struct Digest { pub(crate) size: u64, sha256: String }
 
 thread_local! { static READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 #[cfg(test)]
@@ -23,7 +23,7 @@ thread_local! { static DISPLACED: std::cell::RefCell<Vec<String>> = const { std:
 pub(crate) fn displaced() -> Vec<String> { DISPLACED.with(|d| d.borrow().clone()) }
 fn count(n: usize) { READ.with(|r| r.set(r.get() + n as u64)); }
 
-fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
+pub(crate) fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
     checked_path(root, path)?;
     super::transaction::regular(path)?;
     let mut file = fs::File::open(path)?;
@@ -125,6 +125,10 @@ struct Receipt {
     /// first change the live files are still these, so they stay proof; dropped once the new header is live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     previous: Option<BTreeMap<String, Digest>>,
+    // A write-ahead future digest must not claim an identical but still-unmoved foreign destination (empty padding
+    // especially). Clear only after every recorded displacement has been durably moved, before publishing any data.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    unproven: Vec<String>,
 }
 
 fn output_set(stem: &str, files: &BTreeMap<String, Digest>) -> bool {
@@ -221,14 +225,14 @@ impl<'a> Live<'a> {
     /// Could a generation of `receipt` be live, from sizes alone (metadata only)?
     fn plausible(&self, stem: &str, receipt: &Receipt) -> io::Result<bool> {
         Ok(self.backup_sizes(stem, &receipt.backups)?
-            && (self.sizes(&receipt.files)? || match &receipt.previous { Some(p) => self.sizes(p)?, None => false }))
+            && ((receipt.unproven.is_empty() && self.sizes(&receipt.files)?) || match &receipt.previous { Some(p) => self.sizes(p)?, None => false }))
     }
 
     /// The generation of `receipt` that is live and was built from the backups present, if one is. Every size is
     /// compared before anything is read.
     fn owned(&mut self, stem: &str, receipt: &Receipt) -> io::Result<Option<BTreeMap<String, Digest>>> {
         if !self.plausible(stem, receipt)? || !self.same_backups(stem, &receipt.backups)? { return Ok(None); }
-        if self.matches(&receipt.files)? { return Ok(Some(receipt.files.clone())); }
+        if receipt.unproven.is_empty() && self.matches(&receipt.files)? { return Ok(Some(receipt.files.clone())); }
         match &receipt.previous {
             Some(previous) if self.matches(previous)? => Ok(Some(previous.clone())),
             _ => Ok(None),
@@ -264,7 +268,19 @@ pub(crate) fn vouched(root: &Path, stem: &str, saved: Option<&str>) -> io::Resul
 /// Write ahead: only the exact staged set can later match this proof, including after a publication failure. The
 /// owned output still live is kept as the previous generation until the publication's last step (`committed`).
 /// The returned guard (SF's locks, when SF's state was handed over) is held until the last archive is published.
-pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Option<SfGuard>> {
+pub(crate) struct Prepared { _sf: Option<SfGuard>, moves: Option<crate::displacement::Plan>, receipt: Receipt, path: PathBuf }
+impl Prepared {
+    pub(crate) fn after_barrier(&mut self, root: &Path, boundary: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+        if let Some(moves) = &self.moves {
+            moves.apply(root, boundary)?;
+            self.receipt.unproven.clear();
+            super::transaction::atomic_write(&self.path, &serde_json::to_vec(&self.receipt)?)?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Prepared> {
     check_stem(stem)?;
     let guard = sf_lock(root)?;
     handoff_locked(root, stem, false, false, &guard)?;
@@ -279,6 +295,8 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     let mut live = Live::new(root);
     let mut output = BTreeMap::new();
     let mut changed = false;
+    let mut collisions = BTreeMap::new();
+    let mut vanilla = None;
     for path in files {
         let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| invalid("invalid output name"))?;
         if !valid_name(stem, name) { return Err(invalid("unexpected EML output file")); }
@@ -289,10 +307,14 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         if container_index(stem, name).is_some() && live.size(name)?.is_some() {
             let current = live.digest(name)?;
             let proven = earlier.as_ref().is_some_and(|r| output_set(stem, &r.files)
-                && (r.files.get(name).is_some_and(|d| Some(d) == current.as_ref())
+                && ((!r.unproven.iter().any(|n| n == name) && r.files.get(name).is_some_and(|d| Some(d) == current.as_ref()))
                     || r.previous.as_ref().and_then(|p| p.get(name)).is_some_and(|d| Some(d) == current.as_ref())));
             if !proven {
-                return Err(invalid(&format!("existing container {name} retained: cannot prove kiln-eml wrote its current bytes; inspect and move it aside before retrying")));
+                let count = *vanilla.get_or_insert_with(|| path.parent().and_then(|p| containers_at(root, &p.join(super::transaction::VANILLA_HEADER))));
+                if count.is_none_or(|count| container_index(stem, name).is_none_or(|i| i < count)) {
+                    return Err(invalid(&format!("existing container {name} retained: cannot prove it lies beyond the vanilla header's container range")));
+                }
+                collisions.insert(name.to_owned(), current.unwrap());
             }
         }
         if live.size(name)? != Some(expected.size) || live.digest(name)?.as_ref() != Some(&expected) { changed = true; }
@@ -305,11 +327,13 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         Some(earlier) if output_set(stem, &earlier.files) => live.owned(stem, earlier)?.filter(|p| *p != output),
         _ => None,
     };
-    let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous };
+    let unproven = collisions.keys().cloned().collect();
+    let moves = if collisions.is_empty() { None } else { Some(crate::displacement::Plan::record(root, stem, vanilla.flatten().unwrap(), collisions)?) };
+    let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous, unproven };
     // Even identical final bytes pass through the vanilla-header barrier and rewrite the live pair.
     handoff_locked(root, stem, true, changed, &guard)?;
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
-    Ok(guard)
+    Ok(Prepared { _sf: guard, moves, receipt, path })
 }
 
 pub(crate) fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
@@ -423,7 +447,7 @@ pub fn adopt(root: &Path, stem: &str, cache_dir: &Path) -> io::Result<Adoption> 
         let (digest, crc) = digest_and_crc(root, &path)?;
         if cache.describes(&path, (digest.size, crc), &mut volume).is_ok() { files.insert(name, digest); }
     }
-    let receipt = Receipt { format: 1, stem: stem.into(), files, backups: sealed, previous: None };
+    let receipt = Receipt { format: 1, stem: stem.into(), files, backups: sealed, previous: None, unproven: Vec::new() };
     super::transaction::atomic_write(&directory(root)?.join(format!("{stem}.json")), &serde_json::to_vec(&receipt)?)?;
     tracing::info!("Adopted the {stem} game data an earlier kiln-eml published (its change cache names exactly these files and backups): it now has an ownership receipt");
     Ok(Adoption::Adopted)
@@ -447,7 +471,10 @@ fn container_index(stem: &str, name: &str) -> Option<usize> {
 
 /// How many containers the header at `name` lists (container `i` is `<stem>_{i:03}.dat`).
 fn containers(root: &Path, name: &str) -> Option<usize> {
-    let path = root.join(name);
+    containers_at(root, &root.join(name))
+}
+
+fn containers_at(root: &Path, path: &Path) -> Option<usize> {
     checked_path(root, &path).ok()?;
     super::transaction::regular(&path).ok()?;
     Some(kfc::container::KFCFile::from_path(&path, false).ok()?.containers().len())
@@ -489,7 +516,7 @@ pub(crate) fn live_containers(root: &Path, stem: &str) -> io::Result<Option<BTre
     let header = format!("{stem}.kfc");
     let mut live = Live::new(root);
     let now = live.digest(&header)?;
-    let generation = [Some(&receipt.files), receipt.previous.as_ref()].into_iter().flatten()
+    let generation = [receipt.unproven.is_empty().then_some(&receipt.files), receipt.previous.as_ref()].into_iter().flatten()
         .find(|g| now.is_some() && g.get(&header) == now.as_ref());
     Ok(generation.map(|g| g.iter().filter(|(n, _)| container_index(stem, n).is_some()).map(|(n, d)| (n.clone(), d.clone())).collect()))
 }

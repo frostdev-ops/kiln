@@ -202,11 +202,17 @@ It fails soft:
   The restore copies back the header and the resource file, then removes the container files the output added (EML
   appends `<exe>_NNN.dat` after the game's own and pads their count to a power of two with empty files: on a client
   `_055` with the content and `_056` to `_063` empty): only those the receipt lists, each only while it is exactly the
-  listed file, and never one the vanilla header references. A player's own file is never touched. A publication with
+  listed file, and never one the vanilla header references. No unproven file is deleted. A publication with
   fewer containers than the output it replaces removes the old ones the new header no longer references the same way.
-  Before publication, any existing destination DAT also needs matching per-file receipt proof (including adopted
-  legacy output). Otherwise the run refuses before changing live archives and names the container it retained; inspect
-  it and move it aside manually if appropriate. Enabling a mod cannot establish ownership by overwriting unproven data.
+  An existing destination DAT with matching per-file receipt proof (including adopted legacy output) is replaced in
+  place. An unproven destination is never overwritten: its index must be at or above the private vanilla header's
+  container count. Kiln records its exact name, size and SHA-256 in `kiln/eml/displaced/<run-id>/moves.json`, flushes
+  that journal, publishes the vanilla-header barrier so nothing references it, then renames it into that recovery
+  folder without replacing an existing file. All these moves must succeed before any further data archive write.
+  A killed run leaves either the original file or its preserved copy and move journal; the next enabled start can
+  patch again from the baseline. While moves are pending, the receipt cannot claim identical unmoved foreign bytes.
+  `reason` and the warning log list this start's moved files, sizes and destinations; later starts name each recovery
+  folder only while it exists. Kiln never deletes anything in `kiln/eml/displaced/`.
 - **Output of dev.20 to dev.23 (before receipts):** once, when there is no receipt, kiln-eml checks the change cache that
   release left (`kiln/eml/cache/files.json`, written only after a completed publication or a start that changed
   nothing). It is proof only when it is the record of a patch run of this stem, names the live `<exe>.kfc` and
@@ -241,15 +247,15 @@ It fails soft:
   the game data is of the new one. A start without EML mods then compares nothing, restores nothing and claims nothing
   about the data: one info line in kiln.log (`... the vanilla backup is of another game build ...`), `staleBackup:
   true` in `kiln/state/eml.json`, and the launcher's archive banner says the backup is of an earlier build and nothing
-  needs doing to that backup. Extra containers are still named in `reason` and the log for manual inspection. The next
-  start with an EML mod makes a new backup of the current build, but refuses to replace any unproven container at an
-  output path; inspect and move that file aside before retrying.
+  needs doing to that backup. Extra containers are still named in `reason` and the log for manual inspection; that
+  guidance must be shown alongside the stale-backup notice, not suppressed by it. The next start with an EML mod makes
+  a new backup of the current build, moves unproven colliding containers into the recovery folder above, then patches.
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
   loader wrote it, nothing needs doing. If it still carries EML mods that were switched off: enable any EML mod for
-  one start and disable it again only when no unproven DAT collision is reported (that start publishes with a receipt,
-  the next one restores), or use Steam's "Verify integrity of game files". Neither route deletes unproven extra files:
+  one start and disable it again (that start preserves unproven collisions and publishes with a receipt; the next one
+  restores), or use Steam's "Verify integrity of game files". Neither route deletes unproven extra files:
   retained containers are named in `reason` and the log, including when the live archives already match vanilla or the
   backup is stale. Inspect them before manual cleanup; Steam verification can leave extra containers behind.
 - **Writer handoff:** exact output/backup SHA-256 receipts live in `kiln/eml/ownership/`. Before changing archives,
