@@ -278,8 +278,8 @@ Where the list comes from (`ModCatalog.cs`, internal; usable on a dedicated serv
 `native.json`, and each engine plugin's file (`emf.json`, `eml.json`, `set.json`, `greeneye.json`, `flame.json`,
 `shroudtopia.json`, `shroudlink.json`, `ember.json`; contracts.md 5.9). ShroudForge's packages come from the profile and
 its configured mods folder; its host state comes from `shroudforge.json`, with actual per-mod activation/errors and
-reported effect state/detail from SF's own `state.json` runtime section (matching PID, running, heartbeat no older
-than 30 s). A mod reports `waiting`, `no-target`, `no-change`, `write-confirmed` or `write-failed`; ShroudForge's
+reported effect state/detail from SF's own `state.json` runtime section (matching PID, running, heartbeat from this
+process start and no older than 30 s). A mod reports `waiting`, `no-target`, `no-change`, `write-confirmed` or `write-failed`; ShroudForge's
 runtime also sets `loading`, `loaded`, `error` and `restart-required`. As in the launcher, `write-failed` and `error`
 show Failed (and count under Needs attention), `write-confirmed`, `loaded` and `no-change` show Loaded, and every other
 state (pending, or a word Kiln does not know) shows Waiting. A running adapter alone is not proof a

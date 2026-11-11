@@ -320,8 +320,8 @@ internal static class ModCatalog
 
     internal static bool IsCurrent(CatalogSources src, JsonElement d, string path)
     {
-        if (d.TryGetProperty("pid", out var pid) && pid.ValueKind == JsonValueKind.Number && pid.TryGetInt64(out var p))
-            return p == src.Pid;
+        if (d.TryGetProperty("pid", out var pid) && pid.ValueKind == JsonValueKind.Number && pid.TryGetInt64(out var p) && p != src.Pid)
+            return false;  // matching PIDs can be reused: the report must also be from this start
         if (src.ProcessStartUtc == DateTime.MinValue) return true;
         var start = src.ProcessStartUtc.AddSeconds(-2);  // clocks: a file written in the process's first moment
         DateTime? at = null;
@@ -1039,7 +1039,8 @@ internal static class ModCatalog
             r.ValueKind != JsonValueKind.Object) return null;
         if (!r.TryGetProperty("pid", out var pid) || pid.ValueKind != JsonValueKind.Number || !pid.TryGetInt32(out var p) || p != src.Pid ||
             Bool(r, "running") != true || !r.TryGetProperty("updatedAt", out var at) || at.ValueKind != JsonValueKind.Number || !at.TryGetInt64(out var seconds) ||
-            Math.Abs((double)DateTimeOffset.UtcNow.ToUnixTimeSeconds() - seconds) > 30) return null;
+            Math.Abs((double)DateTimeOffset.UtcNow.ToUnixTimeSeconds() - seconds) > 30 ||
+            (src.ProcessStartUtc != DateTime.MinValue && seconds < new DateTimeOffset(src.ProcessStartUtc).ToUnixTimeSeconds() - 2)) return null;
         var active = new HashSet<string>(StringComparer.Ordinal);
         if (r.TryGetProperty("active", out var a) && a.ValueKind == JsonValueKind.Array)
             foreach (var x in a.EnumerateArray())
