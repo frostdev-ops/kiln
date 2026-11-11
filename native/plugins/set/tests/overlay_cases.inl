@@ -56,6 +56,18 @@
   assert(shaped.find("Z:\\home\\")!=std::string::npos&&shaped.find("\\.local\\share\\Steam\\steamapps")!=std::string::npos&&
          shaped.find("\\\\AppData\\\\Local")!=std::string::npos&&shaped.find("/Library and")!=std::string::npos);
  }
+ // A long session's log: the copy and the report keep its end (where a crash is), at most 1 MiB of it, from a line
+ // start. A mod's stray byte or non-ASCII text never makes the clipboard text invalid UTF-8.
+ {std::ofstream big(work/"kiln.log",std::ios::binary);big<<"FIRST LINE of the session\n";
+  for(int i=0;big.tellp()<(2<<20);++i)big<<"[set] line "<<i<<" from a mod: Grüße €\n";
+  big<<"stray byte \xff from a mod\nLAST LINE before the crash\n";}
+ toolsClick="Save local support report";setui::draw();
+ {const auto copied=setui::logText(false),saved=slurp(work/"set-report.txt");
+  if(copied.find("LAST LINE")==std::string::npos)std::cerr<<"log copy: the end of a 2 MiB kiln.log is missing ("<<copied.size()<<" bytes, starts '"<<copied.substr(0,26)<<"')\n";
+  if(!validUtf8(copied))std::cerr<<"log copy: not valid UTF-8\n";
+  assert(copied.find("LAST LINE before the crash")!=std::string::npos&&copied.find("FIRST LINE")==std::string::npos);
+  assert(copied.rfind("<earlier lines omitted>\n[set] line ",0)==0&&copied.size()<=(1u<<20)+64&&validUtf8(copied));
+  assert(saved.find("LAST LINE before the crash")!=std::string::npos&&saved.find("FIRST LINE")==std::string::npos);}
  // Refuse unsafe report destinations instead of following a player-provided link.
  std::filesystem::remove(work/"set-report.txt");std::filesystem::create_symlink(root/"secret.lua",work/"set-report.txt");
  toolsClick="Save local support report";setui::draw();assert(slurp(root/"secret.lua")=="return 'outside'");std::filesystem::remove(work/"set-report.txt");
@@ -101,14 +113,17 @@
  assert(!setui::isOpen()&&!toolsDemand&&!toolsCapture&&setui::logText(true).rfind("previous session log",0)==0);
  setui::stop();
  std::filesystem::create_directories(game/"crash_dumps/test");std::ofstream(controlFolder/"set-session.txt")<<"running=1\n";
- std::ofstream(game/"crash_dumps/test/enshrouded.info")<<R"({"info":"fixture crash","exception":"fixture exception"})";
+ std::ofstream(game/"crash_dumps/test/enshrouded.info")<<R"({"info":"fixture crash","exception":"fixture exception","source":")"
+   <<std::string(199,'x')<<"\u00e9 and more\"}";  // the 200-byte cut of a value falls inside the two bytes of the e
  setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);
  if(setui::isOpen()&&toolsCapture)std::cerr<<"last session: the crash notice took the game's input\n";
  assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==0);toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos&&row.find("fixture exception")!=std::string::npos;}));
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Escape hides")!=std::string::npos;}));
  {const auto copied=setui::logText(true);
-  assert(!std::filesystem::exists(controlFolder/"set-report.txt")&&copied.find("fixture exception")<copied.find("previous session log")&&copied.find("previous session log")!=std::string::npos);}
+  assert(!std::filesystem::exists(controlFolder/"set-report.txt")&&copied.find("fixture exception")<copied.find("previous session log")&&copied.find("previous session log")!=std::string::npos);
+  if(!validUtf8(copied))std::cerr<<"last session: the crash summary's cut left invalid UTF-8\n";
+  assert(validUtf8(copied)&&copied.find("source="+std::string(199,'x')+"\n")!=std::string::npos);}
  assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);  // Escape hides the notice
  toolsMenu(1,nullptr);assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==1);       // SET tools from the game menu
  toolsRows.clear();setui::draw();

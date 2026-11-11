@@ -74,8 +74,9 @@ Escape or the window's close button releases their input capture. No real-client
 - **Bindings**: actual SET mod hotkeys/inputs, press-to-bind/unbind and removal of dead bindings, saved in `bindings.ini`.
 - **Console**: Lua queued to the next tick, with a bounded SET output history; no Lua runs on the render thread.
 - **Bug Report**: an explicit local `kiln/control/set-report.txt` containing compatibility, mod and hook/overlay status,
-  plus current/previous Kiln logs (at most 1 MiB each). Explicit **Copy to Clipboard** / **Copy last session's logs**
-  buttons copy Unicode logs on Windows/Wine, with a local-file fallback if the clipboard is unavailable. The
+  plus current/previous Kiln logs (the last 1 MiB of each, from a line start, so a long session keeps its end).
+  Explicit **Copy to Clipboard** / **Copy last session's logs** buttons copy Unicode logs on Windows/Wine (bytes that
+  are not UTF-8 become U+FFFD), with a local-file fallback if the clipboard is unavailable. The
   `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in any path shaped
   `\home\<name>`, `/home/<name>`, `\Users\<name>` or `/Users/<name>` (either separator, doubled as in JSON, any case;
   Wine's `Z:\home\<name>` among them). Other personal text in mod names or log lines is not; review before sharing.

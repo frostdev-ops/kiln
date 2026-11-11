@@ -139,6 +139,17 @@ bool runAs(lua_State* L,int ref,const std::string& mod,const char* script){asser
 void mustAs(lua_State* L,int ref,const std::string& mod,const char* script){if(!runAs(L,ref,mod,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
 bool logged(const char* text){for(auto& l:logs)if(l.find(text)!=std::string::npos)return true;return false;}
 std::string slurp(const std::filesystem::path& p){std::ifstream f(p,std::ios::binary);return std::string((std::istreambuf_iterator<char>(f)),{});}
+// UTF-8 as MultiByteToWideChar(MB_ERR_INVALID_CHARS) takes it: no stray, cut, overlong or surrogate sequence.
+bool validUtf8(const std::string& s){
+ for(size_t i=0;i<s.size();){
+  const unsigned char c=s[i];const size_t n=c<0x80?1:c>=0xc2&&c<=0xdf?2:(c&0xf0)==0xe0?3:c>=0xf0&&c<=0xf4?4:0;
+  if(!n||i+n>s.size())return false;
+  for(size_t k=1;k<n;++k)if((static_cast<unsigned char>(s[i+k])&0xc0)!=0x80)return false;
+  const unsigned char d=s[i+1<s.size()?i+1:i];
+  if((c==0xe0&&d<0xa0)||(c==0xed&&d>=0xa0)||(c==0xf0&&d<0x90)||(c==0xf4&&d>=0x90))return false;
+  i+=n;
+ }
+ return true;}
 void must(lua_State* L,int ref,const char* script){if(!run(L,ref,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
 }
 int main(int argc,char** argv){

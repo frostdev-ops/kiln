@@ -64,13 +64,47 @@ KilnResult openToolsFor(KilnStr mod, bool prompt) {
 }
 KilnResult KILN_CALL openTools(KilnStr mod) { return openToolsFor(mod, false); }
 const setui::Api api{{sizeof(setui::Api), 1}, &openTools};
-std::string read(const std::filesystem::path& folder, const char* name) {
+// At most 1 MiB of a file. tail (the logs): a longer file gives its last lines, where a crash is, from a line start.
+std::string read(const std::filesystem::path& folder, const char* name, bool tail = false) {
     FILE* f = kset::sandbox::open(utf8(folder), name, "rb");
     if (!f) return "<not available>\n";
+    constexpr size_t limit = 1u << 20;
+    // One byte before the last 1 MiB too: dropping through the first newline then keeps a line that starts at the cut.
+#ifdef _WIN32
+    const bool cut = tail && _fseeki64(f, -static_cast<long long>(limit + 1), SEEK_END) == 0;
+#else
+    const bool cut = tail && fseeko(f, -static_cast<off_t>(limit + 1), SEEK_END) == 0;
+#endif
+    if (tail && !cut) rewind(f);
+    const size_t want = cut ? limit + 1 : limit;
     std::string out; char b[4096]; size_t n;
-    while (out.size() < (1u << 20) && (n = fread(b, 1, std::min(sizeof b, (1u << 20) - out.size()), f))) out.append(b, n);
+    while (out.size() < want && (n = fread(b, 1, std::min(sizeof b, want - out.size()), f))) out.append(b, n);
     const bool truncated = fgetc(f) != EOF; fclose(f);
+    if (cut) {
+        const size_t line = out.find('\n');
+        out.erase(0, line == std::string::npos ? out.size() : line + 1);
+        out.insert(0, "<earlier lines omitted>\n");
+    }
     if (truncated) out += "\n<truncated at 1 MiB>\n";
+    return out;
+}
+// Invalid UTF-8 (a cut inside a character, a mod printing other bytes) as U+FFFD, so the clipboard takes the text.
+std::string validUtf8(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size();) {
+        const auto c = static_cast<unsigned char>(in[i]);
+        const size_t n = c < 0x80 ? 1 : c >= 0xc2 && c <= 0xdf ? 2 : (c & 0xf0) == 0xe0 ? 3 : c >= 0xf0 && c <= 0xf4 ? 4 : 0;
+        bool ok = n && i + n <= in.size();
+        for (size_t k = 1; ok && k < n; ++k) ok = (static_cast<unsigned char>(in[i + k]) & 0xc0) == 0x80;
+        if (ok && n > 2) {  // no overlong form, surrogate or code point above U+10FFFF
+            const auto d = static_cast<unsigned char>(in[i + 1]);
+            ok = !((c == 0xe0 && d < 0xa0) || (c == 0xed && d >= 0xa0) || (c == 0xf0 && d < 0x90) || (c == 0xf4 && d >= 0x90));
+        }
+        if (ok) out.append(in, i, n);
+        else out += "\xEF\xBF\xBD";
+        i += ok ? n : 1;
+    }
     return out;
 }
 std::string lower(std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; }
@@ -137,7 +171,12 @@ std::string gameCrashSummary() {
     if (!info.is_object()) return "The matching game crash report could not be read.";
     std::string result = "Game crash report:";
     for (const auto* key : {"info", "exception", "source"}) if (info.contains(key) && info[key].is_string()) {
-        auto value = info[key].get<std::string>(); if (value.size() > 200) value.resize(200);
+        auto value = info[key].get<std::string>();
+        if (value.size() > 200) {  // on a character boundary
+            size_t keep = 200;
+            while (keep && (static_cast<unsigned char>(value[keep]) & 0xc0) == 0x80) --keep;
+            value.resize(keep);
+        }
         for (auto& c : value) if (static_cast<unsigned char>(c) < 32) c = ' ';
         result += " " + std::string(key) + "=" + value;
     }
@@ -145,13 +184,14 @@ std::string gameCrashSummary() {
 }
 bool copyClipboard(const std::string& value) {
 #ifdef _WIN32
-    const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
+    // Flags 0: an invalid sequence becomes U+FFFD instead of failing the whole copy.
+    const int n = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
     if (n <= 0) return false;
     HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (static_cast<size_t>(n) + 1) * sizeof(wchar_t));
     if (!memory) return false;
     auto* data = static_cast<wchar_t*>(GlobalLock(memory));
     if (!data) { GlobalFree(memory); return false; }
-    const bool converted = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), data, n) == n;
+    const bool converted = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), data, n) == n;
     data[n] = 0; GlobalUnlock(memory);
     HWND owner = GetForegroundWindow(); DWORD process = 0;
     if (owner) GetWindowThreadProcessId(owner, &process);
@@ -171,8 +211,8 @@ std::string report() {
     for (const auto& d : hk::diagnostics()) out += d + "\n";
     KilnUiStatus status{sizeof status};
     if (ui->status && ui->status(&status) == KILN_OK) out += "Overlay: hooked=" + std::to_string(status.hooked) + " device=" + std::to_string(status.device) + " swapchain=" + std::to_string(status.swapchain) + " error=" + std::string(status.error, strnlen(status.error, sizeof status.error)) + "\n";
-    out += "\nCurrent kiln.log:\n" + read(logsDir, "kiln.log");
-    out += "\nPrevious kiln.prev.log (if retained):\n" + read(logsDir, "kiln.prev.log");
+    out += "\nCurrent kiln.log:\n" + read(logsDir, "kiln.log", true);
+    out += "\nPrevious kiln.prev.log (if retained):\n" + read(logsDir, "kiln.prev.log", true);
     return redact(std::move(out));
 }
 void saveReport() {
@@ -345,7 +385,7 @@ bool setui::isOpen() { return active && opened; }
 std::string setui::logText(bool previous) {
     std::string out;
     if (previous && lastUnclean) out = "The game wrote a crash report as the last SET session ended. " + crashSummary + "\n\n";
-    return redact(out + read(logsDir, previous ? "kiln.prev.log" : "kiln.log"));
+    return validUtf8(redact(out + read(logsDir, previous ? "kiln.prev.log" : "kiln.log", true)));
 }
 void setui::line(const char* v) { std::lock_guard lock(mx); lines.emplace_back(v ? v : "", v ? strnlen(v, 4096) : 0); while (lines.size() > 2000) lines.pop_front(); }
 void setui::stop() {
