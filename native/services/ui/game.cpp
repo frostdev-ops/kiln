@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "kiln_hook.hpp"
+#include "menu_site.h"
 #include "ui.h"
 
 namespace kui {
@@ -44,6 +45,7 @@ struct Layout {
     int64_t craft_recipe = 0;       // GameUiData + data.craft_recipe: u32 (the player's own crafting menu)
     int64_t station_recipe = 0;     // GameUiData + data.station_recipe -> u32* (a station's)
     uintptr_t main_ret_a = 0, main_ret_b = 0, sys_ret = 0;
+    uintptr_t image_lo = 0, image_hi = 0;  // the game's executable image (menu_site.h)
     bool screens = false, main_menu = false, system_menu = false, crafting = false, language = false;
 } L;
 
@@ -263,9 +265,60 @@ void activated(KilnHandle h) {
 }
 
 // ---- hooks ----
+// Is this renderer call the main menu's Settings entry (menu_site.h)? `r` is the renderer's return address and `frame`
+// this detour's own return-address slot. Another module that patched the game's Settings calls (ShroudForge's native
+// runtime) calls the renderer from its own code; the game's return address is then above that module's frame. The
+// slot holding `r` is looked for first (kiln.hooks may run code of its own between the renderer and this detour).
+menu_site::OncePerFrame g_wrapped_frame;  // UI thread
+std::atomic<bool> g_wrapped_said{false};
+
+void say_wrapped(uintptr_t r) {
+    if (g_wrapped_said.exchange(true)) return;
+    char where[96] = "code of no module";
+    HMODULE mod = nullptr;
+    wchar_t path[1024];
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(r), &mod) && mod) {
+        const DWORD n = GetModuleFileNameW(mod, path, 1024);
+        const wchar_t* name = path;
+        for (DWORD i = 0; i < n && i < 1024; ++i)
+            if (path[i] == L'\\' || path[i] == L'/') name = path + i + 1;
+        char narrow[64] = "";
+        if (n && n < 1024) WideCharToMultiByte(CP_UTF8, 0, name, -1, narrow, sizeof narrow - 1, nullptr, nullptr);
+        std::snprintf(where, sizeof where, "%s+0x%llx", narrow[0] ? narrow : "a module",
+                      static_cast<unsigned long long>(r - reinterpret_cast<uintptr_t>(mod)));
+    }
+    logf(KILN_LOG_INFO, "ui: the main menu's Settings entry is drawn through %s (it patched the game's call): Kiln's menu "
+                        "entries are drawn before it all the same", where);
+}
+
+bool settings_entry(uintptr_t r, const uintptr_t* frame) {
+    menu_site::Where w;
+    w.caller = r;
+    w.site[0] = L.main_ret_a;
+    w.site[1] = L.main_ret_b;
+    w.image_lo = L.image_lo;
+    w.image_hi = L.image_hi;
+    ULONG_PTR lo = 0, hi = 0;
+    GetCurrentThreadStackLimits(&lo, &hi);
+    const auto* top = reinterpret_cast<const uintptr_t*>(hi);
+    if (frame && reinterpret_cast<ULONG_PTR>(frame) >= lo && frame < top) {
+        const uintptr_t* slot = nullptr;  // where the renderer's return address is
+        for (const uintptr_t* p = frame; p < top && p < frame + 64; ++p)
+            if (*p == r) { slot = p; break; }
+        if (slot) {
+            w.above = slot + 1;
+            w.slots = static_cast<size_t>(top - w.above);
+        }
+    }
+    const menu_site::Call call = menu_site::classify(w);
+    if (call == menu_site::Call::wrapped) say_wrapped(r);
+    return menu_site::draws(call, g_wrapped_frame, g_frame_no);  // a wrapper's second call in a frame draws no second set
+}
+
 bool __fastcall hk_main_entry(void* state, const MainDesc* d) {
-    const uintptr_t r = g_main_hook.caller();  // the game's call site, read before the original
-    if (d && (r == L.main_ret_a || r == L.main_ret_b)) {
+    const uintptr_t r = g_main_hook.caller();  // the renderer's return address, read before the original
+    if (d && settings_entry(r, static_cast<const uintptr_t*>(_AddressOfReturnAddress()))) {
         page_main_menu_drawn(state);  // a menu-key request for the main-menu page is served here (menu_page.cpp)
         for (const Entry& e : entries_of(KILN_UI_MENU_MAIN)) {
             MainDesc c = *d;  // the Settings entry's option bytes: same style, same behaviour
@@ -440,6 +493,17 @@ bool game_install() {
     L.main_menu = feat("ui.main_menu") && sym("ui/MainMenuEntry", &main_fn) && sym("ui/MainMenuSettingsA", &L.main_ret_a) &&
                   sym("ui/MainMenuSettingsB", &L.main_ret_b);
     L.system_menu = feat("ui.system_menu") && sym("ui/SystemMenuEntry", &sys_fn) && sym("ui/SystemMenuSettings", &L.sys_ret);
+    // the game's image: a renderer call from outside it may be a wrapper of the Settings call (menu_site.h)
+    if (const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr))) {
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew > 0 && dos->e_lfanew < 4096) {
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+            if (nt->Signature == IMAGE_NT_SIGNATURE) {
+                L.image_lo = reinterpret_cast<uintptr_t>(base);
+                L.image_hi = L.image_lo + nt->OptionalHeader.SizeOfImage;
+            }
+        }
+    }
     L.crafting = feat("ui.crafting") && sym("ui/CraftingMenu", &craft_fn) && sym("ui/UiApp", &L.ui_app) &&
                  cst("ui/ui.data", &L.ui_data) && cst("ui/data.craft_recipe", &L.craft_recipe) &&
                  cst("ui/data.station_recipe", &L.station_recipe);

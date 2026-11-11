@@ -96,6 +96,14 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
   for each of its entries (main menu: a copy of the Settings descriptor with Kiln's text, so the same options/style),
   then the game's Settings entry. Activations are queued and delivered after the UI frame. ShroudForge 1.7.6 inserted
   its entry at the same point by patching both call sites (MIT, credited in game.cpp). **[dis] [rt]**
+- With ShroudForge's native runtime in the process (1.7.6 to 1.7.9, also hosted by Kiln) the two Settings calls no
+  longer reach the renderer from the game: each `call` enters SF's `draw_with_mods` through a near thunk, and that
+  function calls the renderer (its own row when its Modloader is there, then the Settings descriptor). The renderer's
+  return address is then in `kfc-runtime.dll`; the game's (`ui/MainMenuSettingsA` / `B`) is on the stack above SF's
+  frame (in Kiln's build of 1.7.9: `sub rsp, 0x480` after five pushes, so 0x4a8 bytes above the renderer's return
+  address **[dis]** of that DLL). Kiln's hook takes such a call for the Settings entry too (`menu_site.h`: a caller
+  outside the game's image with a Settings return address within 4 KiB above it), once per UI frame. A real client
+  with SF mods had no Kiln entries in the main menu before this **[rt]**; the fix itself is host-tested only.
 - Localisation: Kiln resolves the label for the game's LanguageId (§2) from the mod's per-language texts.
 
 ## 4. Fonts, colours, textures

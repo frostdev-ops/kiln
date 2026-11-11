@@ -43,6 +43,9 @@ e.Visible = false;       // hide for now; e.Text = "…" relabels; e.Dispose() r
 - Labels follow the game's text language (`UiText`; `GameLanguage.Current` = "de-de", ...): exact key, primary
   language, `en`, then `*`. A plain string is the same text for every language.
 - `Ui.Menus.Add` returns null where the menus are not hooked (dedicated server, an unsupported game build).
+- Another loader may route the game's Settings entry through its own code (ShroudForge's native runtime does in the
+  main menu, also when Kiln hosts it). The entries are drawn before that entry all the same, and `kiln.log` says once
+  through which module it is drawn (`ui: the main menu's Settings entry is drawn through ...`).
 
 ### Which screen is open
 ```csharp
