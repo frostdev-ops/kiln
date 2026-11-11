@@ -50,9 +50,10 @@ internal static unsafe class RulesNet
     {
         try
         {
-            if (Client.IsHosting) return;
+            // once per connection: the steering hook is installed at boot or never (reading the status costs a lock per slot)
+            if (_hooksSent is not null || Client.IsHosting) return;
             var hooks = RulesNative.Hooks & PredictedHooks;
-            if (_hooksSent != hooks && _channel?.SendToServer(new ClientHooks(hooks)) == true) _hooksSent = hooks;
+            if (_channel?.SendToServer(new ClientHooks(hooks)) == true) _hooksSent = hooks;
         }
         catch (Exception) { } // no client world or channel yet; retry next client tick
     }
