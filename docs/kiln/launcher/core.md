@@ -75,8 +75,10 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
 - `activate(pid, install)`: refuses while running and without `kiln/`; path mode (Z when `pfx/dosdevices/z:` -> `/`,
   else copy; an untranslatable path also means copy); copy mode syncs verified copies into
   `<game>/kiln/profiles/<pid>/<kind>/<id>/` (unchanged copies stay, stale ones go) and copies the game-side config
-  back first; writes `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs;
-  `[chain]` byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
+  back first; XHL companions and EML mods a native DLL reads are placed in `<game>/mods/<original folder>/`, and
+  their profile.json entries name that copy (`../mods/<original folder>` in copy mode; contracts.md 5.1); writes
+  `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs; `[chain]`
+  byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
   `profile.once.json`, records `<data>/installs/<id>.active.json`.
 - `copy_back(pid, install)` after the game exits (copy mode), `deactivate` (profile.json to `kiln/backups/`,
   `[profile]` cleared), `deactivate_report` (also returns the fixed-folder placement cleanup result), `active`, `render`

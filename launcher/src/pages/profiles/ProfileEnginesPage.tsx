@@ -1,8 +1,9 @@
 // /profiles/:id/engines: mods made for other engines (EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick,
-// shroudlink, Ember), each run by its Kiln engine plugin (docs/kiln/engines.md). One card per engine whose mods are in
-// the library or the profile, with the same flame switch, versions and add-from-library as Kiln mods; Settings for
-// ShroudForge and Shroudtopia mods. Ember's card says its mods don't run yet (no published Ember ABI). EML's "Restore
-// vanilla game data" offer on top; "In the game folder" (GameFolder.tsx) at the end, for these kinds.
+// shroudlink, Ember), each run by its Kiln engine plugin (docs/kiln/engines.md), and XHL companions, which only
+// XHL-Core (installed separately) loads. One card per kind whose mods are in the library or the profile, with the same
+// flame switch, versions and add-from-library as Kiln mods; Settings for ShroudForge and Shroudtopia mods. Ember's card
+// says its mods don't run yet (no published Ember ABI); the XHL card says whether XHL-Core was recognized. Read-only
+// shared archive backup guidance on top; "In the game folder" (GameFolder.tsx) at the end, for these kinds.
 import { useQuery } from "@tanstack/react-query";
 import { engineStatus } from "../../api/commands";
 import { useState } from "react";

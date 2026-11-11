@@ -210,7 +210,9 @@ pub async fn eml_backup(game_id: String) -> Result<Vec<EmlBackup>, Error> {
     blocking(move || engine_mods::eml_backup(&crate::state::game(&game_id)?.path)).await
 }
 
-/// Copies EML's `<exe>.kfc.bak` back over each patched `.kfc`; refused while the game runs.
+/// Legacy command kept for older callers: it always refuses (`game_running` while the game runs, else `refused`) and
+/// copies nothing. A shared `.kfc.bak` cannot prove who wrote an archive; updated kiln-eml's archive writer restores
+/// only its own unchanged output at the next start (engine_mods::eml_restore_vanilla).
 #[tauri::command]
 pub async fn eml_restore(game_id: String) -> Result<Vec<String>, Error> {
     blocking(move || {
