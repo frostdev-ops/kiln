@@ -433,6 +433,12 @@ internal static class ShroudForgePackages
         var caps = Strings(mod, "capabilities");
         var runtime = caps.Any(c => c is "runtime" or "runtime-register-dll");
         var patch = caps.Contains("patch");
+        if (ext.ContainsKey("launcher") && Str(ext, "launcher") is not ("EML" or "SF"))
+            throw new SfEditException("ShroudForge would refuse extended.mod.json: launcher must be EML or SF");
+        if (ext.ContainsKey("targets") && (ext["targets"] is not JsonArray sides || sides.Count is < 1 or > 2 ||
+            sides.Any(v => v is not JsonValue j || !j.TryGetValue<string>(out var s) || s is not ("client" or "server")) ||
+            sides.Count == 2 && JsonNode.DeepEquals(sides[0], sides[1])))
+            throw new SfEditException("ShroudForge would refuse extended.mod.json: targets must name client or server without duplicates");
         var launcher = Str(ext, "launcher") ?? (extended ? null : "EML");
         var targets = Strings(ext, "targets");
         if (ext["targets"] is not JsonArray)

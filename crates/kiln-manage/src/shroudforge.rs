@@ -451,6 +451,15 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     if ext.get("settings").is_some_and(|s| !s.is_object()) {
         return Err(Error::invalid("extended.mod.json settings must be an object"));
     }
+    if ext.get("launcher").is_some_and(|v| !matches!(v.as_str(), Some("EML" | "SF"))) {
+        return Err(Error::invalid("ShroudForge would refuse extended.mod.json: launcher must be EML or SF"));
+    }
+    if let Some(targets) = ext.get("targets") {
+        let valid = targets.as_array().is_some_and(|a| !a.is_empty() && a.len() <= 2
+            && a.iter().all(|v| matches!(v.as_str(), Some("client" | "server")))
+            && (a.len() == 1 || a[0] != a[1]));
+        if !valid { return Err(Error::invalid("ShroudForge would refuse extended.mod.json: targets must name client or server without duplicates")); }
+    }
     let launcher = str_of(&ext, "launcher").or_else(|| (!extended).then(|| "EML".to_owned()));
     let targets = match ext.get("targets").and_then(|t| t.as_array()) {
         Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
@@ -1177,6 +1186,17 @@ mod tests {
   "groups": [{ "label": "Survival", "settings": ["infiniteStamina"] }]
 }
 "#;
+
+    #[test]
+    fn refused_launcher_and_targets_never_claim_to_run() {
+        let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-invalid-switch").unwrap();
+        for fields in [r#""launcher":null"#, r#""launcher":"eml"#, r#""targets":"server"#,
+            r#""targets":[]"#, r#""targets":["client",42]"#, r#""targets":["client","client"]"#] {
+            let ext = format!(r#"{{"schemaVersion":1,"enabled":true,{fields}}}"#);
+            let f = pkg(t.path(), "invalid", Some(&ext));
+            assert!(switched_off(&f, false).is_some(), "{ext}");
+        }
+    }
 
     #[test]
     fn reads_and_edits_preserving_layout() {

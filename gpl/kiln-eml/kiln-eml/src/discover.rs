@@ -254,6 +254,22 @@ pub fn shroudforge_switch(dir: &Utf8Path, server: bool) -> Result<(), Off> {
     };
     // ShroudForge's own reader is strict JSON (no byte order mark, no comments)
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| Off::Switch(format!("ShroudForge refuses its {NAME} ({e})")))?;
+    let refused = |why: &str| Off::Switch(format!("ShroudForge refuses its {NAME}: {why}"));
+    if !v.is_object() || v.get("schemaVersion").and_then(|v| v.as_f64()) != Some(1.0) {
+        return Err(refused("schemaVersion must be the number 1"));
+    }
+    if v.get("launcher").is_some_and(|v| !matches!(v.as_str(), Some("EML" | "SF"))) {
+        return Err(refused("launcher must be EML or SF"));
+    }
+    if let Some(targets) = v.get("targets") {
+        let valid = targets.as_array().is_some_and(|a| !a.is_empty() && a.len() <= 2
+            && a.iter().all(|v| matches!(v.as_str(), Some("client" | "server")))
+            && (a.len() == 1 || a[0] != a[1]));
+        if !valid { return Err(refused("targets must name client or server without duplicates")); }
+    }
+    if v.get("settings").is_some_and(|s| !s.is_object()) {
+        return Err(refused("settings must be an object"));
+    }
     if v.get("enabled").and_then(|b| b.as_bool()) != Some(true) {
         return Err(Off::Switch(format!("its {NAME}, the file that holds ShroudForge's switch, does not say enabled: true")));
     }
@@ -712,6 +728,27 @@ mod tests {
         assert_eq!(e[0].path, copy.as_str());
         assert!(e[1].reason.as_deref().unwrap().starts_with("EML's own loader runs this start and reads only"));
         assert_eq!(e[1].path, "/lib/b");
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn shroudforge_refused_switch_shapes_never_claim_to_run() {
+        let d = tmp("sf-invalid-switch");
+        let p = eml_mod(&d, "mods/a", "a");
+        for ext in [
+            r#"{"enabled":true,"launcher":"EML"}"#,
+            r#"{"schemaVersion":2,"enabled":true}"#,
+            r#"{"schemaVersion":1,"enabled":true,"launcher":null}"#,
+            r#"{"schemaVersion":1,"enabled":true,"launcher":"eml"}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":"server"}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":[]}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":["client",42]}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":["client","client"]}"#,
+            r#"{"schemaVersion":1,"enabled":true,"settings":null}"#,
+        ] {
+            std::fs::write(p.join("extended.mod.json"), ext).unwrap();
+            assert!(matches!(shroudforge_switch(&p, false), Err(Off::Switch(_))), "{ext}");
+        }
         std::fs::remove_dir_all(d).unwrap();
     }
 
