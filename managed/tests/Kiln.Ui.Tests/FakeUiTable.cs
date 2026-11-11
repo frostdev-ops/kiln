@@ -26,6 +26,8 @@ internal static unsafe class FakeUiTable
     /// <summary>Every text field call: (the text it was given, its buffer size, its flags).</summary>
     public static readonly List<(string Text, int Capacity, uint Flags)> Fields = [];
     public static readonly List<string> Texts = [];
+    /// <summary>Other services the backend hands out (kiln.set.ui...).</summary>
+    public static readonly Dictionary<string, nint> Other = [];
     /// <summary>Keys that "went down" this frame for <see cref="UiDraw.KeyPressed"/>.</summary>
     public static readonly HashSet<UiKey> Pressed = [];
     /// <summary>Only the text fields with this label report <see cref="Item"/> (the others, and every other widget, report
@@ -42,7 +44,8 @@ internal static unsafe class FakeUiTable
         public bool IsTickThread => true;
         public bool HasFeature(string name) => false;
         public void Log(ulong owner, LogLevel level, string text) { lock (Logs) Logs.Add($"{level}: {text}"); }
-        public nint Service(string name, uint minVersion) => name == "kiln.ui" && Table != null && minVersion <= 4 ? (nint)Table : 0;
+        public nint Service(string name, uint minVersion) =>
+            name == "kiln.ui" && Table != null && minVersion <= 4 ? (nint)Table : Other.TryGetValue(name, out var t) ? t : 0;
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -265,6 +268,7 @@ internal static unsafe class FakeUiTable
         Type = null;
         Item = default;
         Pressed.Clear();
+        Other.Clear();
         FieldLabel = "##v";
         Click = null;
         _lastWasField = false;
