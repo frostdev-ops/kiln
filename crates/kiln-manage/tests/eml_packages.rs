@@ -963,6 +963,25 @@ fn a_copy_suffix_on_a_dropped_mod_folder_is_not_its_game_folder() {
     assert!(g.path.join("mods/XHL-Auto-Loot/native-plugin.ini").is_file(), "{:?}", tree(&g.path));
 }
 
+/// manage-import F2: an EML mod dragged out of the game's own mods folder is not an "EML part of a package" because
+/// the game folder holds Steam's steam_api64.dll (a proxy name) next to that mods folder.
+#[test]
+fn a_game_folders_own_steam_api_dll_is_not_a_packages_dll() {
+    let t = tmp("steam-api");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    put(&g.path, "steam_api64.dll", &build_test_dll(&["SteamAPI_Init"], b"steam"));
+    eml_mod(&g.path, "mods/Quick Stack", "quick-stack");
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[g.path.join("mods/Quick Stack")], false, &mut NoProgress).unwrap();
+    assert!(!summary(&r.import).contains("steam_api64.dll"), "{}", summary(&r.import));
+    let rec = only_record(&dirs, ModKind::Eml);
+    assert!(rec.get("gameFolder").is_none(), "{rec}");
+    // the same with the whole mods folder dragged in
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[g.path.join("mods")], false, &mut NoProgress).unwrap();
+    assert!(!summary(&r.import).contains("steam_api64.dll"), "{}", summary(&r.import));
+    assert!(only_record(&dirs, ModKind::Eml).get("gameFolder").is_none());
+}
+
 /// manage-import F7: an archive with a DirectInput8 proxy mod and a second proxy-named DLL at its root is named after
 /// the archive, not after the temporary unpack folder, and dropping it again adds nothing.
 #[test]

@@ -480,7 +480,7 @@ fn has_package_data(dir: &Path, dll: &Path) -> bool {
 
 /// A package's native input proxy, as opposed to the EML loader often shipped beside it. Other bare DLLs beside a
 /// single proxy are its dependencies, not independent mods to execute. Keep this rule narrow: two proxies are ambiguous.
-fn native_bundle_proxy(dir: &Path) -> Option<PathBuf> {
+pub(crate) fn native_bundle_proxy(dir: &Path) -> Option<PathBuf> {
     let mut proxies = crate::engines::dlls_in(dir).into_iter().filter(|p| {
         crate::engines::is_proxy_name(&file_name(p)) && detect_dll(p).kind == DetectKind::BareDll
             && std::fs::read(p).ok().and_then(|b| crate::pe::parse(&b).ok())

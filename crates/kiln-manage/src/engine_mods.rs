@@ -428,10 +428,10 @@ pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
     let parent = src.parent()?;
     if !parent.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods")) { return None; }
     let package = parent.parent()?;
-    let dll = crate::engines::dlls_in(package).into_iter().find(|p| {
-        p.file_name().is_some_and(|n| crate::engines::is_proxy_name(&n.to_string_lossy()))
-            && crate::library::detect(p).is_ok_and(|d| d.kind == DetectKind::BareDll)
-    })?;
+    // A game folder is no package: Steam's steam_api64.dll (or any proxy-named DLL a player put there) says nothing
+    // about a hand-installed mod in its mods folder. The package's DLL is the one Library import makes its native mod.
+    if [crate::game::CLIENT_EXE, crate::game::SERVER_EXE].iter().any(|exe| package.join(exe).exists()) { return None; }
+    let dll = crate::library::native_bundle_proxy(package)?;
     let file = dll.file_name()?.to_string_lossy().into_owned();
     Some((folder, format!("its package's {file} reads it from the game's mods folder")))
 }
