@@ -140,7 +140,7 @@ matching Kiln C# API and how each was tested, is in
   | Id | On Kiln |
   |---|---|
   | `game_build` | compatible on SET's three client builds and on the server build 1793791038 (Kiln's lab) |
-  | `resources` | kiln.assets is there; available once the game's data is loaded (the scan runs on a world's thread; SET tools show its result) |
+  | `resources` | kiln.assets is there. The game's data is checked on a world's thread (the first step of a world you host, or the first `Features()` there); until then, as in the main menu, it counts as available and SET tools show "not checked yet". `Res` itself needs a world's thread |
   | `english_names` | always (item and template names; other tags need the client text catalog) |
   | `game_options`, `field_of_view` | never: "Not available on Kiln" |
   | `systems` | kiln.types can switch systems (only two may be switched off, see below) |

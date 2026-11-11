@@ -208,7 +208,7 @@ bool copyClipboard(const std::string& value) {
 void copyLog(bool previous) { message = copyClipboard(setui::logText(previous)) ? "Copied redacted logs. Review before sharing; nothing was uploaded." : "Clipboard unavailable. Save the local report instead."; }
 std::string report() {
     std::string out = "Kiln SET 0.2.0 support report\nGame build: " + std::to_string(rt::gameBuild()) + "\n";
-    for (const auto& f : rt::features()) out += f.id + ": compatible=" + (f.compatible ? "yes" : "no") + " available=" + (f.available ? "yes" : "no") + " " + f.reason + "\n";
+    for (const auto& f : rt::features()) out += f.id + ": compatible=" + (f.compatible ? "yes" : "no") + " available=" + (f.unchecked ? "not checked yet (at the first step of a world you host)" : f.available ? "yes" : "no") + " " + f.reason + "\n";
     for (const auto& m : rt::modReports()) out += "mod " + m.name + ": " + m.status + " " + m.reason + "\n";
     for (const auto& t : hk::info()) for (const auto& r : t.rules) out += "rule " + r.key + ": hits=" + std::to_string(r.hits) + " faults=" + std::to_string(r.faults) + " refused=" + std::to_string(r.refused) + " " + r.conflict + "\n";
     for (const auto& d : hk::diagnostics()) out += d + "\n";
@@ -280,7 +280,8 @@ void settings() {
 void compatibility() {
     for (const auto& f : rt::features()) {
         ui->text_colored(f.available ? 0x80dd99ff : f.compatible ? 0xffd577ff : 0xff8888ff, s(f.label + " [" + f.id + "]"));
-        text(std::string("Compatible: ") + (f.compatible ? "yes" : "no") + "   Available: " + (f.available ? "yes" : "no"));
+        text(std::string("Compatible: ") + (f.compatible ? "yes" : "no") + "   Available: " + (f.unchecked ? "not checked yet" : f.available ? "yes" : "no"));
+        if (f.unchecked) ui->text_wrapped(s("Checked at the first step of a world you host."));
         if (!f.reason.empty()) ui->text_wrapped(s(f.reason));
     }
 }
