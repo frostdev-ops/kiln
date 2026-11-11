@@ -48,7 +48,9 @@ Kiln owns only `dinput8.dll`.
   to the game (`..\xinput9_1_0.dll` in chain.ini). If that name is taken (case ignored, even identical bytes), the install is refused.
 - DLLs under any other proxy name are never moved. EML's `dbghelp.dll`, Shroudtopia's `winmm.dll` and SET's
   `powrprof.dll` keep running next to Kiln.
-- The receipt's `replaced[].engine` names the engine. Uninstall restores every file byte-identically.
+- The receipt's `replaced[].engine` names the engine. Uninstall restores every original byte-identically, unless
+  another loader's file the player put there since sits at its path: that one stays, with a warning naming the
+  backup. A changed Kiln proxy there is moved to `kiln/backups/uninstall-*` and the original comes back.
 - A full/oversized `chain.ini` is refused before taking the proxy slot. Symlinks on installation paths are refused;
   runtime bundles cannot own other proxy slots or installer recovery paths. Each install's backups have a unique
   suffix. An error, including a receipt-write error, rolls back files and restores the chain file's exact previous

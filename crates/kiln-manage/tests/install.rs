@@ -345,6 +345,33 @@ fn an_upgrade_reports_the_hand_changed_files_it_backed_up() {
     assert!(rep3.changed_backed_up.is_empty(), "{rep3:?}");
 }
 
+/// Kiln's proxy changed since the install (a hand-deployed build: tools' client.sh, deploy-server.sh): uninstall moves it
+/// aside and puts the chained original loader back, as before dev.24. Keeping it would leave a Kiln proxy without its
+/// runtime in the game folder while the original loader is unchained and the receipt is gone.
+#[test]
+fn uninstall_sets_a_changed_kiln_proxy_aside_and_restores_the_chained_loader() {
+    let t = tmp("changed-kiln-proxy");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let emf = build_test_dll(&["DirectInput8Create", "emf_loader_identity", "emf_loader_play_once"], b"EMF loader");
+    put(&game, "dinput8.dll", &emf);
+    let before = outside_kiln(&game);
+    let b1 = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let inst = client(&game);
+    install::install(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let hand = kiln_proxy("0.2.0-dev+hand-build");
+    put(&game, "dinput8.dll", &hand);
+    let report = install::uninstall_report(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("dinput8.dll")).unwrap(), emf, "the chained loader is back: {report:?}");
+    assert_eq!(outside_kiln(&game), before);
+    let aside: Vec<PathBuf> = std::fs::read_dir(game.join("kiln/backups")).unwrap().flatten().map(|e| e.path().join("dinput8.dll"))
+        .filter(|p| p.parent().unwrap().file_name().unwrap().to_string_lossy().starts_with("uninstall-") && p.is_file()).collect();
+    assert_eq!(aside.len(), 1, "{report:?}");
+    assert_eq!(std::fs::read(&aside[0]).unwrap(), hand, "the changed build is kept");
+    assert!(install::read_receipt(&game).unwrap().is_none());
+}
+
 #[test]
 fn shroudforge_is_refused_unless_switching_and_never_chained() {
     let t = tmp("sf");
