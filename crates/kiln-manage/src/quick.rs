@@ -629,6 +629,15 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
             refs.push(r.clone());
         }
     }
+    for r in report.import.imported.iter().chain(&report.import.existing) {
+        if let Some(selected) = refs.iter().find(|s| s.kind == r.kind && s.id == r.id && *s != r) {
+            let (chosen, omitted) = (named(dirs, selected)?, named(dirs, r)?);
+            let notice = format!("Kiln selected {} {} ({:.8}) over {} {} ({:.8}) for this drop: both have the id {} {}. Both are in your Library.",
+                chosen.name, chosen.version, chosen.hash.trim_start_matches("kdh1:"),
+                omitted.name, omitted.version, omitted.hash.trim_start_matches("kdh1:"), r.kind.as_str(), r.id);
+            if !report.notices.contains(&notice) { report.notices.push(notice); }
+        }
+    }
     if progress.canceled() { return Err(Error::new(ErrorCode::Canceled, "canceled")); }
     if refs.is_empty() {
         return Ok(report);
@@ -680,7 +689,7 @@ fn put_in_profile(dirs: &DataDirs, install: &GameInstall, target: &Target, refs:
     let mut p = target.profile.clone();
     let (changes, already, notices) = merge(dirs, &mut p.mods, refs);
     report.already = already.iter().map(|r| named(dirs, r)).collect::<Result<_>>()?;
-    report.notices = notices;
+    report.notices.extend(notices);
     if changes.is_empty() {
         return Ok(());
     }

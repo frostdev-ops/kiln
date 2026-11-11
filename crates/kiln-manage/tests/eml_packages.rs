@@ -1410,6 +1410,21 @@ fn unrelated_packages_never_silently_share_one_native_entry() {
     assert!(r.notices.is_empty(), "{:?}", r.notices);
 }
 
+/// Ambiguous inferred ids in one drop are reduced before merge, but the losing package must still be reported.
+#[test]
+fn competing_packages_in_one_drop_report_which_selection_won() {
+    let (t, dirs, g) = fresh("competing-packages");
+    let a = proxy_package(&t, "Embervale Atlas 2", &proxy_dll("atlas two"), &[]);
+    let b = proxy_package(&t, "Embervale Atlas 3", &proxy_dll("atlas three"), &[]);
+    library::import(&dirs, &[a.clone()], &mut NoProgress).unwrap();
+    for paths in [vec![a.clone(), b.clone()], vec![b, a]] {
+        let r = kiln_manage::quick::add_with(&dirs, &g, &paths, false, &mut NoProgress).unwrap();
+        assert_eq!(enabled_natives(&g).len(), 1);
+        assert!(r.notices.iter().any(|n| n.contains("Embervale Atlas 2") && n.contains("Embervale Atlas 3")
+            && n.contains("Library") && n.contains("selected")), "competing imports must not disappear silently: {:?}", r.notices);
+    }
+}
+
 /// rr-import R4: a pure XHL companion dropped again as a browser's copy, as a newer zip or as a folder with a copy
 /// suffix stays one companion in one game folder (XHL-Core would load every copy).
 #[test]
