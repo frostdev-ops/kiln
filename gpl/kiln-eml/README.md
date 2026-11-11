@@ -106,7 +106,8 @@ Each is marked `kiln-eml:` in the source.
     progress, SF's unfinished publication journal and linked descendants (asked by name too, for links made on the
     Linux side under Wine) refuse unsafe handoffs; the selected game location itself and its ancestors may be links.
     Idle EML never restores another loader's output merely because a shared `.kfc.bak` exists, and says why it left
-    differing data (`reason` in the state). A run removes the stage folders and temp copies a killed run left.
+    differing data (`reason` in the state). Possible recovery stages, temp copies and journals are retained and logged:
+    their names alone do not prove Kiln wrote their current contents, so cleanup requires manual inspection.
     Linux and Windows ownership tests cover these boundaries; a headless actual SF/EML/uninstall/SF dedicated-server
     round trip confirmed standalone SF reapplies unchanged-fingerprint asset mods without reinstalling.
 

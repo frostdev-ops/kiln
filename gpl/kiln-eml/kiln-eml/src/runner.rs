@@ -348,7 +348,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         return finish(out);
     }
 
-    // what an earlier run killed half way left (stage folders, temp copies), now that no other run of this install writes
+    // Report possible recovery copies under the install lock; names alone never authorize their deletion.
     if cfg.patch { lua::prune(cfg.game_dir.as_std_path(), &file); }
 
     // what the run does is reported into the live state file and the progress window (progress.rs), and to the log
