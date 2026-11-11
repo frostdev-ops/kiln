@@ -23,7 +23,7 @@ unset DISPLAY
 export WAYLAND_DISPLAY=kiln-no-display
 wine=${KILN_WINE:-wine}
 # No archive contents are a working directory or script path. Only this test's own synthetic exe runs.
-for mode in race wait window window-late timeout unrelated; do
+for mode in race wait window window-late tabs tabs-late timeout unrelated; do
     mkdir "$run/$mode"
     cp "$KILN_OUT/cmake/bin/ui-addon-harness.exe" "$run/$mode/"
     dll=$run/input/dinput8.dll

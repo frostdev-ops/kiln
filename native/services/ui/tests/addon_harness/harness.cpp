@@ -7,12 +7,15 @@
 // exe carries source-backed stand-ins: matching patterns, layout checks, call targets and RIP-relative globals.
 // The harness calls the synthetic per-frame UI function, running the addon's actual UI dispatch and input code.
 // A message-only HWND and two window-discovery API adapters let the unchanged addon subclass real user32 procedures
-// without any desktop window. This tests initialization/input, not real-game rendering or a server connection.
+// without any desktop window. Synthetic tab lists also exercise the addon's actual MODS-tab emission predicates.
+// This tests initialization/input/widget calls, not real-game rendering, layout, controller behavior or a server connection.
 //
 //   ui-addon-harness <addon.dll> race         hook item lookup first: the addon disables its native UI
 //   ui-addon-harness <addon.dll> wait         production startup gate first: native UI installation succeeds
 //   ui-addon-harness <addon.dll> window       Kiln subclasses first; periodic checks, keys, shutdown and hot reload
 //   ui-addon-harness <addon.dll> window-late  addon subclasses first, Kiln follows, then addon leaves
+//   ui-addon-harness <addon.dll> tabs         actual tab hooks: count/action gates, Kiln subclasses first
+//   ui-addon-harness <addon.dll> tabs-late    the same visibility gates, addon subclasses first
 //   ui-addon-harness <inert.dll> timeout      stale/partial log and unrelated hook cannot release the gate
 //   ui-addon-harness <forwarded.dll> unrelated  matching forwarded export is not an addon
 // Lines: "PASS ...", "FAIL ...", "KILN: <kiln.ui log line>". Exit code 0 = no FAIL.
@@ -143,6 +146,13 @@ struct Fake {
         put({0xE8});
         rel32(target);
     }
+    void jump(const void* target) {  // tail call a C++ stand-in after undoing the source-backed prologue
+        put({0x48, 0xB8});
+        const uintptr_t addr = reinterpret_cast<uintptr_t>(target);
+        std::memcpy(here(), &addr, sizeof addr);
+        at += sizeof addr;
+        put({0xFF, 0xE0});
+    }
     // the addon's pattern: "??" takes the next fill (a byte, or 'R' + index: a rel32 to targets[index])
     struct Fill {
         int byte = 0;
@@ -177,8 +187,30 @@ struct Fake {
 };
 
 struct Game {
-    uint8_t *dispatch = nullptr, *item_info = nullptr;
+    uint8_t *dispatch = nullptr, *item_info = nullptr, *tab_list = nullptr, *tab_widget = nullptr, *key_resolve = nullptr;
 } g_game;
+
+// The layout comes from the MIT addon's TabList/TabWidget interfaces, not game data. The game's stand-ins provide
+// entries and record widget calls. Recognition, template copying, MODS injection and key override run in the real DLL.
+struct TabList { uint8_t* data; size_t len; };
+alignas(16) uint8_t g_tabs[8][0x40]{};
+size_t g_tab_count = 0;
+struct SeenTab { std::string label; uint64_t key; uint8_t action, key_kind; uint16_t hid; };
+std::vector<SeenTab> g_seen_tabs;
+void* __fastcall fake_tab_list(uint8_t, TabList* list) {
+    if (list) *list = {g_tabs[0], g_tab_count};
+    return list;
+}
+uint64_t __fastcall fake_tab_widget(uint8_t* entry, float* rect) {
+    const auto* label = *reinterpret_cast<const char**>(entry + 0x18);
+    const auto len = *reinterpret_cast<const uint64_t*>(entry + 0x20);
+    alignas(16) uint8_t desc[0xc4]{};
+    reinterpret_cast<uint8_t* (*)(uint8_t*, size_t, uint32_t)>(g_game.key_resolve)(desc, 0, entry[1]);
+    g_seen_tabs.push_back({std::string(label, static_cast<size_t>(len)), *reinterpret_cast<uint64_t*>(entry + 0x28),
+                          entry[1], desc[0], *reinterpret_cast<uint16_t*>(desc + 2)});
+    if (rect) { rect[0] = 0; rect[1] = 0; rect[2] = 100; rect[3] = 25; }
+    return entry[0x30];
+}
 
 // The addon's patterns, from shroudlink 0.8.0 (client/src/link.rs and native.rs, MIT).
 void build_fake_game() {
@@ -193,7 +225,7 @@ void build_fake_game() {
     uint8_t* zero = w.here();  // player index, fill, key lookup: return 0
     w.put({0x31, 0xC0, 0xC3});
     w.align();
-    uint8_t* key_resolve = w.here();  // mov [rsp+8], rbx; mov rax, rcx; ret (5 whole bytes first: the addon detours it)
+    uint8_t* key_resolve = g_game.key_resolve = w.here();  // mov [rsp+8], rbx; mov rax, rcx; ret (5 whole bytes first: the addon detours it)
     w.put({0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0xC8, 0xC3});
     auto rip = [&](const void* slot, uint8_t* insn_end) {  // fill for a rip-relative disp32 ending at insn_end
         const int32_t d = static_cast<int32_t>(reinterpret_cast<intptr_t>(slot) - reinterpret_cast<intptr_t>(insn_end));
@@ -242,8 +274,9 @@ void build_fake_game() {
     w.put({0xC3});
     w.func("89 54 24 10 88 4C 24 08 55 53 56 57");  // player menu (detoured)
     w.put({0xC3});
-    w.func("48 8B C4 48 89 58 08 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A1");  // tab list (detoured)
-    w.put({0xC3});
+    g_game.tab_list = w.func("48 8B C4 48 89 58 08 48 89 50 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A1");
+    w.put({0x41, 0x5F, 0x41, 0x5E, 0x41, 0x5D, 0x41, 0x5C, 0x5F, 0x5E, 0x5D});
+    w.jump(reinterpret_cast<const void*>(&fake_tab_list));
     {  // key prompt: its first call is the key lookup the addon detours
         w.align();
         uint8_t* s = w.here();
@@ -251,8 +284,9 @@ void build_fake_game() {
         w.call(key_resolve);
         w.put({0xC3});
     }
-    w.func("40 55 53 56 48 8D AC 24 60 FD FF FF");  // tab widget (detoured)
-    w.put({0xC3});
+    g_game.tab_widget = w.func("40 55 53 56 48 8D AC 24 60 FD FF FF");
+    w.put({0x5E, 0x5B, 0x5D});
+    w.jump(reinterpret_cast<const void*>(&fake_tab_widget));
     {
         w.align();
         uint8_t* s = w.here();
@@ -318,6 +352,52 @@ void set_screen(uint8_t screen) {
 
 // one frame of the game's UI (the addon's UI hook runs in it)
 void frame() { reinterpret_cast<void (*)()>(g_game.dispatch)(); }
+
+// Only the game-side tab list and widget are synthetic. These calls pass through both actual addon detours, including
+// its native-tab early return. A fresh key set on each row prevents a previously cached last key masking a count gate.
+void exercise_tabs(size_t count, uint8_t action, bool expect_mods, const char* when) {
+    static uint64_t serial = 0;
+    static const char* labels[] = {"Social", "World", "Journal", "Crafting", "Backpack", "Character", "Skills", "Extra"};
+    ++serial;
+    g_tab_count = count;
+    std::memset(g_tabs, 0, sizeof g_tabs);
+    for (size_t i = 0; i < count; ++i) {
+        g_tabs[i][1] = action;
+        *reinterpret_cast<const char**>(g_tabs[i] + 0x18) = labels[i];
+        *reinterpret_cast<uint64_t*>(g_tabs[i] + 0x20) = std::strlen(labels[i]);
+        *reinterpret_cast<uint64_t*>(g_tabs[i] + 0x28) = (serial << 16) + i + 1;
+    }
+    uint8_t original[sizeof g_tabs];
+    std::memcpy(original, g_tabs, sizeof original);
+    TabList list{};
+    reinterpret_cast<void* (*)(uint8_t, TabList*)>(g_game.tab_list)(4, &list);
+    check(list.data == g_tabs[0] && list.len == count, "%s: original tab list returned %zu entries", when, list.len);
+    if (list.data != g_tabs[0] || list.len != count) return;
+    g_seen_tabs.clear();
+    for (size_t i = 0; i < count; ++i) {
+        float rect[4]{};
+        reinterpret_cast<uint64_t (*)(uint8_t*, float*)>(g_game.tab_widget)(list.data + i * 0x40, rect);
+    }
+    size_t mods = 0, vanilla = 0;
+    bool keys_ok = true;
+    for (const auto& tab : g_seen_tabs) {
+        if (tab.label == "Mods") {
+            ++mods;
+            keys_ok &= tab.key_kind == 1 && tab.hid == 14 && tab.action == action;
+        } else {
+            ++vanilla;
+            keys_ok &= tab.key_kind == 0;  // the addon's override was reset after its own widget call
+        }
+    }
+    check(vanilla == count && mods == static_cast<size_t>(expect_mods),
+          "%s: real addon emitted %zu Mods widget(s), expected %d; %zu original widgets", when, mods, expect_mods, vanilla);
+    alignas(16) uint8_t desc[0xc4]{};
+    reinterpret_cast<uint8_t* (*)(uint8_t*, size_t, uint32_t)>(g_game.key_resolve)(desc, 0, 1);
+    keys_ok &= desc[0] == 0;
+    if (expect_mods) keys_ok &= !g_seen_tabs.empty() && g_seen_tabs.back().label == "Mods";
+    check(keys_ok, "%s: native key override matches Mods widgets, resets, and stays off game tabs", when);
+    check(std::memcmp(original, g_tabs, sizeof original) == 0, "%s: original tab entries unchanged", when);
+}
 
 // ---- the addon ----
 std::filesystem::path exe_dir() {
@@ -546,6 +626,33 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
         check(std::memcmp(g_game.dispatch, g_dispatch_file, 5) != 0, "its UI hook is on the game's UI function");
         return g_fails;
     }
+    if (mode == "tabs" || mode == "tabs-late") {
+        HMODULE m = load_addon(dll, true);
+        kiln_hooks_item_lookup();
+        make_window();
+        if (mode == "tabs") kui::input_attach(g_win);
+        frame();  // input::ensure installs the addon's real window procedure
+        if (mode == "tabs-late") kui::input_attach(g_win);
+        check(module_of(reinterpret_cast<void*>(top())) == (mode == "tabs" ? m : GetModuleHandleW(nullptr)),
+              "tab checks run with the expected subclass order");
+        check(addon_says(m, t0, 20000).state == kiln::foreign::AddonState::Ready,
+              "native UI ready before exercising visibility predicates");
+        // No core/server or welcome/Entries message exists in this fixture. Tab emission must not require one.
+        exercise_tabs(6, 1, false, "six tabs before recognition");
+        exercise_tabs(8, 1, false, "eight tabs before recognition");
+        exercise_tabs(7, 1, true, "seven tabs, no host/menu entries");
+        kui::g_menu_open.store(true);
+        exercise_tabs(7, 1, true, "Kiln input capture active");
+        kui::g_menu_open.store(false);
+        exercise_tabs(7, 1, true, "Kiln input capture released");
+        // This is a source-backed conditional, NOT a claim that gamepad mode or either reporter supplies action 0x8b.
+        exercise_tabs(7, 0x8b, false, "last tab action none (0x8b), UI still ready");
+        exercise_tabs(7, 1, true, "last tab action restored");
+        reinterpret_cast<void (*)()>(GetProcAddress(m, kiln::foreign::kAddonExport))();
+        exercise_tabs(7, 1, false, "addon shut down");
+        check(kiln_lines("call each other in a loop") == 0, "tab exercises did not create a procedure loop");
+        return g_fails;
+    }
     if (mode == "window") {
         HMODULE m = load_addon(dll, true);
         make_window();
@@ -626,7 +733,7 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
 int wmain(int argc, wchar_t** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc < 3) {
-        std::printf("usage: ui-addon-harness <addon or fixture DLL> race|wait|window|window-late|timeout|unrelated\n");
+        std::printf("usage: ui-addon-harness <addon or fixture DLL> race|wait|window|window-late|tabs|tabs-late|timeout|unrelated\n");
         return 2;
     }
     char mode[32];

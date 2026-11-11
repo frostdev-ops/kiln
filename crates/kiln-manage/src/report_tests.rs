@@ -226,6 +226,31 @@ fn healthy_install_finds_nothing() {
 }
 
 #[test]
+fn addon_log_is_optional_bounded_and_redacted() {
+    let f = Fx::healthy("addon-log");
+    let absent = build(&f.input());
+    assert!(file(&absent, "game/shroudlink_client.log").is_none());
+    assert!(absent.errors.is_empty(), "{:?}", absent.errors);
+
+    let old = "[1] old addon startup\n";
+    let last = "[2] shroudlink client 0.8.0 starting (module 0x1234 Z:\\var\\home\\frostling\\addon.dll)\n\
+                [3] native UI ready: fixture\n[4] ui: screen 0x04 page=false menu=4 open=0\n";
+    f.w("shroudlink_client.log", old.repeat(SMALL_LOG_MAX as usize / old.len() + 1) + last);
+    // Mod settings are not needed to diagnose initialization and stay private.
+    f.w("shroudlink_keys.json", br#"{"mods":"K"}"#);
+    f.w("shroudlink_mods_off.json", br#"["storage"]"#);
+    let r = build(&f.input());
+    let log = file(&r, "game/shroudlink_client.log").expect("the addon log must be collected");
+    assert!(log.starts_with("... (older lines left out"));
+    assert!(log.len() as u64 <= SMALL_LOG_MAX + 200);
+    assert!(log.contains(r"<home>\addon.dll") && !log.contains("frostling"), "{log}");
+    assert!(log.contains("native UI ready: fixture") && log.contains("menu=4"));
+    assert!(!r.files.iter().any(|(n, _)| n.ends_with("shroudlink_keys.json") || n.ends_with("shroudlink_mods_off.json")));
+    assert_eq!(std::fs::read_to_string(f.game.join("shroudlink_client.log")).unwrap(),
+        old.repeat(SMALL_LOG_MAX as usize / old.len() + 1) + last, "collection is read-only");
+}
+
+#[test]
 fn not_installed_and_foreign_dinput8() {
     let f = Fx::new("noinstall");
     f.w("enshrouded.exe", b"MZ");
@@ -453,6 +478,7 @@ fn nothing_private_in_any_file() {
     f.w("kiln/logs/kiln.log", format!("[I 11:00:00.000] [kiln] Kiln 0.2.0-dev.22 starting (pid 412)\n{private}"));
     f.w("kiln/logs/proxy.log", &private);
     f.w("kiln/logs/eml.log", &private);
+    f.w("shroudlink_client.log", &private);
     f.w("kiln/state/last-server.json", br#"{"format":1,"written":"2026-11-10T11:00:00Z","outcome":"welcome","server":{"id":"srv-1","name":"Isles","address":"203.0.113.7:15636"},"modpack":{"url":"https://example.org/p.zip?key=hunter3","sha256":"00"},"required":[]}"#);
     f.w("kiln/kiln.json", br#"{"policy":"verified-only","admin":{"token":"s3cr3t-token"},"remote":{"password":"hunter2"}}"#);
     f.w("kiln/config/network.json", br#"{"password":"hunter2-network"}"#);

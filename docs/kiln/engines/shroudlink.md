@@ -77,6 +77,19 @@ Kiln also leaves an addon's later window subclass above its own instead of reins
 procedure loop. The headless real-DLL test exercises both subclass orders, keys, shutdown and hot reload. These
 checks do **not** establish that every missing MODS tab has the scan-order cause, nor verify rendered game menus.
 
+`native UI ready` means the addon installed its hooks, not that a later player-menu frame emitted the tab. The
+0.8.0 addon recognizes a row of exactly seven game tabs, remembers its last key/template, then appends Mods when
+that key is drawn. Its native-tab path returns without appending if the template's input action is `0x8b` (none).
+The actual-DLL harness reproduces both conditional suppression paths after successful initialization; it does not
+establish that any particular controller mode, game build or player report supplies those inputs. Server handshake
+and received menu entries do not gate the tab itself. Missing tab, empty shroudlink page, and Kiln's separate Mods
+page are different symptoms.
+
+Support reports include the bounded, redacted `shroudlink_client.log` when present. For a missing tab, reproduce
+once after closing Kiln's own menu, try the addon's configured MODS key (default `K`) in the player menu, then save
+a fresh report. A screenshot of the whole player tab row and whether keyboard/mouse differs from controller input
+help distinguish a tab-recognition issue from startup or input delivery; do not infer the cause from slot locking alone.
+
 ## Install a mod
 
 Unpack its zip into the server folder (`shroudlink_mods/<name>.dll`, or `shroudlink_mods/<name>/`), import it in the
@@ -197,9 +210,11 @@ without a Kiln C# equivalent.
   bounded hook attribution, success, failure, stale/partial logs and timeout behavior.
 - `KILN_OUT=<build-output> SHROUDLINK_ADDON=<existing-client-dinput8.dll> native/services/ui/tests/test-addon-wine.sh`:
   optional Wine integration using the unmodified operator-supplied addon and production Kiln input/startup code.
-  Six scenarios cover the scan-order failure and fix, both subclass orders, shutdown/reload, shared-budget timeout
-  and forwarded-export rejection. Synthetic source-backed game functions and message-only window discovery adapters
-  need no game or display. This is not a real-game render, server connection or Storage/Assistants feature test.
+  Eight scenarios cover the scan-order failure and fix, both subclass orders, shutdown/reload, shared-budget timeout,
+  forwarded-export rejection, and actual addon tab-list/widget calls (six/seven/eight tabs, action-none suppression,
+  restored action, native K-label override and Kiln capture flags). The tab checks run without server/menu entries.
+  Synthetic source-backed game functions and message-only window discovery adapters need no game or display.
+  This is not a real-game render, layout/controller test, server connection or Storage/Assistants feature test.
 - `KILN_OUT=<build-output> native/services/ui/tests/run.sh`: Kiln's regular UI/input host regressions.
 - Lab: deploy Kiln (`tools/deploy-server.sh` builds `kiln-shroudlink` like every plugin), put mod DLLs built from
   shroudlink's repo (`cargo build --release` in its `mod/`) into `shroudlink_mods/`, create the file
@@ -230,8 +245,8 @@ Nearby's thread/bounds harness is `native/plugins/shroudlink/tests/nearby/Nearby
 
 1. Server: lab or your server with Kiln + the shroudlink mods (no `steam_api64.dll` proxy). Client: shroudlink's
    addon `dinput8.dll` installed through Kiln (it lands in `kiln/chain/`). Join.
-2. The player menu shows the **MODS** tab with chestsort, assistants, storage, meter, gemforge. kiln.log on the
-   server: `[shroudlink] mod 'chestsort' registered` for each.
+2. The player menu shows the **Mods** tab with Chest categories, Assistants, Storage and Damage meter for the
+   bundled mods (gemforge has no menu entry). kiln.log on the server lists each of the five mod IDs as registered.
 3. Rename a chest "Ores", press quick stack: iron bars go in. Press `L` on a backpack slot: gold rim, and quick stack
    leaves it.
 4. MODS -> Storage lists the chests within 40 m; click an item: it comes from every chest.
