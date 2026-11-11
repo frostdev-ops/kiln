@@ -123,6 +123,16 @@ bool on_key(uint32_t vk, uint32_t scan, bool down) {
     return consumed;
 }
 
+// Releases can go to the newly focused window. Forget local repeat/consumption state without inventing key messages
+// for either subscribers or the game (the v5 focus record lets subscribers reset their own state).
+void forget_keys() {
+    for (uint32_t vk = 0; vk < 256; ++vk) {
+        g_down[vk].store(false, std::memory_order_relaxed);
+        g_consumed[vk] = false;
+    }
+    g_pressed_vk.store(0, std::memory_order_relaxed);
+}
+
 // A Kiln panel next to a game screen (set_hover_capture) has the mouse over it: its clicks and wheel are Kiln's.
 bool hover_capture() {
     return g_hover_panels.load(std::memory_order_relaxed) > 0 && want_draw() && g_want_mouse.load(std::memory_order_relaxed);
@@ -358,6 +368,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             break;
         case WM_KILLFOCUS:
             if (fed) feed_focus_lost(m, w, l);
+            forget_keys();
             enqueue(h, m, w, l);
             break;
         case WM_DPICHANGED:
@@ -368,6 +379,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (w) feed_focus_gained();
                 else feed_focus_lost(m, w, l);
             }
+            if (!w) forget_keys();
             break;
         case WM_SETCURSOR:
             if (cap && LOWORD(l) == HTCLIENT) {

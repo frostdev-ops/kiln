@@ -359,6 +359,22 @@ void play_consumed() {  // Insert: the key a Kiln binding consumes here (the men
 }
 const std::vector<std::string> kConsumed = {"raw 52 2 2d", "key 0100 2d 1520001", "raw 52 3 2d", "key 0101 2d c1520001"};
 
+void held_focus_lost() {
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_BREAK, 'J'));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_MAKE, 'J'));
+    send(WM_KILLFOCUS, 0, 0);
+    check(!kui::input_key_held('J'), "focus loss clears Kiln's held keys when no release arrives");
+    uint32_t mods = 0;
+    check(kui::input_take_pressed(&mods) == 0, "focus loss discards a pending bind-capture press");
+    send(WM_SETFOCUS, 0, 0);
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_MAKE, 'J'));
+    check(kui::g_kiln_keys.back().find("repeat=0") != std::string::npos,
+          "first key after refocus is not mistaken for a repeat: %s", kui::g_kiln_keys.back().c_str());
+    send(WM_ACTIVATEAPP, FALSE, 0);
+    check(!kui::input_key_held('J'), "app deactivation also clears Kiln's held keys");
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_BREAK, 'J'));
+}
+
 void raw_unregistered() {
     kui::g_consume_vk = 'J';
     const RAWINPUTDEVICE remove{1, 6, RIDEV_REMOVE, nullptr};
@@ -523,6 +539,7 @@ int main() {
 
     lifetime();
     raw_unregistered();
+    held_focus_lost();
 
     std::printf("%s: %d checks, %d failed\n", g_fails ? "FAIL" : "PASS", g_checks, g_fails);
     return g_fails ? 1 : 0;
