@@ -443,6 +443,13 @@ pub(crate) fn merge(dirs: &DataDirs, mods: &mut ProfileMods, refs: &[LibraryRef]
                         name(&old_ref), name(r), r.id));
                     continue;
                 }
+                if r.kind == ModKind::Native && list[i].enabled
+                    && generated_proxy(dirs, r).zip(generated_proxy(dirs, &old_ref))
+                        .is_some_and(|(new, old)| new.lone && !old.lone && new.sha == old.sha && new.file.eq_ignore_ascii_case(&old.file))
+                {
+                    notices.push(format!("{} stays enabled with the files of its package: {} is the same DLL alone, now in your Library.", name(&old_ref), name(r)));
+                    continue;
+                }
                 if let Some(why) = keep_xhl_core(r, &list[i], refs, &name) {
                     notices.push(why);
                     continue;

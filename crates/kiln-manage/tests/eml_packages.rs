@@ -1571,6 +1571,33 @@ fn an_older_xhl_core_bundled_with_an_xhl_mod_never_replaces_the_one_you_have() {
     assert_eq!(core_entry(&dirs, &g).1, sha(&b), "XHL-Core dropped on its own replaces it");
 }
 
+/// XHL-Core keeps the same id as a lone DLL and a package; the same-id replacement must keep its chain dependencies.
+#[test]
+fn a_lone_xhl_core_dll_keeps_the_enabled_packages_chain_and_files() {
+    let (t, dirs, g) = fresh("same-id-lone-core");
+    let core = xhl_core_build("same build", Some((1, 3, 0)));
+    let pkg = proxy_package(&t, "XHL-Core 1.3", &core, &[
+        ("dinput8-chain.ini", b"[Chain]\nextra/helper.dll\n"),
+        ("extra/helper.dll", &build_test_dll(&["Helper"], b"chain dependency")),
+    ]);
+    add(&dirs, &g, &pkg);
+    let before = profile::get(&dirs, "my-mods").unwrap().mods.native;
+    put(&t.0, "lone/dinput8.dll", &core);
+    let r = add(&dirs, &g, &t.0.join("lone/dinput8.dll"));
+    assert_eq!(profile::get(&dirs, "my-mods").unwrap().mods.native, before,
+        "the lone DLL must not replace the package that carries its chain dependencies");
+    assert!(r.changes.is_empty() && r.added.is_empty(), "{r:?}");
+    assert!(r.notices.iter().any(|n| n.contains("XHL-Core") && n.contains("package")), "{r:?}");
+    let chain = std::fs::read_to_string(g.path.join("kiln/chain.ini")).unwrap();
+    assert!(chain.contains("extra\\helper.dll"), "{chain}");
+    // A switched-off package is not a running alternative: adding the DLL still enables one copy.
+    let mut p = profile::get(&dirs, "my-mods").unwrap();
+    p.mods.native[0].enabled = false;
+    profile::save(&dirs, &p).unwrap();
+    add(&dirs, &g, &t.0.join("lone/dinput8.dll"));
+    assert_eq!(enabled_natives(&g), ["xhl-core"]);
+}
+
 /// rr-import notes: native-plugin.ini in another case marks an XHL companion inside a native package too, so it is
 /// placed for XHL-Core and not copied into the native mod that Kiln loads.
 #[test]
