@@ -16,7 +16,7 @@ fn fixture() -> Bridge {
     let mut b = Bridge::new("module-a".into(), secret);
     b.begin_session();
     b.welcome(2);
-    b.world(true);
+    b.world(true, 100);
     b.tick(100, 1);
     // The real server-to-client serde contract, not a synthetic module catalog.
     b.observe(&serde_json::from_value(json!({"op":"entries","owner":"storage","entries":[{"id":"settings","label":"Storage"}]})).unwrap());
@@ -64,7 +64,7 @@ fn no_fabricated_menu_from_welcome() {
     let mut b = Bridge::new("m".into(), secret);
     b.begin_session();
     b.welcome(2);
-    b.world(true);
+    b.world(true, 100);
     b.tick(100, 1);
     assert_eq!(
         call(&mut b, json!({"op":"read"}), 100).unwrap()["entries"],
@@ -166,7 +166,7 @@ fn shutdown_replaced_copy_and_reconnect_clear_ownership() {
     call(&mut b, old.clone(), 100).unwrap();
     b.begin_session();
     b.welcome(2);
-    b.world(true);
+    b.world(true, 100);
     b.tick(101, 1);
     assert_eq!(call(&mut b, old.clone(), 101), Err(Error::Stale));
     assert!(b.take(101, 10000).is_none());
@@ -199,16 +199,16 @@ fn world_departure_and_update_stall_end_ownership_but_keep_the_session() {
         let req = event(&b, &s, "button", json!({"kind":"click"}));
         call(&mut b, req.clone(), queued).unwrap();
         if !stall {
-            b.world(false);
+            b.world(false, 100);
         }
         // While it lasts: not ready, the lease and the queue are gone.
         assert!(!b.ready(at));
         assert!(b.take(at, 10000).is_none());
         assert_eq!(call(&mut b, req.clone(), at), Err(Error::Stale));
         assert_eq!(read(&mut b, at)["leased"], false);
-        // The next frame in the world / client update: the same session is ready again with what it received.
-        b.world(true);
+        // The next client update and frame in the world: the same session is ready again with what it received.
         b.tick(at + 1, 1);
+        b.world(true, at + 1);
         assert!(b.ready(at + 1));
         let r = read(&mut b, at + 1);
         assert_eq!(r["session"], s["session"]);
@@ -220,6 +220,51 @@ fn world_departure_and_update_stall_end_ownership_but_keep_the_session() {
         assert_eq!(call(&mut b, req, at + 1), Err(Error::Stale));
         assert_ne!(acquire(&mut b, "kiln", at + 1)["lease"], s["lease"]);
     }
+}
+// A player leaves host A and joins a world without a shroudlink host; the game reuses the client object.
+// Upstream's in-game UI hook draws no frames at the main menu (its first dispatch follows the first client
+// update), so a leave shows as frames outside the world after the update went stale, or as an update that
+// comes back after a gap, followed by the next world's loading screen.
+#[test]
+fn leaving_for_a_world_without_a_host_drops_what_the_old_host_sent() {
+    for (closing, frames_while_away) in [(true, true), (true, false), (false, false)] {
+        let mut b = fixture();
+        let s = acquire(&mut b, "kiln", 100);
+        let req = event(&b, &s, "button", json!({"kind":"click"}));
+        call(&mut b, req.clone(), 100).unwrap();
+        if closing {
+            b.world(false, 100); // the world closes, with a fresh update
+        }
+        if frames_while_away {
+            b.world(false, 2600); // a frame outside the world, 2.5 s without a client update
+            assert_ne!(read(&mut b, 2600)["session"], s["session"]);
+        }
+        b.tick(5000, 1); // the next world's first update: same client pointer, no beacon
+        assert!(!b.ready(5000));
+        assert_eq!(read(&mut b, 5000)["entries"], json!([]));
+        b.world(false, 5000); // its loading screen
+        b.tick(5001, 1);
+        b.world(true, 5001);
+        assert!(!b.ready(5001));
+        let r = read(&mut b, 5001);
+        assert_eq!(r["entries"], json!([]));
+        assert_eq!(r["windows"], json!([]));
+        assert_ne!(r["session"], s["session"]);
+        assert!(b.take(5001, 10000).is_none());
+        assert_eq!(call(&mut b, req, 5001), Err(Error::Stale));
+    }
+}
+#[test]
+fn a_stall_on_the_join_loading_screen_keeps_the_welcome() {
+    let mut b = Bridge::new("m".into(), secret);
+    b.begin_session();
+    b.tick(100, 1);
+    b.welcome(2);
+    b.world(false, 100); // the loading screen, before any frame in the world
+    b.world(false, 2600); // still loading, 2.5 s without a client update
+    b.tick(2700, 1);
+    b.world(true, 2700);
+    assert!(b.ready(2700));
 }
 #[test]
 fn client_change_starts_a_new_session() {
@@ -275,7 +320,7 @@ fn holds(messages: &[ToClient]) -> bool {
     let mut b = Bridge::new("m".into(), secret);
     b.begin_session();
     b.welcome(2);
-    b.world(true);
+    b.world(true, 100);
     b.tick(100, 1);
     for m in messages {
         b.observe(m);
@@ -316,16 +361,16 @@ fn aggregate_observe_limits() {
 fn requires_beacon_protocol_world_and_actual_tick() {
     let mut b = Bridge::new("m".into(), secret);
     b.welcome(2);
-    b.world(true);
+    b.world(true, 100);
     b.tick(100, 1);
     assert!(!b.ready(100));
     b.begin_session();
     b.welcome(1);
-    b.world(true);
+    b.world(true, 100);
     b.tick(100, 1);
     assert!(!b.ready(100));
     b.welcome(2);
-    b.world(false);
+    b.world(false, 100);
     assert!(!b.ready(100));
 }
 #[test]

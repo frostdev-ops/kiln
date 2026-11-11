@@ -70,6 +70,10 @@ pub struct Bridge {
     welcomed: bool,
     fault: bool,
     world: bool,
+    // This session has drawn a frame in a world, and the client update came back after more
+    // than TTL since then: until the next frame, it is not known whether that world goes on.
+    entered: bool,
+    away: bool,
     client: usize,
     tick: Option<u64>,
     lease: Option<Lease>,
@@ -94,6 +98,8 @@ impl Bridge {
             welcomed: false,
             fault: false,
             world: false,
+            entered: false,
+            away: false,
             client: 0,
             tick: None,
             lease: None,
@@ -121,6 +127,8 @@ impl Bridge {
         self.welcomed = false;
         self.fault = false;
         self.world = false;
+        self.entered = false;
+        self.away = false;
         self.client = 0;
         self.tick = None;
         self.lease = None;
@@ -136,19 +144,37 @@ impl Bridge {
         self.begin_session();
         self.active = false;
     }
-    pub fn world(&mut self, present: bool) {
-        // Outside a world (screen 0): not ready and no ownership while it lasts. What this session received
-        // stays; a new beacon, a client change or shutdown starts a new session.
-        if !present {
+    pub fn world(&mut self, present: bool, now: u64) {
+        // Outside a world (screen 0): not ready and no ownership while it lasts. What this
+        // session received stays, unless the session had been in a world and the client update
+        // stopped for more than TTL since its last frame there: then the player left. A stall or
+        // a title-bar drag draws no frame outside the world, a frame outside the world during
+        // play has a fresh update, and a join's loading screen comes before `entered`. The
+        // in-game UI draws no frames at the main menu, so a leave shows as the closing world's
+        // last frames or as the next world's loading screen after its first update. A new
+        // beacon, a client change or shutdown also start a new session.
+        if present {
+            self.entered = true;
+            self.away = false;
+        } else {
             self.end_lease();
+            if self.entered && (self.away || self.stale(now)) {
+                self.begin_session();
+            }
         }
         self.world = present;
+    }
+    fn stale(&self, now: u64) -> bool {
+        self.tick.is_some_and(|t| now < t || now - t > TTL)
     }
     fn end_lease(&mut self) {
         self.lease = None;
         self.queue.clear();
     }
     pub fn tick(&mut self, now: u64, client: usize) {
+        if self.entered && self.stale(now) {
+            self.away = true;
+        }
         self.expire(now);
         if self.client != 0 && self.client != client {
             self.begin_session();
@@ -162,6 +188,7 @@ impl Bridge {
             && !self.fault
             && self.welcomed
             && self.world
+            && !self.away
             && self.client != 0
             && self.tick.is_some_and(|t| now >= t && now - t <= TTL)
     }
@@ -170,7 +197,7 @@ impl Bridge {
         // (ready() checks its age) and ends ownership: the lease and its queue never come
         // back. Received state stays for the same session and client pointer; upstream
         // treats the same threshold as a live value that recovers.
-        if self.tick.is_some_and(|t| now < t || now - t > TTL)
+        if self.stale(now)
             || self.lease.as_ref().is_some_and(|l| now >= l.until)
         {
             self.end_lease();

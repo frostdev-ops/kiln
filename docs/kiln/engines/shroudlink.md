@@ -147,10 +147,18 @@ hook, and a recent actual client update. A wholly failed native UI installation 
 a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. A UI frame outside the
 world (screen 0) or more than two seconds without a client update (a loading stall, a title-bar drag) means not
 ready while it lasts and ends the lease and its queued events; what the session received stays and shows again
-once the world and the updates are back, as upstream treats the same two-second threshold as a live value. A new
-beacon, a client-pointer change, module replacement and shutdown start a new session and drop everything received.
-Like the addon's own menu, the bridge keeps the last host's entries if a later world has no shroudlink host and the
-game reuses the same client object; events then go out as the native menu's would. Kiln releases its
+once the world and the updates are back, as upstream treats the same two-second threshold as a live value.
+Once the session has drawn a frame in a world, a UI frame outside the world after more than those two seconds
+without a client update means the player left, and the session ends: a stall or a drag draws no such frame, a
+screen-0 frame during play has a fresh update, and a join's own loading screen comes before its first frame in the
+world. The addon's in-game UI draws no frames at the main menu (in a real client log its first UI frame follows the
+first client update and the host's welcome), so a leave shows either as the closing world's frames after the
+updates stopped or as the next world's loading screen after its first update; an update that comes back after
+such a gap is not ready until the next frame shows which. A new beacon, a client-pointer change, module
+replacement and shutdown also start a new session and drop everything received. Not verified in a real client:
+a join whose first frame already shows the world, after a leave that drew no frame once the updates stopped, would
+bring the old host's entries back; and a loading screen inside a session that comes after more than two seconds
+without a client update ends the session like a leave, so its entries return only with a rejoin. Kiln releases its
 lease when the menu closes, another section is selected, or its menu frame fails; expiry handles stopped rendering.
 Discovery only examines already-loaded modules and never loads a DLL or resolves a forwarder. It runs on a worker
 thread, never on the render thread, at most once a second while Kiln's menu is drawn. Export tables are read through
