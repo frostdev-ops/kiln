@@ -128,6 +128,14 @@ pub fn to_host(game_path: &str, install: &crate::game::GameInstall) -> Result<Pa
     }
     if !is_absolute_game_path(p) && !p.starts_with('/') {
         let rel: Vec<&str> = p.split(['\\', '/']).filter(|c| !c.is_empty() && *c != ".").collect();
+        // Copy mode's ways out of kiln/, under the native core's folder name rule: `../mods/<folder>`, a folder in the
+        // game's own mods folder (an EML mod a native DLL reads there, an XHL companion), and `../greeneye/<id>`, Kiln's
+        // copy of a Greeneye mod
+        if let ["..", root @ ("mods" | "greeneye"), name] = rel.as_slice()
+            && crate::engine_mods::is_game_folder_name(name)
+        {
+            return Ok(install.path.join(root).join(name));
+        }
         if rel.contains(&"..") {
             return Err(Error::invalid(format!("{p}: '..' is not allowed in a relative game path")));
         }
