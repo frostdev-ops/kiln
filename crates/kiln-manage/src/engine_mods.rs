@@ -1152,8 +1152,18 @@ fn switch_copy(game: &Path, receipts: &mut [Placement], dst: &Path, enabled: boo
     let unchanged = index.is_some_and(|i| receipts[i].extension.as_deref() == Some(current.as_str()));
     crate::shroudforge::set_enabled(dst, enabled)?;
     if unchanged {
-        receipts[index.expect("checked")].extension = Some(std::fs::read_to_string(dst.join("extended.mod.json"))?);
-        save_placements(game, receipts)?;
+        let mut next = receipts.to_vec();
+        let saved = (|| {
+            next[index.expect("checked")].extension = Some(std::fs::read_to_string(dst.join("extended.mod.json"))?);
+            save_placements(game, &next)
+        })();
+        if let Err(e) = saved {
+            if let Err(back) = crate::util::write_atomic(&dst.join("extended.mod.json"), current.as_bytes()) {
+                return Err(Error::new(e.code, format!("{}; the previous ShroudForge switch could not be restored: {}", e.message, back.message)));
+            }
+            return Err(e);
+        }
+        receipts.clone_from_slice(&next);
     }
     Ok(())
 }
@@ -1303,14 +1313,16 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             }
             if have.as_ref().is_some_and(|h| h.receipt.marker == want) {
                 if kind == ModKind::ShroudForge {
-                    refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
                     match crate::shroudforge::read_mod(&dst) {
                         Err(e) => {
                             retain_runs(&mut rep, tag(&m.id), &dst, format!("its ShroudForge settings cannot be read, so its switch was left as it is: {}", e.message), still_runs(kind, m.enabled, Some(&want), Some(&want)));
                             continue;
                         }
                         Ok(sf) if sf.enabled != m.enabled => {
-                            switch_copy(game_dir, &mut receipts, &dst, m.enabled)?;
+                            if let Err(e) = switch_copy(game_dir, &mut receipts, &dst, m.enabled) {
+                                retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, m.enabled, Some(&want), Some(&want)));
+                                continue;
+                            }
                             rep.switched.push(tag(&m.id));
                         }
                         Ok(_) => {}
@@ -1391,9 +1403,10 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 Err(e) => retain_runs(&mut rep, tag(&receipt.marker.id), dst,
                     format!("its ShroudForge settings cannot be read, so it was not switched off: {}", e.message), still_runs(kind, false, None, None)),
                 Ok(sf) if sf.enabled => {
-                    refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
-                    switch_copy(game_dir, &mut receipts, dst, false)?;
-                    rep.switched.push(tag(&receipt.marker.id));
+                    match switch_copy(game_dir, &mut receipts, dst, false) {
+                        Ok(()) => rep.switched.push(tag(&receipt.marker.id)),
+                        Err(e) => retain_runs(&mut rep, tag(&receipt.marker.id), dst, e.message, still_runs(kind, false, None, None)),
+                    }
                 }
                 Ok(_) => {}
             }
@@ -2566,6 +2579,47 @@ mod tests {
                 let retry = place_with(&dirs, &p, &game, &loaders).unwrap();
                 assert_eq!(retry.placed, [format!("{}:a", kind.as_str())], "retry stays owned: {retry:?}");
             }
+        }
+    }
+
+    #[test]
+    fn failed_sf_switch_rolls_back_its_receipt_and_switches_the_next_mod() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "sf-switch-receipts").unwrap();
+        let dirs = DataDirs::at(tmp.path().join("data"));
+        let mut sources = Vec::new();
+        for id in ["a", "b"] {
+            let src = tmp.path().join(id);
+            std::fs::create_dir_all(&src).unwrap();
+            std::fs::write(src.join("mod.json"), format!(r#"{{"id":"{id}","name":"Test","version":"1.0.0"}}"#)).unwrap();
+            std::fs::write(src.join("extended.mod.json"), br#"{"schemaVersion":1,"launcher":"SF","enabled":true,"settings":{}}"#).unwrap();
+            sources.push(src);
+        }
+        let imported = crate::library::import(&dirs, &sources, &mut crate::task::NoProgress).unwrap();
+        assert_eq!(imported.imported.len(), 2, "{imported:?}");
+        for listed in [false, true] {
+            let game = tmp.path().join(format!("game-{listed}"));
+            let mut p = crate::profile::create(&dirs, &format!("switch-{listed}"), None).unwrap();
+            p.mods.shroudforge = imported.imported.iter().map(|r| crate::profile::ProfileMod {
+                id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true }).collect();
+            place(&dirs, &p, &game).unwrap();
+            let a = game.join("mods/a");
+            let before = files_of(&a);
+            let receipt = placements(&game).unwrap().into_iter().find(|r| r.marker.id == "a").unwrap();
+            if listed { for m in &mut p.mods.shroudforge { m.enabled = false; } } else { p.mods.shroudforge.clear(); }
+            FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+            let result = place(&dirs, &p, &game);
+            assert!(result.is_ok(), "one failed SF switch must not block the others: listed={listed}: {result:?}");
+            let rep = result.unwrap();
+            assert_eq!(rep.switched, ["shroudforge:b"], "{rep:?}");
+            assert_eq!(files_of(&a), before, "failed switch is rolled back byte for byte");
+            assert!(!crate::shroudforge::read_mod(&game.join("mods/b")).unwrap().enabled);
+            assert!(rep.retained.iter().any(|r| r.path == a && r.may_run), "{rep:?}");
+            let after = placements(&game).unwrap().into_iter().find(|r| r.marker.id == "a").unwrap();
+            assert_eq!(serde_json::to_value(&after).unwrap(), serde_json::to_value(&receipt).unwrap());
+            let retry = place(&dirs, &p, &game).unwrap();
+            assert_eq!(retry.switched, ["shroudforge:a"], "retry remains owned: {retry:?}");
+            assert!(!crate::shroudforge::read_mod(&a).unwrap().enabled);
+            assert_eq!(unplace(&game).unwrap().removed.len(), 2, "successful switches keep exact cleanup receipts");
         }
     }
 
