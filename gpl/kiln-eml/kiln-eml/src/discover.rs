@@ -199,6 +199,10 @@ pub fn aside_entries(profile_json: &str, kiln_dir: &Utf8Path, roots: &[Utf8PathB
                 Some(Err(Off::Switch(why))) if copy.is_some() => ("off-in-shroudforge", format!("{who} runs this start, but ShroudForge has \
                     Kiln's copy at {c} switched off: {why}. Nothing applies it this start. Press Play in the Kiln launcher (or activate \
                     the profile again): Kiln switches it on in ShroudForge's settings")),
+                // no switch helps a file ShroudForge refuses; without ShroudForge kiln-eml runs the mod (it reads only `launcher`)
+                Some(Err(Off::Refused(why))) => ("off-in-shroudforge", format!("{who} runs this start, but ShroudForge does not run the \
+                    {what} at {c}: {why}. Nothing applies it this start, and no switch changes that: a version of the mod whose file \
+                    ShroudForge reads does, or a start without ShroudForge mods in the profile (Kiln then runs it itself)")),
                 Some(Err(Off::Switch(why))) => ("off-in-shroudforge", format!("{who} runs this start, but ShroudForge has your own \
                     folder {c} switched off: {why}. Nothing applies it this start. Kiln never writes into your own folder: switch it on in \
                     Kiln's menu (Mods, ShroudForge) or in ShroudForge's own Modloader, then start the game again")),
@@ -215,8 +219,10 @@ pub fn aside_entries(profile_json: &str, kiln_dir: &Utf8Path, roots: &[Utf8PathB
 /// Why ShroudForge does not run a package ([`shroudforge_switch`]).
 #[derive(Debug)]
 pub enum Off {
-    /// Its switch is off: no `extended.mod.json`, `enabled` not true, or a file ShroudForge refuses.
+    /// Its switch is off: no `extended.mod.json`, or `enabled` not true.
     Switch(String),
+    /// ShroudForge refuses its `extended.mod.json` (or cannot read it): no switch makes it run.
+    Refused(String),
     /// Its `targets` leave out this side.
     Side(String),
 }
@@ -232,19 +238,19 @@ pub fn shroudforge_switch(dir: &Utf8Path, server: bool) -> Result<(), Off> {
         let file = dir.join(NAME);
         match checked_metadata(&file) {
             Err(_) if !file.exists() => None,
-            Err(e) => return Err(Off::Switch(format!("its {NAME} cannot be read ({e})"))),
-            Ok(m) if !m.is_file() || m.len() > 1024 * 1024 => return Err(Off::Switch(format!("its {NAME} is no file ShroudForge reads"))),
-            Ok(_) => Some(std::fs::read_to_string(&file).map_err(|e| Off::Switch(format!("its {NAME} cannot be read ({e})")))?),
+            Err(e) => return Err(Off::Refused(format!("its {NAME} cannot be read ({e})"))),
+            Ok(m) if !m.is_file() || m.len() > 1024 * 1024 => return Err(Off::Refused(format!("its {NAME} is no file ShroudForge reads"))),
+            Ok(_) => Some(std::fs::read_to_string(&file).map_err(|e| Off::Refused(format!("its {NAME} cannot be read ({e})")))?),
         }
     } else {
         let mut zip = std::fs::File::open(dir).ok().and_then(|f| zip::ZipArchive::new(f).ok())
-            .ok_or_else(|| Off::Switch("it is not a readable zip".into()))?;
+            .ok_or_else(|| Off::Refused("it is not a readable zip".into()))?;
         match zip.by_name(NAME) {
             Err(_) => None,
-            Ok(f) if f.size() > 1024 * 1024 => return Err(Off::Switch(format!("its {NAME} is larger than ShroudForge reads"))),
+            Ok(f) if f.size() > 1024 * 1024 => return Err(Off::Refused(format!("its {NAME} is larger than ShroudForge reads"))),
             Ok(mut f) => {
                 let mut s = String::new();
-                f.read_to_string(&mut s).map_err(|e| Off::Switch(format!("its {NAME} cannot be read ({e})")))?;
+                f.read_to_string(&mut s).map_err(|e| Off::Refused(format!("its {NAME} cannot be read ({e})")))?;
                 Some(s)
             }
         }
@@ -253,8 +259,8 @@ pub fn shroudforge_switch(dir: &Utf8Path, server: bool) -> Result<(), Off> {
         return Err(Off::Switch(format!("it has no {NAME}, the file that holds ShroudForge's switch (ShroudForge keeps a package off until its switch is on)")));
     };
     // ShroudForge's own reader is strict JSON (no byte order mark, no comments)
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| Off::Switch(format!("ShroudForge refuses its {NAME} ({e})")))?;
-    let refused = |why: &str| Off::Switch(format!("ShroudForge refuses its {NAME}: {why}"));
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| Off::Refused(format!("ShroudForge refuses its {NAME} ({e})")))?;
+    let refused = |why: &str| Off::Refused(format!("ShroudForge refuses its {NAME}: {why}"));
     if !v.is_object() || v.get("schemaVersion").and_then(|v| v.as_f64()) != Some(1.0) {
         return Err(refused("schemaVersion must be the number 1"));
     }
@@ -747,7 +753,7 @@ mod tests {
             r#"{"schemaVersion":1,"enabled":true,"settings":null}"#,
         ] {
             std::fs::write(p.join("extended.mod.json"), ext).unwrap();
-            assert!(matches!(shroudforge_switch(&p, false), Err(Off::Switch(_))), "{ext}");
+            assert!(matches!(shroudforge_switch(&p, false), Err(Off::Refused(_))), "{ext}");
         }
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -800,6 +806,35 @@ mod tests {
         let off = d.join("mods/off");
         let (run, entries) = resolve(&[Candidate { path: off.clone(), source: "profile".into(), enabled: true }]);
         assert_eq!((run, entries[0].state.as_str()), (vec![off], "pending"));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// pr-manage P5: a package whose extended.mod.json says `enabled: true` but that ShroudForge refuses (its
+    /// schemaVersion, a broken file) does not run under ShroudForge, and no advice may promise what cannot help: the
+    /// launcher cannot switch on a file ShroudForge refuses.
+    #[test]
+    fn a_package_shroudforge_refuses_is_not_counted_as_running_and_gets_no_switch_advice() {
+        let d = tmp("aside-sf-refused");
+        let copy = |dir: &str, ext: &str| {
+            let p = eml_mod(&d, &format!("mods/{dir}"), dir);
+            std::fs::write(p.join(".kiln-library.json"), format!(r#"{{"format":1,"kind":"eml","id":"{dir}","version":"1.0.0","hash":"h"}}"#)).unwrap();
+            std::fs::write(p.join("extended.mod.json"), ext).unwrap();
+        };
+        copy("schema2", r#"{"schemaVersion":2,"enabled":true,"launcher":"EML"}"#);
+        copy("broken", r#"{"schemaVersion":1,"enabled":tru"#);
+        let hand = eml_mod(&d, "mods/Hand Made", "hand");
+        std::fs::write(hand.join("extended.mod.json"), r#"{"schemaVersion":2,"enabled":true,"launcher":"EML"}"#).unwrap();
+        let j = r#"{"mods":{"eml":[{"id":"schema2","path":"/lib/schema2"},{"id":"broken","path":"/lib/broken"},{"id":"hand","path":"/lib/hand"}]}}"#;
+        let who = "ShroudForge (hosted by Kiln)";
+        let entries = aside_entries(j, &d.join("kiln"), &[d.join("mods")], who, Some(false));
+        for e in &entries {
+            let reason = e.reason.as_deref().unwrap_or_default();
+            assert_eq!(e.state, "off-in-shroudforge", "{e:?}");
+            assert!(reason.contains("refuses") && !reason.contains("runs under"), "{e:?}");
+            assert!(!reason.contains("Kiln switches it on") && !reason.contains("switch it on in"), "{e:?}");
+        }
+        let summary = aside_log(&entries, who).last().unwrap().1.clone();
+        assert!(summary.starts_with("kiln-eml: 0 of the profile's 3 EML mod(s) run under"), "{summary}");
         std::fs::remove_dir_all(d).unwrap();
     }
 

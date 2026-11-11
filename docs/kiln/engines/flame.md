@@ -52,7 +52,8 @@ Observed from the mod's files and the loader's import and export tables, never b
 6. Writes `kiln/state/flame.json`: per mod `folder` and `dll` (where it ran from), `readsFrom` (where it reads its own
    files), `buildKey`, `symbols` (`found`, `recipes`, `none`, or empty when unknown) and `note` (empty when the mod ran
    from the folder it reads, or that folder is Kiln's copy of it; else where it ran from and that it may not find its
-   files there). Logs `[flame] ...` and `[flame:<id>] ...`: a `note` and `symbols: none` as warnings.
+   files there; for Kiln's copy of a mod whose `mod.json` id is not its Library id, that it cannot tell, below).
+   Logs `[flame] ...` and `[flame:<id>] ...`: a `note` and `symbols: none` as warnings.
 
 ## Where a profile's Flame mod runs from
 
@@ -72,6 +73,18 @@ When the profile names another folder (written by an older launcher, the player'
 placement), kiln-flame runs that one and says so: `[flame:creative] ran from <folder>, but a Flame mod reads its own
 files from <game>\mods\creative, which does not exist: it may not find its files there ...`. Activating the profile
 again in the launcher places the copy.
+
+**The folder is the Library id, not the `mod.json` id.** The launcher places Kiln's copy in `mods\<library id>`. For
+a `mod.json` id that is a Kiln id (Creative Mode: `creative`) the two are the same, or differ in case only, which
+Windows folders ignore. Another `mod.json` id (`"Creative Mode"`, with spaces or capitals) gets its slug as the Library
+id (`creative-mode`, with a hash suffix on a collision), and its copy lands in `mods\creative-mode`. If its runtime
+takes `mods\<mod.json id>` for its folder, as kiln-flame assumes, such a mod does not find its `sigs\`, `symbols\`
+or settings there, and by its own rule its game features stay off; if it takes the folder of its DLL's name, or its
+module's, it does. Which one a Flame runtime takes is not visible from outside. kiln-flame then says what it looked
+at and that it cannot tell: `ran from Kiln's copy <game>\mods\creative-mode (its Library id creative-mode), but its
+mod.json names the id "Creative Mode": kiln-flame looked for the mod's own files ... in <game>\mods\Creative Mode,
+which does not exist, and cannot tell ...`, with `symbols` unknown (empty), never `none`. Such a mod's own log names
+the folder it looked in. Host scenario `flame-manifest-id-differs`.
 
 ## Coverage
 

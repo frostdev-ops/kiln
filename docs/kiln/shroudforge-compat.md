@@ -143,9 +143,13 @@ folder is SF's own `<game>/shroudforge/` (config, logs, state, cache, profiles).
 `kiln/state/shroudforge.json` gains `source` (bundled|installed), `runtimeDir`, `bundled`, `installed` and
 `useInstalled`. Then, for whichever runtime was chosen:
 Since dev.24 it also has `startupPrepared: true` once `shroudforge_prepare_startup` returned success in this process
-(absent when it failed or did not run): ShroudForge then either applied its startup asset mods or found an earlier
-pass still current, so its own record of that pass (`shroudforge/state.json` `assets`) describes this start's game
-data. Kiln's menu reads the record on that word (ui.md).
+(absent when it failed or did not run). ShroudForge returns success when it applied its startup asset mods, when it
+found an earlier pass still current, and also when a pass failed and it restored the saved baseline (it writes a fresh
+`failed` record first: fork `embedded.rs`, `recover_failed_startup`). So the flag means only that its own record of
+the pass (`shroudforge/state.json` `assets`) describes this start's game data, not that any asset mod applied: a
+reader needs the record's own `status` (`applied`, `failed`) beside it. Kiln's menu reads both (ui.md). kiln.log says
+`ShroudForge startup preparation returned (... ms): the [sf] lines and its record of the pass ... say whether its
+startup asset mods applied` (before this, `ShroudForge startup preparation done`, the line in the evidence below).
 
 Its early export runs preparation on the main thread while Kiln's gate holds the game entry point. Both runtime DLLs
 are validated before preparation. The `kiln.eml` v2 reservation prevents two startup KFC writers:
@@ -490,11 +494,13 @@ statically. kiln-eml becomes relevant in three places:
      it later (in the game, through Kiln's page or SF's Modloader) are the player's: carried to the next version as an
      SF mod's are, and a copy holding them is kept and switched off instead of removed when the profile turns the mod
      off. The profile is the switch, as for SF mods. A copy an older Kiln placed gets the switch at the next Play. A
-     player's own folder is never written; its note says when SF has it off. The Library entry is never written.
+     player's own folder is never written; its note says when SF does not run it and what helps (a switch helps only a
+     package SF has off, not one for the other side or one SF refuses). The Library entry is never written.
    - Without SF (no SF mods in the profile) nothing is written: kiln-eml runs the mods and reads only `launcher` from
      that file, so `enabled: false` there never switches a mod off for kiln-eml.
    - kiln-eml, standing aside for SF, reads that switch and the targets: a profile mod in SF's folder that SF has off
-     is `off-in-shroudforge` in `kiln/state/eml.json` (with what to do), one for the other side `other-side`, and
+     is `off-in-shroudforge` in `kiln/state/eml.json` (with what to do; for a file SF refuses, such as another
+     `schemaVersion`, the reason says that no switch helps), one for the other side `other-side`, and
      only the mods that run are counted in kiln.log's "N of M run under ShroudForge". Kiln's Mods page reads the
      packages as SF does while SF runs (Off, other side, applied when SF's record of this start's startup pass lists
      it), and lists a player's own legacy EML folder under ShroudForge with its switch, as SF's Modloader does.

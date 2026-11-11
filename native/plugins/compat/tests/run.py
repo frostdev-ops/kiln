@@ -347,6 +347,35 @@ def flame_reads_from():
     return combined
 
 
+def flame_manifest_id_differs():
+    """pr-native P1 / pr-manage P6: the launcher places a Flame mod in mods\\<Library id> (here ftest, with Kiln's marker)
+    while its mod.json names another id ("Flame Test": the Library id of a mod.json id that is no Kiln id is its slug).
+    kiln-flame takes mods\\<mod.json id> for the folder the mod reads, and which id a real Flame runtime takes is not
+    visible from outside (this test mod reads mods\\<its DLL's name>, ftest, and finds its files there). Run from Kiln's
+    marked copy, kiln-flame must neither promise a placement the launcher never makes nor draw "none" from a folder
+    that does not exist: it says what it looked at and that it cannot tell."""
+    g = Game("flame-manifest-id-differs")
+    key = build_key(g.p(g.exe))
+    g.put("mods/ftest/mod.json", {"id": "Flame Test", "name": "Flame Test", "version": "3.2.0"})
+    g.put("mods/ftest/flame.json", {"dll": "ftest.dll"})
+    g.dll("flame_test.dll", "mods/ftest/ftest.dll")
+    g.put("mods/ftest/.kiln-library.json", {"format": 1, "kind": "flame", "id": "ftest", "version": "3.2.0", "hash": "kdh1:" + "0" * 64})
+    g.put(f"mods/ftest/sigs/{key}.json", "{}")
+    g.profile({"flame": [{"id": "ftest", "path": winpath(g.p("mods", "ftest"))}]})
+    g.run(g.plugin("kiln-flame.dll"), 600)
+    g.has("Flame Test 3.2.0 (profile): FlameStartRuntime returned")
+    m = next((m for m in g.state("flame").get("mods", []) if m.get("id") == "ftest"), {})
+    note = m.get("note", "")
+    g.expect(m.get("symbols") == "", f"symbols {m.get('symbols')!r}: kiln-flame cannot tell")
+    g.expect(g.result("flame_symbols_ftest") == "0", f"kiln.flame symbols(ftest) = {g.result('flame_symbols_ftest')}, want 0 (unknown)")
+    g.expect("cannot tell" in note and winpath(g.p("mods", "Flame Test")).lower() in note.lower(), f"note {note!r}")
+    g.expect("Activate the profile again" not in note and "places the mod in that folder" not in note, f"note {note!r}")
+    g.lacks("by its own rule the mod switches its game features off")
+    with open(g.p("mods", "ftest", "started.txt"), encoding="utf-8") as f:
+        g.expect("data=found" in f.read(), "the test mod found its files in Kiln's copy")
+    return g
+
+
 def flame_aside():
     g = Game("flame-aside")
     flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
@@ -1133,7 +1162,7 @@ def wine_builtin_not_a_loader():
 
 SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_legacy_client, greeneye_profile_server, greeneye_hot_reload_server, greeneye_aside, greeneye_nomods,
-    flame_legacy, flame_profile, flame_reads_from, flame_aside,
+    flame_legacy, flame_profile, flame_reads_from, flame_manifest_id_differs, flame_aside,
     shroudtopia_legacy_server, shroudtopia_hooks_full, shroudtopia_hooks_refused, shroudtopia_profile_client, shroudtopia_aside, idle_without_mods,
     invalid_profiles, path_boundaries, flame_dllmain_fault, flame_fault_running, flame_lifetime, flame_late_loader, flame_dependency_loader,
     greeneye_hot_factory_faults, shroudtopia_late_loader, shroudtopia_lifetime, shroudtopia_renamed_loader,

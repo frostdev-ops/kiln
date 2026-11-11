@@ -1607,7 +1607,7 @@ pub fn deactivate(dirs: &DataDirs, install: &GameInstall) -> Result<()> {
 /// Deactivate with the fixed-folder cleanup result. Player-edited copies are retained, not silently deleted.
 pub fn deactivate_report(dirs: &DataDirs, install: &GameInstall) -> Result<crate::engine_mods::PlacementCleanup> {
     refuse_running(install)?;
-    let cleanup = crate::engine_mods::unplace(&install.path)?;
+    let cleanup = crate::engine_mods::unplace(dirs, &install.path)?;
     let pj = install.path.join(crate::paths::game::PROFILE);
     if pj.is_file() {
         let to = install.path.join(crate::paths::game::BACKUPS).join(format!("profile-{}.json", ts_compact(crate::util::now_unix())));

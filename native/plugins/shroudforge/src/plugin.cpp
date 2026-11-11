@@ -829,10 +829,13 @@ void KILN_CALL on_ready(void*) {
         stop_helper_processes();
         return finish("failed", "ShroudForge's startup preparation failed (startup asset mods or its DLL Manager)");
     }
-    logf(KILN_LOG_INFO, "ShroudForge startup preparation done (%.0f ms)", prep_ms);
-    // For readers of ShroudForge's own record of its startup pass (state.json "assets"): ShroudForge either applied its
-    // startup asset mods just now or found the pass of an earlier start still current for this start's mods (it then
-    // leaves the record as it is, with that start's time). Either way the record describes the game data of this start.
+    logf(KILN_LOG_INFO, "ShroudForge startup preparation returned (%.0f ms): the [sf] lines and its record of the pass (shroudforge/state.json \"assets\") say whether its startup asset mods applied", prep_ms);
+    // For readers of ShroudForge's own record of its startup pass (state.json "assets"): shroudforge_prepare_startup
+    // returned success in this process. ShroudForge then applied its startup asset mods just now, found the pass of an
+    // earlier start still current for this start's mods (it leaves that record as it is, with that start's time), or
+    // ran a pass that failed and restored the saved baseline (it writes a fresh "failed" record first). So the flag says
+    // only that the record describes the game data of this start; whether any asset mod applied is the record's own
+    // "status" ("applied" or "failed"), which a reader checks beside it.
     set_status("startupPrepared", true);
     // Both DLLs and ABI were validated together before startup preparation.
 

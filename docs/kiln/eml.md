@@ -238,7 +238,8 @@ It fails soft:
   set from the profile (dev.24; before, three of four such mods of a real client were applied by nobody). `eml.json`
   says `aside` ("ShroudForge owns startup asset patching and runs EML packages in its mods folder") and lists the
   profile's EML mods as `own-loader` (SF's switch for it is on), `off-in-shroudforge` (in SF's folder, switched off
-  there: no `extended.mod.json`, or `enabled` not true; the reason says what to do), `other-side` (its `targets`
+  there: no `extended.mod.json`, or `enabled` not true; the reason says what to do. A file SF refuses, such as another
+  `schemaVersion`, is listed so too, and its reason says that no switch helps), `other-side` (its `targets`
   leave out this side), or `not-loaded` when they are not in SF's folder. kiln-eml patches only in a start where SF does not run: its mods are off in the active profile,
   `KILN_SHROUDFORGE=0`, or SF could not start (its runtime is missing, or it failed before reserving the writer). If
   SF's state still says it prepared asset mods in an earlier start, that start's game data drops them: kiln-eml builds
