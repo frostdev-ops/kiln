@@ -203,7 +203,8 @@ void player_copy(const fs::path& folder, const Entry& e, kcompat::AsideReport* r
     for (const auto& d : dirs) {
         std::string kind, marker_id, json;
         if (kcompat::read_library_marker(d, &kind, &marker_id) && kind == "greeneye") continue;  // Kiln's copy of an entry
-        if (!kcompat::read_file(d / L"mod.json", &json) || !kcompat::contained_path(folder, d)) continue;
+        // a linked folder is refused before anything in it is read
+        if (!kcompat::contained_path(folder, d) || !kcompat::read_file(d / L"mod.json", &json)) continue;
         const std::string name = to_utf8(d.filename().wstring());
         const std::string id = JsonString(json, "id", name), version = JsonString(json, "version", "?");
         if (kcompat::lower(id) == kcompat::lower(e.manifest_id) && !JsonBool(json, "enabled", true)) {
@@ -259,6 +260,7 @@ void write_status() {
                 {"greeneyeLoader", kUpstreamVersion},
                 {"side", g_side == KILN_SIDE_SERVER ? "server" : "client"},
                 {"status", status},
+                {"pid", static_cast<uint64_t>(GetCurrentProcessId())},  // the start it is of: boot.json's pid
                 {"started", started},
                 {"failed", failed},
                 {"steppedAside", !g_stepped_aside.empty()},
