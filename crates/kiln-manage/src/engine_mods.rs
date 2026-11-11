@@ -1448,39 +1448,50 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
 /// Greeneye mods are copied to `<game>/greeneye/<library id>/` ([`GREENEYE_MODS`]) with or without Greeneye's own loader:
 /// they write their settings and logs into the folder they run from. One mod that cannot be placed (its Library entry
 /// changed or unreadable, a linked `greeneye` folder, an I/O error) never stops the rest of the placement, the profile
-/// switch or Play: it is listed in `changed` as `greeneye:<id>: <reason>` and the profile names its Library entry, as
-/// before dev.24 ([`game_path_of`] names only a copy whose receipt is current). An id that is no safe Windows folder name
-/// ([`is_game_folder_name`]) is not placed either. Copies of mods switched off or gone from the profile are removed, the
-/// files the mod wrote kept in [`kept_dir`].
+/// switch or Play: the profile names its Library entry, as before dev.24 ([`game_path_of`] names only a copy whose
+/// receipt is current), and the result says why. A copy that stays in `greeneye/` (the player edited it, it could not be
+/// updated or removed) is in [`PlaceReport::retained`], since Greeneye's own loader may still run it; a mod with no
+/// copy there is in [`PlaceReport::warnings`]. An id that is no safe Windows folder name ([`is_game_folder_name`]) is
+/// not placed either. Copies of mods switched off or gone from the profile are removed, the files the mod wrote kept in
+/// [`kept_dir`].
 fn place_greeneye(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, roots: Roots,
                   receipts: &mut Vec<Placement>, rep: &mut PlaceReport) {
     let kind = ModKind::Greeneye;
     let root = game_dir.join(GREENEYE_MODS);
     let list = profile.mods.list(kind);
-    let said = |id: &str, why: &str| format!("{}:{id}: {why}", kind.as_str());
+    let tag = |id: &str| format!("{}:{id}", kind.as_str());
+    // a copy that stays where it is, or a mod without one: the mod runs from its Library entry either way
+    let kept = |rep: &mut PlaceReport, id: &str, dst: &Path, why: &str| {
+        if std::fs::symlink_metadata(dst).is_ok() {
+            retain(rep, tag(id), dst, why);
+        } else {
+            rep.warnings.push(format!("{}: not placed in {}: {why}; it runs from the Library", tag(id), dst.display()));
+        }
+    };
     if let Err(e) = refuse_symlink_path(game_dir, &root) {
+        // nothing is read or written through a linked folder
         for m in list.iter().filter(|m| m.enabled) {
-            rep.changed.push(said(&m.id, &e.message));
+            rep.warnings.push(format!("{}: not placed in {}: {}; it runs from the Library", tag(&m.id), root.display(), e.message));
         }
         return;
     }
     let mut wanted: Vec<PathBuf> = Vec::new();
     for m in list.iter().filter(|m| m.enabled) {
         if !is_game_folder_name(&m.id) {
-            rep.changed.push(said(&m.id, "the id is no folder name Windows can hold; it runs from the Library"));
+            rep.warnings.push(format!("{}: not placed: the id is no folder name Windows can hold; it runs from the Library", tag(&m.id)));
             continue;
         }
         let dst = root.join(&m.id);
         wanted.push(dst.clone());
         if let Err(e) = place_greeneye_one(dirs, game_dir, roots, receipts, rep, m, &root, &dst) {
-            rep.changed.push(said(&m.id, &e.message));
+            kept(rep, &m.id, &dst, &e.message);
         }
     }
     let stale: Vec<Placement> = receipts.iter()
         .filter(|r| r.marker.kind == kind && !r.game_folder && !wanted.contains(&r.path)).cloned().collect();
     for receipt in stale {
         if let Err(e) = remove_greeneye_copy(game_dir, receipts, rep, &receipt) {
-            rep.changed.push(said(&receipt.marker.id, &e.message));
+            kept(rep, &receipt.marker.id, &receipt.path, &e.message);
         }
     }
 }
@@ -1497,7 +1508,7 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
     let have = match owned(game_dir, receipts, dst, kind, &m.id) {
         Ok(h) => h,
         Err(e) if e.code == ErrorCode::Refused => {
-            rep.changed.push(format!("{tag}: {}", e.message));
+            retain(rep, tag, dst, e.message);
             return Ok(());
         }
         Err(e) => return Err(e),
@@ -1523,12 +1534,13 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
         Some(h) => Some(Carry { from: dst, entries: h.player.clone(), from_kept: false }),
         None => kept_carry(game_dir, &kept_at, kind)?,
     };
-    let kept = copy_in(roots, &src, dst, &want, &[], true, carry, |receipt| {
+    let (said, warned) = copy_in(roots, &src, dst, &want, &[], true, carry, |receipt| {
         receipts.retain(|r| r.path != dst);
         receipts.push(receipt.clone());
         save_placements(game_dir, receipts)
     })?;
-    rep.kept_files.extend(kept);
+    rep.kept_files.extend(said);
+    rep.warnings.extend(warned);
     rep.placed.push(tag);
     Ok(())
 }
@@ -1543,9 +1555,9 @@ fn remove_greeneye_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &mu
     }
     let have = match owned(game_dir, receipts, dst, kind, &receipt.marker.id) {
         Ok(Some(h)) => h,
-        Ok(None) => return Err(Error::new(ErrorCode::Refused, "its copy's ownership could not be verified; left in place")),
+        Ok(None) => return Err(Error::new(ErrorCode::Refused, "placement ownership could not be verified")),
         Err(e) if e.code == ErrorCode::Refused => {
-            rep.changed.push(format!("{tag}: {}", e.message));
+            retain(rep, tag, dst, e.message);
             return Ok(());
         }
         Err(e) => return Err(e),

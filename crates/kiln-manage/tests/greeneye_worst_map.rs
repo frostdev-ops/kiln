@@ -441,12 +441,47 @@ fn a_greeneye_mod_that_cannot_be_placed_does_not_stop_the_activation() {
     p.mods.greeneye = vec![pm(&broken, true), pm(&good, true)];
     profile::save(&dirs, &p).unwrap();
     let rep = engine_mods::place(&dirs, &p, &g.path).expect("one mod's trouble is not the activation's");
-    assert!(rep.changed.iter().any(|c| c.starts_with("greeneye:find: ")), "listed with its reason: {rep:?}");
+    assert!(rep.warnings.iter().any(|c| c.starts_with("greeneye:find: not placed in ")), "listed with its reason: {rep:?}");
     assert_eq!(rep.placed, ["greeneye:unlock-map-markers"], "{rep:?}");
-    profile::activate(&dirs, &pid, &g).expect("the profile switch and Play go on");
+    let a = profile::activate(&dirs, &pid, &g).expect("the profile switch and Play go on");
+    assert!(a.warnings.iter().any(|c| c.starts_with("greeneye:find: not placed in ")), "the player is told: {a:?}");
     let file = profile::read_game_profile(&g.path).unwrap().unwrap();
     assert_eq!(file.mods.greeneye[0].path, z(&lib), "the broken one runs from the Library, as before");
     assert_eq!(file.mods.greeneye[1].path, z(&g.path.join("greeneye/unlock-map-markers")));
+}
+
+/// A copy whose DLL the player replaced is not Kiln's to update or remove. It stays, the switch goes on, and every
+/// activation says where it is and that Greeneye's own loader may still run it.
+#[test]
+fn a_copy_the_player_edited_stays_and_is_reported_with_its_folder() {
+    let t = tmp("edited");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Z);
+    let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
+    let v48 = import_into(&dirs, &release(&t.0, "1.3.48"));
+    let pid = profile::create(&dirs, "Map", None).unwrap().id;
+    activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
+    let copy = g.path.join("greeneye/unlock-map-markers");
+    put(&copy, "unlock-map-markers.dll", b"the player's own build");
+
+    // an update: the edited copy is neither replaced nor deleted, and the new version runs from the Library
+    let mut p = profile::get(&dirs, &pid).unwrap();
+    p.mods.greeneye = vec![pm(&v48, true)];
+    profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &pid, &g).expect("one edited copy does not stop the switch");
+    assert_eq!(std::fs::read(copy.join("unlock-map-markers.dll")).unwrap(), b"the player's own build");
+    let kept = a.retained.iter().find(|r| r.path == copy).unwrap_or_else(|| panic!("the copy is reported: {a:?}"));
+    assert!(kept.may_run && !kept.reason.is_empty(), "{kept:?}");
+    let file = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(file.mods.greeneye[0].path, z(&library::path_of(&dirs, &v48).unwrap()), "the profile does not name the edited copy");
+
+    // switched off: still there, still reported
+    let mut p = profile::get(&dirs, &pid).unwrap();
+    p.mods.greeneye = vec![pm(&v48, false)];
+    profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &pid, &g).expect("switching it off goes on too");
+    assert!(copy.join("unlock-map-markers.dll").is_file());
+    assert!(a.retained.iter().any(|r| r.path == copy && r.may_run), "{a:?}");
 }
 
 #[test]
@@ -462,8 +497,9 @@ fn a_linked_greeneye_folder_does_not_stop_the_activation() {
     p.mods.greeneye = vec![pm(&v47, true)];
     profile::save(&dirs, &p).unwrap();
     let rep = engine_mods::place(&dirs, &p, &g.path).expect("placement goes on");
-    assert!(rep.changed.iter().any(|c| c.starts_with("greeneye:unlock-map-markers: ")), "{rep:?}");
-    profile::activate(&dirs, &pid, &g).expect("activation goes on");
+    assert!(rep.warnings.iter().any(|c| c.starts_with("greeneye:unlock-map-markers: not placed in ")), "{rep:?}");
+    let a = profile::activate(&dirs, &pid, &g).expect("activation goes on");
+    assert!(a.warnings.iter().any(|c| c.starts_with("greeneye:unlock-map-markers: not placed in ")), "the player is told: {a:?}");
     let file = profile::read_game_profile(&g.path).unwrap().unwrap();
     assert_eq!(file.mods.greeneye[0].path, z(&library::path_of(&dirs, &v47).unwrap()));
     assert!(std::fs::read_dir(t.0.join("elsewhere")).unwrap().next().is_none(), "nothing written through the link");
