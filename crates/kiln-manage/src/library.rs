@@ -455,7 +455,12 @@ const MOD_MANIFESTS: [&str; 8] = ["mod.json", "kiln.mod.json", "native.json", "f
 /// Is one of `dir`'s folders a mod on its own?
 fn has_mod_subfolder(dir: &Path) -> bool {
     std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
-        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && MOD_MANIFESTS.iter().any(|m| p.join(m).is_file()))
+        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && has_mod_manifest(&p))
+}
+
+/// Does `dir` hold one of [`MOD_MANIFESTS`]? XHL-Core's native-plugin.ini in any case, as detection finds it.
+fn has_mod_manifest(dir: &Path) -> bool {
+    MOD_MANIFESTS.iter().any(|m| dir.join(m).is_file()) || crate::engine_mods::has_xhl_plugin_ini(dir)
 }
 
 /// What the DLLs directly in a folder are: the ones that are no known loader or engine mod (plain DLL mods), every
@@ -523,7 +528,7 @@ fn native_companion(path: &Path, proxy: &Path) -> bool {
     if path.is_dir() {
         return !name.eq_ignore_ascii_case("mods") && !name.eq_ignore_ascii_case(crate::engine_mods::SHROUDLINK_MODS)
             && !crate::engines::is_container(path) && !has_mod_subfolder(path)
-            && !MOD_MANIFESTS.iter().any(|m| path.join(m).is_file())
+            && !has_mod_manifest(path)
             && !crate::engines::dlls_in(path).iter().any(|dll| detect_dll(dll).kind != DetectKind::BareDll);
     }
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("dll")) {
@@ -626,7 +631,13 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own
     if crate::engine_mods::has_xhl_plugin_ini(dir) {
-        let name = top_name.filter(|_| depth == 0).map(str::to_string).unwrap_or_else(|| file_name(dir));
+        // XHL-Core loads every folder that holds the ini: a copy suffix, or a version in an archive's name, would make
+        // a second companion beside the first
+        let name = match top_name.filter(|_| depth == 0) {
+            Some(n) if n != file_name(dir) => package_stem(n).to_string(),
+            Some(n) => strip_copy_suffix(n).to_string(),
+            None => strip_copy_suffix(&file_name(dir)).to_string(),
+        };
         if !crate::engine_mods::is_game_folder_name(&name) {
             return mk(DetectKind::Unknown, None, None, None, "XHL-Core's plugin folder is not a safe Windows folder name".into());
         }

@@ -402,7 +402,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
 pub const XHL_PLUGIN_INI: &str = "native-plugin.ini";
 
 /// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold. The same rule
-/// as the native core's `../mods/<folder>` check (native/core/src/profile.cpp placed_eml_path) and the profile schema's
+/// as the native core's `../mods/<folder>` check (native/core/src/profile.cpp placed_game_path) and the profile schema's
 /// pattern; schema/fixtures/profile/game-folder-names.json holds the names all three are tested with. The part before
 /// the first dot is the name Windows (a device) and Enshwick's loader folder are compared with.
 pub fn is_game_folder_name(name: &str) -> bool {
@@ -422,10 +422,15 @@ pub fn is_game_folder_name(name: &str) -> bool {
 /// ([`place`]), and kiln-eml runs that copy, so the DLL and the Lua read the same files.
 ///
 /// The folder is named as the package names it, without a browser's or an unpacker's copy suffix ("XHL-Auto-Loot (1)"
-/// dropped on its own); a mod at an archive's root (no folder name of its own) takes its manifest's id.
+/// dropped on its own); a mod at an archive's root (no folder name of its own) takes its manifest's id. A folder the
+/// package names under a name Kiln cannot create there (`Enshwick.Tweaks`) is not a game folder: placing it under
+/// another name would not be the folder its DLL reads.
 pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
-    let named = crate::library::strip_copy_suffix(src.file_name()?.to_str()?).to_string();
-    let folder = if is_game_folder_name(&named) { named } else { manifest_id_raw(src).filter(|id| is_game_folder_name(id))? };
+    let own = src.file_name()?.to_str()?;
+    let named = crate::library::strip_copy_suffix(own).to_string();
+    let folder = if is_game_folder_name(&named) { named }
+        else if own.starts_with(".kiln-unpack-") { manifest_id_raw(src).filter(|id| is_game_folder_name(id))? }
+        else { return None };
     let files: Vec<PathBuf> = std::fs::read_dir(src).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
     if files.iter().any(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI))) {
         return Some((folder, "it is also an XHL-Core plugin (native-plugin.ini), which XHL-Core loads from the game's mods folder".into()));

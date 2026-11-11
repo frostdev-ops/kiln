@@ -1124,6 +1124,24 @@ fn a_copy_suffix_on_a_dropped_mod_folder_is_not_its_game_folder() {
     let rec = only_record(&dirs, ModKind::Eml);
     assert_eq!(rec["gameFolder"], "XHL-Auto-Loot", "{rec}");
     assert!(g.path.join("mods/XHL-Auto-Loot/native-plugin.ini").is_file(), "{:?}", tree(&g.path));
+    // the same mod again under its own name, with a changed setting: one entry, one game folder
+    let second = t.0.join("drop2/XHL-Auto-Loot");
+    eml_mod(&second, ".", "XHL-Auto-Loot");
+    put(&second, "XHL-Auto-Loot.dll", &xhl_plugin());
+    put(&second, "native-plugin.ini", b"[Plugin]\nDll=XHL-Auto-Loot.dll\n");
+    put(&second, "config.txt", b"changed");
+    kiln_manage::quick::add_with(&dirs, &g, &[second], false, &mut NoProgress).unwrap();
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(f.mods.eml.len(), 1, "{:?}", f.mods.eml);
+    assert_eq!(game_mods_folders(&g), ["XHL-Auto-Loot"]);
+}
+
+/// The folders directly in `<game>/mods`.
+fn game_mods_folders(g: &GameInstall) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(g.path.join("mods")).into_iter().flatten().flatten()
+        .filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    v.sort();
+    v
 }
 
 /// manage-import F2: an EML mod dragged out of the game's own mods folder is not an "EML part of a package" because
@@ -1388,6 +1406,31 @@ fn unrelated_packages_never_silently_share_one_native_entry() {
     assert!(r.notices.is_empty(), "{:?}", r.notices);
 }
 
+/// rr-import R4: a pure XHL companion dropped again as a browser's copy, as a newer zip or as a folder with a copy
+/// suffix stays one companion in one game folder (XHL-Core would load every copy).
+#[test]
+fn a_pure_xhl_companion_dropped_again_under_another_name_is_one_companion() {
+    let (t, dirs, g) = fresh("r4");
+    let plugin = |dir: &Path, config: &[u8]| {
+        put(dir, "native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+        put(dir, "XHL-Vein-Mining.dll", &xhl_plugin());
+        put(dir, "config.txt", config);
+    };
+    for (name, config) in [("XHL-Vein-Mining", b"x".as_slice()), ("XHL-Vein-Mining (1)", b"x"), ("XHL-Vein-Mining 2.1", b"2.1")] {
+        let d = t.0.join("src").join(name);
+        plugin(&d, config);
+        let z = t.0.join(format!("{name}.zip"));
+        zip_of(&d, &z);
+        add(&dirs, &g, &z);
+    }
+    let folder = t.0.join("drop/XHL-Vein-Mining (2)");
+    plugin(&folder, b"folder");
+    add(&dirs, &g, &folder);
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(f.mods.xhl.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["xhl-vein-mining"], "{:?}", f.mods.xhl);
+    assert_eq!(game_mods_folders(&g), ["XHL-Vein-Mining"]);
+}
+
 /// rr-import R5: the same DLL added alone (or from the game folder) and in its package runs once; the package's copy,
 /// with its files, is the one that stays on. An older copy of a package imported by dev.23 (a version in its id) goes
 /// off when the new version comes. A mod with its author's own native.json is never switched off.
@@ -1502,3 +1545,29 @@ fn an_older_xhl_core_bundled_with_an_xhl_mod_never_replaces_the_one_you_have() {
     assert_eq!(core_entry(&dirs, &g).1, sha(&b), "XHL-Core dropped on its own replaces it");
 }
 
+/// rr-import notes: native-plugin.ini in another case marks an XHL companion inside a native package too, so it is
+/// placed for XHL-Core and not copied into the native mod that Kiln loads.
+#[test]
+fn a_bundles_xhl_companion_with_a_capitalised_ini_is_not_part_of_the_native_mod() {
+    let (t, dirs, g) = fresh("ini-case-bundle");
+    let z = proxy_package(&t, "Bundle", &alp_dinput8(), &[("XHL-Thing/Native-Plugin.ini", b"[Plugin]\nDll=XHL-Thing.dll\n"),
+        ("XHL-Thing/XHL-Thing.dll", &xhl_plugin())]);
+    let r = add(&dirs, &g, &z);
+    assert!(r.import.imported.iter().any(|x| x.kind == ModKind::Xhl), "{}", summary(&r.import));
+    let lib = library::list(&dirs, Some(ModKind::Native)).unwrap();
+    assert!(!lib[0].versions[0].folder.join("XHL-Thing").exists());
+}
+
+/// rr-import notes: a mods/<folder> whose name Kiln cannot use in the game's mods folder is not placed under another
+/// name, and the import does not claim the package's DLL reads it there.
+#[test]
+fn a_mods_folder_kiln_cannot_name_is_not_placed_under_another_name() {
+    let (t, dirs, g) = fresh("enshwick-named");
+    let pkg = t.0.join("Enshwick Tweaks");
+    put(&pkg, "dinput8.dll", &alp_dinput8());
+    eml_mod(&pkg, "mods/Enshwick.Tweaks", "enshwick-tweaks");
+    let r = add(&dirs, &g, &pkg);
+    assert!(only_record(&dirs, ModKind::Eml).get("gameFolder").is_none());
+    assert!(!summary(&r.import).contains("reads it from the game's mods folder"), "{}", summary(&r.import));
+    assert!(game_mods_folders(&g).is_empty(), "{:?}", tree(&g.path));
+}
