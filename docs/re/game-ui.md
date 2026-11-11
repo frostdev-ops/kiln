@@ -103,7 +103,8 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
   frame (in Kiln's build of 1.7.9: `sub rsp, 0x480` after five pushes, so 0x4a8 bytes above the renderer's return
   address **[dis]** of that DLL). Kiln's hook takes such a call for the Settings entry too (`menu_site.h`: a caller
   outside the game's image with a Settings return address within 4 KiB above it), once per UI frame. A real client
-  with SF mods had no Kiln entries in the main menu before this **[rt]**; the fix itself is host-tested only.
+  with SF mods had no Kiln entries in the main menu before this **[rt]**; with the fix the same client shows "Mods" and the
+  SET tools entry there again **[rt]** (2026-11-11, the pinned 1.7.9 build).
 - Localisation: Kiln resolves the label for the game's LanguageId (§2) from the mod's per-language texts.
 
 ## 4. Fonts, colours, textures
