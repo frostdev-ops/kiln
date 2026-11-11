@@ -61,6 +61,40 @@ impl Drop for Game {
     fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.root); }
 }
 
+#[test]
+fn idle_reports_unrecorded_recovery_paths_and_their_sizes() {
+    let g = Game::new("unrecorded-recovery", "");
+    let stage = format!(".kiln-eml-stage-{}", "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0");
+    std::fs::create_dir(g.game().join(&stage)).unwrap();
+    std::fs::write(g.game().join(&stage).join("notes.txt"), b"1234567").unwrap();
+    let temp = format!("enshrouded.kfc_resources.kiln-{}", "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0");
+    std::fs::write(g.game().join(&temp), b"12345").unwrap();
+    let out = g.without_mods();
+    let reason = out.reason.as_deref().unwrap_or("");
+    assert!(reason.contains(&stage) && reason.contains("notes.txt") && reason.contains("7 bytes") && reason.contains(&temp) && reason.contains("5 bytes"), "unrecorded recovery space was not reported: {out:?}");
+    assert_eq!(std::fs::read(g.game().join(&temp)).unwrap(), b"12345");
+}
+
+#[test]
+fn a_foreign_child_of_a_recorded_stage_is_retained_and_reported() {
+    let g = Game::new("recorded-foreign", "");
+    let id = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
+    let name = format!(".kiln-eml-stage-{id}");
+    let stage = g.game().join(&name);
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::write(stage.join("enshrouded.kfc_resources"), b"staged").unwrap();
+    std::fs::write(stage.join("notes.txt"), b"keep these").unwrap();
+    let ownership = g.game().join("kiln/eml/ownership");
+    std::fs::create_dir_all(&ownership).unwrap();
+    let record = ownership.join(format!("cleanup-{id}.json"));
+    std::fs::write(&record, serde_json::to_vec(&serde_json::json!({"format":1,"stem":"enshrouded","name":name})).unwrap()).unwrap();
+    let out = g.without_mods();
+    assert!(!stage.join("enshrouded.kfc_resources").exists() && !record.exists());
+    assert_eq!(std::fs::read(stage.join("notes.txt")).unwrap(), b"keep these");
+    let reason = out.reason.as_deref().unwrap_or("");
+    assert!(reason.contains("notes.txt") && reason.contains("10 bytes"), "foreign child not reported: {out:?}");
+}
+
 const CONTENT: &str = r#"game.assets.create_content(buffer.wrap("kiln fixture content"))"#;
 
 /// A real EML publication: archives patched, backups sealed, receipt and change cache written.

@@ -42,7 +42,7 @@ fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
 
 fn invalid(message: &str) -> io::Error { io::Error::other(message) }
 
-fn check_stem(stem: &str) -> io::Result<()> {
+pub(crate) fn check_stem(stem: &str) -> io::Result<()> {
     if stem.is_empty() || !stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
         return Err(invalid("invalid archive stem"));
     }
@@ -69,7 +69,7 @@ fn at_or_above_root(root: &Path, path: &Path) -> bool {
 // The location itself and ancestors ABOVE it may be legitimate links: volume mounts (Wine reports them as links), or
 // a game folder moved with Steam Mover / `mklink /J`. Only what lies below it is Kiln's to vouch for.
 // Custom SF state outside the game is checked up to its common ancestor with that location, or its drive root.
-fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
+pub(crate) fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
     for component in path.ancestors() {
         if component.as_os_str().is_empty() { continue; }
         if at_or_above_root(root, component) { break; }
@@ -91,7 +91,7 @@ fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn bounded(root: &Path, path: &Path) -> io::Result<Vec<u8>> {
+pub(crate) fn bounded(root: &Path, path: &Path) -> io::Result<Vec<u8>> {
     checked_path(root, path)?;
     super::transaction::regular(path)?;
     let mut bytes = Vec::new();
@@ -100,15 +100,16 @@ fn bounded(root: &Path, path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn directory(root: &Path) -> io::Result<PathBuf> {
+pub(crate) fn directory(root: &Path) -> io::Result<PathBuf> {
     let dir = root.join("kiln/eml/ownership");
     checked_path(root, &dir)?;
     fs::create_dir_all(&dir)?;
     checked_path(root, &dir)?;
+    for parent in [root, &root.join("kiln"), &root.join("kiln/eml")] { super::transaction::sync_dir(parent)?; }
     Ok(dir)
 }
 
-fn valid_name(stem: &str, name: &str) -> bool {
+pub(crate) fn valid_name(stem: &str, name: &str) -> bool {
     name == format!("{stem}.kfc") || name == format!("{stem}.kfc_resources") || name
         .strip_prefix(&format!("{stem}_")).and_then(|s| s.strip_suffix(".dat"))
         .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
@@ -311,36 +312,15 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     Ok(guard)
 }
 
-fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
+pub(crate) fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
 
 /// `<base>.kiln-<uuid>`: the temp copy `atomic_copy`/`atomic_write` makes next to its destination (transaction.rs).
-fn temp_of(name: &str) -> Option<&str> {
+pub(crate) fn temp_of(name: &str) -> Option<&str> {
     let (base, id) = name.rsplit_once(".kiln-")?;
     is_uuid(id).then_some(base)
 }
 
-/// Report possible leftovers of a killed run, under the install lock. A UUID-shaped name (even inside a stage
-/// folder) proves neither who wrote a file nor that its content is unchanged. Older runs recorded no cleanup proof,
-/// so retain these files for manual recovery rather than deleting a player's or another tool's recovery copies.
-pub fn prune(root: &Path, stem: &str) {
-    if check_stem(stem).is_err() { return; }
-    let stems = ["enshrouded", "enshrouded_server", stem];
-    for dir in [root.to_path_buf(), root.join("kiln/eml/ownership")] {
-        if checked_path(root, &dir).is_err() { continue; }
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let possible = name.strip_prefix(".kiln-eml-stage-").is_some_and(is_uuid)
-                || temp_of(&name).is_some_and(|base| stems.iter().any(|s|
-                    [s.to_string(), format!("{s}.kfc"), format!("{s}.kfc_resources"), format!("{s}.kfc.bak")].contains(&base.to_owned()))
-                    || base.strip_prefix("sf-handoff-").is_some_and(is_uuid))
-                || name.strip_prefix("sf-handoff-").and_then(|r| r.strip_suffix(".json")).is_some_and(is_uuid);
-            if possible {
-                tracing::warn!(path = %entry.path().display(), "Possible EML recovery file retained: its name alone is not ownership proof; inspect it before manual cleanup");
-            }
-        }
-    }
-}
+pub use crate::cleanup::{prune, recovery_guidance};
 
 /// What `adopt` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1138,9 +1118,6 @@ pub(crate) mod tests {
         for base in ["g", "g.kfc", "g.kfc_resources", "g.kfc.bak"] {
             files.push(root.join(format!("{base}.kiln-{}", id())));
         }
-        files.push(ownership.join(format!("g.kiln-{}", id())));
-        files.push(ownership.join(format!("sf-handoff-{}.kiln-{}", id(), id())));
-        for _ in 0..20 { files.push(ownership.join(format!("sf-handoff-{}.json", id()))); }
         for path in &files { fs::write(path, b"player recovery copy").unwrap(); }
         prune(&root, "g");
         let lost: Vec<_> = files.iter().filter(|p| fs::read(p).ok().as_deref() != Some(b"player recovery copy")).collect();
@@ -1184,21 +1161,46 @@ pub(crate) mod tests {
             assert_eq!(fs::read(stale.join(n)).unwrap(), b"staged", "{n}");
         }
         for path in [&temp, &backup_temp, &resources_temp] { assert_eq!(fs::read(path).unwrap(), b"temp"); }
-        assert_eq!(fs::read(&journal_temp).unwrap(), b"journal temp");
+        assert!(!journal_temp.exists(), "temps inside Kiln state are reclaimable");
         assert!(foreign.join("notes.txt").exists() && root.join(".kiln-eml-stage-mine").is_dir());
         for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { assert!(root.join(n).exists(), "{n}"); }
         let mut kept: Vec<String> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten()
             .map(|e| fs::read_to_string(e.path()).unwrap()).collect();
         kept.sort();
-        let mut expected: Vec<_> = (0..20).map(|i| i.to_string()).collect();
-        expected.extend(["receipt temp".into(), "journal temp".into()]);
+        let mut expected: Vec<_> = (4..20).map(|i| i.to_string()).collect();
         expected.sort();
-        assert_eq!(kept, expected, "all recovery journals and temp copies stay without cleanup proof");
+        assert_eq!(kept, expected, "the newest 16 handoff journals stay; state temps are reclaimed");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn recorded_cleanup_survives_missing_partial_complete_and_published_stages() {
+        for point in 0..4 {
+            let (root, _) = fixture();
+            let id = uuid::Uuid::new_v4();
+            let name = format!(".kiln-eml-stage-{id}");
+            let stage = root.join(&name);
+            let record = directory(&root).unwrap().join(format!("cleanup-{id}.json"));
+            fs::write(&record, serde_json::to_vec(&serde_json::json!({"format":1,"stem":"g","name":name})).unwrap()).unwrap();
+            if point > 0 {
+                fs::create_dir(&stage).unwrap();
+                fs::write(stage.join("g.kfc_resources"), "partial or complete resources").unwrap();
+                if point > 1 { fs::write(stage.join("g_010.dat"), "staged container").unwrap(); }
+                if point > 2 { fs::rename(stage.join("g_010.dat"), root.join("g_010.dat")).unwrap(); }
+            }
+            let temp_id = uuid::Uuid::new_v4();
+            let temp = format!("g.kfc_resources.kiln-{temp_id}");
+            let temp_record = directory(&root).unwrap().join(format!("cleanup-{temp_id}.json"));
+            fs::write(&temp_record, serde_json::to_vec(&serde_json::json!({"format":1,"stem":"g","name":temp})).unwrap()).unwrap();
+            fs::write(root.join(&temp), "partial copy").unwrap();
+            prune(&root, "g");
+            assert!(!stage.exists() && !record.exists() && !root.join(temp).exists() && !temp_record.exists(), "recorded scratch survived restart at point {point}");
+            if point > 2 { assert_eq!(fs::read(root.join("g_010.dat")).unwrap(), b"staged container"); }
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     // The stage a real writer leaves when the process dies before publication (no Drop runs).
     #[test]
-    fn the_stage_of_a_run_killed_before_publication_is_retained_without_cleanup_proof() {
+    fn a_recorded_real_stage_is_reclaimed_after_a_killed_run() {
         use std::rc::Rc;
         use kfc::{container::KFCFile, guid::ContentHash, reflection::TypeRegistry};
         let root = real_patch(2, &[]);
@@ -1213,7 +1215,7 @@ pub(crate) mod tests {
         std::mem::forget(patch);
         assert!(stage.is_dir() && fs::read_dir(&stage).unwrap().count() >= 3);
         prune(&root, "g");
-        assert!(stage.is_dir() && fs::read_dir(&stage).unwrap().count() >= 3, "unproven recovery files stay");
+        assert!(!stage.exists(), "recorded real staging files were not reclaimed after restart");
         assert_eq!(dats(&root), live, "the live game files are untouched");
         assert!(owns_output(&root, "g").unwrap());
         fs::remove_dir_all(root).unwrap();

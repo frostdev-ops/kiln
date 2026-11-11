@@ -55,6 +55,7 @@ pub fn create_writer(
 ) -> Result<crate::transaction::PatchWriter, ()> {
     // kiln-eml: only the private staging directory is writable by the KFC writer.
     let stage = dir.join(format!(".kiln-eml-stage-{}", uuid::Uuid::new_v4()));
+    crate::cleanup::record(dir.as_std_path(), file_name, stage.file_name().ok_or(())?).map_err(|_| ())?;
     std::fs::create_dir(&stage).map_err(|_| ())?;
     let mut patch = crate::transaction::PatchWriter {
         writer: None, stage: stage.clone().into_std_path_buf(), game: dir.into(), name: file_name.into(),

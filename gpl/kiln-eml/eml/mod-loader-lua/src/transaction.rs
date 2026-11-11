@@ -8,6 +8,8 @@ pub type Writer = KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>;
 pub(crate) const VANILLA_HEADER: &str = ".vanilla-header";
 #[cfg(test)]
 thread_local! { pub(crate) static BEFORE_PUBLISH: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
+#[cfg(test)]
+thread_local! { static TEMP_OPEN: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 // kiln-eml: between the two copies of a restore (load.rs), for the tests that look at what is held meanwhile
 #[cfg(test)]
 thread_local! { pub(crate) static DURING_RESTORE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
@@ -42,7 +44,7 @@ pub(crate) fn attributes_by_name(path: &Path) -> io::Result<u32> {
     Ok(attributes)
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)] { File::open(dir)?.sync_all()?; }
     #[cfg(windows)] {
         if under_wine() {
@@ -85,20 +87,31 @@ pub fn atomic_copy(src: &Path, dst: &Path) -> io::Result<()> {
     regular(src)?;
     if fs::symlink_metadata(dst).is_ok() { regular(dst)?; }
     let tmp = dst.with_extension(format!("kiln-{}", uuid::Uuid::new_v4()));
+    let record = crate::cleanup::record_temp(dst, &tmp)?;
     let result = (|| {
         let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        #[cfg(test)]
+        TEMP_OPEN.with(|check| { if let Some(check) = check.take() { check(&tmp); } });
         io::copy(&mut File::open(src)?, &mut f)?;
         f.sync_all()?;
         drop(f);
         replace(&tmp, dst)
     })();
-    let _ = fs::remove_file(tmp);
+    let _ = fs::remove_file(&tmp);
+    if !tmp.try_exists().unwrap_or(true) {
+        if let Some(record) = record {
+            // The rename/removal must persist before its write-ahead cleanup proof can disappear.
+            sync_dir(dst.parent().unwrap())?;
+            fs::remove_file(record)?;
+        }
+    }
     result
 }
 
 pub fn atomic_write(dst: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
     let tmp = dst.with_extension(format!("kiln-{}", uuid::Uuid::new_v4()));
+    let record = crate::cleanup::record_temp(dst, &tmp)?;
     let result = (|| {
         let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         f.write_all(bytes)?;
@@ -106,7 +119,14 @@ pub fn atomic_write(dst: &Path, bytes: &[u8]) -> io::Result<()> {
         drop(f);
         replace(&tmp, dst)
     })();
-    let _ = fs::remove_file(tmp);
+    let _ = fs::remove_file(&tmp);
+    if !tmp.try_exists().unwrap_or(true) {
+        if let Some(record) = record {
+            // The rename/removal must persist before its write-ahead cleanup proof can disappear.
+            sync_dir(dst.parent().unwrap())?;
+            fs::remove_file(record)?;
+        }
+    }
     result
 }
 
@@ -124,7 +144,10 @@ impl std::ops::DerefMut for PatchWriter {
     fn deref_mut(&mut self) -> &mut Writer { self.writer.as_mut().unwrap() }
 }
 impl Drop for PatchWriter {
-    fn drop(&mut self) { self.writer.take(); let _ = fs::remove_dir_all(&self.stage); }
+    fn drop(&mut self) {
+        self.writer.take();
+        if let Some(name) = self.stage.file_name().and_then(|n| n.to_str()) { crate::cleanup::finish_stage(&self.game, name); }
+    }
 }
 impl PatchWriter {
     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
@@ -167,6 +190,30 @@ impl PatchWriter {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    #[test]
+    fn killed_resource_temp_has_durable_cleanup_proof_before_any_copy() {
+        let game = std::env::temp_dir().join(format!("kiln-temp-proof-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&game).unwrap();
+        fs::write(game.join("g.kfc_resources"), "live resources").unwrap();
+        TEMP_OPEN.with(|check| check.set(Some(|tmp| {
+            let root = tmp.parent().unwrap();
+            let records: Vec<_> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten().collect();
+            assert_eq!(records.len(), 1);
+            let proof: serde_json::Value = serde_json::from_slice(&fs::read(records[0].path()).unwrap()).unwrap();
+            assert_eq!(proof["name"], tmp.file_name().unwrap().to_str().unwrap());
+            assert_eq!(fs::metadata(tmp).unwrap().len(), 0, "proof precedes staged bytes");
+            fs::write(tmp, "half copied").unwrap();
+            panic!("simulated killed copy");
+        })));
+        let killed = std::panic::catch_unwind(|| atomic_copy(&game.join("g.kfc_resources"), &game.join("g.kfc_resources.bak")));
+        assert!(killed.is_err());
+        crate::prune(&game, "g");
+        assert_eq!(fs::read_dir(game.join("kiln/eml/ownership")).unwrap().count(), 0);
+        assert!(crate::recovery_guidance(&game, "g").unwrap().is_empty());
+        assert_eq!(fs::read(game.join("g.kfc_resources")).unwrap(), b"live resources");
+        assert!(!game.join("g.kfc_resources.bak").exists());
+        fs::remove_dir_all(game).unwrap();
+    }
     #[test]
     fn directory_barrier_propagates_sync_errors() {
         #[cfg(windows)]
@@ -341,7 +388,11 @@ pub(crate) mod tests {
             if fail < 3 { assert_eq!(fs::read(game.join("g.kfc")).unwrap(), header); }
             else { assert_eq!(reader.read_content(&ContentHash::from_data(b"new content")).unwrap().unwrap(), b"new content"); }
             drop(reader);
-            drop(patch);
+            let stage = patch.stage.clone();
+            std::mem::forget(patch); // abrupt exit: no PatchWriter::drop
+            crate::prune(&game, "g");
+            assert!(!stage.exists(), "restart reclaims staged bytes at publication boundary {fail}");
+            assert!(crate::recovery_guidance(&game, "g").unwrap().is_empty());
             fs::remove_dir_all(game).unwrap();
         }
     }

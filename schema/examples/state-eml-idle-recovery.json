@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "pid": 4120,
+  "phase": "idle",
+  "file": "enshrouded",
+  "restored": false,
+  "staleBackup": true,
+  "reason": "Extra archive containers retained: enshrouded_055.dat. They may belong to another loader or an earlier EML run; inspect them before manual cleanup. Steam verification may leave extra files. Recovery files retained without cleanup proof: .kiln-eml-stage-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/ (7 bytes total), .kiln-eml-stage-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/notes.txt (7 bytes), enshrouded.kfc_resources.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 (225443840 bytes). Inspect them before manual cleanup; Kiln will not delete these files",
+  "mods": []
+}

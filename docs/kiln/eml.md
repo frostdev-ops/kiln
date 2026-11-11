@@ -214,11 +214,15 @@ It fails soft:
   names the backups present exactly (by content, or by a change stamp on a volume that passes the scratch-file test),
   and the backup pair passes its seal. Then a normal receipt is written and the restore goes on as above. This reads
   the header, the resource file and the backups once (about 0.45 GiB on a client) and says so in the log.
-- **A run killed half way** leaves its private stage folder (`.kiln-eml-stage-<uuid>` in the game folder: a full copy
-  of the resource file and what it had written), temp copies (`<exe>.kiln-<uuid>`, `<exe>.kfc.kiln-<uuid>`) and, one per
-  handoff, SF journals (`kiln/eml/ownership/sf-handoff-<uuid>.json`). The next run retains them and logs each possible
-  recovery path: a UUID-shaped name is not proof that Kiln wrote the file or that its contents are unchanged. Inspect
-  these copies before manually removing them; no automatic cleanup deletes them by name alone.
+- **A run killed half way:** before creating a stage (`.kiln-eml-stage-<uuid>`) or a game-folder temp copy, kiln-eml
+  flushes its exact name to `kiln/eml/ownership/cleanup-<uuid>.json`. The next start, under the installation lock,
+  removes the recorded temp, or the recorded stage's regular archive files, vanilla-header snapshot and archive temps;
+  it removes the stage only if empty, then drops the record. Foreign children stay, with their folder. Unrecorded
+  stages and game-folder temps (including copies from older releases) are never removed: `reason` in `eml.json` and
+  the warning log name each retained path and its byte size, so the player can inspect and reclaim the space manually.
+  Handoff journals and state temps in Kiln's own ownership folder are bounded separately: the newest 16 SF handoff
+  journals survive next-start cleanup; receipt, cleanup-record and journal temps there are removed. These SF journals
+  are historical evidence, not instructions for rolling archives back; current recovery proof is in the stem receipt.
 - **ShroudForge asset mods and EML mods together.** In a start where Kiln hosts ShroudForge (the active profile lists
   an enabled SF mod), only ShroudForge writes the game data: its early step reserves the writer before it prepares
   (`kiln.eml` `stand_aside`, section 6), and kiln-eml publishes `aside` and patches nothing. SF builds

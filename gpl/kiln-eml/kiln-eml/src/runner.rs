@@ -338,6 +338,15 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
                 _ => {}
             }
         }
+        if cfg.patch && !o.start_blocked && let Some(file) = o.file.as_deref() {
+            match lua::recovery_guidance(cfg.game_dir.as_std_path(), file) {
+                Ok(messages) => for message in messages {
+                    tracing::warn!("{message}");
+                    o.reason = Some(match o.reason.take() { Some(why) => format!("{why}. {message}"), None => message });
+                },
+                Err(error) => tracing::warn!(%error, "Could not inventory EML recovery files"),
+            }
+        }
         o.ms = started.elapsed().as_secs_f64() * 1000.0;
         o
     };
@@ -359,7 +368,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         return finish(out);
     }
 
-    // Report possible recovery copies under the install lock; names alone never authorize their deletion.
+    // Consume write-ahead scratch records under the install lock; unrecorded game-folder copies stay.
     if cfg.patch { lua::prune(cfg.game_dir.as_std_path(), &file); }
 
     // what the run does is reported into the live state file and the progress window (progress.rs), and to the log
