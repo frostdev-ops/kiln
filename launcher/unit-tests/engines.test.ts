@@ -78,6 +78,33 @@ test("SF memory write confirmation is not presented as gameplay verification", (
   expect(render(s)).toContain("not proof of the gameplay effect");
 });
 
+// Every effect state SF writes (its runtime-mod.schema.json: report_effect's five, its native DLL states and
+// restart-required), kiln-manage's "error" for SF's runtime errors, and a word a newer SF might add.
+const SF_EFFECT_STATES = ["waiting", "no-target", "no-change", "write-confirmed", "write-failed", "loading", "loaded", "error", "restart-required"];
+
+test("every current SF effect row says a mod's report is not proof of the gameplay effect", () => {
+  for (const state of [...SF_EFFECT_STATES, "unsupported"]) {
+    const s = sfRow();
+    s.effects!.mods = [{ id: "flight-fixture", state, detail: "fixture detail" }];
+    expect(`${state}: ${render(s)}`).toContain("not proof of the gameplay effect");
+  }
+  const none = sfRow();
+  none.effects!.mods = [];
+  expect(render(none)).toContain("No per-mod effects reported yet.");
+});
+
+test("an SF effect state the launcher does not know is not shown like a confirmed write", () => {
+  const word = (state: string) => {
+    const s = sfRow();
+    s.effects!.mods = [{ id: "flight-fixture", state, detail: "fixture detail" }];
+    return render(s).match(new RegExp(`<span class="([^"]*)">${state}</span>`))?.[1];
+  };
+  expect(word("unsupported")).toBe("k-tone-warn");
+  expect(word("write-failed")).toBe("k-tone-err");
+  expect(word("error")).toBe("k-tone-err");
+  for (const pending of ["waiting", "no-target", "restart-required", "loading"]) expect(`${pending} ${word(pending)}`).toBe(`${pending} k-tone-warn`);
+});
+
 test("Deck has a label for every detected kind and adopted receipts are accepted", () => {
   for (const name of values("DetectKind")) expect(KIND_WORD[name as keyof typeof KIND_WORD]?.length).toBeGreaterThan(0);
   const adopted: ReplacedFile["action"] = "adopted";

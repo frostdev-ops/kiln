@@ -32,6 +32,12 @@ const toneOf = (word: string | null): Tone => {
   return "info";
 };
 
+/** A ShroudForge effect state (its runtime-mod.schema.json, and kiln-manage's "error"): failures; the plain states
+ *  (a write, a loaded DLL, nothing to change); anything else, a word this launcher does not know included, is not a
+ *  confirmed write and shows as a warning. */
+const effectTone = (state: string) =>
+  /fail|error|blocked/i.test(state) ? "k-tone-err" : ["write-confirmed", "loaded", "no-change"].includes(state) ? "" : "k-tone-warn";
+
 export interface ModLine { id: string; state: string | null; reason: string | null }
 
 /** The `mods` list of a state file, each as {id, state, reason} (EML: id/state/reason; Greeneye: status; Shroudtopia: name;
@@ -98,11 +104,13 @@ export function EngineRow({ s }: { s: EngineStatus }) {
               {effects.mods.map((m) => (
                 <div key={m.id}>
                   <span className="k-mono">{m.id}</span>{" "}
-                  <span className={/fail|error|blocked/i.test(m.state) ? "k-tone-err" : /no-target|waiting|restart/i.test(m.state) ? "k-tone-warn" : ""}>{m.state}</span>
+                  <span className={effectTone(m.state)}>{m.state}</span>
                   {m.detail && <span>: {m.detail}</span>}
                 </div>
               ))}
-              {effects.mods.some((m) => m.state === "write-confirmed") && <div>Memory write confirmed; not proof of the gameplay effect.</div>}
+              {effects.mods.length > 0 && <div>{effects.mods.some((m) => m.state === "write-confirmed")
+                ? "Memory write confirmed; not proof of the gameplay effect."
+                : "These are the mods' own reports, not proof of the gameplay effect."}</div>}
             </>
           )}
         </div>
