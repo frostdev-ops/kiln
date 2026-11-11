@@ -983,6 +983,95 @@
       ]
     },
     {
+      "name": "damaged-values-are-repaired-by-a-settings-write",
+      "about": "the repair of damaged-fractional-values-are-repaired through a change of another setting (not the switch): the fraction comes back on every damaged setting",
+      "mod": {
+        "id": "damaged-by-setting",
+        "name": "damaged-by-setting",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.0\": \"Low\", \"2.0\": \"High\"}},\n    \"name\": {\"value\": \"a\"}\n  }\n}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "multipliers",
+            "type": "array",
+            "label": "multipliers",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.5,
+                "label": "1.5x"
+              },
+              {
+                "value": 2.0,
+                "label": "2x"
+              },
+              {
+                "value": 2.5,
+                "label": "2.5x"
+              }
+            ]
+          },
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.0,
+                "label": "Low"
+              },
+              {
+                "value": 2.0,
+                "label": "High"
+              }
+            ]
+          },
+          {
+            "key": "name",
+            "type": "string",
+            "label": "name",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "multipliers",
+          "gain",
+          "name"
+        ],
+        "repair": [
+          "multipliers",
+          "gain"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "name",
+          "value": "b",
+          "ok": true
+        }
+      ],
+      "expect": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2.0, \"options\": {\"1.0\": \"Low\", \"2.0\": \"High\"}},\n    \"name\": {\"value\": \"b\"}\n  }\n}\n",
+      "enabledAfter": [
+        "multipliers",
+        "gain",
+        "name"
+      ]
+    },
+    {
       "name": "comment-ends-at-a-lone-cr",
       "about": "a // comment ends at a lone CR too (System.Text.Json, ShroudForge's editor): the edit changes j, not k",
       "mod": {
@@ -1524,6 +1613,76 @@
         }
       ],
       "expect": "{\"enabled\":true,\"settings\":{\"mode\":{\"value\":false,\"options\":{\"true\":\"On\",\"off\":\"Off\"}},\"level\":{\"value\":1,\"options\":{\"+1\":\"One\",\"002\":\"Two\"}},\"ratio\":{\"value\":5.0,\"options\":{\".5\":\"Half\",\"5.\":\"Five\",\"NaN\":\"None\"}}}}\n"
+    },
+    {
+      "name": "a-choice-without-a-value-cannot-come-first",
+      "about": "a fractional key that is not a finite double is a choice without a value (null). As the first member it would make ShroudForge read the list as text and refuse the mod, so that edit is refused; after another member ShroudForge accepts it",
+      "mod": {
+        "id": "valueless-choice",
+        "name": "valueless-choice",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"enabled\":true,\"settings\":{\"picks\":{\"value\":[0.5],\"options\":{\"NaN\":\"None\",\"0.5\":\"Half\",\"2.5\":\"More\"}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "picks",
+            "type": "array",
+            "label": "picks",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": null,
+                "label": "None"
+              },
+              {
+                "value": 0.5,
+                "label": "Half"
+              },
+              {
+                "value": 2.5,
+                "label": "More"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "picks"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "picks",
+          "value": [
+            null
+          ],
+          "ok": false
+        },
+        {
+          "setting": "picks",
+          "value": [
+            null,
+            0.5
+          ],
+          "ok": false
+        },
+        {
+          "setting": "picks",
+          "value": [
+            2.5,
+            null
+          ],
+          "ok": true
+        }
+      ],
+      "expect": "{\"enabled\":true,\"settings\":{\"picks\":{\"value\":[2.5, null],\"options\":{\"NaN\":\"None\",\"0.5\":\"Half\",\"2.5\":\"More\"}}}}\n"
     },
     {
       "name": "lone-surrogate-is-refused",
