@@ -456,7 +456,7 @@ fn no_profile_stops_flame_mods_and_keeps_what_they_wrote() {
         let copy = g.path.join("mods/creative");
         the_mod_writes(&copy);
         if shipped { put(&copy, "items.json", b"edited by the player"); }
-        let report = if uninstall { engine_mods::unplace(&g.path).unwrap() } else { profile::deactivate_report(&dirs, &g).unwrap() };
+        let report = if uninstall { engine_mods::unplace(&dirs, &g.path).unwrap() } else { profile::deactivate_report(&dirs, &g).unwrap() };
         if shipped {
             assert!(report.retained.iter().any(|r| r.path == copy && r.may_run), "{uninstall}/{shipped}: {report:?}");
             assert_eq!(std::fs::read(copy.join("items.json")).unwrap(), b"edited by the player");

@@ -596,7 +596,7 @@ fn no_profile_stops_greeneye_mods_and_keeps_what_they_wrote() {
         put(&copy, "minimap_config.ini", b"[MinimapV2]\nZoom=3\n");
         put(&copy, "unlock_map_markers.log", b"loaded\n");
         if shipped { put(&copy, "veins.bin", b"edited by the player"); }
-        let report = if uninstall { engine_mods::unplace(&g.path).unwrap() } else { profile::deactivate_report(&dirs, &g).unwrap() };
+        let report = if uninstall { engine_mods::unplace(&dirs, &g.path).unwrap() } else { profile::deactivate_report(&dirs, &g).unwrap() };
         let kept = g.path.join("kiln/kept-mod-files/greeneye/unlock-map-markers");
         if shipped {
             assert!(report.retained.iter().any(|r| r.path == copy && r.may_run), "{uninstall}/{shipped}: {report:?}");

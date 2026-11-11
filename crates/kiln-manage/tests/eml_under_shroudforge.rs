@@ -132,7 +132,7 @@ fn a_legacy_eml_mod_placed_while_kiln_hosts_shroudforge_gets_shroudforges_switch
     let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
     assert!(rep.kept.contains(&"eml:more-gliders".to_string()) && rep.changed.is_empty() && rep.retained.is_empty(), "{rep:?}");
     assert!(rep.own_loaders.iter().any(|n| n.loader.kind == ModKind::Eml && n.copied == ["more-gliders"] && n.off.is_empty()), "{:?}", rep.own_loaders);
-    let cleanup = engine_mods::unplace(&s.game).unwrap();
+    let cleanup = engine_mods::unplace(&s.dirs, &s.game).unwrap();
     assert!(cleanup.retained.is_empty() && cleanup.removed.contains(&copy), "{cleanup:?}");
 }
 
@@ -176,7 +176,7 @@ fn what_the_player_changes_in_shroudforges_file_survives_activation_and_an_updat
     let value = |k: &str| m.settings.iter().find(|x| x.key == k).map(|x| x.value.clone());
     assert_eq!((m.enabled, value("radius"), value("extra")), (true, Some(serde_json::json!(9)), Some(serde_json::json!(true))));
     // the player's value is not Kiln's to throw away: uninstalling keeps the copy and says why
-    let cleanup = engine_mods::unplace(&s.game).unwrap();
+    let cleanup = engine_mods::unplace(&s.dirs, &s.game).unwrap();
     assert!(cleanup.retained.iter().any(|r| r.path == copy), "{cleanup:?}");
     assert_eq!(shroudforge::read_mod(&copy).unwrap().settings[0].value, serde_json::json!(9));
 }
@@ -248,6 +248,115 @@ fn without_shroudforge_mods_no_switch_is_written_and_kiln_eml_runs_the_copy() {
     assert!(rep.retained.is_empty(), "{rep:?}");
 }
 
+/// EML's own loader (dbghelp.dll) next to the game: it runs every EML mod in mods/, whatever ShroudForge's switch says.
+fn eml_loader(game: &Path) {
+    put(game, "dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
+}
+
+/// [`alp_package`] whose EML part ships ShroudForge's file too.
+fn alp_shipping(root: &Path, ext: &str) -> PathBuf {
+    let d = alp_package(root);
+    put(&d, "mods/auto-loot-plus/extended.mod.json", ext.as_bytes());
+    d
+}
+
+/// The ways a profile's EML mod stops: switched off in the profile, removed from it, and "No profile" or uninstall
+/// (profile::deactivate_report and install::uninstall_report both call engine_mods::unplace).
+#[derive(Clone, Copy, Debug)]
+enum Stop {
+    Off,
+    Gone,
+    Unplace,
+}
+
+/// Stops every EML mod of `p` the way `how` says; the copies Kiln kept, as the result names them.
+fn stop(s: &Setup, p: &mut profile::Profile, how: Stop) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let retained = |r: &[engine_mods::RetainedPlacement]| r.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
+    match how {
+        Stop::Off | Stop::Gone => {
+            if let Stop::Off = how { p.mods.eml.iter_mut().for_each(|m| m.enabled = false) } else { p.mods.eml.clear() }
+            let rep = engine_mods::place(&s.dirs, p, &s.game).unwrap();
+            (retained(&rep.retained), rep.removed.iter().map(|t| s.game.join("mods").join(t.trim_start_matches("eml:"))).collect())
+        }
+        Stop::Unplace => {
+            let c = engine_mods::unplace(&s.dirs, &s.game).unwrap();
+            (retained(&c.retained), c.removed)
+        }
+    }
+}
+
+/// pr-manage P1: an EML copy that ships `extended.mod.json`, placed while ShroudForge was not the EML runner (EML's own
+/// loader ran them, or a game-folder copy before the profile had ShroudForge mods), got no record of Kiln's bytes. When
+/// ShroudForge later ran it and the player changed a value there, every way of stopping the mod removed the copy and the
+/// value with it, without a word.
+#[test]
+fn values_changed_in_a_copy_placed_before_shroudforge_ran_it_are_never_removed() {
+    for how in [Stop::Off, Stop::Gone, Stop::Unplace] {
+        let s = setup(&format!("before-sf-{how:?}"));
+        let radius = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.0.0", SHIPPED), ModKind::Eml, "radius-mod");
+        let steady = import(&s.dirs, &shipped(&s.t.0, "steady-mod", "1.0.0", SHIPPED), ModKind::Eml, "steady-mod");
+        let r = library::import(&s.dirs, &[alp_shipping(&s.t.0, SHIPPED)], &mut NoProgress).unwrap();
+        let alp = r.imported.iter().find(|x| x.kind == ModKind::Eml).cloned().expect("the EML part");
+        eml_loader(&s.game);
+        let mut p = s.profile(vec![pm(&radius, true), pm(&steady, true), pm(&alp, true)]);
+        p.mods.shroudforge.clear();
+        let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+        assert_eq!(rep.placed.len(), 3, "{rep:?}");
+        let (rcopy, scopy, acopy) = (s.game.join("mods/radius-mod"), s.game.join("mods/steady-mod"), s.game.join("mods/auto-loot-plus"));
+        for c in [&rcopy, &scopy, &acopy] { assert_eq!(ext_of(c).unwrap(), SHIPPED, "no ShroudForge yet: the shipped file as it is"); }
+        // later ShroudForge runs them, at the same version, and the player changes a value in ShroudForge's Modloader
+        std::fs::remove_file(s.game.join("dbghelp.dll")).unwrap();
+        p.mods.shroudforge = vec![pm(&s.sf, true)];
+        let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+        assert_eq!(rep.switched.len(), 3, "{rep:?}");
+        for c in [&rcopy, &acopy] { shroudforge::set_setting(c, "radius", &serde_json::json!(9)).unwrap(); }
+        let (retained, removed) = stop(&s, &mut p, how);
+        for c in [&rcopy, &acopy] {
+            assert!(retained.contains(c), "{how:?}: {} holds the player's value and must stay: retained {retained:?}, removed {removed:?}", c.display());
+            assert_eq!(shroudforge::read_mod(c).unwrap().settings[0].value, serde_json::json!(9), "{how:?}");
+        }
+        // the switch Kiln wrote is Kiln's: a copy holding nothing of the player's still goes
+        assert!(removed.contains(&scopy) && !scopy.exists(), "{how:?}: retained {retained:?}, removed {removed:?}");
+    }
+}
+
+/// pr-manage P1, the receipts an earlier 0.2.0-dev.24 build wrote for such a copy: `extended.mod.json` listed without
+/// its switch and settings, and no record of Kiln's bytes. A file whose values differ from the Library's is the
+/// player's; one that holds the Library's values (Kiln's switch aside) is not.
+#[test]
+fn an_older_receipt_without_kilns_bytes_takes_values_that_differ_from_the_librarys_as_the_players() {
+    for how in [Stop::Off, Stop::Gone, Stop::Unplace] {
+        let s = setup(&format!("older-receipt-{how:?}"));
+        let radius = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.0.0", SHIPPED), ModKind::Eml, "radius-mod");
+        let steady = import(&s.dirs, &shipped(&s.t.0, "steady-mod", "1.0.0", SHIPPED), ModKind::Eml, "steady-mod");
+        let r = library::import(&s.dirs, &[alp_shipping(&s.t.0, SHIPPED)], &mut NoProgress).unwrap();
+        let alp = r.imported.iter().find(|x| x.kind == ModKind::Eml).cloned().expect("the EML part");
+        eml_loader(&s.game);
+        let mut p = s.profile(vec![pm(&radius, true), pm(&steady, true), pm(&alp, true)]);
+        p.mods.shroudforge.clear();
+        engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+        let file = s.game.join("kiln/state/library-placements.json");
+        let mut receipts: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        for r in receipts.as_array_mut().unwrap() {
+            assert!(r["files"].get("extended.mod.json").is_some(), "{r}");
+            r.as_object_mut().unwrap().remove("extension");
+        }
+        std::fs::write(&file, serde_json::to_vec(&receipts).unwrap()).unwrap();
+        std::fs::remove_file(s.game.join("dbghelp.dll")).unwrap();
+        p.mods.shroudforge = vec![pm(&s.sf, true)];
+        engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+        let (rcopy, scopy, acopy) = (s.game.join("mods/radius-mod"), s.game.join("mods/steady-mod"), s.game.join("mods/auto-loot-plus"));
+        assert!(shroudforge::read_mod(&scopy).unwrap().enabled);
+        for c in [&rcopy, &acopy] { shroudforge::set_setting(c, "radius", &serde_json::json!(9)).unwrap(); }
+        let (retained, removed) = stop(&s, &mut p, how);
+        for c in [&rcopy, &acopy] {
+            assert!(retained.contains(c), "{how:?}: {} holds the player's value and must stay: retained {retained:?}, removed {removed:?}", c.display());
+            assert_eq!(shroudforge::read_mod(c).unwrap().settings[0].value, serde_json::json!(9), "{how:?}");
+        }
+        assert!(removed.contains(&scopy) && !scopy.exists(), "{how:?}: retained {retained:?}, removed {removed:?}");
+    }
+}
+
 #[test]
 fn a_copy_an_older_kiln_placed_without_the_switch_gets_it_at_the_next_play() {
     let s = setup("older");
@@ -264,7 +373,7 @@ fn a_copy_an_older_kiln_placed_without_the_switch_gets_it_at_the_next_play() {
     assert!(rep.kept.contains(&"eml:more-gliders".to_string()) && rep.switched.contains(&"eml:more-gliders".to_string()), "{rep:?}");
     assert!(shroudforge::read_mod(&copy).unwrap().enabled);
     // the file Kiln added is Kiln's: not a file the player wrote, so uninstalling removes the copy
-    let cleanup = engine_mods::unplace(&s.game).unwrap();
+    let cleanup = engine_mods::unplace(&s.dirs, &s.game).unwrap();
     assert!(cleanup.retained.is_empty() && cleanup.removed.contains(&copy), "{cleanup:?}");
     assert!(!s.game.join("kiln/kept-mod-files/eml/more-gliders").exists());
 }

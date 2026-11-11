@@ -877,7 +877,7 @@ fn game_folder_cleanup_uses_native_receipts_without_adopting_player_settings() {
             if edited {
                 assert!(report.retained.iter().any(|r| r.path == copy && r.may_run), "{which}: {report:?}");
                 assert_eq!(std::fs::read(copy.join("config.txt")).unwrap(), b"player setting");
-                let again = kiln_manage::engine_mods::unplace(&d.g.path).unwrap();
+                let again = kiln_manage::engine_mods::unplace(&d.dirs, &d.g.path).unwrap();
                 assert!(again.retained.iter().any(|r| r.path == copy));
             } else {
                 assert!(report.removed.contains(&copy), "{which}: {report:?}");
@@ -929,7 +929,7 @@ fn xhl_cleanup_requires_exact_receipts_and_retains_player_changes() {
             assert!(kept.may_run && !kept.reason.is_empty(), "{report:?}");
             assert_eq!(std::fs::read(copy.join(file)).unwrap(), b"player bytes");
             assert!(report.warning().unwrap().contains("XHL-Vein-Mining"));
-            let again = kiln_manage::engine_mods::unplace(&d.g.path).unwrap();
+            let again = kiln_manage::engine_mods::unplace(&d.dirs, &d.g.path).unwrap();
             assert!(again.retained.iter().any(|r| r.path == copy && r.may_run));
         } else {
             assert!(report.removed.contains(&copy), "{report:?}");
@@ -957,7 +957,7 @@ fn xhl_cleanup_never_adopts_markers_or_removes_nested_or_unflagged_copies() {
             _ => receipts[0]["game_folder"] = serde_json::json!(false),
         }
         std::fs::write(&file, serde_json::to_vec(&receipts).unwrap()).unwrap();
-        let report = kiln_manage::engine_mods::unplace(&d.g.path).unwrap();
+        let report = kiln_manage::engine_mods::unplace(&d.dirs, &d.g.path).unwrap();
         assert!(!report.removed.contains(&copy), "{scenario}: {report:?}");
         assert_eq!(std::fs::read(copy.join("XHL-Vein-Mining.dll")).unwrap(), xhl_plugin());
         if scenario != "marker-only" {

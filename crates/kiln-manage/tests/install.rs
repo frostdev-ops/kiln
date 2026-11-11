@@ -1636,7 +1636,7 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                 assert!(!report.removed.contains(&dst));
                 assert_eq!(sf_inventory(&dst), folder, "{kind:?}/{shipped}/{uninstall}: the whole folder stays as it was");
                 // The receipt still records this as a retained placement; a second cleanup cannot adopt it as disposable.
-                let again = engine_mods::unplace(&gi.path).unwrap();
+                let again = engine_mods::unplace(&dirs, &gi.path).unwrap();
                 assert!(again.retained.iter().any(|r| r.path == dst));
                 assert_eq!(sf_inventory(&dst), folder);
             }

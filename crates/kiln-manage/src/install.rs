@@ -1176,7 +1176,7 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
             )));
         }
     }
-    let mut report = UninstallReport { placements: crate::engine_mods::unplace(game_dir)?, ..Default::default() };
+    let mut report = UninstallReport { placements: crate::engine_mods::unplace(dirs, game_dir)?, ..Default::default() };
     if let Some(warning) = report.placements.warning() { progress.report(None, &warning); }
     let total = receipt.files.len().max(1);
     for (i, f) in receipt.files.iter().enumerate() {

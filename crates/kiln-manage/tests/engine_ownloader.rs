@@ -121,7 +121,7 @@ fn cleanup_reports_changed_eml_copies_as_potentially_still_running() {
         p.mods.eml = vec![pm(&changed, true), pm(&clean, true)];
         engine_mods::place(&dirs, &p, &game).unwrap();
         put(&game.join("mods/changed"), rel, b"player-owned edit");
-        let report = engine_mods::unplace(&game).unwrap();
+        let report = engine_mods::unplace(&dirs, &game).unwrap();
         assert_eq!(report.removed, [game.join("mods/clean")]);
         assert_eq!(report.retained.len(), 1);
         assert_eq!(report.retained[0].path, game.join("mods/changed"));
