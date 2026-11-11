@@ -330,7 +330,9 @@ pub fn prune(root: &Path, stem: &str) {
             for f in &files { remove(&f.path(), format!("{name}/{}", f.file_name().to_string_lossy())); }
             let _ = fs::remove_dir(&path);
         } else if let Some(base) = temp_of(&name) {
-            if stems.iter().any(|s| base == *s || base == format!("{s}.kfc") || base == format!("{s}.kfc.bak"))
+            // temp copies over <stem>.kfc / .kfc_resources (`<stem>.kiln-*`), .kfc.bak (`<stem>.kfc.kiln-*`),
+            // .kfc_resources.bak (`<stem>.kfc_resources.kiln-*`) and the seal (`<stem>.kfc.bak.kiln-*`)
+            if stems.iter().any(|s| [s.to_string(), format!("{s}.kfc"), format!("{s}.kfc.bak"), format!("{s}.kfc_resources")].contains(&base.to_owned()))
                 && super::transaction::regular(&path).is_ok() {
                 remove(&path, name);
             }
@@ -343,7 +345,8 @@ pub fn prune(root: &Path, stem: &str) {
             let (path, name) = (entry.path(), entry.file_name().to_string_lossy().into_owned());
             if super::transaction::regular(&path).is_err() { continue; }
             if let Some(base) = temp_of(&name) {
-                if stems.contains(&base) || base.strip_prefix("sf-handoff-").is_some_and(|r| r.strip_suffix(".json").is_some_and(is_uuid)) {
+                // a receipt's temp (`<stem>.kiln-*`) or a journal's (`sf-handoff-<uuid>.json` -> `sf-handoff-<uuid>.kiln-*`)
+                if stems.contains(&base) || base.strip_prefix("sf-handoff-").is_some_and(is_uuid) {
                     remove(&path, name);
                 }
             } else if name.strip_prefix("sf-handoff-").and_then(|r| r.strip_suffix(".json")).is_some_and(is_uuid) {
@@ -951,6 +954,9 @@ mod tests {
         fs::write(&temp, "temp").unwrap();
         let backup_temp = root.join(format!("g.kfc.kiln-{}", id()));
         fs::write(&backup_temp, "temp").unwrap();
+        // the temp copy of the resource backup (`g.kfc_resources.bak` -> `g.kfc_resources.kiln-<uuid>`, 215 MiB on a client)
+        let resources_temp = root.join(format!("g.kfc_resources.kiln-{}", id()));
+        fs::write(&resources_temp, "temp").unwrap();
         for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { fs::write(root.join(n), "keep").unwrap(); }
         fs::create_dir_all(root.join("kiln/eml/ownership")).unwrap();
         for i in 0..20 {
@@ -960,8 +966,13 @@ mod tests {
                 .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + i)).unwrap();
         }
         fs::write(root.join(format!("kiln/eml/ownership/g.kiln-{}", id())), "receipt temp").unwrap();
+        // a journal's temp: `sf-handoff-<uuid>.json` -> `sf-handoff-<uuid>.kiln-<uuid>`
+        let journal_temp = root.join(format!("kiln/eml/ownership/sf-handoff-{}.kiln-{}", id(), id()));
+        fs::write(&journal_temp, "journal temp").unwrap();
         prune(&root, "g");
         assert!(!stale.exists() && !temp.exists() && !backup_temp.exists());
+        assert!(!resources_temp.exists(), "the resource backup's temp copy goes");
+        assert!(!journal_temp.exists(), "a journal's temp goes");
         assert!(foreign.join("notes.txt").exists() && root.join(".kiln-eml-stage-mine").is_dir());
         for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { assert!(root.join(n).exists(), "{n}"); }
         let mut kept: Vec<String> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten()
