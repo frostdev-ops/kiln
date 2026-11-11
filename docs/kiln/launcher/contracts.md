@@ -189,14 +189,19 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 | `ember` | kiln-ember | library folder (one library) | `plan_engine("ember")`; finds and reports, starts nothing: Ember has published no mod ABI (the launcher says the mods don't run yet) |
 
 Placement ownership requires `.kiln-library.json` plus a matching launcher receipt in
-`kiln/state/library-placements.json` (`{path, marker, files, extension?}` entries, recording relative paths, file hashes,
-directory entries and the exact SF extension text last written by Kiln).
+`kiln/state/library-placements.json` (`{path, marker, files, extension?, game_folder?}` entries, recording relative paths,
+file hashes, directory entries, the exact SF extension text last written by Kiln, and `game_folder: true` for a copy in
+`<game>/mods/<folder>` that a DLL reads there: an EML mod with a native part, a native mod's settings folder, an XHL
+companion; cleanup needs that flag to accept such a copy, a copy without it is cleaned like an own-loader copy).
 The marker alone is advisory: marker-only older copies and player-modified folders are left untouched. The
 upgrade inventory excludes only ShroudForge's mutable enabled switch and setting values. Deactivate/uninstall cleanup
 additionally requires the exact extension text to match; old receipts without it conservatively retain SF copies.
 Only Kiln's own switch of an unchanged extension advances that exact receipt, never player settings carried through
-an upgrade. Retained folders are returned as `{path, reason, mayRun}`; the launcher displays paths/reasons until
-dismissed and warns they may still run under the standalone loader. Copies are staged beside the destination and
+an upgrade. Retained folders are returned as `{path, reason, mayRun}`: by deactivate and uninstall (`PlacementCleanup`)
+and by every activation (`Activation.retained`: a copy the profile switched off, removed or wants in another version,
+that activation leaves because its code changed or Kiln cannot inspect or carry what is in it; one such copy never fails
+the activation of the others). The launcher displays paths/reasons until dismissed and warns they may still run under
+the standalone loader. Copies are staged beside the destination and
 the previous folder is restored if replacement fails. Activation refuses while the game runs.
 In copy mode, the ShroudForge and SET profile entry paths name the verified source copies under
 `kiln/profiles/<profile>/<kind>/<id>`; their plugins still read the separately placed fixed engine folders.
@@ -588,6 +593,12 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
 1. Refuse while the game runs. Resolve the profile (preview errors are shown, not fatal: the game reports the same).
 2. Path mode (6). Copy mode: sync folders.
 3. Write `<configDir>/native.json` from the profile's native switches; write `chain.ini [profile]` (dllmain natives).
+   Place the fixed-folder copies (5.1, `engine_mods::place`). The answer, `Activation`, says what that left for the
+   player: `retained` (`{path, reason, mayRun}`, as above), `keptFiles` (one sentence per mod whose files went to or came
+   back from `kiln/kept-mod-files/` or `kiln/state/placed-settings/`), `warnings` (notes such as a ShroudForge setting
+   value a new version refuses), `ownLoaders`. The launcher shows the first three at every call site until dismissed;
+   a re-apply after a profile save or a change outside the launcher sends the same `Activation` as `kiln://activation`,
+   and `launch_play` returns it as `LaunchResult.activation` when it wrote the profile again before the start.
 4. Write `kiln/profile.json` (generation + 1, fingerprint, writer, written) atomically; delete a stale
    `kiln/chain/once.ini` and `kiln/profile.once.json`.
 5. Record the activation in `<data>/installs/<installId>.json`; emit `kiln://game` `{kind: "status"}`.
@@ -927,6 +938,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
 | `kiln://gamepad` | `{kind: 'button', button: 'a'\|'b'\|'x'\|'y'\|'lb'\|'rb'\|'lt'\|'rt'\|'select'\|'start'\|'guide'\|'ls'\|'rs'\|'up'\|'down'\|'left'\|'right', pressed, repeat, device} \| {kind: 'axis', axis: 'rx'\|'ry', value: -1..1, device} \| {kind: 'connected', device, name, vendor, product} \| {kind: 'disconnected', device, name}` (the Deck UI's native reader while `deck_gamepad(true)`: directions merge the D-pad and the left stick and repeat while held (`repeat: true`); the right stick is sent for scrolling, at most ~25 a second, then one 0; [deck.md](deck.md)) |
 | `kiln://nxm` | `{count}` (an Enshrouded Mod Manager Download link arrived; `count` links wait in `nexus_links`; the window comes to the front) |
+| `kiln://activation` | `Activation` (a profile written again without `profile_activate`: after `profile_save`, `profile_revert` or `chain_set_late`, or a change of `profile.json` outside the launcher; the launcher shows its `retained`, `keptFiles` and `warnings` as it does `profile_activate`'s) |
 
 ## 11. Errors
 Every command rejects with `KilnError = {code, message, detail?}` (`kiln_manage::Error`, serialized as is). `message`
