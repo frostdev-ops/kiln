@@ -117,6 +117,30 @@ test("Logs > Engines shows state without overwriting a shared archive backup", a
   expect(backups.some((b) => b.patched)).toBe(true);
 });
 
+test("archive guidance gives the way back that works, and the writer's reason when it could not prove ownership", async ({ page }) => {
+  // without a reason: the generic guidance names the fallbacks too
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });
+  await expect(notice).toContainText("enable any EML mod for one start and disable it again");
+  await expect(notice).toContainText("Verify integrity of game files");
+  await expect(notice).not.toContainText("On the last start without EML mods");
+  // kiln-eml left differing data alone (kiln/state/eml.json `reason`): the banner says what it said, and why
+  const reason = "The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output (it has no " +
+    "ownership receipt, and it is not the output the earlier change cache recorded), so it was left as it is";
+  await page.addInitScript((why) => {
+    const eml = { kind: "eml", plugin: "kiln-eml", file: "eml.json", state: { phase: "idle", reason: why, mods: [] } };
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = { engine_status: Array.from({ length: 20 }, () => ({ result: [eml] })) };
+  }, reason);
+  await page.reload(); // the init script runs on a load, not on a hash change
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.getByRole("tab", { name: "Engines" }).click();
+  await expect(notice).toContainText(`On the last start without EML mods: ${reason}`);
+  await expect(notice).toContainText("Other loaders' data is kept");
+  await expect(notice).not.toContainText("checks ownership and");
+  await expect(page.locator('[data-engine="eml"]')).toContainText("cannot prove it is its own EML output");
+});
+
 test("no removal guidance while the active profile runs an EML mod", async ({ page }) => {
   await desktop(page, "/profiles/ember-run/engines");
   const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });

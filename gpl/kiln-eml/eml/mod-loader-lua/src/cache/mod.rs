@@ -102,6 +102,47 @@ impl FileStateCache {
 
 }
 
+// kiln-eml: the change cache an earlier kiln-eml (before ownership receipts) left, read once to adopt the output that
+// run published (ownership.rs `adopt`). Nothing here trusts a cache that merely exists.
+impl FileStateCache {
+    /// Was this cache saved by an EML patch run of `stem`? Its build id ends in the run's key, `<stem>|RunOptions {..}`.
+    pub(crate) fn patched(&self, stem: &str) -> bool {
+        let Some((before, options)) = self.build_id.split_once("|RunOptions {") else { return false };
+        before.ends_with(stem) && before.len() > stem.len() && options.contains("patch: true") && options.ends_with('}')
+    }
+
+    /// The saved length of `path` and whether that entry is a CRC of the file's bytes (not a digest of its stamp).
+    pub(crate) fn saved(&self, path: &std::path::Path) -> Option<(u64, bool)> {
+        self.files.get(path).map(|sig| (sig.0, !self.unread.contains(path)))
+    }
+
+    /// Does the saved entry of `path` describe the file as it is now? `content` is the file's length and CRC-64, just
+    /// read by the caller. An entry that is a digest of the file's stamp (`unread`) is compared by that stamp, on the
+    /// same conditions the cache itself trusts one under: the file system kept the change time through a same-size
+    /// rewrite in this folder (`probe`, run once and kept in `volume`), and length and last-write time are unchanged.
+    pub(crate) fn describes(&self, path: &std::path::Path, content: (u64, u64), volume: &mut Option<Result<u64, String>>) -> Result<(), String> {
+        let Some(&(len, mtime, value)) = self.files.get(path) else { return Err("it is not in the change cache".into()) };
+        if !self.unread.contains(path) {
+            return if (len, value) == content { Ok(()) } else { Err("it is not the file the last run saved".into()) };
+        }
+        let Some(saved) = self.stamps.get(path) else { return Err("its change stamp was not kept".into()) };
+        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+        let meta = file.metadata().map_err(|e| e.to_string())?;
+        let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos());
+        if meta.len() != len || modified != Some(mtime) || stamp::read(&file).as_ref() != Some(saved) {
+            return Err("it changed since the last run saved it".into());
+        }
+        let dir = path.parent().ok_or("no folder")?;
+        let tested = volume.get_or_insert_with(|| stamp::probe(dir, stamp::read));
+        match tested {
+            // the test ran in this very folder, so even a volume Wine reports as 0 is the tested one (prints.rs Gate)
+            Ok(v) if *v == saved.volume => Ok(()),
+            Ok(_) => Err("its volume is not the one the change stamps were tested on".into()),
+            Err(why) => Err(format!("change stamps are not reliable here ({why})")),
+        }
+    }
+}
+
 pub struct CacheDiff {
     build_id_changed: bool,
     files_changed: bool,

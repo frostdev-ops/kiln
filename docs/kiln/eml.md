@@ -180,14 +180,28 @@ It fails soft:
   still belongs to kiln-eml and that its working backups are unchanged. Unowned or changed data is retained; the cache
   is dropped so the next start re-runs. Restore failures remain failures. An install-lock failure stops startup.
 - **No EML mods (left):** kiln-eml restores only its own unchanged published output, using the matching baseline.
-  A shared `.kfc.bak` or old performance cache alone never authorizes restoration. Other loaders' patches are kept.
+  A shared `.kfc.bak` or a change cache that merely exists never authorizes restoration. Other loaders' patches are kept.
+- **Output of dev.20 to dev.23 (before receipts):** once, when there is no receipt, kiln-eml checks the change cache that
+  release left (`kiln/eml/cache/files.json`, written only after a completed publication or a start that changed
+  nothing). It is proof only when it is the record of a patch run of this stem, names the live `<exe>.kfc` and
+  `<exe>.kfc_resources` by length and CRC-64 of their bytes (a file named only by its change stamp proves nothing),
+  names the backups present exactly (by content, or by a change stamp on a volume that passes the scratch-file test),
+  and the backup pair passes its seal. Then a normal receipt is written and the restore goes on as above. This reads
+  the header, the resource file and the backups once (about 0.45 GiB on a client) and says so in the log.
+- **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
+  start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
+  untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
+  loader wrote it, nothing needs doing. If it still carries EML mods that were switched off: enable any EML mod for
+  one start and disable it again (that start publishes with a receipt, the next one restores), or use Steam's
+  "Verify integrity of game files".
 - **Writer handoff:** exact output/backup SHA-256 receipts live in `kiln/eml/ownership/`. Before changing archives,
   kiln-eml invalidates only a recognized ShroudForge prepared-asset cache under ShroudForge's installation lock.
   Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. Unknown
   schemas, busy locks and unsafe paths refuse the handoff. This does not automatically repair pre-existing stale SF state.
 - **Launcher:** an archive differing from a shared backup does not prove EML wrote it. The old direct-restore command
   now refuses instead of copying a header without its resources, ownership checks or loader-state handoff. Disable EML
-  mods and launch through updated Kiln to let its archive writer restore proven EML output. No client rendering or the
+  mods and start the game through Kiln to let its archive writer restore proven EML output; when it cannot prove it,
+  the banner shows the `reason` it gave and the two ways back above. No client rendering or the
   original reinstall reporter's exact installation was tested; the dedicated-server SF/EML/uninstall/SF round trip passed.
 
 #### Reading the game data
@@ -385,9 +399,11 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
   `kiln-eml: 2 EML mod(s) loaded, 3 resource(s) patched in enshrouded_server (1263 ms; hashed 12.0 KiB, reused 23 file(s))`.
 - `kiln/logs/eml.log`: everything, debug included.
 - `kiln/state/eml.json` (format 1, for the launcher and `Kiln.Eml`):
-  `{ pid, phase: done|failed|aside|idle|running, file, patched, cached, restored, ms, fingerprint, error, aside, mods: [{ id, version, name, source, path, state, reason, capabilities }], progress }`
+  `{ pid, phase: done|failed|aside|idle|running, file, patched, cached, restored, ms, fingerprint, error, aside, reason, mods: [{ id, version, name, source, path, state, reason, capabilities }], progress }`
   ([schema](../../schema/state-eml.schema.json)). With phase `aside`, `mods` holds the profile's EML entries with state
-  `own-loader`, `not-loaded` or `disabled` (dev.22; before, it was empty).
+  `own-loader`, `not-loaded` or `disabled` (dev.22; before, it was empty). `reason` (dev.24, phase `idle` only, absent
+  otherwise): the game data differs from the vanilla backup and kiln-eml could not prove it wrote it, so it left it;
+  one sentence for the player with what to do (see "It fails soft").
   `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }` plus,
   since dev.22, `recordedFiles` and `recordedBytes` (files recorded by their stamp, not read): what reading the game's
   files for the change cache cost this start. `phase: "running"` and `progress` (dev.22, only while the run goes on) are
@@ -786,6 +802,7 @@ Mods we need from the user (Nexus downloads, which agents can't fetch):
 - Library detection: `kiln-manage/src/engines.rs` treats a `mod.json` with `capabilities` as a ShroudForge package.
   Real EML mods have `"capabilities": ["patch"]`, so they show as ShroudForge (for detect).
 - The launcher now reads `state/eml.json` on Logs > Engines. Its shared-backup notice is read-only: direct
-  `.kfc.bak` copies are unsafe. Updated kiln-eml restores only output proven by exact receipts (see "It fails soft").
+  `.kfc.bak` copies are unsafe. Updated kiln-eml restores only output proven by exact receipts, or once by the change
+  cache of dev.20 to dev.23, and otherwise says why it left the data (see "It fails soft").
 - `kiln/eml/mods` drop-ins are still not forwarded into SF when SF owns startup (profile EML mods are, by placement
   since dev.22).

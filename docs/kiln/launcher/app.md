@@ -53,9 +53,11 @@ implementation for a future approved build; no personal API key flow is supporte
 
 "Shared archive backup differs" (`components/EngineStatus.tsx`): read-only guidance on Logs > Engines and the profile's
 Engines tab when `eml_backup` reports a differing `.kfc` and no EML mod is enabled in the active profile (or no profile
-is active). A difference does not identify its writer. Disable EML mods and launch through updated Kiln to let its
-archive writer restore only proven, unchanged EML output. There is no direct-copy action; legacy `eml_restore` calls
-refuse. The Library labels every kind with its engine (badge, "Other engines" filter with an Engine select); the Deck's
+is active). A difference does not identify its writer. Disable EML mods and start the game through Kiln to let its
+archive writer restore only proven, unchanged EML output. When the last idle start's `kiln/state/eml.json` has a
+`reason` (it could not prove ownership), the banner shows it (warning tone); otherwise it names the ways back for that
+case too (enable any EML mod for one start and disable it again, or Steam's "Verify integrity of game files"). There
+is no direct-copy action; legacy `eml_restore` calls refuse. The Library labels every kind with its engine (badge, "Other engines" filter with an Engine select); the Deck's
 Mods lists engine mods after Kiln's own with their engine ("ShroudForge mod"). Kind names and lists: `src/api/kinds.ts`.
 
 ## The first run and dropping a mod

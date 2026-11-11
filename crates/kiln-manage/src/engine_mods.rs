@@ -1872,7 +1872,7 @@ pub fn eml_backup(game_dir: &Path) -> Result<Vec<EmlBackup>> {
 /// Keep those operations in that separate component rather than duplicating them in management code.
 pub fn eml_restore_vanilla(_game_dir: &Path) -> Result<Vec<String>> {
     Err(Error::new(ErrorCode::Refused,
-        "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and launch through an updated Kiln so its archive writer can restore only its own unchanged output; other loaders' data is kept."))
+        "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and start the game through Kiln: its archive writer restores only output it can prove it wrote (earlier Kiln versions' too); other loaders' data is kept. When it cannot prove that, it leaves the data alone and says why (Logs > Engines); then enable any EML mod for one start and disable it again, or use Steam's \"Verify integrity of game files\"."))
 }
 
 #[cfg(test)]

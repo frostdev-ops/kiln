@@ -240,6 +240,99 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     Ok(guard)
 }
 
+/// What `adopt` found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Adoption {
+    /// A receipt exists already: nothing to adopt (it alone decides).
+    Receipt,
+    /// The output of an earlier kiln-eml was proven and now has a normal receipt.
+    Adopted,
+    /// No receipt, and nothing proves the live output is EML's: why, in a few words for the player.
+    Unproven(String),
+}
+
+/// SHA-256 (for the receipt) and CRC-64 (what the old change cache recorded) of one file, in one pass.
+fn digest_and_crc(root: &Path, path: &Path) -> io::Result<(Digest, u64)> {
+    checked_path(root, path)?;
+    super::transaction::regular(path)?;
+    let mut file = fs::File::open(path)?;
+    let (mut hash, mut crc, mut size) = (Sha256::new(), crate::cache::CRC64.digest(), 0u64);
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 { break; }
+        size += n as u64;
+        hash.update(&buffer[..n]);
+        crc.update(&buffer[..n]);
+    }
+    Ok((Digest { size, sha256: format!("{:x}", hash.finalize()) }, crc.finalize()))
+}
+
+/// One-time adoption of the output an earlier kiln-eml (dev.20 to dev.23, before receipts) published, so that switching
+/// EML mods off after an update restores it as before. That runner's change cache (`<cache_dir>/files.json`) is
+/// written only after a completed publication (or on a start that found nothing changed) and holds the length and
+/// CRC-64 of the header and resource file it had just published: read by content, as they were seconds old.
+/// It is proof only when it is the cache of a patch run of this stem, names the live header and resource file by
+/// content (not by stamp) exactly, and names the backups present exactly; and the backup pair passes its seal. Then a
+/// normal receipt is written from the bytes just read. A cache that merely exists, or names files only by their
+/// stamps, proves nothing. Reads the header, the resource file and the backups once (hundreds of MiB), only after the
+/// cheap checks (names, lengths) passed.
+pub fn adopt(root: &Path, stem: &str, cache_dir: &Path) -> io::Result<Adoption> {
+    if read_receipt(root, stem)?.is_some() { return Ok(Adoption::Receipt); }
+    let unproven = |why: &str| Ok(Adoption::Unproven(why.to_owned()));
+    let file = cache_dir.join("files.json");
+    if file.starts_with(root) { checked_path(root, &file)?; }
+    let meta = match fs::symlink_metadata(&file) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return unproven("no change cache of an earlier kiln-eml names it"),
+        Err(e) => return Err(e),
+    };
+    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > 64 << 20 {
+        return unproven("the earlier change cache is not a regular file");
+    }
+    let Some(cache) = crate::cache::FileStateCache::read_file(&file) else { return unproven("the earlier change cache cannot be read") };
+    if !cache.patched(stem) { return unproven("the earlier change cache is not the record of a completed EML patch run") }
+    let live = Live::new(root);
+    let outputs = [format!("{stem}.kfc"), format!("{stem}.kfc_resources")];
+    for name in &outputs {
+        match (cache.saved(&root.join(name)), live.size(name)?) {
+            (Some((len, true)), Some(now)) if len == now => {},
+            (Some((_, false)), _) => return unproven("the earlier change cache recorded it by its change stamp only, not by content"),
+            _ => return unproven("it is not the output the earlier change cache recorded"),
+        }
+    }
+    let backups: Vec<String> = ["kfc.bak", "kfc_resources.bak", "kfc.bak.integrity"].iter().map(|e| format!("{stem}.{e}")).collect();
+    if live.size(&backups[0])?.is_none() { return unproven("there is no vanilla backup"); }
+    for name in &backups {
+        if cache.saved(&root.join(name)).map(|(len, _)| len) != live.size(name)? {
+            return unproven("its backups are not the ones the earlier change cache recorded");
+        }
+    }
+    let bytes: u64 = outputs.iter().chain(&backups).map(|n| live.size(n).ok().flatten().unwrap_or(0)).sum();
+    tracing::info!("No ownership receipt for {stem}: checking the earlier kiln-eml's change cache against the game data ({:.1} MiB read, once)", bytes as f64 / (1u64 << 20) as f64);
+    let (mut files, mut sealed, mut volume) = (BTreeMap::new(), BTreeMap::new(), None);
+    for name in outputs.iter().chain(&backups) {
+        let path = root.join(name);
+        if !path.try_exists()? { continue; }
+        let (digest, crc) = digest_and_crc(root, &path)?;
+        if let Err(why) = cache.describes(&path, (digest.size, crc), &mut volume) {
+            tracing::info!(file = %name, why, "the earlier change cache does not prove this file");
+            return unproven(if outputs.contains(name) { "it is not the output the earlier change cache recorded" }
+                else { "its backups are not the ones the earlier change cache recorded" });
+        }
+        if outputs.contains(name) { files.insert(name.clone(), digest); } else { sealed.insert(name.clone(), digest); }
+    }
+    let (header, backup) = (root.join(&outputs[0]), root.join(&backups[0]));
+    let (Some(header), Some(backup)) = (camino::Utf8Path::from_path(&header), camino::Utf8Path::from_path(&backup)) else {
+        return unproven("the game folder's path is not valid UTF-8");
+    };
+    if !crate::load::validate_backup(header, backup) { return unproven("the vanilla backup does not pass its seal"); }
+    let receipt = Receipt { format: 1, stem: stem.into(), files, backups: sealed, previous: None };
+    super::transaction::atomic_write(&directory(root)?.join(format!("{stem}.json")), &serde_json::to_vec(&receipt)?)?;
+    tracing::info!("Adopted the {stem} game data an earlier kiln-eml published (its change cache names exactly these files and backups): it now has an ownership receipt");
+    Ok(Adoption::Adopted)
+}
+
 /// The publication's patched header is live: the previous generation is no longer what the game runs.
 pub(crate) fn committed(root: &Path, stem: &str) -> io::Result<()> {
     let Some(mut receipt) = read_receipt(root, stem)? else { return Ok(()) };
@@ -415,10 +508,68 @@ mod tests {
         let restored = KFCFile::from_path(root.join("g.kfc"), false).unwrap();
         for (index, container) in restored.containers().iter().enumerate() {
             assert_eq!(fs::metadata(root.join(format!("g_{index:03}.dat"))).unwrap().len(), container.size,
-                "disabling content mods must not leave nonempty padding DAT files");
+                "every container the restored header lists has the size it lists (the game refuses to start otherwise)");
         }
+        // the container EML wrote stays on disk, outside the restored header's list (the game never opens it; the next
+        // patch run truncates or reuses it)
+        let written = restored.containers().len();
+        assert!(fs::metadata(root.join(format!("g_{written:03}.dat"))).unwrap().len() > 0);
         assert!(!owns_output(&root, "g").unwrap());
         fs::remove_dir_all(root).unwrap();
+    }
+    /// A real EML publication over a real KFC pair (sealed backups, a new content container), as above.
+    fn real_published() -> (PathBuf, Vec<u8>, Vec<u8>) {
+        use std::rc::Rc;
+        use kfc::{container::{KFCFile, KFCWriter}, guid::ContentHash, reflection::TypeRegistry};
+        let root = std::env::temp_dir().join(format!("kiln-real-handoff-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        fs::File::create(root.join("g.kfc")).unwrap();
+        fs::File::create(root.join("g.kfc_resources")).unwrap();
+        let types = Rc::new(TypeRegistry::default());
+        let mut original: crate::transaction::Writer = KFCWriter::new(&root, "g", types.clone(), "fixture").unwrap();
+        original.write_content(&ContentHash::from_data(b"original"), b"original").unwrap();
+        original.finalize().unwrap();
+        let (header, resources) = (fs::read(root.join("g.kfc")).unwrap(), fs::read(root.join("g.kfc_resources")).unwrap());
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        crate::load::create_backup(path.join("g.kfc")).unwrap();
+        let base = Rc::new(KFCFile::from_path(root.join("g.kfc.bak"), false).unwrap());
+        let mut patch = crate::load::create_writer(path, "g", &types, &base).unwrap();
+        patch.write_content(&ContentHash::from_data(b"new content"), b"new content").unwrap();
+        patch.finalize().unwrap();
+        assert!(owns_output(&root, "g").unwrap());
+        (root, header, resources)
+    }
+    // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
+    // back; a busy SF, an SF preparation in progress or a state Kiln does not know refuses, and nothing is copied.
+    #[test]
+    fn restore_hands_over_a_recognized_sf_state_and_refuses_a_busy_or_unknown_one() {
+        for case in ["applied", "busy", "unknown", "preparing"] {
+            let (root, header, resources) = real_published();
+            let patched = (fs::read(root.join("g.kfc")).unwrap(), fs::read(root.join("g.kfc_resources")).unwrap());
+            let (state, _) = sf(&root, false);
+            let held = match case {
+                "busy" => { let f = fs::File::create(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap(); f.lock().unwrap(); Some(f) },
+                "unknown" => { edit_sf(&state, |v| v["assets"]["schemaVersion"] = 99.into()); None },
+                "preparing" => { edit_sf(&state, |v| v["assets"] = serde_json::json!({"schemaVersion":1,"status":"preparing","target":"g"})); None },
+                _ => None,
+            };
+            let before = fs::read(&state).unwrap();
+            let restored = crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g");
+            let now = (fs::read(root.join("g.kfc")).unwrap(), fs::read(root.join("g.kfc_resources")).unwrap());
+            if case == "applied" {
+                assert!(restored, "{case}");
+                assert_eq!(now, (header, resources), "{case}");
+                let current: serde_json::Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
+                assert_eq!(current["assets"]["status"], "failed", "{case}: SF must prepare again");
+                assert!(fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("sf-handoff-")));
+            } else {
+                assert!(!restored, "{case}");
+                assert_eq!(now, patched, "{case}: nothing copied");
+                assert_eq!(fs::read(&state).unwrap(), before, "{case}: SF state untouched");
+            }
+            drop(held);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn legacy_cache_and_foreign_backups_do_not_authorize_restore() {

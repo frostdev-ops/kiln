@@ -120,6 +120,8 @@ export function EngineRow({ s }: { s: EngineStatus }) {
 /** A shared backup difference is not proof of EML ownership. Only the archive writer can safely restore its output. */
 export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   const backup = useQuery({ queryKey: ["eml_backup", gameId], queryFn: () => api.emlBackup(gameId) });
+  // the last start's eml.json: `reason` when kiln-eml left differing data alone because it could not prove it wrote it
+  const engines = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
   const patched = (backup.data ?? []).filter((b) => b.patched);
@@ -128,11 +130,17 @@ export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   if (active.error) return <EmptyState title="The active profile is not readable" hint={errorText(active.error)} />;
   if (!patched.length || active.isLoading || (active.data && !profile.data) || emlOn) return null;
   const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
+  const eml = engines.data?.find((s) => s.kind === "eml")?.state;
+  const unproven = isObj(eml) && eml.phase === "idle" ? str(eml.reason) : null;
   return (
-    <Banner tone="info" title="Shared archive backup differs">
+    <Banner tone={unproven ? "warn" : "info"} title="Shared archive backup differs">
       {names} {patched.length === 1 ? "differs" : "differ"} from the shared backup; this does not identify which loader wrote it.
-      {" "}To remove EML changes, disable EML mods and launch through an updated Kiln. Its archive writer checks ownership
-      before restoring its own unchanged output. Other loaders' data is kept; the launcher never copies shared backups directly.
+      {unproven ? <>{" "}On the last start without EML mods: {unproven}.</> : <>
+        {" "}To remove EML changes, disable EML mods and start the game through Kiln: its archive writer checks ownership and
+        restores only output it can prove it wrote (earlier Kiln versions' too). When it cannot, it leaves the data alone
+        and says why here; then enable any EML mod for one start and disable it again, or use Steam's "Verify integrity of
+        game files".</>}
+      {" "}Other loaders' data is kept; the launcher never copies shared backups directly.
     </Banner>
   );
 }
