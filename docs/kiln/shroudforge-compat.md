@@ -168,7 +168,8 @@ The native adapter reports `menu: helper|kiln|off|server|unavailable` and `menuK
 Only without a running hosted helper does it hold `Local\\ShroudForge.ModMenu.Open.<game-pid>`; the managed worker
 waits on that auto-reset event. This is SF's real `shroudforge.ui.toggle_modloader()` contract. It never competes
 with the installed helper for events. The fallback key is remappable in Kiln's Keys tab; unsupported/mouse-only/Meta
-or empty configured bindings do not silently become F9. Helper exit hands ownership to Kiln; stopped runtime removes
+or empty configured bindings do not silently become F9, nor does a `toggleKey` that is not text (null, a number:
+ShroudForge refuses those too), which reports `menuKey` "" and a warning in kiln.log. Helper exit hands ownership to Kiln; stopped runtime removes
 the fallback binding. SF module-off and self-hosted behavior stay intact.
 
 Windowless native Wine tests exercise absent/installed/exited/disabled/self-hosted helpers and repeated auto-reset

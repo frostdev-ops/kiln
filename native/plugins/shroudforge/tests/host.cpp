@@ -221,7 +221,11 @@ int main(int argc, char** argv) {
                 }
             }
             CloseHandle(event); CloseHandle(ack);
-            std::printf("menu: three auto-reset toggles received by %s\n", installed && !exits ? "helper" : "Kiln bridge");
+            if (installed && !exits) std::printf("menu: three auto-reset toggles received by helper\n");
+            // No Kiln.Ui here: this process sets the event and takes it back itself. That shows the adapter holds an
+            // auto-reset event of ShroudForge's name (in game kfc-runtime.dll may have created it first), not that
+            // Kiln.Ui, which waits on it in game, received it.
+            else std::printf("menu: Kiln's auto-reset event is open; three toggles set and taken back by this test\n");
         }
     }
     if (delayed && !stop_during_write) {

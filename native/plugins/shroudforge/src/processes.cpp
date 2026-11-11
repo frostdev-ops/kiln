@@ -86,9 +86,20 @@ const char* helper_menu() {
     return "kiln";
 }
 
+// modules.modloaderUi.toggleKey: missing is ShroudForge's default (SDL:66, F9) and "" is no key. Any other value (null,
+// a number) ShroudForge itself refuses ("Hotkey must be an SDL binding string"): no key then either, never F9 for a
+// player who may have meant none.
 std::string helper_menu_key(const std::filesystem::path& root) {
-    try { return read_config(root).at("modules").at("modloaderUi").value("toggleKey", std::string("SDL:66")); }
-    catch (...) { return "SDL:66"; }
+    try {
+        const auto config = read_config(root);
+        const auto& ui = config.at("modules").at("modloaderUi");
+        const auto key = ui.find("toggleKey");
+        if (key == ui.end()) return "SDL:66";
+        if (key->is_string()) return key->get<std::string>();
+        logf(KILN_LOG_WARN, "ShroudForge's modloaderUi.toggleKey is %s, not a key (ShroudForge refuses it too): no key opens "
+                            "its menu; set one in ShroudForge's settings, or use Kiln's Mods entry", key->type_name());
+        return "";
+    } catch (...) { return "SDL:66"; }
 }
 
 void start_helper_processes(const std::filesystem::path& root, bool server) {

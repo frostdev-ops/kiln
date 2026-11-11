@@ -16,7 +16,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1',
                WAYLAND_DISPLAY='kiln-no-display', WINEDLLOVERRIDES='winedbg.exe=d')
     env.pop('DISPLAY', None)
-    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=None):
+    MISSING = object()  # menu_key: no toggleKey in ShroudForge's config (None writes a JSON null)
+    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=MISSING):
         game = root / name
         if linked_layout:
             layout = root / (name + '-steam-library')
@@ -37,10 +38,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             shutil.copyfile(build / 'eml.dll', game / 'kiln/plugins/kiln-eml.dll')
         if helper:
             shutil.copyfile(build / 'sfhost.exe', game / 'shroudforge/shroudforge.exe')
-        if menu_off or menu_key is not None:
+        if menu_off or menu_key is not MISSING:
             (game / 'shroudforge/config').mkdir()
             menu_config = {'enabled': not menu_off}
-            if menu_key is not None:
+            if menu_key is not MISSING:
                 menu_config['toggleKey'] = menu_key
             (game / 'shroudforge/config/modloader-config.json').write_text(json.dumps({'modules': {'modloaderUi': menu_config}}))
         if self_hosted:
@@ -205,20 +206,25 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     def menu_is(who, key='SDL:66'):
         def verify(status, calls, out):
             assert status['menu'] == who and status['menuKey'] == key, (status, out)
-            if who in ('helper', 'kiln'):
-                assert 'menu: three auto-reset toggles received by ' in out, out
+            if who == 'helper':
+                assert 'menu: three auto-reset toggles received by helper' in out, out
+            if who == 'kiln':  # the event only: Kiln.Ui, which waits on it in game, is not part of this test
+                assert "menu: Kiln's auto-reset event is open; three toggles set and taken back by this test" in out, out
         return verify
     client = {'KILN_SF_CLIENT': '1'}
     case('menu-bundled-no-exe', installed='corrupt', extra_env=client, verify=menu_is('kiln'))
     case('menu-custom-key', extra_env=client, menu_key='Ctrl+SDL:14', verify=menu_is('kiln', 'Ctrl+SDL:14'))
     case('menu-empty-key', extra_env=client, menu_key='', verify=menu_is('kiln', ''))
+    # ShroudForge refuses a toggleKey that is not text ("Hotkey must be an SDL binding string"): no key, never F9
+    case('menu-null-key', extra_env=client, menu_key=None, verify=menu_is('kiln', ''))
+    case('menu-number-key', extra_env=client, menu_key=66, verify=menu_is('kiln', ''))
     case('menu-installed-helper', extra_env=client, helper=True, verify=menu_is('helper'))
     case('menu-helper-exited', extra_env=dict(client, KILN_SF_HELPER_EXIT='1'), helper=True, verify=menu_is('kiln'))
     case('menu-disabled', extra_env=dict(client, KILN_SF_MENU_OFF='1'), menu_off=True, verify=menu_is('off'))
     case('menu-self-hosted', extra_env=dict(client, KILN_SF_SELF_HOSTED='1'), self_hosted=True)
 
     # ---- dev.22: drop-ins for ShroudForge with an active profile that lists no ShroudForge mods ----
-    def profile_case(name, dropins, package):
+    def profile_case(name, dropins, package, state=None):
         game = root / name
         (game / 'kiln').mkdir(parents=True)
         for kind in ('shroudforge', 'kiln/plugins/shroudforge'):
@@ -231,6 +237,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         if package:
             (game / 'mods/pkg').mkdir(parents=True)
             (game / 'mods/pkg/extended.mod.json').write_text(json.dumps({'enabled': True}))
+        if state:  # ShroudForge's own state file: <game>/shroudforge/state.json (its default paths.state folder)
+            (game / 'shroudforge/state.json').write_text(json.dumps(state))
         profile = {'format': 1, 'id': 'p', 'generation': 1, 'mods': {}}
         if dropins is not None:
             profile['dropins'] = dropins
@@ -248,6 +256,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         status, log, out = profile_case(name, dropins, package=True)
         assert status['mode'] != 'off' and log.exists() and 'prepare' in log.read_text().splitlines(), (name, status, out)
         print('PASS', name)
+    # no package left, but ShroudForge's last startup patch is applied: it must run to keep (or undo) that patch
+    status, log, out = profile_case('profile-dropins-applied-state', True, package=False, state={'assets': {'status': 'applied'}})
+    assert status['mode'] != 'off' and log.exists() and 'prepare' in log.read_text().splitlines(), (status, out)
+    print('PASS profile-dropins-applied-state')
     for name, dropins, package in [('profile-no-dropins', None, True), ('profile-dropins-other', ['emf'], True),
                                    ('profile-dropins-empty-folder', True, False)]:
         status, log, out = profile_case(name, dropins, package)

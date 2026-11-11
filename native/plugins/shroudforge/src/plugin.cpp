@@ -225,7 +225,9 @@ bool legacy_wanted(std::string* reason) {
         } catch (...) { return true; } // let SF diagnose its own malformed package
     }
     try {
-        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge/state") / L"state.json"));
+        // ShroudForge's state file: <paths.state>/state.json, by default <game>/shroudforge/state.json (its own default
+        // state folder is its data folder, not shroudforge/state)
+        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge") / L"state.json"));
         if (const auto it = state.find("assets"); it != state.end()) {
             const auto status = it->value("status", std::string{});
             if (status == "applied" || status == "preparing" || status == "failed") return true;
