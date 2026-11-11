@@ -250,6 +250,24 @@ fn addon_log_is_optional_bounded_and_redacted() {
         old.repeat(SMALL_LOG_MAX as usize / old.len() + 1) + last, "collection is read-only");
 }
 
+/// manage-import F9: the addon log sits in the game root, where no Kiln component writes; a link planted there (by a
+/// hand-extracted archive) must not put the file it points at into the report the player posts.
+#[cfg(unix)]
+#[test]
+fn a_link_at_the_addon_log_is_not_followed() {
+    let f = Fx::healthy("addon-log-link");
+    let secret = f.root.join("outside/id_ed25519");
+    std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
+    std::fs::write(&secret, "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRETKEYBYTES\n-----END OPENSSH PRIVATE KEY-----\n").unwrap();
+    std::os::unix::fs::symlink(&secret, f.game.join("shroudlink_client.log")).unwrap();
+    let r = build(&f.input());
+    for (name, bytes) in &r.files {
+        assert!(!String::from_utf8_lossy(bytes).contains("SECRETKEYBYTES"), "{name} holds the link's target");
+    }
+    assert!(file(&r, "game/shroudlink_client.log").is_none(), "{:?}", file(&r, "game/shroudlink_client.log"));
+    assert!(r.errors.iter().any(|e| e.contains("shroudlink_client.log")), "say why it was left out: {:?}", r.errors);
+}
+
 #[test]
 fn not_installed_and_foreign_dinput8() {
     let f = Fx::new("noinstall");

@@ -590,11 +590,13 @@ fn rel(game: &Path, r: &str) -> PathBuf {
     r.split('/').fold(game.to_path_buf(), |p, c| p.join(c))
 }
 
-/// The last `max` bytes of a file (from a line start), CR removed. Err: why it is not readable.
+/// The last `max` bytes of a file (from a line start), CR removed. Err: why it is not readable. A link is never followed
+/// (the addon's log sits in the game root, where no Kiln component writes and an unpacked archive can leave one).
 fn tail(path: &Path, max: u64) -> std::result::Result<Option<(String, bool)>, String> {
-    match std::fs::metadata(path) {
+    match std::fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.to_string()),
+        Ok(m) if crate::quick::import_is_link(&m) => return Err("a link, not followed".into()),
         Ok(m) if !m.is_file() => return Err("not a file".into()),
         Ok(_) => {}
     }
