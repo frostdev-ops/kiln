@@ -140,7 +140,12 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   published durably before patching. Malformed or checksum-mismatched backups are refused. An interrupted seal
   update can be repaired only when both backups still match the untouched live files. Older unsealed resource
   backups must match the live vanilla prefix before adoption; legacy header-only backups cannot restore the
-  resource file byte for byte.
+  resource file byte for byte. After a game update ShroudForge replaces the pair itself: Kiln's bundled SF moves the
+  old pair and the seal to `shroudforge/backups/outdated-working-baseline/`, an installed SF's Updater replaces both
+  and leaves the seal. Either way kiln-eml takes up the new pair by the unsealed rule (the live build, the live
+  resource prefix) and seals it; a sealed pair counts as replaced, not damaged, only when the files' lengths differ
+  from what the seal recorded, and a same-length mismatch stays refused. The old receipt then lists other backups, so
+  nothing is taken for EML's output and the old build's bytes never go back.
 - **Publication:** the writer builds privately in the game filesystem, flushes every output, publishes the vanilla
   header from its validated private snapshot before replacing mod-owned containers/resources, and publishes the
   patched header last. Vanilla containers
