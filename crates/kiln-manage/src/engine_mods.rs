@@ -508,7 +508,8 @@ pub struct PlaceReport {
     pub kept: Vec<String>,
     /// Kiln's copies removed (SET: switched off or no longer in the profile).
     pub removed: Vec<String>,
-    /// ShroudForge mods whose `extended.mod.json` switch changed.
+    /// ShroudForge mods whose `extended.mod.json` switch changed, and EML copies in ShroudForge's mods folder whose
+    /// ShroudForge switch Kiln turned on (an older Kiln's copy without it, or one switched off in the game).
     pub switched: Vec<String>,
     /// A folder with the mod's name that the player put there: left as it is. For the own-loader kinds also a
     /// player's folder holding the same mod (the same manifest id): the own loader runs that one.

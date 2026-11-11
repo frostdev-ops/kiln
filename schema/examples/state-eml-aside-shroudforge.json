@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "pid": 384,
+  "kilnEml": "0.1.0",
+  "eml": "0.2.0",
+  "phase": "aside",
+  "file": null,
+  "patched": 0,
+  "cached": false,
+  "restored": false,
+  "ms": 0.0,
+  "error": null,
+  "aside": "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+  "mods": [
+    {
+      "id": "fcu-render-observer",
+      "version": null,
+      "name": null,
+      "source": "profile",
+      "path": "S:\\steamapps\\common\\Enshrouded\\mods\\fcu-render-observer",
+      "state": "own-loader",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at S:\\steamapps\\common\\Enshrouded\\mods\\fcu-render-observer)",
+      "capabilities": []
+    },
+    {
+      "id": "more-gliders",
+      "version": null,
+      "name": null,
+      "source": "profile",
+      "path": "S:\\steamapps\\common\\Enshrouded\\mods\\more-gliders",
+      "state": "off-in-shroudforge",
+      "reason": "ShroudForge (hosted by Kiln) runs this start, but ShroudForge has Kiln's copy at S:\\steamapps\\common\\Enshrouded\\mods\\more-gliders switched off: it has no extended.mod.json, the file that holds ShroudForge's switch (ShroudForge keeps a package off until its switch is on). Nothing applies it this start. Press Play in the Kiln launcher (or activate the profile again): Kiln switches it on in ShroudForge's settings",
+      "capabilities": []
+    },
+    {
+      "id": "server-only-tweak",
+      "version": null,
+      "name": null,
+      "source": "profile",
+      "path": "S:\\steamapps\\common\\Enshrouded\\mods\\server-only-tweak",
+      "state": "other-side",
+      "reason": "ShroudForge runs it on the other side only: its extended.mod.json targets the server only (Kiln's copy at S:\\steamapps\\common\\Enshrouded\\mods\\server-only-tweak)",
+      "capabilities": []
+    }
+  ]
+}
