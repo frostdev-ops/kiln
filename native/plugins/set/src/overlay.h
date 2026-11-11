@@ -12,6 +12,7 @@ struct Api {
 };
 const Api* service();
 void configure(std::filesystem::path logs, std::filesystem::path control, void (*sink)(const char*) = nullptr);
+void sessionOff(std::filesystem::path control);  // this start runs no SET: its crash is not blamed on SET next time
 void bind(const KilnUiApi* ui, KilnOwner owner);
 void draw();                         // render thread; never enters Lua or reads entity memory
 void stop();                        // no further tools or captured input

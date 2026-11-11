@@ -129,6 +129,27 @@
  if(setui::isOpen())std::cerr<<"last session: notice opened after a normal exit, capture="<<toolsCapture<<"\n";
  assert(!setui::isOpen()&&!toolsDemand&&!toolsCapture&&setui::logText(true).rfind("previous session log",0)==0);
  setui::stop();
+ // A crash report from outside the previous SET session is not its crash: the marker's time is that session's start,
+ // and kiln.prev.log's last write its end (plus a minute for the game to write its report).
+ {const auto mark=controlFolder/"set-session.txt",prev=logFolder/"kiln.prev.log";
+  auto crashAt=[&](const char* name,std::filesystem::file_time_type t){std::filesystem::create_directories(game/"crash_dumps"/name);
+   const auto f=game/"crash_dumps"/name/"enshrouded.info";std::ofstream(f)<<R"({"info":"another run's crash","exception":"not this session"})";std::filesystem::last_write_time(f,t);};
+  auto opensNotice=[&]{setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);const bool open=setui::isOpen();setui::stop();return open;};
+  const auto start=std::filesystem::last_write_time(prev)-std::chrono::hours(1);
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);std::filesystem::last_write_time(prev,start+std::chrono::minutes(30));
+  crashAt("later",start+std::chrono::hours(3));                      // a later run without Kiln crashed
+  if(opensNotice())std::cerr<<"last session: a crash 2.5 h after the SET session's log ended opened the notice\n";
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);assert(!opensNotice());
+  std::filesystem::remove_all(game/"crash_dumps/later");
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);std::filesystem::last_write_time(prev,start+std::chrono::seconds(10));
+  crashAt("before",start-std::chrono::seconds(30));                  // a crash just before the session started
+  if(opensNotice())std::cerr<<"last session: a crash before the SET session started opened the notice\n";
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);assert(!opensNotice());
+  std::filesystem::remove_all(game/"crash_dumps/before");std::ofstream(prev)<<"previous session log";
+  // A start that ran no SET (play once without mods) clears the marker: a crash in it is not SET's.
+  std::ofstream(mark)<<"running=1\n";crashAt("noset",std::filesystem::file_time_type::clock::now());
+  setui::sessionOff(controlFolder);assert(slurp(mark)=="running=0\n"&&!opensNotice());
+  std::filesystem::remove_all(game/"crash_dumps/noset");}
  std::filesystem::create_directories(game/"crash_dumps/test");std::ofstream(controlFolder/"set-session.txt")<<"running=1\n";
  std::ofstream(game/"crash_dumps/test/enshrouded.info")<<R"({"info":"fixture crash","exception":"fixture exception","source":")"
    <<std::string(199,'x')<<"\u00e9 and more\"}";  // the 200-byte cut of a value falls inside the two bytes of the e
