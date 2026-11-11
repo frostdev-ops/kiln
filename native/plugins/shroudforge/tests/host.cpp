@@ -405,6 +405,21 @@ static BOOL WINAPI slow_move(LPCWSTR from, LPCWSTR to, DWORD flags) {
     if (moved && to && std::filesystem::path(to).filename() == L"heartbeat.json") ++heartbeats_written;
     return moved;
 }
+// Deliver a window-thread record after the worker dumped its last status, but before that snapshot reaches disk.
+// This is still before cleanup unsubscribes: a fault here must also reach the final on-disk status.
+static BOOL WINAPI fault_after_snapshot_move(LPCWSTR from, LPCWSTR to, DWORD flags) {
+    static std::atomic<bool> delivered{false};
+    if (to && std::filesystem::path(to).filename() == L"shroudforge.json") {
+        std::ifstream in(from, std::ios::binary);
+        const std::string snapshot((std::istreambuf_iterator<char>(in)), {});
+        if (snapshot.find("\"runtime\": \"stopped\"") != std::string::npos && !delivered.exchange(true)) {
+            std::thread window([] { ui_deliver(raw(0x43, 0, VK_F9)); });
+            window.join();
+            mark("fault-after-last-snapshot");
+        }
+    }
+    return original_move(from, to, flags);
+}
 static HANDLE WINAPI slow_create(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags,
                                  HANDLE tmpl) {
     if (name && std::filesystem::path(name).filename() == L"shroudforge-server.log") slow_io(name);
@@ -467,6 +482,9 @@ int main(int argc, char** argv) {
     const bool stalled = GetEnvironmentVariableW(L"KILN_SF_STALL_UPDATE", nullptr, 0) != 0;
     if (stalled) std::printf("heartbeat-start %lld\n", static_cast<long long>(std::time(nullptr)));
     if (delayed && !slow_heartbeat(h)) return 8;
+    const bool final_feed_fault = GetEnvironmentVariableW(L"KILN_SF_FAULT_AFTER_SNAPSHOT", nullptr, 0) != 0;
+    if (final_feed_fault && !patch_import(h, "MoveFileExW", reinterpret_cast<void*>(&fault_after_snapshot_move),
+                                           reinterpret_cast<void**>(&original_move))) return 8;
     auto fn = reinterpret_cast<KilnPluginMainFn>(GetProcAddress(h, argc > 3 ? "kiln_plugin_early" : "kiln_plugin_main"));
     if (!fn) return 4;
     // KILN_SF_REAL_ORDER (with `early`): the order of a real start (native/core/src/boot.cpp). The early pass and its
@@ -514,7 +532,7 @@ int main(int argc, char** argv) {
         Sleep(150);
     } else if (real) {
         play_real(game);
-    } else if (GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", nullptr, 0)) {
+    } else if (GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", nullptr, 0) && !final_feed_fault) {
         play_script();
     }
     if (stalled) {
