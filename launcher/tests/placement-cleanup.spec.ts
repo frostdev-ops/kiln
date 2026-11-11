@@ -150,3 +150,18 @@ test("a server deploy's warnings stay until closed", async ({ page }) => {
   await page.clock.fastForward(10_000);
   await expect(kept).toBeVisible();
 });
+
+test("adding a mod shows what writing the profile again kept in the game folder", async ({ page }) => {
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.evaluate(() => {
+    const mock = (window as unknown as { __kilnMock: { planActivation: (report: unknown) => void } }).__kilnMock;
+    mock.planActivation({ retained: [{ path: "greeneye/unlock-map-markers", reason: "unlock-map-markers.dll was changed", mayRun: true }] });
+  });
+  const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "night-owl-1.2.0.zip")); return d; });
+  await page.locator(".k-hero").dispatchEvent("drop", { dataTransfer: dt });
+  await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
+  const warning = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
+  await expect(warning).toContainText("greeneye/unlock-map-markers");
+  await expect(warning).toContainText("unlock-map-markers.dll was changed");
+});

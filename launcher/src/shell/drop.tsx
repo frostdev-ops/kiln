@@ -14,6 +14,7 @@ import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfil
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 import { useInstallPrompt } from "./firstRun";
 import { detailsAction, leftOutLine, names as nameList, summarize, usePickProfile } from "./importResult";
+import { notifyActivation } from "./notices";
 
 /** "Night Owl", "Night Owl and Dawn Lamp", "3 mods". */
 function names(m: { name: string }[]): string {
@@ -105,6 +106,7 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       r = await runTask<AddReport>(() => api.libraryAdd(game.id, paths), { failed: "Not added" });
     } catch { return null; }
     refresh(r.profileId, game.id);
+    notifyActivation(r.activation); // what writing the profile again kept in the game folder
     if (r.modpacks.length) offerModpacks(game, r.modpacks);
     const found = [...r.import.imported, ...r.import.existing];
     const sum = summarize(r.import);
