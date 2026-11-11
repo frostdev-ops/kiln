@@ -341,8 +341,10 @@ nose down. `GlideSteer` changes that one step for the player (`native/services/r
   dropped while the nose is above it; any other correction of the game stands.
 - **W** is the game's own: back through level into its dive (at most 80 degrees down). A W held from before the glider
   opened is ignored until released once, as in the game.
-- Input mode 1 (the game's pitch-to-an-angle stick mode), or a glider whose `pitchAngleSpeed` another mod set to 0 or
-  less (SF Unlimited Flight does that while it steers), keeps the game's step: that mod steers, Kiln does not as well.
+- Input mode 1 (the game's pitch-to-an-angle stick mode) keeps the game's step, and the whole glide is then as without
+  `GlideSteer` (`GlideBoost`'s plane path, sink 0's altitude hold), in the server's world and the player's prediction
+  alike (both read the same replicated mode byte). A glider whose `pitchAngleSpeed` another mod set to 0 or less (SF
+  Unlimited Flight does that while it steers) keeps the game's step too: that mod steers, Kiln does not as well.
 - The game's own glide follows the real pitch: its thrust along the nose and its drag. With a sink above 0 a steep
   climb costs speed and a dive gives it, as in the game. Creative mode keeps `GlideSink` 0 (no gravity while gliding):
   level flight then holds its altitude with the nose at level, and the game's thrust keeps the glider at its own speed

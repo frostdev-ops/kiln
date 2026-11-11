@@ -104,6 +104,16 @@ int main() {
     check(steer_step(game_step(20 * kD, -1, 1, rate, dt), 20 * kD, max, -1, 1, 85) == game_step(20 * kD, -1, 1, rate, dt),
           "input mode 1 (pitch to an angle): the game's step");
     check(steer_step(0.01f, 20 * kD, max, -1, 2, 85) == 0.01f, "an unknown input mode: the game's step");
+    {
+        // the glide wrap takes its steering form (no plane path, no sink-0 hold) exactly where the pitch is steered
+        bool agree = steers_mode(0);
+        for (int m = 0; m < 256; ++m) {
+            const auto mode = static_cast<uint8_t>(m);
+            const float g = game_step(5 * kD, -1, mode, rate, dt);
+            agree = agree && (m == 0 || !steers_mode(mode)) && ((steer_step(g, 5 * kD, max, -1, mode, 85) != g) == steers_mode(mode));
+        }
+        check(agree, "steers_mode (the glide wrap's steering form): input mode 0 only, exactly the modes steer_step steers");
+    }
     check(steer_step(0.0f, -30 * kD, 0.0f, -1, 0, 85) == 0.0f, "max step 0 (another mod holds the rate at 0): the game's step");
     check(steer_step(-0.02f, -30 * kD, -0.02f, -1, 0, 85) == -0.02f && steer_step(0.02f, -30 * kD, -0.02f, 1, 0, 85) == 0.02f,
           "a negative max step (SF Unlimited Flight owns the rate): the game's step");

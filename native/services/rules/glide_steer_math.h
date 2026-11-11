@@ -39,11 +39,17 @@ constexpr float kGameTopPitch = 5.0f * kRad;  // the game's pitch target never g
 constexpr float kMaxSteerLimit = 85.0f;       // degrees above level: the highest limit any rule may set
 constexpr float kSteerCentre = 0.1f;          // |stick forward axis| up to this is a centred stick
 
+// The input mode steer_step steers (PlayerInput.fromClient.movementStickInputMode 0, YawSpeedPitchSpeed). The glide
+// wrap's steering form (rules.cpp glide_pre, steer.cpp steers) asks the same, of the same replicated byte: in any other
+// mode the pitch stays the game's, so the glide must too (GlideBoost's plane path, sink 0's altitude hold), on the
+// server and in the player's prediction alike.
+constexpr bool steers_mode(uint8_t mode) { return mode == 0; }
+
 // The pitch step to use (rad, + = nose down) for actor_rotation's step `game_step`. pitch: the pitch measured this step;
 // max_step: the game's bound (pitchAngleSpeed x deg2rad x dt); z: ActorInput.desiredLocalMoveInput.z; mode:
 // PlayerInput.fromClient.movementStickInputMode; limit_deg: how far above level the nose may rise.
 inline float steer_step(float game_step, float pitch, float max_step, float z, uint8_t mode, float limit_deg) {
-    if (mode != 0 || !std::isfinite(game_step) || !std::isfinite(pitch) || !std::isfinite(max_step) || !std::isfinite(z) ||
+    if (!steers_mode(mode) || !std::isfinite(game_step) || !std::isfinite(pitch) || !std::isfinite(max_step) || !std::isfinite(z) ||
         !std::isfinite(limit_deg) || !(max_step > 0.0f))
         return game_step;
     const float top = -std::clamp(limit_deg, 0.0f, kMaxSteerLimit) * kRad;  // the highest nose allowed (pitch)
