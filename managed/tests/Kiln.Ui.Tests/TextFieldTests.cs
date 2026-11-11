@@ -87,7 +87,7 @@ public sealed class TextFieldTests : IDisposable
         var folder = Path.Combine(_root, "mods", "notes");
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"notes","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"enabled\": true,\n  \"settings\": " + settings + "\n}\n");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": " + settings + "\n}\n");
         ShroudForgeUi.Load(folder);
         return folder;
     }

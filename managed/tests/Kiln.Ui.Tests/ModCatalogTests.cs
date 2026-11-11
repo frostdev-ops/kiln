@@ -291,8 +291,10 @@ public sealed class ModCatalogTests : IDisposable
         Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = Dir("mods", "pack") }, new { id = "off", version = "1.0.0", path = Dir("mods", "off"), enabled = false }] });
         // a readable, switched-on runtime package: only the missing runtime report keeps it from Loaded
         File.WriteAllText(Path.Combine(mods, "pack", "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(mods, "pack", "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
-        File.WriteAllText(Path.Combine(Dir("mods", "hand"), "extended.mod.json"), """{"id":"hand","name":"Hand Made","version":"0.1","enabled":false}""");
+        File.WriteAllText(Path.Combine(mods, "pack", "extended.mod.json"), """{"schemaVersion":1,"enabled":true,"targets":["client"]}""");
+        var handFolder = Dir("mods", "hand");
+        File.WriteAllText(Path.Combine(handFolder, "mod.json"), """{"id":"hand","name":"Hand Made","version":"0.1.0"}""");
+        File.WriteAllText(Path.Combine(handFolder, "extended.mod.json"), """{"schemaVersion":1,"enabled":false}""");
         Write("shroudforge.json", new { format = 1, mode = "hosted", reason = "", updated = StartMs / 1000 + 10, modsDir = mods });
         var s = Read();
         var pack = Mod(s, "shroudforge", "pack");
@@ -316,8 +318,8 @@ public sealed class ModCatalogTests : IDisposable
         foreach (var id in new[] { "active", "failed", "blocked", "disabled", "server", "inactive", "patch" })
         {
             var folder = Dir("mods", id);
-            File.WriteAllText(Path.Combine(folder, "mod.json"), JsonSerializer.Serialize(new { id, name = "Name " + id, version = "1", capabilities = new[] { id == "patch" ? "patch" : "runtime" } }));
-            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), JsonSerializer.Serialize(new { enabled = id != "disabled", targets = new[] { id == "server" ? "server" : "client" } }));
+            File.WriteAllText(Path.Combine(folder, "mod.json"), JsonSerializer.Serialize(new { id, name = "Name " + id, version = "1.0.0", capabilities = new[] { id == "patch" ? "patch" : "runtime" } }));
+            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), JsonSerializer.Serialize(new { schemaVersion = 1, enabled = id != "disabled", targets = new[] { id == "server" ? "server" : "client" } }));
         }
         Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
         var state = Path.Combine(Dir("shroudforge"), "state.json");
@@ -408,7 +410,7 @@ public sealed class ModCatalogTests : IDisposable
         {
             var folder = Dir("mods", id);
             File.WriteAllText(Path.Combine(folder, "mod.json"), $$"""{"id":"{{id}}","name":"{{id}}","version":"1.0.0","capabilities":["runtime"]}""");
-            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{"enabled":{{(on ? "true" : "false")}},"targets":["client"]}""");
+            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{"schemaVersion":1,"enabled":{{(on ? "true" : "false")}},"targets":["client"]}""");
         }
         Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = Path.Combine(mods, "pack") }, new { id = "off", version = "1.0.0", path = Path.Combine(mods, "off") }] });
         // "keys" (dev.24: where mod shortcuts get their key state) is an object beside the fields the catalog reads
@@ -476,9 +478,9 @@ public sealed class ModCatalogTests : IDisposable
     {
         var mods = TwoShroudForgeMods();
         File.WriteAllText(Path.Combine(mods, "pack", "extended.mod.json"),
-            """{"enabled":true,"targets":["client"],"settings":{"speed":{"value":2,"label":"Speed","options":{"1.5":"Slow","2.0":"Fast"}}}}""");
+            """{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{"speed":{"value":2,"label":"Speed","options":{"1.5":"Slow","2.0":"Fast"}}}}""");
         File.WriteAllText(Path.Combine(mods, "off", "extended.mod.json"),
-            """{"enabled":false,"targets":["client"],"settings":{"speed":{"value":2,"label":"Speed","options":{"1.5":"Slow","2.0":"Fast"}}}}""");
+            """{"schemaVersion":1,"enabled":false,"targets":["client"],"settings":{"speed":{"value":2,"label":"Speed","options":{"1.5":"Slow","2.0":"Fast"}}}}""");
         Assert.Equal(["speed"], ShroudForgePackages.Read(Path.Combine(mods, "pack")).Repair);
         var s = Read();
         var pack = Mod(s, "shroudforge", "pack");

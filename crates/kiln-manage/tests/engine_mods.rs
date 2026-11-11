@@ -40,7 +40,7 @@ fn sources(root: &Path) -> Vec<PathBuf> {
     put(&eml, "src/mod.lua", b"return {}");
     let sf = root.join("src/sfpack");
     put(&sf, "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"1.0.0"}"#);
-    put(&sf, "extended.mod.json", br#"{"launcher":"SF","enabled":false,"targets":["client","server"],
+    put(&sf, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"targets":["client","server"],
         "settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":3}}}"#);
     put(&sf, "src/mod.lua", b"return {}");
     let set = root.join("src/flymode");
@@ -120,7 +120,7 @@ fn every_engine_kind_is_imported_profiled_placed_and_rendered() {
     let game = game_with_z(&t.0);
     // a ShroudForge mod the player installed by hand stays theirs
     put(&game.path, "mods/handmade/mod.json", br#"{"id":"handmade","name":"Hand","version":"1.0.0"}"#);
-    put(&game.path, "mods/handmade/extended.mod.json", br#"{"launcher":"SF","enabled":true}"#);
+    put(&game.path, "mods/handmade/extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":true}"#);
     put(&game.path, "mods/handmade/src/mod.lua", b"");
     profile::activate(&dirs, &p.id, &game).unwrap();
     let file = profile::read_game_profile(&game.path).unwrap().unwrap();
@@ -379,7 +379,7 @@ fn sf_flight_switches_remain_independent_through_archive_activation_and_update()
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
         for (path, text) in [
             ("mod.json", format!(r#"{{"id":"flight-fixture","name":"Flight fixture","version":"{version}","capabilities":["runtime"]}}"#)),
-            ("extended.mod.json", r#"{"launcher":"SF","enabled":false,"targets":["client","server"],"settings":{"unlimitedFlying":{"value":true},"unlimitedGliderStamina":{"value":true}}}"#.into()),
+            ("extended.mod.json", r#"{"schemaVersion":1,"launcher":"SF","enabled":false,"targets":["client","server"],"settings":{"unlimitedFlying":{"value":true},"unlimitedGliderStamina":{"value":true}}}"#.into()),
             ("src/mod.lua", "return {}".into()),
         ] {
             zip.start_file(format!("bundle/flight/{path}"), zip::write::SimpleFileOptions::default()).unwrap();
@@ -539,7 +539,7 @@ fn placement_preserves_settings_across_versions_and_stages_before_replacing() {
     assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().settings[0].value, 7);
     assert!(game.join("mods/.kiln-place-sfpack/player.txt").is_file());
     put(&src, "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"3.0.0"}"#);
-    put(&src, "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
+    put(&src, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
     let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
     p.mods.shroudforge[0] = pm(&refs(&r, ModKind::ShroudForge, "sfpack"), true);
     // An old value the new version refuses does not hold the update back (nor every other mod of the profile): the
@@ -712,7 +712,7 @@ fn concurrent_placement_is_serialized_and_modified_library_is_refused() {
 /// A ShroudForge package as its author ships it: mod.json `id` as given, an SF extension, Lua code.
 fn sf_package(dir: &Path, id: &str) {
     put(dir, "mod.json", format!(r#"{{"id":"{id}","name":"Package {id}","version":"1.0.0"}}"#).as_bytes());
-    put(dir, "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":3}}}"#);
+    put(dir, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":3}}}"#);
     put(dir, "src/mod.lua", b"return {}");
 }
 
@@ -997,7 +997,7 @@ fn one_sf_or_set_copy_kiln_cannot_touch_never_blocks_activation_removal_or_play(
     let sf_copy = game.path.join("mods/sfpack");
     // the player tuned SET's code in place; ShroudForge's editor left a setting its own rules refuse
     put(&set_copy, "init.lua", b"print('tuned')");
-    put(&sf_copy, "extended.mod.json", br#"{"launcher":"SF","enabled":true,"targets":["client","server"],
+    put(&sf_copy, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":true,"targets":["client","server"],
         "settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":null}}}"#);
     // the same profile again, Play, another profile, the mods removed: all go on and report both copies
     let a = profile::activate(&dirs, &p.id, &game);
@@ -1071,7 +1071,7 @@ fn a_library_package_shroudforge_would_refuse_is_not_placed_and_stops_nothing() 
     let (sf, set) = (refs(&r, ModKind::ShroudForge, "sfpack"), refs(&r, ModKind::Set, "flymode"));
     // the entry as it was imported then: a setting value that is an object
     let old = library::path_of(&dirs, &sf).unwrap();
-    std::fs::write(old.join("extended.mod.json"), br#"{"launcher":"SF","enabled":false,"targets":["client","server"],
+    std::fs::write(old.join("extended.mod.json"), br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"targets":["client","server"],
         "settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":{"x":3}}}}"#).unwrap();
     let hash = hash::dirhash(&old).unwrap();
     let new = dirs.library_entry(ModKind::ShroudForge, &sf.id, &sf.version, &hash).unwrap();
@@ -1118,7 +1118,7 @@ fn server_sync_keeps_the_new_default_for_a_refused_shroudforge_setting() {
     let copy = server.join("mods/sfpack");
     kiln_manage::shroudforge::set_setting(&copy, "speed", &serde_json::json!(7)).unwrap();
     put(&src[1], "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"2.0.0"}"#);
-    put(&src[1], "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
+    put(&src[1], "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
     let v2 = refs(&library::import(&dirs, std::slice::from_ref(&src[1]), &mut NoProgress).unwrap(), ModKind::ShroudForge, "sfpack");
     let mut said = Said(Vec::new());
     let r2 = control::sync(&dirs, &inst, &[v2, refs(&r, ModKind::Set, "flymode")], &mut said);

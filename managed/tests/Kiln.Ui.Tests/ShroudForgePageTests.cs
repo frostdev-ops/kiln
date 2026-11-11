@@ -43,7 +43,7 @@ public sealed class ShroudForgePageTests : IDisposable
         var folder = Path.Combine(_root, "mods", id);
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "mod.json"), $$"""{"id":"{{id}}","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"enabled\": true,\n  \"settings\": " + settings +
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": " + settings +
             (groups is null ? "" : ",\n  \"groups\": " + groups) + "\n}\n");
         ShroudForgeUi.Load(folder);
         return folder;
@@ -117,8 +117,8 @@ public sealed class ShroudForgePageTests : IDisposable
     [Fact]
     public void A_read_that_started_before_a_save_does_not_put_old_values_back()
     {
-        // a large description makes each read take a while, so a refresh and the writer's save overlap often
-        var folder = Package($$"""{ "amount": { "value": 0, "label": "Amount", "description": "{{new string('d', 600_000)}}" } }""");
+        // a large text value makes each read take a while, so a refresh and the writer's save overlap often
+        var folder = Package($$"""{ "amount": { "value": 0, "label": "Amount" }, "padding": "{{new string('d', 600_000)}}" }""");
         var stale = new List<int>();
         for (var i = 1; i <= 150 && stale.Count == 0; i++)
         {
@@ -203,25 +203,27 @@ public sealed class ShroudForgePageTests : IDisposable
         lock (FakeUiTable.Texts) Assert.Contains("S199", FakeUiTable.Texts);  // every setting is still drawn
     }
     /// <summary>The page's indexed enabledWhen walk says what the data layer's rule says, for chains, cycles, a missing
-    /// controller, numbers compared by value and options.</summary>
+    /// controller, numbers compared by value and options. The model is built here, not read from files: the reader
+    /// refuses a package with a cycle, a missing controller or a whole number against a fractional one (as ShroudForge
+    /// does), and both rules still have to answer safely for such a model.</summary>
     [Fact]
     public void The_indexed_enabled_rule_is_the_data_layers()
     {
-        var folder = Package("""
-            {
-              "a": { "value": true, "label": "A" },
-              "b": { "value": 5, "label": "B", "enabledWhen": { "setting": "a", "equals": true } },
-              "c": { "value": "x", "label": "C", "enabledWhen": { "setting": "b", "equals": 5.0 } },
-              "d": { "value": 1, "label": "D", "enabledWhen": { "setting": "c", "equals": "y" } },
-              "e": { "value": 1, "label": "E", "enabledWhen": { "setting": "gone", "equals": 1 } },
-              "f": { "value": 1, "label": "F", "enabledWhen": { "setting": "g", "equals": 1 } },
-              "g": { "value": 1, "label": "G", "enabledWhen": { "setting": "f", "equals": 1 } },
-              "h": { "value": "fast", "label": "H", "options": { "fast": "Fast", "slow": "Slow" } },
-              "i": { "value": 2, "label": "I", "enabledWhen": { "setting": "h", "equals": "fast" } },
-              "j": { "value": false, "label": "J", "enabledWhen": { "setting": "a", "equals": false } }
-            }
-            """);
-        var p = ShroudForgePackages.Read(folder);
+        static SfSettingDef Def(string key, string type, JsonNode? value, SfCondition? when = null, params SfOption[] options) =>
+            new() { Key = key, Type = type, Label = key.ToUpperInvariant(), Value = value, EnabledWhen = when, Options = options };
+        var settings = new SfSettingList([
+            Def("a", "boolean", JsonValue.Create(true)),
+            Def("b", "integer", JsonValue.Create(5), new SfCondition("a", JsonValue.Create(true))),
+            Def("c", "string", JsonValue.Create("x"), new SfCondition("b", JsonValue.Create(5.0))),
+            Def("d", "integer", JsonValue.Create(1), new SfCondition("c", JsonValue.Create("y"))),
+            Def("e", "integer", JsonValue.Create(1), new SfCondition("gone", JsonValue.Create(1))),
+            Def("f", "integer", JsonValue.Create(1), new SfCondition("g", JsonValue.Create(1))),
+            Def("g", "integer", JsonValue.Create(1), new SfCondition("f", JsonValue.Create(1))),
+            Def("h", "string", JsonValue.Create("fast"), null, new SfOption(JsonValue.Create("fast"), "Fast"), new SfOption(JsonValue.Create("slow"), "Slow")),
+            Def("i", "integer", JsonValue.Create(2), new SfCondition("h", JsonValue.Create("fast"))),
+            Def("j", "boolean", JsonValue.Create(false), new SfCondition("a", JsonValue.Create(false))),
+        ]);
+        var p = new SfPackage { Folder = _root, Id = "model", Settings = settings };
         var byKey = p.Settings.ToDictionary(x => x.Key, StringComparer.Ordinal);
         var values = p.Values;
         var rule = new ShroudForgeUi.EnabledRule(byKey, values);

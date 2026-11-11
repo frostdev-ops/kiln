@@ -30,7 +30,7 @@ fn import(dirs: &DataDirs, src: &Path) -> library::LibraryRef {
 fn set_mod(root: &Path) { put(root,"init.lua",b"return {}"); }
 fn sf_mod(root: &Path, version: &str) {
     put(root,"mod.json",format!(r#"{{"id":"settings","name":"Settings","version":"{version}"}}"#).as_bytes());
-    put(root,"extended.mod.json",br#"{"launcher":"SF","enabled":false,"targets":["client","server"],"settings":{"speed":{"control":"slider","min":1,"max":10,"value":3},"simple":true}}"#);
+    put(root,"extended.mod.json",br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"targets":["client","server"],"settings":{"speed":{"control":"slider","min":1,"max":10,"value":3},"simple":true}}"#);
     put(root,"src/mod.lua",b"return {}");
 }
 

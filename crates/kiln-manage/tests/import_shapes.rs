@@ -402,7 +402,7 @@ fn engines_that_name_a_folder_after_the_id_keep_the_strict_id() {
     let dirs = DataDirs::at(t.0.join("data"));
     let sf = t.0.join("sf");
     put(&sf, "mod.json", br#"{"id":"My SF Mod","name":"My SF Mod","version":"1.0.0"}"#);
-    put(&sf, "extended.mod.json", br#"{"launcher":"SF","enabled":true,"targets":["client"]}"#);
+    put(&sf, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":true,"targets":["client"]}"#);
     put(&sf, "src/mod.lua", b"return {}");
     let en = t.0.join("en");
     put(&en, "pack.toml", b"id = \"You.Upper\"\n");

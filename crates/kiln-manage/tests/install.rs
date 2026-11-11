@@ -1322,7 +1322,7 @@ fn sf_package(root: &Path, id: &str) -> PathBuf {
     let folder = root.join(id);
     put(&folder, "mod.json", format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0"}}"#).as_bytes());
     put(&folder, "src/mod.lua", b"return {}");
-    put(&folder, "extended.mod.json", b"{\r\n  \"enabled\": true,\r\n  \"settings\": {\"speed\": 2}\r\n}\r\n");
+    put(&folder, "extended.mod.json", b"{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": true,\r\n  \"settings\": {\"speed\": 2}\r\n}\r\n");
     folder
 }
 
