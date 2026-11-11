@@ -446,8 +446,9 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
     crate::jsonc::parse(&crate::manifest::read_text(path).ok()?).ok()
 }
 
-/// A bounded, fail-closed TOML metadata subset. Containers are unsupported: guessing where
-/// they end can turn their contents into an identity or side declaration.
+/// A bounded, fail-closed TOML metadata subset. Only top-level strings are read. A top-level array or inline table
+/// (`authors = ["You"]`, `exports = ["point:greet"]`) is stepped over with the same string reader, never guessed:
+/// its end is the bracket that closes it, so its contents cannot become an identity or side declaration.
 fn parse_toml_strings(text: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
     fn string(input: &str) -> Option<(String, &str)> {
         let quote = input.chars().next()?;
@@ -498,6 +499,40 @@ fn parse_toml_strings(text: &str) -> Option<serde_json::Map<String, serde_json::
             }
         }
     }
+    // The text after an array or inline table that starts `input`. Arrays may span lines and hold comments; inline
+    // tables stay on one line (TOML 1.0). `=` belongs only directly inside an inline table, so `key = value` lines
+    // inside an array are refused. Bare values are numbers, booleans and dates.
+    fn container(input: &str) -> Option<&str> {
+        let mut open: Vec<char> = Vec::new();
+        let mut rest = input;
+        loop {
+            let c = rest.chars().next()?;
+            match c {
+                '[' | '{' => {
+                    if open.len() >= 32 { return None; }
+                    open.push(c);
+                    rest = &rest[1..];
+                }
+                ']' | '}' => {
+                    if open.pop()? != (if c == ']' { '[' } else { '{' }) { return None; }
+                    rest = &rest[1..];
+                    if open.is_empty() { return Some(rest); }
+                }
+                '\'' | '"' => rest = string(rest)?.1,
+                '#' | '\r' | '\n' => {
+                    if open.last() != Some(&'[') { return None; }
+                    rest = if c == '#' { rest.split_once('\n').map_or("", |(_, r)| r) } else { &rest[1..] };
+                }
+                '=' => {
+                    if open.last() != Some(&'{') { return None; }
+                    rest = &rest[1..];
+                }
+                ' ' | '\t' | ',' | '.' | '+' | '-' | '_' | ':' => rest = &rest[1..],
+                c if c.is_ascii_alphanumeric() => rest = &rest[1..],
+                _ => return None,
+            }
+        }
+    }
     if text.len() > 1024 * 1024 || text.chars().any(|c| c.is_control() && !matches!(c, '\t' | '\r' | '\n'))
         || text.replace("\r\n", "").contains('\r') { return None; }
     let mut rest = text.strip_prefix('\u{feff}').unwrap_or(text);
@@ -514,6 +549,8 @@ fn parse_toml_strings(text: &str) -> Option<serde_json::Map<String, serde_json::
             // Metadata is top-level. Tables belong to the engine; do not scan their contents.
             let header = rest.lines().next()?.split('#').next()?.trim();
             let key = header.strip_prefix('[')?.strip_suffix(']')?;
+            // an array of tables, `[[setting]]` or `[[point]]`, is a table header too
+            let key = key.strip_prefix('[').and_then(|k| k.strip_suffix(']')).unwrap_or(key);
             if key.is_empty() || !key.split('.').map(str::trim).all(|k| !k.is_empty() && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')) { return None; }
             return Some(map);
         }
@@ -534,6 +571,9 @@ fn parse_toml_strings(text: &str) -> Option<serde_json::Map<String, serde_json::
             if key == "version" && !crate::semver::SemVersion::parse(&value).is_ok_and(|v| v.to_string() == value) { return None; }
             map.insert(key, serde_json::Value::String(value));
             rest = tail;
+        } else if rest.starts_with(['[', '{']) {
+            if matches!(key.as_str(), "id" | "version" | "name" | "side") { return None; }
+            rest = container(rest)?;
         } else {
             let end = rest.find(['#', '\r', '\n']).unwrap_or(rest.len());
             let value = rest[..end].trim();

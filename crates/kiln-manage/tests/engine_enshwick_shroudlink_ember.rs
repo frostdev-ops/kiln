@@ -341,7 +341,11 @@ fn enshwick_metadata_is_bounded_unambiguous_and_authoritative() {
         "id = 'safe'\nside = \"server\\n\"\n",
         "id = 'safe'\nauthors = [\n# ]\nid = 'enshwick'\n]\n",
         "id = 'safe'\nx = { name = 'x',\nid = 'enshwick'\n}\n",
-        "id = 'safe'\nx = [\"[\"]\n",
+        "id = 'safe'\nx = [1, 2\n",
+        "id = 'safe'\nx = [1}\n",
+        "id = 'safe'\nx = [1] id = 'enshwick'\n",
+        "id = 'safe'\nside = ['server']\n",
+        "id = 'safe'\n[[setting]\n",
     ];
     for (i, text) in invalid.iter().enumerate() {
         let folder = t.0.join(format!("invalid{i}"));
@@ -369,6 +373,16 @@ fn enshwick_metadata_is_bounded_unambiguous_and_authoritative() {
     let r = library::import(&dirs, &[valid], &mut NoProgress).unwrap();
     let x = refs(&r, ModKind::Enshwick, "you.pack");
     assert_eq!(x.version, "1.2.3");
+    let rec = library::record(&dirs, &x).unwrap();
+    assert_eq!((rec.side, rec.clients), (Some(Side::Server), Some(Clients::None)));
+    // A pack as Enshwick's own examples write it: arrays at the top level, `[[setting]]`, and since
+    // 1.0.0-alpha.14 exported points with `[[point]]`.
+    let shaped = t.0.join("shaped");
+    put(&shaped, "pack.toml", b"id = \"you.shaped\"\nversion = \"0.1.0\"\nname = \"Shaped\"\nauthors = [\"You\", \"a ] b\"]\nexports = [\n  \"point:greet\", # ] id = 'enshwick'\n  \"event:greeted\",\n]\nx = { id = 'enshwick', n = [1, 2] }\nside = \"server\"\n\n[[point]]\nname = \"greet\"\nid = 'ignored'\n\n[[setting]]\nkey = \"greeting\"\ndefault = \"Welcome\"\n");
+    assert_eq!(engine_mods::identity(&shaped).0, "you.shaped");
+    let r = library::import(&dirs, &[shaped], &mut NoProgress).unwrap();
+    let x = refs(&r, ModKind::Enshwick, "you.shaped");
+    assert_eq!(x.version, "0.1.0");
     let rec = library::record(&dirs, &x).unwrap();
     assert_eq!((rec.side, rec.clients), (Some(Side::Server), Some(Clients::None)));
     let both = t.0.join("both");
