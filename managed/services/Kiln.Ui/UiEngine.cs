@@ -86,7 +86,8 @@ internal static unsafe class UiEngine
     private static readonly Dictionary<object, int> Faults = new(ReferenceEqualityComparer.Instance);
     private static readonly UiDraw Draw = new();
     private static uint _lastDemand = uint.MaxValue, _lastCapture = uint.MaxValue, _lastHover = uint.MaxValue;
-    private static string? _remapping;  // binding id waiting for "press a key"
+    private static volatile string? _remapping;  // binding id waiting for "press a key"
+    private static bool _keysDrawn;               // the Keys tab was drawn this frame
     private static bool _pageHost;      // this Kiln.Ui draws the Kiln menu inside the game's main menu (kiln.ui v4)
 
     public static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, "ui: " + text);
@@ -358,7 +359,11 @@ internal static unsafe class UiEngine
             }
             menuCompleted = true;
         }
-        finally { ShroudlinkMenu.EndFrame(menuCompleted); }
+        finally
+        {
+            ShroudlinkMenu.EndFrame(menuCompleted);
+            EndMenuFrame();
+        }
         UiWindow[] windows;
         HudLine[] hud;
         lock (Lock)
@@ -377,6 +382,14 @@ internal static unsafe class UiEngine
             if (!UiModCalls.Invoke(owner, h, ui, "Ui.Frame handler") && Fault(h, owner, "a frame handler")) FrameHandlers.Remove(h);
         DrawHud(ui, hud);
         DrawToasts(ui);
+    }
+
+    /// <summary>A rebind armed in the Keys tab lasts only while the tab is drawn: kiln.ui closes the menu on Escape
+    /// before Kiln.Ui sees the key, and another section or a closed menu must not take the next key.</summary>
+    internal static void EndMenuFrame()
+    {
+        if (!_keysDrawn) _remapping = null;
+        _keysDrawn = false;
     }
 
     private static void DrawWindow(UiDraw ui, UiWindow w)
@@ -540,7 +553,8 @@ internal static unsafe class UiEngine
         if (k.Vk == 0) return false;
         var mods = (KeyMods)(k.Mods & 7);
         var down = k.Down != 0;
-        // "press a key" in the Keys tab
+        // "press a key" in the Keys tab; the menu closed since (Escape: kiln.ui keeps that key) drops it, and the key is the game's
+        if (_remapping is not null && down && k.Repeat == 0 && !Ui.MenuOpen) _remapping = null;
         if (_remapping is { } id && down && k.Repeat == 0)
         {
             if (k.Vk is 0x10 or 0x11 or 0x12 or 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5) return true;  // wait for a non-modifier
@@ -636,7 +650,7 @@ internal static unsafe class UiEngine
 
     private static void ModsTab(UiDraw ui)
     {
-        if (ShroudlinkMenu.Available)
+        if (ShroudlinkMenu.Available || ShroudlinkMenu.Open)  // an open page keeps its way back when the bridge goes
         {
             if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus")) ShroudlinkMenu.Open = !ShroudlinkMenu.Open;
             if (ShroudlinkMenu.Open) { ShroudlinkMenu.Draw(ui); return; }
@@ -796,7 +810,8 @@ internal static unsafe class UiEngine
 
     internal static void KeysTab(UiDraw ui)
     {
-        ui.TextDisabled("Click a key, then press the new one (Escape cancels). Saved to kiln/config/keybinds.json.");
+        _keysDrawn = true;
+        ui.TextDisabled("Click a key, then press the new one (click it again, or Escape, to cancel). Saved to kiln/config/keybinds.json.");
         if (!ui.BeginTable("kiln.keys", "Action", "Key", "Default", "")) return;
         void Line(string id, string what, KeyChord key, KeyChord def)
         {

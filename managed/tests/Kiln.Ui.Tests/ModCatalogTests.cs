@@ -289,10 +289,15 @@ public sealed class ModCatalogTests : IDisposable
     {
         var mods = Dir("mods");
         Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = Dir("mods", "pack") }, new { id = "off", version = "1.0.0", path = Dir("mods", "off"), enabled = false }] });
+        // a readable, switched-on runtime package: only the missing runtime report keeps it from Loaded
+        File.WriteAllText(Path.Combine(mods, "pack", "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(mods, "pack", "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
         File.WriteAllText(Path.Combine(Dir("mods", "hand"), "extended.mod.json"), """{"id":"hand","name":"Hand Made","version":"0.1","enabled":false}""");
         Write("shroudforge.json", new { format = 1, mode = "hosted", reason = "", updated = StartMs / 1000 + 10, modsDir = mods });
         var s = Read();
-        Assert.Equal(ModRunState.Waiting, Mod(s, "shroudforge", "pack").State); // host running is not per-mod proof
+        var pack = Mod(s, "shroudforge", "pack");
+        Assert.Equal((ModRunState.Waiting, "unconfirmed"), (pack.State, pack.Word)); // host running is not per-mod proof
+        Assert.Contains("no current per-mod runtime report", pack.Reason);
         Assert.Equal(ModRunState.Disabled, Mod(s, "shroudforge", "off").State);
         var hand = Mod(s, "shroudforge", "hand");
         Assert.Equal(("Hand Made", ModRunState.Disabled, "folder"), (hand.Name, hand.State, hand.Source));
@@ -328,18 +333,89 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("other side", Mod(s, "shroudforge", "server").Word);
         Assert.Equal("inactive", Mod(s, "shroudforge", "inactive").Word);
         Assert.Equal("startup", Mod(s, "shroudforge", "patch").Word);
-        foreach (var effect in new[] { "no-target", "unsupported", "error" })
+        // the five states a mod reports (runtime.report_effect; mods/tests/sf-probe) and the four ShroudForge's runtime
+        // sets, as the launcher shows them: write-failed and error an error, write-confirmed, loaded and no-change plain,
+        // anything else (pending or unknown) a warning
+        foreach (var (effect, want) in new[]
+                 {
+                     ("write-failed", ModRunState.Failed), ("waiting", ModRunState.Waiting), ("no-target", ModRunState.Waiting),
+                     ("no-change", ModRunState.Loaded), ("write-confirmed", ModRunState.Loaded),
+                     ("loading", ModRunState.Waiting), ("loaded", ModRunState.Loaded), ("error", ModRunState.Failed),
+                     ("restart-required", ModRunState.Waiting), ("something-new", ModRunState.Waiting),
+                 })
         {
             Runtime(Pid, true, now, effect);
             var m = Mod(Read(), "shroudforge", "active");
-            Assert.Equal(effect == "error" ? ModRunState.Failed : ModRunState.Waiting, m.State);
+            Assert.Equal((effect, want), (effect, m.State));
             Assert.Contains("effect diagnostic", m.Reason);
+            Assert.Equal(want == ModRunState.Failed, m.NeedsAttention);
+            Assert.True(m.Active);  // ShroudForge runs it, whatever its effect says
         }
+        Assert.False(Mod(Read(), "shroudforge", "inactive").Active);
         foreach (var stale in new[] { (Pid + 1, true, now), (Pid, false, now), (Pid, true, now - 60) })
         {
             Runtime(stale.Item1, stale.Item2, stale.Item3);
             Assert.Equal(ModRunState.Waiting, Mod(Read(), "shroudforge", "active").State);
         }
+    }
+
+    /// <summary>Folders Kiln places in <c>&lt;game&gt;/mods/</c> for other hosts (an XHL-Core companion, an EML mod a DLL
+    /// reads there) are not Enshwick mods, even while Enshwick runs: XHL entries are their own group, never Loaded.</summary>
+    [Fact]
+    public void Xhl_companions_and_dll_carrying_eml_folders_are_not_enshwick_mods()
+    {
+        void Put(string folder, string file, string text) => File.WriteAllText(Path.Combine(Dir("mods", folder), file), text);
+        Put("XHL-Vein-Mining", "native-plugin.ini", "[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+        Put("XHL-Vein-Mining", "XHL-Vein-Mining.dll", "MZ");
+        Put("XHL-Vein-Mining", ".kiln-library.json", """{"format":1,"kind":"xhl","id":"xhl-vein-mining","version":"2.0.0","hash":"h"}""");
+        Put("auto-loot-plus", "mod.json", """{"id":"auto-loot-plus","name":"Auto Loot Plus","version":"1.0.0"}""");
+        Put("auto-loot-plus", "loot.dll", "MZ");
+        Put("Hand-XHL", "native-plugin.ini", "[Plugin]\nDll=Hand-XHL.dll\n");
+        Put("Hand-XHL", "Hand-XHL.dll", "MZ");
+        Put("settings-only", "helper.dll", "MZ");
+        Put("settings-only", ".kiln-library.json", """{"format":1,"kind":"native","id":"pack","version":"1","hash":"h"}""");
+        Put("author.pack", "pack.toml", "id = \"author.pack\"");
+        Put("author.dllmod", "dllmod.dll", "MZ");
+        Profile(new()
+        {
+            ["xhl"] = [new { id = "xhl-vein-mining", version = "2.0.0", path = Path.Combine(_root, "mods", "XHL-Vein-Mining") },
+                       new { id = "xhl-gone", version = "1.0.0", path = Path.Combine(_root, "mods", "XHL-Gone") }],
+            ["eml"] = [new { id = "auto-loot-plus", version = "1.0.0", path = Path.Combine(_root, "mods", "auto-loot-plus") }],
+        });
+        Write("enshwick.json", new { format = 1, status = "started", updatedUnixMs = StartMs + 1, mods = Array.Empty<object>() });
+        var s = Read();
+
+        Assert.Equal(["author.dllmod", "author.pack"], s.Mods.Where(m => m.Engine == "enshwick").Select(m => m.Id).Order().ToArray());
+        var xhl = Mod(s, "xhl", "xhl-vein-mining");
+        Assert.Equal((ModRunState.NotLoaded, "placed", false), (xhl.State, xhl.Word, xhl.Missing));
+        Assert.Contains("Kiln does not load it", xhl.Reason);
+        Assert.Contains("Requires XHL-Core", xhl.Help);
+        Assert.True(Mod(s, "xhl", "xhl-gone").Missing);
+        var hand = Mod(s, "xhl", "Hand-XHL");
+        Assert.Equal((ModRunState.NotLoaded, "folder"), (hand.State, hand.Source));
+        Assert.DoesNotContain(s.Mods, m => m.State == ModRunState.Loaded && m.Folder is { } f && f.Contains("XHL", StringComparison.Ordinal));
+        var engine = s.Engines.Single(e => e.Kind == "xhl");
+        Assert.Equal(("XHL", EngineHealth.Problem), (engine.Name, engine.Health));  // the missing entry
+        Assert.Contains("Kiln never loads", engine.Note);
+        Assert.Equal(ModCatalog.EngineOrder.ToList().IndexOf("eml") + 1, ModCatalog.EngineOrder.ToList().IndexOf("xhl"));
+    }
+
+    /// <summary>A ShroudForge config Kiln cannot read (duplicate keys) leaves the default folders, never rows that look
+    /// Loaded because nothing refined them.</summary>
+    [Fact]
+    public void An_unreadable_shroudforge_config_does_not_leave_its_mods_looking_loaded()
+    {
+        var folder = Dir("mods", "pack");
+        File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
+        File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a", "state": "b" } }""");
+        Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = folder }] });
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+        File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new { runtime = new { pid = Pid, running = true, updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), active = new[] { "pack" } } }));
+        var s = Read();
+        var pack = Mod(s, "shroudforge", "pack");
+        Assert.Equal((ModRunState.Loaded, "active", true), (pack.State, pack.Word, pack.Active));  // read from the default state folder
+        Assert.Equal(EngineHealth.Ok, s.Engines.Single(e => e.Kind == "shroudforge").Health);
     }
 
     [Fact]

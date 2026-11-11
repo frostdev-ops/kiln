@@ -132,7 +132,9 @@ w.Toggle();   // Show / Hide / Open = true; the X button closes it too
 - `UiDraw` exposes:
   - text: `Text`, `Text(color, …)`, `TextWrapped`, `TextDisabled`, `Separator(text)`, `Tooltip`;
   - widgets: `Button`, `SmallButton`, `Checkbox`, `Slider` (float/int), `InputText`, `Selectable`, `Progress`;
-    `ItemClicked(UiMouseButton.Right)` right after any widget answers a right click on it (`Button` answers the left one);
+    `ItemClicked(UiMouseButton.Right)` right after any widget answers a right click on it (`Button` answers the left one).
+    `InputText` / `InputMultiline` edit the whole value when its UTF-8 fits `maxBytes`; a value that does not fit (or
+    holds a NUL) is shown cut and is never changed (`InputText` shows it read-only);
   - layout: `CollapsingHeader`, `TreeNode`/`TreePop`, `SameLine`, `Spacing`, `Id(...)` scopes, tables
     (`BeginTable`, `Row`, `NextRow`/`NextColumn`), tabs (`BeginTabBar`/`BeginTab`), `BeginChild`;
   - free drawing: `DrawText`, `DrawRect`, `MeasureText`;
@@ -217,7 +219,9 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
 ```
 - Keys are written like `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Insert`, `Numpad5`, `Backquote`, `None`.
 - The player's choice is kept in `kiln/config/keybinds.json` (`{"bindings": {"mymod.toggle": "F9"}}`). The Kiln menu's
-  **Keys** tab remaps keys by press: click the key, press the new one; Escape cancels.
+  **Keys** tab remaps keys by press: click the key, press the new one; a second click cancels, and so does Escape, which
+  also closes the menu. A pending "press a key" ends whenever the Keys tab is not on screen, so a key pressed in play is
+  never taken for it.
 - Handlers run on the game's main thread (the window thread) when the key goes down, but not while a Kiln text field
   has focus, and not while a Kiln screen has the input unless `WhileCapturing` is set.
 - A matching binding keeps the key from the game (`Consume`, default true), including its raw-input press.
@@ -239,7 +243,7 @@ pause menu's **Mods** entry; Escape (gamepad B) or the **Back** hint goes back. 
 of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad move; Enter or A chooses; Ctrl+F jumps to the search box.
 - **Mods**: three columns.
   - Left: **All mods**, **Needs attention** (only when a mod failed or its folder is missing), then one row per engine
-    that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, ShroudForge, SET, Greeneye, Flame,
+    that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, XHL, ShroudForge, SET, Greeneye, Flame,
     Shroudtopia, Enshwick, shroudlink, Ember) with its count and a mark (green fine, grey idle, red a problem), and
     **Kiln settings** (Kiln's own configs) when there are any.
   - Middle: the mods of that row (name, version, a state chip: Loaded, Waiting, Off, Failed, Not loaded, Missing; the
@@ -251,8 +255,12 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     (`StatusLines`) and its settings inline: the page generated from its config schema (`ConfigScreens.cs`; server
     configs are read-only while connected) and the pages it registered with `Ui.AddConfigPage(modId, ui => …)`.
     ShroudForge mods have an enabled switch and settings from `extended.mod.json`, grouped and conditionally enabled,
-    with live/restart hints, typed options, text lengths and declared action buttons. Slider writes settle for 350 ms;
-    text saves when the field loses focus. Choices use combos (including radio/segmented), colors use text, and SF
+    with live/restart hints, typed options, text lengths and declared action buttons. An action is sent only while
+    ShroudForge's runtime runs the mod in this game (its `state.json` lists it active), and only one request of Kiln's
+    per mod waits in ShroudForge's actions folder at a time (ShroudForge keeps a request it cannot hand over for ever). Slider writes settle for 350 ms;
+    text saves when the field loses focus (Tab and LB / RB do not switch sections while a field has the keyboard, and
+    text typed into a field that goes away before it is left is dropped, never shown as the value); a field holds the whole value, and one too long to edit (64 KiB on one line,
+    1 MiB in a text area) is shown, not edited. Choices use combos (including radio/segmented), colors use text, and SF
     keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged.
     Reads/writes are off the render thread, bounded to 2 MiB per package file, and refuse linked package files.
     Comments and formatting survive value edits. A profile-controlled switch is marked because profile activation
@@ -268,15 +276,25 @@ Where the list comes from (`ModCatalog.cs`, internal; usable on a dedicated serv
 `shroudtopia.json`, `shroudlink.json`, `ember.json`; contracts.md 5.9). ShroudForge's packages come from the profile and
 its configured mods folder; its host state comes from `shroudforge.json`, with actual per-mod activation/errors and
 reported effect state/detail from SF's own `state.json` runtime section (matching PID, running, heartbeat no older
-than 30 s). `no-target` and `unsupported` show Waiting; `error` shows Failed. A running adapter alone is not proof a
+than 30 s). A mod reports `waiting`, `no-target`, `no-change`, `write-confirmed` or `write-failed`; ShroudForge's
+runtime also sets `loading`, `loaded`, `error` and `restart-required`. As in the launcher, `write-failed` and `error`
+show Failed (and count under Needs attention), `write-confirmed`, `loaded` and `no-change` show Loaded, and every other
+state (pending, or a word Kiln does not know) shows Waiting. A running adapter alone is not proof a
 Lua mod is active, reported readback is not gameplay proof, and individual startup patch application is not confirmed here. Enshwick's mods
-come from the profile and mods folder, with loader state from `enshwick.json`. A mod the
+come from the profile and mods folder, with loader state from `enshwick.json`; a folder there that another kind owns
+(a profile entry of another kind, a `native-plugin.ini`, a `mod.json`, or Kiln's placement marker of another kind) is
+not listed as Enshwick's. XHL companions (the profile's `mods.xhl`, and folders with XHL-Core's `native-plugin.ini` in
+`<game>/mods/`) are their own group: "placed for XHL-Core; Kiln does not load it", with the XHL-Core prerequisite, never
+Loaded, since Kiln never runs them and nothing reports whether XHL-Core did. A mod the
 profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not
 loaded, with the reason. A file from an earlier start (another `pid`, or written before this process started) does not
 count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.
 
 Cost: no catalog refresh while the menu is closed. While it is open the list is read on a worker at most every 2 seconds;
-the selected SF package refreshes at most once per second. The render thread draws snapshots (no file access or waiting);
+the selected SF package refreshes at most once per second. What the page needs of a package (its settings by key and
+group, which can be changed now, its texts cut to 2000 characters) is worked out when the package, an edit or an error
+changes, not per frame. A package with a value no reader can use (a string with an unpaired surrogate escape, a number
+no double holds) is found on the read worker and shown as "cannot be shown", never thrown on the render thread. The render thread draws snapshots (no file access or waiting);
 rows are made when the list, filter or search change. SF's fallback shortcut worker watches host state at low frequency,
 then waits on its named toggle event with a two-second lifecycle check; it exits when SF stops or owns its own helper.
 

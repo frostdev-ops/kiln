@@ -204,7 +204,8 @@ internal sealed class ModManagerPage
             _rowsSettings = kilnSettings;
             _engines = ModManagerLogic.EngineRows(snap, kilnSettings);
         }
-        Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings);
+        // before the first list landed nothing is known to be gone: an engine asked for (ShroudForge's F9) stays chosen
+        if (!ReferenceEquals(snap, CatalogSnapshot.Empty)) Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings);
         if (!changed && Filter == _rowsFilter && Search == _rowsSearch) return;
         _rowsFilter = Filter;
         _rowsSearch = Search;
@@ -234,6 +235,22 @@ internal sealed class ModManagerPage
     /// <summary>Shows the Mods section on <paramref name="f"/> at the next frame (any thread: a key binding, ShroudForge's
     /// menu request).</summary>
     public void Request(EngineFilter f) => Volatile.Write(ref _request, f.Kind);
+
+    /// <summary>The engine a <see cref="Request"/> asked for that no frame has shown yet, or null.</summary>
+    internal string? PendingRequest => Volatile.Read(ref _request);
+
+    /// <summary>Forgets a request no frame has shown (the menu closed first).</summary>
+    internal void CancelRequest() => Volatile.Write(ref _request, null);
+
+    /// <summary>Shows a pending request: the Mods section on its engine (the first thing a frame does).</summary>
+    internal void TakeRequest()
+    {
+        if (Interlocked.Exchange(ref _request, null) is not { } wanted) return;
+        Section = ModManagerSection.Mods;
+        Filter = new EngineFilter(wanted);
+        Search = "";
+    }
+
     internal IReadOnlyList<EngineRow> EngineRows => _engines;
 
     /// <summary>Draws the page into <paramref name="r"/> (screen pixels) at UI scale <paramref name="s"/>. Call inside a
@@ -241,22 +258,19 @@ internal sealed class ModManagerPage
     public void Draw(UiDraw ui, PageRect r, float s)
     {
         _k = s / (ui.Scale > 0 ? ui.Scale : 1);
-        if (Interlocked.Exchange(ref _request, null) is { } wanted)
-        {
-            Section = ModManagerSection.Mods;
-            Filter = new EngineFilter(wanted);
-            Search = "";
-        }
+        TakeRequest();
         var kilnSettings = ConfigScreens.HasConfigs("kiln");
         Update(Source(), kilnSettings);
         if (ui.FrameNumber != _lastFrame + 1) _framesShown = 0;  // opened again (or the first time)
         _lastFrame = ui.FrameNumber;
         _framesShown++;
-        // Tab / Shift+Tab and the shoulder buttons switch sections (claimed, so ImGui's own focus does not move too)
+        // Tab / Shift+Tab and the shoulder buttons switch sections (claimed, so ImGui's own focus does not move too), but
+        // not while a text field has the keyboard: the field would go away without saving what was typed
+        var typing = _searchActive || ShroudForgeUi.FieldActive(ui.FrameNumber);
         var tab = ui.KeyPressed(UiKey.Tab, repeat: false, claim: true);
-        if (!_searchActive && tab) Section = ModManagerLogic.Step(Section, (ui.HeldMods & KeyMods.Shift) != 0 ? -1 : 1);
-        if (ui.KeyPressed(UiKey.GamepadRB, claim: true)) Section = ModManagerLogic.Step(Section, 1);
-        if (ui.KeyPressed(UiKey.GamepadLB, claim: true)) Section = ModManagerLogic.Step(Section, -1);
+        if (!typing && tab) Section = ModManagerLogic.Step(Section, (ui.HeldMods & KeyMods.Shift) != 0 ? -1 : 1);
+        if (ui.KeyPressed(UiKey.GamepadRB, claim: true) && !typing) Section = ModManagerLogic.Step(Section, 1);
+        if (ui.KeyPressed(UiKey.GamepadLB, claim: true) && !typing) Section = ModManagerLogic.Step(Section, -1);
         if (Section == ModManagerSection.Mods && (ui.HeldMods & KeyMods.Ctrl) != 0 && ui.KeyPressed(UiKey.F)) FocusSearch = true;
 
         var win = ui.Cursor;
@@ -307,8 +321,9 @@ internal sealed class ModManagerPage
             if (chosen) ui.DrawRect(UiLayer.Window, it.MinX + 10 * s, it.MaxY - 3 * s, it.MaxX - 10 * s, it.MaxY, GameColors.Gold);
             x += w + 6 * s;
         }
-        // Server-advertised menus need not have a corresponding local catalog row.
-        if (ShroudlinkMenu.Available)
+        // Server-advertised menus need not have a corresponding local catalog row. An open shroudlink page keeps its way
+        // back when the bridge stops answering.
+        if (ShroudlinkMenu.Available || ShroudlinkMenu.Open)
         {
             ui.SetCursor(x - ui.Cursor.WindowX, r.Y + 8 * s - ui.Cursor.WindowY);
             if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus"))
@@ -759,8 +774,9 @@ internal enum ChromeLook
 /// <summary>The title and the footer of the mod manager, shared by both hosts.</summary>
 internal static class ModManagerChrome
 {
-    // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings
-    public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8);
+    // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings; and no bringing to
+    // front on a click: the page covers the display, so a window opened over it (SET's tools) would go behind it
+    public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8) | (1u << 13);
 
     /// <summary>The widest the page's content gets, in UI units (1920x1080 = 1 unit per pixel). 16:9 and 16:10 pages are
     /// narrower (1760 units inside the game's padding); on ultrawide displays the rest stays empty on the right, so lines

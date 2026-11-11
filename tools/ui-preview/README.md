@@ -8,6 +8,8 @@ tools/ui-preview/preview.sh                                  # every scene at 19
                                                              # the game-page scenes also at 3440x1440 and 1920x1200
 tools/ui-preview/preview.sh --scene problems --size 2560x1440 --scale 1.25
 tools/ui-preview/preview.sh --font ~/fonts/Some.ttf          # another TTF for the game look
+tools/ui-preview/preview.sh --check-z                        # a window opened over the page (SET's tools) stays in front
+                                                             # when the page is clicked; exit 1 when the page covers it
 ```
 Output: `$KILN_OUT/preview/<scene>-<size>[@scale].png` (and a text summary of the mod list for some scenes);
 `KILN_OUT` defaults to `<repo>/.out`. Needs g++, python3 and the .NET SDK.

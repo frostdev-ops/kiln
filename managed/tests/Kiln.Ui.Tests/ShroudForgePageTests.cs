@@ -1,0 +1,342 @@
+// SPDX-License-Identifier: MIT
+// The ShroudForge part of the Mods page (ShroudForgeUi) drawn through the real page code (ModManagerPage.Draw) against a
+// fake kiln.ui table: what happens to typed text when the field goes away, and which keys switch sections while a field
+// has the keyboard. No game.
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Kiln.FakeUi;
+using Xunit;
+
+namespace Kiln.ShroudForgePageTests;
+
+[Collection(UiSerial.Name)]
+public sealed class ShroudForgePageTests : IDisposable
+{
+    private readonly IKilnBackend _previous;
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "kiln-sfpage-" + Guid.NewGuid().ToString("N"));
+    private readonly UiDraw _ui = new();
+
+    public ShroudForgePageTests()
+    {
+        _previous = Backend.Current;
+        FakeUiTable.Install();
+        Backend.Current = new FakeUiTable.Backend();
+        UiNative.ResetForTests();
+        ShroudForgeUi.ResetForTests();
+        _ui.Frame.DpiScale = 1;
+        _ui.Frame.Width = 1920;
+        _ui.Frame.Height = 1080;
+    }
+
+    public void Dispose()
+    {
+        ShroudForgeUi.ResetForTests();
+        Backend.Current = _previous;
+        UiNative.ResetForTests();
+        FakeUiTable.Free();
+        try { Directory.Delete(_root, true); }
+        catch (IOException) { }
+    }
+
+    private string Package(string settings, string id = "notes", string? groups = null)
+    {
+        var folder = Path.Combine(_root, "mods", id);
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "mod.json"), $$"""{"id":"{{id}}","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"enabled\": true,\n  \"settings\": " + settings +
+            (groups is null ? "" : ",\n  \"groups\": " + groups) + "\n}\n");
+        ShroudForgeUi.Load(folder);
+        return folder;
+    }
+
+    private static CatalogMod Mod(string folder, ModRunState state = ModRunState.Loaded) =>
+        new() { Engine = "shroudforge", Id = "notes", Name = "Notes", Folder = folder, State = state };
+
+    private static ModManagerPage Page(CatalogMod mod) => new()
+    {
+        Source = () => new CatalogSnapshot
+        {
+            Version = 1, Mods = [mod], Engines = [new CatalogEngine { Kind = "shroudforge", Name = "ShroudForge", Count = 1 }],
+        },
+        Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/notes",
+    };
+
+    private void Frame(ModManagerPage page)
+    {
+        _ui.Frame.Number++;
+        page.Draw(_ui, new PageRect(0, 0, 1800, 900), 1);
+        FakeUiTable.Pressed.Clear();
+    }
+
+    private static string Value(string folder, string key) =>
+        JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "extended.mod.json")))!["settings"]![key]!["value"]!.GetValue<string>();
+
+    [Theory]
+    [InlineData(UiKey.Tab)]
+    [InlineData(UiKey.GamepadRB)]
+    [InlineData(UiKey.GamepadLB)]
+    public void Section_keys_do_not_leave_a_setting_field_that_has_the_keyboard(UiKey key)
+    {
+        var folder = Package("""{ "note": { "value": "old", "label": "Note" } }""");
+        var page = Page(Mod(folder));
+        Frame(page);
+        FakeUiTable.Item = new UiNative.Item { Active = 1, Visible = 1 };  // the player clicked into the field
+        FakeUiTable.Type = t => "new";
+        Frame(page);
+        FakeUiTable.Type = null;
+        FakeUiTable.Pressed.Add(key);
+        Frame(page);
+        Assert.Equal(ModManagerSection.Mods, page.Section);
+        FakeUiTable.Item = new UiNative.Item { Deactivated = 1, Visible = 1 };  // and left it: saved
+        Frame(page);
+        ShroudForgeUi.Flush();
+        Assert.Equal("new", Value(folder, "note"));
+    }
+
+    [Fact]
+    public void Text_typed_into_a_field_that_went_away_is_dropped_not_shown_as_the_value()
+    {
+        var folder = Package("""{ "note": { "value": "old", "label": "Note" } }""");
+        var page = Page(Mod(folder));
+        FakeUiTable.Item = new UiNative.Item { Active = 1, Visible = 1 };
+        FakeUiTable.Type = t => "typed";
+        Frame(page);
+        FakeUiTable.Type = null;
+        FakeUiTable.Item = default;
+        page.Section = ModManagerSection.Network;  // the field is not drawn for a while (another section, menu closed)
+        Frame(page);
+        Frame(page);
+        page.Section = ModManagerSection.Mods;
+        FakeUiTable.Fields.Clear();
+        Frame(page);
+        Assert.Equal("old", FakeUiTable.Fields[^1].Text);  // the file's value, not the lost text
+        ShroudForgeUi.Flush();
+        Assert.Equal("old", Value(folder, "note"));
+    }
+    /// <summary>A refresh that read the file before a save and finishes after it must not put the old values back.</summary>
+    [Fact]
+    public void A_read_that_started_before_a_save_does_not_put_old_values_back()
+    {
+        // a large description makes each read take a while, so a refresh and the writer's save overlap often
+        var folder = Package($$"""{ "amount": { "value": 0, "label": "Amount", "description": "{{new string('d', 600_000)}}" } }""");
+        var stale = new List<int>();
+        for (var i = 1; i <= 150 && stale.Count == 0; i++)
+        {
+            var reads = Enumerable.Range(0, 3).Select(k => Task.Run(() => { Thread.SpinWait(Random.Shared.Next(0, 200_000)); ShroudForgeUi.Load(folder); })).ToArray();
+            ShroudForgeUi.Edit(folder, "amount", JsonValue.Create(i));
+            ShroudForgeUi.Flush();
+            Task.WaitAll(reads);
+            var onFile = ShroudForgePackages.NumberOf(ShroudForgePackages.Read(folder).Settings[0].Value);
+            var shown = ShroudForgePackages.NumberOf(ShroudForgeUi.Get(folder, out _)!.Settings[0].Value);
+            if (onFile == i && shown != onFile) stale.Add(i);
+        }
+        Assert.True(stale.Count == 0, $"old values shown after save {string.Join(", ", stale)}");
+    }
+
+    /// <summary>A setting whose key is the empty string is a setting, not the mod's switch.</summary>
+    [Fact]
+    public void A_setting_with_an_empty_key_is_not_the_switch()
+    {
+        var folder = Package("""{ "": { "value": false, "label": "Unnamed" } }""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), File.ReadAllText(Path.Combine(folder, "extended.mod.json")).Replace("\"enabled\": true", "\"enabled\": false"));
+        ShroudForgeUi.Load(folder);
+        ShroudForgeUi.Edit(folder, "", JsonValue.Create(true));
+        ShroudForgeUi.Flush();
+        var p = ShroudForgePackages.Read(folder);
+        Assert.False(p.Enabled);
+        Assert.Equal(JsonValueKind.True, p.Settings.Single(x => x.Key == "").Value!.GetValueKind());
+    }
+
+    /// <summary>A save that reached the file, after which the file cannot be read back, is not reported as "not saved".</summary>
+    [Fact]
+    public void A_save_whose_file_cannot_be_read_back_says_it_changed_the_file()
+    {
+        // a whole member of a fractional list is written without its fraction; the list then reads as whole numbers and
+        // its options "1.5" no longer parse (sf-settings-data F1): the data layer refuses the file it just wrote
+        var folder = Package("""{ "mult": { "value": [1.5], "label": "Multipliers", "options": { "1.0": "1x", "1.5": "1.5x" } } }""");
+        var before = File.ReadAllText(Path.Combine(folder, "extended.mod.json"));
+        ShroudForgeUi.Edit(folder, "mult", new JsonArray(JsonValue.Create(1.0)));
+        ShroudForgeUi.Flush();
+        var after = File.ReadAllText(Path.Combine(folder, "extended.mod.json"));
+        bool readable;
+        try { ShroudForgePackages.Read(folder); readable = true; }
+        catch (SfEditException) { readable = false; }
+        Assert.SkipWhen(after == before || readable, "the data layer now reads back what it wrote (sf-settings-data F1 fixed): no such save to report");
+        var page = Page(Mod(folder));
+        Frame(page);
+        lock (FakeUiTable.Texts)
+        {
+            Assert.DoesNotContain(FakeUiTable.Texts, t => t.Contains("not saved", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(FakeUiTable.Texts, t => t.Contains("was changed", StringComparison.Ordinal) && t.Contains("cannot be read", StringComparison.Ordinal));
+        }
+        Assert.Null(ShroudForgeUi.Get(folder, out var error));  // no controls of the old package
+        Assert.NotNull(error);
+    }
+    private static string Chain(int n)
+    {
+        var parts = new List<string>();
+        for (var i = 0; i < n; i++)
+            parts.Add(i == 0 ? "\"s0\": { \"value\": true, \"label\": \"S0\" }"
+                : $"\"s{i}\": {{ \"value\": true, \"label\": \"S{i}\", \"enabledWhen\": {{ \"setting\": \"s{i - 1}\", \"equals\": true }} }}");
+        return "{ " + string.Join(", ", parts) + " }";
+    }
+
+    /// <summary>A frame of a package costs the same however its settings depend on each other: what the page needs is
+    /// worked out when the package or an edit changes, not per frame (it used to walk the enabledWhen chain of every
+    /// setting with a linear search per step, every frame).</summary>
+    [Fact]
+    public void A_frame_does_not_redo_the_packages_work()
+    {
+        var folder = Package(Chain(200));
+        var mod = Mod(folder);
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });  // the first frame works it out
+        Assert.NotNull(ShroudForgeUi.Get(folder, out _));
+        lock (FakeUiTable.Texts) FakeUiTable.Texts.Clear();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(bytes < 96 * 1024, $"a frame of a 200-setting chain allocated {bytes} bytes");
+        lock (FakeUiTable.Texts) Assert.Contains("S199", FakeUiTable.Texts);  // every setting is still drawn
+    }
+    /// <summary>The page's indexed enabledWhen walk says what the data layer's rule says, for chains, cycles, a missing
+    /// controller, numbers compared by value and options.</summary>
+    [Fact]
+    public void The_indexed_enabled_rule_is_the_data_layers()
+    {
+        var folder = Package("""
+            {
+              "a": { "value": true, "label": "A" },
+              "b": { "value": 5, "label": "B", "enabledWhen": { "setting": "a", "equals": true } },
+              "c": { "value": "x", "label": "C", "enabledWhen": { "setting": "b", "equals": 5.0 } },
+              "d": { "value": 1, "label": "D", "enabledWhen": { "setting": "c", "equals": "y" } },
+              "e": { "value": 1, "label": "E", "enabledWhen": { "setting": "gone", "equals": 1 } },
+              "f": { "value": 1, "label": "F", "enabledWhen": { "setting": "g", "equals": 1 } },
+              "g": { "value": 1, "label": "G", "enabledWhen": { "setting": "f", "equals": 1 } },
+              "h": { "value": "fast", "label": "H", "options": { "fast": "Fast", "slow": "Slow" } },
+              "i": { "value": 2, "label": "I", "enabledWhen": { "setting": "h", "equals": "fast" } },
+              "j": { "value": false, "label": "J", "enabledWhen": { "setting": "a", "equals": false } }
+            }
+            """);
+        var p = ShroudForgePackages.Read(folder);
+        var byKey = p.Settings.ToDictionary(x => x.Key, StringComparer.Ordinal);
+        var values = p.Values;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var ours = p.Settings.Select(x => (x.Key, ShroudForgeUi.IsEnabled(x.Key, byKey, values, seen))).ToArray();
+        var theirs = p.Settings.Select(x => (x.Key, ShroudForgePackages.IsEnabled(x.Key, p.Settings, values))).ToArray();
+        Assert.Equal(theirs, ours);
+        Assert.Equal([true, true, true, false, false, false, false, true, true, false], ours.Select(x => x.Item2));
+    }
+
+    /// <summary>A string value with an unpaired surrogate escape (what JSON.stringify writes for a cut emoji) parses, but
+    /// every read of it throws: the page says so once instead of throwing on the render thread every frame.</summary>
+    [Fact]
+    public void A_value_no_reader_can_use_is_reported_not_thrown_every_frame()
+    {
+        var folder = Package("""{ "name": { "value": "\ud83d", "label": "Name" }, "other": { "value": 1, "label": "Other" } }""");
+        var page = Page(Mod(folder));
+        Frame(page);  // used to throw InvalidOperationException out of the frame
+        Frame(page);
+        Assert.Null(ShroudForgeUi.Get(folder, out var error));
+        Assert.Contains("name", error);
+        lock (FakeUiTable.Texts) Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("Its settings cannot be shown", StringComparison.Ordinal));
+    }
+    private string Actions(string folder) => Path.Combine(_root, "shroudforge", "ui", "actions");
+
+    private string ActionPackage() => Package("""{ "level": { "value": 1, "label": "Level" } }""",
+        groups: """[ { "label": "Tools", "actions": [ { "id": "reset", "label": "Reset progress" } ] } ]""");
+
+    private string? _lastLine;
+
+    /// <summary>Clicks the action, then draws frames until a new result line shows (it is sent on a worker).</summary>
+    private string? ClickAction(ModManagerPage page)
+    {
+        FakeUiTable.Click = "Reset progress";
+        Frame(page);
+        for (var i = 0; i < 200; i++)
+        {
+            lock (FakeUiTable.Texts) FakeUiTable.Texts.Clear();
+            Frame(page);
+            lock (FakeUiTable.Texts)
+                if (FakeUiTable.Texts.FirstOrDefault(t => t.Contains("Reset progress", StringComparison.Ordinal) && t != "Reset progress") is { } line &&
+                    line != _lastLine)
+                    return _lastLine = line;
+            Thread.Sleep(10);
+        }
+        return null;
+    }
+
+    private void UseGame() => ModCatalog.Sources = () => new CatalogSources { KilnRoot = Path.Combine(_root, "kiln") };
+
+    /// <summary>An action asks the running mod: while ShroudForge does not run it the button queues nothing (a request
+    /// left in ShroudForge's folder would run at a later start).</summary>
+    [Fact]
+    public void An_action_of_a_mod_shroudforge_does_not_run_queues_nothing()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            var line = ClickAction(Page(Mod(folder, ModRunState.Waiting)));
+            Assert.False(Directory.Exists(Actions(folder)) && Directory.EnumerateFiles(Actions(folder)).Any());
+            Assert.NotNull(line);
+            Assert.Contains("not sent", line);
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    /// <summary>ShroudForge keeps a request for an active mod that has no handler for ever, and looks at 32 files per turn:
+    /// Kiln leaves at most one of its own per mod waiting.</summary>
+    [Fact]
+    public void An_action_request_does_not_pile_up_while_an_earlier_one_waits()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            var page = Page(Mod(folder) with { Active = true });
+            Assert.StartsWith("Requested", ClickAction(page));
+            Assert.Contains("still waiting", ClickAction(page));
+            Assert.Single(Directory.EnumerateFiles(Actions(folder)));
+            foreach (var f in Directory.EnumerateFiles(Actions(folder))) File.Delete(f);  // ShroudForge took it
+            Assert.StartsWith("Requested", ClickAction(page));
+            Assert.Single(Directory.EnumerateFiles(Actions(folder)));
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    /// <summary>A ShroudForge config the data layer cannot read (duplicate keys) makes the request fail with a message,
+    /// not a silent worker.</summary>
+    [Fact]
+    public void An_action_that_cannot_be_sent_says_why()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            var config = Path.Combine(_root, "shroudforge", "config");
+            Directory.CreateDirectory(config);
+            File.WriteAllText(Path.Combine(config, "modloader-config.json"), """{ "paths": { "ui": "a", "ui": "b" } }""");
+            var line = ClickAction(Page(Mod(folder) with { Active = true }));
+            Assert.NotNull(line);
+            Assert.Contains("could not be sent", line);
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+    /// <summary>The shroudlink page keeps its way back when the bridge goes away while it is open.</summary>
+    [Fact]
+    public void The_shroudlink_page_keeps_its_back_button_when_the_bridge_is_gone()
+    {
+        var page = Page(Mod(Package("{}")));
+        ShroudlinkMenu.Open = true;  // opened while the bridge answered; it does not any more (off Windows it never does)
+        try
+        {
+            Frame(page);
+            lock (FakeUiTable.Texts) Assert.Contains("Back to mods", FakeUiTable.Texts);
+            FakeUiTable.Click = "Back to mods";
+            Frame(page);
+            Assert.False(ShroudlinkMenu.Open);
+            Assert.Equal(ModManagerSection.Mods, page.Section);
+        }
+        finally { ShroudlinkMenu.Open = false; }
+    }
+}

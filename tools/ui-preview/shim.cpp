@@ -619,6 +619,18 @@ __attribute__((visibility("default"))) const uint8_t* kiln_preview_frame(int men
     return g_pixels.data();
 }
 
+// The name of the front-most top-level window drawn last frame (z-order checks: Kiln.Ui.Preview --check-z).
+__attribute__((visibility("default"))) int kiln_preview_front_window(char* buf, int cap) {
+    ImGuiContext& g = *GImGui;
+    for (int i = g.Windows.Size - 1; i >= 0; --i) {
+        const ImGuiWindow* w = g.Windows[i];
+        if (w->ParentWindow || !w->WasActive || w->Hidden || (w->Flags & ImGuiWindowFlags_Tooltip)) continue;
+        if (buf && cap > 0) std::snprintf(buf, static_cast<size_t>(cap), "%s", w->Name);
+        return 1;
+    }
+    return 0;
+}
+
 __attribute__((visibility("default"))) void kiln_preview_close() {
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
     g_subs.clear();
