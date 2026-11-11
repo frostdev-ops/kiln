@@ -200,6 +200,7 @@ pub async fn runtime_uninstall(app: AppHandle, game_id: String) -> Result<TaskId
             msg.push_str(&format!("; kept {} changed files", r.kept.len()));
         }
         if let Some(warning) = r.placements.warning() { msg.push_str(&format!("; {warning}")); }
+        for kept in &r.placements.kept_files { msg.push_str(&format!("; {kept}")); }
         for warning in &r.warnings { msg.push_str(&format!("; {warning}")); }
         p.report(Some(1.0), &msg);
         to_value(&r)

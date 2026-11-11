@@ -198,6 +198,61 @@ fn the_folder_creative_mode_wrote_under_an_older_kiln_takes_kilns_copy_and_keeps
     assert_eq!(std::fs::read(kept.join("notice.txt")).unwrap(), b"Enshrouded was updated: mods waiting for an update\n");
 }
 
+/// pr-manage P4 (a): "No profile" and uninstall move the files of an adopted folder (they were there before Kiln) to
+/// kiln/kept-mod-files with the copy, and the result says so, as an activation that removes the copy does.
+#[test]
+fn no_profile_and_uninstall_say_where_an_adopted_folders_files_went() {
+    for uninstall in [false, true] {
+        let t = tmp(&format!("adopted-cleanup-{uninstall}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Z);
+        let copy = g.path.join("mods/creative");
+        put(&copy, "logs/creative.log", b"No symbol file for this game build\n");
+        put(&copy, "notice.txt", b"Enshrouded was updated: mods waiting for an update\n");
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]);
+        assert!(engine_mods::marker(&copy).is_some(), "adopted");
+        let report = if uninstall { engine_mods::unplace(&dirs, &g.path).unwrap() } else { profile::deactivate_report(&dirs, &g).unwrap() };
+        assert!(report.removed.contains(&copy) && !copy.exists(), "{uninstall}: {report:?}");
+        let kept = g.path.join("kiln/kept-mod-files/flame/creative");
+        assert_eq!(std::fs::read(kept.join("notice.txt")).unwrap(), b"Enshrouded was updated: mods waiting for an update\n");
+        assert!(report.kept_files.iter().any(|s| s.starts_with("flame:creative: ") && s.contains("notice.txt") && s.contains("kiln/kept-mod-files/flame/creative")),
+            "{uninstall}: the player is told where the files went: {report:?}");
+        assert!(serde_json::to_value(&report).unwrap()["keptFiles"].is_array(), "the launcher gets it");
+    }
+}
+
+/// pr-manage P4 (b): the kept folder holds what the mod wrote before it was switched off (its settings.json), and a
+/// start under an older launcher made a folder of written files there again. Adoption carries the kept files too, so
+/// the settings come back instead of being parked for good at the next removal; a kept file the folder also holds is
+/// kept beside it (`.kept-1`), never dropped.
+#[test]
+fn files_kept_earlier_return_when_a_folder_of_written_files_is_adopted() {
+    let t = tmp("adopted-kept");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Z);
+    let copy = g.path.join("mods/creative");
+    let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+    let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+    activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]);
+    the_mod_writes(&copy);
+    activate_with(&dirs, &g, &pid, vec![]);
+    let kept = g.path.join("kiln/kept-mod-files/flame/creative");
+    assert!(!copy.exists() && kept.join("settings.json").is_file());
+    // an older launcher ran the mod from the Library: it wrote a new log and notice into mods\creative, no settings
+    put(&copy, "logs/creative.log", b"[later] No symbol file for this game build\n");
+    put(&copy, "notice.txt", b"Enshrouded was updated again\n");
+    activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]);
+    assert!(engine_mods::marker(&copy).is_some(), "adopted");
+    assert_eq!(std::fs::read(copy.join("settings.json")).unwrap(), b"{\"menuKey\":\"F7\"}", "the kept settings are back");
+    assert!(copy.join("logs/flame.log").is_file(), "so is every other kept file");
+    assert_eq!(std::fs::read(copy.join("notice.txt")).unwrap(), b"Enshrouded was updated again\n", "the folder's own file wins");
+    assert_eq!(std::fs::read(copy.join("logs/creative.log")).unwrap(), b"[later] No symbol file for this game build\n");
+    assert_eq!(std::fs::read(kept.join("notice.txt.kept-1")).unwrap(), b"This message shows once for this game build.\n", "the earlier one stays");
+    assert!(!kept.join("settings.json").exists(), "what went back leaves the kept folder");
+}
+
 /// A folder in mods\ with anything a loader could run is not one the mod only wrote into: it stays the player's.
 #[test]
 fn a_creative_mode_folder_the_player_put_in_mods_stays_theirs() {

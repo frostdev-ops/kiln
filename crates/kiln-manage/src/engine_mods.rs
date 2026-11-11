@@ -1211,6 +1211,10 @@ pub struct RetainedPlacement {
 pub struct PlacementCleanup {
     pub removed: Vec<PathBuf>,
     pub retained: Vec<RetainedPlacement>,
+    /// Files the mods wrote into removed copies, now in [`KEPT_MOD_FILES`]: one sentence per mod, as
+    /// [`PlaceReport::kept_files`]. Absent or empty: none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept_files: Vec<String>,
 }
 
 impl PlacementCleanup {
@@ -1289,16 +1293,22 @@ pub fn unplace(dirs: &DataDirs, game_dir: &Path) -> Result<PlacementCleanup> {
                 continue;
             }
         };
-        if !player.is_empty() && let Err(e) = keep_player_files(game_dir, dst, kind, &receipt.marker.id, &player) {
-            report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
-            continue;
-        }
+        let said = if player.is_empty() { None } else {
+            match keep_player_files(game_dir, dst, kind, &receipt.marker.id, &player) {
+                Ok(said) => said,
+                Err(e) => {
+                    report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
+                    continue;
+                }
+            }
+        };
         if dst.exists() {
             remove_copy(game_dir, dst, || {
                 receipts.retain(|r| r.path != *dst);
                 save_placements(game_dir, &receipts)
             })?;
             report.removed.push(dst.clone());
+            report.kept_files.extend(said);
         } else {
             receipts.retain(|r| r.path != *dst);
             save_placements(game_dir, &receipts)?;
@@ -1965,7 +1975,12 @@ fn place_run_folder_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, kind: Mo
     let published = (|| {
         let carry = match (&have, &written) {
             (Some(h), _) => Some(Carry { from: dst, entries: h.player.clone(), from_kept: false }),
-            (None, Some(files)) => Some(Carry { from: dst, entries: files.clone(), from_kept: false }),
+            // the folder's files join what is kept for this mod already (a kept file of the same name is parked beside
+            // them, never dropped), and all of them come back together
+            (None, Some(files)) => {
+                copy_entries(game_dir, dst, &kept_at, &files.iter().collect::<Vec<_>>(), true)?;
+                kept_carry(game_dir, &kept_at, kind)?
+            }
             (None, None) => kept_carry(game_dir, &kept_at, kind)?,
         };
         // the new receipt list is written first and only then taken: a failed write leaves the list as on disk, so a
