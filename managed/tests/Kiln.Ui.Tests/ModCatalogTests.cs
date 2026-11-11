@@ -298,12 +298,20 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("other side", Mod(s, "shroudforge", "server").Word);
         Assert.Equal("inactive", Mod(s, "shroudforge", "inactive").Word);
         Assert.Equal("startup", Mod(s, "shroudforge", "patch").Word);
-        foreach (var effect in new[] { "no-target", "unsupported", "error" })
+        // the five states ShroudForge's runtime accepts (runtime.report_effect; mods/tests/sf-probe), read with the
+        // launcher's tones (EngineStatus.tsx: /fail|error|blocked/ an error, /no-target|waiting|restart/ a warning)
+        foreach (var (effect, want) in new[]
+                 {
+                     ("write-failed", ModRunState.Failed), ("waiting", ModRunState.Waiting), ("no-target", ModRunState.Waiting),
+                     ("no-change", ModRunState.Loaded), ("write-confirmed", ModRunState.Loaded),
+                     ("error", ModRunState.Failed), ("restart-required", ModRunState.Waiting),
+                 })
         {
             Runtime(Pid, true, now, effect);
             var m = Mod(Read(), "shroudforge", "active");
-            Assert.Equal(effect == "error" ? ModRunState.Failed : ModRunState.Waiting, m.State);
+            Assert.Equal((effect, want), (effect, m.State));
             Assert.Contains("effect diagnostic", m.Reason);
+            Assert.Equal(want == ModRunState.Failed, m.NeedsAttention);
         }
         foreach (var stale in new[] { (Pid + 1, true, now), (Pid, false, now), (Pid, true, now - 60) })
         {

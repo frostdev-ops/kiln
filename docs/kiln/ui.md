@@ -268,7 +268,9 @@ Where the list comes from (`ModCatalog.cs`, internal; usable on a dedicated serv
 `shroudtopia.json`, `shroudlink.json`, `ember.json`; contracts.md 5.9). ShroudForge's packages come from the profile and
 its configured mods folder; its host state comes from `shroudforge.json`, with actual per-mod activation/errors and
 reported effect state/detail from SF's own `state.json` runtime section (matching PID, running, heartbeat no older
-than 30 s). `no-target` and `unsupported` show Waiting; `error` shows Failed. A running adapter alone is not proof a
+than 30 s). The runtime's effect states are `waiting`, `no-target`, `no-change`, `write-confirmed` and `write-failed`;
+they get the launcher's tones: `write-failed` (any state naming a failure, an error or a block) shows Failed and counts
+under Needs attention, `waiting` and `no-target` show Waiting, `no-change` and `write-confirmed` show Loaded. A running adapter alone is not proof a
 Lua mod is active, reported readback is not gameplay proof, and individual startup patch application is not confirmed here. Enshwick's mods
 come from the profile and mods folder, with loader state from `enshwick.json`. A mod the
 profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not

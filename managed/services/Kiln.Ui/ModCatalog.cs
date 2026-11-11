@@ -1021,10 +1021,25 @@ internal static class ModCatalog
             return m with { State = ModRunState.NotLoaded, Word = "inactive", Reason = "ShroudForge does not run it right now; a change of its switch takes a second or two, or it starts with the next game start.", Help = null };
         if (runtime.Effects.TryGetValue(p.Id, out var effect))
         {
-            var effectState = effect.State switch { "error" => ModRunState.Failed, "no-target" or "unsupported" => ModRunState.Waiting, _ => ModRunState.Loaded };
-            return m with { State = effectState, Word = effect.State, Reason = $"ShroudForge Lua is active; reported effect: {effect.State}. {effect.Detail}", Help = null };
+            var effectState = EffectState(effect.State);
+            return m with
+            {
+                State = effectState, Word = effect.State, Reason = $"ShroudForge Lua is active; reported effect: {effect.State}. {effect.Detail}",
+                Help = effectState == ModRunState.Failed ? "The mod reports that its change did not apply. ShroudForge's log has the details." : null,
+            };
         }
         return m with { State = ModRunState.Loaded, Word = "active", Reason = "ShroudForge runs its Lua; the mod reports no effect result.", Help = null };
+    }
+
+    /// <summary>A mod's reported effect state (ShroudForge's runtime accepts waiting, no-target, no-change, write-confirmed
+    /// and write-failed) with the launcher's tones (EngineStatus.tsx): a failure or error is Failed, waiting / no-target /
+    /// restart is Waiting, the rest (a confirmed write, no change) Loaded.</summary>
+    internal static ModRunState EffectState(string state)
+    {
+        var w = state.ToLowerInvariant();
+        if (w.Contains("fail") || w.Contains("error") || w.Contains("blocked")) return ModRunState.Failed;
+        if (w.Contains("no-target") || w.Contains("waiting") || w.Contains("restart")) return ModRunState.Waiting;
+        return ModRunState.Loaded;
     }
 
     // ---- Enshwick: the profile and <game>/mods for the list, enshwick.json for the loader and copy notes ----
