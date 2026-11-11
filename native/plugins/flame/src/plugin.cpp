@@ -238,6 +238,14 @@ void assess(Mod& m, const fs::path& game) {
     m.reads_u8 = path_utf8(reads);
     std::error_code ec;
     const bool there = fs::is_directory(reads, ec);
+    // The launcher places Kiln's copy in mods\<Library id> (the profile entry's id), never under another name: a mod.json
+    // id that differs (not only in case: the Library id of an id that is no Kiln id is its slug) names a folder it
+    // never makes. Run from that copy (its marker names this entry), kiln-flame cannot tell which of the two folders the
+    // mod's runtime takes (docs/kiln/engines/flame.md), so a folder that does not exist proves nothing about its files.
+    const bool placeable = kcompat::lower(id) == kcompat::lower(m.id);
+    std::string copy_kind, copy_id;
+    const bool from_kilns = !placeable && !m.folder.empty() && kcompat::read_library_marker(m.folder, &copy_kind, &copy_id) &&
+                            copy_kind == "flame" && kcompat::lower(copy_id) == kcompat::lower(m.id);
     if (!g_build_key.empty() && there) {
         const fs::path sigs = reads / L"sigs" / to_wide(g_build_key + ".json");
         m.sigs_u8 = path_utf8(sigs);
@@ -251,7 +259,7 @@ void assess(Mod& m, const fs::path& game) {
                     break;
                 }
         }
-    } else if (!g_build_key.empty()) {
+    } else if (!g_build_key.empty() && !from_kilns) {
         m.sigs_u8 = path_utf8(reads / L"sigs" / to_wide(g_build_key + ".json"));
         m.symbols = KILN_FLAME_SYMBOLS_NONE;
     }
@@ -264,11 +272,21 @@ void assess(Mod& m, const fs::path& game) {
                        kcompat::lower(marker_id) == kcompat::lower(m.id);
     if (kilns) return;  // Kiln's copy of this mod is where it reads (a profile naming another copy of it, as copy mode does
                         // for a runtime the launcher cannot tell): it finds its files there
+    if (!there && from_kilns) {
+        m.note = "ran from Kiln's copy " + m.folder_u8 + " (its Library id " + m.id + "), but its mod.json names the id \"" + id +
+                 "\": kiln-flame looked for the mod's own files (sigs\\" + (g_build_key.empty() ? std::string("<build key>") : g_build_key) +
+                 ".json, symbols\\) in " + m.reads_u8 + ", which does not exist, and cannot tell which of the two folders this mod "
+                 "reads them from (the launcher places a Flame mod under its Library id). If its game features stay off, its "
+                 "own log names the folder it looked in";
+        return;
+    }
     m.note = "ran from " + m.folder_u8 + ", but a Flame mod reads its own files from " + m.reads_u8 + ", which " +
              (there ? std::string("is not Kiln's copy of it (a folder of yours, or one the mod made there earlier)")
                     : std::string("does not exist")) +
              ": it may not find its files there (Creative Mode: sigs\\<build key>.json, symbols\\) and then switches "
-             "its game features off. Activate the profile again in the Kiln launcher: it places the mod in that folder";
+             "its game features off. " +
+             (placeable ? std::string("Activate the profile again in the Kiln launcher: it places the mod in that folder")
+                        : "The launcher places a Flame mod in mods\\<its Library id> (" + m.id + "), not in that folder");
 }
 
 // One line per mod Kiln (or Flame's loader) runs: where it runs from and reads, and its symbols for this build.

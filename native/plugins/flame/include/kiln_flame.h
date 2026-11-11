@@ -23,7 +23,8 @@ enum {
 
 /* symbols(): what the folder a Flame mod reads its own files from holds for the running game build. */
 enum {
-    KILN_FLAME_SYMBOLS_UNKNOWN = 0,  /* no such mod, or no folder or build key to look at */
+    KILN_FLAME_SYMBOLS_UNKNOWN = 0,  /* no such mod, no folder or build key to look at, or Kiln's copy of a mod whose
+                                      * mod.json id differs from its Library id and no folder of that id exists */
     KILN_FLAME_SYMBOLS_FOUND = 1,    /* sigs\<build key>.json: the mod has its symbols for this build */
     KILN_FLAME_SYMBOLS_RECIPES = 2,  /* no sigs\<build key>.json, but recipes in symbols\ it may resolve the build from */
     KILN_FLAME_SYMBOLS_NONE = 3,     /* neither: by its own rule the mod switches its game features off */
