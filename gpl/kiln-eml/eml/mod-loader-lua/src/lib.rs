@@ -345,16 +345,5 @@ pub fn restore(
     let kfc_path = game_dir.as_ref()
         .join(format!("{file_name}.kfc"));
 
-    // kiln-eml: the containers the owned live output added (its receipt lists them), read while its header is live
-    let root = game_dir.as_ref().as_std_path();
-    let added = ownership::live_containers(root, file_name).unwrap_or_else(|error| {
-        tracing::warn!(%error, "The receipt's containers cannot be read; the restore leaves them in place");
-        None
-    });
-    let restored = load::restore_backup(&kfc_path).is_ok();
-    // ... and are no longer referenced once the vanilla header is back: remove exactly those
-    if restored && let Some(added) = added && let Err(error) = ownership::remove_unreferenced(root, file_name, &added) {
-        tracing::warn!(%error, "The vanilla data is back; container files EML had added were left in place");
-    }
-    restored
+    load::restore_backup(&kfc_path).is_ok()
 }

@@ -8,6 +8,8 @@ use sha2::{Digest as _, Sha256};
 pub(crate) struct Digest { size: u64, sha256: String }
 
 thread_local! { static READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+thread_local! { static BEFORE_SF_LOCK: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 
 /// Bytes the ownership checks of this thread hashed since `reset_read` (they are outside the change cache's counter).
 pub(crate) fn read() -> u64 { READ.with(|r| r.get()) }
@@ -263,6 +265,8 @@ pub(crate) fn vouched(root: &Path, stem: &str, saved: Option<&str>) -> io::Resul
 /// The returned guard (SF's locks, when SF's state was handed over) is held until the last archive is published.
 pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
+    let guard = sf_lock(root)?;
+    handoff_locked(root, stem, false, false, &guard)?;
     let path = directory(root)?.join(format!("{stem}.json"));
     let earlier = if path.try_exists()? {
         let earlier: Receipt = serde_json::from_slice(&bounded(root, &path)?)?;
@@ -302,9 +306,9 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     };
     let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous };
     // Even identical final bytes pass through the vanilla-header barrier and rewrite the live pair.
-    let guard = handoff(root, stem, true, changed)?;
+    handoff_locked(root, stem, true, changed, &guard)?;
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
-    Ok(guard)
+    Ok(Some(guard))
 }
 
 fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
@@ -541,21 +545,27 @@ pub(crate) fn before_baseline(root: &Path, stem: &str) -> io::Result<Option<SfGu
     handoff(root, stem, false, false)
 }
 
-/// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
+/// Recheck ownership and hand the archives over from SF while locked; retain the guard through restore cleanup.
 pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
+    let guard = sf_lock(root)?;
+    handoff_locked(root, stem, false, false, &guard)?;
+    if !owns_output(root, stem)? {
+        return Err(invalid("the live archives or backups no longer match kiln-eml's ownership receipt; retained without restoring"));
+    }
     let mut live = Live::new(root);
     for extension in ["kfc", "kfc_resources"] {
         let (backup, current) = (format!("{stem}.{extension}.bak"), format!("{stem}.{extension}"));
         let Some(size) = live.size(&backup)? else { continue };
         if live.size(&current)? != Some(size) || live.digest(&backup)? != live.digest(&current)? {
-            return handoff(root, stem, false, true);
+            handoff_locked(root, stem, false, true, &guard)?;
+            break;
         }
     }
-    handoff(root, stem, false, false)
+    Ok(Some(guard))
 }
 
-/// SF's write lock, held from the state edit until the last archive write is done. Every SF state write (the
+/// SF's write lock, held from ownership checking until the last archive write/removal is done. Every SF state write (the
 /// `preparing` an SF preparation writes before it touches an archive included) waits for it, so no SF preparation
 /// can start in between. SF's startup lease (`<runtime>/startup-assets.lock`) is never taken: SF opens it once,
 /// exclusively and without waiting, and a held lease fails both its preparation and its recovery.
@@ -597,40 +607,52 @@ fn sf_publication_pending(root: &Path, stem: &str) -> io::Result<()> {
 // Keep the exact original bytes and replacement in a recovery journal. Do not restore a now-false "applied" claim.
 // Recognition follows SF's own rules (asset-preparation.schema.json, update_loader_state.rs); any other shape refuses.
 // `publishing`: the archives are about to get EML's output (not vanilla data back): SF's asset mods drop out of them.
-fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Result<Option<SfGuard>> {
+fn sf_lock(root: &Path) -> io::Result<SfGuard> {
+    #[cfg(test)]
+    BEFORE_SF_LOCK.with(|check| { if let Some(check) = check.take() { check(root); } });
+    // Same installation lock as ShroudForge's document writer. Acquire before reading ownership proof, not just
+    // before writing: a complete SF preparation between proof and locking would make that proof stale.
     let config_dir = root.join("shroudforge/config");
-    let config_path = config_dir.join("modloader-config.json");
-    checked_path(root, &config_path)?;
-    let config = sf_config(root, &config_path)?;
-    let state_dir = sf_dir(root, config.as_ref(), "state");
-    let state = state_dir.join("state.json");
-    checked_path(root, &state)?;
-    // Same installation lock as ShroudForge's document writer. Take it even before its first state exists: SF must
-    // not create `preparing` while we publish. Never wait on an active standalone loader.
     checked_path(root, &config_dir)?;
     fs::create_dir_all(&config_dir)?;
     let lock_path = config_dir.join(".shroudforge-write.lock");
     checked_path(root, &lock_path)?;
     let lock = fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&lock_path)?;
     lock.try_lock().map_err(|e| invalid(&format!("ShroudForge state is in use: {e}")))?;
-    let guard = SfGuard { _write: lock };
+    Ok(SfGuard { _write: lock })
+}
+
+fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Result<Option<SfGuard>> {
+    let guard = sf_lock(root)?;
+    handoff_locked(root, stem, publishing, changed, &guard)?;
+    Ok(Some(guard))
+}
+
+// The caller retains this guard through its proof checks, state handoff and every archive write/removal.
+fn handoff_locked(root: &Path, stem: &str, publishing: bool, changed: bool, _guard: &SfGuard) -> io::Result<()> {
+    let config_path = root.join("shroudforge/config/modloader-config.json");
+    checked_path(root, &config_path)?;
+    let config = sf_config(root, &config_path)?;
+    let state_dir = sf_dir(root, config.as_ref(), "state");
+    let state = state_dir.join("state.json");
+    checked_path(root, &state)?;
     sf_publication_pending(root, stem)?;
     // Recheck the configured destination under the lock, not only the state bytes.
     if sf_dir(root, sf_config(root, &config_path)?.as_ref(), "state") != state_dir {
         return Err(invalid("ShroudForge state path changed during handoff"));
     }
-    if !state.try_exists()? { return Ok(Some(guard)); }
+    if !state.try_exists()? { return Ok(()); }
     let original = bounded(root, &state)?;
     let mut value: serde_json::Value = serde_json::from_slice(&original)?;
     if value.get("schemaVersion").is_some_and(|v| v.as_u64() != Some(1)) {
         return Err(invalid("unknown ShroudForge state schema; refusing archive handoff"));
     }
-    let Some(assets) = value.get_mut("assets") else { return Ok(Some(guard)); };
+    let Some(assets) = value.get_mut("assets") else { return Ok(()); };
     let target = assets.get("target").and_then(|v| v.as_str());
     let other = |t: Option<&str>| matches!(t, Some(t @ ("enshrouded" | "enshrouded_server")) if t != stem);
     match assets.get("status").and_then(|v| v.as_str()) {
-        Some("failed") => return Ok(Some(guard)),
-        Some("preparing" | "applied") if other(target) => return Ok(Some(guard)),
+        Some("failed") => return Ok(()),
+        Some("preparing" | "applied") if other(target) => return Ok(()),
         Some("preparing") if target == Some(stem) => return Err(invalid(&format!(
             "ShroudForge is preparing its asset mods for {stem} (or its last preparation did not finish): let it finish, then start again"))),
         Some("applied") if target == Some(stem) => {},
@@ -644,7 +666,7 @@ fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Resu
         !matches!(assets.get("phase").and_then(|v| v.as_str()), Some("prepare" | "startup")) {
         return Err(invalid("unknown ShroudForge prepared-output cache; refusing archive handoff"));
     }
-    if !changed { return Ok(Some(guard)); }
+    if !changed { return Ok(()); }
     let mods: Vec<String> = assets["mods"].as_array().into_iter().flatten().filter_map(|m| {
         let id = m.get("id")?.as_str()?;
         Some(match m.get("version").and_then(|v| v.as_str()) { Some(v) => format!("{id} {v}"), None => id.to_owned() })
@@ -659,7 +681,7 @@ fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Resu
     super::transaction::atomic_write(&state, &replacement)?;
     tracing::info!(path = %state.display(), recovery = %recovery.display(), "Invalidated only ShroudForge's stale prepared-output cache before EML changed game data; settings retained");
     if publishing && !mods.is_empty() { DISPLACED.with(|d| d.borrow_mut().extend(mods)); }
-    Ok(Some(guard))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -750,6 +772,42 @@ pub(crate) mod tests {
         patch.finalize().unwrap();
         assert!(owns_output(&root, "g").unwrap());
         (root, header, resources)
+    }
+    #[test]
+    fn publication_checks_ownership_after_the_sf_lock_not_before_it() {
+        let (root, files) = fixture();
+        prepare(&root, "g", &files).unwrap();
+        publish(&root, &files);
+        let receipt = fs::read(root.join("kiln/eml/ownership/g.json")).unwrap();
+        // A complete standalone SF write wins the installation lock just before Kiln gets it. Its bytes are now
+        // foreign even though Kiln's earlier receipt check, outside that lock, could have matched the old bytes.
+        BEFORE_SF_LOCK.with(|check| check.set(Some(|game| {
+            let lock = fs::OpenOptions::new().read(true).write(true).open(game.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+            lock.try_lock().unwrap();
+            fs::write(game.join("g_010.dat"), b"foreign SF container").unwrap();
+        })));
+        let result = prepare(&root, "g", &files);
+        assert!(result.is_err(), "publication accepted container proof captured before the SF lock");
+        assert_eq!(fs::read(root.join("g_010.dat")).unwrap(), b"foreign SF container");
+        assert_eq!(fs::read(root.join("kiln/eml/ownership/g.json")).unwrap(), receipt);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn restore_rechecks_ownership_under_the_sf_lock_after_the_runners_earlier_proof() {
+        let (root, _, _) = real_published();
+        assert!(owns_output(&root, "g").unwrap(), "the runner's initial authorization");
+        // SF completes after that authorization and before restore obtains the shared lock. The old baseline is
+        // still valid for this game build, but it must not authorize replacing SF's new output.
+        let lock = fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+        lock.try_lock().unwrap();
+        fs::write(root.join("g.kfc_resources"), b"foreign SF resources").unwrap();
+        let (state, before) = sf(&root, false);
+        drop(lock);
+        assert!(!owns_output(&root, "g").unwrap());
+        assert!(!crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"), "restore reused ownership proof from before SF's completed write");
+        assert_eq!(fs::read(root.join("g.kfc_resources")).unwrap(), b"foreign SF resources");
+        assert_eq!(fs::read(state).unwrap(), before, "a refused restore must not invalidate SF's applied state");
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn baseline_refresh_cannot_replace_shared_backups_while_sf_is_busy_or_preparing() {

@@ -200,10 +200,15 @@ pub fn restore_backup(
 
     let root = path.parent().ok_or(())?;
     let stem = path.file_stem().ok_or(())?;
-    // SF's locks (when its prepared-output state was handed over) stay held until both copies are done
+    // Proof is rechecked under SF's lock. Hold it through both copies AND container cleanup: SF must not append
+    // new containers between reading the restored header's range and removing the old generation's extras.
     let _sf = crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
-        error!(%error, "Refusing archive restore: ShroudForge prepared-output cache could not be safely invalidated");
+        error!(%error, "Refusing archive restore: ownership or ShroudForge prepared-output state could not be safely checked");
     })?;
+    let added = crate::ownership::live_containers(root.as_std_path(), stem).unwrap_or_else(|error| {
+        tracing::warn!(%error, "The receipt's containers cannot be read; the restore leaves them in place");
+        None
+    });
     if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {
         error!(
             path = ?path,
@@ -227,6 +232,9 @@ pub fn restore_backup(
     if resources_backup.exists() {
         crate::transaction::atomic_copy(resources_backup.as_std_path(), path.with_extension("kfc_resources").as_std_path())
             .map_err(|_| ())?;
+    }
+    if let Some(added) = added && let Err(error) = crate::ownership::remove_unreferenced(root.as_std_path(), stem, &added) {
+        tracing::warn!(%error, "The vanilla data is back; container files EML had added were left in place");
     }
     Ok(())
 }
@@ -565,6 +573,9 @@ mod kiln_tests {
         create_backup(&kfc).unwrap();
         std::fs::OpenOptions::new().append(true).open(&kfc).unwrap().write_all(b"patch tail").unwrap();
         std::fs::OpenOptions::new().append(true).open(&resources).unwrap().write_all(b"patch tail").unwrap();
+        // The restore entry now rechecks the runner's authorization while holding SF's lock. Record these exact
+        // test-patch bytes as an owned publication; merely sharing a backup must not authorize their replacement.
+        crate::ownership::prepare(dir.as_std_path(), "g", &[kfc.clone().into_std_path_buf(), resources.clone().into_std_path_buf()]).unwrap();
         restore_backup(&kfc).unwrap();
         assert_eq!(std::fs::read(&kfc).unwrap(), original);
         assert_eq!(std::fs::read(&resources).unwrap(), original_resources);
