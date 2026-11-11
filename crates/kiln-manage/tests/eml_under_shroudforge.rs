@@ -486,3 +486,64 @@ fn the_launcher_says_when_shroudforge_has_an_eml_mod_off_and_never_writes_a_play
     assert_eq!(eml.off, ["more-gliders"], "{eml:?}");
     assert!(eml.text.contains("switched off in ShroudForge's settings"), "{}", eml.text);
 }
+
+/// sol-playtest-manage S9: the receipt lists `extended.mod.json` without its switch and its whole `settings` object, and
+/// the check for the player's ShroudForge settings compared only their values. An edit of a setting's metadata alone
+/// (the player widened a slider's range by hand) must survive an update and every way of stopping the mod: kept in the
+/// copy or set aside where the result says, never overwritten or deleted.
+#[test]
+fn a_settings_metadata_edit_in_kilns_eml_copy_survives_an_update_and_stopping_the_mod() {
+    let wider = |copy: &Path| {
+        let text = ext_of(copy).unwrap();
+        assert!(text.contains("\"max\": 50"), "{text}");
+        std::fs::write(copy.join("extended.mod.json"), text.replace("\"max\": 50", "\"max\": 500")).unwrap();
+    };
+    let edited = |copy: &Path| ext_of(copy).is_some_and(|t| t.contains("\"max\": 500"));
+    // an update to a new version
+    let s = setup("meta-update");
+    let v1 = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.0.0", SHIPPED), ModKind::Eml, "radius-mod");
+    let mut p = s.profile(vec![pm(&v1, true)]);
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/radius-mod");
+    wider(&copy);
+    let next = SHIPPED.replace("\"value\": 5 } }", "\"value\": 5 }, \"extra\": { \"label\": \"Extra\", \"value\": true } }");
+    let v2 = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.1.0", &next), ModKind::Eml, "radius-mod");
+    p.mods.eml = vec![pm(&v2, true)];
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let kept = s.game.join("kiln/kept-mod-files/eml/radius-mod");
+    let set_aside = edited(&kept) && rep.kept_files.iter().any(|k| k.contains("extended.mod.json"));
+    let stayed = edited(&copy) && rep.retained.iter().any(|r| r.path == copy);
+    assert!(set_aside || stayed, "update: the player's edit is gone: copy {:?}, {rep:?}", ext_of(&copy));
+    // the same for a copy in <game>/mods/<folder> for an EML mod's DLL (Auto Loot Plus), at its next version
+    let alp = |version: &str, ext: &str| {
+        let d = s.t.0.join(format!("pkg/AutoLootPlus {version}"));
+        put(&d, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0mods\\auto-loot-plus\\config.txt"));
+        put(&d, "mods/auto-loot-plus/mod.json", format!(r#"{{"id":"auto-loot-plus","name":"Auto Loot Plus","version":"{version}","capabilities":["patch"]}}"#).as_bytes());
+        put(&d, "mods/auto-loot-plus/src/mod.lua", format!("-- {version}").as_bytes());
+        put(&d, "mods/auto-loot-plus/extended.mod.json", ext.as_bytes());
+        let r = library::import(&s.dirs, &[d], &mut NoProgress).unwrap();
+        r.imported.iter().chain(&r.existing).find(|x| x.kind == ModKind::Eml).cloned().expect("the EML part")
+    };
+    p.mods.eml = vec![pm(&alp("1.1.8", SHIPPED), true)];
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/auto-loot-plus");
+    wider(&copy);
+    p.mods.eml = vec![pm(&alp("1.1.9", &next), true)];
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.placed.contains(&"eml:auto-loot-plus".to_string()), "{rep:?}");
+    assert_eq!(std::fs::read(copy.join("src/mod.lua")).unwrap(), b"-- 1.1.9");
+    let kept = s.game.join("kiln/kept-mod-files/eml/auto-loot-plus");
+    assert!(edited(&kept) && rep.kept_files.iter().any(|k| k.starts_with("eml:auto-loot-plus") && k.contains("extended.mod.json")),
+        "game-folder update: the player's edit is gone: copy {:?}, {rep:?}", ext_of(&copy));
+    // stopping the mod
+    for how in [Stop::Off, Stop::Gone, Stop::Unplace] {
+        let s = setup(&format!("meta-{how:?}"));
+        let v1 = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.0.0", SHIPPED), ModKind::Eml, "radius-mod");
+        let mut p = s.profile(vec![pm(&v1, true)]);
+        engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+        let copy = s.game.join("mods/radius-mod");
+        wider(&copy);
+        let (retained, removed) = stop(&s, &mut p, how);
+        assert!(retained.contains(&copy) && edited(&copy), "{how:?}: the player's edit is gone: retained {retained:?}, removed {removed:?}");
+    }
+}

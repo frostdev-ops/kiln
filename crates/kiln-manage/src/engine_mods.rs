@@ -699,21 +699,28 @@ fn current_receipt(dst: &Path, r: &Placement) -> Placement {
     r
 }
 
-/// The setting values of a ShroudForge `extended.mod.json` text (`settings.<key>.value`, or the shorthand value), by
-/// key; None when it is no JSON object.
-fn sf_values(text: &str) -> Option<std::collections::BTreeMap<String, serde_json::Value>> {
+/// The settings of a ShroudForge `extended.mod.json` text by key (`settings.<key>`: its metadata and, with `values`, its
+/// value; a shorthand value counts as a value); None when it is no JSON object.
+fn sf_settings_in(text: &str, values: bool) -> Option<std::collections::BTreeMap<String, serde_json::Value>> {
     let doc = crate::jsonc::parse(text.trim_start_matches('\u{feff}')).ok().filter(serde_json::Value::is_object)?;
     Some(doc.get("settings").and_then(|s| s.as_object()).into_iter().flatten().map(|(k, e)| {
-        (k.clone(), e.as_object().and_then(|o| o.get("value")).cloned().unwrap_or_else(|| e.clone()))
+        let mut e = e.clone();
+        if !values {
+            match e.as_object_mut() {
+                Some(o) => { o.remove("value"); }
+                None => e = serde_json::Value::Null,
+            }
+        }
+        (k.clone(), e)
     }).collect())
 }
 
-/// Kiln's EML copy `dst` holds ShroudForge setting values that are not the ones Kiln placed (the player changed them in
-/// the game, or Kiln carried them from an earlier version): they are the player's. A receipt that records Kiln's own
+/// Whether the ShroudForge settings (`extended.mod.json` `settings`) of Kiln's EML copy `dst` are not the ones Kiln
+/// placed: their values and metadata, or with `values` false their metadata only. A receipt that records Kiln's own
 /// file tells ([`Placement::extension`]). An older one that lists the file without it (an earlier 0.2.0-dev.24 placed
-/// the copy while ShroudForge did not run it) is compared with the Library's file, the one Kiln copied: values that
-/// differ from it are the player's, and so is a file whose Library entry cannot be read. `dirs`: Kiln's data dir.
-fn sf_values_changed(dirs: &DataDirs, dst: &Path, r: &Placement) -> bool {
+/// the copy while ShroudForge did not run it) is compared with the Library's file, the one Kiln copied; a file whose
+/// Library entry cannot be read counts as changed. `dirs`: Kiln's data dir.
+fn sf_settings_changed(dirs: &DataDirs, dst: &Path, r: &Placement, values: bool) -> bool {
     const EXT: &str = "extended.mod.json";
     let Ok(now) = std::fs::read_to_string(dst.join(EXT)) else { return false };
     let placed = match current_receipt(dst, r).extension {
@@ -729,7 +736,25 @@ fn sf_values_changed(dirs: &DataDirs, dst: &Path, r: &Placement) -> bool {
         }
         None => return false,
     };
-    sf_values(&now) != sf_values(&placed)
+    sf_settings_in(&now, values) != sf_settings_in(&placed, values)
+}
+
+/// Kiln's EML copy `dst` holds ShroudForge settings that are not the ones Kiln placed ([`sf_settings_changed`]): values
+/// the player changed in the game or Kiln carried from an earlier version, or metadata the player edited by hand. They
+/// are the player's (the receipt lists the file without them).
+fn sf_values_changed(dirs: &DataDirs, dst: &Path, r: &Placement) -> bool {
+    sf_settings_changed(dirs, dst, r, true)
+}
+
+/// The player's files of Kiln's EML copy `dst` to carry to its next version (`player`), with its `extended.mod.json`
+/// when the player edited a setting's metadata there: the values go over by themselves (the caller's `kept`), and a
+/// file the new version ships itself goes to [`kept_dir`] rather than being overwritten ([`carry_in`]).
+fn with_edited_extension(dirs: &DataDirs, dst: &Path, receipt: &Placement, mut player: Vec<String>) -> Vec<String> {
+    const EXT: &str = "extended.mod.json";
+    if receipt.marker.kind == ModKind::Eml && !player.iter().any(|p| p == EXT) && sf_settings_changed(dirs, dst, receipt, false) {
+        player.push(EXT.into());
+    }
+    player
 }
 
 /// Sets ShroudForge's switch of Kiln's EML copy `dst` (in ShroudForge's mods folder) to `on`, writing the file
@@ -794,7 +819,7 @@ fn keep_sf_values(dirs: &DataDirs, game: &Path, receipts: &mut Vec<Placement>, r
         Ok(_) => "Kiln switched it off in ShroudForge's settings".to_string(),
         Err(e) => format!("Kiln could not switch it off in ShroudForge's settings ({}), so ShroudForge may still run it", reason_at(dst, e.message)),
     };
-    retain(rep, tag, dst, format!("its ShroudForge settings (extended.mod.json) hold values changed in the game, so Kiln keeps the folder and {off}. \
+    retain(rep, tag, dst, format!("its ShroudForge settings (extended.mod.json) were changed since Kiln placed it (values set in the game, or an edit), so Kiln keeps the folder and {off}. \
         Switch the mod on in the profile to use them again, or remove the folder by hand to drop them"));
     Some(())
 }
@@ -1282,7 +1307,7 @@ pub fn unplace(dirs: &DataDirs, game_dir: &Path) -> Result<PlacementCleanup> {
             }
             // an EML copy's ShroudForge switch is the profile's; its setting values may be the player's
             if kind == ModKind::Eml && sf_values_changed(dirs, dst, &receipt) {
-                return Err(Error::new(ErrorCode::Refused, "its ShroudForge settings (extended.mod.json) hold values changed in the game"));
+                return Err(Error::new(ErrorCode::Refused, "its ShroudForge settings (extended.mod.json) were changed since Kiln placed it (values set in the game, or an edit)"));
             }
             Ok(Vec::new())
         })();
@@ -1693,8 +1718,12 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     }
                     // another version: the new copy keeps the settings and the files the DLL or the player wrote into
                     // the old one
-                    Ok(Mine::Yes(_, changed, added)) => match read_settings(&dst, &changed) {
-                        Ok(settings) => (settings, (!added.is_empty()).then(|| Carry { from: &dst, entries: added, from_kept: false })),
+                    Ok(Mine::Yes(have, changed, added)) => match read_settings(&dst, &changed) {
+                        Ok(settings) => {
+                            // a ShroudForge file with the player's metadata edits: set aside, its values go over by themselves
+                            let added = if changed.iter().any(|c| c == "extended.mod.json") { added } else { with_edited_extension(dirs, &dst, &have, added) };
+                            (settings, (!added.is_empty()).then(|| Carry { from: &dst, entries: added, from_kept: false }))
+                        }
                         Err(e) => { retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, true, marker_at(&receipts, &dst), Some(&want))); continue; }
                     },
                     Ok(Mine::No) => {
@@ -1778,7 +1807,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             let values = if sf && have.is_some() { sf_settings(&dst) } else { Vec::new() };
             let published = (|| {
                 let carry = match &have {
-                    Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
+                    Some(h) => Some(Carry { from: &dst, entries: with_edited_extension(dirs, &dst, &h.receipt, h.player.clone()), from_kept: false }),
                     None => kept_carry(game_dir, &kept_at, kind)?,
                 };
                 copy_in_with(roots, src, &dst, &want, &values, true, carry, &[], None, sf,
