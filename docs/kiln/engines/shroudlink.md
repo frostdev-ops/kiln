@@ -90,6 +90,66 @@ once after closing Kiln's own menu, try the addon's configured MODS key (default
 a fresh report. A screenshot of the whole player tab row and whether keyboard/mouse differs from controller input
 help distinguish a tab-recognition issue from startup or input delivery; do not infer the cause from slot locking alone.
 
+### Optional cooperative client-menu bridge (source-only)
+
+Kiln can also show a cooperating addon's **actual received menu entries and windows** inside its own Mods page:
+choose **shroudlink menus**, then Storage, Assistants, or another entry the host actually sent. This access does not
+require a local catalog row for the server's mod. It is **not available with the unchanged stock addon**, which has
+no production snapshot/event export. Kiln does not load, install or replace an addon to enable it. Without the
+versioned export the button is absent and the stock addon path is unchanged.
+
+`native/plugins/shroudlink/client-bridge/prepare.py` is an offline, opt-in compatibility recipe for the MIT 0.8.0
+source (upstream revision `f2fc8ddc741db517fcaec8d44bd756d72356c8d0`); it validates the patched inputs and unchanged
+native-tab source, preserves upstream's MIT notice, and makes a **new private source copy**. No third-party client
+source or DLL is included in this recipe. The separate count-independent native-tab experiment is not applied.
+Run from outside the source, with build outputs in private scratch directories:
+
+```sh
+python -I native/plugins/shroudlink/client-bridge/prepare.py <pristine-source> <new-private-source>
+CL=/FIstring.h CARGO_BUILD_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2 cargo xwin build --offline --locked --release \
+  --manifest-path <new-private-source>/mod/Cargo.toml -p shroudlink-client --target x86_64-pc-windows-msvc
+```
+
+Set `CARGO_TARGET_DIR` and `CARGO_BUILD_BUILD_DIR` first. The forced string header works around upstream's
+`libudis86-sys` clang-cl include flag; it does not alter addon behavior. The output is `shroudlink_client.dll` for
+private harness testing, **not an installer or a redistributed client addon**.
+
+The cooperating copy exports C ABI `shroudlink_client_bridge_v1(request, len, out, capacity, written) -> u32`.
+Pointers are caller-owned valid buffers; lengths are bytes excluding NUL, `written` is a `size_t*`. Requests and
+replies are UTF-8 JSON. Maximum request/reply sizes are 8192 / 262144 bytes. Status 0 succeeds; 1 means short buffer
+(`written` gives the required size), 2 invalid input, 3 inactive copy, 4 stale ownership/state, 5 busy and 6 unavailable.
+Short-buffer probes never acquire/renew/release ownership or enqueue events. Successful replies carry `"abi":1`.
+The operations are:
+
+- `{"op":"read"}`: opaque module/session epochs, revision, readiness, actual owner-addressed Entries/windows;
+  read does not disclose another presentation's lease token.
+- `{"op":"acquire","module":"...","session":"...","client":"..."}`: obtain/renew a two-second exclusive
+  presentation lease. The reply includes its token and current state. Native menu-window presentation is suppressed
+  only while a live lease is held. The addon's window procedure then forwards input unchanged down its saved chain
+  instead of recording native text, hotkeys or wheel actions as well. Outside the lease, inventory/input features
+  and the stock tab-recognition code remain unchanged.
+- `{"op":"release","module":"...","session":"...","lease":"..."}`: release and discard queued events.
+- `{"op":"event","module":"...","session":"...","lease":"...","revision":3,"owner":"storage",
+  "event":{"window":"...","node":"...","event":{"kind":"click"}}}`: queue a validated real UI event.
+  Menu uses an advertised entry ID and empty window; Closed uses an existing window and empty node. Other event
+  types, values and indices must match the current owner/window/node. The queue holds at most 32 events, each at
+  most 2048 serialized bytes. They are revalidated on the real update thread and under the actual link session lock,
+  encoded with the addon's real nonce/message counter, and sent only as a whole message within that tick's budget.
+  They never enter a persistent bridge packet outbox.
+
+Readiness requires an accepted real beacon, UI-protocol-2 welcome, recognized world through the existing native UI
+hook, and a recent actual client update. A wholly failed native UI installation therefore cannot use this bridge;
+a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. World departure, stale
+updates, client-pointer change, session/module replacement and shutdown invalidate ownership. Kiln releases its
+lease when the menu closes, another section is selected, or its menu frame fails; expiry handles stopped rendering.
+Discovery only examines already-loaded modules, holds a module reference, and rejects non-owned/non-executable
+exports. There are no transport taps, unknown game layouts, receive-injection API or test TCP listener.
+
+All ten real window node kinds are rendered. Text inputs send Change and have an explicit Apply/Submit button;
+item grids show the actual numeric item IDs/counts, not guessed names/icons. HUDs, slot marks and backpack sections
+remain with the native addon. Bounded synthetic actual-DLL wire tests do not prove in-game layout, input focus,
+controller operation, or the cause of an individual missing-tab report.
+
 ## Install a mod
 
 Unpack its zip into the server folder (`shroudlink_mods/<name>.dll`, or `shroudlink_mods/<name>/`), import it in the
@@ -210,11 +270,23 @@ without a Kiln C# equivalent.
   bounded hook attribution, success, failure, stale/partial logs and timeout behavior.
 - `KILN_OUT=<build-output> SHROUDLINK_ADDON=<existing-client-dinput8.dll> native/services/ui/tests/test-addon-wine.sh`:
   optional Wine integration using the unmodified operator-supplied addon and production Kiln input/startup code.
-  Eight scenarios cover the scan-order failure and fix, both subclass orders, shutdown/reload, shared-budget timeout,
+  Eight compatibility scenarios plus a stock no-export negative check cover the scan-order failure and fix,
+  both subclass orders, shutdown/reload, shared-budget timeout,
   forwarded-export rejection, and actual addon tab-list/widget calls (six/seven/eight tabs, action-none suppression,
   restored action, native K-label override and Kiln capture flags). The tab checks run without server/menu entries.
   Synthetic source-backed game functions and message-only window discovery adapters need no game or display.
   This is not a real-game render, layout/controller test, server connection or Storage/Assistants feature test.
+- For a privately prepared cooperating addon, add `SHROUDLINK_BRIDGE_TEST=1` to that command. This replaces the
+  no-export negative check with both subclass orders exercising real store/update-hook beacon/welcome,
+  Entries/Open/all-node snapshots, validated game-thread event wire roundtrips, ABI probes,
+  lease/rejoin/replacement invalidation and leased-hotkey checks.
+  It writes the synthetic actual-addon reply to `<evidence>/bridge/bridge-snapshot.json`.
+- `cargo test --offline --manifest-path native/plugins/shroudlink/Cargo.toml -p kiln-shroudlink-client-bridge`:
+  bounded state, ownership, lifecycle, event validation and real frame codec tests.
+- `python -I native/plugins/shroudlink/client-bridge/test_prepare.py <pristine-source> <scratch>`: source recipe guards.
+- `dotnet test managed/tests/Kiln.Ui.Tests --artifacts-path <scratch>`: renderer, client and PE export-table tests.
+  Set `KILN_SHROUDLINK_BRIDGE_SNAPSHOT=<captured-snapshot>` and `KILN_SHROUDLINK_BRIDGE_ADDON=<private-dll>` to also
+  exercise the actual private addon's snapshot and PE export; these two checks are explicitly skipped otherwise.
 - `KILN_OUT=<build-output> native/services/ui/tests/run.sh`: Kiln's regular UI/input host regressions.
 - Lab: deploy Kiln (`tools/deploy-server.sh` builds `kiln-shroudlink` like every plugin), put mod DLLs built from
   shroudlink's repo (`cargo build --release` in its `mod/`) into `shroudlink_mods/`, create the file

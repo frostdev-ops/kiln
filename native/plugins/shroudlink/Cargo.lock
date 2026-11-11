@@ -3,15 +3,6 @@
 version = 4
 
 [[package]]
-name = "assistants"
-version = "0.8.0"
-dependencies = [
- "serde_json",
- "shroudlink-categories",
- "shroudlink-sdk",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -34,16 +25,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "chestsort"
-version = "0.8.0"
-dependencies = [
- "serde",
- "serde_json",
- "shroudlink-categories",
- "shroudlink-sdk",
-]
-
-[[package]]
 name = "chestsort-common"
 version = "0.8.0"
 dependencies = [
@@ -58,13 +39,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
-name = "gemforge"
-version = "0.8.0"
-dependencies = [
- "shroudlink-sdk",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -72,13 +46,6 @@ checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
 dependencies = [
  "typenum",
  "version_check",
-]
-
-[[package]]
-name = "hello_mod"
-version = "0.8.0"
-dependencies = [
- "shroudlink-sdk",
 ]
 
 [[package]]
@@ -97,10 +64,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "lantern"
+name = "kiln-shroudlink-client-bridge"
 version = "0.8.0"
 dependencies = [
- "shroudlink-sdk",
+ "serde",
+ "serde_json",
+ "shroudlink",
 ]
 
 [[package]]
@@ -139,13 +108,6 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "meter"
-version = "0.8.0"
-dependencies = [
- "shroudlink-sdk",
-]
 
 [[package]]
 name = "mmap-fixed-fixed"
@@ -267,28 +229,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shroudlink-categories"
-version = "0.8.0"
-dependencies = [
- "serde",
- "serde_json",
- "shroudlink-sdk",
-]
-
-[[package]]
-name = "shroudlink-client"
-version = "0.8.0"
-dependencies = [
- "chestsort-common",
- "iced-x86",
- "retour",
- "serde",
- "serde_json",
- "shroudlink",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "shroudlink-sdk"
 version = "0.8.0"
 dependencies = [
@@ -317,14 +257,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a3d689654af89bdfeba29a914ab6ac0236d382eb3b764f7454dde052f2821f8"
 
 [[package]]
-name = "storage"
-version = "0.8.0"
-dependencies = [
- "shroudlink-categories",
- "shroudlink-sdk",
-]
-
-[[package]]
 name = "syn"
 version = "3.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -333,13 +265,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "travel"
-version = "0.8.0"
-dependencies = [
- "shroudlink-sdk",
 ]
 
 [[package]]
