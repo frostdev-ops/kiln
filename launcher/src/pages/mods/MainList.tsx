@@ -103,8 +103,8 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       <div className="k-mods-bar">
         {many && (
           <>
-            <WellInput label="Filter" compact value={text} onChange={(e) => setText(e.target.value)} wellStyle={{ flex: "1 1 120px", maxWidth: 230 }}
-              note={text || kind ? `${shown.length} of ${mods.rows.length}` : undefined} />
+            <WellInput label="Filter" compact value={text} onChange={(e) => setText(e.target.value)} wellStyle={{ flex: "1 1 130px", maxWidth: 250 }}
+              note={text || kind ? `${shown.length}/${mods.rows.length}` : undefined} />
             {kinds.length > 1 && (
               <Select aria-label="Kind" className="k-mods-kind" value={kind} onChange={(v) => setKind(v as ModKind | "")}
                 options={[{ value: "", label: "Every kind" }, ...kinds.map((k) => ({ value: k, label: KIND_SHORT[k] }))]} />
