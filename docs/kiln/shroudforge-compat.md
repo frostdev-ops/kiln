@@ -210,8 +210,9 @@ JSON lines from its stdout pipe (`mod-runtime/lua/shroudforge/v1/create_mod_api.
 `hotkeys/observe_keyboard.rs:367-401`, `loader-config/resolve_installation_paths.rs:62-64`). Kiln's bundled
 component has no `shroudforge.exe`. Without an installed SF the runtime logs
 `[hotkeys] SDL input stopped ... Could not start isolated SDL input` and `Keyboard shortcuts unavailable`. Those
-queries then answer "not held" for the whole session (`observe_keyboard.rs:587-605`); the player's support report
-shows both lines. With SF installed next to Kiln, the runtime starts that installed exe itself (bundled or installed
+queries then answer "not held" for the whole session (`observe_keyboard.rs:587-605`); a support report from another
+Windows player with this mod enabled under hosted SF shows both lines (the steering reporter sent no report). With SF
+installed next to Kiln, the runtime starts that installed exe itself (bundled or installed
 runtime alike; the message format is unchanged in 1.8.0), and Kiln's helper start (`processes.cpp`) does not touch
 it. sf-unlimited-flight declares no keybind and
 never calls `shroudforge.input`, so this gap is **not** the cause of the steering report. It does affect SF mods
