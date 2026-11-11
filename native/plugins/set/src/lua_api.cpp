@@ -1339,10 +1339,18 @@ void readSettings(lua_State* L, mset::Page& page) {
     }
     if (!why.empty()) {
         lua_settop(L, top);
+        // The first free name: a file set aside earlier is the player's too, and rename would replace it.
         std::error_code ec;
-        std::filesystem::rename(pathOf(page.path) / "settings.json", pathOf(page.path) / "settings.json.bad", ec);
-        gSink((LV_WARN "Settings: " + page.mod + "\\settings.json couldn't be read (" + why +
-               "): Renamed to settings.json.bad, using the defaults").c_str());
+        std::string bad;
+        for (int n = 1; n <= 100 && bad.empty(); ++n) {
+            const std::string name = n == 1 ? "settings.json.bad" : "settings.json.bad." + std::to_string(n);
+            if (!std::filesystem::exists(pathOf(page.path) / name, ec) && !ec) bad = name;
+            ec.clear();
+        }
+        if (!bad.empty()) std::filesystem::rename(pathOf(page.path) / "settings.json", pathOf(page.path) / bad, ec);
+        gSink((LV_WARN "Settings: " + page.mod + "\\settings.json couldn't be read (" + why + "): " +
+               (!bad.empty() && !ec ? "Renamed to " + bad : std::string("Left as it is (the next save replaces it)")) +
+               ", using the defaults").c_str());
         return;
     }
     for (lua_pushnil(L); lua_next(L, -2); lua_pop(L, 1)) {
@@ -2903,7 +2911,14 @@ void updatePlayer(uintptr_t world) {
     rules::setPlayer(last);
 }
 
+// Features() off the tick thread found nothing scanned yet: the next tick of a world scans, so the tools show the answer.
+std::atomic<bool> gScanAsked;
+void scanIfAsked() {
+    if (gScanAsked.exchange(false)) res::ready();
+}
+
 void tickMods(uintptr_t world) {
+    if (world) scanIfAsked();
     static auto last = std::chrono::steady_clock::now();
     updatePlayer(world);
     auto now = std::chrono::steady_clock::now();
@@ -3026,6 +3041,14 @@ void rt::gameClosing(bool gameAlive) {
     else wlog::forget();
 }
 
+void rt::settleWrites() {
+    if (!wlog::waiting()) return;
+    std::lock_guard lock(gLuaMx);
+    if (noAccessViolation([](uintptr_t) { wlog::settle(gSink); }, 0)) return;
+    wlog::forget();  // C++ only, no Lua: the mods (or kiln-set) stopped already
+    gSink(LV_BAD "Write Log: Access violation while restoring: The rest stays as the mods left it");
+}
+
 void rt::afterTick(uintptr_t world) {
     if (!gObserving) return;  // no mod has called Observe: no per-tick work at all
     std::lock_guard lock(gLuaMx);
@@ -3136,7 +3159,10 @@ std::vector<rt::Feature> rt::features() {
     out.push_back({"game_build", "Game Build " + std::to_string(build),
                    tested ? "" : "Not tested with this version: Each feature checks itself", tested, tested});
     const bool assets = kset::has("assets");
-    add("resources", "Resources (Res)", assets, res::ready(), assets ? "Not loaded yet" : "kiln.assets is not running");
+    // The first ready() scans every resource type: only on the tick thread, never in a present (the tools' tabs).
+    const bool tick = kset::tickThread(), resources = tick ? res::ready() : res::scanned();
+    if (assets && !tick && !resources) gScanAsked = true;
+    add("resources", "Resources (Res)", assets, resources, assets ? "Not loaded yet" : "kiln.assets is not running");
     add("english_names", "English Names (Res.text)", true, true, "");
     add("game_options", "Game Options (GameOptions)", false, false, "Not available on Kiln");
     add("field_of_view", "Live Field of View", false, false, "Needs GameOptions: Not available on Kiln");

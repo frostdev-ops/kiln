@@ -4,6 +4,7 @@
 #include "writelog.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -23,6 +24,7 @@ using Key = std::pair<const res::Entry*, uint32_t>;  // resource, first byte; re
 std::map<Key, Rec> gRecs;
 size_t gBytes;
 size_t gBudget = 16 << 20;  // far beyond what a mod changes: every item's every field is a few MB
+std::atomic<bool> gWaiting{false};  // records with no writers left wait for settle() on the tick thread
 
 size_t cost(size_t n) { return 2 * n + 64; }
 uint64_t stop(const std::pair<const Key, Rec>& r) { return uint64_t(r.first.second) + r.second.orig.size(); }
@@ -61,6 +63,13 @@ int finish(const Key& k, const Rec& r, wlog::Sink sink) {
 
 void summary(const std::string& who, int n, wlog::Sink sink) {
     if (n) sink((LV_OK "Write Log: " + who + std::to_string(n) + " change(s) undone").c_str());
+}
+
+// n records were left by their last writer off the tick thread: they stay, and settle() restores them there.
+void later(const std::string& who, size_t n, wlog::Sink sink) {
+    if (!n) return;
+    gWaiting = true;
+    sink((LV_OK "Write Log: " + who + std::to_string(n) + " change(s) go back at the next tick of a world you host").c_str());
 }
 
 }  // namespace
@@ -108,6 +117,8 @@ void wlog::wrote(const res::Entry* e, uint32_t off, const void* src, uint32_t n)
 
 void wlog::leave(const std::string& mod, Sink sink) {
     int n = 0;
+    size_t waits = 0;
+    const bool reachable = kset::tickThread();
     for (auto it = gRecs.begin(); it != gRecs.end();) {
         auto& w = it->second.writers;
         auto mine = std::find(w.begin(), w.end(), mod);
@@ -120,23 +131,56 @@ void wlog::leave(const std::string& mod, Sink sink) {
             ++it;
             continue;
         }
+        if (!reachable) {  // kept with no writers: settle() restores it on the tick thread
+            ++waits;
+            ++it;
+            continue;
+        }
         n += finish(it->first, it->second, sink);
         gBytes -= cost(it->second.orig.size());
         it = gRecs.erase(it);
     }
     summary(mod + ": ", n, sink);
+    later(mod + ": ", waits, sink);
 }
 
 void wlog::leaveAll(Sink sink) {
+    if (!kset::tickThread()) {
+        for (auto& [k, r] : gRecs) {
+            (void)k;
+            r.writers.clear();
+        }
+        later("", gRecs.size(), sink);
+        return;
+    }
     int n = 0;
     for (const auto& [k, r] : gRecs) n += finish(k, r, sink);
     forget();
     summary("", n, sink);
 }
 
+void wlog::settle(Sink sink) {
+    if (!gWaiting.load() || !kset::tickThread()) return;
+    gWaiting = false;
+    int n = 0;
+    for (auto it = gRecs.begin(); it != gRecs.end();) {
+        if (!it->second.writers.empty()) {  // a mod wrote it again first: it goes back when that mod stops
+            ++it;
+            continue;
+        }
+        n += finish(it->first, it->second, sink);
+        gBytes -= cost(it->second.orig.size());
+        it = gRecs.erase(it);
+    }
+    summary("", n, sink);
+}
+
+bool wlog::waiting() { return gWaiting.load(std::memory_order_acquire); }
+
 void wlog::forget() {
     gRecs.clear();
     gBytes = 0;
+    gWaiting = false;
 }
 
 size_t wlog::records() { return gRecs.size(); }

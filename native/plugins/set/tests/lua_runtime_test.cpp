@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "services/kiln_hooks.h"
+#include "imgui/imgui.h"  // the vendored ImGui kiln.ui passes input_text flags to: the mock honours its real values
 namespace kset { void bindHooks(const KilnApi* api, KilnOwner owner); }
 namespace kset::hooktest { extern bool (*on_stack)(uintptr_t at, size_t n); }
 void rt::openImGui(lua_State* L){for(const char* n:{"ImGui","ImGuiCond","ImGuiWindowFlags"}){lua_newtable(L);lua_setglobal(L,n);}}
@@ -84,7 +85,7 @@ void initServices(){
  kset::bind(&core);kset::bindHooks(&core,1);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
 }
 KilnUiApi toolsUi{};
-std::string toolsTab="Mod Settings", toolsClick;
+std::string toolsTab="Mod Settings", toolsClick, toolsEnter;
 std::map<std::string,std::string> toolsInputs;
 std::vector<std::string> toolsRows;
 uint32_t toolsDemand=0,toolsCapture=0,toolsPressed=0;
@@ -104,7 +105,18 @@ void initTools(){
  toolsUi.begin_tab_item=[](KilnStr label){return textOf(label)==toolsTab;};toolsUi.end_tab_item=[](){};
  toolsUi.button=[](KilnStr label,float,float){if(textOf(label)!=toolsClick)return false;toolsClick.clear();return true;};
  toolsUi.checkbox=[](KilnStr label,bool* v){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=it->second=="true";toolsInputs.erase(it);return true;};
- toolsUi.input_text=[](KilnStr label,char* b,size_t cap,uint32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;snprintf(b,cap,"%s",it->second.c_str());toolsInputs.erase(it);return true;};
+ // Like ImGui's InputText with live edit (its default): while a field holds typed text that differs from the
+ // caller's buffer, every call copies it in and returns true. With EnterReturnsTrue only the call on which Enter is
+ // pressed (toolsEnter) returns true, and Enter leaves the field. A field without that flag is left once the
+ // caller's buffer already holds its text.
+ toolsUi.input_text=[](KilnStr label,char* b,size_t cap,uint32_t flags){
+  const std::string name=textOf(label);auto it=toolsInputs.find(name);
+  if(it==toolsInputs.end()||!cap)return false;
+  const std::string typed=it->second.substr(0,cap-1);const bool differs=typed!=b;
+  if(differs)snprintf(b,cap,"%s",typed.c_str());
+  if(flags&ImGuiInputTextFlags_EnterReturnsTrue){if(toolsEnter!=name)return false;toolsEnter.clear();toolsInputs.erase(it);return true;}
+  if(!differs)toolsInputs.erase(it);
+  return differs;};
  toolsUi.slider_int=[](KilnStr label,int32_t* v,int32_t,int32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
  toolsUi.combo=[](KilnStr label,int32_t* v,const char*){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
  toolsUi.text=[](KilnStr v){toolsRows.push_back(textOf(v));};toolsUi.text_wrapped=toolsUi.text;
@@ -127,6 +139,17 @@ bool runAs(lua_State* L,int ref,const std::string& mod,const char* script){asser
 void mustAs(lua_State* L,int ref,const std::string& mod,const char* script){if(!runAs(L,ref,mod,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
 bool logged(const char* text){for(auto& l:logs)if(l.find(text)!=std::string::npos)return true;return false;}
 std::string slurp(const std::filesystem::path& p){std::ifstream f(p,std::ios::binary);return std::string((std::istreambuf_iterator<char>(f)),{});}
+// UTF-8 as MultiByteToWideChar(MB_ERR_INVALID_CHARS) takes it: no stray, cut, overlong or surrogate sequence.
+bool validUtf8(const std::string& s){
+ for(size_t i=0;i<s.size();){
+  const unsigned char c=s[i];const size_t n=c<0x80?1:c>=0xc2&&c<=0xdf?2:(c&0xf0)==0xe0?3:c>=0xf0&&c<=0xf4?4:0;
+  if(!n||i+n>s.size())return false;
+  for(size_t k=1;k<n;++k)if((static_cast<unsigned char>(s[i+k])&0xc0)!=0x80)return false;
+  const unsigned char d=s[i+1<s.size()?i+1:i];
+  if((c==0xe0&&d<0xa0)||(c==0xed&&d>=0xa0)||(c==0xf0&&d<0x90)||(c==0xf4&&d>=0x90))return false;
+  i+=n;
+ }
+ return true;}
 void must(lua_State* L,int ref,const char* script){if(!run(L,ref,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
 }
 int main(int argc,char** argv){
@@ -255,6 +278,16 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   prog.submit=[](KilnOwner,const KilnProgressionRequest* q,uint64_t*)->KilnResult{submitted.push_back(*q);return submitRc;};
   if(!core.log)core.log=[](KilnOwner,int32_t,KilnStr){};
   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{*n=0;return KILN_OK;};
+  // Features() off the tick thread (the SET tools' Compatibility tab and support report run on the render thread)
+  // never runs the whole resource scan there; the first one on the tick thread does. (Nothing scanned before here.)
+  {static unsigned lists;lists=0;auto saved=assets.resource_list;
+   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{++lists;*n=0;return KILN_OK;};
+   auto resources=[]{for(auto& f:rt::features())if(f.id=="resources")return f;assert(false);return rt::Feature{};};
+   tickThread=false;const auto off=resources();tickThread=true;
+   if(lists)std::cerr<<"features: the resource scan ran off the tick thread ("<<lists<<" resource_list calls)\n";
+   assert(lists==0&&!off.available&&off.reason=="Not loaded yet"&&gScanAsked);
+   scanIfAsked();assert(lists>0&&!gScanAsked);   // the next world tick scans (tickMods)
+   assets.resource_list=saved;}
   gKItems=&items;gKSpawn=&spawn;
   must(L,two,"assert(Res.text('11111111-1111-1111-1111-111111111111')=='Wood Logs')");
   must(L,two,"assert(Res.text('22222222-2222-2222-2222-222222222222')=='Common Goat')");

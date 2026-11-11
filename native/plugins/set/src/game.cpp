@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -531,6 +532,7 @@ std::mutex g_res_mx;
 std::map<uint32_t, std::vector<const res::Entry*>> g_of_type;
 std::vector<std::unique_ptr<res::Entry>> g_entries;
 bool g_res_scanned = false;
+std::atomic<bool> g_res_found{false};  // what the last scan or ready() saw, for any thread without the lock
 std::mutex g_write_mx;
 
 int hexVal(char c) {
@@ -591,8 +593,10 @@ bool res::ready() {
     if (!A) return false;
     std::lock_guard lock(g_res_mx);
     scanAll();
-    return !g_entries.empty();
+    g_res_found = !g_entries.empty();
+    return g_res_found;
 }
+bool res::scanned() { return g_res_found.load(std::memory_order_acquire); }
 namespace {
 bool copyGuarded(void* dst, const void* src, size_t n) {
     __try { std::memcpy(dst, src, n); return true; }

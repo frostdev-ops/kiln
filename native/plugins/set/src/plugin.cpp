@@ -231,6 +231,7 @@ void maybe_poll_console() {
 }
 
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
+    rt::settleWrites();  // first, and also once kiln-set stepped aside on the UI thread
     if (!may_run()) return;
     maybe_poll_console();
     const uintptr_t w = g_api->server_world();

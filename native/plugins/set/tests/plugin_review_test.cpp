@@ -5,12 +5,12 @@
 #include <array>
 #define KSET_LOADER_HOST_TEST
 #include "../src/plugin.cpp"
-namespace { int shutdowns = 0, alive_shutdowns = 0, ticks = 0, frames = 0, queued = 0; bool throw_queue = false; std::string overlay_reason; std::vector<std::string> fileLines, consoleLines; }
+namespace { int shutdowns = 0, alive_shutdowns = 0, ticks = 0, frames = 0, queued = 0, settles = 0; bool throw_queue = false; std::string overlay_reason; std::vector<std::string> fileLines, consoleLines; }
 namespace rt {
 void gameClosing(bool gameAlive) { ++shutdowns; alive_shutdowns += gameAlive; }
 void setFeature(const char* id, bool, std::string reason, bool) { if (std::string(id) == "overlay") overlay_reason = reason; }
 uint32_t gameBuild() { return 0; }
-void tick(uintptr_t) { ++ticks; }
+void tick(uintptr_t) { ++ticks; } void settleWrites() { ++settles; }
 void afterTick(uintptr_t) {} void worldLeft() {} void frame() { ++frames; }
 void setOverlayOpen(bool) {} bool hasDraw() { return false; }
 bool tryLockDraw() { return false; } void drawLocked() {}
@@ -117,8 +117,12 @@ int main(int argc, char** argv) {
     loader_test::dll_loaded();
     on_pre(nullptr, nullptr);
     assert(!g_running && ticks == 1101 && shutdowns == 1);
-    assert(alive_shutdowns == 1);  // stepping aside while the game runs on: the mods' resource changes are undone
-    on_pre(nullptr, nullptr); assert(shutdowns == 1 && ticks == 1101);
+    assert(alive_shutdowns == 1);  // stepping aside while the game runs on: gameClosing(true) undoes the mods' changes
+    // Stepped aside on the UI thread, those changes wait for the tick thread: the next server step still settles them.
+    {
+        const int settled = settles;
+        on_pre(nullptr, nullptr); assert(shutdowns == 1 && ticks == 1101 && settles == settled + 1);
+    }
     loader_test::modules = {(root / "relocated/renamed.dll").wstring()};
     g_running = true;
     loader_test::dll_loaded();

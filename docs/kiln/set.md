@@ -13,7 +13,8 @@ Unlike SET, mods also run on a **dedicated server**.
    `[set] Mod Loaded: myheal`, `[set] Mods: 2 loaded, 0 failed` (SET 0.2.0's wording; 0.1.1 wrote `Mod loaded:`). Everything a mod prints goes there too.
 
 kiln-set steps aside when it finds a non-system `powrprof.dll` anywhere in the loaded-module inventory, or a renamed
-module containing SET's branding. This is deliberately conservative: an unrelated non-system power proxy also
+module containing SET's branding (its name in ASCII or UTF-16; found in SET 0.1.1's release DLL, assumed for 0.2.0's,
+which has not been checked). This is deliberately conservative: an unrelated non-system power proxy also
 suppresses kiln-set. Windows' own System32 power DLL does not. The check runs before initialization and before Lua
 tick/menu work; a module loaded later stops the runtime and releases its Lua owners. Kiln uses `dinput8.dll`, so
 installation does not replace SET's file.
@@ -30,7 +31,8 @@ of the game ends. kiln-set and kiln.types then keep running and look again one s
 when a SET or power proxy is actually seen, or when **five** looks in a row fail (about four seconds). One clean
 look resets the count. At startup the five looks happen at once, 20 ms apart. Five, because one failed look says
 nothing, a lasting fault shows in a few seconds, and each look is costly under Wine. Stepping aside while the game
-runs undoes the mods' resource changes first.
+runs undoes the mods' resource changes: at once on a world's thread, otherwise (stepping aside in the main menu) at
+the next step of a world you host.
 The types service uses the same detector for its runner hook, avoiding competing system controls. If SET loads
 after Kiln installed that hook, the adapter restores all switches and remains passive until process exit.
 
@@ -73,15 +75,22 @@ Escape or the window's close button releases their input capture. No real-client
 - **Bindings**: actual SET mod hotkeys/inputs, press-to-bind/unbind and removal of dead bindings, saved in `bindings.ini`.
 - **Console**: Lua queued to the next tick, with a bounded SET output history; no Lua runs on the render thread.
 - **Bug Report**: an explicit local `kiln/control/set-report.txt` containing compatibility, mod and hook/overlay status,
-  plus current/previous Kiln logs (at most 1 MiB each). Explicit **Copy to Clipboard** / **Copy last session's logs**
-  buttons copy Unicode logs on Windows/Wine, with a local-file fallback if the clipboard is unavailable. Home-directory
-  prefixes are redacted case-insensitively; review before sharing. Nothing is uploaded or opens a report website.
+  plus current/previous Kiln logs (the last 1 MiB of each, from a line start, so a long session keeps its end).
+  Explicit **Copy to Clipboard** / **Copy last session's logs** buttons copy Unicode logs on Windows/Wine (bytes that
+  are not UTF-8 become U+FFFD), with a local-file fallback if the clipboard is unavailable. The
+  `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in any path shaped
+  `\home\<name>`, `/home/<name>`, `\Users\<name>` or `/Users/<name>` (either separator, doubled as in JSON, any case;
+  Wine's `Z:\home\<name>` among them). Other personal text in mod names or log lines is not; review before sharing.
+  Nothing is uploaded or opens a report website.
   **Debug logs** adds tool lifecycle diagnostics to `kiln.log`, not the Lua console; it defaults on and is saved in `kiln/control/set-ui.ini`,
   not upstream's `settings.ini`.
-- **Last Session**: an unclean `kiln/control/set-session.txt` marker opens a dismissible notice on the next client
-  start, with the matching game's `crash_dumps/*/enshrouded.info` reason when available. It distinguishes unclean exit
-  from proof of a crash or mod fault. No report or clipboard write happens until chosen. Normal teardown marks the
-  session clean. The first start after installing this implementation has no earlier SET session marker.
+- **Last Session**: on the next client start, a notice opens when the game wrote a crash report
+  (`crash_dumps/*/enshrouded.info`, no earlier than a minute before the previous session's `kiln.prev.log` ends) and
+  `kiln/control/set-session.txt` shows that SET ran in that session. The marker alone opens nothing: Kiln's core does
+  not run a plugin's unload at a normal game exit, so the marker is not cleared then. The notice shows the report's
+  reason and does not blame a mod. It only draws and never takes the game's mouse or keyboard; Escape hides it. Its
+  copy, report and **Dismiss** buttons are in SET tools opened from the game's menu. No report or clipboard write
+  happens until chosen.
 
 ## What works
 Every function in SET 0.2.0's api-reference has a Kiln implementation, except those marked missing. The full table, with the
@@ -109,7 +118,11 @@ matching Kiln C# API and how each was tested, is in
   - Arguments: written back into the registers or the caller's stack slots by the kiln.hooks entry hook.
   - Fields: written with a plain guarded copy. A field marked "on the stack" is only changed when it is on the
     calling thread's stack. A read or write that fails turns that rule off until restart; the call stays unchanged.
-  - `block`: the entry hook returns to the game's caller (the documented kiln.hooks early return).
+  - `block`: the entry hook returns to the game's caller (the documented kiln.hooks early return). Any value other
+    than nil blocks, `block = false` too (as in SET): leave the key out for a rule that doesn't block.
+  - `"player"` in a condition is the first entity with `PlayerInput` in the server world, as in SET (your player in a
+    game you host). On a dedicated server that is one of the connected players, not a chosen one; outside a world it
+    never matches.
   - `after`: needs code after the original. Kiln has a typed kiln.hooks raw link for `combat_xp`, the only catalog
     target that allows it. It is installed with the first such rule and stays.
 - **Catalog targets `combat_xp` and `hit`**: SET's signatures and field declarations, checked at startup (build,
@@ -125,7 +138,7 @@ matching Kiln C# API and how each was tested, is in
   | Id | On Kiln |
   |---|---|
   | `game_build` | compatible on SET's three client builds and on the server build 1793791038 (Kiln's lab) |
-  | `resources` | kiln.assets is there; available once the game's data is loaded |
+  | `resources` | kiln.assets is there; available once the game's data is loaded (the scan runs on a world's thread; SET tools show its result) |
   | `english_names` | always (item and template names; other tags need the client text catalog) |
   | `game_options`, `field_of_view` | never: "Not available on Kiln" |
   | `systems` | kiln.types can switch systems (only two may be switched off, see below) |
@@ -135,17 +148,23 @@ matching Kiln C# API and how each was tested, is in
   | `hooks` (Kiln only) | kiln.hooks is running |
   | `admin_send` (Kiln only) | never: use the Admin helpers |
   | `mod_settings_page` (Kiln only) | available with the client overlay; unavailable on a dedicated server |
-- **`Settings.define{...}`**: values are typed, clamped, and saved to the mod's `settings.json` within a second, at
-  once on a reload or when the game closes. Unknown keys in the file are kept. A wrong type falls back to the default
-  with a yellow line. A broken file becomes `settings.json.bad`. Edit in the SET tools page, or edit the file by hand
-  while the game is closed.
+- **`Settings.define{...}`**: values are typed, clamped, and saved to the mod's `settings.json` within a second, and
+  at once on a reload. Kiln's core does not run a plugin's unload when the game exits, so nothing extra is saved then
+  and `onShutdown` does not run at game exit: a change made in the last second before quitting can be lost. Unknown
+  keys in the file are kept. A wrong type falls back to the default with a yellow line. A broken file becomes
+  `settings.json.bad` (`settings.json.bad.2` and so on while an earlier one is still there; none is replaced). Edit
+  in the SET tools page, or edit the file by hand while the game is closed.
 - **`settings.json` belongs to `Settings.define`**: `io.open("settings.json", "w")` returns nil and a message. Reading
   works.
 - **Key names**: Space, Enter, Tab, arrows, numpad, and punctuation by its US name (`Semicolon`, `Equals`, ...).
   `bindings.ini` saves names; files with `0xNN` codes still load.
 - **Changes go back when a mod stops**: resource edits (`Res`) made by a mod are undone when it fails while loading,
-  on `reload()`, and when kiln-set steps aside. A value the console or the game changed since is left alone. The
-  console's own edits are not undone. `Systems.enable` was already undone per mod (kiln.types owners).
+  on `reload()`, and when kiln-set steps aside. Resources can only be written on a world's thread: when mods stop
+  elsewhere (a reload from the main menu, stepping aside there), the log keeps their records and the originals go back
+  at the next step of a world you host, before any mod runs in it. A reloaded mod that writes the same value first
+  keeps the game's original, so relative edits (`x = x * 2`) don't compound. A value the console or the game changed
+  since is left alone. The console's own edits are not undone. `Systems.enable` was already undone per mod (kiln.types
+  owners).
 - **`load()`**: a function built with `load()` belongs to the mod that registers it (Kiln did this before 0.2.0).
 - **Log lines** use SET 0.2.0's wording (`Mod Loaded:`, `Mod Failed:`, `Mod Skipped:`, `Hook '...' removed`).
 
@@ -214,16 +233,21 @@ small host shim and tests sandbox escapes, script limits, isolation, reflection 
 game. `bash native/plugins/set/test-review.sh` tests the real hook capture adapter with ASan/UBSan, the plugin's
 startup/late-load coexistence checks (a failed module inventory included), mocked ImGui nesting/recovery, and SET
 0.2.0's rules: the rule engine, the catalog checks, and rules through the real hook adapter on a fake kiln.hooks
-(`tests/rules_review_test.cpp`). `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
+(`tests/rules_review_test.cpp`); `KILN_SET_POWRPROF=<a SET powrprof.dll>` also checks the branding scan on a real
+file. `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
 `Hooks.rule` and the write log through the Lua bridge, including malformed-array and nonfinite-value rejection.
 `tests/overlay_cases.inl` drives the production SET tools through a mocked drawing table: all five setting types,
 large-int/double precision, next-tick/coalesced callbacks, reload revisions, exact feature reasons, sandboxed/redacted
 reports, current/previous log payloads, crash notice/dismissal/clean markers, console queuing and remap/Escape/capture
-lifecycle. `tests/inspector_cases.inl` exercises nearest selection across 5,000 matches, scalar watch snapshots and gone
-ids, bounded copies, exact compare-before-write, range/NaN refusal, selection changes during reads, world/session
+lifecycle, the 2,000-line/4,096-byte console history and the 256-byte mod name. `tests/inspector_cases.inl` exercises
+nearest selection across 5,000 matches, scalar watch snapshots and gone ids, each documented bound (65,536 candidates
+and the note, 512 fields, depth 6, 32 array elements, 64 pins, 32 queued edits, 256-byte values, the 500 ms refresh)
+with a case that fails without it, exact compare-before-write, range/NaN refusal, selection changes during reads, world/session
 changes and thread guards. Managed `SetToolsTests` checks the private service table and UTF-8 mod-folder bridge.
 `bash native/plugins/set/test-wine.sh` checks the real Windows loader-notification/fingerprint coexistence path
-headlessly. These checks do not verify client rendering.
+headlessly, and the production stack check and guarded copy behind rule field writes (`tests/wine_rules_test.cpp`,
+built with the plugin's `/EHa`: this thread's stack only, read-only/no-access/guard/reserved pages refused without a
+crash, protection never lifted). These checks do not verify client rendering.
 
 ## Lab tests
 The disposable headless `d24-set` lab, on server build 1793791038 with the merged current-main sources, reported

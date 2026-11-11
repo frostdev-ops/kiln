@@ -26,6 +26,9 @@
 #endif
 
 namespace {
+// kiln.ui passes input_text flags to ImGui unchanged: this is ImGuiInputTextFlags_EnterReturnsTrue in the vendored
+// ImGui (1 << 5 there is AllowTabInput). Without it the field returns true on every frame its text differs from ours.
+constexpr uint32_t kEnterReturnsTrue = 1u << 6;
 const KilnUiApi* ui = nullptr;
 std::vector<KilnHandle> subscriptions;
 std::atomic<bool> active{false}, opened{false}, remapping{false}, cancelRemap{false};
@@ -54,21 +57,83 @@ KilnResult openToolsFor(KilnStr mod, bool prompt) {
     if (!active.load() || mod.len > 256 || (!mod.ptr && mod.len)) return KILN_ERR_UNAVAILABLE;
     { std::lock_guard lock(mx); requestedMod = mod.len ? std::string(mod.ptr, mod.len) : ""; requestPending = true; requestedPrompt = prompt; }
     opened = true;
-    ui->set_demand(1); ui->set_capture(1);
+    // The crash notice opens by itself and only draws: the game keeps its input. Tools the player opened take it.
+    ui->set_demand(1);
+    if (!prompt) ui->set_capture(1);
     return KILN_OK;
 }
 KilnResult KILN_CALL openTools(KilnStr mod) { return openToolsFor(mod, false); }
 const setui::Api api{{sizeof(setui::Api), 1}, &openTools};
-std::string read(const std::filesystem::path& folder, const char* name) {
+// At most 1 MiB of a file. tail (the logs): a longer file gives its last lines, where a crash is, from a line start.
+std::string read(const std::filesystem::path& folder, const char* name, bool tail = false) {
     FILE* f = kset::sandbox::open(utf8(folder), name, "rb");
     if (!f) return "<not available>\n";
+    constexpr size_t limit = 1u << 20;
+    // One byte before the last 1 MiB too: dropping through the first newline then keeps a line that starts at the cut.
+#ifdef _WIN32
+    const bool cut = tail && _fseeki64(f, -static_cast<long long>(limit + 1), SEEK_END) == 0;
+#else
+    const bool cut = tail && fseeko(f, -static_cast<off_t>(limit + 1), SEEK_END) == 0;
+#endif
+    if (tail && !cut) rewind(f);
+    const size_t want = cut ? limit + 1 : limit;
     std::string out; char b[4096]; size_t n;
-    while (out.size() < (1u << 20) && (n = fread(b, 1, std::min(sizeof b, (1u << 20) - out.size()), f))) out.append(b, n);
+    while (out.size() < want && (n = fread(b, 1, std::min(sizeof b, want - out.size()), f))) out.append(b, n);
     const bool truncated = fgetc(f) != EOF; fclose(f);
+    if (cut) {
+        const size_t line = out.find('\n');
+        out.erase(0, line == std::string::npos ? out.size() : line + 1);
+        out.insert(0, "<earlier lines omitted>\n");
+    }
     if (truncated) out += "\n<truncated at 1 MiB>\n";
     return out;
 }
+// Invalid UTF-8 (a cut inside a character, a mod printing other bytes) as U+FFFD, so the clipboard takes the text.
+std::string validUtf8(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size();) {
+        const auto c = static_cast<unsigned char>(in[i]);
+        const size_t n = c < 0x80 ? 1 : c >= 0xc2 && c <= 0xdf ? 2 : (c & 0xf0) == 0xe0 ? 3 : c >= 0xf0 && c <= 0xf4 ? 4 : 0;
+        bool ok = n && i + n <= in.size();
+        for (size_t k = 1; ok && k < n; ++k) ok = (static_cast<unsigned char>(in[i + k]) & 0xc0) == 0x80;
+        if (ok && n > 2) {  // no overlong form, surrogate or code point above U+10FFFF
+            const auto d = static_cast<unsigned char>(in[i + 1]);
+            ok = !((c == 0xe0 && d < 0xa0) || (c == 0xed && d >= 0xa0) || (c == 0xf0 && d < 0x90) || (c == 0xf4 && d >= 0x90));
+        }
+        if (ok) out.append(in, i, n);
+        else out += "\xEF\xBF\xBD";
+        i += ok ? n : 1;
+    }
+    return out;
+}
 std::string lower(std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; }
+bool separator(char c) { return c == '\\' || c == '/'; }
+// The user name in a home folder path, by its shape: \home\<name>, /home/<name>, \Users\<name>, /Users/<name>, with
+// either separator, single or doubled (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and
+// USERPROFILE (Proton: C:\users\steamuser) say. The name ends at a separator, a quote or a control character.
+std::string redactHomes(const std::string& in) {
+    std::string out;
+    size_t i = 0;
+    while (i < in.size()) {
+        if (!separator(in[i])) { out += in[i++]; continue; }
+        size_t word = i, name = std::string::npos;
+        while (word < in.size() && separator(in[word])) ++word;
+        for (const std::string w : {"home", "users"})
+            if (in.size() - word > w.size() && lower(in.substr(word, w.size())) == w && separator(in[word + w.size()])) {
+                name = word + w.size();
+                while (name < in.size() && separator(in[name])) ++name;
+                break;
+            }
+        size_t end = name;
+        while (end < in.size() && !separator(in[end]) && in[end] != '"' && in[end] != '\'' && static_cast<unsigned char>(in[end]) >= 32) ++end;
+        if (name == std::string::npos || end == name) { out.append(in, i, word - i); i = word; continue; }
+        out.append(in, i, name - i);
+        out += "<user>";
+        i = end;
+    }
+    return out;
+}
 std::string redact(std::string out) {
     for (const char* name : {"USERPROFILE", "HOME"}) if (const char* home = std::getenv(name); home && strlen(home) > 3) {
         std::string variants[] = {home, home};
@@ -79,17 +144,19 @@ std::string redact(std::string out) {
             result.append(out, from); out = std::move(result);
         }
     }
-    return out;
+    return redactHomes(out);
 }
 bool sessionMark(bool running) {
     FILE* f = kset::sandbox::open(utf8(controlDir), "set-session.txt", "wb");
     if (!f) return false;
     bool ok = fputs(running ? "running=1\n" : "running=0\n", f) >= 0; return fclose(f) == 0 && ok;
 }
+// The game's crash report from the end of the previous session (crash_dumps/*/enshrouded.info written no earlier than
+// a minute before kiln.prev.log's last write), or "" when there is none.
 std::string gameCrashSummary() {
     const auto game = logsDir.parent_path().parent_path(); std::error_code ec;
     const auto since = std::filesystem::last_write_time(logsDir / "kiln.prev.log", ec);
-    if (ec) return "No matching game crash report was found.";
+    if (ec) return "";
     auto latest = since - std::chrono::seconds(60); std::string relative;
     auto dir = std::filesystem::directory_iterator(game / "crash_dumps", ec);
     unsigned checked = 0;
@@ -99,12 +166,17 @@ std::string gameCrashSummary() {
         if (ec) { ec.clear(); continue; }
         if (time >= latest) { latest = time; relative = "crash_dumps/" + utf8(dir->path().filename()) + "/enshrouded.info"; }
     }
-    if (relative.empty()) return "No matching game crash report was found.";
+    if (relative.empty()) return "";
     const auto info = nlohmann::json::parse(read(game, relative.c_str()), nullptr, false);
     if (!info.is_object()) return "The matching game crash report could not be read.";
     std::string result = "Game crash report:";
     for (const auto* key : {"info", "exception", "source"}) if (info.contains(key) && info[key].is_string()) {
-        auto value = info[key].get<std::string>(); if (value.size() > 200) value.resize(200);
+        auto value = info[key].get<std::string>();
+        if (value.size() > 200) {  // on a character boundary
+            size_t keep = 200;
+            while (keep && (static_cast<unsigned char>(value[keep]) & 0xc0) == 0x80) --keep;
+            value.resize(keep);
+        }
         for (auto& c : value) if (static_cast<unsigned char>(c) < 32) c = ' ';
         result += " " + std::string(key) + "=" + value;
     }
@@ -112,13 +184,14 @@ std::string gameCrashSummary() {
 }
 bool copyClipboard(const std::string& value) {
 #ifdef _WIN32
-    const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
+    // Flags 0: an invalid sequence becomes U+FFFD instead of failing the whole copy.
+    const int n = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
     if (n <= 0) return false;
     HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (static_cast<size_t>(n) + 1) * sizeof(wchar_t));
     if (!memory) return false;
     auto* data = static_cast<wchar_t*>(GlobalLock(memory));
     if (!data) { GlobalFree(memory); return false; }
-    const bool converted = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), data, n) == n;
+    const bool converted = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), data, n) == n;
     data[n] = 0; GlobalUnlock(memory);
     HWND owner = GetForegroundWindow(); DWORD process = 0;
     if (owner) GetWindowThreadProcessId(owner, &process);
@@ -138,8 +211,8 @@ std::string report() {
     for (const auto& d : hk::diagnostics()) out += d + "\n";
     KilnUiStatus status{sizeof status};
     if (ui->status && ui->status(&status) == KILN_OK) out += "Overlay: hooked=" + std::to_string(status.hooked) + " device=" + std::to_string(status.device) + " swapchain=" + std::to_string(status.swapchain) + " error=" + std::string(status.error, strnlen(status.error, sizeof status.error)) + "\n";
-    out += "\nCurrent kiln.log:\n" + read(logsDir, "kiln.log");
-    out += "\nPrevious kiln.prev.log (if retained):\n" + read(logsDir, "kiln.prev.log");
+    out += "\nCurrent kiln.log:\n" + read(logsDir, "kiln.log", true);
+    out += "\nPrevious kiln.prev.log (if retained):\n" + read(logsDir, "kiln.prev.log", true);
     return redact(std::move(out));
 }
 void saveReport() {
@@ -191,7 +264,8 @@ void settings() {
     const auto pages = mset::pages();
     bool found = false;
     for (const auto& p : pages) {
-        if (!modFilter.empty() && modFilter != p.mod) continue;
+        // ASCII case aside: the id from Kiln's mod list may differ in case from the folder, which Windows ignores.
+        if (!modFilter.empty() && lower(modFilter) != lower(p.mod)) continue;
         found = true;
         ui->push_id(s(p.mod));
         if (ui->collapsing_header(s(p.mod), 1u << 5)) for (const auto& f : p.fields) setting(p.mod, f, p.revision);
@@ -280,8 +354,10 @@ const setui::Api* setui::service() { return &api; }
 void setui::configure(std::filesystem::path logs, std::filesystem::path control, void (*sink)(const char*)) {
     logsDir = std::move(logs); controlDir = std::move(control); logSink = sink;
     debugLog = read(controlDir, "set-ui.ini").find("debugLog=0") == std::string::npos;
-    lastUnclean = read(controlDir, "set-session.txt").starts_with("running=1");
-    crashSummary = lastUnclean ? gameCrashSummary() : "";
+    // The marker alone proves nothing: the core never runs on_unload when the game exits normally, so it still says
+    // running=1 after every session. The game's crash report from the end of that session is the evidence.
+    crashSummary = read(controlDir, "set-session.txt").starts_with("running=1") ? gameCrashSummary() : "";
+    lastUnclean = !crashSummary.empty();
     sessionStarted = sessionMark(true);
 }
 void setui::bind(const KilnUiApi* value, KilnOwner owner) {
@@ -309,8 +385,8 @@ void setui::bind(const KilnUiApi* value, KilnOwner owner) {
 bool setui::isOpen() { return active && opened; }
 std::string setui::logText(bool previous) {
     std::string out;
-    if (previous && lastUnclean) out = "The last SET session did not close normally (crash or external termination). " + crashSummary + "\n\n";
-    return redact(out + read(logsDir, previous ? "kiln.prev.log" : "kiln.log"));
+    if (previous && lastUnclean) out = "The game wrote a crash report as the last SET session ended. " + crashSummary + "\n\n";
+    return validUtf8(redact(out + read(logsDir, previous ? "kiln.prev.log" : "kiln.log", true)));
 }
 void setui::line(const char* v) { std::lock_guard lock(mx); lines.emplace_back(v ? v : "", v ? strnlen(v, 4096) : 0); while (lines.size() > 2000) lines.pop_front(); }
 void setui::stop() {
@@ -334,17 +410,21 @@ void setui::draw() {
     ui->set_next_window_size(760, 600, KILN_UI_COND_FIRST_USE);
     if (ui->begin(s("Shrouded Engine Tweaks###kiln.set.tools"), &open, 0)) {
         if (lastUnclean) {
-            ui->text_wrapped(s("Last Session: SET did not close normally (a crash or external termination). " + crashSummary));
-            if (button("Copy last session's logs")) copyLog(true);
-            if (button("Save local support report")) saveReport();
-            if (!message.empty()) ui->text_wrapped(s(message));
-            if (button("Dismiss")) { lastUnclean = false; if (promptOnly) open = false; }
+            ui->text_wrapped(s("Last Session: the game wrote a crash report as the last SET session ended. " + crashSummary));
+            // Opened by itself, this notice has no input: its buttons would be clicks the game gets too.
+            if (promptOnly) ui->text_wrapped(s("Open SET tools in the game's menu to copy the logs or save a report. Escape hides this notice."));
+            else {
+                if (button("Copy last session's logs")) copyLog(true);
+                if (button("Save local support report")) saveReport();
+                if (!message.empty()) ui->text_wrapped(s(message));
+                if (button("Dismiss")) lastUnclean = false;
+            }
         }
         if (!promptOnly && button("Reload mods")) { rt::requestReload(); debug("Reload requested"); }
         if (!promptOnly && ui->begin_tab_bar(s("SET tools"))) {
             auto tab = [&](const char* name, auto fn) { if (ui->begin_tab_item(s(name))) { fn(); ui->end_tab_item(); } };
             tab("Mod Settings", settings); tab("Compatibility", compatibility); tab("Entities", entities); tab("Hooks", hooks); tab("Bindings", bindings);
-            tab("Console", [] { if (ui->input_text(s("Lua"), console, sizeof console, 1u << 5) || button("Run")) { if (*console) { setui::line((std::string("> ") + console).c_str()); rt::queue(console); console[0] = 0; } } if (button("Clear")) { std::lock_guard lock(mx); lines.clear(); } std::deque<std::string> copy; { std::lock_guard lock(mx); copy = lines; } for (const auto& l : copy) text(l); });
+            tab("Console", [] { if (ui->input_text(s("Lua"), console, sizeof console, kEnterReturnsTrue) || button("Run")) { if (*console) { setui::line((std::string("> ") + console).c_str()); rt::queue(console); console[0] = 0; } } if (button("Clear")) { std::lock_guard lock(mx); lines.clear(); } std::deque<std::string> copy; { std::lock_guard lock(mx); copy = lines; } for (const auto& l : copy) text(l); });
             tab("Bug Report", [] {
                 text("Reports contain logs, mod names, compatibility and hook/overlay diagnostics. Review before sharing. No upload.");
                 if (ui->checkbox(s("Debug logs"), &debugLog)) { FILE* f = kset::sandbox::open(utf8(controlDir), "set-ui.ini", "wb"); if (f) { auto v = debugLog ? "debugLog=1\n" : "debugLog=0\n"; bool ok = fputs(v, f) >= 0; ok = fclose(f) == 0 && ok; if (!ok) message = "Could not save debug setting"; } else message = "Could not save debug setting"; }

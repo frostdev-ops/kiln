@@ -385,6 +385,20 @@ void checkRuleListRace() {
     stop = true;
     for (auto& t : readers) t.join();
     CHECK(seen > 0 && wrong == 0);
+    // What the sequence number adds (lists of 7s and 8s alone can't show a torn read): a call that reads the list
+    // while setList writes it (an odd sequence) doesn't match, and matches again once the write is done.
+    rules::setList(*r, a.data(), 64);
+    rules::Rule* one[] = {r.get()};
+    rules::Frame out;
+    rules::apply(one, 1, {{7, 0}}, out);
+    CHECK(out.a[1] == 1);
+    const uint32_t seq = r->listSeq.load();
+    r->listSeq.store(seq | 1);
+    rules::apply(one, 1, {{7, 0}}, out);
+    CHECK(out.a[1] == 0);
+    r->listSeq.store(seq);
+    rules::apply(one, 1, {{7, 0}}, out);
+    CHECK(out.a[1] == 1);
 }
 
 // Catalog entries against a fake image: build, pattern and anchors, each entry on its own.
@@ -492,11 +506,13 @@ void checkHookArgs() {
     std::string cft;
     hk::RuleDecl wrong{"args/wrong", {{hk::U64, {}}, {hk::U64, {}}}, rule({}, {change(loc(hk::U64, 1), rules::Add, 1)})->shape};
     CHECK(hk::addRule(fn, wrong, err, cft) >= 0);  // nothing else declared now, so it registers
+    // Small integers: rules compute in double, so adding 1 to a double's bit pattern (in[1]) changes nothing.
+    const std::array<uint64_t, 8> ints = {1, 5, 3, 4, 5, 6, 7, 8};
+    CHECK(call(fn, &sum8, ints).seen[1] == 6);  // args/wrong changes position 1 (rdx)
     hk::RuleDecl clash{"args/clash", args, rule({}, {change(loc(hk::F64, 1), rules::Add, 1)})->shape};
     CHECK(refused(fn, clash).find("disagrees with args/wrong") != std::string::npos);
     hk::unsubscribeAll();
-    c = call(fn, &sum8, in, 0b1010);
-    CHECK(c.seen[1] == in[1]);
+    CHECK(call(fn, &sum8, ints).seen[1] == 5);  // ...and no longer once everything is unsubscribed
 }
 
 // Three mods' rules on one value run in mod order, whatever order they registered in; same-value changes by different
