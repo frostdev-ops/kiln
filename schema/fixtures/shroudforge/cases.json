@@ -3416,6 +3416,108 @@
         }
       ],
       "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": false,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
+    },
+    {
+      "name": "unchanged-switch-true-repairs-fractional-value",
+      "about": "The SF reference refuses this earlier-Kiln whole-token damage and accepts the repaired output. Requesting the already-enabled switch must still repair the fractional value, including placement which always requests the desired switch. Explicit recovery exception, not an ordinary SF-valid input.",
+      "mod": {
+        "id": "unchanged-true",
+        "name": "Unchanged switch",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"gain\":{\"value\":2,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.5,
+                "label": "Low"
+              },
+              {
+                "value": 2.0,
+                "label": "High"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "gain"
+        ],
+        "repair": [
+          "gain"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"gain\":{\"value\":2.0,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "sfRefused": true
+    },
+    {
+      "name": "unchanged-switch-false-repairs-fractional-value",
+      "about": "The SF reference refuses this earlier-Kiln whole-token damage and accepts the repaired output. Requesting the already-disabled switch must still repair the fractional value, including placement which always requests the desired switch. Explicit recovery exception, not an ordinary SF-valid input.",
+      "mod": {
+        "id": "unchanged-false",
+        "name": "Unchanged switch",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"gain\":{\"value\":2,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.5,
+                "label": "Low"
+              },
+              {
+                "value": 2.0,
+                "label": "High"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "gain"
+        ],
+        "repair": [
+          "gain"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"gain\":{\"value\":2.0,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "sfRefused": true
     }
   ],
   "limits": {

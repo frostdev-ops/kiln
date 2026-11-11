@@ -698,7 +698,7 @@ fn render_setting_value(s: &SfSetting, value: &serde_json::Value) -> String {
 /// Switches a mod on or off (ShroudForge's own switch; a running ShroudForge picks it up live).
 pub fn set_enabled(folder: &Path, enabled: bool) -> Result<SfMod> {
     let m = read_mod(folder)?;
-    if m.extended && m.enabled == enabled {
+    if m.extended && m.enabled == enabled && m.repair.is_empty() {
         return Ok(m);
     }
     let text = repair_fractions(&extension_text(&m)?, &m)?;

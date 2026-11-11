@@ -600,7 +600,7 @@ internal static class ShroudForgePackages
     public static SfPackage SetEnabled(string folder, bool on)
     {
         var p = Read(folder);
-        if (p.Extended && p.Enabled == on) return p;
+        if (p.Extended && p.Enabled == on && p.Repair.Count == 0) return p;
         var text = p.Extended ? Repair(ReadText(Path.Combine(folder, "extended.mod.json")), p) : EmlExtension;
         var root = JsonSpans.Parse(text);
         var rendered = on ? "true" : "false";
