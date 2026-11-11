@@ -1040,6 +1040,25 @@ impl PlacementCleanup {
     }
 }
 
+/// A receipt is not permission to remove an arbitrary path, even when its marker and contents still match.
+fn check_placement_path(game_dir: &Path, receipt: &Placement) -> Result<()> {
+    let dst = &receipt.path;
+    let root = match receipt.marker.kind {
+        ModKind::ShroudForge => crate::shroudforge::mods_dir(game_dir),
+        ModKind::Set => game_dir.join(SET_MODS),
+        ModKind::Emf => game_dir.join("emf/mods"),
+        ModKind::Greeneye => game_dir.join(GREENEYE_MODS),
+        ModKind::Eml if dst.parent() == Some(crate::shroudforge::mods_dir(game_dir).as_path()) => crate::shroudforge::mods_dir(game_dir),
+        ModKind::Eml | ModKind::Flame | ModKind::Shroudtopia => game_dir.join("mods"),
+        ModKind::Native | ModKind::Xhl if receipt.game_folder => game_dir.join(EML_GAME_MODS),
+        _ => PathBuf::new(),
+    };
+    if root.as_os_str().is_empty() || dst.parent() != Some(root.as_path()) {
+        return Err(Error::new(ErrorCode::Refused, "placement folder changed or is not an engine mod folder"));
+    }
+    Ok(())
+}
+
 /// Undo profile delivery, not the player's mod installation. Requires a trusted receipt AND matching contents;
 /// markers alone never authorize deletion. Conflicts stay in place with structured, visible recovery instructions.
 /// Archives and other loaders' working backups are deliberately not ours to restore to vanilla.
@@ -1055,20 +1074,8 @@ pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
     for receipt in receipts.clone() {
         let dst = &receipt.path;
         let kind = receipt.marker.kind;
-        let root = match kind {
-            ModKind::ShroudForge => crate::shroudforge::mods_dir(game_dir),
-            ModKind::Set => game_dir.join(SET_MODS),
-            ModKind::Emf => game_dir.join("emf/mods"),
-            ModKind::Greeneye => game_dir.join("greeneye"),
-            ModKind::Eml if dst.parent() == Some(crate::shroudforge::mods_dir(game_dir).as_path()) => crate::shroudforge::mods_dir(game_dir),
-            ModKind::Eml | ModKind::Flame | ModKind::Shroudtopia => game_dir.join("mods"),
-            ModKind::Native | ModKind::Xhl if receipt.game_folder => game_dir.join(EML_GAME_MODS),
-            _ => PathBuf::new(),
-        };
         let check = (|| -> Result<Vec<String>> {
-            if root.as_os_str().is_empty() || dst.parent() != Some(root.as_path()) {
-                return Err(Error::new(ErrorCode::Refused, "placement folder changed or is not an engine mod folder"));
-            }
+            check_placement_path(game_dir, &receipt)?;
             refuse_symlink_path(game_dir, dst)?;
             if !dst.exists() { return Ok(Vec::new()); }
             let have = owned(game_dir, &receipts, dst, kind, &receipt.marker.id)?
@@ -1490,6 +1497,10 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         for receipt in stale {
             let dst = &receipt.path;
             let id = &receipt.marker.id;
+            if let Err(e) = check_placement_path(game_dir, &receipt) {
+                retain(&mut rep, tag(id), dst, e.message);
+                continue;
+            }
             if !dst.exists() {
                 receipts.retain(|r| r.path != *dst);
                 save_placements(game_dir, &receipts)?;
@@ -1654,6 +1665,7 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
 }
 
 fn remove_greeneye_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &mut PlaceReport, receipt: &Placement) -> Result<()> {
+    check_placement_path(game_dir, receipt)?;
     let kind = ModKind::Greeneye;
     let dst = &receipt.path;
     let tag = format!("{}:{}", kind.as_str(), receipt.marker.id);
@@ -2558,6 +2570,34 @@ mod tests {
         assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), b"earlier");
         assert_eq!(std::fs::read(kept.join("settings.json")).unwrap(), b"edited meanwhile", "changed recovery bytes are never deleted");
         assert!(!kept.join("log.txt").exists(), "an exact copy went back: {said:?}");
+    }
+
+    /// A receipt and matching marker prove content, not that an arbitrary path is a placement destination.
+    #[test]
+    fn stale_receipts_never_remove_copies_outside_their_engine_folder() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "placement-receipt-roots").unwrap();
+        let dirs = DataDirs::at(tmp.path().join("data"));
+        let profile = crate::profile::create(&dirs, "empty", None).unwrap();
+        for kind in [ModKind::Eml, ModKind::Emf, ModKind::Flame, ModKind::Shroudtopia,
+                     ModKind::Native, ModKind::Xhl, ModKind::Greeneye] {
+            for outside in [true, false] {
+                let game = tmp.path().join(format!("game-{}-{outside}", kind.as_str()));
+                let dst = if outside { tmp.path().join(format!("outside-{}", kind.as_str())) }
+                    else { game.join("player-backups/mod") };
+                std::fs::create_dir_all(&dst).unwrap();
+                std::fs::write(dst.join("config.txt"), b"player backup").unwrap();
+                let marker = Marker { format: 1, kind, id: "mod".into(), version: "1.0.0".into(), hash: crate::hash::dirhash(&dst).unwrap() };
+                crate::util::write_json_atomic(&dst.join(MARKER), &marker).unwrap();
+                let receipt = Placement { path: dst.clone(), marker, files: placement_files(&dst, kind).unwrap(),
+                    extension: None, game_folder: matches!(kind, ModKind::Native | ModKind::Xhl) };
+                save_placements(&game, &[receipt]).unwrap();
+                let rep = place(&dirs, &profile, &game).unwrap();
+                assert_eq!(std::fs::read(dst.join("config.txt")).ok().as_deref(), Some(b"player backup".as_slice()),
+                    "{} outside={outside}: an invalid receipt must not authorize deletion: {rep:?}", kind.as_str());
+                assert!(rep.retained.iter().any(|r| r.path == dst && r.reason.contains("not an engine mod folder")), "{rep:?}");
+                assert_eq!(placements(&game).unwrap().len(), 1, "the unverified receipt stays");
+            }
+        }
     }
 
     #[test]
