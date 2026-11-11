@@ -744,22 +744,6 @@ pub fn settings_values(m: &SfMod) -> serde_json::Value {
     serde_json::Value::Object(m.settings.iter().map(|s| (s.key.clone(), s.value.clone())).collect())
 }
 
-/// Profile activation: each listed mod's switch as the profile says (ids match mod.json `id`, case-insensitive). Mods
-/// the profile does not list keep their switch. Returns the ids whose switch changed.
-pub fn apply_switches(game_dir: &Path, wanted: &[(String, bool)]) -> Result<Vec<String>> {
-    let (mods, _) = list_mods(game_dir);
-    let mut changed = Vec::new();
-    for (id, on) in wanted {
-        if let Some(m) = mods.iter().find(|m| m.id.eq_ignore_ascii_case(id))
-            && m.enabled != *on
-        {
-            set_enabled(&m.folder, *on)?;
-            changed.push(m.id.clone());
-        }
-    }
-    Ok(changed)
-}
-
 /// `kiln/state/shroudforge.json`: `mode` hosted | self-hosted | not-installed | off | failed, `reason`, `version`,
 /// `side`, `nativeAbi`, `native` (ShroudForge's native runtime status text), `turns`, `updated` (unix seconds).
 pub fn status(game_dir: &Path) -> Result<Option<serde_json::Value>> {
@@ -987,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    fn detect_and_switches() {
+    fn detect_and_mods_dir() {
         let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
         let g = t.path();
         assert!(detect(g).is_none());
@@ -998,10 +982,6 @@ mod tests {
         let i = detect(g).unwrap();
         assert_eq!(i.version.as_deref(), Some("1.7.9"));
         assert_eq!(i.mods_dir, g.join("mods"));
-        pkg(&g.join("mods"), "sf-survival", Some(EXT));
-        let changed = apply_switches(g, &[("SF-Survival".into(), true), ("missing".into(), true)]).unwrap();
-        assert_eq!(changed, vec!["sf-survival"]);
-        assert!(apply_switches(g, &[("sf-survival".into(), true)]).unwrap().is_empty());
         std::fs::write(g.join(CONFIG_FILE), r#"{"paths":{"mods":"MyMods"}}"#).unwrap();
         assert_eq!(mods_dir(g), g.join("MyMods"));
     }
