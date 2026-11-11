@@ -10,7 +10,7 @@
  assert(setui::service()->open({"one",3})==KILN_OK&&toolsDemand==1&&toolsCapture==1);
  toolsInputs={{"God mode","false"},{"regen","7.125"},{"count","4"},{"mode","1"},{"name","xy"}};
  const int top=lua_gettop(L);
- setui::draw();assert(toolsInputs.empty()&&toolsWindows==0&&toolsIds==0&&lua_gettop(L)==top);assert(logged("[SET UI] Opened tools"));
+ setui::draw();setui::draw();assert(toolsInputs.empty()&&toolsWindows==0&&toolsIds==0&&lua_gettop(L)==top);assert(logged("[SET UI] Opened tools"));
  must(L,one,"assert(s.god==false and s.regen==7.125 and s.count==4 and s.mode=='slow' and s.name=='xy' and changed==nil)");
  // Multiple frames coalesce edits; Lua is never entered on the drawing thread.
  toolsInputs={{"regen","8.25"}};setui::draw();
@@ -43,8 +43,14 @@
  // Refuse unsafe report destinations instead of following a player-provided link.
  std::filesystem::remove(work/"set-report.txt");std::filesystem::create_symlink(root/"secret.lua",work/"set-report.txt");
  toolsClick="Save local support report";setui::draw();assert(slurp(root/"secret.lua")=="return 'outside'");std::filesystem::remove(work/"set-report.txt");
- // Console queues, it does not run Lua on the renderer.
- toolsTab="Console";toolsRows.clear();toolsInputs={{"Lua","return 123"}};toolsClick="Run";setui::draw();assert(takeQueue()==std::vector<std::string>{"return 123"});
+ // Console queues, it does not run Lua on the renderer. Typing runs nothing, however many frames the field is drawn;
+ // Enter queues the line once (and so does Run).
+ toolsTab="Console";toolsRows.clear();toolsInputs={{"Lua","return 123"}};
+ for(int frame=0;frame<3;++frame)setui::draw();
+ {const auto typed=takeQueue();if(!typed.empty())std::cerr<<"console: "<<typed.size()<<" line(s) queued while typing, first '"<<typed.front()<<"'\n";assert(typed.empty());}
+ toolsEnter="Lua";setui::draw();assert(takeQueue()==std::vector<std::string>{"return 123"});
+ setui::draw();setui::draw();assert(takeQueue().empty()&&toolsInputs.empty());
+ toolsInputs={{"Lua","return 7"}};toolsClick="Run";setui::draw();assert(takeQueue()==std::vector<std::string>{"return 7"});toolsInputs.clear();
  assert(std::none_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("[SET UI]")!=std::string::npos;}));
  // Escape cancels a remap without closing tools, and modifier-only keys never become bindings.
  must(L,one,"Keys.hotkey('tools','Tools remap test',function()end)");rt::setBinding("one.tools",0,0x77);

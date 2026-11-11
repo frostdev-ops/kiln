@@ -26,6 +26,9 @@
 #endif
 
 namespace {
+// kiln.ui passes input_text flags to ImGui unchanged: this is ImGuiInputTextFlags_EnterReturnsTrue in the vendored
+// ImGui (1 << 5 there is AllowTabInput). Without it the field returns true on every frame its text differs from ours.
+constexpr uint32_t kEnterReturnsTrue = 1u << 6;
 const KilnUiApi* ui = nullptr;
 std::vector<KilnHandle> subscriptions;
 std::atomic<bool> active{false}, opened{false}, remapping{false}, cancelRemap{false};
@@ -344,7 +347,7 @@ void setui::draw() {
         if (!promptOnly && ui->begin_tab_bar(s("SET tools"))) {
             auto tab = [&](const char* name, auto fn) { if (ui->begin_tab_item(s(name))) { fn(); ui->end_tab_item(); } };
             tab("Mod Settings", settings); tab("Compatibility", compatibility); tab("Entities", entities); tab("Hooks", hooks); tab("Bindings", bindings);
-            tab("Console", [] { if (ui->input_text(s("Lua"), console, sizeof console, 1u << 5) || button("Run")) { if (*console) { setui::line((std::string("> ") + console).c_str()); rt::queue(console); console[0] = 0; } } if (button("Clear")) { std::lock_guard lock(mx); lines.clear(); } std::deque<std::string> copy; { std::lock_guard lock(mx); copy = lines; } for (const auto& l : copy) text(l); });
+            tab("Console", [] { if (ui->input_text(s("Lua"), console, sizeof console, kEnterReturnsTrue) || button("Run")) { if (*console) { setui::line((std::string("> ") + console).c_str()); rt::queue(console); console[0] = 0; } } if (button("Clear")) { std::lock_guard lock(mx); lines.clear(); } std::deque<std::string> copy; { std::lock_guard lock(mx); copy = lines; } for (const auto& l : copy) text(l); });
             tab("Bug Report", [] {
                 text("Reports contain logs, mod names, compatibility and hook/overlay diagnostics. Review before sharing. No upload.");
                 if (ui->checkbox(s("Debug logs"), &debugLog)) { FILE* f = kset::sandbox::open(utf8(controlDir), "set-ui.ini", "wb"); if (f) { auto v = debugLog ? "debugLog=1\n" : "debugLog=0\n"; bool ok = fputs(v, f) >= 0; ok = fclose(f) == 0 && ok; if (!ok) message = "Could not save debug setting"; } else message = "Could not save debug setting"; }

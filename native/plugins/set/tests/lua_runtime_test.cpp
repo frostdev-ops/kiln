@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "services/kiln_hooks.h"
+#include "imgui/imgui.h"  // the vendored ImGui kiln.ui passes input_text flags to: the mock honours its real values
 namespace kset { void bindHooks(const KilnApi* api, KilnOwner owner); }
 namespace kset::hooktest { extern bool (*on_stack)(uintptr_t at, size_t n); }
 void rt::openImGui(lua_State* L){for(const char* n:{"ImGui","ImGuiCond","ImGuiWindowFlags"}){lua_newtable(L);lua_setglobal(L,n);}}
@@ -84,7 +85,7 @@ void initServices(){
  kset::bind(&core);kset::bindHooks(&core,1);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
 }
 KilnUiApi toolsUi{};
-std::string toolsTab="Mod Settings", toolsClick;
+std::string toolsTab="Mod Settings", toolsClick, toolsEnter;
 std::map<std::string,std::string> toolsInputs;
 std::vector<std::string> toolsRows;
 uint32_t toolsDemand=0,toolsCapture=0,toolsPressed=0;
@@ -104,7 +105,18 @@ void initTools(){
  toolsUi.begin_tab_item=[](KilnStr label){return textOf(label)==toolsTab;};toolsUi.end_tab_item=[](){};
  toolsUi.button=[](KilnStr label,float,float){if(textOf(label)!=toolsClick)return false;toolsClick.clear();return true;};
  toolsUi.checkbox=[](KilnStr label,bool* v){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=it->second=="true";toolsInputs.erase(it);return true;};
- toolsUi.input_text=[](KilnStr label,char* b,size_t cap,uint32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;snprintf(b,cap,"%s",it->second.c_str());toolsInputs.erase(it);return true;};
+ // Like ImGui's InputText with live edit (its default): while a field holds typed text that differs from the
+ // caller's buffer, every call copies it in and returns true. With EnterReturnsTrue only the call on which Enter is
+ // pressed (toolsEnter) returns true, and Enter leaves the field. A field without that flag is left once the
+ // caller's buffer already holds its text.
+ toolsUi.input_text=[](KilnStr label,char* b,size_t cap,uint32_t flags){
+  const std::string name=textOf(label);auto it=toolsInputs.find(name);
+  if(it==toolsInputs.end()||!cap)return false;
+  const std::string typed=it->second.substr(0,cap-1);const bool differs=typed!=b;
+  if(differs)snprintf(b,cap,"%s",typed.c_str());
+  if(flags&ImGuiInputTextFlags_EnterReturnsTrue){if(toolsEnter!=name)return false;toolsEnter.clear();toolsInputs.erase(it);return true;}
+  if(!differs)toolsInputs.erase(it);
+  return differs;};
  toolsUi.slider_int=[](KilnStr label,int32_t* v,int32_t,int32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
  toolsUi.combo=[](KilnStr label,int32_t* v,const char*){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
  toolsUi.text=[](KilnStr v){toolsRows.push_back(textOf(v));};toolsUi.text_wrapped=toolsUi.text;
