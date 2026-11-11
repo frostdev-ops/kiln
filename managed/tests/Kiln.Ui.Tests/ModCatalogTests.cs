@@ -443,6 +443,30 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal(EngineHealth.Ok, s.Engines.Single(e => e.Kind == "shroudforge").Health);
     }
 
+    /// <summary>A switched-off entry whose folder is still in the game's mods folder (a copy kept because the player
+    /// changed it, say) is off in the profile, but a loader that reads that folder may still run it: the row says so.</summary>
+    [Fact]
+    public void A_switched_off_entry_whose_folder_stays_in_the_mods_folder_may_still_run()
+    {
+        File.WriteAllText(Path.Combine(Dir("mods", "XHL-Kept"), "native-plugin.ini"), "[Plugin]\nDll=XHL-Kept.dll\n");
+        Dir("mods", "wick-kept");
+        Profile(new()
+        {
+            ["xhl"] = [new { id = "xhl-kept", version = "1", path = Path.Combine(_root, "mods", "XHL-Kept"), enabled = false },
+                       new { id = "xhl-gone", version = "1", path = Path.Combine(_root, "mods", "XHL-Gone"), enabled = false }],
+            ["enshwick"] = [new { id = "wick-kept", version = "1", path = Dir("lib", "wick-kept"), enabled = false },
+                            new { id = "wick-off", version = "1", path = Dir("lib", "wick-off"), enabled = false }],
+        });
+        var s = Read();
+        var kept = Mod(s, "xhl", "xhl-kept");
+        Assert.Equal(ModRunState.Disabled, kept.State);
+        Assert.Contains("still in the game's mods folder", kept.Reason);
+        Assert.Contains("XHL-Core may still load it", kept.Reason);
+        Assert.Equal("Switched off in the profile.", Mod(s, "xhl", "xhl-gone").Reason);
+        Assert.Contains("Enshwick's loader", Mod(s, "enshwick", "wick-kept").Reason);
+        Assert.Equal("Switched off in the profile.", Mod(s, "enshwick", "wick-off").Reason);
+    }
+
     [Fact]
     public void Enshwick_lists_the_profile_and_its_copy_notes()
     {

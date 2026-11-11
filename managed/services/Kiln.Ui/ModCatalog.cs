@@ -507,6 +507,20 @@ internal static class ModCatalog
             l.Add(m with { SearchText = $"{m.Name} {m.Id} {EngineName(m.Engine)}".ToLowerInvariant() });
         }
 
+        /// <summary>The folder in <c>&lt;game&gt;/mods</c> that still holds a profile entry's copy: the entry's own folder
+        /// when it is placed there (XHL companions, EML mods a DLL reads there), Kiln's copy for Enshwick's loader.</summary>
+        private string? KeptInGameMods(string kind, ProfileEntry e, string id)
+        {
+            var mods = NormPath(Path.Combine(Src.GameDir, "mods"));
+            if (ParentOf(e.Path) is { } parent && string.Equals(NormPath(parent), mods, StringComparison.OrdinalIgnoreCase))
+                return DirExists(e.Path) ? e.Path : null;
+            if (kind != "enshwick") return null;
+            string copy;
+            try { copy = Path.Combine(Src.GameDir, "mods", id); }
+            catch (Exception) { return null; }
+            return DirExists(copy) ? copy : null;
+        }
+
         public void Engine(string kind, string? word, EngineHealth health, string? note, bool reported) =>
             Engines[kind] = (word, health, note, reported);
 
@@ -520,14 +534,25 @@ internal static class ModCatalog
                 var id = e.Id ?? LeafName(e.Path);
                 var (name, version) = Manifest(e.Path);
                 var missing = MissingPaths.Contains(e.Path) || !DirExists(e.Path);
+                // switched off, but a copy is still in <game>/mods (kept because it was changed there, say), where a loader
+                // that reads the folder may still run it
+                var kept = e.Enabled ? null : KeptInGameMods(kind, e, id);
                 Add(new CatalogMod
                 {
                     Engine = kind, Id = id, Name = name ?? id, Version = e.Version ?? version ?? "", Folder = e.Path, Source = "profile",
                     Missing = missing && e.Enabled,
                     State = !e.Enabled ? ModRunState.Disabled : missing ? ModRunState.Failed : notReportedState,
                     Word = !e.Enabled ? "disabled" : missing ? "missing" : "not reported",
-                    Reason = !e.Enabled ? "Switched off in the profile." : missing ? "Its folder is missing: " + e.Path : notReportedReason,
-                    Help = !e.Enabled ? "Turn it on in the Kiln launcher (Profiles), then start the game again."
+                    Reason = kept is { } k
+                        ? $"Switched off in the profile, but its folder is still in the game's mods folder ({LeafName(k)}), so {(kind switch
+                        {
+                            "xhl" => "XHL-Core may still load it",
+                            "enshwick" => "Enshwick's loader, which runs every folder there, may still run it",
+                            _ => "a mod or loader that reads that folder may still use it",
+                        })}."
+                        : !e.Enabled ? "Switched off in the profile." : missing ? "Its folder is missing: " + e.Path : notReportedReason,
+                    Help = kept is not null ? "Remove it in the Kiln launcher, or move that folder out of the game's mods folder, to be sure it does not run."
+                        : !e.Enabled ? "Turn it on in the Kiln launcher (Profiles), then start the game again."
                         : missing ? "Repair or remove it in the Kiln launcher (Library), then start the game again." : notReportedHelp,
                 });
             }

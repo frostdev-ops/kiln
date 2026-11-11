@@ -286,7 +286,9 @@ come from the profile and mods folder, with loader state from `enshwick.json`; a
 (a profile entry of another kind, a `native-plugin.ini`, a `mod.json`, or Kiln's placement marker of another kind) is
 not listed as Enshwick's. XHL companions (the profile's `mods.xhl`, and folders with XHL-Core's `native-plugin.ini` in
 `<game>/mods/`) are their own group: "placed for XHL-Core; Kiln does not load it", with the XHL-Core prerequisite, never
-Loaded, since Kiln never runs them and nothing reports whether XHL-Core did. A mod the
+Loaded, since Kiln never runs them and nothing reports whether XHL-Core did. A switched-off entry whose folder is still
+in `<game>/mods/` (XHL, EML mods a DLL reads there, Kiln's copy for Enshwick) says that a loader reading that folder may
+still run it. A mod the
 profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not
 loaded, with the reason. A file from an earlier start (another `pid`, or written before this process started) does not
 count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.
