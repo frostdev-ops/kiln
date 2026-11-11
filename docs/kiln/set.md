@@ -78,9 +78,12 @@ Escape or the window's close button releases their input capture. No real-client
   plus current/previous Kiln logs (the last 1 MiB of each, from a line start, so a long session keeps its end).
   Explicit **Copy to Clipboard** / **Copy last session's logs** buttons copy Unicode logs on Windows/Wine (bytes that
   are not UTF-8 become U+FFFD), with a local-file fallback if the clipboard is unavailable. The
-  `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in any path shaped
-  `\home\<name>`, `/home/<name>`, `\Users\<name>` or `/Users/<name>` (either separator, doubled as in JSON, any case;
-  Wine's `Z:\home\<name>` among them). Other personal text in mod names or log lines is not; review before sharing.
+  `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in a path that starts
+  with a home root: `home`, `Users` or `media` as the first part of an absolute path, the second (`/var/home`,
+  `/run/media`: a Steam library on a second drive) or, after `\\server\share`, the third (`\\wsl$\Ubuntu\home`).
+  Either separator, doubled as in JSON, any case; Wine's `Z:\home\<name>` among them. Only the name is replaced, not
+  the rest of the line, and a mod folder called `home` or `users` is left alone. Other personal text in mod names or
+  log lines is not redacted; review before sharing.
   Nothing is uploaded or opens a report website.
   **Debug logs** adds tool lifecycle diagnostics to `kiln.log`, not the Lua console; it defaults on and is saved in `kiln/control/set-ui.ini`,
   not upstream's `settings.ini`.

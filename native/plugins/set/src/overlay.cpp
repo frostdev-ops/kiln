@@ -112,24 +112,64 @@ std::string validUtf8(const std::string& in) {
 }
 std::string lower(std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; }
 bool separator(char c) { return c == '\\' || c == '/'; }
-// The user name in a home folder path, by its shape: \home\<name>, /home/<name>, \Users\<name>, /Users/<name>, with
-// either separator, single or doubled (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and
-// USERPROFILE (Proton: C:\users\steamuser) say. The name ends at a separator, a quote or a control character.
+// Where a path in a log line starts: back to a space, a quote, '=' or the like.
+bool pathStop(char c) {
+    return static_cast<unsigned char>(c) < 32 || std::strchr(" \"'=([,;<>|", c) != nullptr;
+}
+// The word at `word` (after a separator) is a home root only near the start of an absolute path: the path's first
+// component (Z:\home, C:\Users, /media), its second (/var/home, /run/media), or for \\server\share or \\?\ prefixes
+// its third (\\wsl$\Ubuntu\home). A drive (X:) is not a component. A folder called home or users deeper down (a mod's)
+// or in a relative path is not a home.
+bool homeRoot(const std::string& in, size_t word) {
+    size_t from = word;
+    while (from > 0 && !pathStop(in[from - 1])) --from;
+    const bool drive = word - from >= 2 && std::isalpha(static_cast<unsigned char>(in[from])) && in[from + 1] == ':';
+    if (!drive && !separator(in[from])) return false;  // relative
+    const bool unc = from + 1 < word && separator(in[from]) && separator(in[from + 1]);
+    int parts = 0;
+    for (size_t i = from + (drive ? 2 : 0); i < word;) {
+        while (i < word && separator(in[i])) ++i;
+        size_t e = i;
+        while (e < word && !separator(in[e])) ++e;
+        parts += e > i;
+        i = e;
+    }
+    return parts <= (unc ? 2 : 1);
+}
+// The user name in a home folder path, by its shape: \home\<name>, \Users\<name>, \media\<name> (also
+// /run/media/<name>: udisks' mounts, where a second drive's Steam library is), with either separator, single or doubled
+// (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and USERPROFILE (Proton: C:\users\steamuser)
+// say. Only the name goes: it ends at a separator, a quote or a control character; at an apostrophe that ends a word
+// (O'Brien keeps his); and at a space after a '/' path (Unix names have none) or, after a '\' path, at a space whose
+// next word doesn't go on into the path (C:\Users\Bob Fix\AppData is one name, C:\Users\alice exit=3 is not).
 std::string redactHomes(const std::string& in) {
+    auto nameChar = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || static_cast<unsigned char>(c) >= 0x80; };
     std::string out;
     size_t i = 0;
     while (i < in.size()) {
         if (!separator(in[i])) { out += in[i++]; continue; }
         size_t word = i, name = std::string::npos;
         while (word < in.size() && separator(in[word])) ++word;
-        for (const std::string w : {"home", "users"})
-            if (in.size() - word > w.size() && lower(in.substr(word, w.size())) == w && separator(in[word + w.size()])) {
+        for (const std::string w : {"home", "users", "media"})
+            if (in.size() - word > w.size() && lower(in.substr(word, w.size())) == w && separator(in[word + w.size()]) &&
+                homeRoot(in, word)) {
                 name = word + w.size();
                 while (name < in.size() && separator(in[name])) ++name;
                 break;
             }
         size_t end = name;
-        while (end < in.size() && !separator(in[end]) && in[end] != '"' && in[end] != '\'' && static_cast<unsigned char>(in[end]) >= 32) ++end;
+        const bool unix = name != std::string::npos && name > 0 && in[name - 1] == '/';
+        for (; end < in.size(); ++end) {
+            const char c = in[end];
+            if (separator(c) || c == '"' || static_cast<unsigned char>(c) < 32) break;
+            if (c == '\'' && !(end + 1 < in.size() && nameChar(in[end + 1]))) break;
+            if (c == ' ') {
+                if (unix) break;
+                size_t k = end + 1;
+                while (k < in.size() && !separator(in[k]) && !pathStop(in[k])) ++k;
+                if (k >= in.size() || !separator(in[k])) break;  // the next word doesn't go on into the path
+            }
+        }
         if (name == std::string::npos || end == name) { out.append(in, i, word - i); i = word; continue; }
         out.append(in, i, name - i);
         out += "<user>";

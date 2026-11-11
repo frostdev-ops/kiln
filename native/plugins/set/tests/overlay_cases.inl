@@ -66,6 +66,26 @@
   assert(shaped.find("Z:\\home\\")!=std::string::npos&&shaped.find("\\.local\\share\\Steam\\steamapps")!=std::string::npos&&
          shaped.find("\\\\AppData\\\\Local")!=std::string::npos&&shaped.find("/Library and")!=std::string::npos);
  }
+ // Both directions of the shape rule, on the second-pass reviewer's lines: a library on a second drive (udisks'
+ // /run/media, /media), a name with an apostrophe, and nothing more than the name taken (the rest of a line after a
+ // name, WINEPREFIX=, a mod folder called home or users). The cases it found right stay right.
+ {const std::vector<std::pair<std::string,std::string>> lines={
+   {"lib Z:\\run\\media\\aliceq\\Games\\SteamLibrary\\steamapps","lib Z:\\run\\media\\<user>\\Games\\SteamLibrary\\steamapps"},
+   {"old Z:\\media\\bobq\\Games","old Z:\\media\\<user>\\Games"},
+   {"json \"C:\\\\Users\\\\O'Brienq\\\\AppData\"","json \"C:\\\\Users\\\\<user>\\\\AppData\""},
+   {"cwd=C:\\Users\\carolq exit=3 (code 0xC0000005)","cwd=C:\\Users\\<user> exit=3 (code 0xC0000005)"},
+   {"mods in Z:\\home\\daveq\\Enshrouded\\shrouded_engine_tweaks\\mods\\home\\init.lua","mods in Z:\\home\\<user>\\Enshrouded\\shrouded_engine_tweaks\\mods\\home\\init.lua"},
+   {"HOME=/home/erinq WINEPREFIX=/home/erinq/.wine","HOME=/home/<user> WINEPREFIX=/home/<user>/.wine"},
+   {"kept \\\\wsl$\\Ubuntu\\home\\frankq\\x and \\\\?\\unix\\home\\graceq\\y and /var/home/heidiq/z","kept \\\\wsl$\\Ubuntu\\home\\<user>\\x and \\\\?\\unix\\home\\<user>\\y and /var/home/<user>/z"},
+   {"space C:\\Users\\Ivan Q\\AppData and \"Z:\\home\\judyq\" end","space C:\\Users\\<user>\\AppData and \"Z:\\home\\<user>\" end"},
+   {"mod folder users\\x.lua and C:\\Games\\mods\\users\\x.lua and settest\\home\\y","mod folder users\\x.lua and C:\\Games\\mods\\users\\x.lua and settest\\home\\y"},
+   {"Z:\\home\\ölafq\\x","Z:\\home\\<user>\\x"},
+   {"cannot open '/home/kateq'","cannot open '/home/<user>'"}};
+  std::string in;for(const auto& [from,to]:lines)in+=from+"\n";
+  std::ofstream(work/"kiln.log",std::ios::binary)<<in;
+  const auto out=setui::logText(false);std::istringstream got(out);std::string line;bool bad=false;
+  for(const auto& [from,to]:lines){std::getline(got,line);if(line!=to){std::cerr<<"redaction: ["<<from<<"] -> ["<<line<<"], wanted ["<<to<<"]\n";bad=true;}}
+  assert(!bad);}
  // A long session's log: the copy and the report keep its end (where a crash is), at most 1 MiB of it, from a line
  // start. A mod's stray byte or non-ASCII text never makes the clipboard text invalid UTF-8.
  {std::ofstream big(work/"kiln.log",std::ios::binary);big<<"FIRST LINE of the session\n";
