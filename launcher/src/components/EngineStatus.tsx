@@ -56,7 +56,7 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
   if (q.isLoading) return <Skeleton lines={3} />;
   if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
-  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader)
+  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || (s.effects && s.effects.state !== "unavailable"))
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
   if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
   return (
@@ -66,16 +66,18 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
   );
 }
 
-function EngineRow({ s }: { s: EngineStatus }) {
+export function EngineRow({ s }: { s: EngineStatus }) {
   const word = headline(s.state);
   const reason = s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
   const mods = modLines(s.state);
+  const effects = s.kind === "shroudforge" ? s.effects : null;
+  const current = effects?.state === "current";
   return (
     <div className="k-list-item" data-engine={s.kind} style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 2 }} title={s.file}>
       <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
       <span className="k-mono k-muted">{s.plugin}</span>
       <span className="k-spacer" />
-      {s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">Not run yet</span> : (
+      {s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">{current ? "Runtime report available" : "Not run yet"}</span> : (
         <>
           {word && <span className={`k-word-sm k-tone-${toneOf(word)}`}>{word}</span>}
           {mods.length > 0 && <span className="k-hint">{mods.length} mod{mods.length === 1 ? "" : "s"}</span>}
@@ -88,6 +90,23 @@ function EngineRow({ s }: { s: EngineStatus }) {
             <span key={m.id + i}>{i ? ", " : ""}<span className="k-mono">{m.id}</span>{m.state ? ` ${m.state}` : ""}{m.reason ? ` (${m.reason})` : ""}</span>
           ))}
         </span>
+      )}
+      {effects && (
+        <div className="k-hint" style={{ flexBasis: "100%" }} title={effects.file} aria-label="ShroudForge mod effects">
+          {!current ? <span className={effects.state === "invalid" ? "k-tone-err" : "k-tone-warn"}>{effects.reason ?? `ShroudForge report: ${effects.state}`}</span> : (
+            <>
+              {effects.mods.length === 0 && <span>No per-mod effects reported yet.</span>}
+              {effects.mods.map((m) => (
+                <div key={m.id}>
+                  <span className="k-mono">{m.id}</span>{" "}
+                  <span className={/fail|error|blocked/i.test(m.state) ? "k-tone-err" : /no-target|waiting|restart/i.test(m.state) ? "k-tone-warn" : ""}>{m.state}</span>
+                  {m.detail && <span>: {m.detail}</span>}
+                </div>
+              ))}
+              {effects.mods.some((m) => m.state === "write-confirmed") && <div>Memory write confirmed; not proof of the gameplay effect.</div>}
+            </>
+          )}
+        </div>
       )}
       {/* The engine's own loader is in the game: what that means for the active profile's mods (own_loaders.rs). */}
       {s.ownLoader && (

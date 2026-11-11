@@ -1087,6 +1087,14 @@ export interface EngineSettings {
   values: Json;
   note?: string | null;
 }
+/** SF's own runtime report, not the adapter's hosted state. Only current reports have mod observations. */
+export interface SfEffects {
+  file: string;
+  state: "current" | "stale" | "stopped" | "unavailable" | "invalid";
+  updatedAt: number | null;
+  reason: string | null;
+  mods: { id: string; state: string; detail: string }[];
+}
 /** One engine plugin's state file `kiln/state/<engine>.json` (null: not written yet). */
 export interface EngineStatus {
   kind: ModKind;
@@ -1097,6 +1105,8 @@ export interface EngineStatus {
   error?: string | null;
   /** This engine's own loader, when installed, and what it means for the active profile's mods of the kind. */
   ownLoader?: OwnLoaderNote | null;
+  /** Only ShroudForge: per-mod effect/error details, with heartbeat freshness checked by the backend. */
+  effects?: SfEffects | null;
 }
 /** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
 export interface EmlBackup {
