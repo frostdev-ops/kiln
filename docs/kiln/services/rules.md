@@ -473,7 +473,9 @@ sprint with the nose at 60 degrees: highest climb rate 15 m/s; let go, level for
 counters: glide steered 681, glide changed 1203, faults 0
 ```
 Not shown by the lab: a player's prediction (no client joined), what the glider looks like, the camera, an analog stick,
-input mode 1, and SF Unlimited Flight together with it.
+input mode 1, and SF Unlimited Flight together with it. Nor another player's steered glider as a second client sees it:
+a joined client steers only its own player, so whether that client draws someone else's climbing glider with the game's
+own pitch (nose pulled to 5 degrees down) needs two players in one world to watch.
 
 ## Manual test (needs the game)
 No server needed: Kiln in the game, a throwaway world hosted from the game (co-op, or offline). On a dedicated server
