@@ -19,7 +19,7 @@ public sealed class ShroudForgeTests : IDisposable
         catch (IOException) { }
     }
 
-    private static string FixtureFile([CallerFilePath] string self = "") =>
+    internal static string FixtureFile([CallerFilePath] string self = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(self)!, "..", "..", "..", "schema", "fixtures", "shroudforge", "cases.json"));
 
     private static JsonArray Cases() => (JsonNode.Parse(File.ReadAllText(FixtureFile()))!["cases"] as JsonArray)!;
@@ -119,42 +119,6 @@ public sealed class ShroudForgeTests : IDisposable
         if (c["enabledAfter"] is { } after) Same(after, EnabledNow(ShroudForgePackages.Read(dir)), name + ": enabledWhen after the edits");
     }
 
-    /// <summary><c>limits.fileBytes</c>: the same bound as the launcher's reader.</summary>
-    [Fact]
-    public void The_settings_file_size_is_bounded_like_the_launcher()
-    {
-        var limit = JsonNode.Parse(File.ReadAllText(FixtureFile()))!["limits"]!["fileBytes"]!.GetValue<int>();
-        Assert.Equal(ShroudForgePackages.MaxFileBytes, limit);
-        var dir = Package();
-        var file = Path.Combine(dir, "extended.mod.json");
-        const string body = "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1}}}";
-        File.WriteAllText(file, body + new string(' ', limit - body.Length));
-        Assert.Single(ShroudForgePackages.Read(dir).Settings);
-        File.WriteAllText(file, body + new string(' ', limit + 1 - body.Length));
-        Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(dir));
-        Assert.Throws<SfEditException>(() => ShroudForgePackages.SetEnabled(dir, false));
-        Assert.Equal(limit + 1, new FileInfo(file).Length);
-    }
-
-    /// <summary>The Mods page asks IsEnabled for every setting every frame, on the game's render thread: a lookup by key
-    /// must not scan the list (50,000 settings fit in the 2 MiB file).</summary>
-    [Fact]
-    public void Settings_are_looked_up_by_key_not_by_scanning()
-    {
-        const int n = 50_000;
-        var dir = Package();
-        var body = string.Join(",", Enumerable.Range(0, n).Select(i => $"\"s{i:D5}\":{{\"value\":{i}}}"));
-        File.WriteAllText(Path.Combine(dir, "extended.mod.json"), "{\"enabled\":true,\"settings\":{" + body + "}}");
-        var p = ShroudForgePackages.Read(dir);
-        var values = p.Values;
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        var enabled = p.Settings.Count(s => ShroudForgePackages.IsEnabled(s.Key, p.Settings, values));
-        clock.Stop();
-        Assert.Equal(n, enabled);
-        Assert.Same(p.Settings[n - 1], ShroudForgePackages.Find(p.Settings, $"s{n - 1:D5}"));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"one frame's IsEnabled calls for {n} settings took {clock.Elapsed}");
-    }
-
     [Fact]
     public void An_action_request_is_the_file_shroudforges_runtime_reads()
     {
@@ -221,7 +185,7 @@ public sealed class ShroudForgeTests : IDisposable
     [InlineData("\"value\":1,\"applyAt\":\"soon\"")]
     [InlineData("\"value\":1,\"applyAt\":\"live\",\"restartRequired\":true")]
     [InlineData("\"value\":1,\"enabledWhen\":{}")]
-    [InlineData("\"value\":true,\"options\":{\"not-a-bool\":\"Bad\"}")]
+    [InlineData("\"value\":1,\"options\":{\"not-a-number\":\"Bad\"}")]
     public void Malformed_metadata_is_not_editable(string settings)
     {
         var dir = Package(settings);
@@ -287,5 +251,66 @@ public sealed class ShroudForgeTests : IDisposable
         Assert.Equal("number", ShroudForgePackages.TypeOf(JsonNode.Parse("3.0")));
         Assert.Equal("number", ShroudForgePackages.TypeOf(JsonValue.Create(3.0)));
         Assert.Equal("integer", ShroudForgePackages.TypeOf(JsonValue.Create(3)));
+    }
+}
+
+/// <summary>Large packages (megabytes of settings): run alone, so their allocations and garbage collections do not stretch
+/// the timing of the worker and snapshot tests that run in parallel.</summary>
+[CollectionDefinition(nameof(ShroudForgeLargeFileTests), DisableParallelization = true)]
+public sealed class ShroudForgeLargeFileCollection;
+
+[Collection(nameof(ShroudForgeLargeFileTests))]
+public sealed class ShroudForgeLargeFileTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "kiln-sf-large-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_root, true); }
+        catch (IOException) { }
+    }
+
+    private string Package()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "mod.json"), """{"id":"test","name":"Test","version":"1","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"enabled\":true,\"settings\":{\"amount\":{\"value\":1}}}");
+        return _root;
+    }
+
+    /// <summary><c>limits.fileBytes</c>: the same bound as the launcher's reader.</summary>
+    [Fact]
+    public void The_settings_file_size_is_bounded_like_the_launcher()
+    {
+        var limit = JsonNode.Parse(File.ReadAllText(ShroudForgeTests.FixtureFile()))!["limits"]!["fileBytes"]!.GetValue<int>();
+        Assert.Equal(ShroudForgePackages.MaxFileBytes, limit);
+        var dir = Package();
+        var file = Path.Combine(dir, "extended.mod.json");
+        const string body = "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1}}}";
+        File.WriteAllText(file, body + new string(' ', limit - body.Length));
+        Assert.Single(ShroudForgePackages.Read(dir).Settings);
+        File.WriteAllText(file, body + new string(' ', limit + 1 - body.Length));
+        Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(dir));
+        Assert.Throws<SfEditException>(() => ShroudForgePackages.SetEnabled(dir, false));
+        Assert.Equal(limit + 1, new FileInfo(file).Length);
+    }
+
+    /// <summary>The Mods page asks IsEnabled for every setting every frame, on the game's render thread: a lookup by key
+    /// must not scan the list (50,000 settings fit in the 2 MiB file).</summary>
+    [Fact]
+    public void Settings_are_looked_up_by_key_not_by_scanning()
+    {
+        const int n = 50_000;
+        var dir = Package();
+        var body = string.Join(",", Enumerable.Range(0, n).Select(i => $"\"s{i:D5}\":{{\"value\":{i}}}"));
+        File.WriteAllText(Path.Combine(dir, "extended.mod.json"), "{\"enabled\":true,\"settings\":{" + body + "}}");
+        var p = ShroudForgePackages.Read(dir);
+        var values = p.Values;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var enabled = p.Settings.Count(s => ShroudForgePackages.IsEnabled(s.Key, p.Settings, values));
+        clock.Stop();
+        Assert.Equal(n, enabled);
+        Assert.Same(p.Settings[n - 1], ShroudForgePackages.Find(p.Settings, $"s{n - 1:D5}"));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"one frame's IsEnabled calls for {n} settings took {clock.Elapsed}");
     }
 }

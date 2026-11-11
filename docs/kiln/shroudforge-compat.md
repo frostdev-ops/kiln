@@ -149,7 +149,8 @@ needs no Kiln hook. A failed preparation is reported; the adapter does not attem
 
 `detect`, `mods_dir` (SF's `paths.mods`), `is_sf_mod` (tells SF/EML Lua packages from EMF mods),
 `read_mod`/`list_mods`, `skip_reason` (plain-words skip messages), `set_enabled`, `set_setting` (checks type, range and
-options; it splices only the value with `jsonc::set_value`, so the file stays byte-identical otherwise),
+options; it splices only the value, typed as SF reads it back (a fractional setting's numbers keep a fraction or an
+exponent), so the file stays byte-identical otherwise),
 `settings_schema` (JSON Schema for the launcher's SchemaForm with `x-kiln-control`, `x-kiln-group`, `x-kiln-restart`,
 `x-kiln-enum-labels`, `x-kiln-enabled-when`), `settings_values`, `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Unit
 tests and shared managed/Rust package fixtures cover parsing and byte-preserving edits. Runtime reports require a fresh
