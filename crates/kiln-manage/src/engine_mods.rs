@@ -56,6 +56,12 @@ fn is_settings_file(kind: ModKind, rel: &str) -> bool {
 
 /// shroudlink's mods folder, relative to the game (its DLLs directly, and Kiln's synced folders one level down).
 pub const SHROUDLINK_MODS: &str = "shroudlink_mods";
+/// Greeneye Loader's mods folder, relative to the game. Greeneye mods always run from Kiln's copy there
+/// ([`game_path_of`]): Greeneye's API gives a mod its folder as `...\greeneye\<id>\`, and mods keep their settings,
+/// logs and per-world data in it (The Worst Map Mod: minimap_config.ini, looted_chests.ini, unlock_map_markers.log). A
+/// content-addressed Library entry is neither where players and mod authors look for those files nor a place that
+/// survives the next version.
+pub const GREENEYE_MODS: &str = "greeneye";
 /// Ember's mods folder, relative to the server: `ember/mods/<mod>/`, one library each.
 pub const EMBER_MODS: &str = "ember/mods";
 /// Enshwick's loader keeps its own files in `<game>/mods/enshwick/`: no mod may take that folder name.
@@ -1166,7 +1172,8 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
     }
     for kind in crate::own_loaders::PLACED_FOR_LOADER.into_iter().chain([ModKind::Native, ModKind::Xhl]) {
         let loader = crate::own_loaders::of_kind(loaders, kind).filter(|l| l.delivery == crate::own_loaders::Delivery::Placed);
-        let root = loader.map(|l| l.root(game_dir));
+        // Greeneye: always, with or without Greeneye's own loader (GREENEYE_MODS)
+        let root = if kind == ModKind::Greeneye { Some(game_dir.join(GREENEYE_MODS)) } else { loader.map(|l| l.root(game_dir)) };
         let list = profile.mods.list(kind);
         let tag = |id: &str| format!("{}:{id}", kind.as_str());
         // A copy whose library files the player edited is not Kiln's to replace (files the mod added are fine).
@@ -1258,6 +1265,12 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 rep.own.push(tag(&m.id));
                 continue;
             }
+            if kind == ModKind::Greeneye && !split_runtime_files(dirs, game_dir, kind, m, src)? {
+                // the entry differs from its import in a file of the mod itself: not Kiln's to fix, and no copy of
+                // it is placed (the profile names the Library entry, which kiln-greeneye runs as before)
+                rep.changed.push(tag(&m.id));
+                continue;
+            }
             let kept_at = kept_dir(game_dir, kind, &m.id);
             let carry = match &have {
                 Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
@@ -1328,13 +1341,85 @@ pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::Profil
 }
 
 /// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
+/// Greeneye: Kiln's copy in `<game>/greeneye/<id>/` once [`place`] has made it for this version (its receipt and marker
+/// name it), else None (the Library entry: a folder the player put there, a play-once version, a switched-off mod).
 pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {
+    if kind == ModKind::Greeneye {
+        if !m.enabled { return None; }
+        let dst = game.join(GREENEYE_MODS).join(&m.id);
+        let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+        let placed = placements(game).ok()?.iter().any(|r| r.path == dst && r.marker == want);
+        return (placed && marker(&dst).as_ref() == Some(&want)).then_some(dst);
+    }
     let root = game.join(EML_GAME_MODS);
     let dst = root.join(game_folder_of(dirs, kind, m)?);
     if dst.exists() { return Some(dst); }
     let r = crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
     let src = crate::library::path_of(dirs, &r).ok()?;
     Some(same_mod_elsewhere(&root, kind, &src, &dst).unwrap_or(dst))
+}
+
+/// Kiln 0.2.0-dev.23 and earlier ran Greeneye mods from their Library entry, and a Greeneye mod writes its settings and
+/// logs into its own folder, so such an entry no longer matches its kdh1 and could not be placed ("library hash
+/// mismatch"). What the mod wrote are the newest files: when leaving out the newest few (at most 64) gives exactly the
+/// imported size and kdh1, those files move to [`kept_dir`], from where the placement carries them into the game-folder
+/// copy, and the entry is as imported again. Ok(false): the entry differs in a file of the mod itself; nothing moves.
+fn split_runtime_files(dirs: &DataDirs, game: &Path, kind: ModKind, m: &crate::profile::ProfileMod, src: &Path) -> Result<bool> {
+    if crate::hash::dirhash(src)? == m.hash { return Ok(true); }
+    let r = crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+    let imported = crate::library::record(dirs, &r)?.size;
+    // the files dirhash counts (no dot entries), newest first
+    let mut files: Vec<(std::time::SystemTime, crate::hash::Record)> = Vec::new();
+    fn walk(dir: &Path, prefix: &str, out: &mut Vec<(std::time::SystemTime, crate::hash::Record)>) -> Result<()> {
+        for e in std::fs::read_dir(dir).map_err(io_at(dir, "reading"))? {
+            let e = e?;
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') { continue; }
+            let rel = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+            let meta = std::fs::symlink_metadata(e.path())?;
+            if meta.is_dir() {
+                walk(&e.path(), &rel, out)?;
+            } else if meta.is_file() {
+                let (sha256, size) = crate::hash::sha256_file(&e.path())?;
+                out.push((meta.modified().unwrap_or(std::time::UNIX_EPOCH), crate::hash::Record { path: rel, size, sha256 }));
+            }
+        }
+        Ok(())
+    }
+    refuse_symlink_path(&dirs.root, src)?;
+    walk(src, "", &mut files)?;
+    files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.cmp(&b.1.path)));
+    let total: u64 = files.iter().map(|(_, f)| f.size).sum();
+    let Some(extra) = total.checked_sub(imported) else { return Ok(false) };
+    let mut added = 0u64;
+    let mut cut = None;
+    for n in 1..=files.len().min(64) {
+        added += files[n - 1].1.size;
+        if added > extra { break; }
+        if added == extra && crate::hash::dirhash_records(files[n..].iter().map(|(_, f)| f.clone()))? == m.hash {
+            cut = Some(n);
+            break;
+        }
+    }
+    let Some(n) = cut else { return Ok(false) };
+    let kept = kept_dir(game, kind, &m.id);
+    for (_, f) in &files[..n] {
+        let from = src.join(&f.path);
+        let to = kept.join(&f.path);
+        refuse_symlink_path(&dirs.root, &from)?;
+        refuse_symlink_path(game, &to)?;
+        if let Some(parent) = to.parent() {
+            refuse_symlink_path(game, parent)?;
+            std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?;
+        }
+        if to.exists() { park_kept(game, &to)?; }
+        std::fs::copy(&from, &to).map_err(io_at(&from, "keeping"))?;
+        std::fs::remove_file(&from).map_err(io_at(&from, "removing"))?;
+    }
+    if crate::hash::dirhash(src)? != m.hash {
+        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch after keeping the mod's own files", src.display())));
+    }
+    Ok(true)
 }
 
 // One native package can carry several settings folders; their config.txt files must not share a stash.

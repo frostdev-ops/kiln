@@ -7,14 +7,34 @@ Proton; on Kiln its mods do.
 
 ## Install a mod
 
-Put the mod where Greeneye Loader would put it, `<game>/greeneye/<id>/` with its `mod.json` and DLL, or add it to a
-Kiln profile (`mods.greeneye`, see [README.md](README.md)). Greeneye mods keep their settings in their own folder (an
-ini next to the DLL), as under Greeneye Loader.
+Add the mod's zip to the Kiln Launcher's Library (a release that ships Greeneye's `dbgcore.dll` too is fine: the loader
+is left out, Kiln does not need it) and switch it on in a profile (`mods.greeneye`, see [README.md](README.md)). Or put
+the mod where Greeneye Loader would put it, `<game>/greeneye/<id>/` with its `mod.json` and DLL.
+
+**Where a profile's Greeneye mod runs from (since dev.24).** Greeneye's API gives a mod its folder as
+`...\greeneye\<id>\` (`modDir`), and mods keep their settings, logs and per-world data there: The Worst Map Mod writes
+`minimap_config.ini`, `looted_chests.ini`, `defeated_bosses.ini`, `unlock_map_markers.log` and
+`UnlockMapMarkers.status` next to its DLL, and its page tells players to edit `greeneye\unlock-map-markers\minimap_config.ini`.
+So activation copies each enabled Greeneye mod of the profile to `<game>/greeneye/<library id>/` (Kiln's copy: marker
+`.kiln-library.json`, receipt `kiln/state/library-placements.json`) and `profile.json` names that copy, with or without
+Greeneye's own `dbgcore.dll`. kiln-greeneye and Greeneye Loader then run the same folder. What a mod writes there is the
+player's: it stays when a new version replaces the copy, and waits in `kiln/kept-mod-files/greeneye/<id>/` while the
+mod is switched off (Greeneye Loader would run anything left in `greeneye/`). A folder the player put in `greeneye/`
+under that name, or holding the same mod (the same `mod.json` id), is never touched: the profile then names the Library
+entry, as for a play-once start with another version. Up to dev.23 the profile named the Library entry
+(`library/greeneye/<id>/<version>+<hash>/`), so the mod wrote into the Library: settings were lost with every new
+version, and a later placement for Greeneye Loader refused the changed entry ("library hash mismatch"). The first
+placement moves those files out of the entry into the copy (only when the entry without them is exactly the import).
 
 `kiln/logs/kiln.log` has one line per mod, for example
-`[greeneye] Find 1.4 (folder): started (active generation 1 (0 ms))`. Each mod's own log lines appear as
-`[greeneye:<id>] ...`, and in `kiln/logs/greeneye-loader.log` (the file Greeneye's bug reports ask for).
-`kiln/state/greeneye.json` lists every mod with its status, generation and hook count.
+`[greeneye] Find 1.4 (folder): started (active generation 1 (0 ms))`. The lines a mod sends through `host->log` appear
+as `[greeneye:<id>] ...`, and in `kiln/logs/greeneye-loader.log` (the file Greeneye's bug reports ask for). Many mods
+write their own log in their folder instead (The Worst Map Mod's `unlock_map_markers.log` says which code sites it
+found and patched): the launcher's support report (Logs > Save report) carries each Greeneye mod's `*.log` and
+`*.status` files and Greeneye Loader's `greeneye/loader.log`. `kiln/state/greeneye.json` has the engine's `status`
+(`running`, `stepped aside`, `failed`, `idle`), the counts `started` and `failed`, and every mod with its status,
+reason, folder, generation and hook count. "started" means `GreeneyeModStart` returned true; what the mod then patched
+is in its own log.
 
 ## Which mods load
 
@@ -60,7 +80,7 @@ Greeneye Loader. "Tested" names the check in `native/plugins/compat/tests/run.py
 |---|---|---|---|
 | `size`, `apiVersion` (2) | filled as Greeneye Loader 1.2.2 | - | full; host `api_version` |
 | `side` (1 client, 2 server) | from Kiln's side | `ModInfo.Side` | full; host `side=1`, `side=2`; lab `side=2` |
-| `modDir`, `gameDir` (trailing `\`) | the mod's folder (profile or `greeneye/`), the game folder | `ModInfo.Directory` | full; host `mod_dir_slash`, `game_dir_slash` |
+| `modDir`, `gameDir` (trailing `\`) | the mod's folder (Kiln's copy in `greeneye\<id>\`, a folder in `greeneye\`, or a Library entry: see Install), the game folder | `ModInfo.Directory` | full; host `mod_dir_slash`, `game_dir_slash` |
 | `log(line)` | `[greeneye:<id>]` in kiln.log + `greeneye-loader.log` (one log function per mod, so lines carry the mod's id) | `ModContext.Log` | full; host, lab |
 | `generation`, `hotReload`, `token` | ported hook owner | Kiln's own mod reload | full; host `generation=2`, `hot_reload_flag` |
 | `enter(token)` / `leave()` | ported: per-mod shared gate, nestable per thread; active only for the active generation | `HookHandle` removal waits for running handlers | full; host `lease_inactive_while_starting`, detour +1000 runs under an active lease |
@@ -94,13 +114,20 @@ Direct native detours and mod-owned threads cannot be generically fault-wrapped;
 
 ## Manual test (real client)
 
-Greeneye mods are client mods. With Kiln installed in the client and no Greeneye `dbgcore.dll`:
-1. Put The Worst Map Mod in `<game>/greeneye/<its id>/` (its `mod.json` and DLL, from its download). Start the game
-   through Kiln and load a world.
-2. `kiln.log` shows `[greeneye] kiln-greeneye 1.0.0 (GreeneyeHost API 2, as Greeneye Loader 1.2.2) on the client` and
-   `... (folder): started (active generation 1 ...)`. No `CHECK`/`fail` lines, no fault.
-3. In the game, the mod's own feature works (its map behaviour), exactly as under Greeneye Loader on Windows.
-4. Repeat with Find (open its search) and Quick Deposit (deposit into a nearby chest).
+Greeneye mods are client mods. The Worst Map Mod (Nexus mod 220) is the first one to check, on native Windows:
+1. With Kiln installed and no Greeneye `dbgcore.dll` next to `enshrouded.exe`, add the mod's zip in the launcher
+   (Library > Add mods), switch it on in the active profile and press Play.
+2. `<game>/greeneye/unlock-map-markers/` holds the mod (and `.kiln-library.json`); `kiln/profile.json` names that
+   folder. `kiln.log` shows `[greeneye] kiln-greeneye 1.0.0 (GreeneyeHost API 2, as Greeneye Loader 1.2.2) on the client`
+   and `The Worst Map Mod 1.3.x (profile): started (active generation 1 ...)`; `greeneye.json` says `running`.
+3. `greeneye/unlock-map-markers/unlock_map_markers.log` has `Resolved ...` for its four patch sites and
+   `All 4 map marker unlock patches + MapKeyPanel hooks are ACTIVE.`; `UnlockMapMarkers.status` says `state=active`.
+   In a world, the map (M) shows the Map Key & Filters panel and every marker; the HUD minimap shows.
+4. Change a setting in the mod's cog menu, quit, update the mod to its next version in the launcher, play: the setting
+   is still there (`minimap_config.ini` kept).
+5. Put Greeneye's `dbgcore.dll` next to the game and play: `greeneye.json` says `stepped aside`, the mod is
+   `own-loader`, `greeneye/loader.log` shows Greeneye Loader starting it, and the map works the same.
+6. Repeat 1 to 3 with Find (Shift+F in a base) and Quick Deposit (G G in the inventory).
 
 Mod files needed for this (not downloadable by Kiln's tests): the Nexus downloads of The Worst Map Mod, Find, Quick
 Deposit, Town Portals, Embervale Teleport and Hollow Halls Progression.

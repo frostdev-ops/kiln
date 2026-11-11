@@ -249,14 +249,16 @@ fn chained_flame_greeneye_and_emf_loaders() {
     let mut p = profile::create(&dirs, "others", None).unwrap();
     p.mods.flame = vec![pm(&f, true)];
     p.mods.greeneye = vec![pm(&g, true)];
-    engine_mods::place(&dirs, &p, &game).unwrap();
-    assert!(!game.join("mods/creative").exists() && !game.join("greeneye/worstmap").exists());
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    // Greeneye mods run from greeneye/<id>/ with or without Greeneye's loader (they write their settings there)
+    assert!(!game.join("mods/creative").exists() && engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
+    assert_eq!(rep.placed, ["greeneye:worstmap"]);
     // Flame's dinput8.dll chained by the installer, Greeneye's dbgcore.dll next to the game
     put(&game, "kiln/chain/flame-dinput8.dll", &build_test_dll(&[], b"FlameStartRuntime flame.json"));
     put(&game, "kiln/chain.ini", b"[chain]\nchain\\flame-dinput8.dll\n");
     put(&game, "dbgcore.dll", &build_test_dll(&[], b"greeneye"));
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!(rep.placed, ["greeneye:worstmap", "flame:creative"]);
+    assert_eq!((rep.placed.clone(), rep.kept.clone()), (vec!["flame:creative".to_string()], vec!["greeneye:worstmap".to_string()]));
     assert!(engine_mods::marker(&game.join("mods/creative")).is_some());
     assert!(engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
     // the chain line switched off: Flame's copy goes, Greeneye's stays

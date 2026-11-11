@@ -345,6 +345,60 @@ fn engine_stood_aside_and_loader_in_folder() {
     assert!(r.summary.contains("dbghelp.dll"));
 }
 
+/// Nexus report (11 Nov 2026, The Worst Map Mod): a Greeneye mod says what it found and patched only in its own log and
+/// status file in its folder (unlock_map_markers.log, UnlockMapMarkers.status), not in kiln.log. The report carries
+/// them, bounded and redacted, with Greeneye Loader's own loader.log; never the mod's settings.
+#[test]
+fn greeneye_mod_logs_are_in_the_report() {
+    let f = Fx::healthy("greeneye-logs");
+    // kiln-greeneye ran the mod from Kiln's copy in greeneye\ (and an older Kiln from a Library entry)
+    let lib = f.root.join("data/library/greeneye/find/1.4.0+bbbbbbbb");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("find.log"), "Find started from Z:\\var\\home\\frostling\\x\n").unwrap();
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "updatedUnixMs": 1,
+        "mods": [
+            {"id": "unlock-map-markers", "status": "started", "folder": format!("{}", f.game.join("greeneye/unlock-map-markers").display())},
+            {"id": "find", "status": "started", "folder": format!("{}", lib.display())}]})).unwrap());
+    f.w("greeneye/unlock-map-markers/mod.json", br#"{"id":"unlock-map-markers"}"#);
+    let old = "[2026-11-11 09:00:00.000] old line\n";
+    f.w("greeneye/unlock-map-markers/unlock_map_markers.log",
+        old.repeat(GREENEYE_LOG_MAX as usize / old.len() + 1) + "[2026-11-11 10:00:00.000] ERROR: Failed to find signature for map_marker_type_quest_rumor_downgrade (frostling)\n");
+    f.w("greeneye/unlock-map-markers/UnlockMapMarkers.status", "state=error_signature_not_found\npatched=0\n");
+    f.w("greeneye/unlock-map-markers/minimap_config.ini", "[MinimapV2]\nSecretNote=frostling\n");
+    f.w("greeneye/loader.log", "[10:00:00.000] Greeneye Loader 1.2.2 loaded as dbgcore.dll in enshrouded.exe (game)\n");
+    f.w("kiln/logs/greeneye-loader.log", "[10:00:00.000] kiln-greeneye 1.0.0 (GreeneyeHost API 2) on the client\n");
+    let r = build(&f.input());
+    let log = file(&r, "greeneye-mods/unlock-map-markers/unlock_map_markers.log").expect("the mod's own log");
+    assert!(log.starts_with("... (older lines left out") && log.len() as u64 <= GREENEYE_LOG_MAX + 200, "bounded");
+    assert!(log.contains("Failed to find signature") && log.contains("(<user>)") && !log.contains("frostling"), "{log}");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/UnlockMapMarkers.status").is_some_and(|t| t.contains("patched=0")));
+    assert!(file(&r, "greeneye-mods/find/find.log").is_some_and(|t| t.contains("Find started") && !t.contains("frostling")), "a Library folder too");
+    assert!(file(&r, "game/greeneye/loader.log").is_some_and(|t| t.contains("Greeneye Loader 1.2.2")));
+    assert!(file(&r, "game/kiln/logs/greeneye-loader.log").is_some());
+    assert!(!r.files.iter().any(|(n, _)| n.ends_with("minimap_config.ini")), "the mod's settings stay private");
+    assert!(r.summary.contains("kiln-greeneye      running"), "the engine's word: {}", r.summary);
+}
+
+/// Player report r1111 (Steam Deck, Proton without a dbgcore override): Greeneye's dbgcore.dll was in the folder but did
+/// not start, kiln-greeneye said so and ran the mods; the report said kiln-greeneye "stands aside for it".
+#[test]
+fn a_loader_in_the_folder_that_did_not_start_is_not_said_to_have_made_kiln_stand_aside() {
+    let f = Fx::healthy("greeneye-idle-loader");
+    f.w("dbgcore.dll", crate::pe::build_test_dll(&["MiniDumpWriteDump"], b"Greeneye Loader 1.2.2"));
+    let mut i = f.input();
+    i.install = Some(f.install(Platform::Proton));
+    // no state from this start: the note says what the loader would do
+    let l = finding(&build(&i), "loader-in-folder").text.clone();
+    assert!(l.contains("stands aside"), "{l}");
+    // kiln-greeneye wrote at the last start that it did not step aside
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "updatedUnixMs": now, "mods": []})).unwrap());
+    let l = finding(&build(&i), "loader-in-folder").text.clone();
+    assert!(!l.contains("stands aside") && l.contains("did not start at the last start") && l.contains("ran the Greeneye Loader mods itself"), "{l}");
+}
+
 /// Player report r1110: SET's powrprof.dll had been imported as a native mod (before the Library recognised loaders).
 /// Kiln loaded it, kiln-set stood aside for it, and the report blamed "SET's own loader". It now names the native mod.
 #[test]

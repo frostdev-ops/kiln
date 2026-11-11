@@ -73,7 +73,8 @@ So when a plugin steps aside, the profile's mods of that engine run only if they
 launcher puts them there:
 
 - **At activation** (and whenever the launcher refreshes the active profile before a start), when the engine's own
-  loader is installed for this game, Kiln copies the profile's enabled mods of that engine into the folder the loader
+  loader is installed for this game (Greeneye: always, since dev.24, because its mods write their settings into their
+  folder; [greeneye.md](greeneye.md#install-a-mod)), Kiln copies the profile's enabled mods of that engine into the folder the loader
   reads, as `<folder>/<library id>/` with Kiln's marker `.kiln-library.json` (`{format, kind, id, version, hash}`;
   the id is the Library id, which may differ from the id in the mod's own manifest). Current copies are kept. Kiln's
   copies of mods that were switched off or left the profile are removed. When the loader is no longer installed, Kiln
@@ -99,7 +100,8 @@ launcher puts them there:
   `ownLoader` per engine, each with a `text` such as "EML's own loader (dbghelp.dll) is installed: it runs the EML
   mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it".
 - **Play-once** keeps the active profile's selection for an engine whose own loader is installed (as for ShroudForge
-  and SET): its folder is fixed, so a play-once profile with other mods of that engine is refused with the reason.
+  and SET, and since dev.24 for Greeneye always): its folder is fixed, so a play-once profile with other mods of that
+  engine is refused with the reason.
   Play-once **no-mods** cannot stop an own loader: it runs whatever is in its folder, Kiln's copies included.
 
 Audit (dev.22):
@@ -110,7 +112,7 @@ Audit (dev.22):
 | ShroudForge | its mods folder (`paths.mods`, default `mods`) | state `self-hosted` (its bootstrap loaded) | already placed at activation | unchanged |
 | SET | `shrouded_engine_tweaks/mods/<name>/` | non-system `powrprof.dll` or SET's branding | already placed at activation | unchanged |
 | EMF | `emf/mods/<id>/` (switch: `emf/config/<id>.ini`) | `emf_core.dll` loaded, or a module exporting `emf_loader_identity`/`emf_core_start` | none ran, none listed | placed into `emf/mods/<id>/`; `emf.json` lists them (`profileId`); the `own-loader` reason says when EMF's ini keeps the mod off |
-| Greeneye | `greeneye/<id>/` | Greeneye Loader's claim `Local\Greeneye-Loader-<pid>` exists | none ran, none listed | placed into `greeneye/<id>/`; listed in `greeneye.json` |
+| Greeneye | `greeneye/<id>/` | Greeneye Loader's claim `Local\Greeneye-Loader-<pid>` exists | none ran, none listed | placed into `greeneye/<id>/`; listed in `greeneye.json`. Since dev.24 placed with or without Greeneye's loader and run from there by kiln-greeneye too ([greeneye.md](greeneye.md#install-a-mod)); a copy the player put in `greeneye/` is listed `own-loader` |
 | Flame | `<game>/mods/<id>/` with `flame.json` | a game-folder or `kiln/chain/` module carrying `FlameStartRuntime` without exporting it | none ran; listed `skipped` | placed into `mods/<id>/`; listed `own-loader`/`not-loaded`; `kiln.flame` `running(id)` also true for them |
 | Shroudtopia | `<game>/mods/*.dll` and `mods/<name>/` | `shroudtopia.dll` loaded, or a module naming Shroudtopia/Shroudweave | none ran, none listed | placed into `mods/<id>/` (the 1.0 folder layout); listed in `shroudtopia.json` |
 | Enshwick | `<game>/mods/<folder>/` | its `powrprof.dll` stub loaded, its claim, or a module exporting `enshwick_start` | none copied (kiln-enshwick returned before its sync), none listed | kiln-enshwick copies new entries while standing aside too (stage + one rename; the stub's loader may see a new copy only from the next start); never refreshes or removes a copy the running loader may hold; listed in `enshwick.json` (`action`) |

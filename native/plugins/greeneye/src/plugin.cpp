@@ -43,7 +43,7 @@ bool g_hot = false;
 fs::path g_state;
 
 struct Entry {
-    std::string id, name, version, side, origin, status, reason;
+    std::string id, manifest_id, name, version, side, origin, status, reason;
     int api = 1;
     fs::path dir, dll;
 };
@@ -152,6 +152,7 @@ Entry read_mod(const fs::path& dir, const std::string& profile_id, bool profile_
         return e;
     }
     const std::string manifest_id = JsonString(json, "id", folder);
+    e.manifest_id = manifest_id;
     e.id = profile_id.empty() ? manifest_id : profile_id;
     e.name = JsonString(json, "name", e.id);
     e.version = JsonString(json, "version", "?");
@@ -188,6 +189,43 @@ Entry read_mod(const fs::path& dir, const std::string& profile_id, bool profile_
     return e;
 }
 
+// While Greeneye Loader runs: a folder in greeneye\ that is not Kiln's copy but holds this profile mod (the same manifest
+// id in its mod.json; the folder name does not matter to Greeneye Loader) is a copy the player put there, and Greeneye
+// Loader runs it. The launcher leaves such a folder alone (engine_mods::place, "own"), so "not-loaded, activate the
+// profile again" would be wrong for it. A folder named like the entry that holds another mod blocks Kiln's copy: say so.
+void player_copy(const fs::path& folder, const Entry& e, kcompat::AsideReport* rep) {
+    if (!kcompat::exists(folder)) return;
+    std::error_code ec;
+    std::vector<fs::path> dirs;
+    for (const auto& d : fs::directory_iterator(folder, ec))
+        if (d.is_directory(ec) && d.path().filename().wstring()[0] != L'.') dirs.push_back(d.path());
+    std::sort(dirs.begin(), dirs.end());
+    for (const auto& d : dirs) {
+        std::string kind, marker_id, json;
+        if (kcompat::read_library_marker(d, &kind, &marker_id) && kind == "greeneye") continue;  // Kiln's copy of an entry
+        if (!kcompat::read_file(d / L"mod.json", &json) || !kcompat::contained_path(folder, d)) continue;
+        const std::string name = to_utf8(d.filename().wstring());
+        const std::string id = JsonString(json, "id", name), version = JsonString(json, "version", "?");
+        if (kcompat::lower(id) == kcompat::lower(e.manifest_id) && !JsonBool(json, "enabled", true)) {
+            rep->reason = "Greeneye's own loader runs this start and reads only <game>\\greeneye, where greeneye\\" + name +
+                          " (a copy that is not Kiln's) is switched off in its mod.json";
+            return;
+        }
+        if (kcompat::lower(id) == kcompat::lower(e.manifest_id)) {
+            rep->state = kcompat::Aside::OwnLoader;
+            rep->copy = d;
+            rep->reason = "runs under Greeneye's own loader from greeneye\\" + name + ", a copy that is not Kiln's (put there by " +
+                          "hand), version " + version + (version == e.version ? "" : " (the profile has " + e.version + ")") +
+                          "; the profile's Library copy is not used while that folder is there";
+            return;
+        }
+        if (kcompat::lower(name) == kcompat::lower(e.id))
+            rep->reason = "Greeneye's own loader runs this start and reads only <game>\\greeneye, and greeneye\\" + name +
+                          " is a folder that is not Kiln's holding another mod (" + id + "), so Kiln cannot copy this one " +
+                          "there: rename or remove that folder, then activate the profile again in the Kiln launcher";
+    }
+}
+
 void write_status() {
     using json = nlohmann::json;
     json mods = json::array();
@@ -206,12 +244,23 @@ void write_status() {
         }
         mods.push_back(std::move(j));
     }
+    // The engine's word for the launcher's Engines page, the in-game Mods page and the support report (EngineStatus.tsx
+    // headline, ModCatalog.Headline, report::engine_headline): without it they showed nothing or "?".
+    size_t started = 0, failed = 0;
+    for (const auto& e : g_entries) {
+        started += e.status == "started";
+        failed += e.status == "failed" || e.status == "rejected";
+    }
+    const char* status = !g_stepped_aside.empty() ? "stepped aside" : started ? "running" : failed ? "failed" : "idle";
     json doc = {{"format", 1},
                 {"plugin", kPluginId},
                 {"version", kPluginVersion},
                 {"greeneyeApi", kGreeneyeApiVersion},
                 {"greeneyeLoader", kUpstreamVersion},
                 {"side", g_side == KILN_SIDE_SERVER ? "server" : "client"},
+                {"status", status},
+                {"started", started},
+                {"failed", failed},
                 {"steppedAside", !g_stepped_aside.empty()},
                 {"steppedAsideReason", g_stepped_aside},
                 {"hotReload", g_hot},
@@ -246,7 +295,8 @@ void KILN_CALL on_ready(void*) {
             Entry e = read_mod(r.path, r.id, r.enabled, "profile");
             if (!seen.insert(kcompat::lower(e.id)).second) continue;
             if (e.status == "candidate") {
-                const auto rep = kcompat::aside_report(r.id, r.path, r.enabled, "greeneye", folder, "Greeneye", "greeneye");
+                auto rep = kcompat::aside_report(r.id, r.path, r.enabled, "greeneye", folder, "Greeneye", "greeneye");
+                if (rep.state == kcompat::Aside::NotLoaded) player_copy(folder, e, &rep);
                 e.status = kcompat::aside_word(rep.state);
                 e.reason = rep.reason;
                 if (!rep.copy.empty() && rep.copy != e.dir) {

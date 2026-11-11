@@ -1177,6 +1177,8 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     write_chain_plan(dirs, &profile, install, &file)?;
     // ShroudForge and SET read their mods from their own folder in the game; the other engines' own loaders too.
     let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
+    // Greeneye mods run from the copies place() just made in <game>/greeneye/ (engine_mods::game_path_of)
+    file.mods = render(dirs, &profile, install, mode)?.mods;
     let pj = install.path.join(crate::paths::game::PROFILE);
     crate::util::write_json_atomic(&pj, &file)?;
     remove_if_there(&install.path.join(crate::paths::game::CHAIN_ONCE))?;
@@ -1243,7 +1245,8 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     let loaders = crate::own_loaders::find(&install.path, Some(&crate::own_loaders::ProfileView::of_profile(&profile)));
     let fixed = crate::own_loaders::PLACED_FOR_LOADER.into_iter().filter(|k| crate::own_loaders::of_kind(&loaders, *k)
         .is_some_and(|l| l.delivery == crate::own_loaders::Delivery::Placed));
-    for kind in [ModKind::ShroudForge, ModKind::Set].into_iter().chain(fixed) {
+    // Greeneye mods run from Kiln's copies in <game>/greeneye/ (engine_mods::GREENEYE_MODS): a fixed folder as well
+    for kind in [ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye].into_iter().chain(fixed) {
         let mut wanted: Vec<_> = profile.mods.list(kind).iter()
             .map(|m| (m.id.as_str(), Some(m.version.as_str()), Some(m.hash.as_str()), m.enabled)).collect();
         let mut current: Vec<_> = active.as_ref().and_then(|f| f.mods.folders(kind)).into_iter().flatten()
