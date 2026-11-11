@@ -11,7 +11,7 @@
 //! Who runs the mods: `<game>/kiln/plugins/kiln-shroudforge.dll` hosts the installed ShroudForge runtime (or steps
 //! aside when ShroudForge's own dbghelp.dll already started it) and writes `kiln/state/shroudforge.json` ([`status`]).
 
-use crate::jsonc::{set_value, PathSeg};
+use crate::jsonc::{set_value, Node, PathSeg};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -140,6 +140,9 @@ pub struct SfSetting {
     /// value -> label (select, radio, segmented, multiselect)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<serde_json::Map<String, serde_json::Value>>,
+    /// The option keys in the order the mod declares them (the map above is sorted); [`option_keys`].
+    #[serde(skip)]
+    pub option_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled_when: Option<serde_json::Value>,
     /// text length limits (`minLength`, `maxLength`, in characters)
@@ -258,6 +261,7 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
             max: None,
             step: None,
             options: None,
+            option_order: Vec::new(),
             enabled_when: None,
             min_length: None,
             max_length: None,
@@ -280,6 +284,7 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
         max: f("max"),
         step: f("step"),
         options: o.get("options").and_then(|v| v.as_object()).cloned(),
+        option_order: Vec::new(),
         enabled_when: o.get("enabledWhen").cloned(),
         min_length: o.get("minLength").and_then(|v| v.as_u64()),
         max_length: o.get("maxLength").and_then(|v| v.as_u64()),
@@ -331,6 +336,14 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
             let order: std::collections::HashMap<&str, usize> =
                 tree.get("settings").map(|n| n.members().iter().enumerate().map(|(i, m)| (m.key.as_str(), i)).collect()).unwrap_or_default();
             settings.sort_by_cached_key(|s| order.get(s.key.as_str()).copied().unwrap_or(usize::MAX));
+            // and each setting's options (the launcher's form lists them in that order, as the in-game page does)
+            let last: std::collections::HashMap<&str, &Node> =
+                tree.get("settings").map(|n| n.members().iter().map(|m| (m.key.as_str(), &m.value)).collect()).unwrap_or_default();
+            for s in &mut settings {
+                let options = last.get(s.key.as_str()).filter(|_| !s.shorthand).and_then(|n| n.get("options"));
+                let mut seen = std::collections::HashSet::new();
+                s.option_order = options.map(|o| o.members().iter().filter(|m| seen.insert(m.key.as_str())).map(|m| m.key.clone()).collect()).unwrap_or_default();
+            }
         }
     }
     let capabilities: Vec<String> =
@@ -516,7 +529,7 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
             v => ok(v),
         };
         if !all {
-            return Err(Error::invalid(format!("setting {}: not one of {}", s.key, opts.keys().cloned().collect::<Vec<_>>().join(", "))));
+            return Err(Error::invalid(format!("setting {}: not one of {}", s.key, option_keys(s).iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "))));
         }
     }
     Ok(())
@@ -620,8 +633,9 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
         if let Some(n) = s.min_length { p.insert("minLength".into(), n.into()); }
         if let Some(n) = s.max_length { p.insert("maxLength".into(), n.into()); }
         if let Some(opts) = &s.options {
-            let keys: Vec<serde_json::Value> = opts.keys().filter_map(|k| option_value(s, k)).collect();
-            let labels: Vec<serde_json::Value> = opts.values().cloned().collect();
+            let order = option_keys(s);
+            let keys: Vec<serde_json::Value> = order.iter().filter_map(|k| option_value(s, k)).collect();
+            let labels: Vec<serde_json::Value> = order.iter().filter_map(|k| opts.get(k.as_str()).cloned()).collect();
             if ty == "array" {
                 p.insert("items".into(), serde_json::json!({ "type": option_type(s), "enum": keys, "x-kiln-enum-labels": labels }));
                 p.insert("uniqueItems".into(), true.into());
@@ -686,6 +700,13 @@ pub fn option_value(s: &SfSetting, key: &str) -> Option<serde_json::Value> {
         "number" => key.parse::<f64>().ok().and_then(serde_json::Number::from_f64).map(serde_json::Value::Number),
         _ => Some(key.into()),
     }
+}
+
+/// The option keys in the order the mod declares them.
+pub fn option_keys(s: &SfSetting) -> Vec<&String> {
+    let Some(opts) = &s.options else { return Vec::new() };
+    let declared: Vec<&String> = s.option_order.iter().filter(|k| opts.contains_key(k.as_str())).collect();
+    if declared.len() == opts.len() { declared } else { opts.keys().collect() }
 }
 
 fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {

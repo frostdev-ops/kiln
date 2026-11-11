@@ -52,12 +52,14 @@ public sealed class ShroudForgeTests : IDisposable
     private static void Same(JsonNode? expected, JsonNode? actual, string what) =>
         Assert.True(JsonNode.DeepEquals(Normal(expected), Normal(actual)), $"{what}\nexpected {expected?.ToJsonString()}\nactual   {actual?.ToJsonString()}");
 
-    // 5 and 5.0 are the same number for the comparison (the fixture is written by Python, which keeps 5.0)
+    // A number compares by its kind as ShroudForge types it (5 is an integer, 5.0 is not) and its value, however the
+    // node holds it (read from the fixture's text, or made by the reader with JsonValue.Create).
     private static JsonNode? Normal(JsonNode? n) => n switch
     {
         JsonObject o => new JsonObject(o.Select(kv => KeyValuePair.Create(kv.Key, Normal(kv.Value)))),
         JsonArray a => new JsonArray(a.Select(Normal).ToArray()),
-        JsonValue v when ShroudForgePackages.NumberOf(v) is { } d => JsonValue.Create(d),
+        JsonValue v when ShroudForgePackages.NumberOf(v) is { } d =>
+            JsonValue.Create(ShroudForgePackages.TypeOf(v) + " " + d.ToString("R", System.Globalization.CultureInfo.InvariantCulture)),
         _ => n?.DeepClone(),
     };
 
@@ -93,8 +95,10 @@ public sealed class ShroudForgeTests : IDisposable
             Assert.True(e!["ok"]!.GetValue<bool>() == (error is null), $"{name}: {e.ToJsonString()} -> {error?.Message ?? "ok"}");
             if (error is not null) Assert.Equal(before, File.Exists(file) ? File.ReadAllBytes(file) : null);
         }
-        Assert.Equal(c["expect"]!.GetValue<string>(), File.ReadAllText(file));
-        Assert.False(File.Exists(file + ".kiln-tmp"));
+        // the bytes, not File.ReadAllText: that would drop a byte order mark the writer left (GetString keeps it as U+FEFF)
+        Assert.Equal(c["expect"]!.GetValue<string>(), new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(file)));
+        // the writer's temporary file (extended.mod.json.kiln-<id>.tmp) is gone
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
         if (c["enabledAfter"] is { } after) Same(after, EnabledNow(ShroudForgePackages.Read(dir)), name + ": enabledWhen after the edits");
     }
 

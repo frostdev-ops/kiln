@@ -22,14 +22,14 @@ fn cases() -> Vec<Value> {
 fn options(s: &shroudforge::SfSetting) -> Value {
     // the launcher keeps options as value -> label; ShroudForge types each value like the setting's own
     let Some(o) = s.options.as_ref().filter(|o| !o.is_empty()) else { return Value::Null };
-    let mut list: Vec<Value> = o
-        .iter()
-        .map(|(k, label)| {
+    // in the order the mod declares them (the order both pages show)
+    let list: Vec<Value> = shroudforge::option_keys(s)
+        .into_iter()
+        .map(|k| {
             let v = shroudforge::option_value(s, k).expect("valid typed option");
-            json!({"value": v, "label": label})
+            json!({"value": v, "label": o[k.as_str()]})
         })
         .collect();
-    list.sort_by_key(|v| v.to_string());
     Value::Array(list)
 }
 
@@ -56,22 +56,23 @@ fn read_view(m: &SfMod) -> Value {
     json!({"enabled": m.enabled, "switchLive": m.switch_live, "settings": settings, "enabledNow": enabled_now})
 }
 
-fn sorted_options(mut v: Value) -> Value {
-    for s in v["settings"].as_array_mut().unwrap() {
-        if let Some(o) = s.get_mut("options").and_then(|o| o.as_array_mut()) {
-            o.sort_by_key(|x| x.to_string());
-        }
-    }
-    v
-}
-
 #[test]
 fn shroudforge_packages_read_and_write_like_the_in_game_page() {
     let root = std::env::temp_dir().join(format!("kiln-sf-fixtures-{}", std::process::id()));
     let _t = Tmp(root.clone());
     let cases = cases();
     assert!(cases.len() >= 7);
-    for c in cases {
+    // every case runs; the failures are listed together
+    let failed: Vec<String> = cases
+        .iter()
+        .filter(|c| std::panic::catch_unwind(|| run_case(&root, c)).is_err())
+        .map(|c| c["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(failed.is_empty(), "failed cases: {failed:?}");
+}
+
+fn run_case(root: &Path, c: &Value) {
+    {
         let name = c["name"].as_str().unwrap();
         let dir = root.join(name);
         std::fs::create_dir_all(dir.join("src")).unwrap();
@@ -80,8 +81,8 @@ fn shroudforge_packages_read_and_write_like_the_in_game_page() {
         if let Some(text) = c["extended"].as_str() {
             std::fs::write(dir.join("extended.mod.json"), text).unwrap();
         }
-        let m = shroudforge::read_mod(&dir).unwrap();
-        assert_eq!(sorted_options(read_view(&m)), sorted_options(c["read"].clone()), "{name}: read");
+        let m = shroudforge::read_mod(&dir).unwrap_or_else(|e| panic!("{name}: read: {e:?}"));
+        assert_eq!(read_view(&m), c["read"], "{name}: read");
         for e in c["edits"].as_array().unwrap() {
             let before = std::fs::read(dir.join("extended.mod.json")).ok();
             let result = if let Some(on) = e.get("enabled") {
