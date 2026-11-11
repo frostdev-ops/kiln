@@ -795,6 +795,64 @@ mod tests {
         assert_eq!(dats(&root).iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["g_000.dat", "g_009.dat"]);
         fs::remove_dir_all(root).unwrap();
     }
+    /// A game update as ShroudForge handles it: new vanilla live files (another build, one more container), and SF's
+    /// fresh working backups captured from them. `keep_seal`: an installed SF (its Updater replaces both backups and
+    /// leaves kiln-eml's seal); otherwise Kiln's bundled SF (2eb8f0b), which moves the old pair and the seal aside.
+    /// `sf_patched`: SF's own asset patch then appends to the live resource file, as it does before kiln-eml runs.
+    fn sf_game_update(root: &Path, keep_seal: bool, sf_patched: bool) -> (Vec<u8>, Vec<u8>) {
+        use std::rc::Rc;
+        use kfc::{container::{KFCWriteOptions, KFCWriter}, guid::ContentHash, reflection::TypeRegistry};
+        for n in ["g.kfc", "g.kfc_resources", "g.kfc.bak", "g.kfc_resources.bak"] { fs::remove_file(root.join(n)).unwrap(); }
+        if !keep_seal { fs::remove_file(root.join("g.kfc.bak.integrity")).unwrap(); }
+        for n in dats(root) { fs::remove_file(root.join(n.0)).unwrap(); }
+        fs::File::create(root.join("g.kfc")).unwrap();
+        fs::File::create(root.join("g.kfc_resources")).unwrap();
+        let mut update: crate::transaction::Writer = KFCWriter::new_with_options(root, "g", Rc::new(TypeRegistry::default()), "fixture 2",
+            KFCWriteOptions { max_container_size: 1, ..Default::default() }).unwrap();
+        for i in 0..3 { let blob = format!("updated {i}"); update.write_content(&ContentHash::from_data(blob.as_bytes()), blob.as_bytes()).unwrap(); }
+        update.finalize().unwrap();
+        // the new build's resource file is another size, as after a real update (the header lists none of these bytes)
+        std::io::Write::write_all(&mut fs::OpenOptions::new().append(true).open(root.join("g.kfc_resources")).unwrap(), b"new build").unwrap();
+        fs::copy(root.join("g.kfc"), root.join("g.kfc.bak")).unwrap();
+        fs::copy(root.join("g.kfc_resources"), root.join("g.kfc_resources.bak")).unwrap();
+        let vanilla = (fs::read(root.join("g.kfc")).unwrap(), fs::read(root.join("g.kfc_resources")).unwrap());
+        if sf_patched { std::io::Write::write_all(&mut fs::OpenOptions::new().append(true).open(root.join("g.kfc_resources")).unwrap(), b"SF asset patch").unwrap(); }
+        vanilla
+    }
+    // After a game update SF replaced the working backups. kiln-eml must not take the new pair for its own output,
+    // must never put the old game's bytes back, and must not refuse every start: it accepts the pair by its own check
+    // (the live resource prefix), seals it and patches from it.
+    #[test]
+    fn backups_replaced_by_shroudforge_after_a_game_update_are_taken_up_not_refused() {
+        for (keep_seal, sf_patched) in [(false, false), (false, true), (true, false), (true, true)] {
+            let what = format!("seal {}, SF output {}", if keep_seal { "left behind" } else { "moved" }, if sf_patched { "live" } else { "absent" });
+            let root = real_patch(2, &[b"old game content"]);
+            let (header, resources) = sf_game_update(&root, keep_seal, sf_patched);
+            assert!(!owns_output(&root, "g").unwrap(), "{what}: the new pair is not EML's output");
+            let path = camino::Utf8Path::from_path(&root).unwrap();
+            assert!(crate::load::create_backup(path.join("g.kfc")).is_ok(), "{what}: taken up, not refused");
+            assert!(crate::load::validate_backup(&path.join("g.kfc"), &path.join("g.kfc.bak")), "{what}: sealed");
+            assert_eq!(fs::read(root.join("g.kfc.bak")).unwrap(), header, "{what}: SF's new backup kept as it is");
+            republish(&root, &[b"new game content"]);
+            assert!(crate::restore(path, "g"), "{what}");
+            assert_eq!(fs::read(root.join("g.kfc")).unwrap(), header, "{what}: the new game's vanilla header, never the old one");
+            assert!(fs::read(root.join("g.kfc_resources")).unwrap().starts_with(&resources), "{what}");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    // A damaged backup at the same game build (same length, other bytes) under its seal is still refused.
+    #[test]
+    fn a_damaged_backup_under_its_seal_is_still_refused() {
+        let root = real_patch(2, &[]);
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        let mut bytes = fs::read(root.join("g.kfc.bak")).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 1;
+        fs::write(root.join("g.kfc.bak"), &bytes).unwrap();
+        assert!(crate::load::create_backup(path.join("g.kfc")).is_err());
+        assert_eq!(fs::read(root.join("g.kfc.bak")).unwrap(), bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
     // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
     // back; a busy SF, an SF preparation in progress or a state Kiln does not know refuses, and nothing is copied.
     #[test]

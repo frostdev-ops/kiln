@@ -121,6 +121,15 @@ pub fn create_backup(
     if bak_path.exists() && !validate_backup(path, bak_path) && backups_equal_live(path, bak_path) {
         write_backup_seal(path, bak_path)?;
     }
+    // kiln-eml: another writer replaced the whole pair after a game update and left this seal behind (an installed
+    // ShroudForge's Updater does). The backups then have other lengths than the seal recorded: a damaged one keeps
+    // its length and stays refused below. Such a pair is checked like an unsealed one (its version is the live
+    // one, the live resource prefix equals it) and sealed again; never promoted from a patched header of this build.
+    if bak_path.exists() && !validate_backup(path, bak_path) && replaced_since_sealed(path, bak_path)
+        && KFCFile::get_version_tag(bak_path).ok() == KFCFile::get_version_tag(path).ok() && validate_unsealed(path, bak_path) {
+        warn!("The vanilla backup pair was replaced since it was sealed (another loader after a game update); it matches the live resource file and is sealed again");
+        write_backup_seal(path, bak_path)?;
+    }
     if bak_path.exists() && !validate_backup(path, bak_path) {
         let old = KFCFile::get_version_tag(bak_path).map_err(|_| ())?;
         let current = KFCFile::get_version_tag(path).map_err(|_| ())?;
@@ -213,9 +222,33 @@ pub fn restore_backup(
     Ok(())
 }
 
+/// kiln-eml: the seal is there, and the backups' lengths are not the ones it recorded (a game update changes the header
+/// and the resource file; a damaged file keeps its length).
+fn replaced_since_sealed(path: &Path, bak: &Path) -> bool {
+    let seal = seal_path(path);
+    if !seal.metadata().is_ok_and(|m| m.is_file() && m.len() <= 1024) { return false; }
+    let Ok(bytes) = std::fs::read(&seal) else { return false };
+    let Ok(sealed) = serde_json::from_slice::<BackupSeal>(&bytes) else { return false };
+    let len = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
+    len(bak).is_some_and(|l| l != sealed.header.0) || len(&path.with_extension("kfc_resources.bak")).is_some_and(|l| l != sealed.resources.0)
+}
+
+/// kiln-eml: `validate_backup` for the pair as if it had no seal (the rule for a pair another writer made).
+fn validate_unsealed(path: &Path, bak: &Path) -> bool {
+    validate(path, bak, false)
+}
+
 pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
+) -> bool {
+    validate(kfc_path, kfc_path_bak, true)
+}
+
+fn validate(
+    kfc_path: &Path,
+    kfc_path_bak: &Path,
+    use_seal: bool,
 ) -> bool {
     if crate::transaction::regular(kfc_path_bak.as_std_path()).is_err() { return false; }
     let version_bak = match KFCFile::from_path(kfc_path_bak, false) {
@@ -238,7 +271,7 @@ pub fn validate_backup(
             return false;
         }
         let seal = seal_path(kfc_path);
-        if seal.exists() {
+        if use_seal && seal.exists() {
             if crate::transaction::regular(seal.as_std_path()).is_err() { return false; }
             if !seal.metadata().is_ok_and(|m| m.len() <= 1024) { return false; }
             let Ok(bytes) = std::fs::read(&seal) else { return false; };
@@ -255,7 +288,7 @@ pub fn validate_backup(
             if a != b || a.0 != len { return false; }
         }
     } else if seal_path(kfc_path).exists() {
-        return false; // a sealed pair must never silently degrade to a legacy header-only backup
+        return false; // a sealed pair must never silently degrade to a legacy header-only backup (with or without use_seal)
     }
     true
 }
