@@ -1110,6 +1110,7 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
                 Some(placed) if game_path.is_some() && outside_kiln_ok(k, &placed) => format!("../{}", placed.strip_prefix(&install.path)
                     .map_err(|_| Error::invalid("EML game folder is outside the install"))?.to_string_lossy().replace('\\', "/")),
+                _ if mode == PathMode::Copy && crate::engine_mods::run_folder(k).is_some() => run_folder_copy_rel(profile, install, k, m, &folder)?,
                 _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
             };
             let enabled = m.enabled && !(k == ModKind::Native && crate::engines::own_loader_in(&folder)
@@ -1219,8 +1220,29 @@ fn same_copy_tree(a: &Path, b: &Path) -> Result<bool> {
     Ok(true)
 }
 
+// A fallback that a mod or player changed is not disposable, even while an older runtime still needs a copy.
+// Use a free sibling instead; the unused-copy pass keeps the old folder in place and reports its exact path.
+fn run_folder_copy_rel(profile: &Profile, install: &GameInstall, kind: ModKind, m: &ProfileMod, src: &Path) -> Result<String> {
+    let parent = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id).join(kind.as_str());
+    crate::engine_mods::refuse_symlink_path(&install.path, &parent)?;
+    for n in 0..128 {
+        // A leading dot cannot be a Library mod id, so this cannot take another selected mod's destination.
+        let name = if n == 0 { m.id.clone() } else { format!(".kiln-copy-{}-{n}", m.id) };
+        let rel = copy_rel(&profile.id, kind, &name);
+        let dst = install.path.join(crate::paths::game::KILN).join(&rel);
+        match std::fs::symlink_metadata(&dst) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(rel),
+            Err(e) => return Err(io_at(&dst, "checking")(e)),
+            Ok(_) if same_copy_tree(src, &dst).unwrap_or(false) => return Ok(rel),
+            Ok(_) => {},
+        }
+    }
+    Err(Error::new(ErrorCode::Refused, format!("{}: no free fallback copy folder; existing files were kept", parent.display())))
+}
+
 /// Copy mode: `<game>/kiln/profiles/<pid>/<kind>/<id>/` hold verified copies of the enabled mods; unchanged copies
-/// are kept, copies of mods the profile no longer lists are removed. Returns the number of folders copied.
+/// are kept. Flame/Greeneye use a free sibling when that copy changed and retain unused changed copies. Returns the
+/// number of folders copied.
 fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnings: &mut Vec<String>) -> Result<u32> {
     let base = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id);
     let mut copied = 0;
@@ -1233,10 +1255,15 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
         && *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= reader_for_game_path(k);
     for k in ModKind::ALL {
         let kdir = base.join(k.as_str());
-        let wanted: Vec<&ProfileMod> = list_of(&profile.mods, k).iter().filter(|m| m.enabled && !runs_placed(k, m)).collect();
+        let wanted = list_of(&profile.mods, k).iter().filter(|m| m.enabled && !runs_placed(k, m)).map(|m| {
+            let rel = if crate::engine_mods::run_folder(k).is_some() {
+                run_folder_copy_rel(profile, install, k, m, &crate::library::path_of(dirs, &lref(k, m))?)?
+            } else { copy_rel(&profile.id, k, &m.id) };
+            Ok((m, install.path.join(crate::paths::game::KILN).join(rel)))
+        }).collect::<Result<Vec<_>>>()?;
         for e in std::fs::read_dir(&kdir).into_iter().flatten().flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if !wanted.iter().any(|m| m.id == name) {
+            if !wanted.iter().any(|(_, dst)| *dst == e.path()) {
                 if crate::engine_mods::run_folder(k).is_some() {
                     let unchanged = crate::engine_mods::refuse_symlink_path(&install.path, &e.path()).is_ok()
                         && list_of(&profile.mods, k).iter().find(|m| m.id == name)
@@ -1251,9 +1278,8 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 let _ = std::fs::remove_dir_all(e.path());
             }
         }
-        for m in wanted {
+        for (m, dst) in wanted {
             let src = crate::library::path_of(dirs, &lref(k, m))?;
-            let dst = kdir.join(&m.id);
             if k == ModKind::Plugin {
                 let file = src.file_name().map(|f| f.to_owned()).unwrap_or_default();
                 let target = dst.join(&file);
@@ -1267,10 +1293,21 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy does not match {}", target.display(), m.hash)));
                 }
             } else {
-                if dst.is_dir() && crate::hash::dirhash(&dst).is_ok_and(|h| h == m.hash) {
-                    continue;
+                if crate::engine_mods::run_folder(k).is_some() {
+                    crate::engine_mods::refuse_symlink_path(&install.path, &dst)?;
+                    match std::fs::symlink_metadata(&dst) {
+                        Ok(_) if same_copy_tree(&src, &dst)? && crate::hash::dirhash(&dst)? == m.hash => continue,
+                        Ok(_) => return Err(Error::new(ErrorCode::Refused,
+                            format!("{}: the fallback copy changed while preparing it; its files were kept", dst.display()))),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+                        Err(e) => return Err(io_at(&dst, "checking")(e)),
+                    }
+                } else {
+                    if dst.is_dir() && crate::hash::dirhash(&dst).is_ok_and(|h| h == m.hash) {
+                        continue;
+                    }
+                    let _ = std::fs::remove_dir_all(&dst);
                 }
-                let _ = std::fs::remove_dir_all(&dst);
                 crate::util::copy_tree(&src, &dst)?;
                 let h = crate::hash::dirhash(&dst)?;
                 if h != m.hash {

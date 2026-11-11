@@ -351,6 +351,42 @@ fn upgrading_the_reader_does_not_delete_files_in_the_old_fallback_copy() {
 }
 
 #[test]
+fn updating_a_still_used_fallback_keeps_its_changed_files_and_runs_the_new_version() {
+    for name in ["notice.txt", ".settings", "items.json", "linked-settings"] {
+        let t = tmp("fallback-update");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Copy);
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        runtime_in_game(&dirs, &g, Some(2), "a633659");
+        let old = activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]).mods.flame[0].path.clone();
+        let fallback = g.path.join("kiln").join(&old);
+        if name == "linked-settings" {
+            put(&t.0, "outside", b"player's old notice");
+            std::os::unix::fs::symlink(t.0.join("outside"), fallback.join(name)).unwrap();
+        } else {
+            put(&fallback, name, b"player's old notice");
+        }
+        let v321 = import_into(&dirs, &creative(&t.0, "creative", "3.2.1"));
+        let mut p = profile::get(&dirs, &pid).unwrap();
+        p.mods.flame = vec![pm(&v321, true)];
+        profile::save(&dirs, &p).unwrap();
+        let a = profile::activate(&dirs, &pid, &g).unwrap();
+        assert_eq!(std::fs::read(fallback.join(name)).unwrap(), b"player's old notice", "{name}");
+        assert!(a.warnings.iter().any(|w| w.contains("kept the unused profile copy") && w.contains(&fallback.display().to_string())), "{a:?}");
+        let file = profile::read_game_profile(&g.path).unwrap().unwrap();
+        assert_ne!(file.mods.flame[0].path, old);
+        let running = g.path.join("kiln").join(&file.mods.flame[0].path);
+        assert!(std::fs::read_to_string(running.join("mod.json")).unwrap().contains("3.2.1"));
+        assert_eq!(profile::activate(&dirs, &pid, &g).unwrap().copied, 0, "the new copy is reused");
+        assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().mods.flame[0].path, file.mods.flame[0].path);
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native/core/tests/test-profile.sh");
+        let out = std::process::Command::new("bash").arg(script).arg(g.path.join("kiln/profile.json")).env("TMPDIR", &t.0).output().unwrap();
+        assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+#[test]
 fn an_id_that_is_no_folder_name_is_not_placed_and_said_so() {
     let t = tmp("unsafe");
     let dirs = DataDirs::at(t.0.join("data"));
