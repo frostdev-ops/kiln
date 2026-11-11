@@ -154,9 +154,10 @@ fn follow_profile_in(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::Ga
     if foreign && applied.as_ref().is_some_and(|(_, written)| *written) {
         f.rewrites.wrote(Instant::now());
     }
-    // A completed command's profile.json is already current and its caller has its report. Checking that file must
-    // neither spend the rewrite budget nor repeat the command's notices. Startup and meta-only changes still report.
-    let applied = applied.filter(|(_, written)| *written || !foreign).map(|(a, _)| a);
+    // A completed command's profile.json is already current and its caller has its report. A notes-only save also
+    // reconciles and queues its report without changing profile.json. Only startup reports a current file here;
+    // subsequent checks must actually rewrite it to announce another activation.
+    let applied = applied.filter(|(_, written)| *written || f.seen.is_none()).map(|(a, _)| a);
     // what it looks like after the write, so the write itself is not a change
     f.seen = Some(profile_seen(d, g, None));
     applied
@@ -342,6 +343,28 @@ mod tests {
         assert_eq!(direct.retained.len(), 1, "the command already returns the notice");
         f.seen.as_mut().unwrap().file = Some(SystemTime::UNIX_EPOCH);
         assert!(follow_profile_in(&d, &g, &mut f).is_none(), "checking a current profile must not duplicate the command result");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn metadata_only_saves_do_not_repeat_the_commands_reconciliation_report() {
+        use kiln_manage::{manifest::ModKind, profile};
+        let (_tmp, d, g, id) = retained_game();
+        let mut f = Followed::default();
+        assert!(follow_profile_in(&d, &g, &mut f).is_some());
+        let mut p = profile::get(&d, &id).unwrap();
+        p.notes = "only the notes changed".into();
+        let mut p = profile::save(&d, &p).unwrap();
+        let (report, written) = crate::commands::profile::reapply_checked(&d, &g).unwrap();
+        assert!(!written);
+        assert_eq!(report.retained.len(), 1, "profile_save queues this report already");
+        f.seen.as_mut().unwrap().meta = Some(SystemTime::UNIX_EPOCH);
+        assert!(follow_profile_in(&d, &g, &mut f).is_none(), "a notes-only save must not double its notice");
+        // A metadata edit outside the launcher that really changes the rendered file still applies and reports.
+        p.dropins.push(ModKind::Emf);
+        profile::save(&d, &p).unwrap();
+        f.seen.as_mut().unwrap().meta = Some(SystemTime::UNIX_EPOCH);
+        assert!(follow_profile_in(&d, &g, &mut f).is_some());
     }
 
     #[test]
