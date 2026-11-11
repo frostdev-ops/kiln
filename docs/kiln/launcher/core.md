@@ -100,6 +100,15 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   (xdg-open / ShellExecuteW). A failure removes the flag again. `play_with` takes the save folders and the opener
   (tests). Then `wait_started`, `read_boot_for(install, nonce)`, `boot_is_current` (boot.json was written after the
   running game's process started; on Windows its pid must also be that process's).
+- `hostenv::{command, clean, clean_with, changes}`: every program of the host the crate starts (xdg-open and with it
+  Steam, Wine, SteamCMD, tar, cp, ssh, systemctl, archive tools, xdg-mime, secret-tool, a forwarded nxm handler) gets
+  this process's environment without the launcher AppImage's entries. AppRun points `PYTHONHOME`, `PYTHONPATH`,
+  `PERLLIB`, `LD_LIBRARY_PATH`, `PATH`, `XDG_DATA_DIRS`, `QT_PLUGIN_PATH` and `GSETTINGS_SCHEMA_DIR` into the mounted
+  image (`$APPDIR`); a child inherits them. Seen on 2026-11-11: Play with Steam closed started Steam through
+  `xdg-open`, Steam kept the AppImage's `PYTHONHOME`, Proton's Python launch script died with "Failed to import
+  encodings module", and no game of that Steam session started until Steam was restarted from the desktop. Rule:
+  every `:`-separated entry at or under `$APPDIR` is dropped, a variable left empty is removed, `APPDIR`, `APPIMAGE`,
+  `ARGV0` and `OWD` do not go along; with `APPDIR` unset nothing changes. New spawn sites use `hostenv::command`.
 - `playonce::{render, write, pending, clear, new_nonce, decide, decide_detail}`; `chain::{parse, parse_once, read,
   write_chain_section, write_profile_section, add_chain_entry, remove_chain_entry, write_once}`. Both match every
   `schema/fixtures/ini` case (kini.py).

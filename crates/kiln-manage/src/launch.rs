@@ -72,6 +72,8 @@ pub fn open_uri_with(uri: &str, opener: &dyn Fn(&str) -> Result<()>) -> Result<(
 }
 
 /// The desktop's opener: `xdg-open` on Linux (spawned detached, reaped on a thread), ShellExecuteW on Windows.
+/// On Linux it runs without the launcher AppImage's environment ([`crate::hostenv`]): with Steam closed, the URI starts
+/// Steam, and a Steam that inherits the AppImage's `PYTHONHOME` cannot run Proton's launch script, so no game starts.
 pub fn desktop_open(uri: &str) -> Result<()> {
     #[cfg(windows)]
     {
@@ -90,7 +92,7 @@ pub fn desktop_open(uri: &str) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
-        let mut child = std::process::Command::new("xdg-open")
+        let mut child = crate::hostenv::command("xdg-open")
             .arg(uri)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())

@@ -402,7 +402,7 @@ fn reflink_copy(src: &Path, dst: &Path) -> Result<()> {
     const SKIP: &[&str] = &["kiln", "savegame", "logs", "dinput8.dll", "enshrouded_server.json", "backup", "shroudforge"];
     let mut entries: Vec<PathBuf> = std::fs::read_dir(&src)?.flatten().filter(|e| !SKIP.contains(&e.file_name().to_string_lossy().as_ref())).map(|e| e.path()).collect();
     entries.sort();
-    let st = std::process::Command::new("cp").args(["-a", "--reflink=always"]).args(&entries).arg(dst).status()?;
+    let st = crate::hostenv::command("cp").args(["-a", "--reflink=always"]).args(&entries).arg(dst).status()?;
     if !st.success() {
         return Err(Error::new(ErrorCode::Io, format!("cp --reflink=always failed ({st}); source and target must be on the same btrfs/XFS filesystem")));
     }

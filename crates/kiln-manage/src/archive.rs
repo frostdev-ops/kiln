@@ -215,8 +215,8 @@ pub(crate) fn find_rar_tool() -> Option<Tool> {
 }
 
 fn tool_command(tool: &Tool, archive: &Path, dest: &Path, cwd: &Path) -> std::process::Command {
-    use std::process::{Command, Stdio};
-    let mut c = Command::new(&tool.path);
+    use std::process::Stdio;
+    let mut c = crate::hostenv::command(&tool.path);
     match tool.kind {
         // x: with paths; -y: yes to all (never ask); -idq: quiet; -p-: no password prompt; -o+: overwrite
         ToolKind::Unrar => {

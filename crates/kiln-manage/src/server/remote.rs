@@ -36,7 +36,7 @@ impl RemoteSpec {
 
     /// `ssh -o BatchMode=yes [-p port] [extra...] <host>`, ready for the remote command.
     pub fn ssh(&self, extra: &[&str]) -> Command {
-        let mut c = Command::new(ssh_program());
+        let mut c = crate::hostenv::command(ssh_program());
         c.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]);
         if let Some(p) = self.port {
             c.args(["-p", &p.to_string()]);

@@ -292,7 +292,7 @@ fn start_steam(instance: &ServerInstance, since: SystemTime, progress: &mut dyn 
     notes.extend(plan.notes.iter().cloned());
     let (cap, out) = super::console::open_capture(instance, &notes)?;
     std::fs::create_dir_all(dir.join("logs")).ok();
-    let mut cmd = std::process::Command::new(&plan.wine);
+    let mut cmd = crate::hostenv::command(&plan.wine);
     for k in STEAM_SCRUB {
         cmd.env_remove(k);
     }
@@ -337,7 +337,7 @@ const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 #[cfg(windows)]
 pub fn spawn_windowless(exe: &Path, dir: &Path, args: &[String], output: std::fs::File) -> std::io::Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = crate::hostenv::command(exe);
     cmd.current_dir(dir).args(args).stdin(std::process::Stdio::null()).stdout(output.try_clone()?).stderr(output);
     match cmd.creation_flags(WINDOWS_START_FLAGS | CREATE_BREAKAWAY_FROM_JOB).spawn() {
         Ok(c) => Ok(c),
@@ -435,14 +435,14 @@ fn sigint_and_wait(p: u32, timeout: Duration, progress: &mut dyn Progress) -> Re
 fn stop_kilnctl(instance: &ServerInstance, p: u32, timeout: Duration, progress: &mut dyn Progress) -> Result<()> {
     let inst = instance.kilnctl_instance()?;
     let unit = inst.unit();
-    let active = std::process::Command::new("systemctl")
+    let active = crate::hostenv::command("systemctl")
         .args(["--user", "is-active", "--quiet", &unit])
         .status()
         .is_ok_and(|s| s.success());
     if active {
         // through systemd, so Restart=on-failure does not bring it back
         progress.report(Some(0.2), &format!("systemctl --user stop {unit}"));
-        crate::util::run_status(std::process::Command::new("systemctl").args(["--user", "stop", &unit]), "systemctl --user stop")?;
+        crate::util::run_status(crate::hostenv::command("systemctl").args(["--user", "stop", &unit]), "systemctl --user stop")?;
         return Ok(());
     }
     let r = sigint_and_wait(p, timeout, progress);
@@ -598,7 +598,7 @@ pub fn ctrl_c_helper_main(pid: u32) -> i32 {
 fn ctrl_c_via_helper(exe: &Path, pid: u32) -> Result<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut child = std::process::Command::new(exe)
+    let mut child = crate::hostenv::command(exe)
         .arg(CTRL_C_HELPER_ARG)
         .arg(pid.to_string())
         .stdin(std::process::Stdio::null())
