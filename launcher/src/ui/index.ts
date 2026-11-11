@@ -13,7 +13,7 @@ export { Table, NameId } from "./Table";
 export type { Column, TableProps } from "./Table";
 export { Field, TextInput, TextArea, Select, NumberInput, Slider, Toggle, WellInput, FlameToggle } from "./Form";
 export type { FieldProps, ToggleProps, SliderProps, SelectProps, NumberInputProps, WellInputProps } from "./Form";
-export { Modal, ConfirmDanger, ArchText } from "./Modal";
+export { Modal, ConfirmDanger, ArchText, typeToConfirm, setTypeToConfirm } from "./Modal";
 export type { ModalProps, ConfirmDangerProps } from "./Modal";
 export { toast, Toaster, useToasts } from "./Toast";
 export type { ToastAction, ToastOptions } from "./Toast";

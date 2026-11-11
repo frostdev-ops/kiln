@@ -58,7 +58,14 @@ pub(crate) fn reapply_where_active(d: &kiln_manage::paths::DataDirs, profile_id:
 }
 
 /// `profile::refresh_active` for one game that is not running, logged to launcher.log. True when it wrote.
+///
+/// One at a time: a profile page's save and the watcher both come here for the same change. Side by side they both
+/// found the file out of date, both activated the profile (copying its mods twice at once) and both wrote the same
+/// generation (seen in a player's launcher.log as every "written again" line twice). The second one now waits, finds
+/// the file current and writes nothing.
 pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> bool {
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     if kiln_manage::proc::find_game(g).ok().flatten().is_some() {
         return false;
     }

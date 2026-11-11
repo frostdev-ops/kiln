@@ -53,7 +53,7 @@ pub fn z_drive_ok(prefix: &Path) -> bool {
 
 /// `\\?\C:\x` -> `C:\x`, `\\?\UNC\server\share` -> `\\server\share` (Windows' verbatim prefix; game-side paths never
 /// carry it).
-fn strip_verbatim(s: &str) -> std::borrow::Cow<'_, str> {
+pub(crate) fn strip_verbatim(s: &str) -> std::borrow::Cow<'_, str> {
     if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
         return format!(r"\\{rest}").into();
     }
