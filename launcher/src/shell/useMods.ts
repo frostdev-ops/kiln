@@ -35,10 +35,11 @@ export function useMods(game: GameInstall | null) {
   const engines = useQuery({ queryKey: engineStatusKey(gameId ?? ""), queryFn: () => api.engineStatus(gameId!), enabled: !!gameId && installed && hasXhl });
   const xhl = engines.data?.find((s) => s.kind === "xhl")?.prerequisite;
   const retained = useRetained((s) => (gameId ? s.byGame[gameId] : undefined));
-  const rows = useMemo(() => buildRows({
+  // an unreadable Library is said as such: never rows that call every mod gone (the profile's entries without it)
+  const rows = useMemo(() => lib.error ? [] : buildRows({
     library: lib.data ?? [], profile, preview: preview.data ?? null, found: found.data?.mods ?? [], launch: launch.data ?? null,
     retained: retained ?? [], xhlHost: xhl ? xhl.available : null,
-  }), [lib.data, profile, preview.data, found.data, launch.data, retained, xhl]);
+  }), [lib.error, lib.data, profile, preview.data, found.data, launch.data, retained, xhl]);
   const count = useMemo(() => countLine(rows), [rows]);
   const summary = profiles.data?.find((p) => p.id === pid) ?? null;
 

@@ -122,6 +122,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Switch on Runtime to let Kiln take over its dinput8.dll." : "Kiln is not in this game yet.";
   else if (!mods.profileId && !list.length) say = profiles.isLoading ? "Checking the game." : "Getting your mod list ready.";
   else if (!mods.profileId) say = "No profile is loaded: the mods in the game folder load as they are.";
+  else if (mods.error) say = `Your mods are not readable: ${errorText(mods.error)}`;
   else if (mods.loading) say = "Reading your mods.";
   else if (!mods.rows.length) say = "No mods yet.";
   else say = mods.count.text;

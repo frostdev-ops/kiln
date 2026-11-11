@@ -82,7 +82,7 @@ p { margin: 0; }
 /* ---------------------------------------------------------------- the Play page (in front of the stage) */
 .k-hero-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .35s, visibility 0s linear .35s; }
 .k-hero-layer.on { opacity: 1; visibility: visible; transition: opacity .35s; }
-.k-hero { position: absolute; left: 64px; top: 92px; bottom: 98px; width: min(630px, calc(100% - var(--kiln) - 90px)); display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+.k-hero { position: absolute; left: 64px; top: 92px; bottom: 98px; width: min(630px, calc(100% - var(--kiln) - 170px)); display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
 /* with the mod list: the column takes the room left of the kiln (48 px from the right edge), up to a width a list still
    reads well at */
 .k-hero.with-mods { width: clamp(400px, calc(100% - var(--kiln) - 48px - 64px - 48px), 920px); gap: 8px; }

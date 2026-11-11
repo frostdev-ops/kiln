@@ -117,7 +117,12 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
         {nexus && <Link className="k-link" to="/catalog">Catalog</Link>}
         <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "Zip, folder or DLL of any kind" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
       </div>
-      {!mods.rows.length ? (
+      {mods.error ? (
+        <div className="k-mods-empty" role="alert">
+          <p>Your mods are not readable.</p>
+          <p className="k-hint">Nothing was changed: Play still starts the game with the mods that were on. The reason is above.</p>
+        </div>
+      ) : !mods.rows.length ? (
         <div className="k-mods-empty">
           <p>Add your first mod</p>
           <p className="k-hint">Drop its zip, folder or DLL anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>

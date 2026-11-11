@@ -3,7 +3,7 @@
 // the game folder says its state, A doing its one fix. The count covers every kind. Saves right away; the game's
 // profile.json follows (applies at the next start while the game runs). Profiles are in the desktop UI's Settings.
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport } from "../../api/commands";
@@ -32,6 +32,11 @@ export default function Mods() {
   const [busy, setBusy] = useState<string | null>(null);
   const check = useRemoveCheck(removing, mods.profileId);
   const running = !!status.data?.running;
+  // the confirm's Remove waits for the check of what else uses the mod; once it can be pressed, it has the focus (A)
+  const checked = check.ready && !check.users.isFetching;
+  useEffect(() => {
+    if (removing && checked) document.querySelector<HTMLElement>('[data-deck-dialog="remove"] [data-deck-id="remove-confirm"]')?.focus();
+  }, [removing, checked]);
   const installed = !!status.data?.runtime.installed;
   const loaded = !!mods.profile;
 
@@ -62,6 +67,7 @@ export default function Mods() {
   if (!game) say = "No game yet.";
   else if (status.data && !installed) say = "Kiln is not in the game yet.";
   else if (!mods.profileId) say = "No profile is loaded: the mods in the game folder load as they are.";
+  else if (mods.error) say = `Your mods are not readable: ${api.toKilnError(mods.error).message}`;
   else if (mods.loading) say = "Reading your mods.";
   else say = `${mods.count.on} mod${mods.count.on === 1 ? "" : "s"} on${mods.count.off ? `, ${mods.count.off} off` : ""}${running ? " · applies at the next start" : ""}`;
 
@@ -77,7 +83,7 @@ export default function Mods() {
         <DeckButton id="go-home" onClick={() => nav("/deck")}>Home</DeckButton>
       ) : status.data && !installed ? (
         <DeckButton id="go-kiln" primary onClick={() => nav("/deck/kiln")}>Install Kiln</DeckButton>
-      ) : !mods.rows.length && !mods.loading ? (
+      ) : mods.error ? null : !mods.rows.length && !mods.loading ? (
         <DeckButton id="go-add" primary onClick={() => nav("/deck/add")}>Add mods</DeckButton>
       ) : (
         <div className="deck-list deck-scroll" role="list" aria-label="Mods">
@@ -96,7 +102,7 @@ export default function Mods() {
         <Dialog name="remove" title={`Remove ${removing.row.name}?`} onClose={() => setRemoving(null)}
           buttons={<>
             <DeckButton onClick={() => setRemoving(null)}>Cancel</DeckButton>
-            <DeckButton primary disabled={!check.ready || check.users.isFetching} onClick={async () => {
+            <DeckButton id="remove-confirm" primary disabled={!checked} onClick={async () => {
               const t = removing;
               setRemoving(null);
               setFocus(null);
