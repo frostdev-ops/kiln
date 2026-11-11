@@ -1,7 +1,9 @@
-// /settings: launcher settings, games, and Kiln's kiln.json for the selected game.
+// /settings: profiles (a background feature: components/ProfilesSettings.tsx), the library's storage, launcher settings,
+// games, and Kiln's kiln.json for the selected game. `#profiles` (Play's profile line, the old /profiles) scrolls there.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import * as api from "../api/commands";
 import type { ConfigDocument, Json, LauncherSettings } from "../api/commands";
 import { qk, useAppInfo, useGame, useGameStatus, useNexusEnabled, useSettings } from "../api/hooks";
@@ -10,6 +12,8 @@ import { useAssetsStatus, useExtractTask } from "../components/GameArt";
 import { UpdatesCard } from "../components/UpdateSettings";
 import { DeckModeCard, saveSettings } from "../deck/mode";
 import { NexusCard } from "../components/NexusSettings";
+import { ProfilesCard } from "../components/ProfilesSettings";
+import { LibraryCard } from "../components/LibrarySettings";
 import {
   Badge, Button, Card, ConfirmDanger, EmptyState, Field, IconButton, NumberInput, Page, PageHeader, PathPicker, SchemaForm, Select, Skeleton,
   Toggle, errorText, fmtAgo, fmtBytes, setTypeToConfirm, toast, typeToConfirm,
@@ -20,10 +24,18 @@ const WIN = /Windows/i.test(navigator.userAgent);
 
 export default function SettingsPage() {
   const nexusEnabled = useNexusEnabled();
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    const t = setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" }), 60);
+    return () => clearTimeout(t);
+  }, [hash]);
   return (
     <Page>
-      <PageHeader title="Settings" sub="The launcher, the games it knows, and Kiln's own settings for this game." />
+      <PageHeader title="Settings" sub="Profiles, the library, the launcher, the games it knows, and Kiln's own settings for this game." />
       <div className="k-grid k-grid-2" style={{ alignItems: "start" }}>
+        <ProfilesCard />
+        <LibraryCard />
         <LauncherCard />
         <GamesCard />
         <AppearanceCard />
@@ -55,8 +67,8 @@ function LauncherCard() {
       <Field label="Save backups to keep" hint="Per game." htmlFor="st-keep">
         <NumberInput id="st-keep" integer min={1} max={100} value={v.savesKeep} onCommit={(n) => set({ savesKeep: n })} style={{ width: 120 }} />
       </Field>
-      <Toggle checked={v.addToActiveProfile !== false} onChange={(on) => set({ addToActiveProfile: on })} label="Add new mods to the active profile"
-        hint="A dropped mod is ready at the next Play. Off: it only goes into the library." />
+      <Toggle checked={v.addToActiveProfile !== false} onChange={(on) => set({ addToActiveProfile: on })} label="Switch new mods on"
+        hint="A dropped mod is on at the next Play. Off: it joins the list switched off." />
       <Toggle checked={v.allowHttpModpacks} onChange={(on) => set({ allowHttpModpacks: on })} label="Allow http modpacks" hint="Off: https only." />
       <TypeToConfirmToggle />
       <Field label="Extra Steam folders" hint="Libraries Kiln does not find on its own.">
@@ -207,12 +219,12 @@ function AssetsCard() {
 
 
 
-/** "Type a mod's name to remove it": off = the Library's Remove dialog has a plain button. The dialogs that uninstall
- * Kiln, delete a profile or a server, or restore a backup always ask for the word. */
+/** "Type a mod's name to remove it" (off unless the player turns it on): off = a mod's Remove has a plain button. The
+ * dialogs that uninstall Kiln, delete a profile or a server, or restore a backup always ask for the word. */
 function TypeToConfirmToggle() {
   const [on, setOn] = useState(typeToConfirm());
   return (
     <Toggle checked={on} onChange={(v) => { setTypeToConfirm(v); setOn(v); }} label="Type a mod's name to remove it"
-      hint="Off: removing a mod from the library is one click on Remove. Uninstalling, profiles, servers and backups still ask." />
+      hint="Off: removing a mod is one click on Remove. Uninstalling, profiles, servers and backups always ask." />
   );
 }

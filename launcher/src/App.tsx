@@ -9,15 +9,12 @@ import { AppShell } from "./shell/AppShell";
 import { NotFound } from "./shell/NotFound";
 import { ServersIndex } from "./shell/ServersIndex";
 import PlayPage from "./pages/PlayPage";
-import ProfilesPage from "./pages/profiles/ProfilesPage";
-import ProfileLayout from "./pages/profiles/ProfileLayout";
-import ProfileModsPage from "./pages/profiles/ProfileModsPage";
+import ModsLayout from "./pages/profiles/ProfileLayout";
+import LoadOrder from "./pages/mods/LoadOrder";
 import ProfileNativePage from "./pages/profiles/ProfileNativePage";
-import ProfileEmfPage from "./pages/profiles/ProfileEmfPage";
-import ProfileEnginesPage from "./pages/profiles/ProfileEnginesPage";
 import ProfileConfigsPage from "./pages/profiles/ProfileConfigsPage";
-import ProfileSavesPage from "./pages/profiles/ProfileSavesPage";
-import LibraryPage from "./pages/LibraryPage";
+import EnginesView from "./pages/mods/EnginesView";
+import { OldProfileRoute } from "./pages/mods/OldRoutes";
 import CatalogPage from "./pages/CatalogPage";
 import { NexusRoute } from "./components/NexusGate";
 import RuntimePage from "./pages/RuntimePage";
@@ -58,17 +55,17 @@ export default function App() {
       <Route path="deck/*" element={<Suspense fallback={null}><DeckApp /></Suspense>} />
       <Route element={<AppShell />}>
         <Route index element={<PlayPage />} />
-        <Route path="profiles" element={<ProfilesPage />} />
-        <Route path="profiles/:id" element={<ProfileLayout />}>
-          <Route index element={<Navigate to="mods" replace />} />
-          <Route path="mods" element={<ProfileModsPage />} />
+        {/* the advanced views of the loaded profile's mods; the main list (Play) is where mods are seen and switched */}
+        <Route path="mods" element={<ModsLayout />}>
+          <Route index element={<Navigate to="order" replace />} />
+          <Route path="order" element={<LoadOrder />} />
           <Route path="native" element={<ProfileNativePage />} />
-          <Route path="emf" element={<ProfileEmfPage />} />
-          <Route path="engines" element={<ProfileEnginesPage />} />
+          <Route path="engines" element={<EnginesView />} />
           <Route path="configs" element={<ProfileConfigsPage />} />
-          <Route path="saves" element={<ProfileSavesPage />} />
         </Route>
-        <Route path="library" element={<LibraryPage />} />
+        {/* the old places (before dev.24): Profiles moved into Settings, the Library into the main list */}
+        <Route path="profiles/*" element={<OldProfileRoute />} />
+        <Route path="library" element={<Navigate to="/" replace />} />
         <Route path="catalog" element={<NexusRoute home="/"><CatalogPage /></NexusRoute>} />
         <Route path="runtime" element={<RuntimePage />} />
         <Route path="logs" element={<LogsPage />} />

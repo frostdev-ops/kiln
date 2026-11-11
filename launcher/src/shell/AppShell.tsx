@@ -1,14 +1,14 @@
 // The launcher frame ("Hearth"): the stage behind everything, the header (logo, nav, tasks, Settings, About, the game's
 // state word), the Play page in front of the stage, the sheet that rises over it for every other page, the mouth (the
 // Play button, which shrinks to a pilot light in the corner while a sheet is up), toasts and the splash.
-// Mounts the backend event feeds once, the first run's game detection, the window-wide mod drop and the Install Kiln
-// confirm.
+// Mounts the backend event feeds once, the first run's game detection, the window-wide mod drop, the rows' right click
+// (ui/Menu.tsx) and the Install Kiln confirm.
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppInfo, useBackendEvents, useNexusEnabled, useSettings } from "../api/hooks";
 import { mockFallbackActive, useMockFallback } from "../api/fallback";
-import { Lockup, Skeleton, Splash, TaskTray, Toaster, useTaskFeed } from "../ui";
+import { Lockup, Skeleton, Splash, TaskTray, Toaster, useRowContextMenu, useTaskFeed } from "../ui";
 import { GameArtAuto } from "../components/GameArt";
 import { UpdateTray } from "./UpdateNotice";
 import { RouteErrorBoundary } from "./ErrorBoundary";
@@ -144,6 +144,7 @@ export function AppShell() {
   useTaskFeed();
   useBackendEvents();
   useAutoDetect();
+  useRowContextMenu();
   const addMods = useAddMods();
   const ctl = usePlayControl();
   const [minShown, setMinShown] = useState(false);

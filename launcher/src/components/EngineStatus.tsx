@@ -1,5 +1,5 @@
 // Other engines' plugins at a glance (engine_status: `kiln/state/<engine>.json`) and read-only shared archive backup guidance
-// (eml_backup). Used by the Logs page's Engines tab and the profile's Engines tab. docs/kiln/engines.md.
+// (eml_backup). Used by the Logs page's Engines tab and the mods' Engines view (/mods/engines). docs/kiln/engines.md.
 import { useQuery } from "@tanstack/react-query";
 import * as api from "../api/commands";
 import type { EngineStatus, GameId, Json, ModKind } from "../api/commands";
@@ -139,7 +139,7 @@ export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   const patched = (backup.data ?? []).filter((b) => b.patched);
   const emlOn = (profile.data?.mods.eml ?? []).some((m) => m.enabled);
   if (backup.error) return <EmptyState title="The game data backup is not readable" hint={errorText(backup.error)} />;
-  if (active.error) return <EmptyState title="The active profile is not readable" hint={errorText(active.error)} />;
+  if (active.error) return <EmptyState title="Your mod list is not readable" hint={errorText(active.error)} />;
   const eml = engines.data?.find((s) => s.kind === "eml")?.state;
   const phase = isObj(eml) ? str(eml.phase) : null;
   const idle = phase === "idle";

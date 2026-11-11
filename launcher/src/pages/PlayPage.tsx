@@ -1,26 +1,23 @@
-// / Play: in front of the stage. The active profile's name (a button: change profile), one live sentence, "Just once"
-// (vanilla, without mods, another profile), the boot stages while the game starts, four facts, and the game folder.
-// The mouth (shell/AppShell.tsx) is the Play button. Banners (refusal, launch option, Steam update) sit above the name.
+// / Play: in front of the stage. The game's name, one live sentence (how many mods are on, over every kind, and only the
+// exceptions a player must know), "Just once" (vanilla, without mods), the list of every mod with a switch
+// (pages/mods/MainList.tsx), the boot stages while the game starts, four facts, and the game folder. The mouth
+// (shell/AppShell.tsx) is the Play button. Banners (refusal, launch option, Steam update) sit above the name.
 // A first start: the launcher looks for the game by itself (shell/firstRun.tsx), then Install Kiln runs right here (the
 // mouth and the link open its confirm; the task shows in place of the sentence's links).
-// One line links to the profile's "In the game folder" section when the active profile leaves such mods unloaded.
+// Profiles are a background feature (Settings, Profiles): one is always loaded, "My mods" made by itself when there is
+// none; only another one than that is named here, in one small line that leads to Settings.
 // The modpack offer is a working dialog (src/pages/servers/ModpackOffer.tsx, loaded when it exists).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useRef, useState, type ComponentType } from "react";
-import { useNavigate } from "react-router-dom";
+import { lazy, Suspense, useState, type ComponentType } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
-import { totalCount } from "../api/kinds";
 import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
-import {
-  invalidateGame, qk, showActive, useActiveProfile, useGame, useGameSel, useGameStatus, useLaunchState, useLibrary, usePoll, usePreStart, useProfiles, useRuntimeChanges,
-} from "../api/hooks";
-import { useFound } from "./profiles/GameFolder";
-import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
+import { qk, useGame, useGameSel, useGameStatus, useLaunchState, usePoll, usePreStart, useProfiles, useRuntimeChanges } from "../api/hooks";
+import { detectGames, useDetect, useEnsureProfile, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
-import { notifyActivation } from "../shell/notices";
-import {
-  ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, TaskProgress, errorText, notifyPlacementCleanup, toast,
-} from "../ui";
+import { isDefaultProfile, useMods } from "../shell/useMods";
+import { MainList } from "./mods/MainList";
+import { ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, TaskProgress, errorText, toast } from "../ui";
 
 /** Windows (WebView2): path examples in Windows form. */
 const WIN = /Windows/i.test(navigator.userAgent);
@@ -95,15 +92,10 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const nav = useNavigate();
   const status = useGameStatus(game.id);
   const state = useLaunchState(game.id);
-  const active = useActiveProfile(game.id);
   const profiles = useProfiles();
+  const mods = useMods(game);
+  useEnsureProfile(game);
   const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: usePoll(15000) });
-  const activeId = active.data?.profileId ?? null;
-  const preview = useQuery({ queryKey: qk.resolve(activeId ?? "", "client", game.id), queryFn: () => api.profileResolve(activeId!, "client", game.id), enabled: !!activeId });
-  // mods extracted into the game folder that the active profile leaves out (kiln_manage::found)
-  const found = useFound(status.data?.runtime.installed ? game.id : null, activeId);
-  const unloaded = found.data?.mods.filter((m) => m.state === "off").length ?? 0;
-  const [onceOpen, setOnceOpen] = useState(false);
   const [vanillaOpen, setVanillaOpen] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -114,39 +106,29 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   // what kiln-eml does before the game's window exists (fingerprinting the game's data files): said instead of "Waiting"
   const prep = usePreStart(game.id, (ctl.starting || ctl.running) && !fresh).data ?? null;
   const list = profiles.data ?? [];
-  const cur = list.find((p) => p.id === activeId) ?? null;
+  const cur = mods.summary;
   const rt = s?.runtime;
   const detect = useMutation({ mutationFn: api.gameDetect, onSuccess: (g) => { qc.setQueryData(qk.games, g); toast.ok(`${g.filter((x) => x.kind === "client").length} found`); }, onError: (e) => toast.error(e) });
   const { games } = useGame();
   const setGameId = useGameSel((x) => x.setGameId);
   const clients = games.filter((g) => g.kind === "client");
-  const lib = useLibrary("kiln");
   const kilnInstall = useKilnInstall(game);
   const installTask = kilnInstall.installing ? kilnInstall.change?.taskId ?? null : null;
   const askInstall = () => (kilnInstall.shroudforge ? nav("/runtime") : useInstallPrompt.getState().show());
 
-  // the live sentence
+  // the live sentence: every kind counts
   let say: string;
-  const modCount = cur ? totalCount(cur.counts) : 0;
   if (!s) say = status.error ? errorText(status.error) : "Checking the game.";
   else if (!rt?.installed) say = kilnInstall.installing ? "Installing Kiln." : rt?.proxy?.kind === "shroudforge" ? "ShroudForge is in this game. Switch on Runtime to let Kiln take over its dinput8.dll." : "Kiln is not in this game yet.";
-  else if (!cur && !list.length) say = "Drop a mod anywhere on this window to add it.";
-  else if (!cur) say = "No profile is active: Kiln loads the mods in the game folder.";
-  else if (!modCount) say = "No mods yet. Drop one anywhere on this window.";
-  else if (preview.data) {
-    const order = preview.data.kiln.order;
-    const total = order.length + preview.data.kiln.rejected.filter((r) => r.state !== "disabled").length;
-    const nameOf = (id: string) => lib.data?.find((l) => l.id === id)?.name ?? id;
-    // server mods start with the player's own world (single-player or co-op); off only by kiln.json mods.hosted
-    const later = preview.data.withWorld.map(nameOf);
-    const away = preview.data.kiln.rejected.filter((r) => r.state === "skipped" && !preview.data.withWorld.includes(r.id)).map((r) => nameOf(r.id));
-    say = `${order.length + later.length} of ${total} mods load on this client.`
-      + (later.length ? ` ${names(later)} ${later.length === 1 ? "starts" : "start"} with your world.` : "")
-      + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} off in this game.` : "");
-  } else say = `${cur.counts.kiln} Kiln mods in this profile.`;
+  else if (!mods.profileId && !list.length) say = profiles.isLoading ? "Checking the game." : "Getting your mod list ready.";
+  else if (!mods.profileId) say = "No profile is loaded: the mods in the game folder load as they are.";
+  else if (mods.loading) say = "Reading your mods.";
+  else if (!mods.rows.length) say = "No mods yet. Drop one anywhere on this window.";
+  else say = mods.count.text;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
+  const on = mods.count.on;
   const runLine = prep && !fresh ? prep.message : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
-    : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${preview.data ? ` and ${preview.data.kiln.order.length} mods` : ""}.`;
+    : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${mods.profile ? ` and ${on} mod${on === 1 ? "" : "s"}` : ""}.`;
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
   const stageAt = !ctl.running ? 0 : !fresh ? 1 : 3;
@@ -158,10 +140,13 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const kilnNote = change?.state === "failed" ? { text: "update failed", tone: "err", title: `${change.what} failed: ${change.error?.message ?? ""}` }
     : rt?.upgradeAvailable ? { text: "update ready", tone: "warn", title: `${rt.upgradeAvailable} is ready to install` } : null;
   const build = game.buildId ? `build ${game.buildId}${boot?.exe?.verified ? ", verified" : ""}` : "build unknown";
+  // only a profile other than the default is named on the main screen
+  const other = rt?.installed && cur && !isDefaultProfile(cur) ? cur : null;
+  const showList = !!rt?.installed && (!!mods.profileId || list.length > 0);
 
   return (
     <>
-      <section className="k-hero" aria-label="Play">
+      <section className={"k-hero" + (showList ? " with-mods" : "")} aria-label="Play">
         <div className="k-hero-kicker">
           Enshrouded · {build}
           {clients.length > 1 && (
@@ -171,11 +156,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
           )}
         </div>
         <Banners game={game} ctl={ctl} pending={pending.data ?? null} onOffer={() => setOfferOpen(true)} boot={fresh ? boot : null} />
-        {!rt?.installed && !list.length ? (
-          <h1 className="k-hero-name"><span className="k-title static">Enshrouded</span></h1>
-        ) : (
-          <ProfileName gameId={game.id} name={cur?.name ?? (rt?.installed ? "Drop-in mods" : "Vanilla")} running={ctl.running} />
-        )}
+        <h1 className="k-hero-name"><span className="k-title static">Enshrouded</span></h1>
         {starting ? (
           <div className="k-hero-state" key="start">
             <p className="k-hero-say" role="status">{prep ? prep.message : "Waiting for Kiln to boot."}</p>
@@ -191,22 +172,19 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         ) : ctl.running ? (
           <div className="k-hero-state" key="run">
             <p className="k-hero-say">{runLine}</p>
-            {ctl.elapsed !== null && <span className="k-muted">Started {clock(ctl.elapsed)} ago{v.detail && !v.detail.startsWith("Kiln") ? ` · ${v.detail}` : ""}.</span>}
+            {ctl.elapsed !== null && <span className="k-muted">Started {clock(ctl.elapsed)} ago{v.detail && !v.detail.startsWith("Kiln") ? ` · ${v.detail}` : ""}. Switches apply at the next start.</span>}
           </div>
         ) : (
           <div className="k-hero-state" key="stop">
             <p className="k-hero-say">{say}</p>
-            {rt?.installed && activeId && unloaded > 0 && (
-              <button type="button" className="k-link k-tone-warn" style={{ alignSelf: "flex-start" }} onClick={() => nav(`/profiles/${activeId}/mods#game-folder`)}>
-                {unloaded} {unloaded === 1 ? "mod" : "mods"} in the game folder {unloaded === 1 ? "does" : "do"} not load with this profile.
-              </button>
-            )}
             {rt?.installed ? (
               <div className="k-hero-once">
                 <span className="k-sc k-muted" style={{ fontSize: 17 }}>Just once:</span>
                 <button type="button" className="k-link" disabled={!ctl.canPlay} onClick={() => setVanillaOpen(true)}>Vanilla</button>
                 <button type="button" className="k-link" disabled={!ctl.canPlay} onClick={() => ctl.play("no-mods")}>Without mods</button>
-                <button type="button" className="k-link" disabled={!ctl.canPlay || !list.length} onClick={() => setOnceOpen(true)}>Another profile</button>
+                {other ? (
+                  <Link className="k-link k-hero-profile" to="/settings#profiles" title="Profiles are in Settings">Profile: {other.name}</Link>
+                ) : !mods.profileId && list.length > 0 && <Link className="k-link k-hero-profile" to="/settings#profiles">Choose a profile</Link>}
               </div>
             ) : installTask ? (
               <div className="k-hero-task"><TaskProgress taskId={installTask} cancel={false} /></div>
@@ -218,6 +196,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
             )}
           </div>
         )}
+        {showList && <MainList game={game} mods={mods} running={ctl.running} />}
         <dl className="k-hero-facts">
           <div>
             <dt>Kiln{kilnNote && <> · <button type="button" className={`k-link k-tone-${kilnNote.tone}`} title={kilnNote.title} onClick={() => nav("/runtime")}>{kilnNote.text}</button></>}</dt>
@@ -227,7 +206,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
           <div><dt>Runs on</dt><dd>{platform(game)}</dd></div>
           <div><dt>Last boot</dt><dd>{boot && problems.count ? (
             <button type="button" className="k-link" style={{ color: "var(--k-err)" }} title={problems.detail} aria-label={`Last boot: ${lastBoot}. Open the logs.`} onClick={() => nav("/logs")}>{lastBoot}</button>
-          ) : lastBoot}</dd></div>
+          ) : <span title={lastBoot}>{lastBoot}</span>}</dd></div>
         </dl>
       </section>
 
@@ -235,10 +214,9 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         <span className="k-mono" title={game.path}>{shortPath(game.path)}</span>
         <button type="button" className="k-link" onClick={() => api.appOpenPath(game.path).catch((e) => toast.error(e))}>Open</button>
         <button type="button" className="k-link" disabled={detect.isPending} onClick={() => detect.mutate()}>Detect</button>
-        <button type="button" className="k-link" onClick={() => setAdding(true)}>Add</button>
+        <button type="button" className="k-link" onClick={() => setAdding(true)} title="Add a game folder">Add</button>
       </div>
 
-      <PlayOnceModal open={onceOpen} onClose={() => setOnceOpen(false)} onPlay={(pid) => { setOnceOpen(false); ctl.play("once", pid); }} />
       <VanillaOnceModal open={vanillaOpen} onClose={() => setVanillaOpen(false)} onPlay={() => { setVanillaOpen(false); ctl.play("vanilla"); }} />
       <AddGameModal open={adding} onClose={() => setAdding(false)} />
       {pending.data && offerOpen && (ModpackOffer ? (
@@ -317,84 +295,9 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
     );
   }
   if (boot?.safeIdle) out.push(<Banner key="safe" tone="warn" title="Safe idle">{boot.safeIdle}</Banner>);
-  else if (boot?.profile.mode === "invalid") out.push(<Banner key="inv" tone="err" title="Profile">{boot.profile.error ?? "profile.json is invalid: no mods loaded."}</Banner>);
+  else if (boot?.profile.mode === "invalid") out.push(<Banner key="inv" tone="err" title="No mods loaded">{boot.profile.error ?? "profile.json is invalid: no mods loaded."}</Banner>);
   if (!out.length) return null;
   return <div className="k-stack k-hero-banner" style={{ gap: 6 }}>{out}</div>;
-}
-
-/** The active profile's name: a button that opens the profile list. */
-function ProfileName({ gameId, name, running }: { gameId: string; name: string; running: boolean }) {
-  const qc = useQueryClient();
-  const nav = useNavigate();
-  const profiles = useProfiles();
-  const active = useActiveProfile(gameId);
-  const [open, setOpen] = useState(false);
-  const [room, setRoom] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
-  const list = profiles.data ?? [];
-  const activate = useMutation({
-    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, gameId) : api.profileDeactivate(gameId).then((r) => { notifyPlacementCleanup(r); return null; })),
-    // the name changes at once (the activation answers after the backend has written it, which takes a moment);
-    // a failed activation puts the old one back
-    onMutate: (pid) => showActive(qc, gameId, pid || null),
-    onSuccess: (r, pid) => {
-      qc.setQueryData(qk.active(gameId), r);
-      invalidateGame(qc, gameId);
-      toast.ok(pid ? `Active profile: ${list.find((p) => p.id === pid)?.name ?? pid}` : "No profile", "Steam's Play button uses it too.");
-      notifyActivation(r);
-    },
-    onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
-  });
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    // the list fits between the title and the window's bottom edge; the profiles scroll inside it
-    const fit = () => { const b = ref.current?.getBoundingClientRect(); setRoom(b ? Math.max(180, window.innerHeight - b.bottom - 16) : 0); };
-    fit();
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    window.addEventListener("resize", fit);
-    ref.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"], [role="option"]')?.focus();
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); window.removeEventListener("resize", fit); };
-  }, [open]);
-  const pick = (pid: string) => { setOpen(false); if (pid !== (active.data?.profileId ?? "")) activate.mutate(pid); };
-  const cur = active.data?.profileId ?? "";
-  return (
-    <div className="k-hero-name" ref={ref}>
-      <h1 style={{ margin: 0, fontWeight: "inherit" }}>
-        <button type="button" className="k-title" aria-haspopup="listbox" aria-expanded={open} aria-label={`Active profile: ${name}. Change profile.`} onClick={() => setOpen((o) => !o)}>
-          {name}<svg viewBox="0 0 24 24" aria-hidden><path d="M5 9l7 7 7-7" /></svg>
-        </button>
-      </h1>
-      {open && (
-        <div className="k-popover k-hero-pop" role="listbox" aria-label="Profiles" style={room ? { maxHeight: room } : undefined}
-          onKeyDown={(e) => {
-            if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-            e.preventDefault();
-            const items = [...(ref.current?.querySelectorAll<HTMLElement>(".k-hero-pop .k-menu-item") ?? [])];
-            const at = items.indexOf(document.activeElement as HTMLElement);
-            items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-          }}>
-          <div className="k-pop-scroll">
-            {list.map((p) => (
-              <button key={p.id} type="button" role="option" aria-selected={p.id === cur} className="k-menu-item" disabled={running} onClick={() => pick(p.id)}>
-                <span style={{ fontWeight: p.id === cur ? 700 : 400 }}>{p.name}</span>
-                <span className="k-mono">{totalCount(p.counts)} mods</span>
-              </button>
-            ))}
-            <button type="button" role="option" aria-selected={!cur} className="k-menu-item" disabled={running} onClick={() => pick("")}>
-              <span style={{ fontWeight: !cur ? 700 : 400 }}>No profile</span><span className="k-mono">drop-ins</span>
-            </button>
-          </div>
-          <div className="k-menu-sep" />
-          {cur && <button type="button" className="k-menu-item" style={{ color: "var(--k-ember-300)" }} onClick={() => nav(`/profiles/${cur}/mods`)}>Edit this profile</button>}
-          <button type="button" className="k-menu-item" style={{ color: "var(--k-ember-300)" }} onClick={() => nav("/profiles")}>All profiles</button>
-          {running && <span className="k-hint" style={{ padding: "4px 10px" }}>Close the game to switch.</span>}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function VanillaOnceModal({ open, onClose, onPlay }: { open: boolean; onClose: () => void; onPlay: () => void }) {
@@ -402,21 +305,6 @@ function VanillaOnceModal({ open, onClose, onPlay }: { open: boolean; onClose: (
     <Modal arch open={open} onClose={onClose} title="Play vanilla once"
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={onPlay}>Play vanilla</Button></>}>
       <ArchText>A character carrying items from a Kiln mod can crash on a server that lets vanilla clients in, and may lose those items on other servers. Use another character.</ArchText>
-    </Modal>
-  );
-}
-
-function PlayOnceModal({ open, onClose, onPlay }: { open: boolean; onClose: () => void; onPlay: (pid: string) => void }) {
-  const profiles = useProfiles();
-  const [pid, setPid] = useState("");
-  const list = profiles.data ?? [];
-  const chosen = pid || list[0]?.id || "";
-  return (
-    <Modal open={open} onClose={onClose} title="Play a profile once" width={480}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!chosen} onClick={() => onPlay(chosen)}>Play</Button></>}>
-      <Field label="Profile" hint="The next start after this one is back to the active profile." htmlFor="once-profile">
-        <Select id="once-profile" value={chosen} onChange={setPid} options={list.map((p) => ({ value: p.id, label: p.name }))} />
-      </Field>
     </Modal>
   );
 }

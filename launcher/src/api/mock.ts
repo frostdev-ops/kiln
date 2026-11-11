@@ -241,7 +241,8 @@ if (!FRESH) activate("ember-run", "client-steam");
 function summary(p: Profile): ProfileSummary {
   return {
     id: p.id, name: p.name, updated: p.updated, server: p.server,
-    counts: Object.fromEntries(MOD_KINDS.map((k) => [k, (p.mods[k] ?? []).filter((m) => m.enabled).length])) as Record<ModKind, number>,
+    // profile::counts: every entry of each kind, on or off
+    counts: Object.fromEntries(MOD_KINDS.map((k) => [k, (p.mods[k] ?? []).length])) as Record<ModKind, number>,
     active: Object.entries(activations).filter(([, a]) => a?.profileId === p.id).map(([g]) => g),
   };
 }
@@ -1403,6 +1404,29 @@ function importPaths(paths: string[]): ImportReport {
   return report;
 }
 
+// ---------------------------------------------------------------- state across reloads (tests)
+
+/** `sessionStorage["kiln.mock.persist"] = "1"` (a test, before a reload): profiles, activations and the library survive
+ *  reloads of the page, as the backend's files do. Off by default: every page load starts from the seed. */
+const PERSIST = typeof sessionStorage !== "undefined" && sessionStorage.getItem("kiln.mock.persist") === "1";
+const STATE_KEY = `kiln.mock.state:${MODE ?? "seed"}`;
+function saveState() {
+  sessionStorage.setItem(STATE_KEY, JSON.stringify({ profiles: [...profiles.entries()], activations, remembered, library }));
+}
+if (PERSIST) {
+  const raw = sessionStorage.getItem(STATE_KEY);
+  if (raw) {
+    const st = JSON.parse(raw) as { profiles: [string, Profile][]; activations: typeof activations; remembered: typeof remembered; library: LibraryEntry[] };
+    profiles.clear();
+    for (const [id, p] of st.profiles) profiles.set(id, p);
+    for (const k of Object.keys(activations)) delete activations[k];
+    Object.assign(activations, st.activations);
+    for (const k of Object.keys(remembered)) delete remembered[k];
+    Object.assign(remembered, st.remembered);
+    library.splice(0, library.length, ...st.library);
+  } else saveState();
+}
+
 export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   commandCalls.push(cmd);
   const plan = commandPlans[cmd]?.shift();
@@ -1413,6 +1437,7 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);
   const r = (await h(args)) ?? null;
+  if (PERSIST) saveState();
   return (r instanceof ArrayBuffer ? r.slice(0) : clone(r)) as T;
 }
 

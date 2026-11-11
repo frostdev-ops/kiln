@@ -106,15 +106,15 @@ export function useReportToast() {
     const more = [
       need.length ? `Needs ${need.map((q) => q.name).join(", ")}.` : r.add.missing.length ? `Needs ${r.add.missing.map((m) => m.id).join(", ")}.` : "",
       r.add.running ? "Applies at the next start." : "",
-      !r.add.profileId && (r.add.import.imported.length || r.add.import.existing.length) ? "No profile is active." : "",
+      !r.add.profileId && (r.add.import.imported.length || r.add.import.existing.length) ? "No profile is loaded: it is in your list, off." : "",
     ].filter(Boolean).join(" ");
     const actions = [
       ...(r.add.changes.length ? [{ label: "Undo", onClick: () => void undo(r) }] : []),
       ...need.slice(0, 2).map((q) => ({ label: `Get ${q.name}`, onClick: () => nav(`/catalog?mod=${q.modId}`) })),
     ];
     if (r.add.added.length) toast.ok(`${update ? "Updated" : "Added"} ${r.name}`, more || undefined, { actions });
-    else if (r.add.already.length) toast.info(`${r.name} is in ${r.add.profileName ?? "the profile"} already`, more || undefined, { actions });
-    else toast.info(`${r.name} is in the library`, more || undefined, { actions });
+    else if (r.add.already.length) toast.info(`${r.name} is on already`, more || undefined, { actions });
+    else toast.info(`${r.name} is in your list, off`, more || undefined, { actions });
   };
 }
 

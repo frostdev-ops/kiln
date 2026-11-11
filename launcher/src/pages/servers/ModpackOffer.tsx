@@ -69,7 +69,7 @@ export default function ModpackOffer({ gameId, lastServer, open, onClose }: { ga
             ["Mods", `${done.imported.length} new in the library`],
             done.backup && ["Save backup", done.backup.id],
           ]} />
-          <div className="k-hint">The profile is active: Launch starts the game with these mods, then join {name} again.</div>
+          <div className="k-hint">{done.profile.name} is loaded: Play starts the game with these mods, then join {name} again.</div>
         </div>
       ) : !pack ? (
         <Banner tone="info" title="No modpack">{name} did not say where to get its mods. Ask its admin.</Banner>

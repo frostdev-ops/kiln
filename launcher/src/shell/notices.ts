@@ -5,7 +5,12 @@
 // and uninstall, and a server deploy. These notices name folders and recovery paths: they stay until closed.
 import type { Activation, AddReport, InstallResult, RetainedPlacement, UninstallResult } from "../api/commands";
 import { toKilnError } from "../api/commands";
+import { create } from "zustand";
 import { notifyPlacementCleanup, toast } from "../ui";
+
+/** What the last activation of each game left in the game folder (its `retained`): the main list says "Left in the game
+ *  folder" on a mod that is off but whose placed copy stayed. Every activation shown here replaces it. */
+export const useRetained = create<{ byGame: Record<string, RetainedPlacement[]> }>(() => ({ byGame: {} }));
 
 /** Folders an activation left as they are. Each reason ends with what still runs from it (engine_mods::still_runs): an
  *  enabled mod's changed copy is simply what runs, a switched-off one may still be loaded by its own loader or by
@@ -19,9 +24,10 @@ function notifyKept(retained: RetainedPlacement[]) {
 /** Copies left in the game folder, mod settings kept or put back, and profile notes. */
 export function notifyActivation(a: Activation | null | undefined) {
   if (!a) return;
+  if (a.gameId) useRetained.setState((s) => ({ byGame: { ...s.byGame, [a.gameId]: a.retained ?? [] } }));
   notifyKept(a.retained ?? []);
   if (a.keptFiles?.length) toast.info("Mod settings kept", a.keptFiles.join(" "), { ms: 0 });
-  if (a.warnings?.length) toast.info("Profile notes", a.warnings.join(" "), { ms: 0 });
+  if (a.warnings?.length) toast.info("Notes on your mods", a.warnings.join(" "), { ms: 0 });
 }
 
 /** An add's result (library_add, library_add_to_profile, found_add, a catalog install): what writing the profile again
@@ -30,7 +36,7 @@ export function notifyActivation(a: Activation | null | undefined) {
 export function notifyAdd(r: AddReport | null | undefined) {
   if (!r) return;
   notifyActivation(r.activation);
-  if (r.notices?.length) toast.info("Changes in the profile", r.notices.join(" "), { ms: 0 });
+  if (r.notices?.length) toast.info("Changes in your mod list", r.notices.join(" "), { ms: 0 });
 }
 
 /** A failed command whose backend wrote the profile again first (a start after Play's re-apply): what it kept. */

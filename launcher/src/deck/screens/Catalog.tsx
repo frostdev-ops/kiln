@@ -119,7 +119,7 @@ function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; o
 export function AddedDialog({ report, onClose, onGet }: { report: InstallReport; onClose: () => void; onGet: (modId: string) => void }) {
   const { undo } = useCatalogInstall();
   const need = offered(report).slice(0, 2);
-  const title = report.add.added.length ? `Added ${report.name}` : report.add.already.length ? `${report.name} is in the profile` : `${report.name} is in the library`;
+  const title = report.add.added.length ? `Added ${report.name}` : report.add.already.length ? `${report.name} is on` : `${report.name} is in your list, off`;
   return (
     <Dialog name="catalog-added" title={title} onClose={onClose} backLabel="OK"
       buttons={<>

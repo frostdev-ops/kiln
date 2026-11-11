@@ -1,12 +1,11 @@
-// /profiles/:id/native: native DLL mods by load phase (drag to reorder inside a phase; the native resolver still
-// applies after/before rules) and Kiln plugins.
+// /mods/native: the loaded profile's native DLL mods by load phase (drag to reorder inside a phase; the native resolver
+// still applies after/before rules), the DLLs chain.ini loads (ChainCard), and Kiln plugins. Switching on, adding and
+// removing are the main list's (pages/mods/MainList.tsx).
 import { useQuery } from "@tanstack/react-query";
-import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
 import * as api from "../../api/commands";
 import type { NativePhase, ProfileMod } from "../../api/commands";
-import { qk, useLibrary } from "../../api/hooks";
-import { Banner, Button, FlameToggle, Menu, Modal, NameId, Panel, SortableList, Toggle } from "../../ui";
+import { qk, useGame, useLibrary } from "../../api/hooks";
+import { Banner, FlameToggle, NameId, Panel, SortableList } from "../../ui";
 import { ChainCard } from "./ChainCard";
 import { libName, ModList } from "./ModList";
 import { ProfileFacts } from "./ProfileLayout";
@@ -21,10 +20,10 @@ const PHASES: { id: NativePhase; label: string; hint: string }[] = [
 
 export default function ProfileNativePage() {
   const id = useProfileId();
-  const { profile, toggle, remove, update } = useProfileEdit(id);
+  const { profile, toggle, update } = useProfileEdit(id);
+  const { game } = useGame();
   const lib = useLibrary("native");
-  const preview = useQuery({ queryKey: qk.resolve(id, "client"), queryFn: () => api.profileResolve(id, "client"), enabled: !!profile });
-  const [adding, setAdding] = useState(false);
+  const preview = useQuery({ queryKey: qk.resolve(id, "client", game?.id ?? null), queryFn: () => api.profileResolve(id, "client", game?.id ?? null), enabled: !!profile });
   if (!profile) return null;
   const phaseOf = (m: ProfileMod): NativePhase => {
     const p = preview.data?.native.find((n) => n.id === m.id)?.phase;
@@ -48,10 +47,9 @@ export default function ProfileNativePage() {
       <section className="k-card">
         <header className="k-card-head">
           <div className="k-card-titles"><h2 className="k-card-title">Native mods</h2><span className="k-card-sub">Drag to set the order inside a phase.</span></div>
-          <div className="k-card-actions"><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>
         </header>
         {profile.mods.native.length === 0 ? (
-          <div className="k-empty"><div className="k-empty-title">No native mods. Import a DLL or a folder with native.json on the Library page.</div></div>
+          <div className="k-empty"><div className="k-empty-title">No native mods on your list. Drop a DLL, or a folder with native.json, anywhere on the window.</div></div>
         ) : PHASES.map((ph) => {
           const items = byPhase(ph.id);
           if (!items.length) return null;
@@ -67,7 +65,6 @@ export default function ProfileNativePage() {
                     <span className="k-mono k-muted" style={{ flex: "none" }}>{m.version}</span>
                     <span className="k-spacer" />
                     {why && <span className="k-hint" style={{ fontStyle: "italic", color: "var(--k-ember-300)" }} title={why}>{why}</span>}
-                    <Menu label={`More for ${name}`} icon={<MoreHorizontal />} size="s" items={[{ label: "Remove from this profile", danger: true, onSelect: () => remove("native", m.id) }]} />
                   </div>
                 );
               }} />
@@ -78,32 +75,11 @@ export default function ProfileNativePage() {
       <ChainCard profile={profile} update={update} />
       <section className="k-card">
         <header className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">Kiln plugins</h2><span className="k-card-sub">DLLs with kiln_plugin_main. They load after Kiln's services.</span></div></header>
-        <ModList kind="plugin" mods={profile.mods.plugin} onToggle={(m, on) => toggle("plugin", m, on)} onRemove={(m) => remove("plugin", m)}
-          onAdd={(ms) => update((p) => { p.mods.plugin.push(...ms); })}
+        <ModList kind="plugin" mods={profile.mods.plugin} onToggle={(m, on) => toggle("plugin", m, on)}
           onVersion={(m, version, hash) => update((p) => { p.mods.plugin = p.mods.plugin.map((x) => (x.id === m ? { ...x, version, hash } : x)); })}
-          emptyHint="No plugins in this profile." />
+          emptyHint="No plugins on your list." />
       </section>
-      <AddNative open={adding} onClose={() => setAdding(false)} have={profile.mods.native} onAdd={(ms) => update((p) => { p.mods.native.push(...ms); })} />
       <ProfileFacts hint="Native mods load by phase, in the order set here. Kiln still applies their after and before rules." />
     </div>
-  );
-}
-
-function AddNative({ open, onClose, have, onAdd }: { open: boolean; onClose: () => void; have: ProfileMod[]; onAdd: (m: ProfileMod[]) => void }) {
-  const lib = useLibrary("native");
-  const [pick, setPick] = useState<string[]>([]);
-  const avail = (lib.data ?? []).filter((l) => !have.some((h) => h.id === l.id));
-  return (
-    <Modal open={open} onClose={onClose} title="Add native mods" width={520}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={!pick.length} onClick={() => { onAdd(avail.filter((l) => pick.includes(l.id)).map((l) => ({ id: l.id, version: l.versions[0].version, hash: l.versions[0].hash, enabled: true }))); setPick([]); onClose(); }}>Add {pick.length || ""}</Button></>}>
-      {avail.length === 0 ? <span className="k-empty-title">Nothing else in the library.</span> : avail.map((l) => {
-        const phase = (l.versions[0].manifest as { phase?: string } | null)?.phase ?? "early";
-        return (
-          <Toggle key={l.id} checked={pick.includes(l.id)} onChange={(on) => setPick(on ? [...pick, l.id] : pick.filter((x) => x !== l.id))}
-            label={l.name} hint={<span className="k-mono">{l.id} {l.versions[0].version}, {phase}</span>} />
-        );
-      })}
-    </Modal>
   );
 }

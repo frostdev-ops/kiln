@@ -555,3 +555,13 @@
 .k-chain-link { position: relative; flex: 1; height: 1px; margin: 0 8px 16px; background: var(--k-line-hot); }
 .k-chain-link i { position: absolute; top: -3px; left: 0; display: block; width: 7px; height: 7px; transform: rotate(45deg); background: var(--k-ember-400); animation: k-run 1.5s linear infinite; }
 @keyframes k-run { from { left: 0; } to { left: calc(100% - 7px); } }
+
+/* ---------------------------------------------------------------- the load order of every kind (pages/mods/LoadOrder.tsx) */
+.k-order-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
+.k-order-step { display: flex; flex-direction: column; gap: 4px; }
+.k-order-step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; padding: 0 4px; }
+.k-order-step-title { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 18px; color: var(--k-head); }
+.k-order-group { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 0 16px; }
+.k-mods-list.k-order-list { flex: none; overflow: visible; padding: 0; border-left: 1px solid var(--k-line); margin-left: 4px; }
+.k-mod.k-order-mod { grid-template-columns: 28px 36px minmax(0, 1fr) 110px 74px 30px; }
+.k-order-n { font-family: var(--k-font-mono); font-size: 15px; color: var(--k-ember-400); text-align: right; }
