@@ -294,7 +294,11 @@ internal static class ShroudForgeUi
 
     /// <summary>One setting as the page draws it.</summary>
     private sealed record Item(SfSettingDef Def, string Label, string? Description, JsonNode? Value, bool Enabled, string? Disabled,
-        string[] OptionLabels, string? Error);
+        string[] OptionLabels, string? Error)
+    {
+        /// <summary>The value as a text field shows it (a string as it is, anything else as JSON).</summary>
+        public string Text { get; init; } = "";
+    }
 
     /// <summary>What the page draws of a package, worked out when the package, an edit or an error changes, not per frame:
     /// the settings by key and by group, the shown values (a pending edit, else the file's), which can be changed now,
@@ -358,7 +362,10 @@ internal static class ShroudForgeUi
                 disabled = Clip($"{Plain(value)}  (only used while {ctl?.Label ?? cond.Setting} is {want})", MaxDrawnText);
             }
             return new Item(d, Clip(d.Label, MaxDrawnText), d.Description is { } desc ? Clip(desc, MaxDrawnText) : null, value, enabled, disabled,
-                d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray(), errors.TryGetValue(d.Key, out var err) ? Clip(err, MaxDrawnText) : null);
+                d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray(), errors.TryGetValue(d.Key, out var err) ? Clip(err, MaxDrawnText) : null)
+            {
+                Text = value is JsonValue jv && jv.TryGetValue<string>(out var text) ? text : Plain(value),
+            };
         }
         var placed = new HashSet<string>(StringComparer.Ordinal);
         var groups = new List<(string, string?, Item[], (SfAction, string, string?)[])>();
@@ -521,11 +528,11 @@ internal static class ShroudForgeUi
             case (_, "keybind"):
             {
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Text))
-                    ui.Text("Shortcut: " + Clip(SdlKeys.Label(value is JsonValue kv && kv.TryGetValue<string>(out var ks) ? ks : "") ?? Plain(value), 200));
+                    ui.Text("Shortcut: " + Clip(SdlKeys.Label(value is JsonValue kv && kv.GetValueKind() == JsonValueKind.String ? item.Text : "") ?? item.Text, 200));
                 using (ui.FontSize(14 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                     ui.TextWrapped("Edit the SDL binding below (not key capture): Ctrl+SDL:66 is Ctrl+F9; Mouse:4 is mouse button 4. Empty disables it. SF checks keyboard availability.");
-                TextField(ui, folder, d, value, width, text => JsonValue.Create(text));
+                TextField(ui, folder, d, item.Text, width, text => JsonValue.Create(text));
                 return;
             }
             case ("boolean", _) when d.Options.Count == 0:
@@ -595,21 +602,20 @@ internal static class ShroudForgeUi
             }
             case ("number" or "integer", _):
             {
-                TextField(ui, folder, d, value, width, text =>
+                TextField(ui, folder, d, item.Text, width, text =>
                     d.Type == "integer" && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var whole) ? JsonValue.Create(whole) :
                     double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) && double.IsFinite(x) ? JsonValue.Create(x) : null);
                 return;
             }
             default:
-                TextField(ui, folder, d, value, width, text => JsonValue.Create(text));
+                TextField(ui, folder, d, item.Text, width, text => JsonValue.Create(text));
                 return;
         }
     }
 
     // A text or number field: what the player types is kept until they leave the field, then saved.
-    private static void TextField(UiDraw ui, string folder, SfSettingDef d, JsonNode? value, float width, Func<string, JsonNode?> parse)
+    private static void TextField(UiDraw ui, string folder, SfSettingDef d, string shown, float width, Func<string, JsonNode?> parse)
     {
-        var shown = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
         var id = (folder, d.Key);
         var frame = ui.FrameNumber;
         string text;
