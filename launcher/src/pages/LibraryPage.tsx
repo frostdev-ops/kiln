@@ -170,7 +170,7 @@ export default function LibraryPage() {
 
       <DetectModal detected={detected} onClose={() => setDetected(null)} onImport={doImport} />
       <ReportModal report={report} onClose={() => setReport(null)} />
-      <ConfirmDanger open={!!rm} onClose={() => setRm(null)} title={`Remove ${rm?.e.name} ${rm?.version}?`} word={rm?.e.id ?? ""} action="Remove"
+      <ConfirmDanger open={!!rm} onClose={() => setRm(null)} title={`Remove ${rm?.e.name} ${rm?.version}?`} word={rm?.e.id ?? ""} action="Remove" relaxable
         message={rmMessage} disabled={rmUsers.isPending || rmUsers.isFetching}
         onConfirm={async () => {
           // past only what the dialog named: the backend refuses (conflict) a user the dialog did not show

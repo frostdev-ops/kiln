@@ -47,6 +47,41 @@ public sealed class ModCatalogTests : IDisposable
 
     private static CatalogMod Mod(CatalogSnapshot s, string engine, string id) => Assert.Single(s.Mods, m => m.Engine == engine && m.Id == id);
 
+    /// <summary>shroudlink reports one line per mod DLL. 0.2.0-dev.22 imported its zip as one Library entry named after
+    /// the first DLL (<c>assistants.dll</c>, five mods inside): that profile entry is covered by the DLLs reported from
+    /// its folder and is no extra row.</summary>
+    [Fact]
+    public void A_profile_entry_is_covered_by_the_dlls_reported_from_its_folder()
+    {
+        var bundle = Dir("library", "shroudlink", "assistants.dll", "0.0.0+37909dbb");
+        var single = Dir("library", "shroudlink", "expeditions.dll", "0.0.0+0dd3d0d0");
+        var other = Dir("library", "shroudlink", "meter", "0.7.2+aaaaaaaa");
+        Profile(new()
+        {
+            ["shroudlink"] =
+            [
+                new { id = "assistants.dll", path = bundle, version = "0.0.0", enabled = true },
+                new { id = "expeditions.dll", path = single, version = "0.0.0", enabled = true },
+                new { id = "meter", path = other, version = "0.7.2", enabled = true },
+            ],
+        });
+        Write("shroudlink.json", new
+        {
+            format = 1, plugin = "kiln-shroudlink", started = true, updatedUnixMs = StartMs + 60_000,
+            mods = new object[]
+            {
+                new { id = "assistants", dll = Path.Combine(bundle, "assistants.dll").Replace('/', '\\'), status = "loaded", reason = "" },
+                new { id = "chestsort", dll = Path.Combine(bundle, "chestsort.dll").Replace('/', '\\'), status = "loaded", reason = "" },
+                new { id = "expeditions", dll = Path.Combine(single, "expeditions.dll"), status = "loaded", reason = "" },
+            },
+        });
+        var s = Read();
+        var rows = s.Mods.Where(m => m.Engine == "shroudlink").Select(m => (m.Id, m.State)).ToArray();
+        Assert.Equal(
+            [("assistants", ModRunState.Loaded), ("chestsort", ModRunState.Loaded), ("expeditions", ModRunState.Loaded), ("meter", ModRunState.NotLoaded)],
+            rows);
+    }
+
     // ---- the launcher's normalisation (EngineStatus.tsx; the cases of launcher/tests/engine-kinds.spec.ts) ----
 
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement;

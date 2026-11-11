@@ -35,6 +35,31 @@ test("Remove names what a game's profile file lists and removes past it", async 
   expect(await inLibrary(page, r)).toBe(false);
 });
 
+test("with typing turned off in Settings, Remove is one click; other dangerous dialogs still ask for the word", async ({ page }) => {
+  // a player asked for this: a mod's id can be sixty characters long
+  await library(page);
+  const [r] = await unused(page);
+  const name = await page.evaluate(async (id) => (await (await import("/src/api/commands.ts")).libraryList()).find((e) => e.id === id)!.name, r.id);
+  await page.goto("/#/settings");
+  const toggle = page.getByRole("switch", { name: /Type a mod's name to remove it/ });
+  await expect(toggle).toBeChecked();
+  await page.getByText("Type a mod's name to remove it", { exact: true }).click();
+  await expect(toggle).not.toBeChecked();
+  await page.goto("/#/library");
+  await page.getByLabel("Filter").fill(name);
+  await page.getByRole("button", { name: `More for ${name}` }).click();
+  await page.getByRole("menuitem", { name: `Remove ${r.version}` }).click();
+  const dialog = page.getByRole("dialog", { name: `Remove ${name} ${r.version}?` });
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Remove" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await inLibrary(page, r)).toBe(false);
+  // Clean up (several mods at once) keeps its word
+  await page.getByLabel("Filter").fill("");
+  await page.getByRole("button", { name: /Clean up/ }).click();
+  await expect(page.getByRole("dialog").getByRole("textbox")).toBeVisible();
+});
+
 test("Clean up removes the unused versions in one call and keeps what a game's profile file lists", async ({ page }) => {
   await library(page);
   const all = await unused(page);

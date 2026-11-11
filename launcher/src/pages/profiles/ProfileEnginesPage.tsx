@@ -23,7 +23,7 @@ const HINT: Partial<Record<ModKind, string>> = {
   flame: "DLL mods started by kiln-flame (FlameStartRuntime).",
   shroudtopia: "DLL mods, run by kiln-shroudtopia. Their settings live in this profile's shroudtopia.json.",
   enshwick: "DLL mods, data packs and Luau mods. kiln-enshwick copies them into the game's mods folder and runs Enshwick's own loader; players need the same both-side mods to join. Server-only packs do not need a client copy.",
-  shroudlink: "Server mod DLLs, run by kiln-shroudlink (shroudlink's own server core). Players use shroudlink's client addon.",
+  shroudlink: "Mod DLLs, run by kiln-shroudlink (shroudlink's own core, built into Kiln). They run in your own game when you play alone or host, and on a dedicated server: nothing to set up. shroudlink's client addon (its dinput8.dll, a native mod here) adds its MODS tab in the game.",
   ember: "Server mods, one library each. kiln-ember finds and reports them.",
 };
 

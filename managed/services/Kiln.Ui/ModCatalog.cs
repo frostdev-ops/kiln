@@ -433,6 +433,14 @@ internal static class ModCatalog
         catch (Exception) { return false; }
     }
 
+    /// <summary>The folder a path lies in (either slash), null at a root.</summary>
+    private static string? ParentOf(string p)
+    {
+        var t = p.TrimEnd('\\', '/');
+        var i = t.LastIndexOfAny(['\\', '/']);
+        return i > 0 ? t[..i] : null;
+    }
+
     private static string LeafName(string? p)
     {
         if (string.IsNullOrEmpty(p)) return "";
@@ -757,7 +765,14 @@ internal static class ModCatalog
             {
                 reported.Add(line.Id);
                 reportedSlugs.Add(IdFromName(line.Id));
-                if (line.Folder is { } lf) reportedFolders.Add(NormPath(lf));
+                if (line.Folder is { } lf)
+                {
+                    reportedFolders.Add(NormPath(lf));
+                    // An engine that reports a DLL (shroudlink: one line per mod DLL) covers the profile entry whose
+                    // folder holds it. A bundle of several DLLs under one Library id (`assistants.dll` with five mods,
+                    // as 0.2.0-dev.22 imported shroudlink's zip) would otherwise show as one more row, "not reported".
+                    if (lf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && ParentOf(lf) is { } parent) reportedFolders.Add(NormPath(parent));
+                }
                 var state = StateOf(line.State);
                 var reason = line.Reason;
                 string? help = null;

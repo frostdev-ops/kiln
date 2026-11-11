@@ -4,7 +4,7 @@
 // Below: "In the game folder" (GameFolder.tsx), the mods of every kind a player put in the game folder by hand.
 import { useQuery } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as api from "../../api/commands";
 import type { ProfileMod, RunSide } from "../../api/commands";
 import { qk, useLibrary } from "../../api/hooks";
@@ -24,6 +24,11 @@ export default function ProfileModsPage() {
   const [adding, setAdding] = useState(false);
   const preview = useQuery({ queryKey: qk.resolve(id, side), queryFn: () => api.profileResolve(id, side), enabled: !!profile });
   const lib = useLibrary("kiln");
+  // the picker lists the Library as it is now: a mod imported a moment ago on the Library page must be in it
+  const refetchLib = lib.refetch;
+  useEffect(() => {
+    if (adding) void refetchLib();
+  }, [adding, refetchLib]);
   const act = useActivation();
   const openSettings = useOpenSettings();
   if (!profile) return null;
@@ -106,7 +111,8 @@ export default function ProfileModsPage() {
         </div>
       </ProfileAside>
       <AddModsModal open={adding} onClose={() => setAdding(false)} kind="kiln" have={mods.map((m) => m.id)} lib={lib.data ?? []}
-        onAdd={(ms) => { update((p) => { p.mods.kiln.push(...ms); }); setAdding(false); }} />
+        onAdd={(ms) => { update((p) => { p.mods.kiln.push(...ms); }); setAdding(false); }}
+        loading={lib.isFetching && !lib.data?.length} error={lib.error ? errorText(lib.error) : undefined} />
     </>
   );
 }

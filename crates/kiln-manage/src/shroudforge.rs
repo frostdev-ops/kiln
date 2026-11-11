@@ -67,18 +67,43 @@ pub fn mods_dir(game_dir: &Path) -> PathBuf {
         .and_then(|v| v.pointer("/paths/mods").and_then(|s| s.as_str()).map(str::to_owned))
         .filter(|s| !s.trim().is_empty());
     match configured {
-        Some(p) => {
-            let pb = PathBuf::from(&p);
-            if pb.is_absolute() && pb.is_dir() {
-                pb
-            } else if let Some(host) = crate::winpath::z_to_unix(&p).filter(|h| h.is_dir()) {
-                host
-            } else {
-                game_dir.join(p.replace('\\', "/"))
-            }
-        }
+        Some(p) => resolve_mods(game_dir, p.trim()),
         None => game_dir.join("mods"),
     }
+}
+
+/// `paths.mods` as a folder on this system.
+///
+/// ShroudForge writes an absolute Windows path there. Under Proton it was seen with Windows' verbatim prefix and a
+/// drive that is not Z: (`\\?\S:\steamapps\common\Enshrouded\mods` on a Steam Deck: S: is the Steam library the game
+/// is in). Taken as a Linux path that is `//?/S:/...`, which cannot be created, and every mod added to a profile
+/// failed with "Read-only file system". Such a path is found again through the game folder: the two name the same
+/// folders from the point where the Windows path enters the game's path.
+fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
+    let host = PathBuf::from(p);
+    if host.is_absolute() && host.is_dir() && (cfg!(windows) || !p.starts_with("//")) {
+        return host;
+    }
+    let plain = crate::winpath::strip_verbatim(&p.replace('/', "\\")).into_owned();
+    if !crate::winpath::is_absolute_game_path(&plain) {
+        return game_dir.join(p.replace('\\', "/"));
+    }
+    if let Some(z) = crate::winpath::z_to_unix(&plain).filter(|h| h.is_dir()) {
+        return z;
+    }
+    // another drive of the prefix (or a Windows path read on another system): the part inside the game folder
+    let win: Vec<&str> = plain.split('\\').filter(|c| !c.is_empty()).skip(1).collect(); // without the drive
+    let game: Vec<String> = game_dir.components().filter_map(|c| match c {
+        std::path::Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
+        _ => None,
+    }).collect();
+    for k in (1..=win.len().min(game.len())).rev() {
+        if win[..k].iter().zip(&game[game.len() - k..]).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
+            return win[k..].iter().fold(game_dir.to_path_buf(), |dir, c| dir.join(c));
+        }
+    }
+    // a folder outside the game that this system cannot name: ShroudForge's default, never a path made of a drive letter
+    game_dir.join("mods")
 }
 
 /// One setting of a ShroudForge mod (extended.mod.json `settings.<key>`).
@@ -680,5 +705,40 @@ mod tests {
         assert!(apply_switches(g, &[("sf-survival".into(), true)]).unwrap().is_empty());
         std::fs::write(g.join(CONFIG_FILE), r#"{"paths":{"mods":"MyMods"}}"#).unwrap();
         assert_eq!(mods_dir(g), g.join("MyMods"));
+    }
+
+    /// `paths.mods` as ShroudForge writes it under Proton: a Windows path on a drive of the prefix. As a Linux path
+    /// it was `//?/S:/steamapps/...`, which nothing can create.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_windows_mods_path_is_found_through_the_game_folder() {
+        let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-winpath").unwrap();
+        let g = t.path().join("SteamLibrary/steamapps/common/Enshrouded");
+        std::fs::create_dir_all(g.join("mods")).unwrap();
+        // a Steam Deck: S: is the library, with the verbatim prefix
+        assert_eq!(resolve_mods(&g, r"\\?\S:\steamapps\common\Enshrouded\mods"), g.join("mods"));
+        assert_eq!(resolve_mods(&g, "//?/S:/steamapps/common/Enshrouded/mods"), g.join("mods"));
+        // another drive that maps higher up, another folder name and another case
+        assert_eq!(resolve_mods(&g, r"E:\steamlibrary\STEAMAPPS\common\Enshrouded\MyMods"), g.join("MyMods"));
+        assert_eq!(resolve_mods(&g, r"S:\steamapps\common\Enshrouded\mods\packs"), g.join("mods/packs"));
+        // the game folder itself
+        assert_eq!(resolve_mods(&g, r"S:\steamapps\common\Enshrouded"), g);
+        // Z: is the host's root
+        let z = format!("Z:{}", g.join("mods").display().to_string().replace('/', "\\"));
+        assert_eq!(resolve_mods(&g, &z), g.join("mods"));
+        assert_eq!(resolve_mods(&g, &format!(r"\\?\{z}")), g.join("mods"));
+        // outside the game: the default, never a path that starts with a drive letter
+        for outside in [r"D:\Elsewhere\mods", r"\\?\D:\mods"] {
+            let got = resolve_mods(&g, outside);
+            assert_eq!(got, g.join("mods"), "{outside}");
+            assert!(!got.to_string_lossy().contains(':'));
+        }
+        // a host path and a relative one, as before
+        assert_eq!(resolve_mods(&g, &g.join("mods").display().to_string()), g.join("mods"));
+        assert_eq!(resolve_mods(&g, r"sub\mods"), g.join("sub/mods"));
+        // through the setting
+        std::fs::create_dir_all(g.join("shroudforge/config")).unwrap();
+        std::fs::write(g.join(CONFIG_FILE), r#"{"paths":{"mods":"\\\\?\\S:\\steamapps\\common\\Enshrouded\\mods"}}"#).unwrap();
+        assert_eq!(mods_dir(&g), g.join("mods"));
     }
 }

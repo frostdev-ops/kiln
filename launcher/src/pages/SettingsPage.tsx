@@ -12,7 +12,7 @@ import { DeckModeCard, saveSettings } from "../deck/mode";
 import { NexusCard } from "../components/NexusSettings";
 import {
   Badge, Button, Card, ConfirmDanger, EmptyState, Field, IconButton, NumberInput, Page, PageHeader, PathPicker, SchemaForm, Select, Skeleton,
-  Toggle, errorText, fmtAgo, fmtBytes, toast,
+  Toggle, errorText, fmtAgo, fmtBytes, setTypeToConfirm, toast, typeToConfirm,
 } from "../ui";
 
 /** Windows (WebView2): path examples in Windows form. */
@@ -58,6 +58,7 @@ function LauncherCard() {
       <Toggle checked={v.addToActiveProfile !== false} onChange={(on) => set({ addToActiveProfile: on })} label="Add new mods to the active profile"
         hint="A dropped mod is ready at the next Play. Off: it only goes into the library." />
       <Toggle checked={v.allowHttpModpacks} onChange={(on) => set({ allowHttpModpacks: on })} label="Allow http modpacks" hint="Off: https only." />
+      <TypeToConfirmToggle />
       <Field label="Extra Steam folders" hint="Libraries Kiln does not find on its own.">
         <div className="k-stack">
           {v.steamRoots.map((r) => (
@@ -204,3 +205,14 @@ function AssetsCard() {
   );
 }
 
+
+
+/** "Type a mod's name to remove it": off = the Library's Remove dialog has a plain button. The dialogs that uninstall
+ * Kiln, delete a profile or a server, or restore a backup always ask for the word. */
+function TypeToConfirmToggle() {
+  const [on, setOn] = useState(typeToConfirm());
+  return (
+    <Toggle checked={on} onChange={(v) => { setTypeToConfirm(v); setOn(v); }} label="Type a mod's name to remove it"
+      hint="Off: removing a mod from the library is one click on Remove. Uninstalling, profiles, servers and backups still ask." />
+  );
+}

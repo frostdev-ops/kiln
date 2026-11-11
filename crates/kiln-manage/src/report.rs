@@ -1223,6 +1223,15 @@ pub fn build(input: &ReportInput) -> Report {
             for e in st.errors.iter().take(15) {
                 let _ = writeln!(ls, "  {e}");
             }
+            // The game drew, but Kiln never got its graphics device: nothing of Kiln's shows in the game.
+            if st.ui_swapchain && !st.ui_device {
+                let who = st.ui_patched_by.as_deref().map(|w| format!(" ({w} has its hook on the same graphics functions)")).unwrap_or_default();
+                let _ = writeln!(ls, "Overlay:       cannot draw: kiln.ui saw the game's swapchain but never its Vulkan device{who}");
+                cx.find("overlay-off", Level::Problem, format!(
+                    "Kiln could not draw in the game at the last start: it never saw the game's graphics device{who}. The in-game Mods page and Kiln's menus stay empty. \
+                     The mods themselves are not affected. Another program that hooks the game's graphics (ReShade, an overlay, another loader's in-game window) \
+                     next to Kiln does this; Kiln 0.2.0-dev.24 and later take the device over when the PC has one graphics device."));
+            }
         }
     } else {
         let _ = writeln!(ls, "kiln.log:      none");
