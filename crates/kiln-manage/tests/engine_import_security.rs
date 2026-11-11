@@ -184,7 +184,7 @@ fn loader_cannot_commit_a_folder_under_an_incorrect_hash() {
     let mut report = library::ImportReport::default();
     let rec = library::ImportRecord {
         format: 1, kind: ModKind::Set, id: "setmod".into(), version: "1.0.0".into(), hash: format!("kdh1:{}", "0".repeat(64)),
-        imported: "now".into(), source: None, size: 0, name: None, side: None, clients: None, file: None, manifest_id: None,
+        imported: "now".into(), source: None, size: 0, name: None, side: None, clients: None, file: None, manifest_id: None, game_folder: None,
     };
     assert_eq!(library::commit_folder(&dirs, &src, rec, &mut report).unwrap_err().code, ErrorCode::HashMismatch);
     assert!(report.imported.is_empty());

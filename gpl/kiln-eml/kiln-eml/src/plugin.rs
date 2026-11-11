@@ -213,6 +213,13 @@ fn init_logging(logs: Option<&Utf8Path>) {
 
 // ---- standing aside for EML's own loader ----
 
+fn loader_module_candidate(path: &str) -> bool {
+    let lower = path.to_lowercase().replace('/', "\\");
+    let name = lower.rsplit('\\').next().unwrap_or("");
+    name == "dbghelp.dll" || (name.starts_with("dbghelp_") && name.ends_with(".dll"))
+        || name == "dinput8.dll" || lower.contains("\\kiln\\chain\\")
+}
+
 /// EML's own proxy (dbghelp.dll, or dinput8.dll chained by Kiln), or ShroudForge's (which carries EML), loaded in this
 /// process: it already patched the game files in its DllMain, so kiln-eml must not patch them a second time.
 #[cfg(windows)]
@@ -244,8 +251,7 @@ fn eml_loader_loaded() -> Option<(String, &'static str)> {
         }
         let path = String::from_utf16_lossy(&buf[..len]);
         let lower = path.to_lowercase();
-        let name = lower.rsplit(['\\', '/']).next().unwrap_or("");
-        let candidate = name == "dbghelp.dll" || name == "dinput8.dll" || lower.contains("\\kiln\\chain\\");
+        let candidate = loader_module_candidate(&lower);
         if !candidate || lower.contains("\\windows\\") {
             continue;
         }
@@ -423,13 +429,13 @@ fn run_now() {
     }
     candidates.extend(ADDED.lock().unwrap().iter().cloned());
     if dropins {
-        // The launcher's copies of the profile's own mods (placed for EML's own loader) are those profile entries.
+        // Managed placements run only through an explicit profile entry, never again as drop-ins (including retained edits).
         let ids = profile().map(|p| discover::profile_ids(&unsafe { (p.json)().to_string() })).unwrap_or_default();
         for dir in [kiln.join("eml").join("mods"), game.join("mods")] {
             let source = if dir.starts_with(&kiln) { "kiln-dropin" } else { "game-mods" };
-            let (kept, skipped) = discover::without_profile_copies(discover::folder_candidates(&dir, source), &ids);
+            let (kept, skipped) = discover::without_profile_copies(discover::folder_candidates(&dir, source), &ids, &kiln);
             for s in skipped {
-                tracing::info!("{s}: Kiln's copy of a profile mod (placed for EML's own loader); the profile entry runs");
+                tracing::info!("{s}: Kiln-managed placement; not a drop-in (only an enabled profile entry may run it)");
             }
             candidates.extend(kept);
         }
@@ -664,6 +670,14 @@ unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recognizes_renamed_eml_loaders_before_deciding_to_patch() {
+        for path in [r"C:\Game\dbghelp.dll", r"C:\Game\dbghelp_mod.dll", r"C:\Game\DBGHELP_HoardersHelper.DLL",
+            r"C:\Game\dinput8.dll", r"C:\Game\kiln\chain\custom-eml.dll"] {
+            assert!(loader_module_candidate(path), "loaded EML at {path} must be inspected before kiln-eml runs");
+        }
+        assert!(!loader_module_candidate(r"C:\Game\unrelated.dll"));
+    }
     #[test]
     fn pe_identity_reads_the_header_fields() {
         let mut b = vec![0u8; 512];
