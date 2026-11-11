@@ -619,6 +619,7 @@ internal sealed class ModManagerPage
             }
             UiEngine.DrawConfig(ui, m.Id, s, Label);
         }
+        if (m.Engine == "set") SetTools.Draw(ui, m);
     }
 
     private static string SideText(string side) => side switch

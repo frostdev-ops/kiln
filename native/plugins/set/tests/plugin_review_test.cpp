@@ -5,7 +5,7 @@
 #include <array>
 #define KSET_LOADER_HOST_TEST
 #include "../src/plugin.cpp"
-namespace { int shutdowns = 0, alive_shutdowns = 0, ticks = 0, frames = 0, queued = 0; bool throw_queue = false; std::string overlay_reason; }
+namespace { int shutdowns = 0, alive_shutdowns = 0, ticks = 0, frames = 0, queued = 0; bool throw_queue = false; std::string overlay_reason; std::vector<std::string> fileLines, consoleLines; }
 namespace rt {
 void gameClosing(bool gameAlive) { ++shutdowns; alive_shutdowns += gameAlive; }
 void setFeature(const char* id, bool, std::string reason, bool) { if (std::string(id) == "overlay") overlay_reason = reason; }
@@ -19,6 +19,11 @@ void configure(const std::string&, Sink) {} void setGameBuild(uint32_t) {}
 std::vector<ModReport> reports; void (*reported)() = nullptr;
 std::vector<ModReport> modReports() { return reports; } void onModsReported(void (*fn)()) { reported = fn; }
 void queue(std::string) { if (throw_queue) throw std::runtime_error("queue failed"); ++queued; }
+}
+namespace setui {
+void line(const char* text) { consoleLines.emplace_back(text); } void draw() {} void stop() {} bool isOpen() { return false; }
+void configure(std::filesystem::path, std::filesystem::path, void (*)(const char*)) {} void bind(const KilnUiApi*, KilnOwner) {}
+const Api* service() { static const Api api{}; return &api; }
 }
 namespace hk { void setLog(Log) {} }
 namespace contracts {
@@ -57,9 +62,14 @@ int main(int argc, char** argv) {
                                              (root / "relocated/framework.dll").wstring()};
     loader_test::modules = clean;
     KilnApi api{};
-    api.log = [](KilnOwner, int32_t, KilnStr) {};
+    api.log = [](KilnOwner, int32_t, KilnStr text) { fileLines.emplace_back(text.ptr, text.len); };
     api.server_world = []() -> uintptr_t { return 1; };
     g_api = &api;
+    // Tool debug and LV_LOG diagnostics are file-only; ordinary SET output still reaches the private console.
+    ui_sink("tool diagnostics"); sink(LV_LOG "file only"); sink(LV_WARN "warning"); sink("plain");
+    assert((fileLines == std::vector<std::string>{"[set] tool diagnostics", "[set] file only", "[set] warning", "[set] plain"}));
+    assert((consoleLines == std::vector<std::string>{"warning", "plain"}));
+    fileLines.clear(); consoleLines.clear();
     g_control = root / "control";
     // Startup, in on_ready's order: arm the DLL-load notification, then the one full check.
     assert(g_modules.arm() && g_modules.notifying() && g_modules.fingerprinting() && loader_test::registrations == 1);

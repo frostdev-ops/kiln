@@ -102,6 +102,10 @@ uint8_t* component(uintptr_t world, uint32_t entity, int idx, uint32_t* size = n
 uint32_t firstWith(uintptr_t world, int idx);
 std::vector<uint32_t> allWith(uintptr_t world, const int* idx, size_t n);
 uint32_t entityCount(uintptr_t world);
+bool exists(uint32_t entity);
+std::vector<refl::Type> componentTypes();
+std::vector<uint32_t> findBounded(uint32_t hash, uint32_t limit, uint32_t& total); // tick thread; allocation capped at 65536
+bool position(uint32_t entity, double* xyz); // metres; tick thread
 // Stream lookups are cached per (world, type): a probe runs only on a miss. Tick thread, under the Lua lock.
 int eventIndex(uintptr_t world, uint32_t typeHash);  // >= 0: has a stream; < 0: -KilnResult
 // One event_each; 0 or -KilnResult (a cached failure returns without calling kiln.types).

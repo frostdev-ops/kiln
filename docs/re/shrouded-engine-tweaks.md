@@ -56,7 +56,7 @@ is described in the linked lab evidence; it did not rerun the entire historical 
 | `Hooks.param`, `Hooks.list` (0.2.0) | - | SET code, atomics | host tests; live param also checked on the actual server leaf |
 | Catalog `combat_xp`, `hit` (0.2.0) | Kiln.Combat, Kiln.Progression (their own hooks) | SET's entries; anchors checked on live memory | both uniquely scanned on server 1793791038; XP enabled after behavioral probe, hit stays client-only |
 | `Features()` (0.2.0) | service presence | SET's ids from Kiln's services, three Kiln ids | host tests + current headless server probe |
-| `Settings.define` (0.2.0) | mod config (`Config<T>`) | SET code; file through the mod sandbox | host tests + clamp/save/restart lab; no settings page, `onChange` never runs |
+| `Settings.define` (0.2.0) | mod config (`Config<T>`) | SET code; sandboxed file and native SET tools page | host tests exercise real widgets → typed store → next-tick onChange, deduplication and reload revisions; clamp/save/restart lab; client drawing unchecked |
 | Undo of `Res` changes when a mod stops (0.2.0) | `ReflectedResource.Restore`, overrides | write log keyed by resource and offset | host tests |
 | Key names, `bindings.ini` names (0.2.0) | `KeyBindings` | SET's table | host tests; keys need a client |
 | `Systems.list/enable/enabled` | `GameSystems.All/Search/SetEnabled`, `/systems`, `/system` | kiln.types runner detour; disabling restricted to two leaf systems, owner scoped | original lab; restrictions host tested |
@@ -81,12 +81,12 @@ is described in the linked lab evidence; it did not rerun the entire historical 
 | `Admin.setFlameLevel` | `WorldProgress.SetFlameLevel`, `LimitsAt`, status | kiln.knowledge authoritative write | worldstatus lab: 61 PASS, restart 59 PASS; client fog/placement unchecked |
 | `Admin.send` | typed services for individual commands | missing (unavailable error) | deferred |
 | `GetMod`, `GetVersion`, `GetGameBuild`, `require`, `io`, `json`, `print`, sandbox | .NET | adapted SET code; mod-local file handles, isolated libraries and instruction/deadline limits | original lab; hardening host tested |
-| Console window | Kiln.DevTools Console, `kiln/control/console/*.cmd`, `kilnctl cmd` | `kiln/control/set/*.lua` files | file path: lab; window: view-model tests, client drawing/input unchecked |
+| Console window | SET tools Console and separate Kiln.DevTools Console | SET tools queues Lua; `kiln/control/set/*.lua` also works | queue/output host tests; file path lab; client drawing/input unchecked |
 | Systems window | **Kiln: Systems** window | Kiln's window | client |
 | Types browser | **Kiln: Types** window | - | client |
-| Bindings, Resources, Hooks, Game Log, Status windows | Kiln.DevTools windows; resources include reflected fields | Kiln windows: bindings use Kiln KeyBindings, hooks show Kiln stats; SET private registries are not exposed | view-model tests; client drawing/input unchecked |
+| Bindings, Resources, Hooks, Game Log, Status windows | Kiln.DevTools plus SET tools Bindings/Hooks | SET tools expose actual Lua bindings and observer/rule diagnostics; generic windows retain Kiln registries | host/view-model tests; client drawing/input unchecked |
 | Settings editor, ImGui Debug | Kiln config UI covers its own settings; no SET settings.ini editor or ImGui Debug | not implemented | remaining difference |
-| Mod Settings page, Entities window, Compatibility window, bug report (0.2.0) | none | not implemented (SET's own UI) | remaining difference; `Features()` and `kiln.log` carry the compatibility data |
+| Mod Settings, Entities, Compatibility, bug report (0.2.0) | SET-specific native tools, linked from Mods and game main/pause menu | settings/onChange; feature reasons; nearest-first tick-copy inspector, 64 scalar watches and checked edits; explicit redacted current/previous log save/copy, last-session notice + debugLog | production Lua/UI/world host tests; client/clipboard unchecked; bounded flattened inspector, no fallback message box or automatic report-site launch |
 
 ## 1. What SET is
 - **Loader:** `powrprof.dll` proxy (forwards all 126 exports of the system DLL). At load it runs every `.dll` in
@@ -174,9 +174,9 @@ checks. A wired API or a tested view-model does not prove a window rendered or a
 | Hooks, tick and lifecycle | `Kiln.Hooks`, `Context.Tick`, world events | implemented |
 | Rules (0.2.0): arguments, fields, block, after; catalog; params and lists | `Kiln.Hooks` mid and raw links | host tests + actual server XP leaf probe; XP additionally enabled on 1793791038, hit client-only; real-player behavior pending |
 | `Features()`, `Settings.define`, undo of `Res` changes (0.2.0) | services, mod config, overrides | host tests; features/settings also checked across headless lab restart |
-| Mod Settings, Entities, Compatibility windows, bug report (0.2.0) | none | missing (SET's own UI) |
+| Mod Settings, Entities, Compatibility windows, bug report (0.2.0) | native SET tools | implemented with documented inspector/reporting bounds; real client unchecked |
 | Keys and draw | `KeyBindings`, `Ui.Window`, `UiDraw` | implemented; client checks pending |
-| Bindings, Resources, Hooks, Game Log, Status, Console, Systems, Types windows | `Kiln.DevTools` | implemented for Kiln APIs; no SET private Lua-binding/capture registry; command/view-model tests, client checks pending |
+| Bindings, Resources, Hooks, Game Log, Status, Console, Systems, Types windows | `Kiln.DevTools` plus SET tools | implemented; SET tools add the private Lua-binding/capture/rule registry and Lua console; host/view-model tests, client checks pending |
 | SET Settings editor, ImGui Debug | no matching window | missing; Kiln's Status window does not edit SET's settings.ini |
 | GameOptions machine/user/dump | no client-options API (`Kiln.Settings` is world settings) | deferred: client object/slot offsets and behaviour need a client |
 | Admin time, teleport, spawn, give, level, settings | typed Time, World, Spawn, Items, PlayerProgression and Settings APIs | wired; player operations need a joined player |

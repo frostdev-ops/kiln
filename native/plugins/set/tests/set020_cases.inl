@@ -16,12 +16,12 @@
  assert(f.systems.compatible and f.systems.available and f.english_names.available and f.resources.compatible)
  assert(f.admin and f.admin_give and f.admin_settings.compatible==false and f.admin_settings.reason=='kiln.settings is not running')
  assert(f.hooks.available and f.admin_send.compatible==false and f.admin_send.reason:find('Kiln'))
- assert(f.mod_settings_page.available==false and f.mod_settings_page.reason:find('onChange'))
+ assert(f.mod_settings_page.available==false and f.mod_settings_page.reason=='Not checked yet')
  for id,v in pairs(f) do assert(type(v.compatible)=='boolean' and type(v.available)=='boolean' and type(v.reason)=='string' and type(v.label)=='string',id) end
  f.game_build=nil;assert(Features().game_build)   -- a new table on every call
  )lua");
  rt::setFeature("overlay",true);rt::setFeature("no_such_feature",true);
- must(L,two,"local f=Features();assert(f.overlay.compatible and f.overlay.available and f.overlay.reason=='' and f.no_such_feature==nil)");
+ must(L,two,"local f=Features();assert(f.overlay.compatible and f.overlay.available and f.overlay.reason=='' and f.no_such_feature==nil and f.mod_settings_page.available)");
  rt::setFeature("overlay",false,"Dedicated server: No overlay");
  must(L,two,"assert(Features().overlay.reason=='Dedicated server: No overlay')");
  gInWorld=false;
@@ -82,7 +82,8 @@
  local o=assert(io.open('other.json','w'));o:write('{}');o:close()
  )lua");
  assert(slurp(root/"one"/"settings.json").find("\"count\": 10")!=std::string::npos);
- // An edit from outside the mod (SET's Mod Settings page; nothing in Kiln's game yet) reaches onChange at the next tick.
+ #include "overlay_cases.inl"
+ // Edits from the SET tools page reach onChange only at the next tick.
  assert(mset::set("one","regen",7,"",true)&&mset::set("one","regen",500,"",true));settingsEdits(L);
  must(L,one,"assert(changed=='regen=100.0;' and s.regen==100)");
  // A reload reads the saved values back. Wrong types fall back to the default, values are clamped to the new range,
@@ -146,6 +147,10 @@
  auto xmm=[](const KilnXmm& x){float f;memcpy(&f,x.bytes,4);return f;};
  auto call3=[&](uint64_t level,float mod,uint64_t entity){KilnRegisters r{};r.rcx=level;memcpy(r.xmm2.bytes,&mod,4);r.r9=entity;fire(0x900000,r);return std::pair<uint64_t,float>(r.rcx,xmm(r.xmm2));};
  assert(call3(10,1.5f,7)==std::make_pair(uint64_t(11),3.0f));       // in the list: both changes
+ // Render actual SET rule diagnostics, not the generic Kiln hook registry.
+ setui::bind(&toolsUi,1);assert(setui::service()->open({nullptr,0})==KILN_OK);toolsTab="Hooks";toolsRows.clear();setui::draw();
+ assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("more xp")!=std::string::npos&&row.find("[active]")!=std::string::npos;}));
+ assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Hits: 1")!=std::string::npos;}));setui::stop();
  assert(call3(10,1.5f,9)==std::make_pair(uint64_t(10),1.5f));       // not in the list: untouched
  assert(call3(uint32_t(-1),1.5f,7).second==1.5f);                    // the other condition fails
  must(L,one,"Hooks.param(rid,'k',4);Hooks.list(rid,{9})");

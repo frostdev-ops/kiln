@@ -30,6 +30,7 @@
 #include "kiln_api.h"
 #include "level.h"
 #include "lua_api.h"
+#include "overlay.h"
 #include "services/kiln_profile.h"
 #include "services/kiln_ui.h"
 
@@ -159,10 +160,13 @@ void on_mods_reported() {
 }
 
 // SET's sink: an optional level marker byte, then the line. Kiln's log keeps the level.
+// SET's debugLog diagnostics go to the file, not the private Lua console.
+void ui_sink(const char* line) { log(KILN_LOG_INFO, std::string("[set] ") + line); }
 void sink(const char* line) {
     const lv::Level l = lv::of(line);
     // LV_LOG lines (SET: set.log only) are plain lines in kiln.log.
     const char* text = l == lv::none && *line != LV_LOG[0] ? line : line + 1;
+    if (*line != LV_LOG[0]) setui::line(text);
     log(l == lv::bad ? KILN_LOG_ERROR : l == lv::warn ? KILN_LOG_WARN : KILN_LOG_INFO, std::string("[set] ") + text);
 }
 
@@ -183,6 +187,7 @@ bool may_run() {
                                std::to_string(kset::ConflictGate::failures_to_step_aside) + " failed checks in a row)");
     if (g_aside.empty()) return true;
     g_running = false;
+    setui::stop();
     log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside);
     rt::gameClosing(true);  // the game runs on: what the mods changed in its resources goes back
     write_state("stepped-aside", g_aside, {});
@@ -252,7 +257,8 @@ void KILN_CALL on_ui_tick(uint64_t, void*) {
 
 void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
     if (!g_running.load()) return;
-    rt::setOverlayOpen(f && f->menu_open);
+    setui::draw();
+    rt::setOverlayOpen((f && f->menu_open) || setui::isOpen());
     if (!rt::hasDraw()) return;
     if (rt::tryLockDraw()) rt::drawLocked();
 }
@@ -330,6 +336,10 @@ void KILN_CALL on_ready(void*) {
         if (U) {
             kset::bindUi(U);
             ui = U->subscribe_frame(g_owner, &on_frame, nullptr, &h) == KILN_OK;
+            if (ui) {
+                setui::configure(api_path(KILN_PATH_LOGS), g_control, &ui_sink);
+                setui::bind(U, g_owner);
+            }
         }
         if (UT) UT->subscribe(g_owner, &on_ui_tick, nullptr, &h);
     }
@@ -352,6 +362,7 @@ void KILN_CALL on_ready(void*) {
 void KILN_CALL on_unload(void*) {
     g_running = false;
     g_modules.disarm();
+    setui::stop();
     if (g_initialized) rt::gameClosing();
 }
 }  // namespace
@@ -364,5 +375,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     info->version = KilnStr{"0.2.0", 5};
     info->on_ready = &on_ready;
     info->on_unload = &on_unload;
+    if (api->register_service) api->register_service(owner, KilnStr{"kiln.set.ui", 11}, setui::service());
     return KILN_OK;
 }

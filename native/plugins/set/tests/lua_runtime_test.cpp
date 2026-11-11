@@ -8,6 +8,9 @@
 #include "../src/lua_api.cpp"
 #include "services/kiln_types.h"
 #include "services/kiln_assets.h"
+#include "services/kiln_players.h"
+#include "../src/overlay.h"
+#include "../src/inspector.h"
 #include <memory>
 
 #include "services/kiln_hooks.h"
@@ -33,6 +36,8 @@ KilnStr str(const std::string& s){return {s.data(),s.size()};}
 KilnTypesApi types{};
 KilnWorldApi world{};
 KilnAssetsApi assets{};
+KilnPlayersApi toolsPlayers{};
+bool toolsPlayerService=false;
 // A fake kiln.hooks for Hooks.rule: one pattern is "found", the entry hook is kept so a test can run a call through it.
 KilnHooksApi hooksApi{};
 std::map<std::string,uintptr_t> hookScans;
@@ -72,11 +77,47 @@ void initServices(){
  world.component=[](KilnEntity,uint32_t,uint32_t* size)->const void*{*size=actual;return component;};
  world.entity_count=[]()->uint32_t{return 1;};
  assets.header={sizeof(assets),1};assets.resource_data=[](const KilnAssetKey*,const void** p,size_t* n)->KilnResult{*p=resourcePtr;*n=resourceSize;return resourcePtr?KILN_OK:KILN_ERR_NOT_FOUND;};
- core.service=[](KilnStr n,uint32_t)->const void*{std::string_view s(n.ptr,n.len);return s=="kiln.types"?static_cast<const void*>(&types):s=="kiln.world"?static_cast<const void*>(&world):s=="kiln.assets"?static_cast<const void*>(&assets):s=="kiln.hooks"&&hooksOn?static_cast<const void*>(&hooksApi):nullptr;};
+ core.service=[](KilnStr n,uint32_t)->const void*{std::string_view s(n.ptr,n.len);return s=="kiln.types"?static_cast<const void*>(&types):s=="kiln.world"?static_cast<const void*>(&world):s=="kiln.assets"?static_cast<const void*>(&assets):s=="kiln.players"&&toolsPlayerService?static_cast<const void*>(&toolsPlayers):s=="kiln.hooks"&&hooksOn?static_cast<const void*>(&hooksApi):nullptr;};
  core.symbol=[](KilnStr,uintptr_t*)->KilnResult{return KILN_ERR_NOT_FOUND;};initHooks();
  core.on_tick_thread=[](){return tickThread;};core.server_world=[]()->uintptr_t{return 1;};
  core.owner_create=[](KilnStr)->KilnOwner{return ++nextOwner;};core.owner_revoke=[](KilnOwner){};
  kset::bind(&core);kset::bindHooks(&core,1);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
+}
+KilnUiApi toolsUi{};
+std::string toolsTab="Mod Settings", toolsClick;
+std::map<std::string,std::string> toolsInputs;
+std::vector<std::string> toolsRows;
+uint32_t toolsDemand=0,toolsCapture=0,toolsPressed=0;
+int toolsWindows=0,toolsIds=0,toolsUnsubscribed=0;
+bool toolsClose=false,toolsEscapeDuringBegin=false;
+KilnUiKeyFn toolsKey=nullptr;
+KilnUiMenuFn toolsMenu=nullptr;
+std::string textOf(KilnStr s){return std::string(s.ptr,s.len);}
+void initTools(){
+ toolsUi.header={sizeof(toolsUi),4};
+ toolsUi.status=[](KilnUiStatus*)->KilnResult{return KILN_OK;};
+ toolsUi.set_demand=[](uint32_t n){toolsDemand=n;};toolsUi.set_capture=[](uint32_t n){toolsCapture=n;};
+ toolsUi.set_next_window_size=[](float,float,uint32_t){};
+ toolsUi.begin=[](KilnStr,bool* open,uint32_t){++toolsWindows;if(toolsEscapeDuringBegin){toolsEscapeDuringBegin=false;KilnUiKey escape{};escape.down=1;escape.vk=0x1b;assert(toolsKey(&escape,nullptr));}if(toolsClose){*open=false;toolsClose=false;return false;}return true;};
+ toolsUi.end=[](){--toolsWindows;};
+ toolsUi.begin_tab_bar=[](KilnStr){return true;};toolsUi.end_tab_bar=[](){};
+ toolsUi.begin_tab_item=[](KilnStr label){return textOf(label)==toolsTab;};toolsUi.end_tab_item=[](){};
+ toolsUi.button=[](KilnStr label,float,float){if(textOf(label)!=toolsClick)return false;toolsClick.clear();return true;};
+ toolsUi.checkbox=[](KilnStr label,bool* v){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=it->second=="true";toolsInputs.erase(it);return true;};
+ toolsUi.input_text=[](KilnStr label,char* b,size_t cap,uint32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;snprintf(b,cap,"%s",it->second.c_str());toolsInputs.erase(it);return true;};
+ toolsUi.slider_int=[](KilnStr label,int32_t* v,int32_t,int32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
+ toolsUi.combo=[](KilnStr label,int32_t* v,const char*){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
+ toolsUi.text=[](KilnStr v){toolsRows.push_back(textOf(v));};toolsUi.text_wrapped=toolsUi.text;
+ toolsUi.text_colored=[](uint32_t,KilnStr v){toolsRows.push_back(textOf(v));};
+ toolsUi.push_id=[](KilnStr){++toolsIds;};toolsUi.pop_id=[](){--toolsIds;};
+ toolsUi.is_item_hovered=[](){return false;};toolsUi.set_tooltip=[](KilnStr){};
+ toolsUi.collapsing_header=[](KilnStr,uint32_t){return true;};toolsUi.same_line=[](float,float){};
+ toolsUi.selectable=[](KilnStr,bool){return false;};
+ toolsUi.begin_child=[](KilnStr,float,float,uint32_t){return true;};toolsUi.end_child=[](){};
+ toolsUi.take_pressed_key=[](uint32_t* mods)->uint32_t{*mods=rt::ModCtrl;return std::exchange(toolsPressed,0);};
+ toolsUi.menu_add=[](KilnOwner,uint32_t,int32_t,KilnStr,KilnUiMenuFn fn,void*,KilnHandle* out)->KilnResult{toolsMenu=fn;*out=1;return KILN_OK;};
+ toolsUi.subscribe_key=[](KilnOwner,KilnUiKeyFn fn,void*,KilnHandle* out)->KilnResult{toolsKey=fn;*out=3;return KILN_OK;};
+ toolsUi.unsubscribe=[](KilnHandle)->KilnResult{++toolsUnsubscribed;return KILN_OK;};
 }
 void sink(const char* s){logs.emplace_back(s);}
 int env(lua_State* L,const char* name){pushModEnv(L,name);int ref=luaL_ref(L,LUA_REGISTRYINDEX);return ref;}
@@ -343,6 +384,7 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   for(auto& [n,v]:savedEnv)setenv(n.c_str(),v.c_str(),1);
  }
  #include "set020_cases.inl"
+ #include "inspector_cases.inl"
  for(auto& [name,owner]:gSystemOwners){(void)name;sys::releaseOwner(owner);}
  lua_close(L);gSystemOwners.clear();gInWorld=false;gWorld=0;
  // Failed initialization removes callbacks and releases this mod's system owner; reload runs shutdown and creates a fresh state.

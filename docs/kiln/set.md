@@ -1,8 +1,9 @@
 # Shrouded Engine Tweaks mods on Kiln (kiln-set)
 
 Kiln runs Lua mods written for **Shrouded Engine Tweaks** (SET 0.2.0, MIT, github.com/Cacaida/Shrouded-Engine-Tweaks)
-through the plugin `kiln/plugins/kiln-set.dll`, subject to the restrictions and missing UI below. This is API compatibility,
-not full overlay parity. You do not need SET's own `powrprof.dll`. Unlike SET, mods also run on a **dedicated server**.
+through the plugin `kiln/plugins/kiln-set.dll`, subject to the restrictions below. Kiln includes SET-specific settings
+and tools, but does not reproduce every upstream overlay detail. You do not need SET's own `powrprof.dll`.
+Unlike SET, mods also run on a **dedicated server**.
 
 ## Install a mod
 1. Install Kiln as usual (`tools/deploy-server.sh` copies `kiln-set.dll` to `kiln/plugins/` and `kiln-types.dll` to
@@ -49,6 +50,39 @@ the next tick each line runs (expressions print their value), the output goes to
 echo 'Ecs.fields("Health")' > <server>/kiln/control/set/x.lua
 ```
 
+## SET settings and tools
+On a client, select a SET mod in Kiln's Mods menu and choose **SET settings and tools**, or use the **SET tools**
+entry in the game's main/pause menu. The tools have their own native page; they do not depend on ShroudForge's menu.
+Escape or the window's close button releases their input capture. No real-client drawing/input check has been run.
+
+- **Mod Settings**: one section per `Settings.define` mod; bool, number, int, choice and text controls. Numeric input
+  preserves doubles and large integers instead of rounding them through float32. Edits update the settings store at
+  once and run `onChange(key, value)` at the mod's next tick, once per changed key with its latest value. Initial load
+  and the mod's own writes do not call it. Stale copies from before a reload cannot edit the replacement page.
+- **Compatibility**: every `Features()` id, its compatible/available flags and exact reason.
+- **Entities**: component-filtered list (up to 200 entries) and explicit entity-id selection; bounded component/field
+  snapshots produced on the tick thread. Scalar edits are type/range/enum checked, rejected if the selection/world or
+  displayed value changed, and never follow an id after it disappeared at a tick. Dynamic data stays read-only.
+  The nearest 200 matches are shown when a player position is available (entity-id order otherwise), from at most
+  65,536 candidates. Scalar **Watch** pins (up to 64) survive selection changes and stay gone after their entity
+  disappears; **Unwatch** removes them. Explicit selection can reselect an id. An inspector fault disables only the
+  inspector until restart, not Lua mods. Copies refresh every 500 ms, limited
+  to 512 fields, nesting depth 6 and 32 elements per fixed array. The renderer holds no game pointers.
+- **Hooks**: actual SET observer queues/counters and rule activity, hits, faults, refusals and conflicts; capture timing
+  toggle and recent diagnostics. These are SET's private rows, not just Kiln's generic hook list.
+- **Bindings**: actual SET mod hotkeys/inputs, press-to-bind/unbind and removal of dead bindings, saved in `bindings.ini`.
+- **Console**: Lua queued to the next tick, with a bounded SET output history; no Lua runs on the render thread.
+- **Bug Report**: an explicit local `kiln/control/set-report.txt` containing compatibility, mod and hook/overlay status,
+  plus current/previous Kiln logs (at most 1 MiB each). Explicit **Copy to Clipboard** / **Copy last session's logs**
+  buttons copy Unicode logs on Windows/Wine, with a local-file fallback if the clipboard is unavailable. Home-directory
+  prefixes are redacted case-insensitively; review before sharing. Nothing is uploaded or opens a report website.
+  **Debug logs** adds tool lifecycle diagnostics to `kiln.log`, not the Lua console; it defaults on and is saved in `kiln/control/set-ui.ini`,
+  not upstream's `settings.ini`.
+- **Last Session**: an unclean `kiln/control/set-session.txt` marker opens a dismissible notice on the next client
+  start, with the matching game's `crash_dumps/*/enshrouded.info` reason when available. It distinguishes unclean exit
+  from proof of a crash or mod fault. No report or clipboard write happens until chosen. Normal teardown marks the
+  session clean. The first start after installing this implementation has no earlier SET session marker.
+
 ## What works
 Every function in SET 0.2.0's api-reference has a Kiln implementation, except those marked missing. The full table, with the
 matching Kiln C# API and how each was tested, is in
@@ -63,8 +97,8 @@ matching Kiln C# API and how each was tested, is in
   generated client text catalog (`Texts` in `Kiln.Content`); a server without that catalog returns nil.
 - **Tools**: `Kiln.DevTools` supplies Bindings, Resources, Hooks, Game Log, Status and Console windows, as well as
   Systems and Types. They are Kiln windows, with view-model tests; their drawing and input still need a client.
-  Bindings lists Kiln `KeyBindings`, and Hooks lists Kiln hook statistics; they do not expose SET's private Lua binding
-  registry or its full capture diagnostics.
+  Those generic Bindings/Hooks windows list Kiln's registries; the SET tools above expose SET's own bindings,
+  capture diagnostics and rule rows.
 - **Missing**: `GameOptions.*` (raises "game options not found yet"), `Admin.send` (raises an unavailable error), and
   ImGui Debug. SET's `settings.ini` editor is not reproduced by the Status window.
 
@@ -100,10 +134,11 @@ matching Kiln C# API and how each was tested, is in
   | `combat_xp`, `hit` | the catalog check, with its reason |
   | `hooks` (Kiln only) | kiln.hooks is running |
   | `admin_send` (Kiln only) | never: use the Admin helpers |
-  | `mod_settings_page` (Kiln only) | never: values are saved, but there is no page and `onChange` never runs |
+  | `mod_settings_page` (Kiln only) | available with the client overlay; unavailable on a dedicated server |
 - **`Settings.define{...}`**: values are typed, clamped, and saved to the mod's `settings.json` within a second, at
   once on a reload or when the game closes. Unknown keys in the file are kept. A wrong type falls back to the default
-  with a yellow line. A broken file becomes `settings.json.bad`. Edit the file by hand while the game is closed.
+  with a yellow line. A broken file becomes `settings.json.bad`. Edit in the SET tools page, or edit the file by hand
+  while the game is closed.
 - **`settings.json` belongs to `Settings.define`**: `io.open("settings.json", "w")` returns nil and a message. Reading
   works.
 - **Key names**: Space, Enter, Tab, arrows, numpad, and punctuation by its US name (`Semicolon`, `Equals`, ...).
@@ -114,13 +149,15 @@ matching Kiln C# API and how each was tested, is in
 - **`load()`**: a function built with `load()` belongs to the mod that registers it (Kiln did this before 0.2.0).
 - **Log lines** use SET 0.2.0's wording (`Mod Loaded:`, `Mod Failed:`, `Mod Skipped:`, `Hook '...' removed`).
 
-## What Kiln does not show
-SET 0.2.0's own overlay additions are not part of kiln-set:
-- the **Mod Settings** page (so `onChange` never runs; `Features().mod_settings_page` says so),
-- the **Entities** window (inspector),
-- the **Compatibility** window (`Features()` has the same data; `kiln.log` has the catalog lines),
-- the **bug report** dialog and `debugLog` setting,
-- the Hooks window's rule rows (rule hits, refusals and conflicts are kept, but no Kiln window lists them yet).
+## Remaining overlay differences
+The SET tools implement the 0.2 settings/change callbacks, compatibility, inspector, reporting and rule diagnostics
+listed above, including nearest-first sorting, scalar watches, a last-session notice and explicit clipboard copying.
+The inspector requires a component filter, caps candidate scans at 65,536 and flattens bounded fields instead of using
+upstream's expandable component tree (it does not show the list's HP/faction/component-count columns). The report
+notice does not attribute callstack frames to SET; no fallback Windows message box or report-site launch is provided.
+Full console filter/history UX remains different. The older SET `settings.ini` graphics/key editor and ImGui
+Debug/style tools also remain absent; older unavailable Lua APIs are listed under **What works**. These differences
+are not presented as complete upstream overlay parity.
 
 ## Differences from SET
 - Only `stamina_depletion_sprint` and `fall_damage_infliction` can be disabled; critical and unknown systems are
@@ -158,7 +195,8 @@ SET 0.2.0's own overlay additions are not part of kiln-set:
   causes refusal. The only mutable shipped-file exceptions are SET's root `settings.json`, EML's root `config.txt`
   and `config.ini`, and ShroudForge's existing structured `enabled`/`settings` values; `mod.json`, Lua code, DLLs
   and `native-plugin.ini` are not settings exceptions.
-- Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET, the Kiln.DevTools Bindings view lists Kiln `KeyBindings`, so SET's private Lua bindings still use this file.
+- Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET. Use the SET tools' Bindings tab for SET's
+  private Lua bindings; the Kiln.DevTools Bindings view lists Kiln `KeyBindings`.
 - `ImGui.BeginChild(id, w, h, border, flags)` uses SET's argument order; the current `kiln.ui` service always draws
   a child border. Window/child nesting is checked and unwound between callbacks, including callbacks that omit End.
 
@@ -170,6 +208,12 @@ startup/late-load coexistence checks (a failed module inventory included), mocke
 0.2.0's rules: the rule engine, the catalog checks, and rules through the real hook adapter on a fake kiln.hooks
 (`tests/rules_review_test.cpp`). `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
 `Hooks.rule` and the write log through the Lua bridge, including malformed-array and nonfinite-value rejection.
+`tests/overlay_cases.inl` drives the production SET tools through a mocked drawing table: all five setting types,
+large-int/double precision, next-tick/coalesced callbacks, reload revisions, exact feature reasons, sandboxed/redacted
+reports, current/previous log payloads, crash notice/dismissal/clean markers, console queuing and remap/Escape/capture
+lifecycle. `tests/inspector_cases.inl` exercises nearest selection across 5,000 matches, scalar watch snapshots and gone
+ids, bounded copies, exact compare-before-write, range/NaN refusal, selection changes during reads, world/session
+changes and thread guards. Managed `SetToolsTests` checks the private service table and UTF-8 mod-folder bridge.
 `bash native/plugins/set/test-wine.sh` checks the real Windows loader-notification/fingerprint coexistence path
 headlessly. These checks do not verify client rendering.
 
@@ -190,8 +234,9 @@ registered the actual rules through kiln-set and checked these results through t
 The same probe verified `GetVersion()`, `Features()`, the server build, XP availability, `hit` staying client-only,
 typed settings clamping, and protected `settings.json`. Restart loaded the saved settings and incremented `runs`
 from 1 to 2, with the clamped value still 10. This proves the server adapter's call/field/return mechanics, **not**
-XP awarded to a player or real damage. No real client was launched. Client return/after behavior, overlay/input,
-the missing settings UI and `onChange`, and gameplay/network observations remain unverified or unavailable as listed above.
+XP awarded to a player or real damage. The subsequent SET tools implementation is tested with the production Lua
+bridge, mocked drawing table and tick-side world fixtures, not this server lab. No real client was launched. Client
+return/after behavior, actual overlay rendering/input and gameplay/network observations remain unverified.
 
 `mods/tests/set-test/mods/` also holds SET's `myheal` example from its modding guide (unchanged) and `settest`, which
 checks the wider API on a server and prints PASS/FAIL lines. Its final assembled dev.20 run reported **39 PASS,
