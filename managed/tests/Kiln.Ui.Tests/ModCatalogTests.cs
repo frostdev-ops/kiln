@@ -411,7 +411,9 @@ public sealed class ModCatalogTests : IDisposable
         File.WriteAllText(Path.Combine(folder, "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
         File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a", "sta""");
         Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = folder }] });
-        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+        // "keys" (dev.24: where mod shortcuts get their key state) is an object beside the fields the catalog reads
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods"),
+            keys = new { source = "kiln", reason = "Kiln passes the game window's key, mouse button and focus records to the runtime (host key feed v1)" } });
         File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new { runtime = new { pid = Pid, running = true, updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), active = new[] { "pack" } } }));
         var s = Read();
         var pack = Mod(s, "shroudforge", "pack");
