@@ -9,6 +9,7 @@
 //
 // A write splices only the changed value into the file, so the rest stays byte-identical (comments, layout, keys we
 // do not know). A refused value never reaches the file.
+using System.Collections;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -49,6 +50,26 @@ internal sealed record SfSettingDef
     public JsonNode? Value { get; init; }
 }
 
+/// <summary>A package's settings in the order it declares them, indexed by key (the Mods page looks settings up every
+/// frame; a package may declare many).</summary>
+internal sealed class SfSettingList : IReadOnlyList<SfSettingDef>
+{
+    private readonly List<SfSettingDef> _list;
+    private readonly Dictionary<string, SfSettingDef> _byKey = new(StringComparer.Ordinal);
+
+    public SfSettingList(List<SfSettingDef> list)
+    {
+        _list = list;
+        foreach (var s in list) _byKey.TryAdd(s.Key, s);
+    }
+
+    public SfSettingDef? Find(string key) => _byKey.GetValueOrDefault(key);
+    public SfSettingDef this[int index] => _list[index];
+    public int Count => _list.Count;
+    public IEnumerator<SfSettingDef> GetEnumerator() => _list.GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+}
+
 /// <summary>A button a package declares in a settings group; it runs the mod's <c>shroudforge.ui.on_action</c> handler.</summary>
 internal sealed record SfAction(string Id, string Label, string? Style, string? Confirm);
 
@@ -73,6 +94,10 @@ internal sealed record SfPackage
     public IReadOnlyList<string> Targets { get; init; } = [];
     public IReadOnlyList<SfSettingDef> Settings { get; init; } = [];
     public IReadOnlyList<SfGroup> Groups { get; init; } = [];
+    /// <summary>Settings whose whole numbers an earlier Kiln wrote without their fraction: ShroudForge refuses the mod
+    /// until the next change (of the switch or any setting) puts the fraction back. Read as the fractional settings they
+    /// were (kiln-manage <c>SfMod::repair</c>).</summary>
+    public IReadOnlyList<string> Repair { get; init; } = [];
 
     /// <summary>The settings' values by key.</summary>
     public IReadOnlyDictionary<string, JsonNode?> Values => Settings.ToDictionary(s => s.Key, s => s.Value, StringComparer.Ordinal);
@@ -85,6 +110,7 @@ internal sealed class SfEditException(string message) : Exception(message);
 internal static class ShroudForgePackages
 {
     private static readonly JsonDocumentOptions ReadOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip, MaxDepth = 64 };
+    private static readonly JsonSerializerOptions ElementOptions = new() { AllowTrailingCommas = true, ReadCommentHandling = JsonCommentHandling.Skip, MaxDepth = 64 };
     private static readonly JsonNodeOptions NodeOptions = new() { PropertyNameCaseInsensitive = false };
 
     /// <summary>The file ShroudForge's <c>ensure_eml_extension</c> writes for a legacy EML package, as the launcher
@@ -112,12 +138,44 @@ internal static class ShroudForgePackages
         var bytes = new byte[(int)f.Length + 1];
         var n = f.ReadAtLeast(bytes, bytes.Length, throwOnEndOfStream: false);
         if (n == bytes.Length) throw new SfEditException("the settings file changed while reading; try again");
-        var text = new UTF8Encoding(false, true).GetString(bytes, 0, n);
+        string text;
+        try { text = new UTF8Encoding(false, true).GetString(bytes, 0, n); }
+        catch (DecoderFallbackException) { throw new SfEditException("the settings file is not UTF-8 text"); }
         return text.Length > 0 && text[0] == '﻿' ? text[1..] : text;
     }
 
-    private static JsonNode? Parse(string text) =>
-        JsonNode.Parse(text, NodeOptions, ReadOptions);
+    /// <summary>JSON(C) as ShroudForge's serde_json reads it: a repeated key keeps its first place and its last value; a
+    /// lone surrogate escape and a number beyond a double are refused (as in kiln-manage <c>read_text</c>).</summary>
+    private static JsonNode? Parse(string text)
+    {
+        try { return Node(JsonSerializer.Deserialize<JsonElement>(text, ElementOptions)); }
+        catch (InvalidOperationException) { throw new SfEditException("the settings file holds a lone surrogate escape"); }
+    }
+
+    private static JsonNode? Node(JsonElement e)
+    {
+        switch (e.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var o = new JsonObject(NodeOptions);
+                foreach (var m in e.EnumerateObject()) o[m.Name] = Node(m.Value);
+                return o;
+            case JsonValueKind.Array:
+                var a = new JsonArray(NodeOptions);
+                foreach (var x in e.EnumerateArray()) a.Add(Node(x));
+                return a;
+            case JsonValueKind.String:
+                e.GetString(); // decodes now: a lone surrogate escape throws here, not when the page reads the text
+                return JsonValue.Create(e, NodeOptions);
+            case JsonValueKind.Number:
+                if (!double.IsFinite(e.GetDouble())) throw new SfEditException($"the number {e.GetRawText()} is beyond a double");
+                return JsonValue.Create(e, NodeOptions);
+            case JsonValueKind.Null:
+                return null;
+            default:
+                return JsonValue.Create(e, NodeOptions);
+        }
+    }
 
     private static string? Str(JsonNode? o, string key) =>
         o is JsonObject obj && obj.TryGetPropertyValue(key, out var v) && v is JsonValue jv && jv.TryGetValue<string>(out var s) ? s : null;
@@ -159,8 +217,9 @@ internal static class ShroudForgePackages
                     case JsonValueKind.True or JsonValueKind.False: return "boolean";
                     case JsonValueKind.String: return "string";
                     case JsonValueKind.Number:
-                        // a JsonValue read from text keeps its token: "3" is an integer, "3.0" and "1e2" are not
-                        if (jv.TryGetValue<JsonElement>(out var e)) return e.TryGetInt64(out _) ? "integer" : "number";
+                        // a JsonValue read from text keeps its token: "3" is an integer, "3.0", "1e2" and "-0" are not
+                        // (serde_json's as_i64)
+                        if (jv.TryGetValue<JsonElement>(out var e)) return e.TryGetInt64(out _) && e.GetRawText() != "-0" ? "integer" : "number";
                         if (jv.TryGetValue<long>(out _) || jv.TryGetValue<int>(out _)) return "integer";
                         return "number";
                 }
@@ -181,30 +240,94 @@ internal static class ShroudForgePackages
         return sb.ToString();
     }
 
+    /// <summary>The type ShroudForge gives a setting's options: the value's, or a list's first member's (an empty list uses text).</summary>
+    private static string? ElementType(string type, JsonNode? value) =>
+        type == "array" ? value is JsonArray a && a.Count > 0 ? TypeOf(a[0]) : "string" : type;
+
+    /// <summary>An option key typed as ShroudForge types it (read_mod_settings.rs; kiln-manage <c>option_value</c>): a yes/no
+    /// key is true only as "true"; numbers are read as Rust's <c>str::parse</c> reads them, and a fractional key that is not
+    /// a finite double is an option without a value (null).</summary>
     private static JsonNode? OptionValue(string type, JsonNode? value, string option)
     {
-        var elementType = type == "array" && value is JsonArray a && a.Count > 0 ? TypeOf(a[0]) : type == "array" ? "string" : type;
+        var elementType = ElementType(type, value);
         return elementType switch
         {
-            "boolean" when option is "true" or "false" => JsonValue.Create(option == "true"),
-            "integer" when long.TryParse(option, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) => JsonValue.Create(l),
-            "number" when double.TryParse(option, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && double.IsFinite(d) => JsonValue.Create(d),
-            "boolean" or "integer" or "number" => throw new SfEditException($"invalid {elementType} option {option}"),
+            "boolean" => JsonValue.Create(option == "true"),
+            "integer" when RustInteger(option) is { } l => JsonValue.Create(l),
+            "number" when RustFloat(option) is { } d => double.IsFinite(d) ? JsonValue.Create(d) : null,
+            "integer" or "number" => throw new SfEditException($"invalid {elementType} option {option}"),
             _ => JsonValue.Create(option),
         };
     }
 
-    private static SfSettingDef ParseSetting(string key, JsonNode? entry, bool runtime, bool patch)
+    /// <summary>Rust's <c>str::parse::&lt;i64&gt;</c>: an optional sign, then ASCII digits only.</summary>
+    internal static long? RustInteger(string s)
+    {
+        var digits = s.Length > 0 && s[0] is '+' or '-' ? s.AsSpan(1) : s.AsSpan();
+        if (digits.Length == 0 || digits.ContainsAnyExceptInRange('0', '9')) return null;
+        return long.TryParse(s, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var l) ? l : null;
+    }
+
+    /// <summary>Rust's <c>str::parse::&lt;f64&gt;</c>: an optional sign, then inf, infinity or nan (any case), or digits with
+    /// an optional point and exponent (5, 5., .5, 1e-7); no spaces.</summary>
+    internal static double? RustFloat(string s)
+    {
+        var t = s.AsSpan();
+        var negative = t.Length > 0 && t[0] == '-';
+        if (t.Length > 0 && t[0] is '+' or '-') t = t[1..];
+        if (t.Equals("inf", StringComparison.OrdinalIgnoreCase) || t.Equals("infinity", StringComparison.OrdinalIgnoreCase))
+            return negative ? double.NegativeInfinity : double.PositiveInfinity;
+        if (t.Equals("nan", StringComparison.OrdinalIgnoreCase)) return double.NaN;
+        int i = 0, mantissa = 0;
+        while (i < t.Length && char.IsAsciiDigit(t[i])) { i++; mantissa++; }
+        if (i < t.Length && t[i] == '.')
+            for (i++; i < t.Length && char.IsAsciiDigit(t[i]); i++) mantissa++;
+        if (mantissa == 0) return null;
+        if (i < t.Length && t[i] is 'e' or 'E')
+        {
+            i++;
+            if (i < t.Length && t[i] is '+' or '-') i++;
+            var exponent = 0;
+            for (; i < t.Length && char.IsAsciiDigit(t[i]); i++) exponent++;
+            if (exponent == 0) return null;
+        }
+        return i == t.Length ? double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) : null;
+    }
+
+    private static SfSettingDef ParseSetting(string key, JsonNode? entry, bool runtime, bool patch, List<string> repair)
     {
         var meta = entry as JsonObject;
         var shorthand = meta is null || !meta.ContainsKey("value");
         var value = shorthand ? entry?.DeepClone() : meta!["value"]?.DeepClone();
         if (shorthand) meta = null;
         var type = TypeOf(value) ?? throw new SfEditException($"setting {key} has no editable value");
+        // A whole number written without its fraction by an earlier Kiln ([2, 1.5] for a fractional list, 2 for a
+        // fractional select): ShroudForge then types the setting as an integer and refuses its fractional option keys.
+        // When every key is a finite number and one is not whole, it can only have been the fractional setting: it is
+        // read as that, and the next write puts the fraction back (Repair; kiln-manage recover_fraction).
+        if (ElementType(type, value) == "integer" && meta?["options"] is JsonObject fo && fo.Count > 0 &&
+            fo.All(kv => RustFloat(kv.Key) is { } f && double.IsFinite(f)) && fo.Any(kv => RustInteger(kv.Key) is null))
+        {
+            if (value is JsonArray va && va.All(x => NumberOf(x) is not null))
+            {
+                value = new JsonArray(va.Select(x => (JsonNode?)JsonValue.Create(NumberOf(x)!.Value)).ToArray());
+                repair.Add(key);
+            }
+            else if (value is JsonValue)
+            {
+                value = JsonValue.Create(NumberOf(value)!.Value);
+                type = "number";
+                repair.Add(key);
+            }
+        }
         var options = new List<SfOption>();
+        // ShroudForge's schema: options name at least one choice ("options": {} refuses the mod)
+        if (meta is not null && meta.TryGetPropertyValue("options", out var declared) && declared is not JsonObject { Count: > 0 })
+            throw new SfEditException($"setting {key}: options must name at least one choice");
         if (meta?["options"] is JsonObject opts)
             foreach (var (k, label) in opts)
-                options.Add(new SfOption(OptionValue(type, value, k), label is JsonValue lv && lv.TryGetValue<string>(out var ls) ? ls : k));
+                options.Add(new SfOption(OptionValue(type, value, k), label is JsonValue lv && lv.GetValueKind() == JsonValueKind.String
+                    ? lv.GetValue<string>() : throw new SfEditException($"setting {key}: an option label is not text")));
         var control = Str(meta, "control");
         if (control is null && options.Count > 0) control = type == "array" ? "multiselect" : "select";
         var applyAt = Str(meta, "applyAt") ?? (Flag(meta, "restartRequired") == false ? "live" : "restart");
@@ -212,13 +335,15 @@ internal static class ShroudForgePackages
             throw new SfEditException($"setting {key}: applyAt and restartRequired must agree");
         if (type == "array" && options.Count == 0) throw new SfEditException($"list setting {key} must declare options");
         SfCondition? when = null;
-        if (meta?["enabledWhen"] is { } condition)
+        if (meta is not null && meta.TryGetPropertyValue("enabledWhen", out var condition))
         {
             if (condition is not JsonObject w || Str(w, "setting") is not { } target || !w.ContainsKey("equals"))
                 throw new SfEditException($"setting {key}: invalid enabledWhen");
             when = new SfCondition(target, w["equals"]?.DeepClone());
         }
-        int? Length(string keyName) => Num(meta, keyName) is { } n && n >= 0 && n <= int.MaxValue && Math.Floor(n) == n ? (int)n : null;
+        // ShroudForge reads the limits with as_u64: a whole number token (4, not 4.0)
+        int? Length(string keyName) =>
+            meta is not null && meta.TryGetPropertyValue(keyName, out var ln) && TypeOf(ln) == "integer" && NumberOf(ln) is { } n && n >= 0 && n <= int.MaxValue ? (int)n : null;
         return new SfSettingDef
         {
             Key = key, Type = type, Label = Str(meta, "label") ?? DisplayKey(key), Description = Str(meta, "description"),
@@ -246,10 +371,11 @@ internal static class ShroudForgePackages
         if (ext["targets"] is not JsonArray)
             targets = launcher == "EML" || !extended ? ["client", "server"] : ["client"];
         var settings = new List<SfSettingDef>();
+        var repair = new List<string>();
         if (ext["settings"] is JsonObject so)
         {
-            // duplicate keys: the last one counts (JsonNode refuses duplicates, so a file with them fails to read above)
-            foreach (var (k, v) in so) settings.Add(ParseSetting(k, v, runtime, patch));
+            // a repeated key was read as ShroudForge reads it (Parse): its first place, its last value
+            foreach (var (k, v) in so) settings.Add(ParseSetting(k, v, runtime, patch, repair));
         }
         var groups = new List<SfGroup>();
         if (ext["groups"] is JsonArray ga)
@@ -266,7 +392,7 @@ internal static class ShroudForgePackages
         {
             Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = Str(mod, "version") ?? "", Description = Str(mod, "description") ?? "",
             Enabled = Flag(ext, "enabled") ?? Flag(mod, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
-            Capabilities = caps, Targets = targets, Settings = settings, Groups = groups,
+            Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups, Repair = repair,
         };
     }
 
@@ -280,6 +406,10 @@ internal static class ShroudForgePackages
         return JsonNode.DeepEquals(a, b);
     }
 
+    /// <summary>The setting <paramref name="key"/> (an index lookup for a package's own list).</summary>
+    public static SfSettingDef? Find(IReadOnlyList<SfSettingDef> settings, string key) =>
+        settings is SfSettingList l ? l.Find(key) : settings.FirstOrDefault(x => x.Key == key);
+
     /// <summary>ShroudForge's <c>setting_is_enabled</c>: the <c>enabledWhen</c> chain holds for <paramref name="values"/>.
     /// A missing controller or a cycle disables the setting.</summary>
     public static bool IsEnabled(string key, IReadOnlyList<SfSettingDef> settings, IReadOnlyDictionary<string, JsonNode?> values)
@@ -288,7 +418,7 @@ internal static class ShroudForgePackages
         var seen = new HashSet<string>(StringComparer.Ordinal);
         while (true)
         {
-            var s = settings.FirstOrDefault(x => x.Key == current);
+            var s = Find(settings, current);
             if (s is null) return false;
             if (s.EnabledWhen is not { } cond) return true;
             if (!seen.Add(current)) return false;
@@ -389,7 +519,7 @@ internal static class ShroudForgePackages
     {
         var p = Read(folder);
         if (p.Extended && p.Enabled == on) return p;
-        var text = p.Extended ? ReadText(Path.Combine(folder, "extended.mod.json")) : EmlExtension;
+        var text = p.Extended ? Repair(ReadText(Path.Combine(folder, "extended.mod.json")), p) : EmlExtension;
         var root = JsonSpans.Parse(text);
         var rendered = on ? "true" : "false";
         var updated = root.Get("enabled") is { } node
@@ -403,20 +533,102 @@ internal static class ShroudForgePackages
     public static SfPackage SetSetting(string folder, string key, JsonNode? value)
     {
         var p = Read(folder);
-        var s = p.Settings.FirstOrDefault(x => x.Key == key) ?? throw new SfEditException($"{p.Name} has no setting {key}");
+        var s = Find(p.Settings, key) ?? throw new SfEditException($"{p.Name} has no setting {key}");
         if (Check(s, value) is { } why) throw new SfEditException(why);
-        var text = p.Extended ? ReadText(Path.Combine(folder, "extended.mod.json")) : EmlExtension;
+        var text = p.Extended ? Repair(ReadText(Path.Combine(folder, "extended.mod.json")), p) : EmlExtension;
         var root = JsonSpans.Parse(text);
         var at = root.Get("settings")?.Get(key);
         if (at is not null && !s.Shorthand) at = at.Get("value");
         if (at is null) throw new SfEditException($"{p.Name}: setting {key} is not in extended.mod.json");
         var lineIndent = JsonSpans.LineIndent(text, at.Start);
-        var rendered = s.Type == "number" && NumberOf(value) is { } d && Math.Floor(d) == d && Math.Abs(d) < 1e15
-            // a whole value of a fractional setting stays fractional (2.0): ShroudForge types a setting by what it reads
-            ? d.ToString("0.0", CultureInfo.InvariantCulture)
-            : Render(value, lineIndent, text.Contains("\r\n", StringComparison.Ordinal));
+        var rendered = RenderValue(s, value, lineIndent, text.Contains("\r\n", StringComparison.Ordinal));
         Write(folder, text[..at.Start] + rendered + text[at.End..]);
         return Read(folder);
+    }
+
+    /// <summary>A value as text, typed the way ShroudForge reads it back (it types a setting by its value, a list by its
+    /// first member; kiln-manage <c>render_setting_value</c>): the numbers of a fractional setting as serde_json writes a
+    /// double (always with a fraction or an exponent: 2.0, 0.75, 1e-7), those of an integer setting as integers.</summary>
+    internal static string RenderValue(SfSettingDef s, JsonNode? v, string indent = "", bool crlf = false)
+    {
+        var type = ElementType(s.Type, s.Value);
+        string One(JsonNode? x) =>
+            x is JsonValue n && n.GetValueKind() == JsonValueKind.Number && NumberOf(n) is { } d
+                ? type == "number" ? SerdeDouble(d)
+                : type == "integer" && TypeOf(n) == "number" && Math.Floor(d) == d && Math.Abs(d) < 9e15 ? ((long)d).ToString(CultureInfo.InvariantCulture)
+                : Render(x, indent, crlf)
+                : Render(x, indent, crlf);
+        return v switch
+        {
+            JsonArray a when a.All(x => x is not JsonArray and not JsonObject) => "[" + string.Join(", ", a.Select(One)) + "]",
+            JsonArray or JsonObject => Render(v, indent, crlf),
+            _ => One(v),
+        };
+    }
+
+    /// <summary>The text with the fraction put back on the whole numbers of every setting read as fractional although
+    /// ShroudForge would read it as an integer (see ParseSetting): "2" becomes "2.0"; nothing else changes
+    /// (kiln-manage <c>repair_fractions</c>).</summary>
+    private static string Repair(string text, SfPackage p)
+    {
+        var root = JsonSpans.Parse(text);
+        // the last member of each key, as ShroudForge reads it
+        var declared = new Dictionary<string, JsonSpans>(StringComparer.Ordinal);
+        foreach (var m in root.Get("settings")?.Members ?? []) declared[m.Key] = m.Value;
+        var at = new List<int>();
+        foreach (var s in p.Settings)
+        {
+            if (ElementType(s.Type, s.Value) != "number") continue;
+            var node = declared.GetValueOrDefault(s.Key);
+            if (node is not null && !s.Shorthand) node = node.Get("value");
+            if (node is null) continue;
+            List<JsonSpans> tokens = node.Kind == '[' ? node.Items.Select(x => x.Value).ToList() : [node];
+            bool Whole(JsonSpans n) => n.Kind == 'v' && IntegerToken(text.AsSpan(n.Start, n.End - n.Start));
+            if (tokens.Count > 0 && Whole(tokens[0])) at.AddRange(tokens.Where(Whole).Select(n => n.End));
+        }
+        if (at.Count == 0) return text;
+        at.Sort();
+        var sb = new StringBuilder(text);
+        for (var i = at.Count - 1; i >= 0; i--) sb.Insert(at[i], ".0");
+        return sb.ToString();
+    }
+
+    /// <summary>A number token ShroudForge's serde_json reads as an integer (as_i64): 2, not 2.0, -0 or 1e2.</summary>
+    private static bool IntegerToken(ReadOnlySpan<char> t) =>
+        t.Length > 0 && (char.IsAsciiDigit(t[0]) || t[0] == '-') && !t.SequenceEqual("-0") &&
+        long.TryParse(t, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _);
+
+    /// <summary>A double as serde_json writes it (kiln-manage and ShroudForge): the shortest digits that read back as the
+    /// same double, as a plain decimal with at least one fraction digit when the first digit stands from 10^-5 to 10^15
+    /// (0.00001, 2.0, 2000000000000000.0), else d.ddde±x (1e-7, 1.5e+300, 1e+16).</summary>
+    internal static string SerdeDouble(double d)
+    {
+        if (!double.IsFinite(d)) return "null";
+        var r = d.ToString("R", CultureInfo.InvariantCulture); // shortest round trip: 1E-07, -1.5E+300, 123.456, -0
+        var sign = r[0] == '-' ? "-" : "";
+        if (sign.Length > 0) r = r[1..];
+        var exp = 0;
+        var e = r.IndexOf('E');
+        if (e >= 0)
+        {
+            exp = int.Parse(r.AsSpan(e + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+            r = r[..e];
+        }
+        var dot = r.IndexOf('.');
+        var whole = dot >= 0 ? r[..dot] : r;
+        var all = whole + (dot >= 0 ? r[(dot + 1)..] : "");
+        var first = all.Length - all.TrimStart('0').Length;
+        var digits = all.Trim('0');
+        if (digits.Length == 0) return sign + "0.0";
+        var decExp = whole.Length - 1 - first + exp; // the power of ten of the first digit
+        if (decExp is >= -5 and <= 15)
+        {
+            if (digits.Length - 1 <= decExp) return sign + digits + new string('0', decExp + 1 - digits.Length) + ".0";
+            if (decExp >= 0) return sign + digits[..(decExp + 1)] + "." + digits[(decExp + 1)..];
+            return sign + "0." + new string('0', -decExp - 1) + digits;
+        }
+        return sign + digits[0] + (digits.Length > 1 ? "." + digits[1..] : "") + "e" + (decExp < 0 ? "-" : "+") +
+               Math.Abs(decExp).ToString(CultureInfo.InvariantCulture);
     }
 
     private static void Write(string folder, string text)
@@ -431,7 +643,12 @@ internal static class ShroudForgePackages
         var tmp = path + ".kiln-" + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var f = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) f.Write(bytes);
+            using (var f = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                f.Write(bytes);
+                // on disk before the rename: a crash must not leave a renamed, empty settings file (kiln-manage write_atomic)
+                f.Flush(flushToDisk: true);
+            }
             PlainFile(path);
             File.Move(tmp, path, overwrite: true);
         }
@@ -467,7 +684,7 @@ internal static class ShroudForgePackages
                         if (jv.TryGetValue<long>(out var l)) return l.ToString(CultureInfo.InvariantCulture);
                         var d = NumberOf(jv) ?? 0;
                         if (Math.Floor(d) == d && Math.Abs(d) < 1e15) return ((long)d).ToString(CultureInfo.InvariantCulture);
-                        return d.ToString("R", CultureInfo.InvariantCulture);
+                        return SerdeDouble(d);
                 }
                 return "null";
             default: return "null";
@@ -572,7 +789,8 @@ internal sealed class JsonSpans
             var c = t[i];
             if (c is ' ' or '\t' or '\r' or '\n') i++;
             else if (c == '/' && i + 1 < t.Length && t[i + 1] == '/')
-                while (i < t.Length && t[i] != '\n') i++;
+                // a line comment ends at CR or LF (System.Text.Json, kiln-manage jsonc)
+                while (i < t.Length && t[i] is not ('\n' or '\r')) i++;
             else if (c == '/' && i + 1 < t.Length && t[i + 1] == '*')
             {
                 var end = t.IndexOf("*/", i + 2, StringComparison.Ordinal);

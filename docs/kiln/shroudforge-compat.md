@@ -149,10 +149,10 @@ needs no Kiln hook. A failed preparation is reported; the adapter does not attem
 
 `detect`, `mods_dir` (SF's `paths.mods`), `is_sf_mod` (tells SF/EML Lua packages from EMF mods),
 `read_mod`/`list_mods`, `skip_reason` (plain-words skip messages), `set_enabled`, `set_setting` (checks type, range and
-options; it splices only the value with `jsonc::set_value`, so the file stays byte-identical otherwise),
+options; it splices only the value, typed as SF reads it back (a fractional setting's numbers keep a fraction or an
+exponent), so the file stays byte-identical otherwise),
 `settings_schema` (JSON Schema for the launcher's SchemaForm with `x-kiln-control`, `x-kiln-group`, `x-kiln-restart`,
-`x-kiln-enum-labels`, `x-kiln-enabled-when`), `settings_values`, `apply_switches` (a legacy bulk-switch helper, **not**
-called by profile activation), `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Unit
+`x-kiln-enum-labels`, `x-kiln-enabled-when`), `settings_values`, `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Unit
 tests and shared managed/Rust package fixtures cover parsing and byte-preserving edits. Runtime reports require a fresh
 heartbeat and active runtime; a confirmed memory write is not proof of the gameplay effect.
 
@@ -279,7 +279,7 @@ works in step 3: see step 5.
 - **Profiles** (`schema/profile.schema.json` `mods`): add `"shroudforge": [{id, path, enabled}]`. The core already
   ignores unknown kinds with a warning (`profile.cpp:107`). Activation uses `engine_mods::place`: only Kiln's
   receipt-owned copies get their `enabled` flag changed. Original player folders, even when listed with the opposite
-  profile switch, are never changed. `shroudforge::apply_switches` is not in the activation path.
+  profile switch, are never changed.
 - **Launcher UI**: SF mods on the Library and Profile pages; a settings screen from `settings_schema` + `settings_values`,
   saved through `set_setting` (SF applies `live` settings at once); status from `shroudforge::status` + `effects`.
   Proposed texts are in [wiki-notes/sf.md](wiki-notes/sf.md). Replace "Kiln replaces ShroudForge" with "Kiln runs next to
@@ -318,7 +318,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | SF feature | Under Kiln | Kiln C# / launcher equivalent | Status / tested |
 |---|---|---|---|
 | `mod.json` (id, name, version, authors, deps, capabilities) | plugin (SF reads it); kiln-manage `read_mod` | `kiln.mod.json` | done; unit |
-| `extended.mod.json` `enabled` | plugin; `set_enabled`, `apply_switches` | profile entry `enabled` | done; unit, lab (enabled survival + probe) |
+| `extended.mod.json` `enabled` | plugin; `set_enabled` | profile entry `enabled` | done; unit, lab (enabled survival + probe) |
 | `targets` client/server | plugin (SF skips a mod outside its targets) | `side` in kiln.mod.json | done; lab (server) |
 | settings `value` + label/description/control/min/max/step/options/enabledWhen/applyAt | plugin; launcher SchemaForm and in-game Mods panel edit the same file | `[Config]` classes + SchemaForm | shared Rust/managed fixtures; rendered SF panel still a client check |
 | live settings (`shroudforge.settings.get` in callbacks) | plugin | `Config` reload events | done; **lab**: survival all off → "Runtime settings applied live", effect `no-change: All Survival settings are off`; probe off → restore |

@@ -85,7 +85,10 @@ Things to know:
   Use `runtime.overrides` so ShroudForge restores your changes when your mod is switched off.
 - The Kiln Launcher and in-game Mods panel read your `extended.mod.json` metadata: label, description, control,
   min/max/step, text lengths, typed options, groups, `enabledWhen` and `applyAt` / `restartRequired`. Declare them fully.
-  Edits splice only the changed value, preserving comments and layout. The in-game panel uses checkboxes, sliders,
+  Edits splice only the changed value, preserving comments and layout. A fractional setting keeps its fraction (`2.0`),
+  as ShroudForge types a setting (and a list, by its first member) by the number it reads; a file in which an earlier
+  Kiln wrote a whole value without it (`[2, 1.5]` next to option keys such as `"1.5"`, which ShroudForge refuses) is
+  read as the fractional setting and repaired by the next change. The in-game panel uses checkboxes, sliders,
   numeric/text/multiline fields and choice lists; radio/segmented use a combo, colors use text. Keybind settings use
   editable canonical SDL strings, not press-to-capture (for example `Ctrl+SDL:66|Mouse:4`, empty to disable).
   SF's SDL backend additionally checks keyboard availability. Group action buttons write SF's public UI action requests;

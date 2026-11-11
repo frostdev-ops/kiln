@@ -19,7 +19,7 @@ public sealed class ShroudForgeTests : IDisposable
         catch (IOException) { }
     }
 
-    private static string FixtureFile([CallerFilePath] string self = "") =>
+    internal static string FixtureFile([CallerFilePath] string self = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(self)!, "..", "..", "..", "schema", "fixtures", "shroudforge", "cases.json"));
 
     private static JsonArray Cases() => (JsonNode.Parse(File.ReadAllText(FixtureFile()))!["cases"] as JsonArray)!;
@@ -52,14 +52,22 @@ public sealed class ShroudForgeTests : IDisposable
     private static void Same(JsonNode? expected, JsonNode? actual, string what) =>
         Assert.True(JsonNode.DeepEquals(Normal(expected), Normal(actual)), $"{what}\nexpected {expected?.ToJsonString()}\nactual   {actual?.ToJsonString()}");
 
-    // 5 and 5.0 are the same number for the comparison (the fixture is written by Python, which keeps 5.0)
+    // A number compares by its kind as ShroudForge types it (5 is an integer, 5.0 is not) and its value, however the
+    // node holds it (read from the fixture's text, or made by the reader with JsonValue.Create).
     private static JsonNode? Normal(JsonNode? n) => n switch
     {
         JsonObject o => new JsonObject(o.Select(kv => KeyValuePair.Create(kv.Key, Normal(kv.Value)))),
         JsonArray a => new JsonArray(a.Select(Normal).ToArray()),
-        JsonValue v when ShroudForgePackages.NumberOf(v) is { } d => JsonValue.Create(d),
+        JsonValue v when ShroudForgePackages.NumberOf(v) is { } d =>
+            JsonValue.Create(ShroudForgePackages.TypeOf(v) + " " + d.ToString("R", System.Globalization.CultureInfo.InvariantCulture)),
         _ => n?.DeepClone(),
     };
+
+    /// <summary>The bytes of a case's extended.mod.json: <c>extended</c> as UTF-8, or <c>extendedLatin1</c> one byte per
+    /// character (a file that is not UTF-8).</summary>
+    private static byte[]? ExtendedBytes(JsonNode c) =>
+        c["extendedLatin1"] is JsonValue l ? System.Text.Encoding.Latin1.GetBytes(l.GetValue<string>())
+        : c["extended"] is JsonValue e ? System.Text.Encoding.UTF8.GetBytes(e.GetValue<string>()) : null;
 
     [Theory]
     [MemberData(nameof(Names))]
@@ -70,14 +78,25 @@ public sealed class ShroudForgeTests : IDisposable
         Directory.CreateDirectory(Path.Combine(dir, "src"));
         File.WriteAllText(Path.Combine(dir, "mod.json"), c["mod"]!.ToJsonString());
         File.WriteAllText(Path.Combine(dir, "src", "mod.lua"), "return {}");
-        if (c["extended"] is JsonValue ext) File.WriteAllText(Path.Combine(dir, "extended.mod.json"), ext.GetValue<string>());
+        var original = ExtendedBytes(c);
+        if (original is not null) File.WriteAllBytes(Path.Combine(dir, "extended.mod.json"), original);
 
-        var p = ShroudForgePackages.Read(dir);
-        var read = c["read"]!;
-        Assert.Equal(read["enabled"]!.GetValue<bool>(), p.Enabled);
-        Assert.Equal(read["switchLive"]!.GetValue<bool>(), p.SwitchLive);
-        Same(read["settings"], new JsonArray(p.Settings.Select(View).ToArray()), name + ": settings");
-        Same(read["enabledNow"], EnabledNow(p), name + ": enabledWhen");
+        var refused = c["refused"]?.GetValue<bool>() == true;
+        if (refused)
+        {
+            // ShroudForge refuses the package: so does the page, and nothing is written
+            Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(dir));
+        }
+        else
+        {
+            var p = ShroudForgePackages.Read(dir);
+            var read = c["read"]!;
+            Assert.Equal(read["enabled"]!.GetValue<bool>(), p.Enabled);
+            Assert.Equal(read["switchLive"]!.GetValue<bool>(), p.SwitchLive);
+            Same(read["settings"], new JsonArray(p.Settings.Select(View).ToArray()), name + ": settings");
+            Same(read["enabledNow"], EnabledNow(p), name + ": enabledWhen");
+            Same(read["repair"] ?? new JsonArray(), new JsonArray(p.Repair.Select(k => (JsonNode)k).ToArray()), name + ": settings to repair");
+        }
 
         var file = Path.Combine(dir, "extended.mod.json");
         foreach (var e in (c["edits"] as JsonArray)!)
@@ -93,8 +112,16 @@ public sealed class ShroudForgeTests : IDisposable
             Assert.True(e!["ok"]!.GetValue<bool>() == (error is null), $"{name}: {e.ToJsonString()} -> {error?.Message ?? "ok"}");
             if (error is not null) Assert.Equal(before, File.Exists(file) ? File.ReadAllBytes(file) : null);
         }
-        Assert.Equal(c["expect"]!.GetValue<string>(), File.ReadAllText(file));
-        Assert.False(File.Exists(file + ".kiln-tmp"));
+        // the bytes, not File.ReadAllText: that would drop a byte order mark the writer left (GetString keeps it as U+FEFF)
+        if (refused) Assert.Equal(original, File.ReadAllBytes(file));
+        else
+        {
+            Assert.Equal(c["expect"]!.GetValue<string>(), new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(file)));
+            // a write repairs every setting an earlier Kiln damaged
+            if (File.Exists(file)) Assert.Empty(ShroudForgePackages.Read(dir).Repair);
+        }
+        // the writer's temporary file (extended.mod.json.kiln-<id>.tmp) is gone
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
         if (c["enabledAfter"] is { } after) Same(after, EnabledNow(ShroudForgePackages.Read(dir)), name + ": enabledWhen after the edits");
     }
 
@@ -164,7 +191,7 @@ public sealed class ShroudForgeTests : IDisposable
     [InlineData("\"value\":1,\"applyAt\":\"soon\"")]
     [InlineData("\"value\":1,\"applyAt\":\"live\",\"restartRequired\":true")]
     [InlineData("\"value\":1,\"enabledWhen\":{}")]
-    [InlineData("\"value\":true,\"options\":{\"not-a-bool\":\"Bad\"}")]
+    [InlineData("\"value\":1,\"options\":{\"not-a-number\":\"Bad\"}")]
     public void Malformed_metadata_is_not_editable(string settings)
     {
         var dir = Package(settings);
@@ -230,5 +257,66 @@ public sealed class ShroudForgeTests : IDisposable
         Assert.Equal("number", ShroudForgePackages.TypeOf(JsonNode.Parse("3.0")));
         Assert.Equal("number", ShroudForgePackages.TypeOf(JsonValue.Create(3.0)));
         Assert.Equal("integer", ShroudForgePackages.TypeOf(JsonValue.Create(3)));
+    }
+}
+
+/// <summary>Large packages (megabytes of settings): run alone, so their allocations and garbage collections do not stretch
+/// the timing of the worker and snapshot tests that run in parallel.</summary>
+[CollectionDefinition(nameof(ShroudForgeLargeFileTests), DisableParallelization = true)]
+public sealed class ShroudForgeLargeFileCollection;
+
+[Collection(nameof(ShroudForgeLargeFileTests))]
+public sealed class ShroudForgeLargeFileTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "kiln-sf-large-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_root, true); }
+        catch (IOException) { }
+    }
+
+    private string Package()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "mod.json"), """{"id":"test","name":"Test","version":"1","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"enabled\":true,\"settings\":{\"amount\":{\"value\":1}}}");
+        return _root;
+    }
+
+    /// <summary><c>limits.fileBytes</c>: the same bound as the launcher's reader.</summary>
+    [Fact]
+    public void The_settings_file_size_is_bounded_like_the_launcher()
+    {
+        var limit = JsonNode.Parse(File.ReadAllText(ShroudForgeTests.FixtureFile()))!["limits"]!["fileBytes"]!.GetValue<int>();
+        Assert.Equal(ShroudForgePackages.MaxFileBytes, limit);
+        var dir = Package();
+        var file = Path.Combine(dir, "extended.mod.json");
+        const string body = "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1}}}";
+        File.WriteAllText(file, body + new string(' ', limit - body.Length));
+        Assert.Single(ShroudForgePackages.Read(dir).Settings);
+        File.WriteAllText(file, body + new string(' ', limit + 1 - body.Length));
+        Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(dir));
+        Assert.Throws<SfEditException>(() => ShroudForgePackages.SetEnabled(dir, false));
+        Assert.Equal(limit + 1, new FileInfo(file).Length);
+    }
+
+    /// <summary>The Mods page asks IsEnabled for every setting every frame, on the game's render thread: a lookup by key
+    /// must not scan the list (50,000 settings fit in the 2 MiB file).</summary>
+    [Fact]
+    public void Settings_are_looked_up_by_key_not_by_scanning()
+    {
+        const int n = 50_000;
+        var dir = Package();
+        var body = string.Join(",", Enumerable.Range(0, n).Select(i => $"\"s{i:D5}\":{{\"value\":{i}}}"));
+        File.WriteAllText(Path.Combine(dir, "extended.mod.json"), "{\"enabled\":true,\"settings\":{" + body + "}}");
+        var p = ShroudForgePackages.Read(dir);
+        var values = p.Values;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var enabled = p.Settings.Count(s => ShroudForgePackages.IsEnabled(s.Key, p.Settings, values));
+        clock.Stop();
+        Assert.Equal(n, enabled);
+        Assert.Same(p.Settings[n - 1], ShroudForgePackages.Find(p.Settings, $"s{n - 1:D5}"));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"one frame's IsEnabled calls for {n} settings took {clock.Elapsed}");
     }
 }
