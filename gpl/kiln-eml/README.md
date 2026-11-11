@@ -93,14 +93,22 @@ Each is marked `kiln-eml:` in the source.
     (`phase: running` and `progress`) and the `kiln.progress` window of kiln-core; `runner.rs` creates the `Progress`,
     gives the sink the mods, and says what the no-mods restore check reads.
 
-11. `mod-loader-lua/ownership.rs`, `lib.rs`, `load.rs`, `transaction.rs`, `kiln-eml/src/runner.rs`: exact SHA-256
-    output and working-backup receipts gate automatic restoration and patch-cache skipping. Legacy performance caches
-    never establish ownership. Real archive changes invalidate only a recognized ShroudForge prepared-asset cache
-    under its installation lock, preserving settings and retaining exact original/replacement bytes in a recovery
-    journal. Unknown schemas/receipts, busy locks and linked descendants refuse unsafe handoffs; selected-game layout
-    ancestors may be legitimate volume mounts. Idle EML never restores another loader's output merely because a shared
-    `.kfc.bak` exists. Linux and Windows ownership tests cover these boundaries; a headless actual SF/EML/uninstall/SF
-    dedicated-server round trip confirmed standalone SF reapplies unchanged-fingerprint asset mods without reinstalling.
+11. `mod-loader-lua/ownership.rs`, `lib.rs`, `load.rs`, `transaction.rs`, `cache/mod.rs`, `kiln-eml/src/runner.rs`,
+    `plugin.rs`: exact SHA-256 output and working-backup receipts gate automatic restoration and patch-cache skipping;
+    the receipt keeps the previous owned generation until a publication's header is live. A change cache that merely
+    exists never establishes ownership; once, with no receipt, the change cache of dev.20 to dev.23 is accepted as proof
+    when it names the live header and resource file by content and the backups exactly (`adopt`). The change cache
+    records the receipt whose output it fingerprinted (`owner`), so an unchanged start reads nothing; the full check is
+    kept before a restore. A restore also removes the containers the receipt lists that the vanilla header does not
+    reference. Real archive changes invalidate only a recognized ShroudForge prepared-asset cache (SF's own shapes) under
+    SF's write lock, held until the last archive write, never its startup lease, preserving settings and retaining
+    exact original/replacement bytes in a recovery journal. Unknown schemas/receipts, busy locks, an SF preparation in
+    progress, SF's unfinished publication journal and linked descendants (asked by name too, for links made on the
+    Linux side under Wine) refuse unsafe handoffs; the selected game location itself and its ancestors may be links.
+    Idle EML never restores another loader's output merely because a shared `.kfc.bak` exists, and says why it left
+    differing data (`reason` in the state). A run removes the stage folders and temp copies a killed run left.
+    Linux and Windows ownership tests cover these boundaries; a headless actual SF/EML/uninstall/SF dedicated-server
+    round trip confirmed standalone SF reapplies unchanged-fingerprint asset mods without reinstalling.
 
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.
