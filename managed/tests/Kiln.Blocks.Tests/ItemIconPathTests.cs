@@ -228,6 +228,29 @@ public sealed unsafe class ItemIconPathTests : IDisposable
         Assert.Equal(7, mod.Errors.Count);
     }
 
+    [Theory]
+    [InlineData(false, "icons/missing.png")]
+    [InlineData(false, "../../outside.png")]
+    [InlineData(false, "icons/broken.png")]
+    [InlineData(true, "icons/missing.png")]
+    [InlineData(true, "../../outside.png")]
+    [InlineData(true, "icons/broken.png")]
+    public void A_status_and_perk_keep_their_starters_icon_when_the_optional_png_is_unusable(bool isPerk, string icon)
+    {
+        File.WriteAllText(Full("icons/broken.png"), "not a PNG");
+        var mod = NewMod();
+        var low = isPerk
+            ? Compiler.Lower(mod, "strong", BlockJson.Parse<PerkBlock>($$"""{ "name": "Strong", "modifies": { "max-health": 10 }, "icon": "{{icon}}" }""")).Low.Json
+            : Compiler.Lower(mod, "warm", new StatusBlock { Name = "Warm", Seconds = 5, Icon = icon }).Low.Json;
+        Assert.Equal($"{Id}.{(isPerk ? "strong" : "warm")}", (string?)low[isPerk ? "perks" : "buffs"]?[0]?["name"]);
+        Assert.Null(low["icon"]);
+        Assert.Empty(mod.OwnIcons);
+        var error = Assert.Single(mod.Errors);
+        Assert.Contains(", icon:", error);
+        Assert.Contains(Full(icon), error);
+        Assert.Contains("the base icon stays", error);
+    }
+
     [Fact]
     public void A_path_that_leaves_the_mods_folder_or_names_no_file_is_refused_with_the_field()
     {

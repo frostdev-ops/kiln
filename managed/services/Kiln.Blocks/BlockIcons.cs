@@ -51,12 +51,17 @@ internal static class BlockIcons
         catch (Exception e) when (e is BlockError or IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             // An icon is optional. In particular, never turn items already in a player's save into placeholders for a bad picture.
-            var text = $"block {ctx.Block}, {path}: {file}: {(e is BlockError b ? b.Problem : e.Message)}; the base icon stays";
-            lock (ctx.Mod.Errors) ctx.Mod.Errors.Add(text);
-            ctx.Mod.ReportDirty = true;
-            BlocksBridge.Log(LogLevel.Error, $"blocks: {ctx.Mod.Id}: {text}");
+            Refused(ctx, path, file, e is BlockError b ? b.Problem : e.Message);
             return null;
         }
+    }
+
+    private static void Refused(BlockContext ctx, string path, string file, string problem)
+    {
+        var text = $"block {ctx.Block}, {path}: {file}: {problem}; the base icon stays";
+        lock (ctx.Mod.Errors) ctx.Mod.Errors.Add(text);
+        ctx.Mod.ReportDirty = true;
+        BlocksBridge.Log(LogLevel.Error, $"blocks: {ctx.Mod.Id}: {text}");
     }
 
     /// <summary>A bounded, complete PNG (including the compressed scanlines), or null. The native decoder still makes the pixels.</summary>
@@ -135,7 +140,16 @@ internal static class BlockIcons
     public static Guid Own(BlockContext ctx, Lowered low, string section, string entry, GameDataRegistry registry, string starter, string icon, string key, string path)
     {
         ctx.Need(ClientsLevel.Mod, path, "a PNG icon has to be on every player's game: nothing can send it (a game " + (section == "buffs" ? "status's icon, a GameBuffs constant," : "perk's icon, a GamePerks constant,") + " asks no more than kiln)");
-        var file = CheckPng(ctx, icon, path);
+        string file;
+        try { file = CheckPng(ctx, icon, path); }
+        catch (BlockError e)
+        {
+            file = Path.Combine(BlocksBridge.ModDirectory(ctx.Mod.Id), icon.Replace('\\', '/'));
+            try { file = Path.GetFullPath(file); }
+            catch (Exception invalid) when (invalid is ArgumentException or NotSupportedException or IOException) { }
+            Refused(ctx, path, file, e.Problem);
+            return System.Guid.Empty; // no own texture or late icon rule: the clone keeps its starter's icon
+        }
         var texture = TextureGuid(ctx.Mod.Id, section, key);
         low.Json["icon"] = new JsonObject { ["file"] = icon, ["texture"] = texture.ToString() };
         var mod = ctx.Mod;
