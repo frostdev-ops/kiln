@@ -1016,6 +1016,15 @@ fn remove_copy(game: &Path, dst: &Path, persist: impl FnOnce() -> Result<()>) ->
     Ok(())
 }
 
+/// Keep the shared list unchanged on a failed write: the folder transaction will roll that copy back.
+fn put_placement(game: &Path, receipts: &mut Vec<Placement>, receipt: &Placement) -> Result<()> {
+    let mut next = receipts.iter().filter(|r| r.path != receipt.path).cloned().collect::<Vec<_>>();
+    next.push(receipt.clone());
+    save_placements(game, &next)?;
+    *receipts = next;
+    Ok(())
+}
+
 /// Publish a removal's receipt only after the folder transaction succeeds. A later mod must never save the
 /// rolled-back removal of an earlier mod from this run.
 fn remove_placement(game: &Path, receipts: &mut Vec<Placement>, dst: &Path) -> Result<()> {
@@ -1225,6 +1234,15 @@ fn still_runs(kind: ModKind, on: bool, have: Option<&Marker>, want: Option<&Mark
     }
 }
 
+/// A failed new copy has no retained folder; a failed update may leave the earlier copy running.
+fn not_placed(rep: &mut PlaceReport, tag: String, dst: &Path, error: Error, runs: String) {
+    if std::fs::symlink_metadata(dst).is_ok() {
+        retain_runs(rep, tag, dst, error.message, runs);
+    } else {
+        rep.warnings.push(format!("{tag}: not placed in {}: {}", dst.display(), error.message));
+    }
+}
+
 /// The marker Kiln's receipt for `path` names.
 fn marker_at<'a>(receipts: &'a [Placement], path: &Path) -> Option<&'a Marker> {
     receipts.iter().find(|r| r.path == path).map(|r| &r.marker)
@@ -1316,16 +1334,26 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                         }
                     }
                 } else { Vec::new() };
+                // Library path/integrity failures keep their hard-refusal contract; publication and recovery I/O
+                // failures belong to this mod, not to the rest of the profile.
+                refuse_symlink_path(roots.data, &src)?;
                 let kept_at = kept_dir(game_dir, kind, &m.id);
-                let carry = match &have {
-                    Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
-                    None => kept_carry(game_dir, &kept_at, kind)?,
+                let published = (|| {
+                    let carry = match &have {
+                        Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
+                        None => kept_carry(game_dir, &kept_at, kind)?,
+                    };
+                    copy_in(roots, &src, &dst, &want, &kept, m.enabled, carry,
+                        |receipt| put_placement(game_dir, &mut receipts, receipt))
+                })();
+                let (said, warned) = match published {
+                    Ok(done) => done,
+                    Err(e) if e.code == ErrorCode::HashMismatch => return Err(e),
+                    Err(e) => {
+                        not_placed(&mut rep, tag(&m.id), &dst, e, still_runs(kind, m.enabled, marker_at(&receipts, &dst), Some(&want)));
+                        continue;
+                    }
                 };
-                let (said, warned) = copy_in(roots, &src, &dst, &want, &kept, m.enabled, carry, |receipt| {
-                    receipts.retain(|r| r.path != dst);
-                    receipts.push(receipt.clone());
-                    save_placements(game_dir, &receipts)
-                })?;
                 rep.kept_files.extend(said);
                 rep.warnings.extend(warned);
                 rep.placed.push(tag(&m.id));
@@ -1459,11 +1487,16 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                         (settings, carry)
                     }
                 };
-                let (said, warned) = copy_in_with(roots, src, &dst, &want, &[], true, carry, &settings, Some(&key), |receipt| {
-                    receipts.retain(|r| r.path != dst);
-                    receipts.push(receipt.clone());
-                    save_placements(game_dir, &receipts)
-                })?;
+                refuse_symlink_path(roots.data, src)?;
+                let (said, warned) = match copy_in_with(roots, src, &dst, &want, &[], true, carry, &settings, Some(&key),
+                    |receipt| put_placement(game_dir, &mut receipts, receipt)) {
+                    Ok(done) => done,
+                    Err(e) if e.code == ErrorCode::HashMismatch => return Err(e),
+                    Err(e) => {
+                        not_placed(&mut rep, tag(&m.id), &dst, e, still_runs(kind, true, marker_at(&receipts, &dst), Some(&want)));
+                        continue;
+                    }
+                };
                 rep.kept_files.extend(said);
                 rep.warnings.extend(warned);
                 // tidying the stash never undoes a placed copy (an unreadable stash was reported above)
@@ -1495,16 +1528,24 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 own_folder(&mut rep, tag(&m.id), &theirs, true);
                 continue;
             }
+            refuse_symlink_path(roots.data, src)?;
             let kept_at = kept_dir(game_dir, kind, &m.id);
-            let carry = match &have {
-                Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
-                None => kept_carry(game_dir, &kept_at, kind)?,
+            let published = (|| {
+                let carry = match &have {
+                    Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
+                    None => kept_carry(game_dir, &kept_at, kind)?,
+                };
+                copy_in(roots, src, &dst, &want, &[], true, carry,
+                    |receipt| put_placement(game_dir, &mut receipts, receipt))
+            })();
+            let (said, warned) = match published {
+                Ok(done) => done,
+                Err(e) if e.code == ErrorCode::HashMismatch => return Err(e),
+                Err(e) => {
+                    not_placed(&mut rep, tag(&m.id), &dst, e, still_runs(kind, true, marker_at(&receipts, &dst), Some(&want)));
+                    continue;
+                }
             };
-            let (said, warned) = copy_in(roots, src, &dst, &want, &[], true, carry, |receipt| {
-                receipts.retain(|r| r.path != dst);
-                receipts.push(receipt.clone());
-                save_placements(game_dir, &receipts)
-            })?;
             rep.kept_files.extend(said);
             rep.warnings.extend(warned);
             rep.placed.push(tag(&m.id));
@@ -2462,6 +2503,70 @@ mod tests {
         let rep = greeneye_place(&dirs, &game, vec![off(&a2), off(&b2)]);
         assert_eq!(rep.removed, [format!("greeneye:{left}")], "still Kiln's copy, removed now: {rep:?}");
         assert!(!game.join("greeneye").join(left).exists());
+    }
+
+    /// A failed publication rolls back only that mod, keeps its old receipt, and lets the next mod publish.
+    #[test]
+    fn failed_publication_keeps_its_receipt_and_places_the_next_mod() {
+        use crate::own_loaders::{Delivery, OwnLoader, Via};
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "publish-receipts").unwrap();
+        let dirs = DataDirs::at(tmp.path().join("data"));
+        let make = |kind: ModKind, id: &str, version: &str, game_folder: bool| {
+            let src = tmp.path().join(format!("{}-{id}-{version}-{game_folder}", kind.as_str()));
+            std::fs::create_dir_all(&src).unwrap();
+            let content = if kind == ModKind::Native { format!("mods/{id}/config.txt") } else { "config.txt".into() };
+            std::fs::create_dir_all(src.join(&content).parent().unwrap()).unwrap();
+            std::fs::write(src.join(&content), version).unwrap();
+            if kind == ModKind::ShroudForge {
+                std::fs::write(src.join("mod.json"), format!(r#"{{"id":"{id}","name":"Test","version":"{version}"}}"#)).unwrap();
+                std::fs::write(src.join("extended.mod.json"), br#"{"schemaVersion":1,"enabled":true,"settings":{}}"#).unwrap();
+            }
+            let hash = crate::hash::dirhash(&src).unwrap();
+            let rec = ImportRecord { format: 1, kind, id: id.into(), version: version.into(), hash: hash.clone(), imported: crate::util::now_rfc3339(),
+                source: None, size: 0, name: None, side: None, clients: None, file: None, manifest_id: None,
+                game_folder: game_folder.then(|| id.into()) };
+            crate::library::commit_folder(&dirs, &src, rec, &mut Default::default()).unwrap();
+            crate::profile::ProfileMod { id: id.into(), version: version.into(), hash, enabled: true }
+        };
+        for (kind, folder, game_folder) in [(ModKind::Set, SET_MODS, false), (ModKind::ShroudForge, "mods", false),
+            (ModKind::Eml, "mods", false), (ModKind::Emf, "emf/mods", false), (ModKind::Flame, "mods", false),
+            (ModKind::Shroudtopia, "mods", false), (ModKind::Eml, "mods", true), (ModKind::Xhl, "mods", true), (ModKind::Native, "mods", true)] {
+            let loaders = vec![OwnLoader { kind, engine: crate::engines::Engine::Emf, file: "test.dll".into(), via: Via::Chain,
+                folder: folder.into(), delivery: Delivery::Placed }];
+            let a1 = make(kind, "a", "1.0.0", game_folder);
+            let b1 = make(kind, "b", "1.0.0", game_folder);
+            let a2 = make(kind, "a", "2.0.0", game_folder);
+            let b2 = make(kind, "b", "2.0.0", game_folder);
+            for updating in [false, true] {
+                let game = tmp.path().join(format!("game-{}-{game_folder}-{updating}", kind.as_str()));
+                let mut p = crate::profile::create(&dirs, &format!("{}-{game_folder}-{updating}", kind.as_str()), None).unwrap();
+                if updating {
+                    *p.mods.list_mut(kind) = vec![a1.clone(), b1.clone()];
+                    place_with(&dirs, &p, &game, &loaders).unwrap();
+                }
+                let before = placements(&game).unwrap();
+                *p.mods.list_mut(kind) = vec![a2.clone(), b2.clone()];
+                FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+                let result = place_with(&dirs, &p, &game, &loaders);
+                assert!(result.is_ok(), "one failed publication must not block the next mod: {kind:?}, updating={updating}: {result:?}");
+                let rep = result.unwrap();
+                assert_eq!(rep.placed, [format!("{}:b", kind.as_str())], "{rep:?}");
+                let a = game.join(folder).join("a");
+                if updating {
+                    assert_eq!(marker(&a).unwrap().version, "1.0.0");
+                    assert!(rep.retained.iter().any(|r| r.path == a && r.may_run), "{rep:?}");
+                } else {
+                    assert!(!a.exists());
+                    assert!(rep.warnings.iter().any(|w| w.contains("injected receipt write failure")), "{rep:?}");
+                }
+                let current = placements(&game).unwrap();
+                assert_eq!(serde_json::to_value(current.iter().filter(|r| r.marker.id == "a").collect::<Vec<_>>()).unwrap(),
+                    serde_json::to_value(before.iter().filter(|r| r.marker.id == "a").collect::<Vec<_>>()).unwrap());
+                assert_eq!(marker(&game.join(folder).join("b")).unwrap().version, "2.0.0");
+                let retry = place_with(&dirs, &p, &game, &loaders).unwrap();
+                assert_eq!(retry.placed, [format!("{}:a", kind.as_str())], "retry stays owned: {retry:?}");
+            }
+        }
     }
 
     /// A failure for one stale copy must not leak its rolled-back removal into the next copy's saved receipt list.
