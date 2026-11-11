@@ -31,6 +31,23 @@ for (const kind of ["eml", "xhl"]) {
     assert.equal(validate(profile(kind, [{ ...entry, path }])), false, path);
   }
 }
+// One table of folder names for the three validators of ../mods/<folder> (kiln-manage, the native core, this schema).
+const names = read("../fixtures/profile/game-folder-names.json");
+for (const [kind, root] of [["eml", "mods"], ["xhl", "mods"], ["greeneye", "greeneye"]]) {
+  for (const name of names.accept) {
+    assert(validate(profile(kind, [{ ...entry, path: `../${root}/${name}` }])), `${kind} accept ${JSON.stringify(name)}: ${JSON.stringify(validate.errors)}`);
+  }
+  for (const name of names.reject) {
+    assert.equal(validate(profile(kind, [{ ...entry, path: `../${root}/${name}` }])), false, `${kind} reject ${JSON.stringify(name)}`);
+  }
+}
+// each kind has its one folder: no other kind's, and none for the rest
+for (const kind of ["eml", "xhl", "kiln", "native", "emf", "plugin", ...kinds.filter((k) => !["eml", "xhl", "greeneye"].includes(k))]) {
+  assert.equal(validate(profile(kind, [{ ...entry, path: "../greeneye/safe" }])), false, kind);
+}
+for (const path of ["../greeneye/../outside", "../greeneye/a/b", "../../greeneye/safe"]) {
+  assert.equal(validate(profile("greeneye", [{ ...entry, path }])), false, path);
+}
 for (const kind of ["kiln", "native", "emf", "plugin", ...kinds.filter((k) => !["eml", "xhl"].includes(k))]) {
   assert.equal(validate(profile(kind, [{ ...entry, path: "../mods/safe" }])), false, kind);
 }

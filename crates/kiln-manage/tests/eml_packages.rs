@@ -1109,3 +1109,60 @@ fn a_runtime_rollback_rewrites_the_active_profile_for_the_older_core() {
     assert!(g.path.join("kiln/profiles/my-mods/eml/auto-loot-plus/mod.json").is_file(), "the copy the old core runs");
 }
 
+/// manage-import F5, native-core-sf F4/F5, docs-contracts F3: every Copy-mode profile.json the launcher writes for an
+/// EML game folder is one the native core reads. These go through the core's own parser (a host build of profile.cpp,
+/// native/core/tests/test-profile.sh): Auto Loot Plus; an EML part in mods/Enshwick.Tweaks (the native rule reads the
+/// part before the first dot as the name); a hand-installed copy of the mod in a folder the game cannot be pointed at
+/// (a hidden ".auto-loot-plus"). KILN_PROFILE_FIXTURE_OUT=<folder> also keeps the files there.
+#[test]
+fn copy_mode_profiles_pass_the_native_cores_own_parser() {
+    let copy_game = |t: &Tmp| { let mut g = game_with_z(&t.0); g.prefix = None; g.path_mode = PathMode::Copy; g };
+    let mut files = Vec::new();
+    let keep = std::env::var_os("KILN_PROFILE_FIXTURE_OUT").map(PathBuf::from);
+    let mut write = |name: &str, f: &profile::ProfileFile, t: &Tmp| {
+        let file = t.0.join(format!("{name}.json"));
+        std::fs::write(&file, serde_json::to_vec_pretty(f).unwrap()).unwrap();
+        if let Some(dir) = &keep { std::fs::create_dir_all(dir).unwrap(); std::fs::copy(&file, dir.join(format!("{name}.json"))).unwrap(); }
+        files.push(file);
+    };
+    let eml = |f: &profile::ProfileFile| f.mods.eml.iter().map(|m| m.path.replace('\\', "/")).collect::<Vec<_>>();
+
+    let t1 = tmp("native-alp");
+    let (dirs, g) = (DataDirs::at(t1.0.join("data")), copy_game(&t1));
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    kiln_manage::quick::add_with(&dirs, &g, &[zip(&t1, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
+    let mut f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(eml(&f), ["../mods/auto-loot-plus"]);
+    // Kiln's copy of a Greeneye mod in <game>/greeneye/<id>/ (the greeneye branch renders it through game_path_of and
+    // the same Copy-mode arm): the core reads that form too, inside a profile the launcher wrote
+    f.mods.folders_mut(ModKind::Greeneye).unwrap().push(profile::FolderMod {
+        id: "greeneye-sample".into(), version: Some("1.0.0".into()), path: "../greeneye/greeneye-sample".into(), hash: None, enabled: true });
+    write("alp", &f, &t1);
+
+    let t2 = tmp("native-enshwick-folder");
+    let (dirs, g) = (DataDirs::at(t2.0.join("data")), copy_game(&t2));
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    let pkg = t2.0.join("Enshwick Tweaks");
+    put(&pkg, "dinput8.dll", &alp_dinput8());
+    eml_mod(&pkg, "mods/Enshwick.Tweaks", "enshwick-tweaks");
+    kiln_manage::quick::add_with(&dirs, &g, &[pkg], false, &mut NoProgress).unwrap();
+    write("enshwick-folder", &profile::read_game_profile(&g.path).unwrap().unwrap(), &t2);
+
+    let t3 = tmp("native-hidden-copy");
+    let (dirs, g) = (DataDirs::at(t3.0.join("data")), copy_game(&t3));
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    eml_mod(&g.path, "mods/.auto-loot-plus", "auto-loot-plus");
+    kiln_manage::quick::add_with(&dirs, &g, &[zip(&t3, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(eml(&f), ["../mods/auto-loot-plus"], "a hidden folder is no installation the game loads: Kiln places its own copy");
+    assert!(g.path.join("mods/.auto-loot-plus/mod.json").is_file() && g.path.join("mods/auto-loot-plus/mod.json").is_file());
+    write("hidden-copy", &f, &t3);
+
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native/core/tests/test-profile.sh");
+    let out = std::process::Command::new("bash").arg(&script).args(&files).env("TMPDIR", &t1.0).output()
+        .expect("bash runs native/core/tests/test-profile.sh (a C++20 compiler, c++ or $CXX, builds the parser)");
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    println!("{text}");
+    assert!(out.status.success(), "the native parser refused a profile the launcher wrote:\n{text}");
+    assert_eq!(text.matches("launcher profile ok").count(), files.len(), "{text}");
+}

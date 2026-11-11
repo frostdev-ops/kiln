@@ -395,14 +395,17 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
 /// XHL-Core's plugin description, in the folder of each XHL mod (`mods/<name>/native-plugin.ini`).
 pub const XHL_PLUGIN_INI: &str = "native-plugin.ini";
 
-/// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold.
+/// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold. The same rule
+/// as the native core's `../mods/<folder>` check (native/core/src/profile.cpp placed_eml_path) and the profile schema's
+/// pattern; schema/fixtures/profile/game-folder-names.json holds the names all three are tested with. The part before
+/// the first dot is the name Windows (a device) and Enshwick's loader folder are compared with.
 pub fn is_game_folder_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or_default().to_ascii_lowercase();
     let device = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
         || (stem.len() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) && stem.as_bytes()[3].is_ascii_digit());
     !name.is_empty() && name.chars().count() <= 128 && !name.starts_with('.') && !name.ends_with(['.', ' '])
         && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c)) && !device
-        && !name.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER)
+        && stem != ENSHWICK_LOADER_FOLDER
 }
 
 /// Does a native DLL read this EML mod in the game's `mods` folder? `src` is the mod folder as dropped (an unpacked
@@ -1059,11 +1062,14 @@ fn manifest_id_raw(dir: &Path) -> Option<String> {
 }
 
 /// A folder in `root` other than `dst` that holds the same mod (the same manifest id, case ignored) and is not one of
-/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id.
+/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id. A folder whose
+/// name the game cannot be pointed at (hidden, a trailing dot or space, a character Windows has no name with) is no
+/// installation the game loads: Kiln places its own copy, and the profile never names that folder.
 fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
     let id = manifest_id_raw(src)?;
     std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
         .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(is_game_folder_name))
         .find(|p| manifest_id_raw(p).is_some_and(|other| other.eq_ignore_ascii_case(&id)))
 }
 
@@ -1337,6 +1343,8 @@ pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::Profil
 }
 
 /// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
+/// Its name always passes [`is_game_folder_name`] (the record's folder, or a hand installation [`same_mod_elsewhere`]
+/// accepts), so Copy mode's `../mods/<folder>` is one the native core reads.
 pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {
     let root = game.join(EML_GAME_MODS);
     let dst = root.join(game_folder_of(dirs, kind, m)?);
@@ -1977,6 +1985,23 @@ mod tests {
         assert!(player_entries_of(now, &before, ModKind::Eml).is_none());
         assert!(!is_settings_file(ModKind::Eml, "native-plugin.ini"));
         assert!(!is_settings_file(ModKind::Eml, "mod.json"));
+    }
+
+    /// manage-import F5, native-core-sf F4: one table of folder names for the three validators of Copy mode's
+    /// `../mods/<folder>` (this one, native/core/tests/profile_test.cpp, schema/tests/profile_review.mjs).
+    #[test]
+    fn game_folder_names_follow_the_shared_table() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/fixtures/profile/game-folder-names.json");
+        let t: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+        let mut n = 0;
+        for (verdict, want) in [("accept", true), ("reject", false)] {
+            for name in t[verdict].as_array().unwrap() {
+                let name = name.as_str().unwrap();
+                assert_eq!(is_game_folder_name(name), want, "{verdict}: {name:?}");
+                n += 1;
+            }
+        }
+        assert!(n > 50);
     }
 
     #[test]

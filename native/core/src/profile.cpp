@@ -70,13 +70,37 @@ std::string str(const json& o, const char* key, const std::string& where, bool r
     return o[key].get<std::string>();
 }
 
-// Copy-mode EML/native companions have exactly one physical game/mods copy shared with the native DLL.
-// Permit only that direct sibling, never arbitrary traversal or a Win32 alias/device name.
-bool placed_eml_path(std::string p) {
+// mods.xhl: XHL-Core companions the launcher places in the game's mods folder. No kind of the core or of an engine
+// plugin (no execution route), and no "newer launcher" either: skipped without a warning.
+constexpr std::string_view kPlacedOnlyKind = "xhl";
+
+// The one folder of the game a kind's Copy-mode entry may name with "..": EML/native companions have exactly one
+// physical game/mods copy shared with the native DLL (../mods/<folder>), Kiln places enabled Greeneye mods in
+// game/greeneye/<id> (../greeneye/<id>). Nothing else may leave kiln/.
+const char* placed_root(std::string_view kind) {
+    if (kind == "eml") return "mods";
+    if (kind == "greeneye") return "greeneye";
+    return nullptr;
+}
+
+// Permit only a direct child of that folder, never arbitrary traversal or a Win32 alias/device name. The folder name
+// rule is kiln-manage's engine_mods::is_game_folder_name and the schema's: at most 128 characters, no C0/DEL/C1 control
+// (schema/fixtures/profile/game-folder-names.json is the table all three are tested with).
+bool placed_game_path(std::string p, const char* root) {
+    if (!root) return false;
     std::replace(p.begin(), p.end(), '\\', '/');
-    if (!p.starts_with("../mods/")) return false;
-    const std::string name = p.substr(8);
-    if (name.empty() || name.size() > 512 || name.front() == '.' || name.back() == '.' || name.back() == ' ' ||
+    const std::string prefix = std::string("../") + root + "/";
+    if (!p.starts_with(prefix)) return false;
+    const std::string name = p.substr(prefix.size());
+    size_t chars = 0;
+    for (size_t i = 0; i < name.size(); ++i) {
+        const auto c = static_cast<unsigned char>(name[i]);
+        if ((c & 0xC0) != 0x80) ++chars;
+        // DEL, and C1 controls (U+0080..U+009F, UTF-8 C2 80..C2 9F)
+        if (c == 0x7F || (c == 0xC2 && i + 1 < name.size() && static_cast<unsigned char>(name[i + 1]) <= 0x9F &&
+                          static_cast<unsigned char>(name[i + 1]) >= 0x80)) return false;
+    }
+    if (name.empty() || chars > 128 || name.front() == '.' || name.back() == '.' || name.back() == ' ' ||
         name.find_first_of("/\\:*?\"<>|") != std::string::npos ||
         std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32; })) return false;
     std::string stem = name.substr(0, name.find('.'));
@@ -85,13 +109,13 @@ bool placed_eml_path(std::string p) {
         !(stem.size() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) && stem[3] >= '0' && stem[3] <= '9');
 }
 
-std::string game_path(const json& o, const char* key, const std::string& where, bool required, bool eml_folder = false) {
+std::string game_path(const json& o, const char* key, const std::string& where, bool required, const char* root = nullptr) {
     const std::string p = str(o, key, where, required);
     if (!required && p.empty() && (!o.contains(key) || o[key].is_null())) return {};
     if (p.empty()) bad(where + "\"" + key + "\" must not be empty");
     if (p.size() > 32767 || std::any_of(p.begin(), p.end(), [](unsigned char c) { return c < 32; }))
         bad(where + "\"" + key + "\" must be a Windows path without control characters (at most 32767 bytes)");
-    if (has_dotdot(p) && !(eml_folder && placed_eml_path(p)))
+    if (has_dotdot(p) && !placed_game_path(p, root))
         bad(where + "\"" + key + "\" must not contain '..' (" + p + ")");
     return p;
 }
@@ -153,7 +177,9 @@ void parse(const std::string& text) {
         for (uint32_t i = 0; i < kEngineKindCount; ++i)
             if (kind_name == kEngineKinds[i]) kind = KILN_PROFILE_KINDS + i;
         if (kind == KILN_PROFILE_KINDS + kEngineKindCount) {
-            KLOG_W("profile: unknown mod kind \"mods.%s\" ignored (a newer launcher?)", kind_name.c_str());
+            // XHL companions are placement metadata the launcher writes by design: XHL-Core loads them, Kiln never does
+            if (kind_name != kPlacedOnlyKind)
+                KLOG_W("profile: unknown mod kind \"mods.%s\" ignored (a newer launcher?)", kind_name.c_str());
             continue;
         }
         if (!list.is_array()) bad("\"mods." + kind_name + "\" must be an array");
@@ -177,7 +203,7 @@ void parse(const std::string& text) {
                     !std::regex_match(hash, kind == KILN_PROFILE_KIND_PLUGIN ? kSha : kHash))
                     bad(where + "\"hash\" must be " + (kind == KILN_PROFILE_KIND_PLUGIN ? "a lowercase SHA-256" : "kdh1:<lowercase SHA-256>"));
             }
-            e.path = game_path(m, "path", where, true, kind_name == "eml");
+            e.path = game_path(m, "path", where, true, placed_root(kind_name));
             if (m.contains("enabled")) {
                 if (!m["enabled"].is_boolean()) bad(where + "\"enabled\" must be true or false");
                 e.enabled = m["enabled"].get<bool>();
