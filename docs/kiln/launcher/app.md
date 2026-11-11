@@ -56,8 +56,12 @@ Engines tab when `eml_backup` reports a differing `.kfc` and no EML mod is enabl
 is active). A difference does not identify its writer. Disable EML mods and start the game through Kiln to let its
 archive writer restore only proven, unchanged EML output. When the last idle start's `kiln/state/eml.json` has a
 `reason` (it could not prove ownership), the banner shows it (warning tone); otherwise it names the ways back for that
-case too (enable any EML mod for one start and disable it again, or Steam's "Verify integrity of game files"). There
-is no direct-copy action; legacy `eml_restore` calls refuse. The Library labels every kind with its engine (badge, "Other engines" filter with an Engine select); the Deck's
+case too (enable any EML mod for one start and disable it again, or Steam's "Verify integrity of game files"). A
+backup of an earlier game build (`staleBackup`) is said too, together with the `reason` when there is one. There
+is no direct-copy action; legacy `eml_restore` calls refuse. The `reason` of the last start that finished (`idle`,
+`done` or `failed`: data left because it is not provably EML's, extra containers kept, recovery files kept with their
+sizes, containers moved to `kiln/eml/displaced/`) is shown as written whenever there is one, as "EML archive note" when
+the backup banner's own conditions do not hold (no difference, or an EML mod is on). The Library labels every kind with its engine (badge, "Other engines" filter with an Engine select); the Deck's
 Mods lists engine mods after Kiln's own with their engine ("ShroudForge mod"). Kind names and lists: `src/api/kinds.ts`.
 
 ## The first run and dropping a mod

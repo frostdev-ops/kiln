@@ -125,10 +125,14 @@ export function EngineRow({ s }: { s: EngineStatus }) {
   );
 }
 
-/** A shared backup difference is not proof of EML ownership. Only the archive writer can safely restore its output. */
+/** What the archive writer left to say about the game's archives, in up to one banner.
+ *  - The shared backup differs from the game data while the profile runs no EML mod: how to get vanilla data back. A
+ *    difference is not proof of EML ownership; only the archive writer can safely restore its output.
+ *  - kiln/state/eml.json `reason` of the last start (idle, done or failed): what the writer kept or moved aside in the
+ *    game folder (unproven data, extra containers, recovery files with their sizes, containers moved to
+ *    kiln/eml/displaced/). Shown as written, whatever the backup comparison says and whether or not an EML mod is on. */
 export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   const backup = useQuery({ queryKey: ["eml_backup", gameId], queryFn: () => api.emlBackup(gameId) });
-  // the last start's eml.json: `reason` when kiln-eml left differing data alone because it could not prove it wrote it
   const engines = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
@@ -136,22 +140,29 @@ export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
   const emlOn = (profile.data?.mods.eml ?? []).some((m) => m.enabled);
   if (backup.error) return <EmptyState title="The game data backup is not readable" hint={errorText(backup.error)} />;
   if (active.error) return <EmptyState title="The active profile is not readable" hint={errorText(active.error)} />;
-  if (!patched.length || active.isLoading || (active.data && !profile.data) || emlOn) return null;
-  const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
   const eml = engines.data?.find((s) => s.kind === "eml")?.state;
-  const unproven = isObj(eml) && eml.phase === "idle" ? str(eml.reason) : null;
+  const phase = isObj(eml) ? str(eml.phase) : null;
+  const idle = phase === "idle";
+  // one sentence for the player from the last start that finished
+  const reason = isObj(eml) && (idle || phase === "done" || phase === "failed") ? str(eml.reason) : null;
+  const said = reason && <>{" "}On the last start{idle ? " without EML mods" : ""}: {reason}.</>;
+  const differs = patched.length > 0 && !active.isLoading && !(active.data && !profile.data) && !emlOn;
+  if (!differs) {
+    return reason ? <Banner tone="warn" title="EML archive note">{said}</Banner> : null;
+  }
+  const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
   // the backup is of an earlier game build (the game was updated since): nothing to compare or restore against
-  const stale = isObj(eml) && eml.phase === "idle" && eml.staleBackup === true;
+  const stale = idle && isObj(eml) && eml.staleBackup === true;
   return (
-    <Banner tone={unproven ? "warn" : "info"} title="Shared archive backup differs">
+    <Banner tone={reason ? "warn" : "info"} title="Shared archive backup differs">
       {names} {patched.length === 1 ? "differs" : "differ"} from the shared backup; this does not identify which loader wrote it.
       {stale ? <>{" "}The backup is of an earlier game build: the game was updated since it was made. Kiln does not compare
-        the game data with it and restores nothing from it; the next start with an EML mod makes a new backup. Nothing
-        needs doing.</> : unproven ? <>{" "}On the last start without EML mods: {unproven}.</> : <>
+        the game data with it and restores nothing from it; the next start with an EML mod makes a new backup.
+        {said || " Nothing needs doing."}</> : idle && said ? said : <>
         {" "}To remove EML changes, disable EML mods and start the game through Kiln: its archive writer checks ownership and
         restores only output it can prove it wrote (earlier Kiln versions' too). When it cannot, it leaves the data alone
         and says why here; then enable any EML mod for one start and disable it again, or use Steam's "Verify integrity of
-        game files".</>}
+        game files".{said}</>}
       {" "}Other loaders' data is kept; the launcher never copies shared backups directly.
     </Banner>
   );

@@ -158,6 +158,65 @@ test("archive guidance names a backup of an earlier game build instead of unprov
   await expect(notice).not.toContainText("On the last start without EML mods");
 });
 
+// kiln/state/eml.json `reason` of the last start (idle, done or failed) names what Kiln kept or moved aside in the game
+// folder. It is shown whatever the backup comparison says and whether or not the profile runs an EML mod.
+const planEml = (plan: { state: Record<string, unknown>; backups?: unknown[] }) => {
+  const eml = { kind: "eml", plugin: "kiln-eml", file: "eml.json", state: plan.state };
+  const plans: Record<string, unknown> = { engine_status: Array.from({ length: 20 }, () => ({ result: [eml] })) };
+  if (plan.backups) plans.eml_backup = Array.from({ length: 20 }, () => ({ result: plan.backups }));
+  (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = plans;
+};
+
+test("containers moved aside are named with where they are, also with no backup difference", async ({ page }) => {
+  const reason = "Archive containers moved aside: enshrouded_055.dat (4096 bytes) -> kiln/eml/displaced/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/enshrouded_055.dat. " +
+    "The originals are preserved; Kiln never deletes this recovery folder";
+  const plan = { state: { phase: "done", patched: 1, reason, mods: [] }, backups: [] };
+  await page.addInitScript(planEml, plan);
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const note = page.locator(".k-banner", { hasText: "EML archive note" });
+  await expect(note).toContainText(`On the last start: ${reason}.`);
+  await expect(note).not.toContainText("without EML mods");
+  await expect(page.locator(".k-banner", { hasText: "Shared archive backup differs" })).toHaveCount(0);
+});
+
+test("files kept beside vanilla archives are named when nothing differs from the backup", async ({ page }) => {
+  const reason = "Extra archive containers retained: enshrouded_055.dat. They may belong to another loader or an earlier EML run; inspect them before manual cleanup. " +
+    "Steam verification may leave extra files. Recovery files retained without cleanup proof: enshrouded.kfc_resources.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 (225443840 bytes). " +
+    "Inspect them before manual cleanup; Kiln will not delete these files";
+  const plan = { state: { phase: "idle", reason, mods: [] }, backups: [] };
+  await page.addInitScript(planEml, plan);
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const note = page.locator(".k-banner", { hasText: "EML archive note" });
+  await expect(note).toContainText(`On the last start without EML mods: ${reason}.`);
+  await expect(note).toContainText("225443840 bytes");
+});
+
+test("a backup of an earlier game build together with kept files shows both", async ({ page }) => {
+  const reason = "Extra archive containers retained: enshrouded_055.dat. They may belong to another loader or an earlier EML run; inspect them before manual cleanup. " +
+    "Steam verification may leave extra files";
+  const plan = { state: { phase: "idle", staleBackup: true, reason, mods: [] } };
+  await page.addInitScript(planEml, plan);
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });
+  await expect(notice).toContainText("The backup is of an earlier game build");
+  await expect(notice).toContainText(`On the last start without EML mods: ${reason}.`);
+  await expect(notice).not.toContainText("Nothing needs doing");
+  await expect(page.locator(".k-banner", { hasText: "EML archive note" })).toHaveCount(0); // said once, in the one banner
+});
+
+test("the last start's note stays while the active profile runs an EML mod", async ({ page }) => {
+  const reason = "Archive recovery folder retained: kiln/eml/displaced/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/. Inspect its move journal and any saved containers; Kiln never deletes this folder";
+  const plan = { state: { phase: "done", patched: 1, reason, mods: [] } };
+  await page.addInitScript(planEml, plan);
+  await desktop(page, "/profiles/ember-run/engines");
+  await page.locator('[data-kind="eml"]').getByRole("button", { name: "Light Loot Tables X" }).click();
+  await expect(page.locator(".k-banner", { hasText: "Shared archive backup differs" })).toHaveCount(0);
+  await expect(page.locator(".k-banner", { hasText: "EML archive note" })).toContainText("kiln/eml/displaced/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/");
+});
+
 test("no removal guidance while the active profile runs an EML mod", async ({ page }) => {
   await desktop(page, "/profiles/ember-run/engines");
   const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });
