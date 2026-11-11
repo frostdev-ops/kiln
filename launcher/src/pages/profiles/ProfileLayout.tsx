@@ -33,7 +33,12 @@ export function useActivation() {
   const activate = useMutation({
     mutationFn: () => api.profileActivate(id, game!.id),
     onMutate: () => showActive(qc, game!.id, id),
-    onSuccess: () => { invalidateGame(qc, game!.id); toast.ok(stale ? "Applied" : "Profile active", "Steam's Play button uses it too."); },
+    onSuccess: (a) => {
+      invalidateGame(qc, game!.id);
+      toast.ok(stale ? "Applied" : "Profile active", "Steam's Play button uses it too.");
+      if (a?.keptFiles?.length) toast.info("Mod settings kept", a.keptFiles.join(" "));
+      if (a?.warnings?.length) toast.info("Profile notes", a.warnings.join(" "));
+    },
     onError: (e, _v, undo) => { undo?.(); toast.error(e); },
   });
   const running = !!status.data?.running;

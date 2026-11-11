@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // From Shrouded Engine Tweaks 0.2.0 runtime/contracts.cpp, Copyright (c) 2026 Cacaida, MIT
-// (licenses/ShroudedEngineTweaks-LICENSE.txt). The catalog entries (patterns, anchors, fields, notes) are SET's
-// reverse engineering, unchanged. Kiln's changes: an entry names the typed return-change link Kiln has for it
+// (licenses/ShroudedEngineTweaks-LICENSE.txt). The catalog patterns, anchors, fields and notes are SET's reverse
+// engineering. Kiln also lists the dedicated build for combat_xp after a unique scan and a headless in-process probe
+// of its field/block/return rules (the original's no-resource path); hit remains client-only without gameplay proof.
+// Kiln's changes: an entry names the typed return-change link Kiln has for it
 // (hk::AfterThunk), and anchors are compared with live memory through kiln.hooks (hk::matchAt).
 #include "contracts.h"
 
@@ -110,7 +112,7 @@ const std::vector<contracts::Entry>& contracts::catalog() {
         // the function returns rax, but the caller keeps eax and stores it as a dword, so 64-bit values would wrap.
         {"combat_xp", {"u32", "skip", "f32", "u32", "skip"}, "u32", Args | Fields | Block | After,
          {{1, "level", 0, "u32", true}, {1, "isSet", 4, "bool", true}},
-         {{1792148057, xp, xpAnchors}, {1792507660, xp, xpAnchors}, {1793791052, xp, xpAnchors}},
+         {{1792148057, xp, xpAnchors}, {1792507660, xp, xpAnchors}, {1793791052, xp, xpAnchors}, {1793791038, xp, xpAnchors}},
          "combat XP for one player and one kill: (player level, the victim's optional level, the victim's "
          "ExperienceSource.xpMod, players sharing, context). Leaf without calls, locks or writes. Its only caller (combat_experience_source) passes "
          "argument 2 as a slot in its own frame, rewritten before every call and not read after it. Block: nothing "

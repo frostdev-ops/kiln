@@ -1394,6 +1394,57 @@ fn sf_restore_settings_remain_player_owned_across_switch_and_mod_upgrade() {
     assert_eq!(report.retained[0].path, dst);
 }
 
+/// Ownership accepts generated and documented mutable files for reapply, but cleanup must not turn that acceptance
+/// into authority to delete them. Exercise both callers on the combined SET/SF receipt implementation.
+#[test]
+fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
+    use kiln_manage::{engine_mods, library, manifest::ModKind, profile};
+    for uninstall in [false, true] {
+        for kind in [ModKind::Set, ModKind::Eml, ModKind::ShroudForge] {
+            for shipped in [false, true] {
+                let t = tmp(&format!("cleanup-player-{}-{uninstall}-{shipped}", kind.as_str()));
+                let (dirs, gi, zip, mut p) = sf_setup(&t.0);
+                let (src, id, rel, dst) = match kind {
+                    ModKind::Set => {
+                        let src = t.0.join("src/set-player");
+                        put(&src, "init.lua", b"return {}");
+                        (src, "set-player", "settings.json", gi.path.join("shrouded_engine_tweaks/mods/set-player"))
+                    }
+                    ModKind::Eml => {
+                        let src = t.0.join("src/eml-player");
+                        put(&src, "mod.json", br#"{"id":"eml-player","name":"EML Player","version":"1.0.0","capabilities":["patch"]}"#);
+                        put(&src, "src/mod.lua", b"return {}");
+                        (src, "eml-player", "config.txt", gi.path.join("SF-user-mods/eml-player"))
+                    }
+                    ModKind::ShroudForge => (t.0.join("src/kiln-added"), "kiln-added", "runtime/settings.json", gi.path.join("SF-user-mods/kiln-added")),
+                    _ => unreachable!(),
+                };
+                // SF has no arbitrary mutable shipped-file exception; only add its runtime file after placement.
+                if shipped && kind != ModKind::ShroudForge { put(&src, rel, b"defaults"); }
+                let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+                let r = imported.imported.iter().chain(&imported.existing).find(|r| r.kind == kind && r.id == id).unwrap();
+                *p.mods.list_mut(kind) = vec![profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true }];
+                p = profile::save(&dirs, &p).unwrap();
+                install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+                profile::activate(&dirs, &p.id, &gi).unwrap();
+                put(&dst, rel, b"player runtime settings");
+                let report = if uninstall {
+                    install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap().placements
+                } else {
+                    profile::deactivate_report(&dirs, &gi).unwrap()
+                };
+                assert!(report.retained.iter().any(|r| r.path == dst && r.may_run), "{kind:?}/{shipped}/{uninstall}: {report:?}");
+                assert!(!report.removed.contains(&dst));
+                assert_eq!(std::fs::read(dst.join(rel)).unwrap(), b"player runtime settings");
+                // The receipt still records this as a retained placement; a second cleanup cannot adopt it as disposable.
+                let again = engine_mods::unplace(&gi.path).unwrap();
+                assert!(again.retained.iter().any(|r| r.path == dst));
+                assert_eq!(std::fs::read(dst.join(rel)).unwrap(), b"player runtime settings");
+            }
+        }
+    }
+}
+
 fn sf_legacy_helpers(game: &Path, receipt: &mut install::InstallReceipt) {
     use install::{ReplacedAction, ReplacedClass, ReplacedFile};
     // A real pre-compat receipt shape: old switch-from-SF displaced all three bootstrap/helper DLLs.

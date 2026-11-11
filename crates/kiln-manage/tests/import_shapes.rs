@@ -780,3 +780,41 @@ mod rar {
         assert!(rep.skipped[0].reason.contains("extract it first, then drop the folder"), "{}", rep.skipped[0].reason);
     }
 }
+
+/// SET's release zip (Nexus 303: `powrprof.dll` at the top, `shrouded_engine_tweaks/` with its readme, docs and
+/// licences), alone and with Lua mods in `shrouded_engine_tweaks/mods/`. Player report r1110: SET's loader had become
+/// a native mod (`powrprof-<hash>`), Kiln loaded it, and kiln-set stood aside for it. The loader must be recognised
+/// and left out (one note), and the mods imported as SET mods.
+#[test]
+fn set_release_zip_leaves_its_loader_out_and_imports_its_mods() {
+    const SET_NOTE: &str = "Shrouded Engine Tweaks's own loader is in this package: not needed, Kiln runs Shrouded Engine Tweaks mods";
+    // SET 0.1.1 and 0.2.0 name their folder in ASCII ("VK_LAYER_SHROUDED_ENGINE_TWEAKS") and UTF-16 (L"shrouded_engine_tweaks")
+    let loaders = [
+        build_test_dll(&["PowerGetActiveScheme", "CallNtPowerInformation"], b"VK_LAYER_SHROUDED_ENGINE_TWEAKS"),
+        build_test_dll(&["PowerGetActiveScheme"], &"\\shrouded_engine_tweaks\\plugins\\".encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>()),
+    ];
+    for (n, loader) in loaders.iter().enumerate() {
+        for with_mods in [false, true] {
+            let t = tmp(&format!("set-release-{n}-{with_mods}"));
+            let d = t.0.join("SET v0.2.0");
+            put(&d, "powrprof.dll", loader);
+            put(&d, "shrouded_engine_tweaks/README.txt", b"readme");
+            put(&d, "shrouded_engine_tweaks/docs/api-reference.md", b"# api");
+            put(&d, "shrouded_engine_tweaks/licenses/Lua.txt", b"MIT");
+            if with_mods {
+                put(&d, "shrouded_engine_tweaks/mods/myheal/init.lua", b"print('heal')");
+                put(&d, "shrouded_engine_tweaks/mods/flymode/init.lua", b"require('lib.util')");
+                put(&d, "shrouded_engine_tweaks/mods/flymode/lib/util.lua", b"return {}");
+            }
+            let z = t.0.join("set.zip");
+            zip_of(&d, &z);
+            for (how, path) in [("zip", z), ("folder", d.clone()), ("dll", d.join("powrprof.dll"))] {
+                let (_k, _dirs, r) = import(&[path]);
+                let want: Vec<String> = if with_mods && how != "dll" { vec!["set/flymode".into(), "set/myheal".into()] } else { vec![] };
+                assert_eq!(found(&r), want, "loader {n} {how} mods {with_mods}:\n{}", summary(&r));
+                assert!(r.imported.iter().all(|x| x.kind != ModKind::Native), "never a native mod: {}", summary(&r));
+                assert_eq!(r.notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), [SET_NOTE], "{how}: {}", summary(&r));
+            }
+        }
+    }
+}

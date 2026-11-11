@@ -153,6 +153,15 @@
  must(L,one,R"lua(
  assert(not pcall(Hooks.param,rid,'nope',1) and not pcall(Hooks.param,rid,'k','x') and not pcall(Hooks.param,12345,'k',1))
  assert(not pcall(Hooks.list,rid,{-1}) and not pcall(Hooks.list,rid,{1.5}) and not pcall(Hooks.list,rid,'x'))
+ assert(not pcall(Hooks.list,rid,{[1]=9,extra=7}))
+ assert(not pcall(Hooks.param,rid,'k',math.huge) and not pcall(Hooks.param,rid,'k',0/0))
+ for _,bad in ipairs({
+   {name='hidden condition',pattern='48 89 5C 24',builds={GetGameBuild()},args={'i32'},
+     when={[2]={arg=1,gt=0},extra=true},set={{arg=1,add=1}}},
+   {name='bad builds',pattern='48 89 5C 24',builds={GetGameBuild(),extra=true},args={'i32'},set={{arg=1,add=1}}},
+   {name='nan',pattern='48 89 5C 24',builds={GetGameBuild()},args={'i32'},set={{arg=1,add=0/0}}},
+   {name='inf param',pattern='48 89 5C 24',builds={GetGameBuild()},args={'i32'},params={k=math.huge},set={{arg=1,add='$k'}}}
+ }) do assert(not pcall(Hooks.rule,bad),bad.name) end
  local many={};for i=1,65 do many[i]=i end;assert(not pcall(Hooks.list,rid,many))
  nolist=Hooks.rule{name='plain',pattern='48 89 5C 24',builds={GetGameBuild()},args={'i32'},set={{arg=1,max=100}}}
  assert(not pcall(Hooks.list,nolist,{1}))

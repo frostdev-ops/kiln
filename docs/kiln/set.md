@@ -1,8 +1,8 @@
 # Shrouded Engine Tweaks mods on Kiln (kiln-set)
 
 Kiln runs Lua mods written for **Shrouded Engine Tweaks** (SET 0.2.0, MIT, github.com/Cacaida/Shrouded-Engine-Tweaks)
-through the plugin `kiln/plugins/kiln-set.dll`, subject to the safety restrictions below. You do not need SET's own `powrprof.dll`. Unlike SET, the
-mods also run on a **dedicated server**.
+through the plugin `kiln/plugins/kiln-set.dll`, subject to the restrictions and missing UI below. This is API compatibility,
+not full overlay parity. You do not need SET's own `powrprof.dll`. Unlike SET, mods also run on a **dedicated server**.
 
 ## Install a mod
 1. Install Kiln as usual (`tools/deploy-server.sh` copies `kiln-set.dll` to `kiln/plugins/` and `kiln-types.dll` to
@@ -16,6 +16,13 @@ module containing SET's branding. This is deliberately conservative: an unrelate
 suppresses kiln-set. Windows' own System32 power DLL does not. The check runs before initialization and before Lua
 tick/menu work; a module loaded later stops the runtime and releases its Lua owners. Kiln uses `dinput8.dll`, so
 installation does not replace SET's file.
+
+The launcher recognises SET's loader in an archive or folder and leaves it out of the Library, while importing the Lua
+mod folders. An older launcher could import `powrprof.dll` as a native mod (the cause confirmed by support report r1110).
+When that entry is already in a saved profile, applying it now disables **only the game-side native entry** and shows a
+profile note. Its Library files and saved selection are unchanged. Remove that native entry from the profile and import
+the actual SET mod folders instead. A deliberate installation of SET's own loader next to the game is still respected:
+kiln-set steps aside rather than running a second copy of its mods.
 
 A module inventory that cannot be read is not SET. It fails now and then for a moment, for example while a thread
 of the game ends. kiln-set and kiln.types then keep running and look again one second later. They step aside only
@@ -71,10 +78,14 @@ matching Kiln C# API and how each was tested, is in
   - `block`: the entry hook returns to the game's caller (the documented kiln.hooks early return).
   - `after`: needs code after the original. Kiln has a typed kiln.hooks raw link for `combat_xp`, the only catalog
     target that allows it. It is installed with the first such rule and stays.
-- **Catalog targets `combat_xp` and `hit`**: SET's entries, unchanged, checked at startup (build, pattern, anchors).
-  SET lists the client builds 1792148057, 1792507660 and 1793791052. On any other build, a dedicated server
-  included, both are off: `Hooks.rule` returns nil with a yellow line, as on SET. `kiln.log` has a `[set] Catalog:`
-  line per target.
+- **Catalog targets `combat_xp` and `hit`**: SET's signatures and field declarations, checked at startup (build,
+  unique pattern, anchors). SET lists client builds 1792148057, 1792507660 and 1793791052. Kiln additionally enables
+  `combat_xp` on dedicated-server build 1793791038: its pattern resolves uniquely at RVA `0x937270`, its anchors match,
+  and the headless lab exercised field writes, blocking and the typed return/after link on the actual game function.
+  `hit` also resolves uniquely on that server (RVA `0x190fb0`), but has no server damage-behavior proof, so it stays
+  **client-only**. On other builds the target stays off: `Hooks.rule` returns nil with a yellow line, as on SET.
+  `kiln.log` has a `[set] Catalog:` line per target. Return/after rules remain enabled for `combat_xp`, including the
+  upstream client builds; actual player XP awards and client-side after behavior still need a real-client observation.
 - **`Features()`**: SET's ids with Kiln's state.
 
   | Id | On Kiln |
@@ -133,11 +144,20 @@ SET 0.2.0's own overlay additions are not part of kiln-set:
   its check ("Anchor n differs"); it is then off, not wrong.
 - A hook that runs after kiln-set's in the kiln.hooks chain sees the arguments after the rules, and a blocked call
   does not reach it. SET's own observers see blocked calls; so do kiln-set's.
-- A rule's field write never lifts page protection. SET's does not either.
+- A rule's field write never lifts page protection. SET's does not either. Rule condition/change/after lists,
+  entity-id lists and build lists must be contiguous arrays; malformed entries are errors, not silently dropped
+  conditions. Numeric operands and live parameters must be finite.
 - `GetGameBuild()` is the exe's link time stamp, as in SET (server 26430253: 1793791038). `GetVersion()` is "0.2.0".
-- The launcher treats a placed mod folder that changed as the player's. A mod that saves `settings.json` (or any
-  file) into its folder makes the launcher refuse to place the profile again ("managed copy changed"). This is
-  older than 0.2.0, but `Settings.define` makes it more likely. It is an open point for the launcher.
+- The launcher inventories the Library-owned files in each placed copy separately from runtime/player files.
+  Added files and changed SET `settings.json` survive reapply and updates. On disable/removal they are retained under
+  `kiln/kept-mod-files/set/<id>/` and restored when that mod is placed again; activation returns a `keptFiles` result
+  and the launcher shows a **Mod settings kept** note when files are retained or restored. Server sync reports the
+  same result through its progress messages. Conflicting earlier retained data is parked as `.kept-N`, not deleted.
+  If a new version ships a non-settings file under a previously generated file's name, the shipped file wins in the
+  active copy and the generated file is kept aside. Changed or missing originally Library-owned code/data still
+  causes refusal. The only mutable shipped-file exceptions are SET's root `settings.json`, EML's root `config.txt`
+  and `config.ini`, and ShroudForge's existing structured `enabled`/`settings` values; `mod.json`, Lua code, DLLs
+  and `native-plugin.ini` are not settings exceptions.
 - Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET, the Kiln.DevTools Bindings view lists Kiln `KeyBindings`, so SET's private Lua bindings still use this file.
 - `ImGui.BeginChild(id, w, h, border, flags)` uses SET's argument order; the current `kiln.ui` service always draws
   a child border. Window/child nesting is checked and unwound between callbacks, including callbacks that omit End.
@@ -149,17 +169,37 @@ game. `bash native/plugins/set/test-review.sh` tests the real hook capture adapt
 startup/late-load coexistence checks (a failed module inventory included), mocked ImGui nesting/recovery, and SET
 0.2.0's rules: the rule engine, the catalog checks, and rules through the real hook adapter on a fake kiln.hooks
 (`tests/rules_review_test.cpp`). `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
-`Hooks.rule` and the write log through the Lua bridge. These do not verify client rendering, and no rule has run in
-the real game yet.
+`Hooks.rule` and the write log through the Lua bridge, including malformed-array and nonfinite-value rejection.
+`bash native/plugins/set/test-wine.sh` checks the real Windows loader-notification/fingerprint coexistence path
+headlessly. These checks do not verify client rendering.
 
-## Lab test
-`mods/tests/set-test/mods/` holds SET's `myheal` example from its modding guide (unchanged) and `settest`, which checks
-the API on a server and prints PASS/FAIL lines. The final assembled dev.20 probe reported **39 PASS, 0 FAIL**
-in the private `dev20-final-set` lab. `settest` has since gained three SET 0.2.0 checks (`Features()`,
-`Settings.define`, the read-only `settings.json`) and expects `GetVersion() == "0.2.0"`; these have not run in a lab
-yet. The dev.20 run includes localisation, hooks, event posting/observation, and flame-level
-changes with restoration. The event check posts the registered `DebugEnemyProjectileEvent` stream and observes
-its payload on the next step. The earlier WP15 result (37 PASS, 2 FAIL) used an absent `TestEvent1` stream and
-predated the integrated event-layout/cache fixes; it is superseded by the assembled-source run.
-Flame progress tests separately reported 61 PASS and 59 PASS after restart; they checked the stored and replicated
-level and restoration. They do not prove client fog or placement limits. Copy both folders to `<lab>/shrouded_engine_tweaks/mods/`.
+## Lab tests
+The disposable headless `d24-set` lab, on server build 1793791038 with the merged current-main sources, reported
+**12 PASS, 0 FAIL** on both its first boot and restart. A small lab-only native companion called the uniquely resolved
+`combat_xp` leaf with a zeroed, no-resource context (the original returns zero without gameplay effects). A Lua mod
+registered the actual rules through kiln-set and checked these results through the real kiln.hooks mid/raw chain:
+
+| Check | Observed return / victim level |
+|---|---|
+| Original, then after-add 17 | 17 / 20 |
+| Live parameter changed to 31 | 31 / 20 |
+| Stack-only level field add 5 | 0 / 25 |
+| Block with 41 | 41 / 20 |
+| All rules removed, retained raw link passive | 0 / 20 |
+
+The same probe verified `GetVersion()`, `Features()`, the server build, XP availability, `hit` staying client-only,
+typed settings clamping, and protected `settings.json`. Restart loaded the saved settings and incremented `runs`
+from 1 to 2, with the clamped value still 10. This proves the server adapter's call/field/return mechanics, **not**
+XP awarded to a player or real damage. No real client was launched. Client return/after behavior, overlay/input,
+the missing settings UI and `onChange`, and gameplay/network observations remain unverified or unavailable as listed above.
+
+`mods/tests/set-test/mods/` also holds SET's `myheal` example from its modding guide (unchanged) and `settest`, which
+checks the wider API on a server and prints PASS/FAIL lines. Its final assembled dev.20 run reported **39 PASS,
+0 FAIL** in `dev20-final-set`, including localisation, hooks, event posting/observation and flame-level changes with
+restoration. `settest` has since gained three SET 0.2.0 checks and expects `GetVersion() == "0.2.0"`; the current
+headless run above tested those APIs with its own focused probe, not the entire historical conformance mod.
+The event check posts the registered `DebugEnemyProjectileEvent` stream and observes its payload on the next step.
+The earlier WP15 result (37 PASS, 2 FAIL) used an absent `TestEvent1` stream and predates the integrated
+event-layout/cache fixes; it is superseded by the assembled-source run. Flame progress tests separately reported
+61 PASS and 59 PASS after restart; they checked the stored and replicated level and restoration, not client fog
+or placement limits. Copy both conformance folders to `<lab>/shrouded_engine_tweaks/mods/`.

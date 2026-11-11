@@ -459,6 +459,13 @@ pub struct Activation {
     /// (own_loaders::notes): each has a one-sentence `text` for the Play and profile pages. Empty: none installed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own_loaders: Vec<crate::own_loaders::OwnLoaderNote>,
+    /// Files mods wrote into their placed folders that activation moved to `kiln/kept-mod-files` or put back from
+    /// there (engine_mods::PlaceReport::kept_files): one sentence per mod. Empty: none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept_files: Vec<String>,
+    /// Safety repairs applied only to the game-side profile. Saved profile and Library sources are unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -777,6 +784,32 @@ fn native_as_manifest(n: &NativeManifest) -> KilnManifest {
     }
 }
 
+/// A native mod that is another engine's own loader (SET's powrprof.dll ...): Kiln loads it, and that engine's plugin
+/// then stands aside, so the engine's mods in the profile do not run through Kiln (player report r1110).
+pub fn native_loader_warning(id: &str, engine: crate::engines::Engine, file: &str) -> String {
+    let short = crate::engines::short_name(engine);
+    format!("native mod {id} is {short}'s own loader ({file}), added before Kiln recognised it: Kiln loads it, so Kiln's {short} \
+        plugin stands aside and the profile's {short} mods do not run through Kiln. Remove {id} from the profile and the Library; \
+        Kiln runs {short} mods itself")
+}
+
+/// Old launchers imported SET's bundled proxy as a native mod. Do not run that accidental second loader from the
+/// Library; leave both the Library source and saved profile untouched. Deliberate SET installs next to the game still
+/// run as before (kiln-set's coexistence detector steps aside). Other engines may deliberately use their own loader.
+fn skipped_native_loaders(dirs: &DataDirs, profile: &Profile) -> Vec<String> {
+    profile.mods.native.iter().filter(|m| m.enabled).filter_map(|m| {
+        let folder = crate::library::path_of(dirs, &lref(ModKind::Native, m)).ok()?;
+        let (engine, file) = crate::engines::own_loader_in(&folder)?;
+        (engine == crate::engines::Engine::Set).then(|| skipped_set_loader(&m.id, &file))
+    }).collect()
+}
+
+fn skipped_set_loader(id: &str, file: &str) -> String {
+    format!("Skipped native mod {id}: {file} is Shrouded Engine Tweaks's own loader, not a mod; Kiln runs SET mods itself. \
+        The Library source and saved profile are kept unchanged. Remove this native entry from the profile and import the \
+        SET mod folders instead; to use SET's own loader deliberately, install it next to the game")
+}
+
 fn environment(side: RunSide) -> Environment {
     Environment { kiln: crate::VERSION.into(), api: KILN_API.into(), side, unavailable_features: Vec::new(), loaded: Vec::new() }
 }
@@ -816,6 +849,15 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
         if !m.enabled {
             native.push(NativePlanEntry { id: m.id.clone(), version: m.version.clone(), phase, enabled: false, reason: Some("disabled in the profile".into()) });
             continue;
+        }
+        if let Some((engine, file)) = crate::engines::own_loader_in(&folder) {
+            if engine == crate::engines::Engine::Set {
+                let reason = skipped_set_loader(&m.id, &file);
+                warnings.push(reason.clone());
+                native.push(NativePlanEntry { id: m.id.clone(), version: m.version.clone(), phase, enabled: false, reason: Some(reason) });
+                continue;
+            }
+            warnings.push(native_loader_warning(&m.id, engine, &file));
         }
         match man {
             Ok(n) => {
@@ -885,7 +927,9 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
                 _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
             };
-            let fm = FolderMod { id: m.id.clone(), version: Some(m.version.clone()), path, hash: Some(m.hash.clone()), enabled: m.enabled };
+            let enabled = m.enabled && !(k == ModKind::Native && crate::engines::own_loader_in(&folder)
+                .is_some_and(|(engine, _)| engine == crate::engines::Engine::Set));
+            let fm = FolderMod { id: m.id.clone(), version: Some(m.version.clone()), path, hash: Some(m.hash.clone()), enabled };
             if let Some(list) = mods.folders_mut(k) {
                 list.push(fm);
             }
@@ -1130,6 +1174,8 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
         fingerprint: file.fingerprint.clone().unwrap_or_default(),
         activated: now,
         own_loaders: placed.own_loaders,
+        kept_files: placed.kept_files,
+        warnings: skipped_native_loaders(dirs, &profile),
     };
     let _ = crate::util::write_json_atomic(&activation_record(dirs, install), &a);
     Ok(a)
@@ -1258,6 +1304,8 @@ pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activatio
         fingerprint: file.fingerprint.clone().unwrap_or_default(),
         activated: file.written.clone().unwrap_or_default(),
         own_loaders: own_loader_notes(install, &file),
+        kept_files: Vec::new(),
+        warnings: Vec::new(),
     }))
 }
 

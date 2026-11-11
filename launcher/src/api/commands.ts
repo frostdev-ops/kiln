@@ -315,6 +315,11 @@ export interface Activation {
   /** Other engines' own loaders installed in this game (own_loaders.rs); absent or empty: none. Each `text` is one
    * sentence for the Play and profile pages. */
   ownLoaders?: OwnLoaderNote[];
+  /** Files mods wrote into their placed folders (their settings) that activation moved to `kiln/kept-mod-files` or put
+   * back from there (engine_mods.rs PlaceReport::kept_files): one sentence per mod. Absent or empty: none. */
+  keptFiles?: string[];
+  /** Safety repairs applied only to the game-side profile; Library sources and saved profiles are unchanged. */
+  warnings?: string[];
 }
 /** An engine's own loader next to the game (EML's dbghelp.dll, a chained Flame loader...) and what it means for the
  * profile's mods of that engine. While it runs, it runs them only from its own folder. */

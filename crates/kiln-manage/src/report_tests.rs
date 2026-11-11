@@ -320,6 +320,33 @@ fn engine_stood_aside_and_loader_in_folder() {
     assert!(r.summary.contains("dbghelp.dll"));
 }
 
+/// Player report r1110: SET's powrprof.dll had been imported as a native mod (before the Library recognised loaders).
+/// Kiln loaded it, kiln-set stood aside for it, and the report blamed "SET's own loader". It now names the native mod.
+#[test]
+fn native_mod_that_is_an_engines_own_loader() {
+    let f = Fx::healthy("native-loader");
+    let native = f.root.join("data/library/native/powrprof-00d1b1/0.0.0+abda29bc");
+    std::fs::create_dir_all(&native).unwrap();
+    std::fs::write(native.join("powrprof.dll"), crate::pe::build_test_dll(&["PowerGetActiveScheme"], b"VK_LAYER_SHROUDED_ENGINE_TWEAKS")).unwrap();
+    f.profile(serde_json::json!(true), serde_json::json!({"native": [{"id": "powrprof-00d1b1", "version": "0.0.0", "path": native.display().to_string()}]}));
+    // before a start: a warning
+    let r = build(&f.input());
+    let n = finding(&r, "native-loader");
+    assert_eq!(n.level, Level::Warning);
+    assert!(n.text.contains("native mod powrprof-00d1b1 is Shrouded Engine Tweaks's own loader (powrprof.dll)")
+        && n.text.contains("Remove powrprof-00d1b1 from the profile"), "{}", n.text);
+    // kiln-set stood aside for it: one problem that names the mod, not the generic own-loader finding
+    f.w("kiln/state/set.json", br#"{"format":1,"plugin":"kiln-set","status":"stepped-aside","steppedAside":true,"reason":"a non-system powrprof.dll is loaded","mods":[]}"#);
+    let r = build(&f.input());
+    let n = finding(&r, "native-loader");
+    assert_eq!(n.level, Level::Problem);
+    assert!(n.text.starts_with("kiln-set stood aside at the last start: the profile's native mod powrprof-00d1b1"), "{}", n.text);
+    assert!(!ids(&r).contains(&"own-loader"), "{:?}", ids(&r));
+    // switched off in the profile: nothing to say
+    f.profile(serde_json::json!(true), serde_json::json!({"native": [{"id": "powrprof-00d1b1", "version": "0.0.0", "path": native.display().to_string(), "enabled": false}]}));
+    assert!(!ids(&build(&f.input())).contains(&"native-loader"));
+}
+
 #[test]
 fn mods_in_the_game_folder_the_profile_skips() {
     let f = Fx::healthy("unlisted");

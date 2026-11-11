@@ -302,6 +302,19 @@ pub fn kiln_runs(engine: Engine) -> bool {
         | Engine::Shroudtopia | Engine::Enshwick | Engine::Shroudlink | Engine::Ember)
 }
 
+/// The engine whose own loader is a DLL directly in `dir`, when Kiln runs that engine's mods itself ([`kiln_runs`]): a
+/// native mod folder holding SET's `powrprof.dll` or EML's `dbghelp.dll` (imported before the Library recognised
+/// loaders, or added by hand). Loaded by Kiln, it makes that engine's plugin stand aside. Returns the file name too.
+pub fn own_loader_in(dir: &Path) -> Option<(Engine, String)> {
+    dlls_in(dir).into_iter().find_map(|dll| {
+        let class = crate::pe::classify_proxy(&dll).ok()?;
+        let engine = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln && kiln_runs(*e))?;
+        // shroudlink's client addon is a mod of its own, not the loader (detect_dll's rule)
+        if engine == Engine::Shroudlink && shroudlink_addon_at(&dll) { return None; }
+        Some((engine, dll.file_name()?.to_string_lossy().into_owned()))
+    })
+}
+
 /// Loaders of DLL mods that Kiln does itself (it chains DLLs and reads `dinput8-chain.ini`).
 fn is_chain_loader(engine: Engine) -> bool {
     matches!(engine, Engine::ChainLoader | Engine::ModLoaderProxy)
