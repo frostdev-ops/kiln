@@ -996,7 +996,8 @@ internal static class ModCatalog
         if (runs && b.Mods.TryGetValue("shroudforge", out var list))
         {
             var runtime = SfRuntime(b.Src);
-            for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, b.Src.Side);
+            var assets = SfAssets(b.Src);
+            for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, assets, b.Src.Side);
         }
         b.Engine("shroudforge", mode, health, note, f.Current);
     }
@@ -1057,7 +1058,52 @@ internal static class ModCatalog
         return new SfRuntimeState(active, errors, effects);
     }
 
-    private static CatalogMod SfRefine(CatalogMod m, SfRuntimeState? runtime, string side)
+    /// <summary>ShroudForge's record of its startup game-data pass (state.json <c>assets</c>, written by its loader:
+    /// <c>status</c> preparing, applied or failed, <c>target</c> enshrouded or enshrouded_server, <c>completedAt</c>, and
+    /// for an applied pass the mods it patched with their versions), when the pass ended in this game start. The
+    /// record carries no pid, so its time is the only tie to this process: a pass that ended before the process
+    /// started, a time ahead of the clock, or a process whose start is unknown proves nothing about this start.</summary>
+    internal sealed record SfAssetState(string Status, string Target, Dictionary<string, string> Mods, string? Error);
+
+    private static SfAssetState? SfAssets(CatalogSources src)
+    {
+        if (src.ProcessStartUtc == DateTime.MinValue) return null;
+        var path = Path.Combine(SfFolder(src.GameDir, "state"), "state.json");
+        if (ReadJson(path, out _) is not { ValueKind: JsonValueKind.Object } d || !d.TryGetProperty("assets", out var a) ||
+            a.ValueKind != JsonValueKind.Object || Str(a, "status") is not { } status || Str(a, "target") is not { } target) return null;
+        if (!a.TryGetProperty("completedAt", out var at) || at.ValueKind != JsonValueKind.Number || !at.TryGetInt64(out var seconds) ||
+            seconds < new DateTimeOffset(src.ProcessStartUtc).ToUnixTimeSeconds() - 2 || seconds > DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 30) return null;
+        var mods = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (a.TryGetProperty("mods", out var list) && list.ValueKind == JsonValueKind.Array)
+            foreach (var x in list.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.Object && Str(x, "id") is { Length: > 0 } id) mods[id] = Str(x, "version") ?? "";
+        return new SfAssetState(status, target, mods, Str(a, "error"));
+    }
+
+    /// <summary>What this start's startup pass proves for a mod with no Lua part: applied when the pass patched this
+    /// side's game files and lists the mod at the version in its folder; failed when the pass itself failed. Anything
+    /// else (the other side's files, a pass still running, a mod the pass does not list, another version) is no proof
+    /// either way and returns null.</summary>
+    private static CatalogMod? SfStartup(CatalogMod m, SfPackage p, SfAssetState assets, string side)
+    {
+        if (side.Length == 0 || assets.Target != (side == "server" ? "enshrouded_server" : "enshrouded")) return null;
+        if (assets.Status == "failed")
+            return m with
+            {
+                State = ModRunState.Failed, Word = "failed",
+                Reason = "ShroudForge's startup game-data pass failed in this game start" + (assets.Error is { Length: > 0 } e ? ": " + e : "."),
+                Help = "ShroudForge's log has the details. Start the game again once the cause is fixed.",
+            };
+        if (assets.Status != "applied" || !assets.Mods.TryGetValue(p.Id, out var version) || version != p.Version) return null;
+        return m with
+        {
+            State = ModRunState.Loaded, Word = "applied",
+            Reason = "ShroudForge applied its game-data changes at the start of this game start (its record of the startup pass lists this mod). A change of its settings applies with the next start.",
+            Help = null,
+        };
+    }
+
+    private static CatalogMod SfRefine(CatalogMod m, SfRuntimeState? runtime, SfAssetState? assets, string side)
     {
         if (m.Missing || m.Folder is not { } folder) return m;
         SfPackage p;
@@ -1079,6 +1125,8 @@ internal static class ModCatalog
             };
         if (side.Length > 0 && p.Targets.Count > 0 && !p.Targets.Contains(side))
             return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = $"It runs on the {string.Join(" and ", p.Targets)} only.", Help = null };
+        var hasRuntime = p.Capabilities.Any(c => c is "runtime" or "runtime-register-dll");
+        if (!hasRuntime && assets is not null && SfStartup(m, p, assets, side) is { } startup) return startup;
         if (runtime is null) return m with { State = ModRunState.Waiting, Word = "unconfirmed", Reason = "Its switch is on, but ShroudForge has no current per-mod runtime report. This is not proof the mod is active.", Help = null };
         if (runtime.Errors.TryGetValue(p.Id, out var err))
         {
@@ -1089,8 +1137,7 @@ internal static class ModCatalog
                 Help = waits ? "Start the game again." : "Read the reason above. Update the mod, then start the game again. ShroudForge's log has the details.",
             };
         }
-        var hasRuntime = p.Capabilities.Any(c => c is "runtime" or "runtime-register-dll");
-        if (!hasRuntime) return m with { State = ModRunState.Waiting, Word = "startup", Reason = "Enabled for startup game-data changes; ShroudForge does not confirm individual startup patches here.", Help = null };
+        if (!hasRuntime) return m with { State = ModRunState.Waiting, Word = "startup", Reason = "Enabled for startup game-data changes; ShroudForge's record of this start's startup pass does not list it at this version, so Kiln cannot confirm it.", Help = null };
         if (!runtime.Active.Contains(p.Id))
             return m with { State = ModRunState.NotLoaded, Word = "inactive", Reason = "ShroudForge does not run it right now; a change of its switch takes a second or two, or it starts with the next game start.", Help = null };
         if (runtime.Effects.TryGetValue(p.Id, out var effect))

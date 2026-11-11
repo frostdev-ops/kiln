@@ -361,6 +361,74 @@ public sealed class ModCatalogTests : IDisposable
         }
     }
 
+    /// <summary>A mod with no Lua part (capability "patch" only) never shows in ShroudForge's runtime report. Its proof is
+    /// ShroudForge's own record of the startup game-data pass (state.json "assets"): the pass of this game start, with
+    /// the status "applied", this side's target and this mod at this version in its list. A real client showed SF Unlock
+    /// Blueprints as "Waiting" while that record listed it. A record from an earlier start, another target, another
+    /// version or without the mod proves nothing and keeps the careful wording; a failed pass of this start is said.</summary>
+    [Fact]
+    public void A_startup_only_shroudforge_mod_is_applied_when_this_starts_asset_record_lists_it()
+    {
+        Profile([]);
+        foreach (var (id, version) in new[] { ("patch", "1.0.2"), ("unlisted", "1.0.0"), ("updated", "2.0.0") })
+        {
+            var folder = Dir("mods", id);
+            File.WriteAllText(Path.Combine(folder, "mod.json"), JsonSerializer.Serialize(new { id, name = "Name " + id, version, capabilities = new[] { "patch" } }));
+            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), JsonSerializer.Serialize(new { schemaVersion = 1, enabled = true, targets = new[] { "client" } }));
+        }
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+        var state = Path.Combine(Dir("shroudforge"), "state.json");
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var listed = new object[] { new { id = "patch", version = "1.0.2" }, new { id = "updated", version = "1.9.0" } };
+        void Put(object? assets, bool runtime = true)
+        {
+            var doc = new Dictionary<string, object?> { ["schemaVersion"] = 1 };
+            if (runtime) doc["runtime"] = new { pid = Pid, running = true, updatedAt = now, active = Array.Empty<string>(), errors = new Dictionary<string, string>(), effects = new Dictionary<string, object>() };
+            if (assets is not null) doc["assets"] = assets;
+            File.WriteAllText(state, JsonSerializer.Serialize(doc));
+        }
+
+        Put(new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now - 5, mods = listed });
+        var s = Read();
+        var patch = Mod(s, "shroudforge", "patch");
+        Assert.Equal((ModRunState.Loaded, "applied"), (patch.State, patch.Word));
+        Assert.Contains("this game start", patch.Reason);
+        Assert.False(patch.Active);  // nothing of it runs: a change of its settings needs a new start
+        Assert.False(patch.NeedsAttention);
+        Assert.Equal((ModRunState.Waiting, "startup"), (Mod(s, "shroudforge", "unlisted").State, Mod(s, "shroudforge", "unlisted").Word));
+        Assert.Equal((ModRunState.Waiting, "startup"), (Mod(s, "shroudforge", "updated").State, Mod(s, "shroudforge", "updated").Word));
+
+        // the record alone is enough: ShroudForge's runtime report may be missing or stale
+        Put(new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now - 5, mods = listed }, runtime: false);
+        Assert.Equal("applied", Mod(Read(), "shroudforge", "patch").Word);
+
+        foreach (var notProof in new object[]
+                 {
+                     new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = new DateTimeOffset(Start).ToUnixTimeSeconds() - 60, mods = listed },  // an earlier start
+                     new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded_server", completedAt = now - 5, mods = listed },  // the other side's files
+                     new { schemaVersion = 1, status = "preparing", target = "enshrouded" },  // the pass is still running
+                     new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now + 3600, mods = listed },  // a clock that cannot be this start
+                     new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = "soon", mods = listed },
+                     new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now - 5, mods = "patch" },
+                 })
+        {
+            Put(notProof);
+            var m = Mod(Read(), "shroudforge", "patch");
+            Assert.Equal((ModRunState.Waiting, "startup"), (m.State, m.Word));
+        }
+
+        Put(new { schemaVersion = 1, status = "failed", phase = "startup", target = "enshrouded", completedAt = now - 5, error = "runtime.lifecycle unavailable in world-editor" });
+        var failed = Mod(Read(), "shroudforge", "patch");
+        Assert.Equal((ModRunState.Failed, "failed"), (failed.State, failed.Word));
+        Assert.Contains("runtime.lifecycle unavailable in world-editor", failed.Reason);
+        Assert.True(failed.NeedsAttention);
+
+        // a process whose start time is unknown cannot tell this start's record from an older one
+        Put(new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now - 5, mods = listed });
+        var unknownStart = ModCatalog.Read(new CatalogSources { KilnRoot = Kiln, Pid = Pid, Side = "client" });
+        Assert.Equal("startup", Mod(unknownStart, "shroudforge", "patch").Word);
+    }
+
     /// <summary>Folders Kiln places in <c>&lt;game&gt;/mods/</c> for other hosts (an XHL-Core companion, an EML mod a DLL
     /// reads there) are not Enshwick mods, even while Enshwick runs: XHL entries are their own group, never Loaded.</summary>
     [Fact]

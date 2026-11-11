@@ -283,7 +283,13 @@ process start and no older than 30 s). A mod reports `waiting`, `no-target`, `no
 runtime also sets `loading`, `loaded`, `error` and `restart-required`. As in the launcher, `write-failed` and `error`
 show Failed (and count under Needs attention), `write-confirmed`, `loaded` and `no-change` show Loaded, and every other
 state (pending, or a word Kiln does not know) shows Waiting. A running adapter alone is not proof a
-Lua mod is active, reported readback is not gameplay proof, and individual startup patch application is not confirmed here. Enshwick's mods
+Lua mod is active, and reported readback is not gameplay proof. A mod with no Lua part (no `runtime` capability) is
+never in that runtime section; its proof is the `assets` section of the same file, ShroudForge's record of its startup
+game-data pass. The record has no pid, so it counts only when its `completedAt` is inside this process's lifetime: an
+`applied` pass on this side's target (`enshrouded` on a client, `enshrouded_server` on a server) that lists the mod at
+the version in its folder shows Loaded with the word `applied`; a `failed` pass shows Failed with its error. Any other
+record (an earlier start, the other target, a pass still `preparing`, the mod missing from the list or listed at
+another version) proves nothing either way, and the mod shows Waiting with the word `startup`. Enshwick's mods
 come from the profile and mods folder, with loader state from `enshwick.json`; a folder there that another kind owns
 (a profile entry of another kind, a `native-plugin.ini`, a `mod.json`, or Kiln's placement marker of another kind) is
 not listed as Enshwick's. XHL companions (the profile's `mods.xhl`, and folders with XHL-Core's `native-plugin.ini` in
