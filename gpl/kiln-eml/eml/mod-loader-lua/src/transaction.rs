@@ -262,6 +262,52 @@ pub(crate) mod tests {
         fs::remove_dir_all(game).unwrap();
     }
     #[test]
+    fn sf_lock_also_covers_missing_state_and_byte_identical_publications() {
+        for unchanged in [true, false] {
+            let game = std::env::temp_dir().join(format!("kiln-sf-all-writes-{}", uuid::Uuid::new_v4()));
+            let stage = game.join("stage");
+            fs::create_dir_all(&stage).unwrap();
+            for (name, old, new) in [("g.kfc", "old patch", "new patch"), ("g.kfc_resources", "base old", "base new")] {
+                fs::write(game.join(name), if unchanged { new } else { old }).unwrap();
+                fs::write(stage.join(name), new).unwrap();
+            }
+            fs::write(game.join("g.kfc.bak"), "vanilla").unwrap();
+            fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+            if unchanged { sf_applied(&game, "g"); }
+            let state = game.join("shroudforge/state.json");
+            let original = fs::read(&state).ok();
+            let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
+            w.publish(|n| {
+                assert!(sf_write_lock_busy(&game), "SF lock missing at boundary {n}, unchanged={unchanged}");
+                Ok(())
+            }).unwrap();
+            assert_eq!(fs::read(&state).ok(), original, "no state invented or unchanged claim invalidated");
+            assert!(!sf_write_lock_busy(&game));
+            drop(w);
+            fs::remove_dir_all(game).unwrap();
+        }
+    }
+    #[test]
+    fn busy_sf_without_state_refuses_before_any_archive_write() {
+        let game = std::env::temp_dir().join(format!("kiln-sf-first-start-{}", uuid::Uuid::new_v4()));
+        let stage = game.join("stage");
+        fs::create_dir_all(&stage).unwrap();
+        fs::create_dir_all(game.join("shroudforge/config")).unwrap();
+        let lock = File::create(game.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+        lock.lock().unwrap();
+        for name in ["g.kfc", "g.kfc_resources"] {
+            fs::write(game.join(name), "old").unwrap();
+            fs::write(stage.join(name), "new").unwrap();
+        }
+        fs::write(game.join("g.kfc.bak"), "vanilla").unwrap();
+        fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+        let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
+        assert!(w.publish(|_| panic!("busy SF allowed an archive write")).is_err());
+        assert_eq!(fs::read(game.join("g.kfc")).unwrap(), b"old");
+        drop((w, lock));
+        fs::remove_dir_all(game).unwrap();
+    }
+    #[test]
     fn real_kfc_is_readable_at_every_publication_boundary() {
         use kfc::{container::KFCReader, guid::ContentHash};
         for fail in 0..=3 {

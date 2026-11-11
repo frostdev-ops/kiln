@@ -301,7 +301,8 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         _ => None,
     };
     let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous };
-    let guard = if changed { handoff(root, stem, true)? } else { None };
+    // Even identical final bytes pass through the vanilla-header barrier and rewrite the live pair.
+    let guard = handoff(root, stem, true, changed)?;
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
     Ok(guard)
 }
@@ -512,10 +513,10 @@ pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGua
         let (backup, current) = (format!("{stem}.{extension}.bak"), format!("{stem}.{extension}"));
         let Some(size) = live.size(&backup)? else { continue };
         if live.size(&current)? != Some(size) || live.digest(&backup)? != live.digest(&current)? {
-            return handoff(root, stem, false);
+            return handoff(root, stem, false, true);
         }
     }
-    Ok(None)
+    handoff(root, stem, false, false)
 }
 
 /// SF's write lock, held from the state edit until the last archive write is done. Every SF state write (the
@@ -560,7 +561,7 @@ fn sf_publication_pending(root: &Path, stem: &str) -> io::Result<()> {
 // Keep the exact original bytes and replacement in a recovery journal. Do not restore a now-false "applied" claim.
 // Recognition follows SF's own rules (asset-preparation.schema.json, update_loader_state.rs); any other shape refuses.
 // `publishing`: the archives are about to get EML's output (not vanilla data back): SF's asset mods drop out of them.
-fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGuard>> {
+fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Result<Option<SfGuard>> {
     let config_dir = root.join("shroudforge/config");
     let config_path = config_dir.join("modloader-config.json");
     checked_path(root, &config_path)?;
@@ -568,8 +569,8 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
     let state_dir = sf_dir(root, config.as_ref(), "state");
     let state = state_dir.join("state.json");
     checked_path(root, &state)?;
-    if !state.try_exists()? { sf_publication_pending(root, stem)?; return Ok(None); }
-    // Same installation lock as ShroudForge's document writer. Never wait on an active standalone loader.
+    // Same installation lock as ShroudForge's document writer. Take it even before its first state exists: SF must
+    // not create `preparing` while we publish. Never wait on an active standalone loader.
     checked_path(root, &config_dir)?;
     fs::create_dir_all(&config_dir)?;
     let lock_path = config_dir.join(".shroudforge-write.lock");
@@ -582,6 +583,7 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
     if sf_dir(root, sf_config(root, &config_path)?.as_ref(), "state") != state_dir {
         return Err(invalid("ShroudForge state path changed during handoff"));
     }
+    if !state.try_exists()? { return Ok(Some(guard)); }
     let original = bounded(root, &state)?;
     let mut value: serde_json::Value = serde_json::from_slice(&original)?;
     if value.get("schemaVersion").is_some_and(|v| v.as_u64() != Some(1)) {
@@ -606,6 +608,7 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
         !matches!(assets.get("phase").and_then(|v| v.as_str()), Some("prepare" | "startup")) {
         return Err(invalid("unknown ShroudForge prepared-output cache; refusing archive handoff"));
     }
+    if !changed { return Ok(Some(guard)); }
     let mods: Vec<String> = assets["mods"].as_array().into_iter().flatten().filter_map(|m| {
         let id = m.get("id")?.as_str()?;
         Some(match m.get("version").and_then(|v| v.as_str()) { Some(v) => format!("{id} {v}"), None => id.to_owned() })
@@ -918,6 +921,16 @@ pub(crate) mod tests {
         assert!(crate::transaction::DURING_RESTORE.with(|check| check.take()).is_none(), "the probe ran");
         assert_eq!(fs::read(root.join("g.kfc")).unwrap(), header);
         assert!(!crate::transaction::tests::sf_write_lock_busy(&root), "released after the restore");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn sf_lock_covers_restore_without_existing_state() {
+        let (root, _, _) = real_published();
+        crate::transaction::DURING_RESTORE.with(|check| check.set(Some(|game| {
+            assert!(crate::transaction::tests::sf_write_lock_busy(game), "SF lock missing during first-state restore");
+        })));
+        assert!(crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"));
+        assert!(!root.join("shroudforge/state.json").exists(), "no SF state invented");
         fs::remove_dir_all(root).unwrap();
     }
     // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
@@ -1238,7 +1251,7 @@ pub(crate) mod tests {
         let (root, _) = fixture();
         let (state, _) = sf(&root, false);
         fs::create_dir_all(root.join("shroudforge/runtime")).unwrap();
-        let guard = handoff(&root, "g", true).unwrap();
+        let guard = handoff(&root, "g", true, true).unwrap();
         assert!(guard.is_some());
         let busy = || fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap().try_lock().is_err();
         assert!(busy());
