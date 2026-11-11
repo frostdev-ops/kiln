@@ -227,20 +227,29 @@ real mod with SF's own override helpers and synthetic flight fixture, with `shro
 without the helper. S and W held for 2 s each reach the steering through ActorInput (rates -70, 0, 70), with no
 `shroudforge.input` access. A mutant mod that steers from `shroudforge.input` fails it with the reported symptom.
 It is a Lua replay: it shows where the mod takes its input from, not what an affected client's game wrote there or
-what the game's rotation consumer read; that needs the affected session. The same check shows the three ways the mod itself can produce a "neither key works" or "no climb" glider:
+what the game's rotation consumer read; that needs the affected session. The same check shows three of the four ways
+the mod itself can produce a "neither key works" or "no climb" glider; the fourth is from the source (it has no
+session change in the check):
 
 - The ActorInput the mod reads stays 0 while a key is held: neither key does anything. The effect report is then
   identical to working steering (`no-change: Native glider controls`), so the effect detail cannot reveal this case.
 - Target-angle input mode, or more than one `PlayerInput` entity in the authoritative world: the mod leaves the
   game's own rate (W dives, S does not climb). Its effect detail names the reason ("Upward tilt requires pitch-speed
   input controls" or "requires one authoritative player").
+- The mod's override tracker faults: a world or layout change (a new session id, for example after one failed
+  `ResolveEcs` of SF's native tick) while the mod holds its shared glider override
+  (`mod-runtime/lua/ingame/overrides/track_runtime_overrides.lua:11-13`). From then on the mod returns on every update
+  (`mods/sf-unlimited-flight/src/mod.lua:213-214`) and leaves the last rate in place, usually 0: neither key works,
+  until the game restarts. Its effect report is `write-failed` "World changed before shared values were restored.
+  Restart the game before writing again".
 
 **Kiln on the same path.** kiln-rules wraps the glide step and its gravity and stamina sites. Unless a Kiln gliding
 rule applies to that player it returns the game's result unchanged (`native/services/rules/rules.cpp:407-413`), and
 it only ever changes velocity, never the rotation or the pitch rate (`rules.cpp:439-502`). kiln.ui keeps W/S from
 the game only while Kiln captures input (logged as `ui: input capture on`) or a Kiln binding consumes the key. That
-would stop walking too. A stall of SF's loop on Kiln's worker (file I/O: the heartbeat fix, more status I/O is being
-moved off the loop) leaves the last rate in place until the next update.
+would stop walking too. A stall of SF's loop on Kiln's worker leaves the last rate in place until the next update;
+the adapter's file I/O (heartbeat, status file, log mirror) runs on its writer thread, but the native status read
+every 2 s still runs on the loop.
 
 **Player check** (about two minutes; same game, glider, world and settings as when it failed):
 
@@ -253,7 +262,8 @@ moved off the loop) leaves the last rate in place until the next update.
    menu, glide again and hold W for two seconds. Note whether the nose goes down. Switch the mod back on afterwards.
 5. If you can look at the Kiln launcher's Logs page while gliding: when SF Unlimited Flight's line says "Upward tilt
    requires pitch-speed input controls" or "requires one authoritative player", note that instead. The mod then
-   leaves steering to the game by design, and this check does not apply.
+   leaves steering to the game by design, and this check does not apply. When it says `write-failed` "World changed
+   before shared values were restored. Restart the game before writing again", note that too.
 6. Make a support report straight afterwards.
 
 Reading it: step 3 works, so the report is not reproduced. Neither key works in step 3, but W dives in step 4: the
@@ -261,7 +271,10 @@ game gets the key, but the value SF reads does not change. The next step is then
 session of `ActorInput.desiredLocalMoveInput.z`, `PlayerInput.fromClient.movementStick` and the world and entity SF
 reads, while a key is held. W does nothing in step 4 either: the game's own glider ignores W under Kiln. The next
 step is then on Kiln's side (`ui: input capture` lines in kiln.log, the kiln-rules glide hooks), not SF's. Only W
-works in step 3: see step 5.
+works in step 3: see step 5. Step 5 shows the `write-failed` "World changed ..." text: the mod stopped writing after
+a world or layout change and holds the last rate (the fourth case above), whatever steps 3 and 4 showed; steps 3 and 4
+then say nothing about Kiln or about the value SF reads. Restart the game, check again, and send the support report
+of the session in which it appeared.
 
 ## 6. What other agents need to do (detect, launcher)
 
