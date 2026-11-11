@@ -223,6 +223,11 @@ It fails soft:
   this start's game data ...`, and `reason` plus `sfDisplaced` in `kiln/state/eml.json`, shown on the Engines row). The
   next start in which SF runs prepares them again, from the vanilla backup, with the EML mods in its folder. That
   happens once per change of who writes, not every start.
+- **A backup of an earlier game build.** After a game update the backup (`<exe>.kfc.bak`) is of the old build while
+  the game data is of the new one. A start without EML mods then compares nothing, restores nothing and claims nothing
+  about the data: one info line in kiln.log (`... the vanilla backup is of another game build ...`), `staleBackup:
+  true` in `kiln/state/eml.json`, and the launcher's archive banner says the backup is of an earlier build and nothing
+  needs doing. The next start with an EML mod makes a new backup of the current build.
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
@@ -450,6 +455,8 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
   prove it wrote it, so it left it, and what to do (see "It fails soft"); with phase `done`, the ShroudForge asset
   mods an earlier start prepared that this start's game data does not have, because ShroudForge did not run this
   start; listed in `sfDisplaced` as `<id> <version>` (see "ShroudForge asset mods and EML mods together" below).
+  `staleBackup` (dev.24, phase `idle`, `true` or absent): the backup is of another game build than the game data and
+  was not compared with.
   `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }` plus,
   since dev.22, `recordedFiles` and `recordedBytes` (files recorded by their stamp, not read): what reading the game's
   files for the change cache cost this start, and since dev.24 `ownershipBytes` (what the ownership receipt's SHA-256

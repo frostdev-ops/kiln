@@ -150,6 +150,8 @@ fn all_mods_dropped_leaves_a_restorable_set_written_by_another_loader() {
     let out = run(&g.cfg, mods, entries);
     assert_eq!((out.phase, out.restored), (Phase::Idle, false), "{out:?}");
     assert_eq!(g.archives(), live);
+    // R3: this idle branch says why it left the data too
+    assert!(out.reason.as_deref().is_some_and(|r| r.contains("no ownership receipt")), "{out:?}");
 }
 
 // F8, gate on the failed path: a run that fails without naming a mod (a game input changed while it ran) restores
@@ -265,4 +267,35 @@ fn adoption_lists_only_the_containers_the_adopted_header_references() {
     assert_eq!((out.phase, out.restored), (Phase::Idle, true), "{out:?}");
     assert_eq!(std::fs::read(&extra).unwrap(), b"not written by that run", "a file that run did not write stays");
     assert!(!g.game().join("enshrouded_001.dat").exists(), "the container it wrote goes");
+}
+
+// R2: after a game update the backup is of the earlier build. The game data is not compared with it and nothing is
+// claimed about it: no reason (Steam's verify could not clear it anyway), one info line, `staleBackup` for the banner.
+#[test]
+fn a_backup_of_an_earlier_game_build_is_not_reported_as_unproven_data() {
+    let g = published("stale-backup", CONTENT);
+    assert!(g.without_mods().restored, "EML switched off once: vanilla data, backups and receipt stay");
+    // Steam updates the game: new vanilla files of another build
+    for entry in std::fs::read_dir(g.game()).unwrap().flatten() {
+        if entry.file_name().to_string_lossy().ends_with(".dat") { std::fs::remove_file(entry.path()).unwrap(); }
+    }
+    for name in ARCHIVES { std::fs::File::create(g.game().join(name)).unwrap(); }
+    let mut update = KFCWriter::<Rc<KFCFile>, _>::new(g.game().as_std_path(), "enshrouded", Rc::new(TypeRegistry::default()), "fixture 2").unwrap();
+    update.write_content(&ContentHash::from_data(b"updated blob"), b"updated blob").unwrap();
+    update.finalize().unwrap();
+    let live = g.archives();
+    for _ in 0..2 {
+        let out = g.without_mods();
+        assert_eq!((out.phase, out.restored, out.reason.as_deref()), (Phase::Idle, false, None), "{out:?}");
+        assert_eq!(serde_json::to_value(&out).unwrap()["staleBackup"], true);
+        assert_eq!(g.archives(), live);
+    }
+    // the next start with an EML mod makes a backup of the new build and patches from it (the fixture has no exe to read
+    // the new build's types from: give it their cache, as the exe of a real update would)
+    let mut types = TypeRegistry::default();
+    types.version = "fixture 2".into();
+    std::fs::write(g.cfg.cache_dir.join("enshrouded-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
+    let out = g.with_mod();
+    assert_eq!((out.phase, out.error.as_deref()), (Phase::Done, None), "{out:?}");
+    assert_eq!(std::fs::read(g.game().join("enshrouded.kfc.bak")).unwrap(), live[0]);
 }

@@ -476,6 +476,8 @@ fn run_now() {
         Phase::Idle if out.restored => "kiln-eml: no EML mods; the game data was restored to vanilla (EML's .kfc.bak)".to_string(),
         Phase::Idle => match &out.reason {
             Some(reason) => format!("kiln-eml: no EML mods; game files untouched. {reason}"),
+            None if out.stale_backup => "kiln-eml: no EML mods; game files untouched (the vanilla backup is of an earlier \
+                game build: the game was updated since; the next start with an EML mod makes a new one)".to_string(),
             None => "kiln-eml: no EML mods; game files untouched".to_string(),
         },
         Phase::Done if out.cached => format!(

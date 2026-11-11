@@ -37,6 +37,7 @@
     "error": { "type": ["string", "null"] },
     "aside": { "type": ["string", "null"] },
     "reason": { "type": "string", "minLength": 1, "description": "dev.24, one sentence for the player. Phase idle: the game data differs from the vanilla backup and kiln-eml could not prove it wrote it, so it left it, and what to do. Phase done: the ShroudForge asset mods an earlier start prepared that this start's game data does not have, because ShroudForge did not run this start (sfDisplaced). Absent otherwise." },
+    "staleBackup": { "const": true, "description": "dev.24, phase idle: the vanilla backup is of another game build than the game data (the game was updated since it was made); it was not compared with and nothing was restored. Absent otherwise." },
     "sfDisplaced": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "dev.24, phase done: the ShroudForge asset mods (`<id> <version>`) prepared by an earlier start whose output this start's publication replaced (ShroudForge did not run this start). Absent when none." },
     "mods": {
       "type": "array",
