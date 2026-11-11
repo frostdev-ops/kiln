@@ -98,14 +98,29 @@ export interface ConfirmDangerProps {
   onConfirm: () => void | Promise<void>;
   /** Keeps the action disabled (e.g. while what the message names is still loading). */
   disabled?: boolean;
+  /** This confirmation may be a plain button when the user turned typing off in Settings (removing a mod from the
+   * Library: the word is the mod's id, which can be sixty characters long). Not for uninstalling, servers or saves. */
+  relaxable?: boolean;
+}
+
+const TYPE_TO_CONFIRM = "kiln.confirm.typeNames";
+
+/** Settings: "Type a mod's name to remove it" (on unless turned off; kept per launcher window, like other view choices). */
+export function typeToConfirm(): boolean {
+  try { return localStorage.getItem(TYPE_TO_CONFIRM) !== "0"; } catch { return true; }
+}
+
+export function setTypeToConfirm(on: boolean) {
+  try { localStorage.setItem(TYPE_TO_CONFIRM, on ? "1" : "0"); } catch { /* the choice lasts for this window only */ }
 }
 
 /** A destructive action behind a typed confirmation, in the arch. The danger fill stays disabled until the word matches. */
-export function ConfirmDanger({ open, onClose, title, message, word, action, onConfirm, disabled }: ConfirmDangerProps) {
+export function ConfirmDanger({ open, onClose, title, message, word, action, onConfirm, disabled, relaxable }: ConfirmDangerProps) {
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setTyped(""); setBusy(false); } }, [open]);
-  const ok = typed.trim() === word && !disabled;
+  const [typing, setTyping] = useState(true);
+  useEffect(() => { if (open) { setTyped(""); setBusy(false); setTyping(!relaxable || typeToConfirm()); } }, [open, relaxable]);
+  const ok = (!typing || typed.trim() === word) && !disabled;
   const run = async () => {
     if (!ok || busy) return;
     setBusy(true);
@@ -118,11 +133,13 @@ export function ConfirmDanger({ open, onClose, title, message, word, action, onC
         <Button variant="danger-fill" disabled={!ok} loading={busy} onClick={run}>{action}</Button>
       </>}>
       {message && <ArchText>{message}</ArchText>}
-      <div className="k-arch-typed">
-        <label htmlFor="k-confirm-word">Type <span className="k-danger-word">{word}</span> to confirm</label>
-        <TextInput id="k-confirm-word" data-autofocus value={typed} onChange={(e) => setTyped(e.target.value)} mono autoComplete="off" spellCheck={false}
-          onKeyDown={(e) => { if (e.key === "Enter") run(); }} />
-      </div>
+      {typing && (
+        <div className="k-arch-typed">
+          <label htmlFor="k-confirm-word">Type <span className="k-danger-word">{word}</span> to confirm</label>
+          <TextInput id="k-confirm-word" data-autofocus value={typed} onChange={(e) => setTyped(e.target.value)} mono autoComplete="off" spellCheck={false}
+            onKeyDown={(e) => { if (e.key === "Enter") run(); }} />
+        </div>
+      )}
     </Modal>
   );
 }
