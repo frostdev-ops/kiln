@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Executes the production Lua bridge and bundled Lua, with only game/OS services substituted.
 #include <cassert>
+#include <csignal>
+#include <sys/resource.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>

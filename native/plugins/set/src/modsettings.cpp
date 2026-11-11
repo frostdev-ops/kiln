@@ -72,9 +72,11 @@ bool writeFile(const std::string& dir, const std::string& text) {
     FILE* f = kset::sandbox::open(dir, "settings.json.tmp", "wb");
     if (!f) return false;
     bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
-    // On the disk before the rename swaps it in, so a crash or power cut just after can't leave an empty file.
-    // Best effort: a file system without it still saves.
-    if (ok && fflush(f) == 0) {
+    // A failed flush fails the save: the stream drops its buffer then, so fclose would report success for a short
+    // file. On the disk before the rename swaps it in, so a crash or power cut just after can't leave an empty file;
+    // the sync itself is best effort (a file system without it still saves).
+    ok = ok && fflush(f) == 0;
+    if (ok) {
 #ifdef _WIN32
         (void)_commit(_fileno(f));
 #else

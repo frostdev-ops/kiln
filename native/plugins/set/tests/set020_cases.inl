@@ -113,6 +113,19 @@
  if(slurp(root/"two"/"settings.json.bad")!="{ nope")std::cerr<<"settings: the second broken file replaced settings.json.bad\n";
  assert(slurp(root/"two"/"settings.json.bad")=="{ nope"&&slurp(root/"two"/"settings.json.bad.2")=="{ second"&&logged("Renamed to settings.json.bad.2"));
  std::filesystem::remove(root/"two"/"settings.json.bad.2");
+ // A save that can't be written (a full disk, a quota) keeps the old settings.json and is tried again. The new text
+ // fits the stdio buffer, so the first real write is the flush; RLIMIT_FSIZE makes it fail as a full disk would.
+ {const auto dir=root/"fsz";std::filesystem::create_directories(dir);
+  const std::string old="{\n  \"a\": 1\n}\n";std::ofstream(dir/"settings.json")<<old;
+  mset::Page pg;pg.mod="fsz";pg.path=dir.string();pg.fields={{"a","a",mset::Int}};pg.fields[0].num=1;mset::define(pg);
+  assert(mset::set("fsz","a",1234567,"",false));logs.clear();
+  signal(SIGXFSZ,SIG_IGN);rlimit was{};getrlimit(RLIMIT_FSIZE,&was);rlimit small=was;small.rlim_cur=8;setrlimit(RLIMIT_FSIZE,&small);
+  mset::save(true,sink);
+  setrlimit(RLIMIT_FSIZE,&was);signal(SIGXFSZ,SIG_DFL);
+  if(slurp(dir/"settings.json")!=old)std::cerr<<"settings: a failed write replaced settings.json with ["<<slurp(dir/"settings.json")<<"]\n";
+  assert(slurp(dir/"settings.json")==old&&logged("Couldn't save fsz"));
+  mset::save(true,sink);assert(slurp(dir/"settings.json")=="{\n  \"a\": 1234567\n}\n");   // tried again
+  mset::drop("fsz",sink);std::filesystem::remove_all(dir);}
  std::filesystem::remove(root/"two"/"settings.json");std::filesystem::remove(root/"two"/"settings.json.bad");
 
  // ---- Hooks.rule on a mod's own pattern ----
