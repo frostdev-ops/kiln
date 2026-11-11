@@ -259,10 +259,15 @@ public sealed class ModCatalogTests : IDisposable
     {
         var mods = Dir("mods");
         Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = Dir("mods", "pack") }, new { id = "off", version = "1.0.0", path = Dir("mods", "off"), enabled = false }] });
+        // a readable, switched-on runtime package: only the missing runtime report keeps it from Loaded
+        File.WriteAllText(Path.Combine(mods, "pack", "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(mods, "pack", "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
         File.WriteAllText(Path.Combine(Dir("mods", "hand"), "extended.mod.json"), """{"id":"hand","name":"Hand Made","version":"0.1","enabled":false}""");
         Write("shroudforge.json", new { format = 1, mode = "hosted", reason = "", updated = StartMs / 1000 + 10, modsDir = mods });
         var s = Read();
-        Assert.Equal(ModRunState.Waiting, Mod(s, "shroudforge", "pack").State); // host running is not per-mod proof
+        var pack = Mod(s, "shroudforge", "pack");
+        Assert.Equal((ModRunState.Waiting, "unconfirmed"), (pack.State, pack.Word)); // host running is not per-mod proof
+        Assert.Contains("no current per-mod runtime report", pack.Reason);
         Assert.Equal(ModRunState.Disabled, Mod(s, "shroudforge", "off").State);
         var hand = Mod(s, "shroudforge", "hand");
         Assert.Equal(("Hand Made", ModRunState.Disabled, "folder"), (hand.Name, hand.State, hand.Source));
