@@ -577,7 +577,8 @@ internal sealed class JsonSpans
             var c = t[i];
             if (c is ' ' or '\t' or '\r' or '\n') i++;
             else if (c == '/' && i + 1 < t.Length && t[i + 1] == '/')
-                while (i < t.Length && t[i] != '\n') i++;
+                // a line comment ends at CR or LF (System.Text.Json, kiln-manage jsonc)
+                while (i < t.Length && t[i] is not ('\n' or '\r')) i++;
             else if (c == '/' && i + 1 < t.Length && t[i + 1] == '*')
             {
                 var end = t.IndexOf("*/", i + 2, StringComparison.Ordinal);

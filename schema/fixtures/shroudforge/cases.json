@@ -738,6 +738,99 @@
         }
       ],
       "expect": "{\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"\",\"control\":\"keybind\"}}}\n"
+    },
+    {
+      "name": "comment-ends-at-a-lone-cr",
+      "about": "a // comment ends at a lone CR too (System.Text.Json, ShroudForge's editor): the edit changes j, not k",
+      "mod": {
+        "id": "lone-cr",
+        "name": "lone-cr",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"enabled\":true,\"settings\":{\"j\":{\"value\":0,//x\r\"label\":\"L\"},\"k\":{\n\"value\":1}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "j",
+            "type": "integer",
+            "label": "L",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "k",
+            "type": "integer",
+            "label": "k",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "j",
+          "k"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "j",
+          "value": 5,
+          "ok": true
+        },
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\"enabled\":false,\"settings\":{\"j\":{\"value\":5,//x\r\"label\":\"L\"},\"k\":{\n\"value\":1}}}\n"
+    },
+    {
+      "name": "cr-only-line-ends",
+      "about": "old Mac line ends (CR only) with // comments",
+      "mod": {
+        "id": "cr-only",
+        "name": "cr-only",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\r  \"enabled\": false, // switch\r  \"settings\": {\r    \"x\": {\"value\": 1} // one\r  }\r}\r",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "x",
+            "type": "integer",
+            "label": "x",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "x"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "x",
+          "value": 2,
+          "ok": true
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\r  \"enabled\": true, // switch\r  \"settings\": {\r    \"x\": {\"value\": 2} // one\r  }\r}\r"
     }
   ]
 }
