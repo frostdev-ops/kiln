@@ -436,6 +436,20 @@ test.describe("notices", () => {
     await expect(notice).toContainText("mods/XHL-Vein-Mining", { timeout: 8000 });
   });
 
+  test("adding a mod from Downloads says what else it changed in the profile", async ({ page }) => {
+    await openDeck(page);
+    await page.goto("/?deck=steamdeck#/deck/add");
+    await expect.poll(() => focused(page)).toBe("file-lantern-glow-1.2.0.zip");
+    const line = "XHL-Core 1.4.0 stays in the profile: the XHL-Core that came with XHL-Auto-Loot is older.";
+    await page.evaluate((n) => (window as unknown as { __kilnMock: { planAddNotices: (l: string[]) => void } }).__kilnMock.planAddNotices([n]), line);
+    await pad(page, "a");
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("Changes in the profile");
+    await expect(notice).toContainText(line);
+    await pad(page, "a");
+    await expect(notice).toHaveCount(0);
+  });
+
   test("a long notice scrolls with the right stick, shows how often it came, and focus goes back after several", async ({ page }) => {
     await openDeck(page);
     const many = Array.from({ length: 12 }, (_, i) => ({ path: `/home/player/.local/share/Steam/steamapps/common/Enshrouded/mods/Mod-${i}`, reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }));

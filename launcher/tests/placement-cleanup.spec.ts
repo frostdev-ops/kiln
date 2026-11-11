@@ -205,7 +205,8 @@ test("a server deploy's warnings stay until closed", async ({ page }) => {
     started: "2026-11-11T10:00:00Z", finished: "2026-11-11T10:00:05Z",
     result: { changedBackedUp: [], backup: null, warnings: ["Kept current dinput8.dll because it changed outside Kiln."] },
   }));
-  const kept = page.locator(".k-toast", { hasText: "Some files were kept" });
+  // an install's own warnings have their own title (an uninstall's say "Some files were kept")
+  const kept = page.locator(".k-toast", { hasText: "Install notes" });
   await expect(kept).toContainText("Kept current dinput8.dll");
   await page.clock.fastForward(10_000);
   await expect(kept).toBeVisible();
@@ -224,4 +225,21 @@ test("adding a mod shows what writing the profile again kept in the game folder"
   const warning = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
   await expect(warning).toContainText("greeneye/unlock-map-markers");
   await expect(warning).toContainText("unlock-map-markers.dll was changed");
+});
+
+// AddReport.notices (quick::merge): what an add did in the profile besides adding. They stay until closed.
+const ADD_NOTICE = "AutoLootPlus 1.1.9 took the place of Auto Loot Plus: Kiln reads the two as one mod (native autolootplus). Undo puts Auto Loot Plus back.";
+
+test("a dropped mod's add says what else it changed in the profile, until closed", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.evaluate((n) => (window as unknown as { __kilnMock: { planAddNotices: (l: string[]) => void } }).__kilnMock.planAddNotices([n]), ADD_NOTICE);
+  const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "night-owl-1.2.0.zip")); return d; });
+  await page.locator(".k-hero").dispatchEvent("drop", { dataTransfer: dt });
+  await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
+  const changed = page.locator(".k-toast", { hasText: "Changes in the profile" });
+  await expect(changed).toContainText(ADD_NOTICE);
+  await page.clock.fastForward(10_000);
+  await expect(changed).toBeVisible();
 });

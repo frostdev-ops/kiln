@@ -487,6 +487,10 @@ export interface AddReport {
   libraryOnly: string | null;
   /** Modpack zips among the paths: not imported, they go through the consent flow (modpack_install). */
   modpacks: string[];
+  /** What the add did in the profile besides adding, in words for the player (quick::merge): another mod's entry
+   *  replaced (Kiln reads the two as one mod), a second copy of the same proxy DLL switched off, an XHL-Core build kept.
+   *  Shown until closed, with the add (shell/notices.ts notifyAdd). */
+  notices: string[];
 }
 // kiln lint: schema/lint-report.schema.json
 export type LintSeverity = "error" | "warning" | "info" | "hint";

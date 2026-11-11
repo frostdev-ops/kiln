@@ -10,7 +10,7 @@ import type { AddReport, DeckFoundMod } from "../../api/commands";
 import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfile } from "../../api/hooks";
 import { leftOutLine, summarize } from "../../shell/importResult";
 import { runTask, toast } from "../../ui";
-import { notifyActivation } from "../../shell/notices";
+import { notifyAdd } from "../../shell/notices";
 import { FolderIcon, ModpackDialog, useBrowse } from "../dialogs";
 import { DeckButton, Row, Screen, Word } from "../ui";
 import { KIND_WORD, ago, size } from "../status";
@@ -61,7 +61,7 @@ export default function AddMods() {
       qc.invalidateQueries({ queryKey: ["profile_resolve"] });
       if (r.profileId) qc.invalidateQueries({ queryKey: qk.profile(r.profileId) });
       invalidateGame(qc, game.id);
-      notifyActivation(r.activation); // what writing the profile again kept in the game folder
+      notifyAdd(r); // what writing the profile again kept in the game folder, and what else changed in it
       if (r.modpacks.length) setPack(r.modpacks[0]);
       else if (r.added.length) toast.ok(`Added ${r.added.length === 1 ? r.added[0].name : `${r.added.length} mods`}`, r.missing.length ? `Needs ${r.missing.map((x) => x.id).join(", ")}` : undefined);
       else if (r.already.length) toast.info(`Already in ${r.profileName ?? "the profile"}`);

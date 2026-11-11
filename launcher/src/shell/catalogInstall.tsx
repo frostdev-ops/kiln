@@ -14,7 +14,7 @@ import { invalidateGame, qk, useGame, useGameStatus, useNexusEnabled } from "../
 import * as nx from "../api/nexus";
 import type { CatalogFile, InstallReport, NexusAccount } from "../api/nexus";
 import { runTask, toast } from "../ui";
-import { notifyActivation } from "./notices";
+import { notifyAdd } from "./notices";
 
 export const useNexusAccount = () => useQuery({ queryKey: nx.nk.account, queryFn: nx.nexusAccount, staleTime: 60_000, retry: false, enabled: useNexusEnabled() });
 
@@ -72,7 +72,7 @@ export function useCatalogInstall() {
     try {
       const r = await runTask<InstallReport>(() => nx.nexusDownload(ref.current!.id, mod.id, file.versionGsid), { failed: "Not added" });
       refresh(r);
-      notifyActivation(r.add.activation);
+      notifyAdd(r.add);
       return { kind: "added", report: r };
     } catch (e) {
       const k = api.toKilnError(e);
@@ -89,7 +89,7 @@ export function useCatalogInstall() {
     try {
       const r = await runTask<InstallReport>(() => nx.nexusLinkInstall(g.id, linkId), { failed: "Not added" });
       refresh(r);
-      notifyActivation(r.add.activation);
+      notifyAdd(r.add);
       return r;
     } catch { refresh(null); return null; }
   };

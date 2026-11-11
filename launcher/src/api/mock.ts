@@ -215,6 +215,9 @@ function fingerprint(p: Profile): string {
   return "kms1:" + hex(parts.join("\n"));
 }
 
+/** What the next add result says it did in the profile besides adding (AddReport.notices; tests: `__kilnMock.planAddNotices`). */
+const addNotices: string[] = [];
+
 /** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
  *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
 let activationPlan: Pick<Activation, "retained" | "keptFiles" | "warnings"> | null = null;
@@ -874,7 +877,7 @@ const handlers: Record<string, Handler> = {
     gameOf(gameId);
     const p = clone(profiles.get(S(a.profileId)) ?? reject("not_found", `No profile '${S(a.profileId)}'.`));
     const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: p.id, profileName: p.name, created: false, added: [], already: [],
-      changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
+      changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null, notices: addNotices.splice(0) };
     const named = (x: LibraryRef): AddedMod => ({ ...x, name: library.find((l) => l.kind === x.kind && l.id === x.id)?.name ?? x.id });
     for (const ref of refs) {
       const after: ProfileMod = { id: ref.id, version: ref.version, hash: ref.hash, enabled: true };
@@ -1296,13 +1299,13 @@ function foundAdd(gameId: string, pid: string, m: FoundMod): AddReport {
   const added: AddedMod = { kind, id, version: v.version, hash: v.hash, name: m.name };
   return { import: { imported: [ref], existing: [], skipped: [], notes: [], names: { [`${kind}/${id}`]: m.name } }, profileId: pid, profileName: p.name, created: false, added: [added], already: [],
     changes: [{ kind, before, after }], applied: active, running: !!running[gameId], activation: active ? activations[gameId] : null, missing: [], modpacks: [],
-    resumed: false, libraryOnly: null };
+    resumed: false, libraryOnly: null, notices: addNotices.splice(0) };
 }
 
 /** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
 function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
   const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: null, profileName: null, created: false, added: [], already: [],
-    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
+    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null, notices: addNotices.splice(0) };
   const files: string[] = [];
   for (const p of paths) {
     if (detect(p).kind !== "modpack") files.push(p);
@@ -1432,6 +1435,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   calls: () => [...commandCalls],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
+  planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },

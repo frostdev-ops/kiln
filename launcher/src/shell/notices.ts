@@ -3,7 +3,7 @@
 // profile, found mods, the catalog, the Deck's Add mods), a modpack install, Play itself (also when the start fails),
 // a re-apply after a profile edit or at start-up (taken through activation_notices), Kiln's install, update, rollback
 // and uninstall, and a server deploy. These notices name folders and recovery paths: they stay until closed.
-import type { Activation, InstallResult, RetainedPlacement, UninstallResult } from "../api/commands";
+import type { Activation, AddReport, InstallResult, RetainedPlacement, UninstallResult } from "../api/commands";
 import { toKilnError } from "../api/commands";
 import { notifyPlacementCleanup, toast } from "../ui";
 
@@ -22,6 +22,15 @@ export function notifyActivation(a: Activation | null | undefined) {
   notifyKept(a.retained ?? []);
   if (a.keptFiles?.length) toast.info("Mod settings kept", a.keptFiles.join(" "), { ms: 0 });
   if (a.warnings?.length) toast.info("Profile notes", a.warnings.join(" "), { ms: 0 });
+}
+
+/** An add's result (library_add, library_add_to_profile, found_add, a catalog install): what writing the profile again
+ *  kept, and what the add did in the profile besides adding (`notices`: an entry replaced, a second copy of a proxy
+ *  DLL switched off, an XHL-Core build kept). */
+export function notifyAdd(r: AddReport | null | undefined) {
+  if (!r) return;
+  notifyActivation(r.activation);
+  if (r.notices?.length) toast.info("Changes in the profile", r.notices.join(" "), { ms: 0 });
 }
 
 /** A failed command whose backend wrote the profile again first (a start after Play's re-apply): what it kept. */
