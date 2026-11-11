@@ -255,7 +255,8 @@ internal static partial class Compiler
         if (v.Icon is { } icon)
         {
             if (icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) ctx.Need(ClientsLevel.Mod, $"{path}.icon", "a PNG icon has to be on every player's game: nothing can send it (an item's icon, \"item:<name>\", asks no more than kiln)");
-            d.Icon = BlockIcons.ItemIcon(ctx, icon, $"{path}.icon");
+            var owner = part.Name is { } n && n.IndexOf(':') is > 0 and var colon ? n[..colon] : ctx.Mod.Id;
+            d.Icon = BlockIcons.ItemIcon(ctx, icon, $"{path}.icon", owner);
         }
         if (v.Dropped is { } dropped) d.Refs["iconModel"] = "item:" + ctx.ItemName(dropped, $"{path}.dropped");
         if (v.Tint is { } t)

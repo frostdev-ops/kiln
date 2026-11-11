@@ -157,6 +157,21 @@ public sealed unsafe class ItemIconPathTests : IDisposable
     }
 
     [Fact]
+    public void A_visual_look_owned_by_another_mod_uses_its_owners_icon_for_items_and_props()
+    {
+        var registry = typeof(ModBlocks).Assembly.GetType("Kiln.Blocks", throwOnError: true)!.GetMethod("ModFor", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var other = (ModBlocks)registry.Invoke(null, [Other, (Func<ulong>)(() => 8)])!;
+        other.ManifestClients = "mod";
+        Compiler.Define(other, "shared-visual", new VisualBlock { Model = "item:Prop_Decoration_Comfort1_T0_Table_Medium", Icon = "icons/cape.png" });
+        var mod = NewMod();
+        Compiler.Define(mod, "shared-item", new ItemBlock { Name = "Shared", Visual = $"{Other}:shared-visual" });
+        Assert.Equal(Path.Combine(_other, "icons", "cape.png"), IconSent($"{Id}.shared-item"));
+        var prop = Compiler.Lower(mod, "shared-prop", new PropBlock { Name = "Shared prop", Visual = $"{Other}:shared-visual" }).Low.Json;
+        Assert.Equal(Path.Combine(_other, "icons", "cape.png"), (string?)prop["itemParts"]?["icon"]);
+        Assert.Empty(mod.Errors);
+    }
+
+    [Fact]
     public void Mod_code_gives_a_path_relative_to_its_folder_or_the_full_path_of_a_file_there()
     {
         var context = HostAccess.CreateContext(new ModInfo(Id, Id, "1.0.0", _dir), 7, _dir);
