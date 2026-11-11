@@ -237,13 +237,17 @@ It fails soft:
   the game data is of the new one. A start without EML mods then compares nothing, restores nothing and claims nothing
   about the data: one info line in kiln.log (`... the vanilla backup is of another game build ...`), `staleBackup:
   true` in `kiln/state/eml.json`, and the launcher's archive banner says the backup is of an earlier build and nothing
-  needs doing. The next start with an EML mod makes a new backup of the current build.
+  needs doing to that backup. Extra containers are still named in `reason` and the log for manual inspection. The next
+  start with an EML mod makes a new backup of the current build, but refuses to replace any unproven container at an
+  output path; inspect and move that file aside before retrying.
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
   loader wrote it, nothing needs doing. If it still carries EML mods that were switched off: enable any EML mod for
-  one start and disable it again (that start publishes with a receipt, the next one restores), or use Steam's
-  "Verify integrity of game files".
+  one start and disable it again only when no unproven DAT collision is reported (that start publishes with a receipt,
+  the next one restores), or use Steam's "Verify integrity of game files". Neither route deletes unproven extra files:
+  retained containers are named in `reason` and the log, including when the live archives already match vanilla or the
+  backup is stale. Inspect them before manual cleanup; Steam verification can leave extra containers behind.
 - **Writer handoff:** exact output/backup SHA-256 receipts live in `kiln/eml/ownership/`. Before changing archives,
   kiln-eml invalidates only a recognized ShroudForge prepared-asset cache under ShroudForge's installation lock.
   Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. Unknown
@@ -302,7 +306,8 @@ usable cache, or the first start after a Kiln update, reads about a gigabyte of 
   receipt is those bytes, the output is still that one; only the receipt's sizes are compared, from metadata. A start
   whose cache does not record it yet (a cache saved before dev.24, say) checks in full once and records it. A start
   without EML mods compares sizes first, so another writer's output (another length) is rejected unread; the full check
-  is kept for the moment before a restore.
+  is kept for the moment before a restore. Retained-container guidance also inventories DAT names and reads the small
+  fixed header metadata (and same-build baseline version/count when idle), not archive entries or DAT contents.
 - **When a saved fingerprint is reused:** the stamp is the one it was recorded under, and length and last-write time are
   unchanged. An unread record is reused the same way: it is its stamp.
 - **A file whose stamp changed.** With a CRC on record, the file is read and the CRC decides, as in dev.21, until the

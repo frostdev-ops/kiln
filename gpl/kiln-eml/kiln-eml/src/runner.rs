@@ -81,8 +81,8 @@ pub struct Outcome {
     pub fingerprint: Option<FingerprintStats>,
     pub error: Option<String>,
     pub aside: Option<String>,
-    /// Why the game data was left as it is although it differs from the vanilla backup (an idle start): Kiln could not
-    /// prove it wrote it. One player-facing sentence with what to do; the launcher shows it.
+    /// Player guidance: unproven idle output, displaced ShroudForge mods, or extra containers retained for inspection.
+    /// The launcher shows this alongside the outcome, including failed or stale-backup runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     /// ShroudForge asset mods (`<id> <version>`) whose prepared output this start's publication replaced (phase `done`):
@@ -327,6 +327,17 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     let started = Instant::now();
     let mut out = Outcome::new(Phase::Done, entries);
     let finish = |mut o: Outcome| {
+        if cfg.patch && !o.start_blocked && let Some(file) = o.file.as_deref() {
+            match lua::retained_containers(cfg.game_dir.as_std_path(), file, o.phase == Phase::Done) {
+                Ok(files) if !files.is_empty() => {
+                    let retained = format!("Extra archive containers retained: {}. They may belong to another loader or an earlier EML run; inspect them before manual cleanup. Steam verification may leave extra files", files.join(", "));
+                    tracing::warn!("{retained}");
+                    o.reason = Some(match o.reason.take() { Some(why) => format!("{why}. {retained}"), None => retained });
+                }
+                Err(error) => tracing::warn!(%error, "Could not inventory retained archive containers"),
+                _ => {}
+            }
+        }
         o.ms = started.elapsed().as_secs_f64() * 1000.0;
         o
     };
@@ -554,8 +565,9 @@ fn displaced_sentence(mods: &[String]) -> String {
 fn unproven_sentence(why: &str) -> String {
     format!("The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output ({why}), so it \
         was left as it is. If ShroudForge asset mods or another loader wrote it, nothing needs doing. If it still carries \
-        EML mods you switched off: enable any EML mod for one start and disable it again, or use Steam's \"Verify \
-        integrity of game files\"")
+        EML mods you switched off: enable any EML mod for one start and disable it again only if no unproven container \
+        collision is reported; otherwise inspect and move those containers aside first, or use Steam's \"Verify \
+        integrity of game files\" (which may leave extra containers)")
 }
 
 /// `224.4 MiB`

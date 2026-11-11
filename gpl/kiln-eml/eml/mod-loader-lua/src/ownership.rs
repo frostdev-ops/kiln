@@ -469,6 +469,35 @@ fn containers(root: &Path, name: &str) -> Option<usize> {
     Some(kfc::container::KFCFile::from_path(&path, false).ok()?.containers().len())
 }
 
+/// List retained files in the extra-container range for player guidance, never as cleanup permission. With mods
+/// active, omit containers the live header references. Idle/failed runs also name extra referenced containers when a
+/// same-build baseline identifies the vanilla count. An outdated baseline says nothing about the new build's range.
+/// Only the small header metadata is read; DAT contents are not read or changed.
+pub fn retained_containers(root: &Path, stem: &str, active: bool) -> io::Result<Vec<String>> {
+    check_stem(stem)?;
+    let header = root.join(format!("{stem}.kfc"));
+    checked_path(root, &header)?;
+    super::transaction::regular(&header)?;
+    let mut first = kfc::container::KFCFile::get_container_count(&header).map_err(|e| invalid(&e.to_string()))?;
+    if !active {
+        let backup = root.join(format!("{stem}.kfc.bak"));
+        checked_path(root, &backup)?;
+        if super::transaction::regular(&backup).is_ok()
+            && let (Ok(live), Ok(saved)) = (kfc::container::KFCFile::get_version_tag(&header), kfc::container::KFCFile::get_version_tag(&backup))
+            && live == saved
+            && let Ok(count) = kfc::container::KFCFile::get_container_count(&backup) {
+            first = first.min(count);
+        }
+    }
+    let mut retained = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if container_index(stem, &name).is_some_and(|i| i >= first) { retained.push(name); }
+    }
+    retained.sort();
+    Ok(retained)
+}
+
 /// The containers (`<stem>_NNN.dat`) of the owned output that is live now, as its receipt lists them: what a restore
 /// leaves behind unless it removes them. Read before the vanilla header goes back. None: no live generation is listed.
 pub(crate) fn live_containers(root: &Path, stem: &str) -> io::Result<Option<BTreeMap<String, Digest>>> {

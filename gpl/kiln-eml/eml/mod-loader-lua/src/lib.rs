@@ -22,7 +22,7 @@ mod load;
 mod transaction;
 mod ownership;
 // kiln-eml: restoration needs exact writer ownership, not an input/performance cache.
-pub use ownership::{owns_output, adopt, prune, Adoption};
+pub use ownership::{owns_output, adopt, prune, retained_containers, Adoption};
 mod lua;
 
 #[derive(Debug, Clone, Default)]

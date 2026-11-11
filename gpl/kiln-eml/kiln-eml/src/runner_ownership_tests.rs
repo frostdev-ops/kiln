@@ -296,6 +296,109 @@ fn adoption_lists_only_the_containers_the_adopted_header_references() {
     assert!(!g.game().join("enshrouded_001.dat").exists(), "the container it wrote goes");
 }
 
+/// The reported client layout: 55 vanilla containers; EML appends content at 055 and pads through 063.
+fn legacy_client(tag: &str, cache: bool, updated: bool) -> Game {
+    use kfc::container::KFCWriteOptions;
+    let mut g = Game::new(tag, CONTENT);
+    let mut writer = KFCWriter::<Rc<KFCFile>, _>::new_with_options(g.game().as_std_path(), "enshrouded", Rc::new(TypeRegistry::default()), "fixture",
+        KFCWriteOptions { max_container_size: 1, overwrite_containers: true, truncate_containers: true, ..Default::default() }).unwrap();
+    for i in 0..55 {
+        let blob = format!("vanilla {i}");
+        writer.write_content(&ContentHash::from_data(blob.as_bytes()), blob.as_bytes()).unwrap();
+    }
+    writer.finalize().unwrap();
+    // KFCHeader: 16 fixed bytes, then version and container KFCLocation pairs (u32 offset, u32 count).
+    // The game has 55, not the writer's power-of-two padding. All content entries reference only indices 000..054.
+    let mut vanilla_header = std::fs::read(g.game().join("enshrouded.kfc")).unwrap();
+    vanilla_header[28..32].copy_from_slice(&55u32.to_le_bytes());
+    std::fs::write(g.game().join("enshrouded.kfc"), &vanilla_header).unwrap();
+    let vanilla_resources = std::fs::read(g.game().join("enshrouded.kfc_resources")).unwrap();
+    for i in 55..64 { std::fs::remove_file(g.game().join(format!("enshrouded_{i:03}.dat"))).unwrap(); }
+    assert_eq!(KFCFile::from_path(g.game().join("enshrouded.kfc"), false).unwrap().containers().len(), 55);
+    assert_eq!(g.with_mod().phase, Phase::Done);
+    g.as_released_before_receipts();
+    if !cache { std::fs::remove_file(g.cfg.cache_dir.join("files.json")).unwrap(); }
+    if updated {
+        let version = vanilla_header.windows(7).position(|w| w == b"fixture").unwrap();
+        vanilla_header[version..version + 7].copy_from_slice(b"updated");
+        std::fs::write(g.game().join("enshrouded.kfc"), vanilla_header).unwrap();
+        std::fs::write(g.game().join("enshrouded.kfc_resources"), vanilla_resources).unwrap();
+    }
+    g.vanilla = g.archives();
+    g
+}
+
+#[test]
+fn idle_names_all_nine_retained_legacy_containers_with_or_without_a_game_update() {
+    for updated in [false, true] {
+        for cache in [false, true] {
+            let g = legacy_client(&format!("client-idle-{updated}-{cache}"), cache, updated);
+            let extra: Vec<_> = (55..64).map(|i| {
+                let name = format!("enshrouded_{i:03}.dat");
+                let bytes = std::fs::read(g.game().join(&name)).unwrap();
+                (name, bytes)
+            }).collect();
+            let out = g.without_mods();
+            if cache && !updated {
+                assert!(out.restored, "proven legacy output restores: {out:?}");
+                assert!(extra.iter().all(|(n, _)| !g.game().join(n).exists()));
+            } else {
+                assert!(!out.restored);
+                for (name, bytes) in extra {
+                    assert_eq!(std::fs::read(g.game().join(&name)).unwrap(), bytes);
+                    assert!(out.reason.as_deref().is_some_and(|r| r.contains(&name)), "retained file {name} was not reported: {out:?}");
+                }
+                assert_eq!(g.archives(), g.vanilla);
+            }
+        }
+    }
+}
+
+#[test]
+fn idle_reports_extra_containers_even_when_archives_are_vanilla_or_no_backup_exists() {
+    for backup in [false, true] {
+        let g = published(&format!("idle-vanilla-extra-{backup}"), CONTENT);
+        assert!(g.without_mods().restored);
+        let extra = g.game().join("enshrouded_009.dat");
+        std::fs::write(&extra, b"player recovery data").unwrap();
+        if !backup { std::fs::remove_file(g.game().join("enshrouded.kfc.bak")).unwrap(); }
+        let out = g.without_mods();
+        assert_eq!(out.phase, Phase::Idle);
+        assert!(!out.restored);
+        assert!(out.reason.as_deref().is_some_and(|r| r.contains("enshrouded_009.dat")), "{out:?}");
+        assert_eq!(std::fs::read(&extra).unwrap(), b"player recovery data");
+    }
+}
+
+#[test]
+fn enabled_mod_never_claims_unproven_legacy_client_containers_even_after_update() {
+    for updated in [false, true] {
+        for cache in [false, true] {
+            let g = legacy_client(&format!("client-on-{updated}-{cache}"), cache, updated);
+            if updated {
+                let mut types = TypeRegistry::default();
+                types.version = "updated".into();
+                std::fs::write(g.cfg.cache_dir.join("enshrouded-types.json"), serde_json::to_vec(&types).unwrap()).unwrap();
+            }
+            let out = g.with_mod();
+            if cache && !updated {
+                assert_eq!(out.phase, Phase::Done, "{out:?}");
+                assert!(g.receipt().exists());
+                assert!(g.without_mods().restored);
+            } else {
+                assert_eq!(out.phase, Phase::Failed, "{out:?}");
+                assert!(!g.receipt().exists());
+                for i in 55..64 {
+                    let name = format!("enshrouded_{i:03}.dat");
+                    assert!(g.game().join(&name).exists());
+                    assert!(out.reason.as_deref().is_some_and(|r| r.contains(&name)), "{out:?}");
+                }
+                assert_eq!(g.archives(), g.vanilla);
+            }
+        }
+    }
+}
+
 // R2: after a game update the backup is of the earlier build. The game data is not compared with it and nothing is
 // claimed about it: no reason (Steam's verify could not clear it anyway), one info line, `staleBackup` for the banner.
 #[test]
