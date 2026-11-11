@@ -8,7 +8,7 @@ Players' guide: the frostdev.io wiki page "Mods for other frameworks" (`/kiln/wi
 | Engine | Plugin | Mods it loads | Page |
 |---|---|---|---|
 | EML (Enshrouded Mod Loader) 0.2.0 | `kiln-eml.dll` (GPL-3, EML's own runner built from kfc-parser; component `eml`, default on) | `mods/<id>/` and `kiln/eml/mods/<id>/` with `mod.json` + `src/mod.lua` (or a zip), patched before the game starts; the single game-data writer unless ShroudForge owns startup | [../eml.md](../eml.md) |
-| ShroudForge (bundled 1.7.9 from frostdev-ops/shroudforge, or the player's own copy) | `kiln-shroudforge.dll` (MIT) + `kiln/plugins/shroudforge/` (GPL-3 runtime; component `shroudforge`, default on) | ShroudForge's mods folder (`mods/<id>/` with `extended.mod.json`); with SF hosted it also writes the EML packages in that folder | [../shroudforge.md](../shroudforge.md), [../shroudforge-compat.md](../shroudforge-compat.md) |
+| ShroudForge (bundled 1.7.9 from frostdev-ops/shroudforge, or the player's own copy) | `kiln-shroudforge.dll` (MIT) + `kiln/plugins/shroudforge/` (GPL-3 runtime; component `shroudforge`, default on) | ShroudForge's mods folder (`mods/<id>/` with `extended.mod.json`); with SF hosted it also writes the EML packages in that folder that its switch has on (Kiln's copies carry it) | [../shroudforge.md](../shroudforge.md), [../shroudforge-compat.md](../shroudforge-compat.md) |
 | SET (Shrouded Engine Tweaks) 0.2.0 | `kiln-set.dll` | `shrouded_engine_tweaks/mods/<name>/init.lua` (a mod's `settings.json` is written next to it); also on dedicated servers | [../set.md](../set.md) |
 | Greeneye Loader 1.2.2 (API 2) | `kiln-greeneye.dll` | `greeneye/<id>/` with `mod.json` and a DLL exporting `GreeneyeModStart` | [greeneye.md](greeneye.md) |
 | Flame (Creative Mode's loader) | `kiln-flame.dll` | `mods/<id>/` with `flame.json` and a DLL exporting `FlameStartRuntime` | [flame.md](flame.md) |
@@ -86,16 +86,28 @@ launcher puts them there:
 - **"Installed"** is a static check of the game folder (`crates/kiln-manage/src/own_loaders.rs`): a loader file under a
   proxy name next to the game, an active `[chain]` line of `kiln/chain.ini`, an entry of `dinput8-chain.ini`, and for
   EML also a profile that makes Kiln host ShroudForge (ShroudForge then writes the EML packages of its mods folder
-  itself, [../eml.md](../eml.md#6-shared-startup-data-writer-shroudforge-and-emf-content)). A file under a proxy name
+  itself, [../eml.md](../eml.md#6-shared-startup-data-writer-shroudforge-and-emf-content), but only those it has switched
+  on: see "ShroudForge's switch" below). A file under a proxy name
   counts as "may run": on Windows the game imports those names, under Wine and Proton they load only with a DLL
   override (a Steam Deck player with ShroudForge's overrides set does run it), which the launcher cannot see.
+- **ShroudForge's switch** (dev.24). ShroudForge, hosted or its own loader, runs a package of its mods folder only while
+  the package's `extended.mod.json` says `enabled: true`, on the sides its `targets` name; a legacy EML package has
+  no such file until ShroudForge writes one, so ShroudForge keeps it off. While ShroudForge is the loader that runs
+  the profile's EML mods, Kiln's copies there (the game-folder ones in `<game>/mods/<folder>` too, when that is
+  ShroudForge's folder) carry that switch from the profile: the file ShroudForge's own Modloader writes for a legacy
+  EML package, or only the `enabled` value of a shipped one. The file is part of Kiln's copy; setting values changed
+  in it later are the player's (carried to the next version; a copy holding them is kept, switched off, when the
+  profile turns the mod off). A player's own folder is never written, and the launcher says when ShroudForge has it
+  off (activation notes, `ownLoaders[].off` for Kiln's copies). Without ShroudForge nothing is written.
 - **No double load.** When the loader does not start after all (Wine/Proton without the override), the plugin runs
   the profile's mods from the Library as usual. A folder in the engine's drop-in folder whose marker names this
   engine and a profile entry's id is that profile mod: the plugin skips it, so the mod runs once and is listed once.
   A marked folder that no profile entry names is an ordinary drop-in.
 - **Saying it.** A plugin that steps aside lists the profile's mods of its engine in `kiln/state/<engine>.json`:
   `own-loader` (Kiln's copy is in the loader's folder, it runs there) or `not-loaded` (only in the Library, with a
-  one-sentence reason), plus `disabled`. Every `not-loaded` mod is a warning in kiln.log. The launcher gets the same
+  one-sentence reason), plus `disabled`; under ShroudForge also `off-in-shroudforge` (in its folder, switched off
+  there) and `other-side` (its `targets` leave out this side). Every `not-loaded` and `off-in-shroudforge` mod is a
+  warning in kiln.log. The launcher gets the same
   picture before the start: `profile_activate` / `profile_active` return `ownLoaders`, and `engine_status` returns
   `ownLoader` per engine, each with a `text` such as "EML's own loader (dbghelp.dll) is installed: it runs the EML
   mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it".
@@ -108,7 +120,7 @@ Audit (dev.22):
 
 | Engine | Own loader reads | How the plugin knows it runs | Profile mods while it runs, before dev.22 | Since dev.22 |
 |---|---|---|---|---|
-| EML | `<game>/mods/*` (working folder); ShroudForge's loader, which carries EML: ShroudForge's mods folder | module scan for `EML_LOG_FILE_PATH` (`gpl/kiln-eml/kiln-eml/src/plugin.rs` `eml_loader_loaded`); kiln-shroudforge's `stand_aside` | none ran; `standing aside` at info level, `eml.json` listed no mods | placed into `mods/<id>/` (or ShroudForge's folder); `eml.json` lists them `own-loader`/`not-loaded`; marked copies skipped as drop-ins |
+| EML | `<game>/mods/*` (working folder); ShroudForge's loader, which carries EML: ShroudForge's mods folder | module scan for `EML_LOG_FILE_PATH` (`gpl/kiln-eml/kiln-eml/src/plugin.rs` `eml_loader_loaded`); kiln-shroudforge's `stand_aside` | none ran; `standing aside` at info level, `eml.json` listed no mods | placed into `mods/<id>/` (or ShroudForge's folder, with ShroudForge's switch on since dev.24); `eml.json` lists them `own-loader`/`not-loaded` (under ShroudForge `off-in-shroudforge`/`other-side` too); marked copies skipped as drop-ins |
 | ShroudForge | its mods folder (`paths.mods`, default `mods`) | state `self-hosted` (its bootstrap loaded) | already placed at activation | unchanged |
 | SET | `shrouded_engine_tweaks/mods/<name>/` | non-system `powrprof.dll` or SET's branding | already placed at activation | unchanged |
 | EMF | `emf/mods/<id>/` (switch: `emf/config/<id>.ini`) | `emf_core.dll` loaded, or a module exporting `emf_loader_identity`/`emf_core_start` | none ran, none listed | placed into `emf/mods/<id>/`; `emf.json` lists them (`profileId`); the `own-loader` reason says when EMF's ini keeps the mod off |

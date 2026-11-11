@@ -52,7 +52,7 @@ evidence is separate from the older observations below; neither is a client rend
 | Updates | SF's updater replaces its managed paths, **`dinput8.dll` included**, and its repair check requires them to exist. | In hosted mode kiln-shroudforge runs neither the startup update check nor the pending install, so SF never overwrites Kiln. In self-hosted mode an SF update can replace Kiln's `dinput8.dll`. The launcher must then put Kiln's proxy back (detect: classify at launch). The repair check only tests that the file exists, so Kiln's `dinput8.dll` satisfies it. |
 | Wine / Proton | SF needs `dbghelp=n,b;winmm=n,b`. | Not in hosted mode. kiln-shroudforge loads `shroudforge-runtime.dll` (not a system DLL name) by full path. The lab ran with Kiln's default `mshtml=;dinput8=n,b` only. This fixes the Steam Deck case. |
 | `winmm.dll` owners | Shroudtopia and Shroudweave also ship a `winmm.dll` (universal-loader.md). | Self-hosted detection checks the `ShroudforgeStop` export, not the file name. The installer must classify `winmm.dll` before treating it as SF's (detect). |
-| EML packages | SF runs EML v1 Lua packages (`launcher: "EML"`, or no `extended.mod.json`) in its mods folder. | When SF is hosted, the packages in SF's mods folder are SF's. kiln-eml must skip that folder (`kiln/state/shroudforge.json` `modsDir`), see section 7. |
+| EML packages | SF runs EML v1 Lua packages (`launcher: "EML"`, or no `extended.mod.json`) in its mods folder, but only those whose `extended.mod.json` says `enabled: true`, on the sides its `targets` name (`modloader/parse_mod_manifest.rs`: `enabled` defaults to false, "this also keeps EML packages without an extension safe by default"). A legacy EML package has no such file until SF's Modloader writes one at the first change of its switch (`ensure_eml_extension`), so SF keeps it off. | When SF runs, the packages in SF's mods folder are SF's and kiln-eml stands aside (section 7). The launcher gives Kiln's copies of the profile's EML mods there SF's switch from the profile (section 7). kiln-eml, the launcher's notes and Kiln's Mods page say when SF has a package off (`off-in-shroudforge`). |
 
 ## 3. Options compared
 
@@ -187,6 +187,12 @@ and public group actions. It edits SF's own files with a JSONC span writer, not 
 in `schema/fixtures/shroudforge/cases.json` exercise the Rust launcher and managed implementation, including comments,
 CRLF, typed numeric/bool/list options, chained/cyclic conditions, canonical SDL shortcut text, live/restart rules,
 refused edits and exact written bytes. No SF fork change or second UI executable is required.
+
+The ShroudForge group lists the profile's SF mods and every other package of SF's folder that SF reads, except
+Kiln's copies of the profile's EML mods: those are rows of the EML group, which say whether SF's switch runs them, and
+the launcher sets their switch from the profile. While SF runs, a player's own legacy EML folder (mod.json and
+`src/mod.lua`, no `extended.mod.json`) is listed too, switched off, as SF's own Modloader lists it: switching it on
+writes the `extended.mod.json` SF's Modloader writes at the first change.
 
 The native adapter reports `menu: helper|kiln|off|server|unavailable` and `menuKey` (`SDL:66`, F9, by default).
 Only without a running hosted helper does it hold `Local\\ShroudForge.ModMenu.Open.<game-pid>`; the managed worker
@@ -468,10 +474,31 @@ Nothing at run time. Both the bundled and the installed runtime carry SF's own E
 statically. kiln-eml becomes relevant in three places:
 
 1. **Ownership of EML packages.** SF runs EML packages (no `extended.mod.json`, or `launcher: "EML"`) from its mods
-   folder. When `kiln/state/shroudforge.json` says `mode` = `hosted` or `self-hosted`, kiln-eml must skip packages in
-   `modsDir`, or the same mod runs twice. Both run during startup (Kiln `on_ready`), so kiln-eml can check whether SF is
-   installed (`shroudforge/shroudforge-runtime.dll`) and not switched off, or read the profile's `mods.shroudforge` list.
-   Proposed rule: SF installed and hosted → SF owns `<SF modsDir>`; kiln-eml owns everything else.
+   folder, but only those it has switched on: `enabled` comes from `extended.mod.json` and is false without it, so a
+   legacy EML package without that file is never run until its switch is persisted (SF's own Modloader writes the
+   file at the first change, `update_mod_configuration` / `ensure_eml_extension`). In a start where SF runs, kiln-eml
+   stands aside (below) and runs nothing, so an EML mod in SF's folder that SF has off is applied by nobody. A real
+   client (2026-11-11) had four profile EML mods there and one such file: SF ran one, and every status said all four
+   ran. Since then:
+   - The launcher (`engine_mods::place`) gives Kiln's copy of each profile EML mod in SF's mods folder SF's switch
+     from the profile, while SF is the loader that runs the profile's EML mods (Kiln hosts it, or SF's own loader is
+     installed): a copy without `extended.mod.json` gets the file `ensure_eml_extension` writes for a legacy EML
+     package (`$schema`, `schemaVersion` 1, `enabled`, `targets` client and server, `launcher: "EML"`, `settings` {}), a
+     shipped file only its `enabled` value, byte for byte otherwise (the same writer as SF mods' switch). The EML mods
+     that carry a DLL, in `<game>/mods/<folder>`, get it too when that is SF's folder. The file is part of what Kiln
+     placed: the receipt lists it without its switch and settings and records Kiln's bytes. Setting values changed in
+     it later (in the game, through Kiln's page or SF's Modloader) are the player's: carried to the next version as an
+     SF mod's are, and a copy holding them is kept and switched off instead of removed when the profile turns the mod
+     off. The profile is the switch, as for SF mods. A copy an older Kiln placed gets the switch at the next Play. A
+     player's own folder is never written; its note says when SF has it off. The Library entry is never written.
+   - Without SF (no SF mods in the profile) nothing is written: kiln-eml runs the mods and reads only `launcher` from
+     that file, so `enabled: false` there never switches a mod off for kiln-eml.
+   - kiln-eml, standing aside for SF, reads that switch and the targets: a profile mod in SF's folder that SF has off
+     is `off-in-shroudforge` in `kiln/state/eml.json` (with what to do), one for the other side `other-side`, and
+     only the mods that run are counted in kiln.log's "N of M run under ShroudForge". Kiln's Mods page reads the
+     packages as SF does while SF runs (Off, other side, applied when SF's record of this start's startup pass lists
+     it), and lists a player's own legacy EML folder under ShroudForge with its switch, as SF's Modloader does.
+   Rule: SF installed and running → SF owns `<SF modsDir>`; kiln-eml owns everything else.
 2. **Shared kfc.** The bundled runtime builds kfc-parser from the fork's own submodule (tag `sf-v0.2.0`, SF's pin). If
    kiln-eml's shared core uses the same kfc-parser revision, the two could share one build. Today they are separate
    DLLs, each statically linked, which is simpler and needs nothing from kiln-eml. To wire them later, the fork's
@@ -483,13 +510,14 @@ statically. kiln-eml becomes relevant in three places:
 **SF asset mods and EML mods together.** Both write the game's data files from the same vanilla backup
 (`<exe>.kfc.bak`), so there must be one writer per start. When Kiln hosts SF, SF is that writer: its early step reserves
 `kiln.eml` (`stand_aside`) before it prepares, kiln-eml publishes `aside` and writes nothing, and SF builds its startup
-asset mods and the EML packages in its mods folder in one pass (the launcher copies the profile's EML mods there, so
-the game has both). kiln-eml writes only in a start where SF does not run (its mods off in the active profile,
+asset mods and the EML packages in its mods folder that it has switched on in one pass (the launcher copies the
+profile's EML mods there with SF's switch on, so the game has both). kiln-eml writes only in a start where SF does not run (its mods off in the active profile,
 `KILN_SHROUDFORGE=0`, or SF could not start). Then, if SF's state says it prepared asset mods in an earlier start, that
 start's game data has the EML mods only: kiln-eml sets SF's state to `failed` and names the SF mods that are missing
 (a warning in kiln.log and `reason` plus `sfDisplaced` in `kiln/state/eml.json`). The next start in which SF runs
 prepares them again. EML mods that are only in the Library, not in SF's mods folder, do not load while SF is hosted
-(`not-loaded` in `eml.json`).
+(`not-loaded` in `eml.json`), and those in its folder that SF has switched off do not run either
+(`off-in-shroudforge`).
 
 ## 8. API coverage
 

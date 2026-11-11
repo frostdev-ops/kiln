@@ -126,6 +126,18 @@ Windows game from that install, and exposes the append-only v2 `stand_aside` res
 remain on disk after a hard crash but never replace the live header before their data is ready. Old EML backups without
 resource snapshots restore the header exactly and retain their resource prefix; unreferenced mod containers are retained.
 
+Standing aside (EML's own loader or ShroudForge's in the process, or `stand_aside` from hosted ShroudForge), the plugin
+patches nothing and lists the profile's EML mods in `kiln/state/eml.json` (`discover::aside_entries`): `own-loader`
+when the mod is in that loader's folder, `not-loaded` when it is only in the Library, `disabled` when the profile has
+it off. EML's own loader runs every package of its folder. ShroudForge reads only its own mods folder and runs a
+package there only while that package's `extended.mod.json` says `enabled: true`, on the sides its `targets` name
+(none: an EML package runs on both); a legacy EML package has no such file until ShroudForge (or Kiln's launcher, for
+its own copies) writes one. So under ShroudForge a mod in its folder that it has off is `off-in-shroudforge` and one
+for the other side `other-side`, each with a reason that says what to do, and the kiln.log line counts only the mods
+that run (`discover::shroudforge_switch`, kiln-eml's own reader of that boolean and the targets; no ShroudForge code).
+ShroudForge's own proxy with `"modloader": "eml"` in its config keeps EML's rule. In a start without ShroudForge
+kiln-eml reads only `launcher` from that file: `enabled: false` there never switches a mod off for kiln-eml.
+
 ## Updating to a new EML release
 
 Copy the eight crates from the new tag over `eml/`, re-apply the listed changes (search `kiln-eml:` in the old copy),
