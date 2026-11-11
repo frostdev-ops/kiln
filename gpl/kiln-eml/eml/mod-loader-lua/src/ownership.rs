@@ -446,12 +446,14 @@ pub fn adopt(root: &Path, stem: &str, cache_dir: &Path) -> io::Result<Adoption> 
         return unproven("the game folder's path is not valid UTF-8");
     };
     if !crate::load::validate_backup(header, backup) { return unproven("the vanilla backup does not pass its seal"); }
-    // the containers that run added (beyond the vanilla header's), where the cache names them by content: listed, so
-    // that a restore can remove them too. One the cache does not prove is left out (and so never removed).
+    // the containers that run added (beyond the vanilla header's, up to the adopted header's own count: each of those
+    // came out of that run's stage), where the cache names them by content: listed, so that a restore can remove them
+    // too. One the cache does not prove, or one above them (a leftover, a player's file), is left out and never removed.
     let vanilla = containers(root, &backups[0]).unwrap_or(usize::MAX);
+    let published = containers(root, &outputs[0]).unwrap_or(0);
     for entry in fs::read_dir(root)? {
         let name = entry?.file_name().to_string_lossy().into_owned();
-        if container_index(stem, &name).is_none_or(|i| i < vanilla) { continue; }
+        if container_index(stem, &name).is_none_or(|i| i < vanilla || i >= published) { continue; }
         let path = root.join(&name);
         if !cache.saved(&path).is_some_and(|(len, content)| content && live.size(&name).ok().flatten() == Some(len)) { continue; }
         let (digest, crc) = digest_and_crc(root, &path)?;

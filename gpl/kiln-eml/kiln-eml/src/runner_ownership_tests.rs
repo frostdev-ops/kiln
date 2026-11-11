@@ -247,3 +247,22 @@ fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
     let unchanged = g.with_mod();
     assert_eq!((unchanged.phase, unchanged.cached, unchanged.reason.as_deref()), (Phase::Done, true, None), "{unchanged:?}");
 }
+
+// R1: adoption lists only the containers the adopted header references. A container file above them (a leftover of a
+// bigger earlier output, or a player's own) that the old cache happens to name by content is not that run's output.
+#[test]
+fn adoption_lists_only_the_containers_the_adopted_header_references() {
+    let g = Game::new("legacy-extra", CONTENT);
+    let extra = g.game().join("enshrouded_009.dat");
+    std::fs::write(&extra, "not written by that run").unwrap();
+    let out = g.with_mod();
+    assert_eq!(out.phase, Phase::Done, "{out:?}");
+    let cache: serde_json::Value = serde_json::from_slice(&std::fs::read(g.cfg.cache_dir.join("files.json")).unwrap()).unwrap();
+    assert!(cache["files"].get(extra.as_str()).is_some() && !cache["unread"].as_array().is_some_and(|u| u.iter().any(|p| p == extra.as_str())),
+        "the old cache names it by content");
+    g.as_released_before_receipts();
+    let out = g.without_mods();
+    assert_eq!((out.phase, out.restored), (Phase::Idle, true), "{out:?}");
+    assert_eq!(std::fs::read(&extra).unwrap(), b"not written by that run", "a file that run did not write stays");
+    assert!(!g.game().join("enshrouded_001.dat").exists(), "the container it wrote goes");
+}
