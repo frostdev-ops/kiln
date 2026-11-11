@@ -131,6 +131,22 @@ public sealed class TextFieldTests : IDisposable
         Assert.True(FakeUiTable.Fields[^1].Text.Length >= 3 + 3 * 600);  // what was typed fits
     }
 
+    /// <summary>A value holding a NUL (which a text field ends at) is shown and not edited, and the page says why.</summary>
+    [Fact]
+    public void A_shroudforge_text_holding_a_nul_says_so_not_too_long()
+    {
+        var folder = Package("""{ "note": { "value": "before\u0000after", "label": "Note" } }""");
+        Draw(folder);
+        lock (FakeUiTable.Texts)
+        {
+            Assert.DoesNotContain(FakeUiTable.Texts, t => t.StartsWith("Too long", StringComparison.Ordinal));
+            Assert.Contains(FakeUiTable.Texts, t => t.Contains("NUL", StringComparison.Ordinal));
+        }
+        Assert.False(UiDraw.Editable("before\0after", 256));
+        Assert.False(UiDraw.Editable(new string('a', 513), 512));
+        Assert.True(UiDraw.Editable(new string('a', 512), 512));
+    }
+
     [Fact]
     public void A_shroudforge_text_too_long_for_any_field_is_shown_not_edited()
     {

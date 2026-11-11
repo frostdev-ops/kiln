@@ -86,6 +86,10 @@ public sealed unsafe partial class UiDraw
         return whole && !value.Contains('\0');
     }
 
+    /// <summary>A text field of <paramref name="maxBytes"/> can edit <paramref name="value"/> whole (its UTF-8 fits and it
+    /// holds no NUL, where ImGui would end it); otherwise it shows it cut and read-only.</summary>
+    internal static bool Editable(string value, int maxBytes) => Encoding.UTF8.GetByteCount(value) <= maxBytes && !value.Contains('\0');
+
     /// <summary>A one-line text field editing <paramref name="value"/> (at most <paramref name="maxBytes"/> UTF-8 bytes).
     /// Returns true when the text changed. A value that does not fit (or holds a NUL) is shown cut and read-only, and
     /// <paramref name="value"/> stays as it is.</summary>

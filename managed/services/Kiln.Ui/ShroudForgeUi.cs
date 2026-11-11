@@ -760,13 +760,15 @@ internal static class ShroudForgeUi
         var multi = d.Control == "textarea";
         // the field holds the whole value with room to type: it never shows a value cut to fit (and the cut text is never
         // saved); a value too long for any field is shown, not edited
-        var need = Math.Max(Encoding.UTF8.GetByteCount(text), Encoding.UTF8.GetByteCount(shown));
         var cap = multi ? MaxAreaBytes : MaxLineBytes;
-        if (need > cap || text.Contains('\0') || shown.Contains('\0'))
+        if (!UiDraw.Editable(text, cap) || !UiDraw.Editable(shown, cap))
         {
-            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(Clip(shown, MaxDrawnText));
+            var nul = shown.Contains('\0') || text.Contains('\0');
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(Clip(shown.Replace('\0', ' '), MaxDrawnText));
             using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
-                ui.TextWrapped($"Too long to edit here ({shown.Length} characters): change it in the mod's extended.mod.json.");
+                ui.TextWrapped(nul
+                    ? "This value holds a NUL character, which a text field cannot show or keep: change it in the mod's extended.mod.json."
+                    : $"Too long to edit here ({shown.Length} characters): change it in the mod's extended.mod.json.");
             return;
         }
         ui.NextItemWidth(width);
