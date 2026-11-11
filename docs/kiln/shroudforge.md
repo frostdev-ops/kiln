@@ -88,7 +88,14 @@ Things to know:
   Use `runtime.overrides` so ShroudForge restores your changes when your mod is switched off.
 - The Kiln Launcher and in-game Mods panel read your `extended.mod.json` metadata: label, description, control,
   min/max/step, text lengths, typed options, groups, `enabledWhen` and `applyAt` / `restartRequired`. Declare them fully.
-  Edits splice only the changed value, preserving comments and layout. A fractional setting keeps its fraction (`2.0`),
+  Package files must be strict JSON (no comments, trailing commas or byte order mark). A present extension requires
+  numeric `schemaVersion: 1` and boolean `enabled`; an absent legacy EML extension is created with both. Kiln refuses
+  malformed existing headers rather than silently adding a switch. `mod.json` needs a strict three-part version
+  (`1.0.0`, optionally a prerelease or build suffix, not both). Conditions must name an existing non-list controller,
+  match its type and options, and have no cycles: integer `5` cannot use `equals: 5.0`, though a fractional controller
+  without options can use `equals: 5`. These refusals leave the package bytes unchanged; older Library packages may
+  need a corrected release from the author before they can be used with SF. Edits splice only the changed value,
+  preserving unrelated text and layout. A fractional setting keeps its fraction (`2.0`),
   as ShroudForge types a setting (and a list, by its first member) by the number it reads; a file in which an earlier
   Kiln wrote a whole value without it (`[2, 1.5]` next to option keys such as `"1.5"`, which ShroudForge refuses) is
   read as the fractional setting and repaired by the next change. The in-game panel uses checkboxes, sliders,
