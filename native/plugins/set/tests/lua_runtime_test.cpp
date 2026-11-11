@@ -10,14 +10,9 @@
 #include "services/kiln_assets.h"
 #include <memory>
 
-namespace hk {
-void setLog(Log){} void flushLogs(){} std::vector<std::string> diagnostics(){return{};} uint64_t problems(){return 0;}
-double seconds(int64_t){return 0;} size_t retainedBytes(){return 0;} void reserve(uintptr_t,const char*){}
-uintptr_t findPattern(uintptr_t,std::string_view,std::string& e){e="unavailable";return 0;}
-void restoreCode(uintptr_t,uint8_t*,size_t){} int subscribe(uintptr_t,const std::string&,const std::vector<Arg>&,uint32_t,std::string&){return -1;}
-void unsubscribe(int){} void unsubscribeAll(){} void discardPending(){} bool drain(int,Batch&){return false;}
-bool delivered(int,uint64_t){return false;} void refuse(const std::string&){}
-}
+#include "services/kiln_hooks.h"
+namespace kset { void bindHooks(const KilnApi* api, KilnOwner owner); }
+namespace kset::hooktest { extern bool (*on_stack)(uintptr_t at, size_t n); }
 void rt::openImGui(lua_State* L){for(const char* n:{"ImGui","ImGuiCond","ImGuiWindowFlags"}){lua_newtable(L);lua_setglobal(L,n);}}
 void rt::imguiMark(){} void rt::imguiRecover(){}
 
@@ -38,6 +33,18 @@ KilnStr str(const std::string& s){return {s.data(),s.size()};}
 KilnTypesApi types{};
 KilnWorldApi world{};
 KilnAssetsApi assets{};
+// A fake kiln.hooks for Hooks.rule: one pattern is "found", the entry hook is kept so a test can run a call through it.
+KilnHooksApi hooksApi{};
+std::map<std::string,uintptr_t> hookScans;
+std::map<uintptr_t,std::pair<KilnMidFn,void*>> hookMids;
+bool hooksOn=true;
+void initHooks(){
+ hooksApi.header={sizeof(hooksApi),2};
+ hooksApi.read=[](uintptr_t at,void* dst,size_t n)->KilnResult{if(!at)return KILN_ERR_INVALID_ARGUMENT;memcpy(dst,reinterpret_cast<const void*>(at),n);return KILN_OK;};
+ hooksApi.scan=[](KilnStr p,uintptr_t* out,uint32_t,uint32_t* count)->KilnResult{auto it=hookScans.find(std::string(p.ptr,p.len));if(it==hookScans.end()){*count=0;return KILN_ERR_NOT_FOUND;}*count=1;out[0]=it->second;return KILN_OK;};
+ hooksApi.mid=[](KilnOwner,uintptr_t at,int32_t,KilnMidFn fn,void* user,KilnHandle* out)->KilnResult{hookMids[at]={fn,user};*out=hookMids.size();return KILN_OK;};
+ hooksApi.raw_detour=[](KilnOwner,uintptr_t,const KilnHookOrder*,void*,void** original,KilnHandle* out)->KilnResult{*original=nullptr;*out=99;return KILN_OK;};
+}
 const void* resourcePtr=nullptr;size_t resourceSize=0;
 bool tickThread=true;
 KilnApi core{};
@@ -65,14 +72,20 @@ void initServices(){
  world.component=[](KilnEntity,uint32_t,uint32_t* size)->const void*{*size=actual;return component;};
  world.entity_count=[]()->uint32_t{return 1;};
  assets.header={sizeof(assets),1};assets.resource_data=[](const KilnAssetKey*,const void** p,size_t* n)->KilnResult{*p=resourcePtr;*n=resourceSize;return resourcePtr?KILN_OK:KILN_ERR_NOT_FOUND;};
- core.service=[](KilnStr n,uint32_t)->const void*{std::string_view s(n.ptr,n.len);return s=="kiln.types"?static_cast<const void*>(&types):s=="kiln.world"?static_cast<const void*>(&world):s=="kiln.assets"?&assets:nullptr;};
+ core.service=[](KilnStr n,uint32_t)->const void*{std::string_view s(n.ptr,n.len);return s=="kiln.types"?static_cast<const void*>(&types):s=="kiln.world"?static_cast<const void*>(&world):s=="kiln.assets"?static_cast<const void*>(&assets):s=="kiln.hooks"&&hooksOn?static_cast<const void*>(&hooksApi):nullptr;};
+ core.symbol=[](KilnStr,uintptr_t*)->KilnResult{return KILN_ERR_NOT_FOUND;};initHooks();
  core.on_tick_thread=[](){return tickThread;};core.server_world=[]()->uintptr_t{return 1;};
  core.owner_create=[](KilnStr)->KilnOwner{return ++nextOwner;};core.owner_revoke=[](KilnOwner){};
- kset::bind(&core);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
+ kset::bind(&core);kset::bindHooks(&core,1);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
 }
 void sink(const char* s){logs.emplace_back(s);}
 int env(lua_State* L,const char* name){pushModEnv(L,name);int ref=luaL_ref(L,LUA_REGISTRYINDEX);return ref;}
 bool run(lua_State* L,int ref,const char* script){assert(luaL_loadstring(L,script)==LUA_OK);lua_rawgeti(L,LUA_REGISTRYINDEX,ref);lua_setupvalue(L,-2,1);return call(L,0,0);}
+// The same, as code of the mod: a chunk named like one of its files, so its writes are the mod's (the write log).
+bool runAs(lua_State* L,int ref,const std::string& mod,const char* script){assert(luaL_loadbufferx(L,script,strlen(script),("@"+mod+"/test.lua").c_str(),"t")==LUA_OK);lua_rawgeti(L,LUA_REGISTRYINDEX,ref);lua_setupvalue(L,-2,1);return call(L,0,0);}
+void mustAs(lua_State* L,int ref,const std::string& mod,const char* script){if(!runAs(L,ref,mod,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
+bool logged(const char* text){for(auto& l:logs)if(l.find(text)!=std::string::npos)return true;return false;}
+std::string slurp(const std::filesystem::path& p){std::ifstream f(p,std::ios::binary);return std::string((std::istreambuf_iterator<char>(f)),{});}
 void must(lua_State* L,int ref,const char* script){if(!run(L,ref,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
 }
 int main(int argc,char** argv){
@@ -329,6 +342,7 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   unsetenv("KILN_CATALOG");settexts::reset();logs.clear();
   for(auto& [n,v]:savedEnv)setenv(n.c_str(),v.c_str(),1);
  }
+ #include "set020_cases.inl"
  for(auto& [name,owner]:gSystemOwners){(void)name;sys::releaseOwner(owner);}
  lua_close(L);gSystemOwners.clear();gInWorld=false;gWorld=0;
  // Failed initialization removes callbacks and releases this mod's system owner; reload runs shutdown and creates a fresh state.
@@ -349,6 +363,7 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   assert(one.status=="failed"&&one.reason.find("bad init")!=std::string::npos);
   assert(two.status=="loaded"&&two.title=="Two Good"&&two.version=="1.2.0"&&two.reason.empty()&&two.folder.find("two")!=std::string::npos);
   auto unicode=find(reinterpret_cast<const char*>(u8"Мод 日本語"));assert(unicode.status=="loaded"&&unicode.reason.empty());}
+ assert(logged("Mod Failed: one")&&logged("Mod Loaded: two")&&!logged("Mod loaded")&&logged("Mods: 2 loaded, 1 failed"));  // SET 0.2.0's wording
  rt::requestReload();rt::frame();assert(reported==2);rt::onModsReported(nullptr);rt::gameClosing();
  unsigned numeric=0;for(auto& l:logs){char* end=nullptr;strtod(l.c_str(),&end);if(end!=l.c_str()&&*end==0)++numeric;}assert(numeric==2);
  unsigned good=0,bad=0,shutdown=0;for(auto& l:logs){if(l=="good tick")++good;if(l=="bad callback")++bad;if(l=="good shutdown")++shutdown;}assert(good>=2&&bad==0&&shutdown==2&&!released.empty()&&disabled.empty());

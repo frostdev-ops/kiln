@@ -339,7 +339,7 @@ internal static class Scenes
             new { id, name, version, folder = Path.Combine(root, "shrouded_engine_tweaks", "mods", id), status = "loaded", reason = "" };
         Write(Path.Combine(kiln, "state", "set.json"), new
         {
-            format = 1, plugin = "kiln-set", version = "0.1.1", pid = Pid, side = "client", status = "running", steppedAside = false, updatedUnixMs = Now,
+            format = 1, plugin = "kiln-set", version = "0.2.0", pid = Pid, side = "client", status = "running", steppedAside = false, updatedUnixMs = Now,
             mods = new[] { Set("sprint-forever", "Sprint Forever", "1.0.0"), Set("hotbar-plus", "Hotbar Plus", "0.5.0"), Set("fast-travel-anywhere", "Fast Travel Anywhere", "2.1.0"), Set("night-sky", "Night Sky", "1.1.0") },
         });
         Write(Path.Combine(kiln, "state", "shroudforge.json"), new { format = 1, side = "client", mode = "hosted", reason = "", updated = Now / 1000, modsDir = Path.Combine(root, "mods") });

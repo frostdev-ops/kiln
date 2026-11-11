@@ -37,6 +37,21 @@ int main() {
     check(watch.arm() && watch.notifying(), "LdrRegisterDllNotification is available and registered");
     check(watch.fingerprinting(), "the PEB loader-list fingerprint works (LdrLockLoaderLock try-only)");
     check(kset::runtime_conflict().empty(), "a clean process has no SET conflict");
+    {  // the retry gate (coexist.h): a failed inventory is retried, a seen SET steps aside at once, five failures in a row do too
+        kset::ConflictGate gate;
+        check(gate.startup().empty() && gate.failures() == 0 && !gate.retry_due(), "the gate starts on a clean inventory");
+        const kset::Inspection failed{kset::Inventory::failed, "loaded modules could not be inspected"};
+        const kset::Inspection foreign{kset::Inventory::foreign, "a non-system powrprof.dll is loaded (x)"};
+        const uint64_t now = GetTickCount64();
+        check(gate.judge(failed, now - 2 * kset::ConflictGate::retry_ms).empty() && gate.failures() == 1 && gate.retry_due() && !gate.retry_due(),
+              "one failed inventory keeps running and asks for one retry");
+        check(gate.judge({}, now).empty() && gate.failures() == 0 && !gate.retry_due(), "a clean inventory resets the count");
+        for (int i = 0; i < kset::ConflictGate::failures_to_step_aside - 1; ++i) check(gate.judge(failed, now).empty(), "...still running");
+        check(!gate.retry_due(), "the retry waits its interval");
+        check(gate.judge(failed, now).find("5 checks in a row") != std::string::npos, "five failed inventories in a row step aside");
+        gate.reset();
+        check(gate.judge(failed, now).empty() && gate.judge(foreign, now) == foreign.text, "a foreign runtime that is seen steps aside at once");
+    }
     int due = 0;
     for (int i = 0; i < 100000; ++i) due += watch.due();
     check(due == 0, "no re-check is due without a DLL load (100000 frames)");

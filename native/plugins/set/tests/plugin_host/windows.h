@@ -42,6 +42,7 @@ inline std::vector<std::wstring> modules;
 inline size_t cursor = 0;
 // Counters and controls for the per-frame cost regression test.
 inline size_t snapshots = 0;           // CreateToolhelp32Snapshot calls (the full conflict check)
+inline size_t snapshot_failures = 0;   // this many CreateToolhelp32Snapshot calls fail first (a module inventory that cannot be read)
 inline uint64_t now_ms = 1000000;      // GetTickCount64
 inline bool notifications = true;      // whether ntdll exports LdrRegisterDllNotification
 inline void (*notify)(uint32_t, const void*, void*) = nullptr;

@@ -27,6 +27,8 @@ void fire(uintptr_t at, KilnRegisters& r) { auto [fn, user] = callbacks.at(at); 
 bool refl::plain(Type) { return true; }
 uint32_t refl::Type::u32(size_t off) const { uint32_t n = 0; if (p) std::memcpy(&n, p + off, 4); return n; }
 uint8_t refl::Type::prim() const { return p ? p[0x4c] : 0; }
+std::string_view refl::Type::str(size_t) const { return {}; }
+bool refl::path(Type, std::string_view, uint32_t&, Type&) { return false; }
 
 int main() {
     hooks.header = {sizeof hooks, 1}; hooks.read = &read; hooks.mid = &mid;
@@ -78,6 +80,17 @@ int main() {
         for (char c : std::string("Shrouded Engine Tweaks")) { marker += c; if (wide) marker += '\0'; }
         std::istringstream dll(std::string(65530, 'x') + marker + "tail");
         assert(kset::set_marker(dll));
+    }
+    {  // SET 0.2.0's own powrprof.dll: its version resource (UTF-16) and its start line (ASCII) still carry the name
+        std::string resource(4096, '\0');
+        for (const char* text : {"FileDescription", "Shrouded Engine Tweaks: Lua mods and an in-game overlay", "ProductVersion", "0.2.0"}) {
+            for (const char* c = text; *c; ++c) { resource += *c; resource += '\0'; }
+            resource += std::string(2, '\0');
+        }
+        std::istringstream v020(resource);
+        assert(kset::set_marker(v020));
+        std::istringstream line(std::string(100, '\x01') + "Shrouded Engine Tweaks %s (%04u-%02u-%02u)");
+        assert(kset::set_marker(line));
     }
     std::istringstream system_dll("Windows power API");
     assert(!kset::set_marker(system_dll));

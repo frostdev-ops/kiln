@@ -9,7 +9,7 @@ Players' guide: the frostdev.io wiki page "Mods for other frameworks" (`/kiln/wi
 |---|---|---|---|
 | EML (Enshrouded Mod Loader) 0.2.0 | `kiln-eml.dll` (GPL-3, EML's own runner built from kfc-parser; component `eml`, default on) | `mods/<id>/` and `kiln/eml/mods/<id>/` with `mod.json` + `src/mod.lua` (or a zip), patched before the game starts; the single game-data writer unless ShroudForge owns startup | [../eml.md](../eml.md) |
 | ShroudForge (bundled 1.7.9 from frostdev-ops/shroudforge, or the player's own copy) | `kiln-shroudforge.dll` (MIT) + `kiln/plugins/shroudforge/` (GPL-3 runtime; component `shroudforge`, default on) | ShroudForge's mods folder (`mods/<id>/` with `extended.mod.json`); with SF hosted it also writes the EML packages in that folder | [../shroudforge.md](../shroudforge.md), [../shroudforge-compat.md](../shroudforge-compat.md) |
-| SET (Shrouded Engine Tweaks) 0.1.1 | `kiln-set.dll` | `shrouded_engine_tweaks/mods/<name>/init.lua`; also on dedicated servers | [../set.md](../set.md) |
+| SET (Shrouded Engine Tweaks) 0.2.0 | `kiln-set.dll` | `shrouded_engine_tweaks/mods/<name>/init.lua` (a mod's `settings.json` is written next to it); also on dedicated servers | [../set.md](../set.md) |
 | Greeneye Loader 1.2.2 (API 2) | `kiln-greeneye.dll` | `greeneye/<id>/` with `mod.json` and a DLL exporting `GreeneyeModStart` | [greeneye.md](greeneye.md) |
 | Flame (Creative Mode's loader) | `kiln-flame.dll` | `mods/<id>/` with `flame.json` and a DLL exporting `FlameStartRuntime` | [flame.md](flame.md) |
 | Shroudtopia 0.1.1 / 1.0 r1 | `kiln-shroudtopia.dll` | `mods/*.dll` and `mods/<name>/` exporting `CreateModInstance` | [shroudtopia.md](shroudtopia.md) |

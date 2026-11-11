@@ -63,6 +63,9 @@ std::atomic<bool> g_systems_ok{false};
 // When native SET may have appeared since the startup check: after a DLL load or a module-list change (3 s
 // fingerprint, no wineserver call), never per tick (the check reaches wineserver once per loaded module under Wine).
 kset::ModuleWatch g_modules;
+// A module inventory that fails once is retried (coexist.h): the runner goes passive only for a SET or power proxy
+// that was seen, or after ConflictGate::failures_to_step_aside failed inventories in a row. Tick thread only.
+kset::ConflictGate g_conflicts;
 bool g_external_runner = false;
 
 // Requested update-function hooks, separate from the slice runner so callbacks get its actual ProgramContext.
@@ -481,7 +484,9 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     g_have_step = true;
     const bool reap = reap_due();
     if (reap) reap_system_hooks();
-    if (g_systems_ok && g_modules.due() && !kset::runtime_conflict().empty()) {
+    std::string conflict;
+    if (g_systems_ok && (g_modules.due() || g_conflicts.retry_due())) conflict = g_conflicts.check();
+    if (!conflict.empty()) {
         {
         std::lock_guard lock(g_sys_mu);
         LARGE_INTEGER now{};
@@ -496,7 +501,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         // restoring the entry or unloading its code here would invalidate the other runtime's hook chain.
         HMODULE pin = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&runner_detour), &pin);
-        logf(KILN_LOG_WARN, "native SET/power proxy appeared: systems restored, runner left passive until exit");
+        logf(KILN_LOG_WARN, "native SET/power proxy check: %s: systems restored, runner left passive until exit", conflict.c_str());
         return;
     }
     if (!reap || !g_off_count.load(std::memory_order_acquire)) return;
@@ -657,7 +662,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     std::sort(g_sys_by_fn.begin(), g_sys_by_fn.end());
     uintptr_t runner = 0;
     g_modules.arm();  // before the startup check, so a DLL loading in between is re-checked
-    const std::string conflict = kset::runtime_conflict();
+    const std::string conflict = g_conflicts.startup();
     if (!conflict.empty()) add_detail("system runner disabled: " + conflict);
     if (conflict.empty() && n && feat("types.systems") && sym("types/ProgramRunner", &runner) && g_im.text.has(runner, 40)) {
         g_runner.install(g_api, g_owner, runner, reinterpret_cast<void*>(&runner_detour), "types/ProgramRunner");

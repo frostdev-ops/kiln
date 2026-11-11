@@ -5,9 +5,11 @@
 #include <array>
 #define KSET_LOADER_HOST_TEST
 #include "../src/plugin.cpp"
-namespace { int shutdowns = 0, ticks = 0, frames = 0, queued = 0; bool throw_queue = false; }
+namespace { int shutdowns = 0, alive_shutdowns = 0, ticks = 0, frames = 0, queued = 0; bool throw_queue = false; std::string overlay_reason; }
 namespace rt {
-void gameClosing() { ++shutdowns; }
+void gameClosing(bool gameAlive) { ++shutdowns; alive_shutdowns += gameAlive; }
+void setFeature(const char* id, bool, std::string reason, bool) { if (std::string(id) == "overlay") overlay_reason = reason; }
+uint32_t gameBuild() { return 0; }
 void tick(uintptr_t) { ++ticks; }
 void afterTick(uintptr_t) {} void worldLeft() {} void frame() { ++frames; }
 void setOverlayOpen(bool) {} bool hasDraw() { return false; }
@@ -19,6 +21,12 @@ std::vector<ModReport> modReports() { return reports; } void onModsReported(void
 void queue(std::string) { if (throw_queue) throw std::runtime_error("queue failed"); ++queued; }
 }
 namespace hk { void setLog(Log) {} }
+namespace contracts {
+int checks = 0;
+const std::vector<Entry>& catalog() { static const std::vector<Entry> none; return none; }
+std::vector<Status> check(uintptr_t, uint32_t, const std::vector<Entry>&, bool) { ++checks; return {}; }
+void setChecked(std::vector<Status>) {}
+}
 namespace kset {
 std::string bind(const KilnApi*) { return {}; } bool systemsReady() { return false; }
 void bindHooks(const KilnApi*, KilnOwner) {} void bindUi(const KilnUiApi*) {}
@@ -99,11 +107,56 @@ int main(int argc, char** argv) {
     loader_test::dll_loaded();
     on_pre(nullptr, nullptr);
     assert(!g_running && ticks == 1101 && shutdowns == 1);
+    assert(alive_shutdowns == 1);  // stepping aside while the game runs on: the mods' resource changes are undone
     on_pre(nullptr, nullptr); assert(shutdowns == 1 && ticks == 1101);
     loader_test::modules = {(root / "relocated/renamed.dll").wstring()};
     g_running = true;
     loader_test::dll_loaded();
     assert(!may_run() && shutdowns == 2);
+    // A module inventory that fails is not SET: kiln-set keeps running and looks again one second later. Each look
+    // tries the snapshot three times. One clean look resets the count; only five failed looks in a row step aside.
+    loader_test::modules = clean;
+    g_running = true; g_gate.reset();
+    {
+        const int before = shutdowns, ticked = ticks;
+        loader_test::snapshot_failures = 3;          // one whole look fails (the field report: a thread had just ended)
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        assert(g_running && shutdowns == before && ticks == ticked + 1 && g_gate.failures() == 1);
+        size_t looks = loader_test::snapshots;
+        frames_and_steps(30);                        // 0.5 s: the retry is not due yet, and nothing looks per frame
+        assert(loader_test::snapshots == looks && g_running);
+        frames_and_steps(40);                        // past 1 s: one retry, clean this time
+        assert(loader_test::snapshots == looks + 1 && g_running && g_gate.failures() == 0 && shutdowns == before);
+        looks = loader_test::snapshots;
+        frames_and_steps(120);                       // nothing pending any more
+        assert(loader_test::snapshots == looks && g_running);
+        // Four failed looks, then a clean one: still running.
+        loader_test::snapshot_failures = 4 * 3;
+        loader_test::dll_loaded();
+        frames_and_steps(400);                       // 6.4 s
+        assert(g_running && g_gate.failures() == 0 && shutdowns == before && loader_test::snapshot_failures == 0);
+        // A foreign proxy seen while failures were pending steps aside at once.
+        loader_test::snapshot_failures = 3;
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        assert(g_running && g_gate.failures() == 1);
+        loader_test::modules.push_back((root / "relocated/powrprof.dll").wstring());
+        frames_and_steps(70);
+        assert(!g_running && shutdowns == before + 1 && g_aside.find("powrprof.dll") != std::string::npos);
+        // The inventory keeps failing: five looks in a row, about four seconds, then kiln-set steps aside and says why.
+        loader_test::modules = clean;
+        g_running = true; g_gate.reset();
+        loader_test::snapshot_failures = 1000;
+        loader_test::dll_loaded();
+        frames_and_steps(200);                       // 3.2 s: four looks so far
+        assert(g_running && g_gate.failures() == 4);
+        frames_and_steps(100);
+        assert(!g_running && shutdowns == before + 2 && g_aside.find("5 checks in a row") != std::string::npos);
+        loader_test::snapshot_failures = 0;
+        shutdowns = 2;                               // as the checks below count them
+        g_running = true; g_gate.reset();
+    }
     // Unload unregisters the notification (the loader must never call into an unmapped plugin).
     g_modules.disarm(); assert(loader_test::registrations == 0 && !g_modules.notifying());
     // Without any ntdll loader API (no notification, no loader lock): a time throttle (every 3 s), never per frame.
@@ -293,7 +346,19 @@ int main(int argc, char** argv) {
     on_ready(nullptr);
     check(!g_running && !g_initialized && loader_test::registrations == 0,
           "startup catches an already-loaded proxy and unregisters without starting Lua");
+    // Startup: a failed inventory is retried on the spot; kiln-set starts when one look succeeds, and refuses only
+    // when five in a row fail.
     loader_test::modules = clean;
+    loader_test::snapshot_failures = 4 * 3;
+    on_ready(nullptr);
+    check(g_running && g_initialized && loader_test::snapshot_failures == 0, "startup retries a failed module inventory and starts");
+    on_unload(nullptr);
+    g_running = false; g_initialized = false;
+    loader_test::snapshot_failures = 5 * 3;
+    on_ready(nullptr);
+    check(!g_running && !g_initialized && g_aside.find("5 checks in a row") != std::string::npos,
+          "startup steps aside when the inventory fails five times in a row");
+    loader_test::snapshot_failures = 0;
     loader_test::on_snapshot = [&] {
         check(loader_test::registrations == 1, "on_ready arms before scanning");
         loader_test::dll_loaded();
@@ -301,7 +366,12 @@ int main(int argc, char** argv) {
     on_ready(nullptr);
     loader_test::on_snapshot = {};
     check(g_running && g_modules.due(), "on_ready preserves a load during its startup scan");
-    on_unload(nullptr);
+    check(contracts::checks > 0 && overlay_reason == "Dedicated server: No overlay", "on_ready checks the rule catalog and reports the overlay feature");
+    {
+        const int alive = alive_shutdowns;
+        on_unload(nullptr);
+        check(alive_shutdowns == alive, "on_unload (the game closing) restores nothing in the game");
+    }
     check(loader_test::registrations == 0, "on_unload explicitly unregisters");
     // state/set.json: kiln-set's report in its siblings' shape (pid, updatedUnixMs, status, mods[] with id/status/reason)
     {

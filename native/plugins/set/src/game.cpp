@@ -45,6 +45,11 @@ bool kset::systemsReady() {
     return T && T->status(&st) == KILN_OK && st.systems;
 }
 
+bool kset::has(std::string_view service) {
+    return service == "types" ? T != nullptr : service == "world" ? W != nullptr : service == "assets" ? A != nullptr :
+           service == "players" ? P != nullptr : service == "time" ? TM != nullptr : false;
+}
+
 std::string kset::bind(const KilnApi* api) {
     g_api = api;
     T = service<KilnTypesApi>(KILN_TYPES_SERVICE, 1);
@@ -179,6 +184,38 @@ refl::Type refl::unwrap(Type u) {
         u = v;
     }
     return u;
+}
+// From Shrouded Engine Tweaks 0.2.0 runtime/game.cpp (refl::path), Copyright (c) 2026 Cacaida, MIT.
+bool refl::path(Type t, std::string_view p, uint32_t& off, Type& leaf) {
+    off = 0;
+    t = t.resolved();
+    while (!p.empty()) {
+        if (p[0] == '[') {
+            size_t end = p.find(']');
+            if (end == std::string_view::npos || end < 2 || t.prim() != StaticArray || !t.inner()) return false;
+            uint32_t i = 0;
+            for (char c : p.substr(1, end - 1)) {
+                if (c < '0' || c > '9' || i > 100000) return false;
+                i = i * 10 + uint32_t(c - '0');
+            }
+            Type e = t.inner();
+            if (!e.size() || i >= t.size() / e.size()) return false;
+            off += i * e.size();
+            t = e.resolved();
+            p.remove_prefix(end + 1);
+            if (!p.empty() && p[0] == '.') p.remove_prefix(1);
+            continue;
+        }
+        size_t end = p.find_first_of(".[");
+        Field f;
+        if (!field(t, p.substr(0, end), f)) return false;
+        off += f.offset;
+        t = f.type.resolved();
+        p.remove_prefix(end == std::string_view::npos ? p.size() : end);
+        if (!p.empty() && p[0] == '.') p.remove_prefix(1);
+    }
+    leaf = unwrap(t);  // a wrapper's only field sits at offset 0
+    return bool(leaf);
 }
 uint32_t refl::fnv(std::string_view s) {
     uint32_t h = 0x811c9dc5;

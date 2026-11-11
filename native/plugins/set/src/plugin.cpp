@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-set.dll: runs Shrouded Engine Tweaks (SET 0.1.1, MIT) Lua mods unchanged on Kiln, on dedicated servers and in
+// kiln-set.dll: runs Shrouded Engine Tweaks (SET 0.2.0, MIT) Lua mods unchanged on Kiln, on dedicated servers and in
 // the game. Mods load from <game>/shrouded_engine_tweaks/mods/<name>/init.lua, as with SET. The Lua runtime and API
 // are SET's (lua_api.cpp, adapted); the game side is Kiln's services (game.cpp, admin.inl, hooks.cpp, lua_imgui.cpp).
 // Kiln drives it: the server world's Pre tick runs Tick callbacks, its Post runs Observe handlers, the UI tick runs the
@@ -25,6 +25,7 @@
 
 #include "game.h"
 #include "coexist.h"
+#include "contracts.h"
 #include "hooks.h"
 #include "kiln_api.h"
 #include "level.h"
@@ -47,6 +48,7 @@ bool g_initialized = false;
 // Taken only when a re-check is due (a DLL has loaded), never on the steady-state frame/tick path.
 std::mutex g_coexist_mx;
 kset::ModuleWatch g_modules;
+kset::ConflictGate g_gate;  // a failed module inventory is retried; only a seen SET or 5 failures in a row step aside
 // The console folder is checked at most every console_ms, by one thread at a time (the UI and the tick thread both
 // drive it in a hosted game).
 constexpr uint64_t console_ms = 500;
@@ -116,7 +118,7 @@ void write_state(const std::string& status, const std::string& reason, const std
     g_state_reason = reason;
     if (g_state.empty()) return;
     const auto unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    std::string j = "{\n  \"format\": 1,\n  \"plugin\": \"kiln-set\",\n  \"version\": \"0.1.1\",\n";
+    std::string j = "{\n  \"format\": 1,\n  \"plugin\": \"kiln-set\",\n  \"version\": \"0.2.0\",\n";
     j += "  \"pid\": " + std::to_string(GetCurrentProcessId()) + ",\n";
     j += std::string("  \"side\": \"") + (g_api->side() == KILN_SIDE_SERVER ? "server" : "client") + "\",\n";
     j += "  \"status\": " + json_str(status) + ",\n";
@@ -159,7 +161,8 @@ void on_mods_reported() {
 // SET's sink: an optional level marker byte, then the line. Kiln's log keeps the level.
 void sink(const char* line) {
     const lv::Level l = lv::of(line);
-    const char* text = l == lv::none ? line : line + 1;
+    // LV_LOG lines (SET: set.log only) are plain lines in kiln.log.
+    const char* text = l == lv::none && *line != LV_LOG[0] ? line : line + 1;
     log(l == lv::bad ? KILN_LOG_ERROR : l == lv::warn ? KILN_LOG_WARN : KILN_LOG_INFO, std::string("[set] ") + text);
 }
 
@@ -171,14 +174,17 @@ std::string set_in_process() { return kset::runtime_conflict(); }
 // steady-state lock or wineserver call, and no periodic full check.
 bool may_run() {
     if (!g_running.load(std::memory_order_acquire)) return false;
-    if (!g_modules.due()) return true;
+    if (!g_modules.due() && !g_gate.retry_due()) return true;
     std::lock_guard lock(g_coexist_mx);
     if (!g_running.load()) return false;
-    g_aside = set_in_process();
+    g_aside = g_gate.check();
+    if (g_aside.empty() && g_gate.failures() == 1)
+        log(KILN_LOG_WARN, "kiln-set: the loaded modules could not be inspected once; checking again (stepping aside only after " +
+                               std::to_string(kset::ConflictGate::failures_to_step_aside) + " failed checks in a row)");
     if (g_aside.empty()) return true;
     g_running = false;
     log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside);
-    rt::gameClosing();
+    rt::gameClosing(true);  // the game runs on: what the mods changed in its resources goes back
     write_state("stepped-aside", g_aside, {});
     return false;
 }
@@ -257,7 +263,8 @@ void KILN_CALL on_ready(void*) {
     g_state = api_path(KILN_PATH_STATE);
     // Armed before the startup check, so a DLL loading in between is still re-checked.
     const bool notified = g_modules.arm();
-    g_aside = set_in_process();
+    g_gate.reset();
+    g_aside = g_gate.startup();
     if (!g_aside.empty()) {
         g_modules.disarm();
         log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside + "; its Lua mods are SET's to run");
@@ -299,6 +306,18 @@ void KILN_CALL on_ready(void*) {
             copied == sizeof nt && nt.Signature == IMAGE_NT_SIGNATURE)
             rt::setGameBuild(nt.FileHeader.TimeDateStamp);
     }
+    {  // SET's rule catalog against this exe: an entry that fails is off (Features() says why), the rest keeps working
+        const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        auto all = contracts::check(base, rt::gameBuild(), contracts::catalog());
+        size_t ok = 0;
+        for (const auto& c : all) {
+            ok += c.fn != 0;
+            if (c.fn) log(KILN_LOG_INFO, "[set] Catalog: " + c.name + " checked out");
+            else log(KILN_LOG_INFO, "[set] Catalog: " + c.name + " off (" + c.why + ")");
+        }
+        log(KILN_LOG_INFO, "[set] Catalog: " + std::to_string(ok) + " of " + std::to_string(all.size()) + " targets checked out");
+        contracts::setChecked(std::move(all));
+    }
     KilnHandle h = 0;
     const KilnResult a = g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_pre, nullptr, &h);
     const KilnResult b = g_api->subscribe_tick(g_owner, KILN_TICK_POST, &on_post, nullptr, &h);
@@ -314,6 +333,7 @@ void KILN_CALL on_ready(void*) {
         }
         if (UT) UT->subscribe(g_owner, &on_ui_tick, nullptr, &h);
     }
+    rt::setFeature("overlay", ui, !client ? "Dedicated server: No overlay" : "kiln.ui is not running");
     std::error_code ec;
     const bool has_dir = std::filesystem::is_directory(mods, ec);
     g_running = a == KILN_OK && b == KILN_OK;
@@ -321,7 +341,7 @@ void KILN_CALL on_ready(void*) {
     else if (!has_dir) write_state("idle", "no shrouded_engine_tweaks/mods folder: no SET mods", {});
     else write_state("waiting", "", pending_mods(mods));
     log(g_running ? KILN_LOG_INFO : KILN_LOG_WARN,
-        std::string("kiln-set 0.1.1 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
+        std::string("kiln-set 0.2.0 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
             (has_dir ? "" : " (folder missing: no SET mods)") + ", ticks " + (g_running ? "on" : "off") + ", overlay " +
             (ui ? "on" : "off") + ", console " + u8(g_control / "set" / "*.lua") +
             (g_modules.fingerprinting()
@@ -341,7 +361,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{"kiln-set", 8};
-    info->version = KilnStr{"0.1.1", 5};
+    info->version = KilnStr{"0.2.0", 5};
     info->on_ready = &on_ready;
     info->on_unload = &on_unload;
     return KILN_OK;

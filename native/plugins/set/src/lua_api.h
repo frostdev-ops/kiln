@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Adapted from Shrouded Engine Tweaks 0.1.1 runtime/lua_api.h, Copyright (c) 2026 Cacaida, MIT
+// Adapted from Shrouded Engine Tweaks 0.2.0 runtime/lua_api.h, Copyright (c) 2026 Cacaida, MIT
 // (licenses/ShroudedEngineTweaks-LICENSE.txt).
 // Lua side of the runtime. Mods load once, at the main menu. Lua runs on the game's server thread inside the world-tick
 // hook (main.cpp) while you are in a world you host, on the main thread (frame(), from the options hook) otherwise,
@@ -25,7 +25,9 @@ void tick(uintptr_t serverWorld);                    // pre-tick: onWorldEnter, 
 void afterTick(uintptr_t serverWorld);               // after the world tick: Observe handlers for this tick's events
 void frame();                                        // main thread, each frame: loads mods, runs them outside a world
 void worldLeft();                                    // the player left the world: onWorldLeave now, without the game
-void gameClosing();                                  // the game is closing: onShutdown without the game, then no mods
+// The game is closing: onShutdown without the game, then no mods. gameAlive: the mods stop but the game runs on
+// (kiln-set steps aside), so their resource changes are undone.
+void gameClosing(bool gameAlive = false);
 void queue(std::string line);                        // console thread or the overlay
 void draw();                                         // render thread, inside the ImGui frame: Draw callbacks
 bool tryLockDraw();                                  // the Lua lock if free (no tick running), for drawLocked
@@ -49,7 +51,19 @@ void bindKiln(const KilnApi* api, KilnOwner owner);  // Admin.* services        
 int keyFromName(const char* name);                   // virtual-key code, or 0 for an unknown name
 void setSystemsAvailable(bool ok);                   // the program runner is hooked; Systems.enable errors until then
 void setGameBuild(uint32_t build);                   // the running exe's build, for GetGameBuild() and mod.json
+uint32_t gameBuild();                                // what setGameBuild got, 0 before
 bool systemsAvailable();                             // the Systems window, any thread
+
+// Features(): what works on this game build (compatible) and right now (available), by a stable id that never changes
+// once shipped (SET docs/api-reference.md lists SET's; docs/kiln/set.md lists Kiln's values and its own ids).
+struct Feature {
+    std::string id, label, reason;  // reason: why compatible or available is false, else empty
+    bool compatible, available;
+};
+// The plugin's part: "overlay" (kiln.ui is there, on a client). Other ids are read from Kiln's services when asked,
+// and are ignored here. ready false: compatible, but not usable.
+void setFeature(const char* id, bool compatible, std::string reason = {}, bool ready = true);
+std::vector<Feature> features();                     // any thread
 // System hooks, before the original: writes the armed commands of that system (0 admin_player, 1 inventory_actions).
 std::string keyName(int vk);                         // the name keyFromName takes, 0xNN for keys without one
 
@@ -59,6 +73,7 @@ enum KeyMod { ModCtrl = 1, ModShift = 2, ModAlt = 4 };
 struct BindInfo {
     std::string key, mod, label, combo;  // key "<mod>.<id>"; combo like "Ctrl+F6", empty if unbound
     bool input;
+    int vk;  // the combo's key, 0 if unbound
 };
 std::vector<BindInfo> bindings(int& dead);                  // sorted by mod; dead: saved, but no loaded mod has it
 void setBinding(const std::string& key, int mods, int vk);  // vk 0 unbinds; saved at once
