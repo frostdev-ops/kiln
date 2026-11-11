@@ -334,6 +334,61 @@ public sealed class ShroudForgePageTests : IDisposable
         finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
     }
 
+    [Fact]
+    public void Two_clicks_while_an_action_is_being_written_leave_only_one_request()
+    {
+        UseGame();
+        using var writing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var secondWrite = new ManualResetEventSlim();
+        var calls = 0;
+        var finished = 0;
+        ShroudForgeUi.QueueAction = (game, package, action) =>
+        {
+            try
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    writing.Set();
+                    if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("action test did not release writer");
+                }
+                else secondWrite.Set();
+                ShroudForgePackages.QueueAction(game, package, action);
+            }
+            finally { Interlocked.Increment(ref finished); }
+        };
+        try
+        {
+            var folder = ActionPackage();
+            var page = Page(Mod(folder) with { Active = true });
+            FakeUiTable.Click = "Reset progress";
+            Frame(page);
+            Assert.True(writing.Wait(TimeSpan.FromSeconds(5)));
+            FakeUiTable.Click = "Reset progress";
+            Frame(page);
+            // No request file is visible yet. The second click must not pass the check and enter the file writer.
+            var overlapped = secondWrite.Wait(TimeSpan.FromMilliseconds(300));
+            release.Set();
+            Assert.True(SpinWait.SpinUntil(() => Directory.Exists(Actions(folder)) && Directory.EnumerateFiles(Actions(folder)).Any(), 5000));
+            Assert.False(overlapped, "both clicks passed the waiting check before the first request was written");
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                lock (FakeUiTable.Texts) FakeUiTable.Texts.Clear();
+                Frame(page);
+                lock (FakeUiTable.Texts) return FakeUiTable.Texts.Any(t => t.Contains("still waiting", StringComparison.Ordinal));
+            }, 5000), "the second click did not report the request already waiting");
+            Assert.Equal(1, Volatile.Read(ref calls));
+            Assert.Single(Directory.EnumerateFiles(Actions(folder)));
+        }
+        finally
+        {
+            release.Set();
+            SpinWait.SpinUntil(() => Volatile.Read(ref finished) == Volatile.Read(ref calls), 5000);
+            ShroudForgeUi.QueueAction = ShroudForgePackages.QueueAction;
+            ModCatalog.Sources = ModCatalog.DefaultSources;
+        }
+    }
+
     /// <summary>A request an earlier game start left (another pid) is still one waiting: ShroudForge keeps it and may run
     /// it at a later start, so Kiln adds none and says so.</summary>
     [Fact]

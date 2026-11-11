@@ -809,6 +809,11 @@ internal static class ShroudForgeUi
             }
     }
 
+    /// <summary>The file hand-off; tests can hold it while another click arrives.</summary>
+    internal static Action<string, SfPackage, string> QueueAction = ShroudForgePackages.QueueAction;
+    // Worker-only: the waiting check and the atomic file hand-off are one operation, including across mod folders.
+    private static readonly object ActionGate = new();
+
     private static void Action(UiDraw ui, string folder, SfPackage p, SfAction a, string label, string? confirm, bool running, float s, float k)
     {
         using var _ = ui.Id("act." + a.Id);
@@ -830,33 +835,36 @@ internal static class ShroudForgeUi
                 _armed = null;
                 Task.Run(() =>
                 {
-                    string text;
-                    var ok = true;
-                    try
+                    lock (ActionGate)
                     {
-                        var game = GameDir();
-                        // ShroudForge keeps a request of an active mod without a handler for ever and reads 32 per turn:
-                        // one of Kiln's own per mod at a time
-                        if (Waiting(game, p.Id))
+                        string text;
+                        var ok = true;
+                        try
+                        {
+                            var game = GameDir();
+                            // ShroudForge keeps a request of an active mod without a handler for ever and reads 32 per turn:
+                            // one of Kiln's own per mod at a time
+                            if (Waiting(game, p.Id))
+                            {
+                                ok = false;
+                                text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
+                                       "which runs it once the mod takes it; nothing new was queued.";
+                            }
+                            else
+                            {
+                                QueueAction(game, p, a.Id);
+                                text = $"Requested: {label}.";
+                                UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
+                            }
+                        }
+                        catch (Exception e)  // whatever the files or the config hold: the player gets a line, not a silent worker
                         {
                             ok = false;
-                            text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
-                                   "which runs it once the mod takes it; nothing new was queued.";
+                            text = $"{label} could not be sent: {e.Message}";
+                            UiEngine.Log(LogLevel.Warn, $"ShroudForge mod {p.Id}: action {a.Id} could not be sent: {e.Message}");
                         }
-                        else
-                        {
-                            ShroudForgePackages.QueueAction(game, p, a.Id);
-                            text = $"Requested: {label}.";
-                            UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
-                        }
+                        lock (Lock) Results[folder] = (text, ok);
                     }
-                    catch (Exception e)  // whatever the files or the config hold: the player gets a line, not a silent worker
-                    {
-                        ok = false;
-                        text = $"{label} could not be sent: {e.Message}";
-                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod {p.Id}: action {a.Id} could not be sent: {e.Message}");
-                    }
-                    lock (Lock) Results[folder] = (text, ok);
                 });
             }
         }
