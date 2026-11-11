@@ -76,7 +76,7 @@ public sealed class ShroudForgeTests : IDisposable
         var c = Cases().Single(x => x!["name"]!.GetValue<string>() == name)!;
         var dir = Path.Combine(_root, name);
         Directory.CreateDirectory(Path.Combine(dir, "src"));
-        File.WriteAllText(Path.Combine(dir, "mod.json"), c["mod"]!.ToJsonString());
+        File.WriteAllText(Path.Combine(dir, "mod.json"), c["modText"]?.GetValue<string>() ?? c["mod"]!.ToJsonString());
         File.WriteAllText(Path.Combine(dir, "src", "mod.lua"), "return {}");
         var original = ExtendedBytes(c);
         if (original is not null) File.WriteAllBytes(Path.Combine(dir, "extended.mod.json"), original);
@@ -85,7 +85,12 @@ public sealed class ShroudForgeTests : IDisposable
         if (refused)
         {
             // ShroudForge refuses the package: so does the page, and nothing is written
-            Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(dir));
+            var error = Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(dir));
+            if (c["errorContains"] is { } reason)
+            {
+                Assert.Contains("ShroudForge would refuse", error.Message);
+                Assert.Contains(reason.GetValue<string>(), error.Message);
+            }
         }
         else
         {
@@ -96,6 +101,7 @@ public sealed class ShroudForgeTests : IDisposable
             Same(read["settings"], new JsonArray(p.Settings.Select(View).ToArray()), name + ": settings");
             Same(read["enabledNow"], EnabledNow(p), name + ": enabledWhen");
             Same(read["repair"] ?? new JsonArray(), new JsonArray(p.Repair.Select(k => (JsonNode)k).ToArray()), name + ": settings to repair");
+            if (c["sfRefused"]?.GetValue<bool>() == true) Assert.NotEmpty(p.Repair);
         }
 
         var file = Path.Combine(dir, "extended.mod.json");
@@ -133,7 +139,7 @@ public sealed class ShroudForgeTests : IDisposable
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "mod.json"), """{"id":"world-editor","name":"World Editor","version":"1.0.0","capabilities":["runtime"]}""");
         File.WriteAllText(Path.Combine(dir, "extended.mod.json"),
-            """{"enabled":true,"groups":[{"label":"Blueprints","settings":[],"actions":[{"id":"saveBlueprint","label":"Save","confirm":"Overwrite?"}]}]}""");
+            """{"schemaVersion":1,"enabled":true,"groups":[{"label":"Blueprints","settings":[],"actions":[{"id":"saveBlueprint","label":"Save","confirm":"Overwrite?"}]}]}""");
         var p = ShroudForgePackages.Read(dir);
         Assert.Equal(new SfAction("saveBlueprint", "Save", null, "Overwrite?"), Assert.Single(Assert.Single(p.Groups).Actions));
         ShroudForgePackages.QueueAction(game, p, "saveBlueprint");
@@ -154,8 +160,8 @@ public sealed class ShroudForgeTests : IDisposable
     private string Package(string settings = "\"value\":1")
     {
         Directory.CreateDirectory(_root);
-        File.WriteAllText(Path.Combine(_root, "mod.json"), """{"id":"test","name":"Test","version":"1","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"enabled\":true,\"settings\":{\"amount\":{" + settings + "}}}");
+        File.WriteAllText(Path.Combine(_root, "mod.json"), """{"id":"test","name":"Test","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"amount\":{" + settings + "}}}");
         return _root;
     }
 
@@ -262,6 +268,22 @@ public sealed class ShroudForgeTests : IDisposable
     }
 
     [Fact]
+    public void Enabled_rule_is_defensive_for_non_package_models()
+    {
+        var definition = new SfSettingDef { Key = "base", Type = "integer", Label = "base", Value = JsonValue.Create(5) };
+        var settings = new SfSettingList([
+            definition,
+            definition with { Key = "child", EnabledWhen = new SfCondition("base", JsonNode.Parse("5.0")) },
+            definition with { Key = "lost", EnabledWhen = new SfCondition("missing", JsonValue.Create(5)) },
+            definition with { Key = "cycle", EnabledWhen = new SfCondition("cycle", JsonValue.Create(5)) },
+        ]);
+        var values = settings.ToDictionary(s => s.Key, s => s.Value);
+        Assert.True(ShroudForgePackages.IsEnabled("child", settings, values));
+        Assert.False(ShroudForgePackages.IsEnabled("lost", settings, values));
+        Assert.False(ShroudForgePackages.IsEnabled("cycle", settings, values));
+    }
+
+    [Fact]
     public void Values_made_by_the_page_render_like_values_read_from_a_file()
     {
         Assert.Equal("3", ShroudForgePackages.Render(JsonValue.Create(3)));
@@ -296,8 +318,8 @@ public sealed class ShroudForgeLargeFileTests : IDisposable
     private string Package()
     {
         Directory.CreateDirectory(_root);
-        File.WriteAllText(Path.Combine(_root, "mod.json"), """{"id":"test","name":"Test","version":"1","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"enabled\":true,\"settings\":{\"amount\":{\"value\":1}}}");
+        File.WriteAllText(Path.Combine(_root, "mod.json"), """{"id":"test","name":"Test","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"amount\":{\"value\":1}}}");
         return _root;
     }
 
@@ -309,7 +331,7 @@ public sealed class ShroudForgeLargeFileTests : IDisposable
         Assert.Equal(ShroudForgePackages.MaxFileBytes, limit);
         var dir = Package();
         var file = Path.Combine(dir, "extended.mod.json");
-        const string body = "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1}}}";
+        const string body = "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1}}}";
         File.WriteAllText(file, body + new string(' ', limit - body.Length));
         Assert.Single(ShroudForgePackages.Read(dir).Settings);
         File.WriteAllText(file, body + new string(' ', limit + 1 - body.Length));
@@ -326,7 +348,7 @@ public sealed class ShroudForgeLargeFileTests : IDisposable
         const int n = 50_000;
         var dir = Package();
         var body = string.Join(",", Enumerable.Range(0, n).Select(i => $"\"s{i:D5}\":{{\"value\":{i}}}"));
-        File.WriteAllText(Path.Combine(dir, "extended.mod.json"), "{\"enabled\":true,\"settings\":{" + body + "}}");
+        File.WriteAllText(Path.Combine(dir, "extended.mod.json"), "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{" + body + "}}");
         var p = ShroudForgePackages.Read(dir);
         var values = p.Values;
         var clock = System.Diagnostics.Stopwatch.StartNew();

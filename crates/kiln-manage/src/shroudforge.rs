@@ -196,16 +196,19 @@ pub struct SfMod {
 /// The largest package file Kiln reads or writes (the in-game page's bound too: ShroudForge.cs `MaxFileBytes`).
 pub const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
 
-/// A package file (mod.json, extended.mod.json) as ShroudForge's serde_json takes it: UTF-8 (a byte order mark is
-/// dropped), no lone surrogate escape, no number beyond a double; and at most [`MAX_FILE_BYTES`]. Comments and trailing
-/// commas are accepted as everywhere in Kiln. Returns the text (without the mark) and its tree.
-fn read_text(p: &Path) -> Result<(String, Node)> {
+/// Bounded text and its token tree. Package reads must also pass ShroudForge's strict JSON parser (including no BOM).
+/// Detection remains permissive so an invalid SF package still reaches its import refusal, not another engine's path.
+fn read_text(p: &Path, strict: bool) -> Result<(String, Node)> {
     use std::io::Read;
     let f = std::fs::File::open(p).map_err(crate::util::io_at(p, "reading"))?;
     let mut bytes = Vec::new();
     f.take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(crate::util::io_at(p, "reading"))?;
     if bytes.len() > MAX_FILE_BYTES {
         return Err(Error::invalid(format!("{} is larger than 2 MiB", p.display())));
+    }
+    if strict {
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|e| Error::invalid(format!("ShroudForge would refuse {}: strict JSON is required: {e}", p.display())))?;
     }
     let (text, tree) = crate::jsonc::parse_tree_bytes(&bytes)?;
     if let Some(why) = refused_token(&text, &tree) {
@@ -259,7 +262,7 @@ fn lone_surrogate(token: &str) -> bool {
 }
 
 fn read_json_file(p: &Path) -> Result<serde_json::Value> {
-    Ok(read_text(p)?.1.to_value())
+    Ok(read_text(p, false)?.1.to_value())
 }
 
 /// Does `folder` look like a ShroudForge (or EML) Lua package rather than an EMF mod (which also has a mod.json)?
@@ -376,16 +379,74 @@ pub fn other_holder(root: &Path, src: &Path, dst: &Path) -> Option<PathBuf> {
     dirs.into_iter().find(|p| read_json_file(&p.join("mod.json")).ok().and_then(|m| str_of(&m, "id")).as_deref() == Some(id.as_str()))
 }
 
+/// The intersection of SF's version schema and its strict SemVer deserializer, not Kiln's permissive Library version.
+fn package_version(version: &str) -> bool {
+    let split = version.find(['-', '+']);
+    let core = &version[..split.unwrap_or(version.len())];
+    let parts: Vec<_> = core.split('.').collect();
+    if parts.len() != 3 || parts.iter().any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit())
+        || (p.len() > 1 && p.starts_with('0')) || p.parse::<u64>().is_err()) {
+        return false;
+    }
+    split.is_none_or(|i| version[i + 1..].split('.').all(|p| !p.is_empty()
+        && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !(version.as_bytes()[i] == b'-' && p.len() > 1 && p.starts_with('0') && p.bytes().all(|b| b.is_ascii_digit()))))
+}
+
+/// Validate package conditions, not the editor's defensive numeric equality. Walk the dependency graph only once.
+fn validate_conditions(settings: &[SfSetting]) -> Result<()> {
+    use std::collections::{HashMap, HashSet};
+    let by_key: HashMap<_, _> = settings.iter().map(|s| (s.key.as_str(), s)).collect();
+    for s in settings {
+        let Some(w) = &s.enabled_when else { continue };
+        let target = w["setting"].as_str().unwrap(); // metadata shape was checked first
+        let controller = by_key.get(target).ok_or_else(|| Error::invalid(format!("ShroudForge would refuse setting {}: enabledWhen names unknown setting {target}", s.key)))?;
+        let value = &w["equals"];
+        let matches = match value_type(controller) {
+            "boolean" => value.is_boolean(),
+            "string" => value.is_string(),
+            "integer" => value.as_i64().is_some(),
+            "number" => value.as_f64().is_some(),
+            _ => false,
+        };
+        if !matches || controller.options.as_ref().is_some_and(|opts| !opts.keys().any(|k| option_value(controller, k).as_ref() == Some(value))) {
+            return Err(Error::invalid(format!("ShroudForge would refuse setting {}: enabledWhen equals must match {target}'s type and options", s.key)));
+        }
+    }
+    let mut done = HashSet::new();
+    for s in settings.iter().filter(|s| s.enabled_when.is_some()) {
+        let mut chain = HashSet::new();
+        let mut current = s.key.as_str();
+        while !done.contains(current) {
+            if !chain.insert(current) {
+                return Err(Error::invalid(format!("ShroudForge would refuse setting {}: enabledWhen has a dependency cycle", s.key)));
+            }
+            let Some(w) = &by_key[current].enabled_when else { break };
+            current = w["setting"].as_str().unwrap();
+        }
+        done.extend(chain);
+    }
+    Ok(())
+}
+
 /// Reads one package (`folder` holds mod.json).
 pub fn read_mod(folder: &Path) -> Result<SfMod> {
-    let m = read_json_file(&folder.join("mod.json"))?;
+    let m = read_text(&folder.join("mod.json"), true)?.1.to_value();
     let id = str_of(&m, "id").ok_or_else(|| Error::invalid(format!("{}/mod.json has no \"id\"", folder.display())))?;
+    let version = str_of(&m, "version").filter(|v| package_version(v))
+        .ok_or_else(|| Error::invalid("ShroudForge would refuse mod.json version: expected a strict three-part version with at most a prerelease or build suffix"))?;
     let ext_path = folder.join("extended.mod.json");
     let extended = ext_path.is_file();
-    let tree = if extended { Some(read_text(&ext_path)?.1) } else { None };
+    let tree = if extended { Some(read_text(&ext_path, true)?.1) } else { None };
     let ext = tree.as_ref().map(Node::to_value).unwrap_or_else(|| serde_json::json!({}));
     if !ext.is_object() {
         return Err(Error::invalid("extended.mod.json is not a JSON object"));
+    }
+    if extended && ext.get("schemaVersion").and_then(|v| v.as_f64()) != Some(1.0) {
+        return Err(Error::invalid("ShroudForge would refuse extended.mod.json: required schemaVersion must be the number 1"));
+    }
+    if extended && ext.get("enabled").and_then(|v| v.as_bool()).is_none() {
+        return Err(Error::invalid("ShroudForge would refuse extended.mod.json: required enabled must be a boolean"));
     }
     if ext.get("settings").is_some_and(|s| !s.is_object()) {
         return Err(Error::invalid("extended.mod.json settings must be an object"));
@@ -439,10 +500,11 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         }
         s.live = runtime && (!patch || s.apply_at.as_deref() == Some("live"));
     }
+    validate_conditions(&settings)?;
     Ok(SfMod {
         name: str_of(&m, "name").unwrap_or_else(|| id.clone()),
         id,
-        version: str_of(&m, "version").unwrap_or_default(),
+        version,
         description: str_of(&m, "description").unwrap_or_default(),
         authors: m.get("authors").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
         folder: folder.to_path_buf(),
@@ -528,7 +590,7 @@ pub fn skip_reason(folder: &Path) -> String {
 fn extension_text(m: &SfMod) -> Result<String> {
     let p = m.folder.join("extended.mod.json");
     if p.is_file() {
-        return Ok(read_text(&p)?.0);
+        return Ok(read_text(&p, true)?.0);
     }
     let v = serde_json::json!({
         "$schema": "https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json",
@@ -542,7 +604,8 @@ fn extension_text(m: &SfMod) -> Result<String> {
 }
 
 fn write_extension(m: &SfMod, text: &str) -> Result<()> {
-    crate::jsonc::parse(text)?; // never write a broken file
+    serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|e| Error::invalid(format!("ShroudForge would refuse the edit: strict JSON is required: {e}")))?;
     if text.len() > MAX_FILE_BYTES {
         return Err(Error::invalid("the settings file would be larger than 2 MiB"));
     }
@@ -635,7 +698,7 @@ fn render_setting_value(s: &SfSetting, value: &serde_json::Value) -> String {
 /// Switches a mod on or off (ShroudForge's own switch; a running ShroudForge picks it up live).
 pub fn set_enabled(folder: &Path, enabled: bool) -> Result<SfMod> {
     let m = read_mod(folder)?;
-    if m.extended && m.enabled == enabled {
+    if m.extended && m.enabled == enabled && m.repair.is_empty() {
         return Ok(m);
     }
     let text = repair_fractions(&extension_text(&m)?, &m)?;
@@ -1125,7 +1188,7 @@ mod tests {
     #[test]
     fn a_number_that_is_not_finite_never_reaches_the_writer() {
         let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
-        let f = pkg(t.path(), "nan", Some(r#"{"enabled":true,"settings":{"ratio":{"value":0.5}}}"#));
+        let f = pkg(t.path(), "nan", Some(r#"{"schemaVersion":1,"enabled":true,"settings":{"ratio":{"value":0.5}}}"#));
         let before = std::fs::read(f.join("extended.mod.json")).unwrap();
         for n in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let v = serde_json::Value::from(n);
@@ -1152,6 +1215,21 @@ mod tests {
         assert_eq!(s["properties"]["speed"]["x-kiln-restart"], true);
         assert_eq!(s["properties"]["infiniteStamina"]["x-kiln-restart"], true, "no applyAt: ShroudForge's default is restart");
         assert_eq!(s["properties"]["mode"]["enum"], serde_json::json!(["a", "b"]));
+    }
+
+    /// Package validation refuses these graphs, but callers of the editor rule still get safe, defensive answers.
+    #[test]
+    fn enabled_rule_is_defensive_for_non_package_models() {
+        let settings = vec![
+            parse_setting("base", &serde_json::json!(5)),
+            parse_setting("child", &serde_json::json!({"value":true,"enabledWhen":{"setting":"base","equals":5.0}})),
+            parse_setting("lost", &serde_json::json!({"value":true,"enabledWhen":{"setting":"missing","equals":true}})),
+            parse_setting("cycle", &serde_json::json!({"value":true,"enabledWhen":{"setting":"cycle","equals":true}})),
+        ];
+        let values = settings.iter().map(|s| (s.key.clone(), s.value.clone())).collect();
+        assert!(setting_enabled("child", &settings, &values));
+        assert!(!setting_enabled("lost", &settings, &values));
+        assert!(!setting_enabled("cycle", &settings, &values));
     }
 
     #[test]

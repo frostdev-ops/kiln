@@ -7,7 +7,7 @@
 // (crates/kiln-manage/src/shroudforge.rs) by the shared cases in schema/fixtures/shroudforge/cases.json, so the
 // launcher and the in-game page write the same bytes.
 //
-// A write splices only the changed value into the file, so the rest stays byte-identical (comments, layout, keys we
+// A write splices only the changed value into the file, so the rest stays byte-identical (whitespace, layout, keys we
 // do not know). A refused value never reaches the file.
 using System.Collections;
 using System.Globalization;
@@ -84,7 +84,7 @@ internal sealed record SfPackage
     public string Name { get; init; } = "";
     public string Version { get; init; } = "";
     public string Description { get; init; } = "";
-    /// <summary>extended.mod.json <c>enabled</c> (off when the file or the member is missing, as in ShroudForge).</summary>
+    /// <summary>extended.mod.json <c>enabled</c> (off when the file is absent; a present file must declare it).</summary>
     public bool Enabled { get; init; }
     /// <summary>extended.mod.json exists (a legacy EML package has none until its first change).</summary>
     public bool Extended { get; init; }
@@ -109,7 +109,8 @@ internal sealed class SfEditException(string message) : Exception(message);
 /// <summary>Reading and writing ShroudForge's package files. Every member is safe on any thread; nothing is cached.</summary>
 internal static class ShroudForgePackages
 {
-    private static readonly JsonDocumentOptions ReadOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip, MaxDepth = 64 };
+    private static readonly JsonDocumentOptions ReadOptions = new() { MaxDepth = 64 };
+    private static readonly JsonSerializerOptions PackageOptions = new() { MaxDepth = 64 };
     private static readonly JsonSerializerOptions ElementOptions = new() { AllowTrailingCommas = true, ReadCommentHandling = JsonCommentHandling.Skip, MaxDepth = 64 };
     private static readonly JsonNodeOptions NodeOptions = new() { PropertyNameCaseInsensitive = false };
 
@@ -141,14 +142,16 @@ internal static class ShroudForgePackages
         string text;
         try { text = new UTF8Encoding(false, true).GetString(bytes, 0, n); }
         catch (DecoderFallbackException) { throw new SfEditException("the settings file is not UTF-8 text"); }
-        return text.Length > 0 && text[0] == '﻿' ? text[1..] : text;
+        return text;
     }
 
-    /// <summary>JSON(C) as ShroudForge's serde_json reads it: a repeated key keeps its first place and its last value; a
-    /// lone surrogate escape and a number beyond a double are refused (as in kiln-manage <c>read_text</c>).</summary>
-    private static JsonNode? Parse(string text)
+    /// <summary>Package JSON is strict, as in SF's serde_json (including no BOM). Config lookup retains its permissive
+    /// parsing. Repeated keys keep their first place and last value; lone surrogate escapes and nonfinite numbers fail.</summary>
+    private static JsonNode? Parse(string text, bool package = false)
     {
-        try { return Node(JsonSerializer.Deserialize<JsonElement>(text, ElementOptions)); }
+        if (!package && text.Length > 0 && text[0] == '﻿') text = text[1..];
+        try { return Node(JsonSerializer.Deserialize<JsonElement>(text, package ? PackageOptions : ElementOptions)); }
+        catch (JsonException e) { throw new SfEditException("ShroudForge would refuse the package: strict JSON is required: " + e.Message); }
         catch (InvalidOperationException) { throw new SfEditException("the settings file holds a lone surrogate escape"); }
     }
 
@@ -354,15 +357,77 @@ internal static class ShroudForgePackages
         };
     }
 
+    // SF's version schema intersects strict SemVer; Kiln's Library version parser deliberately accepts more forms.
+    private static bool PackageVersion(string version)
+    {
+        var split = version.IndexOfAny(['-', '+']);
+        var parts = (split < 0 ? version : version[..split]).Split('.');
+        if (parts.Length != 3 || parts.Any(p => p.Length == 0 || !p.All(char.IsAsciiDigit) ||
+            p.Length > 1 && p[0] == '0' || !ulong.TryParse(p, NumberStyles.None, CultureInfo.InvariantCulture, out _))) return false;
+        return split < 0 || version[(split + 1)..].Split('.').All(p => p.Length > 0 &&
+            p.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') &&
+            !(version[split] == '-' && p.Length > 1 && p[0] == '0' && p.All(char.IsAsciiDigit)));
+    }
+
+    // Manifest option equality is representation-sensitive, unlike the editor's numeric equality (5 = 5.0).
+    private static bool ConditionOptionEquals(JsonNode? option, JsonNode? value)
+    {
+        var type = TypeOf(value);
+        if (TypeOf(option) != type) return false;
+        if (type == "integer") return option!.GetValue<long>() == value!.GetValue<long>();
+        // A positive integer beyond i64 infers a number setting, but is still a serde_json integer, not a float option.
+        if (type == "number" && value is JsonValue v && v.TryGetValue<JsonElement>(out var e) && e.TryGetUInt64(out _)) return false;
+        return SameValue(option, value);
+    }
+
+    private static void ValidateConditions(IReadOnlyList<SfSettingDef> settings)
+    {
+        foreach (var s in settings)
+        {
+            if (s.EnabledWhen is not { } w) continue;
+            var controller = Find(settings, w.Setting) ?? throw new SfEditException($"ShroudForge would refuse setting {s.Key}: enabledWhen names unknown setting {w.Setting}");
+            var type = TypeOf(w.EqualsValue);
+            var matches = controller.Type switch
+            {
+                "boolean" => type == "boolean", "string" => type == "string", "integer" => type == "integer",
+                "number" => type is "integer" or "number", _ => false,
+            };
+            if (!matches || controller.Options.Count > 0 && !controller.Options.Any(o => ConditionOptionEquals(o.Value, w.EqualsValue)))
+                throw new SfEditException($"ShroudForge would refuse setting {s.Key}: enabledWhen equals must match {w.Setting}'s type and options");
+        }
+        // Each dependency is visited once, without recursion or quadratic repeated walks.
+        var done = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in settings)
+        {
+            if (s.EnabledWhen is null) continue;
+            var chain = new HashSet<string>(StringComparer.Ordinal);
+            var current = s.Key;
+            while (!done.Contains(current))
+            {
+                if (!chain.Add(current)) throw new SfEditException($"ShroudForge would refuse setting {s.Key}: enabledWhen has a dependency cycle");
+                if (Find(settings, current)!.EnabledWhen is not { } w) break;
+                current = w.Setting;
+            }
+            done.UnionWith(chain);
+        }
+    }
+
     /// <summary>Reads the package in <paramref name="folder"/>. Throws when mod.json or extended.mod.json cannot be read.</summary>
     public static SfPackage Read(string folder)
     {
-        var mod = Parse(ReadText(Path.Combine(folder, "mod.json"))) as JsonObject
+        var mod = Parse(ReadText(Path.Combine(folder, "mod.json")), package: true) as JsonObject
                   ?? throw new SfEditException("mod.json is not a JSON object");
         var id = Str(mod, "id") ?? throw new SfEditException("mod.json has no \"id\"");
+        var version = Str(mod, "version");
+        if (version is null || !PackageVersion(version))
+            throw new SfEditException("ShroudForge would refuse mod.json version: expected a strict three-part version with at most a prerelease or build suffix");
         var extPath = Path.Combine(folder, "extended.mod.json");
         var extended = File.Exists(extPath);
-        var ext = extended ? Parse(ReadText(extPath)) as JsonObject ?? throw new SfEditException("extended.mod.json is not a JSON object") : new JsonObject();
+        var ext = extended ? Parse(ReadText(extPath), package: true) as JsonObject ?? throw new SfEditException("extended.mod.json is not a JSON object") : new JsonObject();
+        if (extended && Num(ext, "schemaVersion") != 1.0)
+            throw new SfEditException("ShroudForge would refuse extended.mod.json: required schemaVersion must be the number 1");
+        if (extended && Flag(ext, "enabled") is null)
+            throw new SfEditException("ShroudForge would refuse extended.mod.json: required enabled must be a boolean");
         if (ext.TryGetPropertyValue("settings", out var declaredSettings) && declaredSettings is not JsonObject)
             throw new SfEditException("extended.mod.json settings must be an object");
         var caps = Strings(mod, "capabilities");
@@ -379,6 +444,8 @@ internal static class ShroudForgePackages
             // a repeated key was read as ShroudForge reads it (Parse): its first place, its last value
             foreach (var (k, v) in so) settings.Add(ParseSetting(k, v, runtime, patch, repair));
         }
+        var indexed = new SfSettingList(settings);
+        ValidateConditions(indexed);
         var groups = new List<SfGroup>();
         if (ext["groups"] is JsonArray ga)
             foreach (var g in ga.OfType<JsonObject>())
@@ -392,9 +459,9 @@ internal static class ShroudForgePackages
             }
         return new SfPackage
         {
-            Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = Str(mod, "version") ?? "", Description = Str(mod, "description") ?? "",
+            Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = version, Description = Str(mod, "description") ?? "",
             Enabled = Flag(ext, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
-            Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups, Repair = repair,
+            Capabilities = caps, Targets = targets, Settings = indexed, Groups = groups, Repair = repair,
         };
     }
 
@@ -533,7 +600,7 @@ internal static class ShroudForgePackages
     public static SfPackage SetEnabled(string folder, bool on)
     {
         var p = Read(folder);
-        if (p.Extended && p.Enabled == on) return p;
+        if (p.Extended && p.Enabled == on && p.Repair.Count == 0) return p;
         var text = p.Extended ? Repair(ReadText(Path.Combine(folder, "extended.mod.json")), p) : EmlExtension;
         var root = JsonSpans.Parse(text);
         var rendered = on ? "true" : "false";

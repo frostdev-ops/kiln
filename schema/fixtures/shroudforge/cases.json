@@ -1,5 +1,5 @@
 {
-  "about": "ShroudForge mod packages (mod.json + extended.mod.json): how a setting reads (type, label, control, when it applies, enabledWhen) and how the switch and the settings are written (only the value changes, the rest of the file stays byte-identical). Run by crates/kiln-manage/tests/shroudforge_fixtures.rs (the launcher) and managed/tests/Kiln.Ui.Tests/ShroudForgeTests.cs (the in-game Mods page); ShroudForge's own rules: modules/modloader/read_mod_settings.rs, validate_mod_settings.rs and mod-runtime/ingame/refresh_runtime_configuration.rs in the fork. Edits run in order; a refused edit leaves the file as it was. A case with \"refused\": true is one ShroudForge refuses: both readers refuse it and nothing is written. \"extendedLatin1\" gives the file one byte per character (not UTF-8). \"limits.fileBytes\" is the largest extended.mod.json both readers take.",
+  "about": "ShroudForge mod packages (mod.json + extended.mod.json): how a setting reads (type, label, control, when it applies, enabledWhen) and how the switch and the settings are written (only the value changes, the rest of the file stays byte-identical). Run by crates/kiln-manage/tests/shroudforge_fixtures.rs (the launcher) and managed/tests/Kiln.Ui.Tests/ShroudForgeTests.cs (the in-game Mods page); ShroudForge's own rules: modules/modloader/read_mod_settings.rs, validate_mod_settings.rs and mod-runtime/ingame/refresh_runtime_configuration.rs in the fork. Edits run in order; a refused edit leaves the file as it was. A case with \"refused\": true is one ShroudForge refuses: both readers refuse it and nothing is written. \"extendedLatin1\" gives the file one byte per character (not UTF-8). \"limits.fileBytes\" is the largest extended.mod.json both readers take. \"modText\" supplies exact mod.json bytes instead of serializing \"mod\". \"errorContains\" checks both the refusal reason and that the message names ShroudForge. \"sfRefused\": true marks only the earlier-Kiln fractional recovery exception: SF refuses the input, Kiln exposes repair, and SF must accept every successful written output.",
   "cases": [
     {
       "name": "runtime-mod",
@@ -178,7 +178,7 @@
     },
     {
       "name": "one-line-file",
-      "about": "a shorthand setting (key = value), numbers with a fraction, text with escapes and a length limit, enabledWhen comparing 5 with 5.0, and a switch the file does not have yet",
+      "about": "ShroudForge accepts this one-line package: shorthand settings, fractional values, escaped Unicode text and matching integer enabledWhen operands. Switch and value edits preserve the surrounding bytes.",
       "mod": {
         "id": "one-line",
         "name": "One line",
@@ -187,7 +187,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"settings\": {\"raw\": 5, \"ratio\": {\"value\": 1.5, \"min\": 0, \"max\": 2, \"step\": 0.25, \"restartRequired\": false, \"enabledWhen\": {\"setting\": \"raw\", \"equals\": 5.0}}, \"name\": {\"value\": \"Ä\", \"control\": \"text\", \"maxLength\": 4}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\": {\"raw\": 5, \"ratio\": {\"value\": 1.5, \"min\": 0, \"max\": 2, \"step\": 0.25, \"restartRequired\": false, \"enabledWhen\": {\"setting\": \"raw\", \"equals\": 5}}, \"name\": {\"value\": \"Ä\", \"control\": \"text\", \"maxLength\": 4}}}\n",
       "read": {
         "enabled": false,
         "switchLive": true,
@@ -209,7 +209,7 @@
             "live": true,
             "enabledWhen": {
               "setting": "raw",
-              "equals": 5.0
+              "equals": 5
             }
           },
           {
@@ -273,7 +273,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"settings\": {\"raw\": 7, \"ratio\": {\"value\": 0.75, \"min\": 0, \"max\": 2, \"step\": 0.25, \"restartRequired\": false, \"enabledWhen\": {\"setting\": \"raw\", \"equals\": 5.0}}, \"name\": {\"value\": \"a\\\"b\\\\\", \"control\": \"text\", \"maxLength\": 4}}, \"enabled\": true}\n",
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\": {\"raw\": 7, \"ratio\": {\"value\": 0.75, \"min\": 0, \"max\": 2, \"step\": 0.25, \"restartRequired\": false, \"enabledWhen\": {\"setting\": \"raw\", \"equals\": 5}}, \"name\": {\"value\": \"a\\\"b\\\\\", \"control\": \"text\", \"maxLength\": 4}}}\n",
       "enabledAfter": [
         "raw",
         "name"
@@ -290,7 +290,7 @@
           "runtime"
         ]
       },
-      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"kinds\": {\n      \"value\": [\"wood\"],\n      \"label\": \"Kinds\",\n      \"options\": {\n        \"wood\": \"Wood\",\n        \"stone\": \"Stone\"\n      }\n    },\n    \"mode\": {\n      \"value\": true,\n      \"control\": \"radio\",\n      \"options\": {\n        \"true\": \"On\",\n        \"false\": \"Off\"\n      }\n    }\n  }\n}\n",
+      "extended": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"kinds\": {\n      \"value\": [\"wood\"],\n      \"label\": \"Kinds\",\n      \"options\": {\n        \"wood\": \"Wood\",\n        \"stone\": \"Stone\"\n      }\n    },\n    \"mode\": {\n      \"value\": true,\n      \"control\": \"radio\",\n      \"options\": {\n        \"true\": \"On\",\n        \"false\": \"Off\"\n      }\n    }\n  }\n}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -359,11 +359,11 @@
           "ok": true
         }
       ],
-      "expect": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"kinds\": {\n      \"value\": [\"wood\", \"stone\"],\n      \"label\": \"Kinds\",\n      \"options\": {\n        \"wood\": \"Wood\",\n        \"stone\": \"Stone\"\n      }\n    },\n    \"mode\": {\n      \"value\": false,\n      \"control\": \"radio\",\n      \"options\": {\n        \"true\": \"On\",\n        \"false\": \"Off\"\n      }\n    }\n  }\n}\n"
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"kinds\": {\n      \"value\": [\"wood\", \"stone\"],\n      \"label\": \"Kinds\",\n      \"options\": {\n        \"wood\": \"Wood\",\n        \"stone\": \"Stone\"\n      }\n    },\n    \"mode\": {\n      \"value\": false,\n      \"control\": \"radio\",\n      \"options\": {\n        \"true\": \"On\",\n        \"false\": \"Off\"\n      }\n    }\n  }\n}\n"
     },
     {
       "name": "switch-added-to-a-file-without-one",
-      "about": "no enabled member yet: it is added as a new last line, everything else stays",
+      "about": "ShroudForge refuses an existing extension without its required enabled boolean. Neither switch writes (including an already-off request) nor setting edits silently make an invalid package look healthy.",
       "mod": {
         "id": "added",
         "name": "Added",
@@ -373,34 +373,28 @@
         ]
       },
       "extended": "{\n  \"schemaVersion\": 1,\n  \"settings\": {\n    \"a\": {\n      \"value\": 1\n    }\n  }\n}\n",
-      "read": {
-        "enabled": false,
-        "switchLive": false,
-        "settings": [
-          {
-            "key": "a",
-            "type": "integer",
-            "label": "a",
-            "control": null,
-            "applyAt": "restart",
-            "live": false
-          }
-        ],
-        "enabledNow": [
-          "a"
-        ]
-      },
       "edits": [
         {
           "enabled": true,
-          "ok": true
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
         }
       ],
-      "expect": "{\n  \"schemaVersion\": 1,\n  \"settings\": {\n    \"a\": {\n      \"value\": 1\n    }\n  },\n  \"enabled\": true\n}\n"
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"settings\": {\n    \"a\": {\n      \"value\": 1\n    }\n  }\n}\n",
+      "refused": true,
+      "errorContains": "enabled"
     },
     {
       "name": "crlf-and-bom",
-      "about": "Windows line ends stay; the byte order mark goes (ShroudForge's JSON reader does not accept it)",
+      "about": "ShroudForge's plain serde_json package reader refuses this byte order mark; both Kiln readers refuse it and leave every byte unchanged.",
       "mod": {
         "id": "crlf",
         "name": "CRLF",
@@ -409,29 +403,12 @@
           "runtime"
         ]
       },
-      "extended": "﻿{\r\n  \"enabled\": false,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 10,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n",
-      "read": {
-        "enabled": false,
-        "switchLive": true,
-        "settings": [
-          {
-            "key": "x",
-            "type": "integer",
-            "label": "x",
-            "control": null,
-            "applyAt": "restart",
-            "live": true
-          }
-        ],
-        "enabledNow": [
-          "x"
-        ]
-      },
+      "extended": "﻿{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": false,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 10,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n",
       "edits": [
         {
           "setting": "x",
           "value": 20,
-          "ok": true
+          "ok": false
         },
         {
           "setting": "x",
@@ -440,10 +417,12 @@
         },
         {
           "enabled": true,
-          "ok": true
+          "ok": false
         }
       ],
-      "expect": "{\r\n  \"enabled\": true,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 20,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n"
+      "expect": "﻿{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": false,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 10,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n",
+      "refused": true,
+      "errorContains": "strict JSON"
     },
     {
       "name": "legacy-eml-package",
@@ -473,72 +452,17 @@
       "mod": {
         "id": "fixture",
         "name": "Fixture",
-        "version": "1.0",
+        "version": "1.0.0",
         "capabilities": [
           "runtime"
         ]
       },
-      "extended": "// player comments\r\n{\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"old\", \"maxLength\": 4}, // leave this\r\n    \"gain\": {\"value\": 0.5, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}},\r\n  }, /* keep this too */\r\n}\r\n",
-      "read": {
-        "enabled": false,
-        "switchLive": true,
-        "settings": [
-          {
-            "key": "message",
-            "type": "string",
-            "label": "message",
-            "control": null,
-            "applyAt": "restart",
-            "live": true
-          },
-          {
-            "key": "gain",
-            "type": "number",
-            "label": "gain",
-            "control": "select",
-            "applyAt": "restart",
-            "live": true,
-            "options": [
-              {
-                "value": 1.0,
-                "label": "One"
-              },
-              {
-                "value": 2.5,
-                "label": "Two"
-              }
-            ]
-          },
-          {
-            "key": "levels",
-            "type": "array",
-            "label": "levels",
-            "control": "multiselect",
-            "applyAt": "restart",
-            "live": true,
-            "options": [
-              {
-                "value": 1,
-                "label": "One"
-              },
-              {
-                "value": 2,
-                "label": "Two"
-              }
-            ]
-          }
-        ],
-        "enabledNow": [
-          "message",
-          "gain",
-          "levels"
-        ]
-      },
+      "extended": "// player comments\r\n{\r\n  \"schemaVersion\": 1,\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"old\", \"maxLength\": 4}, // leave this\r\n    \"gain\": {\"value\": 0.5, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}},\r\n  }, /* keep this too */\r\n}\r\n",
       "edits": [
         {
           "setting": "message",
           "value": "é😀",
-          "ok": true
+          "ok": false
         },
         {
           "setting": "message",
@@ -548,7 +472,7 @@
         {
           "setting": "gain",
           "value": 1,
-          "ok": true
+          "ok": false
         },
         {
           "setting": "levels",
@@ -556,7 +480,7 @@
             2,
             1
           ],
-          "ok": true
+          "ok": false
         },
         {
           "setting": "levels",
@@ -567,22 +491,25 @@
         },
         {
           "enabled": true,
-          "ok": true
+          "ok": false
         }
       ],
-      "expect": "// player comments\r\n{\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"é😀\", \"maxLength\": 4}, // leave this\r\n    \"gain\": {\"value\": 1.0, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [2, 1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}},\r\n  },\r\n  \"enabled\": true, /* keep this too */\r\n}\r\n"
+      "expect": "// player comments\r\n{\r\n  \"schemaVersion\": 1,\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"old\", \"maxLength\": 4}, // leave this\r\n    \"gain\": {\"value\": 0.5, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}},\r\n  }, /* keep this too */\r\n}\r\n",
+      "about": "ShroudForge's plain serde_json package reader refuses this commented JSON; both Kiln readers refuse it and leave every byte unchanged.",
+      "refused": true,
+      "errorContains": "strict JSON"
     },
     {
-      "name": "conditional-chains-and-cycles",
+      "name": "conditional-chains",
       "mod": {
         "id": "fixture",
         "name": "Fixture",
-        "version": "1.0",
+        "version": "1.0.0",
         "capabilities": [
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"base\":5,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5.0}},\"grand\":{\"value\":true,\"enabledWhen\":{\"setting\":\"child\",\"equals\":true}},\"lost\":{\"value\":true,\"enabledWhen\":{\"setting\":\"missing\",\"equals\":true}},\"loop\":{\"value\":true,\"enabledWhen\":{\"setting\":\"loop\",\"equals\":true}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":5,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5}},\"grand\":{\"value\":true,\"enabledWhen\":{\"setting\":\"child\",\"equals\":true}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -604,7 +531,7 @@
             "live": true,
             "enabledWhen": {
               "setting": "base",
-              "equals": 5.0
+              "equals": 5
             }
           },
           {
@@ -616,30 +543,6 @@
             "live": true,
             "enabledWhen": {
               "setting": "child",
-              "equals": true
-            }
-          },
-          {
-            "key": "lost",
-            "type": "boolean",
-            "label": "lost",
-            "control": null,
-            "applyAt": "restart",
-            "live": true,
-            "enabledWhen": {
-              "setting": "missing",
-              "equals": true
-            }
-          },
-          {
-            "key": "loop",
-            "type": "boolean",
-            "label": "loop",
-            "control": null,
-            "applyAt": "restart",
-            "live": true,
-            "enabledWhen": {
-              "setting": "loop",
               "equals": true
             }
           }
@@ -657,22 +560,23 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"base\":6,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5.0}},\"grand\":{\"value\":true,\"enabledWhen\":{\"setting\":\"child\",\"equals\":true}},\"lost\":{\"value\":true,\"enabledWhen\":{\"setting\":\"missing\",\"equals\":true}},\"loop\":{\"value\":true,\"enabledWhen\":{\"setting\":\"loop\",\"equals\":true}}}}\n",
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":6,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5}},\"grand\":{\"value\":true,\"enabledWhen\":{\"setting\":\"child\",\"equals\":true}}}}\n",
       "enabledAfter": [
         "base"
-      ]
+      ],
+      "about": "ShroudForge accepts this acyclic enabledWhen chain with matching integer operands. Changing its root disables both descendants; refused cycles and missing controllers have separate cases."
     },
     {
       "name": "portable-sdl-shortcut",
       "mod": {
         "id": "fixture",
         "name": "Fixture",
-        "version": "1.0",
+        "version": "1.0.0",
         "capabilities": [
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"SDL:66\",\"control\":\"keybind\"}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"SDL:66\",\"control\":\"keybind\"}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -737,7 +641,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"\",\"control\":\"keybind\"}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"\",\"control\":\"keybind\"}}}\n"
     },
     {
       "name": "fractional-list",
@@ -750,7 +654,7 @@
           "runtime"
         ]
       },
-      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\n      \"value\": [1.5],\n      \"label\": \"Multipliers\",\n      \"options\": {\"1.0\": \"1x\", \"1.5\": \"1.5x\", \"2.5\": \"2.5x\"}\n    }\n  }\n}\n",
+      "extended": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\n      \"value\": [1.5],\n      \"label\": \"Multipliers\",\n      \"options\": {\"1.0\": \"1x\", \"1.5\": \"1.5x\", \"2.5\": \"2.5x\"}\n    }\n  }\n}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -807,14 +711,14 @@
           "ok": true
         }
       ],
-      "expect": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\n      \"value\": [1.0, 2.5],\n      \"label\": \"Multipliers\",\n      \"options\": {\"1.0\": \"1x\", \"1.5\": \"1.5x\", \"2.5\": \"2.5x\"}\n    }\n  }\n}\n",
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\n      \"value\": [1.0, 2.5],\n      \"label\": \"Multipliers\",\n      \"options\": {\"1.0\": \"1x\", \"1.5\": \"1.5x\", \"2.5\": \"2.5x\"}\n    }\n  }\n}\n",
       "enabledAfter": [
         "multipliers"
       ]
     },
     {
       "name": "damaged-fractional-values-are-repaired",
-      "about": "what an earlier Kiln wrote for a fractional setting (a whole first member or value without its fraction): ShroudForge refuses the mod (\"invalid option\": an integer first member, fractional option keys). It is read as the fractional setting it was, listed under \"repair\", and the next write (here the switch) puts the fraction back. A later whole member ([2.5, 1]) is what ShroudForge accepts and stays as it is; an integer setting with whole option keys stays an integer setting",
+      "about": "what an earlier Kiln wrote for a fractional setting (a whole first member or value without its fraction): ShroudForge refuses the mod (\"invalid option\": an integer first member, fractional option keys). It is read as the fractional setting it was, listed under \"repair\", and the next write (here the switch) puts the fraction back. A later whole member ([2.5, 1]) is what ShroudForge accepts and stays as it is; an integer setting with whole option keys stays an integer setting Explicit recovery exception: SF refuses the input, not the repaired output; retaining this path avoids stranding settings damaged by an earlier Kiln.",
       "mod": {
         "id": "damaged",
         "name": "damaged",
@@ -823,7 +727,7 @@
           "runtime"
         ]
       },
-      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"coarse\": {\"value\": [1, 2.5], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"later\": {\"value\": [2.5, 1], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"level\": {\"value\": 2, \"options\": {\"1.0\": \"One\", \"2.0\": \"Two\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
+      "extended": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"coarse\": {\"value\": [1, 2.5], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"later\": {\"value\": [2.5, 1], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"level\": {\"value\": 2, \"options\": {\"1.0\": \"One\", \"2.0\": \"Two\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -972,7 +876,7 @@
           "ok": false
         }
       ],
-      "expect": "{\n  \"enabled\": false,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"coarse\": {\"value\": [1.0, 2.5], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"later\": {\"value\": [2.5, 1], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 1.5, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"level\": {\"value\": 2.0, \"options\": {\"1.0\": \"One\", \"2.0\": \"Two\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"enabled\": false,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"coarse\": {\"value\": [1.0, 2.5], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"later\": {\"value\": [2.5, 1], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 1.5, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"level\": {\"value\": 2.0, \"options\": {\"1.0\": \"One\", \"2.0\": \"Two\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
       "enabledAfter": [
         "multipliers",
         "coarse",
@@ -980,11 +884,12 @@
         "gain",
         "level",
         "count"
-      ]
+      ],
+      "sfRefused": true
     },
     {
       "name": "damaged-values-are-repaired-by-a-settings-write",
-      "about": "the repair of damaged-fractional-values-are-repaired through a change of another setting (not the switch): the fraction comes back on every damaged setting",
+      "about": "the repair of damaged-fractional-values-are-repaired through a change of another setting (not the switch): the fraction comes back on every damaged setting Explicit recovery exception: SF refuses the input, not the repaired output; retaining this path avoids stranding settings damaged by an earlier Kiln.",
       "mod": {
         "id": "damaged-by-setting",
         "name": "damaged-by-setting",
@@ -993,7 +898,7 @@
           "runtime"
         ]
       },
-      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.0\": \"Low\", \"2.0\": \"High\"}},\n    \"name\": {\"value\": \"a\"}\n  }\n}\n",
+      "extended": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.0\": \"Low\", \"2.0\": \"High\"}},\n    \"name\": {\"value\": \"a\"}\n  }\n}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1064,16 +969,17 @@
           "ok": true
         }
       ],
-      "expect": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2.0, \"options\": {\"1.0\": \"Low\", \"2.0\": \"High\"}},\n    \"name\": {\"value\": \"b\"}\n  }\n}\n",
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2.0, \"options\": {\"1.0\": \"Low\", \"2.0\": \"High\"}},\n    \"name\": {\"value\": \"b\"}\n  }\n}\n",
       "enabledAfter": [
         "multipliers",
         "gain",
         "name"
-      ]
+      ],
+      "sfRefused": true
     },
     {
       "name": "comment-ends-at-a-lone-cr",
-      "about": "a // comment ends at a lone CR too (System.Text.Json, ShroudForge's editor): the edit changes j, not k",
+      "about": "ShroudForge's plain serde_json package reader refuses this commented JSON; both Kiln readers refuse it and leave every byte unchanged.",
       "mod": {
         "id": "lone-cr",
         "name": "lone-cr",
@@ -1082,49 +988,25 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"j\":{\"value\":0,//x\r\"label\":\"L\"},\"k\":{\n\"value\":1}}}\n",
-      "read": {
-        "enabled": true,
-        "switchLive": true,
-        "settings": [
-          {
-            "key": "j",
-            "type": "integer",
-            "label": "L",
-            "control": null,
-            "applyAt": "restart",
-            "live": true
-          },
-          {
-            "key": "k",
-            "type": "integer",
-            "label": "k",
-            "control": null,
-            "applyAt": "restart",
-            "live": true
-          }
-        ],
-        "enabledNow": [
-          "j",
-          "k"
-        ]
-      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"j\":{\"value\":0,//x\r\"label\":\"L\"},\"k\":{\n\"value\":1}}}\n",
       "edits": [
         {
           "setting": "j",
           "value": 5,
-          "ok": true
+          "ok": false
         },
         {
           "enabled": false,
-          "ok": true
+          "ok": false
         }
       ],
-      "expect": "{\"enabled\":false,\"settings\":{\"j\":{\"value\":5,//x\r\"label\":\"L\"},\"k\":{\n\"value\":1}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"j\":{\"value\":0,//x\r\"label\":\"L\"},\"k\":{\n\"value\":1}}}\n",
+      "refused": true,
+      "errorContains": "strict JSON"
     },
     {
       "name": "cr-only-line-ends",
-      "about": "old Mac line ends (CR only) with // comments",
+      "about": "ShroudForge's plain serde_json package reader refuses this commented JSON; both Kiln readers refuse it and leave every byte unchanged.",
       "mod": {
         "id": "cr-only",
         "name": "cr-only",
@@ -1133,36 +1015,21 @@
           "runtime"
         ]
       },
-      "extended": "{\r  \"enabled\": false, // switch\r  \"settings\": {\r    \"x\": {\"value\": 1} // one\r  }\r}\r",
-      "read": {
-        "enabled": false,
-        "switchLive": true,
-        "settings": [
-          {
-            "key": "x",
-            "type": "integer",
-            "label": "x",
-            "control": null,
-            "applyAt": "restart",
-            "live": true
-          }
-        ],
-        "enabledNow": [
-          "x"
-        ]
-      },
+      "extended": "{\r  \"schemaVersion\": 1,\r  \"enabled\": false, // switch\r  \"settings\": {\r    \"x\": {\"value\": 1} // one\r  }\r}\r",
       "edits": [
         {
           "setting": "x",
           "value": 2,
-          "ok": true
+          "ok": false
         },
         {
           "enabled": true,
-          "ok": true
+          "ok": false
         }
       ],
-      "expect": "{\r  \"enabled\": true, // switch\r  \"settings\": {\r    \"x\": {\"value\": 2} // one\r  }\r}\r"
+      "expect": "{\r  \"schemaVersion\": 1,\r  \"enabled\": false, // switch\r  \"settings\": {\r    \"x\": {\"value\": 1} // one\r  }\r}\r",
+      "refused": true,
+      "errorContains": "strict JSON"
     },
     {
       "name": "empty-options-are-refused",
@@ -1176,7 +1043,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"count\":{\"value\":3,\"options\":{}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"count\":{\"value\":3,\"options\":{}}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1188,7 +1055,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"count\":{\"value\":3,\"options\":{}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"count\":{\"value\":3,\"options\":{}}}}\n"
     },
     {
       "name": "empty-options-on-a-list-are-refused",
@@ -1202,7 +1069,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"kinds\":{\"value\":[\"wood\"],\"options\":{}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"kinds\":{\"value\":[\"wood\"],\"options\":{}}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1216,7 +1083,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"kinds\":{\"value\":[\"wood\"],\"options\":{}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"kinds\":{\"value\":[\"wood\"],\"options\":{}}}}\n"
     },
     {
       "name": "negative-zero-is-fractional",
@@ -1229,7 +1096,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"offset\":{\"value\":-0,\"options\":{\"-0.5\":\"Left\",\"0\":\"Middle\",\"0.5\":\"Right\"}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"offset\":{\"value\":-0,\"options\":{\"-0.5\":\"Left\",\"0\":\"Middle\",\"0.5\":\"Right\"}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1278,7 +1145,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"offset\":{\"value\":0.0,\"options\":{\"-0.5\":\"Left\",\"0\":\"Middle\",\"0.5\":\"Right\"}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"offset\":{\"value\":0.0,\"options\":{\"-0.5\":\"Left\",\"0\":\"Middle\",\"0.5\":\"Right\"}}}}\n"
     },
     {
       "name": "numbers-are-written-as-shroudforge-writes-them",
@@ -1291,7 +1158,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"tiny\":{\"value\":0.5},\"huge\":{\"value\":0.5},\"big\":{\"value\":0.5},\"small\":{\"value\":0.5},\"wide\":{\"value\":0.5},\"whole\":{\"value\":1},\"steps\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"1e-7\":\"Tiny\",\"2\":\"Two\"}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"tiny\":{\"value\":0.5},\"huge\":{\"value\":0.5},\"big\":{\"value\":0.5},\"small\":{\"value\":0.5},\"wide\":{\"value\":0.5},\"whole\":{\"value\":1},\"steps\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"1e-7\":\"Tiny\",\"2\":\"Two\"}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1417,7 +1284,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"tiny\":{\"value\":1e-7},\"huge\":{\"value\":1.5e+300},\"big\":{\"value\":2000000000000000.0},\"small\":{\"value\":0.00001},\"wide\":{\"value\":1e+16},\"whole\":{\"value\":2000000000000000},\"steps\":{\"value\":[1e-7, 2.0],\"options\":{\"0.5\":\"Half\",\"1e-7\":\"Tiny\",\"2\":\"Two\"}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"tiny\":{\"value\":1e-7},\"huge\":{\"value\":1.5e+300},\"big\":{\"value\":2000000000000000.0},\"small\":{\"value\":0.00001},\"wide\":{\"value\":1e+16},\"whole\":{\"value\":2000000000000000},\"steps\":{\"value\":[1e-7, 2.0],\"options\":{\"0.5\":\"Half\",\"1e-7\":\"Tiny\",\"2\":\"Two\"}}}}\n"
     },
     {
       "name": "duplicate-keys-last-one-counts",
@@ -1430,7 +1297,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1},\"b\":{\"value\":true},\"a\":{\"value\":2,\"label\":\"A\"}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1},\"b\":{\"value\":true},\"a\":{\"value\":2,\"label\":\"A\"}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1464,7 +1331,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1},\"b\":{\"value\":true},\"a\":{\"value\":3,\"label\":\"A\"}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1},\"b\":{\"value\":true},\"a\":{\"value\":3,\"label\":\"A\"}}}\n"
     },
     {
       "name": "length-limits-are-whole-number-tokens",
@@ -1477,7 +1344,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"name\":{\"value\":\"abc\",\"maxLength\":4.0,\"minLength\":1}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"name\":{\"value\":\"abc\",\"maxLength\":4.0,\"minLength\":1}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1507,7 +1374,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"name\":{\"value\":\"toolong\",\"maxLength\":4.0,\"minLength\":1}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"name\":{\"value\":\"toolong\",\"maxLength\":4.0,\"minLength\":1}}}\n"
     },
     {
       "name": "option-keys-as-shroudforge-reads-them",
@@ -1520,7 +1387,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"mode\":{\"value\":true,\"options\":{\"true\":\"On\",\"off\":\"Off\"}},\"level\":{\"value\":2,\"options\":{\"+1\":\"One\",\"002\":\"Two\"}},\"ratio\":{\"value\":0.5,\"options\":{\".5\":\"Half\",\"5.\":\"Five\",\"NaN\":\"None\"}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"mode\":{\"value\":true,\"options\":{\"true\":\"On\",\"off\":\"Off\"}},\"level\":{\"value\":2,\"options\":{\"+1\":\"One\",\"002\":\"Two\"}},\"ratio\":{\"value\":0.5,\"options\":{\".5\":\"Half\",\"5.\":\"Five\",\"NaN\":\"None\"}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1612,7 +1479,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"mode\":{\"value\":false,\"options\":{\"true\":\"On\",\"off\":\"Off\"}},\"level\":{\"value\":1,\"options\":{\"+1\":\"One\",\"002\":\"Two\"}},\"ratio\":{\"value\":5.0,\"options\":{\".5\":\"Half\",\"5.\":\"Five\",\"NaN\":\"None\"}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"mode\":{\"value\":false,\"options\":{\"true\":\"On\",\"off\":\"Off\"}},\"level\":{\"value\":1,\"options\":{\"+1\":\"One\",\"002\":\"Two\"}},\"ratio\":{\"value\":5.0,\"options\":{\".5\":\"Half\",\"5.\":\"Five\",\"NaN\":\"None\"}}}}\n"
     },
     {
       "name": "a-choice-without-a-value-cannot-come-first",
@@ -1625,7 +1492,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"picks\":{\"value\":[0.5],\"options\":{\"NaN\":\"None\",\"0.5\":\"Half\",\"2.5\":\"More\"}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"picks\":{\"value\":[0.5],\"options\":{\"NaN\":\"None\",\"0.5\":\"Half\",\"2.5\":\"More\"}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1682,7 +1549,7 @@
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"picks\":{\"value\":[2.5, null],\"options\":{\"NaN\":\"None\",\"0.5\":\"Half\",\"2.5\":\"More\"}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"picks\":{\"value\":[2.5, null],\"options\":{\"NaN\":\"None\",\"0.5\":\"Half\",\"2.5\":\"More\"}}}}\n"
     },
     {
       "name": "lone-surrogate-is-refused",
@@ -1696,7 +1563,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"s\":{\"value\":\"\\ud800\"}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"s\":{\"value\":\"\\ud800\"}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1708,7 +1575,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"s\":{\"value\":\"\\ud800\"}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"s\":{\"value\":\"\\ud800\"}}}\n"
     },
     {
       "name": "number-out-of-range-is-refused",
@@ -1722,7 +1589,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"n\":{\"value\":1e400}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"n\":{\"value\":1e400}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1734,7 +1601,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"n\":{\"value\":1e400}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"n\":{\"value\":1e400}}}\n"
     },
     {
       "name": "number-out-of-range-in-metadata-is-refused",
@@ -1748,7 +1615,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"n\":{\"value\":1,\"max\":1e400}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"n\":{\"value\":1,\"max\":1e400}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1760,7 +1627,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"n\":{\"value\":1,\"max\":1e400}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"n\":{\"value\":1,\"max\":1e400}}}\n"
     },
     {
       "name": "enabledWhen-null-is-refused",
@@ -1774,7 +1641,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"enabledWhen\":null}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"enabledWhen\":null}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1786,7 +1653,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"enabledWhen\":null}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"enabledWhen\":null}}}\n"
     },
     {
       "name": "option-labels-must-be-text",
@@ -1800,7 +1667,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":\"x\",\"options\":{\"x\":1}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":\"x\",\"options\":{\"x\":1}}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1812,7 +1679,7 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":\"x\",\"options\":{\"x\":1}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":\"x\",\"options\":{\"x\":1}}}}\n"
     },
     {
       "name": "option-key-with-spaces-is-refused",
@@ -1826,7 +1693,7 @@
         ]
       },
       "refused": true,
-      "extended": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\",\" 2\":\"Two\"}}}}\n",
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\",\" 2\":\"Two\"}}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1838,66 +1705,221 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\",\" 2\":\"Two\"}}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\",\" 2\":\"Two\"}}}}\n"
     },
     {
       "name": "typed-lists-cannot-lose-their-element-type",
       "about": "ShroudForge types options by the first list member (an empty list uses text). Clearing a numeric or boolean list would turn its choices into strings on the next read, so refuse that edit; a text list may be cleared.",
-      "mod": {"id": "typed-lists", "name": "Typed lists", "version": "1.0.0", "capabilities": ["runtime"]},
+      "mod": {
+        "id": "typed-lists",
+        "name": "Typed lists",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
       "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[\"wood\"],\"options\":{\"wood\":\"Wood\"}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
         "settings": [
-          {"key": "fractions", "type": "array", "label": "fractions", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": 0.5, "label": "Half"}, {"value": 2.5, "label": "More"}]},
-          {"key": "integers", "type": "array", "label": "integers", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": 1, "label": "One"}, {"value": 2, "label": "Two"}]},
-          {"key": "flags", "type": "array", "label": "flags", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": true, "label": "On"}, {"value": false, "label": "Off"}]},
-          {"key": "words", "type": "array", "label": "words", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": "wood", "label": "Wood"}]}
+          {
+            "key": "fractions",
+            "type": "array",
+            "label": "fractions",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 0.5,
+                "label": "Half"
+              },
+              {
+                "value": 2.5,
+                "label": "More"
+              }
+            ]
+          },
+          {
+            "key": "integers",
+            "type": "array",
+            "label": "integers",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1,
+                "label": "One"
+              },
+              {
+                "value": 2,
+                "label": "Two"
+              }
+            ]
+          },
+          {
+            "key": "flags",
+            "type": "array",
+            "label": "flags",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": true,
+                "label": "On"
+              },
+              {
+                "value": false,
+                "label": "Off"
+              }
+            ]
+          },
+          {
+            "key": "words",
+            "type": "array",
+            "label": "words",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": "wood",
+                "label": "Wood"
+              }
+            ]
+          }
         ],
-        "enabledNow": ["fractions", "integers", "flags", "words"]
+        "enabledNow": [
+          "fractions",
+          "integers",
+          "flags",
+          "words"
+        ]
       },
       "edits": [
-        {"setting": "fractions", "value": [], "ok": false},
-        {"setting": "integers", "value": [], "ok": false},
-        {"setting": "flags", "value": [], "ok": false},
-        {"setting": "words", "value": [], "ok": true}
+        {
+          "setting": "fractions",
+          "value": [],
+          "ok": false
+        },
+        {
+          "setting": "integers",
+          "value": [],
+          "ok": false
+        },
+        {
+          "setting": "flags",
+          "value": [],
+          "ok": false
+        },
+        {
+          "setting": "words",
+          "value": [],
+          "ok": true
+        }
       ],
       "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[],\"options\":{\"wood\":\"Wood\"}}}}\n"
     },
     {
       "name": "legacy-manifest-enabled-is-not-the-sf-switch",
       "about": "ShroudForge ignores a legacy mod.json enabled member: without an extension the mod stays disabled until enabled is persisted in extended.mod.json.",
-      "mod": {"id": "legacy-switch", "name": "Legacy switch", "version": "1.0.0", "enabled": true, "capabilities": ["runtime"]},
+      "mod": {
+        "id": "legacy-switch",
+        "name": "Legacy switch",
+        "version": "1.0.0",
+        "enabled": true,
+        "capabilities": [
+          "runtime"
+        ]
+      },
       "extended": null,
-      "read": {"enabled": false, "switchLive": true, "settings": [], "enabledNow": []},
-      "edits": [{"enabled": false, "ok": true}],
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [],
+        "enabledNow": []
+      },
+      "edits": [
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
       "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": false,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
     },
     {
       "name": "extension-must-be-an-object",
       "about": "ShroudForge refuses an extension that is not an object; the launcher must not turn it into an apparently disabled package with no settings.",
-      "mod": {"id": "bad-extension", "name": "Bad extension", "version": "1.0.0", "capabilities": ["runtime"]},
+      "mod": {
+        "id": "bad-extension",
+        "name": "Bad extension",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
       "refused": true,
       "extended": "[]\n",
-      "edits": [{"enabled": false, "ok": false}, {"enabled": true, "ok": false}],
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "enabled": true,
+          "ok": false
+        }
+      ],
       "expect": "[]\n"
     },
     {
       "name": "settings-cannot-be-an-array",
       "about": "A present settings member must be an object, even an empty array is not an empty set of settings.",
-      "mod": {"id": "bad-settings", "name": "Bad settings", "version": "1.0.0", "capabilities": ["runtime"]},
+      "mod": {
+        "id": "bad-settings",
+        "name": "Bad settings",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
       "refused": true,
       "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":[]}\n",
-      "edits": [{"enabled": false, "ok": false}, {"setting": "a", "value": 1, "ok": false}],
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 1,
+          "ok": false
+        }
+      ],
       "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":[]}\n"
     },
     {
       "name": "settings-cannot-be-null",
       "about": "An absent settings member means no settings; an explicit null is refused by ShroudForge.",
-      "mod": {"id": "null-settings", "name": "Null settings", "version": "1.0.0", "capabilities": ["runtime"]},
+      "mod": {
+        "id": "null-settings",
+        "name": "Null settings",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
       "refused": true,
       "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":null}\n",
-      "edits": [{"enabled": false, "ok": false}],
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        }
+      ],
       "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":null}\n"
     },
     {
@@ -1912,7 +1934,7 @@
         ]
       },
       "refused": true,
-      "extendedLatin1": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"label\":\"Größe\"}}}\n",
+      "extendedLatin1": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"label\":\"Größe\"}}}\n",
       "edits": [
         {
           "enabled": false,
@@ -1924,7 +1946,1578 @@
           "ok": false
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"label\":\"Größe\"}}}\n"
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"label\":\"Größe\"}}}\n"
+    },
+    {
+      "name": "crlf-line-ends",
+      "about": "ShroudForge accepts strict JSON with these line endings; writes preserve all layout outside the requested values.",
+      "mod": {
+        "id": "crlf",
+        "name": "CRLF",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": false,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 10,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "x",
+            "type": "integer",
+            "label": "x",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "x"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "x",
+          "value": 20,
+          "ok": true
+        },
+        {
+          "setting": "x",
+          "value": 101,
+          "ok": false
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": true,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 20,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n"
+    },
+    {
+      "name": "cr-only-layout",
+      "about": "ShroudForge accepts strict JSON with these line endings; writes preserve all layout outside the requested values.",
+      "mod": {
+        "id": "cr-only",
+        "name": "cr-only",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\r  \"schemaVersion\": 1,\r  \"enabled\": false,\r  \"settings\": {\r    \"x\": {\"value\": 1}\r  }\r}\r",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "x",
+            "type": "integer",
+            "label": "x",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "x"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "x",
+          "value": 2,
+          "ok": true
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\r  \"schemaVersion\": 1,\r  \"enabled\": true,\r  \"settings\": {\r    \"x\": {\"value\": 2}\r  }\r}\r"
+    },
+    {
+      "name": "typed-options-and-unicode-text",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": false,\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"old\", \"maxLength\": 4},\r\n    \"gain\": {\"value\": 2.5, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\r\n  }\r\n}\r\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "message",
+            "type": "string",
+            "label": "message",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.0,
+                "label": "One"
+              },
+              {
+                "value": 2.5,
+                "label": "Two"
+              }
+            ]
+          },
+          {
+            "key": "levels",
+            "type": "array",
+            "label": "levels",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1,
+                "label": "One"
+              },
+              {
+                "value": 2,
+                "label": "Two"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "message",
+          "gain",
+          "levels"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "message",
+          "value": "é😀",
+          "ok": true
+        },
+        {
+          "setting": "message",
+          "value": "12345",
+          "ok": false
+        },
+        {
+          "setting": "gain",
+          "value": 1,
+          "ok": true
+        },
+        {
+          "setting": "levels",
+          "value": [
+            2,
+            1
+          ],
+          "ok": true
+        },
+        {
+          "setting": "levels",
+          "value": [
+            "2"
+          ],
+          "ok": false
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": true,\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"é😀\", \"maxLength\": 4},\r\n    \"gain\": {\"value\": 1.0, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [2, 1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\r\n  }\r\n}\r\n",
+      "about": "ShroudForge accepts these typed options and Unicode text in strict JSON. Numeric option keys keep their declared spelling; whole fractional choices are written with a fraction."
+    },
+    {
+      "name": "missing-schemaVersion",
+      "about": "ShroudForge refuses a present extension without its required schemaVersion; Kiln must not read or edit it as a working package.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "schemaVersion",
+      "extended": "{\"enabled\":false,\"settings\":{\"a\":1}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"enabled\":false,\"settings\":{\"a\":1}}\n"
+    },
+    {
+      "name": "invalid-schemaVersion-2",
+      "about": "ShroudForge requires schemaVersion to equal the number 1; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "schemaVersion",
+      "extended": "{\"schemaVersion\":2,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":2,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-schemaVersion-null",
+      "about": "ShroudForge requires schemaVersion to equal the number 1; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "schemaVersion",
+      "extended": "{\"schemaVersion\":null,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":null,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-schemaVersion-1",
+      "about": "ShroudForge requires schemaVersion to equal the number 1; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "schemaVersion",
+      "extended": "{\"schemaVersion\":\"1\",\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":\"1\",\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-schemaVersion-true",
+      "about": "ShroudForge requires schemaVersion to equal the number 1; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "schemaVersion",
+      "extended": "{\"schemaVersion\":true,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":true,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-enabled-null",
+      "about": "ShroudForge requires a boolean enabled member; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabled",
+      "extended": "{\"schemaVersion\":1,\"enabled\":null}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":null}\n"
+    },
+    {
+      "name": "invalid-enabled-0",
+      "about": "ShroudForge requires a boolean enabled member; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabled",
+      "extended": "{\"schemaVersion\":1,\"enabled\":0}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":0}\n"
+    },
+    {
+      "name": "invalid-enabled-true",
+      "about": "ShroudForge requires a boolean enabled member; this token is refused.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabled",
+      "extended": "{\"schemaVersion\":1,\"enabled\":\"true\"}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":\"true\"}\n"
+    },
+    {
+      "name": "block-comment",
+      "about": "ShroudForge parses package files with strict serde_json and refuses this syntax, even when all required members exist.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "strict JSON",
+      "extended": "{/* note */\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{/* note */\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "trailing-object-comma",
+      "about": "ShroudForge parses package files with strict serde_json and refuses this syntax, even when all required members exist.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "strict JSON",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,}\n"
+    },
+    {
+      "name": "trailing-array-comma",
+      "about": "ShroudForge parses package files with strict serde_json and refuses this syntax, even when all required members exist.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "strict JSON",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":[\"x\",],\"options\":{\"x\":\"X\"}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":[\"x\",],\"options\":{\"x\":\"X\"}}}}\n"
+    },
+    {
+      "name": "invalid-mod-version-1",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-1.0",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-v1.2.3",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "v1.2.3",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-1.2.3newline",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.2.3\n",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-01.2.3",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "01.2.3",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-1.2.3-01",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.2.3-01",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-1.2.3-alpha+build",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.2.3-alpha+build",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "invalid-mod-version-18446744073709551616.0.0",
+      "about": "ShroudForge refuses this mod.json version: its schema requires three numeric parts with at most a prerelease or build suffix, and its SemVer parser rejects leading zeros and overflow.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "18446744073709551616.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "version",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n"
+    },
+    {
+      "name": "manifest-comment",
+      "about": "ShroudForge also uses strict serde_json for mod.json and refuses this syntax.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "strict JSON",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "modText": "{/* note */\"id\":\"oracle-case\",\"name\":\"Oracle case\",\"version\":\"1.0.0\"}"
+    },
+    {
+      "name": "manifest-trailing-comma",
+      "about": "ShroudForge also uses strict serde_json for mod.json and refuses this syntax.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "strict JSON",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "modText": "{\"id\":\"oracle-case\",\"name\":\"Oracle case\",\"version\":\"1.0.0\",}"
+    },
+    {
+      "name": "manifest-bom",
+      "about": "ShroudForge also uses strict serde_json for mod.json and refuses this syntax.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "strict JSON",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "modText": "﻿{\"id\": \"oracle-case\", \"name\": \"Oracle case\", \"version\": \"1.0.0\", \"capabilities\": [\"runtime\"]}"
+    },
+    {
+      "name": "enabledWhen-integer-controller-fractional-equals",
+      "about": "ShroudForge refuses equals 5.0 for an integer controller 5; numeric equality in the editor does not make this manifest valid.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":5,\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":5.0}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":5,\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":5.0}}}}\n"
+    },
+    {
+      "name": "enabledWhen-unknown-controller",
+      "about": "ShroudForge refuses a condition whose controller does not exist.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"missing\",\"equals\":true}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"missing\",\"equals\":true}}}}\n"
+    },
+    {
+      "name": "enabledWhen-self",
+      "about": "ShroudForge refuses a self-dependent condition.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":true}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":true}}}}\n"
+    },
+    {
+      "name": "enabledWhen-cycle",
+      "about": "ShroudForge refuses a cycle even when every controller exists and every equals value has the right type.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":true,\"enabledWhen\":{\"setting\":\"b\",\"equals\":true}},\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":true}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":true,\"enabledWhen\":{\"setting\":\"b\",\"equals\":true}},\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":true}}}}\n"
+    },
+    {
+      "name": "enabledWhen-wrong-scalar-type",
+      "about": "ShroudForge refuses a string equals for a boolean controller.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":true,\"b\":{\"value\":1,\"enabledWhen\":{\"setting\":\"a\",\"equals\":\"true\"}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":true,\"b\":{\"value\":1,\"enabledWhen\":{\"setting\":\"a\",\"equals\":\"true\"}}}}\n"
+    },
+    {
+      "name": "enabledWhen-array-controller",
+      "about": "ShroudForge refuses conditions controlled by arrays.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":[\"x\"],\"options\":{\"x\":\"X\"}},\"b\":{\"value\":1,\"enabledWhen\":{\"setting\":\"a\",\"equals\":\"x\"}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":[\"x\"],\"options\":{\"x\":\"X\"}},\"b\":{\"value\":1,\"enabledWhen\":{\"setting\":\"a\",\"equals\":\"x\"}}}}\n"
+    },
+    {
+      "name": "enabledWhen-equals-not-an-option",
+      "about": "ShroudForge refuses equals values outside the controller options.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\"}},\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":2}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\"}},\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":2}}}}\n"
+    },
+    {
+      "name": "enabledWhen-integer-equals-fractional-option",
+      "about": "ShroudForge accepts whole equals for an unconstrained number, but refuses it against fractional option 5.0: option comparison preserves the JSON number representation.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":5.0,\"options\":{\"5\":\"Five\"}},\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":5}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":{\"value\":5.0,\"options\":{\"5\":\"Five\"}},\"b\":{\"value\":true,\"enabledWhen\":{\"setting\":\"a\",\"equals\":5}}}}\n"
+    },
+    {
+      "name": "enabledWhen-null-equals",
+      "about": "ShroudForge refuses null equals, both in the schema and in controller type validation.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "errorContains": "enabledWhen",
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":true,\"b\":{\"value\":1,\"enabledWhen\":{\"setting\":\"a\",\"equals\":null}}}}\n",
+      "edits": [
+        {
+          "enabled": true,
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"a\":true,\"b\":{\"value\":1,\"enabledWhen\":{\"setting\":\"a\",\"equals\":null}}}}\n"
+    },
+    {
+      "name": "fractional-controller-whole-equals",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1.0,\"enabled\":true,\"settings\":{\"base\":5.0,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "base",
+            "type": "number",
+            "label": "base",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "child",
+            "type": "boolean",
+            "label": "child",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "base",
+              "equals": 5
+            }
+          }
+        ],
+        "enabledNow": [
+          "base",
+          "child"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "base",
+          "value": 6,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1.0,\"enabled\":true,\"settings\":{\"base\":6.0,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5}}}}\n",
+      "enabledAfter": [
+        "base"
+      ],
+      "about": "ShroudForge accepts a fractional controller 5.0 with whole equals 5 when it has no options. Numeric editor equality enables the dependent and value edits preserve the fractional controller type."
+    },
+    {
+      "name": "valid-mod-version-1.2.3-dev.1",
+      "about": "ShroudForge accepts this three-part version, including this suffix or u64-sized core number; do not apply Kiln's narrower i32 version parser to the mod bytes.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.2.3-dev.1",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [],
+        "enabledNow": []
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true}\n"
+    },
+    {
+      "name": "valid-mod-version-1.2.3+build.4",
+      "about": "ShroudForge accepts this three-part version, including this suffix or u64-sized core number; do not apply Kiln's narrower i32 version parser to the mod bytes.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "1.2.3+build.4",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [],
+        "enabledNow": []
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true}\n"
+    },
+    {
+      "name": "valid-mod-version-18446744073709551615.0.0",
+      "about": "ShroudForge accepts this three-part version, including this suffix or u64-sized core number; do not apply Kiln's narrower i32 version parser to the mod bytes.",
+      "mod": {
+        "id": "oracle-case",
+        "name": "Oracle case",
+        "version": "18446744073709551615.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":false}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [],
+        "enabledNow": []
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true}\n"
+    },
+    {
+      "name": "fractional-option-matching-equals",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":{\"value\":5.0,\"options\":{\"5\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5.0}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "base",
+            "type": "number",
+            "label": "base",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 5.0,
+                "label": "Choice"
+              }
+            ]
+          },
+          {
+            "key": "child",
+            "type": "boolean",
+            "label": "child",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "base",
+              "equals": 5.0
+            }
+          }
+        ],
+        "enabledNow": [
+          "base",
+          "child"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"base\":{\"value\":5.0,\"options\":{\"5\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5.0}}}}\n",
+      "about": "The SF reference accepts this condition. Manifest option matching preserves integer/float representation and exact integer values, unlike the editor numeric comparison."
+    },
+    {
+      "name": "fractional-option-uint-equals",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":{\"value\":9.223372036854776e+18,\"options\":{\"9223372036854775808\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":9223372036854775808}}}}\n",
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":{\"value\":9.223372036854776e+18,\"options\":{\"9223372036854775808\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":9223372036854775808}}}}\n",
+      "about": "The SF reference refuses this condition. Manifest option matching preserves integer/float representation and exact integer values, unlike the editor numeric comparison.",
+      "refused": true,
+      "errorContains": "enabledWhen"
+    },
+    {
+      "name": "integer-option-neighbor-equals",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":{\"value\":9007199254740992,\"options\":{\"9007199254740992\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":9007199254740993}}}}\n",
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":{\"value\":9007199254740992,\"options\":{\"9007199254740992\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":9007199254740993}}}}\n",
+      "about": "The SF reference refuses this condition. Manifest option matching preserves integer/float representation and exact integer values, unlike the editor numeric comparison.",
+      "refused": true,
+      "errorContains": "enabledWhen"
+    },
+    {
+      "name": "fractional-option-negative-zero",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"base\":{\"value\":-0.0,\"options\":{\"0\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":-0.0}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "base",
+            "type": "number",
+            "label": "base",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 0.0,
+                "label": "Choice"
+              }
+            ]
+          },
+          {
+            "key": "child",
+            "type": "boolean",
+            "label": "child",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "base",
+              "equals": -0.0
+            }
+          }
+        ],
+        "enabledNow": [
+          "base",
+          "child"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"base\":{\"value\":-0.0,\"options\":{\"0\":\"Choice\"}},\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":-0.0}}}}\n",
+      "about": "The SF reference accepts this condition. Manifest option matching preserves integer/float representation and exact integer values, unlike the editor numeric comparison."
+    },
+    {
+      "name": "legacy-eml-extension-created-disabled",
+      "about": "The SF reference accepts no extension and the exact disabled extension Kiln creates. The creation includes schemaVersion 1 and enabled false even for an already-off request.",
+      "mod": {
+        "id": "old",
+        "name": "Old",
+        "version": "1.0.0"
+      },
+      "extended": null,
+      "read": {
+        "enabled": false,
+        "switchLive": false,
+        "settings": [],
+        "enabledNow": []
+      },
+      "edits": [
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": false,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
+    },
+    {
+      "name": "unchanged-switch-true-repairs-fractional-value",
+      "about": "The SF reference refuses this earlier-Kiln whole-token damage and accepts the repaired output. Requesting the already-enabled switch must still repair the fractional value, including placement which always requests the desired switch. Explicit recovery exception, not an ordinary SF-valid input.",
+      "mod": {
+        "id": "unchanged-true",
+        "name": "Unchanged switch",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"gain\":{\"value\":2,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.5,
+                "label": "Low"
+              },
+              {
+                "value": 2.0,
+                "label": "High"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "gain"
+        ],
+        "repair": [
+          "gain"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"gain\":{\"value\":2.0,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "sfRefused": true
+    },
+    {
+      "name": "unchanged-switch-false-repairs-fractional-value",
+      "about": "The SF reference refuses this earlier-Kiln whole-token damage and accepts the repaired output. Requesting the already-disabled switch must still repair the fractional value, including placement which always requests the desired switch. Explicit recovery exception, not an ordinary SF-valid input.",
+      "mod": {
+        "id": "unchanged-false",
+        "name": "Unchanged switch",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"gain\":{\"value\":2,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.5,
+                "label": "Low"
+              },
+              {
+                "value": 2.0,
+                "label": "High"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "gain"
+        ],
+        "repair": [
+          "gain"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":false,\"settings\":{\"gain\":{\"value\":2.0,\"options\":{\"1.5\":\"Low\",\"2\":\"High\"}}}}\n",
+      "sfRefused": true
     }
   ],
   "limits": {

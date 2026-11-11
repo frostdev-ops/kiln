@@ -89,19 +89,28 @@ fn run_case(root: &Path, c: &Value) {
         let name = c["name"].as_str().unwrap();
         let dir = root.join(name);
         std::fs::create_dir_all(dir.join("src")).unwrap();
-        std::fs::write(dir.join("mod.json"), serde_json::to_string(&c["mod"]).unwrap()).unwrap();
+        std::fs::write(dir.join("mod.json"), c["modText"].as_str().map(str::to_owned).unwrap_or_else(|| serde_json::to_string(&c["mod"]).unwrap())).unwrap();
         std::fs::write(dir.join("src/mod.lua"), "return {}").unwrap();
         let original = extended_bytes(c);
         if let Some(bytes) = &original {
             std::fs::write(dir.join("extended.mod.json"), bytes).unwrap();
         }
         let refused = c["refused"].as_bool() == Some(true);
+        if c["errorContains"].is_string() {
+            assert!(shroudforge::is_sf_mod(&dir) && shroudforge::is_sf_own_mod(&dir), "{name}: invalid SF packages must still reach the SF import gate");
+        }
         if refused {
             // ShroudForge refuses the package: so does the launcher, and nothing is written
-            assert!(shroudforge::read_mod(&dir).is_err(), "{name}: read should be refused");
+            let error = shroudforge::read_mod(&dir).expect_err(&format!("{name}: read should be refused"));
+            if let Some(reason) = c["errorContains"].as_str() {
+                assert!(error.message.contains("ShroudForge would refuse") && error.message.contains(reason), "{name}: {}", error.message);
+            }
         } else {
             let m = shroudforge::read_mod(&dir).unwrap_or_else(|e| panic!("{name}: read: {e:?}"));
             assert_eq!(read_view(&m), c["read"], "{name}: read");
+            if c["sfRefused"].as_bool() == Some(true) {
+                assert!(!m.repair.is_empty(), "{name}: an SF-refused recovery case must expose its pending repair");
+            }
         }
         for e in c["edits"].as_array().unwrap() {
             let before = std::fs::read(dir.join("extended.mod.json")).ok();
@@ -145,7 +154,7 @@ fn the_settings_file_size_is_bounded_like_the_in_game_page() {
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(root.join("mod.json"), r#"{"id":"big","name":"Big","version":"1.0.0","capabilities":["runtime"]}"#).unwrap();
     std::fs::write(root.join("src/mod.lua"), "return {}").unwrap();
-    let body = r#"{"enabled":true,"settings":{"a":{"value":1}}}"#;
+    let body = r#"{"schemaVersion":1,"enabled":true,"settings":{"a":{"value":1}}}"#;
     let padded = |n: usize| format!("{body}{}", " ".repeat(n - body.len()));
     std::fs::write(root.join("extended.mod.json"), padded(limit)).unwrap();
     assert!(shroudforge::read_mod(&root).is_ok(), "a file of exactly the limit is read");
@@ -170,7 +179,7 @@ fn many_settings_are_read_without_quadratic_work() {
     let listed: Vec<String> = keys.iter().map(|k| format!(r#""{k}""#)).collect();
     std::fs::write(
         root.join("extended.mod.json"),
-        format!(r#"{{"enabled":true,"settings":{{{}}},"groups":[{{"label":"All","settings":[{}]}}]}}"#, settings.join(","), listed.join(",")),
+        format!(r#"{{"schemaVersion":1,"enabled":true,"settings":{{{}}},"groups":[{{"label":"All","settings":[{}]}}]}}"#, settings.join(","), listed.join(",")),
     )
     .unwrap();
     let start = std::time::Instant::now();
