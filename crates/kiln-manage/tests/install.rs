@@ -486,6 +486,42 @@ fn refuses_while_the_game_runs() {
     assert_eq!(e.detail.unwrap()["pid"], child.id());
 }
 
+/// A client and a dedicated server installed in one folder share its engine folders. Uninstall removes the profile's
+/// copies there, so it refuses while either of them runs, as activation does.
+#[test]
+fn uninstall_refuses_while_a_server_in_the_same_folder_runs() {
+    use kiln_manage::{library, profile};
+    let t = tmp("colocated");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "enshrouded_server.exe", b"MZ");
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &client(&game), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let src = t.0.join("src/flymode");
+    put(&src, "init.lua", b"print('fly')");
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "co-located", None).unwrap();
+    let m = &r.imported[0];
+    p.mods.set.push(profile::ProfileMod { id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone(), enabled: true });
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &client(&game)).unwrap();
+    let copy = game.join("shrouded_engine_tweaks/mods/flymode");
+    assert!(copy.join("init.lua").is_file());
+    let fake = t.0.join("bin/enshrouded_server.exe");
+    std::fs::create_dir_all(fake.parent().unwrap()).unwrap();
+    std::fs::copy("/bin/sleep", &fake).unwrap();
+    let mut child = std::process::Command::new(&fake).arg("30").current_dir(&game).spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let r = install::uninstall_report(&dirs, &client(&game), &mut NoProgress);
+    child.kill().unwrap();
+    let _ = child.wait();
+    let e = r.unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
+    assert!(copy.join("init.lua").is_file(), "nothing is removed under a running server");
+    assert!(install::read_receipt(&game).unwrap().is_some());
+}
+
 /// Every file below `dir` (relative path -> sha256), without kiln/backups/ (the installer's copies).
 fn tree(dir: &Path) -> Vec<(String, String)> {
     fn walk(root: &Path, d: &Path, out: &mut Vec<(String, String)>) {

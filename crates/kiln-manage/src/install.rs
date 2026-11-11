@@ -1133,6 +1133,8 @@ pub fn uninstall(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Prog
 pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Progress) -> Result<UninstallReport> {
     let game_dir = install.path.as_path();
     refuse_busy(install)?;
+    // unplace below edits engine folders that a client and a server installed in this folder share
+    crate::profile::refuse_running(install)?;
     let receipt = read_receipt(game_dir)?
         .ok_or_else(|| Error::not_found(format!("Kiln is not installed in {} (no kiln/.install.json)", game_dir.display())))?;
     for p in receipt_paths(&receipt).chain(["kiln/.install.lock", "kiln/chain.ini", "kiln/backups"]) {
