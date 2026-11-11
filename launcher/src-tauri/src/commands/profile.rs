@@ -99,13 +99,19 @@ pub async fn activation_notices() -> Result<Vec<Activation>, Error> {
     Ok(take_notices())
 }
 
-/// `profile::refresh_active` for one game that is not running, logged to launcher.log. The activation when it wrote.
+/// `profile::refresh_active` for one game that is not running, logged to launcher.log. Includes reports without a write.
+pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> Option<Activation> {
+    reapply_checked(d, g).map(|(a, _)| a)
+}
+
+/// The report and whether this call actually wrote profile.json. Determine that under the same lock as the refresh,
+/// not before waiting for a profile page's save: that save may already have written the new generation.
 ///
 /// One at a time: a profile page's save and the watcher both come here for the same change. Side by side they both
 /// found the file out of date, both activated the profile (copying its mods twice at once) and both wrote the same
 /// generation (seen in a player's launcher.log as every "written again" line twice). The second one now waits, finds
 /// the file current and writes nothing.
-pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> Option<Activation> {
+pub(crate) fn reapply_checked(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> Option<(Activation, bool)> {
     static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     if kiln_manage::proc::find_game(g).ok().flatten().is_some() {
@@ -126,7 +132,8 @@ pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::G
             for line in a.kept_files.iter().chain(&a.warnings) {
                 log(format!("note: {line}"));
             }
-            Some(a)
+            let written = before != Some(a.generation);
+            Some((a, written))
         }
         Ok(None) => None,
         Err(e) => {
