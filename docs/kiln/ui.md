@@ -217,7 +217,9 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
 ```
 - Keys are written like `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Insert`, `Numpad5`, `Backquote`, `None`.
 - The player's choice is kept in `kiln/config/keybinds.json` (`{"bindings": {"mymod.toggle": "F9"}}`). The Kiln menu's
-  **Keys** tab remaps keys by press: click the key, press the new one; Escape cancels.
+  **Keys** tab remaps keys by press: click the key, press the new one; a second click cancels, and so does Escape, which
+  also closes the menu. A pending "press a key" ends whenever the Keys tab is not on screen, so a key pressed in play is
+  never taken for it.
 - Handlers run on the game's main thread (the window thread) when the key goes down, but not while a Kiln text field
   has focus, and not while a Kiln screen has the input unless `WhileCapturing` is set.
 - A matching binding keeps the key from the game (`Consume`, default true), including its raw-input press.
