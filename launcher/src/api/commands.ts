@@ -239,6 +239,8 @@ export interface InstallResult extends InstallReceipt {
   changedBackedUp?: string[];
   /** The install's backup folder in the launcher's data dir (`backups/install/<installId>/install-<ts>`), or null. */
   backup?: string | null;
+  restoredShroudforge?: string[];
+  warnings?: string[];
 }
 export interface InstallOptions {
   components?: string[] | null;
@@ -1033,7 +1035,19 @@ export const runtimeStatus = (gameId: GameId) => call<InstallState>("runtime_sta
 /** Task result: InstallReceipt. */
 export const runtimeInstall = (gameId: GameId, version: string, options: InstallOptions = {}) =>
   call<TaskId>("runtime_install", { gameId, version, options });
-/** Task result: null. */
+export interface PlacementCleanup {
+  removed: string[];
+  retained: { path: string; reason: string; mayRun: boolean }[];
+}
+export interface UninstallResult {
+  removed: number;
+  restored: string[];
+  adopted: string[];
+  kept: string[];
+  placements: PlacementCleanup;
+  warnings: string[];
+}
+/** Task result: UninstallResult, including retained fixed-folder mods and their recovery instructions. */
 export const runtimeUninstall = (gameId: GameId) => call<TaskId>("runtime_uninstall", { gameId });
 /** Task result: InstallReceipt. */
 export const runtimeRollback = (gameId: GameId, version: string) => call<TaskId>("runtime_rollback", { gameId, version });
@@ -1047,7 +1061,7 @@ export const profileSave = (profile: Profile) => call<Profile>("profile_save", {
 export const profileDelete = (profileId: ProfileId) => call<null>("profile_delete", { profileId });
 export const profileResolve = (profileId: ProfileId, side: RunSide) => call<ResolvePreview>("profile_resolve", { profileId, side });
 export const profileActivate = (profileId: ProfileId, gameId: GameId) => call<Activation>("profile_activate", { profileId, gameId });
-export const profileDeactivate = (gameId: GameId) => call<null>("profile_deactivate", { gameId });
+export const profileDeactivate = (gameId: GameId) => call<PlacementCleanup>("profile_deactivate", { gameId });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });
 /** Undoes a library_add (its changes); the game's profile.json follows where the profile is active. */
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });

@@ -715,7 +715,7 @@ const handlers: Record<string, Handler> = {
       activations[gameId] = null; // kiln/profile.json goes with Kiln's files; the launcher's record of the profile stays
       runtime[gameId] = { installed: false, receipt: null, proxy: emf ? { kind: "emf", version: "0.3.3", abi: null, sha256: hex("emf"), size: 70_000, detail: "export emf_loader_identity" } : null, modified: [], upgradeAvailable: null };
       emitGame(gameId, "status");
-      return null;
+      return { removed: 1, restored: [], adopted: [], kept: [], placements: { removed: [], retained: [] }, warnings: [] };
     });
   },
   runtime_rollback: (a) => handlers.runtime_install({ ...a, options: {} }),
@@ -756,7 +756,7 @@ const handlers: Record<string, Handler> = {
     emitGame(S(a.gameId), "status");
     return r;
   },
-  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
+  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
   profile_revert: (a) => {
     const id = S(a.profileId);

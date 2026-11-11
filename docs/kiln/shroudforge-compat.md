@@ -38,7 +38,7 @@ observations below; neither is a client rendering or player-interaction test.
 
 | Area | Finding | Handling |
 |---|---|---|
-| Proxy name | Both own `dinput8.dll`. SF's `dinput8.dll` is only an alternative bootstrap plus the DirectInput provider host for SF's DLL Manager. SF also starts through `dbghelp.dll` → `winmm.dll`. | Kiln keeps `dinput8.dll`. SF's `dinput8.dll` goes to the backup, unchained. `dbghelp.dll`, `winmm.dll` and `shroudforge/` **stay** (installer change: agent `detect`, see section 6). |
+| Proxy name | Both own `dinput8.dll`. SF's `dinput8.dll` is only an alternative bootstrap plus the DirectInput provider host for SF's DLL Manager. SF also starts through `dbghelp.dll` → `winmm.dll`. | Kiln keeps `dinput8.dll`. SF's `dinput8.dll` goes to the backup, unchained. `dbghelp.dll`, `winmm.dll` and `shroudforge/` **stay**. Reinstall recovers missing helpers displaced by legacy receipts; current player replacements are never overwritten (section 6). |
 | Entry point | Both patch the exe's entry. | Compatible by design. Whoever patches second saves the first patch as "original" and jumps to it (LIFO). Kiln's proxy installs its gate after its chain. When kiln-shroudforge hosts SF there is only one gate (Kiln's), and SF's preparation runs inside Kiln's `on_ready`. |
 | Double start | SF's `dbghelp.dll` starts SF on Windows (and under Wine with `dbghelp=n`). | kiln-shroudforge looks for a module exporting `ShroudforgeStop` in the process and **steps aside** ("self-hosted"). |
 | Code hooks | SF: none on KFC4 builds (a legacy profile names six). Kiln: many. | No double hooks. Where SF has hooks, they go through `kiln.hooks` ("Engine hooks through `kiln.hooks`" below), so another DLL's jump on one of them no longer turns SF's native runtime off. |
@@ -151,8 +151,8 @@ needs no Kiln hook. A failed preparation is reported; the adapter does not attem
 `read_mod`/`list_mods`, `skip_reason` (plain-words skip messages), `set_enabled`, `set_setting` (checks type, range and
 options; it splices only the value with `jsonc::set_value`, so the file stays byte-identical otherwise),
 `settings_schema` (JSON Schema for the launcher's SchemaForm with `x-kiln-control`, `x-kiln-group`, `x-kiln-restart`,
-`x-kiln-enum-labels`, `x-kiln-enabled-when`), `settings_values`, `apply_switches` (profile activation writes SF's own
-`enabled` flags), `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Five unit
+`x-kiln-enum-labels`, `x-kiln-enabled-when`), `settings_values`, `apply_switches` (a legacy bulk-switch helper, **not**
+called by profile activation), `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Five unit
 tests.
 
 ### 5.3 `mods/tests/sf-probe` (lab probe, MIT)
@@ -166,15 +166,22 @@ readback and the restore on a live setting change, all without players.
 - **Installer** (agent `detect`, `install.rs`): when ShroudForge is installed, install "next to ShroudForge" by default.
   Move only SF's `dinput8.dll` to the backup (`class: shroudforge, action: backed-up`, not chained). Keep `dbghelp.dll`,
   `winmm.dll` and `shroudforge/` in place, so no "switch and lose your mods". Uninstall restores `dinput8.dll`
-  byte-identically, which the current receipt logic already does. A player whose SF was "switched" earlier (Steam Deck
-  report) needs "Restore ShroudForge": put `winmm.dll` and `dbghelp.dll` back from the receipt's backups. At launch, a
+  byte-identically when it is still Kiln's proxy; a player-installed replacement stays in place with a recovery warning.
+  The first backup survives repeat installs and upgrades. Reinstall automatically recovers missing `winmm.dll` and
+  `dbghelp.dll` from legacy switch receipts after verifying their original hashes, without overwriting newer helpers.
+  Deactivate/uninstall also remove verified, unchanged profile placements outside `kiln/`. An exact SF extension receipt
+  distinguishes Kiln's profile switches from player settings edits; edited/ambiguous copies are retained with paths,
+  reasons and a warning that standalone SF may still run them. Old normalized-only receipts cannot authorize deleting
+  settings. Game archives and previous writers' `.bak` / `.bak.integrity` are not reset to vanilla. At launch, a
   `dinput8.dll` classified as ShroudForge in a folder with a Kiln receipt means SF's updater replaced Kiln: offer to put
   Kiln back.
 - **Library** (detect's kind framework, `library.rs`/`engines.rs`): add kind `shroudforge` through
   `shroudforge::is_sf_mod` and `read_mod`. The skip text comes from `shroudforge::skip_reason`. Import copies the package
   into SF's mods folder (`shroudforge::mods_dir`), because SF reads its packages only from there.
 - **Profiles** (`schema/profile.schema.json` `mods`): add `"shroudforge": [{id, path, enabled}]`. The core already
-  ignores unknown kinds with a warning (`profile.cpp:107`). Activation calls `shroudforge::apply_switches`.
+  ignores unknown kinds with a warning (`profile.cpp:107`). Activation uses `engine_mods::place`: only Kiln's
+  receipt-owned copies get their `enabled` flag changed. Original player folders, even when listed with the opposite
+  profile switch, are never changed. `shroudforge::apply_switches` is not in the activation path.
 - **Launcher UI**: SF mods on the Library and Profile pages; a settings screen from `settings_schema` + `settings_values`,
   saved through `set_setting` (SF applies `live` settings at once); status from `shroudforge::status` + `effects`.
   Proposed texts are in [wiki-notes/sf.md](wiki-notes/sf.md). Replace "Kiln replaces ShroudForge" with "Kiln runs next to

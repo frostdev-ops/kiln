@@ -82,6 +82,8 @@ pub(crate) fn install_result(receipt: &InstallReceipt, report: &install::Install
     if let Some(o) = v.as_object_mut() {
         o.insert("changedBackedUp".into(), serde_json::json!(report.changed_backed_up));
         o.insert("backup".into(), serde_json::json!(report.backup));
+        o.insert("restoredShroudforge".into(), serde_json::json!(report.restored_shroudforge));
+        o.insert("warnings".into(), serde_json::json!(report.warnings));
     }
     Ok(v)
 }
@@ -171,7 +173,7 @@ pub async fn runtime_uninstall(app: AppHandle, game_id: String) -> Result<TaskId
         let r = install::uninstall_report(&dirs()?, &g, p);
         after_change(&a, &game_id);
         let r = r?;
-        // the result stays null (contract); the summary is the task's last message
+        // Keep structured retained paths/reasons in the task result, not only a transient progress line.
         let mut msg = format!("removed {} files", r.removed);
         if !r.restored.is_empty() {
             msg.push_str(&format!("; restored {}", r.restored.join(", ")));
@@ -179,8 +181,10 @@ pub async fn runtime_uninstall(app: AppHandle, game_id: String) -> Result<TaskId
         if !r.kept.is_empty() {
             msg.push_str(&format!("; kept {} changed files", r.kept.len()));
         }
+        if let Some(warning) = r.placements.warning() { msg.push_str(&format!("; {warning}")); }
+        for warning in &r.warnings { msg.push_str(&format!("; {warning}")); }
         p.report(Some(1.0), &msg);
-        Ok(serde_json::Value::Null)
+        to_value(&r)
     }))
 }
 

@@ -41,7 +41,12 @@ is_pe64_dll}` (`runtime_classify`). `InstallOptions {components, switchFromShrou
 final summary line; `canceled()` is polled between files (the install undoes itself). `install_report` returns the
 receipt and an `InstallReport {changedBackedUp, backup}`: the Kiln files changed by hand that the install replaced
 (their copies are in `kiln/backups/install-<ts>/` and `<data>/backups/install/<installId>/install-<ts>/`), and that
-launcher-side folder.
+launcher-side folder. `restoredShroudforge` lists missing helpers recovered from legacy switch receipts; `warnings`
+name current player files that were kept instead of overwriting them. A repeat install or upgrade never replaces the
+first original proxy backup. `uninstall_report` adds `placements: {removed, retained: [{path, reason, mayRun}]}` and
+`warnings`: only verified unchanged fixed-folder copies are removed, current player replacements are kept and their
+original backup recovery paths reported. The launcher returns that structured result in the task and displays retained
+paths until dismissed. It does not restore game archives from a previous SF/EML writer's working `.bak`.
 Error codes the UI should expect: `game_running` (detail `pid`), `steam_updating` (detail `stateFlags`), `refused`
 (ShroudForge, not a DLL, unsafe zip names), `hash_mismatch`, `conflict` (side mismatch), `not_found`.
 
@@ -74,7 +79,11 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   `[chain]` byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
   `profile.once.json`, records `<data>/installs/<id>.active.json`.
 - `copy_back(pid, install)` after the game exits (copy mode), `deactivate` (profile.json to `kiln/backups/`,
-  `[profile]` cleared), `active`, `render` (no writes), `read_game_profile`, `write_once` (launch mode once).
+  `[profile]` cleared), `deactivate_report` (also returns the fixed-folder placement cleanup result), `active`, `render`
+  (no writes), `read_game_profile`, `write_once` (launch mode once). Activation never edits player-owned SF folders.
+  Cleanup needs a trusted placement receipt plus unchanged contents, including exact SF settings bytes (old receipts
+  without these remain ambiguous). Changed copies remain where they are; the launcher lists paths/reasons and warns
+  that the standalone loader may still run them. No player settings or source Library files are deleted blindly.
 
 ## Launch, play-once, chain.ini
 - `launch::play(dirs, install, request)`: refuses while running; mode `profile` clears a stale play-once flag, `vanilla`

@@ -20,7 +20,9 @@ GE=${KILN_GE:-$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-11-x86_6
 cmd=${1:-}; name=${2:-}
 
 env_for() {
-  export WINEPREFIX=$LABS/$1.pfx WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;dinput8=n,b;winedbg.exe=d"
+  # KILN_LAB_DLLOVERRIDES adds overrides for one start (another loader's own proxies: "dbghelp=n,b;winmm=n,b" lets
+  # ShroudForge or EML start themselves, as on Windows); the display rules stay
+  export WINEPREFIX=$LABS/$1.pfx WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;dinput8=n,b;winedbg.exe=d${KILN_LAB_DLLOVERRIDES:+;$KILN_LAB_DLLOVERRIDES}"
   # no window may reach the desktop: an unset WAYLAND_DISPLAY means the desktop's wayland-0
   unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 }

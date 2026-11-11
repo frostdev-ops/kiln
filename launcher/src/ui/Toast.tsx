@@ -4,7 +4,7 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { create } from "zustand";
-import { toKilnError } from "../api/commands";
+import { toKilnError, type PlacementCleanup } from "../api/commands";
 
 export type ToastKind = "ok" | "err" | "info";
 export interface ToastAction {
@@ -53,6 +53,14 @@ export const toast = {
   },
   dismiss: (id: number) => useToasts.getState().dismiss(id),
 };
+
+/** Retained mod folders are a safety decision, not a clean removal. Keep the paths and recovery steps visible
+ * until dismissed (also available in the uninstall task's structured result). */
+export function notifyPlacementCleanup(report: PlacementCleanup | null | undefined) {
+  if (!report?.retained.length) return;
+  const detail = report.retained.map((r) => `${r.path}: ${r.reason}`).join("; ");
+  toast.info("Some mod folders were kept", `${detail}. These mods may still run in the standalone loader. With the game closed, review or move the listed folders to stop them; your settings have not been deleted.`, { ms: 0 });
+}
 
 export function Toaster() {
   const { items, dismiss } = useToasts();

@@ -151,6 +151,10 @@ pub struct InstallReport {
     /// when it backed anything up.
     #[serde(default)]
     pub backup: Option<String>,
+    #[serde(default)]
+    pub restored_shroudforge: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -740,8 +744,33 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
     let mut replaced: Vec<ReplacedFile> = old.as_ref().map(|o| o.replaced.clone()).unwrap_or_default();
     let mut steps: Vec<Step> = Vec::new();
     let mut changed_backed_up: Vec<String> = Vec::new();
+    let mut restored_shroudforge = Vec::new();
+    let mut warnings = Vec::new();
 
     let outcome: Result<()> = (|| {
+        // Older switch-from-SF installs displaced all three DLLs. Restore only missing helpers with proven original
+        // hashes. Never chain them or overwrite a helper the player has since installed.
+        for rel in ["dbghelp.dll", "winmm.dll"] {
+            let Some(r) = replaced.iter().find(|r| r.path == rel) else { continue };
+            if r.class != Some(ReplacedClass::ShroudForge) || r.action != ReplacedAction::BackedUp { continue; }
+            let target = game_dir.join(rel);
+            if occupied(&target)? {
+                if file_sha(&target).is_none_or(|(h, _)| h != r.sha256) {
+                    warnings.push(format!("Kept current {rel}; it differs from the previous ShroudForge helper. The original remains in {}.", r.backup.as_deref().unwrap_or("the install backup")));
+                }
+                continue;
+            }
+            let backup = r.backup.as_ref().map(|b| game_dir.join(b))
+                .filter(|b| file_sha(b).is_some_and(|(h, _)| h == r.sha256))
+                .ok_or_else(|| Error::new(ErrorCode::HashMismatch, format!("cannot recover legacy ShroudForge {rel}: its backup is missing or changed")))?;
+            copy_new(&backup, &target)?;
+            steps.push(Step::Placed { target: target.clone(), previous: None });
+            if file_sha(&target).is_none_or(|(h, _)| h != r.sha256) {
+                return Err(Error::new(ErrorCode::HashMismatch, format!("recovered ShroudForge {rel} does not match its original")));
+            }
+            restored_shroudforge.push(rel.to_owned());
+            progress.report(None, &format!("restored {rel} from the earlier switch-from-ShroudForge backup"));
+        }
         // 1. dinput8.dll: what is there now decides
         let proxy_path = game_dir.join(PROXY);
         let class = crate::pe::classify_proxy(&proxy_path)?;
@@ -1032,7 +1061,8 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
         }
         progress.report(Some(1.0), &format!("installed Kiln {} ({} files)", manifest.version, files.len()));
         let backup = mirror.is_dir().then(|| mirror.to_string_lossy().into_owned());
-        Ok((receipt, InstallReport { changed_backed_up, backup }))
+        for warning in &warnings { progress.report(None, warning); }
+        Ok((receipt, InstallReport { changed_backed_up, backup, restored_shroudforge, warnings }))
     })();
     match finish {
         Ok(r) => Ok(r),
@@ -1073,10 +1103,17 @@ pub struct UninstallReport {
     pub adopted: Vec<String>,
     /// Receipt files whose content changed: left in place.
     pub kept: Vec<String>,
+    /// Fixed-folder profile copies removed or retained (with reasons) outside kiln/.
+    #[serde(default)]
+    pub placements: crate::engine_mods::PlacementCleanup,
+    /// Current player files that conflict with restoration: original backup locations and next steps.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
-/// Restores every `replaced` file byte-identically, removes the receipt's files (unchanged ones; `config` files
-/// stay), keeps `kiln/` (mods, configs, data, logs).
+/// Restores `replaced` originals byte-identically unless a newer player file occupies their path (kept with a
+/// recovery warning). Removes unchanged receipt files and profile placements; `config` files and `kiln/` player
+/// data (mods, configs, logs, backups) stay.
 pub fn uninstall(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Progress) -> Result<()> {
     uninstall_report(dirs, install, progress).map(|_| ())
 }
@@ -1117,7 +1154,8 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
             )));
         }
     }
-    let mut report = UninstallReport::default();
+    let mut report = UninstallReport { placements: crate::engine_mods::unplace(game_dir)?, ..Default::default() };
+    if let Some(warning) = report.placements.warning() { progress.report(None, &warning); }
     let total = receipt.files.len().max(1);
     for (i, f) in receipt.files.iter().enumerate() {
         if f.config {
@@ -1147,13 +1185,16 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
     for r in originals {
         let target = game_dir.join(&r.path);
         let src = source(r).expect("checked above");
-        if file_sha(&target).is_some_and(|(h, _)| h != r.sha256) {
-            // something else sits there now (a changed Kiln file we kept): move it into the backup folder
-            let aside = game_dir.join(crate::paths::game::BACKUPS).join(format!("uninstall-{}-{}", ts_compact(now_unix()), rand_suffix()?)).join(&r.path);
-            if let Some(p) = aside.parent() {
-                std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+        if occupied(&target)? {
+            if file_sha(&target).is_some_and(|(h, _)| h == r.sha256) {
+                // Already the original (e.g. a recovered legacy SF helper): do not replace the same path again.
+                continue;
             }
-            std::fs::rename(&target, &aside).map_err(io_at(&target, "moving aside"))?;
+            if !report.kept.contains(&r.path) { report.kept.push(r.path.clone()); }
+            let warning = format!("Kept current {} because it changed outside Kiln. The original is preserved at {}; with the game closed, compare the files and restore that backup manually if wanted.", r.path, src.display());
+            progress.report(None, &warning);
+            report.warnings.push(warning);
+            continue;
         }
         if let Some(p) = target.parent() {
             std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;

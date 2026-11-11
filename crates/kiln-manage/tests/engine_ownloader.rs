@@ -105,6 +105,34 @@ fn eml_mods_follow_emls_own_loader() {
 }
 
 #[test]
+fn cleanup_reports_changed_eml_copies_as_potentially_still_running() {
+    for rel in ["src/mod.lua", "mod.json", "native-plugin.ini", "addon.dll", "player-settings.json"] {
+        let t = tmp(&format!("cleanup-{}", rel.replace('/', "-")));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let game = t.0.join("game");
+        std::fs::create_dir_all(game.join("kiln")).unwrap();
+        eml_loader(&game);
+        let src = eml_src(&t.0, "changed");
+        put(&src, "native-plugin.ini", b"[plugin]\npath=addon.dll\n");
+        put(&src, "addon.dll", b"original shipped plugin");
+        let changed = import(&dirs, &[src], ModKind::Eml, "changed");
+        let clean = import(&dirs, &[eml_src(&t.0, "clean")], ModKind::Eml, "clean");
+        let mut p = profile::create(&dirs, "eml cleanup", None).unwrap();
+        p.mods.eml = vec![pm(&changed, true), pm(&clean, true)];
+        engine_mods::place(&dirs, &p, &game).unwrap();
+        put(&game.join("mods/changed"), rel, b"player-owned edit");
+        let report = engine_mods::unplace(&game).unwrap();
+        assert_eq!(report.removed, [game.join("mods/clean")]);
+        assert_eq!(report.retained.len(), 1);
+        assert_eq!(report.retained[0].path, game.join("mods/changed"));
+        assert!(report.retained[0].may_run, "foreign EML can still discover this folder");
+        assert!(report.warning().unwrap().contains("standalone loader"));
+        assert_eq!(std::fs::read(game.join("mods/changed").join(rel)).unwrap(), b"player-owned edit");
+        assert!(game.join("dbghelp.dll").is_file(), "the player's loader is not a profile placement");
+    }
+}
+
+#[test]
 fn player_folders_are_never_touched() {
     let t = tmp("player");
     let dirs = DataDirs::at(t.0.join("data"));

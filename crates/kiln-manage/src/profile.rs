@@ -1210,7 +1210,13 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
 
 /// Back to the legacy layout: profile.json and chain.ini [profile] removed (a copy is kept in kiln/backups/).
 pub fn deactivate(dirs: &DataDirs, install: &GameInstall) -> Result<()> {
+    deactivate_report(dirs, install).map(|_| ())
+}
+
+/// Deactivate with the fixed-folder cleanup result. Player-edited copies are retained, not silently deleted.
+pub fn deactivate_report(dirs: &DataDirs, install: &GameInstall) -> Result<crate::engine_mods::PlacementCleanup> {
     refuse_running(install)?;
+    let cleanup = crate::engine_mods::unplace(&install.path)?;
     let pj = install.path.join(crate::paths::game::PROFILE);
     if pj.is_file() {
         let to = install.path.join(crate::paths::game::BACKUPS).join(format!("profile-{}.json", ts_compact(crate::util::now_unix())));
@@ -1223,7 +1229,7 @@ pub fn deactivate(dirs: &DataDirs, install: &GameInstall) -> Result<()> {
     remove_if_there(&install.path.join(crate::paths::game::CHAIN_ONCE))?;
     remove_if_there(&install.path.join(crate::paths::game::PROFILE_ONCE))?;
     remove_if_there(&activation_record(dirs, install))?;
-    Ok(())
+    Ok(cleanup)
 }
 
 /// The own loaders installed now and what they mean for the active profile file (checked again on every call: the
