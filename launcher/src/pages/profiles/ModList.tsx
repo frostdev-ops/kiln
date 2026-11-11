@@ -1,7 +1,7 @@
 // A profile's mods of one kind as a table: flame toggle, name and id, version, row actions (other versions, remove);
 // and the add-from-library dialog.
 import { MoreHorizontal } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { LibraryEntry, ModKind, ProfileMod } from "../../api/commands";
 import { useLibrary } from "../../api/hooks";
@@ -33,6 +33,9 @@ export interface ModListProps {
 export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extra, emptyHint, fill, actions, label }: ModListProps) {
   const lib = useLibrary(kind);
   const [adding, setAdding] = useState(false);
+  useEffect(() => {
+    if (adding) void lib.refetch();
+  }, [adding, lib.refetch]);
   const columns: Column<ProfileMod>[] = [
     { key: "on", header: <span className="k-sr-only">Lit</span>, width: "40px", render: (m) => <FlameToggle on={m.enabled} label={libName(lib.data, kind, m.id)} onChange={(on) => onToggle(m.id, on)} /> },
     { key: "name", header: "Mod", sort: (a, b) => a.id.localeCompare(b.id), render: (m) => <NameId name={libName(lib.data, kind, m.id)} id={m.id} dim={!m.enabled} /> },
@@ -59,12 +62,12 @@ export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extr
         empty={<EmptyState title={emptyHint ?? "None in this profile."} action={<Button size="s" onClick={() => setAdding(true)}>Add from the library</Button>} />} />
       {mods.length > 0 && <div><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>}
       <AddModsModal open={adding} onClose={() => setAdding(false)} kind={kind} have={mods.map((m) => m.id)} lib={lib.data ?? []}
-        onAdd={(ms) => { onAdd(ms); setAdding(false); }} />
+        onAdd={(ms) => { onAdd(ms); setAdding(false); }} loading={lib.isFetching} error={lib.error ? String(lib.error) : undefined} />
     </>
   );
 }
 
-export function AddModsModal({ open, onClose, have, lib, onAdd }: { open: boolean; onClose: () => void; kind: ModKind; have: string[]; lib: LibraryEntry[]; onAdd: (m: ProfileMod[]) => void }) {
+export function AddModsModal({ open, onClose, have, lib, onAdd, loading, error }: { open: boolean; onClose: () => void; kind: ModKind; have: string[]; lib: LibraryEntry[]; onAdd: (m: ProfileMod[]) => void; loading?: boolean; error?: string }) {
   const [q, setQ] = useState("");
   const [pick, setPick] = useState<Set<string>>(new Set());
   const avail = useMemo(() => lib.filter((l) => !have.includes(l.id) && (!q || (l.name + l.id).toLowerCase().includes(q.toLowerCase()))), [lib, have, q]);
@@ -78,7 +81,7 @@ export function AddModsModal({ open, onClose, have, lib, onAdd }: { open: boolea
       footer={<><Link to="/library" className="k-link" style={{ marginRight: "auto", fontSize: 16 }}>Import more</Link><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={!pick.size} onClick={done}>Add {pick.size || ""}</Button></>}>
       <WellInput label="Filter" data-autofocus value={q} onChange={(e) => setQ(e.target.value)} />
-      {avail.length === 0 ? <EmptyState title={lib.length ? "Everything is in this profile already." : "The library is empty."} hint={lib.length ? undefined : "Import mods on the Library page."} /> : (
+      {loading ? <EmptyState title="Loading the library…" /> : error ? <EmptyState title="Could not read the library." hint={error} /> : avail.length === 0 ? <EmptyState title={lib.length ? "Everything is in this profile already." : "The library is empty."} hint={lib.length ? undefined : "Import mods on the Library page."} /> : (
         <div className="k-list" style={{ maxHeight: 340, overflow: "auto" }}>
           {avail.map((l) => (
             <label key={l.id} className="k-list-item clickable">
