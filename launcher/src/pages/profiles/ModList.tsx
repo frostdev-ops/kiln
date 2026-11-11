@@ -3,7 +3,7 @@
 import { MoreHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { LibraryEntry, ModKind, ProfileMod } from "../../api/commands";
+import { toKilnError, type LibraryEntry, type ModKind, type ProfileMod } from "../../api/commands";
 import { useLibrary } from "../../api/hooks";
 import { Badge, Button, EmptyState, FlameToggle, Menu, Modal, NameId, Table, WellInput, type Column, type MenuItem } from "../../ui";
 
@@ -62,7 +62,7 @@ export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extr
         empty={<EmptyState title={emptyHint ?? "None in this profile."} action={<Button size="s" onClick={() => setAdding(true)}>Add from the library</Button>} />} />
       {mods.length > 0 && <div><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>}
       <AddModsModal open={adding} onClose={() => setAdding(false)} kind={kind} have={mods.map((m) => m.id)} lib={lib.data ?? []}
-        onAdd={(ms) => { onAdd(ms); setAdding(false); }} loading={lib.isFetching} error={lib.error ? String(lib.error) : undefined} />
+        onAdd={(ms) => { onAdd(ms); setAdding(false); }} loading={lib.isFetching && !lib.data?.length} error={lib.error ? toKilnError(lib.error).message : undefined} />
     </>
   );
 }
