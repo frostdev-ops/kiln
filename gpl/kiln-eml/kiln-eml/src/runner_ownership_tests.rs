@@ -218,8 +218,9 @@ fn sf_applied(g: &Game, mods: serde_json::Value) -> Utf8PathBuf {
     state
 }
 
-// SF asset mods and EML mods both active (hosted SF): both build on the same vanilla backup, so kiln-eml's publication
-// drops SF's asset patches. That must not be silent: the state names the SF mods this start's game data lacks.
+// kiln-eml publishes only in a start where ShroudForge does not run (hosted SF reserves the writer and kiln-eml stands
+// aside). If SF's state still says it prepared asset mods in an earlier start, this start's data drops them: the state
+// names them and says why.
 #[test]
 fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
     let g = published("sf-displaced", CONTENT);
@@ -230,7 +231,8 @@ fn publishing_over_shroudforge_asset_mods_names_the_ones_this_start_lacks() {
     assert_eq!((out.phase, out.error.as_deref()), (Phase::Done, None), "{out:?}");
     let reason = out.reason.as_deref().unwrap_or_default();
     assert!(reason.contains("better-chests 1.2.0") && reason.contains("unlock-blueprints 0.4.1"), "{reason:?}");
-    assert!(reason.contains("two full rewrites per start"), "{reason:?}");
+    assert!(reason.contains("ShroudForge did not run this start") && reason.contains("prepares them again the next time it runs"), "{reason:?}");
+    assert!(!reason.contains("every start") && !reason.contains("rewrites"), "{reason:?}");
     let json = serde_json::to_value(&out).unwrap();
     assert_eq!(json["sfDisplaced"], serde_json::json!(["better-chests 1.2.0", "unlock-blueprints 0.4.1"]));
     let sf: serde_json::Value = serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();

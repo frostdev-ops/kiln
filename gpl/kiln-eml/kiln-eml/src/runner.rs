@@ -528,12 +528,15 @@ fn owned(cfg: &RunConfig, file: &str) -> Result<(), String> {
     Err(why)
 }
 
-/// The `reason` of a start whose publication replaced ShroudForge's prepared asset patches.
+/// The `reason` of a start whose publication replaced ShroudForge's prepared asset patches. kiln-eml publishes only in a
+/// start where ShroudForge does not run: hosted ShroudForge reserves the writer and kiln-eml stands aside
+/// (`eml_stand_aside`), and ShroudForge's own proxy makes it stand aside too. So the SF state it replaced is from an
+/// earlier start.
 fn displaced_sentence(mods: &[String]) -> String {
-    format!("ShroudForge's asset mods {} are not in this start's game data: kiln-eml's EML patches replaced what \
-        ShroudForge prepared, because both build on the same vanilla backup. Every start ShroudForge prepares them again \
-        and kiln-eml replaces them again (two full rewrites per start). To have them, turn off either the EML mods or \
-        those ShroudForge asset mods", mods.join(", "))
+    format!("ShroudForge's asset mods {}, prepared by an earlier start, are not in this start's game data: ShroudForge \
+        did not run this start (its mods are off in the active profile, or it could not start: see its row on Logs > \
+        Engines), so kiln-eml built the game data from the vanilla backup with the EML mods only. ShroudForge prepares \
+        them again the next time it runs", mods.join(", "))
 }
 
 /// The `reason` of an idle start whose game data differs from the backup and is not provably EML's.

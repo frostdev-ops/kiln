@@ -16,7 +16,8 @@ pub(crate) fn reset_read() { READ.with(|r| r.set(0)); DISPLACED.with(|d| d.borro
 thread_local! { static DISPLACED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 /// The ShroudForge asset mods (`<id> <version>`) whose prepared output a publication of this thread replaced since
-/// `reset_read`: both loaders build on the same vanilla backup, so this start's game data does not have their patches.
+/// `reset_read`: kiln-eml builds from the vanilla backup, so this start's game data does not have their patches. (It
+/// publishes only in a start where ShroudForge does not run: hosted ShroudForge makes it stand aside.)
 pub(crate) fn displaced() -> Vec<String> { DISPLACED.with(|d| d.borrow().clone()) }
 fn count(n: usize) { READ.with(|r| r.set(r.get() + n as u64)); }
 

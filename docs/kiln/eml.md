@@ -209,14 +209,20 @@ It fails soft:
   handoff, SF journals (`kiln/eml/ownership/sf-handoff-<uuid>.json`). The next run removes them under the install lock,
   by their exact shape only: a stage folder that holds anything but staged game files is left (with a warning in the
   log), and the 16 newest journals stay.
-- **ShroudForge asset mods and EML mods together** (hosted SF): both build the game data from the same vanilla
-  backup, so they do not combine. SF prepares its startup asset mods first in each start, kiln-eml publishes over them
-  and sets SF's state to `failed`; the game runs with the EML patches only. Every start SF prepares again and kiln-eml
-  replaces it again: two full rewrites of the game data per start. kiln-eml says so each time it happens, naming the
-  SF mods whose patches the start does not have: a warning in kiln.log (`kiln-eml: ShroudForge's asset mods ... are
-  not in this start's game data ...`) and `reason` plus `sfDisplaced` in `kiln/state/eml.json`, shown on the launcher's
-  Engines row. To have them, turn off either the EML mods or those SF asset mods. A merge of the two is not designed
-  yet ([shroudforge-compat.md](shroudforge-compat.md#7-what-shroudforge-needs-from-kiln-eml)).
+- **ShroudForge asset mods and EML mods together.** In a start where Kiln hosts ShroudForge (the active profile lists
+  an enabled SF mod), only ShroudForge writes the game data: its early step reserves the writer before it prepares
+  (`kiln.eml` `stand_aside`, section 6), and kiln-eml publishes `aside` and patches nothing. SF builds
+  its startup asset mods and the EML packages in its mods folder (the launcher copies the profile's EML mods there)
+  in one pass, so the game has both. `eml.json` says `aside` ("ShroudForge owns startup asset patching and runs EML
+  packages in its mods folder") and lists the profile's EML mods as `own-loader`, or `not-loaded` when they are not in
+  SF's folder. kiln-eml patches only in a start where SF does not run: its mods are off in the active profile,
+  `KILN_SHROUDFORGE=0`, or SF could not start (its runtime is missing, or it failed before reserving the writer). If
+  SF's state still says it prepared asset mods in an earlier start, that start's game data drops them: kiln-eml builds
+  from the vanilla backup with the EML mods only, sets SF's state to `failed` and says which SF mods are missing (a
+  warning in kiln.log, `kiln-eml: ShroudForge's asset mods <id> <version>, ... prepared by an earlier start, are not in
+  this start's game data ...`, and `reason` plus `sfDisplaced` in `kiln/state/eml.json`, shown on the Engines row). The
+  next start in which SF runs prepares them again, from the vanilla backup, with the EML mods in its folder. That
+  happens once per change of who writes, not every start.
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
@@ -442,8 +448,8 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
   `own-loader`, `not-loaded` or `disabled` (dev.22; before, it was empty). `reason` (dev.24, absent otherwise), one
   sentence for the player: with phase `idle`, the game data differs from the vanilla backup and kiln-eml could not
   prove it wrote it, so it left it, and what to do (see "It fails soft"); with phase `done`, the ShroudForge asset
-  mods whose patches this start's game data does not have, listed in `sfDisplaced` as `<id> <version>` (see
-  "ShroudForge asset mods and EML mods together" below).
+  mods an earlier start prepared that this start's game data does not have, because ShroudForge did not run this
+  start; listed in `sfDisplaced` as `<id> <version>` (see "ShroudForge asset mods and EML mods together" below).
   `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }` plus,
   since dev.22, `recordedFiles` and `recordedBytes` (files recorded by their stamp, not read): what reading the game's
   files for the change cache cost this start, and since dev.24 `ownershipBytes` (what the ownership receipt's SHA-256
