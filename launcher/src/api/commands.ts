@@ -1173,6 +1173,9 @@ export interface ChainViewEntry {
   /** EMF's loader: it starts EMF itself, which Kiln's EMF support has to see when it starts, so Kiln always loads it
    *  first and the late switch is not offered. */
   loader: boolean;
+  /** shroudlink's client addon (compat::is_gated_addon): it has to find the game's functions before Kiln hooks them,
+   *  so it is never switched late; one already late (an older Kiln allowed it) can be switched back. */
+  gated?: boolean;
 }
 export type RuleAction = "warn" | "late" | "disable";
 export interface CompatRuleResult {
