@@ -18,8 +18,8 @@
 //    after it, holding altitude at sink 0); the gravity program's strength is scaled for a gliding actor (the sink); the
 //    glider's stamina drain is zeroed (unlimited). Server world and the client's prediction world alike: the result
 //    depends only on the game's own state, the input and the rules, so the server and the player's game agree.
-//    Glider steering (steer.cpp) changes actor_rotation's pitch step; while it steers a glider, the wrap's boost only
-//    sets the speed along the nose (glide_steer_math.h) and sink 0 no longer holds the altitude.
+//    Glider steering (steer.cpp) changes actor_rotation's pitch step; while it steers a glider (input mode 0), the
+//    wrap's boost only sets the speed along the nose (glide_steer_math.h) and sink 0 no longer holds the altitude.
 //  - Shroud: where fog_resistance_update dispatches on the player's fog type (bl), a player with SHROUD_FREEZE (or a
 //    shroud_floor) gets the "no drain" branch while in the Shroud, or the recovery branch while below the floor. Server
 //    world only; the HUD shows the server's replicated value.
@@ -399,14 +399,13 @@ bool glide_rules(void* ctx, KilnRulesPlayer* out) {
     return false;
 }
 
-// The glider's own pitch is steered for these rules (steer.cpp): GLIDE_BOOST takes its steering form, and sink 0 does
-// not hold the altitude. Where the hook is not installed the rules fly as before.
-bool steering(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_GLIDE_STEER) && kiln_rules_steer::active(); }
-
 struct GlidePre {
     KilnRulesPlayer rules = kDefault;
     void* ctx = nullptr;
     const uint8_t* input = nullptr;
+    // the glider's own pitch is steered (steer.cpp steers): GLIDE_BOOST takes its steering form, and sink 0 does not
+    // hold the altitude. Where it is not steered the rules fly as before.
+    bool steer = false;
     float v0[3] = {};
     uint16_t trigger = 0;
 };
@@ -417,7 +416,8 @@ bool glide_pre(uint8_t* it, GlidePre* g) {
     if (!ctx || !input) return false;  // players only
     if (!glide_rules(ctx, &g->rules)) return false;
     const uint32_t f = g->rules.flags;
-    if (!(f & KILN_RULES_GLIDE_BOOST) && (g->rules.glide_sink != 0.0f || steering(g->rules))) return false;
+    g->steer = kiln_rules_steer::steers(g->rules, input);
+    if (!(f & KILN_RULES_GLIDE_BOOST) && (g->rules.glide_sink != 0.0f || g->steer)) return false;
     const auto* v = *reinterpret_cast<const float* const*>(it + L.glide_velocity);
     if (!v) return false;
     std::memcpy(g->v0, v, sizeof g->v0);
@@ -467,7 +467,7 @@ void glide_post(uint8_t* it, const GlidePre& g) {
 
     const KilnRulesPlayer& s = g.rules;
     const uint32_t flags = s.flags;
-    const bool steer = steering(s);
+    const bool steer = g.steer;
     const bool hold = s.glide_sink == 0.0f && !steer;
     float next[3] = {v[0], v[1], v[2]};
     if ((flags & KILN_RULES_GLIDE_BOOST) && steer) {

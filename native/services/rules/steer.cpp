@@ -126,6 +126,11 @@ void hk_steer(safetyhook::Context& c) {
 }  // namespace
 
 bool active() { return g_active.load(std::memory_order_relaxed); }
+// The glide wrap's steering form: the rule, this hook, and the input mode steer_body steers (read from the player's
+// PlayerInput as steer_body reads it; the wrap's slot holds the same component).
+bool steers(const KilnRulesPlayer& r, const uint8_t* player_input) {
+    return (r.flags & KILN_RULES_GLIDE_STEER) && active() && player_input && kiln_glide::steers_mode(player_input[L.stick_mode]);
+}
 uint64_t steered() { return S.steered.load(std::memory_order_relaxed); }
 uint64_t faults() { return S.faults.load(std::memory_order_relaxed); }
 

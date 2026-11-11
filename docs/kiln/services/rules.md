@@ -122,7 +122,10 @@ A preset is a `PlayerRules` in JSON (camelCase, comments allowed). Kiln writes i
 an earlier Kiln wrote and which still matches its emitted bytes exactly is replaced with this version's preset (so new
 rules such as the Shroud timer and gliding reach existing worlds); an edited file is left alone. `Rules.Preset` does this check itself before it reads
 the file, so the first `/creative` after an update already gets the new preset (it reads the preset before Kiln.Rules
-has started and written its files).
+has started and written its files). Creative mode without the steered glider: `"glideSteer": null` in that file, or
+delete its `glideSteer` block (the glide is then `GlideBoost`'s plane path); `"allowGlideSteer": false` in `rules.json`
+turns it off for every player. Since dev.24 the file's header has a third comment line saying so, which no earlier
+Kiln's file has: deleting the block can never make the file look like an earlier unedited default.
 ```jsonc
 // <configDir>/rules/easy-farming.json
 { "water": { "chargesPerSecond": 2, "items": ["Tool_T1_WateringCan"] }, "digDamage": 3, "minStamina": 0.5 }
@@ -285,7 +288,9 @@ would be corrected on the player's screen every step. Glider steering waits for 
 it has (kiln:rules message 2, `ClientHooks`, since dev.24), and only a game with the steering hook gets `GlideSteer`; any other
 game (an older Kiln, a game build without `rules.glide_steer`) keeps today's glide, `GlideBoost`'s plane path included, on the
 server and in its prediction alike. kiln.log on the server says which, once per change: `kiln.rules: player <id>: glider steering
-on (their game steers too)` or `… held back until their game confirms its steering hook …`. The rules message carries the
+on (their game steers too)` or `… held back until their game confirms its steering hook …`; for such a player
+`/creative` (its chat line and its reply) and the creative menu add `(glider steering held back: … game has no steering
+hook, so the glide flies as before)` to the rules they list. The rules message carries the
 steering limit at its end: an older client reads the fields it knows (Kiln's channels ignore trailing bytes), a newer client
 reads 0 from an older server; an older server drops message 2 unread. The channel version stays 4.
 
@@ -336,10 +341,14 @@ nose down. `GlideSteer` changes that one step for the player (`native/services/r
   lowered limit comes back to it at the same rate.
 - Letting go (a stick within 0.1 of centre) **holds** the pitch: the game's own step back toward 5 degrees nose down is
   dropped while the nose is above it; any other correction of the game stands.
-- **W** is the game's own: back through level into its dive (at most 80 degrees down). A W held from before the glider
-  opened is ignored until released once, as in the game.
-- Input mode 1 (the game's pitch-to-an-angle stick mode), or a glider whose `pitchAngleSpeed` another mod set to 0 or
-  less (SF Unlimited Flight does that while it steers), keeps the game's step: that mod steers, Kiln does not as well.
+- **W** is the game's own: back through level into its dive (at most 80 degrees down). From a climb an analog stick
+  lowers the nose in proportion, as S raises it (the game would take its full rate for any forward stick there); a
+  keyboard's W is exactly the game's. A W held from before the glider opened is ignored until released once, as in the
+  game.
+- Input mode 1 (the game's pitch-to-an-angle stick mode) keeps the game's step, and the whole glide is then as without
+  `GlideSteer` (`GlideBoost`'s plane path, sink 0's altitude hold), in the server's world and the player's prediction
+  alike (both read the same replicated mode byte). A glider whose `pitchAngleSpeed` another mod set to 0 or less (SF
+  Unlimited Flight does that while it steers) keeps the game's step too: that mod steers, Kiln does not as well.
 - The game's own glide follows the real pitch: its thrust along the nose and its drag. With a sink above 0 a steep
   climb costs speed and a dive gives it, as in the game. Creative mode keeps `GlideSink` 0 (no gravity while gliding):
   level flight then holds its altitude with the nose at level, and the game's thrust keeps the glider at its own speed
@@ -464,7 +473,9 @@ sprint with the nose at 60 degrees: highest climb rate 15 m/s; let go, level for
 counters: glide steered 681, glide changed 1203, faults 0
 ```
 Not shown by the lab: a player's prediction (no client joined), what the glider looks like, the camera, an analog stick,
-input mode 1, and SF Unlimited Flight together with it.
+input mode 1, and SF Unlimited Flight together with it. Nor another player's steered glider as a second client sees it:
+a joined client steers only its own player, so whether that client draws someone else's climbing glider with the game's
+own pitch (nose pulled to 5 degrees down) needs two players in one world to watch.
 
 ## Manual test (needs the game)
 No server needed: Kiln in the game, a throwaway world hosted from the game (co-op, or offline). On a dedicated server
@@ -511,8 +522,8 @@ the same works for an admin who joins with Kiln.
        uses stamina again.
     10. Dedicated server, a player with this Kiln: no rubber-banding or jumps while steering (the server kiln.log:
         `player <id>: glider steering on (their game steers too)`). A player with an older Kiln: their glide is the plane
-        path as before, and the server kiln.log says `… glider steering held back until their game confirms its steering
-        hook …` once.
+        path as before, the server kiln.log says `… glider steering held back until their game confirms its steering
+        hook …` once, and their `/creative` line says `(glider steering held back: your game has no steering hook …)`.
     11. With SF Unlimited Flight on as well: SF steers (its own climb and hold), no doubled climb rate, no fighting.
 
 ## Client guards (the game client only)

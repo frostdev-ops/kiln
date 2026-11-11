@@ -360,8 +360,9 @@ researcher's sweep; the hook site's reads were rechecked).
 `0x818ca`, none lands inside it). For an entity whose rules have `GLIDE_STEER` (keyed as the glide step's: the
 per-entity rules, else the local player's for the local player) it replaces xmm6 with `steer_step(xmm6, xmm14, xmm2, z,
 mode, limit)`: S `-min(xmm2 x |z|, pitch + limit)`, centred (`|z| <= 0.1`) drops a positive step while the pitch is
-below 5 degrees, W keeps the game's step, a nose above the limit comes back at xmm2; mode != 0, a non-finite value or
-`xmm2 <= 0` keeps the game's step. Only xmm6 changes, only to a finite value; the ItemInfo is never written. The
+below 5 degrees, W keeps the game's step (with the pitch below 5 degrees at most `xmm2 x min(z, 1)`), a nose above the
+limit comes back at xmm2; mode != 0, a non-finite value or `xmm2 <= 0` keeps the game's step. Only xmm6 changes, only to
+a finite value; the ItemInfo is never written. The
 ProgramContext is its home slot `[rbp+0x1670]` (the prologue's `mov [rsp+8], rcx`, two pushes, `lea rbp, [rsp-0x1658]`),
 which the function passes to `CurrentEntityId` itself (`0x82001`); the install checks that call's target is
 `rules/CurrentEntityId`. **[cap]** for the layout, **[dis]** for the roles. Not seen at runtime: the prediction world

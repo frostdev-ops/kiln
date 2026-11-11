@@ -101,9 +101,37 @@ int main() {
           "W: the game's step (back through level into the dive)");
     check(steer_step(game_step(40 * kD, 1, 0, rate, dt), 40 * kD, max, 1, 0, 85) == game_step(40 * kD, 1, 0, rate, dt),
           "W in a dive: the game's step");
+    // an analog stick pushed forward from a climb: the game aims at 5 degrees down, far away, and would always take its
+    // full max step; Kiln bounds it by the stick's share, as S is
+    check(game_step(-60 * kD, 0.11f, 0, rate, dt) == max &&
+              near(steer_step(game_step(-60 * kD, 0.11f, 0, rate, dt), -60 * kD, max, 0.11f, 0, 85), 0.11f * max),
+          "W 0.11 from a 60-degree climb: 0.11 of the max step, not the game's full step");
+    check(near(steer_step(game_step(-60 * kD, 0.5f, 0, rate, dt), -60 * kD, max, 0.5f, 0, 85), 0.5f * max),
+          "W half from a climb: half the max step");
+    check(near(steer_step(game_step(-60 * kD, 0.11f, 0, rate, dt), -60 * kD, max, 0.11f, 0, 85),
+               -steer_step(game_step(-60 * kD, -0.11f, 0, rate, dt), -60 * kD, max, -0.11f, 0, 85)),
+          "from a climb W and S move the nose at the same rate for the same stick");
+    check(steer_step(game_step(-60 * kD, 1, 0, rate, dt), -60 * kD, max, 1, 0, 85) == game_step(-60 * kD, 1, 0, rate, dt) &&
+              steer_step(game_step(-60 * kD, 1.5f, 0, rate, dt), -60 * kD, max, 1.5f, 0, 85) == game_step(-60 * kD, 1.5f, 0, rate, dt),
+          "W full (a keyboard) from a climb: exactly the game's step");
+    check(steer_step(game_step(40 * kD, 0.5f, 0, rate, dt), 40 * kD, max, 0.5f, 0, 85) == game_step(40 * kD, 0.5f, 0, rate, dt),
+          "W half in a dive: the game's step (already in proportion there)");
+    check(near(steer_step(game_step(4.9f * kD, 0.5f, 0, rate, dt), 4.9f * kD, max, 0.5f, 0, 85),
+               steer_step(game_step(5.1f * kD, 0.5f, 0, rate, dt), 5.1f * kD, max, 0.5f, 0, 85)),
+          "W half across the game's 5 degrees: the same rate on both sides");
     check(steer_step(game_step(20 * kD, -1, 1, rate, dt), 20 * kD, max, -1, 1, 85) == game_step(20 * kD, -1, 1, rate, dt),
           "input mode 1 (pitch to an angle): the game's step");
     check(steer_step(0.01f, 20 * kD, max, -1, 2, 85) == 0.01f, "an unknown input mode: the game's step");
+    {
+        // the glide wrap takes its steering form (no plane path, no sink-0 hold) exactly where the pitch is steered
+        bool agree = steers_mode(0);
+        for (int m = 0; m < 256; ++m) {
+            const auto mode = static_cast<uint8_t>(m);
+            const float g = game_step(5 * kD, -1, mode, rate, dt);
+            agree = agree && (m == 0 || !steers_mode(mode)) && ((steer_step(g, 5 * kD, max, -1, mode, 85) != g) == steers_mode(mode));
+        }
+        check(agree, "steers_mode (the glide wrap's steering form): input mode 0 only, exactly the modes steer_step steers");
+    }
     check(steer_step(0.0f, -30 * kD, 0.0f, -1, 0, 85) == 0.0f, "max step 0 (another mod holds the rate at 0): the game's step");
     check(steer_step(-0.02f, -30 * kD, -0.02f, -1, 0, 85) == -0.02f && steer_step(0.02f, -30 * kD, -0.02f, 1, 0, 85) == 0.02f,
           "a negative max step (SF Unlimited Flight owns the rate): the game's step");
@@ -143,6 +171,22 @@ int main() {
         for (int i = 0; i < int(4 * hz); ++i) q = fly(q, -0.5f, rate, h);
         std::snprintf(what, sizeof what, "%.0f Hz: half S also stops at the limit (%.3f degrees)", hz, q / kD);
         check(q >= -85 * kD - 1e-5f && near(q, -85 * kD, 1e-4f), what);
+    }
+
+    // ---- an analog W from a climb, at 30, 60 and 90 steps a second ----
+    for (const float hz : {30.0f, 60.0f, 90.0f}) {
+        const float h = 1.0f / hz;
+        float p = -60 * kD;
+        bool monotonic = true;
+        for (int i = 0; i < int(hz); ++i) {  // 1 s of W at half stick
+            const float n = fly(p, 0.5f, rate, h);
+            monotonic = monotonic && n >= p;
+            p = n;
+        }
+        char what[160];
+        std::snprintf(what, sizeof what, "%.0f Hz: W half for 1 s from 60 degrees up lowers the nose at half the rate (%.2f degrees)", hz,
+                      p / kD);
+        check(monotonic && near(p, (-60 + 0.5f * rate) * kD, 1e-3f), what);
     }
 
     // ---- GlideBoost while steering ----

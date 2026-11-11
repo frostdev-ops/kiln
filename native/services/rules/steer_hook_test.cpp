@@ -74,6 +74,12 @@ int main() {
     check(st::install(&api, 0, off) == 0 && !st::active() && off.find("hook failed") != std::string::npos,
           "a failed hook leaves steering off");
     kiln::test::fail_all = false;
+    {
+        alignas(16) uint8_t no_hook_input[0x300]{};
+        auto r = kDefault;
+        r.flags = KILN_RULES_GLIDE_STEER | KILN_RULES_GLIDE_BOOST;
+        check(!st::steers(r, no_hook_input), "without the hook the glide wrap has no steering form (GlideBoost flies as before)");
+    }
     off.clear();
     check(st::install(&api, 0, off) == KILN_RULES_HOOK_GLIDE_STEER && st::active() && off.empty(),
           "the hook installs with the feature and the agreeing context check");
@@ -136,6 +142,39 @@ int main() {
     c.xmm6.f32[0] = 0.02f, c.xmm14.f32[0] = 5 * kD;
     st::hk_steer(c);
     check(c.xmm6.f32[0] == 0.02f, "a negative max step (another mod owns the rate): the game's step");
+
+    // the glide wrap's steering form (rules.cpp glide_pre asks steers): only where the pitch is steered, read from the
+    // same replicated PlayerInput byte as the hook's
+    {
+        auto r = kDefault;
+        r.flags = KILN_RULES_GLIDE_STEER | KILN_RULES_GLIDE_BOOST;
+        player_input[0x2c8] = 0;
+        check(st::steers(r, player_input), "input mode 0: the glide wrap takes its steering form");
+        player_input[0x2c8] = 1;
+        check(!st::steers(r, player_input),
+              "input mode 1 (the pitch stays the game's): the glide wrap keeps the plane path and the altitude hold");
+        player_input[0x2c8] = 2;
+        check(!st::steers(r, player_input), "an unknown input mode: no steering form either");
+        player_input[0x2c8] = 0;
+        r.flags = KILN_RULES_GLIDE_BOOST;
+        check(!st::steers(r, player_input), "no GLIDE_STEER: the glide wrap flies as before");
+        r.flags |= KILN_RULES_GLIDE_STEER;
+        check(!st::steers(r, nullptr), "no PlayerInput: no steering form");
+        for (int m = 0; m < 256; ++m) {
+            player_input[0x2c8] = static_cast<uint8_t>(m);
+            set_rule(3, &rule);
+            e = 3;
+            z(-1);
+            const bool hook_steers = step(0, 5 * kD) != 0;
+            if (hook_steers != st::steers(r, player_input)) {
+                check(false, "the glide wrap's steering form and the hook disagree on an input mode");
+                break;
+            }
+            if (m == 255) check(true, "the glide wrap's steering form and the pitch hook agree for all 256 input modes");
+        }
+        player_input[0x2c8] = 0;
+        set_rule(3, nullptr);
+    }
 
     // a joined client: no per-entity rules, the local player's
     set_rule(3, nullptr);
