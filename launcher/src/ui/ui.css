@@ -340,6 +340,9 @@
 .k-toast-title { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 18px; color: var(--k-text-0); overflow-wrap: anywhere; }
 .k-toast-err .k-toast-title { color: var(--k-err); }
 .k-toast-detail { color: var(--k-text-2); font-size: 15.5px; overflow-wrap: anywhere; }
+.k-toast-earlier { margin-top: 6px; }
+.k-toast-earlier-title { color: var(--k-text-0); }
+.k-toast-earlier[data-kind="err"] .k-toast-earlier-title { color: var(--k-err); }
 .k-toast-actions { flex: none; display: flex; gap: 6px; align-self: center; }
 .k-toast-close { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--k-text-2); cursor: pointer; }
 .k-toast-close:hover { color: var(--k-text-0); background: var(--k-warm-2); }
