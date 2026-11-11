@@ -710,7 +710,7 @@ A line of text on the game's screen. It shows while its condition holds and upda
 
 ## iconPng
 
-A PNG icon in the mod's folder, by a path relative to it: no full path, no '..' (Kiln.Blocks refuses either when it loads). A file that must exist.
+A PNG icon in the mod's folder. Portable data files and lint require a relative path with no '..'. Item icons also accept a full path inside the owning mod's folder at runtime; status and perk PNGs require relative paths. A missing or refused optional PNG leaves the block defined with its base icon and an error. A file that must exist.
 
 Type: string
 

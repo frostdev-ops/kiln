@@ -236,7 +236,7 @@
       }
     },
     "surfacePng": { "type": "string", "pattern": "^[^/\\\\].*\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "description": "A PNG in the mod's folder, a power of two on both sides, 4 to 4096." },
-    "iconPng": { "type": "string", "pattern": "^(?![\\s\\S]*(^|[\\\\/])\\.\\.([\\\\/]|$))(?![\\\\/])(?![A-Za-z]:)[\\s\\S]*\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "x-kiln-message": "a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "A PNG icon in the mod's folder, by a path relative to it: no full path, no '..' (Kiln.Blocks refuses either when it loads)." },
+    "iconPng": { "type": "string", "pattern": "^(?![\\s\\S]*(^|[\\\\/])\\.\\.([\\\\/]|$))(?![\\\\/])(?![A-Za-z]:)[\\s\\S]*\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "x-kiln-message": "a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "A PNG icon in the mod's folder. Portable data files and lint require a relative path with no '..'. Item icons also accept a full path inside the owning mod's folder at runtime; status and perk PNGs require relative paths. A missing or refused optional PNG leaves the block defined with its base icon and an error." },
     "surfaceColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "#rrggbb, sRGB." },
     "surfaceValue": { "description": "A PNG (its red channel) or a value 0 to 1.", "oneOf": [ { "$ref": "#/$defs/surfacePng" }, { "type": "number", "minimum": 0, "maximum": 1 } ] },
     "surfacePart": { "enum": ["side", "top", "bottom", "edge", "edgeTop", "noise"] },
