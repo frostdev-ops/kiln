@@ -148,9 +148,11 @@ Rules:
   entries are reported as disabled and skipped.
 - `path`: absolute game-side path (Z: or a Windows path), or relative to `<game>/kiln/` (copy mode). Kiln mods, native
   mods and EMF mods name a folder; plugins name the DLL. `mods.xhl` entries, and `mods.eml` entries of EML mods a native
-  DLL reads in the game's mods folder, name the copy placed in `<game>/mods/<original folder>`; in copy mode that is
-  `../mods/<original folder>`, the only `..` form the format allows (these two lists only, one direct child of
-  `<game>/mods` with a name Windows can use).
+  DLL reads in the game's mods folder, name the copy placed in `<game>/mods/<original folder>`; `mods.greeneye` entries
+  of enabled Greeneye mods name Kiln's copy in `<game>/greeneye/<id>`. In copy mode those are `../mods/<original
+  folder>` and `../greeneye/<id>`, the only `..` forms the format allows (`../mods/` in these two lists, `../greeneye/`
+  in `mods.greeneye`; one direct child with a name under the rule of `schema/fixtures/profile/game-folder-names.json`),
+  written only for a runtime that declares `profileReader` 2 or more (section 6, copy mode).
 - `configDir` (default `<game>/kiln/config`) becomes `KILN_PATH_CONFIG`, `KilnPaths.Config` and
   `kiln.profile.config_dir()`. Mod config files (`<id>.json`), `.schema/`, `native.json` and EMF settings
   (`emf/<id>.ini`) live there.
@@ -186,7 +188,7 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 | `xhl` | none: only XHL-Core, installed separately (a Native mod or the author's own install), loads these | the copy placed in `<game>/mods/<original folder>` | no Kiln plugin reads the list and kiln-core ignores it: it is placement metadata. Activation places each enabled companion there, with its `native-plugin.ini`, for XHL-Core; Kiln never loads a companion's DLL. `dropins` never names `xhl` |
 | `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes only Kiln-owned copies' `extended.mod.json` `enabled` (`engine_mods::place`); original player folders are never switched. Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
 | `set` | kiln-set | the placed copy in `shrouded_engine_tweaks/mods/` | kiln-set reads that folder. Activation places the enabled mods and removes Kiln's copies of disabled or unlisted ones (SET has no switch). kiln-set loads nothing under play-once no-mods or an invalid profile |
-| `greeneye` | kiln-greeneye | library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
+| `greeneye` | kiln-greeneye | Kiln's placed copy in `<game>/greeneye/<id>/` (an enabled mod), else the library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
 | `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
 | `shroudtopia` | kiln-shroudtopia | library folder (mod DLL) | `plan_engine("shroudtopia")`; settings in `<configDir>/shroudtopia/shroudtopia.json` |
 | `enshwick` | kiln-enshwick | library folder (`pack.toml`, or a folder with the mod DLL) | `plan_engine("enshwick")`; the plugin copies each enabled entry into `<game>/mods/<id>/` (Enshwick's loader reads only that folder), with its own receipts, and starts Enshwick's loader |

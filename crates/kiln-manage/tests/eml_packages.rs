@@ -1310,12 +1310,14 @@ fn copy_mode_profiles_pass_the_native_cores_own_parser() {
     let (dirs, g) = (DataDirs::at(t1.0.join("data")), copy_game(&t1));
     runtime_in_game(&dirs, &g, Some(2), "a633659");
     kiln_manage::quick::add_with(&dirs, &g, &[zip(&t1, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
-    let mut f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    // and a Greeneye mod, which Kiln places in <game>/greeneye/<id>/
+    let ge = t1.0.join("src/worstmap");
+    put(&ge, "mod.json", br#"{"id":"worstmap","name":"The Worst Map Mod","version":"1.0.0","dll":"map.dll","side":"client"}"#);
+    put(&ge, "map.dll", &build_test_dll(&["GreeneyeModStart"], b""));
+    kiln_manage::quick::add_with(&dirs, &g, &[ge], false, &mut NoProgress).unwrap();
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
     assert_eq!(eml(&f), ["../mods/auto-loot-plus"]);
-    // Kiln's copy of a Greeneye mod in <game>/greeneye/<id>/ (the greeneye branch renders it through game_path_of and
-    // the same Copy-mode arm): the core reads that form too, inside a profile the launcher wrote
-    f.mods.folders_mut(ModKind::Greeneye).unwrap().push(profile::FolderMod {
-        id: "greeneye-sample".into(), version: Some("1.0.0".into()), path: "../greeneye/greeneye-sample".into(), hash: None, enabled: true });
+    assert_eq!(f.mods.greeneye.iter().map(|m| m.path.replace('\\', "/")).collect::<Vec<_>>(), ["../greeneye/worstmap"]);
     write("alp", &f, &t1);
 
     let t2 = tmp("native-enshwick-folder");
