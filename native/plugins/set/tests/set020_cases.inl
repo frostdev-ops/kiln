@@ -259,9 +259,31 @@
   uint8_t moved[20];memcpy(moved,data,20);resourcePtr=moved;setValue(77);
   wlog::leaveAll(sink);{uint32_t v;memcpy(&v,moved,4);assert(v==100&&value()==77&&wlog::records()==0);}
   resourcePtr=data;setValue(100);
-  // A value that can't be reached when the mod stops is reported, not written.
-  mustAs(L,one,"one","resource.value=6");tickThread=false;logs.clear();wlog::leaveAll(sink);tickThread=true;
-  assert(value()==6&&logged("can't be reached any more: Not restored"));
+  // Mods that stop off the tick thread (a reload from the main menu, kiln-set stepping aside on the UI thread) can't
+  // reach the resource there. Their records must not be dropped: a write before the restore keeps the true original,
+  // so a relative edit doesn't compound.
+  mustAs(L,one,"one","resource.value=resource.value*2");assert(value()==200);
+  tickThread=false;logs.clear();wlog::leaveAll(sink);
+  const bool dropped=logged("Not restored");assert(value()==200);
+  tickThread=true;mustAs(L,one,"one","resource.value=resource.value*2");assert(value()==400);  // the reloaded mod
+  logs.clear();wlog::leave("one",sink);
+  if(value()!=100)std::cerr<<"write log: after a reload off the tick thread the mod's leave restored "<<value()<<", not 100\n";
+  assert(!dropped&&value()==100&&wlog::records()==0&&logged("one: 1 change(s) undone"));
+  // Otherwise the record waits with no writer, and the server step (rt::settleWrites, kiln-set's on_pre; also after
+  // stepping aside) restores it on the tick thread. Off the tick thread it keeps waiting.
+  mustAs(L,one,"one","resource.value=6");tickThread=false;logs.clear();wlog::leaveAll(sink);
+  assert(value()==6&&wlog::records()==1&&wlog::waiting()&&logged("1 change(s) go back at the next tick"));
+  rt::settleWrites();assert(value()==6&&wlog::records()==1&&wlog::waiting());
+  tickThread=true;logs.clear();rt::settleWrites();
+  assert(value()==100&&wlog::records()==0&&!wlog::waiting()&&logged("Write Log: 1 change(s) undone"));
+  // The same for one mod leaving off the tick thread while another's record stays.
+  mustAs(L,one,"one","resource.value=7");mustAs(L,two,"two","resource.floating=3.5");
+  tickThread=false;wlog::leave("one",sink);tickThread=true;assert(value()==7&&wlog::records()==2&&wlog::waiting());
+  rt::settleWrites();{float f;memcpy(&f,data+4,4);assert(value()==100&&f==3.5f&&wlog::records()==1);}
+  wlog::leave("two",sink);{float f;memcpy(&f,data+4,4);assert(f==0&&wlog::records()==0);}
+  // A resource that can't be reached on the tick thread is reported, not written.
+  mustAs(L,one,"one","resource.value=6");resourcePtr=nullptr;logs.clear();wlog::leaveAll(sink);resourcePtr=data;
+  assert(value()==6&&wlog::records()==0&&logged("can't be reached any more: Not restored"));
   // A full log refuses the write instead of making a change it can't undo.
   setValue(100);wlog::setBudget(10);
   assert(!runAs(L,one,"one","resource.value=7")&&value()==100&&wlog::records()==0&&logged("write log full"));

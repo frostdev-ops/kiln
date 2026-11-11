@@ -28,6 +28,9 @@ void worldLeft();                                    // the player left the worl
 // The game is closing: onShutdown without the game, then no mods. gameAlive: the mods stop but the game runs on
 // (kiln-set steps aside), so their resource changes are undone.
 void gameClosing(bool gameAlive = false);
+// The server step, before anything else, also after kiln-set stepped aside: resource changes of mods that stopped off
+// the tick thread (a reload from the main menu, stepping aside on the UI thread) go back now. One atomic load when none.
+void settleWrites();
 void queue(std::string line);                        // console thread or the overlay
 void draw();                                         // render thread, inside the ImGui frame: Draw callbacks
 bool tryLockDraw();                                  // the Lua lock if free (no tick running), for drawLocked

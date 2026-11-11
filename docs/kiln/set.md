@@ -30,7 +30,8 @@ of the game ends. kiln-set and kiln.types then keep running and look again one s
 when a SET or power proxy is actually seen, or when **five** looks in a row fail (about four seconds). One clean
 look resets the count. At startup the five looks happen at once, 20 ms apart. Five, because one failed look says
 nothing, a lasting fault shows in a few seconds, and each look is costly under Wine. Stepping aside while the game
-runs undoes the mods' resource changes first.
+runs undoes the mods' resource changes: at once on a world's thread, otherwise (stepping aside in the main menu) at
+the next step of a world you host.
 The types service uses the same detector for its runner hook, avoiding competing system controls. If SET loads
 after Kiln installed that hook, the adapter restores all switches and remains passive until process exit.
 
@@ -147,8 +148,12 @@ matching Kiln C# API and how each was tested, is in
 - **Key names**: Space, Enter, Tab, arrows, numpad, and punctuation by its US name (`Semicolon`, `Equals`, ...).
   `bindings.ini` saves names; files with `0xNN` codes still load.
 - **Changes go back when a mod stops**: resource edits (`Res`) made by a mod are undone when it fails while loading,
-  on `reload()`, and when kiln-set steps aside. A value the console or the game changed since is left alone. The
-  console's own edits are not undone. `Systems.enable` was already undone per mod (kiln.types owners).
+  on `reload()`, and when kiln-set steps aside. Resources can only be written on a world's thread: when mods stop
+  elsewhere (a reload from the main menu, stepping aside there), the log keeps their records and the originals go back
+  at the next step of a world you host, before any mod runs in it. A reloaded mod that writes the same value first
+  keeps the game's original, so relative edits (`x = x * 2`) don't compound. A value the console or the game changed
+  since is left alone. The console's own edits are not undone. `Systems.enable` was already undone per mod (kiln.types
+  owners).
 - **`load()`**: a function built with `load()` belongs to the mod that registers it (Kiln did this before 0.2.0).
 - **Log lines** use SET 0.2.0's wording (`Mod Loaded:`, `Mod Failed:`, `Mod Skipped:`, `Hook '...' removed`).
 

@@ -3026,6 +3026,14 @@ void rt::gameClosing(bool gameAlive) {
     else wlog::forget();
 }
 
+void rt::settleWrites() {
+    if (!wlog::waiting()) return;
+    std::lock_guard lock(gLuaMx);
+    if (noAccessViolation([](uintptr_t) { wlog::settle(gSink); }, 0)) return;
+    wlog::forget();  // C++ only, no Lua: the mods (or kiln-set) stopped already
+    gSink(LV_BAD "Write Log: Access violation while restoring: The rest stays as the mods left it");
+}
+
 void rt::afterTick(uintptr_t world) {
     if (!gObserving) return;  // no mod has called Observe: no per-tick work at all
     std::lock_guard lock(gLuaMx);

@@ -28,6 +28,11 @@ bool reserve(const res::Entry* e, const uint8_t* data, uint32_t off, uint32_t n,
 void wrote(const res::Entry* e, uint32_t off, const void* src, uint32_t n);  // the write reserve allowed happened
 void leave(const std::string& mod, Sink sink);  // mod stopped while the others go on (it failed while loading)
 void leaveAll(Sink sink);                       // every mod stopped: reload, Lua off, kiln-set stepping aside
+// Off the tick thread (a reload from the main menu, kiln-set stepping aside on the UI thread) the resources can't be
+// reached: leave and leaveAll keep a record whose last writer left, with no writers, and settle puts its original
+// back on the tick thread. A mod that writes it again before that keeps the game's true original.
+void settle(Sink sink);                         // the tick thread: restores the records no mod writes any more
+bool waiting();                                 // any thread: such records may be waiting for settle
 void forget();                                  // the game is closing: nothing is restored
 size_t records();
 void setBudget(size_t bytes);  // tests only
