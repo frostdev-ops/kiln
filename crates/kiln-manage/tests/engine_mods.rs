@@ -1003,6 +1003,31 @@ fn retained_paths(a: &profile::Activation) -> Vec<PathBuf> {
         .map(|r| PathBuf::from(r["path"].as_str().unwrap())).collect()
 }
 
+/// A retained SF package can be disabled in its own manifest even while the profile requests it on.
+#[test]
+fn retained_disabled_sf_copy_is_not_reported_as_definitely_running() {
+    let t = tmp("retained-disabled-sf");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let sf = refs(&r, ModKind::ShroudForge, "sfpack");
+    let game = game_with_z(&t.0);
+    let mut p = profile::create(&dirs, "SF", None).unwrap();
+    p.mods.shroudforge.push(pm(&sf, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let dst = game.path.join("mods/sfpack");
+    put(&dst, "src/mod.lua", b"player code");
+    kiln_manage::shroudforge::set_enabled(&dst, false).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(!kiln_manage::shroudforge::read_mod(&dst).unwrap().enabled);
+    let kept = a.retained.iter().find(|r| r.path == dst).unwrap();
+    assert!(kept.may_run);
+    assert!(!kept.reason.contains("is what runs") && !kept.reason.contains("keeps running"),
+        "a disabled retained package is not definitely running: {}", kept.reason);
+    assert!(kept.reason.contains("may"), "uncertain loading must be explicit: {}", kept.reason);
+    assert_eq!(std::fs::read(dst.join("src/mod.lua")).unwrap(), b"player code");
+}
+
 /// A SET or ShroudForge copy Kiln may not touch (the player edited its code, or its settings are ones ShroudForge's rules
 /// refuse) is left as it is and reported; it never blocks switching profiles, removing that mod or Play.
 #[test]

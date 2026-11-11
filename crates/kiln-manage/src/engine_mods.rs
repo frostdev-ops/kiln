@@ -1207,9 +1207,9 @@ fn retain_runs(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Int
     retain(rep, tag, path, format!("{}. {runs}", reason.trim_end_matches('.')));
 }
 
-/// What still runs from a copy activation leaves as it is. `on`: the profile has the mod on; `have` and `want`: the
-/// copy's marker and the profile's entry. A switched-off copy is still loaded by what reads that folder (Kiln's SET
-/// plugin runs every mod in it); an enabled mod's copy is what runs, the old version when the profile wants another.
+/// What may still run from a copy activation leaves as it is. `on`: the profile has the mod on; `have` and `want`:
+/// the copy's marker and the profile's entry. The profile's switch is not proof that the retained copy loads (its own
+/// manifest may disable it, or its code may be missing). State the version difference without promising execution.
 fn still_runs(kind: ModKind, on: bool, have: Option<&Marker>, want: Option<&Marker>) -> String {
     if !on {
         return match kind {
@@ -1219,9 +1219,9 @@ fn still_runs(kind: ModKind, on: bool, have: Option<&Marker>, want: Option<&Mark
         };
     }
     match (have, want) {
-        (Some(h), Some(w)) if h.version != w.version => format!("It is on in the profile, but this copy (version {}) keeps running instead of version {}.", h.version, w.version),
-        (Some(h), Some(w)) if h.hash != w.hash => format!("It is on in the profile, but this copy keeps running instead of the profile's build of version {}.", w.version),
-        _ => "It is on in the profile, and this changed copy is what runs; nothing to do if you changed it on purpose.".into(),
+        (Some(h), Some(w)) if h.version != w.version => format!("It is on in the profile, but this copy is from version {}, not the requested version {}; its loader may still use it.", h.version, w.version),
+        (Some(h), Some(w)) if h.hash != w.hash => format!("It is on in the profile, but this copy is not the profile's build of version {}; its loader may still use it.", w.version),
+        _ => "It is on in the profile; this changed copy stays as it is, and its loader may still use it.".into(),
     }
 }
 
