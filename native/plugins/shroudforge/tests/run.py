@@ -68,6 +68,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         if early:
             assert calls.index('reserve') < calls.index('prepare'), calls
         assert status['runtime'] == 'stopped', status
+        assert not (game / 'shroudforge/runtime/heartbeat.json').exists(), 'stopped worker left a live heartbeat'
         if fault:
             assert status['mode'] == 'failed', status
         if verify:
@@ -82,6 +83,61 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('standalone-busy-install', busy=True)
     case('closed-reservation', installed='corrupt', early=True, reservation='DENY_RESERVATION')
     case('short-eml-table', installed='corrupt', early=True, reservation='SHORT_EML_TABLE')
+
+    # The real adapter loop must keep ticking while heartbeat filesystem I/O is slow.
+    # The fake host delays only the adapter's heartbeat rename, with no production seam.
+    def heartbeat_timing(stopping=False, fault=False):
+        def verify(status, calls, out):
+            intervals = [tuple(map(int, line.split()[1:])) for line in out.splitlines()
+                         if line.startswith('slow-heartbeat ')]
+            assert len(intervals) == 1, (intervals, out)
+            begin, end, writer = intervals[0]
+            assert end - begin >= 300, intervals
+            timed = []
+            for line in calls[calls.index('create') + 1:]:
+                if line.startswith('timing '):
+                    _, operation, at, thread, dt = line.split()
+                    timed.append((operation, int(at), int(thread), float(dt)))
+            updates = [entry for entry in timed if entry[0] == 'update']
+            assert updates and all(entry[3] > 0 for entry in updates), timed
+            runtime_thread = updates[0][2]
+            assert writer != runtime_thread, 'heartbeat I/O still runs on the native/Lua update thread'
+            assert all(entry[2] == runtime_thread for entry in timed), 'runtime ABI calls moved off their serial worker'
+            for index, entry in enumerate(timed):
+                if entry[0] == 'update':
+                    assert index and timed[index - 1][0] == 'tick', timed
+            destroy = next(entry for entry in timed if entry[0] == 'destroy')
+            shutdown = next(entry for entry in timed if entry[0] == 'shutdown')
+            assert destroy[1] >= end and shutdown[1] >= destroy[1], 'runtime destroyed before heartbeat writer joined'
+            if not stopping:
+                progressed = sum(begin < entry[1] < end for entry in updates)
+                assert progressed >= 10, ('updates blocked by slow heartbeat I/O', progressed, timed)
+                line = next(line for line in out.splitlines() if line.startswith('heartbeat '))
+                heartbeat = json.loads(line.removeprefix('heartbeat '))
+                assert heartbeat['schemaVersion'] == 1 and heartbeat['host'] == 'kiln' and heartbeat['mode'] == 'SERVER'
+                observed = int(next(line.split()[1] for line in out.splitlines() if line.startswith('heartbeat-observed ')))
+                assert heartbeat['pid'] > 0 and 0 <= observed - heartbeat['updatedAt'] <= 2, heartbeat
+                print('heartbeat progress:', progressed, 'updates during slow I/O; max dt', max(entry[3] for entry in updates))
+            assert (status['mode'] == 'failed') == fault, status
+        return verify
+    slow_env = {'KILN_SF_SLOW_HEARTBEAT': '1'}
+    case('slow-heartbeat', installed='corrupt', early=True, extra_env=slow_env, verify=heartbeat_timing())
+    stop_env = dict(slow_env, KILN_SF_STOP_DURING_HEARTBEAT='1')
+    case('heartbeat-stop-during-write', installed='corrupt', extra_env=stop_env, verify=heartbeat_timing(stopping=True))
+    case('heartbeat-fault-during-write', installed='corrupt', fault=True, extra_env=stop_env,
+         verify=heartbeat_timing(stopping=True, fault=True))
+    def stalled_heartbeat(status, calls, out):
+        # The writer keeps running, but must repeat the loop's last timestamp,
+        # not manufacture a fresh heartbeat for a stuck native/Lua update.
+        lines = out.splitlines()
+        assert sum(line.startswith('slow-heartbeat ') for line in lines) == 2, out
+        started = int(next(line.split()[1] for line in lines if line.startswith('heartbeat-start ')))
+        observed = int(next(line.split()[1] for line in lines if line.startswith('heartbeat-observed ')))
+        heartbeat = json.loads(next(line.removeprefix('heartbeat ') for line in lines if line.startswith('heartbeat ')))
+        assert heartbeat['updatedAt'] <= started + 1 and observed - heartbeat['updatedAt'] >= 2, (started, observed, heartbeat)
+        assert calls.count('update') == 1 and status['mode'] == 'hosted', (status, calls)
+    case('heartbeat-keeps-stalled-loop-timestamp', installed='corrupt',
+         extra_env=dict(slow_env, KILN_SF_STALL_UPDATE='1'), verify=stalled_heartbeat)
 
     # ---- dev.21 (WP-F4): the engine hooks of the bundled native runtime through kiln.hooks ----
     def offered(status, calls, out):

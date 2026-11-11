@@ -2,8 +2,11 @@
 // Fake runtime host only: never launches or loads Enshrouded.
 #include <windows.h>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <cstdio>
+#include <ctime>
 #include <cstring>
 #include <vector>
 #include "kiln_api.h"
@@ -85,6 +88,41 @@ static const void* service(KilnStr name, uint32_t min) {
     return &fake;
 }
 static uint32_t side() { return KILN_SIDE_SERVER; }
+// Delay only this fake process's adapter heartbeat rename, not any runtime ABI call.
+// No production test switch or game-memory patch is needed to reproduce slow I/O.
+using MoveFileFn = BOOL (WINAPI*)(LPCWSTR, LPCWSTR, DWORD);
+static MoveFileFn original_move;
+static BOOL WINAPI slow_move(LPCWSTR from, LPCWSTR to, DWORD flags) {
+    if (to && std::filesystem::path(to).filename() == L"heartbeat.json") {
+        const auto begin = GetTickCount64();
+        Sleep(350);
+        std::printf("slow-heartbeat %llu %llu %lu\n", begin, GetTickCount64(), GetCurrentThreadId());
+    }
+    return original_move(from, to, flags);
+}
+static bool slow_heartbeat(HMODULE module) {
+    auto* image = reinterpret_cast<unsigned char*>(module);
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(image + dos->e_lfanew);
+    const auto directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    for (auto* imports = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(image + directory.VirtualAddress);
+         imports->Name; ++imports) {
+        if (!imports->OriginalFirstThunk) continue;
+        auto* names = reinterpret_cast<IMAGE_THUNK_DATA64*>(image + imports->OriginalFirstThunk);
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(image + imports->FirstThunk);
+        for (unsigned i = 0; names[i].u1.AddressOfData; ++i) {
+            if (IMAGE_SNAP_BY_ORDINAL64(names[i].u1.Ordinal)) continue;
+            const auto* named = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(image + names[i].u1.AddressOfData);
+            if (std::strcmp(reinterpret_cast<const char*>(named->Name), "MoveFileExW")) continue;
+            DWORD protection{}, ignored{};
+            if (!VirtualProtect(&slots[i].u1.Function, sizeof(ULONGLONG), PAGE_READWRITE, &protection)) return false;
+            original_move = reinterpret_cast<MoveFileFn>(slots[i].u1.Function);
+            slots[i].u1.Function = reinterpret_cast<ULONGLONG>(&slow_move);
+            return VirtualProtect(&slots[i].u1.Function, sizeof(ULONGLONG), protection, &ignored) != FALSE;
+        }
+    }
+    return false;
+}
 int main(int argc, char** argv) {
     if (argc < 3) return 2;
     game = std::filesystem::absolute(argv[1]);
@@ -99,6 +137,11 @@ int main(int argc, char** argv) {
     auto dll = std::filesystem::absolute(argv[2]);
     if (argc > 3 && std::string(argv[3]) == "early") LoadLibraryW((game / L"kiln/plugins/kiln-eml.dll").c_str());
     HMODULE h = LoadLibraryW(dll.c_str()); if (!h) return 3;
+    const bool delayed = GetEnvironmentVariableW(L"KILN_SF_SLOW_HEARTBEAT", nullptr, 0) != 0;
+    const bool stop_during_write = GetEnvironmentVariableW(L"KILN_SF_STOP_DURING_HEARTBEAT", nullptr, 0) != 0;
+    const bool stalled = GetEnvironmentVariableW(L"KILN_SF_STALL_UPDATE", nullptr, 0) != 0;
+    if (stalled) std::printf("heartbeat-start %lld\n", static_cast<long long>(std::time(nullptr)));
+    if (delayed && !slow_heartbeat(h)) return 8;
     auto fn = reinterpret_cast<KilnPluginMainFn>(GetProcAddress(h, argc > 3 ? "kiln_plugin_early" : "kiln_plugin_main"));
     if (!fn) return 4;
     KilnApi api{}; api.size = sizeof api; api.abi_version = KILN_ABI_VERSION;
@@ -106,7 +149,13 @@ int main(int argc, char** argv) {
     KilnPluginInfo info{}; info.size = sizeof info;
     if (fn(&api, 1, &info) != KILN_OK) return 5;
     if (info.on_ready) info.on_ready(info.user);
-    Sleep(120);
+    Sleep(stalled ? 2900 : stop_during_write ? 60 : delayed ? 650 : 120);
+    if (delayed && !stop_during_write) {
+        std::ifstream heartbeat(game / L"shroudforge/runtime/heartbeat.json");
+        const std::string contents((std::istreambuf_iterator<char>(heartbeat)), {});
+        std::printf("heartbeat %s\n", contents.c_str());
+        std::printf("heartbeat-observed %lld\n", static_cast<long long>(std::time(nullptr)));
+    }
     // What the game would do: run each hook with registers of its own (r15 0x15, rbp 0xbb, rcx 0xc7, r14 0x14, r13 0x13).
     for (const Link& l : links) {
         KilnRegisters regs{};
@@ -121,6 +170,6 @@ int main(int argc, char** argv) {
         if (info.on_ready) info.on_ready(info.user);
     }
     if (info.on_unload) info.on_unload(info.user);
-    Sleep(150); // allow signalled, serial worker cleanup before the fake host exits
+    Sleep(stop_during_write || stalled ? 650 : 150); // allow signalled, serial worker cleanup before the fake host exits
     return 0;
 }

@@ -9,11 +9,23 @@ static void mark(const char* what) {
     GetEnvironmentVariableW(L"KILN_SF_TEST_LOG", file, 32768);
     if (FILE* f = _wfopen(file, L"ab")) { std::fprintf(f, "%s\n", what); std::fclose(f); }
 }
+static void timing(const char* operation, double dt = 0) {
+    if (!GetEnvironmentVariableW(L"KILN_SF_SLOW_HEARTBEAT", nullptr, 0)) return;
+    char text[160];
+    std::snprintf(text, sizeof text, "timing %s %llu %lu %.9f", operation, GetTickCount64(), GetCurrentThreadId(), dt);
+    mark(text);
+}
 #if TEST_runtime
 extern "C" __declspec(dllexport) bool shroudforge_prepare_startup(const wchar_t* root) { mark(root && *root ? "prepare" : "bad-root"); return root && *root; }
 extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t*) { mark("create"); return reinterpret_cast<void*>(1); }
-extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) { mark("update"); if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr); return h && std::isfinite(dt) && dt >= 0; }
-extern "C" __declspec(dllexport) void shroudforge_destroy(void*) { mark("destroy"); }
+extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) {
+    timing("update", dt);
+    mark("update");
+    if (GetEnvironmentVariableW(L"KILN_SF_STALL_UPDATE", nullptr, 0)) Sleep(3200);
+    if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr);
+    return h && std::isfinite(dt) && dt >= 0;
+}
+extern "C" __declspec(dllexport) void shroudforge_destroy(void*) { timing("destroy"); mark("destroy"); }
 #elif TEST_eml
 static KilnResult reserve(KilnStr reason) {
     mark(reason.ptr && reason.len ? "reserve" : "bad-reason");
@@ -77,13 +89,14 @@ extern "C" __declspec(dllexport) bool KfcRuntimeInitialize() {
 #endif
     return true;
 }
-extern "C" __declspec(dllexport) void KfcRuntimeTick() { mark("tick"); }
+extern "C" __declspec(dllexport) void KfcRuntimeTick() { timing("tick"); mark("tick"); }
 extern "C" __declspec(dllexport) void KfcRuntimeShutdown() {
+    timing("shutdown");
     mark("shutdown");
 #if TEST_good_kfc
     if (host.remove_hook)
         for (int i = 2; i >= 0; --i) if (handles[i]) { host.remove_hook(handles[i]); mark("removed"); }
 #endif
 }
-extern "C" __declspec(dllexport) void KfcRuntimeStatus(char* p, size_t n) { if (n) { p[0] = 'x'; if (n > 1) p[1] = 0; } }
+extern "C" __declspec(dllexport) void KfcRuntimeStatus(char* p, size_t n) { timing("status"); if (n) { p[0] = 'x'; if (n > 1) p[1] = 0; } }
 #endif

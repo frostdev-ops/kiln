@@ -330,6 +330,45 @@ void write_heartbeat(int64_t updated_at) {
     MoveFileExW(tmp.c_str(), (dir / L"heartbeat.json").c_str(), MOVEFILE_REPLACE_EXISTING);
 }
 
+// Heartbeat filesystem I/O must not hold up native/Lua ticks. The writer never
+// calls either runtime ABI; its timestamp is the update loop's last turn, not
+// its own wall clock, so a stalled loop cannot look alive just because I/O runs.
+class HeartbeatWriter {
+    HANDLE stop_ = nullptr;
+    std::thread thread_;
+    std::atomic<int64_t> last_turn_{0};
+public:
+    void start() {
+        last_turn_.store(static_cast<int64_t>(std::time(nullptr)), std::memory_order_relaxed);
+        stop_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (stop_) {
+            try {
+                thread_ = std::thread([this] {
+                    while (WaitForSingleObject(stop_, 0) == WAIT_TIMEOUT) {
+                        try { write_heartbeat(last_turn_.load(std::memory_order_relaxed)); }
+                        catch (...) { logf(KILN_LOG_WARN, "ShroudForge heartbeat write failed"); }
+                        if (WaitForSingleObject(stop_, 2000) != WAIT_TIMEOUT) break;
+                    }
+                });
+                return;
+            } catch (...) {
+                CloseHandle(stop_);
+                stop_ = nullptr;
+            }
+        }
+        // Do not fall back to blocking the mods loop. Missing heartbeat data is
+        // safer than stale steering/input while a synchronous write stalls it.
+        logf(KILN_LOG_WARN, "ShroudForge heartbeat writer could not start: tools may report it inactive");
+    }
+    void turn() { last_turn_.store(static_cast<int64_t>(std::time(nullptr)), std::memory_order_relaxed); }
+    void stop() {
+        if (stop_) SetEvent(stop_);
+        if (thread_.joinable()) thread_.join();
+        if (stop_) { CloseHandle(stop_); stop_ = nullptr; }
+    }
+    ~HeartbeatWriter() { stop(); }
+};
+
 std::string kfc_status() {
     if (!g_kfc_status) return {};
     char text[2048] = {};
@@ -351,11 +390,19 @@ std::string status_field(const std::string& s, const char* key) {
 void run_loop() {
     struct Cleanup {
         void* handle = nullptr;
+        HeartbeatWriter heartbeat;
         ~Cleanup() {
+            // Only this serial worker joins, never on_unload/DllMain. Even on
+            // an update exception, finish the writer before runtime teardown.
+            heartbeat.stop();
             if (handle) invoke_void(g_destroy, handle);
             if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
             g_initialized = false;
             stop_helper_processes();
+            try {
+                std::error_code ec;
+                std::filesystem::remove(sf_directory(g_game, "runtime", "shroudforge/runtime") / L"heartbeat.json", ec);
+            } catch (...) {}
         }
     } cleanup;
     const auto root = g_game.wstring();
@@ -375,6 +422,7 @@ void run_loop() {
     logf(KILN_LOG_INFO, "ShroudForge runtime ready (%.0f ms): its mods loop runs every 16 ms", create_ms);
     set_status("runtime", "running");
     finish("hosted", "");
+    cleanup.heartbeat.start();
     auto previous = std::chrono::steady_clock::now();
     auto next_status = previous;
     std::string last_state;
@@ -383,6 +431,7 @@ void run_loop() {
         const auto now = std::chrono::steady_clock::now();
         const double dt = std::chrono::duration<double>(now - previous).count();
         previous = now;
+        cleanup.heartbeat.turn();
         bool updated = false;
         const bool tick_ok = !g_initialized || !g_kfc_tick || invoke_void(g_kfc_tick);
         if (!tick_ok || !invoke(g_update, &updated, handle, dt) || !updated) {
@@ -394,7 +443,6 @@ void run_loop() {
         ++turns;
         if (now >= next_status) {
             next_status = now + std::chrono::seconds(2);
-            write_heartbeat(static_cast<int64_t>(std::time(nullptr)));
             g_tail.poll();
             const std::string st = kfc_status();
             const std::string state = status_field(st, "state");
@@ -407,11 +455,10 @@ void run_loop() {
             write_status();
         }
     }
+    cleanup.heartbeat.stop();
     g_tail.poll();
     set_status("runtime", "stopped");
     write_status();
-    std::error_code ec;
-    std::filesystem::remove(sf_directory(g_game, "runtime", "shroudforge/runtime") / L"heartbeat.json", ec);
 }
 
 DWORD WINAPI worker(void*) {
