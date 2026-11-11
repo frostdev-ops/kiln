@@ -464,7 +464,8 @@ internal static class ShroudForgeUi
             ui.TextWrapped("Saved to the mod's extended.mod.json, the file ShroudForge and the Kiln launcher read.");
     }
 
-    private static bool Running(CatalogMod m) => m.State == ModRunState.Loaded;
+    // ShroudForge's runtime runs it in this process now (its state.json lists it active), whatever its effect reports
+    private static bool Running(CatalogMod m) => m.Active;
 
     private static void Result(UiDraw ui, string folder, float k, bool problemsOnly = false)
     {
@@ -657,27 +658,46 @@ internal static class ShroudForgeUi
         using var _ = ui.Id("act." + a.Id);
         ui.Space(1, 6 * s);
         var armed = _armed is { } x && x.Folder == folder && x.Action == a.Id && Environment.TickCount64 - x.AtMs < 6000;
-        if (ui.Button(armed ? "Confirm: " + label : label))
+        bool clicked;
+        // only a mod ShroudForge runs now can take an action: a request left in its folder would run at a later start
+        using (ui.PushColor(UiColorSlot.Text, running ? GameColors.Text : GameColors.Faint))
+            clicked = ui.Button(armed ? "Confirm: " + label : label);
+        if (clicked && !running)
+        {
+            lock (Lock) Results[folder] = ($"{label} was not sent: ShroudForge runs actions only while it runs the mod (see its state above). Nothing was queued.", false);
+        }
+        else if (clicked)
         {
             if (a.Confirm is not null && !armed) _armed = (folder, a.Id, Environment.TickCount64);
             else
             {
                 _armed = null;
-                var game = GameDir();
                 Task.Run(() =>
                 {
                     string text;
                     var ok = true;
                     try
                     {
-                        ShroudForgePackages.QueueAction(game, p, a.Id);
-                        text = running ? $"Requested: {a.Label}." : $"Requested: {a.Label}. ShroudForge can only handle actions while the mod is active.";
-                        UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
+                        var game = GameDir();
+                        // ShroudForge keeps a request of an active mod without a handler for ever and reads 32 per turn:
+                        // one of Kiln's own per mod at a time
+                        if (Waiting(game, p.Id))
+                        {
+                            ok = false;
+                            text = $"{label}: an earlier request for {p.Name} is still waiting for ShroudForge; nothing new was queued.";
+                        }
+                        else
+                        {
+                            ShroudForgePackages.QueueAction(game, p, a.Id);
+                            text = $"Requested: {label}.";
+                            UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
+                        }
                     }
-                    catch (Exception e) when (e is SfEditException or IOException or UnauthorizedAccessException)
+                    catch (Exception e)  // whatever the files or the config hold: the player gets a line, not a silent worker
                     {
                         ok = false;
-                        text = $"{a.Label} could not be sent: {e.Message}";
+                        text = $"{label} could not be sent: {e.Message}";
+                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod {p.Id}: action {a.Id} could not be sent: {e.Message}");
                     }
                     lock (Lock) Results[folder] = (text, ok);
                 });
@@ -690,6 +710,18 @@ internal static class ShroudForgeUi
     }
 
     internal static string GameDir() => ModCatalog.Sources().GameDir;
+
+    /// <summary>A request this process queued for mod <paramref name="id"/> is still in ShroudForge's actions folder
+    /// (ShroudForgePackages.QueueAction names them <c>&lt;id&gt;-&lt;time&gt;-&lt;guid&gt;-&lt;pid&gt;.json</c>).</summary>
+    private static bool Waiting(string game, string id)
+    {
+        var dir = Path.Combine(ShroudForgePackages.Folder(game, "ui"), "actions");
+        if (!Directory.Exists(dir)) return false;
+        var ours = new System.Text.RegularExpressions.Regex(
+            "^" + System.Text.RegularExpressions.Regex.Escape(id) + "-[0-9]+-[0-9a-f]{32}-" + Environment.ProcessId + "\\.json$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        return Directory.EnumerateFiles(dir, "*.json").Any(f => ours.IsMatch(Path.GetFileName(f)));
+    }
 
     internal static void ResetForTests()
     {

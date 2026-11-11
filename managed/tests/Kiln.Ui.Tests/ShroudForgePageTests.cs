@@ -38,12 +38,13 @@ public sealed class ShroudForgePageTests : IDisposable
         catch (IOException) { }
     }
 
-    private string Package(string settings, string id = "notes")
+    private string Package(string settings, string id = "notes", string? groups = null)
     {
         var folder = Path.Combine(_root, "mods", id);
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "mod.json"), $$"""{"id":"{{id}}","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"enabled\": true,\n  \"settings\": " + settings + "\n}\n");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), "{\n  \"enabled\": true,\n  \"settings\": " + settings +
+            (groups is null ? "" : ",\n  \"groups\": " + groups) + "\n}\n");
         ShroudForgeUi.Load(folder);
         return folder;
     }
@@ -238,5 +239,87 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.Null(ShroudForgeUi.Get(folder, out var error));
         Assert.Contains("name", error);
         lock (FakeUiTable.Texts) Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("Its settings cannot be shown", StringComparison.Ordinal));
+    }
+    private string Actions(string folder) => Path.Combine(_root, "shroudforge", "ui", "actions");
+
+    private string ActionPackage() => Package("""{ "level": { "value": 1, "label": "Level" } }""",
+        groups: """[ { "label": "Tools", "actions": [ { "id": "reset", "label": "Reset progress" } ] } ]""");
+
+    private string? _lastLine;
+
+    /// <summary>Clicks the action, then draws frames until a new result line shows (it is sent on a worker).</summary>
+    private string? ClickAction(ModManagerPage page)
+    {
+        FakeUiTable.Click = "Reset progress";
+        Frame(page);
+        for (var i = 0; i < 200; i++)
+        {
+            lock (FakeUiTable.Texts) FakeUiTable.Texts.Clear();
+            Frame(page);
+            lock (FakeUiTable.Texts)
+                if (FakeUiTable.Texts.FirstOrDefault(t => t.Contains("Reset progress", StringComparison.Ordinal) && t != "Reset progress") is { } line &&
+                    line != _lastLine)
+                    return _lastLine = line;
+            Thread.Sleep(10);
+        }
+        return null;
+    }
+
+    private void UseGame() => ModCatalog.Sources = () => new CatalogSources { KilnRoot = Path.Combine(_root, "kiln") };
+
+    /// <summary>An action asks the running mod: while ShroudForge does not run it the button queues nothing (a request
+    /// left in ShroudForge's folder would run at a later start).</summary>
+    [Fact]
+    public void An_action_of_a_mod_shroudforge_does_not_run_queues_nothing()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            var line = ClickAction(Page(Mod(folder, ModRunState.Waiting)));
+            Assert.False(Directory.Exists(Actions(folder)) && Directory.EnumerateFiles(Actions(folder)).Any());
+            Assert.NotNull(line);
+            Assert.Contains("not sent", line);
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    /// <summary>ShroudForge keeps a request for an active mod that has no handler for ever, and looks at 32 files per turn:
+    /// Kiln leaves at most one of its own per mod waiting.</summary>
+    [Fact]
+    public void An_action_request_does_not_pile_up_while_an_earlier_one_waits()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            var page = Page(Mod(folder) with { Active = true });
+            Assert.StartsWith("Requested", ClickAction(page));
+            Assert.Contains("still waiting", ClickAction(page));
+            Assert.Single(Directory.EnumerateFiles(Actions(folder)));
+            foreach (var f in Directory.EnumerateFiles(Actions(folder))) File.Delete(f);  // ShroudForge took it
+            Assert.StartsWith("Requested", ClickAction(page));
+            Assert.Single(Directory.EnumerateFiles(Actions(folder)));
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    /// <summary>A ShroudForge config the data layer cannot read (duplicate keys) makes the request fail with a message,
+    /// not a silent worker.</summary>
+    [Fact]
+    public void An_action_that_cannot_be_sent_says_why()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            var config = Path.Combine(_root, "shroudforge", "config");
+            Directory.CreateDirectory(config);
+            File.WriteAllText(Path.Combine(config, "modloader-config.json"), """{ "paths": { "ui": "a", "ui": "b" } }""");
+            var line = ClickAction(Page(Mod(folder) with { Active = true }));
+            Assert.NotNull(line);
+            Assert.Contains("could not be sent", line);
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
     }
 }

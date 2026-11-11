@@ -63,6 +63,8 @@ internal sealed record CatalogMod
     public int LoadIndex { get; init; } = -1;
     /// <summary>Kiln mods: the dependencies its manifest declares.</summary>
     public IReadOnlyList<ModDependency> Dependencies { get; init; } = [];
+    /// <summary>ShroudForge mods: its runtime runs it in this process now (its current state.json lists it active).</summary>
+    public bool Active { get; init; }
 
     public bool NeedsAttention => State == ModRunState.Failed || Missing;
 
@@ -923,7 +925,7 @@ internal static class ModCatalog
         var start = b.Mods.TryGetValue("shroudforge", out var before) ? before.Count : 0;
         b.ProfileRest("shroudforge", _ => false, why ?? "", state, help);
         // mods the player put into ShroudForge's folder by hand (ShroudForge reads the whole folder)
-        var dir = modsDir ?? ShroudForgePackages.Folder(b.Src.GameDir, "mods");
+        var dir = modsDir ?? SfFolder(b.Src.GameDir, "mods");
         foreach (var sub in SubDirs(dir))
         {
             var name = LeafName(sub);
@@ -945,6 +947,14 @@ internal static class ModCatalog
             for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, b.Src.Side);
         }
         b.Engine("shroudforge", mode, health, note, f.Current);
+    }
+
+    /// <summary><see cref="ShroudForgePackages.Folder"/> for mods or state, or its default when ShroudForge's config cannot be
+    /// read at all (duplicate keys get through its own catch): the list is still read, never left unrefined.</summary>
+    private static string SfFolder(string gameDir, string key)
+    {
+        try { return ShroudForgePackages.Folder(gameDir, key); }
+        catch (Exception) { return key == "mods" ? Path.Combine(gameDir, "mods") : Path.Combine(gameDir, "shroudforge"); }
     }
 
     /// <summary>mod.json's id, name and version (else extended.mod.json's), and ShroudForge's switch (extended.mod.json
@@ -971,7 +981,7 @@ internal static class ModCatalog
 
     private static SfRuntimeState? SfRuntime(CatalogSources src)
     {
-        var path = Path.Combine(ShroudForgePackages.Folder(src.GameDir, "state"), "state.json");
+        var path = Path.Combine(SfFolder(src.GameDir, "state"), "state.json");
         if (ReadJson(path, out _) is not { ValueKind: JsonValueKind.Object } d || !d.TryGetProperty("runtime", out var r) ||
             r.ValueKind != JsonValueKind.Object) return null;
         if (!r.TryGetProperty("pid", out var pid) || pid.ValueKind != JsonValueKind.Number || !pid.TryGetInt32(out var p) || p != src.Pid ||
@@ -1026,11 +1036,11 @@ internal static class ModCatalog
             var effectState = EffectState(effect.State);
             return m with
             {
-                State = effectState, Word = effect.State, Reason = $"ShroudForge Lua is active; reported effect: {effect.State}. {effect.Detail}",
+                State = effectState, Word = effect.State, Reason = $"ShroudForge Lua is active; reported effect: {effect.State}. {effect.Detail}", Active = true,
                 Help = effectState == ModRunState.Failed ? "The mod reports that its change did not apply. ShroudForge's log has the details." : null,
             };
         }
-        return m with { State = ModRunState.Loaded, Word = "active", Reason = "ShroudForge runs its Lua; the mod reports no effect result.", Help = null };
+        return m with { State = ModRunState.Loaded, Word = "active", Reason = "ShroudForge runs its Lua; the mod reports no effect result.", Help = null, Active = true };
     }
 
     /// <summary>A mod's reported effect state as the launcher shows it: a mod reports waiting, no-target, no-change,

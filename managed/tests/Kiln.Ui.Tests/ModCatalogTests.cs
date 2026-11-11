@@ -319,7 +319,9 @@ public sealed class ModCatalogTests : IDisposable
             Assert.Equal((effect, want), (effect, m.State));
             Assert.Contains("effect diagnostic", m.Reason);
             Assert.Equal(want == ModRunState.Failed, m.NeedsAttention);
+            Assert.True(m.Active);  // ShroudForge runs it, whatever its effect says
         }
+        Assert.False(Mod(Read(), "shroudforge", "inactive").Active);
         foreach (var stale in new[] { (Pid + 1, true, now), (Pid, false, now), (Pid, true, now - 60) })
         {
             Runtime(stale.Item1, stale.Item2, stale.Item3);
@@ -366,6 +368,24 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal(("XHL", EngineHealth.Problem), (engine.Name, engine.Health));  // the missing entry
         Assert.Contains("Kiln never loads", engine.Note);
         Assert.Equal(ModCatalog.EngineOrder.ToList().IndexOf("eml") + 1, ModCatalog.EngineOrder.ToList().IndexOf("xhl"));
+    }
+
+    /// <summary>A ShroudForge config Kiln cannot read (duplicate keys) leaves the default folders, never rows that look
+    /// Loaded because nothing refined them.</summary>
+    [Fact]
+    public void An_unreadable_shroudforge_config_does_not_leave_its_mods_looking_loaded()
+    {
+        var folder = Dir("mods", "pack");
+        File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
+        File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a", "state": "b" } }""");
+        Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = folder }] });
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+        File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new { runtime = new { pid = Pid, running = true, updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), active = new[] { "pack" } } }));
+        var s = Read();
+        var pack = Mod(s, "shroudforge", "pack");
+        Assert.Equal((ModRunState.Loaded, "active", true), (pack.State, pack.Word, pack.Active));  // read from the default state folder
+        Assert.Equal(EngineHealth.Ok, s.Engines.Single(e => e.Kind == "shroudforge").Health);
     }
 
     [Fact]

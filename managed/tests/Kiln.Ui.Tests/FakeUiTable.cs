@@ -31,6 +31,8 @@ internal static unsafe class FakeUiTable
     /// <summary>Only the text fields with this label report <see cref="Item"/> (the others, and every other widget, report
     /// nothing): the search box and a setting's field are told apart.</summary>
     public static string FieldLabel = "##v";
+    /// <summary>The next button whose label starts with this is clicked (once).</summary>
+    public static string? Click;
     private static bool _lastWasField;
 
     public sealed class Backend : IKilnBackend
@@ -98,7 +100,13 @@ internal static unsafe class FakeUiTable
     private static void PushVar(uint slot, float a, float b) { }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte FalseStrFloat2(NativeStr s, float a, float b) { _lastWasField = false; return 0; }
+    private static byte FalseStrFloat2(NativeStr s, float a, float b)
+    {
+        _lastWasField = false;
+        if (Click is null || !s.ToString().StartsWith(Click, StringComparison.Ordinal)) return 0;
+        Click = null;
+        return 1;
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static byte FalseStr(NativeStr s) { _lastWasField = false; return 0; }
@@ -250,6 +258,7 @@ internal static unsafe class FakeUiTable
         Item = default;
         Pressed.Clear();
         FieldLabel = "##v";
+        Click = null;
         _lastWasField = false;
         Fields.Clear();
         lock (Texts) Texts.Clear();
