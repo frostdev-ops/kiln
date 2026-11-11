@@ -945,7 +945,8 @@ pub fn settings_values(m: &SfMod) -> serde_json::Value {
 }
 
 /// `kiln/state/shroudforge.json`: `mode` hosted | self-hosted | not-installed | off | failed, `reason`, `version`,
-/// `side`, `nativeAbi`, `native` (ShroudForge's native runtime status text), `turns`, `updated` (unix seconds).
+/// `side`, `nativeAbi`, `native` (ShroudForge's native runtime status text), `keys` (`{source: kiln | helper | none,
+/// reason}`: where mod shortcuts get their key state), `turns`, `updated` (unix seconds).
 pub fn status(game_dir: &Path) -> Result<Option<serde_json::Value>> {
     crate::util::read_json(&game_dir.join(STATUS_FILE))
 }

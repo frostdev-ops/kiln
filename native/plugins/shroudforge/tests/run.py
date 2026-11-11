@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
                WAYLAND_DISPLAY='kiln-no-display', WINEDLLOVERRIDES='winedbg.exe=d')
     env.pop('DISPLAY', None)
     MISSING = object()  # menu_key: no toggleKey in ShroudForge's config (None writes a JSON null)
-    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=MISSING):
+    only = os.environ.get('KILN_SF_ONLY', '')  # run only the cases whose name starts with this
+    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=MISSING, runtime='runtime'):
+        if only and not name.startswith(only):
+            return
         game = root / name
         if linked_layout:
             layout = root / (name + '-steam-library')
@@ -32,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             if mode == 'corrupt':
                 (dest / 'shroudforge-runtime.dll').write_bytes(b'not a DLL')
             else:
-                shutil.copyfile(build / 'runtime.dll', dest / 'shroudforge-runtime.dll')
+                shutil.copyfile(build / (runtime + '.dll'), dest / 'shroudforge-runtime.dll')
         (game / 'kiln/kiln.json').write_text(json.dumps({'shroudforge': {'useInstalled': name != 'bundled-corrupt'}}))
         if early:
             shutil.copyfile(build / 'eml.dll', game / 'kiln/plugins/kiln-eml.dll')
@@ -222,6 +226,74 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('menu-helper-exited', extra_env=dict(client, KILN_SF_HELPER_EXIT='1'), helper=True, verify=menu_is('kiln'))
     case('menu-disabled', extra_env=dict(client, KILN_SF_MENU_OFF='1'), menu_off=True, verify=menu_is('off'))
     case('menu-self-hosted', extra_env=dict(client, KILN_SF_SELF_HOSTED='1'), self_hosted=True)
+
+    # ---- dev.24: mod shortcuts from Kiln's host key feed (the fork's kiln/abi/input_host.h, kiln.ui v5) ----
+    # host.cpp's fake kiln.ui plays play_script(): window keys before the first raw keyboard record, raw keys with their
+    # window messages, button messages before the first raw button record, raw buttons with theirs, a focus loss, an
+    # unknown kind and a short record. Each key goes through one of the two key functions: raw records once the window
+    # gives them (window messages after that are the same keys again), and so for buttons.
+    FED = ['feed-window 41 1e0001', 'feed-window 41 c01e0001', 'feed-raw 43 0 78', 'feed-raw 43 1 78',
+           'feed-mouse 4 1', 'feed-mouse 4 0', 'feed-mouse 1 1', 'feed-mouse 1 0', 'feed-reset']
+    def feed_calls(calls):
+        return [c for c in calls if c.startswith('feed-')]
+    def keys_from_kiln(status, calls, out):
+        assert feed_calls(calls) == ['feed-version', 'feed-begin'] + FED + ['feed-end'], feed_calls(calls)
+        assert calls.index('ui-subscribe') < calls.index('feed-begin') < calls.index('create'), calls
+        assert calls.index('ui-unsubscribe') < calls.index('feed-end') < calls.index('destroy'), calls
+        assert status['keys']['source'] == 'kiln', status
+        assert 'ShroudForge mod shortcuts: key state from Kiln' in out, out
+        assert 'not a check' in status['keys']['reason'], status
+    def no_feed(source, why, calls_wanted=()):
+        def verify(status, calls, out):
+            assert feed_calls(calls) == list(calls_wanted), (feed_calls(calls), calls)
+            assert status['keys']['source'] == source and why in status['keys']['reason'], status
+            assert 'ShroudForge mod shortcuts: ' in out, out
+        return verify
+    ui5 = dict(client, KILN_SF_FAKE_UI='5')
+    case('keys-fed-bundled', installed='corrupt', runtime='runtime_feed', extra_env=ui5, verify=keys_from_kiln)
+    case('keys-fed-installed', runtime='runtime_feed', extra_env=ui5, verify=keys_from_kiln)
+    case('keys-fed-early', installed='corrupt', early=True, runtime='runtime_feed', extra_env=ui5, verify=keys_from_kiln)
+    # one export missing (an upstream runtime has none; the fork before 9d586f1 neither): no call to any of them
+    case('keys-export-missing', installed='corrupt', runtime='runtime_feed_partial', extra_env=ui5,
+         verify=no_feed('none', 'has no host key feed'))
+    case('keys-old-runtime', installed='corrupt', extra_env=ui5, verify=no_feed('none', 'has no host key feed'))
+    case('keys-old-runtime-helper', runtime='runtime', extra_env=ui5, helper=True,
+         verify=no_feed('helper', "ShroudForge's own shroudforge.exe"))
+    case('keys-unknown-version', installed='corrupt', runtime='runtime_feed', extra_env=dict(ui5, KILN_SF_FEED_VERSION='2'),
+         verify=no_feed('none', 'version 2', ['feed-version']))
+    def begin_refused(status, calls, out):
+        no_feed('helper', 'already runs', ['feed-version', 'feed-begin'])(status, calls, out)
+        assert calls.index('feed-begin') < calls.index('ui-unsubscribe') < calls.index('create'), calls
+    case('keys-begin-refused', installed='corrupt', runtime='runtime_feed', extra_env=dict(ui5, KILN_SF_FEED_BEGIN='0'),
+         verify=begin_refused)
+    case('keys-server', installed='corrupt', runtime='runtime_feed', extra_env={'KILN_SF_FAKE_UI': '5'},
+         verify=no_feed('none', 'dedicated server'))
+    case('keys-no-ui', installed='corrupt', runtime='runtime_feed', extra_env=client, verify=no_feed('none', 'kiln.ui v5'))
+    case('keys-old-ui', installed='corrupt', runtime='runtime_feed', extra_env=dict(client, KILN_SF_FAKE_UI='4'),
+         verify=no_feed('none', 'kiln.ui v5'))
+    case('keys-short-ui', installed='corrupt', runtime='runtime_feed', extra_env=dict(client, KILN_SF_FAKE_UI='short'),
+         verify=no_feed('none', 'kiln.ui v5'))
+    case('keys-switched-off', installed='corrupt', runtime='runtime_feed', extra_env=dict(ui5, KILN_SF_KEY_FEED='off'),
+         verify=no_feed('none', 'KILN_SF_KEY_FEED=off'))
+    # Teardown while the window thread sends key records without a pause (each feed call takes 2 ms): no export after
+    # end or destroy. STUCK: kiln.ui's unsubscribe fails and records keep coming after the teardown.
+    def raced(stuck):
+        def verify(status, calls, out):
+            late = [c for c in calls if c.startswith('feed-out-of-turn')]
+            assert not late, late[:5]
+            assert calls.count('feed-end') == 1 and calls.index('feed-end') < calls.index('destroy'), calls[-20:]
+            records, after = map(int, re.search(r'delivered (\d+) records, (\d+) after', out).groups())
+            assert calls.count('feed-raw 43 0 78') >= 10 and records >= 20, (records, calls.count('feed-raw 43 0 78'))
+            if stuck:
+                assert 'ui-unsubscribe-refused' in calls and after >= 10, (after, calls[-10:])
+            else:
+                assert calls.index('ui-unsubscribe') < calls.index('feed-end'), calls[-20:]
+            print(f'teardown race: {records} records sent, {calls.count("feed-raw 43 0 78")} key presses fed, {after} after the teardown')
+        return verify
+    race = dict(ui5, KILN_SF_FEED_RACE='1', KILN_SF_FEED_SLOW='1')
+    case('keys-teardown-race', installed='corrupt', runtime='runtime_feed', extra_env=race, verify=raced(False))
+    case('keys-teardown-race-stuck-ui', installed='corrupt', runtime='runtime_feed',
+         extra_env=dict(race, KILN_SF_FAKE_UI_STUCK='1'), verify=raced(True))
 
     # ---- dev.22: drop-ins for ShroudForge with an active profile that lists no ShroudForge mods ----
     def profile_case(name, dropins, package, state=None):

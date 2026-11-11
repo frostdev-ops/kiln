@@ -16,6 +16,11 @@ add_executable(ui-addon-harness EXCLUDE_FROM_ALL tests/addon_harness/harness.cpp
 target_include_directories(ui-addon-harness PRIVATE . ${CMAKE_SOURCE_DIR}/core/src ${CMAKE_SOURCE_DIR}/core/abi
     ${KILN_GENERATED_DIR} ${CMAKE_SOURCE_DIR}/third_party)
 target_link_libraries(ui-addon-harness PRIVATE kiln-safetyhook kiln-imgui user32 imm32 dwmapi gdi32)
+# Opt-in build target, never packaged: the window procedure's input records for native subscribers (kiln_ui.h v5) on a
+# message-only window under Wine (tests/test-window-input-wine.sh).
+add_executable(ui-window-input-test EXCLUDE_FROM_ALL tests/window_input/harness.cpp input.cpp)
+target_include_directories(ui-window-input-test PRIVATE . ${CMAKE_SOURCE_DIR}/core/abi ${CMAKE_SOURCE_DIR}/third_party)
+target_link_libraries(ui-window-input-test PRIVATE kiln-safetyhook kiln-imgui user32 imm32 dwmapi gdi32)
 add_library(ui-addon-inert SHARED EXCLUDE_FROM_ALL tests/addon_harness/fixture.cpp)
 add_library(ui-addon-forwarded SHARED EXCLUDE_FROM_ALL tests/addon_harness/fixture.cpp)
 target_compile_definitions(ui-addon-forwarded PRIVATE FORWARDED_SHUTDOWN)

@@ -417,6 +417,23 @@ fn sf_flight_switches_remain_independent_through_archive_activation_and_update()
 }
 
 #[test]
+fn sf_state_with_its_shortcut_source_reaches_engine_status_and_the_report() {
+    // kiln-shroudforge writes "keys" (dev.24): where ShroudForge's mod shortcuts get their key state this start. It is
+    // passed on as written; the report's engine line still reads mode and reason, and no mod row comes from it.
+    let t = tmp("sf-keys");
+    let game = &t.0;
+    put(game, "kiln/state/shroudforge.json", br#"{"format":1,"side":"client","mode":"hosted","reason":"","runtime":"running",
+        "source":"bundled","version":"1.7.9","menu":"kiln","menuKey":"SDL:66","engineHooks":"self",
+        "keys":{"source":"kiln","reason":"Kiln passes the game window's key, mouse button and focus records to the runtime (host key feed v1); this is not a check that a mod's shortcut fires"}}"#);
+    let sf = engine_mods::status(game).into_iter().find(|s| s.kind == ModKind::ShroudForge).unwrap();
+    assert!(sf.error.is_none(), "{:?}", sf.error);
+    let state = sf.state.unwrap();
+    assert_eq!(state["keys"]["source"], "kiln");
+    assert_eq!(kiln_manage::report::engine_headline(&state).as_deref(), Some("hosted"));
+    assert!(kiln_manage::report::engine_mod_lines(&state).is_empty());
+}
+
+#[test]
 fn sf_effects_reach_engine_status_without_presenting_old_or_invalid_reports_as_current() {
     let t = tmp("sf-effects");
     let game = &t.0;

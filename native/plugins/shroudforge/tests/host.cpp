@@ -7,11 +7,15 @@
 #include <string>
 #include <cstdio>
 #include <ctime>
+#include <atomic>
 #include <cstring>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include "kiln_api.h"
 #include "services/kiln_hooks.h"
 #include "services/kiln_profile.h"
+#include "services/kiln_ui.h"
 static std::filesystem::path game;
 static KilnResult path(int32_t kind, char* out, size_t cap, size_t* len) {
     auto p = game;
@@ -61,7 +65,184 @@ static std::string profile_text;
 static uint32_t p_mode() { return KILN_PROFILE_ACTIVE; }
 static KilnStr p_json() { return KilnStr{profile_text.data(), profile_text.size()}; }
 static KilnProfileApi fake_profile{};
+// A fake kiln.ui (KILN_SF_FAKE_UI=5: v5 with subscribe_window_input; 4: an older kiln.ui; short: says v5 but its table
+// ends before the slot). Its window thread hands records over as kiln.ui does: under a gate per call; unsubscribe
+// clears the callback, then waits at the gate for a call in flight. KILN_SF_FAKE_UI_STUCK=1: unsubscribe fails
+// (KILN_ERR_WRONG_THREAD) and keeps calling, so only the adapter's own guard stands between a record and its runtime.
+static KilnUiApi fake_ui{};
+static void mark(const char* what) {  // the same call log as the fake runtime's, written the same way (fake.cpp)
+    wchar_t file[32768]{};
+    if (!GetEnvironmentVariableW(L"KILN_SF_TEST_LOG", file, 32768)) return;
+    HANDLE f = CreateFileW(file, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    const std::string line = std::string(what) + "\n";
+    DWORD written = 0;
+    WriteFile(f, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+    CloseHandle(f);
+}
+static std::mutex ui_gate, ui_mu;
+static KilnUiWindowInputFn ui_fn = nullptr;
+static void* ui_user = nullptr;
+static constexpr KilnHandle kUiHandle = 0x5eed;
+static KilnResult ui_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out) {
+    if (!fn) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(ui_mu);
+    ui_fn = fn;
+    ui_user = user;
+    if (out) *out = kUiHandle;
+    std::printf("[fake kiln.ui] subscribe_window_input owner=%llu\n", (unsigned long long)owner);
+    mark("ui-subscribe");
+    return KILN_OK;
+}
+static KilnResult ui_unsubscribe(KilnHandle h) {
+    if (h != kUiHandle) return KILN_ERR_NOT_FOUND;
+    if (GetEnvironmentVariableW(L"KILN_SF_FAKE_UI_STUCK", nullptr, 0)) {
+        std::printf("[fake kiln.ui] unsubscribe refused\n");
+        mark("ui-unsubscribe-refused");
+        return KILN_ERR_WRONG_THREAD;
+    }
+    {
+        std::lock_guard lock(ui_mu);
+        ui_fn = nullptr;
+    }
+    std::lock_guard call(ui_gate);
+    std::printf("[fake kiln.ui] unsubscribe\n");
+    mark("ui-unsubscribe");
+    return KILN_OK;
+}
+static bool ui_deliver(KilnUiWindowInput r) {
+    if (!r.size) r.size = sizeof r;
+    std::lock_guard call(ui_gate);
+    KilnUiWindowInputFn fn;
+    void* user;
+    {
+        std::lock_guard lock(ui_mu);
+        fn = ui_fn;
+        user = ui_user;
+    }
+    if (!fn) return false;
+    fn(&r, user);
+    return true;
+}
+static KilnUiWindowInput rec(uint32_t kind, uint32_t message) {
+    KilnUiWindowInput r{};
+    r.kind = kind;
+    r.message = message;
+    return r;
+}
+static KilnUiWindowInput raw(uint32_t make_code, uint32_t flags, uint32_t vkey) {
+    auto r = rec(KILN_UI_INPUT_RAW_KEY, WM_INPUT);
+    r.make_code = make_code, r.flags = flags, r.vkey = vkey;
+    return r;
+}
+static KilnUiWindowInput key(uint32_t message, uint64_t w, int64_t l) {
+    auto r = rec(KILN_UI_INPUT_WINDOW_KEY, message);
+    r.wparam = w, r.lparam = l;
+    return r;
+}
+static KilnUiWindowInput button(uint32_t message, uint32_t b, uint32_t down) {
+    auto r = rec(KILN_UI_INPUT_MOUSE_BUTTON, message);
+    r.button = b, r.down = down;
+    return r;
+}
+// What the game window gives kiln.ui, in its order: window keys before the first raw keyboard record, raw keys and their
+// window messages, button messages before the first raw button record, raw buttons and their messages, a focus loss, a
+// kind this adapter does not know, and a record too short to read.
+static void play_script() {
+    ui_deliver(key(WM_KEYDOWN, 'A', 0x1e0001));
+    ui_deliver(key(WM_KEYUP, 'A', 0xc01e0001));
+    ui_deliver(raw(0x43, 0, VK_F9));
+    ui_deliver(key(WM_KEYDOWN, VK_F9, 0x430001));
+    ui_deliver(raw(0x43, RI_KEY_BREAK, VK_F9));
+    ui_deliver(key(WM_KEYUP, VK_F9, 0xc0430001));
+    ui_deliver(key(WM_SYSKEYDOWN, VK_MENU, 0x20380001));
+    ui_deliver(button(WM_XBUTTONDOWN, 4, 1));
+    ui_deliver(button(WM_XBUTTONUP, 4, 0));
+    ui_deliver(button(WM_INPUT, 1, 1));
+    ui_deliver(button(WM_LBUTTONDOWN, 1, 1));
+    ui_deliver(button(WM_INPUT, 1, 0));
+    ui_deliver(button(WM_LBUTTONUP, 1, 0));
+    ui_deliver(rec(KILN_UI_INPUT_FOCUS_LOST, WM_KILLFOCUS));
+    ui_deliver(rec(99, 0));
+    auto short_record = raw(0x44, 0, VK_F10);
+    short_record.size = offsetof(KilnUiWindowInput, wparam);
+    ui_deliver(short_record);
+    std::printf("[fake kiln.ui] script delivered\n");
+}
+// KILN_SF_REAL_KEYS (real_keys.py): the real runtime with a probe mod that logs its shortcut state. Steps a quarter of a
+// second apart, so that its 10 ms update sees each one; the probe's lines land in ShroudForge's own log.
+static bool log_has(const std::filesystem::path& file, const char* needle, int wait_ms) {
+    for (int waited = 0;; waited += 50) {
+        std::ifstream in(file, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(in)), {});
+        if (text.find(needle) != std::string::npos) return true;
+        if (waited >= wait_ms) return false;
+        Sleep(50);
+    }
+}
+static void play_real(const std::filesystem::path& game) {
+    if (!log_has(game / L"shroudforge/logs/shroudforge-client.log", "probe ready", 30000)) {
+        std::printf("[real] the probe mod did not report ready\n");
+        return;
+    }
+    const auto step = [](const char* what, KilnUiWindowInput r) {
+        ui_deliver(r);
+        std::printf("[real] %s\n", what);
+        Sleep(250);
+    };
+    step("F9 down (raw)", raw(0x43, 0, VK_F9));
+    step("F9 up (raw)", raw(0x43, RI_KEY_BREAK, VK_F9));
+    step("F9 down (window message, after raw input: the same key again, not forwarded)", key(WM_KEYDOWN, VK_F9, 0x430001));
+    step("F9 up (window message)", key(WM_KEYUP, VK_F9, 0xc0430001));
+    step("left Ctrl down (raw)", raw(0x1d, 0, VK_CONTROL));
+    step("F9 down (raw)", raw(0x43, 0, VK_F9));
+    step("F9 up (raw)", raw(0x43, RI_KEY_BREAK, VK_F9));
+    step("left Ctrl up (raw)", raw(0x1d, RI_KEY_BREAK, VK_CONTROL));
+    step("XBUTTON1 down (raw)", button(WM_INPUT, 4, 1));
+    step("XBUTTON1 up (raw)", button(WM_INPUT, 4, 0));
+    step("F9 down (raw)", raw(0x43, 0, VK_F9));
+    step("focus lost with F9 held", rec(KILN_UI_INPUT_FOCUS_LOST, WM_KILLFOCUS));
+    step("F9 up (raw) after the focus loss", raw(0x43, RI_KEY_BREAK, VK_F9));
+    std::printf("[real] steps done\n");
+}
+// ShroudForge answers shortcut queries only while a window of this process is in front (GetForegroundWindow). Wine
+// without a display has no top-level windows, so the runtime's GetForegroundWindow import answers with a message-only
+// window of this process: an OS stand-in for "the game window is in front"; the runtime's own check stays as it is.
+static HWND g_front = nullptr;
+static HWND WINAPI front_window() { return g_front; }
+static bool patch_import(HMODULE module, const char* function, void* with, void** original);
+static void game_window_in_front() {
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"KilnSfRealKeys";
+    RegisterClassW(&wc);
+    g_front = CreateWindowExW(0, wc.lpszClassName, L"real keys", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+    void* original = nullptr;
+    HMODULE runtime = GetModuleHandleW(L"shroudforge-runtime.dll");
+    const bool patched = g_front && runtime &&
+                         patch_import(runtime, "GetForegroundWindow", reinterpret_cast<void*>(&front_window), &original);
+    DWORD pid = 0;
+    GetWindowThreadProcessId(g_front, &pid);
+    std::printf("[real] message-only window %p of this process (%s); the runtime's GetForegroundWindow answers it: %s\n",
+                static_cast<void*>(g_front), pid == GetCurrentProcessId() ? "yes" : "no", patched ? "yes" : "no");
+}
+static void* ui_table() {
+    wchar_t v[8] = L"";
+    if (!GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", v, 8)) return nullptr;
+    fake_ui.header = {sizeof fake_ui, 5};
+    fake_ui.unsubscribe = ui_unsubscribe;
+    fake_ui.subscribe_window_input = ui_subscribe;
+    if (!wcscmp(v, L"4")) fake_ui.header = {static_cast<uint32_t>(offsetof(KilnUiApi, subscribe_window_input)), 4};
+    if (!wcscmp(v, L"short")) fake_ui.header.size = static_cast<uint32_t>(offsetof(KilnUiApi, subscribe_window_input));
+    return &fake_ui;
+}
 static const void* service(KilnStr name, uint32_t min) {
+    if (text(name) == KILN_UI_SERVICE) {
+        const auto* t = static_cast<const KilnUiApi*>(ui_table());
+        return t && t->header.version >= min ? t : nullptr;  // as the core: a version at least `min`
+    }
     if (text(name) == KILN_PROFILE_SERVICE) {
         wchar_t file[1024];
         const DWORD n = GetEnvironmentVariableW(L"KILN_SF_PROFILE", file, 1024);
@@ -127,9 +308,12 @@ static void slow_io(LPCWSTR file) {
     std::printf("slow-io %llu %llu %lu %ls\n", begin, GetTickCount64(), GetCurrentThreadId(),
                 std::filesystem::path(file).filename().c_str());
 }
+static std::atomic<int> heartbeats_written{0};  // renames of heartbeat.json that completed
 static BOOL WINAPI slow_move(LPCWSTR from, LPCWSTR to, DWORD flags) {
     if (to) slow_io(to);
-    return original_move(from, to, flags);
+    const BOOL moved = original_move(from, to, flags);
+    if (moved && to && std::filesystem::path(to).filename() == L"heartbeat.json") ++heartbeats_written;
+    return moved;
 }
 static HANDLE WINAPI slow_create(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags,
                                  HANDLE tmpl) {
@@ -190,8 +374,37 @@ int main(int argc, char** argv) {
     api.path = path; api.log = log; api.service = service; api.side = side;
     KilnPluginInfo info{}; info.size = sizeof info;
     if (fn(&api, 1, &info) != KILN_OK) return 5;
+    const bool real = GetEnvironmentVariableW(L"KILN_SF_REAL_KEYS", nullptr, 0) != 0;
     if (info.on_ready) info.on_ready(info.user);
-    Sleep(stalled ? 2900 : stop_during_write ? 60 : delayed ? 1300 : 120);  // delayed: one writer turn (3 x 350 ms) in the loop
+    if (real) game_window_in_front();
+    // kiln.ui's window thread (KILN_SF_FAKE_UI): the script once, or (KILN_SF_FEED_RACE) key records without a pause
+    // until the subscription is gone, while this thread tears the adapter down below.
+    std::thread window;
+    std::atomic<bool> window_stop{false};
+    std::atomic<long> window_records{0}, window_late{0};
+    std::atomic<bool> torn_down{false};
+    if (GetEnvironmentVariableW(L"KILN_SF_FEED_RACE", nullptr, 0)) {
+        window = std::thread([&] {
+            while (!window_stop) {
+                if (!ui_deliver(raw(0x43, 0, VK_F9)) || !ui_deliver(raw(0x43, RI_KEY_BREAK, VK_F9))) break;
+                window_records += 2;
+                if (torn_down) window_late += 2;
+            }
+        });
+        Sleep(150);
+    } else if (real) {
+        play_real(game);
+    } else if (GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", nullptr, 0)) {
+        play_script();
+    }
+    if (stalled) {
+        // The writer's second heartbeat, not its first (which both clocks would stamp alike): a writer turn is three
+        // delayed operations (about 1050 ms), then 2 s of waiting; the one update stalls 4400 ms (fake.cpp), so the
+        // second heartbeat is written while the loop still stands in it. Waited for, not timed.
+        for (int i = 0; i < 200 && heartbeats_written < 2; ++i) Sleep(50);
+    } else {
+        Sleep(stop_during_write ? 60 : delayed ? 1300 : 120);  // delayed: one writer turn (3 x 350 ms) in the loop
+    }
     if (GetEnvironmentVariableW(L"KILN_SF_CLIENT", nullptr, 0)) {
         const auto suffix = std::to_wstring(GetCurrentProcessId());
         HANDLE event = nullptr;
@@ -249,5 +462,13 @@ int main(int argc, char** argv) {
     }
     if (info.on_unload) info.on_unload(info.user);
     Sleep(delayed ? 2500 : 150); // allow signalled, serial worker cleanup (slow writer join + final status) before exit
+    if (window.joinable()) {
+        torn_down = true;  // the worker's teardown (unsubscribe, end, destroy) is done by now; records keep coming
+        Sleep(300);
+        window_stop = true;
+        window.join();
+        std::printf("[fake kiln.ui] window thread delivered %ld records, %ld after the teardown\n", window_records.load(),
+                    window_late.load());
+    }
     return 0;
 }
