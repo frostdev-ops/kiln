@@ -93,6 +93,15 @@ Each is marked `kiln-eml:` in the source.
     (`phase: running` and `progress`) and the `kiln.progress` window of kiln-core; `runner.rs` creates the `Progress`,
     gives the sink the mods, and says what the no-mods restore check reads.
 
+11. `mod-loader-lua/ownership.rs`, `lib.rs`, `load.rs`, `transaction.rs`, `kiln-eml/src/runner.rs`: exact SHA-256
+    output and working-backup receipts gate automatic restoration and patch-cache skipping. Legacy performance caches
+    never establish ownership. Real archive changes invalidate only a recognized ShroudForge prepared-asset cache
+    under its installation lock, preserving settings and retaining exact original/replacement bytes in a recovery
+    journal. Unknown schemas/receipts, busy locks and linked descendants refuse unsafe handoffs; selected-game layout
+    ancestors may be legitimate volume mounts. Idle EML never restores another loader's output merely because a shared
+    `.kfc.bak` exists. Linux and Windows ownership tests cover these boundaries; a headless actual SF/EML/uninstall/SF
+    dedicated-server round trip confirmed standalone SF reapplies unchanged-fingerprint asset mods without reinstalling.
+
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.
 Wine exposes directory links by name but hides Unix file symlinks, which the installer must exclude.

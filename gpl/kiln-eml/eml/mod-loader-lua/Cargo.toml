@@ -17,6 +17,8 @@ indexmap.workspace = true
 parking_lot.workspace = true
 uuid.workspace = true
 crc.workspace = true
+# kiln-eml: byte-level archive ownership, separate from EML's performance cache.
+sha2 = "0.10"
 camino.workspace = true
 bitflags.workspace = true
 

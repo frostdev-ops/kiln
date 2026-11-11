@@ -176,11 +176,19 @@ It fails soft:
   folder and `src` are there, the file is not: a typo in a `require`, or a version of the mod without that module)
   says `no such module: mods.<id>.<module> (<file>): ...`; the mod whose chunk required it is switched off, not the
   intact one named.
-- **A failure that names no mod** (a write error, a panic): a compatible valid backup restores vanilla, and the
-  cache is dropped so the next start re-runs. Restore failures are reported as failures; they are never labelled idle.
-  An install-lock failure stops startup instead of entering the game alongside a possible active writer.
-- **No EML mods (left):** if a `.kfc.bak` exists and differs, `<exe>.kfc` is restored from it byte for byte, once.
-  Otherwise kiln-eml touches nothing (`idle`).
+- **A failure that names no mod** (a write error, a panic): restoration requires exact proof that the live output
+  still belongs to kiln-eml and that its working backups are unchanged. Unowned or changed data is retained; the cache
+  is dropped so the next start re-runs. Restore failures remain failures. An install-lock failure stops startup.
+- **No EML mods (left):** kiln-eml restores only its own unchanged published output, using the matching baseline.
+  A shared `.kfc.bak` or old performance cache alone never authorizes restoration. Other loaders' patches are kept.
+- **Writer handoff:** exact output/backup SHA-256 receipts live in `kiln/eml/ownership/`. Before changing archives,
+  kiln-eml invalidates only a recognized ShroudForge prepared-asset cache under ShroudForge's installation lock.
+  Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. Unknown
+  schemas, busy locks and unsafe paths refuse the handoff. This does not automatically repair pre-existing stale SF state.
+- **Launcher:** an archive differing from a shared backup does not prove EML wrote it. The old direct-restore command
+  now refuses instead of copying a header without its resources, ownership checks or loader-state handoff. Disable EML
+  mods and launch through updated Kiln to let its archive writer restore proven EML output. No client rendering or the
+  original reinstall reporter's exact installation was tested; the dedicated-server SF/EML/uninstall/SF round trip passed.
 
 #### Reading the game data
 EML decides whether to patch by fingerprinting the game's files: length, last-write time and a CRC-64 of every byte of
@@ -777,7 +785,7 @@ Mods we need from the user (Nexus downloads, which agents can't fetch):
   reads `mods.eml`.
 - Library detection: `kiln-manage/src/engines.rs` treats a `mod.json` with `capabilities` as a ShroudForge package.
   Real EML mods have `"capabilities": ["patch"]`, so they show as ShroudForge (for detect).
-- The launcher could read `state/eml.json` and show each EML mod's state (dev.22 reads it for the start progress only).
-  When the player turns kiln-eml off, it could offer EML's restore (copy `.kfc.bak` over `.kfc`).
+- The launcher now reads `state/eml.json` on Logs > Engines. Its shared-backup notice is read-only: direct
+  `.kfc.bak` copies are unsafe. Updated kiln-eml restores only output proven by exact receipts (see "It fails soft").
 - `kiln/eml/mods` drop-ins are still not forwarded into SF when SF owns startup (profile EML mods are, by placement
   since dev.22).

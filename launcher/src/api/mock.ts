@@ -907,11 +907,9 @@ const handlers: Record<string, Handler> = {
     return FRESH ? [] : [{ file: `${g.path}/enshrouded.kfc`, backup: `${g.path}/enshrouded.kfc.bak`, patched: emlPatched }];
   },
   eml_restore: (a) => {
-    const g = gameOf(S(a.gameId));
+    gameOf(S(a.gameId));
     if (running[S(a.gameId)]) reject("game_running", "Close the game first.");
-    const done = emlPatched && !FRESH ? [`${g.path}/enshrouded.kfc`] : [];
-    emlPatched = false;
-    return done;
+    return reject("refused", "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and launch through an updated Kiln; other loaders' data is kept.");
   },
 
   // mods in the game folder Kiln did not put there (kiln_manage::found)

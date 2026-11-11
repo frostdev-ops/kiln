@@ -168,20 +168,29 @@ fn every_engine_kind_is_imported_profiled_placed_and_rendered() {
 }
 
 #[test]
-fn eml_restore_puts_the_vanilla_kfc_back() {
+fn direct_restore_never_overwrites_shared_archive_data_or_another_loaders_state() {
     let t = tmp("eml-restore");
-    put(&t.0, "enshrouded.kfc", b"patched");
-    put(&t.0, "enshrouded.kfc.bak", b"vanilla");
-    put(&t.0, "player-data", b"keep");
-    std::os::unix::fs::symlink(t.0.join("player-data"), t.0.join("enshrouded.kfc.tmp")).unwrap();
+    let files: &[(&str, &[u8])] = &[
+        ("enshrouded.kfc", b"another loader's patched header"),
+        ("enshrouded.kfc.bak", b"shared baseline header"),
+        ("enshrouded.kfc_resources", b"another loader's patched resources"),
+        ("enshrouded.kfc_resources.bak", b"shared baseline resources"),
+        ("enshrouded_010.dat", b"published content"),
+        ("shroudforge/state.json", br#"{"assets":{"status":"applied"}}"#),
+        ("kiln/eml/ownership/enshrouded.json", b"unverified receipt"),
+        ("player-data", b"keep"),
+    ];
+    for (name, bytes) in files { put(&t.0, name, bytes); }
     let b = engine_mods::eml_backup(&t.0).unwrap();
     assert_eq!(b.len(), 1);
-    assert!(b[0].patched);
-    assert_eq!(engine_mods::eml_restore_vanilla(&t.0).unwrap().len(), 1);
-    assert_eq!(std::fs::read(t.0.join("enshrouded.kfc")).unwrap(), b"vanilla");
-    assert!(!engine_mods::eml_backup(&t.0).unwrap()[0].patched);
-    assert!(engine_mods::eml_restore_vanilla(&t.0).unwrap().is_empty());
-    assert_eq!(std::fs::read(t.0.join("player-data")).unwrap(), b"keep");
+    assert!(b[0].patched, "a difference does not prove who wrote it");
+    let error = engine_mods::eml_restore_vanilla(&t.0).unwrap_err();
+    assert_eq!(error.code, ErrorCode::Refused);
+    assert!(error.message.contains("ownership") && error.message.contains("Kiln"));
+    for (name, bytes) in files {
+        assert_eq!(std::fs::read(t.0.join(name)).unwrap(), *bytes, "{name}");
+    }
+    assert!(engine_mods::eml_backup(&t.0).unwrap()[0].patched);
 }
 
 #[test]

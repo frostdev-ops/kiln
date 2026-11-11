@@ -20,6 +20,9 @@ mod progress;
 mod alias;
 mod load;
 mod transaction;
+mod ownership;
+// kiln-eml: restoration needs exact writer ownership, not an input/performance cache.
+pub use ownership::owns_output;
 mod lua;
 
 #[derive(Debug, Clone, Default)]
@@ -125,7 +128,8 @@ fn run_steps(
             new_cache.write(env.cache_dir());
         }
 
-        if cache_diff.is_none() && args.options.patch && !args.options.export {
+        if cache_diff.is_none() && args.options.patch && !args.options.export &&
+            owns_output(env.game_dir().as_std_path(), &file_name).unwrap_or(false) {
             args.options.patch = false;
 
             info!("No changes detected, skipping patching");

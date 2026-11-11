@@ -13,7 +13,8 @@
 //! - Settings per format ([`settings`], [`set_setting`]): ShroudForge's `extended.mod.json` settings (on the copy in
 //!   SF's mods folder) and Shroudtopia's `shroudtopia.json` (in the profile's config folder). EMF's ini is `config`'s.
 //! - [`status`]: the plugins' state files (`kiln/state/<engine>.json`) for the Play and Logs pages.
-//! - [`eml_backup`] / [`eml_restore_vanilla`]: EML's `<exe>.kfc.bak`, for "Restore vanilla game data".
+//! - [`eml_backup`]: read-only shared archive differences. [`eml_restore_vanilla`] refuses legacy direct restores;
+//!   only the separate archive writer can verify ownership and safely hand off loader state.
 
 use crate::engines::{ImportCtx, Loader};
 use crate::library::{DetectKind, ImportRecord, Skipped};
@@ -1846,7 +1847,7 @@ pub struct EmlBackup {
     pub file: String,
     /// `<exe>.kfc.bak`
     pub backup: String,
-    /// The game's file differs from the backup (patched by EML or kiln-eml).
+    /// The game's file differs from the shared backup; this does not identify its writer.
     pub patched: bool,
 }
 
@@ -1866,27 +1867,12 @@ pub fn eml_backup(game_dir: &Path) -> Result<Vec<EmlBackup>> {
     Ok(out)
 }
 
-/// Restore through a streamed temporary sibling, preserving the current game file until the copy is complete.
-/// The command caller refuses while the game runs.
-pub fn eml_restore_vanilla(game_dir: &Path) -> Result<Vec<String>> {
-    let backups = eml_backup(game_dir)?; // inspect every candidate before changing any file
-    let mut done = Vec::new();
-    for b in backups.into_iter().filter(|b| b.patched) {
-        let file = Path::new(&b.file);
-        let bak = Path::new(&b.backup);
-        refuse_symlink_path(game_dir, file)?;
-        refuse_symlink_path(game_dir, bak)?;
-        let tmp = crate::library::TempDir::new(game_dir, "eml-restore")?;
-        let staged = tmp.path().join("data.kfc");
-        std::fs::copy(bak, &staged).map_err(io_at(bak, "copying"))?;
-        if crate::hash::sha256_file(&staged)? != crate::hash::sha256_file(bak)? {
-            return Err(Error::new(ErrorCode::HashMismatch, "EML backup changed while restoring"));
-        }
-        std::fs::File::open(&staged)?.sync_all()?;
-        crate::util::rename_replace(&staged, file)?;
-        done.push(b.file);
-    }
-    Ok(done)
+/// Retained for older command callers, but direct shared-backup restoration is unsafe.
+/// The archive writer owns receipt verification, resource/container consistency and loader-cache handoff.
+/// Keep those operations in that separate component rather than duplicating them in management code.
+pub fn eml_restore_vanilla(_game_dir: &Path) -> Result<Vec<String>> {
+    Err(Error::new(ErrorCode::Refused,
+        "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and launch through an updated Kiln so its archive writer can restore only its own unchanged output; other loaders' data is kept."))
 }
 
 #[cfg(test)]

@@ -1,12 +1,11 @@
-// Other engines' plugins at a glance (engine_status: `kiln/state/<engine>.json`), and EML's "Restore vanilla game data"
-// (eml_backup / eml_restore). Used by the Logs page's Engines tab and the profile's Engines tab. docs/kiln/engines.md.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+// Other engines' plugins at a glance (engine_status: `kiln/state/<engine>.json`) and read-only shared archive backup guidance
+// (eml_backup). Used by the Logs page's Engines tab and the profile's Engines tab. docs/kiln/engines.md.
+import { useQuery } from "@tanstack/react-query";
 import * as api from "../api/commands";
 import type { EngineStatus, GameId, Json, ModKind } from "../api/commands";
-import { useActiveProfile, useGameStatus, usePoll, useProfile } from "../api/hooks";
+import { useActiveProfile, usePoll, useProfile } from "../api/hooks";
 import { KIND_NAME, KIND_SHORT, KIND_TONE, MOD_KINDS } from "../api/kinds";
-import { Badge, Banner, Button, EmptyState, Modal, Skeleton, errorText, toast, type Tone } from "../ui";
+import { Badge, Banner, EmptyState, Skeleton, errorText, type Tone } from "../ui";
 
 type Obj = Record<string, Json>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
@@ -118,43 +117,22 @@ export function EngineRow({ s }: { s: EngineStatus }) {
   );
 }
 
-/** "Restore vanilla game data": offered when EML's backup says a `.kfc` is patched and the active profile runs no EML
- *  mod (nothing would patch it again, so the game would keep stale EML changes). */
+/** A shared backup difference is not proof of EML ownership. Only the archive writer can safely restore its output. */
 export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
-  const qc = useQueryClient();
   const backup = useQuery({ queryKey: ["eml_backup", gameId], queryFn: () => api.emlBackup(gameId) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
-  const status = useGameStatus(gameId);
-  const [confirm, setConfirm] = useState(false);
-  const restore = useMutation({
-    mutationFn: () => api.emlRestore(gameId),
-    onSuccess: (files) => {
-      toast.ok("Vanilla game data back", files.length ? files.map((f) => f.split(/[\\/]/).pop()).join(", ") : "Nothing needed restoring.");
-      setConfirm(false);
-      qc.invalidateQueries({ queryKey: ["eml_backup", gameId] });
-      qc.invalidateQueries({ queryKey: engineStatusKey(gameId) });
-    },
-    onError: (e) => toast.error(e, "Not restored"),
-  });
   const patched = (backup.data ?? []).filter((b) => b.patched);
   const emlOn = (profile.data?.mods.eml ?? []).some((m) => m.enabled);
   if (backup.error) return <EmptyState title="The game data backup is not readable" hint={errorText(backup.error)} />;
   if (active.error) return <EmptyState title="The active profile is not readable" hint={errorText(active.error)} />;
   if (!patched.length || active.isLoading || (active.data && !profile.data) || emlOn) return null;
-  const running = !status.data || !!status.data.running;
   const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
   return (
-    <>
-      <Banner tone="warn" title="EML changes still in the game data"
-        actions={<Button size="s" disabled={running} title={running ? "Close the game first" : undefined} onClick={() => setConfirm(true)}>Restore vanilla game data</Button>}>
-        {names} still {patched.length === 1 ? "has" : "have"} EML's patches, and no EML mod is on in the active profile.
-      </Banner>
-      <Modal open={confirm} onClose={() => setConfirm(false)} title="Restore vanilla game data?" width={500} locked={restore.isPending}
-        footer={<><Button variant="ghost" onClick={() => setConfirm(false)}>Cancel</Button>
-          <Button variant="primary" loading={restore.isPending} disabled={running} onClick={() => restore.mutate()}>Restore</Button></>}>
-        EML's backup of the original file goes back over {names}. Turn an EML mod on later and kiln-eml patches it again.
-      </Modal>
-    </>
+    <Banner tone="info" title="Shared archive backup differs">
+      {names} {patched.length === 1 ? "differs" : "differ"} from the shared backup; this does not identify which loader wrote it.
+      {" "}To remove EML changes, disable EML mods and launch through an updated Kiln. Its archive writer checks ownership
+      before restoring its own unchanged output. Other loaders' data is kept; the launcher never copies shared backups directly.
+    </Banner>
   );
 }

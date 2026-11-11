@@ -89,7 +89,7 @@ test("ShroudForge settings edit a value through the SchemaForm; kinds without se
   expect(eml.note).toContain("no settings");
 });
 
-test("Logs > Engines shows each plugin's state, and Restore vanilla game data puts the .kfc back", async ({ page }) => {
+test("Logs > Engines shows state without overwriting a shared archive backup", async ({ page }) => {
   await desktop(page, "/logs");
   await page.getByRole("tab", { name: "Engines" }).click();
   const list = page.getByLabel("Engine plugins");
@@ -101,24 +101,28 @@ test("Logs > Engines shows each plugin's state, and Restore vanilla game data pu
   // an engine's own loader in the game: the row says what it means for the profile's mods
   await expect(list.locator('[data-engine="flame"]')).toContainText("Flame's own loader (kiln/chain/flame-dinput8.dll) is installed");
 
-  // the active profile ("Ember run") has its EML mod off, and enshrouded.kfc is still patched
-  const offer = page.getByRole("button", { name: "Restore vanilla game data" });
-  await expect(offer).toBeVisible();
-  await offer.click();
-  const dialog = page.getByRole("dialog", { name: "Restore vanilla game data?" });
-  await expect(dialog).toContainText("enshrouded.kfc");
-  await dialog.getByRole("button", { name: "Restore", exact: true }).click();
-  await expect(page.locator(".k-toast", { hasText: "Vanilla game data back" })).toBeVisible();
-  await expect(offer).toHaveCount(0);
+  // A difference from the shared .bak does not prove EML owns this output.
+  const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });
+  await expect(notice).toContainText("enshrouded.kfc");
+  await expect(notice).toContainText("checks ownership");
+  await expect(notice).toContainText("Other loaders' data is kept");
+  await expect(page.getByRole("button", { name: "Restore vanilla game data" })).toHaveCount(0);
+  const result = await page.evaluate(async () => {
+    const api = await import("/src/api/commands.ts");
+    try { await api.emlRestore("client-steam"); return "unexpected success"; }
+    catch (error) { return JSON.stringify(error); }
+  });
+  expect(result).toContain("ownership");
   const backups = await api<{ patched: boolean }[]>(page, "emlBackup", "client-steam");
-  expect(backups.every((b) => !b.patched)).toBe(true);
+  expect(backups.some((b) => b.patched)).toBe(true);
 });
 
-test("no restore offer while the active profile runs an EML mod", async ({ page }) => {
+test("no removal guidance while the active profile runs an EML mod", async ({ page }) => {
   await desktop(page, "/profiles/ember-run/engines");
-  await expect(page.getByRole("button", { name: "Restore vanilla game data" })).toBeVisible();
+  const notice = page.locator(".k-banner", { hasText: "Shared archive backup differs" });
+  await expect(notice).toBeVisible();
   await page.locator('[data-kind="eml"]').getByRole("button", { name: "Light Loot Tables X" }).click();
-  await expect(page.getByRole("button", { name: "Restore vanilla game data" })).toHaveCount(0);
+  await expect(notice).toHaveCount(0);
 });
 
 test("the Deck's Mods screen lists engine mods with their engine", async ({ page }) => {

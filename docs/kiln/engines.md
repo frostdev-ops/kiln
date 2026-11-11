@@ -241,9 +241,10 @@ engines' mods") and 5.8.
   a unique active copy is used; multiple active copies require selecting which game to edit.
 - **Status.** `engine_mods::status`: `kiln/state/{emf,eml,shroudforge,greeneye,flame,shroudtopia,set,enshwick,shroudlink,ember}.json`; missing files
   mean the plugin has not run yet, while unreadable, invalid or symlinked files report an error.
-- **Restore vanilla game data.** `engine_mods::eml_backup` / `eml_restore_vanilla`: copies `<exe>.kfc.bak` over a
-  patched `<exe>.kfc`, which is what kiln-eml does itself when no EML mod is left. Inspection reports read failures;
-  symlinks are refused and restore is refused while the game runs.
+- **Shared archive backups.** `engine_mods::eml_backup` reports whether `<exe>.kfc` differs from `<exe>.kfc.bak`,
+  not which loader wrote it. Inspection reports read failures and refuses symlinks. The legacy `eml_restore_vanilla`
+  command now refuses direct copies. Disable EML mods and launch through updated Kiln: the separate archive writer
+  restores only its own unchanged output using exact output/backup receipts and loader-state handoff ([eml.md](eml.md)).
 - **Servers** keep the legacy layout. The server mod sync (`server::control`) copies each kind into the folder its
   plugin reads without a profile (`engine_mods::server_root`):
 

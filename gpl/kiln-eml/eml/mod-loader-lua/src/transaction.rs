@@ -121,6 +121,7 @@ impl PatchWriter {
         data.retain(|p| p.file_name() != Some(std::ffi::OsStr::new(VANILLA_HEADER)));
         data.sort();
         for p in &data { regular(p)?; OpenOptions::new().read(true).write(true).open(p)?.sync_all()?; }
+        crate::ownership::prepare(&self.game, &self.name, &data)?;
         // No old patched header may refer to the containers we are about to replace.
         atomic_copy(&self.stage.join(VANILLA_HEADER), &self.game.join(&header))?;
         boundary(0)?;
@@ -162,6 +163,8 @@ mod tests {
             assert!(w.publish(|n| if n == fail { Err(io::Error::other("power loss")) } else { Ok(()) }).is_err());
             assert_eq!(fs::read(game.join("g.kfc")).unwrap(), if fail == 3 { b"new patch".as_slice() } else { b"vanilla".as_slice() });
             assert!(fs::read(game.join("g.kfc_resources")).unwrap().starts_with(b"base"));
+            assert_eq!(crate::owns_output(&game, "g").unwrap(), fail == 3,
+                "a partial publication must never authorize restoring shared backups");
             drop(w);
             fs::remove_dir_all(game).unwrap();
         }

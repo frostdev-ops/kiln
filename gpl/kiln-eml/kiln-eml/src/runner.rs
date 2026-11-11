@@ -362,6 +362,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
             progress.end_file();
         }
         if differ {
+            if !owns_output(cfg, &file) { return finish(out); }
             out.restored = lua::restore(&cfg.game_dir, &file);
             if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
             let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
@@ -376,7 +377,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     for _attempt in 0..=total {
         if mods.is_empty() {
             out.phase = Phase::Idle;
-            if cfg.patch && backup.exists() {
+            if cfg.patch && backup.exists() && owns_output(cfg, &file) {
                 out.restored = lua::restore(&cfg.game_dir, &file);
                 let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
                 if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
@@ -470,12 +471,22 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
             e.reason = Some("the EML run failed (see error)".into());
         }
         // never start on a half-applied state: back to vanilla data, and forget the cache so the next start re-runs
-        if backup.exists() && cfg.patch {
+        if backup.exists() && cfg.patch && owns_output(cfg, &file) {
             out.restored = lua::restore(&cfg.game_dir, &file);
         }
         let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
     }
     finish(out)
+}
+
+fn owns_output(cfg: &RunConfig, file: &str) -> bool {
+    match lua::owns_output(cfg.game_dir.as_std_path(), file) {
+        Ok(true) => true,
+        other => {
+            tracing::warn!(detail = ?other, "Game data is not unchanged EML-owned output; leaving it and the shared .bak files alone. Reapply mods in the owning loader if needed; old EML caches are not restoration receipts");
+            false
+        }
+    }
 }
 
 /// `224.4 MiB`
@@ -752,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn restores_vanilla_when_no_mods_are_left() {
+    fn no_mods_never_restores_unowned_game_data_even_with_an_old_cache() {
         let d = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-eml-restore-{}", std::process::id()));
         std::fs::create_dir_all(d.join("cache")).unwrap();
         std::fs::write(d.join("enshrouded.kfc"), b"KFC patched").unwrap();
@@ -760,10 +771,11 @@ mod tests {
         std::fs::write(d.join("cache/files.json"), b"{}").unwrap();
         let cfg = RunConfig { game_dir: d.clone(), cache_dir: d.join("cache"), patch: true, ..Default::default() };
         let o = run(&cfg, Vec::new(), Vec::new());
-        assert_eq!(o.phase, Phase::Failed);
-        // EML's restore checks the version tag of both files; fake files have none, so it refuses: no damage done
+        assert_eq!(o.phase, Phase::Idle);
+        // A cache or a compatible backup cannot prove whose current patches these are.
         assert!(!o.restored);
         assert_eq!(std::fs::read(d.join("enshrouded.kfc")).unwrap(), b"KFC patched");
+        assert_eq!(std::fs::read(d.join("cache/files.json")).unwrap(), b"{}");
     }
 
     #[test]

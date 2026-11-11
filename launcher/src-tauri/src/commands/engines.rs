@@ -1,7 +1,7 @@
 //! Tauri commands: other engines' mods (docs/kiln/engines.md "Managing every engine's mods"; contracts.md section 9).
 //! Settings per format (ShroudForge's `extended.mod.json`, Shroudtopia's `shroudtopia.json`), the plugins' state files
-//! for the Play and Logs pages, and EML's backup of the vanilla `.kfc` ("Restore vanilla game data"). All on
-//! kiln_manage::engine_mods; the launcher only reads and writes those files.
+//! for the Play and Logs pages, and read-only shared archive backup inspection. The legacy direct-restore command
+//! refuses; the separate archive writer owns restoration. All management calls use kiln_manage::engine_mods.
 
 use crate::state::{blocking, dirs};
 use kiln_manage::{Error, ErrorCode};

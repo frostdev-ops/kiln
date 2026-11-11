@@ -1110,7 +1110,7 @@ export interface EngineStatus {
   /** External-host presence only, not a successful runtime/gameplay report. */
   prerequisite?: { available: boolean; text: string } | null;
 }
-/** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
+/** Shared `.kfc.bak`; `patched` means the `.kfc` differs, not that EML owns it. */
 export interface EmlBackup {
   file: string;
   backup: string;
@@ -1124,7 +1124,7 @@ export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileI
   call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
 export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });
 export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { gameId });
-/** Copies each `.kfc.bak` over its patched `.kfc`; the files restored. Rejects with game_running while the game runs. */
+/** Legacy command: refuses direct shared-backup restores; updated Kiln's archive writer verifies ownership on launch. */
 export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
 
 // compat.rs (kiln_manage::compat): closed DLL mods on a profile's native page

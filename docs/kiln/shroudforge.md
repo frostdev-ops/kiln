@@ -56,6 +56,10 @@ Notes:
   belong to an earlier SF/EML setup. Runtime asset patches and SF's own state/config remain the runtime's responsibility;
   an installer roundtrip is not a claim that every startup asset mod has been reversed. Missing build-profile files
   seeded into SF's runtime folder at startup, plus SF's logs/cache/state, can remain; uninstall does not sweep them.
+  Updated kiln-eml leaves SF-owned archive output alone when idle. Before its own archive changes, it invalidates only
+  recognized SF prepared-asset cache state under SF's lock, so SF can reapply asset mods on the next standalone start.
+  Unknown state or busy writers refuse the handoff; pre-existing stale state is not automatically scrubbed. See
+  [EML archive ownership](eml.md#the-run) for the restoration rules and verification limits.
 - **Turning ShroudForge off for one start:** set `KILN_SHROUDFORGE=0` in the launch environment, or use play-once
   "without mods".
 - ShroudForge needs a game profile for your game build. The bundled runtime brings the profiles of its release, and a
