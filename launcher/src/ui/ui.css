@@ -333,8 +333,8 @@
 @keyframes k-in { from { opacity: .1; translate: 0 14px; } }
 
 /* ---------------------------------------------------------------- toasts: bottom left */
-.k-toasts { position: fixed; left: 48px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 96px)); pointer-events: none; }
-.k-toast { pointer-events: auto; display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px 11px 16px; border-radius: var(--k-radius-m);
+.k-toasts { position: fixed; left: 48px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 96px)); max-height: calc(100dvh - 48px); overflow-y: auto; pointer-events: none; }
+.k-toast { flex-shrink: 0; pointer-events: auto; display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px 11px 16px; border-radius: var(--k-radius-m);
   background: var(--k-bg-2); box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 18px 40px rgba(0, 0, 0, .6); animation: k-toast .42s var(--k-spring) backwards; }
 .k-toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .k-toast-title { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 18px; color: var(--k-text-0); overflow-wrap: anywhere; }

@@ -17,6 +17,8 @@ export interface ToastItem {
   title: ReactNode;
   detail?: ReactNode;
   actions?: ToastAction[];
+  /** Persistent recovery instructions and errors are never evicted by later notifications. */
+  persistent?: boolean;
 }
 export interface ToastOptions {
   actions?: ToastAction[];
@@ -26,7 +28,7 @@ export interface ToastOptions {
 
 interface ToastStore {
   items: ToastItem[];
-  push: (t: Omit<ToastItem, "id">, ms?: number) => number;
+  push: (t: Omit<ToastItem, "id" | "persistent">, ms?: number) => number;
   dismiss: (id: number) => void;
 }
 
@@ -35,8 +37,10 @@ export const useToasts = create<ToastStore>((set, get) => ({
   items: [],
   push: (t, ms) => {
     const id = ++seq;
-    set({ items: [...get().items.slice(-3), { ...t, id }] });
     const life = ms ?? (t.kind === "err" ? 0 : t.actions?.length ? 8000 : 2600);
+    const items = [...get().items, { ...t, id, persistent: life === 0 }];
+    const transient = new Set(items.filter((i) => !i.persistent).slice(-4).map((i) => i.id));
+    set({ items: items.filter((i) => i.persistent || transient.has(i.id)) });
     if (life > 0) setTimeout(() => get().dismiss(id), life);
     return id;
   },
