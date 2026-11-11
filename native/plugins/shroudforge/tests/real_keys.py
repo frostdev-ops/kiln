@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-real-', dir=tests.parent) as tm
                KILN_SF_FAKE_UI='5', KILN_SF_REAL_KEYS='1', WAYLAND_DISPLAY='kiln-no-display',
                WINEDLLOVERRIDES='mscoree=;mshtml=;winedbg.exe=d')
     env.pop('DISPLAY', None)
-    def run(name, extra):
+    def run(name, extra, early=False):
         game = root / name
         shutil.copytree(component, game / 'kiln/plugins/shroudforge')
         (game / 'kiln/kiln.json').write_text(json.dumps({'shroudforge': {'useInstalled': False}}))
@@ -95,8 +95,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-real-', dir=tests.parent) as tm
         host = root / (name + '-host')
         host.mkdir()
         shutil.copyfile(tests / 'sfhost.exe', host / 'enshrouded.exe')
-        result = subprocess.run(['wine', str(host / 'enshrouded.exe'), str(game), str(adapter)], env=dict(env, **extra),
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
+        command = ['wine', str(host / 'enshrouded.exe'), str(game), str(adapter)] + (['early'] if early else [])
+        result = subprocess.run(command, env=dict(env, **extra), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
         out = result.stdout.decode(errors='replace')
         sf_log = (game / 'shroudforge/logs/shroudforge-client.log')
         sf = sf_log.read_text(errors='replace') if sf_log.exists() else ''
@@ -117,9 +117,24 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-real-', dir=tests.parent) as tm
     assert 'Keyboard shortcuts unavailable' not in sf, sf[-3000:]
     assert [p for p in probe if ' down=' in p] == FED_DOWN, probe
     assert [p for p in probe if ' pressed=' in p] == FED_PRESSED, probe
+    # The order of a real game start (host.cpp, KILN_SF_REAL_ORDER): the early pass and the worker's shroudforge_create
+    # with no kiln.ui, where the feed begins; kiln.ui published at Kiln's plugin step, where it attaches; the records
+    # after that. kiln.hooks is offered so that the adapter knows a plugin step follows (the runtime hooks nothing
+    # through it: KILN_SF_ENGINE_HOOKS=self).
+    result, out, sf, status, probe = run('fed-real-order', {'KILN_SF_REAL_ORDER': '1', 'KILN_SF_FAKE_HOOKS': '1',
+                                                            'KILN_SF_ENGINE_HOOKS': 'self'}, early=True)
+    assert result.returncode == 0, out
+    after_early = [line for line in out.splitlines() if line.startswith('[host] status after the early phase')]
+    assert after_early and '"waiting"' in after_early[0], after_early or out[-3000:]
+    assert status['mode'] == 'hosted' and status['keys']['source'] == 'kiln', status
+    assert 'Keyboard and mouse input is fed by the host' in sf, sf[-3000:]
+    assert 'Keyboard shortcuts unavailable' not in sf, sf[-3000:]
+    assert [p for p in probe if ' down=' in p] == FED_DOWN, probe
+    assert [p for p in probe if ' pressed=' in p] == FED_PRESSED, probe
     result, out, sf, status, probe = run('helper-path', {'KILN_SF_KEY_FEED': 'off'})
     assert result.returncode == 0, out
     assert status['keys']['source'] == 'none', status
     assert 'Keyboard shortcuts unavailable' in sf, sf[-3000:]
     assert not [p for p in probe if 'down=true' in p or 'pressed=true' in p], probe
-    print('PASS real runtime: the probe mod\'s shortcuts follow the fed records; without the feed they never fire')
+    print('PASS real runtime: the probe mod\'s shortcuts follow the fed records, in the old order and in a real start\'s; '
+          'without the feed they never fire')
