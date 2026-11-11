@@ -431,7 +431,12 @@ internal static class ShroudForgePackages
         var tmp = path + ".kiln-" + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var f = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) f.Write(bytes);
+            using (var f = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                f.Write(bytes);
+                // on disk before the rename: a crash must not leave a renamed, empty settings file (kiln-manage write_atomic)
+                f.Flush(flushToDisk: true);
+            }
             PlainFile(path);
             File.Move(tmp, path, overwrite: true);
         }
