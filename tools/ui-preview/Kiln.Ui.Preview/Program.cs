@@ -72,6 +72,8 @@ internal static unsafe class Program
         UiEngine.EnsureStarted();
         Samples.RegisterExtras();
 
+        if (args.Contains("--check-z")) return CheckZ(lib, Path.Combine(work, "check-z"));
+
         var rendered = 0;
         foreach (var scene in Scenes.All)
         {
@@ -116,6 +118,39 @@ internal static unsafe class Program
             rendered++;
         }
         return rendered > 0 ? 0 : 1;
+    }
+
+    // The z-order the page leaves other windows in (managed-ui F11): a window opened over the stand-alone page (kiln-set's
+    // SET tools window is an ordinary one) must stay in front when the player clicks the page beside it. Prints the
+    // front-most window before and after the click; exit 0 when the window stayed in front.
+    private static int CheckZ(nint lib, string root)
+    {
+        var front = (delegate* unmanaged[Cdecl]<byte*, int, int>)NativeLibrary.GetExport(lib, "kiln_preview_front_window");
+        string Front()
+        {
+            var buf = stackalloc byte[256];
+            return front(buf, 256) != 0 ? System.Text.Encoding.UTF8.GetString(buf, new ReadOnlySpan<byte>(buf, 256).IndexOf((byte)0)) : "";
+        }
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var kilnMods = Scenes.All[0].Build(root);
+        ModCatalog.Sources = () => new CatalogSources { KilnRoot = Path.Combine(root, "kiln"), KilnMods = () => kilnMods, Side = "client" };
+        ModCatalog.WaitForSnapshot();
+        _page(0);
+        for (var i = 0; i < 4; i++) _frame(1);
+        var tools = Ui.Window("Shrouded Engine Tweaks", ui => ui.Text("SET tools stand-in"), new UiWindowOptions { Width = 500, Height = 300, Position = (0.75f, 0.3f) });
+        for (var i = 0; i < 3; i++) _frame(1);
+        var before = Front();
+        _mouse(300, 900, 0);
+        _frame(1);
+        _mouse(300, 900, 1);  // a click on the page, beside the window
+        _frame(1);
+        _mouse(300, 900, 0);
+        for (var i = 0; i < 3; i++) _frame(1);
+        var after = Front();
+        tools.Dispose();
+        Console.WriteLine($"front before the click: {before}");
+        Console.WriteLine($"front after the click:  {after}");
+        return after.StartsWith("Shrouded Engine Tweaks", StringComparison.Ordinal) ? 0 : 1;
     }
 
     // PNG: RGB, one IDAT (zlib from .NET), CRCs.

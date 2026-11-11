@@ -768,8 +768,9 @@ internal enum ChromeLook
 /// <summary>The title and the footer of the mod manager, shared by both hosts.</summary>
 internal static class ModManagerChrome
 {
-    // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings
-    public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8);
+    // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings; and no bringing to
+    // front on a click: the page covers the display, so a window opened over it (SET's tools) would go behind it
+    public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8) | (1u << 13);
 
     /// <summary>The widest the page's content gets, in UI units (1920x1080 = 1 unit per pixel). 16:9 and 16:10 pages are
     /// narrower (1760 units inside the game's padding); on ultrawide displays the rest stays empty on the right, so lines
