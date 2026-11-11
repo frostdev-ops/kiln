@@ -300,7 +300,9 @@ the selected SF package refreshes at most once per second, and files whose bytes
 What the page needs of a package (its first 300 settings by group, which can be changed now, its texts cut to 2000
 characters) is made on the worker that read it, and again after an edit or an error (at once for a package of at most
 300 settings, on a worker for a larger one), never per frame. A package with more settings shows the first 300 and a
-line saying how many more it has. A package with a value no reader can use (a string with an unpaired surrogate escape, a number
+line saying how many more it has. Choices, groups and actions have a separate combined limit of 1000; a package over
+that limit is not edited here, with a message pointing to its unchanged `extended.mod.json` (choices are never cut
+and saved back as a partial list). A package with a value no reader can use (a string with an unpaired surrogate escape, a number
 no double holds) is found on the read worker and shown as "cannot be shown", never thrown on the render thread. The render thread draws snapshots (no file access or waiting);
 rows are made when the list, filter or search change. SF's fallback shortcut worker watches host state at low frequency,
 then waits on its named toggle event with a two-second lifecycle check; it exits when SF stops or owns its own helper.

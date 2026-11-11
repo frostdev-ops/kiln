@@ -390,6 +390,15 @@ internal static class ShroudForgeUi
     private static View ViewOf(string folder, SfPackage p)
     {
         var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder };
+        // The setting cap alone does not bound a frame: one list can have thousands of checkboxes, as can the
+        // groups/actions outside settings. Do not truncate editable options (a write could then lose selections).
+        var metadataLeft = 1000;
+        bool Fits(int count) => (metadataLeft -= count) >= 0;
+        if (!Fits(p.Groups.Count) || !p.Groups.All(g => Fits(g.Actions.Count)) || !p.Settings.All(d => Fits(d.Options.Count)))
+        {
+            view.Error = "too many choices, groups or actions for this page (1000 combined at most). Change settings in the mod's extended.mod.json; the file is unchanged.";
+            return view;
+        }
         try { Build(view, folder, p); }
         catch (Exception e)  // a value no reader can use: said once, not thrown every frame
         {

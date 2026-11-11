@@ -201,6 +201,30 @@ public sealed class ShroudForgePageTests : IDisposable
         }
         finally { ShroudForgeUi.SetSetting = ShroudForgePackages.SetSetting; }
     }
+    [Theory]
+    [InlineData("options")]
+    [InlineData("groups")]
+    [InlineData("actions")]
+    public void Metadata_cannot_submit_thousands_of_controls_on_every_frame(string kind)
+    {
+        var options = string.Join(",", Enumerable.Range(0, 10_000).Select(i => $"\"v{i}\":\"Option {i}\""));
+        var actions = string.Join(",", Enumerable.Range(0, 10_000).Select(i => $"{{\"id\":\"a{i}\",\"label\":\"Action {i}\"}}"));
+        var groups = kind switch
+        {
+            "groups" => "[" + string.Join(",", Enumerable.Range(0, 10_000).Select(i => $"{{\"label\":\"Group {i}\"}}")) + "]",
+            "actions" => "[{\"label\":\"Tools\",\"actions\":[" + actions + "]}]",
+            _ => null,
+        };
+        var folder = Package(kind == "options" ? "{\"choices\":{\"value\":[\"v0\"],\"options\":{" + options + "}}}" : """{"level":{"value":true}}""", groups: groups);
+        var before = File.ReadAllBytes(Path.Combine(folder, "extended.mod.json"));
+        FakeUiTable.Reset();
+        ShroudForgeUi.Draw(_ui, Mod(folder), 1, 1, (_, _, _) => { });
+        Assert.True(FakeUiTable.WidgetCalls + FakeUiTable.Texts.Count < 2000,
+            $"{kind}: {FakeUiTable.WidgetCalls} widgets, {FakeUiTable.Texts.Count} text/id submissions per frame");
+        Assert.Contains(FakeUiTable.Texts, t => t.Contains("too many", StringComparison.OrdinalIgnoreCase) && t.Contains("extended.mod.json", StringComparison.Ordinal));
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(folder, "extended.mod.json")));
+    }
+
     private static string Chain(int n)
     {
         var parts = new List<string>();
