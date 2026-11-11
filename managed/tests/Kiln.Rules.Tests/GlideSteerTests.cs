@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -8,8 +9,9 @@ using Xunit;
 namespace Kiln.Rules.Tests;
 
 // PlayerRules.GlideSteer: the rule, how it combines, the server's limits, availability, the native part, the wire with
-// older and newer peers, the client's confirmation, and the creative preset on disk.
-public sealed class GlideSteerTests
+// older and newer peers, the client's confirmation and what the server applies and sends per connection, and the
+// creative preset on disk.
+public sealed unsafe class GlideSteerTests
 {
     private static readonly EntityId P = new(3);
 
@@ -165,24 +167,15 @@ public sealed class GlideSteerTests
     }
 
     [Fact]
-    public void AnOlderServerHasNoHandlerForTheClientsHookMessage()
+    public void TheClientsHookMessageCarriesItsHookBits()
     {
-        // dev.23's server registered message ids 0 (rules) and 1 (flight) on kiln:rules: an unknown id is dropped
-        // before any decoding (NetEngine.ReceiveData: no MessageType, no raw handler)
-        using var old = Network.Channel("kiln:rules-test-old", "4", required: false)
-            .Register<OldRules>(0, static (m, w) => w.UInt32(m.Flags), static (ref NetReader r) => new OldRules(r.UInt32()))
-            .Register<OldFlight>(1, static (m, w) => w.Bool(m.Enabled), static (ref NetReader r) => new OldFlight(r.Bool()));
-        var byId = (System.Collections.IDictionary)typeof(NetChannel).GetField("ById", InstancePrivate)!.GetValue(old)!;
-        Assert.False(byId.Contains(RulesNet.MsgClientHooks));
+        // message 2 on kiln:rules: a new id, which dev.23's server (ids 0 and 1 only) drops unread
         Assert.Equal((ushort)2, RulesNet.MsgClientHooks);
         var body = Body(w => RulesNet.WriteClientHooks(new RulesNet.ClientHooks(RulesNative.HookGlideSteer), w));
         Assert.Equal(4, body.Length);
         var r = new NetReader(body);
         Assert.Equal(RulesNative.HookGlideSteer, RulesNet.ReadClientHooks(ref r).Hooks);
     }
-
-    private readonly record struct OldRules(uint Flags);
-    private readonly record struct OldFlight(bool Enabled);
 
     [Fact]
     public void SteeringNeedsTheClientsConfirmationOnALiveConnection()
@@ -208,6 +201,169 @@ public sealed class GlideSteerTests
         var part = Combine(PlayerRules.Creative).Native.WithoutSteer;
         Assert.Equal(Combine(PlayerRules.Creative with { GlideSteer = null }).Native, part);
         Assert.Equal(0x1dfu, part.Flags);
+    }
+
+    // ---------------------------------------------------------------------------------------- the strip ------
+
+    private const BindingFlags StaticPrivate = BindingFlags.Static | BindingFlags.NonPublic;
+    private static readonly Type NetEngineType = typeof(Network).Assembly.GetType("Kiln.NetEngine", throwOnError: true)!;
+    private static readonly Type NetNativeType = typeof(Network).Assembly.GetType("Kiln.NetNative", throwOnError: true)!;
+    private static readonly Type PlayerStateType = typeof(RulesRuntime).GetNestedType("PlayerState", BindingFlags.NonPublic)!;
+    private static readonly string ChannelName = (string)typeof(RulesNet).Assembly.GetType("Kiln.Rules")!
+        .GetField("ChannelName")!.GetRawConstantValue()!;
+
+    private static int _frames, _sets;
+    private static uint _setFlags;
+    private static float _setLimit;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int NetOk() => 0;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int NetSend(uint peer, byte* frame, uint length)
+    {
+        _frames++;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int RulesSet(uint entity, RulesNative.Player* p)
+    {
+        _sets++;
+        _setFlags = p == null ? 0 : p->Flags;
+        _setLimit = p == null ? 0 : p->GlideSteerLimit;
+        return 0;
+    }
+
+    // A dedicated server and one player, without a game: kiln.net's table is a stand-in (every function answers Ok, a
+    // send counts a frame), the server's peers are the one connected here, kiln:rules is open with its rules message,
+    // and kiln.rules' table records what the server world's hooks are given. RulesRuntime's own PushNative and
+    // SyncClient run on the player's state, as its tick runs them.
+    private sealed class DedicatedServer : IDisposable
+    {
+        private readonly FieldInfo _netTable = NetNativeType.GetField("_table", StaticPrivate)!;
+        private readonly FieldInfo _snapshot = NetEngineType.GetField("_serverSnapshot", StaticPrivate)!;
+        private readonly FieldInfo _rulesTable = typeof(RulesNative).GetField("_t", StaticPrivate)!;
+        private readonly FieldInfo _rulesChannel = typeof(RulesNet).GetField("_channel", StaticPrivate)!;
+        private readonly object? _netBefore, _snapshotBefore, _rulesBefore, _channelBefore;
+        private readonly nint* _net;
+        private readonly RulesNative.Table* _rules;
+        private readonly NetChannel _channel;
+        private readonly EntityId _player;
+        private readonly object _state;
+        private readonly List<NetPeer> _peers = new();
+
+        public DedicatedServer(EntityId player, EffectiveRules rules)
+        {
+            _player = player;
+            var table = NetNativeType.GetNestedType("Table", BindingFlags.NonPublic)!;
+            var size = Marshal.SizeOf(table);
+            _net = (nint*)NativeMemory.AllocZeroed((nuint)size);
+            for (var i = 0; i < size / sizeof(nint); i++) _net[i] = (nint)(delegate* unmanaged[Cdecl]<int>)&NetOk;
+            _net[Marshal.OffsetOf(table, "Send") / sizeof(nint)] = (nint)(delegate* unmanaged[Cdecl]<uint, byte*, uint, int>)&NetSend;
+            _rules = (RulesNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(RulesNative.Table));
+            _rules->Set = &RulesSet;
+            _netBefore = _netTable.GetValue(null);
+            _snapshotBefore = _snapshot.GetValue(null);
+            _rulesBefore = _rulesTable.GetValue(null);
+            _channelBefore = _rulesChannel.GetValue(null);
+            _channel = Network.Channel(ChannelName, RulesNet.ChannelVersion, required: false)
+                .Register<RulesNet.RulesMsg>(0, static (m, w) => RulesNet.WriteRules(m, w), static (ref NetReader r) => RulesNet.ReadRules(ref r));
+            _netTable.SetValue(null, Pointer.Box(_net, _netTable.FieldType));
+            _rulesTable.SetValue(null, Pointer.Box(_rules, _rulesTable.FieldType));
+            _rulesChannel.SetValue(null, _channel);
+            _snapshot.SetValue(null, Array.Empty<NetPeer>());
+            _state = Activator.CreateInstance(PlayerStateType, player)!;
+            PlayerStateType.GetField("Effective")!.SetValue(_state, rules);
+        }
+
+        /// <summary>A Kiln client with kiln:rules joins as the player (a new connection object, as kiln.net makes).</summary>
+        public NetPeer Connect(uint id)
+        {
+            var p = Peer(id);
+            typeof(NetPeer).GetProperty(nameof(NetPeer.Player))!.SetValue(p, _player);
+            ((Dictionary<string, string>)typeof(NetPeer).GetField("Declared", InstancePrivate)!.GetValue(p)!)[ChannelName] = RulesNet.ChannelVersion;
+            NetEngineType.GetMethod("RemapServerChannels", StaticPrivate)!.Invoke(null, [p]);
+            Assert.True(p.HasChannel(ChannelName));
+            _snapshot.SetValue(null, new[] { p });
+            _peers.Add(p);
+            return p;
+        }
+
+        /// <summary>The connection closes (kiln.net drops it from the server's peers).</summary>
+        public void Drop(NetPeer p)
+        {
+            typeof(NetPeer).GetProperty(nameof(NetPeer.State))!.SetValue(p, NetPeerState.Closed);
+            _snapshot.SetValue(null, Array.Empty<NetPeer>());
+        }
+
+        /// <summary>One tick of RulesRuntime for the player: the server world's hooks, then the player's game.</summary>
+        public void Tick()
+        {
+            typeof(RulesRuntime).GetMethod("PushNative", StaticPrivate)!.Invoke(null, [_state]);
+            typeof(RulesRuntime).GetMethod("SyncClient", StaticPrivate)!.Invoke(null, [_state]);
+        }
+
+        public RulesNativePart ServerWorld => (RulesNativePart)PlayerStateType.GetField("Native")!.GetValue(_state)!;
+        public RulesNativePart TheirGame => (RulesNativePart)PlayerStateType.GetField("Client")!.GetValue(_state)!;
+
+        public void Dispose()
+        {
+            foreach (var p in _peers) RulesNet.ClientHooksOf(p, 0);
+            _rulesChannel.SetValue(null, _channelBefore);
+            _rulesTable.SetValue(null, _rulesBefore);
+            _snapshot.SetValue(null, _snapshotBefore);
+            _netTable.SetValue(null, _netBefore);
+            _channel.Dispose();
+            NativeMemory.Free(_net);
+            NativeMemory.Free(_rules);
+        }
+    }
+
+    [Fact]
+    public void TheServerStripsSteeringUntilThisConnectionConfirmsItsHook()
+    {
+        var creative = Combine(PlayerRules.Creative);
+        var steered = creative.Native;
+        var held = steered.WithoutSteer;
+        Assert.Equal(0x21dfu, steered.Flags);
+        Assert.Equal(0x1dfu, held.Flags);
+        using var server = new DedicatedServer(P, creative);
+        void Both(RulesNativePart expected, string when)
+        {
+            Assert.True(expected == server.ServerWorld, $"{when}: the server world's hooks got {server.ServerWorld}");
+            Assert.True(expected.Flags == _setFlags && expected.GlideSteerLimit == _setLimit,
+                $"{when}: kiln.rules was given flags 0x{_setFlags:x}, limit {_setLimit}");
+            Assert.True(expected == server.TheirGame, $"{when}: their game was sent {server.TheirGame}");
+        }
+
+        // a Kiln client with the rules channel, its hook message not (yet) received: an older Kiln never sends one
+        var a = server.Connect(300);
+        var (sets, frames) = (_sets, _frames);
+        server.Tick();
+        Both(held, "before the capability");
+        Assert.Equal((sets + 1, frames + 1), (_sets, _frames));
+        server.Tick();
+        Assert.Equal((sets + 1, frames + 1), (_sets, _frames));  // nothing new: nothing written or sent again
+
+        RulesNet.ClientHooksOf(a, RulesNative.HookGlideSteer);
+        server.Tick();
+        Both(steered, "after the capability");
+        Assert.Equal(85f, server.TheirGame.GlideSteerLimit);
+
+        // a reconnect: kiln.net makes a new connection object, here with the same id, while the old one's
+        // confirmation was never withdrawn; the new game has to confirm again
+        server.Drop(a);
+        var b = server.Connect(300);
+        server.Tick();
+        Both(held, "after a reconnect, before its capability");
+        RulesNet.ClientHooksOf(b, RulesNative.HookGlideSteer);
+        server.Tick();
+        Both(steered, "after a reconnect and its capability");
+
+        RulesNet.ClientHooksOf(b, 0);  // a client build without the hook says so
+        server.Tick();
+        Both(held, "a game reporting no steering hook");
     }
 
     // ---------------------------------------------------------------------------------------- presets -------
