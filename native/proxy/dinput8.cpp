@@ -34,7 +34,8 @@
 //      play-once mode=profile). A [late] line that names no entry loads nothing (proxy.log says so). An older proxy
 //      ignores the unknown section and loads the entry as before. One limit: EMF's own loader (a [chain] entry) is
 //      never deferred, [late] or not: it starts EMF itself, and kiln-emf decides when the plugins start whether the
-//      real EMF is in the process. A late DLL may patch the exe's entry point like an early one (step 4).
+//      real EMF is in the process. shroudlink's client addon (shroudlink_shutdown + DirectInput8Create exports) is never
+//      deferred either: its live-code scans must finish before Kiln hooks. A late DLL may patch the entry (step 4).
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
 //      (EMF holds a server's start this way) is what the gate saves as "original": at the entry, Kiln's gate runs first,
@@ -515,6 +516,8 @@ bool export_flags(const unsigned char* b, size_t n, unsigned* flags) {
         if (!strcmp(name, "KilnProxyInfo") || !strcmp(name, "kiln_boot")) *flags |= 1;
         if (!strcmp(name, "emf_loader_identity") || !strcmp(name, "emf_loader_play_once")) *flags |= 2;
         if (!strcmp(name, "ShroudforgeSetDinput8Provider")) *flags |= 4;
+        if (!strcmp(name, "shroudlink_shutdown")) *flags |= 8;
+        if (!strcmp(name, "DirectInput8Create")) *flags |= 16;
     }
     return true;
 }
@@ -540,7 +543,8 @@ bool marker(const unsigned char* b, size_t n, const char (&text)[N]) {
 }
 
 // `emf_loader` (optional): set when the DLL is EMF's own loader (its exports or marker text).
-uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr) {
+// `gated_addon`: same two-export identity as kiln-manage's is_gated_addon; never defer its live-code scans.
+uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr, bool* gated_addon = nullptr) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE) return kAccept;  // LoadLibrary reports the real error
@@ -554,6 +558,7 @@ uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr) {
             const size_t n = static_cast<size_t>(size.QuadPart);
             unsigned flags = 0;
             if (export_flags(b, n, &flags)) {
+                if (gated_addon) *gated_addon = (flags & (8 | 16)) == (8 | 16);
                 static const wchar_t kCore[] = L"\\kiln\\kiln-core.dll";
                 static const char kWine[] = "Wine builtin DLL";
                 if (memcmp(b + 0x40, kWine, sizeof kWine - 1) == 0) result = kSystem;
@@ -675,8 +680,13 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
             return;
         }
     }
-    bool emf_loader = false;
-    if (refusal == kAccept) refusal = classify(shown, &emf_loader);
+    bool emf_loader = false, gated_addon = false;
+    if (refusal == kAccept) refusal = classify(shown, &emf_loader, &gated_addon);
+    if (late_at >= 0 && refusal == kAccept && gated_addon) {
+        plog(L"chain: %s: %s is shroudlink's client addon: its scans must finish before Kiln hooks, so chain.ini [late] "
+             L"does not defer it; loaded now", source_name(source), shown);
+        late_at = -1;
+    }
     if (late_at >= 0 && refusal == kAccept && emf_loader && source == KILN_CHAIN_SOURCE_CHAIN) {
         // EMF's loader starts EMF itself (its core and the DLLs of dinput8-chain.ini). kiln-emf decides when the plugins
         // start whether the real EMF is in the process; a loader that came after that would run EMF next to kiln-emf.
