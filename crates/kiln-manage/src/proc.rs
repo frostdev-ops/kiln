@@ -241,10 +241,31 @@ mod imp {
     }
 
     pub fn alive(pid: u32) -> bool {
-        match fs::read_to_string(format!("/proc/{pid}/stat")) {
-            Ok(s) => !matches!(parse_stat_state(&s), Some('Z' | 'X') | None),
-            Err(_) => false,
+        entries(pid).is_some()
+    }
+
+    /// Where a running process's cmdline, exe and cwd are read: `/proc/<pid>`, or `/proc/<pid>/task/<tid>` of a thread
+    /// that still runs when the process's first thread has ended. None: the process is gone, or all of it is.
+    ///
+    /// A process whose first thread ended shows as a zombie (`Z`) while its other threads go on, and its own cmdline,
+    /// exe and cwd read empty. A game whose window thread died is in that state: no window, yet it still hosts its
+    /// world, saves it and holds its files. It must count as running.
+    fn entries(pid: u32) -> Option<String> {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        match parse_stat_state(&stat)? {
+            'X' => None,
+            'Z' => live_thread(pid).map(|tid| format!("/proc/{pid}/task/{tid}")),
+            _ => Some(format!("/proc/{pid}")),
         }
+    }
+
+    /// A thread of `pid`, other than its first, that has not ended.
+    fn live_thread(pid: u32) -> Option<u32> {
+        fs::read_dir(format!("/proc/{pid}/task")).ok()?.flatten().filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok()).find(|tid| {
+            *tid != pid
+                && fs::read_to_string(format!("/proc/{pid}/task/{tid}/stat"))
+                    .is_ok_and(|s| !matches!(parse_stat_state(&s), Some('Z' | 'X') | None))
+        })
     }
 
     /// Same as `list` (the name filter is a Windows optimisation; Wine processes are matched on argv[0] and cwd).
@@ -254,20 +275,27 @@ mod imp {
     }
 
     fn cmdline(pid: u32) -> Vec<String> {
-        let cmd = fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        cmdline_at(&format!("/proc/{pid}"))
+    }
+
+    fn cmdline_at(dir: &str) -> Vec<String> {
+        let cmd = fs::read(format!("{dir}/cmdline")).unwrap_or_default();
         cmd.split(|&b| b == 0).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned()).collect()
+    }
+
+    /// cmdline, exe and cwd of a running process (`entries`); `cmdline` is what the caller already read from
+    /// `/proc/<pid>` and is kept unless it is empty there.
+    fn facts(pid: u32, cmdline: Vec<String>) -> Option<(Vec<String>, Option<std::path::PathBuf>, Option<std::path::PathBuf>)> {
+        let dir = entries(pid)?;
+        let cmdline = if cmdline.is_empty() { cmdline_at(&dir) } else { cmdline };
+        Some((cmdline, fs::read_link(format!("{dir}/exe")).ok(), fs::read_link(format!("{dir}/cwd")).ok()))
     }
 
     pub fn list() -> Result<Vec<(ProcessInfo, Extra)>> {
         let mut out = Vec::new();
         for pid in pids() {
             let Ok(comm) = fs::read_to_string(format!("/proc/{pid}/comm")) else { continue };
-            if !alive(pid) {
-                continue;
-            }
-            let cmdline = cmdline(pid);
-            let exe = fs::read_link(format!("/proc/{pid}/exe")).ok();
-            let cwd = fs::read_link(format!("/proc/{pid}/cwd")).ok();
+            let Some((cmdline, exe, cwd)) = facts(pid, cmdline(pid)) else { continue };
             out.push((ProcessInfo { pid, name: comm.trim_end().to_string(), exe, cmdline }, Extra { cwd }));
         }
         out.sort_by_key(|(p, _)| p.pid);
@@ -293,14 +321,11 @@ mod imp {
         out
     }
 
-    /// The rest of `list`'s entry for one process (None: it ended or is a zombie, which `list` leaves out).
+    /// The rest of `list`'s entry for one process (None: it ended, which `list` leaves out). A process whose first
+    /// thread ended while others run is read through one of those (`entries`).
     pub fn full(l: &Light) -> Option<(ProcessInfo, Extra)> {
-        if !alive(l.pid) {
-            return None;
-        }
-        let exe = fs::read_link(format!("/proc/{}/exe", l.pid)).ok();
-        let cwd = fs::read_link(format!("/proc/{}/cwd", l.pid)).ok();
-        Some((ProcessInfo { pid: l.pid, name: l.name.clone(), exe, cmdline: l.cmdline.clone() }, Extra { cwd }))
+        let (cmdline, exe, cwd) = facts(l.pid, l.cmdline.clone())?;
+        Some((ProcessInfo { pid: l.pid, name: l.name.clone(), exe, cmdline }, Extra { cwd }))
     }
 }
 
@@ -423,6 +448,68 @@ mod tests {
         assert_eq!(parse_stat_state("123 (enshrouded_serv) S 1 2 3"), Some('S'));
         assert_eq!(parse_stat_state("9 (a) b) c) Z 1"), Some('Z'));
         assert_eq!(parse_stat_state("garbage"), None);
+    }
+
+    /// A game whose window thread ended (seen under Proton: the window is gone, the hosted world runs on): the
+    /// process's first thread is a zombie, its own cmdline and cwd read empty, and it still has to be found.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_process_whose_first_thread_ended_still_runs() {
+        extern "C" fn stay(_: *mut libc::c_void) -> *mut libc::c_void {
+            // SAFETY: plain libc calls in the forked child.
+            unsafe {
+                libc::sleep(60);
+                libc::_exit(0)
+            }
+        }
+        // SAFETY: the child only creates one thread and ends its first one; the parent reaps it below.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork");
+        if child == 0 {
+            // SAFETY: see above. SYS_exit ends this thread only (not the process, as exit_group would).
+            unsafe {
+                let mut t: libc::pthread_t = std::mem::zeroed();
+                if libc::pthread_create(&mut t, std::ptr::null(), stay, std::ptr::null_mut()) != 0 {
+                    libc::_exit(3);
+                }
+                libc::syscall(libc::SYS_exit, 0);
+                libc::_exit(4)
+            }
+        }
+        let pid = child as u32;
+        let state = || std::fs::read_to_string(format!("/proc/{pid}/stat")).ok().and_then(|s| parse_stat_state(&s));
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while state() != Some('Z') && std::time::Instant::now() < end {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let found = (|| {
+            if state() != Some('Z') {
+                return Err("the child's first thread did not end".to_string());
+            }
+            if !std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default().is_empty() {
+                return Err("expected an empty cmdline for the ended first thread".into());
+            }
+            if !alive(pid) {
+                return Err("alive() calls it gone".into());
+            }
+            let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).map_err(|e| e.to_string())?.trim_end().to_string();
+            let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+            let p = still_running(pid, &cwd, &comm).ok_or("still_running() does not find it")?;
+            if p.cmdline.is_empty() {
+                return Err("its command line was not read through the running thread".into());
+            }
+            if !list().map_err(|e| e.to_string())?.iter().any(|x| x.pid == pid && !x.cmdline.is_empty()) {
+                return Err("list() leaves it out".into());
+            }
+            Ok(())
+        })();
+        // SAFETY: our own child.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, std::ptr::null_mut(), 0);
+        }
+        found.unwrap();
+        assert!(!alive(pid), "gone after the kill");
     }
 
     #[test]
