@@ -1360,14 +1360,14 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
             }
             // the profile's late natives and the compat rules live in chain.ini only
             write_chain_plan(dirs, &profile, install, &file)?;
-            if !(placed.retained.is_empty() && placed.kept_files.is_empty() && placed.warnings.is_empty()) {
-                if let Some(mut a) = active(dirs, install)? {
-                    a.own_loaders = placed.own_loaders;
-                    a.kept_files = placed.kept_files;
-                    a.warnings = placed.warnings;
-                    a.retained = placed.retained;
-                    return Ok(Some(a));
-                }
+            if !(placed.retained.is_empty() && placed.kept_files.is_empty() && placed.warnings.is_empty())
+                && let Some(mut a) = active(dirs, install)?
+            {
+                a.own_loaders = placed.own_loaders;
+                a.kept_files = placed.kept_files;
+                a.warnings = placed.warnings;
+                a.retained = placed.retained;
+                return Ok(Some(a));
             }
         }
         return Ok(None);
