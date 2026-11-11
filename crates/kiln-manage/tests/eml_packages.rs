@@ -459,6 +459,22 @@ fn a_hand_installed_folder_is_the_players() {
     assert_eq!(rep.own, ["eml:auto-loot-plus"]);
 }
 
+/// A profile entry the player's own folder serves is said once per activation, in plain words, as a note and not as a
+/// kept copy: the game uses that folder, Kiln places nothing beside it.
+#[test]
+fn an_entry_the_players_own_folder_serves_is_a_plain_note() {
+    let t = tmp("own-note");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    eml_mod(&g.path, "mods/auto-loot-plus", "auto-loot-plus");
+    let z = zip(&t, "alp-full", "AutoLootPlus 1.1.8");
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[z], false, &mut NoProgress).unwrap();
+    let a = r.activation.expect("activated");
+    let own = g.path.join("mods/auto-loot-plus");
+    assert!(a.warnings.iter().any(|w| w.contains(&format!("the game uses your own folder {}", own.display()))), "{a:?}");
+    assert!(a.retained.is_empty(), "{a:?}");
+}
+
 /// EML's own dbghelp.dll in the game folder (Windows loads it): every EML mod of the profile is in mods/ for it, the
 /// game-folder ones under their folder name, and the launcher says all of them run under it.
 #[test]
