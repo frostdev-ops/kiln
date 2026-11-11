@@ -363,6 +363,8 @@ internal static class ShroudForgePackages
         var extPath = Path.Combine(folder, "extended.mod.json");
         var extended = File.Exists(extPath);
         var ext = extended ? Parse(ReadText(extPath)) as JsonObject ?? throw new SfEditException("extended.mod.json is not a JSON object") : new JsonObject();
+        if (ext.TryGetPropertyValue("settings", out var declaredSettings) && declaredSettings is not JsonObject)
+            throw new SfEditException("extended.mod.json settings must be an object");
         var caps = Strings(mod, "capabilities");
         var runtime = caps.Any(c => c is "runtime" or "runtime-register-dll");
         var patch = caps.Contains("patch");

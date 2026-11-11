@@ -384,6 +384,12 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     let extended = ext_path.is_file();
     let tree = if extended { Some(read_text(&ext_path)?.1) } else { None };
     let ext = tree.as_ref().map(Node::to_value).unwrap_or_else(|| serde_json::json!({}));
+    if !ext.is_object() {
+        return Err(Error::invalid("extended.mod.json is not a JSON object"));
+    }
+    if ext.get("settings").is_some_and(|s| !s.is_object()) {
+        return Err(Error::invalid("extended.mod.json settings must be an object"));
+    }
     let launcher = str_of(&ext, "launcher").or_else(|| (!extended).then(|| "EML".to_owned()));
     let targets = match ext.get("targets").and_then(|t| t.as_array()) {
         Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),

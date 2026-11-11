@@ -1874,6 +1874,33 @@
       "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": false,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
     },
     {
+      "name": "extension-must-be-an-object",
+      "about": "ShroudForge refuses an extension that is not an object; the launcher must not turn it into an apparently disabled package with no settings.",
+      "mod": {"id": "bad-extension", "name": "Bad extension", "version": "1.0.0", "capabilities": ["runtime"]},
+      "refused": true,
+      "extended": "[]\n",
+      "edits": [{"enabled": false, "ok": false}, {"enabled": true, "ok": false}],
+      "expect": "[]\n"
+    },
+    {
+      "name": "settings-cannot-be-an-array",
+      "about": "A present settings member must be an object, even an empty array is not an empty set of settings.",
+      "mod": {"id": "bad-settings", "name": "Bad settings", "version": "1.0.0", "capabilities": ["runtime"]},
+      "refused": true,
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":[]}\n",
+      "edits": [{"enabled": false, "ok": false}, {"setting": "a", "value": 1, "ok": false}],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":[]}\n"
+    },
+    {
+      "name": "settings-cannot-be-null",
+      "about": "An absent settings member means no settings; an explicit null is refused by ShroudForge.",
+      "mod": {"id": "null-settings", "name": "Null settings", "version": "1.0.0", "capabilities": ["runtime"]},
+      "refused": true,
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":null}\n",
+      "edits": [{"enabled": false, "ok": false}],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":null}\n"
+    },
+    {
       "name": "invalid-utf8-is-refused",
       "about": "a Latin-1 byte (not UTF-8): ShroudForge's serde_json refuses the file, and a lossy read would write U+FFFD back",
       "mod": {
