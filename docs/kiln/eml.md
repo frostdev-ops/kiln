@@ -97,7 +97,10 @@ The early step:
 
 kiln-eml publishes `kiln.eml` in its `kiln_plugin_early` and runs the mods in `on_ready`, so other early plugins can
 hand it mods first (section 6). It does not run with kiln.json `"plugins": false`, play-once no-mods, or an invalid
-profile. Later in the same boot the plugin step loads the DLL again: `kiln_plugin_main` returns OK and does nothing.
+profile. **Limit:** in those starts, and in a play-once vanilla start (no Kiln code at all), nothing puts the game data
+back, so the archives keep the last EML patch: such a start runs vanilla code on EML-patched data. To get truly vanilla
+data, switch the EML mods off in the active profile and start once normally through Kiln (that start restores what
+kiln-eml wrote), or use Steam's "Verify integrity of game files" ([client.md](client.md#boot-and-side)). Later in the same boot the plugin step loads the DLL again: `kiln_plugin_main` returns OK and does nothing.
 With an older kiln-core that has no early step, the run happens there instead, still before the game's entry point.
 
 ### Which mods
