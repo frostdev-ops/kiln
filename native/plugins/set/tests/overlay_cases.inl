@@ -40,6 +40,22 @@
  toolsInputs={{"Debug logs","false"}};setui::draw();assert(slurp(work/"set-ui.ini")=="debugLog=0\n");
  assert(setui::logText(false).find("current test log")!=std::string::npos&&setui::logText(false).find("previous test log")==std::string::npos);
  if(const char* home=getenv("HOME");home&&strlen(home)>3)assert(report.find(home)==std::string::npos&&report.find("%USERPROFILE%")!=std::string::npos);
+ // Home folders are redacted by their shape too, whatever HOME and USERPROFILE say: Wine shows the Linux home as
+ // Z:\home\<name>, Proton's profile is C:\users\steamuser, JSON doubles the separators. Either separator, any case.
+ std::ofstream(work/"kiln.log")<<"mods in Z:\\home\\alicefix\\.local\\share\\Steam\\steamapps\n"
+   "json \"C:\\\\Users\\\\Bob Fix\\\\AppData\\\\Local\"\n"
+   "linux /home/carolfix/.steam and /var/home/davefix/x\n"
+   "mac /Users/erinfix/Library and C:/USERS/frankfix/x and \\HOME\\gracefix\\y\n"
+   "proton C:\\users\\steamuser\\AppData and Z:\\home\\heidifix\n";
+ toolsTab="Bug Report";toolsClick="Save local support report";setui::draw();
+ for(const auto& shaped:{setui::logText(false),slurp(work/"set-report.txt")}){
+  bool leaked=false;
+  for(const char* name:{"alicefix","Bob Fix","carolfix","davefix","erinfix","frankfix","gracefix","steamuser","heidifix"})
+   if(shaped.find(name)!=std::string::npos){std::cerr<<"redaction: '"<<name<<"' left in\n";leaked=true;}
+  assert(!leaked);
+  assert(shaped.find("Z:\\home\\")!=std::string::npos&&shaped.find("\\.local\\share\\Steam\\steamapps")!=std::string::npos&&
+         shaped.find("\\\\AppData\\\\Local")!=std::string::npos&&shaped.find("/Library and")!=std::string::npos);
+ }
  // Refuse unsafe report destinations instead of following a player-provided link.
  std::filesystem::remove(work/"set-report.txt");std::filesystem::create_symlink(root/"secret.lua",work/"set-report.txt");
  toolsClick="Save local support report";setui::draw();assert(slurp(root/"secret.lua")=="return 'outside'");std::filesystem::remove(work/"set-report.txt");

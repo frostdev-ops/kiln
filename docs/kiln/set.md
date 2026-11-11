@@ -75,8 +75,11 @@ Escape or the window's close button releases their input capture. No real-client
 - **Console**: Lua queued to the next tick, with a bounded SET output history; no Lua runs on the render thread.
 - **Bug Report**: an explicit local `kiln/control/set-report.txt` containing compatibility, mod and hook/overlay status,
   plus current/previous Kiln logs (at most 1 MiB each). Explicit **Copy to Clipboard** / **Copy last session's logs**
-  buttons copy Unicode logs on Windows/Wine, with a local-file fallback if the clipboard is unavailable. Home-directory
-  prefixes are redacted case-insensitively; review before sharing. Nothing is uploaded or opens a report website.
+  buttons copy Unicode logs on Windows/Wine, with a local-file fallback if the clipboard is unavailable. The
+  `USERPROFILE` and `HOME` paths are redacted case-insensitively, and so is the user name in any path shaped
+  `\home\<name>`, `/home/<name>`, `\Users\<name>` or `/Users/<name>` (either separator, doubled as in JSON, any case;
+  Wine's `Z:\home\<name>` among them). Other personal text in mod names or log lines is not; review before sharing.
+  Nothing is uploaded or opens a report website.
   **Debug logs** adds tool lifecycle diagnostics to `kiln.log`, not the Lua console; it defaults on and is saved in `kiln/control/set-ui.ini`,
   not upstream's `settings.ini`.
 - **Last Session**: on the next client start, a notice opens when the game wrote a crash report

@@ -74,6 +74,32 @@ std::string read(const std::filesystem::path& folder, const char* name) {
     return out;
 }
 std::string lower(std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; }
+bool separator(char c) { return c == '\\' || c == '/'; }
+// The user name in a home folder path, by its shape: \home\<name>, /home/<name>, \Users\<name>, /Users/<name>, with
+// either separator, single or doubled (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and
+// USERPROFILE (Proton: C:\users\steamuser) say. The name ends at a separator, a quote or a control character.
+std::string redactHomes(const std::string& in) {
+    std::string out;
+    size_t i = 0;
+    while (i < in.size()) {
+        if (!separator(in[i])) { out += in[i++]; continue; }
+        size_t word = i, name = std::string::npos;
+        while (word < in.size() && separator(in[word])) ++word;
+        for (const std::string w : {"home", "users"})
+            if (in.size() - word > w.size() && lower(in.substr(word, w.size())) == w && separator(in[word + w.size()])) {
+                name = word + w.size();
+                while (name < in.size() && separator(in[name])) ++name;
+                break;
+            }
+        size_t end = name;
+        while (end < in.size() && !separator(in[end]) && in[end] != '"' && in[end] != '\'' && static_cast<unsigned char>(in[end]) >= 32) ++end;
+        if (name == std::string::npos || end == name) { out.append(in, i, word - i); i = word; continue; }
+        out.append(in, i, name - i);
+        out += "<user>";
+        i = end;
+    }
+    return out;
+}
 std::string redact(std::string out) {
     for (const char* name : {"USERPROFILE", "HOME"}) if (const char* home = std::getenv(name); home && strlen(home) > 3) {
         std::string variants[] = {home, home};
@@ -84,7 +110,7 @@ std::string redact(std::string out) {
             result.append(out, from); out = std::move(result);
         }
     }
-    return out;
+    return redactHomes(out);
 }
 bool sessionMark(bool running) {
     FILE* f = kset::sandbox::open(utf8(controlDir), "set-session.txt", "wb");
