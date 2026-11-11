@@ -128,6 +128,9 @@ internal static class ShroudForgeUi
     {
         try
         {
+            // Match the reader's plain-file rule before reusing a package. Identical bytes through a new link
+            // must not hide its rejection, nor cache that rejection after the player replaces the link with a file.
+            if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0) return null;
             using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
             foreach (var name in new[] { "mod.json", "extended.mod.json" })
             {
@@ -137,6 +140,7 @@ internal static class ShroudForgeUi
                     sha.AppendData([0]);
                     continue;
                 }
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return null;
                 using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 if (f.Length > ShroudForgePackages.MaxFileBytes) return null;
                 var bytes = new byte[f.Length];
@@ -195,11 +199,12 @@ internal static class ShroudForgeUi
         View? view = null;
         try { if (package is not null) view = ViewOf(folder, package); }
         catch (Exception) { view = null; }  // the render thread makes it then
-        var hash = FilesHash(folder);
         lock (e)
         {
             e.Generation++;
-            e.Now = new State(package, error, view, hash);
+            // The other menu can write after the save's read-back. A hash taken here could belong to that newer
+            // file, not to this package, and suppress every later refresh. Let the next read establish the hash.
+            e.Now = new State(package, error, view, null);
         }
         Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
     }
@@ -384,11 +389,23 @@ internal static class ShroudForgeUi
         public bool Empty;
         /// <summary>Settings the package has that the page does not draw.</summary>
         public int Hidden;
+        /// <summary>The last build had too many settings or too much value text to repeat on the render thread.</summary>
+        public bool RebuildOnWorker;
     }
 
     private static View ViewOf(string folder, SfPackage p)
     {
-        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder };
+        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder,
+            RebuildOnWorker = p.Settings.Count > DrawnSettings };
+        // The setting cap alone does not bound a frame: one list can have thousands of checkboxes, as can the
+        // groups/actions outside settings. Do not truncate editable options (a write could then lose selections).
+        var metadataLeft = 1000;
+        bool Fits(int count) => (metadataLeft -= count) >= 0;
+        if (!Fits(p.Groups.Count) || !p.Groups.All(g => Fits(g.Actions.Count)) || !p.Settings.All(d => Fits(d.Options.Count)))
+        {
+            view.Error = "too many choices, groups or actions for this page (1000 combined at most). Change settings in the mod's extended.mod.json; the file is unchanged.";
+            return view;
+        }
         try { Build(view, folder, p); }
         catch (Exception e)  // a value no reader can use: said once, not thrown every frame
         {
@@ -399,14 +416,14 @@ internal static class ShroudForgeUi
     }
 
     /// <summary>The view to draw this frame, or null while none is made. A view made before the last edit or error is made
-    /// again: at once for a package the page draws whole, on a worker for a larger one (this frame draws the last).</summary>
+    /// again: at once for a small view, on a worker for a larger one (this frame draws the last).</summary>
     private static View? ViewFor(string folder, Entry e, State now)
     {
         if (now.Package is not { } p) return null;
         var version = Interlocked.Read(ref _version);
         var view = now.View is { } v && ReferenceEquals(v.Package, p) ? v : null;
         if (view is not null && view.Version == version) return view;
-        if (p.Settings.Count <= DrawnSettings)
+        if (view is { RebuildOnWorker: false })
         {
             view = ViewOf(folder, p);
             Keep(e, p, view);
@@ -444,6 +461,7 @@ internal static class ShroudForgeUi
         }
         var rule = new EnabledRule(byKey, values);
         var made = 0;
+        var textLeft = 4096;
         Item Make(SfSettingDef d)
         {
             var value = values.TryGetValue(d.Key, out var v) ? v : d.Value;
@@ -458,6 +476,9 @@ internal static class ShroudForgeUi
             }
             var labels = d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray();
             var text = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
+            // Even a one-setting package can have a huge list. Remember its cost on this worker instead of
+            // serializing it again on the render thread just because another setting was edited.
+            view.RebuildOnWorker |= (textLeft -= text.Length) < 0;
             var chosen = value as JsonArray;
             var combo = 0;
             for (var oi = 0; oi < d.Options.Count; oi++)
@@ -808,6 +829,11 @@ internal static class ShroudForgeUi
             }
     }
 
+    /// <summary>The file hand-off; tests can hold it while another click arrives.</summary>
+    internal static Action<string, SfPackage, string> QueueAction = ShroudForgePackages.QueueAction;
+    // Worker-only: the waiting check and the atomic file hand-off are one operation, including across mod folders.
+    private static readonly object ActionGate = new();
+
     private static void Action(UiDraw ui, string folder, SfPackage p, SfAction a, string label, string? confirm, bool running, float s, float k)
     {
         using var _ = ui.Id("act." + a.Id);
@@ -829,33 +855,36 @@ internal static class ShroudForgeUi
                 _armed = null;
                 Task.Run(() =>
                 {
-                    string text;
-                    var ok = true;
-                    try
+                    lock (ActionGate)
                     {
-                        var game = GameDir();
-                        // ShroudForge keeps a request of an active mod without a handler for ever and reads 32 per turn:
-                        // one of Kiln's own per mod at a time
-                        if (Waiting(game, p.Id))
+                        string text;
+                        var ok = true;
+                        try
+                        {
+                            var game = GameDir();
+                            // ShroudForge keeps a request of an active mod without a handler for ever and reads 32 per turn:
+                            // one of Kiln's own per mod at a time
+                            if (Waiting(game, p.Id))
+                            {
+                                ok = false;
+                                text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
+                                       "which runs it once the mod takes it; nothing new was queued.";
+                            }
+                            else
+                            {
+                                QueueAction(game, p, a.Id);
+                                text = $"Requested: {label}.";
+                                UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
+                            }
+                        }
+                        catch (Exception e)  // whatever the files or the config hold: the player gets a line, not a silent worker
                         {
                             ok = false;
-                            text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
-                                   "which runs it once the mod takes it; nothing new was queued.";
+                            text = $"{label} could not be sent: {e.Message}";
+                            UiEngine.Log(LogLevel.Warn, $"ShroudForge mod {p.Id}: action {a.Id} could not be sent: {e.Message}");
                         }
-                        else
-                        {
-                            ShroudForgePackages.QueueAction(game, p, a.Id);
-                            text = $"Requested: {label}.";
-                            UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
-                        }
+                        lock (Lock) Results[folder] = (text, ok);
                     }
-                    catch (Exception e)  // whatever the files or the config hold: the player gets a line, not a silent worker
-                    {
-                        ok = false;
-                        text = $"{label} could not be sent: {e.Message}";
-                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod {p.Id}: action {a.Id} could not be sent: {e.Message}");
-                    }
-                    lock (Lock) Results[folder] = (text, ok);
                 });
             }
         }

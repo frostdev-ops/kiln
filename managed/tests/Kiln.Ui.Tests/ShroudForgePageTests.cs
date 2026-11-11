@@ -133,6 +133,54 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.True(stale.Count == 0, $"old values shown after save {string.Join(", ", stale)}");
     }
 
+    /// <summary>The native ShroudForge window may write after a save's read-back and before publication.</summary>
+    [Fact]
+    public void An_external_edit_after_a_saves_read_back_is_not_cached_as_the_saved_package()
+    {
+        var folder = Package("""{ "note": { "value": "old", "label": "Note" } }""");
+        ShroudForgeUi.SetSetting = (f, key, value) =>
+        {
+            var saved = ShroudForgePackages.SetSetting(f, key, value);
+            ShroudForgePackages.SetSetting(f, key, JsonValue.Create("external"));
+            return saved;
+        };
+        try
+        {
+            ShroudForgeUi.Edit(folder, "note", JsonValue.Create("saved"));
+            ShroudForgeUi.Flush();
+            Assert.Equal("external", Value(folder, "note"));
+            ShroudForgeUi.Load(folder);
+            Assert.Equal("external", ShroudForgeUi.Get(folder, out _)!.Settings[0].Value!.GetValue<string>());
+            var current = ShroudForgeUi.Get(folder, out _);
+            ShroudForgeUi.Load(folder);
+            Assert.Same(current, ShroudForgeUi.Get(folder, out _));  // ordinary unchanged reads still use the cache
+        }
+        finally { ShroudForgeUi.SetSetting = ShroudForgePackages.SetSetting; }
+    }
+
+    [Theory]
+    [InlineData("mod.json", true)]
+    [InlineData("mod.json", false)]
+    [InlineData("extended.mod.json", true)]
+    [InlineData("extended.mod.json", false)]
+    public void An_unchanged_file_replaced_by_a_link_is_revalidated_and_recovers_when_unlinked(string name, bool cached)
+    {
+        var folder = Package("""{ "note": { "value": "old", "label": "Note" } }""");
+        if (!cached) ShroudForgeUi.ResetForTests();
+        var file = Path.Combine(folder, name);
+        var target = Path.Combine(_root, "target.json");
+        File.Move(file, target);
+        File.CreateSymbolicLink(file, target);  // the same bytes, but no longer an editable plain package file
+        ShroudForgeUi.Load(folder);
+        Assert.Null(ShroudForgeUi.Get(folder, out var error));
+        Assert.Contains("linked", error);
+        File.Delete(file);
+        File.Move(target, file);
+        ShroudForgeUi.Load(folder);
+        Assert.NotNull(ShroudForgeUi.Get(folder, out error));
+        Assert.Null(error);
+    }
+
     /// <summary>A setting whose key is the empty string is a setting, not the mod's switch.</summary>
     [Fact]
     public void A_setting_with_an_empty_key_is_not_the_switch()
@@ -176,6 +224,48 @@ public sealed class ShroudForgePageTests : IDisposable
         }
         finally { ShroudForgeUi.SetSetting = ShroudForgePackages.SetSetting; }
     }
+    [Theory]
+    [InlineData("options")]
+    [InlineData("groups")]
+    [InlineData("actions")]
+    public void Metadata_cannot_submit_thousands_of_controls_on_every_frame(string kind)
+    {
+        var options = string.Join(",", Enumerable.Range(0, 10_000).Select(i => $"\"v{i}\":\"Option {i}\""));
+        var actions = string.Join(",", Enumerable.Range(0, 10_000).Select(i => $"{{\"id\":\"a{i}\",\"label\":\"Action {i}\"}}"));
+        var groups = kind switch
+        {
+            "groups" => "[" + string.Join(",", Enumerable.Range(0, 10_000).Select(i => $"{{\"label\":\"Group {i}\"}}")) + "]",
+            "actions" => "[{\"label\":\"Tools\",\"actions\":[" + actions + "]}]",
+            _ => null,
+        };
+        var folder = Package(kind == "options" ? "{\"choices\":{\"value\":[\"v0\"],\"options\":{" + options + "}}}" : """{"level":{"value":true}}""", groups: groups);
+        var before = File.ReadAllBytes(Path.Combine(folder, "extended.mod.json"));
+        FakeUiTable.Reset();
+        ShroudForgeUi.Draw(_ui, Mod(folder), 1, 1, (_, _, _) => { });
+        Assert.True(FakeUiTable.WidgetCalls + FakeUiTable.Texts.Count < 2000,
+            $"{kind}: {FakeUiTable.WidgetCalls} widgets, {FakeUiTable.Texts.Count} text/id submissions per frame");
+        Assert.Contains(FakeUiTable.Texts, t => t.Contains("too many", StringComparison.OrdinalIgnoreCase) && t.Contains("extended.mod.json", StringComparison.Ordinal));
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(folder, "extended.mod.json")));
+    }
+
+    [Fact]
+    public void A_small_package_with_a_large_list_rebuilds_its_view_off_the_render_thread()
+    {
+        var selected = string.Join(",", Enumerable.Repeat("\"v0\"", 40_000));
+        var folder = Package("{\"choices\":{\"value\":[" + selected + "],\"options\":{\"v0\":\"Option\"}},\"level\":{\"value\":false}}");
+        var mod = Mod(folder);
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+        ShroudForgeUi.Edit(folder, "level", JsonValue.Create(true), 30_000);
+        try
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.True(allocated < 96 * 1024, $"a frame rebuilt a large value: {allocated} bytes allocated on the render thread");
+        }
+        finally { ShroudForgeUi.ResetForTests(); }
+    }
+
     private static string Chain(int n)
     {
         var parts = new List<string>();
@@ -309,6 +399,61 @@ public sealed class ShroudForgePageTests : IDisposable
             Assert.Single(Directory.EnumerateFiles(Actions(folder)));
         }
         finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    [Fact]
+    public void Two_clicks_while_an_action_is_being_written_leave_only_one_request()
+    {
+        UseGame();
+        using var writing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var secondWrite = new ManualResetEventSlim();
+        var calls = 0;
+        var finished = 0;
+        ShroudForgeUi.QueueAction = (game, package, action) =>
+        {
+            try
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    writing.Set();
+                    if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("action test did not release writer");
+                }
+                else secondWrite.Set();
+                ShroudForgePackages.QueueAction(game, package, action);
+            }
+            finally { Interlocked.Increment(ref finished); }
+        };
+        try
+        {
+            var folder = ActionPackage();
+            var page = Page(Mod(folder) with { Active = true });
+            FakeUiTable.Click = "Reset progress";
+            Frame(page);
+            Assert.True(writing.Wait(TimeSpan.FromSeconds(5)));
+            FakeUiTable.Click = "Reset progress";
+            Frame(page);
+            // No request file is visible yet. The second click must not pass the check and enter the file writer.
+            var overlapped = secondWrite.Wait(TimeSpan.FromMilliseconds(300));
+            release.Set();
+            Assert.True(SpinWait.SpinUntil(() => Directory.Exists(Actions(folder)) && Directory.EnumerateFiles(Actions(folder)).Any(), 5000));
+            Assert.False(overlapped, "both clicks passed the waiting check before the first request was written");
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                lock (FakeUiTable.Texts) FakeUiTable.Texts.Clear();
+                Frame(page);
+                lock (FakeUiTable.Texts) return FakeUiTable.Texts.Any(t => t.Contains("still waiting", StringComparison.Ordinal));
+            }, 5000), "the second click did not report the request already waiting");
+            Assert.Equal(1, Volatile.Read(ref calls));
+            Assert.Single(Directory.EnumerateFiles(Actions(folder)));
+        }
+        finally
+        {
+            release.Set();
+            SpinWait.SpinUntil(() => Volatile.Read(ref finished) == Volatile.Read(ref calls), 5000);
+            ShroudForgeUi.QueueAction = ShroudForgePackages.QueueAction;
+            ModCatalog.Sources = ModCatalog.DefaultSources;
+        }
     }
 
     /// <summary>A request an earlier game start left (another pid) is still one waiting: ShroudForge keeps it and may run

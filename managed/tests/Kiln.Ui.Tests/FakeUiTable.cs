@@ -35,6 +35,7 @@ internal static unsafe class FakeUiTable
     public static string FieldLabel = "##v";
     /// <summary>The next button whose label starts with this is clicked (once).</summary>
     public static string? Click;
+    public static int WidgetCalls;
     private static bool _lastWasField;
 
     public sealed class Backend : IKilnBackend
@@ -105,6 +106,7 @@ internal static unsafe class FakeUiTable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static byte FalseStrFloat2(NativeStr s, float a, float b)
     {
+        WidgetCalls++;
         _lastWasField = false;
         if (Click is null || !s.ToString().StartsWith(Click, StringComparison.Ordinal)) return 0;
         Click = null;
@@ -123,7 +125,7 @@ internal static unsafe class FakeUiTable
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte Checkbox(NativeStr s, byte* v) { _lastWasField = false; return 0; }
+    private static byte Checkbox(NativeStr s, byte* v) { WidgetCalls++; _lastWasField = false; return 0; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void GetCursor(UiNative.Cursor* c)
@@ -271,6 +273,7 @@ internal static unsafe class FakeUiTable
         Other.Clear();
         FieldLabel = "##v";
         Click = null;
+        WidgetCalls = 0;
         _lastWasField = false;
         Fields.Clear();
         lock (Texts) Texts.Clear();

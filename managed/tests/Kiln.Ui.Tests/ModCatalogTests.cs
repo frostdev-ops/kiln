@@ -420,6 +420,29 @@ public sealed class ModCatalogTests : IDisposable
         return mods;
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_matching_pid_does_not_make_a_report_from_before_this_start_current(bool timestamp)
+    {
+        var path = Path.Combine(State, "set.json");
+        Write("set.json", timestamp ? new { pid = Pid, updatedUnixMs = StartMs - 60_000 } : (object)new { pid = Pid });
+        File.SetLastWriteTimeUtc(path, Start.AddMinutes(-1));
+        Assert.False(ModCatalog.ReadState(new CatalogSources { KilnRoot = Kiln, Pid = Pid, ProcessStartUtc = Start }, "set.json").Current);
+    }
+
+    [Fact]
+    public void A_recent_shroudforge_report_with_a_reused_pid_is_not_activation_proof()
+    {
+        TwoShroudForgeMods();
+        var now = DateTimeOffset.UtcNow;
+        var path = Path.Combine(_root, "shroudforge", "state.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new { runtime = new { pid = Pid, running = true, updatedAt = now.AddSeconds(-10).ToUnixTimeSeconds(), active = new[] { "pack" } } }));
+        var s = ModCatalog.Read(new CatalogSources { KilnRoot = Kiln, Pid = Pid, ProcessStartUtc = now.AddSeconds(-3).UtcDateTime, Side = "client" });
+        var pack = Mod(s, "shroudforge", "pack");
+        Assert.Equal((ModRunState.Waiting, "unconfirmed", false), (pack.State, pack.Word, pack.Active));
+    }
+
     /// <summary>ShroudForge's config names a state folder no file call takes (a NUL in it): its runtime report cannot be
     /// read, so its mods are unconfirmed, never left looking Loaded because nothing refined them.</summary>
     [Fact]
