@@ -249,6 +249,35 @@ fn a_folder_with_another_engines_manifest_is_never_adopted_as_flame_output() {
     }
 }
 
+#[test]
+fn switching_engines_releases_a_flame_folder_before_the_other_engine_places_its_copy() {
+    let t = tmp("engine-swap");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Z);
+    put(&g.path, "dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
+    let flame = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+    let eml_src = t.0.join("eml/creative");
+    put(&eml_src, "mod.json", br#"{"id":"creative","name":"Creative EML","version":"1.0.0"}"#);
+    put(&eml_src, "src/mod.lua", b"return {}");
+    let imported = library::import(&dirs, &[eml_src], &mut NoProgress).unwrap();
+    let eml = imported.imported.iter().find(|m| m.kind == ModKind::Eml).unwrap();
+    let mut p = profile::create(&dirs, "Swap", None).unwrap();
+    p.mods.flame = vec![pm(&flame, true)];
+    engine_mods::place(&dirs, &p, &g.path).unwrap();
+    the_mod_writes(&g.path.join("mods/creative"));
+    p.mods.flame[0].enabled = false;
+    p.mods.eml = vec![pm(eml, true)];
+    let rep = engine_mods::place(&dirs, &p, &g.path).unwrap();
+    assert!(rep.placed.contains(&"eml:creative".into()), "the earlier engine must leave before placement: {rep:?}");
+    assert_eq!(engine_mods::marker(&g.path.join("mods/creative")).unwrap().kind, ModKind::Eml);
+    assert!(g.path.join("kiln/kept-mod-files/flame/creative/notice.txt").is_file());
+    p.mods.eml[0].enabled = false;
+    p.mods.flame[0].enabled = true;
+    let rep = engine_mods::place(&dirs, &p, &g.path).unwrap();
+    assert!(rep.placed.contains(&"flame:creative".into()), "{rep:?}");
+    assert!(g.path.join("mods/creative/notice.txt").is_file());
+}
+
 fn walk(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
