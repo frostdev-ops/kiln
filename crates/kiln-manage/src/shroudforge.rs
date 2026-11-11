@@ -648,6 +648,15 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
     if !same_kind {
         return Err(Error::invalid(format!("setting {} holds a {}, not a {}", s.key, kind(&s.value), kind(value))));
     }
+    // (a number is always finite here: serde_json holds no NaN or infinity, `Value::from(f64::NAN)` is null)
+    // ShroudForge types a list by its first member: a choice without a value (null) there would make it read the list as
+    // text and refuse the mod
+    if value.as_array().and_then(|a| a.first()).is_some_and(|v| v.is_null()) {
+        return Err(Error::invalid(format!(
+            "setting {}: a choice without a value cannot come first in the list (ShroudForge would refuse the mod)",
+            s.key
+        )));
+    }
     // ShroudForge types a setting by its declared value: a whole number is an integer setting
     if s.value.is_i64() {
         let whole = value.is_i64() || value.as_f64().is_some_and(|n| n.fract() == 0.0 && n.abs() < 9.0e15);
@@ -1098,6 +1107,20 @@ mod tests {
         assert!(set_setting(&f, "mode", &serde_json::json!("c")).is_err());
         assert!(set_setting(&f, "nope", &serde_json::json!(1)).is_err());
         set_setting(&f, "mode", &serde_json::json!("b")).unwrap();
+    }
+
+    /// The launcher cannot be handed a number that is not finite: serde_json turns it into null, which is refused.
+    #[test]
+    fn a_number_that_is_not_finite_never_reaches_the_writer() {
+        let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
+        let f = pkg(t.path(), "nan", Some(r#"{"enabled":true,"settings":{"ratio":{"value":0.5}}}"#));
+        let before = std::fs::read(f.join("extended.mod.json")).unwrap();
+        for n in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let v = serde_json::Value::from(n);
+            assert!(v.is_null());
+            assert!(set_setting(&f, "ratio", &v).is_err());
+        }
+        assert_eq!(std::fs::read(f.join("extended.mod.json")).unwrap(), before);
     }
 
     #[test]

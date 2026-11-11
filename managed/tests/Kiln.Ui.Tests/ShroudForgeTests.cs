@@ -185,6 +185,23 @@ public sealed class ShroudForgeTests : IDisposable
         Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
     }
 
+    /// <summary>A number that is not finite is refused before the writer, which would put null (serde_json's form)
+    /// in its place; the launcher cannot hold one at all (serde_json's numbers are finite).</summary>
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void A_number_that_is_not_finite_is_refused(double number)
+    {
+        var dir = Package("\"value\":0.5");
+        var file = Path.Combine(dir, "extended.mod.json");
+        var before = File.ReadAllBytes(file);
+        JsonNode value = JsonValue.Create(number);
+        Assert.NotNull(ShroudForgePackages.Check(ShroudForgePackages.Read(dir).Settings[0], value));
+        Assert.Throws<SfEditException>(() => ShroudForgePackages.SetSetting(dir, "amount", value));
+        Assert.Equal(before, File.ReadAllBytes(file));
+    }
+
     [Theory]
     [InlineData("\"value\":null")]
     [InlineData("\"value\":[]")]
