@@ -749,10 +749,13 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
 
     let outcome: Result<()> = (|| {
         // Older switch-from-SF installs displaced all three DLLs. Restore only missing helpers with proven original
-        // hashes. Never chain them or overwrite a helper the player has since installed.
+        // hashes. Never chain them or overwrite a helper the player has since installed. This is a courtesy for files
+        // Kiln does not own: only while ShroudForge itself is still in the game folder, and a backup that is gone is a
+        // warning, never a refused install.
+        let sf_installed = crate::shroudforge::detect(game_dir).is_some();
         for rel in ["dbghelp.dll", "winmm.dll"] {
             let Some(r) = replaced.iter().find(|r| r.path == rel) else { continue };
-            if r.class != Some(ReplacedClass::ShroudForge) || r.action != ReplacedAction::BackedUp { continue; }
+            if r.class != Some(ReplacedClass::ShroudForge) || r.action != ReplacedAction::BackedUp || !sf_installed { continue; }
             let target = game_dir.join(rel);
             if occupied(&target)? {
                 if file_sha(&target).is_none_or(|(h, _)| h != r.sha256) {
@@ -760,9 +763,18 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                 }
                 continue;
             }
-            let backup = r.backup.as_ref().map(|b| game_dir.join(b))
-                .filter(|b| file_sha(b).is_some_and(|(h, _)| h == r.sha256))
-                .ok_or_else(|| Error::new(ErrorCode::HashMismatch, format!("cannot recover legacy ShroudForge {rel}: its backup is missing or changed")))?;
+            // the backup in the game folder, else the second copy every install backup has in the launcher's data folder
+            let good = |p: &Path| file_sha(p).is_some_and(|(h, _)| h == r.sha256);
+            let copies = r.backup.as_ref().map(|b| {
+                let mirrored = b.strip_prefix(&format!("{}/", crate::paths::game::BACKUPS))
+                    .map(|rest| dirs.backups().join("install").join(&install_id).join(rest));
+                [Some(game_dir.join(b)), mirrored]
+            });
+            let Some(backup) = copies.into_iter().flatten().flatten().find(|p| good(p)) else {
+                warnings.push(format!("Did not restore ShroudForge's {rel}: its backup {} is missing or changed, and the launcher's backups hold no copy either. Reinstall ShroudForge if you need it.",
+                    r.backup.as_deref().unwrap_or("(none recorded)")));
+                continue;
+            };
             copy_new(&backup, &target)?;
             steps.push(Step::Placed { target: target.clone(), previous: None });
             if file_sha(&target).is_none_or(|(h, _)| h != r.sha256) {

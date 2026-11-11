@@ -1525,25 +1525,63 @@ fn sf_restore_legacy_helper_recovery_preserves_newer_helpers_and_first_backups()
 }
 
 #[test]
-fn sf_restore_legacy_helper_recovery_rolls_back_missing_corrupt_or_later_failed_install() {
-    for scenario in ["missing", "corrupt", "late-receipt-failure"] {
-        let t = tmp(&format!("sf-legacy-rollback-{scenario}"));
+fn sf_restore_legacy_helper_recovery_rolls_back_a_later_failed_install() {
+    let t = tmp("sf-legacy-rollback-late-receipt-failure");
+    let (dirs, gi, zip, _) = sf_setup(&t.0);
+    let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    sf_legacy_helpers(&gi.path, &mut receipt);
+    std::fs::create_dir(gi.path.join("kiln/.install.json.tmp")).unwrap();
+    let before = sf_inventory(&gi.path);
+    let installed_before = std::fs::read(gi.path.join("dinput8.dll")).unwrap();
+    let error = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap_err();
+    assert_eq!(error.code, ErrorCode::Io);
+    assert_eq!(sf_inventory(&gi.path), before, "no partially recovered helpers");
+    assert_eq!(std::fs::read(gi.path.join("dinput8.dll")).unwrap(), installed_before);
+    assert_eq!(install::read_receipt(&gi.path).unwrap(), Some(receipt));
+}
+
+/// The helpers are a courtesy restore of files Kiln does not own: a backup that is gone or changed (the player cleaned
+/// kiln/backups), with no good copy in the launcher's data folder either, is a warning, never a refused update. With
+/// ShroudForge itself removed from the game folder they are not put back at all.
+#[test]
+fn legacy_shroudforge_helper_backups_never_block_an_update() {
+    for scenario in ["missing", "corrupt", "data-copy", "shroudforge-removed"] {
+        let t = tmp(&format!("sf-legacy-courtesy-{scenario}"));
         let (dirs, gi, zip, _) = sf_setup(&t.0);
         let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
         let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
         sf_legacy_helpers(&gi.path, &mut receipt);
+        let winmm = std::fs::read(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
         match scenario {
             "missing" => std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap(),
             "corrupt" => put(&gi.path, "kiln/backups/legacy/winmm.dll", b"corrupt backup"),
-            _ => std::fs::create_dir(gi.path.join("kiln/.install.json.tmp")).unwrap(),
+            "data-copy" => {
+                // the second copy every install backup has in the launcher's data folder
+                put(&dirs.backups().join("install").join(&receipt.install_id), "legacy/winmm.dll", &winmm);
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            _ => std::fs::remove_dir_all(gi.path.join("shroudforge")).unwrap(),
         }
-        let before = sf_inventory(&gi.path);
-        let installed_before = std::fs::read(gi.path.join("dinput8.dll")).unwrap();
-        let error = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap_err();
-        assert_eq!(error.code, if scenario == "late-receipt-failure" { ErrorCode::Io } else { ErrorCode::HashMismatch });
-        assert_eq!(sf_inventory(&gi.path), before, "{scenario}: no partially recovered helpers");
-        assert_eq!(std::fs::read(gi.path.join("dinput8.dll")).unwrap(), installed_before);
-        assert_eq!(install::read_receipt(&gi.path).unwrap(), Some(receipt));
+        let r = install::install_report(&dirs, &gi, &zip, &opts, &mut NoProgress);
+        assert!(r.is_ok(), "{scenario}: {:?}", r.err());
+        let (updated, report) = r.unwrap();
+        assert_eq!(updated.replaced, receipt.replaced, "{scenario}: the receipt keeps both originals");
+        match scenario {
+            "missing" | "corrupt" => {
+                assert_eq!(report.restored_shroudforge, ["dbghelp.dll"], "{scenario}");
+                assert!(!gi.path.join("winmm.dll").exists());
+                assert!(report.warnings.iter().any(|w| w.contains("winmm.dll") && w.contains("kiln/backups/legacy/winmm.dll")), "{scenario}: {report:?}");
+            }
+            "data-copy" => {
+                assert_eq!(report.restored_shroudforge, ["dbghelp.dll", "winmm.dll"]);
+                assert_eq!(std::fs::read(gi.path.join("winmm.dll")).unwrap(), winmm);
+            }
+            _ => {
+                assert!(report.restored_shroudforge.is_empty(), "{report:?}");
+                assert!(!gi.path.join("dbghelp.dll").exists() && !gi.path.join("winmm.dll").exists());
+            }
+        }
     }
 }
 
