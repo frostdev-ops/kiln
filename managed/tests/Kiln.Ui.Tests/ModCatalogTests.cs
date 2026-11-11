@@ -452,6 +452,77 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("startup", Mod(unknownStart, "shroudforge", "patch").Word);
     }
 
+    /// <summary>A real client (2026-11-11): Kiln hosted ShroudForge, kiln-eml stood aside and listed the profile's four EML
+    /// mods as running under ShroudForge, and the menu showed them Loaded. ShroudForge runs a package of its mods folder
+    /// only while its extended.mod.json says enabled: true; three had no such file and nothing applied them. While
+    /// ShroudForge runs, an EML row in its folder says what ShroudForge's switch and its record of the startup pass say,
+    /// whatever an older kiln-eml wrote; a player's own legacy EML folder is listed under ShroudForge with its switch.</summary>
+    [Fact]
+    public void Eml_mods_in_shroudforges_folder_run_only_while_its_switch_is_on()
+    {
+        var mods = Dir("mods");
+        void Package(string folder, string id, string caps, string? ext, bool kilns)
+        {
+            var dir = Dir("mods", folder);
+            File.WriteAllText(Path.Combine(dir, "mod.json"), $$"""{"id":"{{id}}","name":"Name {{id}}","version":"1.0.0","capabilities":[{{caps}}]}""");
+            File.WriteAllText(Path.Combine(Dir("mods", folder, "src"), "mod.lua"), "return {}");
+            if (ext is not null) File.WriteAllText(Path.Combine(dir, "extended.mod.json"), ext);
+            if (kilns) File.WriteAllText(Path.Combine(dir, ".kiln-library.json"), $$"""{"format":1,"kind":"eml","id":"{{id}}","version":"1.0.0","hash":"h"}""");
+        }
+        Package("fcu-render-observer", "fcu-render-observer", "\"patch\",\"runtime-register-dll\"", """{"schemaVersion":1,"enabled":true,"targets":["client"],"launcher":"EML","settings":{}}""", true);
+        Package("more-gliders", "more-gliders", "\"patch\"", null, true);
+        Package("aldrich-bare-body", "aldrich-bare-body", "\"patch\"", """{"schemaVersion":1,"enabled":false,"targets":["client","server"],"launcher":"EML","settings":{}}""", true);
+        Package("Hand Made", "hand-made", "\"patch\"", null, false);  // the player's own folder, not in the profile
+        var ids = new[] { "fcu-render-observer", "more-gliders", "aldrich-bare-body" };
+        Profile(new() { ["eml"] = ids.Select(id => (object)new { id, version = "1.0.0", path = Path.Combine(_root, "library", "eml", id) }).ToArray() });
+        // what kiln-eml wrote before this fix: every mod own-loader, "runs under ShroudForge"
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = ids.Select(id => new { id, source = "profile", path = Path.Combine(mods, id), state = "own-loader", reason = $"runs under ShroudForge (hosted by Kiln) (Kiln's copy at {Path.Combine(mods, id)})" }).ToArray(),
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = mods, startupPrepared = true });
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            assets = new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now - 5, mods = new[] { new { id = "fcu-render-observer", version = "1.0.0" } } },
+        }));
+        var s = Read();
+
+        var fcu = Mod(s, "eml", "fcu-render-observer");
+        Assert.Equal((ModRunState.Loaded, "applied"), (fcu.State, fcu.Word));
+        foreach (var id in new[] { "more-gliders", "aldrich-bare-body" })
+        {
+            var m = Mod(s, "eml", id);
+            Assert.Equal(ModRunState.Disabled, m.State);
+            Assert.DoesNotContain("runs under", m.Reason);
+            Assert.Contains("Kiln launcher", m.Help);
+        }
+        Assert.Contains("no extended.mod.json", Mod(s, "eml", "more-gliders").Reason);
+        Assert.Contains("enabled: false", Mod(s, "eml", "aldrich-bare-body").Reason);
+        var eml = s.Engines.Single(e => e.Kind == "eml");
+        Assert.Equal(EngineHealth.Problem, eml.Health);
+        Assert.Contains("2 of the profile's EML mods are switched off in ShroudForge", eml.Note);
+        // Kiln's copies are the EML rows; the player's own legacy folder is ShroudForge's to switch, and says so
+        Assert.DoesNotContain(s.Mods, m => m.Engine == "shroudforge" && ids.Contains(m.Id));
+        var hand = Mod(s, "shroudforge", "hand-made");
+        Assert.Equal((ModRunState.Disabled, "folder"), (hand.State, hand.Source));
+        Assert.Contains("no extended.mod.json", hand.Reason);
+        Assert.Contains("Switch it on below", hand.Help);
+
+        // with ShroudForge's report of this start gone, kiln-eml's own word still says it does not run
+        File.Delete(Path.Combine(State, "shroudforge.json"));
+        Write("eml.json", new
+        {
+            format = 1, pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+            mods = new[] { new { id = "more-gliders", source = "profile", path = Path.Combine(mods, "more-gliders"), state = "off-in-shroudforge", reason = "ShroudForge (hosted by Kiln) runs this start, but ShroudForge has Kiln's copy switched off" } },
+        });
+        var off = Mod(Read(), "eml", "more-gliders");
+        Assert.Equal(ModRunState.Disabled, off.State);
+        Assert.DoesNotContain("Turn it on in the Kiln launcher (Profiles)", off.Help ?? "");
+    }
+
     /// <summary>Folders Kiln places in <c>&lt;game&gt;/mods/</c> for other hosts (an XHL-Core companion, an EML mod a DLL
     /// reads there) are not Enshwick mods, even while Enshwick runs: XHL entries are their own group, never Loaded.</summary>
     [Fact]
