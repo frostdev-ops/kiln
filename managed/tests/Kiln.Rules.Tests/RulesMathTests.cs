@@ -12,6 +12,10 @@ public class RulesMathTests
     private const string PresetHeader =
         "// Kiln's \"creative\" rules (Kiln.Rules: docs/kiln/services/rules.md). Edit to change what /creative and Rules.Preset(\"creative\") give;\n" +
         "// delete the file to get Kiln's defaults back. The server's limits (rules.json next to this folder) still apply.\n";
+    // Since dev.24 the creative default has a third line no earlier file has: how to switch the steered glider off.
+    private const string CreativeNote =
+        "// Steered glider off: \"glideSteer\": null, or delete its block (the glide is then the plane path); for every player: " +
+        "\"allowGlideSteer\": false in rules.json.\n";
     private const string Dev14Preset = PresetHeader + """
         {
           "flyAnywhere": true,
@@ -369,7 +373,7 @@ public class RulesMathTests
             Assert.Equal(edited, File.ReadAllText(file));
             File.Delete(file);
             var created = RulesPresets.WriteDefault("creative", PlayerRules.Creative, file);
-            Assert.Equal(PresetHeader + PlayerRules.Creative.ToJson() + "\n", created);
+            Assert.Equal(PresetHeader + CreativeNote + PlayerRules.Creative.ToJson() + "\n", created);
             Assert.Equal(created, File.ReadAllText(file));
         }
         finally

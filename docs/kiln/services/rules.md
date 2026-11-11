@@ -122,7 +122,10 @@ A preset is a `PlayerRules` in JSON (camelCase, comments allowed). Kiln writes i
 an earlier Kiln wrote and which still matches its emitted bytes exactly is replaced with this version's preset (so new
 rules such as the Shroud timer and gliding reach existing worlds); an edited file is left alone. `Rules.Preset` does this check itself before it reads
 the file, so the first `/creative` after an update already gets the new preset (it reads the preset before Kiln.Rules
-has started and written its files).
+has started and written its files). Creative mode without the steered glider: `"glideSteer": null` in that file, or
+delete its `glideSteer` block (the glide is then `GlideBoost`'s plane path); `"allowGlideSteer": false` in `rules.json`
+turns it off for every player. Since dev.24 the file's header has a third comment line saying so, which no earlier
+Kiln's file has: deleting the block can never make the file look like an earlier unedited default.
 ```jsonc
 // <configDir>/rules/easy-farming.json
 { "water": { "chargesPerSecond": 2, "items": ["Tool_T1_WateringCan"] }, "digDamage": 3, "minStamina": 0.5 }

@@ -324,6 +324,62 @@ public sealed class GlideSteerTests
         });
     }
 
+    // As a Windows game or server writes a preset: the header's comment lines end in "\n", the JSON's lines in CRLF.
+    private static string Windows(string text)
+    {
+        var json = text.IndexOf("\n{\n", StringComparison.Ordinal) + 1;
+        return text[..json] + text[json..^1].Replace("\n", "\r\n") + "\n";
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ThisVersionsCreativeFileWithTheSteeringBlockDeletedIsLeftAlone(bool windows)
+    {
+        // the owner's way to switch the steered glider off; without its block the JSON is dev.15 to dev.23's exactly
+        InFolder(file =>
+        {
+            RulesPresets.WriteDefaults();
+            var text = File.ReadAllText(file);
+            Assert.Equal(PlayerRules.Creative, PlayerRules.FromJson(text));
+            if (windows) text = Windows(text);
+            var nl = windows ? "\r\n" : "\n";
+            var edited = text.Replace("  \"glideSteer\": {" + nl + "    \"maxClimbAngle\": 85" + nl + "  }," + nl, "");
+            Assert.NotEqual(text, edited);
+            Assert.Equal(PlayerRules.Creative with { GlideSteer = null }, PlayerRules.FromJson(edited));
+            File.WriteAllText(file, edited);
+            Assert.False(RulesPresets.IsEarlierDefault("creative", file));
+            RulesPresets.WriteDefaults();
+            Assert.Equal(edited, File.ReadAllText(file));
+            Assert.Null(RulesPresets.Get("creative")!.GlideSteer);
+            Assert.Equal(edited, File.ReadAllText(file));
+        });
+    }
+
+    [Fact]
+    public void NoEarlierCreativeDefaultCanBeReachedByEditingThisVersionsJson()
+    {
+        // every earlier snapshot (LF or CRLF) differs from this version's default in the header comment, so an edit of
+        // the JSON alone (deleting glideSteer, climb, ...) is never taken for an earlier unedited file
+        InFolder(file =>
+        {
+            RulesPresets.WriteDefaults();
+            var text = File.ReadAllText(file);
+            var header = text[..(text.IndexOf("\n{\n", StringComparison.Ordinal) + 1)];
+            Assert.Contains("\"glideSteer\": null", header);
+            Assert.Contains("allowGlideSteer", header);
+            var earlier = (Dictionary<string, string[]>)typeof(RulesPresets)
+                .GetField("Earlier", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            Assert.NotEmpty(earlier["creative"]);
+            foreach (var snapshot in earlier["creative"])
+            {
+                Assert.False(snapshot.StartsWith(header, StringComparison.Ordinal));
+                File.WriteAllText(file, header + snapshot[(snapshot.IndexOf("\n{\n", StringComparison.Ordinal) + 1)..]);
+                Assert.False(RulesPresets.IsEarlierDefault("creative", file));
+            }
+        });
+    }
+
     [Fact]
     public void TheEarlierDefaultsMatchWhatWindowsWroteToo()
     {
