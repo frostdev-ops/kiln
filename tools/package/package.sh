@@ -18,7 +18,8 @@ while (($#)); do
   shift
 done
 export KILN_OUT=${KILN_OUT:-$repo/.out/package}
-stage=${stage:-$KILN_OUT/stage}
+# beside the build folder, not inside it: stage.sh refuses a stage folder that overlaps KILN_OUT
+stage=${stage:-${KILN_OUT%/}-stage}
 epoch=${SOURCE_DATE_EPOCH:-$(git -C "$repo" log -1 --format=%ct)}
 git=${KILN_GIT:-$(git -C "$repo" rev-parse --short=7 HEAD)}
 if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null) ]]; then
