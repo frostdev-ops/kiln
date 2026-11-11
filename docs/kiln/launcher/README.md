@@ -15,7 +15,7 @@ Machine-readable contracts:
 - `schema/`: JSON Schemas (`*.schema.json`, draft 2020-12), `examples/`, `fixtures/` (resolver, semver, manifest
   parity; play-once/chain INI with `fixtures/ini/kini.py`; kdh1 with `fixtures/dirhash/dirhash.py`; KAP handshake
   vector);
-- `native/core/abi/kiln_api.h` (`KILN_PATH_CONFIG/STATE`, `KilnBootInfo` v2), `kiln_native.h`,
+- `native/core/abi/kiln_api.h` (`KILN_PATH_CONFIG/STATE`, `KilnBootInfo` v3), `kiln_native.h`,
   `services/kiln_profile.h`;
 - `crates/kiln-manage/src/lib.rs` (modules);
 - `launcher/src-tauri/src/commands/` and `launcher/src/api/commands.ts` (command names).

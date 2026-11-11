@@ -37,6 +37,7 @@ namespace {
 
 bool g_booted = false;
 KilnBootInfo g_boot_info{};
+uint32_t g_proxy_info_size = 0;  // what the proxy sent (g_boot_info.size is always this core's own size)
 
 static_assert(KILN_BOOT_INFO_V2_SIZE == 64 && KILN_BOOT_INFO_V3_SIZE == 72, "KilnBootInfo v2 layout must not move");
 
@@ -45,6 +46,7 @@ void take_boot_info(const KilnBootInfo* info) {
     g_boot_info = KilnBootInfo{};
     g_boot_info.size = sizeof(KilnBootInfo);
     g_boot_info.addon_log_size = KILN_BOOT_LOG_UNKNOWN;  // an older proxy did not measure it
+    g_proxy_info_size = info ? info->size : 0;
     if (!info || info->size < KILN_BOOT_INFO_V1_SIZE) return;
     g_boot_info.proxy_module = info->proxy_module;
     if (KILN_BOOT_INFO_HAS(info, play_once)) g_boot_info.play_once = info->play_once;
@@ -76,8 +78,11 @@ const char* chain_detail(uint32_t d) { return d < 8 ? kChainDetail[d] : nullptr;
 
 void log_proxy() {
     const KilnBootInfo& b = g_boot_info;
-    if (b.size < KILN_BOOT_INFO_V2_SIZE)
-        KLOG_I("proxy: an older Kiln proxy (KilnBootInfo %u bytes): no chain loading, no play-once", b.size);
+    if (g_proxy_info_size < KILN_BOOT_INFO_V2_SIZE)
+        KLOG_I("proxy: an older Kiln proxy (KilnBootInfo %u bytes): no chain loading, no play-once", g_proxy_info_size);
+    else if (g_proxy_info_size < KILN_BOOT_INFO_V3_SIZE)
+        KLOG_I("proxy: an older Kiln proxy (KilnBootInfo %u bytes): it does not measure shroudlink_client.log before its "
+               "chain, so Kiln's wait for that addon can only end on its UI hook", g_proxy_info_size);
     if (b.play_once != KILN_PLAY_ONCE_NONE)
         KLOG_I("proxy: play-once %s%s%.*s", play_once_name(b.play_once), b.play_once_nonce.len ? ", nonce " : "",
                static_cast<int>(b.play_once_nonce.len), b.play_once_nonce.ptr ? b.play_once_nonce.ptr : "");

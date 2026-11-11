@@ -368,7 +368,8 @@ typedef KilnResult(KILN_CALL* KilnBootFn)(const KilnBootInfo* info);
 #define KILN_PROXY_ABI 2u
 typedef struct KilnProxyInfoData {
     uint32_t size;           /* sizeof(KilnProxyInfoData) */
-    uint32_t abi;            /* KILN_PROXY_ABI: 2 = chain loading + play-once + KilnBootInfo v2 */
+    uint32_t abi;            /* KILN_PROXY_ABI: 2 = chain loading + play-once + KilnBootInfo v2 or later
+                                (boot_info_size says which: 64 bytes v2, 72 bytes v3) */
     KilnStr version;         /* the Kiln version the proxy was built from */
     KilnStr marker;          /* "KilnProxy/2 <version>" */
     uint32_t boot_info_size; /* sizeof(KilnBootInfo) this proxy passes to kiln_boot */

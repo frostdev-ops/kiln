@@ -99,7 +99,8 @@ void wait_for_scanners(uint64_t log_from) {
         const std::string name = module_name(m.handle);
         KLOG_I("foreign: waiting for shroudlink client addon %s to finish its live-code scans before Kiln hooks (10 s boot budget)%s",
                name.c_str(), log_from == kLogUnknown ? "; where its lines of this start begin in shroudlink_client.log is not "
-                                                       "known (an older dinput8.dll), so only its UI hook can end the wait" : "");
+                                                       "known (an older dinput8.dll, or the proxy could not read that log "
+                                                       "before the chain), so only its UI hook can end the wait" : "");
         WaitEnv env;
         env.module = reinterpret_cast<uintptr_t>(m.handle);
         env.now_ms = [] { return static_cast<uint64_t>(now_ms()); };
