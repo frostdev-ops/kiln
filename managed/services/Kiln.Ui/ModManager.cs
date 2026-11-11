@@ -261,7 +261,10 @@ internal sealed class ModManagerPage
                 var body = new PageRect(r.X, r.Y + tabsH + 22 * s, r.Width, r.Height - tabsH - 22 * s);
                 switch (Section)
                 {
-                    case ModManagerSection.Mods: ModsSection(ui, body, s); break;
+                    case ModManagerSection.Mods:
+                        if (ShroudlinkMenu.Open) Plain(ui, body, s, "kiln.sec.shroudlink", "shroudlink menus", ShroudlinkMenu.Draw);
+                        else ModsSection(ui, body, s);
+                        break;
                     case ModManagerSection.Network: Plain(ui, body, s, "kiln.sec.network", "Network", UiEngine.NetworkTab); break;
                     case ModManagerSection.Keys: Plain(ui, body, s, "kiln.sec.keys", "Keys", UiEngine.KeysTab); break;
                     default: Plain(ui, body, s, "kiln.sec.overlay", "Overlay", UiEngine.OverlayTab); break;
@@ -293,6 +296,13 @@ internal sealed class ModManagerPage
             ui.DrawText(UiLayer.Window, it.MinX + (w - tw) / 2, it.MinY + (h - ui.Cursor.FontSize) / 2 - 1 * s, SectionNames[i], color);
             if (chosen) ui.DrawRect(UiLayer.Window, it.MinX + 10 * s, it.MaxY - 3 * s, it.MaxX - 10 * s, it.MaxY, GameColors.Gold);
             x += w + 6 * s;
+        }
+        // Server-advertised menus need not have a corresponding local catalog row.
+        if (ShroudlinkMenu.Available)
+        {
+            ui.SetCursor(x - ui.Cursor.WindowX, r.Y + 8 * s - ui.Cursor.WindowY);
+            if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus"))
+            { ShroudlinkMenu.Open = !ShroudlinkMenu.Open; Section = ModManagerSection.Mods; }
         }
         // the line under the whole row
         ui.DrawRect(UiLayer.Window, r.X, r.Y + h + 1 * s, r.Right, r.Y + h + 2 * s, GameColors.Gold.WithAlpha(70));

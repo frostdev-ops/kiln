@@ -14,7 +14,7 @@ target_link_libraries(kiln-ui PRIVATE kiln-imgui user32 imm32 dwmapi gdi32)
 add_executable(ui-addon-harness EXCLUDE_FROM_ALL tests/addon_harness/harness.cpp input.cpp
     ${CMAKE_SOURCE_DIR}/core/src/foreign_scan.cpp)
 target_include_directories(ui-addon-harness PRIVATE . ${CMAKE_SOURCE_DIR}/core/src ${CMAKE_SOURCE_DIR}/core/abi
-    ${KILN_GENERATED_DIR})
+    ${KILN_GENERATED_DIR} ${CMAKE_SOURCE_DIR}/third_party)
 target_link_libraries(ui-addon-harness PRIVATE kiln-safetyhook kiln-imgui user32 imm32 dwmapi gdi32)
 add_library(ui-addon-inert SHARED EXCLUDE_FROM_ALL tests/addon_harness/fixture.cpp)
 add_library(ui-addon-forwarded SHARED EXCLUDE_FROM_ALL tests/addon_harness/fixture.cpp)

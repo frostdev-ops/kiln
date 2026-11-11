@@ -20,6 +20,8 @@
 //   ui-addon-harness <forwarded.dll> unrelated  matching forwarded export is not an addon
 // Lines: "PASS ...", "FAIL ...", "KILN: <kiln.ui log line>". Exit code 0 = no FAIL.
 #include <windows.h>
+#include <nlohmann/json.hpp>
+#include <map>
 
 #include <cstdarg>
 #include <cstdio>
@@ -188,6 +190,7 @@ struct Fake {
 
 struct Game {
     uint8_t *dispatch = nullptr, *item_info = nullptr, *tab_list = nullptr, *tab_widget = nullptr, *key_resolve = nullptr;
+    uint8_t *update = nullptr, *store = nullptr;
 } g_game;
 
 // The layout comes from the MIT addon's TabList/TabWidget interfaces, not game data. The game's stand-ins provide
@@ -211,6 +214,14 @@ uint64_t __fastcall fake_tab_widget(uint8_t* entry, float* rect) {
     if (rect) { rect[0] = 0; rect[1] = 0; rect[2] = 100; rect[3] = 25; }
     return entry[0x30];
 }
+
+struct StringView { const uint8_t* data; size_t len; };
+std::vector<std::string> g_packets;
+uint8_t* fake_send(uint8_t*, uint8_t* out, uint32_t, const StringView* text) {
+    g_packets.emplace_back(reinterpret_cast<const char*>(text->data), text->len);
+    *out = 0; return out;
+}
+uint8_t* fake_store(uint8_t* out, void*, uint64_t, const StringView*, uint32_t) { *out = 0; return out; }
 
 // The addon's patterns, from shroudlink 0.8.0 (client/src/link.rs and native.rs, MIT).
 void build_fake_game() {
@@ -237,12 +248,14 @@ void build_fake_game() {
     w.put({0x83, 0xB9, 0x40, 0x01, 0x00, 0x00, 0x00});
     w.call(zero);
     w.put({0xC3});
-    w.func("44 88 44 24 18 48 89 54 24 10 55 53 56 57");  // the client update (detoured)
+    g_game.update = w.func("44 88 44 24 18 48 89 54 24 10 55 53 56 57");  // the client update (detoured)
     w.put({0x5F, 0x5E, 0x5B, 0x5D, 0xC3});
     w.func("48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 74 24 20 55 48 8D AC 24 50 FF FF FF");
-    w.put({0xC3});
-    w.func("48 89 5C 24 08 4C 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 20 33 ED");  // store string (detoured)
-    w.put({0xC3});
+    w.put({0x5D});
+    w.jump(reinterpret_cast<const void*>(&fake_send));
+    g_game.store = w.func("48 89 5C 24 08 4C 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 20 33 ED");  // store string (detoured)
+    w.put({0x48, 0x83, 0xC4, 0x20, 0x41, 0x5F, 0x41, 0x5E, 0x41, 0x5D, 0x41, 0x5C, 0x5F, 0x5E, 0x5D});
+    w.jump(reinterpret_cast<const void*>(&fake_store));
     // native.rs: the game's per-frame UI build. The harness calls it as the game's frame does.
     g_game.dispatch = w.func("4C 8B DC 55 49 8D AB E8 FD FF FF 48 81 EC 10 03 00 00");
     w.put({0x48, 0x81, 0xC4, 0x10, 0x03, 0x00, 0x00, 0x5D, 0xC3});
@@ -560,8 +573,11 @@ HMODULE load_addon(const std::filesystem::path& dll, bool expect_ready) {
     return m;
 }
 
+#include "bridge.h"
+
 int run(const std::filesystem::path& dll, const std::string& mode) {
     build_fake_game();
+    if (mode == "bridge" || mode == "bridge-late" || mode == "bridge-stock") return bridge_checks(dll, mode == "bridge-stock", mode == "bridge-late");
     const uint64_t t0 = unix_now() - 1;
     if (mode == "unrelated" || mode == "timeout") {
         HMODULE m = LoadLibraryW(dll.c_str());

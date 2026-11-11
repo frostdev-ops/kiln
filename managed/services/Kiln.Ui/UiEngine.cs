@@ -338,20 +338,27 @@ internal static unsafe class UiEngine
         // the Kiln menu: inside the game's main menu (the game page), or the full-display mod manager over the game; an
         // older kiln.ui without the layout calls keeps the small window
         var page = _pageHost ? GamePageHost.Read() ?? default : default;
-        switch (MenuHosts.Choose(f.MenuOpen != 0, page))
+        ShroudlinkMenu.BeginFrame();
+        var menuCompleted = false;
+        try
         {
-            case MenuHost.GamePage:
-                GamePageHost.Draw(ui, page);
-                break;
-            case MenuHost.Standalone:
-                GamePageHost.NotShown();
-                if (ui.HasLayout) ModManagerHost.Draw(ui);
-                else Menu(ui);
-                break;
-            default:
-                GamePageHost.NotShown();
-                break;
+            switch (MenuHosts.Choose(f.MenuOpen != 0, page))
+            {
+                case MenuHost.GamePage:
+                    GamePageHost.Draw(ui, page);
+                    break;
+                case MenuHost.Standalone:
+                    GamePageHost.NotShown();
+                    if (ui.HasLayout) ModManagerHost.Draw(ui);
+                    else Menu(ui);
+                    break;
+                default:
+                    GamePageHost.NotShown();
+                    break;
+            }
+            menuCompleted = true;
         }
+        finally { ShroudlinkMenu.EndFrame(menuCompleted); }
         UiWindow[] windows;
         HudLine[] hud;
         lock (Lock)
@@ -629,6 +636,11 @@ internal static unsafe class UiEngine
 
     private static void ModsTab(UiDraw ui)
     {
+        if (ShroudlinkMenu.Available)
+        {
+            if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus")) ShroudlinkMenu.Open = !ShroudlinkMenu.Open;
+            if (ShroudlinkMenu.Open) { ShroudlinkMenu.Draw(ui); return; }
+        }
         IReadOnlyList<ModEntry> mods;
         try { mods = Mods.All; }
         catch (Exception) { mods = []; }
