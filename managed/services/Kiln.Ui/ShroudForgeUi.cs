@@ -36,6 +36,8 @@ internal static class ShroudForgeUi
     // edits waiting for the writer: (folder, key; null = the switch, "" is a setting like any other) -> value and when to write it
     private static readonly Dictionary<(string Folder, string? Key), (JsonNode? Value, long DueMs)> Pending = new();
     private static readonly Dictionary<(string Folder, string? Key), string> Errors = new();
+    // bumped (under Lock) whenever Pending or Errors change: the page's views of the packages are made again then
+    private static long _version;
     // what the last write of each mod did, in words (shown under the switch)
     private static readonly Dictionary<string, (string Text, bool Ok)> Results = new(StringComparer.OrdinalIgnoreCase);
     private static readonly AutoResetEvent Wake = new(false);
@@ -82,6 +84,11 @@ internal static class ShroudForgeUi
         try
         {
             package = ShroudForgePackages.Read(folder);
+            if (Unreadable(package) is { } why)
+            {
+                package = null;
+                error = why;
+            }
         }
         catch (Exception x)
         {
@@ -102,6 +109,45 @@ internal static class ShroudForgeUi
             Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
             Interlocked.Exchange(ref e.Reading, 0);
         }
+    }
+
+    /// <summary>Why a value of the package cannot be used (read on this worker, not on the render thread), or null. A string
+    /// with an unpaired surrogate escape (<c>"\ud83d"</c>, a cut emoji) parses, but every later read of it throws; so does
+    /// a number no double holds.</summary>
+    internal static string? Unreadable(SfPackage p)
+    {
+        static void Check(JsonNode? n)
+        {
+            switch (n)
+            {
+                case JsonArray a:
+                    foreach (var x in a) Check(x);
+                    break;
+                case JsonObject o:
+                    foreach (var (_, x) in o) Check(x);
+                    break;
+                case JsonValue v when v.GetValueKind() == JsonValueKind.String:
+                    v.GetValue<string>();
+                    break;
+                case JsonValue v when v.GetValueKind() == JsonValueKind.Number:
+                    ShroudForgePackages.NumberOf(v);
+                    break;
+            }
+        }
+        foreach (var s in p.Settings)
+        {
+            try
+            {
+                Check(s.Value);
+                foreach (var o in s.Options) Check(o.Value);
+                Check(s.EnabledWhen?.EqualsValue);
+            }
+            catch (Exception e) when (e is InvalidOperationException or FormatException or OverflowException)
+            {
+                return $"the value of setting {Clip(s.Key, 80)} cannot be read ({e.Message})";
+            }
+        }
+        return null;
     }
 
     /// <summary>What a save leaves: the package it read back (or none, with why).</summary>
@@ -150,6 +196,7 @@ internal static class ShroudForgeUi
         {
             Pending[(folder, key)] = (value, Environment.TickCount64 + settleMs);
             Errors.Remove((folder, key));
+            _version++;
         }
         if (Interlocked.Exchange(ref _writer, 1) == 0)
             new Thread(Writer) { IsBackground = true, Name = "kiln shroudforge settings" }.Start();
@@ -208,6 +255,7 @@ internal static class ShroudForgeUi
                     // a newer edit of the same value waits for its own turn
                     if (Pending.TryGetValue(id, out var cur) && ReferenceEquals(cur.Value, value)) Pending.Remove(id);
                     Results[id.Folder] = (result, ok);
+                    _version++;
                 }
             }
             var wait = next == long.MaxValue ? 30_000 : (int)Math.Clamp(next - Environment.TickCount64, 1, 30_000);
@@ -244,15 +292,109 @@ internal static class ShroudForgeUi
 
     // ------------------------------------------------------------------------------------- drawing ----
 
-    private static JsonNode? Shown(string folder, SfSettingDef s)
+    /// <summary>One setting as the page draws it.</summary>
+    private sealed record Item(SfSettingDef Def, string Label, string? Description, JsonNode? Value, bool Enabled, string? Disabled,
+        string[] OptionLabels, string? Error);
+
+    /// <summary>What the page draws of a package, worked out when the package, an edit or an error changes, not per frame:
+    /// the settings by key and by group, the shown values (a pending edit, else the file's), which can be changed now,
+    /// and every text clipped to what a frame draws.</summary>
+    private sealed class View
     {
-        lock (Lock)
-            return Pending.TryGetValue((folder, s.Key), out var p) ? p.Value : s.Value;
+        public required SfPackage Package;
+        public long Version;
+        public string? Error;
+        public string Id = "";
+        public bool SwitchPending, SwitchOn;
+        public (string Label, string? Description, Item[] Settings, (SfAction Action, string Label, string? Confirm)[] Actions)[] Groups = [];
+        public Item[] Rest = [];
+        public bool Empty;
     }
 
-    private static string? ErrorOf(string folder, string key)
+    // the render thread's views, by folder (one per ShroudForge mod shown this session)
+    private static readonly ConcurrentDictionary<string, View> Views = new(StringComparer.Ordinal);
+
+    private static View ViewOf(string folder, SfPackage p)
     {
-        lock (Lock) return Errors.TryGetValue((folder, key), out var e) ? e : null;
+        var version = Interlocked.Read(ref _version);
+        if (Views.TryGetValue(folder, out var cached) && ReferenceEquals(cached.Package, p) && cached.Version == version) return cached;
+        var view = new View { Package = p, Version = version, Id = "sf." + folder };
+        try { Build(view, folder, p); }
+        catch (Exception e)  // a value no reader can use: said once, not thrown every frame
+        {
+            view.Error = $"a value cannot be read ({e.Message})";
+            UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {folder}: its settings cannot be shown: {e.Message}");
+        }
+        Views[folder] = view;
+        return view;
+    }
+
+    private static void Build(View view, string folder, SfPackage p)
+    {
+        var byKey = new Dictionary<string, SfSettingDef>(StringComparer.Ordinal);
+        foreach (var x in p.Settings) byKey.TryAdd(x.Key, x);
+        var values = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
+        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
+        lock (Lock)
+        {
+            view.Version = _version;
+            foreach (var x in p.Settings) values[x.Key] = Pending.TryGetValue((folder, x.Key), out var pe) ? pe.Value : x.Value;
+            foreach (var ((f, key), text) in Errors)
+                if (key is not null && string.Equals(f, folder, StringComparison.Ordinal)) errors[key] = text;
+            view.SwitchPending = Pending.TryGetValue((folder, null), out var sw);
+            view.SwitchOn = view.SwitchPending ? sw.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
+        }
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        Item Make(SfSettingDef d)
+        {
+            var value = values.TryGetValue(d.Key, out var v) ? v : d.Value;
+            var enabled = IsEnabled(d.Key, byKey, values, seen);
+            string? disabled = null;
+            if (!enabled)
+            {
+                var cond = d.EnabledWhen!;
+                var ctl = byKey.GetValueOrDefault(cond.Setting);
+                var want = ctl?.Options.FirstOrDefault(o => JsonNode.DeepEquals(o.Value, cond.EqualsValue))?.Label ?? Plain(cond.EqualsValue);
+                disabled = Clip($"{Plain(value)}  (only used while {ctl?.Label ?? cond.Setting} is {want})", MaxDrawnText);
+            }
+            return new Item(d, Clip(d.Label, MaxDrawnText), d.Description is { } desc ? Clip(desc, MaxDrawnText) : null, value, enabled, disabled,
+                d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray(), errors.TryGetValue(d.Key, out var err) ? Clip(err, MaxDrawnText) : null);
+        }
+        var placed = new HashSet<string>(StringComparer.Ordinal);
+        var groups = new List<(string, string?, Item[], (SfAction, string, string?)[])>();
+        foreach (var g in p.Groups)
+        {
+            var items = new List<Item>();
+            foreach (var key in g.Settings)
+                if (byKey.TryGetValue(key, out var d) && placed.Add(key)) items.Add(Make(d));
+            groups.Add((Clip(g.Label, MaxDrawnText), g.Description is { } gd ? Clip(gd, MaxDrawnText) : null, items.ToArray(),
+                g.Actions.Select(a => (a, Clip(a.Label, MaxDrawnText), a.Confirm is { } c ? Clip(c, MaxDrawnText) : null)).ToArray()));
+        }
+        view.Groups = groups.ToArray();
+        view.Rest = p.Settings.Where(x => !placed.Contains(x.Key)).Select(Make).ToArray();
+        view.Empty = p.Settings.Count == 0 && !p.Groups.Any(g => g.Actions.Count > 0);
+    }
+
+    /// <summary><see cref="ShroudForgePackages.IsEnabled"/> over an index by key: the same rule (the enabledWhen chain holds
+    /// for <paramref name="values"/>; a missing controller or a cycle disables), without a search per step.</summary>
+    internal static bool IsEnabled(string key, IReadOnlyDictionary<string, SfSettingDef> byKey, IReadOnlyDictionary<string, JsonNode?> values,
+        HashSet<string> seen)
+    {
+        seen.Clear();
+        var current = key;
+        while (true)
+        {
+            if (!byKey.TryGetValue(current, out var s)) return false;
+            if (s.EnabledWhen is not { } cond) return true;
+            if (!seen.Add(current)) return false;
+            if (!values.TryGetValue(cond.Setting, out var v)) return false;
+            // ShroudForge compares numbers by value (5 = 5.0)
+            var same = v is JsonValue av && cond.EqualsValue is JsonValue bv && av.GetValueKind() == JsonValueKind.Number && bv.GetValueKind() == JsonValueKind.Number
+                ? ShroudForgePackages.NumberOf(av) == ShroudForgePackages.NumberOf(bv)
+                : JsonNode.DeepEquals(v, cond.EqualsValue);
+            if (!same) return false;
+            current = cond.Setting;
+        }
     }
 
     /// <summary>The ShroudForge part of a mod's details: its switch, its settings by group, its buttons.</summary>
@@ -261,20 +403,19 @@ internal static class ShroudForgeUi
         if (m.Folder is not { } folder) return;
         var p = Get(folder, out var error);
         label(ui, "SWITCH AND SETTINGS", s);
-        if (p is null)
+        var view = p is null ? null : ViewOf(folder, p);
+        if (p is null || view?.Error is not null)
         {
+            error = view?.Error ?? error;
             using (ui.PushColor(UiColorSlot.Text, error is null ? GameColors.Muted : GameColors.Warning))
                 ui.TextWrapped(error is null ? "Reading its settings..." : $"Its settings cannot be shown: {Clip(error, MaxDrawnText)}");
             Result(ui, folder, k, problemsOnly: true);  // what the last save did to the file stays visible
             return;
         }
-        using var id = ui.Id("sf." + folder);
-        var values = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
-        foreach (var x in p.Settings) values[x.Key] = Shown(folder, x);
+        using var id = ui.Id(view!.Id);
 
         // the switch
-        bool on;
-        lock (Lock) on = Pending.TryGetValue((folder, null), out var pend) ? pend.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
+        var on = view.SwitchOn;
         var was = on;
         if (ui.Checkbox(on ? "On###sf.switch" : "Off###sf.switch", ref on) && on != was) Edit(folder, null, JsonValue.Create(on));
         using (ui.FontSize(14 * k))
@@ -286,15 +427,14 @@ internal static class ShroudForgeUi
         }
         Result(ui, folder, k);
 
-        if (p.Settings.Count == 0 && !p.Groups.Any(g => g.Actions.Count > 0))
+        if (view.Empty)
         {
             ui.Space(1, 6 * s);
             using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped("This mod has no settings.");
             return;
         }
         var running = Running(m);
-        var placed = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var g in p.Groups)
+        foreach (var g in view.Groups)
         {
             ui.Space(1, 10 * s);
             using (ui.FontSize(19 * k))
@@ -304,21 +444,19 @@ internal static class ShroudForgeUi
                 using (ui.FontSize(14 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                     ui.TextWrapped(gd);
-            foreach (var key in g.Settings)
-                if (p.Settings.FirstOrDefault(x => x.Key == key) is { } setting && placed.Add(key)) Setting(ui, folder, p, setting, values, s, k);
-            foreach (var a in g.Actions) Action(ui, folder, p, a, running, s, k);
+            foreach (var item in g.Settings) Setting(ui, folder, item, s, k);
+            foreach (var a in g.Actions) Action(ui, folder, p, a.Action, a.Label, a.Confirm, running, s, k);
         }
-        var rest = p.Settings.Where(x => !placed.Contains(x.Key)).ToArray();
-        if (rest.Length > 0)
+        if (view.Rest.Length > 0)
         {
-            if (p.Groups.Count > 0)
+            if (view.Groups.Length > 0)
             {
                 ui.Space(1, 10 * s);
                 using (ui.FontSize(19 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.GoldBright))
                     ui.Text("Other settings");
             }
-            foreach (var x in rest) Setting(ui, folder, p, x, values, s, k);
+            foreach (var item in view.Rest) Setting(ui, folder, item, s, k);
         }
         ui.Space(1, 10 * s);
         using (ui.FontSize(13 * k))
@@ -338,31 +476,27 @@ internal static class ShroudForgeUi
             ui.TextWrapped(r.Text);
     }
 
-    private static void Setting(UiDraw ui, string folder, SfPackage p, SfSettingDef d, Dictionary<string, JsonNode?> values, float s, float k)
+    private static void Setting(UiDraw ui, string folder, Item item, float s, float k)
     {
+        var d = item.Def;
         using var _ = ui.Id(d.Key);
         ui.Space(1, 8 * s);
-        var enabled = ShroudForgePackages.IsEnabled(d.Key, p.Settings, values);
-        var value = values.TryGetValue(d.Key, out var v) ? v : d.Value;
-        using (ui.PushColor(UiColorSlot.Text, enabled ? GameColors.Text : GameColors.Faint))
-            ui.TextWrapped(d.Label);
-        if (!enabled)
+        using (ui.PushColor(UiColorSlot.Text, item.Enabled ? GameColors.Text : GameColors.Faint))
+            ui.TextWrapped(item.Label);
+        if (item.Disabled is { } why)
         {
-            var cond = d.EnabledWhen!;
-            var ctl = p.Settings.FirstOrDefault(x => x.Key == cond.Setting);
-            var want = ctl?.Options.FirstOrDefault(o => JsonNode.DeepEquals(o.Value, cond.EqualsValue))?.Label ?? Plain(cond.EqualsValue);
             using (ui.FontSize(14 * k))
             using (ui.PushColor(UiColorSlot.Text, GameColors.Faint))
-                ui.TextWrapped($"{Plain(value)}  (only used while {ctl?.Label ?? cond.Setting} is {want})");
+                ui.TextWrapped(why);
         }
-        else Widget(ui, folder, d, value, s, k);
+        else Widget(ui, folder, item, s, k);
         using (ui.FontSize(14 * k))
         {
-            if (d.Description is { } desc)
+            if (item.Description is { } desc)
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(desc);
             if (!d.Live)
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Attention)) ui.TextWrapped("Applies at the next game start.");
-            if (ErrorOf(folder, d.Key) is { } err)
+            if (item.Error is { } err)
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Warning)) ui.TextWrapped(err);
         }
     }
@@ -376,15 +510,17 @@ internal static class ShroudForgeUi
         _ => ShroudForgePackages.Render(v),
     };
 
-    private static void Widget(UiDraw ui, string folder, SfSettingDef d, JsonNode? value, float s, float k)
+    private static void Widget(UiDraw ui, string folder, Item item, float s, float k)
     {
+        var d = item.Def;
+        var value = item.Value;
         var width = Math.Max(160 * s, ui.Cursor.AvailWidth * 0.7f);
         switch (d.Type, d.Control)
         {
             case (_, "keybind"):
             {
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Text))
-                    ui.Text("Shortcut: " + (SdlKeys.Label(value is JsonValue kv && kv.TryGetValue<string>(out var ks) ? ks : "") ?? Plain(value)));
+                    ui.Text("Shortcut: " + Clip(SdlKeys.Label(value is JsonValue kv && kv.TryGetValue<string>(out var ks) ? ks : "") ?? Plain(value), 200));
                 using (ui.FontSize(14 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                     ui.TextWrapped("Edit the SDL binding below (not key capture): Ctrl+SDL:66 is Ctrl+F9; Mouse:4 is mouse button 4. Empty disables it. SF checks keyboard availability.");
@@ -406,7 +542,7 @@ internal static class ShroudForgeUi
                     var o = d.Options[oi];
                     var has = chosen.Any(x => JsonNode.DeepEquals(x, o.Value));
                     var before = has;
-                    if (ui.Checkbox(o.Label + "###o" + oi, ref has) && has != before)
+                    if (ui.Checkbox(item.OptionLabels[oi] + "###o" + oi, ref has) && has != before)
                     {
                         // ShroudForge keeps the options' order
                         var next = d.Options.Where(x => x == o ? has : chosen.Any(c => JsonNode.DeepEquals(c, x.Value))).Select(x => x.Value?.DeepClone()).ToArray();
@@ -417,12 +553,17 @@ internal static class ShroudForgeUi
             }
             case (_, _) when d.Options.Count > 0:
             {
-                var labels = d.Options.Select(o => o.Label).ToArray();
-                var i = Math.Max(0, d.Options.ToList().FindIndex(o => JsonNode.DeepEquals(o.Value, value) ||
-                    (ShroudForgePackages.NumberOf(o.Value) is { } a && a == ShroudForgePackages.NumberOf(value))));
+                var i = 0;
+                for (var oi = 0; oi < d.Options.Count; oi++)
+                {
+                    var o = d.Options[oi];
+                    if (!JsonNode.DeepEquals(o.Value, value) && !(ShroudForgePackages.NumberOf(o.Value) is { } a && a == ShroudForgePackages.NumberOf(value))) continue;
+                    i = oi;
+                    break;
+                }
                 var before = i;
                 ui.NextItemWidth(width);
-                if (ui.Combo("##v", ref i, labels) && i != before) Edit(folder, d.Key, d.Options[i].Value?.DeepClone());
+                if (ui.Combo("##v", ref i, item.OptionLabels) && i != before) Edit(folder, d.Key, d.Options[i].Value?.DeepClone());
                 return;
             }
             case ("integer", not "number") when d.Min is { } lo && d.Max is { } hi && lo <= hi && lo >= int.MinValue && hi <= int.MaxValue && hi - lo <= 1_000_000:
@@ -503,15 +644,20 @@ internal static class ShroudForgeUi
         }
         if (text == shown) return;
         if (parse(text) is { } parsed) Edit(folder, d.Key, parsed);
-        else lock (Lock) Errors[(folder, d.Key)] = $"{d.Label}: \"{text}\" is not a number";
+        else
+            lock (Lock)
+            {
+                Errors[(folder, d.Key)] = $"{Clip(d.Label, 200)}: \"{Clip(text, 200)}\" is not a number";
+                _version++;
+            }
     }
 
-    private static void Action(UiDraw ui, string folder, SfPackage p, SfAction a, bool running, float s, float k)
+    private static void Action(UiDraw ui, string folder, SfPackage p, SfAction a, string label, string? confirm, bool running, float s, float k)
     {
         using var _ = ui.Id("act." + a.Id);
         ui.Space(1, 6 * s);
         var armed = _armed is { } x && x.Folder == folder && x.Action == a.Id && Environment.TickCount64 - x.AtMs < 6000;
-        if (ui.Button(armed ? "Confirm: " + a.Label : a.Label))
+        if (ui.Button(armed ? "Confirm: " + label : label))
         {
             if (a.Confirm is not null && !armed) _armed = (folder, a.Id, Environment.TickCount64);
             else
@@ -537,7 +683,7 @@ internal static class ShroudForgeUi
                 });
             }
         }
-        if (armed && a.Confirm is { } c)
+        if (armed && confirm is { } c)
             using (ui.FontSize(14 * k))
             using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
                 ui.TextWrapped(c);
@@ -553,8 +699,10 @@ internal static class ShroudForgeUi
             Errors.Clear();
             Results.Clear();
             Typing.Clear();
+            _version++;
         }
         _activeFrame = 0;
+        Views.Clear();
         Packages.Clear();
     }
 }

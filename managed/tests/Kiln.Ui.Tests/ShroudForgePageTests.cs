@@ -171,4 +171,72 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.Null(ShroudForgeUi.Get(folder, out var error));  // no controls of the old package
         Assert.NotNull(error);
     }
+    private static string Chain(int n)
+    {
+        var parts = new List<string>();
+        for (var i = 0; i < n; i++)
+            parts.Add(i == 0 ? "\"s0\": { \"value\": true, \"label\": \"S0\" }"
+                : $"\"s{i}\": {{ \"value\": true, \"label\": \"S{i}\", \"enabledWhen\": {{ \"setting\": \"s{i - 1}\", \"equals\": true }} }}");
+        return "{ " + string.Join(", ", parts) + " }";
+    }
+
+    /// <summary>A frame of a package costs the same however its settings depend on each other: what the page needs is
+    /// worked out when the package or an edit changes, not per frame (it used to walk the enabledWhen chain of every
+    /// setting with a linear search per step, every frame).</summary>
+    [Fact]
+    public void A_frame_does_not_redo_the_packages_work()
+    {
+        var folder = Package(Chain(200));
+        var mod = Mod(folder);
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });  // the first frame works it out
+        Assert.NotNull(ShroudForgeUi.Get(folder, out _));
+        lock (FakeUiTable.Texts) FakeUiTable.Texts.Clear();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(bytes < 96 * 1024, $"a frame of a 200-setting chain allocated {bytes} bytes");
+        lock (FakeUiTable.Texts) Assert.Contains("S199", FakeUiTable.Texts);  // every setting is still drawn
+    }
+    /// <summary>The page's indexed enabledWhen walk says what the data layer's rule says, for chains, cycles, a missing
+    /// controller, numbers compared by value and options.</summary>
+    [Fact]
+    public void The_indexed_enabled_rule_is_the_data_layers()
+    {
+        var folder = Package("""
+            {
+              "a": { "value": true, "label": "A" },
+              "b": { "value": 5, "label": "B", "enabledWhen": { "setting": "a", "equals": true } },
+              "c": { "value": "x", "label": "C", "enabledWhen": { "setting": "b", "equals": 5.0 } },
+              "d": { "value": 1, "label": "D", "enabledWhen": { "setting": "c", "equals": "y" } },
+              "e": { "value": 1, "label": "E", "enabledWhen": { "setting": "gone", "equals": 1 } },
+              "f": { "value": 1, "label": "F", "enabledWhen": { "setting": "g", "equals": 1 } },
+              "g": { "value": 1, "label": "G", "enabledWhen": { "setting": "f", "equals": 1 } },
+              "h": { "value": "fast", "label": "H", "options": { "fast": "Fast", "slow": "Slow" } },
+              "i": { "value": 2, "label": "I", "enabledWhen": { "setting": "h", "equals": "fast" } },
+              "j": { "value": false, "label": "J", "enabledWhen": { "setting": "a", "equals": false } }
+            }
+            """);
+        var p = ShroudForgePackages.Read(folder);
+        var byKey = p.Settings.ToDictionary(x => x.Key, StringComparer.Ordinal);
+        var values = p.Values;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var ours = p.Settings.Select(x => (x.Key, ShroudForgeUi.IsEnabled(x.Key, byKey, values, seen))).ToArray();
+        var theirs = p.Settings.Select(x => (x.Key, ShroudForgePackages.IsEnabled(x.Key, p.Settings, values))).ToArray();
+        Assert.Equal(theirs, ours);
+        Assert.Equal([true, true, true, false, false, false, false, true, true, false], ours.Select(x => x.Item2));
+    }
+
+    /// <summary>A string value with an unpaired surrogate escape (what JSON.stringify writes for a cut emoji) parses, but
+    /// every read of it throws: the page says so once instead of throwing on the render thread every frame.</summary>
+    [Fact]
+    public void A_value_no_reader_can_use_is_reported_not_thrown_every_frame()
+    {
+        var folder = Package("""{ "name": { "value": "\ud83d", "label": "Name" }, "other": { "value": 1, "label": "Other" } }""");
+        var page = Page(Mod(folder));
+        Frame(page);  // used to throw InvalidOperationException out of the frame
+        Frame(page);
+        Assert.Null(ShroudForgeUi.Get(folder, out var error));
+        Assert.Contains("name", error);
+        lock (FakeUiTable.Texts) Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("Its settings cannot be shown", StringComparison.Ordinal));
+    }
 }

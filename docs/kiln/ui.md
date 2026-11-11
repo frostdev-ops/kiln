@@ -288,7 +288,10 @@ loaded, with the reason. A file from an earlier start (another `pid`, or written
 count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.
 
 Cost: no catalog refresh while the menu is closed. While it is open the list is read on a worker at most every 2 seconds;
-the selected SF package refreshes at most once per second. The render thread draws snapshots (no file access or waiting);
+the selected SF package refreshes at most once per second. What the page needs of a package (its settings by key and
+group, which can be changed now, its texts cut to 2000 characters) is worked out when the package, an edit or an error
+changes, not per frame. A package with a value no reader can use (a string with an unpaired surrogate escape, a number
+no double holds) is found on the read worker and shown as "cannot be shown", never thrown on the render thread. The render thread draws snapshots (no file access or waiting);
 rows are made when the list, filter or search change. SF's fallback shortcut worker watches host state at low frequency,
 then waits on its named toggle event with a two-second lifecycle check; it exits when SF stops or owns its own helper.
 
