@@ -1420,6 +1420,39 @@ fn a_servers_active_profile_follows_its_runtime_too() {
     assert_eq!(eml(), "profiles/server-mods/eml/auto-loot-plus");
 }
 
+/// Reconciliation of an older profile places Greeneye before re-rendering it. The activation that writes the new
+/// path must still report files restored by that first placement, even though a second placement has nothing to restore.
+#[test]
+fn refreshing_an_older_greeneye_profile_keeps_its_first_placement_notes() {
+    for mode in [PathMode::Copy, PathMode::Z] {
+        let t = tmp("greeneye-refresh-notes");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let mut g = game_with_z(&t.0);
+        g.path_mode = mode;
+        if mode == PathMode::Copy { g.prefix = None; }
+        runtime_in_game(&dirs, &g, Some(2), "a633659");
+        let src = t.0.join("src/worstmap");
+        put(&src, "mod.json", br#"{"id":"worstmap","name":"The Worst Map Mod","version":"1.0.0","dll":"map.dll","side":"client"}"#);
+        put(&src, "map.dll", &build_test_dll(&["GreeneyeModStart"], b""));
+        let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+        let r = &imported.imported[0];
+        let mut p = profile::create(&dirs, "Old Greeneye profile", None).unwrap();
+        p.mods.greeneye.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let p = profile::save(&dirs, &p).unwrap();
+        // An old profile naming the Library (Z) or the kiln/profiles fallback (Copy), before the game-folder copy exists.
+        let old = profile::render(&dirs, &p, &g, mode).unwrap();
+        put(&g.path, "kiln/profile.json", &serde_json::to_vec_pretty(&old).unwrap());
+        put(&g.path, "kiln/kept-mod-files/greeneye/worstmap/settings.ini", b"the player's settings");
+        let a = profile::refresh_active(&dirs, &g).unwrap().expect("the new game-folder path is written");
+        let current = profile::read_game_profile(&g.path).unwrap().unwrap();
+        assert_ne!(current.mods.greeneye[0].path, old.mods.greeneye[0].path, "{mode:?}");
+        assert_eq!(std::fs::read(g.path.join("greeneye/worstmap/settings.ini")).unwrap(), b"the player's settings");
+        assert!(a.kept_files.iter().any(|s| s.contains("put back") && s.contains("settings.ini")), "{mode:?}: {a:?}");
+        assert!(profile::refresh_active(&dirs, &g).unwrap().is_none(), "the next refresh has nothing new to report");
+        assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().generation, current.generation, "no rewrite loop");
+    }
+}
+
 /// An older runtime unzipped by hand over a launcher install keeps the newer receipt: the profile form the receipt's
 /// bundle reads is believed only while the core file in the game is the one the receipt lists.
 #[test]
@@ -1555,6 +1588,38 @@ fn unrelated_packages_never_silently_share_one_native_entry() {
     assert!(r.notices.is_empty(), "{:?}", r.notices);
 }
 
+/// Nexus names may end in an upload timestamp and an alphanumeric download token, then a browser copy suffix.
+#[test]
+fn nexus_download_tokens_do_not_create_a_second_proxy_when_a_mod_updates() {
+    let (t, dirs, g) = fresh("nexus-download-token");
+    for (index, names) in [
+        ["60 FPS Boost-170-1-1-8-1762454321", "60 FPS Boost-170-1-1-9-1762540721-r4Nd0m (1)"],
+        ["自动拾取-171-v1-0-1762454321-AbC123", "自动拾取-171-v1-1-1762540721-XyZ789 (2)"],
+    ].into_iter().enumerate() {
+        for name in names {
+            add(&dirs, &g, &proxy_package(&t, name, &proxy_dll(name), &[]));
+            assert_eq!(enabled_natives(&g).len(), index + 1,
+                "a Nexus download suffix must not become part of the mod's identity: {name}: {:?}", native_entries(&g));
+        }
+    }
+    assert!(enabled_natives(&g).iter().any(|id| id == "60-fps-boost"));
+}
+
+/// Ambiguous inferred ids in one drop are reduced before merge, but the losing package must still be reported.
+#[test]
+fn competing_packages_in_one_drop_report_which_selection_won() {
+    let (t, dirs, g) = fresh("competing-packages");
+    let a = proxy_package(&t, "Embervale Atlas 2", &proxy_dll("atlas two"), &[]);
+    let b = proxy_package(&t, "Embervale Atlas 3", &proxy_dll("atlas three"), &[]);
+    library::import(&dirs, &[a.clone()], &mut NoProgress).unwrap();
+    for paths in [vec![a.clone(), b.clone()], vec![b, a]] {
+        let r = kiln_manage::quick::add_with(&dirs, &g, &paths, false, &mut NoProgress).unwrap();
+        assert_eq!(enabled_natives(&g).len(), 1);
+        assert!(r.notices.iter().any(|n| n.contains("Embervale Atlas 2") && n.contains("Embervale Atlas 3")
+            && n.contains("Library") && n.contains("selected")), "competing imports must not disappear silently: {:?}", r.notices);
+    }
+}
+
 /// rr-import R4: a pure XHL companion dropped again as a browser's copy, as a newer zip or as a folder with a copy
 /// suffix stays one companion in one game folder (XHL-Core would load every copy).
 #[test]
@@ -1627,6 +1692,58 @@ fn one_dll_added_alone_and_in_its_package_runs_once() {
     assert_eq!(on, ["auto-loot-plus", "my-proxy"]);
 }
 
+/// A filename-inferred id is not permission to replace an author's explicit native.json, even when the entry is off.
+#[test]
+fn an_inferred_proxy_id_never_replaces_an_authored_native_with_the_same_id() {
+    for enabled in [true, false] {
+        let (t, dirs, g) = fresh("authored-id-collision");
+        let own = t.0.join("authored/Embervale Atlas");
+        put(&own, "dinput8.dll", &proxy_dll("authored"));
+        put(&own, "native.json", br#"{"format":1,"id":"embervale-atlas","name":"Embervale Atlas","version":"1.0.0","side":"client","dlls":["dinput8.dll"],"phase":"dllmain"}"#);
+        add(&dirs, &g, &own);
+        let mut p = profile::get(&dirs, "my-mods").unwrap();
+        p.mods.native[0].enabled = enabled;
+        profile::save(&dirs, &p).unwrap();
+        profile::activate(&dirs, &p.id, &g).unwrap();
+        let before = profile::get(&dirs, "my-mods").unwrap().mods.native;
+        let r = add(&dirs, &g, &proxy_package(&t, "Embervale Atlas 2.0", &proxy_dll("inferred"), &[]));
+        assert_eq!(profile::get(&dirs, "my-mods").unwrap().mods.native, before,
+            "an inferred id must preserve the authored selection and its enabled state");
+        assert!(r.added.is_empty() && r.changes.is_empty(), "{r:?}");
+        assert!(r.notices.iter().any(|n| n.contains("Embervale Atlas") && n.contains("native.json") && n.contains("Library")), "{r:?}");
+    }
+}
+
+/// Failure to inspect a proxy is not evidence that its author supplied a manifest; generated non-proxies are not authored either.
+#[test]
+fn a_missing_or_generated_native_entry_does_not_block_its_inferred_replacement() {
+    for case in ["missing-entry", "non-proxy", "missing-manifest", "invalid-manifest", "missing-dll"] {
+        let (t, dirs, g) = fresh(case);
+        let old = if case == "non-proxy" {
+            let dll = t.0.join("old/embervale-atlas.dll");
+            put(&t.0, "old/embervale-atlas.dll", &build_test_dll(&[], b"old non-proxy"));
+            dll
+        } else {
+            proxy_package(&t, "Embervale Atlas 1.0", &proxy_dll("old"), &[])
+        };
+        let first = add(&dirs, &g, &old);
+        let folder = library::path_of(&dirs, &first.import.imported[0]).unwrap();
+        match case {
+            "missing-entry" => std::fs::remove_dir_all(&folder).unwrap(),
+            "missing-manifest" => std::fs::remove_file(folder.join("native.json")).unwrap(),
+            "invalid-manifest" => put(&folder, "native.json", b"not JSON"),
+            "missing-dll" => std::fs::remove_file(folder.join("dinput8.dll")).unwrap(),
+            _ => {}
+        }
+        let r = add(&dirs, &g, &proxy_package(&t, "Embervale Atlas 2.0", &proxy_dll("new"), &[]));
+        let selected = profile::get(&dirs, "my-mods").unwrap().mods.native;
+        assert_eq!(selected[0].hash, r.import.imported[0].hash, "{case}: the incoming package must replace an entry not known to be authored");
+        assert_eq!(r.changes.len(), 1, "{case}: {r:?}");
+        assert!(!r.notices.iter().any(|n| n.contains("its author supplied native.json")), "{case}: {:?}", r.notices);
+        assert_eq!(enabled_natives(&g), ["embervale-atlas"], "{case}");
+    }
+}
+
 /// A VS_VERSION_INFO resource with the file version a.b.c, as a stand-in DLL carries it.
 fn version_info(a: u16, b: u16, c: u16) -> Vec<u8> {
     let mut v = vec![0u8; 6];
@@ -1692,6 +1809,33 @@ fn an_older_xhl_core_bundled_with_an_xhl_mod_never_replaces_the_one_you_have() {
     let b = xhl_core_build("build b", None);
     add(&dirs, &g, &core_alone(&t, "b", &b));
     assert_eq!(core_entry(&dirs, &g).1, sha(&b), "XHL-Core dropped on its own replaces it");
+}
+
+/// XHL-Core keeps the same id as a lone DLL and a package; the same-id replacement must keep its chain dependencies.
+#[test]
+fn a_lone_xhl_core_dll_keeps_the_enabled_packages_chain_and_files() {
+    let (t, dirs, g) = fresh("same-id-lone-core");
+    let core = xhl_core_build("same build", Some((1, 3, 0)));
+    let pkg = proxy_package(&t, "XHL-Core 1.3", &core, &[
+        ("dinput8-chain.ini", b"[Chain]\nextra/helper.dll\n"),
+        ("extra/helper.dll", &build_test_dll(&["Helper"], b"chain dependency")),
+    ]);
+    add(&dirs, &g, &pkg);
+    let before = profile::get(&dirs, "my-mods").unwrap().mods.native;
+    put(&t.0, "lone/dinput8.dll", &core);
+    let r = add(&dirs, &g, &t.0.join("lone/dinput8.dll"));
+    assert_eq!(profile::get(&dirs, "my-mods").unwrap().mods.native, before,
+        "the lone DLL must not replace the package that carries its chain dependencies");
+    assert!(r.changes.is_empty() && r.added.is_empty(), "{r:?}");
+    assert!(r.notices.iter().any(|n| n.contains("XHL-Core") && n.contains("package")), "{r:?}");
+    let chain = std::fs::read_to_string(g.path.join("kiln/chain.ini")).unwrap();
+    assert!(chain.contains("extra\\helper.dll"), "{chain}");
+    // A switched-off package is not a running alternative: adding the DLL still enables one copy.
+    let mut p = profile::get(&dirs, "my-mods").unwrap();
+    p.mods.native[0].enabled = false;
+    profile::save(&dirs, &p).unwrap();
+    add(&dirs, &g, &t.0.join("lone/dinput8.dll"));
+    assert_eq!(enabled_natives(&g), ["xhl-core"]);
 }
 
 /// rr-import notes: native-plugin.ini in another case marks an XHL companion inside a native package too, so it is

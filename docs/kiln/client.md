@@ -199,10 +199,12 @@ Manifests say `"side": "server" | "client" | "both"`.
   - Launcher, profile Mods page, Client: the mods that start with the world come after the load order, lit and
     unnumbered, "Starts with your world" (the long sentence above on hover); the aside counts them ("2 mods load on a
     client. 1 starts with your world."). Play: "3 of 3 mods load on this client. Loot Leveler starts with your world."
-    `kiln_manage::profile::resolve_preview_for` predicts it: the menu resolution, then a second one with
-    `Environment.hosting` (the Rust twin of `ResolveEnvironment.Hosting`; fixture `side-server-hosting.json`); what loads
-    only in the second starts with the world (`ResolvePreview.withWorld`: server mods and the mods that need one), a
-    server mod that fails there says "Will not start with your world: <reason>". `profile_resolve` takes the game's id
+    `kiln_manage::profile::resolve_preview_for` predicts it: the menu resolution, then server mods resolved against the
+    menu mods already running, then failed dependents retried against both sets, as `ModManager.StartHosting` does.
+    These later resolutions use `Environment.hosting` (the Rust twin of `ResolveEnvironment.Hosting`; fixtures
+    `side-server-hosting.json`, `side-server-hosting-loaded.json`). What loads in those later phases starts with the
+    world (`ResolvePreview.withWorld`: server mods and the mods that need one); a server mod that fails there says
+    "Will not start with your world: <reason>". `profile_resolve` takes the game's id
     to read its kiln.json `mods.hosted`.
   - Support report: a note `hosted-mods` ("... starts with the player's own world ..., so "skipped" in the main menu is
     expected"), a warning `hosted-off` for `hosted` false.
