@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // From Shrouded Engine Tweaks 0.2.0 runtime/modsettings.cpp, Copyright (c) 2026 Cacaida, MIT
 // (licenses/ShroudedEngineTweaks-LICENSE.txt). Kiln's changes: the file is written through the mod sandbox
-// (sandbox.h: no links, no reparse points, UTF-8 paths) and swapped in with std::filesystem::rename. Kiln has no Mod
-// Settings window: nothing calls set(..., edit = true) in the game, so onChange only runs in the tests.
+// (sandbox.h: no links, no reparse points, UTF-8 paths) and swapped in with std::filesystem::rename.
+// Kiln's SET tools page queues edits for the next Lua tick.
 #include "modsettings.h"
 
 #include <algorithm>
@@ -18,6 +18,7 @@
 namespace {
 
 std::mutex gMx;
+uint64_t gRevision = 0;
 std::map<std::string, mset::Page> gPages;               // by mod
 std::vector<std::pair<std::string, std::string>> gEdits;  // overlay edits not yet given to onChange
 
@@ -109,6 +110,7 @@ std::vector<std::pair<std::string, std::string>> changed(const std::string& mod)
 void mset::define(Page page) {
     std::lock_guard lock(gMx);
     std::string mod = page.mod;
+    page.revision = ++gRevision;
     gPages[mod] = std::move(page);
 }
 
@@ -136,8 +138,10 @@ bool mset::assign(Field& f, double num, const std::string& text) {
     return true;
 }
 
-bool mset::set(const std::string& mod, const std::string& key, double num, const std::string& text, bool edit) {
+bool mset::set(const std::string& mod, const std::string& key, double num, const std::string& text, bool edit, uint64_t revision) {
     std::lock_guard lock(gMx);
+    auto p = gPages.find(mod);
+    if (p == gPages.end() || (revision && revision != p->second.revision)) return false;
     Field* f = find(mod, key);
     if (!f) return false;
     Field next = *f;

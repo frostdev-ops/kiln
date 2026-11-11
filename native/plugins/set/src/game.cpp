@@ -428,6 +428,28 @@ std::vector<uint32_t> ecs::allWith(uintptr_t w, const int* idx, size_t n) {
     return out;
 }
 uint32_t ecs::entityCount(uintptr_t) { return W ? W->entity_count() : 0; }
+bool ecs::exists(uint32_t entity) { return W && W->exists && g_api->on_tick_thread() && W->exists(entity); }
+std::vector<refl::Type> ecs::componentTypes() {
+    std::vector<refl::Type> out;
+    if (T) for (uint32_t i = 0, n = std::min(T->component_type_count(), 4096u); i < n; ++i)
+        out.push_back({reinterpret_cast<const uint8_t*>(T->component_type_at(i))});
+    return out;
+}
+std::vector<uint32_t> ecs::findBounded(uint32_t hash, uint32_t limit, uint32_t& total) {
+    total = 0;
+    if (!W || !W->find || !g_api->on_tick_thread()) return {};
+    std::vector<uint32_t> out(std::min(limit, 65536u));
+    auto r = W->find(hash, out.data(), static_cast<uint32_t>(out.size()), &total);
+    if (r != KILN_OK && r != KILN_ERR_BUFFER_TOO_SMALL) return {};
+    out.resize(std::min(total, static_cast<uint32_t>(out.size())));
+    return out;
+}
+bool ecs::position(uint32_t entity, double* xyz) {
+    KilnVec3 p{};
+    if (!W || !W->position || !g_api->on_tick_thread() || W->position(entity, &p) != KILN_OK ||
+        !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) return false;
+    xyz[0] = p.x; xyz[1] = p.y; xyz[2] = p.z; return true;
+}
 namespace {
 // Event stream lookups per (world, type), so a tick runs one event_each per observed type instead of a probe and a
 // read. Only the tick thread under the Lua lock touches it. A new world, a world leave, or kiln.types refusing the

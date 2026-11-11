@@ -15,12 +15,15 @@ kiln_plugin(set
     src/rules.cpp
     src/contracts.cpp
     src/modsettings.cpp
+    src/overlay.cpp
+    src/inspector.cpp
     src/writelog.cpp
     src/lua_api.cpp
     src/lua_json.cpp
     src/lua_imgui.cpp
     ${KILN_LUA_SOURCES})
 target_include_directories(kiln-set PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/third_party/lua")
+target_link_libraries(kiln-set PRIVATE user32) # explicit, user-triggered Unicode log copy
 target_compile_options(kiln-set PRIVATE -Wno-unused-parameter -Wno-unused-function -Wno-sign-compare)
 # English item names for Admin.give and Res.text: Kiln.Items' Data/items.tsv (from the Enshrouded Save Editor's
 # data/items.json, MIT, see its ITEMS-LICENSE.txt) as a C table, generated at configure time into the build dir.

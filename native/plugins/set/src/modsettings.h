@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // From Shrouded Engine Tweaks 0.2.0 runtime/modsettings.h, Copyright (c) 2026 Cacaida, MIT
 // (licenses/ShroudedEngineTweaks-LICENSE.txt). Kiln's changes: the file is written through the mod sandbox
-// (sandbox.h: no links, no reparse points, UTF-8 paths) and swapped in with std::filesystem::rename. Kiln has no Mod
-// Settings window: nothing calls set(..., edit = true) in the game, so onChange only runs in the tests.
+// (sandbox.h: no links, no reparse points, UTF-8 paths) and swapped in with std::filesystem::rename.
+// Kiln's SET tools page edits copies; onChange is delivered by the Lua thread at the next tick.
 // Typed mod settings (Settings.define): each mod's values live here, in C++, so the overlay's Mod Settings window
 // reads and edits them without waiting for Lua. Saved to mods\<mod>\settings.json, written to a .tmp file and swapped
 // in. A mutex guards the values; the files are written outside it, only from the Lua side (under the Lua lock).
 #pragma once
 #include <cmath>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
@@ -33,6 +34,7 @@ struct Page {
     std::map<std::string, std::string> unknown;  // keys the file has and the mod doesn't define: JSON text, kept
     bool dirty = false;                          // changed since the last save
     bool told = false;                           // a failed save was reported
+    uint64_t revision = 0;                       // a stale overlay copy cannot edit a reloaded page
 };
 
 using Sink = void (*)(const char* line);
@@ -43,7 +45,7 @@ bool has(const std::string& mod);
 bool assign(Field& f, double num, const std::string& text);
 bool get(const std::string& mod, const std::string& key, Field& out);     // a copy of the field
 // assign, on the mod's page. edit: from the overlay, so onChange gets it at the next tick.
-bool set(const std::string& mod, const std::string& key, double num, const std::string& text, bool edit);
+bool set(const std::string& mod, const std::string& key, double num, const std::string& text, bool edit, uint64_t revision = 0);
 std::vector<std::pair<std::string, std::string>> takeEdits();             // mod, key; each once
 std::vector<Page> pages();                                                // copies, by mod name
 std::string toJson(const Page& page);

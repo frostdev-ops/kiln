@@ -10,6 +10,7 @@
 #include "hooks.h"
 #include "level.h"
 #include "modsettings.h"
+#include "inspector.h"
 #include "sandbox.h"
 #include "writelog.h"
 #include "kiln_api.h"
@@ -1424,8 +1425,8 @@ int settingsDefine(lua_State* L) {
     return 1;
 }
 
-// onChange(key, value) for each setting edited outside the mod since the last tick (SET: its Mod Settings window; Kiln
-// has no such window yet), run as the mod that defined it.
+// onChange(key, value) for each setting edited in the Mod Settings window since the last tick,
+// run as the mod that defined it, never from the render thread.
 void settingsEdits(lua_State* L) {
     auto edits = mset::takeEdits();
     if (edits.empty()) return;
@@ -2616,6 +2617,7 @@ void startState() {
 
 // onShutdown runs first, so mods can still save their files.
 void closeState() {
+    setinspect::clear();
     gHookShutdown = true;
     stopHooks(gL);
     runCallbacks(gL, kOnShutdown, "onShutdown");
@@ -2630,6 +2632,7 @@ void closeState() {
 
 // onWorldLeave, without the game: the world is going away, or already gone when its leave went unseen.
 void leaveWorld() {
+    setinspect::clear();
     hk::discardPending();
     rules::setPlayer(0);
     gInWorld = false;
@@ -2922,6 +2925,7 @@ void tickMods(uintptr_t world) {
         if (gInWorld) runCallbacks(gL, kOnEnter, "onWorldEnter");  // set up as on entering, in either case
     }
     mset::save(false, gSink);
+    setinspect::tick(world);
 }
 
 // guarded's SEH half: __try can't share a function with C++ objects to destroy or a C++ try.
@@ -2943,6 +2947,7 @@ void guarded(void (*fn)(uintptr_t), uintptr_t arg, const char* what) {
         if (noAccessViolation(fn, arg)) return;
         gBroken = true;
         gLoaded = gHasDraw = false;
+        setinspect::clear();
         stopHooks(nullptr);
         gCurrentMod.clear();
         gCurrentIsMod = false;
@@ -2953,6 +2958,7 @@ void guarded(void (*fn)(uintptr_t), uintptr_t arg, const char* what) {
         // /EHa catches non-AV hardware faults here too. The Lua state must never be entered again.
         const bool wasBroken = gBroken.exchange(true);
         gLoaded = gHasDraw = false;
+        setinspect::clear();
         if (wasBroken) return;  // do not retry cleanup that faulted in the AV path above
         stopHooks(nullptr);
         gSink((LV_BAD "Internal error in " + std::string(what) + "; mods off until the game restarts").c_str());
@@ -2992,6 +2998,7 @@ void rt::frame() {
 void rt::worldLeft() {
     std::lock_guard lock(gLuaMx);
     ecs::forgetEvents();
+    setinspect::clear();
     resetAdmin();
     if (!gInWorld || gBroken) return;
     guarded([](uintptr_t) { leaveWorld(); }, 0, "onWorldLeave");
@@ -3005,6 +3012,7 @@ void rt::gameClosing(bool gameAlive) {
     std::lock_guard lock(gLuaMx);
     gClosing = true;
     ecs::forgetEvents();
+    setinspect::clear();
     resetAdmin();
     rules::setPlayer(0);
     if (gL && !gBroken)
@@ -3154,8 +3162,11 @@ std::vector<rt::Feature> rt::features() {
     const bool hooks = hk::rulesAvailable(why);
     add("hooks", "Native Hooks (Hooks.*)", hooks, true, "kiln.hooks is not running");
     add("admin_send", "Admin.send", false, false, "Not available on Kiln: Use the Admin helpers");
-    add("mod_settings_page", "Mod Settings Page", false, false,
-        "Kiln has no Mod Settings page: Settings.define values are saved, but onChange never runs");
+    {
+        std::lock_guard lock(gFeatMx);
+        add("mod_settings_page", "Mod Settings Page", gOverlaySet && gOverlayOk, true,
+            gOverlaySet ? gOverlayWhy : "Not checked yet");
+    }
     return out;
 }
 void rt::setSystemsAvailable(bool ok) { gSysOk = ok; }
