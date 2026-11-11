@@ -423,6 +423,29 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Contains("runtime.lifecycle unavailable in world-editor", failed.Reason);
         Assert.True(failed.NeedsAttention);
 
+        // The usual start: ShroudForge finds its earlier pass still current for this start's mods and leaves the record
+        // as it is, with the time of the start that wrote it (a real client, the second start with the same mods:
+        // SF Unlock Blueprints stayed "Waiting"). What ties the record to this start is then the adapter's status of
+        // this process: ShroudForge's startup preparation succeeded.
+        var earlier = new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = new DateTimeOffset(Start).ToUnixTimeSeconds() - 600, mods = listed };
+        Put(earlier);
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods"), startupPrepared = true });
+        s = Read();
+        patch = Mod(s, "shroudforge", "patch");
+        Assert.Equal((ModRunState.Loaded, "applied"), (patch.State, patch.Word));
+        Assert.Contains("still current", patch.Reason);
+        Assert.Equal("startup", Mod(s, "shroudforge", "updated").Word);  // listed at another version: still no proof
+        // the word of another process, or none, does not make an old record this start's
+        Write("shroudforge.json", new { pid = Pid + 1, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods"), startupPrepared = true });
+        Assert.NotEqual("applied", Mod(Read(), "shroudforge", "patch").Word);
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods"), startupPrepared = false });
+        Assert.Equal("startup", Mod(Read(), "shroudforge", "patch").Word);
+        // a failed pass of an earlier start says nothing about this one
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods"), startupPrepared = true });
+        Put(new { schemaVersion = 1, status = "failed", phase = "startup", target = "enshrouded", completedAt = new DateTimeOffset(Start).ToUnixTimeSeconds() - 600, error = "old" });
+        Assert.Equal("startup", Mod(Read(), "shroudforge", "patch").Word);
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+
         // a process whose start time is unknown cannot tell this start's record from an older one
         Put(new { schemaVersion = 1, status = "applied", phase = "startup", target = "enshrouded", completedAt = now - 5, mods = listed });
         var unknownStart = ModCatalog.Read(new CatalogSources { KilnRoot = Kiln, Pid = Pid, Side = "client" });

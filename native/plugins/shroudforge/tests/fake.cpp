@@ -88,7 +88,11 @@ extern "C" __declspec(dllexport) void shroudforge_input_host_end() {
     feed_state = 2;
 }
 #endif
-extern "C" __declspec(dllexport) bool shroudforge_prepare_startup(const wchar_t* root) { mark(root && *root ? "prepare" : "bad-root"); return root && *root; }
+// KILN_SF_FAIL_PREPARE: the startup preparation fails (a startup asset mod that cannot be applied).
+extern "C" __declspec(dllexport) bool shroudforge_prepare_startup(const wchar_t* root) {
+    mark(root && *root ? "prepare" : "bad-root");
+    return root && *root && !GetEnvironmentVariableW(L"KILN_SF_FAIL_PREPARE", nullptr, 0);
+}
 extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t* root) {
     mark("create");
     // A new line in ShroudForge's log after the adapter's start, so its [sf] mirror has something to read in the loop.

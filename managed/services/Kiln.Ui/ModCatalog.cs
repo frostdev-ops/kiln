@@ -996,7 +996,9 @@ internal static class ModCatalog
         if (runs && b.Mods.TryGetValue("shroudforge", out var list))
         {
             var runtime = SfRuntime(b.Src);
-            var assets = SfAssets(b.Src);
+            // kiln-shroudforge's status of this process: ShroudForge's startup preparation succeeded in this start
+            var prepared = f.Doc is { } status && f.Current && Bool(status, "startupPrepared") == true;
+            var assets = SfAssets(b.Src, prepared);
             for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, assets, b.Src.Side);
         }
         b.Engine("shroudforge", mode, health, note, f.Current);
@@ -1060,24 +1062,29 @@ internal static class ModCatalog
 
     /// <summary>ShroudForge's record of its startup game-data pass (state.json <c>assets</c>, written by its loader:
     /// <c>status</c> preparing, applied or failed, <c>target</c> enshrouded or enshrouded_server, <c>completedAt</c>, and
-    /// for an applied pass the mods it patched with their versions), when the pass ended in this game start. The
-    /// record carries no pid, so its time is the only tie to this process: a pass that ended before the process
-    /// started, a time ahead of the clock, or a process whose start is unknown proves nothing about this start.</summary>
-    internal sealed record SfAssetState(string Status, string Target, Dictionary<string, string> Mods, string? Error);
+    /// for an applied pass the mods it patched with their versions), when it describes this game start. The record
+    /// carries no pid. It is this start's in two cases: the pass ended inside this process's lifetime (<c>Fresh</c>), or
+    /// kiln-shroudforge's status of this process says ShroudForge's startup preparation succeeded
+    /// (<paramref name="prepared"/>): ShroudForge then either wrote the record just now or found the pass of an earlier
+    /// start still current for this start's mods and left the record as it was, which is the usual start. A failed pass
+    /// counts only when fresh. Anything else (an older record without that word, a time ahead of the clock, a process
+    /// whose start is unknown and no word from the adapter) proves nothing about this start.</summary>
+    internal sealed record SfAssetState(string Status, string Target, Dictionary<string, string> Mods, string? Error, bool Fresh);
 
-    private static SfAssetState? SfAssets(CatalogSources src)
+    private static SfAssetState? SfAssets(CatalogSources src, bool prepared)
     {
-        if (src.ProcessStartUtc == DateTime.MinValue) return null;
         var path = Path.Combine(SfFolder(src.GameDir, "state"), "state.json");
         if (ReadJson(path, out _) is not { ValueKind: JsonValueKind.Object } d || !d.TryGetProperty("assets", out var a) ||
             a.ValueKind != JsonValueKind.Object || Str(a, "status") is not { } status || Str(a, "target") is not { } target) return null;
         if (!a.TryGetProperty("completedAt", out var at) || at.ValueKind != JsonValueKind.Number || !at.TryGetInt64(out var seconds) ||
-            seconds < new DateTimeOffset(src.ProcessStartUtc).ToUnixTimeSeconds() - 2 || seconds > DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 30) return null;
+            seconds > DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 30) return null;
+        var fresh = src.ProcessStartUtc != DateTime.MinValue && seconds >= new DateTimeOffset(src.ProcessStartUtc).ToUnixTimeSeconds() - 2;
+        if (!fresh && !(prepared && status == "applied")) return null;
         var mods = new Dictionary<string, string>(StringComparer.Ordinal);
         if (a.TryGetProperty("mods", out var list) && list.ValueKind == JsonValueKind.Array)
             foreach (var x in list.EnumerateArray())
                 if (x.ValueKind == JsonValueKind.Object && Str(x, "id") is { Length: > 0 } id) mods[id] = Str(x, "version") ?? "";
-        return new SfAssetState(status, target, mods, Str(a, "error"));
+        return new SfAssetState(status, target, mods, Str(a, "error"), fresh);
     }
 
     /// <summary>What this start's startup pass proves for a mod with no Lua part: applied when the pass patched this
@@ -1098,7 +1105,10 @@ internal static class ModCatalog
         return m with
         {
             State = ModRunState.Loaded, Word = "applied",
-            Reason = "ShroudForge applied its game-data changes at the start of this game start (its record of the startup pass lists this mod). A change of its settings applies with the next start.",
+            Reason = (assets.Fresh
+                         ? "ShroudForge applied its game-data changes at the start of this game start"
+                         : "ShroudForge found its game-data changes of an earlier start still current for this start's mods") +
+                     " (its record of the startup pass lists this mod). A change of its settings applies with the next start.",
             Help = null,
         };
     }

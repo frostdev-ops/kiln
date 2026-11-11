@@ -82,7 +82,16 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             print('PASS', name)
             return
         calls = log.read_text().splitlines()
+        if (extra_env or {}).get('KILN_SF_FAIL_PREPARE'):
+            # the preparation failed: no runtime is created, and the status does not say the startup pass is done
+            assert calls.count('prepare') == 1 and 'create' not in calls, (name, calls)
+            assert status['mode'] == 'failed' and 'startupPrepared' not in status, (name, status)
+            print('PASS', name)
+            return
         assert status['source'] == ('installed' if installed == 'good' or name == 'bundled-corrupt' else 'bundled'), (name, status)
+        # ShroudForge's startup preparation succeeded in this process: Kiln's menu takes ShroudForge's record of its
+        # startup pass as this start's on that word (the record itself keeps the time of the pass that wrote it)
+        assert status.get('startupPrepared') is True, (name, status)
         assert calls.count('prepare') == calls.count('create') == calls.count('destroy') == calls.count('shutdown') == 1, (name, calls)
         assert calls.index('prepare') < calls.index('create') < calls.index('update') < calls.index('destroy') < calls.index('shutdown'), calls
         if early:
@@ -95,6 +104,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             verify(status, calls, result.stdout.decode(errors='replace'))
         print('PASS', name)
     case('installed-corrupt', installed='corrupt')
+    case('prepare-fails', installed='corrupt', extra_env={'KILN_SF_FAIL_PREPARE': '1'})
     case('installed-bad-abi', installed='bad-abi')
     case('bundled-corrupt', bundled='corrupt')
     case('early-reservation', installed='corrupt', early=True)

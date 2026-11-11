@@ -142,6 +142,10 @@ it copies the bundled game profiles that are missing into SF's runtime folder an
 folder is SF's own `<game>/shroudforge/` (config, logs, state, cache, profiles). Mods come from SF's mods folder.
 `kiln/state/shroudforge.json` gains `source` (bundled|installed), `runtimeDir`, `bundled`, `installed` and
 `useInstalled`. Then, for whichever runtime was chosen:
+Since dev.24 it also has `startupPrepared: true` once `shroudforge_prepare_startup` returned success in this process
+(absent when it failed or did not run): ShroudForge then either applied its startup asset mods or found an earlier
+pass still current, so its own record of that pass (`shroudforge/state.json` `assets`) describes this start's game
+data. Kiln's menu reads the record on that word (ui.md).
 
 Its early export runs preparation on the main thread while Kiln's gate holds the game entry point. Both runtime DLLs
 are validated before preparation. The `kiln.eml` v2 reservation prevents two startup KFC writers:

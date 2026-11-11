@@ -823,6 +823,10 @@ void KILN_CALL on_ready(void*) {
         return finish("failed", "ShroudForge's startup preparation failed (startup asset mods or its DLL Manager)");
     }
     logf(KILN_LOG_INFO, "ShroudForge startup preparation done (%.0f ms)", prep_ms);
+    // For readers of ShroudForge's own record of its startup pass (state.json "assets"): ShroudForge either applied its
+    // startup asset mods just now or found the pass of an earlier start still current for this start's mods (it then
+    // leaves the record as it is, with that start's time). Either way the record describes the game data of this start.
+    set_status("startupPrepared", true);
     // Both DLLs and ABI were validated together before startup preparation.
 
     if (g_kfc) {
