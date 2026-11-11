@@ -1624,10 +1624,12 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         if let Some(root) = &root {
             refuse_symlink_path(game_dir, root)?;
         }
-        // ShroudForge runs the profile's EML mods (Kiln hosts it, or its own loader is installed): it runs a package of
-        // its mods folder only while the package's switch is on, so Kiln's copies there carry that switch. Copies in
-        // another folder (a game-folder copy while ShroudForge reads a mods folder configured elsewhere) are not its.
-        let sf_root = (kind == ModKind::Eml && loader.is_some_and(|l| l.engine == crate::engines::Engine::ShroudForge))
+        // ShroudForge may run the profile's EML mods (Kiln hosts it, or its own loader is installed; also when EML's own
+        // proxy file is there, which under Wine or Proton loads only with a DLL override): it runs a package of its mods
+        // folder only while the package's switch is on, so Kiln's copies there carry that switch (EML's own loader reads
+        // only `launcher` from the file). Copies in another folder (a game-folder copy while ShroudForge reads a mods
+        // folder configured elsewhere) are not its.
+        let sf_root = (kind == ModKind::Eml && crate::own_loaders::shroudforge_runs_eml(loaders))
             .then(|| crate::shroudforge::mods_dir(game_dir));
         let sf_reads = |dst: &Path| sf_root.as_ref().is_some_and(|r| dst.parent() == Some(r.as_path()));
         let server = game_dir.join(crate::game::SERVER_EXE).is_file();

@@ -357,18 +357,28 @@ fn an_older_receipt_without_kilns_bytes_takes_values_that_differ_from_the_librar
     }
 }
 
+/// The copy and receipt an older Kiln (0.2.0-dev.23, and dev.24 before ShroudForge's switch was part of Kiln's EML
+/// copies) left while it hosted ShroudForge: the copy without extended.mod.json, the receipt listing no such file and
+/// recording none of Kiln's bytes.
+fn as_an_older_kiln_placed_it(game: &Path, copy: &Path) {
+    std::fs::remove_file(copy.join("extended.mod.json")).unwrap();
+    let file = game.join("kiln/state/library-placements.json");
+    let mut receipts: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    let r = receipts.as_array_mut().unwrap().iter_mut().find(|r| r["path"].as_str() == copy.to_str()).expect("the copy's receipt");
+    r["files"].as_object_mut().unwrap().remove("extended.mod.json").expect("listed now");
+    r.as_object_mut().unwrap().remove("extension");
+    std::fs::write(&file, serde_json::to_vec(&receipts).unwrap()).unwrap();
+}
+
 #[test]
 fn a_copy_an_older_kiln_placed_without_the_switch_gets_it_at_the_next_play() {
     let s = setup("older");
     let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
-    // dev.24 before this fix: Kiln hosted ShroudForge, placed the copy, and wrote no switch (EML's own loader stands
-    // in for that placement here: the same copy, the same receipt)
-    put(&s.game, "dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
     let p = s.profile(vec![pm(&gliders, true)]);
     engine_mods::place(&s.dirs, &p, &s.game).unwrap();
     let copy = s.game.join("mods/more-gliders");
+    as_an_older_kiln_placed_it(&s.game, &copy);
     assert!(copy.is_dir() && ext_of(&copy).is_none());
-    std::fs::remove_file(s.game.join("dbghelp.dll")).unwrap();
     let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
     assert!(rep.kept.contains(&"eml:more-gliders".to_string()) && rep.switched.contains(&"eml:more-gliders".to_string()), "{rep:?}");
     assert!(shroudforge::read_mod(&copy).unwrap().enabled);
@@ -376,6 +386,44 @@ fn a_copy_an_older_kiln_placed_without_the_switch_gets_it_at_the_next_play() {
     let cleanup = engine_mods::unplace(&s.dirs, &s.game).unwrap();
     assert!(cleanup.retained.is_empty() && cleanup.removed.contains(&copy), "{cleanup:?}");
     assert!(!s.game.join("kiln/kept-mod-files/eml/more-gliders").exists());
+}
+
+/// pr-manage P2: EML's own loader (dbghelp.dll) in the game folder, which under Wine or Proton runs only with a DLL
+/// override the launcher cannot see. Without one it is not loaded, kiln-eml does not stand aside for it, and the
+/// ShroudForge adapter hosts ShroudForge for the profile's ShroudForge mods (its `wanted()` looks at no proxy file):
+/// ShroudForge runs the EML mods of its mods folder whose switch is on, and kiln-eml stands aside for it. Kiln's copies
+/// there must carry that switch, and the launcher's note must say who runs them in that case.
+#[test]
+fn with_emls_proxy_file_in_the_folder_kilns_copies_still_carry_shroudforges_switch() {
+    let s = setup("eml-proxy");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    eml_loader(&s.game);
+    let p = s.profile(vec![pm(&gliders, true)]);
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/more-gliders");
+    assert!(rep.placed.contains(&"eml:more-gliders".to_string()), "{rep:?}");
+    assert!(ext_of(&copy).is_some(), "the copy must carry ShroudForge's switch: {rep:?}");
+    assert!(shroudforge::read_mod(&copy).unwrap().enabled);
+    // EML's own loader, when it runs, reads only `launcher` from that file: it runs the copy all the same
+    let eml = rep.own_loaders.iter().find(|n| n.loader.kind == ModKind::Eml).expect("a note for the EML mods");
+    assert_eq!((eml.loader.file.as_str(), eml.copied.clone()), ("dbghelp.dll", vec!["more-gliders".to_string()]), "{eml:?}");
+    assert!(!eml.text.contains("without one Kiln runs these mods itself"), "{}", eml.text);
+    assert!(eml.text.contains("without one, ShroudForge (hosted by Kiln for this profile's ShroudForge mods) runs them"), "{}", eml.text);
+    // switched off in the game: in that case ShroudForge does not run it, and the note says so
+    shroudforge::set_enabled(&copy, false).unwrap();
+    let view = own_loaders::ProfileView::of_profile(&p);
+    let notes = own_loaders::notes(&s.game, &own_loaders::find(&s.game, Some(&view)), Some(&view));
+    let eml = notes.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+    assert_eq!(eml.off, ["more-gliders"], "{eml:?}");
+    // the next Play switches it on again
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.switched.contains(&"eml:more-gliders".to_string()) && shroudforge::read_mod(&copy).unwrap().enabled, "{rep:?}");
+    // without ShroudForge mods in the profile nothing is hosted: the note is EML's alone, and Kiln runs them itself
+    let mut q = p.clone();
+    q.mods.shroudforge.clear();
+    let rep = engine_mods::place(&s.dirs, &q, &s.game).unwrap();
+    let eml = rep.own_loaders.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+    assert!(eml.text.contains("without one Kiln runs these mods itself"), "{}", eml.text);
 }
 
 #[test]

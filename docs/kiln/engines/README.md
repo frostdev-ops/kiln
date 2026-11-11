@@ -92,15 +92,18 @@ launcher puts them there:
   override (a Steam Deck player with ShroudForge's overrides set does run it), which the launcher cannot see.
 - **ShroudForge's switch** (dev.24). ShroudForge, hosted or its own loader, runs a package of its mods folder only while
   the package's `extended.mod.json` says `enabled: true`, on the sides its `targets` name; a legacy EML package has
-  no such file until ShroudForge writes one, so ShroudForge keeps it off. While ShroudForge is the loader that runs
-  the profile's EML mods, Kiln's copies there (the game-folder ones in `<game>/mods/<folder>` too, when that is
-  ShroudForge's folder) carry that switch from the profile: the file ShroudForge's own Modloader writes for a legacy
+  no such file until ShroudForge writes one, so ShroudForge keeps it off. While ShroudForge may run the profile's EML
+  mods (its own loader, or Kiln hosting it for the profile; also beside EML's own `dbghelp.dll`, which under Wine and
+  Proton loads only with a DLL override: without one the adapter hosts ShroudForge and kiln-eml stands aside for it),
+  Kiln's copies there (the game-folder ones in `<game>/mods/<folder>` too, when that is ShroudForge's folder) carry
+  that switch from the profile; EML's own loader, when it runs instead, reads only `launcher` from the file: the file ShroudForge's own Modloader writes for a legacy
   EML package, or only the `enabled` value of a shipped one. The file is part of Kiln's copy; setting values changed
   in it later are the player's (carried to the next version; a copy holding them is kept, switched off, when the
   profile turns the mod off). A player's own folder is never written, and the launcher says when ShroudForge has it
   off (activation notes, `ownLoaders[].off` for Kiln's copies). Without ShroudForge nothing is written.
 - **No double load.** When the loader does not start after all (Wine/Proton without the override), the plugin runs
-  the profile's mods from the Library as usual. A folder in the engine's drop-in folder whose marker names this
+  the profile's mods from the Library as usual (EML's: unless Kiln hosts ShroudForge for the profile, which then runs
+  Kiln's copies in its folder). A folder in the engine's drop-in folder whose marker names this
   engine and a profile entry's id is that profile mod: the plugin skips it, so the mod runs once and is listed once.
   A marked folder that no profile entry names is an ordinary drop-in.
 - **Saying it.** A plugin that steps aside lists the profile's mods of its engine in `kiln/state/<engine>.json`:
