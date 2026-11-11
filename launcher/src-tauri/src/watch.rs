@@ -146,7 +146,7 @@ fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, followed:
         if foreign {
             f.rewrites.wrote(Instant::now());
         }
-        let _ = app.emit(events::ACTIVATION, &a);
+        crate::commands::profile::queue_notices(app, &a);
         emit_game(app, &g.id, GameEventKind::Status, None);
     }
     // what it looks like after the write, so the write itself is not a change

@@ -94,6 +94,7 @@ pub fn run() {
             commands::profile::profile_activate,
             commands::profile::profile_deactivate,
             commands::profile::profile_active,
+            commands::profile::activation_notices,
             commands::library::library_list,
             commands::library::library_detect,
             commands::library::library_import,
