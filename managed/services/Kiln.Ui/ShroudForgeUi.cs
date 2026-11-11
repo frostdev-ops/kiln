@@ -128,6 +128,9 @@ internal static class ShroudForgeUi
     {
         try
         {
+            // Match the reader's plain-file rule before reusing a package. Identical bytes through a new link
+            // must not hide its rejection, nor cache that rejection after the player replaces the link with a file.
+            if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0) return null;
             using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
             foreach (var name in new[] { "mod.json", "extended.mod.json" })
             {
@@ -137,6 +140,7 @@ internal static class ShroudForgeUi
                     sha.AppendData([0]);
                     continue;
                 }
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return null;
                 using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 if (f.Length > ShroudForgePackages.MaxFileBytes) return null;
                 var bytes = new byte[f.Length];

@@ -158,6 +158,29 @@ public sealed class ShroudForgePageTests : IDisposable
         finally { ShroudForgeUi.SetSetting = ShroudForgePackages.SetSetting; }
     }
 
+    [Theory]
+    [InlineData("mod.json", true)]
+    [InlineData("mod.json", false)]
+    [InlineData("extended.mod.json", true)]
+    [InlineData("extended.mod.json", false)]
+    public void An_unchanged_file_replaced_by_a_link_is_revalidated_and_recovers_when_unlinked(string name, bool cached)
+    {
+        var folder = Package("""{ "note": { "value": "old", "label": "Note" } }""");
+        if (!cached) ShroudForgeUi.ResetForTests();
+        var file = Path.Combine(folder, name);
+        var target = Path.Combine(_root, "target.json");
+        File.Move(file, target);
+        File.CreateSymbolicLink(file, target);  // the same bytes, but no longer an editable plain package file
+        ShroudForgeUi.Load(folder);
+        Assert.Null(ShroudForgeUi.Get(folder, out var error));
+        Assert.Contains("linked", error);
+        File.Delete(file);
+        File.Move(target, file);
+        ShroudForgeUi.Load(folder);
+        Assert.NotNull(ShroudForgeUi.Get(folder, out error));
+        Assert.Null(error);
+    }
+
     /// <summary>A setting whose key is the empty string is a setting, not the mod's switch.</summary>
     [Fact]
     public void A_setting_with_an_empty_key_is_not_the_switch()
