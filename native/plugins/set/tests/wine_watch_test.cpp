@@ -7,7 +7,24 @@
 #include <chrono>
 #include <cstdio>
 
+#if !defined(KSET_WATCH_DLL) && !defined(KSET_SILENT_DLL)
+namespace {
+HMODULE unload_during_path = nullptr;
+bool unloaded_after_path = false;
+DWORD WINAPI path_then_unload(HMODULE h, wchar_t* out, DWORD cap) {
+    const DWORD n = GetModuleFileNameW(h, out, cap);
+    if (n && h && h == unload_during_path) {
+        unload_during_path = nullptr;
+        unloaded_after_path = FreeLibrary(h) != 0;
+    }
+    return n;
+}
+}
+// Deterministically schedule another caller's last FreeLibrary after the scan got the module's path.
+#define GetModuleFileNameW path_then_unload
+#endif
 #include "../src/coexist.h"
+#undef GetModuleFileNameW
 
 #if defined(KSET_WATCH_DLL)
 // Built from this same source as an unloadable fixture. Its static watch must unregister even if the host
@@ -29,6 +46,13 @@ void check(bool ok, const char* what) {
 }
 double us_since(std::chrono::steady_clock::time_point t0, int n) {
     return std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count() / n;
+}
+void inspect_now() { (void)kset::inspect_runtime(); }
+bool inspection_survives_unload() {
+    __try { inspect_now(); return true; }
+    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
 }
 }  // namespace
 
@@ -150,6 +174,18 @@ int main() {
     int fallback = 0;
     for (int i = 0; i < 100000; ++i) fallback += throttle.due();
     check(fallback == 1, "the unarmed fallback is due once, then throttled");
+    const HMODULE racing = LoadLibraryW((dir / L"watch-fixture.dll").c_str());
+    check(racing != nullptr, "loaded the inventory-unload fixture");
+    if (racing) {
+        unload_during_path = racing;
+        const bool survived = inspection_survives_unload();
+        check(unloaded_after_path, "the fixture's caller released its last reference after the path lookup");
+        check(survived, "module inspection survives an unload after its path lookup");
+        HMODULE retained = nullptr;
+        check(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                 reinterpret_cast<LPCWSTR>(racing), &retained), "the inventory releases its module reference after inspection");
+        if (unload_during_path) { FreeLibrary(unload_during_path); unload_during_path = nullptr; }
+    }
     std::printf(failures ? "wine watch test: FAIL (%d)\n" : "wine watch test: PASS\n", failures);
     return failures;
 }

@@ -140,8 +140,8 @@ bool homeRoot(const std::string& in, size_t word) {
 // /run/media/<name>: udisks' mounts, where a second drive's Steam library is), with either separator, single or doubled
 // (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and USERPROFILE (Proton: C:\users\steamuser)
 // say. Only the name goes: it ends at a separator, a quote or a control character; at an apostrophe that ends a word
-// (O'Brien keeps his); and at a space after a '/' path (Unix names have none) or, after a '\' path, at a space whose
-// next word doesn't go on into the path (C:\Users\Bob Fix\AppData is one name, C:\Users\alice exit=3 is not).
+// (O'Brien keeps his); and at a space whose next word doesn't go on into the path (C:\Users\Bob Fix\AppData is one
+// name, C:\Users\alice exit=3 is not). Windows paths may use '/' or mixed separators and still have spaced names.
 std::string redactHomes(const std::string& in) {
     auto nameChar = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || static_cast<unsigned char>(c) >= 0x80; };
     std::string out;
@@ -158,13 +158,11 @@ std::string redactHomes(const std::string& in) {
                 break;
             }
         size_t end = name;
-        const bool unix = name != std::string::npos && name > 0 && in[name - 1] == '/';
         for (; end < in.size(); ++end) {
             const char c = in[end];
             if (separator(c) || c == '"' || static_cast<unsigned char>(c) < 32) break;
             if (c == '\'' && !(end + 1 < in.size() && nameChar(in[end + 1]))) break;
             if (c == ' ') {
-                if (unix) break;
                 size_t k = end + 1;
                 while (k < in.size() && !separator(in[k]) && !pathStop(in[k])) ++k;
                 if (k >= in.size() || !separator(in[k])) break;  // the next word doesn't go on into the path

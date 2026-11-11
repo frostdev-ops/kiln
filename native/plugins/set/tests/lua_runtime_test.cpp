@@ -287,7 +287,9 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   // Features() off the tick thread (the SET tools' Compatibility tab and support report run on the render thread)
   // never runs the whole resource scan there; the first one on the tick thread does. (Nothing scanned before here.)
   {static unsigned lists;lists=0;auto saved=assets.resource_list;
-   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{++lists;*n=0;return KILN_OK;};
+   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{
+    if(++lists==1)std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    *n=0;return KILN_OK;};
    auto resources=[]{for(auto& f:rt::features())if(f.id=="resources")return f;assert(false);return rt::Feature{};};
    tickThread=false;const auto off=resources();
    // a client mod's init.lua runs in the main menu, before any world: resources were available to it at 5edcf5c
@@ -296,7 +298,14 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
    if(lists)std::cerr<<"features: the resource scan ran off the tick thread ("<<lists<<" resource_list calls)\n";
    if(!menuMod)std::cerr<<"features: a mod in the main menu sees resources unavailable before anything was checked\n";
    assert(lists==0&&menuMod&&gScanAsked&&off.compatible&&off.available&&off.unchecked&&off.reason.empty());
-   scanIfAsked();assert(lists>0&&!gScanAsked);   // the next world tick scans (tickMods)
+   // A dedicated server's first init or a world callback can ask before scanIfAsked. The one-time scan is host
+   // work, not the mod's: it must still finish its ordinary Lua code after an 80 ms resource service call.
+   logs.clear();
+   const bool firstScan=run(L,two,"local r=Features().resources;local n=0;for i=1,20000 do n=n+i end;assert(not r.available)");
+   if(!firstScan){std::cerr<<"resources: first scan stopped a legitimate callback:";for(auto& l:logs)std::cerr<<" ["<<l<<"]";std::cerr<<"\n";}
+   assert(firstScan&&lists>0);
+   const auto scannedLists=lists;scanIfAsked();assert(lists==scannedLists&&!gScanAsked);
+   assert(!run(L,two,"while true do Features() end")); // cached scans cannot farm extra callback time
    tickThread=false;const auto after=resources();tickThread=true;                    // checked: this fixture has none
    assert(!after.available&&!after.unchecked&&after.reason=="Not loaded yet"&&!gScanAsked);
    assets.resource_list=saved;}

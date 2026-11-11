@@ -78,6 +78,8 @@
    {"HOME=/home/erinq WINEPREFIX=/home/erinq/.wine","HOME=/home/<user> WINEPREFIX=/home/<user>/.wine"},
    {"kept \\\\wsl$\\Ubuntu\\home\\frankq\\x and \\\\?\\unix\\home\\graceq\\y and /var/home/heidiq/z","kept \\\\wsl$\\Ubuntu\\home\\<user>\\x and \\\\?\\unix\\home\\<user>\\y and /var/home/<user>/z"},
    {"space C:\\Users\\Ivan Q\\AppData and \"Z:\\home\\judyq\" end","space C:\\Users\\<user>\\AppData and \"Z:\\home\\<user>\" end"},
+   {"mixed C:\\Users/Ivan Q\\AppData and C:/Users/Ivan Q/AppData end","mixed C:\\Users/<user>\\AppData and C:/Users/<user>/AppData end"},
+   {"cwd=C:/Users/carolq exit=3 (code 0xC0000005)","cwd=C:/Users/<user> exit=3 (code 0xC0000005)"},
    {"mod folder users\\x.lua and C:\\Games\\mods\\users\\x.lua and settest\\home\\y","mod folder users\\x.lua and C:\\Games\\mods\\users\\x.lua and settest\\home\\y"},
    {"Z:\\home\\ölafq\\x","Z:\\home\\<user>\\x"},
    {"cannot open '/home/kateq'","cannot open '/home/<user>'"}};
@@ -85,7 +87,10 @@
   std::ofstream(work/"kiln.log",std::ios::binary)<<in;
   const auto out=setui::logText(false);std::istringstream got(out);std::string line;bool bad=false;
   for(const auto& [from,to]:lines){std::getline(got,line);if(line!=to){std::cerr<<"redaction: ["<<from<<"] -> ["<<line<<"], wanted ["<<to<<"]\n";bad=true;}}
-  assert(!bad);}
+  assert(!bad);
+  toolsClick="Save local support report";setui::draw();
+  const auto saved=slurp(work/"set-report.txt");
+  for(const auto& [from,to]:lines)assert(saved.find(to+"\n")!=std::string::npos);}
  // A long session's log: the copy and the report keep its end (where a crash is), at most 1 MiB of it, from a line
  // start. A mod's stray byte or non-ASCII text never makes the clipboard text invalid UTF-8.
  {std::ofstream big(work/"kiln.log",std::ios::binary);big<<"FIRST LINE of the session\n";
