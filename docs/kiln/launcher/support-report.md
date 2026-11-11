@@ -23,6 +23,8 @@ Code: `crates/kiln-manage/src/report.rs` (`build`, `redact`, `write_zip`), the T
 | `report.json` | the findings and the unreadable sections as JSON (`{format, written, tool, findings: [{id, level, text}], errors}`) |
 | `game/kiln/logs/kiln.log` | the last 1 MiB |
 | `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log`, `game/shroudlink_client.log` | the last 192 KiB of each, when present; addon initialization, input and menu-state diagnostics use the same path/name/Steam ID/IP redaction as Kiln's logs |
+| `game/kiln/logs/greeneye-loader.log`, `game/greeneye/loader.log`, `game/greeneye/loader.second-copy.log` | kiln-greeneye's log and Greeneye Loader's own, the last 64 KiB of each, when present |
+| `greeneye-mods/<id>/*.log`, `greeneye-mods/<id>/*.status` | each Greeneye mod's own log and status files (top level of its folder, at most 4 per mod and 12 mods, the last 64 KiB of each): a Greeneye mod writes what it found and patched only there (The Worst Map Mod: `unlock_map_markers.log`, `UnlockMapMarkers.status`). The folders are those `kiln/state/greeneye.json` names and those in `greeneye/`, read only inside `<game>/greeneye/` or the launcher's `library/greeneye/` (resolved, no links); any other folder is left out with a note (`greeneye-log-skipped`). Its settings (`.ini`) and data are not read |
 | `game/kiln/crash-reports/<newest>` | the last 64 KiB of the newest crash report |
 | `game/kiln/state/*.json` | every state file (boot, mods, native, last-server, hooks, each engine's), at most 1 MiB each |
 | `game/kiln/profile.json`, `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`, `dinput8-chain.ini` | as they are, redacted |
