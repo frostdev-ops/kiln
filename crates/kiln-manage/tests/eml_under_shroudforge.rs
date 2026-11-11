@@ -426,6 +426,26 @@ fn with_emls_proxy_file_in_the_folder_kilns_copies_still_carry_shroudforges_swit
     assert!(eml.text.contains("without one Kiln runs these mods itself"), "{}", eml.text);
 }
 
+/// EML's own loader chained by Kiln's proxy (`kiln/chain.ini`) always runs, as a proxy file on Windows does: kiln-eml
+/// stands aside for it and ShroudForge cannot take the startup writer, so ShroudForge runs no EML mod and the note names
+/// no ShroudForge switch (the switch Kiln writes is harmless: EML's loader reads only `launcher` from that file).
+#[test]
+fn with_emls_loader_chained_the_note_names_no_shroudforge_switch() {
+    let s = setup("eml-chain");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    put(&s.game, "kiln/chain/eml-dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
+    put(&s.game, "kiln/chain.ini", b"[chain]\nchain\\eml-dbghelp.dll\n");
+    let p = s.profile(vec![pm(&gliders, true)]);
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/more-gliders");
+    shroudforge::set_enabled(&copy, false).unwrap();
+    let view = own_loaders::ProfileView::of_profile(&p);
+    let notes = own_loaders::notes(&s.game, &own_loaders::find(&s.game, Some(&view)), Some(&view));
+    let eml = notes.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+    assert_eq!(eml.loader.via, own_loaders::Via::Chain, "{eml:?}");
+    assert!(eml.off.is_empty() && !eml.text.contains("ShroudForge has"), "{eml:?}");
+}
+
 /// pr-manage P5: "activate the profile again to switch them on" helps a copy whose switch is off, not one for the other
 /// side or one ShroudForge cannot read. Each gets its own list and a sentence that is true, Kiln's copies and the
 /// player's own folders alike.

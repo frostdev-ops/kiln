@@ -299,7 +299,11 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
         // run the EML mods (its own loader, or Kiln hosting it, beside EML's proxy file too) from the folder they are in
         let server = game_dir.join(crate::game::SERVER_EXE).is_file();
         let hosted = loaders.iter().find(|o| o.kind == kind && o.via == Via::HostedShroudForge);
-        let sf_reads = kind == ModKind::Eml && shroudforge_runs_eml(loaders) && root == crate::shroudforge::mods_dir(game_dir);
+        // EML's own loader, when it is the note's, runs instead of ShroudForge whenever it is loaded: always on Windows
+        // and through a chain line, under Wine or Proton a proxy file only with a DLL override (the sentence below)
+        let unloaded = cfg!(not(windows)) && l.via == Via::Proxy && !l.file.eq_ignore_ascii_case("dinput8.dll");
+        let sf_reads = kind == ModKind::Eml && root == crate::shroudforge::mods_dir(game_dir)
+            && (l.engine == Engine::ShroudForge || (hosted.is_some() && unloaded));
         let (mut off, mut other_side, mut unreadable, mut refused) = (Vec::new(), Vec::new(), Vec::new(), None);
         for id in copied.iter().filter(|_| sf_reads) {
             match copy_of(&root, kind, id).and_then(|dir| crate::shroudforge::switched_off(&dir, server)) {
@@ -344,7 +348,7 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
         // On Windows the game imports these names, so the file always runs. A launcher built for Linux manages games
         // that run under Wine or Proton. Without the override the adapter hosts ShroudForge when the profile makes it
         // (find), and ShroudForge then runs the EML mods of its folder whose switch is on; else kiln-eml runs them.
-        if cfg!(not(windows)) && l.via == Via::Proxy && !l.file.eq_ignore_ascii_case("dinput8.dll") {
+        if unloaded {
             text.push_str(". Under Wine or Proton it runs only with a DLL override; ");
             text.push_str(&match hosted {
                 Some(_) if sf_reads => "without one, ShroudForge (hosted by Kiln for this profile's ShroudForge mods) runs them, each while its \
