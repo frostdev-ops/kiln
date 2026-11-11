@@ -63,7 +63,9 @@ pub struct Bridge {
     module: String,
     generation: u64,
     revision: u64,
-    serial: u64,
+    // Lease tokens are fresh random values that no reply but the acquiring one contains:
+    // another in-process reader cannot derive one from module, session or a counter.
+    secret: fn() -> Option<u128>,
     active: bool,
     welcomed: bool,
     fault: bool,
@@ -82,12 +84,12 @@ fn text(s: &str) -> bool {
     s.len() <= 4096 && !s.contains('\0')
 }
 impl Bridge {
-    pub fn new(module: String) -> Self {
+    pub fn new(module: String, secret: fn() -> Option<u128>) -> Self {
         Self {
             module,
             generation: 0,
             revision: 0,
-            serial: 0,
+            secret,
             active: true,
             welcomed: false,
             fault: false,
@@ -135,10 +137,16 @@ impl Bridge {
         self.active = false;
     }
     pub fn world(&mut self, present: bool) {
-        if self.world && !present {
-            self.begin_session();
+        // Outside a world (screen 0): not ready and no ownership while it lasts. What this session received
+        // stays; a new beacon, a client change or shutdown starts a new session.
+        if !present {
+            self.end_lease();
         }
         self.world = present;
+    }
+    fn end_lease(&mut self) {
+        self.lease = None;
+        self.queue.clear();
     }
     pub fn tick(&mut self, now: u64, client: usize) {
         self.expire(now);
@@ -158,14 +166,14 @@ impl Bridge {
             && self.tick.is_some_and(|t| now >= t && now - t <= TTL)
     }
     fn expire(&mut self, now: u64) {
-        // A stale tick invalidates the session, not merely the lease: a world with
-        // a reused client address must not revive old ownership on a later tick.
-        if self.tick.is_some_and(|t| now < t || now - t > TTL) {
-            self.begin_session();
-        }
-        if self.lease.as_ref().is_some_and(|l| now >= l.until) {
-            self.lease = None;
-            self.queue.clear();
+        // A stale tick (a loading stall, a title-bar drag) means not ready while it lasts
+        // (ready() checks its age) and ends ownership: the lease and its queue never come
+        // back. Received state stays for the same session and client pointer; upstream
+        // treats the same threshold as a live value that recovers.
+        if self.tick.is_some_and(|t| now < t || now - t > TTL)
+            || self.lease.as_ref().is_some_and(|l| now >= l.until)
+        {
+            self.end_lease();
         }
     }
     pub fn presenting(&mut self, now: u64) -> bool {
@@ -303,10 +311,10 @@ impl Bridge {
                     return Err(Error::Busy);
                 }
                 if self.lease.is_none() {
-                    self.serial = self.serial.checked_add(1).ok_or(Error::Inactive)?;
+                    let token = (self.secret)().ok_or(Error::Unavailable)?;
                     self.lease = Some(Lease {
                         client,
-                        token: format!("{}:{}:{}", self.module, self.generation, self.serial),
+                        token: format!("{token:032x}"),
                         until: now.saturating_add(TTL),
                     });
                 } else {

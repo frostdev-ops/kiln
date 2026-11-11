@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// The packet and frame encoding follows shroudlink 0.8.0's link crate, Copyright (c) 2026 bjck, MIT.
 // Included inside the harness namespace. Only source-backed game stand-ins feed
 // real encoded packets through the addon's production store/update detours.
 using Json = nlohmann::json;
@@ -103,6 +104,18 @@ int bridge_checks(const std::filesystem::path& dll, bool stock, bool late) {
     check(observed["lease"].is_null() && observed["leased"]==true,"read never leaks another client's presentation token");
     bridge_rpc(rpc,{{"op","acquire"},{"module",state["module"]},{"session",state["session"]},{"client","other"}},5);
     check(state["entries"][0]["label"]=="Storage" && state["lease"].is_string(),"actual Entries and opaque presentation lease available");
+    // More than two seconds without a client update (a loading stall, a title-bar drag): not ready and no lease while
+    // it lasts; the next real update brings back what this session received, never the old lease.
+    Sleep(2100);
+    const auto stalled=bridge_rpc(rpc,{{"op","read"}});
+    check(!stalled["ready"].get<bool>() && stalled["leased"]==false && stalled["entries"].empty(),"stalled client update: not ready, lease ended");
+    client_tick();
+    const auto resumed=bridge_rpc(rpc,{{"op","read"}});
+    check(resumed["ready"].get<bool>() && resumed["session"]==state["session"] && resumed["leased"]==false && resumed["entries"].size()==1 && resumed["entries"][0]["label"]=="Storage",
+          "next real update: the same session is ready again with its received Entries");
+    auto stale_menu=request_event(state,"settings",{{"kind","menu"}}); stale_menu["event"]["window"]="";
+    bridge_rpc(rpc,stale_menu,4);
+    state=acquire(rpc,resumed);
     key_through("leased presentation",1); frame();
     check(!log_has("ui: mods key on screen 0x01",0),"leased keyboard passes through the chain without triggering native Mods hotkeys");
     auto menu = request_event(state,"settings",{{"kind","menu"}}); menu["event"]["window"]="";
@@ -125,8 +138,14 @@ int bridge_checks(const std::filesystem::path& dll, bool stock, bool late) {
     bridge_rpc(rpc,{{"op","release"},{"module",state["module"]},{"session",state["session"]},{"lease",state["lease"]}});
     const auto before=sent_events(nonce).size(); client_tick(); check(sent_events(nonce).size()==before,"release discards queued events before update");
     state=acquire(rpc,bridge_rpc(rpc,{{"op","read"}})); set_screen(0); frame();
-    bridge_rpc(rpc,request_event(state,"settings",{{"kind","menu"}}),4);
-    set_screen(1); frame(); client_tick(); check(!bridge_rpc(rpc,{{"op","read"}})["ready"].get<bool>(),"world return cannot revive stale welcome/session ownership");
+    auto away=request_event(state,"settings",{{"kind","menu"}}); away["event"]["window"]="";
+    bridge_rpc(rpc,away,4);
+    check(!bridge_rpc(rpc,{{"op","read"}})["ready"].get<bool>(),"a frame outside the world: not ready, lease ended");
+    set_screen(1); frame(); client_tick();
+    const auto back=bridge_rpc(rpc,{{"op","read"}});
+    check(back["ready"].get<bool>() && back["session"]==state["session"] && back["leased"]==false && back["entries"].size()==1,
+          "world return: the same session is ready again with its Entries, the old lease stays ended");
+    bridge_rpc(rpc,away,4);
     beacon(); client_tick(); const auto rejoined_nonce=claim_nonce();
     server_message(rejoined_nonce,1,{{"mod","shroudlink"},{"op","welcome"},{"ui_protocol",2},{"mods",Json::array()}}); frame(); client_tick();
     const auto rejoined=bridge_rpc(rpc,{{"op","read"}});

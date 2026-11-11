@@ -5,6 +5,7 @@
 //
 // The addon looks for 30 game functions by their bytes in the main exe's .text (client/src/link.rs, native.rs). This
 // exe carries source-backed stand-ins: matching patterns, layout checks, call targets and RIP-relative globals.
+// The patterns and layouts are from shroudlink 0.8.0's client source, Copyright (c) 2026 bjck, MIT.
 // The harness calls the synthetic per-frame UI function, running the addon's actual UI dispatch and input code.
 // A message-only HWND and two window-discovery API adapters let the unchanged addon subclass real user32 procedures
 // without any desktop window. Synthetic tab lists also exercise the addon's actual MODS-tab emission predicates.
@@ -454,6 +455,13 @@ kiln::foreign::AddonLog addon_says(HMODULE mod, uint64_t not_before, uint32_t ms
     return r;
 }
 
+size_t log_count(const char* text) {
+    const std::string s = read_all(exe_dir() / kiln::foreign::kAddonLog);
+    size_t n = 0;
+    for (size_t at = s.find(text); at != std::string::npos; at = s.find(text, at + 1)) ++n;
+    return n;
+}
+
 bool log_has(const char* text, uint64_t not_before) {
     const std::string s = read_all(exe_dir() / kiln::foreign::kAddonLog);
     for (size_t at = s.find(text); at != std::string::npos; at = s.find(text, at + 1)) {
@@ -544,8 +552,11 @@ void key_through(const char* when, int kiln_depth) {
     check(kiln_lines("call each other in a loop") == 0, "%s: no window procedure loop", when);
 }
 
-// The addon read the MODS key in its procedure: its UI says so in the next frame while playing.
-void addon_saw_key(const char* when, uint64_t not_before) {
+// The addon read the MODS key in its procedure: its UI says so in the next frame while playing. Every copy appends to
+// the same log with whole-second stamps, so only a line added after this key counts.
+void addon_saw_key(const char* when) {
+    const char* line = "ui: mods key on screen 0x01";
+    const size_t before = log_count(line);
     set_screen(0x01);
     SendMessageW(g_win, WM_KEYDOWN, 'K', 1);
     SendMessageW(g_win, WM_KEYUP, 'K', 0xC0000001);
@@ -553,8 +564,8 @@ void addon_saw_key(const char* when, uint64_t not_before) {
     set_screen(0);
     pump();
     bool seen = false;
-    for (int i = 0; i < 20 && !(seen = log_has("ui: mods key on screen 0x01", not_before)); ++i) Sleep(50);
-    check(seen, "%s: the addon's procedure saw the MODS key (shroudlink_client.log: \"ui: mods key on screen 0x01\")", when);
+    for (int i = 0; i < 20 && !(seen = log_count(line) > before); ++i) Sleep(50);
+    check(seen, "%s: the addon's procedure saw the MODS key (a new \"%s\" line in shroudlink_client.log)", when, line);
 }
 
 HMODULE load_addon(const std::filesystem::path& dll, bool expect_ready) {
@@ -690,7 +701,7 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
         check(kiln_lines("subclassed the game window after Kiln; Kiln's procedure stays in the chain below it") == 1,
               "Kiln said once that the addon is above it");
         key_through("addon above Kiln", 1);
-        addon_saw_key("addon above Kiln", t0);
+        addon_saw_key("addon above Kiln");
         // Repeated frames/attach checks (the addon retries nothing once it has the window).
         for (int i = 0; i < 240; ++i) {
             frame();
@@ -715,7 +726,7 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
         for (int i = 0; i < 3; ++i) kui::input_attach(g_win);
         check(top() == addon2 && kiln_lines("subclassed the game window after Kiln") == 2, "Kiln stays below the new copy");
         key_through("reloaded addon above Kiln", 1);
-        addon_saw_key("reloaded addon above Kiln", t0);
+        addon_saw_key("reloaded addon above Kiln");
         return g_fails;
     }
     if (mode == "window-late") {
@@ -731,7 +742,7 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
         for (int i = 0; i < 3; ++i) kui::input_attach(g_win);
         check(top() == kiln, "Kiln's checks change nothing");
         key_through("Kiln above the addon", 1);
-        addon_saw_key("Kiln above the addon", t0);
+        addon_saw_key("Kiln above the addon");
         // the addon leaves: it puts back the game's procedure, which takes Kiln's out of the chain
         reinterpret_cast<void (*)()>(GetProcAddress(m, kiln::foreign::kAddonExport))();
         check(top() == &game_proc, "the addon's shutdown put the game's procedure back");

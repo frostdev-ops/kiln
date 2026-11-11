@@ -6,8 +6,14 @@ fn call(b: &mut Bridge, v: Value, now: u64) -> Result<Value, Error> {
         .map(|v| serde_json::from_slice(&v).unwrap())
         .map_err(|e| e.0)
 }
+// Test randomness only; the addon uses BCryptGenRandom.
+fn secret() -> Option<u128> {
+    use std::hash::{BuildHasher, RandomState};
+    let s = RandomState::new();
+    Some(u128::from(s.hash_one(1u8)) << 64 | u128::from(s.hash_one(2u8)))
+}
 fn fixture() -> Bridge {
-    let mut b = Bridge::new("module-a".into());
+    let mut b = Bridge::new("module-a".into(), secret);
     b.begin_session();
     b.welcome(2);
     b.world(true);
@@ -55,7 +61,7 @@ fn actual_state_and_all_ten_nodes() {
 }
 #[test]
 fn no_fabricated_menu_from_welcome() {
-    let mut b = Bridge::new("m".into());
+    let mut b = Bridge::new("m".into(), secret);
     b.begin_session();
     b.welcome(2);
     b.world(true);
@@ -177,26 +183,138 @@ fn shutdown_replaced_copy_and_reconnect_clear_ownership() {
     replacement.module = "module-b".into();
     assert_eq!(call(&mut replacement, old, 100), Err(Error::Stale));
 }
+fn read(b: &mut Bridge, now: u64) -> Value {
+    call(b, json!({"op":"read"}), now).unwrap()
+}
 #[test]
-fn world_departure_client_change_and_tick_gap_fail_closed() {
-    for transition in 0..3 {
+fn world_departure_and_update_stall_end_ownership_but_keep_the_session() {
+    for stall in [false, true] {
         let mut b = fixture();
-        let s = acquire(&mut b, "kiln", 100);
+        let mut s = acquire(&mut b, "kiln", 100);
+        let (queued, at) = if stall { (2000, 2101) } else { (100, 101) };
+        if stall {
+            // Renewed close to the stall: the lease itself is still valid when the update goes stale.
+            s = acquire(&mut b, "kiln", 2000);
+        }
         let req = event(&b, &s, "button", json!({"kind":"click"}));
-        call(&mut b, req, 100).unwrap();
-        match transition {
-            0 => b.world(false),
-            1 => b.tick(101, 2),
-            _ => b.tick(2201, 1),
-        };
+        call(&mut b, req.clone(), queued).unwrap();
+        if !stall {
+            b.world(false);
+        }
+        // While it lasts: not ready, the lease and the queue are gone.
+        assert!(!b.ready(at));
+        assert!(b.take(at, 10000).is_none());
+        assert_eq!(call(&mut b, req.clone(), at), Err(Error::Stale));
+        assert_eq!(read(&mut b, at)["leased"], false);
+        // The next frame in the world / client update: the same session is ready again with what it received.
         b.world(true);
-        assert!(b.take(2201, 10000).is_none());
-        assert!(!b.ready(2201));
+        b.tick(at + 1, 1);
+        assert!(b.ready(at + 1));
+        let r = read(&mut b, at + 1);
+        assert_eq!(r["session"], s["session"]);
+        assert_eq!(r["entries"][0]["label"], "Storage");
+        assert_eq!(r["windows"].as_array().unwrap().len(), 1);
+        assert_eq!(r["leased"], false);
+        // Ownership is not revived: neither the old lease nor its queued event.
+        assert!(b.take(at + 1, 10000).is_none());
+        assert_eq!(call(&mut b, req, at + 1), Err(Error::Stale));
+        assert_ne!(acquire(&mut b, "kiln", at + 1)["lease"], s["lease"]);
     }
 }
 #[test]
+fn client_change_starts_a_new_session() {
+    let mut b = fixture();
+    let s = acquire(&mut b, "kiln", 100);
+    let req = event(&b, &s, "button", json!({"kind":"click"}));
+    call(&mut b, req.clone(), 100).unwrap();
+    b.tick(101, 2);
+    // Inside every lifetime: only the client change can explain this.
+    assert!(!b.ready(101));
+    assert!(b.take(101, 10000).is_none());
+    assert_eq!(call(&mut b, req, 101), Err(Error::Stale));
+    let r = read(&mut b, 101);
+    assert_ne!(r["session"], s["session"]);
+    assert_eq!(r["entries"], json!([]));
+}
+#[test]
+fn lease_token_cannot_be_derived_from_what_read_returns() {
+    let mut b = fixture();
+    let s = acquire(&mut b, "kiln", 100);
+    let token = s["lease"].as_str().unwrap().to_owned();
+    let r = read(&mut b, 100);
+    let (module, session) = (r["module"].as_str().unwrap(), r["session"].as_str().unwrap());
+    assert!(r["lease"].is_null());
+    assert!(!token.contains(module) && !token.contains(&format!(":{session}:")));
+    // Another in-process reader guessing from module, session and a counter frees nothing.
+    for serial in 0..16 {
+        let guess = format!("{module}:{session}:{serial}");
+        let release = json!({"op":"release","module":module,"session":session,"lease":guess});
+        assert_eq!(call(&mut b, release, 100), Err(Error::Stale));
+    }
+    assert_eq!(read(&mut b, 100)["leased"], true);
+    // A new acquisition gets a new token, not the next one in a sequence.
+    call(
+        &mut b,
+        json!({"op":"release","module":module,"session":session,"lease":token}),
+        100,
+    )
+    .unwrap();
+    let next = acquire(&mut b, "kiln", 100)["lease"].as_str().unwrap().to_owned();
+    assert_ne!(next, token);
+    assert!(!next.contains(module));
+}
+fn open(owner: &str, id: &str, content: Value) -> ToClient {
+    serde_json::from_value(json!({"op":"open","owner":owner,"window":{"id":id,"title":"t","content":content}})).unwrap()
+}
+fn entries(owner: &str, n: usize) -> ToClient {
+    let entries: Vec<Value> = (0..n).map(|i| json!({"id":format!("e{i}"),"label":"x"})).collect();
+    serde_json::from_value(json!({"op":"entries","owner":owner,"entries":entries})).unwrap()
+}
+// Each limit once at its bound (kept) and once past it (the session faults: no actionable state is left).
+fn holds(messages: &[ToClient]) -> bool {
+    let mut b = Bridge::new("m".into(), secret);
+    b.begin_session();
+    b.welcome(2);
+    b.world(true);
+    b.tick(100, 1);
+    for m in messages {
+        b.observe(m);
+    }
+    read(&mut b, 100)["ready"].as_bool().unwrap()
+}
+#[test]
+fn aggregate_observe_limits() {
+    let owners = |n: usize| (0..n).map(|i| entries(&format!("o{i}"), 1)).collect::<Vec<_>>();
+    assert!(holds(&owners(64)));
+    assert!(!holds(&owners(65)));
+    assert!(holds(&[entries("a", 64), entries("b", 64)]));
+    assert!(!holds(&[entries("a", 64), entries("b", 64), entries("c", 1)]));
+    assert!(!holds(&[entries("a", 65)]));
+    let windows = |n: usize| (0..n).map(|i| open("o", &format!("w{i}"), json!([]))).collect::<Vec<_>>();
+    assert!(holds(&windows(32)));
+    assert!(!holds(&windows(33)));
+    // 128 KiB of state: about 120 KB is kept, about 140 KB is not.
+    let text = |n: usize| (0..n).map(|_| json!({"type":"text","text":"x".repeat(4000)})).collect::<Vec<_>>();
+    assert!(holds(&[open("o", "w", json!(text(30)))]));
+    assert!(!holds(&[open("o", "w", json!(text(35)))]));
+    // Depth 12 of nested rows, 128 nodes per list, 1024 nodes per window.
+    let nested = |depth: usize| (0..depth).fold(json!([{"type":"separator"}]), |inner, _| json!([{"type":"row","children":inner}]));
+    assert!(holds(&[open("o", "w", nested(12))]));
+    assert!(!holds(&[open("o", "w", nested(13))]));
+    let flat = |n: usize| json!((0..n).map(|_| json!({"type":"separator"})).collect::<Vec<_>>());
+    assert!(holds(&[open("o", "w", flat(128))]));
+    assert!(!holds(&[open("o", "w", flat(129))]));
+    let rows = |extra: usize| {
+        let mut nodes: Vec<Value> = (0..8).map(|_| json!({"type":"row","children":flat(127)})).collect();
+        nodes.extend((0..extra).map(|_| json!({"type":"separator"})));
+        json!(nodes)
+    };
+    assert!(holds(&[open("o", "w", rows(0))]));
+    assert!(!holds(&[open("o", "w", rows(1))]));
+}
+#[test]
 fn requires_beacon_protocol_world_and_actual_tick() {
-    let mut b = Bridge::new("m".into());
+    let mut b = Bridge::new("m".into(), secret);
     b.welcome(2);
     b.world(true);
     b.tick(100, 1);

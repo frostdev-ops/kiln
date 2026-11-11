@@ -124,7 +124,10 @@ The operations are:
 - `{"op":"read"}`: opaque module/session epochs, revision, readiness, actual owner-addressed Entries/windows;
   read does not disclose another presentation's lease token.
 - `{"op":"acquire","module":"...","session":"...","client":"..."}`: obtain/renew a two-second exclusive
-  presentation lease. The reply includes its token and current state. Native menu-window presentation is suppressed
+  presentation lease. The reply includes its token and current state. The token is a fresh 128-bit random value that
+  no other reply contains, so it cannot be derived from module, session or a counter. The lease coordinates
+  cooperating presenters; it is not a guard against other code in the game process, which can call the addon or
+  change its memory however it likes. Native menu-window presentation is suppressed
   only while a live lease is held. The addon's window procedure then forwards input unchanged down its saved chain
   instead of recording native text, hotkeys or wheel actions as well. Outside the lease, inventory/input features
   and the stock tab-recognition code remain unchanged.
@@ -139,11 +142,22 @@ The operations are:
 
 Readiness requires an accepted real beacon, UI-protocol-2 welcome, recognized world through the existing native UI
 hook, and a recent actual client update. A wholly failed native UI installation therefore cannot use this bridge;
-a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. World departure, stale
-updates, client-pointer change, session/module replacement and shutdown invalidate ownership. Kiln releases its
+a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. A UI frame outside the
+world (screen 0) or more than two seconds without a client update (a loading stall, a title-bar drag) means not
+ready while it lasts and ends the lease and its queued events; what the session received stays and shows again
+once the world and the updates are back, as upstream treats the same two-second threshold as a live value. A new
+beacon, a client-pointer change, module replacement and shutdown start a new session and drop everything received.
+Like the addon's own menu, the bridge keeps the last host's entries if a later world has no shroudlink host and the
+game reuses the same client object; events then go out as the native menu's would. Kiln releases its
 lease when the menu closes, another section is selected, or its menu frame fails; expiry handles stopped rendering.
-Discovery only examines already-loaded modules, holds a module reference, and rejects non-owned/non-executable
-exports. There are no transport taps, unknown game layouts, receive-injection API or test TCP listener.
+Discovery only examines already-loaded modules and never loads a DLL or resolves a forwarder. It runs on a worker
+thread, never on the render thread, at most once a second while Kiln's menu is drawn. Export tables are read through
+kernel-checked copies, bounded by the image size in the PE header, without taking a module reference; a reference
+is taken only for a module whose table names the bridge export, which is then checked again under it, and
+non-owned/non-executable exports are rejected. Each scan compares the loaded-module list with the last one; export
+tables are read again only after a module loaded or unloaded, and until then only a matching copy that declined
+is asked again. There are no
+transport taps, unknown game layouts, receive-injection API or test TCP listener.
 
 All ten real window node kinds are rendered. Text inputs send Change and have an explicit Apply/Submit button;
 item grids show the actual numeric item IDs/counts, not guessed names/icons. HUDs, slot marks and backpack sections
