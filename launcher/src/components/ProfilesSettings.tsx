@@ -81,7 +81,7 @@ export function ProfilesCard() {
             {game && !loaded && active.isSuccess ? <span className="k-pill k-tone-gold">Loaded</span> : (
               <Button size="s" disabled={blocked || !loaded} title={why} loading={load.isPending && load.variables === null} onClick={() => load.mutate(null)}>Load</Button>
             )}
-            <span style={{ width: 28 }} aria-hidden />
+            <span style={{ width: 32, flex: "none" }} aria-hidden />
           </li>
         </ul>
       )}

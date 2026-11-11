@@ -74,7 +74,7 @@ export default function Home() {
       <div className="deck-home-text">
         <div className="deck-kicker">Enshrouded{game?.buildId ? ` · build ${game.buildId}` : ""}</div>
         <h1 className="deck-name">Enshrouded</h1>
-        {count && <p className="deck-line" data-testid="deck-mods"><span className="deck-label">Mods</span> {count}{other && <span data-testid="deck-profile"> · {other}</span>}</p>}
+        {count && <p className="deck-line" data-testid="deck-mods"><span className="deck-label">Mods</span> {count}{other && <span data-testid="deck-profile"> · Profile: {other}</span>}</p>}
         <p className="deck-line" data-testid="deck-kiln-state"><Word tone={kilnWord.tone}>{kilnWord.text}</Word></p>
         {game && <p className="deck-line" data-testid="deck-last-boot"><span className="deck-label">Last boot</span> <Word tone={boot.tone}>{boot.text}</Word></p>}
         <div className="deck-home-actions">

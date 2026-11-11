@@ -99,7 +99,7 @@ A soft warm light follows the pointer across the sheet (`--mx`, `--my`).
 | `NameId` | `name`, `id`, `dim` | a name with its id beside it, one line |
 | `Field`, `TextInput`, `TextArea`, `Select`, `NumberInput`, `Slider`, `Toggle` | | fields sit in wells; Toggle is a switch (a setting); the check box for picking rows is `<input type="checkbox" className="k-check">` |
 | `WellInput` | `label`, `note`, `compact` | a well with its label inside ("Filter", "Search items") |
-| `FlameToggle` | `on`, `onChange`, `label` | light a mod or put it out (mod lists) |
+| `FlameToggle` | `on`, `onChange`, `label`, `asSwitch` | light a mod or put it out (mod lists); `asSwitch`: a `role="switch"` named by the mod (the main list on Play) |
 | `Modal` | `open`, `onClose`, `title`, `footer`, `width`, `locked`, `arch` | working dialog: Soot 2, Grenze 36 title, actions bottom right; `arch`: the pointed arch, warnings only |
 | `ConfirmDanger`, `ArchText` | `title`, `message`, `word`, `action`, `onConfirm` | in the arch; the danger fill enables when the word matches |
 | `toast.ok/info/error`, `Toaster` | `(title, detail?, {actions?, ms?})` | bottom left; a title, a line at most, buttons when there is something to do (Undo, Install Kiln); 2.6 s, 8 s with buttons; errors stay until closed; a button closes its toast |
@@ -109,9 +109,9 @@ A soft warm light follows the pointer across the sheet (`--mx`, `--my`).
 | `EmptyState` | `title`, `hint`, `action`, `page` | in a table: one italic line; `page`: a small unlit arch, Grenze 36, one line, one action |
 | `Skeleton` | | rows at real height in Soot 2, no shimmer; a spinner only inside a busy button |
 | `DropZone` | `onPaths`, `variant: niche \| row`, `busy` | the niche is an arch that fills with fire while something is dragged over it or imports |
-| `DropAnywhere` (shell) | `add` | files dragged over the window: the burning niche, larger, over a dimmed window ("Drop to add", "Into <profile>"); never over a DropZone or a dialog |
+| `DropAnywhere` (shell) | `add` | files dragged over the window: the burning niche, larger, over a dimmed window ("Drop to add", "Added and switched on"); never over a DropZone or a dialog |
 | `SchemaForm` | see below | |
-| `SortableList`, `Menu`, `JsonView`, `PathPicker` | | row actions sit in a labelled `···` menu unless there is only one |
+| `SortableList`, `Menu`, `JsonView`, `PathPicker` | | row actions sit in a labelled `···` menu unless there is only one; a right click anywhere on a row that has one opens it at the pointer (`useRowContextMenu`, mounted in the shell; fields keep the webview's own menu) |
 | `Mark`, `Lockup`, `Splash` | | `branding/logo`; never recoloured or stretched |
 
 Shared pieces outside `ui/`: `components/ConfigEditor.tsx`, `components/SaveBackups.tsx`, `LogsFor` in

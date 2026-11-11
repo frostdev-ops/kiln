@@ -123,7 +123,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   else if (!mods.profileId && !list.length) say = profiles.isLoading ? "Checking the game." : "Getting your mod list ready.";
   else if (!mods.profileId) say = "No profile is loaded: the mods in the game folder load as they are.";
   else if (mods.loading) say = "Reading your mods.";
-  else if (!mods.rows.length) say = "No mods yet. Drop one anywhere on this window.";
+  else if (!mods.rows.length) say = "No mods yet.";
   else say = mods.count.text;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
   const on = mods.count.on;
@@ -148,11 +148,16 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
     <>
       <section className={"k-hero" + (showList ? " with-mods" : "")} aria-label="Play">
         <div className="k-hero-kicker">
-          Enshrouded · {build}
+          <span>Enshrouded · {build}</span>
           {clients.length > 1 && (
             <select className="k-kicker-select" aria-label="Game" value={game.id} onChange={(e) => setGameId(e.target.value)}>
               {clients.map((g) => <option key={g.id} value={g.id}>{g.path.split(/[\\/]/).filter(Boolean).slice(-3).join("/")} · {g.source}</option>)}
             </select>
+          )}
+          {other ? (
+            <Link className="k-link k-hero-profile" to="/settings#profiles" title="The loaded profile: Settings, Profiles">Profile: {other.name}</Link>
+          ) : rt?.installed && !mods.profileId && list.length > 0 && !profiles.isLoading && (
+            <Link className="k-link k-hero-profile" to="/settings#profiles">No profile loaded</Link>
           )}
         </div>
         <Banners game={game} ctl={ctl} pending={pending.data ?? null} onOffer={() => setOfferOpen(true)} boot={fresh ? boot : null} />
@@ -182,9 +187,6 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
                 <span className="k-sc k-muted" style={{ fontSize: 17 }}>Just once:</span>
                 <button type="button" className="k-link" disabled={!ctl.canPlay} onClick={() => setVanillaOpen(true)}>Vanilla</button>
                 <button type="button" className="k-link" disabled={!ctl.canPlay} onClick={() => ctl.play("no-mods")}>Without mods</button>
-                {other ? (
-                  <Link className="k-link k-hero-profile" to="/settings#profiles" title="Profiles are in Settings">Profile: {other.name}</Link>
-                ) : !mods.profileId && list.length > 0 && <Link className="k-link k-hero-profile" to="/settings#profiles">Choose a profile</Link>}
               </div>
             ) : installTask ? (
               <div className="k-hero-task"><TaskProgress taskId={installTask} cancel={false} /></div>

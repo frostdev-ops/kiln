@@ -99,7 +99,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
 
   const foundStart = shown.findIndex((r) => r.found);
   return (
-    <div className="k-mods">
+    <div className={"k-mods" + (mods.rows.length ? "" : " empty")}>
       <div className="k-mods-bar">
         {many && (
           <>
@@ -119,8 +119,8 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       </div>
       {!mods.rows.length ? (
         <div className="k-mods-empty">
-          <p>No mods yet.</p>
-          <p className="k-hint">Drop a mod's zip, folder or DLL anywhere on this window, of any kind: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
+          <p>Add your first mod</p>
+          <p className="k-hint">Drop its zip, folder or DLL anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
         </div>
       ) : (
         <ul className="k-mods-list" aria-label="Mods">

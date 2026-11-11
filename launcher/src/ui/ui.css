@@ -565,3 +565,7 @@
 .k-mods-list.k-order-list { flex: none; overflow: visible; padding: 0; border-left: 1px solid var(--k-line); margin-left: 4px; }
 .k-mod.k-order-mod { grid-template-columns: 28px 36px minmax(0, 1fr) 110px 74px 30px; }
 .k-order-n { font-family: var(--k-font-mono); font-size: 15px; color: var(--k-ember-400); text-align: right; }
+
+/* Settings, Profiles (components/ProfilesSettings.tsx) */
+.k-profiles { list-style: none; margin: 0; padding: 0; }
+.k-profiles .k-list-item { gap: 10px; }
