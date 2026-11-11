@@ -92,5 +92,13 @@
     "started": true,
     "error": null
   },
-  "errors": []
+  "errors": [],
+  "waitedFor": [
+    {
+      "module": "dinput8.dll",
+      "end": "ready",
+      "ms": 412,
+      "line": "native UI ready: game ui +0x1a2b3c, builder +0x1a2b00"
+    }
+  ]
 }
