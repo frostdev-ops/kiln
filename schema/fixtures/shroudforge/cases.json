@@ -1841,6 +1841,66 @@
       "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\",\" 2\":\"Two\"}}}}\n"
     },
     {
+      "name": "typed-lists-cannot-lose-their-element-type",
+      "about": "ShroudForge types options by the first list member (an empty list uses text). Clearing a numeric or boolean list would turn its choices into strings on the next read, so refuse that edit; a text list may be cleared.",
+      "mod": {"id": "typed-lists", "name": "Typed lists", "version": "1.0.0", "capabilities": ["runtime"]},
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[\"wood\"],\"options\":{\"wood\":\"Wood\"}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {"key": "fractions", "type": "array", "label": "fractions", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": 0.5, "label": "Half"}, {"value": 2.5, "label": "More"}]},
+          {"key": "integers", "type": "array", "label": "integers", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": 1, "label": "One"}, {"value": 2, "label": "Two"}]},
+          {"key": "flags", "type": "array", "label": "flags", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": true, "label": "On"}, {"value": false, "label": "Off"}]},
+          {"key": "words", "type": "array", "label": "words", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": "wood", "label": "Wood"}]}
+        ],
+        "enabledNow": ["fractions", "integers", "flags", "words"]
+      },
+      "edits": [
+        {"setting": "fractions", "value": [], "ok": false},
+        {"setting": "integers", "value": [], "ok": false},
+        {"setting": "flags", "value": [], "ok": false},
+        {"setting": "words", "value": [], "ok": true}
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[],\"options\":{\"wood\":\"Wood\"}}}}\n"
+    },
+    {
+      "name": "legacy-manifest-enabled-is-not-the-sf-switch",
+      "about": "ShroudForge ignores a legacy mod.json enabled member: without an extension the mod stays disabled until enabled is persisted in extended.mod.json.",
+      "mod": {"id": "legacy-switch", "name": "Legacy switch", "version": "1.0.0", "enabled": true, "capabilities": ["runtime"]},
+      "extended": null,
+      "read": {"enabled": false, "switchLive": true, "settings": [], "enabledNow": []},
+      "edits": [{"enabled": false, "ok": true}],
+      "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": false,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
+    },
+    {
+      "name": "extension-must-be-an-object",
+      "about": "ShroudForge refuses an extension that is not an object; the launcher must not turn it into an apparently disabled package with no settings.",
+      "mod": {"id": "bad-extension", "name": "Bad extension", "version": "1.0.0", "capabilities": ["runtime"]},
+      "refused": true,
+      "extended": "[]\n",
+      "edits": [{"enabled": false, "ok": false}, {"enabled": true, "ok": false}],
+      "expect": "[]\n"
+    },
+    {
+      "name": "settings-cannot-be-an-array",
+      "about": "A present settings member must be an object, even an empty array is not an empty set of settings.",
+      "mod": {"id": "bad-settings", "name": "Bad settings", "version": "1.0.0", "capabilities": ["runtime"]},
+      "refused": true,
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":[]}\n",
+      "edits": [{"enabled": false, "ok": false}, {"setting": "a", "value": 1, "ok": false}],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":[]}\n"
+    },
+    {
+      "name": "settings-cannot-be-null",
+      "about": "An absent settings member means no settings; an explicit null is refused by ShroudForge.",
+      "mod": {"id": "null-settings", "name": "Null settings", "version": "1.0.0", "capabilities": ["runtime"]},
+      "refused": true,
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":null}\n",
+      "edits": [{"enabled": false, "ok": false}],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":null}\n"
+    },
+    {
       "name": "invalid-utf8-is-refused",
       "about": "a Latin-1 byte (not UTF-8): ShroudForge's serde_json refuses the file, and a lossy read would write U+FFFD back",
       "mod": {

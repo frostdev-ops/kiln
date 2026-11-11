@@ -167,7 +167,7 @@ pub struct SfMod {
     #[serde(default)]
     pub authors: Vec<String>,
     pub folder: PathBuf,
-    /// extended.mod.json `enabled` (false when the file is missing and mod.json says nothing).
+    /// extended.mod.json `enabled` (false when the file is missing; mod.json is not ShroudForge's switch).
     pub enabled: bool,
     /// "client", "server" (extended.mod.json `targets`; ShroudForge's defaults when missing).
     pub targets: Vec<String>,
@@ -384,6 +384,12 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     let extended = ext_path.is_file();
     let tree = if extended { Some(read_text(&ext_path)?.1) } else { None };
     let ext = tree.as_ref().map(Node::to_value).unwrap_or_else(|| serde_json::json!({}));
+    if !ext.is_object() {
+        return Err(Error::invalid("extended.mod.json is not a JSON object"));
+    }
+    if ext.get("settings").is_some_and(|s| !s.is_object()) {
+        return Err(Error::invalid("extended.mod.json settings must be an object"));
+    }
     let launcher = str_of(&ext, "launcher").or_else(|| (!extended).then(|| "EML".to_owned()));
     let targets = match ext.get("targets").and_then(|t| t.as_array()) {
         Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
@@ -440,7 +446,7 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         description: str_of(&m, "description").unwrap_or_default(),
         authors: m.get("authors").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
         folder: folder.to_path_buf(),
-        enabled: ext.get("enabled").and_then(|b| b.as_bool()).or_else(|| m.get("enabled").and_then(|b| b.as_bool())).unwrap_or(false),
+        enabled: ext.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false),
         targets,
         switch_live: runtime && !patch,
         capabilities,
@@ -647,6 +653,11 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
     );
     if !same_kind {
         return Err(Error::invalid(format!("setting {} holds a {}, not a {}", s.key, kind(&s.value), kind(value))));
+    }
+    // Without a first member ShroudForge retypes every option as text. Keep numeric/boolean lists typed, rather than
+    // silently turning the next selection into strings (an already textual list may be cleared).
+    if value.as_array().is_some_and(|a| a.is_empty()) && option_type(s) != "string" {
+        return Err(Error::invalid(format!("setting {} must keep at least one choice so ShroudForge keeps its option type", s.key)));
     }
     // (a number is always finite here: serde_json holds no NaN or infinity, `Value::from(f64::NAN)` is null)
     // ShroudForge types a list by its first member: a choice without a value (null) there would make it read the list as

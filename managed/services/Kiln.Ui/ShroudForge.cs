@@ -363,6 +363,8 @@ internal static class ShroudForgePackages
         var extPath = Path.Combine(folder, "extended.mod.json");
         var extended = File.Exists(extPath);
         var ext = extended ? Parse(ReadText(extPath)) as JsonObject ?? throw new SfEditException("extended.mod.json is not a JSON object") : new JsonObject();
+        if (ext.TryGetPropertyValue("settings", out var declaredSettings) && declaredSettings is not JsonObject)
+            throw new SfEditException("extended.mod.json settings must be an object");
         var caps = Strings(mod, "capabilities");
         var runtime = caps.Any(c => c is "runtime" or "runtime-register-dll");
         var patch = caps.Contains("patch");
@@ -391,7 +393,7 @@ internal static class ShroudForgePackages
         return new SfPackage
         {
             Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = Str(mod, "version") ?? "", Description = Str(mod, "description") ?? "",
-            Enabled = Flag(ext, "enabled") ?? Flag(mod, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
+            Enabled = Flag(ext, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
             Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups, Repair = repair,
         };
     }
@@ -444,6 +446,10 @@ internal static class ShroudForgePackages
             return s.Type == "integer" && kind == "number"
                 ? $"{s.Label} takes a whole number"
                 : $"{s.Label} takes a {Kind(s.Type)}, not a {Kind(kind)}";
+        // Without a first member ShroudForge retypes every option as text. Keep numeric/boolean lists typed, rather
+        // than silently turning the next selection into strings (an already textual list may be cleared).
+        if (value is JsonArray { Count: 0 } && ElementType(s.Type, s.Value) != "string")
+            return $"{s.Label} must keep at least one choice so ShroudForge keeps its option type";
         // JSON has no NaN or infinity (the writer would put null there, and the file would no longer load)
         foreach (var n in value is JsonArray items ? items.ToArray() : new[] { value })
             if (n is JsonValue nv && nv.GetValueKind() == JsonValueKind.Number && NumberOf(nv) is { } f && !double.IsFinite(f))
