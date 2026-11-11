@@ -70,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         if result.returncode:
             raise RuntimeError(f'{name}: host exit {result.returncode}\n{result.stdout.decode(errors="replace")}')
         status = json.loads((game / 'kiln/state/shroudforge.json').read_text())
+        pid = int(re.search(rb'\[host\] pid: (\d+)', result.stdout).group(1))
+        assert status.get('pid') == pid, ('status must identify the process whose startup pass it describes', status, pid)
         if self_hosted:
             assert status['mode'] == 'self-hosted' and not log.exists(), (name, status)
             assert status.get('menu') != 'kiln', status

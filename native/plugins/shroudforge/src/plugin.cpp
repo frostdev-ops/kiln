@@ -159,6 +159,7 @@ void write_status() {
     std::string text;
     {
         std::lock_guard lock(g_status_mutex);
+        g_status["pid"] = GetCurrentProcessId();
         g_status["updated"] = static_cast<int64_t>(std::time(nullptr));
         text = g_status.dump(2);
     }

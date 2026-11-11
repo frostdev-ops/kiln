@@ -448,6 +448,7 @@ static bool slow_heartbeat(HMODULE module) {
 int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]).starts_with("--")) return helper(argc, argv);
     if (argc < 3) return 2;
+    std::printf("[host] pid: %lu\n", GetCurrentProcessId());
     game = std::filesystem::absolute(argv[1]);
     if (GetEnvironmentVariableW(L"KILN_SF_BUSY_LOCK", nullptr, 0)) {
         HANDLE lock = CreateFileW((game / L".kiln-eml.lock").c_str(), GENERIC_READ | GENERIC_WRITE,
