@@ -24,6 +24,12 @@ int main() {
     check(read_in(&input, &out) && out.glide_sink == 1 && out.glide_climb == 0, "v1 ABI input keeps all new defaults");
     input.size = 48;
     check(read_in(&input, &out) && out.glide_sink == 0 && out.glide_climb == 0, "48-byte ABI input keeps climb default");
+    input.glide_steer_limit = 60;
+    check(read_in(&input, &out) && out.glide_steer_limit == 0, "48-byte ABI input has no steering limit");
+    input.size = 56;
+    input.flags = KILN_RULES_GLIDE_STEER;
+    check(read_in(&input, &out) && out.glide_steer_limit == 60 && out.flags == KILN_RULES_GLIDE_STEER,
+          "56-byte ABI input keeps the steering limit (the former reserved field)");
     input.size = 23;
     check(!read_in(&input, &out), "undersized ABI input refused");
     input = kDefault;
@@ -37,6 +43,19 @@ int main() {
     load(g_local, &out);
     check(out.glide_sink == 1 && out.glide_thrust == 0 && out.glide_max_speed == 120 && out.glide_lift == 100 && out.glide_climb == 120,
           "native input rejects non-finite and bounds glide values");
+    input.glide_steer_limit = 120;
+    store(g_local, &input);
+    load(g_local, &out);
+    check(out.glide_steer_limit == 85, "the steering limit is held to 85 degrees natively");
+    input.glide_steer_limit = NAN;
+    store(g_local, &input);
+    load(g_local, &out);
+    const bool nan_zero = out.glide_steer_limit == 0;
+    input.glide_steer_limit = -5;
+    store(g_local, &input);
+    load(g_local, &out);
+    check(nan_zero && out.glide_steer_limit == 0, "a non-finite or negative steering limit is 0 (level at most)");
+    store(g_local, nullptr);
 
     Slot slot;
     auto a = kDefault, b = kDefault;

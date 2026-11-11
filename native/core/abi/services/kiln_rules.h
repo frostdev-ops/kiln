@@ -25,8 +25,10 @@
  *  - gliding: the glider's step (locomotion_execution), its gravity and its stamina: GLIDE_UNLIMITED drains no stamina,
  *    glide_sink scales the sink, GLIDE_BOOST flies like a plane: the path takes its pitch from the camera, climbing
  *    trades speed for height and diving height for speed, sprint pushes along the path (up to glide_max_speed, climbing
- *    at most glide_climb). Server world and the client's prediction world (the same values on both, or the client is
- *    corrected every step).
+ *    at most glide_climb). GLIDE_STEER steers the glider's own pitch (actor_rotation's step: S up to
+ *    glide_steer_limit, centred holds, W dives); with it GLIDE_BOOST only sets the speed along the nose while sprint
+ *    is held (no plane path) and sink 0 no longer holds the altitude. Server world and the client's prediction world
+ *    (the same values on both, or the client is corrected every step).
  *
  * Sides: on a server (and a client that hosts a world) rules are per player entity of the server world (set). On a
  * client, the prediction world and the client's own cursor act only for the local player: set_local gives its rules.
@@ -67,6 +69,12 @@ enum {
                                                    grants it only where the server's rules.json allows it (off by default) */
     KILN_RULES_FLIGHT_BASE_ONLY = 0x1000u,      /* raw base-only requests fail closed: Kiln.Rules resolves real altar
                                                    bounds server-side and sends CHARACTER_FLIGHT only while inside */
+    /* since 0.2.0-dev.24 */
+    KILN_RULES_GLIDE_STEER = 0x2000u,           /* the glider's own pitch steered (HOOK_GLIDE_STEER, actor_rotation): S raises
+                                                   the nose up to glide_steer_limit, a centred stick holds it, W dives as in
+                                                   the game; GLIDE_BOOST then speeds up along the nose instead of its plane
+                                                   path. Server world and the client's prediction world (Kiln.Rules sends it
+                                                   only to a game that confirmed the hook) */
 };
 
 typedef struct KilnRulesPlayer {
@@ -85,7 +93,8 @@ typedef struct KilnRulesPlayer {
     float glide_coast;     /* GLIDE_BOOST: without sprint, slow down along the heading at most this fast, m/s^2 (0 = the game's drag) */
     /* since 0.2.0-dev.15 (size 56; adds to the earlier 48-byte layout) */
     float glide_climb;     /* GLIDE_BOOST: the highest climb rate while the player looks up, m/s (0 = never climbs) */
-    uint32_t reserved2;    /* 0 */
+    float glide_steer_limit; /* since 0.2.0-dev.24 (was reserved, 0): GLIDE_STEER: how far above level the nose may rise,
+                                degrees (0..85; held there natively) */
 } KilnRulesPlayer;
 #define KILN_RULES_PLAYER_V1_SIZE 24u
 
@@ -105,6 +114,8 @@ enum {
     KILN_RULES_HOOK_CONSUME = 0x400u,   /* the two ammunition consume removals (KEEP_CONSUMABLES) */
     KILN_RULES_HOOK_CONSUME_BUFF = 0x800u, /* ApplyBuffEvent's consume removal: food, drinks, potions, bandages (KEEP_CONSUMABLES) */
     KILN_RULES_HOOK_FLIGHT = 0x1000u,      /* character flight: the locomotion state, gravity and the BuildingFlying mover */
+    /* since 0.2.0-dev.24 */
+    KILN_RULES_HOOK_GLIDE_STEER = 0x2000u, /* the glider's pitch step in actor_rotation (GLIDE_STEER) */
 };
 
 /* map_reveal modes (client) */
@@ -146,7 +157,7 @@ typedef struct KilnRulesStatus {
     uint64_t zone_forced;        /* building-zone tests turned to "near one" */
     uint64_t shroud_held;        /* Shroud-timer steps held or recovering instead of draining */
     uint64_t glide_changed;      /* glider steps changed (sink, stamina, boost) */
-    uint64_t reserved;
+    uint64_t glide_steered;      /* since 0.2.0-dev.24 (was reserved, 0): glider pitch steps steered (GLIDE_STEER) */
 } KilnRulesStatus;
 
 typedef struct KilnRulesApi {
