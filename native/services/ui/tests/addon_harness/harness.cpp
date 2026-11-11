@@ -612,10 +612,10 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
             const std::string marker = "shroudlink client 0.8.0 starting (module 0x";
             char addr[32];
             std::snprintf(addr, sizeof addr, "%llx", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(m)));
-            // The stale part was there before "the chain loaded" (g_log_from), the partial one is this start's.
+            // The stale part was there before "the chain loaded" (g_log_from), the partial one is this start's. This start
+            // has not written its own start line yet, so only the position keeps the earlier start's "ready" out.
             const std::string stale = "[1] " + marker + addr + " inert.dll)\n[2] native UI ready: stale\n";
-            const std::string log = "[" + std::to_string(unix_now() + 1) + "] " + marker + addr + " inert.dll)\n[" +
-                std::to_string(unix_now() + 1) + "] native UI ready: partial";
+            const std::string log = "[" + std::to_string(unix_now() + 1) + "] native UI ready: partial";
             FILE* fp = _wfopen((exe_dir() / kiln::foreign::kAddonLog).c_str(), L"wb");
             check(fp != nullptr, "stale/partial log fixture opened");
             if (fp) { std::fwrite(stale.data(), 1, stale.size(), fp); std::fclose(fp); }
