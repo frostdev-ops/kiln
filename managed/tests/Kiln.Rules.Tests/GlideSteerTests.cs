@@ -366,6 +366,23 @@ public sealed unsafe class GlideSteerTests
         Both(held, "a game reporting no steering hook");
     }
 
+    [Fact]
+    public void CreativeSaysWhenTheGliderSteeringIsHeldBack()
+    {
+        // /creative's chat line and reply, and the creative menu, say the player's rules with this
+        var creative = Combine(PlayerRules.Creative);
+        using var server = new DedicatedServer(P, creative);
+        var a = server.Connect(310);
+        Assert.StartsWith(creative.ToString(), global::Kiln.Creative.Describe(P, creative));
+        Assert.Contains("glider steering held back: your game has no steering hook, so the glide flies as before", global::Kiln.Creative.Describe(P, creative));
+        Assert.Contains("glider steering held back: Alder's game has no steering hook", global::Kiln.Creative.Describe(P, creative, "Alder's"));
+        RulesNet.ClientHooksOf(a, RulesNative.HookGlideSteer);
+        Assert.Equal(creative.ToString(), global::Kiln.Creative.Describe(P, creative));
+        RulesNet.ClientHooksOf(a, 0);
+        var unsteered = Combine(PlayerRules.Creative with { GlideSteer = null });
+        Assert.Equal(unsteered.ToString(), global::Kiln.Creative.Describe(P, unsteered));
+    }
+
     // ---------------------------------------------------------------------------------------- presets -------
 
     private const string Header =

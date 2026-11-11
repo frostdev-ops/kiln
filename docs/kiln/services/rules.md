@@ -288,7 +288,9 @@ would be corrected on the player's screen every step. Glider steering waits for 
 it has (kiln:rules message 2, `ClientHooks`, since dev.24), and only a game with the steering hook gets `GlideSteer`; any other
 game (an older Kiln, a game build without `rules.glide_steer`) keeps today's glide, `GlideBoost`'s plane path included, on the
 server and in its prediction alike. kiln.log on the server says which, once per change: `kiln.rules: player <id>: glider steering
-on (their game steers too)` or `… held back until their game confirms its steering hook …`. The rules message carries the
+on (their game steers too)` or `… held back until their game confirms its steering hook …`; for such a player
+`/creative` (its chat line and its reply) and the creative menu add `(glider steering held back: … game has no steering
+hook, so the glide flies as before)` to the rules they list. The rules message carries the
 steering limit at its end: an older client reads the fields it knows (Kiln's channels ignore trailing bytes), a newer client
 reads 0 from an older server; an older server drops message 2 unread. The channel version stays 4.
 
@@ -518,8 +520,8 @@ the same works for an admin who joins with Kiln.
        uses stamina again.
     10. Dedicated server, a player with this Kiln: no rubber-banding or jumps while steering (the server kiln.log:
         `player <id>: glider steering on (their game steers too)`). A player with an older Kiln: their glide is the plane
-        path as before, and the server kiln.log says `… glider steering held back until their game confirms its steering
-        hook …` once.
+        path as before, the server kiln.log says `… glider steering held back until their game confirms its steering
+        hook …` once, and their `/creative` line says `(glider steering held back: your game has no steering hook …)`.
     11. With SF Unlimited Flight on as well: SF steers (its own climb and hold), no doubled climb rate, no fighting.
 
 ## Client guards (the game client only)
