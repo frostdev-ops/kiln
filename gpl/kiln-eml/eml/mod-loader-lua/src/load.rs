@@ -182,6 +182,11 @@ pub fn restore_backup(
         return Err(());
     }
 
+    let root = path.parent().ok_or(())?;
+    let stem = path.file_stem().ok_or(())?;
+    crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
+        error!(%error, "Refusing archive restore: ShroudForge prepared-output cache could not be safely invalidated");
+    })?;
     if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {
         error!(
             path = ?path,
