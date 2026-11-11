@@ -44,7 +44,7 @@ observations below; neither is a client rendering or player-interaction test.
 | Code hooks | SF: none on KFC4 builds (a legacy profile names six). Kiln: many. | No double hooks. Where SF has hooks, they go through `kiln.hooks` ("Engine hooks through `kiln.hooks`" below), so another DLL's jump on one of them no longer turns SF's native runtime off. |
 | Shared game state | SF writes ECS components, resources and named services (e.g. `ecs::GameSettings`) from its own thread, with claims and readback. Kiln services write some of the same (e.g. `kiln.settings`). | Last writer wins, as with any two mods. SF restores its baselines when a mod switches off. Documented for players. The lab shows SF's guarded write confirmed next to Kiln's services. |
 | Tick | SF: its own 16 ms update loop. Kiln: the server-world tick. | Kept separate. Hosted SF uses a serial native/Lua worker and a separate filesystem-only heartbeat writer, so slow heartbeat writes no longer block its updates. The heartbeat records the last update turn, not writer activity. Other runtime/status work can still delay the loop; this is not a guarantee of gameplay or input parity. |
-| UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Its keybinds use its hotkeys module. | Client only. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
+| UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Mod keybinds (`shroudforge.input.is_keybind_down`/`was_keybind_pressed`) get their key state from the same exe, started by the runtime as a hidden `--keyboard-input` child that reports keys over a pipe. | Client only. Without an installed SF, mod keybinds never fire under Kiln: SF logs `Keyboard shortcuts unavailable` (section 5.5). With SF installed, the runtime starts that child itself. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
 | Native DLL mods | Both read `<game>/dinput8-chain.ini`. | The same file loads once (same canonical path, `LoadLibrary` reference count). SF reports an issue for a DirectInput provider without its `dinput8.dll` host. |
 | Updates | SF's updater replaces its managed paths, **`dinput8.dll` included**, and its repair check requires them to exist. | In hosted mode kiln-shroudforge runs neither the startup update check nor the pending install, so SF never overwrites Kiln. In self-hosted mode an SF update can replace Kiln's `dinput8.dll`. The launcher must then put Kiln's proxy back (detect: classify at launch). The repair check only tests that the file exists, so Kiln's `dinput8.dll` satisfies it. |
 | Wine / Proton | SF needs `dbghelp=n,b;winmm=n,b`. | Not in hosted mode. kiln-shroudforge loads `shroudforge-runtime.dll` (not a system DLL name) by full path. The lab ran with Kiln's default `mshtml=;dinput8=n,b` only. This fixes the Steam Deck case. |
@@ -187,25 +187,76 @@ readback and the restore on a live setting change, all without players.
 
 ### 5.5 Held W/S glider steering: unresolved client check
 
-The sustained W/S steering report for SF Unlimited Flight is **not confirmed fixed**. The heartbeat change fixes
-reproduced update-loop stalls; native data-flow analysis and synthetic input/override tests do not establish the
-mode, input, selected resource or rate seen by an affected client's actual rotation consumer. A `write-confirmed`
-effect report alone is not that evidence. Exact ECS/resource profile support also does not establish availability
-of SF's separate legacy execution-hook contracts.
+The sustained W/S steering report for SF Unlimited Flight (a Windows player, 10 Nov 2026: steering works with
+standalone SF, not with Kiln) is **not confirmed fixed**. No real game client has been run for it. SF source lines
+below are the fork pin `724a884` (upstream 1.7.9), paths under SF's `modules/` unless they start with `mods/`; the
+mod's `mods/sf-unlimited-flight/src/mod.lua` is the same file from SF 1.7.7 to the 1.8.0 dev line.
 
-For a controlled client observation, keep the game/SF versions, glider, world and settings the same, with **Upward
-Gliding enabled in pitch-speed controls**:
+**Where the steering input comes from.** On each of its updates (every 100 ms, `mod.lua:308`) the mod reads
+`keen::ecs::PlayerInput` `fromClient.movementStickInputMode` and `keen::ecs::ActorInput` `desiredLocalMoveInput.z`
+with `runtime.ecs.read_fields` (`mod.lua:148-158`). It then writes the active glider's ItemInfo
+`equipment.gliderConfig.pitchAngleSpeed` (`mod.lua:256-266`): held S (z < 0) gives the negated native rate (climb),
+no key gives 0 (hold), held W (z > 0) gives the native rate (dive). `read_fields` copies the game's component memory
+in process, on SF's worker thread (`mod-runtime/lua/ingame/ecs/access_component_fields.rs:97`, `KfcRuntimeEcsRead`
+in `game-runtime/native/ecs/read_entity_components.cpp:86-106`, a direct read under the read-only binding,
+`game-runtime/native/ecs/bind_world_entities.cpp:84-101`). There is no key API, no helper process and no OS key
+polling on this path. The game reads the keyboard through its own raw input (Kiln's
+`native/services/ui/input.cpp:3-7`) and fills that component itself.
 
-1. Close all Kiln menus, screens, interactive windows and wheels; release W/S.
-2. Check ordinary on-foot W/S movement.
-3. During a normal glide, hold S for about two seconds, release briefly, then hold W for two seconds. Note which
-   response fails. Do not open a capturing menu during this check.
-4. Afterward, preserve a fresh support report, the SF Unlimited Flight effect detail, exact versions and settings.
+**SF's key helper is a different path, and bundled-only installs lack it.** `shroudforge.input.is_keybind_down` and
+`was_keybind_pressed` (for mods with a `control: "keybind"` setting) take key state from a hidden child,
+`<game>/shroudforge/shroudforge.exe --keyboard-input --parent-pid <pid>`. The runtime starts it itself and reads
+JSON lines from its stdout pipe (`mod-runtime/lua/shroudforge/v1/create_mod_api.rs:74-91`,
+`hotkeys/observe_keyboard.rs:367-401`, `loader-config/resolve_installation_paths.rs:62-64`). Kiln's bundled
+component has no `shroudforge.exe`. Without an installed SF the runtime logs
+`[hotkeys] SDL input stopped ... Could not start isolated SDL input` and `Keyboard shortcuts unavailable`. Those
+queries then answer "not held" for the whole session (`observe_keyboard.rs:587-605`); the player's support report
+shows both lines. With SF installed next to Kiln, the runtime starts that installed exe itself (bundled or installed
+runtime alike; the message format is unchanged in 1.8.0), and Kiln's helper start (`processes.cpp`) does not touch
+it. sf-unlimited-flight declares no keybind and
+never calls `shroudforge.input`, so this gap is **not** the cause of the steering report. It does affect SF mods
+with shortcuts (section 2).
 
-Kiln's UI can capture input while an interactive surface or consuming key subscriber is active, but there is no
-evidence that this caused the reported failure. Working on-foot movement makes unconditional capture less likely,
-not impossible. Definitive localization still needs affected-session, same-frame mode/input and selected ItemInfo
-pointer/rate at the native consumer; a Lua replay or aggregate memory-write observation cannot substitute for it.
+**Check.** `lua5.4 native/plugins/shroudforge/tests/held_key_flight.lua <SF source> [<staged component>]` runs the
+real mod with SF's own override helpers and synthetic flight fixture, with `shroudforge.input` answering as it does
+without the helper. S and W held for 2 s each reach the steering through ActorInput (rates -70, 0, 70), with no
+`shroudforge.input` access. A mutant mod that steers from `shroudforge.input` fails it with the reported symptom.
+It is a Lua replay: it shows where the mod takes its input from, not what an affected client's game wrote there or
+what the game's rotation consumer read; that needs the affected session. The same check shows the three ways the mod itself can produce a "neither key works" or "no climb" glider:
+
+- The ActorInput the mod reads stays 0 while a key is held: neither key does anything. The effect report is then
+  identical to working steering (`no-change: Native glider controls`), so the effect detail cannot reveal this case.
+- Target-angle input mode, or more than one `PlayerInput` entity in the authoritative world: the mod leaves the
+  game's own rate (W dives, S does not climb). Its effect detail names the reason ("Upward tilt requires pitch-speed
+  input controls" or "requires one authoritative player").
+
+**Kiln on the same path.** kiln-rules wraps the glide step and its gravity and stamina sites. Unless a Kiln gliding
+rule applies to that player it returns the game's result unchanged (`native/services/rules/rules.cpp:407-413`), and
+it only ever changes velocity, never the rotation or the pitch rate (`rules.cpp:439-502`). kiln.ui keeps W/S from
+the game only while Kiln captures input (logged as `ui: input capture on`) or a Kiln binding consumes the key. That
+would stop walking too. A stall of SF's loop on Kiln's worker (file I/O: the heartbeat fix, more status I/O is being
+moved off the loop) leaves the last rate in place until the next update.
+
+**Player check** (about two minutes; same game, glider, world and settings as when it failed):
+
+1. Start the game through Kiln and load the world. Close every Kiln menu and window. SF Unlimited Flight is on, with
+   its Upward Gliding setting on (the default).
+2. Walk with W, then with S. Note whether both move you.
+3. Glide. Hold S for two seconds, let go for one, then hold W for two seconds. For each key, note: nose up, nose
+   down, or nothing.
+4. Open **Mods → ShroudForge → SF Unlimited Flight** and switch the mod off (it switches while you play). Close the
+   menu, glide again and hold W for two seconds. Note whether the nose goes down. Switch the mod back on afterwards.
+5. If you can look at the Kiln launcher's Logs page while gliding: when SF Unlimited Flight's line says "Upward tilt
+   requires pitch-speed input controls" or "requires one authoritative player", note that instead. The mod then
+   leaves steering to the game by design, and this check does not apply.
+6. Make a support report straight afterwards.
+
+Reading it: step 3 works, so the report is not reproduced. Neither key works in step 3, but W dives in step 4: the
+game gets the key, but the value SF reads does not change. The next step is then an SF-side trace in the affected
+session of `ActorInput.desiredLocalMoveInput.z`, `PlayerInput.fromClient.movementStick` and the world and entity SF
+reads, while a key is held. W does nothing in step 4 either: the game's own glider ignores W under Kiln. The next
+step is then on Kiln's side (`ui: input capture` lines in kiln.log, the kiln-rules glide hooks), not SF's. Only W
+works in step 3: see step 5.
 
 ## 6. What other agents need to do (detect, launcher)
 
@@ -271,7 +322,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | settings `value` + label/description/control/min/max/step/options/enabledWhen/applyAt | plugin; launcher SchemaForm and in-game Mods panel edit the same file | `[Config]` classes + SchemaForm | shared Rust/managed fixtures; rendered SF panel still a client check |
 | live settings (`shroudforge.settings.get` in callbacks) | plugin | `Config` reload events | done; **lab**: survival all off → "Runtime settings applied live", effect `no-change: All Survival settings are off`; probe off → restore |
 | groups | launcher `x-kiln-group`; in-game labels, descriptions, settings and action buttons | config sections | managed package/action tests; execution client check |
-| keybind settings (`control: keybind`) | plugin (SF's hotkeys) | `Kiln.Ui.KeyBindings` | plugin; client |
+| keybind settings (`control: keybind`) | plugin (SF's hotkeys); key state only from an installed `shroudforge/shroudforge.exe` (section 5.5) | `Kiln.Ui.KeyBindings` | bundled-only: never pressed (player log r1110); installed: client |
 | locales `locales/*.json`, `shroudforge.i18n.get`, `shroudforge.locale()` | plugin | Kiln mod localisation | plugin; — |
 | dependencies (SemVer, optional) | plugin (SF's load order) | resolver | plugin; — |
 | `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | mixed-server lab: 89 resources committed, item count +2; second boot reused identical patched archive hashes |
@@ -290,7 +341,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | public action request files; toggle event opens installed helper, or Kiln's SF page when hosted without it | `Kiln.Ui` screens | action-file managed tests, event native Wine tests; actual action execution/rendering client check |
 | `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
 | `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
-| `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin | `Kiln.Ui.KeyBindings` | client |
+| `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin (`is_key_down` raises since SF 1.7.6); held/pressed state needs an installed `shroudforge.exe` | `Kiln.Ui.KeyBindings` | bundled-only: always false (player log r1110); installed: client |
 | `shroudforge.log.trace/debug/info/warn/error`, `version`, `mod_id`, `mod_kind` | plugin (also in kiln.log as `[sf]`) | `Mod.Log` | lab (probe's `log.info` lines) |
 
 ### 8.3 `runtime.*` (in-game API, `runtime_api.lua`)
