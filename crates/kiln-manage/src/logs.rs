@@ -361,6 +361,16 @@ pub struct BootState {
     pub warnings: u32,
     /// `[E ...]` lines of this boot (at most 50).
     pub errors: Vec<String>,
+    /// kiln.ui saw the game make a swapchain (the game draws; the overlay could).
+    #[serde(default)]
+    pub ui_swapchain: bool,
+    /// kiln.ui knows the game's Vulkan device (saw it being created, or took it over): without it the overlay
+    /// cannot draw, and the in-game Mods page and every Kiln menu stay empty.
+    #[serde(default)]
+    pub ui_device: bool,
+    /// The module another hook on the Vulkan functions leads into, when kiln.ui named one (`version.dll`).
+    #[serde(default)]
+    pub ui_patched_by: Option<String>,
 }
 
 /// The last boot of a kiln.log (`[kiln] Kiln <v> starting (pid <n>)` to the end).
@@ -377,6 +387,16 @@ pub fn boot_state(text: &str) -> BootState {
             'W' => s.warnings += 1,
             'E' if s.errors.len() < 50 => s.errors.push(format!("[{}] {}", p.source, p.message)),
             _ => {}
+        }
+        if p.source == "service:kiln-ui.dll" {
+            let m = p.message.as_str();
+            if m.starts_with("ui: swapchain ") {
+                s.ui_swapchain = true;
+            } else if m.starts_with("ui: game Vulkan device ") && !m.contains(" destroyed") {
+                s.ui_device = true;
+            } else if let Some((_, who)) = m.split_once("it now leads into ") {
+                s.ui_patched_by.get_or_insert_with(|| who.split(':').next().unwrap_or(who).trim().to_string());
+            }
         }
         if p.source != "kiln" {
             continue;
@@ -527,6 +547,34 @@ pub fn mod_stats(text: &str) -> Vec<ModStat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// kiln.ui and the game's graphics device: seen created, taken over, or never known (the overlay cannot draw).
+    #[test]
+    fn the_overlay_needs_the_games_device() {
+        let head = "[I 07:15:29.249] [kiln] Kiln 0.2.0-dev starting (pid 328)\n";
+        let swap = "[I 07:15:44.462] [service:kiln-ui.dll] ui: swapchain 1280x800 format 44 colour space 0, 4+ images, window 0000000000020282\n";
+        // as a Steam Deck with a second Vulkan hooker wrote it with 0.2.0-dev.22: no device line at all
+        let lost = boot_state(&format!("{head}\
+            [W 07:15:32.528] [service:kiln-ui.dll] ui: vkCreateDevice at 00006FFFFD8316C0 is unverified code/patch: not re-hooked (an existing hook may be underneath)\n{swap}"));
+        assert!(lost.ui_swapchain && !lost.ui_device);
+        assert_eq!(lost.ui_patched_by, None);
+        // the same with a runtime that names the patch's module
+        let named = boot_state(&format!("{head}\
+            [W 07:15:32.528] [service:kiln-ui.dll] ui: vkCreateDevice at 00006FFFFD8316C0 is unverified code/patch, it now leads into version.dll: not re-hooked (an existing hook may be underneath)\n{swap}"));
+        assert!(named.ui_swapchain && !named.ui_device);
+        assert_eq!(named.ui_patched_by.as_deref(), Some("version.dll"));
+        // seen created, and taken over at the swapchain
+        for device in ["ui: game Vulkan device 000000000A0EDCB0 (3 queue families requested, functions ok; 1 live)",
+                       "ui: game Vulkan device 000000000A0EDCB0 taken over at its swapchain: Kiln did not see it being created (vkCreateDevice is patched by version.dll). 2 queue(s) known; 1 live"] {
+            let ok = boot_state(&format!("{head}[I 07:15:44.1] [service:kiln-ui.dll] {device}\n{swap}"));
+            assert!(ok.ui_swapchain && ok.ui_device, "{device}");
+        }
+        // a destroyed device at exit is not a device
+        let gone = boot_state(&format!("{head}{swap}[I 07:17:05.1] [service:kiln-ui.dll] ui: game Vulkan device 000000000A0EDCB0 destroyed (0 live)\n"));
+        assert!(!gone.ui_device);
+        // a server never draws
+        assert!(!boot_state(head).ui_swapchain);
+    }
 
     #[test]
     fn lines_and_boot() {
