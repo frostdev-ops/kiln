@@ -890,6 +890,58 @@ mod tests {
         assert_eq!(fs::read(root.join("g.kfc.bak")).unwrap(), bytes);
         fs::remove_dir_all(root).unwrap();
     }
+    /// The change cache a release before receipts left after this publication: every game file by length and CRC-64.
+    fn legacy_cache(root: &Path) -> PathBuf {
+        let cache = root.join("kiln/eml/cache");
+        fs::create_dir_all(&cache).unwrap();
+        let mut files = serde_json::Map::new();
+        for entry in fs::read_dir(root).unwrap().flatten() {
+            if !entry.file_type().unwrap().is_file() { continue; }
+            let bytes = fs::read(entry.path()).unwrap();
+            files.insert(entry.path().to_string_lossy().into_owned(), serde_json::json!([bytes.len(), 0, crate::cache::CRC64.checksum(&bytes)]));
+        }
+        let build = "kiln-eml-v2-0123456789abcdefg|RunOptions { skip_cache: false, is_server: None, patch: true, export: false, runtime: false, export_dir: None }";
+        fs::write(cache.join("files.json"), serde_json::to_vec(&serde_json::json!({"build_id": build, "files": files})).unwrap()).unwrap();
+        fs::remove_file(root.join("kiln/eml/ownership/g.json")).unwrap();
+        cache
+    }
+    // Adoption needs the backups the cache names, and a backup pair that passes its seal.
+    #[test]
+    fn adoption_refuses_a_changed_backup_and_a_backup_failing_its_seal() {
+        let (root, _, _) = real_published();
+        let cache = legacy_cache(&root);
+        assert_eq!(adopt(&root, "g", &cache).unwrap(), Adoption::Adopted, "the crafted cache is proof as it stands");
+        // a backup changed after the cache recorded it (same length)
+        let (root, _, _) = real_published();
+        let cache = legacy_cache(&root);
+        let mut bytes = fs::read(root.join("g.kfc.bak")).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 1;
+        fs::write(root.join("g.kfc.bak"), &bytes).unwrap();
+        assert_eq!(adopt(&root, "g", &cache).unwrap(), Adoption::Unproven("its backups are not the ones the earlier change cache recorded".into()));
+        assert!(!root.join("kiln/eml/ownership/g.json").exists());
+        // a seal that does not describe the backups, as the cache recorded it
+        let (root, _, _) = real_published();
+        fs::write(root.join("g.kfc.bak.integrity"), r#"{"header":[1,2],"resources":[3,4]}"#).unwrap();
+        let cache = legacy_cache(&root);
+        assert_eq!(adopt(&root, "g", &cache).unwrap(), Adoption::Unproven("the vanilla backup does not pass its seal".into()));
+        assert!(!root.join("kiln/eml/ownership/g.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+    // The restore holds SF's write lock across both copies (the header, then the resource file).
+    #[test]
+    fn the_sf_write_lock_is_held_between_the_two_copies_of_a_restore() {
+        let (root, header, _) = real_published();
+        crate::transaction::tests::sf_applied(&root, "g");
+        crate::transaction::DURING_RESTORE.with(|check| check.set(Some(|game| {
+            assert!(crate::transaction::tests::sf_write_lock_busy(game), "SF's write lock is held between the copies");
+        })));
+        assert!(crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"));
+        assert!(crate::transaction::DURING_RESTORE.with(|check| check.take()).is_none(), "the probe ran");
+        assert_eq!(fs::read(root.join("g.kfc")).unwrap(), header);
+        assert!(!crate::transaction::tests::sf_write_lock_busy(&root), "released after the restore");
+        fs::remove_dir_all(root).unwrap();
+    }
     // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
     // back; a busy SF, an SF preparation in progress or a state Kiln does not know refuses, and nothing is copied.
     #[test]
@@ -1270,7 +1322,7 @@ mod tests {
     #[test]
     #[ignore = "needs KILN_EML_HOST_LINK_FIXTURE: a game folder with links made on the Linux side (Wine harness)"]
     fn links_made_on_the_linux_side_are_refused_under_wine() {
-        let Some(fixture) = std::env::var_os("KILN_EML_HOST_LINK_FIXTURE") else { return };
+        let fixture = std::env::var_os("KILN_EML_HOST_LINK_FIXTURE").expect("run by the Wine harness, which sets KILN_EML_HOST_LINK_FIXTURE");
         let game = PathBuf::from(fixture).join("game");
         assert!(fs::symlink_metadata(game.join("kiln/eml/ownership")).unwrap().is_dir(), "the harness made the link");
         assert!(checked_path(&game, &game.join("kiln/eml/ownership/g.json")).is_err(), "linked receipt folder");

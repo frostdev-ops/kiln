@@ -8,6 +8,9 @@ pub type Writer = KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>;
 pub(crate) const VANILLA_HEADER: &str = ".vanilla-header";
 #[cfg(test)]
 thread_local! { pub(crate) static BEFORE_PUBLISH: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
+// kiln-eml: between the two copies of a restore (load.rs), for the tests that look at what is held meanwhile
+#[cfg(test)]
+thread_local! { pub(crate) static DURING_RESTORE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 
 pub fn regular(path: &Path) -> io::Result<()> {
     let m = fs::symlink_metadata(path)?;
@@ -158,7 +161,7 @@ impl PatchWriter {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     #[test]
     fn directory_barrier_propagates_sync_errors() {
@@ -219,6 +222,39 @@ mod tests {
         assert!(crate::owns_output(&game, "g").unwrap());
         for (n, b) in [("g.kfc", "patch one"), ("g.kfc_resources", "base+ one"), ("g_002.dat", "data one")] { fs::write(game.join(n), b).unwrap(); }
         assert!(!crate::owns_output(&game, "g").unwrap(), "only the last published generation is proof");
+        fs::remove_dir_all(game).unwrap();
+    }
+    /// Is ShroudForge's write lock in `game` held by someone (this process's handoff guard, in these tests)?
+    pub(crate) fn sf_write_lock_busy(game: &Path) -> bool {
+        OpenOptions::new().read(true).write(true).open(game.join("shroudforge/config/.shroudforge-write.lock"))
+            .is_ok_and(|f| f.try_lock().is_err())
+    }
+    /// ShroudForge's state after it prepared asset mods for `stem` (asset-preparation.schema.json).
+    pub(crate) fn sf_applied(game: &Path, stem: &str) {
+        fs::create_dir_all(game.join("shroudforge/config")).unwrap();
+        fs::write(game.join("shroudforge/state.json"), serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"assets":{
+            "schemaVersion":1,"status":"applied","phase":"startup","target":stem,"fingerprint":"a".repeat(64),
+            "completedAt":42,"mods":[{"id":"sf-mod","version":"1.0.0"}]}})).unwrap()).unwrap();
+    }
+    // SF writes `preparing` under its write lock before its own preparation touches an archive: the handoff's lock is
+    // held from the state edit through every step of the publication.
+    #[test]
+    fn the_sf_write_lock_is_held_at_every_publication_boundary() {
+        let game = std::env::temp_dir().join(format!("kiln-sf-lock-{}", uuid::Uuid::new_v4()));
+        let stage = game.join("stage");
+        fs::create_dir_all(&stage).unwrap();
+        for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old"), ("g_002.dat", "old")] {
+            fs::write(game.join(n), b).unwrap();
+        }
+        for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] { fs::write(stage.join(n), b).unwrap(); }
+        fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+        sf_applied(&game, "g");
+        let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
+        let mut seen = Vec::new();
+        w.publish(|n| { seen.push((n, sf_write_lock_busy(&game))); Ok(()) }).unwrap();
+        assert_eq!(seen, [(0, true), (1, true), (2, true), (3, true)], "held at every boundary");
+        assert!(!sf_write_lock_busy(&game), "released once published");
+        drop(w);
         fs::remove_dir_all(game).unwrap();
     }
     #[test]
