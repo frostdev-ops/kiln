@@ -789,7 +789,7 @@ const handlers: Record<string, Handler> = {
     if (cur.generation !== p.generation) reject("conflict", "The profile changed elsewhere. Reload it.");
     const next = { ...clone(p), generation: p.generation + 1, updated: now() };
     profiles.set(p.id, next);
-    if (rendered(next) !== rendered(cur)) reapplyWhereActive(p.id);
+    reapplyWhereActive(p.id, rendered(next) !== rendered(cur));
     return clone(next);
   },
   profile_delete: (a) => {
@@ -1190,12 +1190,13 @@ function makeDefault(): Profile {
 const notices: Activation[] = typeof window === "undefined" ? [] :
   [...((window as unknown as { __kilnMockNotices?: Activation[] }).__kilnMockNotices ?? [])];
 
-/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again, and what that
- *  kept in the game folder waits for the window (kiln://activation says so). */
-function reapplyWhereActive(pid: string) {
+/** profile_save's follow-up: reconcile every active, stopped game, even if profile.json is current. Only a rendered
+ *  change advances the game's generation; a report without a write still waits for the window. */
+function reapplyWhereActive(pid: string, written = true) {
   for (const [g, act] of Object.entries(activations)) {
     if (act?.profileId !== pid || running[g]) continue;
-    const a = activate(pid, g);
+    const a = written ? activate(pid, g) : { ...act, retained: [], keptFiles: [], warnings: [], ...activationPlan };
+    activationPlan = null;
     if (a.retained?.length || a.keptFiles?.length || a.warnings?.length) {
       notices.push(a);
       mockEmit("kiln://activation", { gameId: g });
@@ -1204,8 +1205,8 @@ function reapplyWhereActive(pid: string) {
   }
 }
 
-/** What profile.json holds of a profile (profile::render): its name and notes are not in it, so editing those writes
- *  nothing (refresh_active finds the file current). */
+/** What profile.json holds of a profile (profile::render): name/notes edits need no write, but refresh_active still
+ *  reconciles the mod folders and can report retained copies, kept settings or warnings. */
 const rendered = (p: Profile) => JSON.stringify([p.mods, p.dropins, p.dataDir, p.late ?? []]);
 
 /** Games' profile files listing a version without a profile listing it (tests: `__kilnMock.setGameFileUsers`):

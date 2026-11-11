@@ -207,8 +207,8 @@ Only Kiln's own switch of an unchanged extension advances that exact receipt, ne
 an upgrade. Retained folders are returned as `{path, reason, mayRun}`: by deactivate and uninstall (`PlacementCleanup`)
 and by every activation (`Activation.retained`: a copy the profile switched off, removed or wants in another version,
 that activation leaves because its code changed or Kiln cannot inspect or carry what is in it; one such copy never fails
-the activation of the others). The launcher displays paths/reasons until dismissed and warns they may still run under
-the standalone loader. Copies are staged beside the destination and
+the activation of the others). The launcher displays paths/reasons until dismissed and warns they may still run through
+Kiln's engine plugin (such as SET's) or another loader. Copies are staged beside the destination and
 the previous folder is restored if replacement fails. Activation refuses while the game runs.
 In copy mode, the ShroudForge and SET profile entry paths name the verified source copies under
 `kiln/profiles/<profile>/<kind>/<id>`; their plugins still read the separately placed fixed engine folders.

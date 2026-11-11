@@ -43,7 +43,13 @@ export function notifyActivationOf(e: unknown) {
  *  the folders and files it kept, and the activation of the profile written again or made active after it. */
 export function notifyInstall(r: InstallResult | UninstallResult | null | undefined) {
   if (!r) return;
-  if ("placements" in r) notifyPlacementCleanup(r.placements);
+  if ("placements" in r) {
+    notifyPlacementCleanup(r.placements);
+    if (r.kept.length) toast.info("Changed runtime files kept", `These files changed outside Kiln and were left in the game folder: ${r.kept.join(", ")}. With the game closed, review them before removing or replacing them.`, { ms: 0 });
+  } else if (r.changedBackedUp?.length) {
+    const where = r.backup ? ` in ${r.backup}` : " in the game's kiln/backups folder";
+    toast.info("Changed runtime files backed up", `The install replaced these changed files: ${r.changedBackedUp.join(", ")}. Their previous copies were kept${where}.`, { ms: 0 });
+  }
   if (r.warnings?.length) toast.info("placements" in r ? "Some files were kept" : "Install notes", r.warnings.join(" "), { ms: 0 });
   if ("activation" in r) notifyActivation(r.activation);
 }

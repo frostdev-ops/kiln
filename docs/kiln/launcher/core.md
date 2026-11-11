@@ -90,7 +90,7 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   (no writes), `read_game_profile`, `write_once` (launch mode once). Activation never edits player-owned SF folders.
   Cleanup needs a trusted placement receipt plus unchanged contents, including exact SF settings bytes (old receipts
   without these remain ambiguous). Changed copies remain where they are; the launcher lists paths/reasons and warns
-  that the standalone loader may still run them. No player settings or source Library files are deleted blindly.
+  that Kiln's engine plugin (such as SET's) or another loader may still run them. No player settings or source Library files are deleted blindly.
 
 ## Launch, play-once, chain.ini
 - `launch::play(dirs, install, request)`: refuses while running; mode `profile` clears a stale play-once flag, `vanilla`

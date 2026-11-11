@@ -16,7 +16,7 @@ test("deactivating a profile keeps retained-folder warnings through later notifi
   const warning = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
   await expect(warning).toContainText("mods/edited-addon");
   await expect(warning).toContainText("player-settings.json was added by the player");
-  await expect(warning).toContainText("may still run in the standalone loader");
+  await expect(warning).toContainText("may still run through Kiln or another loader");
   await page.clock.install();
   await page.evaluate(async () => {
     const { toast } = await import("/src/ui/Toast.tsx");
@@ -122,9 +122,8 @@ test("the automatic re-apply after a profile edit shows what it kept in the game
   await page.clock.install();
   await page.goto("/#/");
   await page.locator(".k-splash").waitFor({ state: "detached" });
-  await planActivation(page);
-  // what every profile page does on a change (useProfileEdit): profile_save, which writes the active profile again
-  // when what profile.json holds changed (a mod switched off); its notes are not in profile.json (refresh_active)
+  // An ordinary notes-only save reconciles too, but this fixture has nothing to report yet. A retained-copy report
+  // on that path is covered by mock-reconcile.spec.ts. A rendered mod change below also writes profile.json.
   const save = (edit: string) => page.evaluate(async (edit) => {
     const api = await import("/src/api/commands.ts");
     const p = await api.profileGet("ember-run");
@@ -133,6 +132,7 @@ test("the automatic re-apply after a profile edit shows what it kept in the game
   await save("notes");
   await page.clock.fastForward(1000);
   await expect(page.locator(".k-toast", { hasText: "Some mod folders were kept" })).toHaveCount(0);
+  await planActivation(page);
   await save("mod");
   await expectActivationNotices(page);
 });
