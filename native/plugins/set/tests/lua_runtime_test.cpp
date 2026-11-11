@@ -22,6 +22,10 @@ namespace kset::hooktest { extern bool (*on_stack)(uintptr_t at, size_t n); }
 void rt::openImGui(lua_State* L){for(const char* n:{"ImGui","ImGuiCond","ImGuiWindowFlags"}){lua_newtable(L);lua_setglobal(L,n);}}
 void rt::imguiMark(){} void rt::imguiRecover(){}
 
+// The settings save's disk sync (modsettings.cpp) is the test's: counted, and as slow as asked (an HDD, btrfs under
+// Proton), so a test can see which saves sync and what that costs the thread that saves.
+unsigned fsyncCalls=0,slowSyncMs=0;
+extern "C" int fsync(int){++fsyncCalls;if(slowSyncMs)std::this_thread::sleep_for(std::chrono::milliseconds(slowSyncMs));return 0;}
 namespace {
 struct TypeFixture { std::string name,qn; uint32_t size; uint8_t kind; int inner=-1; std::vector<std::tuple<std::string,int,uint64_t>> fields; };
 std::vector<TypeFixture> ts = {
