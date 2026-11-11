@@ -23,7 +23,7 @@
     "dropins": {
       "oneOf": [
         { "type": "boolean" },
-        { "type": "array", "items": { "$ref": "common.schema.json#/$defs/kind" }, "uniqueItems": true }
+        { "type": "array", "items": { "$ref": "common.schema.json#/$defs/kind", "not": { "const": "xhl" } }, "uniqueItems": true }
       ],
       "default": false,
       "description": "Also load the drop-in folders (kiln/mods, kiln/native, kiln/plugins, emf/mods, and each engine plugin's own folder) after the listed mods: true = every kind, or a list of kinds."
@@ -37,7 +37,8 @@
         "native": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" } },
         "emf": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" } },
         "plugin": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/pluginMod" } },
-        "eml": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "EML mods (mod.json + src/mod.lua), read by kiln-eml from the profile's text." },
+        "xhl": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/placedFolderMod" }, "description": "Non-executable XHL companions placed unchanged under game/mods/<original-folder>. Only separately installed XHL-Core loads them; never a Kiln native/plugin/EML execution list. The external host ignores Kiln drop-in switches." },
+        "eml": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/placedFolderMod" }, "description": "EML mods (mod.json + src/mod.lua), read by kiln-eml from the profile's text." },
         "shroudforge": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "ShroudForge packages. The launcher places each in ShroudForge's mods folder and sets its extended.mod.json switch; kiln-shroudforge hosts ShroudForge when an entry is enabled. path: the placed folder." },
         "set": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Shrouded Engine Tweaks mods. The launcher places the enabled ones in shrouded_engine_tweaks/mods/<id>/, where kiln-set reads them. path: the placed folder." },
         "greeneye": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Greeneye Loader mods (mod.json + DLL), read by kiln-greeneye." },
@@ -48,18 +49,35 @@
         "ember": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/folderMod" }, "description": "Ember server SDK mods (a folder with one library), found and reported by kiln-ember. They don't run yet: Ember has published no mod ABI. path: the mod folder or its library." }
       },
       "additionalProperties": false,
-      "description": "One list per mod kind. kiln-core counts kiln, native, plugin and emf (kiln.profile count/get); each engine plugin reads its own list from the profile's text (kiln.profile json()). Kilns older than these lists warn about and ignore an engine list; they never make the profile invalid."
+      "description": "One list per mod kind. kiln-core counts kiln, native, plugin and emf (kiln.profile count/get); XHL is placement metadata only, ignored by the native core; each engine plugin reads its own list from the profile's text (kiln.profile json()). Kilns older than these lists warn about and ignore an engine list; they never make the profile invalid."
     }
   },
   "additionalProperties": true,
   "$defs": {
     "folderMod": {
+      "allOf": [
+        { "$ref": "#/$defs/folderModFields" },
+        { "properties": { "path": { "$ref": "common.schema.json#/$defs/gamePath" } } }
+      ]
+    },
+    "placedFolderMod": {
+      "allOf": [
+        { "$ref": "#/$defs/folderModFields" },
+        { "properties": { "path": {
+          "anyOf": [
+            { "$ref": "common.schema.json#/$defs/gamePath" },
+            { "type": "string", "maxLength": 136, "pattern": "^\\.\\.[\\\\/]mods[\\\\/](?!\\.)(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9]|[Ee][Nn][Ss][Hh][Ww][Ii][Cc][Kk])(?:\\.|$))[^\\\\/:*?\"<>|\\u0000-\\u001f]+(?<![ .])$" }
+          ],
+          "description": "The mod folder. Fixed native-related EML and external XHL companions in copy mode may name exactly one direct game/mods child as ../mods/<original-folder>; other parent traversal is refused."
+        } } }
+      ]
+    },
+    "folderModFields": {
       "type": "object",
       "required": ["id", "path"],
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/modId", "not": { "pattern": "[\\u0000-\\u001f]" } },
         "version": { "$ref": "common.schema.json#/$defs/semver", "maxLength": 256, "not": { "pattern": "[\\u0000-\\u001f]" } },
-        "path": { "$ref": "common.schema.json#/$defs/gamePath", "description": "The mod folder." },
         "hash": { "$ref": "common.schema.json#/$defs/kdh1", "maxLength": 69 },
         "enabled": { "type": "boolean", "default": true }
       }

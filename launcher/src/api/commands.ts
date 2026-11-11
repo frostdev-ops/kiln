@@ -59,10 +59,10 @@ export type ProfileId = string;
 export type ServerId = string;
 export type TaskId = string;
 /** kiln_manage::manifest::ModKind: Kiln's own four, then other engines' mods, each imported by the Library and run by
- *  Kiln's plugin for that engine (Ember's are held but don't run yet: no published mod ABI). Labels and helpers:
+ *  Kiln's plugin for that engine (XHL companions require external XHL-Core; Ember's are held but don't run yet: no published mod ABI). Labels and helpers:
  *  ./kinds.ts. */
 export type ModKind = "kiln" | "native" | "plugin" | "emf"
-  | "eml" | "shroudforge" | "set" | "greeneye" | "flame" | "shroudtopia"
+  | "eml" | "xhl" | "shroudforge" | "set" | "greeneye" | "flame" | "shroudtopia"
   | "enshwick" | "shroudlink" | "ember";
 export type Side = "server" | "client" | "both";
 export type RunSide = "server" | "client";
@@ -405,7 +405,7 @@ export interface LibraryEntry {
 }
 export type DetectKind = "kiln" | "native" | "plugin" | "emf" | "modpack" | "runtime" | "bare-dll" | "unknown"
   // made for other engines, or not mods: imported only once Kiln supports them; `reason` says why not yet
-  | "eml" | "shroudforge" | "set" | "enshwick" | "greeneye" | "shroudtopia" | "flame" | "shroudlink" | "ember"
+  | "eml" | "xhl" | "shroudforge" | "set" | "enshwick" | "greeneye" | "shroudtopia" | "flame" | "shroudlink" | "ember"
   | "proxy" | "data" | "save" | "reshade" | "cheat-table" | "asi";
 /** kiln_manage::engines::Engine */
 export type EngineId = "kiln" | "emf" | "shroudforge" | "eml" | "set" | "enshwick" | "greeneye" | "shroudtopia" | "flame"
@@ -1107,6 +1107,8 @@ export interface EngineStatus {
   ownLoader?: OwnLoaderNote | null;
   /** Only ShroudForge: per-mod effect/error details, with heartbeat freshness checked by the backend. */
   effects?: SfEffects | null;
+  /** External-host presence only, not a successful runtime/gameplay report. */
+  prerequisite?: { available: boolean; text: string } | null;
 }
 /** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
 export interface EmlBackup {

@@ -154,6 +154,8 @@ fn root(server: &Path, kind: ModKind) -> Result<PathBuf> {
     match kind {
         ModKind::Kiln => Ok(server.join("kiln/mods")),
         ModKind::Native => Ok(server.join("kiln/native")),
+        ModKind::Xhl => Err(Error::new(ErrorCode::Unsupported,
+            "XHL companions require original-folder receipt placement: import them into the Library and activate a profile for this server; install and enable XHL-Core separately. This legacy Mods-page direct sync cannot place them safely")),
         // other engines' mods go where that engine's plugin reads them on a server (engine_mods::server_root)
         k => crate::engine_mods::server_root(k, server)
             .ok_or_else(|| Error::new(ErrorCode::Unsupported, format!("{} mods are not synced to servers", kind.as_str()))),
@@ -170,7 +172,8 @@ fn loader_folder(server: &Path, path: &Path) -> bool {
 
 /// The kinds a server takes: Kiln's managed and native mods, then every engine kind with a server folder.
 fn server_kinds() -> impl Iterator<Item = ModKind> {
-    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || k.is_engine())
+    // External-host companions are placed by profile activation, not this legacy plugin-root sync path.
+    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || (k.is_engine() && k.engine().is_some()))
 }
 
 /// The folders of `kind` in `dir` (a root several engines may share: each folder is checked for the kind).
@@ -568,6 +571,14 @@ mod tests {
         // A different engine's isolated root is not the Enshwick loader.
         assert!(!loader_folder(&server, &server.join("ember/mods/enshwick")));
         assert!(!loader_folder(&server, &server.join("kiln/mods/enshwick")));
+    }
+
+    #[test]
+    fn external_xhl_requires_receipt_based_profile_placement_not_legacy_direct_sync() {
+        let err = root(Path::new("server"), ModKind::Xhl).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Unsupported);
+        assert!(err.message.contains("activate a profile") && err.message.contains("XHL-Core separately"));
+        assert!(!server_kinds().any(|k| k == ModKind::Xhl));
     }
 
     #[test]

@@ -45,7 +45,7 @@ impl Clients {
 }
 
 /// Library / profile kinds (`library/<kind>/`, profile.json `mods.<kind>`). The first four are Kiln's own; the rest
-/// hold mods made for other engines, run by Kiln's plugin for that engine (docs/kiln/engines.md, "Library kinds").
+/// hold mods made for other engines, run by Kiln's plugin or placed for an external host (XHL-Core) (docs/kiln/engines.md, "Library kinds").
 /// Every engine kind has a Library importer (engine_mods::IMPORTED); Ember's mods are held but don't run yet (Ember has
 /// published no mod ABI, docs/kiln/engines/ember.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -57,6 +57,8 @@ pub enum ModKind {
     Emf,
     /// EML data/Lua mods (`mod.json` + `src/mod.lua`), run by kiln-eml (GPL plugin).
     Eml,
+    /// Non-executable companions placed in `<game>/mods/<original>/`; only the separately installed XHL-Core loads them.
+    Xhl,
     /// ShroudForge packages, run by kiln-shroudforge from ShroudForge's mods folder.
     #[serde(rename = "shroudforge")]
     ShroudForge,
@@ -78,12 +80,13 @@ pub enum ModKind {
 }
 
 impl ModKind {
-    pub const ALL: [ModKind; 13] = [
+    pub const ALL: [ModKind; 14] = [
         ModKind::Kiln,
         ModKind::Native,
         ModKind::Plugin,
         ModKind::Emf,
         ModKind::Eml,
+        ModKind::Xhl,
         ModKind::ShroudForge,
         ModKind::Set,
         ModKind::Greeneye,
@@ -103,6 +106,7 @@ impl ModKind {
             ModKind::Plugin => "plugin",
             ModKind::Emf => "emf",
             ModKind::Eml => "eml",
+            ModKind::Xhl => "xhl",
             ModKind::ShroudForge => "shroudforge",
             ModKind::Set => "set",
             ModKind::Greeneye => "greeneye",
@@ -124,11 +128,11 @@ impl ModKind {
         !ModKind::CORE.contains(&self)
     }
 
-    /// The engine whose plugin runs this kind (EMF for `emf`; None for Kiln's own kinds).
+    /// The engine whose plugin runs this kind (EMF for `emf`; None for Kiln's own kinds and non-executable XHL companions).
     pub fn engine(self) -> Option<crate::engines::Engine> {
         use crate::engines::Engine;
         Some(match self {
-            ModKind::Kiln | ModKind::Native | ModKind::Plugin => return None,
+            ModKind::Kiln | ModKind::Native | ModKind::Plugin | ModKind::Xhl => return None,
             ModKind::Emf => Engine::Emf,
             ModKind::Eml => Engine::Eml,
             ModKind::ShroudForge => Engine::ShroudForge,
@@ -151,6 +155,7 @@ impl ModKind {
             D::Plugin => ModKind::Plugin,
             D::Emf => ModKind::Emf,
             D::Eml => ModKind::Eml,
+            D::Xhl => ModKind::Xhl,
             D::ShroudForge => ModKind::ShroudForge,
             D::Set => ModKind::Set,
             D::Greeneye => ModKind::Greeneye,
@@ -172,6 +177,7 @@ impl ModKind {
             ModKind::Plugin => D::Plugin,
             ModKind::Emf => D::Emf,
             ModKind::Eml => D::Eml,
+            ModKind::Xhl => D::Xhl,
             ModKind::ShroudForge => D::ShroudForge,
             ModKind::Set => D::Set,
             ModKind::Greeneye => D::Greeneye,
@@ -189,6 +195,7 @@ impl ModKind {
             ModKind::Kiln => "Kiln",
             ModKind::Native => "Native",
             ModKind::Plugin => "Plugin",
+            ModKind::Xhl => "XHL (requires XHL-Core)",
             k => k.engine().map(|e| e.name()).unwrap_or("?"),
         }
     }

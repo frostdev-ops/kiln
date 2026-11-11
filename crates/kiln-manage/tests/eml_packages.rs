@@ -355,16 +355,17 @@ fn xhl_mods_are_placed_where_xhl_core_finds_their_plugin() {
 }
 
 #[test]
-fn xhl_core_alone_is_a_native_mod_and_a_plain_plugin_says_what_to_do() {
+fn xhl_core_alone_is_native_but_plain_plugins_are_placed_without_being_executed_by_kiln() {
     let d = drop_on_launcher("xhl-core", "XHL-Core");
     assert_eq!(d.found(), ["native/xhl-core"]);
     assert_eq!(d.natives(), ["xhl-core"]);
     assert!(d.reasons().is_empty(), "{}", d.reasons());
     let d = drop_on_launcher("xhl-plugin", "XHL-Vein-Mining");
-    assert!(d.found().is_empty(), "an XHL-Core plugin is never loaded on its own as a native mod: {:?}", d.found());
-    assert_eq!(d.report.skipped.len(), 1, "{:?}", d.report.skipped);
-    assert!(d.report.skipped[0].reason.contains("XHL-Vein-Mining is a plugin of XHL-Core")
-        && d.report.skipped[0].reason.contains("copy the folder XHL-Vein-Mining into the mods folder"), "{}", d.report.skipped[0].reason);
+    assert_eq!(d.found(), ["xhl/xhl-vein-mining"]);
+    assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
+    assert!(d.natives().is_empty() && d.eml_paths().is_empty() && d.chained().is_empty());
+    assert_eq!(std::fs::read(d.g.path.join("mods/XHL-Vein-Mining/XHL-Vein-Mining.dll")).unwrap(), xhl_plugin());
+    assert!(d.reasons().contains("requires XHL-Core") && d.reasons().contains("never loads this plugin DLL itself"), "{}", d.reasons());
 }
 
 /// The plain EML packages keep running from the Library: no copy in the game folder, the bundled loader left out.
@@ -623,16 +624,17 @@ fn game_folder_cleanup_uses_native_receipts_without_adopting_player_settings() {
 
 #[test]
 fn native_game_settings_never_discard_earlier_stashed_values_or_unrestored_files() {
-    for which in ["alp-full", "alp-lite"] {
+    for (which, kind, folder) in [("alp-full", ModKind::Eml, "auto-loot-plus"),
+                                  ("alp-lite", ModKind::Native, "auto-loot-plus"),
+                                  ("xhl-plugin", ModKind::Xhl, "XHL-Vein-Mining")] {
         let d = drop_on_launcher(which, "Stash package");
-        let kind = if which == "alp-full" { ModKind::Eml } else { ModKind::Native };
         let mut p = my_mods(&d);
         let id = p.mods.list(kind)[0].id.clone();
         let stash = d.g.path.join("kiln/state/placed-settings").join(kind.as_str()).join(&id);
         let stash = if kind == ModKind::Native { stash.join("auto-loot-plus") } else { stash };
         put(&stash, "config.txt", b"earlier player setting");
         put(&stash, "notes.md", b"player recovery notes");
-        let copy = d.g.path.join("mods/auto-loot-plus");
+        let copy = d.g.path.join("mods").join(folder);
         put(&copy, "config.txt", b"latest player setting");
         p.mods.list_mut(kind)[0].enabled = false;
         p = activate(&d, &p);
@@ -650,9 +652,231 @@ fn native_game_settings_never_discard_earlier_stashed_values_or_unrestored_files
 }
 
 #[test]
+fn xhl_cleanup_requires_exact_receipts_and_retains_player_changes() {
+    for changed in [None, Some("config.txt"), Some("runtime.json"), Some("XHL-Vein-Mining.dll"), Some("native-plugin.ini")] {
+        let d = drop_on_launcher("xhl-plugin", "XHL cleanup");
+        let copy = d.g.path.join("mods/XHL-Vein-Mining");
+        assert_eq!(my_mods(&d).mods.xhl[0].id, "xhl-vein-mining");
+        if let Some(file) = changed { put(&copy, file, b"player bytes"); }
+        let report = profile::deactivate_report(&d.dirs, &d.g).unwrap();
+        if let Some(file) = changed {
+            let kept = report.retained.iter().find(|r| r.path == copy).expect("changed XHL folder retained");
+            assert!(kept.may_run && !kept.reason.is_empty(), "{report:?}");
+            assert_eq!(std::fs::read(copy.join(file)).unwrap(), b"player bytes");
+            assert!(report.warning().unwrap().contains("XHL-Vein-Mining"));
+            let again = kiln_manage::engine_mods::unplace(&d.g.path).unwrap();
+            assert!(again.retained.iter().any(|r| r.path == copy && r.may_run));
+        } else {
+            assert!(report.removed.contains(&copy), "{report:?}");
+            assert!(!copy.exists());
+        }
+    }
+}
+
+#[test]
+fn xhl_cleanup_never_adopts_markers_or_removes_nested_or_unflagged_copies() {
+    for scenario in ["marker-only", "nested", "unflagged"] {
+        let d = drop_on_launcher("xhl-plugin", "XHL ownership");
+        let mut copy = d.g.path.join("mods/XHL-Vein-Mining");
+        let file = d.g.path.join("kiln/state/library-placements.json");
+        let mut receipts: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        match scenario {
+            "marker-only" => receipts = serde_json::json!([]),
+            "nested" => {
+                let nested = d.g.path.join("mods/nested/XHL-Vein-Mining");
+                std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+                std::fs::rename(&copy, &nested).unwrap();
+                copy = nested;
+                receipts[0]["path"] = serde_json::json!(copy);
+            }
+            _ => receipts[0]["game_folder"] = serde_json::json!(false),
+        }
+        std::fs::write(&file, serde_json::to_vec(&receipts).unwrap()).unwrap();
+        let report = kiln_manage::engine_mods::unplace(&d.g.path).unwrap();
+        assert!(!report.removed.contains(&copy), "{scenario}: {report:?}");
+        assert_eq!(std::fs::read(copy.join("XHL-Vein-Mining.dll")).unwrap(), xhl_plugin());
+        if scenario != "marker-only" {
+            assert!(report.retained.iter().any(|r| r.path == copy && r.may_run), "{scenario}: {report:?}");
+        }
+    }
+}
+
+#[test]
 fn copy_mode_uses_the_native_mods_copy_too() {
     let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
     let p = my_mods(&d);
     let rendered = profile::render(&d.dirs, &p, &d.g, PathMode::Copy).unwrap();
     assert_eq!(rendered.mods.eml[0].path.replace('\\', "/"), "../mods/auto-loot-plus");
+    if let Some(out) = std::env::var_os("KILN_PROFILE_FIXTURE_OUT") {
+        std::fs::write(out, serde_json::to_vec_pretty(&rendered).unwrap()).unwrap();
+    }
+}
+
+fn assert_xhl_contract(dirs: &DataDirs, g: &GameInstall, native_count: usize) {
+    let p = profile::get(dirs, "my-mods").unwrap();
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(p.mods.xhl.len(), 1);
+    assert!(!p.dropins.contains(&ModKind::Xhl));
+    let found = kiln_manage::found::scan(dirs, g, &p);
+    assert!(!found.mods.iter().any(|m| m.kind == Some(ModKind::Xhl)), "receipt-owned copies are not manual drop-ins: {found:?}");
+    assert_eq!(f.mods.xhl.len(), 1);
+    assert!(f.mods.xhl[0].path.ends_with("mods\\XHL-Vein-Mining"));
+    assert!(f.mods.eml.is_empty() && f.mods.plugin.is_empty() && f.mods.kiln.is_empty());
+    assert_eq!(f.mods.native.len(), native_count);
+    let preview = profile::resolve_preview(dirs, &p, kiln_manage::manifest::RunSide::Client).unwrap();
+    assert_eq!(preview.native.len(), native_count);
+    assert!(preview.native.iter().all(|n| !n.id.contains("vein")));
+    let chain = kiln_manage::chain::read(&g.path).unwrap();
+    assert!(chain.chain.iter().chain(&chain.profile).chain(&chain.late).all(|e| !e.path.contains("Vein")));
+    let l = library::list(dirs, Some(ModKind::Xhl)).unwrap();
+    let src = &l[0].versions[0].folder;
+    for name in ["mod.json", "native.json", "src/mod.lua"] { assert!(!src.join(name).exists()); }
+    for name in ["native-plugin.ini", "XHL-Vein-Mining.dll", "config.txt"] {
+        assert_eq!(std::fs::read(src.join(name)).unwrap(), std::fs::read(g.path.join("mods/XHL-Vein-Mining").join(name)).unwrap());
+    }
+    assert_eq!(profile::list(dirs).unwrap()[0].counts.xhl, 1);
+    assert_eq!(profile::render(dirs, &p, g, PathMode::Copy).unwrap().mods.xhl[0].path, "../mods/XHL-Vein-Mining");
+    assert!(!ModKind::CORE.contains(&ModKind::Xhl));
+    assert!(ModKind::Xhl.engine().is_none() && kiln_manage::engine_mods::plugin_of(ModKind::Xhl).is_none());
+    // The native core's fixed ABI and validated engine arrays stay unchanged: XHL has no execution route there.
+    let header = include_str!("../../../native/core/src/profile.h");
+    assert!(!header.contains("\"xhl\""));
+}
+
+#[test]
+fn pure_xhl_combined_and_separate_imports_only_execute_the_host() {
+    for (combined, server) in [(false, false), (true, false), (true, true)] {
+        let t = tmp("xhl-host");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let mut g = game_with_z(&t.0);
+        if server {
+            g.kind = GameKind::Server;
+            g.exe = "enshrouded_server.exe".into();
+            put(&g.path, "enshrouded_server.exe", b"MZ");
+        }
+        let pkg = t.0.join("XHL bundle");
+        layout(&pkg, "xhl-plugin");
+        put(&pkg, "mods/XHL-Vein-Mining/data/table.bin", b"unchanged data\0\xff");
+        if combined { layout(&pkg, "xhl-core"); }
+        let archive = t.0.join("XHL bundle.zip");
+        zip_of(&pkg, &archive);
+        if server {
+            // Quick-add is client-only. Dedicated profiles use the same Library importer and receipt placement.
+            let r = library::import(&dirs, &[archive], &mut NoProgress).unwrap();
+            assert!(r.skipped.is_empty());
+            let mut p = profile::create(&dirs, "My Mods", None).unwrap();
+            for r in r.imported {
+                p.mods.list_mut(r.kind).push(profile::ProfileMod { id: r.id, version: r.version, hash: r.hash, enabled: true });
+            }
+            profile::save(&dirs, &p).unwrap();
+            profile::activate(&dirs, &p.id, &g).unwrap();
+        } else {
+            kiln_manage::quick::add_with(&dirs, &g, &[archive], false, &mut NoProgress).unwrap();
+        }
+        assert_xhl_contract(&dirs, &g, usize::from(combined));
+        let status = kiln_manage::engine_mods::status(&g.path).into_iter().find(|s| s.kind == ModKind::Xhl).unwrap();
+        assert_eq!(status.prerequisite.unwrap().available, combined);
+        assert!(status.state.is_none() && status.plugin.is_empty());
+        if !combined {
+            let core = t.0.join("XHL-Core");
+            layout(&core, "xhl-core");
+            kiln_manage::quick::add_with(&dirs, &g, &[core], false, &mut NoProgress).unwrap();
+            assert_xhl_contract(&dirs, &g, 1);
+            assert!(kiln_manage::engine_mods::xhl_host(&g.path).available);
+            let mut p = profile::get(&dirs, "my-mods").unwrap();
+            p.mods.native[0].enabled = false;
+            profile::save(&dirs, &p).unwrap();
+            profile::activate(&dirs, &p.id, &g).unwrap();
+            assert!(!kiln_manage::engine_mods::xhl_host(&g.path).available);
+            assert!(g.path.join("mods/XHL-Vein-Mining/XHL-Vein-Mining.dll").is_file());
+        }
+        assert_eq!(std::fs::read(g.path.join("mods/XHL-Vein-Mining/data/table.bin")).unwrap(), b"unchanged data\0\xff");
+    }
+}
+
+#[test]
+fn pure_xhl_updates_switches_and_removed_selections_preserve_player_settings() {
+    let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+    let copy = d.g.path.join("mods/XHL-Vein-Mining");
+    put(&copy, "config.txt", b"player setting");
+    let update = d._t.0.join("update");
+    layout(&update, "xhl-plugin");
+    put(&update, "mods/XHL-Vein-Mining/config.txt", b"new default");
+    put(&update, "mods/XHL-Vein-Mining/new-data.bin", b"new data");
+    kiln_manage::quick::add_with(&d.dirs, &d.g, &[update], false, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(copy.join("config.txt")).unwrap(), b"player setting");
+    assert_eq!(std::fs::read(copy.join("new-data.bin")).unwrap(), b"new data");
+    let mut p = my_mods(&d);
+    let selection = p.mods.xhl[0].clone();
+    p.mods.xhl[0].enabled = false;
+    p = profile::save(&d.dirs, &p).unwrap();
+    assert!(profile::write_once(&d.dirs, &p.id, &d.g).is_err());
+    profile::activate(&d.dirs, &p.id, &d.g).unwrap();
+    assert!(!copy.exists());
+    p.mods.xhl[0].enabled = true;
+    p = activate(&d, &p);
+    assert_eq!(std::fs::read(copy.join("config.txt")).unwrap(), b"player setting");
+    p.mods.xhl.clear();
+    p = activate(&d, &p);
+    assert!(!copy.exists());
+    p.mods.xhl.push(selection);
+    activate(&d, &p);
+    assert_eq!(std::fs::read(copy.join("config.txt")).unwrap(), b"player setting");
+}
+
+#[test]
+fn pure_xhl_manual_conflicts_and_edited_plugin_code_are_never_overwritten() {
+    for changed in ["manual", "XHL-Vein-Mining.dll", "native-plugin.ini"] {
+        let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+        let copy = d.g.path.join("mods/XHL-Vein-Mining");
+        let mut p = my_mods(&d);
+        if changed == "manual" {
+            p.mods.xhl.clear(); p = activate(&d, &p);
+            put(&copy, "native-plugin.ini", b"manual INI");
+            let r = &d.report.imported[0];
+            p.mods.xhl.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+            activate(&d, &p);
+            assert_eq!(std::fs::read(copy.join("native-plugin.ini")).unwrap(), b"manual INI");
+            assert!(!copy.join(".kiln-library.json").exists());
+        } else {
+            put(&copy, changed, b"player edited code");
+            p.mods.xhl.clear(); activate(&d, &p);
+            assert_eq!(std::fs::read(copy.join(changed)).unwrap(), b"player edited code");
+            let rep = kiln_manage::engine_mods::place(&d.dirs, &my_mods(&d), &d.g.path).unwrap();
+            assert_eq!(rep.changed, ["xhl:xhl-vein-mining"]);
+        }
+    }
+}
+
+#[test]
+fn pure_xhl_direct_wrapped_and_archive_root_names_do_not_use_temporary_extraction_names() {
+    for shape in ["direct", "wrapper", "archive-root"] {
+        let t = tmp("xhl-layout");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game_with_z(&t.0);
+        let outer = t.0.join("wrapper");
+        let folder = outer.join("XHL-Vein-Mining");
+        put(&folder, "native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+        put(&folder, "XHL-Vein-Mining.dll", &xhl_plugin());
+        put(&folder, "config.txt", b"x");
+        let src = match shape {
+            "direct" => folder,
+            "wrapper" => { let z = t.0.join("wrapped.zip"); zip_of(&outer, &z); z },
+            _ => { let z = t.0.join("XHL-Vein-Mining.zip"); zip_of(&folder, &z); z },
+        };
+        kiln_manage::quick::add_with(&dirs, &g, &[src], false, &mut NoProgress).unwrap();
+        assert_xhl_contract(&dirs, &g, 0);
+    }
+}
+
+#[test]
+fn an_unrelated_chain_loader_never_satisfies_the_xhl_host_requirement() {
+    let d = drop_on_launcher("alp-lite", "AutoLootPlus Lite");
+    assert!(!kiln_manage::engine_mods::xhl_host(&d.g.path).available);
+    put(&d.g.path, "dbghelp.dll", &eml_dbghelp());
+    assert!(!kiln_manage::engine_mods::xhl_host(&d.g.path).available);
+    put(&d.g.path, "dinput8.dll", &xhl_core());
+    assert!(kiln_manage::engine_mods::xhl_host(&d.g.path).available);
+    std::fs::remove_file(d.g.path.join("dinput8.dll")).unwrap();
+    assert!(!kiln_manage::engine_mods::xhl_host(&d.g.path).available);
 }

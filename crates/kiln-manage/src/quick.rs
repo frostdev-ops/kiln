@@ -260,7 +260,7 @@ fn create_default(dirs: &DataDirs, install: &GameInstall) -> Result<Target> {
     let undo = |e: Error| cleanup_created(dirs, install, &id, e);
     let mut p = made;
     // what loaded before (the legacy layout loads every drop-in folder) keeps loading
-    p.dropins = ModKind::ALL.to_vec();
+    p.dropins = ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl).collect();
     let p = profile::save(dirs, &p).map_err(undo)?;
     let a = profile::activate(dirs, &p.id, install).map_err(undo)?;
     Ok(Target { profile: p, created: true, activation: Some(a), resumed: false })

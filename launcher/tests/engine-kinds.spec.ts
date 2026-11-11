@@ -178,6 +178,30 @@ test("the library picker says which kind it lists when the library has none of i
   await expect(dialog.getByText("The library is empty")).toHaveCount(0);
 });
 
+test("external host recognition is not a runtime claim and preserves ShroudForge effect reporting", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = {
+      engine_status: [{ result: [
+        { kind: "xhl", plugin: "", state: null, file: "", prerequisite: { available: true, text: "Only XHL-Core loads these companions; gameplay is not verified" } },
+        { kind: "shroudforge", plugin: "kiln-shroudforge", state: null, file: "shroudforge.json", effects: {
+          state: "current", file: "effects.json", updatedAt: 1, reason: null,
+          mods: [{ id: "flight-fixture", state: "write-confirmed", detail: "fixture memory write" }],
+        } },
+      ] }],
+    };
+  });
+  await desktop(page, "/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const xhl = page.locator('[data-engine="xhl"]');
+  await expect(xhl).toContainText("Host recognized (not verified)");
+  await expect(xhl).toContainText("Only XHL-Core loads these companions");
+  await expect(xhl).not.toContainText("Not run yet");
+  const sf = page.locator('[data-engine="shroudforge"]');
+  await expect(sf).toContainText("Runtime report available");
+  await expect(sf).toContainText("flight-fixture");
+  await expect(sf).toContainText("Memory write confirmed; not proof of the gameplay effect.");
+});
+
 test("engine state parse errors and backup failures remain visible", async ({ page }) => {
   await page.addInitScript(() => {
     (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = {

@@ -154,6 +154,8 @@ pub struct ProfileFileMods {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub eml: Vec<FolderMod>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub xhl: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shroudforge: Vec<FolderMod>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub set: Vec<FolderMod>,
@@ -180,6 +182,7 @@ impl ProfileFileMods {
             ModKind::Native => &self.native,
             ModKind::Emf => &self.emf,
             ModKind::Eml => &self.eml,
+            ModKind::Xhl => &self.xhl,
             ModKind::ShroudForge => &self.shroudforge,
             ModKind::Set => &self.set,
             ModKind::Greeneye => &self.greeneye,
@@ -198,6 +201,7 @@ impl ProfileFileMods {
             ModKind::Native => &mut self.native,
             ModKind::Emf => &mut self.emf,
             ModKind::Eml => &mut self.eml,
+            ModKind::Xhl => &mut self.xhl,
             ModKind::ShroudForge => &mut self.shroudforge,
             ModKind::Set => &mut self.set,
             ModKind::Greeneye => &mut self.greeneye,
@@ -268,6 +272,8 @@ pub struct ProfileMods {
     #[serde(default)]
     pub eml: Vec<ProfileMod>,
     #[serde(default)]
+    pub xhl: Vec<ProfileMod>,
+    #[serde(default)]
     pub shroudforge: Vec<ProfileMod>,
     #[serde(default)]
     pub set: Vec<ProfileMod>,
@@ -294,6 +300,7 @@ impl ProfileMods {
             ModKind::Plugin => &self.plugin,
             ModKind::Emf => &self.emf,
             ModKind::Eml => &self.eml,
+            ModKind::Xhl => &self.xhl,
             ModKind::ShroudForge => &self.shroudforge,
             ModKind::Set => &self.set,
             ModKind::Greeneye => &self.greeneye,
@@ -312,6 +319,7 @@ impl ProfileMods {
             ModKind::Plugin => &mut self.plugin,
             ModKind::Emf => &mut self.emf,
             ModKind::Eml => &mut self.eml,
+            ModKind::Xhl => &mut self.xhl,
             ModKind::ShroudForge => &mut self.shroudforge,
             ModKind::Set => &mut self.set,
             ModKind::Greeneye => &mut self.greeneye,
@@ -371,13 +379,13 @@ impl Profile {
     /// and Ember's while the profile lists no mod of that engine.
     pub fn dropin_kinds(&self) -> Vec<ModKind> {
         if self.dropins_engines {
-            return ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k)).collect();
+            return ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl && self.dropins.contains(k)).collect();
         }
         if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
-            return ModKind::ALL.to_vec();
+            return ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl).collect();
         }
-        ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k) || *k == ModKind::Enshwick
-            || (READ_WHEN_UNLISTED.contains(k) && self.mods.list(*k).is_empty())).collect()
+        ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl && (self.dropins.contains(k) || *k == ModKind::Enshwick
+            || (READ_WHEN_UNLISTED.contains(k) && self.mods.list(*k).is_empty()))).collect()
     }
 
     /// profile.json `dropins` for this profile: `true` when every folder is on, `false` when none is, else the list of
@@ -412,6 +420,8 @@ pub struct ProfileCounts {
     pub emf: u32,
     #[serde(default)]
     pub eml: u32,
+    #[serde(default)]
+    pub xhl: u32,
     #[serde(default)]
     pub shroudforge: u32,
     #[serde(default)]
@@ -639,6 +649,7 @@ fn counts(p: &Profile) -> ProfileCounts {
         plugin: n(ModKind::Plugin),
         emf: n(ModKind::Emf),
         eml: n(ModKind::Eml),
+        xhl: n(ModKind::Xhl),
         shroudforge: n(ModKind::ShroudForge),
         set: n(ModKind::Set),
         greeneye: n(ModKind::Greeneye),
@@ -1253,14 +1264,14 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     // EML/native companions a DLL reads in the game's mods folder are fixed copies there too.
     let in_game = |kind, mods: Vec<ProfileMod>| {
         let mut v: Vec<_> = mods.into_iter().filter(|m| match kind {
-            ModKind::Eml => crate::engine_mods::game_folder_of(dirs, kind, m).is_some(),
+            ModKind::Eml | ModKind::Xhl => crate::engine_mods::game_folder_of(dirs, kind, m).is_some(),
             ModKind::Native => crate::library::path_of(dirs, &lref(kind, m)).is_ok_and(|p| !crate::library::native_settings_dirs(&p).is_empty()),
             _ => false,
         }).map(|m| (m.id, m.version, m.hash, m.enabled)).collect();
         v.sort_unstable();
         v
     };
-    for kind in [ModKind::Eml, ModKind::Native] {
+    for kind in [ModKind::Eml, ModKind::Native, ModKind::Xhl] {
         let current = active.as_ref().and_then(|f| f.mods.folders(kind)).map(|list| list.iter().map(|m| ProfileMod {
             id: m.id.clone(), version: m.version.clone().unwrap_or_default(), hash: m.hash.clone().unwrap_or_default(), enabled: m.enabled,
         }).collect()).unwrap_or_default();

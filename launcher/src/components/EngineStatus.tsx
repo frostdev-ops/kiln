@@ -56,7 +56,7 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
   if (q.isLoading) return <Skeleton lines={3} />;
   if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
-  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || (s.effects && s.effects.state !== "unavailable"))
+  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || s.prerequisite?.available || (s.effects && s.effects.state !== "unavailable"))
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
   if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
   return (
@@ -68,7 +68,7 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
 
 export function EngineRow({ s }: { s: EngineStatus }) {
   const word = headline(s.state);
-  const reason = s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
+  const reason = s.prerequisite?.text ?? s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
   const mods = modLines(s.state);
   const effects = s.kind === "shroudforge" ? s.effects : null;
   const current = effects?.state === "current";
@@ -77,7 +77,7 @@ export function EngineRow({ s }: { s: EngineStatus }) {
       <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
       <span className="k-mono k-muted">{s.plugin}</span>
       <span className="k-spacer" />
-      {s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">{current ? "Runtime report available" : "Not run yet"}</span> : (
+      {s.prerequisite ? <span className={`k-word-sm k-tone-${s.prerequisite.available ? "info" : "warn"}`}>{s.prerequisite.available ? "Host recognized (not verified)" : "Requires XHL-Core"}</span> : s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">{current ? "Runtime report available" : "Not run yet"}</span> : (
         <>
           {word && <span className={`k-word-sm k-tone-${toneOf(word)}`}>{word}</span>}
           {mods.length > 0 && <span className="k-hint">{mods.length} mod{mods.length === 1 ? "" : "s"}</span>}
