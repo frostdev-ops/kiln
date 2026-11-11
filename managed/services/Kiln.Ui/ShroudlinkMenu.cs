@@ -212,26 +212,34 @@ internal sealed class ShroudlinkClient : IDisposable
     public BridgeSnapshot? State { get; private set; }
     public int LastError { get; private set; }
     public ShroudlinkClient(IShroudlinkRpc rpc) { _rpc = rpc; }
-    private JsonElement? Request(object request)
+    // The length the addon wrote into _reply, or -1 when it declined (LastError).
+    private int Call(object request)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(request);
         LastError = _rpc.Call(bytes, _reply, out var n);
-        if (LastError != 0) return null;
+        if (LastError != 0) return -1;
         if (n is < 0 or > BridgeSnapshot.MaxBytes) throw new FormatException("reply bound");
+        return n;
+    }
+    private JsonElement? Request(object request)
+    {
+        var n = Call(request);
+        if (n < 0) return null;
         using var doc = JsonDocument.Parse(_reply.AsMemory(0, n), new JsonDocumentOptions { MaxDepth = 40 });
         return doc.RootElement.Clone();
     }
+    // Validate the bytes the addon wrote, not a re-encoded copy: System.Text.Json escapes non-ASCII text as
+    // \uXXXX, so a copy of a valid reply can be several times larger than the reply bound.
+    private BridgeSnapshot? Snapshot(object request) => Call(request) is var n and >= 0 ? BridgeSnapshot.Parse(_reply.AsSpan(0, n)) : null;
     public bool Refresh()
     {
         try
         {
-            var response = Request(new { op = "read" });
-            if (response is null) { State = null; return false; }
-            var next = BridgeSnapshot.Parse(JsonSerializer.SerializeToUtf8Bytes(response.Value));
+            var next = Snapshot(new { op = "read" });
+            if (next is null) { State = null; return false; }
             if (!next.Ready) { State = next; _owned = null; return false; }
             if (_owned is not null && (_owned.Module != next.Module || _owned.Session != next.Session)) _owned = null;
-            var acquired = Request(new { op = "acquire", module = next.Module, session = next.Session, client = _client });
-            State = acquired is null ? next : BridgeSnapshot.Parse(JsonSerializer.SerializeToUtf8Bytes(acquired.Value));
+            State = Snapshot(new { op = "acquire", module = next.Module, session = next.Session, client = _client }) ?? next;
             if (State.Lease is not null) _owned = State;
             return State.Lease is not null;
         }

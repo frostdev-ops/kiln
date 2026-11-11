@@ -22,6 +22,7 @@ public sealed class BridgeTests
       {"type":"tabs","id":"tabs","tabs":["a","b"],"selected":0}
      ]}}]}
     """;
+    private static readonly JsonSerializerOptions Raw = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private sealed class Rpc : IShroudlinkRpc
     {
         public JsonObject State = JsonNode.Parse(Snapshot)!.AsObject();
@@ -41,7 +42,9 @@ public sealed class BridgeTests
                 if (op != "acquire") response["lease"] = null;
                 if (op == "release") State["lease"] = null;
             }
-            var bytes = InvalidReply ? "{invalid"u8.ToArray() : Encoding.UTF8.GetBytes(response.ToJsonString());
+            // Raw UTF-8, as the addon's serde_json writes it (not \uXXXX escapes).
+            var bytes = InvalidReply ? "{invalid"u8.ToArray() : Encoding.UTF8.GetBytes(response.ToJsonString(Raw));
+            if (bytes.Length > reply.Length) { written = bytes.Length; return 1; }
             bytes.CopyTo(reply, 0); written = bytes.Length; return 0;
         }
         public void Dispose() => Disposed = true;
@@ -140,6 +143,20 @@ public sealed class BridgeTests
         Draw("one"); w.Edit = false; Draw("one"); Assert.Equal("snow 雪", w.Inputs.Last());
         Draw("two"); Assert.Equal("old", w.Inputs.Last());
         w.Edit = true; Draw("two"); w.Edit = false; nodes.Reset("two"); nodes.EndFrame(); Draw("two"); Assert.Equal("old", w.Inputs.Last());
+    }
+    [Fact] public void LargeNonAsciiReplyWithinTheAddonBoundIsAccepted()
+    {
+        // About 112 KB of Cyrillic window text: within the addon's 128 KiB state and 256 KiB reply bounds, but about
+        // three times as large once re-encoded with \uXXXX escapes.
+        using var rpc = new Rpc(); using var client = new ShroudlinkClient(rpc);
+        var content = new JsonArray();
+        for (var i = 0; i < 28; i++) content.Add(new JsonObject { ["type"] = "text", ["text"] = new string('ж', 2000) });
+        rpc.State["windows"]![0]!["window"]!["content"] = content;
+        var size = Encoding.UTF8.GetByteCount(rpc.State.ToJsonString(Raw));
+        Assert.InRange(size, 112_000, 128 * 1024);
+        Assert.True(client.Refresh());
+        Assert.Equal(28, client.State!.Windows[0].Content.GetArrayLength());
+        Assert.Equal(new string('ж', 2000), client.State.Windows[0].Content[27].GetProperty("text").GetString());
     }
     [Fact] public void ComponentIdsCannotAliasBySlashConcatenation()
     { Assert.NotEqual(ShroudlinkNodes.Key("a/b", "c"), ShroudlinkNodes.Key("a", "b/c")); }
