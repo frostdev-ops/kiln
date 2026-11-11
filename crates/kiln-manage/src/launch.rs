@@ -230,6 +230,30 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
             Error { message: msg, ..e }
         })?
     } else { None };
+    // what the re-apply kept in the game folder is the player's to see, also when the start then fails
+    let mut r = start(dirs, install, request, saves, opener).map_err(|e| match &activation {
+        Some(a) => with_activation(e, a),
+        None => e,
+    })?;
+    r.activation = activation;
+    Ok(r)
+}
+
+/// An error of a start after the active profile was written again: the activation travels in `detail.activation`.
+fn with_activation(mut e: Error, a: &crate::profile::Activation) -> Error {
+    let mut d = match e.detail.take() {
+        Some(serde_json::Value::Object(o)) => o,
+        Some(other) => serde_json::Map::from_iter([("detail".to_string(), other)]),
+        None => serde_json::Map::new(),
+    };
+    d.insert("activation".into(), serde_json::to_value(a).unwrap_or_default());
+    e.detail = Some(serde_json::Value::Object(d));
+    e
+}
+
+/// The start itself (play-once flag, save backup, Steam), after the profile is as it should be.
+fn start(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest, saves: Option<&[crate::saves::SaveDir]>,
+         opener: &dyn Fn(&str) -> Result<()>) -> Result<LaunchResult> {
     let fingerprint = launch_fingerprint(dirs, install, request)?;
     // 1. the files the proxy reads at this start
     let now = crate::util::now_unix();
@@ -280,7 +304,7 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     let started = crate::util::rfc3339(now);
     let rec = LastLaunch { fingerprint, mode: request.mode, profile_id: request.profile_id.clone(), launched: started.clone() };
     let _ = crate::util::write_json_atomic(&last_launch_path(dirs, install), &rec);
-    Ok(LaunchResult { game_id: install.id.clone(), mode: request.mode, nonce, backup, uri, started, activation })
+    Ok(LaunchResult { game_id: install.id.clone(), mode: request.mode, nonce, backup, uri, started, activation: None })
 }
 
 pub fn play(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest) -> Result<LaunchResult> {

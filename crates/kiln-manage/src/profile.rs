@@ -486,6 +486,18 @@ pub struct Activation {
     pub retained: Vec<crate::engine_mods::RetainedPlacement>,
 }
 
+impl Activation {
+    /// Two activations in one operation (a profile made or resumed, then written again with the added mods): what the
+    /// earlier one kept or noted is kept in this one's lists. `retained` stays this one's: it is the game folder now.
+    pub fn keep_notes_of(&mut self, earlier: Activation) {
+        for (mine, theirs) in [(&mut self.kept_files, earlier.kept_files), (&mut self.warnings, earlier.warnings)] {
+            let later = std::mem::take(mine);
+            *mine = theirs;
+            for s in later { if !mine.contains(&s) { mine.push(s); } }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePlanEntry {
@@ -1013,9 +1025,17 @@ pub const PROFILE_READER_GAME_MODS: u32 = 2;
 
 /// The profile.json reader revision of the runtime in the game: what the kiln-runtime.json of the bundle its install
 /// receipt names declares (`profileReader`). 1 when it declares none (a runtime from before), and when the launcher
-/// cannot tell (no receipt, or no such bundle in `<data>/runtime/`): an older form is always read, a newer one is not.
+/// cannot tell (no receipt, a core file that is not the receipt's, or no such bundle in `<data>/runtime/`): an older
+/// form is always read, a newer one is not.
 fn runtime_profile_reader(dirs: &DataDirs, install: &GameInstall) -> u32 {
     let Ok(Some(receipt)) = crate::install::read_receipt(&install.path) else { return 1 };
+    // believed only while the core in the game is the one the receipt lists (an older runtime unzipped by hand over a
+    // launcher install keeps the newer receipt)
+    let core = "kiln/kiln-core.dll";
+    let listed = receipt.files.iter().find(|f| f.path == core);
+    if !listed.is_some_and(|f| crate::hash::sha256_file(&install.path.join(core)).is_ok_and(|(h, _)| h == f.sha256)) {
+        return 1;
+    }
     crate::bundle::find(dirs, &receipt.runtime.version).ok().and_then(|b| crate::bundle::read(&b.file).ok())
         .and_then(|m| m.profile_reader).unwrap_or(1)
 }
@@ -1296,7 +1316,7 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
         activated: now,
         own_loaders: placed.own_loaders,
         kept_files: placed.kept_files,
-        warnings: skipped_native_loaders(dirs, &profile).into_iter().chain(placed.warnings).collect(),
+        warnings: skipped_native_loaders(dirs, &profile).into_iter().chain(placed.warnings).chain(placed.own_notes).collect(),
         retained: placed.retained,
     };
     let _ = crate::util::write_json_atomic(&activation_record(dirs, install), &a);
@@ -1305,8 +1325,12 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
 
 /// Re-writes the game's `kiln/profile.json` when its profile changed since it was written (edited in the launcher, by
 /// `kilnctl profile add`, in another window): the profile is rendered again and compared with the file, apart from the
-/// file's write counter, time and writer. Some(activation) when it re-activated, None when the file was current or
-/// names no profile of this data folder. Refuses while the game runs (activate).
+/// file's write counter, time and writer. Some(activation) when it re-activated. A current file still has its fixed
+/// folders reconciled (engine_mods::place): when that changes what the profile renders to (a copy placed only now, as
+/// for a profile.json an older Kiln wrote), the profile is activated after all; when it kept copies, files or notes
+/// (a placed copy the player changed since), Some(the recorded activation with that report), so Play shows it too.
+/// None when there is nothing to report or the file names no profile of this data folder. Refuses while the game runs
+/// (activate).
 pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
     let Some(file) = read_game_profile(&install.path)? else { return Ok(None) };
     let Ok(profile) = get(dirs, &file.id) else { return Ok(None) };
@@ -1323,9 +1347,22 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
         // A play-once profile also changes SF/SET's fixed folders. Reconcile those copies before the next normal
         // launch even though profile.json itself still describes the active profile. Never change them mid-game.
         if running_process(install)?.is_none() {
-            crate::engine_mods::place(dirs, &profile, &install.path)?;
+            let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
+            // a copy placed only now (an older Kiln's file names the Library entry): the file must name the copy
+            if !render(dirs, &profile, install, mode).is_ok_and(|fresh| same(&fresh, &file)) {
+                return activate(dirs, &profile.id, install).map(Some);
+            }
             // the profile's late natives and the compat rules live in chain.ini only
             write_chain_plan(dirs, &profile, install, &file)?;
+            if !(placed.retained.is_empty() && placed.kept_files.is_empty() && placed.warnings.is_empty()) {
+                if let Some(mut a) = active(dirs, install)? {
+                    a.own_loaders = placed.own_loaders;
+                    a.kept_files = placed.kept_files;
+                    a.warnings = placed.warnings;
+                    a.retained = placed.retained;
+                    return Ok(Some(a));
+                }
+            }
         }
         return Ok(None);
     }

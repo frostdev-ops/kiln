@@ -1002,8 +1002,114 @@ fn one_sf_or_set_copy_kiln_cannot_touch_never_blocks_activation_removal_or_play(
     let gone = profile::save(&dirs, &gone).unwrap();
     let a = profile::activate(&dirs, &gone.id, &game);
     assert!(a.is_ok(), "the mods removed: {:?}", a.err());
+    // what still runs: Kiln's SET plugin runs every mod in its folder; ShroudForge may still load its package
+    let a = serde_json::to_value(a.unwrap()).unwrap();
+    let reason = |p: &Path| a["retained"].as_array().unwrap().iter().find(|r| r["path"] == serde_json::json!(p))
+        .and_then(|r| r["reason"].as_str()).unwrap_or_default().to_string();
+    assert!(reason(&set_copy).contains("It is off in the profile, but Kiln's SET plugin runs every mod in that folder"), "{a}");
+    assert!(reason(&sf_copy).contains("It is off in the profile, but ShroudForge may still load it"), "{a}");
     assert_eq!(std::fs::read(set_copy.join("init.lua")).unwrap(), b"print('tuned')");
     assert!(std::fs::read_to_string(sf_copy.join("extended.mod.json")).unwrap().contains("\"value\":null"));
+}
+
+/// A drop that turns a remembered profile back on activates twice (the resume, then the profile with the new mod):
+/// what the first activation put back is still in the result.
+#[test]
+fn a_resumed_profiles_kept_files_survive_the_add_that_resumed_it() {
+    let t = tmp("resume-notes");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let set = refs(&r, ModKind::Set, "flymode");
+    let mut p = profile::create(&dirs, "set", None).unwrap();
+    p.mods.set = vec![pm(&set, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let game = game_with_z(&t.0);
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    put(&game.path.join("shrouded_engine_tweaks/mods/flymode"), "settings.json", br#"{"speed":4}"#);
+    let edit = |on: bool| {
+        let mut x = profile::get(&dirs, &p.id).unwrap();
+        x.mods.set[0].enabled = on;
+        profile::save(&dirs, &x).unwrap()
+    };
+    // switched off: the settings wait in kiln/kept-mod-files; on again in the launcher, then Kiln is uninstalled
+    profile::activate(&dirs, &edit(false).id, &game).unwrap();
+    edit(true);
+    std::fs::remove_file(game.path.join("kiln/profile.json")).unwrap();
+    let k = t.0.join("src2/isle-colours");
+    put(&k, "kiln.mod.json", br#"{"id":"isle-colours","name":"Isle Colours","version":"1.0.0","apiVersion":"0.2","side":"client"}"#);
+    put(&k, "content/colours.json", br#"{"format":1}"#);
+    let r = kiln_manage::quick::add_with(&dirs, &game, &[k], false, &mut NoProgress).unwrap();
+    assert!(r.resumed, "{r:?}");
+    let a = r.activation.expect("activated");
+    assert!(a.kept_files.iter().any(|s| s.starts_with("set:flymode: put back")), "{a:?}");
+}
+
+/// A ShroudForge package in the Library that the reader refuses (imported by dev.23 with the laxer reader; the import
+/// gate refuses new ones): activation does not place it, names it, and places the profile's other mods.
+#[test]
+fn a_library_package_shroudforge_would_refuse_is_not_placed_and_stops_nothing() {
+    let t = tmp("sf-refused-entry");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let (sf, set) = (refs(&r, ModKind::ShroudForge, "sfpack"), refs(&r, ModKind::Set, "flymode"));
+    // the entry as it was imported then: a setting value that is an object
+    let old = library::path_of(&dirs, &sf).unwrap();
+    std::fs::write(old.join("extended.mod.json"), br#"{"launcher":"SF","enabled":false,"targets":["client","server"],
+        "settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":{"x":3}}}}"#).unwrap();
+    let hash = hash::dirhash(&old).unwrap();
+    let new = dirs.library_entry(ModKind::ShroudForge, &sf.id, &sf.version, &hash).unwrap();
+    std::fs::rename(&old, &new).unwrap();
+    let record = |p: &Path| PathBuf::from(format!("{}.json", p.display()));
+    let mut rec: serde_json::Value = serde_json::from_slice(&std::fs::read(record(&old)).unwrap()).unwrap();
+    rec["hash"] = hash.clone().into();
+    std::fs::write(record(&new), serde_json::to_vec(&rec).unwrap()).unwrap();
+    std::fs::remove_file(record(&old)).unwrap();
+    let sf = LibraryRef { hash, ..sf };
+    assert!(kiln_manage::shroudforge::read_mod(&library::path_of(&dirs, &sf).unwrap()).is_err(), "the reader refuses it");
+    let mut p = profile::create(&dirs, "refused", None).unwrap();
+    p.mods.shroudforge = vec![pm(&sf, true)];
+    p.mods.set = vec![pm(&set, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let game = game_with_z(&t.0);
+    let a = profile::activate(&dirs, &p.id, &game);
+    assert!(a.is_ok(), "{:?}", a.err());
+    let a = a.unwrap();
+    assert!(game.path.join("shrouded_engine_tweaks/mods/flymode/init.lua").is_file(), "the other mods are placed");
+    assert!(!game.path.join("mods/sfpack").exists());
+    assert!(a.warnings.iter().any(|w| w.contains("shroudforge:sfpack") && w.contains("cannot be read")), "{a:?}");
+}
+
+/// Server sync carries a ShroudForge mod's settings into its new version like activation does: a value the new version
+/// refuses keeps the new default and is reported, and the mods after it are still deployed.
+#[test]
+fn server_sync_keeps_the_new_default_for_a_refused_shroudforge_setting() {
+    use kiln_manage::server::{control, instance::ServerInstance};
+    struct Said(Vec<String>);
+    impl kiln_manage::task::Progress for Said {
+        fn report(&mut self, _: Option<f32>, message: &str) { self.0.push(message.to_string()); }
+    }
+    let t = tmp("server-sf-refused");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = sources(&t.0);
+    let r = library::import(&dirs, &src, &mut NoProgress).unwrap();
+    let server = t.0.join("server");
+    std::fs::create_dir_all(server.join("kiln")).unwrap();
+    let inst: ServerInstance = serde_json::from_value(serde_json::json!({
+        "id": "t", "name": "t", "kind": "local", "dir": server, "port": 27140, "queryPort": 27140, "wine": null,
+        "policy": "any", "source": "launcher", "remote": null })).unwrap();
+    control::sync(&dirs, &inst, &[refs(&r, ModKind::ShroudForge, "sfpack")], &mut NoProgress).unwrap();
+    let copy = server.join("mods/sfpack");
+    kiln_manage::shroudforge::set_setting(&copy, "speed", &serde_json::json!(7)).unwrap();
+    put(&src[1], "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"2.0.0"}"#);
+    put(&src[1], "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
+    let v2 = refs(&library::import(&dirs, std::slice::from_ref(&src[1]), &mut NoProgress).unwrap(), ModKind::ShroudForge, "sfpack");
+    let mut said = Said(Vec::new());
+    let r2 = control::sync(&dirs, &inst, &[v2, refs(&r, ModKind::Set, "flymode")], &mut said);
+    assert!(r2.is_ok(), "{:?}", r2.err());
+    assert_eq!(kiln_manage::shroudforge::read_mod(&copy).unwrap().version, "2.0.0");
+    assert_eq!(kiln_manage::shroudforge::read_mod(&copy).unwrap().settings[0].value, 1);
+    assert!(server.join("shrouded_engine_tweaks/mods/flymode/init.lua").is_file(), "the next mod is deployed");
+    assert!(said.0.iter().any(|m| m.contains("speed") && m.contains('7')), "{:?}", said.0);
 }
 
 /// ShroudForge packages placed through the same code: a file the mod writes next to its package is the player's too.
