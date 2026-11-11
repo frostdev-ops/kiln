@@ -97,8 +97,11 @@ using LdrEnumerate = LONG(WINAPI*)(void* reserved, void(WINAPI* callback)(LDR_DA
 // list short without an error. A failure here names the call and its code.
 inline Inspection inspect_runtime() {
     static std::mutex mutex;
-    std::lock_guard lock(mutex);
+    // A DLL initializer can enter while holding the loader lock and another inspector is waiting for it.
+    // Never wait for that inspector; an unread inventory is retried by ConflictGate, not reported clean.
+    std::unique_lock lock(mutex, std::try_to_lock);
     const auto failed = [](std::string what) { return Inspection{Inventory::failed, std::move(what)}; };
+    if (!lock.owns_lock()) return failed("loaded modules could not be inspected: another inspection is in progress");
     const auto foreign = [](std::string what) { return Inspection{Inventory::foreign, std::move(what)}; };
     auto utf8 = [](const std::filesystem::path& p) { auto s = p.u8string(); return std::string(s.begin(), s.end()); };
     wchar_t system_path[32768]{};

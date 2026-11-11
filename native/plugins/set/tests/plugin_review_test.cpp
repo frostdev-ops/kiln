@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <thread>
 #include <array>
+#include <condition_variable>
 #define KSET_LOADER_HOST_TEST
 #include "../src/plugin.cpp"
 namespace { int shutdowns = 0, alive_shutdowns = 0, ticks = 0, frames = 0, queued = 0, settles = 0; bool throw_queue = false; std::string overlay_reason; std::vector<std::string> fileLines, consoleLines; }
@@ -49,8 +50,62 @@ void frames_and_steps(int n, uint64_t elapsed_ms = 16) {
     }
 }
 }
+// A DLL initializer owns the loader lock while a game thread inspects modules. If it enters the same
+// hook/inventory, neither the inventory mutex nor the caller's check mutex may wait for that game thread.
+int loader_lock_check(bool plugin) {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool referencing = false, done = false;
+    std::thread watchdog([&] {
+        std::unique_lock lock(mu);
+        if (!cv.wait_for(lock, std::chrono::seconds(3), [&] { return done; })) {
+            std::fprintf(stderr, "FAIL %s: loader-lock owner blocked behind an inspector waiting for the loader lock\n",
+                         plugin ? "may_run" : "inspect_runtime");
+            std::_Exit(1);
+        }
+    });
+    if (plugin) { g_running = true; assert(g_modules.arm()); loader_test::dll_loaded(); }
+    loader_test::on_walk = [&] {
+        std::lock_guard lock(mu);
+        referencing = true;
+        cv.notify_all();
+    };
+    std::unique_lock loader(loader_test::loader_lock);
+    std::thread inspector([&] {
+        if (plugin) assert(may_run());
+        else assert(kset::inspect_runtime().state == kset::Inventory::clean);
+    });
+    {
+        std::unique_lock lock(mu);
+        cv.wait(lock, [&] { return referencing; });
+    }
+    if (plugin) {
+        loader_test::dll_loaded();
+        assert(may_run());
+    } else {
+        const auto seen = kset::inspect_runtime();
+        assert(seen.state == kset::Inventory::failed && seen.text.find("in progress") != std::string::npos);
+    }
+    loader.unlock();
+    inspector.join();
+    loader_test::on_walk = {};
+    if (plugin) {
+        // The second caller consumed a fresh notification. It must leave a recheck pending, not lose it.
+        const size_t before = loader_test::walks;
+        assert(may_run() && loader_test::walks == before + 1);
+        g_modules.disarm();
+    }
+    {
+        std::lock_guard lock(mu);
+        done = true;
+    }
+    cv.notify_all();
+    watchdog.join();
+    std::printf("PASS %s: no loader-lock inversion; a contended check is retried\n", plugin ? "may_run" : "inspect_runtime");
+    return 0;
+}
 int main(int argc, char** argv) {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
     assert(kiln_plugin_main(nullptr, 0, nullptr) == KILN_ERR_UNAVAILABLE);
     const std::filesystem::path root(argv[1]);
     std::filesystem::remove_all(root / "control");
@@ -68,6 +123,7 @@ int main(int argc, char** argv) {
     api.log = [](KilnOwner, int32_t, KilnStr text) { fileLines.emplace_back(text.ptr, text.len); };
     api.server_world = []() -> uintptr_t { return 1; };
     g_api = &api;
+    if (argc == 3) return loader_lock_check(std::string(argv[2]) == "plugin-lock");
     // Tool debug and LV_LOG diagnostics are file-only; ordinary SET output still reaches the private console.
     ui_sink("tool diagnostics"); sink(LV_LOG "file only"); sink(LV_WARN "warning"); sink("plain");
     assert((fileLines == std::vector<std::string>{"[set] tool diagnostics", "[set] file only", "[set] warning", "[set] plain"}));
