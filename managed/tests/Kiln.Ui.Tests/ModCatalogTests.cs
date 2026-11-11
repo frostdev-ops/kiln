@@ -303,13 +303,15 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("other side", Mod(s, "shroudforge", "server").Word);
         Assert.Equal("inactive", Mod(s, "shroudforge", "inactive").Word);
         Assert.Equal("startup", Mod(s, "shroudforge", "patch").Word);
-        // the five states ShroudForge's runtime accepts (runtime.report_effect; mods/tests/sf-probe), read with the
-        // launcher's tones (EngineStatus.tsx: /fail|error|blocked/ an error, /no-target|waiting|restart/ a warning)
+        // the five states a mod reports (runtime.report_effect; mods/tests/sf-probe) and the four ShroudForge's runtime
+        // sets, as the launcher shows them: write-failed and error an error, write-confirmed, loaded and no-change plain,
+        // anything else (pending or unknown) a warning
         foreach (var (effect, want) in new[]
                  {
                      ("write-failed", ModRunState.Failed), ("waiting", ModRunState.Waiting), ("no-target", ModRunState.Waiting),
                      ("no-change", ModRunState.Loaded), ("write-confirmed", ModRunState.Loaded),
-                     ("error", ModRunState.Failed), ("restart-required", ModRunState.Waiting),
+                     ("loading", ModRunState.Waiting), ("loaded", ModRunState.Loaded), ("error", ModRunState.Failed),
+                     ("restart-required", ModRunState.Waiting), ("something-new", ModRunState.Waiting),
                  })
         {
             Runtime(Pid, true, now, effect);

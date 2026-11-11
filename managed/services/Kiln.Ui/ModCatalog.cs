@@ -1033,16 +1033,16 @@ internal static class ModCatalog
         return m with { State = ModRunState.Loaded, Word = "active", Reason = "ShroudForge runs its Lua; the mod reports no effect result.", Help = null };
     }
 
-    /// <summary>A mod's reported effect state (ShroudForge's runtime accepts waiting, no-target, no-change, write-confirmed
-    /// and write-failed) with the launcher's tones (EngineStatus.tsx): a failure or error is Failed, waiting / no-target /
-    /// restart is Waiting, the rest (a confirmed write, no change) Loaded.</summary>
-    internal static ModRunState EffectState(string state)
+    /// <summary>A mod's reported effect state as the launcher shows it: a mod reports waiting, no-target, no-change,
+    /// write-confirmed or write-failed; ShroudForge's runtime also sets loading, loaded, error and restart-required.
+    /// write-failed and error are Failed; write-confirmed, loaded and no-change are Loaded; every other state (waiting,
+    /// no-target, loading, restart-required, a word Kiln does not know) is Waiting, never a healthy green.</summary>
+    internal static ModRunState EffectState(string state) => state switch
     {
-        var w = state.ToLowerInvariant();
-        if (w.Contains("fail") || w.Contains("error") || w.Contains("blocked")) return ModRunState.Failed;
-        if (w.Contains("no-target") || w.Contains("waiting") || w.Contains("restart")) return ModRunState.Waiting;
-        return ModRunState.Loaded;
-    }
+        "write-failed" or "error" => ModRunState.Failed,
+        "write-confirmed" or "loaded" or "no-change" => ModRunState.Loaded,
+        _ => ModRunState.Waiting,
+    };
 
     // ---- Enshwick: the profile and <game>/mods for the list, enshwick.json for the loader and copy notes ----
     private static void Enshwick(Builder b, JsonElement? boot)
