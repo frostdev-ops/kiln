@@ -525,11 +525,15 @@ fn placement_preserves_settings_across_versions_and_stages_before_replacing() {
     put(&src, "extended.mod.json", br#"{"launcher":"SF","enabled":false,"settings":{"speed":{"value":1,"min":0,"max":2}}}"#);
     let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
     p.mods.shroudforge[0] = pm(&refs(&r, ModKind::ShroudForge, "sfpack"), true);
-    // Incompatible old values must be reported before removing the working old version.
-    assert!(engine_mods::place(&dirs, &p, &game).is_err());
+    // An old value the new version refuses does not hold the update back (nor every other mod of the profile): the
+    // new version starts with its own default, and the result names the value that was not carried.
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
     let m = kiln_manage::shroudforge::read_mod(&dst).unwrap();
-    assert_eq!(m.version, "2.0.0");
-    assert_eq!(m.settings[0].value, 7);
+    assert_eq!(m.version, "3.0.0");
+    assert_eq!(m.settings[0].value, 1);
+    let warnings = serde_json::to_value(&rep).unwrap()["warnings"].clone();
+    assert!(warnings.as_array().into_iter().flatten().filter_map(|w| w.as_str())
+        .any(|w| w.contains("shroudforge:sfpack") && w.contains("speed") && w.contains('7')), "{rep:?}");
 }
 
 #[test]
@@ -542,10 +546,14 @@ fn placement_refuses_modified_owned_trees_and_symlinked_roots() {
     let game = t.0.join("game");
     engine_mods::place(&dirs, &p, &game).unwrap();
     let dst = game.join("shrouded_engine_tweaks/mods/flymode");
-    // the player edited a file of the library copy: that copy is no longer Kiln's to remove
+    // the player edited a file of the library copy: that copy is no longer Kiln's to remove. It stays, is reported
+    // as possibly still running, and does not stop the rest of the activation.
     put(&dst, "init.lua", b"print('edited')");
     p.mods.set.clear();
-    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap_err().code, ErrorCode::Refused);
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.retained.len(), 1, "{rep:?}");
+    assert!(rep.retained[0].path == dst && rep.retained[0].may_run && rep.retained[0].reason.contains("managed copy changed"), "{rep:?}");
+    assert!(rep.removed.is_empty(), "{rep:?}");
     assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"print('edited')");
     let linked_game = t.0.join("linked-game");
     std::fs::create_dir_all(&linked_game).unwrap();
@@ -638,7 +646,8 @@ fn engine_status_reports_bad_json_and_eml_restore_refuses_symlinks() {
     put(&t.0, "vanilla", b"vanilla");
     std::os::unix::fs::symlink(t.0.join("vanilla"), t.0.join("enshrouded.kfc.bak")).unwrap();
     assert!(engine_mods::eml_backup(&t.0).is_err());
-    assert!(engine_mods::eml_restore_vanilla(&t.0).is_err());
+    // eml_restore_vanilla refuses every folder (direct_restore_never_overwrites_shared_archive_data...): a check of it
+    // here could not fail, whatever it did with the link.
     assert_eq!(std::fs::read(t.0.join("enshrouded.kfc")).unwrap(), b"patched");
 }
 
@@ -911,11 +920,90 @@ fn shipped_settings_file_may_change_other_library_files_may_not() {
     assert_eq!(std::fs::read(game.join("kiln/kept-mod-files/set/glider/notes.txt")).unwrap(), b"mine");
     assert!(rep.kept_files[0].contains("notes.txt") && rep.kept_files[0].contains("ships its own file"), "{rep:?}");
     assert_eq!(std::fs::read(dst.join("readme.txt")).unwrap(), b"v2");
-    // a changed library file that is no settings file: refused, nothing removed
+    // a changed library file that is no settings file: retained and reported, nothing removed
     put(&dst, "readme.txt", b"edited");
     p.mods.set.clear();
-    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap_err().code, ErrorCode::Refused);
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert!(rep.retained.iter().any(|r| r.path == dst && r.may_run && r.reason.contains("managed copy changed")), "{rep:?}");
+    assert!(rep.removed.is_empty(), "{rep:?}");
     assert_eq!(std::fs::read(dst.join("readme.txt")).unwrap(), b"edited");
+}
+
+/// Earlier values parked as `.kept-N` in kiln/kept-mod-files are recovery copies, not files the mod wrote: when the mod
+/// is placed again they stay in the kept folder and do not land in the live copy.
+#[test]
+fn kept_n_recovery_files_stay_in_the_kept_folder_when_a_mod_comes_back() {
+    let t = tmp("kept-n");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/flymode");
+    put(&src, "init.lua", b"print('fly')");
+    let v1 = refs(&library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap(), ModKind::Set, "flymode");
+    let mut p = profile::create(&dirs, "kept-n", None).unwrap();
+    p.mods.set = vec![pm(&v1, true)];
+    let game = t.0.join("game");
+    let dst = game.join("shrouded_engine_tweaks/mods/flymode");
+    let kept = game.join("kiln/kept-mod-files/set/flymode");
+    // two earlier removals left the latest settings and, parked beside them, an older value
+    put(&kept, "settings.json", br#"{"speed":5}"#);
+    put(&kept, "settings.json.kept-1", br#"{"speed":4}"#);
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), br#"{"speed":5}"#, "{rep:?}");
+    assert!(!dst.join("settings.json.kept-1").exists(), "a recovery copy is not the mod's file: {rep:?}");
+    assert_eq!(std::fs::read(kept.join("settings.json.kept-1")).unwrap(), br#"{"speed":4}"#);
+    assert!(!kept.join("settings.json").exists(), "the value that went back leaves the kept folder");
+}
+
+/// The `retained` list of an activation as the launcher reads it: the paths of the copies that may still run.
+fn retained_paths(a: &profile::Activation) -> Vec<PathBuf> {
+    let v = serde_json::to_value(a).unwrap();
+    v["retained"].as_array().into_iter().flatten().filter(|r| r["mayRun"] == true && r["reason"].as_str().is_some_and(|s| !s.is_empty()))
+        .map(|r| PathBuf::from(r["path"].as_str().unwrap())).collect()
+}
+
+/// A SET or ShroudForge copy Kiln may not touch (the player edited its code, or its settings are ones ShroudForge's rules
+/// refuse) is left as it is and reported; it never blocks switching profiles, removing that mod or Play.
+#[test]
+fn one_sf_or_set_copy_kiln_cannot_touch_never_blocks_activation_removal_or_play() {
+    use kiln_manage::launch::{LaunchMode, LaunchRequest};
+    let t = tmp("untouchable-copy");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let (sf, set) = (refs(&r, ModKind::ShroudForge, "sfpack"), refs(&r, ModKind::Set, "flymode"));
+    let mut p = profile::create(&dirs, "both", None).unwrap();
+    p.mods.shroudforge = vec![pm(&sf, true)];
+    p.mods.set = vec![pm(&set, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let other = profile::create(&dirs, "other", None).unwrap();
+    let game = game_with_z(&t.0);
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let set_copy = game.path.join("shrouded_engine_tweaks/mods/flymode");
+    let sf_copy = game.path.join("mods/sfpack");
+    // the player tuned SET's code in place; ShroudForge's editor left a setting its own rules refuse
+    put(&set_copy, "init.lua", b"print('tuned')");
+    put(&sf_copy, "extended.mod.json", br#"{"launcher":"SF","enabled":true,"targets":["client","server"],
+        "settings":{"speed":{"label":"Speed","control":"slider","min":1,"max":10,"value":null}}}"#);
+    // the same profile again, Play, another profile, the mods removed: all go on and report both copies
+    let a = profile::activate(&dirs, &p.id, &game);
+    assert!(a.is_ok(), "the same profile: {:?}", a.err());
+    let a = a.unwrap();
+    assert!(retained_paths(&a).contains(&set_copy) && retained_paths(&a).contains(&sf_copy), "{a:?}");
+    let req = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+    let mut edited = profile::get(&dirs, &p.id).unwrap();
+    edited.name = "edited".into();
+    profile::save(&dirs, &edited).unwrap();
+    let r = kiln_manage::launch::play_with(&dirs, &game, &req, Some(&[]), &|_| Ok(()));
+    assert!(r.is_ok(), "Play: {:?}", r.err());
+    let a = profile::activate(&dirs, &other.id, &game);
+    assert!(a.is_ok(), "another profile: {:?}", a.err());
+    assert!(retained_paths(&a.unwrap()).contains(&set_copy));
+    let mut gone = profile::get(&dirs, &p.id).unwrap();
+    gone.mods.set.clear();
+    gone.mods.shroudforge.clear();
+    let gone = profile::save(&dirs, &gone).unwrap();
+    let a = profile::activate(&dirs, &gone.id, &game);
+    assert!(a.is_ok(), "the mods removed: {:?}", a.err());
+    assert_eq!(std::fs::read(set_copy.join("init.lua")).unwrap(), b"print('tuned')");
+    assert!(std::fs::read_to_string(sf_copy.join("extended.mod.json")).unwrap().contains("\"value\":null"));
 }
 
 /// ShroudForge packages placed through the same code: a file the mod writes next to its package is the player's too.
