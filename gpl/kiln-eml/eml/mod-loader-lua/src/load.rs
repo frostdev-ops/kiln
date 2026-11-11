@@ -55,6 +55,7 @@ pub fn create_writer(
 ) -> Result<crate::transaction::PatchWriter, ()> {
     // kiln-eml: only the private staging directory is writable by the KFC writer.
     let stage = dir.join(format!(".kiln-eml-stage-{}", uuid::Uuid::new_v4()));
+    crate::cleanup::record(dir.as_std_path(), file_name, stage.file_name().ok_or(())?).map_err(|_| ())?;
     std::fs::create_dir(&stage).map_err(|_| ())?;
     let mut patch = crate::transaction::PatchWriter {
         writer: None, stage: stage.clone().into_std_path_buf(), game: dir.into(), name: file_name.into(),
@@ -102,6 +103,13 @@ pub fn create_backup(
     kfc_path: impl AsRef<Path>
 ) -> Result<PathBuf, ()> {
     let path = kfc_path.as_ref();
+    // kiln-eml: baseline writes happen before final publication. SF's lock/status must protect this shared pair too,
+    // or a refused handoff can already have replaced the backups an active SF preparation is using.
+    let root = path.parent().ok_or(())?;
+    let stem = path.file_stem().ok_or(())?;
+    let _sf = crate::ownership::before_baseline(root.as_std_path(), stem).map_err(|error| {
+        error!(%error, "Refusing vanilla backup changes while ShroudForge owns the archive writer");
+    })?;
     let mut bak_path = path.to_string();
     bak_path.push_str(".bak");
     let bak_path = Path::new(&bak_path);
@@ -193,10 +201,15 @@ pub fn restore_backup(
 
     let root = path.parent().ok_or(())?;
     let stem = path.file_stem().ok_or(())?;
-    // SF's locks (when its prepared-output state was handed over) stay held until both copies are done
+    // Proof is rechecked under SF's lock. Hold it through both copies AND container cleanup: SF must not append
+    // new containers between reading the restored header's range and removing the old generation's extras.
     let _sf = crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
-        error!(%error, "Refusing archive restore: ShroudForge prepared-output cache could not be safely invalidated");
+        error!(%error, "Refusing archive restore: ownership or ShroudForge prepared-output state could not be safely checked");
     })?;
+    let added = crate::ownership::live_containers(root.as_std_path(), stem).unwrap_or_else(|error| {
+        tracing::warn!(%error, "The receipt's containers cannot be read; the restore leaves them in place");
+        None
+    });
     if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {
         error!(
             path = ?path,
@@ -220,6 +233,9 @@ pub fn restore_backup(
     if resources_backup.exists() {
         crate::transaction::atomic_copy(resources_backup.as_std_path(), path.with_extension("kfc_resources").as_std_path())
             .map_err(|_| ())?;
+    }
+    if let Some(added) = added && let Err(error) = crate::ownership::remove_unreferenced(root.as_std_path(), stem, &added) {
+        tracing::warn!(%error, "The vanilla data is back; container files EML had added were left in place");
     }
     Ok(())
 }
@@ -558,6 +574,9 @@ mod kiln_tests {
         create_backup(&kfc).unwrap();
         std::fs::OpenOptions::new().append(true).open(&kfc).unwrap().write_all(b"patch tail").unwrap();
         std::fs::OpenOptions::new().append(true).open(&resources).unwrap().write_all(b"patch tail").unwrap();
+        // The restore entry now rechecks the runner's authorization while holding SF's lock. Record these exact
+        // test-patch bytes as an owned publication; merely sharing a backup must not authorize their replacement.
+        crate::ownership::prepare(dir.as_std_path(), "g", &[kfc.clone().into_std_path_buf(), resources.clone().into_std_path_buf()]).unwrap();
         restore_backup(&kfc).unwrap();
         assert_eq!(std::fs::read(&kfc).unwrap(), original);
         assert_eq!(std::fs::read(&resources).unwrap(), original_resources);

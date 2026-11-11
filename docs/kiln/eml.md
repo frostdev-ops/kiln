@@ -202,8 +202,17 @@ It fails soft:
   The restore copies back the header and the resource file, then removes the container files the output added (EML
   appends `<exe>_NNN.dat` after the game's own and pads their count to a power of two with empty files: on a client
   `_055` with the content and `_056` to `_063` empty): only those the receipt lists, each only while it is exactly the
-  listed file, and never one the vanilla header references. A player's own file is never touched. A publication with
+  listed file, and never one the vanilla header references. No unproven file is deleted. A publication with
   fewer containers than the output it replaces removes the old ones the new header no longer references the same way.
+  An existing destination DAT with matching per-file receipt proof (including adopted legacy output) is replaced in
+  place. An unproven destination is never overwritten: its index must be at or above the private vanilla header's
+  container count. Kiln records its exact name, size and SHA-256 in `kiln/eml/displaced/<run-id>/moves.json`, flushes
+  that journal, publishes the vanilla-header barrier so nothing references it, then renames it into that recovery
+  folder without replacing an existing file. All these moves must succeed before any further data archive write.
+  A killed run leaves either the original file or its preserved copy and move journal; the next enabled start can
+  patch again from the baseline. While moves are pending, the receipt cannot claim identical unmoved foreign bytes.
+  `reason` and the warning log list this start's moved files, sizes and destinations; later starts name each recovery
+  folder only while it exists. Kiln never deletes anything in `kiln/eml/displaced/`.
 - **Output of dev.20 to dev.23 (before receipts):** once, when there is no receipt, kiln-eml checks the change cache that
   release left (`kiln/eml/cache/files.json`, written only after a completed publication or a start that changed
   nothing). It is proof only when it is the record of a patch run of this stem, names the live `<exe>.kfc` and
@@ -211,11 +220,15 @@ It fails soft:
   names the backups present exactly (by content, or by a change stamp on a volume that passes the scratch-file test),
   and the backup pair passes its seal. Then a normal receipt is written and the restore goes on as above. This reads
   the header, the resource file and the backups once (about 0.45 GiB on a client) and says so in the log.
-- **A run killed half way** leaves its private stage folder (`.kiln-eml-stage-<uuid>` in the game folder: a full copy
-  of the resource file and what it had written), temp copies (`<exe>.kiln-<uuid>`, `<exe>.kfc.kiln-<uuid>`) and, one per
-  handoff, SF journals (`kiln/eml/ownership/sf-handoff-<uuid>.json`). The next run removes them under the install lock,
-  by their exact shape only: a stage folder that holds anything but staged game files is left (with a warning in the
-  log), and the 16 newest journals stay.
+- **A run killed half way:** before creating a stage (`.kiln-eml-stage-<uuid>`) or a game-folder temp copy, kiln-eml
+  flushes its exact name to `kiln/eml/ownership/cleanup-<uuid>.json`. The next start, under the installation lock,
+  removes the recorded temp, or the recorded stage's regular archive files, vanilla-header snapshot and archive temps;
+  it removes the stage only if empty, then drops the record. Foreign children stay, with their folder. Unrecorded
+  stages and game-folder temps (including copies from older releases) are never removed: `reason` in `eml.json` and
+  the warning log name each retained path and its byte size, so the player can inspect and reclaim the space manually.
+  Handoff journals and state temps in Kiln's own ownership folder are bounded separately: the newest 16 SF handoff
+  journals survive next-start cleanup; receipt, cleanup-record and journal temps there are removed. These SF journals
+  are historical evidence, not instructions for rolling archives back; current recovery proof is in the stem receipt.
 - **ShroudForge asset mods and EML mods together.** In a start where Kiln hosts ShroudForge (the active profile lists
   an enabled SF mod), only ShroudForge writes the game data: its early step reserves the writer before it prepares
   (`kiln.eml` `stand_aside`, section 6), and kiln-eml publishes `aside` and patches nothing. SF builds
@@ -234,17 +247,26 @@ It fails soft:
   the game data is of the new one. A start without EML mods then compares nothing, restores nothing and claims nothing
   about the data: one info line in kiln.log (`... the vanilla backup is of another game build ...`), `staleBackup:
   true` in `kiln/state/eml.json`, and the launcher's archive banner says the backup is of an earlier build and nothing
-  needs doing. The next start with an EML mod makes a new backup of the current build.
+  needs doing to that backup. Extra containers are still named in `reason` and the log for manual inspection; that
+  guidance must be shown alongside the stale-backup notice, not suppressed by it. The next start with an EML mod makes
+  a new backup of the current build, moves unproven colliding containers into the recovery folder above, then patches.
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another
   loader wrote it, nothing needs doing. If it still carries EML mods that were switched off: enable any EML mod for
-  one start and disable it again (that start publishes with a receipt, the next one restores), or use Steam's
-  "Verify integrity of game files".
+  one start and disable it again (that start preserves unproven collisions and publishes with a receipt; the next one
+  restores), or use Steam's "Verify integrity of game files". Neither route deletes unproven extra files:
+  retained containers are named in `reason` and the log, including when the live archives already match vanilla or the
+  backup is stale. Inspect them before manual cleanup; Steam verification can leave extra containers behind.
 - **Writer handoff:** exact output/backup SHA-256 receipts live in `kiln/eml/ownership/`. Before changing archives,
   kiln-eml invalidates only a recognized ShroudForge prepared-asset cache under ShroudForge's installation lock.
-  Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. Unknown
-  schemas, busy locks and unsafe paths refuse the handoff. This does not automatically repair pre-existing stale SF state.
+  Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. The same
+  lock and state checks protect shared backup capture and resealing, before publication; checking or refreshing a
+  baseline alone does not invalidate SF's applied state. If the `shroudforge/` folder is absent, no standalone SF helper
+  can run from it: no SF lock is taken and no SF folder or state is created. Publication checks existing-container proof under that lock;
+  restoration rechecks whole-output and backup proof under it, and retains it through removal of owned extras. A
+  completed SF write between the runner's earlier check and lock acquisition therefore cannot reuse stale proof.
+  Unknown schemas, busy locks and unsafe paths refuse the work. This does not automatically repair pre-existing stale SF state.
 - **Launcher:** an archive differing from a shared backup does not prove EML wrote it. The old direct-restore command
   now refuses instead of copying a header without its resources, ownership checks or loader-state handoff. Disable EML
   mods and start the game through Kiln to let its archive writer restore proven EML output; when it cannot prove it,
@@ -299,7 +321,8 @@ usable cache, or the first start after a Kiln update, reads about a gigabyte of 
   receipt is those bytes, the output is still that one; only the receipt's sizes are compared, from metadata. A start
   whose cache does not record it yet (a cache saved before dev.24, say) checks in full once and records it. A start
   without EML mods compares sizes first, so another writer's output (another length) is rejected unread; the full check
-  is kept for the moment before a restore.
+  is kept for the moment before a restore. Retained-container guidance also inventories DAT names and reads the small
+  fixed header metadata (and same-build baseline version/count when idle), not archive entries or DAT contents.
 - **When a saved fingerprint is reused:** the stamp is the one it was recorded under, and length and last-write time are
   unchanged. An unread record is reused the same way: it is its stamp.
 - **A file whose stamp changed.** With a CRC on record, the file is read and the CRC decides, as in dev.21, until the

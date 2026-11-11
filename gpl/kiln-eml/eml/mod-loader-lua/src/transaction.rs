@@ -8,6 +8,8 @@ pub type Writer = KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>;
 pub(crate) const VANILLA_HEADER: &str = ".vanilla-header";
 #[cfg(test)]
 thread_local! { pub(crate) static BEFORE_PUBLISH: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
+#[cfg(test)]
+thread_local! { static TEMP_OPEN: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 // kiln-eml: between the two copies of a restore (load.rs), for the tests that look at what is held meanwhile
 #[cfg(test)]
 thread_local! { pub(crate) static DURING_RESTORE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
@@ -42,7 +44,7 @@ pub(crate) fn attributes_by_name(path: &Path) -> io::Result<u32> {
     Ok(attributes)
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)] { File::open(dir)?.sync_all()?; }
     #[cfg(windows)] {
         if under_wine() {
@@ -81,24 +83,62 @@ pub fn replace(src: &Path, dst: &Path) -> io::Result<()> {
     sync_dir(dst.parent().ok_or_else(|| io::Error::other("no parent"))?)
 }
 
+/// A same-volume rename that can never replace an existing recovery file.
+pub(crate) fn move_new(src: &Path, dst: &Path) -> io::Result<()> {
+    regular(src)?;
+    OpenOptions::new().read(true).write(true).open(src)?.sync_all()?;
+    #[cfg(target_os = "linux")] {
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
+        unsafe extern "C" { fn renameat2(a: i32, src: *const std::ffi::c_char, b: i32, dst: *const std::ffi::c_char, flags: u32) -> i32; }
+        let src = CString::new(src.as_os_str().as_bytes())?;
+        let dst = CString::new(dst.as_os_str().as_bytes())?;
+        if unsafe { renameat2(-100, src.as_ptr(), -100, dst.as_ptr(), 1) } != 0 { return Err(io::Error::last_os_error()); }
+    }
+    #[cfg(windows)] {
+        use std::os::windows::ffi::OsStrExt;
+        unsafe extern "system" { fn MoveFileExW(a: *const u16, b: *const u16, flags: u32) -> i32; }
+        // std produces verbatim absolute paths, including for game folders longer than MAX_PATH.
+        let source = fs::canonicalize(src)?;
+        let target = fs::canonicalize(dst.parent().ok_or_else(|| io::Error::other("no recovery parent"))?)?.join(dst.file_name().ok_or_else(|| io::Error::other("no recovery name"))?);
+        let a: Vec<_> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let b: Vec<_> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), 8) } == 0 { return Err(io::Error::last_os_error()); }
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    return Err(io::Error::other("exclusive recovery rename is unsupported on this platform"));
+    sync_dir(dst.parent().ok_or_else(|| io::Error::other("no recovery parent"))?)?;
+    sync_dir(src.parent().ok_or_else(|| io::Error::other("no archive parent"))?)
+}
+
 pub fn atomic_copy(src: &Path, dst: &Path) -> io::Result<()> {
     regular(src)?;
     if fs::symlink_metadata(dst).is_ok() { regular(dst)?; }
     let tmp = dst.with_extension(format!("kiln-{}", uuid::Uuid::new_v4()));
+    let record = crate::cleanup::record_temp(dst, &tmp)?;
     let result = (|| {
         let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        #[cfg(test)]
+        TEMP_OPEN.with(|check| { if let Some(check) = check.take() { check(&tmp); } });
         io::copy(&mut File::open(src)?, &mut f)?;
         f.sync_all()?;
         drop(f);
         replace(&tmp, dst)
     })();
-    let _ = fs::remove_file(tmp);
+    let _ = fs::remove_file(&tmp);
+    if !tmp.try_exists().unwrap_or(true) {
+        if let Some(record) = record {
+            // The rename/removal must persist before its write-ahead cleanup proof can disappear.
+            sync_dir(dst.parent().unwrap())?;
+            fs::remove_file(record)?;
+        }
+    }
     result
 }
 
 pub fn atomic_write(dst: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
     let tmp = dst.with_extension(format!("kiln-{}", uuid::Uuid::new_v4()));
+    let record = crate::cleanup::record_temp(dst, &tmp)?;
     let result = (|| {
         let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         f.write_all(bytes)?;
@@ -106,7 +146,14 @@ pub fn atomic_write(dst: &Path, bytes: &[u8]) -> io::Result<()> {
         drop(f);
         replace(&tmp, dst)
     })();
-    let _ = fs::remove_file(tmp);
+    let _ = fs::remove_file(&tmp);
+    if !tmp.try_exists().unwrap_or(true) {
+        if let Some(record) = record {
+            // The rename/removal must persist before its write-ahead cleanup proof can disappear.
+            sync_dir(dst.parent().unwrap())?;
+            fs::remove_file(record)?;
+        }
+    }
     result
 }
 
@@ -124,7 +171,10 @@ impl std::ops::DerefMut for PatchWriter {
     fn deref_mut(&mut self) -> &mut Writer { self.writer.as_mut().unwrap() }
 }
 impl Drop for PatchWriter {
-    fn drop(&mut self) { self.writer.take(); let _ = fs::remove_dir_all(&self.stage); }
+    fn drop(&mut self) {
+        self.writer.take();
+        if let Some(name) = self.stage.file_name().and_then(|n| n.to_str()) { crate::cleanup::finish_stage(&self.game, name); }
+    }
 }
 impl PatchWriter {
     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
@@ -143,11 +193,12 @@ impl PatchWriter {
         data.sort();
         for p in &data { regular(p)?; OpenOptions::new().read(true).write(true).open(p)?.sync_all()?; }
         // SF's locks (when its prepared-output state was handed over) stay held until the patched header is live
-        let _sf = crate::ownership::prepare(&self.game, &self.name, &data)?;
+        let mut prepared = crate::ownership::prepare(&self.game, &self.name, &data)?;
         // No old patched header may refer to the containers we are about to replace.
         atomic_copy(&self.stage.join(VANILLA_HEADER), &self.game.join(&header))?;
         boundary(0)?;
         let mut n = 1;
+        prepared.after_barrier(&self.game, || { boundary(n)?; n += 1; Ok(()) })?;
         for p in data.iter().filter(|p| p.file_name() != Some(std::ffi::OsStr::new(&header))) {
             replace(p, &self.game.join(p.file_name().unwrap()))?;
             boundary(n)?;
@@ -168,6 +219,30 @@ impl PatchWriter {
 pub(crate) mod tests {
     use super::*;
     #[test]
+    fn killed_resource_temp_has_durable_cleanup_proof_before_any_copy() {
+        let game = std::env::temp_dir().join(format!("kiln-temp-proof-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&game).unwrap();
+        fs::write(game.join("g.kfc_resources"), "live resources").unwrap();
+        TEMP_OPEN.with(|check| check.set(Some(|tmp| {
+            let root = tmp.parent().unwrap();
+            let records: Vec<_> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten().collect();
+            assert_eq!(records.len(), 1);
+            let proof: serde_json::Value = serde_json::from_slice(&fs::read(records[0].path()).unwrap()).unwrap();
+            assert_eq!(proof["name"], tmp.file_name().unwrap().to_str().unwrap());
+            assert_eq!(fs::metadata(tmp).unwrap().len(), 0, "proof precedes staged bytes");
+            fs::write(tmp, "half copied").unwrap();
+            panic!("simulated killed copy");
+        })));
+        let killed = std::panic::catch_unwind(|| atomic_copy(&game.join("g.kfc_resources"), &game.join("g.kfc_resources.bak")));
+        assert!(killed.is_err());
+        crate::prune(&game, "g");
+        assert_eq!(fs::read_dir(game.join("kiln/eml/ownership")).unwrap().count(), 0);
+        assert!(crate::recovery_guidance(&game, "g").unwrap().is_empty());
+        assert_eq!(fs::read(game.join("g.kfc_resources")).unwrap(), b"live resources");
+        assert!(!game.join("g.kfc_resources.bak").exists());
+        fs::remove_dir_all(game).unwrap();
+    }
+    #[test]
     fn directory_barrier_propagates_sync_errors() {
         #[cfg(windows)]
         if !under_wine() { return; } // native Windows uses MoveFileEx's WRITE_THROUGH instead
@@ -180,7 +255,7 @@ pub(crate) mod tests {
             let game = std::env::temp_dir().join(format!("kiln-transaction-{}", uuid::Uuid::new_v4()));
             let stage = game.join("stage");
             fs::create_dir_all(&stage).unwrap();
-            for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old"), ("g_002.dat", "old")] {
+            for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old")] {
                 fs::write(game.join(n), b).unwrap();
             }
             for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] {
@@ -247,7 +322,7 @@ pub(crate) mod tests {
         let game = std::env::temp_dir().join(format!("kiln-sf-lock-{}", uuid::Uuid::new_v4()));
         let stage = game.join("stage");
         fs::create_dir_all(&stage).unwrap();
-        for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old"), ("g_002.dat", "old")] {
+        for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old")] {
             fs::write(game.join(n), b).unwrap();
         }
         for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] { fs::write(stage.join(n), b).unwrap(); }
@@ -259,6 +334,53 @@ pub(crate) mod tests {
         assert_eq!(seen, [(0, true), (1, true), (2, true), (3, true)], "held at every boundary");
         assert!(!sf_write_lock_busy(&game), "released once published");
         drop(w);
+        fs::remove_dir_all(game).unwrap();
+    }
+    #[test]
+    fn sf_lock_also_covers_missing_state_and_byte_identical_publications() {
+        for unchanged in [true, false] {
+            let game = std::env::temp_dir().join(format!("kiln-sf-all-writes-{}", uuid::Uuid::new_v4()));
+            let stage = game.join("stage");
+            fs::create_dir_all(&stage).unwrap();
+            for (name, old, new) in [("g.kfc", "old patch", "new patch"), ("g.kfc_resources", "base old", "base new")] {
+                fs::write(game.join(name), if unchanged { new } else { old }).unwrap();
+                fs::write(stage.join(name), new).unwrap();
+            }
+            fs::write(game.join("g.kfc.bak"), "vanilla").unwrap();
+            fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+            fs::create_dir_all(game.join("shroudforge")).unwrap();
+            if unchanged { sf_applied(&game, "g"); }
+            let state = game.join("shroudforge/state.json");
+            let original = fs::read(&state).ok();
+            let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
+            w.publish(|n| {
+                assert!(sf_write_lock_busy(&game), "SF lock missing at boundary {n}, unchanged={unchanged}");
+                Ok(())
+            }).unwrap();
+            assert_eq!(fs::read(&state).ok(), original, "no state invented or unchanged claim invalidated");
+            assert!(!sf_write_lock_busy(&game));
+            drop(w);
+            fs::remove_dir_all(game).unwrap();
+        }
+    }
+    #[test]
+    fn busy_sf_without_state_refuses_before_any_archive_write() {
+        let game = std::env::temp_dir().join(format!("kiln-sf-first-start-{}", uuid::Uuid::new_v4()));
+        let stage = game.join("stage");
+        fs::create_dir_all(&stage).unwrap();
+        fs::create_dir_all(game.join("shroudforge/config")).unwrap();
+        let lock = File::create(game.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+        lock.lock().unwrap();
+        for name in ["g.kfc", "g.kfc_resources"] {
+            fs::write(game.join(name), "old").unwrap();
+            fs::write(stage.join(name), "new").unwrap();
+        }
+        fs::write(game.join("g.kfc.bak"), "vanilla").unwrap();
+        fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+        let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
+        assert!(w.publish(|_| panic!("busy SF allowed an archive write")).is_err());
+        assert_eq!(fs::read(game.join("g.kfc")).unwrap(), b"old");
+        drop((w, lock));
         fs::remove_dir_all(game).unwrap();
     }
     #[test]
@@ -294,9 +416,134 @@ pub(crate) mod tests {
             if fail < 3 { assert_eq!(fs::read(game.join("g.kfc")).unwrap(), header); }
             else { assert_eq!(reader.read_content(&ContentHash::from_data(b"new content")).unwrap().unwrap(), b"new content"); }
             drop(reader);
+            let stage = patch.stage.clone();
+            std::mem::forget(patch); // abrupt exit: no PatchWriter::drop
+            crate::prune(&game, "g");
+            assert!(!stage.exists(), "restart reclaims staged bytes at publication boundary {fail}");
+            assert!(crate::recovery_guidance(&game, "g").unwrap().is_empty());
+            fs::remove_dir_all(game).unwrap();
+        }
+    }
+    fn collision_patch() -> PatchWriter {
+        use kfc::{container::KFCWriteOptions, guid::ContentHash};
+        let game = std::env::temp_dir().join(format!("kiln-displace-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&game).unwrap();
+        File::create(game.join("g.kfc")).unwrap();
+        File::create(game.join("g.kfc_resources")).unwrap();
+        let types = Rc::new(TypeRegistry::default());
+        let mut original = Writer::new_with_options(&game, "g", types.clone(), "fixture", KFCWriteOptions { max_container_size: 1, ..Default::default() }).unwrap();
+        for blob in [b"vanilla one", b"vanilla two"] { original.write_content(&ContentHash::from_data(blob), blob).unwrap(); }
+        original.finalize().unwrap();
+        crate::load::create_backup(camino::Utf8Path::from_path(&game).unwrap().join("g.kfc")).unwrap();
+        let base = Rc::new(KFCFile::from_path(game.join("g.kfc.bak"), false).unwrap());
+        let mut patch = crate::load::create_writer(camino::Utf8Path::from_path(&game).unwrap(), "g", &types, &base).unwrap();
+        patch.write_content(&ContentHash::from_data(b"new content"), b"new content").unwrap();
+        patch.writer.take().unwrap().finalize().unwrap();
+        fs::write(game.join("g_002.dat"), b"foreign content").unwrap();
+        fs::write(game.join("g_003.dat"), b"").unwrap();
+        patch
+    }
+    fn move_folders(game: &Path) -> Vec<PathBuf> {
+        fs::read_dir(game.join("kiln/eml/displaced")).unwrap().flatten().map(|e| e.path()).collect()
+    }
+    #[test]
+    fn displacement_is_recoverable_at_every_move_and_archive_publication_boundary() {
+        use kfc::{container::KFCReader, guid::ContentHash};
+        for fail in 0..=6 {
+            let patch = collision_patch();
+            let (game, stage) = (patch.game.clone(), patch.stage.clone());
+            sf_applied(&game, "g");
+            let vanilla = fs::read(game.join("g.kfc.bak")).unwrap();
+            assert!(patch.publish(|n| {
+                assert!(sf_write_lock_busy(&game), "lock missing at displacement boundary {n}");
+                let folders = move_folders(&game);
+                assert_eq!(folders.len(), 1);
+                let journal: serde_json::Value = serde_json::from_slice(&fs::read(folders[0].join("moves.json")).unwrap()).unwrap();
+                assert_eq!(journal["vanillaContainers"], 2);
+                assert_eq!(journal["files"]["g_002.dat"]["size"], 15);
+                if n < 6 { assert_eq!(fs::read(game.join("g.kfc")).unwrap(), vanilla, "moves and data writes use the vanilla barrier"); }
+                if n == fail { Err(io::Error::other("killed publication")) } else { Ok(()) }
+            }).is_err());
+            let folder = move_folders(&game).pop().unwrap();
+            for (n, name, original) in [(1, "g_002.dat", b"foreign content".as_slice()), (2, "g_003.dat", b"".as_slice())] {
+                let path = if fail >= n { folder.join(name) } else { game.join(name) };
+                assert_eq!(fs::read(path).unwrap(), original, "original preserved at boundary {fail}");
+            }
+            let mut reader = KFCReader::new(&game, "g").unwrap().into_cursor().unwrap();
+            for blob in [b"vanilla one", b"vanilla two"] { assert_eq!(reader.read_content(&ContentHash::from_data(blob)).unwrap().unwrap(), blob); }
+            drop(reader);
+            std::mem::forget(patch);
+            crate::prune(&game, "g");
+            assert!(!stage.exists());
+            // A following enabled start can finish from the baseline; saved originals are never consumed or pruned.
+            let types = Rc::new(TypeRegistry::default());
+            let base = Rc::new(KFCFile::from_path(game.join("g.kfc.bak"), false).unwrap());
+            let mut next = crate::load::create_writer(camino::Utf8Path::from_path(&game).unwrap(), "g", &types, &base).unwrap();
+            next.write_content(&ContentHash::from_data(b"next patch"), b"next patch").unwrap();
+            next.finalize().unwrap();
+            assert!(crate::owns_output(&game, "g").unwrap());
+            for (name, original) in [("g_002.dat", b"foreign content".as_slice()), ("g_003.dat", b"".as_slice())] {
+                let saved: Vec<_> = move_folders(&game).iter().map(|d| d.join(name)).filter(|p| p.exists()).map(|p| fs::read(p).unwrap()).collect();
+                assert_eq!(saved, [original], "each foreign original is saved exactly once after restart, boundary {fail}");
+            }
+            assert!(crate::restore(camino::Utf8Path::from_path(&game).unwrap(), "g"));
+            assert_eq!(fs::read(game.join("g.kfc")).unwrap(), vanilla);
+            fs::remove_dir_all(game).unwrap();
+        }
+    }
+    #[test]
+    fn an_interrupted_move_never_overwrites_recovery_or_publishes_more_archives() {
+        for stop in [0, 1] {
+            let patch = collision_patch();
+            let game = patch.game.clone();
+            let resources = fs::read(game.join("g.kfc_resources")).unwrap();
+            let name = if stop == 0 { "g_002.dat" } else { "g_003.dat" };
+            let result = patch.publish(|n| {
+                if n == stop { fs::write(move_folders(&game)[0].join(name), "existing recovery").unwrap(); }
+                Ok(())
+            });
+            assert!(result.is_err(), "an existing recovery destination must stop publication");
+            assert_eq!(fs::read(move_folders(&game)[0].join(name)).unwrap(), b"existing recovery");
+            assert!(game.join(name).exists(), "failed move leaves source in place");
+            assert_eq!(fs::read(game.join("g.kfc_resources")).unwrap(), resources, "no data archive was written after a failed move");
+            assert_eq!(fs::read(game.join("g.kfc")).unwrap(), fs::read(game.join("g.kfc.bak")).unwrap());
             drop(patch);
             fs::remove_dir_all(game).unwrap();
         }
+    }
+    #[test]
+    fn a_written_ahead_receipt_cannot_claim_identical_unmoved_foreign_bytes() {
+        let patch = collision_patch();
+        let game = patch.game.clone();
+        for name in ["g.kfc", "g.kfc_resources", "g_002.dat", "g_003.dat"] { fs::copy(patch.stage.join(name), game.join(name)).unwrap(); }
+        let files: Vec<_> = ["g.kfc", "g.kfc_resources", "g_002.dat", "g_003.dat"].iter().map(|n| patch.stage.join(n)).collect();
+        let prepared = crate::ownership::prepare(&game, "g", &files).unwrap();
+        drop(prepared); // killed after receipt, before the vanilla barrier or any move
+        assert!(!crate::owns_output(&game, "g").unwrap(), "future digests cannot claim untouched foreign bytes");
+        let original = fs::read(game.join("g_002.dat")).unwrap();
+        let prepared = crate::ownership::prepare(&game, "g", &files).unwrap();
+        drop(prepared);
+        let receipt: serde_json::Value = serde_json::from_slice(&fs::read(game.join("kiln/eml/ownership/g.json")).unwrap()).unwrap();
+        assert_eq!(receipt["unproven"].as_array().unwrap().len(), 2, "even identical empty padding still needs displacement");
+        assert_eq!(fs::read(game.join("g_002.dat")).unwrap(), original);
+        patch.publish(|_| Ok(())).unwrap();
+        assert!(crate::owns_output(&game, "g").unwrap());
+        let saved: Vec<_> = move_folders(&game).iter().map(|d| d.join("g_002.dat")).filter(|p| p.exists()).map(|p| fs::read(p).unwrap()).collect();
+        assert_eq!(saved, [original]);
+        drop(patch);
+        fs::remove_dir_all(game).unwrap();
+    }
+    #[test]
+    fn a_destination_referenced_by_the_vanilla_header_is_never_displaced() {
+        let patch = collision_patch();
+        let game = patch.game.clone();
+        fs::copy(game.join("g_000.dat"), patch.stage.join("g_000.dat")).unwrap();
+        let original = fs::read(game.join("g_000.dat")).unwrap();
+        assert!(patch.publish(|_| panic!("must refuse before even the vanilla barrier")).is_err());
+        assert_eq!(fs::read(game.join("g_000.dat")).unwrap(), original);
+        assert!(!game.join("kiln/eml/displaced").exists());
+        drop(patch);
+        fs::remove_dir_all(game).unwrap();
     }
     // A game folder deep enough that its stage files pass MAX_PATH (Steam libraries in long folder names).
     #[cfg(windows)]
@@ -310,6 +557,12 @@ pub(crate) mod tests {
         fs::write(&file, "staged").unwrap();
         regular(&file).unwrap();
         crate::ownership::tests::checked(&game, &file).unwrap();
+        let saved = file.with_extension("saved");
+        move_new(&file, &saved).unwrap();
+        fs::write(&file, "another original").unwrap();
+        assert!(move_new(&file, &saved).is_err(), "even a long recovery path must never be overwritten");
+        assert_eq!(fs::read(&saved).unwrap(), b"staged");
+        assert_eq!(fs::read(&file).unwrap(), b"another original");
         let mut top = game.as_path();
         while top.parent() != Some(&std::env::temp_dir()) { top = top.parent().unwrap(); }
         fs::remove_dir_all(top).unwrap();

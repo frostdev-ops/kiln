@@ -100,13 +100,20 @@ Each is marked `kiln-eml:` in the source.
     when it names the live header and resource file by content and the backups exactly (`adopt`). The change cache
     records the receipt whose output it fingerprinted (`owner`), so an unchanged start reads nothing; the full check is
     kept before a restore. A restore also removes the containers the receipt lists that the vanilla header does not
-    reference. Real archive changes invalidate only a recognized ShroudForge prepared-asset cache (SF's own shapes) under
+    reference. Unproven colliding DATs beyond the vanilla header's range are journalled and moved without replacement
+    into `kiln/eml/displaced/<run-id>/`, after the vanilla-header barrier and before publishing any more archive data.
+    They are never deleted. State/log guidance lists names, sizes and destinations on the moving start, and existing
+    recovery folders on later starts. Pending displacement names cannot become ownership proof merely by matching a
+    future receipt's bytes. Real archive changes invalidate only a recognized ShroudForge prepared-asset cache (SF's own shapes) under
     SF's write lock, held until the last archive write, never its startup lease, preserving settings and retaining
     exact original/replacement bytes in a recovery journal. Unknown schemas/receipts, busy locks, an SF preparation in
     progress, SF's unfinished publication journal and linked descendants (asked by name too, for links made on the
     Linux side under Wine) refuse unsafe handoffs; the selected game location itself and its ancestors may be links.
     Idle EML never restores another loader's output merely because a shared `.kfc.bak` exists, and says why it left
-    differing data (`reason` in the state). A run removes the stage folders and temp copies a killed run left.
+    differing data (`reason` in the state). Scratch names are recorded and flushed in Kiln's ownership folder before
+    creating a stage or game-folder temp. Next-start cleanup consumes those records under the install lock, leaving
+    foreign children and unrecorded game-folder copies intact and naming their paths and byte sizes in state/log
+    guidance. State temps are reclaimed and the newest 16 historical SF handoff journals retained.
     Linux and Windows ownership tests cover these boundaries; a headless actual SF/EML/uninstall/SF dedicated-server
     round trip confirmed standalone SF reapplies unchanged-fingerprint asset mods without reinstalling.
 

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "pid": 4120,
+  "phase": "done",
+  "file": "enshrouded",
+  "patched": 1,
+  "restored": false,
+  "reason": "Archive containers moved aside: enshrouded_055.dat (4096 bytes) -> kiln/eml/displaced/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/enshrouded_055.dat, enshrouded_056.dat (0 bytes) -> kiln/eml/displaced/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0/enshrouded_056.dat. The originals are preserved; Kiln never deletes this recovery folder",
+  "mods": []
+}

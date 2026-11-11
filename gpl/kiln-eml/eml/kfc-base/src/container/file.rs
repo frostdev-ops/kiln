@@ -76,6 +76,12 @@ impl KFCFile {
         Ok(version)
     }
 
+    // kiln-eml: inventory retained containers without reading every archive entry on unchanged starts.
+    pub fn get_container_count<P: AsRef<Path>>(path: P) -> Result<usize, KFCReadError> {
+        let mut reader = BufReader::new(File::open(path)?);
+        Ok(KFCHeader::read(&mut reader)?.containers.count)
+    }
+
     #[inline]
     pub fn resources(&self) -> &StaticMap<ResourceId, ResourceEntry> {
         &self.resources

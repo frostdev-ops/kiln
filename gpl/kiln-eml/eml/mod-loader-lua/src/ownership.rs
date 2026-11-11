@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Digest { size: u64, sha256: String }
+pub(crate) struct Digest { pub(crate) size: u64, sha256: String }
 
 thread_local! { static READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+thread_local! { static BEFORE_SF_LOCK: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 
 /// Bytes the ownership checks of this thread hashed since `reset_read` (they are outside the change cache's counter).
 pub(crate) fn read() -> u64 { READ.with(|r| r.get()) }
@@ -21,7 +23,7 @@ thread_local! { static DISPLACED: std::cell::RefCell<Vec<String>> = const { std:
 pub(crate) fn displaced() -> Vec<String> { DISPLACED.with(|d| d.borrow().clone()) }
 fn count(n: usize) { READ.with(|r| r.set(r.get() + n as u64)); }
 
-fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
+pub(crate) fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
     checked_path(root, path)?;
     super::transaction::regular(path)?;
     let mut file = fs::File::open(path)?;
@@ -40,7 +42,7 @@ fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
 
 fn invalid(message: &str) -> io::Error { io::Error::other(message) }
 
-fn check_stem(stem: &str) -> io::Result<()> {
+pub(crate) fn check_stem(stem: &str) -> io::Result<()> {
     if stem.is_empty() || !stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
         return Err(invalid("invalid archive stem"));
     }
@@ -67,7 +69,7 @@ fn at_or_above_root(root: &Path, path: &Path) -> bool {
 // The location itself and ancestors ABOVE it may be legitimate links: volume mounts (Wine reports them as links), or
 // a game folder moved with Steam Mover / `mklink /J`. Only what lies below it is Kiln's to vouch for.
 // Custom SF state outside the game is checked up to its common ancestor with that location, or its drive root.
-fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
+pub(crate) fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
     for component in path.ancestors() {
         if component.as_os_str().is_empty() { continue; }
         if at_or_above_root(root, component) { break; }
@@ -89,7 +91,7 @@ fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn bounded(root: &Path, path: &Path) -> io::Result<Vec<u8>> {
+pub(crate) fn bounded(root: &Path, path: &Path) -> io::Result<Vec<u8>> {
     checked_path(root, path)?;
     super::transaction::regular(path)?;
     let mut bytes = Vec::new();
@@ -98,15 +100,16 @@ fn bounded(root: &Path, path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn directory(root: &Path) -> io::Result<PathBuf> {
+pub(crate) fn directory(root: &Path) -> io::Result<PathBuf> {
     let dir = root.join("kiln/eml/ownership");
     checked_path(root, &dir)?;
     fs::create_dir_all(&dir)?;
     checked_path(root, &dir)?;
+    for parent in [root, &root.join("kiln"), &root.join("kiln/eml")] { super::transaction::sync_dir(parent)?; }
     Ok(dir)
 }
 
-fn valid_name(stem: &str, name: &str) -> bool {
+pub(crate) fn valid_name(stem: &str, name: &str) -> bool {
     name == format!("{stem}.kfc") || name == format!("{stem}.kfc_resources") || name
         .strip_prefix(&format!("{stem}_")).and_then(|s| s.strip_suffix(".dat"))
         .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
@@ -122,6 +125,10 @@ struct Receipt {
     /// first change the live files are still these, so they stay proof; dropped once the new header is live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     previous: Option<BTreeMap<String, Digest>>,
+    // A write-ahead future digest must not claim an identical but still-unmoved foreign destination (empty padding
+    // especially). Clear only after every recorded displacement has been durably moved, before publishing any data.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    unproven: Vec<String>,
 }
 
 fn output_set(stem: &str, files: &BTreeMap<String, Digest>) -> bool {
@@ -218,14 +225,14 @@ impl<'a> Live<'a> {
     /// Could a generation of `receipt` be live, from sizes alone (metadata only)?
     fn plausible(&self, stem: &str, receipt: &Receipt) -> io::Result<bool> {
         Ok(self.backup_sizes(stem, &receipt.backups)?
-            && (self.sizes(&receipt.files)? || match &receipt.previous { Some(p) => self.sizes(p)?, None => false }))
+            && ((receipt.unproven.is_empty() && self.sizes(&receipt.files)?) || match &receipt.previous { Some(p) => self.sizes(p)?, None => false }))
     }
 
     /// The generation of `receipt` that is live and was built from the backups present, if one is. Every size is
     /// compared before anything is read.
     fn owned(&mut self, stem: &str, receipt: &Receipt) -> io::Result<Option<BTreeMap<String, Digest>>> {
         if !self.plausible(stem, receipt)? || !self.same_backups(stem, &receipt.backups)? { return Ok(None); }
-        if self.matches(&receipt.files)? { return Ok(Some(receipt.files.clone())); }
+        if receipt.unproven.is_empty() && self.matches(&receipt.files)? { return Ok(Some(receipt.files.clone())); }
         match &receipt.previous {
             Some(previous) if self.matches(previous)? => Ok(Some(previous.clone())),
             _ => Ok(None),
@@ -261,8 +268,22 @@ pub(crate) fn vouched(root: &Path, stem: &str, saved: Option<&str>) -> io::Resul
 /// Write ahead: only the exact staged set can later match this proof, including after a publication failure. The
 /// owned output still live is kept as the previous generation until the publication's last step (`committed`).
 /// The returned guard (SF's locks, when SF's state was handed over) is held until the last archive is published.
-pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Option<SfGuard>> {
+pub(crate) struct Prepared { _sf: Option<SfGuard>, moves: Option<crate::displacement::Plan>, receipt: Receipt, path: PathBuf }
+impl Prepared {
+    pub(crate) fn after_barrier(&mut self, root: &Path, boundary: impl FnMut() -> io::Result<()>) -> io::Result<()> {
+        if let Some(moves) = &self.moves {
+            moves.apply(root, boundary)?;
+            self.receipt.unproven.clear();
+            super::transaction::atomic_write(&self.path, &serde_json::to_vec(&self.receipt)?)?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<Prepared> {
     check_stem(stem)?;
+    let guard = sf_lock(root)?;
+    handoff_locked(root, stem, false, false, &guard)?;
     let path = directory(root)?.join(format!("{stem}.json"));
     let earlier = if path.try_exists()? {
         let earlier: Receipt = serde_json::from_slice(&bounded(root, &path)?)?;
@@ -274,10 +295,28 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     let mut live = Live::new(root);
     let mut output = BTreeMap::new();
     let mut changed = false;
+    let mut collisions = BTreeMap::new();
+    let mut vanilla = None;
     for path in files {
         let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| invalid("invalid output name"))?;
         if !valid_name(stem, name) { return Err(invalid("unexpected EML output file")); }
         let expected = digest(root, path)?;
+        // Appended and padding DATs may already be a player's or another loader's files. Their index/name (or even
+        // equality to the new output) grants no permission to replace them and then claim ownership in our receipt.
+        // Per-file proof survives a partial publication or an updated baseline; restoring still needs the whole set.
+        if container_index(stem, name).is_some() && live.size(name)?.is_some() {
+            let current = live.digest(name)?;
+            let proven = earlier.as_ref().is_some_and(|r| output_set(stem, &r.files)
+                && ((!r.unproven.iter().any(|n| n == name) && r.files.get(name).is_some_and(|d| Some(d) == current.as_ref()))
+                    || r.previous.as_ref().and_then(|p| p.get(name)).is_some_and(|d| Some(d) == current.as_ref())));
+            if !proven {
+                let count = *vanilla.get_or_insert_with(|| path.parent().and_then(|p| containers_at(root, &p.join(super::transaction::VANILLA_HEADER))));
+                if count.is_none_or(|count| container_index(stem, name).is_none_or(|i| i < count)) {
+                    return Err(invalid(&format!("existing container {name} retained: cannot prove it lies beyond the vanilla header's container range")));
+                }
+                collisions.insert(name.to_owned(), current.unwrap());
+            }
+        }
         if live.size(name)? != Some(expected.size) || live.digest(name)?.as_ref() != Some(&expected) { changed = true; }
         output.insert(name.to_owned(), expected);
     }
@@ -288,78 +327,24 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
         Some(earlier) if output_set(stem, &earlier.files) => live.owned(stem, earlier)?.filter(|p| *p != output),
         _ => None,
     };
-    let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous };
-    let guard = if changed { handoff(root, stem, true)? } else { None };
+    let unproven = collisions.keys().cloned().collect();
+    let moves = if collisions.is_empty() { None } else { Some(crate::displacement::Plan::record(root, stem, vanilla.flatten().unwrap(), collisions)?) };
+    let receipt = Receipt { format: 1, stem: stem.into(), files: output, backups: live.backups(stem)?, previous, unproven };
+    // Even identical final bytes pass through the vanilla-header barrier and rewrite the live pair.
+    handoff_locked(root, stem, true, changed, &guard)?;
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
-    Ok(guard)
+    Ok(Prepared { _sf: guard, moves, receipt, path })
 }
 
-fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
+pub(crate) fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
 
 /// `<base>.kiln-<uuid>`: the temp copy `atomic_copy`/`atomic_write` makes next to its destination (transaction.rs).
-fn temp_of(name: &str) -> Option<&str> {
+pub(crate) fn temp_of(name: &str) -> Option<&str> {
     let (base, id) = name.rsplit_once(".kiln-")?;
     is_uuid(id).then_some(base)
 }
 
-/// Removes what a kiln-eml run killed half way left behind: its private stage folders (`.kiln-eml-stage-<uuid>`, a full
-/// copy of the resource file each), temp copies over the archives, backups and receipts (`<name>.kiln-<uuid>`), and
-/// SF handoff journals beyond the newest 16 (one is written per handoff; the newest hold any state worth recovering).
-/// Call it holding the install lock, so no other run of this install is writing. Only exact shapes go: a stage folder
-/// holding anything but staged game files, a link, or a name without kiln-eml's uuid is left alone.
-pub fn prune(root: &Path, stem: &str) {
-    if check_stem(stem).is_err() { return; }
-    let stems = ["enshrouded", "enshrouded_server", stem];
-    let staged = |name: &str| stems.iter().any(|s| valid_name(s, name)) || name == super::transaction::VANILLA_HEADER || temp_of(name).is_some();
-    let (mut removed, mut freed) = (Vec::new(), 0u64);
-    let mut remove = |path: &Path, what: String| {
-        let size = fs::symlink_metadata(path).map_or(0, |m| m.len());
-        if fs::remove_file(path).is_ok() { freed += size; removed.push(what); }
-    };
-    let Ok(entries) = fs::read_dir(root) else { return };
-    for entry in entries.flatten() {
-        let (path, name) = (entry.path(), entry.file_name().to_string_lossy().into_owned());
-        if checked_path(root, &path).is_err() { continue; }
-        if let Some(id) = name.strip_prefix(".kiln-eml-stage-") {
-            if !is_uuid(id) || !fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) { continue; }
-            let Ok(files) = fs::read_dir(&path).map(|e| e.flatten().collect::<Vec<_>>()) else { continue };
-            if !files.iter().all(|f| super::transaction::regular(&f.path()).is_ok() && staged(&f.file_name().to_string_lossy())) {
-                tracing::warn!(folder = %path.display(), "an old EML stage folder holds other files; left as it is");
-                continue;
-            }
-            for f in &files { remove(&f.path(), format!("{name}/{}", f.file_name().to_string_lossy())); }
-            let _ = fs::remove_dir(&path);
-        } else if let Some(base) = temp_of(&name) {
-            // temp copies over <stem>.kfc / .kfc_resources (`<stem>.kiln-*`), .kfc.bak (`<stem>.kfc.kiln-*`),
-            // .kfc_resources.bak (`<stem>.kfc_resources.kiln-*`) and the seal (`<stem>.kfc.bak.kiln-*`)
-            if stems.iter().any(|s| [s.to_string(), format!("{s}.kfc"), format!("{s}.kfc.bak"), format!("{s}.kfc_resources")].contains(&base.to_owned()))
-                && super::transaction::regular(&path).is_ok() {
-                remove(&path, name);
-            }
-        }
-    }
-    let dir = root.join("kiln/eml/ownership");
-    if checked_path(root, &dir).is_ok() && fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
-        let mut journals = Vec::new();
-        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let (path, name) = (entry.path(), entry.file_name().to_string_lossy().into_owned());
-            if super::transaction::regular(&path).is_err() { continue; }
-            if let Some(base) = temp_of(&name) {
-                // a receipt's temp (`<stem>.kiln-*`) or a journal's (`sf-handoff-<uuid>.json` -> `sf-handoff-<uuid>.kiln-*`)
-                if stems.contains(&base) || base.strip_prefix("sf-handoff-").is_some_and(is_uuid) {
-                    remove(&path, name);
-                }
-            } else if name.strip_prefix("sf-handoff-").and_then(|r| r.strip_suffix(".json")).is_some_and(is_uuid) {
-                journals.push((entry.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), path, name));
-            }
-        }
-        journals.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, path, name) in journals.into_iter().skip(16) { remove(&path, name); }
-    }
-    if !removed.is_empty() {
-        tracing::info!("Removed {} file(s) ({:.1} MiB) an earlier EML run left behind: {}", removed.len(), freed as f64 / (1u64 << 20) as f64, removed.join(", "));
-    }
-}
+pub use crate::cleanup::{prune, recovery_guidance};
 
 /// What `adopt` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -462,7 +447,7 @@ pub fn adopt(root: &Path, stem: &str, cache_dir: &Path) -> io::Result<Adoption> 
         let (digest, crc) = digest_and_crc(root, &path)?;
         if cache.describes(&path, (digest.size, crc), &mut volume).is_ok() { files.insert(name, digest); }
     }
-    let receipt = Receipt { format: 1, stem: stem.into(), files, backups: sealed, previous: None };
+    let receipt = Receipt { format: 1, stem: stem.into(), files, backups: sealed, previous: None, unproven: Vec::new() };
     super::transaction::atomic_write(&directory(root)?.join(format!("{stem}.json")), &serde_json::to_vec(&receipt)?)?;
     tracing::info!("Adopted the {stem} game data an earlier kiln-eml published (its change cache names exactly these files and backups): it now has an ownership receipt");
     Ok(Adoption::Adopted)
@@ -486,10 +471,42 @@ fn container_index(stem: &str, name: &str) -> Option<usize> {
 
 /// How many containers the header at `name` lists (container `i` is `<stem>_{i:03}.dat`).
 fn containers(root: &Path, name: &str) -> Option<usize> {
-    let path = root.join(name);
+    containers_at(root, &root.join(name))
+}
+
+fn containers_at(root: &Path, path: &Path) -> Option<usize> {
     checked_path(root, &path).ok()?;
     super::transaction::regular(&path).ok()?;
     Some(kfc::container::KFCFile::from_path(&path, false).ok()?.containers().len())
+}
+
+/// List retained files in the extra-container range for player guidance, never as cleanup permission. With mods
+/// active, omit containers the live header references. Idle/failed runs also name extra referenced containers when a
+/// same-build baseline identifies the vanilla count. An outdated baseline says nothing about the new build's range.
+/// Only the small header metadata is read; DAT contents are not read or changed.
+pub fn retained_containers(root: &Path, stem: &str, active: bool) -> io::Result<Vec<String>> {
+    check_stem(stem)?;
+    let header = root.join(format!("{stem}.kfc"));
+    checked_path(root, &header)?;
+    super::transaction::regular(&header)?;
+    let mut first = kfc::container::KFCFile::get_container_count(&header).map_err(|e| invalid(&e.to_string()))?;
+    if !active {
+        let backup = root.join(format!("{stem}.kfc.bak"));
+        checked_path(root, &backup)?;
+        if super::transaction::regular(&backup).is_ok()
+            && let (Ok(live), Ok(saved)) = (kfc::container::KFCFile::get_version_tag(&header), kfc::container::KFCFile::get_version_tag(&backup))
+            && live == saved
+            && let Ok(count) = kfc::container::KFCFile::get_container_count(&backup) {
+            first = first.min(count);
+        }
+    }
+    let mut retained = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if container_index(stem, &name).is_some_and(|i| i >= first) { retained.push(name); }
+    }
+    retained.sort();
+    Ok(retained)
 }
 
 /// The containers (`<stem>_NNN.dat`) of the owned output that is live now, as its receipt lists them: what a restore
@@ -499,7 +516,7 @@ pub(crate) fn live_containers(root: &Path, stem: &str) -> io::Result<Option<BTre
     let header = format!("{stem}.kfc");
     let mut live = Live::new(root);
     let now = live.digest(&header)?;
-    let generation = [Some(&receipt.files), receipt.previous.as_ref()].into_iter().flatten()
+    let generation = [receipt.unproven.is_empty().then_some(&receipt.files), receipt.previous.as_ref()].into_iter().flatten()
         .find(|g| now.is_some() && g.get(&header) == now.as_ref());
     Ok(generation.map(|g| g.iter().filter(|(n, _)| container_index(stem, n).is_some()).map(|(n, d)| (n.clone(), d.clone())).collect()))
 }
@@ -528,21 +545,34 @@ pub(crate) fn remove_unreferenced(root: &Path, stem: &str, files: &BTreeMap<Stri
     Ok(())
 }
 
-/// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
+/// Capture or reseal shared vanilla backups only while SF cannot begin preparing or replace the pair itself.
+/// Taking the lock is not a handoff: no live archive changes here, so leave an applied SF state unchanged.
+pub(crate) fn before_baseline(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
+    check_stem(stem)?;
+    handoff(root, stem, false, false)
+}
+
+/// Recheck ownership and hand the archives over from SF while locked; retain the guard through restore cleanup.
 pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
+    let guard = sf_lock(root)?;
+    handoff_locked(root, stem, false, false, &guard)?;
+    if !owns_output(root, stem)? {
+        return Err(invalid("the live archives or backups no longer match kiln-eml's ownership receipt; retained without restoring"));
+    }
     let mut live = Live::new(root);
     for extension in ["kfc", "kfc_resources"] {
         let (backup, current) = (format!("{stem}.{extension}.bak"), format!("{stem}.{extension}"));
         let Some(size) = live.size(&backup)? else { continue };
         if live.size(&current)? != Some(size) || live.digest(&backup)? != live.digest(&current)? {
-            return handoff(root, stem, false);
+            handoff_locked(root, stem, false, true, &guard)?;
+            break;
         }
     }
-    Ok(None)
+    Ok(guard)
 }
 
-/// SF's write lock, held from the state edit until the last archive write is done. Every SF state write (the
+/// SF's write lock, held from ownership checking until the last archive write/removal is done. Every SF state write (the
 /// `preparing` an SF preparation writes before it touches an archive included) waits for it, so no SF preparation
 /// can start in between. SF's startup lease (`<runtime>/startup-assets.lock`) is never taken: SF opens it once,
 /// exclusively and without waiting, and a held lease fails both its preparation and its recovery.
@@ -584,39 +614,57 @@ fn sf_publication_pending(root: &Path, stem: &str) -> io::Result<()> {
 // Keep the exact original bytes and replacement in a recovery journal. Do not restore a now-false "applied" claim.
 // Recognition follows SF's own rules (asset-preparation.schema.json, update_loader_state.rs); any other shape refuses.
 // `publishing`: the archives are about to get EML's output (not vanilla data back): SF's asset mods drop out of them.
-fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGuard>> {
-    let config_dir = root.join("shroudforge/config");
-    let config_path = config_dir.join("modloader-config.json");
-    checked_path(root, &config_path)?;
-    let config = sf_config(root, &config_path)?;
-    let state_dir = sf_dir(root, config.as_ref(), "state");
-    let state = state_dir.join("state.json");
-    checked_path(root, &state)?;
-    if !state.try_exists()? { sf_publication_pending(root, stem)?; return Ok(None); }
-    // Same installation lock as ShroudForge's document writer. Never wait on an active standalone loader.
+fn sf_lock(root: &Path) -> io::Result<Option<SfGuard>> {
+    #[cfg(test)]
+    BEFORE_SF_LOCK.with(|check| { if let Some(check) = check.take() { check(root); } });
+    // Same installation lock as ShroudForge's document writer. Acquire before reading ownership proof, not just
+    // before writing: a complete SF preparation between proof and locking would make that proof stale.
+    let sf = root.join("shroudforge");
+    checked_path(root, &sf)?;
+    if !sf.try_exists()? { return Ok(None); }
+    let config_dir = sf.join("config");
     checked_path(root, &config_dir)?;
     fs::create_dir_all(&config_dir)?;
     let lock_path = config_dir.join(".shroudforge-write.lock");
     checked_path(root, &lock_path)?;
     let lock = fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&lock_path)?;
     lock.try_lock().map_err(|e| invalid(&format!("ShroudForge state is in use: {e}")))?;
-    let guard = SfGuard { _write: lock };
+    Ok(Some(SfGuard { _write: lock }))
+}
+
+fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Result<Option<SfGuard>> {
+    let guard = sf_lock(root)?;
+    handoff_locked(root, stem, publishing, changed, &guard)?;
+    Ok(guard)
+}
+
+// The caller retains this guard through its proof checks, state handoff and every archive write/removal.
+fn handoff_locked(root: &Path, stem: &str, publishing: bool, changed: bool, guard: &Option<SfGuard>) -> io::Result<()> {
+    // No helper can start from an absent SF installation. Do not invent another loader's folder or state.
+    if guard.is_none() { return sf_publication_pending(root, stem); }
+    let config_path = root.join("shroudforge/config/modloader-config.json");
+    checked_path(root, &config_path)?;
+    let config = sf_config(root, &config_path)?;
+    let state_dir = sf_dir(root, config.as_ref(), "state");
+    let state = state_dir.join("state.json");
+    checked_path(root, &state)?;
     sf_publication_pending(root, stem)?;
     // Recheck the configured destination under the lock, not only the state bytes.
     if sf_dir(root, sf_config(root, &config_path)?.as_ref(), "state") != state_dir {
         return Err(invalid("ShroudForge state path changed during handoff"));
     }
+    if !state.try_exists()? { return Ok(()); }
     let original = bounded(root, &state)?;
     let mut value: serde_json::Value = serde_json::from_slice(&original)?;
     if value.get("schemaVersion").is_some_and(|v| v.as_u64() != Some(1)) {
         return Err(invalid("unknown ShroudForge state schema; refusing archive handoff"));
     }
-    let Some(assets) = value.get_mut("assets") else { return Ok(Some(guard)); };
+    let Some(assets) = value.get_mut("assets") else { return Ok(()); };
     let target = assets.get("target").and_then(|v| v.as_str());
     let other = |t: Option<&str>| matches!(t, Some(t @ ("enshrouded" | "enshrouded_server")) if t != stem);
     match assets.get("status").and_then(|v| v.as_str()) {
-        Some("failed") => return Ok(Some(guard)),
-        Some("preparing" | "applied") if other(target) => return Ok(Some(guard)),
+        Some("failed") => return Ok(()),
+        Some("preparing" | "applied") if other(target) => return Ok(()),
         Some("preparing") if target == Some(stem) => return Err(invalid(&format!(
             "ShroudForge is preparing its asset mods for {stem} (or its last preparation did not finish): let it finish, then start again"))),
         Some("applied") if target == Some(stem) => {},
@@ -630,6 +678,7 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
         !matches!(assets.get("phase").and_then(|v| v.as_str()), Some("prepare" | "startup")) {
         return Err(invalid("unknown ShroudForge prepared-output cache; refusing archive handoff"));
     }
+    if !changed { return Ok(()); }
     let mods: Vec<String> = assets["mods"].as_array().into_iter().flatten().filter_map(|m| {
         let id = m.get("id")?.as_str()?;
         Some(match m.get("version").and_then(|v| v.as_str()) { Some(v) => format!("{id} {v}"), None => id.to_owned() })
@@ -644,7 +693,7 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
     super::transaction::atomic_write(&state, &replacement)?;
     tracing::info!(path = %state.display(), recovery = %recovery.display(), "Invalidated only ShroudForge's stale prepared-output cache before EML changed game data; settings retained");
     if publishing && !mods.is_empty() { DISPLACED.with(|d| d.borrow_mut().extend(mods)); }
-    Ok(Some(guard))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -656,7 +705,8 @@ pub(crate) mod tests {
         fs::create_dir_all(root.join("stage")).unwrap();
         let mut files = Vec::new();
         for (name, old, new) in [("g.kfc", "SF header", "EML header"), ("g.kfc_resources", "SF resources", "EML resources"), ("g_010.dat", "", "content")] {
-            fs::write(root.join(name), old).unwrap();
+            // This fixture appends a new EML container; an existing unproven DAT must instead refuse publication.
+            if !name.ends_with(".dat") { fs::write(root.join(name), old).unwrap(); }
             let path = root.join("stage").join(name);
             fs::write(&path, new).unwrap();
             files.push(path);
@@ -664,6 +714,10 @@ pub(crate) mod tests {
         fs::write(root.join("g.kfc.bak"), "original header").unwrap();
         fs::write(root.join("g.kfc_resources.bak"), "original resources").unwrap();
         (root, files)
+    }
+    fn install_sf(root: &Path) {
+        fs::create_dir_all(root.join("shroudforge/config")).unwrap();
+        fs::File::create(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
     }
     fn sf(root: &Path, custom: bool) -> (PathBuf, Vec<u8>) {
         fs::create_dir_all(root.join("shroudforge/config")).unwrap();
@@ -734,6 +788,85 @@ pub(crate) mod tests {
         patch.finalize().unwrap();
         assert!(owns_output(&root, "g").unwrap());
         (root, header, resources)
+    }
+    #[test]
+    fn no_sf_folder_is_created_by_publication_restore_or_baseline_refresh() {
+        let (root, _, _) = real_published();
+        assert!(!root.join("shroudforge").exists(), "publication or baseline capture invented an SF installation");
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        assert!(crate::restore(path, "g"));
+        assert!(!root.join("shroudforge").exists(), "restore invented an SF installation");
+        let mut header = fs::read(root.join("g.kfc")).unwrap();
+        let at = header.windows(7).position(|w| w == b"fixture").unwrap();
+        header[at..at + 7].copy_from_slice(b"updated");
+        fs::write(root.join("g.kfc"), &header).unwrap();
+        crate::load::create_backup(path.join("g.kfc")).unwrap();
+        assert_eq!(fs::read(root.join("g.kfc.bak")).unwrap(), header);
+        assert!(!root.join("shroudforge").exists(), "baseline refresh invented an SF installation");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn publication_checks_ownership_after_the_sf_lock_not_before_it() {
+        let (root, files) = fixture();
+        install_sf(&root);
+        prepare(&root, "g", &files).unwrap();
+        publish(&root, &files);
+        let receipt = fs::read(root.join("kiln/eml/ownership/g.json")).unwrap();
+        // A complete standalone SF write wins the installation lock just before Kiln gets it. Its bytes are now
+        // foreign even though Kiln's earlier receipt check, outside that lock, could have matched the old bytes.
+        BEFORE_SF_LOCK.with(|check| check.set(Some(|game| {
+            let lock = fs::OpenOptions::new().read(true).write(true).open(game.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+            lock.try_lock().unwrap();
+            fs::write(game.join("g_010.dat"), b"foreign SF container").unwrap();
+        })));
+        let result = prepare(&root, "g", &files);
+        assert!(result.is_err(), "publication accepted container proof captured before the SF lock");
+        assert_eq!(fs::read(root.join("g_010.dat")).unwrap(), b"foreign SF container");
+        assert_eq!(fs::read(root.join("kiln/eml/ownership/g.json")).unwrap(), receipt);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn restore_rechecks_ownership_under_the_sf_lock_after_the_runners_earlier_proof() {
+        let (root, _, _) = real_published();
+        install_sf(&root);
+        assert!(owns_output(&root, "g").unwrap(), "the runner's initial authorization");
+        // SF completes after that authorization and before restore obtains the shared lock. The old baseline is
+        // still valid for this game build, but it must not authorize replacing SF's new output.
+        let lock = fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+        lock.try_lock().unwrap();
+        fs::write(root.join("g.kfc_resources"), b"foreign SF resources").unwrap();
+        let (state, before) = sf(&root, false);
+        drop(lock);
+        assert!(!owns_output(&root, "g").unwrap());
+        assert!(!crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"), "restore reused ownership proof from before SF's completed write");
+        assert_eq!(fs::read(root.join("g.kfc_resources")).unwrap(), b"foreign SF resources");
+        assert_eq!(fs::read(state).unwrap(), before, "a refused restore must not invalidate SF's applied state");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn baseline_refresh_cannot_replace_shared_backups_while_sf_is_busy_or_preparing() {
+        for busy in [true, false] {
+            let (root, _, _) = real_published();
+            install_sf(&root);
+            let header = root.join("g.kfc");
+            let mut updated = fs::read(&header).unwrap();
+            let version = updated.windows(7).position(|w| w == b"fixture").unwrap();
+            updated[version..version + 7].copy_from_slice(b"updated");
+            fs::write(&header, updated).unwrap();
+            let snapshot = || ["g.kfc.bak", "g.kfc_resources.bak", "g.kfc.bak.integrity"].map(|n| fs::read(root.join(n)).unwrap());
+            let before = snapshot();
+            let lock = fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+            if busy { lock.lock().unwrap(); }
+            else {
+                fs::write(root.join("shroudforge/state.json"), br#"{"schemaVersion":1,"assets":{"schemaVersion":1,"status":"preparing","target":"g"}}"#).unwrap();
+            }
+            let path = camino::Utf8Path::from_path(&header).unwrap();
+            let result = crate::load::create_backup(path);
+            assert!(snapshot() == before, "shared backups changed while ShroudForge was busy/preparing, busy={busy}");
+            assert!(result.is_err(), "an active SF writer must refuse baseline capture, busy={busy}");
+            drop(lock);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     /// A real publication over a vanilla pair of `vanilla` containers (one content each), with `content` new blobs.
     /// The writer pads the container count to a power of two with empty files, as on a real client (55 + 1 -> 64).
@@ -943,6 +1076,17 @@ pub(crate) mod tests {
         assert!(!crate::transaction::tests::sf_write_lock_busy(&root), "released after the restore");
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn sf_lock_covers_restore_without_existing_state() {
+        let (root, _, _) = real_published();
+        install_sf(&root);
+        crate::transaction::DURING_RESTORE.with(|check| check.set(Some(|game| {
+            assert!(crate::transaction::tests::sf_write_lock_busy(game), "SF lock missing during first-state restore");
+        })));
+        assert!(crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"));
+        assert!(!root.join("shroudforge/state.json").exists(), "no SF state invented");
+        fs::remove_dir_all(root).unwrap();
+    }
     // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
     // back; a busy SF, an SF preparation in progress or a state Kiln does not know refuses, and nothing is copied.
     #[test]
@@ -989,10 +1133,27 @@ pub(crate) mod tests {
         assert_eq!(read(), 0, "rejected by size alone");
         fs::remove_dir_all(root).unwrap();
     }
-    // A run killed half way leaves its private stage (a full copy of the resource file), temp copies and, one per
-    // handoff, SF journals. The next run (under the install lock) removes exactly those, by their exact shape.
     #[test]
-    fn leftovers_of_a_killed_run_are_pruned_and_nothing_else() {
+    fn uuid_shaped_player_files_are_not_cleanup_proof() {
+        let root = std::env::temp_dir().join(format!("kiln-prune-player-{}", uuid::Uuid::new_v4()));
+        let id = || uuid::Uuid::new_v4();
+        let stage = root.join(format!(".kiln-eml-stage-{}", id()));
+        fs::create_dir_all(&stage).unwrap();
+        let ownership = root.join("kiln/eml/ownership");
+        fs::create_dir_all(&ownership).unwrap();
+        let mut files = vec![stage.join("g.kfc"), stage.join("g.kfc_resources"), stage.join(format!("notes.kiln-{}", id()))];
+        for base in ["g", "g.kfc", "g.kfc_resources", "g.kfc.bak"] {
+            files.push(root.join(format!("{base}.kiln-{}", id())));
+        }
+        for path in &files { fs::write(path, b"player recovery copy").unwrap(); }
+        prune(&root, "g");
+        let lost: Vec<_> = files.iter().filter(|p| fs::read(p).ok().as_deref() != Some(b"player recovery copy")).collect();
+        assert!(lost.is_empty(), "a UUID-shaped name does not prove Kiln wrote these files: {lost:?}");
+        fs::remove_dir_all(root).unwrap();
+    }
+    // Pre-receipt cleanup has no content proof for these leftovers, so even exact name shapes must stay.
+    #[test]
+    fn leftovers_without_cleanup_proof_are_retained_for_recovery() {
         let root = std::env::temp_dir().join(format!("kiln-leftovers-{}", uuid::Uuid::new_v4()));
         let id = || uuid::Uuid::new_v4().to_string();
         let stale = root.join(format!(".kiln-eml-stage-{}", id()));
@@ -1023,20 +1184,50 @@ pub(crate) mod tests {
         let journal_temp = root.join(format!("kiln/eml/ownership/sf-handoff-{}.kiln-{}", id(), id()));
         fs::write(&journal_temp, "journal temp").unwrap();
         prune(&root, "g");
-        assert!(!stale.exists() && !temp.exists() && !backup_temp.exists());
-        assert!(!resources_temp.exists(), "the resource backup's temp copy goes");
-        assert!(!journal_temp.exists(), "a journal's temp goes");
+        for n in ["g.kfc", "g.kfc_resources", "g_002.dat", ".vanilla-header"] {
+            assert_eq!(fs::read(stale.join(n)).unwrap(), b"staged", "{n}");
+        }
+        for path in [&temp, &backup_temp, &resources_temp] { assert_eq!(fs::read(path).unwrap(), b"temp"); }
+        assert!(!journal_temp.exists(), "temps inside Kiln state are reclaimable");
         assert!(foreign.join("notes.txt").exists() && root.join(".kiln-eml-stage-mine").is_dir());
         for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { assert!(root.join(n).exists(), "{n}"); }
         let mut kept: Vec<String> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten()
             .map(|e| fs::read_to_string(e.path()).unwrap()).collect();
-        kept.sort_by_key(|k| k.parse::<u32>().unwrap());
-        assert_eq!(kept, (4..20).map(|i| i.to_string()).collect::<Vec<_>>(), "the 16 newest journals stay, the receipt temp goes");
+        kept.sort();
+        let mut expected: Vec<_> = (4..20).map(|i| i.to_string()).collect();
+        expected.sort();
+        assert_eq!(kept, expected, "the newest 16 handoff journals stay; state temps are reclaimed");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn recorded_cleanup_survives_missing_partial_complete_and_published_stages() {
+        for point in 0..4 {
+            let (root, _) = fixture();
+            let id = uuid::Uuid::new_v4();
+            let name = format!(".kiln-eml-stage-{id}");
+            let stage = root.join(&name);
+            let record = directory(&root).unwrap().join(format!("cleanup-{id}.json"));
+            fs::write(&record, serde_json::to_vec(&serde_json::json!({"format":1,"stem":"g","name":name})).unwrap()).unwrap();
+            if point > 0 {
+                fs::create_dir(&stage).unwrap();
+                fs::write(stage.join("g.kfc_resources"), "partial or complete resources").unwrap();
+                if point > 1 { fs::write(stage.join("g_010.dat"), "staged container").unwrap(); }
+                if point > 2 { fs::rename(stage.join("g_010.dat"), root.join("g_010.dat")).unwrap(); }
+            }
+            let temp_id = uuid::Uuid::new_v4();
+            let temp = format!("g.kfc_resources.kiln-{temp_id}");
+            let temp_record = directory(&root).unwrap().join(format!("cleanup-{temp_id}.json"));
+            fs::write(&temp_record, serde_json::to_vec(&serde_json::json!({"format":1,"stem":"g","name":temp})).unwrap()).unwrap();
+            fs::write(root.join(&temp), "partial copy").unwrap();
+            prune(&root, "g");
+            assert!(!stage.exists() && !record.exists() && !root.join(temp).exists() && !temp_record.exists(), "recorded scratch survived restart at point {point}");
+            if point > 2 { assert_eq!(fs::read(root.join("g_010.dat")).unwrap(), b"staged container"); }
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     // The stage a real writer leaves when the process dies before publication (no Drop runs).
     #[test]
-    fn the_stage_of_a_run_killed_before_publication_is_pruned() {
+    fn a_recorded_real_stage_is_reclaimed_after_a_killed_run() {
         use std::rc::Rc;
         use kfc::{container::KFCFile, guid::ContentHash, reflection::TypeRegistry};
         let root = real_patch(2, &[]);
@@ -1051,7 +1242,7 @@ pub(crate) mod tests {
         std::mem::forget(patch);
         assert!(stage.is_dir() && fs::read_dir(&stage).unwrap().count() >= 3);
         prune(&root, "g");
-        assert!(!stage.exists(), "the stage a killed run left is removed");
+        assert!(!stage.exists(), "recorded real staging files were not reclaimed after restart");
         assert_eq!(dats(&root), live, "the live game files are untouched");
         assert!(owns_output(&root, "g").unwrap());
         fs::remove_dir_all(root).unwrap();
@@ -1100,6 +1291,7 @@ pub(crate) mod tests {
     #[test]
     fn unchanged_output_never_mutates_sf_state() {
         let (root, files) = fixture();
+        prepare(&root, "g", &files).unwrap();
         publish(&root, &files);
         let (state, original) = sf(&root, false);
         prepare(&root, "g", &files).unwrap();
@@ -1235,7 +1427,7 @@ pub(crate) mod tests {
         let (root, _) = fixture();
         let (state, _) = sf(&root, false);
         fs::create_dir_all(root.join("shroudforge/runtime")).unwrap();
-        let guard = handoff(&root, "g", true).unwrap();
+        let guard = handoff(&root, "g", true, true).unwrap();
         assert!(guard.is_some());
         let busy = || fs::OpenOptions::new().read(true).write(true).open(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap().try_lock().is_err();
         assert!(busy());
