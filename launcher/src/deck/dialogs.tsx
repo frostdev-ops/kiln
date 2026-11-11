@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import * as api from "../api/commands";
 import type { DeckFolder, GameInstall } from "../api/commands";
 import { invalidateGame, qk, showActive, useActiveProfile, useGameSel, useGameStatus, useProfiles, useRuntimeChanges } from "../api/hooks";
-import { toast, runTask } from "../ui";
+import { toast, runTask, notifyPlacementCleanup } from "../ui";
 import { totalCount } from "../api/kinds";
 import { useKilnInstall } from "../shell/firstRun";
 import { installBundle } from "../shell/runtimeChange";
@@ -26,7 +26,7 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
   const cur = active.data?.profileId ?? "";
   const list = profiles.data ?? [];
   const activate = useMutation({
-    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, game.id) : api.profileDeactivate(game.id).then(() => null)),
+    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, game.id) : api.profileDeactivate(game.id).then((r) => { notifyPlacementCleanup(r); return null; })),
     onMutate: (pid) => showActive(qc, game.id, pid || null),
     onSuccess: (r, pid) => {
       qc.setQueryData(qk.active(game.id), r);

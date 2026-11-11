@@ -117,16 +117,16 @@ pub async fn profile_activate(app: AppHandle, profile_id: String, game_id: Strin
 }
 
 #[tauri::command]
-pub async fn profile_deactivate(app: AppHandle, game_id: String) -> Result<(), Error> {
+pub async fn profile_deactivate(app: AppHandle, game_id: String) -> Result<kiln_manage::engine_mods::PlacementCleanup, Error> {
     let id = game_id.clone();
-    blocking(move || {
+    let report = blocking(move || {
         let g = crate::state::game(&id)?;
         crate::state::refuse_running(&g)?;
-        profile::deactivate(&dirs()?, &g)
+        profile::deactivate_report(&dirs()?, &g)
     })
     .await?;
     emit_status_later(app, game_id);
-    Ok(())
+    Ok(report)
 }
 
 #[tauri::command]

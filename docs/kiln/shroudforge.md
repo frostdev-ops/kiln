@@ -31,6 +31,19 @@ Notes:
   itself at game start, so its updater cannot replace Kiln's `dinput8.dll`. To update your own ShroudForge, run its
   updater (`shroudforge/shroudforge.exe`) with the game closed. If it puts its own `dinput8.dll` back, reinstall Kiln
   from the launcher; your mods stay.
+- **Returning to standalone ShroudForge:** uninstall Kiln with the game closed. If the proxy is still Kiln's, the
+  original SF proxy comes back byte-for-byte; installing twice or updating Kiln keeps the first backup. Reinstalling Kiln also recovers missing
+  `dbghelp.dll` / `winmm.dll` from older switch-from-ShroudForge receipts, after checking their hashes. A newer helper
+  or proxy you installed yourself is kept instead, with the original backup's recovery path in the result.
+- **Profile copies:** activation never changes switches or settings in a mod folder you installed yourself. It only
+  changes Kiln's own copies. Deactivating a profile or uninstalling removes unchanged copies from SF's mods folder.
+  Edited settings, extra files, changed code and old receipts without exact settings proof are kept in place; the
+  launcher names each retained folder and why. **Those retained mods may still run in standalone SF.** With the game
+  closed, review or move the listed folders if you do not want them. Your Library copies and `kiln/` settings stay.
+- **Game archives:** uninstall does not blindly copy `.kfc.bak` over the game or delete `.bak.integrity`. These can
+  belong to an earlier SF/EML setup. Runtime asset patches and SF's own state/config remain the runtime's responsibility;
+  an installer roundtrip is not a claim that every startup asset mod has been reversed. Missing build-profile files
+  seeded into SF's runtime folder at startup, plus SF's logs/cache/state, can remain; uninstall does not sweep them.
 - **Turning ShroudForge off for one start:** set `KILN_SHROUDFORGE=0` in the launch environment, or use play-once
   "without mods".
 - ShroudForge needs a game profile for your game build. The bundled runtime brings the profiles of its release, and a

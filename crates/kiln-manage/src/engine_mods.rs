@@ -457,6 +457,10 @@ struct Placement {
     marker: Marker,
     // Includes hidden files and unexpected additions. SF's mutable switch and settings are normalized below.
     files: std::collections::BTreeMap<String, String>,
+    /// Exact SF extension written by Kiln, including its last profile switch. Unlike `files`, this does not
+    /// normalize settings: uninstall must not erase player edits. Old receipts have no proof and are retained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    extension: Option<String>,
 }
 
 /// `managed` is the folder links are refused from (see [`refuse_symlink_path`]); the lock lives in `root` below it.
@@ -570,17 +574,21 @@ fn copy_in(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, se
     if crate::hash::dirhash(&staged)? != m.hash {
         return Err(Error::new(ErrorCode::HashMismatch, "mod changed while placing"));
     }
-    if m.kind == ModKind::ShroudForge {
+    let extension = if m.kind == ModKind::ShroudForge {
+        crate::shroudforge::set_enabled(&staged, enabled)?;
+        // Record the Library defaults before carrying the player's settings to an upgraded copy. Carried changes
+        // remain player-owned, so cleanup retains them even after a version change.
+        let expected = std::fs::read_to_string(staged.join("extended.mod.json"))?;
         let new = crate::shroudforge::read_mod(&staged)?;
         for (key, value) in kept {
             if new.settings.iter().any(|s| &s.key == key) {
                 crate::shroudforge::set_setting(&staged, key, value)?;
             }
         }
-        crate::shroudforge::set_enabled(&staged, enabled)?;
-    }
+        Some(expected)
+    } else { None };
     crate::util::write_json_atomic(&staged.join(MARKER), m)?;
-    let receipt = Placement { path: dst.to_path_buf(), marker: m.clone(), files: placement_files(&staged, m.kind)? };
+    let receipt = Placement { path: dst.to_path_buf(), marker: m.clone(), files: placement_files(&staged, m.kind)?, extension };
     let old = tmp.path().join("old");
     let replaced = dst.exists();
     if replaced { std::fs::rename(dst, &old).map_err(io_at(dst, "parking old mod"))?; }
@@ -617,6 +625,103 @@ fn remove_copy(game: &Path, dst: &Path, persist: impl FnOnce() -> Result<()>) ->
             return Err(preserve_recovery(tmp, io_at(dst, "restoring removed mod")(e)));
         }
         return Err(error);
+    }
+    Ok(())
+}
+
+/// A placed folder that cannot safely be removed. It stays at `path`; the foreign loader may still run it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetainedPlacement {
+    pub path: PathBuf,
+    pub reason: String,
+    pub may_run: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacementCleanup {
+    pub removed: Vec<PathBuf>,
+    pub retained: Vec<RetainedPlacement>,
+}
+
+impl PlacementCleanup {
+    pub fn warning(&self) -> Option<String> {
+        (!self.retained.is_empty()).then(|| format!(
+            "Kept mod folders to preserve player files: {}. These mods may still run in the standalone loader; review or move these folders with the game closed.",
+            self.retained.iter().map(|r| format!("{} ({})", r.path.display(), r.reason)).collect::<Vec<_>>().join("; ")))
+    }
+}
+
+/// Undo profile delivery, not the player's mod installation. Requires a trusted receipt AND matching contents;
+/// markers alone never authorize deletion. Conflicts stay in place with structured, visible recovery instructions.
+/// Archives and other loaders' working backups are deliberately not ours to restore to vanilla.
+pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
+    let file = placements_file(game_dir);
+    refuse_symlink_path(game_dir, &file)?;
+    // No delivery receipt means no ownership to undo. Do not create state (including a lock) in an otherwise
+    // untouched installation; adopted pre-existing runtime files must still roundtrip byte-for-byte.
+    if !file.try_exists().map_err(io_at(&file, "inspecting"))? { return Ok(PlacementCleanup::default()); }
+    let _lock = engine_lock(game_dir, &game_dir.join("kiln/state"))?;
+    let mut receipts = placements(game_dir)?;
+    let mut report = PlacementCleanup::default();
+    for receipt in receipts.clone() {
+        let dst = &receipt.path;
+        let kind = receipt.marker.kind;
+        let root = match kind {
+            ModKind::ShroudForge => crate::shroudforge::mods_dir(game_dir),
+            ModKind::Set => game_dir.join(SET_MODS),
+            ModKind::Emf => game_dir.join("emf/mods"),
+            ModKind::Greeneye => game_dir.join("greeneye"),
+            ModKind::Eml if dst.parent() == Some(crate::shroudforge::mods_dir(game_dir).as_path()) => crate::shroudforge::mods_dir(game_dir),
+            ModKind::Eml | ModKind::Flame | ModKind::Shroudtopia => game_dir.join("mods"),
+            _ => PathBuf::new(),
+        };
+        let check = (|| -> Result<()> {
+            if root.as_os_str().is_empty() || dst.parent() != Some(root.as_path()) {
+                return Err(Error::new(ErrorCode::Refused, "placement folder changed or is not an engine mod folder"));
+            }
+            refuse_symlink_path(game_dir, dst)?;
+            if !dst.exists() { return Ok(()); }
+            owned(game_dir, &receipts, dst, kind, &receipt.marker.id)?
+                .ok_or_else(|| Error::new(ErrorCode::Refused, "placement ownership could not be verified"))?;
+            if kind == ModKind::ShroudForge {
+                let text = std::fs::read_to_string(dst.join("extended.mod.json"))?;
+                if receipt.extension.as_deref() != Some(text.as_str()) {
+                    return Err(Error::new(ErrorCode::Refused, "ShroudForge settings changed, or an older receipt cannot prove they are unchanged"));
+                }
+            }
+            Ok(())
+        })();
+        if let Err(e) = check {
+            report.retained.push(RetainedPlacement { path: dst.clone(), reason: e.message, may_run: true });
+            continue;
+        }
+        if dst.exists() {
+            remove_copy(game_dir, dst, || {
+                receipts.retain(|r| r.path != *dst);
+                save_placements(game_dir, &receipts)
+            })?;
+            report.removed.push(dst.clone());
+        } else {
+            receipts.retain(|r| r.path != *dst);
+            save_placements(game_dir, &receipts)?;
+        }
+    }
+    Ok(report)
+}
+
+/// Only a profile's own switch advances the exact cleanup receipt. If the player changed anything else, keep the
+/// earlier expected bytes, so subsequent activation cannot accidentally adopt those edits as disposable.
+fn switch_copy(game: &Path, receipts: &mut [Placement], dst: &Path, enabled: bool) -> Result<()> {
+    refuse_symlink_path(game, &dst.join("extended.mod.json.tmp"))?;
+    let current = std::fs::read_to_string(dst.join("extended.mod.json"))?;
+    let index = receipts.iter().position(|r| r.path == dst);
+    let unchanged = index.is_some_and(|i| receipts[i].extension.as_deref() == Some(current.as_str()));
+    crate::shroudforge::set_enabled(dst, enabled)?;
+    if unchanged {
+        receipts[index.expect("checked")].extension = Some(std::fs::read_to_string(dst.join("extended.mod.json"))?);
+        save_placements(game, receipts)?;
     }
     Ok(())
 }
@@ -691,7 +796,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 if kind == ModKind::ShroudForge {
                     refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
                     if crate::shroudforge::read_mod(&dst)?.enabled != m.enabled {
-                        crate::shroudforge::set_enabled(&dst, m.enabled)?;
+                        switch_copy(game_dir, &mut receipts, &dst, m.enabled)?;
                         rep.switched.push(tag(&m.id));
                     }
                 }
@@ -727,7 +832,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 rep.removed.push(tag(&receipt.marker.id));
             } else if crate::shroudforge::read_mod(dst)?.enabled {
                 refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
-                crate::shroudforge::set_enabled(dst, false)?;
+                switch_copy(game_dir, &mut receipts, dst, false)?;
                 rep.switched.push(tag(&receipt.marker.id));
             }
         }

@@ -104,7 +104,7 @@ Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `
 | `chain.ini`, `chain/` (displaced proxies, `once.ini`) | section 5.3 |
 | `native/<id>/` | native mod drop-in folder (a folder with `native.json`) |
 | `profiles/<pid>/<kind>/<id>/`, `profiles/<pid>/config/` | copy mode (section 6) |
-| `../mods/<id>/` (ShroudForge's mods folder, `shroudforge::mods_dir`), `../shrouded_engine_tweaks/mods/<id>/` | ShroudForge and SET mods of the active profile, placed by activation with a `.kiln-library.json` marker (`{format, kind, id, version, hash}`; 5.1). Folders without the marker are the player's and are never touched |
+| `../mods/<id>/` (ShroudForge's mods folder, `shroudforge::mods_dir`), `../shrouded_engine_tweaks/mods/<id>/` | ShroudForge and SET mods of the active profile, placed by activation with a `.kiln-library.json` marker (`{format, kind, id, version, hash}`; 5.1) plus a trusted placement receipt. A marker alone never authorizes changes; player folders are never touched |
 | `state/` | status files for the launcher (section 5.9); created by kiln-core at boot (`KILN_PATH_STATE`) |
 | `.install.json` | install receipt (section 5.7) |
 | `backups/install-<yyyymmddThhmmssZ>/` | what the installer replaced, byte-identical |
@@ -179,7 +179,7 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 |---|---|---|---|
 | `emf` | kiln-emf | library folder | `kiln.profile` `get(KILN_PROFILE_KIND_EMF)` |
 | `eml` | kiln-eml (GPL) | library folder | `discover::profile_candidates` over `json()`; `enabled: false` = disabled |
-| `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes its `extended.mod.json` `enabled` (`shroudforge::apply_switches`); Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
+| `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes only Kiln-owned copies' `extended.mod.json` `enabled` (`engine_mods::place`); original player folders are never switched. Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
 | `set` | kiln-set | the placed copy in `shrouded_engine_tweaks/mods/` | kiln-set reads that folder. Activation places the enabled mods and removes Kiln's copies of disabled or unlisted ones (SET has no switch). kiln-set loads nothing under play-once no-mods or an invalid profile |
 | `greeneye` | kiln-greeneye | library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
 | `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
@@ -189,11 +189,15 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 | `ember` | kiln-ember | library folder (one library) | `plan_engine("ember")`; finds and reports, starts nothing: Ember has published no mod ABI (the launcher says the mods don't run yet) |
 
 Placement ownership requires `.kiln-library.json` plus a matching launcher receipt in
-`kiln/state/library-placements.json` (`{path, marker, files}` entries, recording relative paths, file hashes and
-directory entries).
+`kiln/state/library-placements.json` (`{path, marker, files, extension?}` entries, recording relative paths, file hashes,
+directory entries and the exact SF extension text last written by Kiln).
 The marker alone is advisory: marker-only older copies and player-modified folders are left untouched. The
-inventory excludes only ShroudForge's mutable enabled switch and setting values. Copies are staged beside the
-destination and the previous folder is restored if replacement fails. Activation refuses while the game runs.
+upgrade inventory excludes only ShroudForge's mutable enabled switch and setting values. Deactivate/uninstall cleanup
+additionally requires the exact extension text to match; old receipts without it conservatively retain SF copies.
+Only Kiln's own switch of an unchanged extension advances that exact receipt, never player settings carried through
+an upgrade. Retained folders are returned as `{path, reason, mayRun}`; the launcher displays paths/reasons until
+dismissed and warns they may still run under the standalone loader. Copies are staged beside the destination and
+the previous folder is restored if replacement fails. Activation refuses while the game runs.
 In copy mode, the ShroudForge and SET profile entry paths name the verified source copies under
 `kiln/profiles/<profile>/<kind>/<id>`; their plugins still read the separately placed fixed engine folders.
 Play once cannot select different ShroudForge or SET mods, versions or switches from the active profile: activate
@@ -711,9 +715,9 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | runtime | `runtime_list` | - | `RuntimeBundle[]` |
 | runtime | `runtime_import` | path: string | `RuntimeBundle` |
 | runtime | `runtime_status` | gameId | `InstallState` |
-| runtime | `runtime_install` | gameId, version: string, options: InstallOptions | `TaskId` -> `InstallReceipt` + `changedBackedUp: string[]` (Kiln files changed by hand that the install replaced, kept in the backup) + `backup: string \| null` (`<data>/backups/install/<installId>/install-<ts>`) |
-| runtime | `runtime_uninstall` | gameId | `TaskId` -> null |
-| runtime | `runtime_rollback` | gameId, version: string | `TaskId` -> `InstallReceipt` + `changedBackedUp`, `backup` (as `runtime_install`) |
+| runtime | `runtime_install` | gameId, version: string, options: InstallOptions | `TaskId` -> `InstallReceipt` + `changedBackedUp: string[]` (Kiln files changed by hand that the install replaced, kept in the backup) + `backup: string \| null` (`<data>/backups/install/<installId>/install-<ts>`) + `restoredShroudforge: string[]` (legacy helpers recovered) + `warnings: string[]` (player replacements kept, with recovery paths) |
+| runtime | `runtime_uninstall` | gameId | `TaskId` -> `UninstallReport {removed, restored, adopted, kept, placements: PlacementCleanup, warnings}`; changed player replacements remain, original backup paths are in warnings |
+| runtime | `runtime_rollback` | gameId, version: string | `TaskId` -> `InstallReceipt` + `changedBackedUp`, `backup`, `restoredShroudforge`, `warnings` (as `runtime_install`) |
 | runtime | `runtime_classify` | path: string | `ProxyClass` |
 | profile | `profile_list` | - | `ProfileSummary[]` |
 | profile | `profile_get` | profileId | `Profile` |
@@ -722,7 +726,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | profile | `profile_delete` | profileId | null |
 | profile | `profile_resolve` | profileId, side: RunSide | `ResolvePreview` |
 | profile | `profile_activate` | profileId, gameId | `Activation` |
-| profile | `profile_deactivate` | gameId | null |
+| profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
 | profile | `profile_active` | gameId | `Activation \| null` |
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |

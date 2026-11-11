@@ -18,7 +18,7 @@ import { useFound } from "./profiles/GameFolder";
 import { detectGames, useDetect, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
 import {
-  ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, TaskProgress, errorText, toast,
+  ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, Select, TaskProgress, errorText, notifyPlacementCleanup, toast,
 } from "../ui";
 
 /** Windows (WebView2): path examples in Windows form. */
@@ -327,7 +327,7 @@ function ProfileName({ gameId, name, running }: { gameId: string; name: string; 
   const ref = useRef<HTMLDivElement>(null);
   const list = profiles.data ?? [];
   const activate = useMutation({
-    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, gameId) : api.profileDeactivate(gameId).then(() => null)),
+    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, gameId) : api.profileDeactivate(gameId).then((r) => { notifyPlacementCleanup(r); return null; })),
     // the name changes at once (the activation answers after the backend has written it, which takes a moment);
     // a failed activation puts the old one back
     onMutate: (pid) => showActive(qc, gameId, pid || null),
