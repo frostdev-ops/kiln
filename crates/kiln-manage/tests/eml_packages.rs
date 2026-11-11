@@ -1681,6 +1681,36 @@ fn an_inferred_proxy_id_never_replaces_an_authored_native_with_the_same_id() {
     }
 }
 
+/// Failure to inspect a proxy is not evidence that its author supplied a manifest; generated non-proxies are not authored either.
+#[test]
+fn a_missing_or_generated_native_entry_does_not_block_its_inferred_replacement() {
+    for case in ["missing-entry", "non-proxy", "missing-manifest", "invalid-manifest", "missing-dll"] {
+        let (t, dirs, g) = fresh(case);
+        let old = if case == "non-proxy" {
+            let dll = t.0.join("old/embervale-atlas.dll");
+            put(&t.0, "old/embervale-atlas.dll", &build_test_dll(&[], b"old non-proxy"));
+            dll
+        } else {
+            proxy_package(&t, "Embervale Atlas 1.0", &proxy_dll("old"), &[])
+        };
+        let first = add(&dirs, &g, &old);
+        let folder = library::path_of(&dirs, &first.import.imported[0]).unwrap();
+        match case {
+            "missing-entry" => std::fs::remove_dir_all(&folder).unwrap(),
+            "missing-manifest" => std::fs::remove_file(folder.join("native.json")).unwrap(),
+            "invalid-manifest" => put(&folder, "native.json", b"not JSON"),
+            "missing-dll" => std::fs::remove_file(folder.join("dinput8.dll")).unwrap(),
+            _ => {}
+        }
+        let r = add(&dirs, &g, &proxy_package(&t, "Embervale Atlas 2.0", &proxy_dll("new"), &[]));
+        let selected = profile::get(&dirs, "my-mods").unwrap().mods.native;
+        assert_eq!(selected[0].hash, r.import.imported[0].hash, "{case}: the incoming package must replace an entry not known to be authored");
+        assert_eq!(r.changes.len(), 1, "{case}: {r:?}");
+        assert!(!r.notices.iter().any(|n| n.contains("its author supplied native.json")), "{case}: {:?}", r.notices);
+        assert_eq!(enabled_natives(&g), ["embervale-atlas"], "{case}");
+    }
+}
+
 /// A VS_VERSION_INFO resource with the file version a.b.c, as a stand-in DLL carries it.
 fn version_info(a: u16, b: u16, c: u16) -> Vec<u8> {
     let mut v = vec![0u8; 6];
