@@ -570,6 +570,167 @@ fn changed_code_is_never_discarded_as_native_settings() {
     assert_eq!(kiln_manage::engine_mods::place(&d.dirs, &p, &d.g.path).unwrap().changed, ["eml:auto-loot-plus"]);
 }
 
+/// The `retained` list of an activation as the launcher reads it (`path`, `reason`, `mayRun`): the copies that may
+/// still run.
+fn retained_of(a: &profile::Activation) -> Vec<(PathBuf, String)> {
+    let v = serde_json::to_value(a).unwrap();
+    v["retained"].as_array().into_iter().flatten().filter(|r| r["mayRun"] == true)
+        .map(|r| (PathBuf::from(r["path"].as_str().unwrap()), r["reason"].as_str().unwrap_or_default().to_string())).collect()
+}
+
+fn retains(a: &profile::Activation, copy: &Path) -> bool {
+    retained_of(a).iter().any(|(path, why)| path == copy && !why.is_empty())
+}
+
+/// A placed copy that activation may neither remove nor update stays where the mod's own loader (XHL-Core, the
+/// package's DLL, EML's loader) still runs it. Every activation path reports it with its reason and that it may still
+/// run, as deactivate and uninstall do; before, only `PlaceReport::changed` named it, and nothing read that.
+#[test]
+fn copies_activation_has_to_keep_are_reported_as_retained_by_every_activation_path() {
+    // switched off in the profile: the player changed the plugin's ini
+    let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+    let copy = d.g.path.join("mods/XHL-Vein-Mining");
+    put(&copy, "native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\nVerbose=1\n");
+    let mut p = my_mods(&d);
+    p.mods.xhl[0].enabled = false;
+    let p = profile::save(&d.dirs, &p).unwrap();
+    let a = profile::activate(&d.dirs, &p.id, &d.g).unwrap();
+    assert_eq!(std::fs::read(copy.join("XHL-Vein-Mining.dll")).unwrap(), xhl_plugin(), "the copy stays");
+    assert!(retains(&a, &copy), "switched off: {}", serde_json::to_string(&a).unwrap());
+    // the automatic re-apply after a profile edit (profile::refresh_active: the launcher's profile_save, Play)
+    let mut p = my_mods(&d);
+    p.name = "edited".into();
+    profile::save(&d.dirs, &p).unwrap();
+    let a = profile::refresh_active(&d.dirs, &d.g).unwrap().expect("re-applied");
+    assert!(retains(&a, &copy), "re-apply: {}", serde_json::to_string(&a).unwrap());
+
+    // updated: the changed old copy keeps running instead of the new version
+    let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+    let copy = d.g.path.join("mods/XHL-Vein-Mining");
+    put(&copy, "XHL-Vein-Mining.dll", b"the player's own build");
+    let update = d._t.0.join("update");
+    layout(&update, "xhl-plugin");
+    put(&update, "mods/XHL-Vein-Mining/new-data.bin", b"new data");
+    let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[update], false, &mut NoProgress).unwrap();
+    assert!(!copy.join("new-data.bin").exists(), "the changed copy is not replaced");
+    let a = r.activation.expect("applied");
+    assert!(retains(&a, &copy), "update: {}", serde_json::to_string(&a).unwrap());
+
+    // an EML mod placed for EML's own loader whose code the player edited, then removed from the profile
+    let t = tmp("own-loader-retained");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    put(&g.path, "dbghelp.dll", &eml_dbghelp());
+    kiln_manage::quick::add_with(&dirs, &g, &[zip(&t, "loader-dbghelp", "XHL-Max-Stack")], false, &mut NoProgress).unwrap();
+    let copy = g.path.join("mods/xhl-max-stack-65535");
+    put(&copy, "src/mod.lua", b"-- the player's code");
+    let mut p = profile::get(&dirs, "my-mods").unwrap();
+    p.mods.eml.clear();
+    let p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &g).unwrap();
+    assert_eq!(std::fs::read(copy.join("src/mod.lua")).unwrap(), b"-- the player's code");
+    assert!(retains(&a, &copy), "own loader: {}", serde_json::to_string(&a).unwrap());
+}
+
+/// A log or data file the plugin wrote beside itself is the player's, like its settings: it does not freeze the copy as
+/// "changed code". Switched off, the copy goes and the file is kept under kiln/; switched on or updated, it comes back.
+/// A new DLL in the folder is code: that copy is retained and reported.
+#[test]
+fn files_a_plugin_writes_beside_itself_are_kept_without_freezing_the_copy() {
+    let d = drop_on_launcher("xhl-plugin", "XHL plugin");
+    let copy = d.g.path.join("mods/XHL-Vein-Mining");
+    put(&copy, "XHL-Vein-Mining.log", b"written by the plugin");
+    put(&copy, "cache/state.dat", b"\x01\x02");
+    // an update carries them into the new version
+    let update = d._t.0.join("update");
+    layout(&update, "xhl-plugin");
+    put(&update, "mods/XHL-Vein-Mining/new-data.bin", b"new data");
+    let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[update], false, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(copy.join("new-data.bin")).unwrap(), b"new data", "the new version is placed: {r:?}");
+    assert_eq!(std::fs::read(copy.join("XHL-Vein-Mining.log")).unwrap(), b"written by the plugin");
+    assert_eq!(std::fs::read(copy.join("cache/state.dat")).unwrap(), b"\x01\x02");
+    // switched off: the copy goes, the files wait under kiln/
+    let mut p = my_mods(&d);
+    p.mods.xhl[0].enabled = false;
+    let mut p = profile::save(&d.dirs, &p).unwrap();
+    let a = profile::activate(&d.dirs, &p.id, &d.g).unwrap();
+    assert!(!copy.exists(), "{a:?}");
+    assert!(retained_of(&a).is_empty(), "{a:?}");
+    assert!(a.kept_files.iter().any(|s| s.contains("XHL-Vein-Mining.log")), "{a:?}");
+    // on again: they come back
+    p.mods.xhl[0].enabled = true;
+    let p = activate(&d, &p);
+    assert_eq!(std::fs::read(copy.join("XHL-Vein-Mining.log")).unwrap(), b"written by the plugin");
+    assert_eq!(std::fs::read(copy.join("cache/state.dat")).unwrap(), b"\x01\x02");
+    // a DLL the player added is code: the copy stays and is reported
+    put(&copy, "Extra.dll", &xhl_plugin());
+    let mut p = p;
+    p.mods.xhl[0].enabled = false;
+    let p = profile::save(&d.dirs, &p).unwrap();
+    let a = profile::activate(&d.dirs, &p.id, &d.g).unwrap();
+    assert!(copy.join("Extra.dll").is_file());
+    assert!(retains(&a, &copy), "{a:?}");
+}
+
+/// A settings file Kiln cannot carry (over 16 MiB, or a name Windows would change) keeps its copy as it is, like changed
+/// code: activation and Play go on and say so, instead of failing for every mod of the profile.
+#[test]
+fn a_settings_file_kiln_cannot_carry_keeps_the_copy_without_failing_activation_or_play() {
+    use kiln_manage::launch::{LaunchMode, LaunchRequest};
+    for (name, update) in [("huge.txt", false), ("odd:name.txt", false), ("huge.txt", true)] {
+        let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+        let copy = d.g.path.join("mods/auto-loot-plus");
+        let bytes = if name == "huge.txt" { vec![b'x'; 16 * 1024 * 1024 + 1] } else { b"x".to_vec() };
+        put(&copy, name, &bytes);
+        let a = if update {
+            let pkg = d._t.0.join("update");
+            layout(&pkg, "alp-full");
+            put(&pkg, "mods/auto-loot-plus/src/mod.lua", b"-- 1.1.9\nreturn {}");
+            let z = d._t.0.join("AutoLootPlus 1.1.9.zip");
+            zip_of(&pkg, &z);
+            let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[z], false, &mut NoProgress);
+            assert!(r.is_ok(), "{name}, update: {:?}", r.err());
+            r.unwrap().activation.expect("applied")
+        } else {
+            let mut p = my_mods(&d);
+            p.mods.eml[0].enabled = false;
+            profile::save(&d.dirs, &p).unwrap();
+            // Play applies the edited profile first
+            let req = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+            let r = kiln_manage::launch::play_with(&d.dirs, &d.g, &req, Some(&[]), &|_| Ok(()));
+            assert!(r.is_ok(), "{name}: Play: {:?}", r.err());
+            assert!(!profile::read_game_profile(&d.g.path).unwrap().unwrap().mods.eml[0].enabled, "profile.json is the saved profile");
+            profile::activate(&d.dirs, "my-mods", &d.g).unwrap()
+        };
+        assert_eq!(std::fs::read(copy.join(name)).unwrap(), bytes, "{name}");
+        assert!(retains(&a, &copy), "{name}, update {update}: {a:?}");
+    }
+}
+
+/// A copy whose receipt has no game-folder flag (placed by dev.23 for EML's own loader, or before the Library record
+/// learned the folder) is cleaned like any own-loader copy: the files the mod wrote go to kiln/kept-mod-files, and the
+/// activation says they go back when the mod is placed again. Placed again as a game-folder copy, they do.
+#[test]
+fn files_kept_from_an_unflagged_copy_come_back_to_its_game_folder_copy() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let copy = d.g.path.join("mods/auto-loot-plus");
+    let file = d.g.path.join("kiln/state/library-placements.json");
+    let mut receipts: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    for r in receipts.as_array_mut().unwrap() { r.as_object_mut().unwrap().remove("game_folder"); }
+    std::fs::write(&file, serde_json::to_vec(&receipts).unwrap()).unwrap();
+    put(&copy, "config.txt", b"radius=42");
+    let mut p = my_mods(&d);
+    p.mods.eml[0].enabled = false;
+    let mut p = profile::save(&d.dirs, &p).unwrap();
+    let a = profile::activate(&d.dirs, &p.id, &d.g).unwrap();
+    assert!(!copy.exists(), "{a:?}");
+    assert!(a.kept_files.iter().any(|s| s.contains("they go back when the mod is placed again")), "{a:?}");
+    p.mods.eml[0].enabled = true;
+    activate(&d, &p);
+    assert_eq!(std::fs::read(copy.join("config.txt")).unwrap(), b"radius=42");
+    assert!(!d.g.path.join("kiln/kept-mod-files").exists(), "only what went back left the kept folder");
+}
+
 #[test]
 fn direct_mod_folders_and_archive_roots_keep_their_data() {
     let t = tmp("direct");

@@ -475,10 +475,19 @@ pub struct PlaceReport {
     /// A folder with the mod's name that the player put there: left as it is. For the own-loader kinds also a
     /// player's folder holding the same mod (the same manifest id): the own loader runs that one.
     pub own: Vec<String>,
-    /// Kiln's copy for an own loader whose library files changed since it was placed (the player edited the mod):
-    /// left as it is, neither refreshed nor removed. Files the mod added and its settings files do not count.
+    /// Kiln's copy whose library files changed since it was placed (the player edited the mod), or that activation
+    /// cannot inspect or carry: left as it is, neither refreshed nor removed. Files the mod added and its settings files
+    /// do not count. Each one is in [`PlaceReport::retained`] too, with its path and reason.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changed: Vec<String>,
+    /// The copies of [`PlaceReport::changed`]: where they are and why they stay. The mod's own loader may still run
+    /// them, whatever the profile says (`mayRun`), as for [`unplace`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<RetainedPlacement>,
+    /// Per-mod notes that are not about kept files: a setting value a new ShroudForge version refuses, earlier
+    /// settings that could not be read. One sentence each, `<kind>:<id>: ...`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     /// Files a mod wrote into its placed folder (its settings): one sentence per mod when they were moved to
     /// [`KEPT_MOD_FILES`] (the mod was removed, or its new version ships a file of the same name) or put back from
     /// there. Files carried into a new version of the copy are not listed: they stay where they were.
@@ -766,14 +775,24 @@ pub(crate) fn carry_in(game: &Path, kind: ModKind, id: &str, c: &Carry, staged: 
     Ok(Carried { back, aside })
 }
 
-/// After the new copy is in place: the files that went back leave the kept folder. The sentence for
+/// After the new copy `dst` is in place: the files that went back leave the kept folder, each only while the kept
+/// file still holds the bytes the copy now has (a value edited there meanwhile stays). The sentence for
 /// [`PlaceReport::kept_files`], if any (files carried from the old copy need none).
-pub(crate) fn carried(game: &Path, kind: ModKind, id: &str, c: &Carry, done: &Carried) -> Result<Option<String>> {
+pub(crate) fn carried(game: &Path, kind: ModKind, id: &str, c: &Carry, done: &Carried, dst: &Path) -> Result<Option<String>> {
     let kind = kind.as_str();
     let files = |n: usize| if n == 1 { "1 file" } else { "the files" };
     let mut said = Vec::new();
     if c.from_kept && !done.back.is_empty() {
-        prune_kept(game, c.from, &done.back)?;
+        let mut same = Vec::new();
+        for rel in &done.back {
+            let (kept, placed) = (c.from.join(rel), dst.join(rel));
+            refuse_symlink_path(game, &kept)?;
+            refuse_symlink_path(game, &placed)?;
+            if kept.is_file() && placed.is_file() && crate::hash::sha256_file(&kept)?.0 == crate::hash::sha256_file(&placed)?.0 {
+                same.push(rel.clone());
+            }
+        }
+        prune_kept(game, c.from, &same)?;
         said.push(format!("put back {} the mod wrote earlier ({}) from {KEPT_MOD_FILES}/{kind}/{id}", files(done.back.len()),
             some_names(&done.back)));
     }
@@ -784,15 +803,22 @@ pub(crate) fn carried(game: &Path, kind: ModKind, id: &str, c: &Carry, done: &Ca
     Ok((!said.is_empty()).then(|| format!("{kind}:{id}: {}", said.join("; "))))
 }
 
-/// The kept files of `kind`/`id` (None: nothing kept).
+/// `name.kept-N`: an earlier value [`park_kept`] set aside. It is a recovery copy, never a file the mod wrote.
+fn is_parked(rel: &str) -> bool {
+    rel.rsplit_once(".kept-").is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The kept files of `kind`/`id` (None: nothing kept). Parked `.kept-N` values stay where they are.
 pub(crate) fn kept_carry<'a>(game: &Path, kept: &'a Path, kind: ModKind) -> Result<Option<Carry<'a>>> {
     refuse_symlink_path(game, kept)?;
     if !kept.is_dir() { return Ok(None); }
-    let entries: Vec<String> = placement_files(kept, kind)?.into_keys().filter(|e| !e.ends_with('/')).collect();
+    let entries: Vec<String> = placement_files(kept, kind)?.into_keys()
+        .filter(|e| !e.ends_with('/') && !Path::new(e).components().any(|c| is_parked(&c.as_os_str().to_string_lossy()))).collect();
     Ok((!entries.is_empty()).then_some(Carry { from: kept, entries, from_kept: true }))
 }
 
 /// Removes the restored `files` from the kept folder, then the folders left empty up to `<game>/kiln/kept-mod-files`.
+/// Callers pass only files whose bytes they proved went back.
 fn prune_kept(game: &Path, kept: &Path, files: &[String]) -> Result<()> {
     for rel in files {
         let p = kept.join(rel);
@@ -837,24 +863,35 @@ struct Roots<'a> {
 /// `carry`: the player's files for the new copy (see [`Carry`]). They are copied over the staged library copy after its
 /// receipt is taken, so the next placement sees them as the player's again. A file the library copy ships under the
 /// same name stays the library's (unless it is a settings file): the player's goes to [`kept_dir`]. Returns the
-/// sentence for [`PlaceReport::kept_files`], if any.
+/// sentence for [`PlaceReport::kept_files`], if any, and the [`PlaceReport::warnings`] (ShroudForge settings the new
+/// version refuses: it starts with its own default for them).
 #[allow(clippy::too_many_arguments)]
 fn copy_in(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
-           carry: Option<Carry>, persist: impl FnOnce(&Placement) -> Result<()>) -> Result<Option<String>> {
-    copy_in_with(roots, src, dst, m, kept, enabled, carry, &[], false, persist)
+           carry: Option<Carry>, persist: impl FnOnce(&Placement) -> Result<()>) -> Result<(Option<String>, Vec<String>)> {
+    copy_in_with(roots, src, dst, m, kept, enabled, carry, &[], None, persist)
+}
+
+/// The last step of publishing a staged copy (tests make it fail).
+fn rename_in(staged: &Path, dst: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if tests::FAIL_RENAME_IN.with(|f| f.replace(false)) { return Err(std::io::Error::other("injected rename failure")); }
+    std::fs::rename(staged, dst)
 }
 
 /// Shared placement transaction. Both generic player files (`carry`) and native game-folder settings (`settings`)
 /// go over the staged Library copy only after its receipt is taken; neither becomes a disposable shipped default.
+/// `game_folder`: a copy in `<game>/mods/` ([`Placement::game_folder`]), with its [`settings_key`]; player files set
+/// aside go to the [`kept_dir`] of that key (one native package can have several such folders).
 #[allow(clippy::too_many_arguments)]
 fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
-                carry: Option<Carry>, settings: &[(String, Vec<u8>)], game_folder: bool,
-                persist: impl FnOnce(&Placement) -> Result<()>) -> Result<Option<String>> {
+                carry: Option<Carry>, settings: &[(String, Vec<u8>)], game_folder: Option<&str>,
+                persist: impl FnOnce(&Placement) -> Result<()>) -> Result<(Option<String>, Vec<String>)> {
     refuse_symlink_path(roots.data, src)?;
     refuse_symlink_path(roots.game, dst)?;
     // A native settings companion is a subtree of its selected Library package; the marker still identifies that
     // package, not an invented executable mod. Verify the parent package and the copied subtree independently.
-    let package = if m.kind == ModKind::Native && game_folder {
+    let key = game_folder.unwrap_or(&m.id);
+    let package = if m.kind == ModKind::Native && game_folder.is_some() {
         src.parent().filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods"))).and_then(Path::parent)
             .ok_or_else(|| Error::invalid("native settings must be under the package's mods folder"))?
     } else { src };
@@ -870,6 +907,7 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
     if crate::hash::dirhash(&staged)? != source_hash || crate::hash::dirhash(package)? != m.hash {
         return Err(Error::new(ErrorCode::HashMismatch, "mod changed while placing"));
     }
+    let mut warnings = Vec::new();
     let extension = if m.kind == ModKind::ShroudForge {
         crate::shroudforge::set_enabled(&staged, enabled)?;
         // Record the Library defaults before carrying the player's settings to an upgraded copy. Carried changes
@@ -877,17 +915,25 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
         let expected = std::fs::read_to_string(staged.join("extended.mod.json"))?;
         let new = crate::shroudforge::read_mod(&staged)?;
         for (key, value) in kept {
-            if new.settings.iter().any(|s| &s.key == key) {
-                crate::shroudforge::set_setting(&staged, key, value)?;
+            let Some(default) = new.settings.iter().find(|s| &s.key == key).map(|s| s.value.clone()) else { continue };
+            // a value this version refuses (another range, a whole number, a shortcut syntax) keeps its default: the
+            // update and every other mod of the profile go on, and the player is told the old value
+            match crate::shroudforge::set_setting(&staged, key, value) {
+                Ok(_) => {}
+                Err(e) if e.code == ErrorCode::InvalidArgument => warnings.push(format!(
+                    "{}:{}: the setting {key} was {value}, which version {} does not accept ({}); it starts with that version's default {default}",
+                    m.kind.as_str(), m.id, m.version, e.message)),
+                Err(e) => return Err(e),
             }
         }
         Some(expected)
     } else { None };
     crate::util::write_json_atomic(&staged.join(MARKER), m)?;
     // The receipt lists the Library copy only: carried files and changed SF settings remain the player's.
-    let receipt = Placement { path: dst.to_path_buf(), marker: m.clone(), files: placement_files(&staged, m.kind)?, extension, game_folder };
+    let receipt = Placement { path: dst.to_path_buf(), marker: m.clone(), files: placement_files(&staged, m.kind)?, extension,
+        game_folder: game_folder.is_some() };
     let done = match &carry {
-        Some(c) => Some(carry_in(roots.game, m.kind, &m.id, c, &staged)?),
+        Some(c) => Some(carry_in(roots.game, m.kind, key, c, &staged)?),
         None => None,
     };
     for (rel, bytes) in settings {
@@ -900,7 +946,7 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
     let old = tmp.path().join("old");
     let replaced = dst.exists();
     if replaced { std::fs::rename(dst, &old).map_err(io_at(dst, "parking old mod"))?; }
-    if let Err(e) = std::fs::rename(&staged, dst) {
+    if let Err(e) = rename_in(&staged, dst) {
         if replaced {
             if let Err(e) = std::fs::rename(&old, dst) {
                 return Err(preserve_recovery(tmp, io_at(dst, "restoring old mod")(e)));
@@ -919,10 +965,11 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
         }
         return Err(error);
     }
-    match (carry, done) {
-        (Some(c), Some(done)) => carried(roots.game, m.kind, &m.id, &c, &done),
-        _ => Ok(None),
-    }
+    let said = match (carry, done) {
+        (Some(c), Some(done)) => carried(roots.game, m.kind, key, &c, &done, dst)?,
+        _ => None,
+    };
+    Ok((said, warnings))
 }
 
 fn remove_copy(game: &Path, dst: &Path, persist: impl FnOnce() -> Result<()>) -> Result<()> {
@@ -1010,7 +1057,7 @@ pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
             Ok(())
         })();
         if let Err(e) = check {
-            report.retained.push(RetainedPlacement { path: dst.clone(), reason: e.message, may_run: true });
+            report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
             continue;
         }
         if dst.exists() {
@@ -1074,6 +1121,23 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
     Ok(rep)
 }
 
+/// A copy activation leaves as it is: named in [`PlaceReport::changed`] and, with its path and the reason, in
+/// [`PlaceReport::retained`]. Its own loader may still run it; the other mods of the profile go on.
+fn retain(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Into<String>) {
+    rep.changed.push(tag);
+    rep.retained.push(RetainedPlacement { path: path.to_path_buf(), reason: reason_at(path, reason.into()), may_run: true });
+}
+
+/// A reason for keeping `path`, without the path an error message starts with (the path is shown beside it).
+fn reason_at(path: &Path, message: String) -> String {
+    message.strip_prefix(&format!("{}: ", path.display())).map(str::to_owned).unwrap_or(message)
+}
+
+/// Why a game-folder copy with these changed, missing or added code files stays.
+fn changed_reason(files: &[String]) -> String {
+    format!("files Kiln placed were changed or removed, or code was added ({}); Kiln neither updates nor removes it", some_names(files))
+}
+
 fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, loaders: &[crate::own_loaders::OwnLoader])
               -> Result<PlaceReport> {
     let _lock = engine_lock(game_dir, &game_dir.join("kiln/state"))?;
@@ -1094,7 +1158,12 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
             let dst = root.join(&m.id);
             let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
-            let have = owned(game_dir, &receipts, &dst, kind, &m.id)?;
+            // A copy Kiln placed but may not touch now (the player edited its code) stays as it is and is reported. It
+            // never stops the other mods, its own removal from the profile, or Play.
+            let have = match owned(game_dir, &receipts, &dst, kind, &m.id) {
+                Ok(h) => h,
+                Err(e) => { retain(&mut rep, tag(&m.id), &dst, e.message); continue; }
+            };
             if have.is_none() && (dst.exists() || (kind == ModKind::ShroudForge && crate::shroudforge::other_holder(&root, &src, &dst).is_some())) {
                 rep.own.push(tag(&m.id));
                 continue; // In particular, never apply a ShroudForge switch to a player's folder.
@@ -1113,27 +1182,41 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             if have.as_ref().is_some_and(|h| h.receipt.marker == want) {
                 if kind == ModKind::ShroudForge {
                     refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
-                    if crate::shroudforge::read_mod(&dst)?.enabled != m.enabled {
-                        switch_copy(game_dir, &mut receipts, &dst, m.enabled)?;
-                        rep.switched.push(tag(&m.id));
+                    match crate::shroudforge::read_mod(&dst) {
+                        Err(e) => {
+                            retain(&mut rep, tag(&m.id), &dst, format!("its ShroudForge settings cannot be read, so its switch was left as it is: {}", e.message));
+                            continue;
+                        }
+                        Ok(sf) if sf.enabled != m.enabled => {
+                            switch_copy(game_dir, &mut receipts, &dst, m.enabled)?;
+                            rep.switched.push(tag(&m.id));
+                        }
+                        Ok(_) => {}
                     }
                 }
                 rep.kept.push(tag(&m.id));
             } else {
                 let kept: Vec<_> = if kind == ModKind::ShroudForge && have.is_some() {
-                    crate::shroudforge::read_mod(&dst)?.settings.into_iter().map(|s| (s.key, s.value)).collect()
+                    match crate::shroudforge::read_mod(&dst) {
+                        Ok(sf) => sf.settings.into_iter().map(|s| (s.key, s.value)).collect(),
+                        Err(e) => {
+                            retain(&mut rep, tag(&m.id), &dst, format!("its ShroudForge settings cannot be read, so version {} was not placed: {}", m.version, e.message));
+                            continue;
+                        }
+                    }
                 } else { Vec::new() };
                 let kept_at = kept_dir(game_dir, kind, &m.id);
                 let carry = match &have {
                     Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
                     None => kept_carry(game_dir, &kept_at, kind)?,
                 };
-                let said = copy_in(roots, &src, &dst, &want, &kept, m.enabled, carry, |receipt| {
+                let (said, warned) = copy_in(roots, &src, &dst, &want, &kept, m.enabled, carry, |receipt| {
                     receipts.retain(|r| r.path != dst);
                     receipts.push(receipt.clone());
                     save_placements(game_dir, &receipts)
                 })?;
                 rep.kept_files.extend(said);
+                rep.warnings.extend(warned);
                 rep.placed.push(tag(&m.id));
             }
         }
@@ -1147,7 +1230,10 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 save_placements(game_dir, &receipts)?;
                 continue;
             }
-            let have = owned(game_dir, &receipts, dst, kind, &receipt.marker.id)?;
+            let have = match owned(game_dir, &receipts, dst, kind, &receipt.marker.id) {
+                Ok(h) => h,
+                Err(e) => { retain(&mut rep, tag(&receipt.marker.id), dst, e.message); continue; }
+            };
             if kind == ModKind::Set {
                 if let Some(h) = &have {
                     rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &receipt.marker.id, &h.player)?);
@@ -1157,10 +1243,17 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     save_placements(game_dir, &receipts)
                 })?;
                 rep.removed.push(tag(&receipt.marker.id));
-            } else if crate::shroudforge::read_mod(dst)?.enabled {
-                refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
-                switch_copy(game_dir, &mut receipts, dst, false)?;
-                rep.switched.push(tag(&receipt.marker.id));
+                continue;
+            }
+            match crate::shroudforge::read_mod(dst) {
+                Err(e) => retain(&mut rep, tag(&receipt.marker.id), dst,
+                    format!("its ShroudForge settings cannot be read, so it was not switched off: {}", e.message)),
+                Ok(sf) if sf.enabled => {
+                    refuse_symlink_path(game_dir, &dst.join("extended.mod.json.tmp"))?;
+                    switch_copy(game_dir, &mut receipts, dst, false)?;
+                    rep.switched.push(tag(&receipt.marker.id));
+                }
+                Ok(_) => {}
             }
         }
     }
@@ -1169,12 +1262,6 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         let root = loader.map(|l| l.root(game_dir));
         let list = profile.mods.list(kind);
         let tag = |id: &str| format!("{}:{id}", kind.as_str());
-        // A copy whose library files the player edited is not Kiln's to replace (files the mod added are fine).
-        let soft = |r: Result<Option<Owned>>| match r {
-            Ok(h) => Ok(Some(h)),
-            Err(e) if e.code == ErrorCode::Refused => Ok(None),
-            Err(e) => Err(e),
-        };
         if let Some(root) = &root {
             refuse_symlink_path(game_dir, root)?;
         }
@@ -1202,48 +1289,73 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
             let dst = dst.clone();
             if *game_folder {
-                let settings_key = settings_key(kind, &m.id, &dst);
-                refuse_symlink_path(game_dir, &dst)?;
+                let key = settings_key(kind, &m.id, &dst);
                 let mods = game_dir.join(EML_GAME_MODS);
-                let carry = match settings_changed(game_dir, &receipts, &dst, kind, &m.id)? {
-                    Mine::Yes(have, _) if have.marker == want => {
+                let kept_at = kept_dir(game_dir, kind, &key);
+                let (settings, carry) = match settings_changed(game_dir, &receipts, &dst, kind, &m.id) {
+                    // nothing there to keep (a link in the way): the mod is not placed, and the result says why
+                    Err(e) if std::fs::symlink_metadata(&dst).is_err() => {
+                        rep.warnings.push(format!("{}: not placed in {}: {}", tag(&m.id), dst.display(), e.message));
+                        continue;
+                    }
+                    Err(e) => { retain(&mut rep, tag(&m.id), &dst, e.message); continue; }
+                    Ok(Mine::Yes(have, ..)) if have.marker == want => {
                         rep.kept.push(tag(&m.id));
                         continue;
                     }
-                    // another version: the new copy keeps the settings the DLL or the player wrote into the old one
-                    Mine::Yes(_, changed) => read_settings(&dst, &changed)?,
-                    Mine::No => {
+                    // another version: the new copy keeps the settings and the files the DLL or the player wrote into
+                    // the old one
+                    Ok(Mine::Yes(_, changed, added)) => match read_settings(&dst, &changed) {
+                        Ok(settings) => (settings, (!added.is_empty()).then(|| Carry { from: &dst, entries: added, from_kept: false })),
+                        Err(e) => { retain(&mut rep, tag(&m.id), &dst, e.message); continue; }
+                    },
+                    Ok(Mine::No) => {
                         rep.own.push(tag(&m.id));
                         continue;
                     }
-                    Mine::Changed => {
-                        rep.changed.push(tag(&m.id));
+                    Ok(Mine::Changed(files)) => {
+                        retain(&mut rep, tag(&m.id), &dst, changed_reason(&files));
                         continue;
                     }
-                    Mine::Absent => {
-                        if same_mod_elsewhere(&mods, kind, &src, &dst).is_some() {
+                    Ok(Mine::Absent) => {
+                        if same_mod_elsewhere(&mods, kind, src, &dst).is_some() {
                             rep.own.push(tag(&m.id));
                             continue;
                         }
-                        stashed_settings(game_dir, kind, &settings_key)?
+                        // what it wrote before it was switched off: its settings in the stash, other files (and those of
+                        // a copy whose receipt had no game-folder flag) in the kept folder. Unreadable ones stay there.
+                        let settings = stashed_settings(game_dir, kind, &key).unwrap_or_else(|e| {
+                            rep.warnings.push(format!("{}: its earlier settings in {} cannot be read ({}); they stay there and the mod starts with its own",
+                                tag(&m.id), stash_dir(game_dir, kind, &key).display(), e.message));
+                            Vec::new()
+                        });
+                        let carry = kept_carry(game_dir, &kept_at, kind).unwrap_or_else(|e| {
+                            rep.warnings.push(format!("{}: the files it wrote earlier in {} cannot be read ({}); they stay there",
+                                tag(&m.id), kept_at.display(), e.message));
+                            None
+                        });
+                        (settings, carry)
                     }
                 };
-                copy_in_with(roots, &src, &dst, &want, &[], true, None, &carry, true, |receipt| {
+                let (said, warned) = copy_in_with(roots, src, &dst, &want, &[], true, carry, &settings, Some(&key), |receipt| {
                     receipts.retain(|r| r.path != dst);
                     receipts.push(receipt.clone());
                     save_placements(game_dir, &receipts)
                 })?;
-                drop_stash(game_dir, kind, &settings_key, &carry)?;
-                let stash = stash_dir(game_dir, kind, &settings_key);
+                rep.kept_files.extend(said);
+                rep.warnings.extend(warned);
+                drop_stash(game_dir, kind, &key, &settings)?;
+                let stash = stash_dir(game_dir, kind, &key);
                 if stash.is_dir() {
                     rep.kept_files.push(format!("{}: earlier settings and recovery files remain in {}", tag(&m.id), stash.display()));
                 }
                 rep.placed.push(tag(&m.id));
                 continue;
             }
-            let Some(have) = soft(owned(game_dir, &receipts, &dst, kind, &m.id))? else {
-                rep.changed.push(tag(&m.id));
-                continue;
+            // A copy whose library files the player edited is not Kiln's to replace (files the mod added are fine).
+            let have = match owned(game_dir, &receipts, &dst, kind, &m.id) {
+                Ok(h) => h,
+                Err(e) => { retain(&mut rep, tag(&m.id), &dst, e.message); continue; }
             };
             if have.is_none() && dst.exists() {
                 rep.own.push(tag(&m.id));
@@ -1254,7 +1366,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 continue;
             }
             let root = dst.parent().expect("own loader folder").to_path_buf();
-            if have.is_none() && same_mod_elsewhere(&root, kind, &src, &dst).is_some() {
+            if have.is_none() && same_mod_elsewhere(&root, kind, src, &dst).is_some() {
                 rep.own.push(tag(&m.id));
                 continue;
             }
@@ -1263,12 +1375,13 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
                 None => kept_carry(game_dir, &kept_at, kind)?,
             };
-            let said = copy_in(roots, &src, &dst, &want, &[], true, carry, |receipt| {
+            let (said, warned) = copy_in(roots, src, &dst, &want, &[], true, carry, |receipt| {
                 receipts.retain(|r| r.path != dst);
                 receipts.push(receipt.clone());
                 save_placements(game_dir, &receipts)
             })?;
             rep.kept_files.extend(said);
+            rep.warnings.extend(warned);
             rep.placed.push(tag(&m.id));
         }
         // Kiln's copies the profile does not want there (switched off, gone from the profile, no loader, another folder).
@@ -1276,40 +1389,45 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             && !targets.iter().any(|(m, _, dst, _)| r.path == *dst && m.id == r.marker.id)).cloned().collect();
         for receipt in stale {
             let dst = &receipt.path;
+            let id = &receipt.marker.id;
             if !dst.exists() {
                 receipts.retain(|r| r.path != *dst);
                 save_placements(game_dir, &receipts)?;
                 continue;
             }
             if receipt.game_folder {
-                // Its DLL's settings wait for the mod to come back. The copy goes so a drop-in scan cannot run it.
-                match settings_changed(game_dir, &receipts, dst, kind, &receipt.marker.id)? {
-                    Mine::Yes(_, changed) => {
-                        let key = settings_key(kind, &receipt.marker.id, dst);
-                        let files = read_settings(dst, &changed)?;
+                // Its DLL's settings and files wait for the mod to come back. The copy goes so a drop-in scan cannot run it.
+                let key = settings_key(kind, id, dst);
+                match settings_changed(game_dir, &receipts, dst, kind, id) {
+                    Ok(Mine::Yes(_, changed, added)) => {
+                        let files = match read_settings(dst, &changed) {
+                            Ok(files) => files,
+                            Err(e) => { retain(&mut rep, tag(id), dst, e.message); continue; }
+                        };
                         stash_settings(game_dir, kind, &key, &files)?;
                         if !files.is_empty() {
                             rep.kept_files.push(format!("{}: kept runtime settings ({}) in {}; they return when the mod is enabled again",
-                                tag(&receipt.marker.id), some_names(&changed), stash_dir(game_dir, kind, &key).display()));
+                                tag(id), some_names(&changed), stash_dir(game_dir, kind, &key).display()));
                         }
+                        rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &key, &added)?);
                     }
-                    _ => {
-                        rep.changed.push(tag(&receipt.marker.id));
-                        continue;
-                    }
+                    Ok(Mine::Changed(files)) => { retain(&mut rep, tag(id), dst, changed_reason(&files)); continue; }
+                    Ok(_) => { retain(&mut rep, tag(id), dst, "placement ownership could not be verified (its marker is not the receipt's)"); continue; }
+                    Err(e) => { retain(&mut rep, tag(id), dst, e.message); continue; }
                 }
             } else {
-                let Some(have) = soft(owned(game_dir, &receipts, dst, kind, &receipt.marker.id))?.flatten() else {
-                    rep.changed.push(tag(&receipt.marker.id));
-                    continue;
+                let have = match owned(game_dir, &receipts, dst, kind, id) {
+                    Ok(Some(h)) => h,
+                    Ok(None) => { retain(&mut rep, tag(id), dst, "placement ownership could not be verified"); continue; }
+                    Err(e) => { retain(&mut rep, tag(id), dst, e.message); continue; }
                 };
-                rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &receipt.marker.id, &have.player)?);
+                rep.kept_files.extend(keep_player_files(game_dir, dst, kind, id, &have.player)?);
             }
             remove_copy(game_dir, dst, || {
                 receipts.retain(|r| r.path != *dst);
                 save_placements(game_dir, &receipts)
             })?;
-            rep.removed.push(tag(&receipt.marker.id));
+            rep.removed.push(tag(id));
         }
     }
     Ok(rep)
@@ -1345,12 +1463,15 @@ fn settings_key(kind: ModKind, id: &str, dst: &Path) -> String {
 
 /// Whose is a game-folder copy, and what in it changed since Kiln placed it.
 enum Mine {
-    /// Kiln's (its receipt and its marker agree), with the files changed or added since (relative, '/' separated).
-    Yes(Placement, Vec<String>),
+    /// Kiln's (its receipt and its marker agree), with what the DLL or the player wrote since (relative, '/'
+    /// separated): the settings files changed or added ([`is_game_settings_file`]), then the other files added that
+    /// are no code ([`is_game_code`]), such as a log or a cache the DLL writes beside itself.
+    Yes(Placement, Vec<String>, Vec<String>),
     /// There, and not Kiln's: the player's own folder, or one whose marker is not the receipt's.
     No,
-    /// Kiln's marker still matches, but code, the manifest or another non-settings file changed: leave it intact.
-    Changed,
+    /// Kiln's marker still matches, but code, the manifest or another file Kiln placed changed or went missing, or
+    /// code was added (these files): leave it intact.
+    Changed(Vec<String>),
     Absent,
 }
 
@@ -1362,13 +1483,28 @@ fn settings_changed(game: &Path, receipts: &[Placement], dst: &Path, kind: ModKi
         return Ok(Mine::No);
     }
     let now = placement_files(dst, kind)?;
-    // Receipt ownership never authorizes throwing away player edits to code or manifests, including removed files.
-    if now.iter().chain(&receipt.files).any(|(rel, _)| !rel.ends_with('/') && !is_game_settings_file(rel)
-        && now.get(rel) != receipt.files.get(rel)) {
-        return Ok(Mine::Changed);
+    let (mut settings, mut added, mut code) = (Vec::new(), Vec::new(), Vec::new());
+    for (rel, _) in now.iter().filter(|(rel, hash)| !rel.ends_with('/') && receipt.files.get(*rel) != Some(*hash)) {
+        if is_game_settings_file(rel) {
+            settings.push(rel.clone());
+        } else if !receipt.files.contains_key(rel) && !is_game_code(rel) {
+            added.push(rel.clone());
+        } else {
+            code.push(rel.clone());
+        }
     }
-    let changed = now.into_iter().filter(|(rel, hash)| !rel.ends_with('/') && receipt.files.get(rel) != Some(hash)).map(|(rel, _)| rel).collect();
-    Ok(Mine::Yes(receipt.clone(), changed))
+    // Receipt ownership never authorizes throwing away player edits to code or manifests, including removed files.
+    code.extend(receipt.files.keys().filter(|rel| !rel.ends_with('/') && !now.contains_key(*rel) && !is_game_settings_file(rel)).cloned());
+    if !code.is_empty() { return Ok(Mine::Changed(code)); }
+    Ok(Mine::Yes(receipt.clone(), settings, added))
+}
+
+/// Code or a manifest in a game-folder copy: the manifest, the Lua, the plugin ini, DLLs. A file of this kind that is
+/// new since placement makes the copy the player's (XHL-Core and the package's DLL load what is there).
+fn is_game_code(rel: &str) -> bool {
+    let low = rel.to_ascii_lowercase();
+    let ext = low.rsplit_once('.').map(|(_, x)| x).unwrap_or("");
+    low == "mod.json" || low == XHL_PLUGIN_INI || low.starts_with("src/") || matches!(ext, "dll" | "exe" | "asi" | "lua" | "luac")
 }
 
 /// A file a mod's DLL (or the player) may have written as settings: not the manifest, the Lua, code or the plugin ini.
@@ -1878,6 +2014,119 @@ pub fn eml_restore_vanilla(_game_dir: &Path) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    std::thread_local! {
+        /// The next [`rename_in`] on this thread fails.
+        pub(super) static FAIL_RENAME_IN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    fn files_of(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() { stack.push(p); continue; }
+                out.insert(p.strip_prefix(dir).unwrap().to_string_lossy().into_owned(), std::fs::read(&p).unwrap());
+            }
+        }
+        out
+    }
+
+    /// The failure paths of [`copy_in_with`] after staging: the new copy cannot be renamed in, or its receipt cannot be
+    /// written with player files carried from the old copy, from the kept folder, or with stashed settings. Each time
+    /// the old copy comes back byte for byte and no recovery file is lost or pruned.
+    #[test]
+    fn failed_publication_restores_the_old_copy_and_keeps_every_recovery_file() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "engine-publish-rollback").unwrap();
+        let game = tmp.path();
+        let src = game.join("source");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("init.lua"), b"new").unwrap();
+        std::fs::write(src.join("notes.txt"), b"new version's notes").unwrap();
+        let marker = Marker { format: 1, kind: ModKind::Set, id: "test".into(), version: "2.0.0".into(), hash: crate::hash::dirhash(&src).unwrap() };
+        let roots = Roots { data: game, game };
+        let dst = game.join("shrouded_engine_tweaks/mods/test");
+        let kept = kept_dir(game, ModKind::Set, "test");
+        let old_copy = || {
+            let _ = std::fs::remove_dir_all(&dst);
+            std::fs::create_dir_all(&dst).unwrap();
+            std::fs::write(dst.join("init.lua"), b"old").unwrap();
+            std::fs::write(dst.join("settings.json"), b"player settings").unwrap();
+            std::fs::write(dst.join("notes.txt"), b"player notes").unwrap();
+        };
+        let player = vec!["notes.txt".to_string(), "settings.json".to_string()];
+        let injected = |_: &Placement| Err(Error::invalid("injected receipt failure"));
+
+        // 1. the rename into place fails: the old copy is renamed back, the receipt is never written
+        old_copy();
+        let before = files_of(&dst);
+        FAIL_RENAME_IN.with(|f| f.set(true));
+        let carry = Carry { from: &dst, entries: player.clone(), from_kept: false };
+        let e = copy_in(roots, &src, &dst, &marker, &[], true, Some(carry), |_| panic!("no receipt for a copy that is not in place")).unwrap_err();
+        assert!(e.message.contains("placing"), "{e:?}");
+        assert_eq!(files_of(&dst), before);
+
+        // 2. the receipt write fails with files carried from the old copy: the old copy is back as it was
+        let carry = Carry { from: &dst, entries: player.clone(), from_kept: false };
+        assert!(copy_in(roots, &src, &dst, &marker, &[], true, Some(carry), injected).is_err());
+        assert_eq!(files_of(&dst), before);
+
+        // 3. ... with files carried from the kept folder: they stay in the kept folder
+        std::fs::remove_dir_all(&dst).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
+        std::fs::write(kept.join("settings.json"), b"kept settings").unwrap();
+        std::fs::write(kept.join("notes.txt"), b"kept notes").unwrap();
+        let kept_before = files_of(&kept);
+        let carry = kept_carry(game, &kept, ModKind::Set).unwrap();
+        assert!(carry.is_some());
+        assert!(copy_in(roots, &src, &dst, &marker, &[], true, carry, injected).is_err());
+        assert!(!dst.exists());
+        assert_eq!(files_of(&kept), kept_before, "nothing leaves the kept folder for a copy that was rolled back");
+        std::fs::remove_dir_all(game.join(KEPT_MOD_FILES)).unwrap();
+
+        // 4. ... with stashed settings of a game-folder copy: the old copy is back without them
+        let eml = Marker { kind: ModKind::Eml, ..marker.clone() };
+        let gdst = game.join("mods/test");
+        std::fs::create_dir_all(&gdst).unwrap();
+        std::fs::write(gdst.join("config.txt"), b"old copy's settings").unwrap();
+        let gbefore = files_of(&gdst);
+        let stashed = [("config.txt".to_string(), b"stashed settings".to_vec())];
+        assert!(copy_in_with(roots, &src, &gdst, &eml, &[], true, None, &stashed, Some("test"), injected).is_err());
+        assert_eq!(files_of(&gdst), gbefore);
+        // no staging folder is left beside the copies
+        for parent in [dst.parent().unwrap(), gdst.parent().unwrap()] {
+            let left: Vec<_> = std::fs::read_dir(parent).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with('.')).collect();
+            assert!(left.is_empty(), "{left:?}");
+        }
+    }
+
+    /// A file put back from the kept folder leaves it only while the kept file still has the bytes that went back: a
+    /// value edited there while the copy was published stays.
+    #[test]
+    fn files_put_back_from_the_kept_folder_leave_it_only_with_the_bytes_that_went_back() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "kept-prune").unwrap();
+        let game = tmp.path();
+        let src = game.join("source");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("init.lua"), b"code").unwrap();
+        let marker = Marker { format: 1, kind: ModKind::Set, id: "test".into(), version: "1.0.0".into(), hash: crate::hash::dirhash(&src).unwrap() };
+        let roots = Roots { data: game, game };
+        let dst = game.join("shrouded_engine_tweaks/mods/test");
+        let kept = kept_dir(game, ModKind::Set, "test");
+        std::fs::create_dir_all(&kept).unwrap();
+        std::fs::write(kept.join("settings.json"), b"earlier").unwrap();
+        std::fs::write(kept.join("log.txt"), b"went back").unwrap();
+        let carry = kept_carry(game, &kept, ModKind::Set).unwrap();
+        let (said, _) = copy_in(roots, &src, &dst, &marker, &[], true, carry, |_| {
+            std::fs::write(kept.join("settings.json"), b"edited meanwhile").unwrap();
+            Ok(())
+        }).unwrap();
+        assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), b"earlier");
+        assert_eq!(std::fs::read(kept.join("settings.json")).unwrap(), b"edited meanwhile", "changed recovery bytes are never deleted");
+        assert!(!kept.join("log.txt").exists(), "an exact copy went back: {said:?}");
+    }
 
     #[test]
     fn settings_files_are_checked_from_the_data_or_game_folder_down() {

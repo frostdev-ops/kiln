@@ -345,6 +345,33 @@ fn an_upgrade_reports_the_hand_changed_files_it_backed_up() {
     assert!(rep3.changed_backed_up.is_empty(), "{rep3:?}");
 }
 
+/// Kiln's proxy changed since the install (a hand-deployed build: tools' client.sh, deploy-server.sh): uninstall moves it
+/// aside and puts the chained original loader back, as before dev.24. Keeping it would leave a Kiln proxy without its
+/// runtime in the game folder while the original loader is unchained and the receipt is gone.
+#[test]
+fn uninstall_sets_a_changed_kiln_proxy_aside_and_restores_the_chained_loader() {
+    let t = tmp("changed-kiln-proxy");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let emf = build_test_dll(&["DirectInput8Create", "emf_loader_identity", "emf_loader_play_once"], b"EMF loader");
+    put(&game, "dinput8.dll", &emf);
+    let before = outside_kiln(&game);
+    let b1 = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let inst = client(&game);
+    install::install(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let hand = kiln_proxy("0.2.0-dev+hand-build");
+    put(&game, "dinput8.dll", &hand);
+    let report = install::uninstall_report(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("dinput8.dll")).unwrap(), emf, "the chained loader is back: {report:?}");
+    assert_eq!(outside_kiln(&game), before);
+    let aside: Vec<PathBuf> = std::fs::read_dir(game.join("kiln/backups")).unwrap().flatten().map(|e| e.path().join("dinput8.dll"))
+        .filter(|p| p.parent().unwrap().file_name().unwrap().to_string_lossy().starts_with("uninstall-") && p.is_file()).collect();
+    assert_eq!(aside.len(), 1, "{report:?}");
+    assert_eq!(std::fs::read(&aside[0]).unwrap(), hand, "the changed build is kept");
+    assert!(install::read_receipt(&game).unwrap().is_none());
+}
+
 #[test]
 fn shroudforge_is_refused_unless_switching_and_never_chained() {
     let t = tmp("sf");
@@ -457,6 +484,42 @@ fn refuses_while_the_game_runs() {
     let e = r.unwrap_err();
     assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
     assert_eq!(e.detail.unwrap()["pid"], child.id());
+}
+
+/// A client and a dedicated server installed in one folder share its engine folders. Uninstall removes the profile's
+/// copies there, so it refuses while either of them runs, as activation does.
+#[test]
+fn uninstall_refuses_while_a_server_in_the_same_folder_runs() {
+    use kiln_manage::{library, profile};
+    let t = tmp("colocated");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "enshrouded_server.exe", b"MZ");
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &client(&game), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let src = t.0.join("src/flymode");
+    put(&src, "init.lua", b"print('fly')");
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "co-located", None).unwrap();
+    let m = &r.imported[0];
+    p.mods.set.push(profile::ProfileMod { id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone(), enabled: true });
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &client(&game)).unwrap();
+    let copy = game.join("shrouded_engine_tweaks/mods/flymode");
+    assert!(copy.join("init.lua").is_file());
+    let fake = t.0.join("bin/enshrouded_server.exe");
+    std::fs::create_dir_all(fake.parent().unwrap()).unwrap();
+    std::fs::copy("/bin/sleep", &fake).unwrap();
+    let mut child = std::process::Command::new(&fake).arg("30").current_dir(&game).spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let r = install::uninstall_report(&dirs, &client(&game), &mut NoProgress);
+    child.kill().unwrap();
+    let _ = child.wait();
+    let e = r.unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
+    assert!(copy.join("init.lua").is_file(), "nothing is removed under a running server");
+    assert!(install::read_receipt(&game).unwrap().is_some());
 }
 
 /// Every file below `dir` (relative path -> sha256), without kiln/backups/ (the installer's copies).
@@ -1419,7 +1482,8 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                     ModKind::ShroudForge => (t.0.join("src/kiln-added"), "kiln-added", "runtime/settings.json", gi.path.join("SF-user-mods/kiln-added")),
                     _ => unreachable!(),
                 };
-                // SF has no arbitrary mutable shipped-file exception; only add its runtime file after placement.
+                // SF has no arbitrary mutable shipped-file exception: its "shipped" case is a changed setting in its
+                // shipped extended.mod.json, the other one a runtime file it adds after placement.
                 if shipped && kind != ModKind::ShroudForge { put(&src, rel, b"defaults"); }
                 let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
                 let r = imported.imported.iter().chain(&imported.existing).find(|r| r.kind == kind && r.id == id).unwrap();
@@ -1427,7 +1491,12 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                 p = profile::save(&dirs, &p).unwrap();
                 install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
                 profile::activate(&dirs, &p.id, &gi).unwrap();
-                put(&dst, rel, b"player runtime settings");
+                if shipped && kind == ModKind::ShroudForge {
+                    kiln_manage::shroudforge::set_setting(&dst, "speed", &serde_json::json!(7)).unwrap();
+                } else {
+                    put(&dst, rel, b"player runtime settings");
+                }
+                let folder = sf_inventory(&dst);
                 let report = if uninstall {
                     install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap().placements
                 } else {
@@ -1435,11 +1504,11 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                 };
                 assert!(report.retained.iter().any(|r| r.path == dst && r.may_run), "{kind:?}/{shipped}/{uninstall}: {report:?}");
                 assert!(!report.removed.contains(&dst));
-                assert_eq!(std::fs::read(dst.join(rel)).unwrap(), b"player runtime settings");
+                assert_eq!(sf_inventory(&dst), folder, "{kind:?}/{shipped}/{uninstall}: the whole folder stays as it was");
                 // The receipt still records this as a retained placement; a second cleanup cannot adopt it as disposable.
                 let again = engine_mods::unplace(&gi.path).unwrap();
                 assert!(again.retained.iter().any(|r| r.path == dst));
-                assert_eq!(std::fs::read(dst.join(rel)).unwrap(), b"player runtime settings");
+                assert_eq!(sf_inventory(&dst), folder);
             }
         }
     }
@@ -1498,25 +1567,63 @@ fn sf_restore_legacy_helper_recovery_preserves_newer_helpers_and_first_backups()
 }
 
 #[test]
-fn sf_restore_legacy_helper_recovery_rolls_back_missing_corrupt_or_later_failed_install() {
-    for scenario in ["missing", "corrupt", "late-receipt-failure"] {
-        let t = tmp(&format!("sf-legacy-rollback-{scenario}"));
+fn sf_restore_legacy_helper_recovery_rolls_back_a_later_failed_install() {
+    let t = tmp("sf-legacy-rollback-late-receipt-failure");
+    let (dirs, gi, zip, _) = sf_setup(&t.0);
+    let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    sf_legacy_helpers(&gi.path, &mut receipt);
+    std::fs::create_dir(gi.path.join("kiln/.install.json.tmp")).unwrap();
+    let before = sf_inventory(&gi.path);
+    let installed_before = std::fs::read(gi.path.join("dinput8.dll")).unwrap();
+    let error = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap_err();
+    assert_eq!(error.code, ErrorCode::Io);
+    assert_eq!(sf_inventory(&gi.path), before, "no partially recovered helpers");
+    assert_eq!(std::fs::read(gi.path.join("dinput8.dll")).unwrap(), installed_before);
+    assert_eq!(install::read_receipt(&gi.path).unwrap(), Some(receipt));
+}
+
+/// The helpers are a courtesy restore of files Kiln does not own: a backup that is gone or changed (the player cleaned
+/// kiln/backups), with no good copy in the launcher's data folder either, is a warning, never a refused update. With
+/// ShroudForge itself removed from the game folder they are not put back at all.
+#[test]
+fn legacy_shroudforge_helper_backups_never_block_an_update() {
+    for scenario in ["missing", "corrupt", "data-copy", "shroudforge-removed"] {
+        let t = tmp(&format!("sf-legacy-courtesy-{scenario}"));
         let (dirs, gi, zip, _) = sf_setup(&t.0);
         let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
         let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
         sf_legacy_helpers(&gi.path, &mut receipt);
+        let winmm = std::fs::read(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
         match scenario {
             "missing" => std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap(),
             "corrupt" => put(&gi.path, "kiln/backups/legacy/winmm.dll", b"corrupt backup"),
-            _ => std::fs::create_dir(gi.path.join("kiln/.install.json.tmp")).unwrap(),
+            "data-copy" => {
+                // the second copy every install backup has in the launcher's data folder
+                put(&dirs.backups().join("install").join(&receipt.install_id), "legacy/winmm.dll", &winmm);
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            _ => std::fs::remove_dir_all(gi.path.join("shroudforge")).unwrap(),
         }
-        let before = sf_inventory(&gi.path);
-        let installed_before = std::fs::read(gi.path.join("dinput8.dll")).unwrap();
-        let error = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap_err();
-        assert_eq!(error.code, if scenario == "late-receipt-failure" { ErrorCode::Io } else { ErrorCode::HashMismatch });
-        assert_eq!(sf_inventory(&gi.path), before, "{scenario}: no partially recovered helpers");
-        assert_eq!(std::fs::read(gi.path.join("dinput8.dll")).unwrap(), installed_before);
-        assert_eq!(install::read_receipt(&gi.path).unwrap(), Some(receipt));
+        let r = install::install_report(&dirs, &gi, &zip, &opts, &mut NoProgress);
+        assert!(r.is_ok(), "{scenario}: {:?}", r.err());
+        let (updated, report) = r.unwrap();
+        assert_eq!(updated.replaced, receipt.replaced, "{scenario}: the receipt keeps both originals");
+        match scenario {
+            "missing" | "corrupt" => {
+                assert_eq!(report.restored_shroudforge, ["dbghelp.dll"], "{scenario}");
+                assert!(!gi.path.join("winmm.dll").exists());
+                assert!(report.warnings.iter().any(|w| w.contains("winmm.dll") && w.contains("kiln/backups/legacy/winmm.dll")), "{scenario}: {report:?}");
+            }
+            "data-copy" => {
+                assert_eq!(report.restored_shroudforge, ["dbghelp.dll", "winmm.dll"]);
+                assert_eq!(std::fs::read(gi.path.join("winmm.dll")).unwrap(), winmm);
+            }
+            _ => {
+                assert!(report.restored_shroudforge.is_empty(), "{report:?}");
+                assert!(!gi.path.join("dbghelp.dll").exists() && !gi.path.join("winmm.dll").exists());
+            }
+        }
     }
 }
 

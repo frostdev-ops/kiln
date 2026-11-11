@@ -46,6 +46,10 @@ pub struct LaunchResult {
     pub backup: Option<SaveBackup>,
     pub uri: String,
     pub started: String,
+    /// Mode profile: the activation when the active profile had changed and was written again before the start
+    /// (profile::refresh_active), with what it kept in the game folder (`retained`, `keptFiles`, `warnings`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<crate::profile::Activation>,
 }
 
 /// `steam://rungameid/<app_id>`
@@ -220,12 +224,12 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     }
     // the active profile as it is now: a profile changed since its activation (kilnctl, the profile pages) is
     // written again, or the game would load the mods of the old profile.json
-    if request.mode == LaunchMode::Profile {
+    let activation = if request.mode == LaunchMode::Profile {
         crate::profile::refresh_active(dirs, install).map_err(|e| {
             let msg = format!("the active profile changed and cannot be applied: {}", e.message);
             Error { message: msg, ..e }
-        })?;
-    }
+        })?
+    } else { None };
     let fingerprint = launch_fingerprint(dirs, install, request)?;
     // 1. the files the proxy reads at this start
     let now = crate::util::now_unix();
@@ -276,7 +280,7 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     let started = crate::util::rfc3339(now);
     let rec = LastLaunch { fingerprint, mode: request.mode, profile_id: request.profile_id.clone(), launched: started.clone() };
     let _ = crate::util::write_json_atomic(&last_launch_path(dirs, install), &rec);
-    Ok(LaunchResult { game_id: install.id.clone(), mode: request.mode, nonce, backup, uri, started })
+    Ok(LaunchResult { game_id: install.id.clone(), mode: request.mode, nonce, backup, uri, started, activation })
 }
 
 pub fn play(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest) -> Result<LaunchResult> {

@@ -191,10 +191,18 @@ are not presented as complete upstream overlay parity.
   and the launcher shows a **Mod settings kept** note when files are retained or restored. Server sync reports the
   same result through its progress messages. Conflicting earlier retained data is parked as `.kept-N`, not deleted.
   If a new version ships a non-settings file under a previously generated file's name, the shipped file wins in the
-  active copy and the generated file is kept aside. Changed or missing originally Library-owned code/data still
-  causes refusal. The only mutable shipped-file exceptions are SET's root `settings.json`, EML's root `config.txt`
-  and `config.ini`, and ShroudForge's existing structured `enabled`/`settings` values; `mod.json`, Lua code, DLLs
-  and `native-plugin.ini` are not settings exceptions.
+  active copy and the generated file is kept aside. A copy whose originally Library-owned code/data changed or went
+  missing is left as it is: activation goes on with the other mods and returns that copy in `retained`
+  (`{path, reason, mayRun}`), and the launcher warns it may still run. In the folders an own loader or a Kiln plugin
+  reads, the only mutable shipped-file exceptions are SET's root `settings.json`, EML's root `config.txt` and
+  `config.ini`, and ShroudForge's existing structured `enabled`/`settings` values. In a `<game>/mods/<folder>` copy
+  that a DLL reads (an EML mod with a native part, a native mod's settings folder, an XHL companion) every `.txt`,
+  `.ini`, `.cfg`, `.json`, `.toml`, `.yaml` or `.yml` file at any depth is a setting, and any other file the DLL adds
+  that is not code (a log, a cache) is the player's too. While such a mod is off, its changed settings wait in
+  `kiln/state/placed-settings/<kind>/<id>/` and its other files in `kiln/kept-mod-files/<kind>/<id>/`; both come back
+  when it is placed again. A settings file over 16 MiB, or one whose name Windows would change, leaves the copy as it
+  is (retained). `mod.json`, Lua code (`src/`), DLLs and `native-plugin.ini` are never settings exceptions, and a DLL
+  or Lua file added to a copy counts as changed code.
 - Bindings are saved in `shrouded_engine_tweaks/bindings.ini` as in SET. Use the SET tools' Bindings tab for SET's
   private Lua bindings; the Kiln.DevTools Bindings view lists Kiln `KeyBindings`.
 - `ImGui.BeginChild(id, w, h, border, flags)` uses SET's argument order; the current `kiln.ui` service always draws

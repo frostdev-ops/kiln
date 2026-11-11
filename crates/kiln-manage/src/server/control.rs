@@ -443,7 +443,7 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             }
         }
         if let (Some(c), Some(done)) = (&carry, &done)
-            && let Some(said) = crate::engine_mods::carried(&server, r.kind, &r.id, c, done)? {
+            && let Some(said) = crate::engine_mods::carried(&server, r.kind, &r.id, c, done, &target)? {
             progress.report(None, &said);
         }
         if r.kind == ModKind::Kiln && !was_disabled {

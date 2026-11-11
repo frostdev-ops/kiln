@@ -111,8 +111,9 @@ pub fn activate(profile: Option<String>, deactivate: bool, dir: Option<PathBuf>,
     let g = client_at(dir.as_deref(), real)?;
     let dirs = data_dirs()?;
     if deactivate {
-        kiln_manage::profile::deactivate(&dirs, &g).km()?;
+        let cleanup = kiln_manage::profile::deactivate_report(&dirs, &g).km()?;
         println!("deactivated: {} boots the legacy layout (kiln/mods)", g.path.display());
+        print_retained(&cleanup.retained);
         return Ok(0);
     }
     let Some(pid) = profile else { bail!("name a profile (or pass --deactivate)") };
@@ -120,7 +121,21 @@ pub fn activate(profile: Option<String>, deactivate: bool, dir: Option<PathBuf>,
     println!("activated profile {} (generation {}) on {}: {:?} paths, {} folder(s) copied, fingerprint {}", a.profile_id, a.generation,
         g.path.display(), a.path_mode, a.copied, a.fingerprint);
     println!("  {}", a.profile_json);
+    for line in a.kept_files.iter().chain(&a.warnings) {
+        println!("  note: {line}");
+    }
+    print_retained(&a.retained);
     Ok(0)
+}
+
+/// Mod folders Kiln left in the game folder: their own loader may still run them, whatever the profile says.
+fn print_retained(retained: &[kiln_manage::engine_mods::RetainedPlacement]) {
+    for r in retained {
+        println!("  kept {}: {}{}", r.path.display(), r.reason, if r.may_run { " (this mod may still run in its own loader)" } else { "" });
+    }
+    if !retained.is_empty() {
+        println!("  review or move these folders with the game closed; Kiln does not remove them");
+    }
 }
 
 pub fn play_once(mode: &str, profile: Option<String>, dir: Option<PathBuf>, real: bool) -> Result<i32> {

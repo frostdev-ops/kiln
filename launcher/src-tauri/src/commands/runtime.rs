@@ -90,12 +90,12 @@ pub(crate) fn install_result(receipt: &InstallReceipt, report: &install::Install
 
 /// After an install: the profile the launcher remembers for the game becomes the active one again
 /// ([`kiln_manage::quick::resume_active`]), so a reinstall after an uninstall loads the player's mods without a step.
-/// Fails soft: the install stands whatever happens here. Returns the profile made active, if any.
-fn resume_profile(d: &kiln_manage::paths::DataDirs, g: &GameInstall, p: &mut dyn Progress) -> Option<String> {
+/// Fails soft: the install stands whatever happens here. Returns the activation, if a profile was made active.
+fn resume_profile(d: &kiln_manage::paths::DataDirs, g: &GameInstall, p: &mut dyn Progress) -> Option<kiln_manage::profile::Activation> {
     match kiln_manage::quick::resume_active(d, g) {
         Ok(Some(a)) => {
             p.report(Some(0.98), &format!("profile {} is active again", a.profile_id));
-            Some(a.profile_id)
+            Some(a)
         }
         Ok(None) => None,
         // the game started during the install: the player activates the profile later
@@ -158,7 +158,8 @@ pub async fn runtime_install(app: AppHandle, game_id: String, version: String, o
         let resumed = resume_profile(&d, &g, p);
         let mut v = install_result(&r, &report)?;
         if let Some(o) = v.as_object_mut() {
-            o.insert("resumedProfile".into(), serde_json::json!(resumed));
+            o.insert("resumedProfile".into(), serde_json::json!(resumed.as_ref().map(|a| &a.profile_id)));
+            o.insert("activation".into(), serde_json::json!(resumed));
         }
         Ok(v)
     }))
@@ -207,7 +208,8 @@ pub async fn runtime_rollback(app: AppHandle, game_id: String, version: String) 
         let resumed = resume_profile(&d, &g, p);
         let mut v = install_result(&r, &report)?;
         if let Some(o) = v.as_object_mut() {
-            o.insert("resumedProfile".into(), serde_json::json!(resumed));
+            o.insert("resumedProfile".into(), serde_json::json!(resumed.as_ref().map(|a| &a.profile_id)));
+            o.insert("activation".into(), serde_json::json!(resumed));
         }
         Ok(v)
     }))

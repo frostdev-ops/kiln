@@ -749,10 +749,13 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
 
     let outcome: Result<()> = (|| {
         // Older switch-from-SF installs displaced all three DLLs. Restore only missing helpers with proven original
-        // hashes. Never chain them or overwrite a helper the player has since installed.
+        // hashes. Never chain them or overwrite a helper the player has since installed. This is a courtesy for files
+        // Kiln does not own: only while ShroudForge itself is still in the game folder, and a backup that is gone is a
+        // warning, never a refused install.
+        let sf_installed = crate::shroudforge::detect(game_dir).is_some();
         for rel in ["dbghelp.dll", "winmm.dll"] {
             let Some(r) = replaced.iter().find(|r| r.path == rel) else { continue };
-            if r.class != Some(ReplacedClass::ShroudForge) || r.action != ReplacedAction::BackedUp { continue; }
+            if r.class != Some(ReplacedClass::ShroudForge) || r.action != ReplacedAction::BackedUp || !sf_installed { continue; }
             let target = game_dir.join(rel);
             if occupied(&target)? {
                 if file_sha(&target).is_none_or(|(h, _)| h != r.sha256) {
@@ -760,9 +763,18 @@ fn install_staged(dirs: &DataDirs, install: &GameInstall, bundle: &Path, bundle_
                 }
                 continue;
             }
-            let backup = r.backup.as_ref().map(|b| game_dir.join(b))
-                .filter(|b| file_sha(b).is_some_and(|(h, _)| h == r.sha256))
-                .ok_or_else(|| Error::new(ErrorCode::HashMismatch, format!("cannot recover legacy ShroudForge {rel}: its backup is missing or changed")))?;
+            // the backup in the game folder, else the second copy every install backup has in the launcher's data folder
+            let good = |p: &Path| file_sha(p).is_some_and(|(h, _)| h == r.sha256);
+            let copies = r.backup.as_ref().map(|b| {
+                let mirrored = b.strip_prefix(&format!("{}/", crate::paths::game::BACKUPS))
+                    .map(|rest| dirs.backups().join("install").join(&install_id).join(rest));
+                [Some(game_dir.join(b)), mirrored]
+            });
+            let Some(backup) = copies.into_iter().flatten().flatten().find(|p| good(p)) else {
+                warnings.push(format!("Did not restore ShroudForge's {rel}: its backup {} is missing or changed, and the launcher's backups hold no copy either. Reinstall ShroudForge if you need it.",
+                    r.backup.as_deref().unwrap_or("(none recorded)")));
+                continue;
+            };
             copy_new(&backup, &target)?;
             steps.push(Step::Placed { target: target.clone(), previous: None });
             if file_sha(&target).is_none_or(|(h, _)| h != r.sha256) {
@@ -1121,6 +1133,8 @@ pub fn uninstall(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Prog
 pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut dyn Progress) -> Result<UninstallReport> {
     let game_dir = install.path.as_path();
     refuse_busy(install)?;
+    // unplace below edits engine folders that a client and a server installed in this folder share
+    crate::profile::refuse_running(install)?;
     let receipt = read_receipt(game_dir)?
         .ok_or_else(|| Error::not_found(format!("Kiln is not installed in {} (no kiln/.install.json)", game_dir.display())))?;
     for p in receipt_paths(&receipt).chain(["kiln/.install.lock", "kiln/chain.ini", "kiln/backups"]) {
@@ -1190,11 +1204,27 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
                 // Already the original (e.g. a recovered legacy SF helper): do not replace the same path again.
                 continue;
             }
-            if !report.kept.contains(&r.path) { report.kept.push(r.path.clone()); }
-            let warning = format!("Kept current {} because it changed outside Kiln. The original is preserved at {}; with the game closed, compare the files and restore that backup manually if wanted.", r.path, src.display());
-            progress.report(None, &warning);
-            report.warnings.push(warning);
-            continue;
+            if r.path == PROXY && crate::pe::classify_proxy(&target).is_ok_and(|c| c.kind == ProxyKind::Kiln) {
+                // Kiln's own proxy, changed since the install (a hand-deployed build): it goes to kiln/backups and the
+                // original comes back. Left in place, the game would load a Kiln proxy without its runtime while the
+                // original loader is no longer chained and the receipt is gone.
+                let aside = game_dir.join(crate::paths::game::BACKUPS).join(format!("uninstall-{}-{}", ts_compact(now_unix()), rand_suffix()?)).join(&r.path);
+                if let Some(p) = aside.parent() {
+                    std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;
+                }
+                std::fs::rename(&target, &aside).map_err(io_at(&target, "moving aside"))?;
+                report.kept.retain(|k| k != &r.path);
+                let warning = format!("Moved the changed Kiln {} to {} and put the original back.", r.path, aside.display());
+                progress.report(None, &warning);
+                report.warnings.push(warning);
+            } else {
+                // another loader's file the player put there since: theirs to keep
+                if !report.kept.contains(&r.path) { report.kept.push(r.path.clone()); }
+                let warning = format!("Kept current {} because it changed outside Kiln. The original is preserved at {}; with the game closed, compare the files and restore that backup manually if wanted.", r.path, src.display());
+                progress.report(None, &warning);
+                report.warnings.push(warning);
+                continue;
+            }
         }
         if let Some(p) = target.parent() {
             std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?;

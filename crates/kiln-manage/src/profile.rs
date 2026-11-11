@@ -473,9 +473,17 @@ pub struct Activation {
     /// there (engine_mods::PlaceReport::kept_files): one sentence per mod. Empty: none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kept_files: Vec<String>,
-    /// Safety repairs applied only to the game-side profile. Saved profile and Library sources are unchanged.
+    /// Safety repairs applied only to the game-side profile (saved profile and Library sources are unchanged), and the
+    /// per-mod notes of the placement (engine_mods::PlaceReport::warnings: a ShroudForge setting value a new version
+    /// refuses, earlier settings that could not be read).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Placed copies activation left in the game folder although the profile switched them off, removed them or wants
+    /// another version (their code changed, or Kiln cannot inspect or carry what is in them): the same objects
+    /// [`deactivate_report`] and uninstall return, `{path, reason, mayRun}`. Their own loader may still run them.
+    /// Empty: none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<crate::engine_mods::RetainedPlacement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1267,7 +1275,8 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
         activated: now,
         own_loaders: placed.own_loaders,
         kept_files: placed.kept_files,
-        warnings: skipped_native_loaders(dirs, &profile),
+        warnings: skipped_native_loaders(dirs, &profile).into_iter().chain(placed.warnings).collect(),
+        retained: placed.retained,
     };
     let _ = crate::util::write_json_atomic(&activation_record(dirs, install), &a);
     Ok(a)
@@ -1417,6 +1426,7 @@ pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activatio
         own_loaders: own_loader_notes(install, &file),
         kept_files: Vec::new(),
         warnings: Vec::new(),
+        retained: Vec::new(),
     }))
 }
 
