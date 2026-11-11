@@ -631,8 +631,8 @@ internal static class ShroudForgeUi
             text = Typing.TryGetValue(id, out var t) ? t.Text : shown;
         }
         var multi = d.Control == "textarea";
-        // the field holds the declared length and the whole value with room to type: it never shows a value cut to fit
-        // (and the cut text is never saved); a value too long for any field is shown, not edited
+        // the field holds the whole value with room to type: it never shows a value cut to fit (and the cut text is never
+        // saved); a value too long for any field is shown, not edited
         var need = Math.Max(Encoding.UTF8.GetByteCount(text), Encoding.UTF8.GetByteCount(shown));
         var cap = multi ? MaxAreaBytes : MaxLineBytes;
         if (need > cap || text.Contains('\0') || shown.Contains('\0'))
@@ -643,8 +643,10 @@ internal static class ShroudForgeUi
             return;
         }
         ui.NextItemWidth(width);
-        var max = (int)Math.Clamp(Math.Max((long)(d.MaxLength ?? 256) * 4, need + 1024L) + 1, 16, cap);
-        var changed = multi ? ui.InputMultiline("##v", ref text, max, width, 90 * ui.Scale) : ui.InputText("##v", ref text, max);
+        // always the same size for a field: ImGui sizes its own copy of the text once, when the field becomes active, and
+        // takes the size given every frame as its bound, so a size that grew while the player types let ImGui write past
+        // its buffer. A declared maxLength is not a limit here; Check refuses a longer value when it is saved.
+        var changed = multi ? ui.InputMultiline("##v", ref text, cap, width, 90 * ui.Scale) : ui.InputText("##v", ref text, cap);
         var it = ui.LastItem;
         if (it.Active) _activeFrame = frame;
         lock (Lock)
