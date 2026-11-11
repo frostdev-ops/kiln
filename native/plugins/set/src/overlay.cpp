@@ -264,7 +264,8 @@ void settings() {
     const auto pages = mset::pages();
     bool found = false;
     for (const auto& p : pages) {
-        if (!modFilter.empty() && modFilter != p.mod) continue;
+        // ASCII case aside: the id from Kiln's mod list may differ in case from the folder, which Windows ignores.
+        if (!modFilter.empty() && lower(modFilter) != lower(p.mod)) continue;
         found = true;
         ui->push_id(s(p.mod));
         if (ui->collapsing_header(s(p.mod), 1u << 5)) for (const auto& f : p.fields) setting(p.mod, f, p.revision);

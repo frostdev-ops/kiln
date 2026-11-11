@@ -31,6 +31,13 @@
  toolsClick="All mods";toolsInputs={{"Precise double","1.2345678901234567"},{"Large integer","9007199254740991"}};setui::draw();
  mset::Field exact;assert(mset::get("precision","double",exact)&&exact.num==1.2345678901234567);assert(mset::get("precision","integer",exact)&&exact.num==9007199254740991.0);
  mset::drop("precision",sink);
+ // The id Kiln's mod list passes may differ in case from the mod's folder (Windows folder names don't): the same page.
+ auto noPage=[]{return std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& r){return r.find("has not defined a settings page")!=std::string::npos;});};
+ assert(setui::service()->open({"ONE",3})==KILN_OK);toolsRows.clear();setui::draw();
+ if(noPage())std::cerr<<"settings: 'ONE' did not find mod one's page\n";
+ assert(!noPage());
+ assert(setui::service()->open({"nosuchmod",9})==KILN_OK);toolsRows.clear();setui::draw();assert(noPage());
+ assert(setui::service()->open({nullptr,0})==KILN_OK);
  // Compatibility reads exactly the runtime's reasons, rather than inferring available from compatible.
  toolsTab="Compatibility";toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& s){return s.find("Dedicated server: No overlay")!=std::string::npos;}));
