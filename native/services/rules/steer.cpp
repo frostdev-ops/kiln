@@ -110,8 +110,9 @@ void steer_body(safetyhook::Context& c) {
     c.xmm6.f32[0] = step;
     S.steered.fetch_add(1, std::memory_order_relaxed);
     if (!g_told.exchange(true))
-        logf(KILN_LOG_INFO, "glider steering: first steered step (pitch %.1f degrees, stick %.2f: the game's step %.3f, Kiln's %.3f "
-             "degrees; limit %.0f)", pitch / kiln_glide::kRad, z, game / kiln_glide::kRad, step / kiln_glide::kRad, r.glide_steer_limit);
+        logf(KILN_LOG_INFO, "glider steering: first steered step (pitch %.2f degrees nose down, stick %.2f: the game's step %.4g, "
+             "Kiln's %.4g degrees; limit %.0f)", pitch / kiln_glide::kRad, z, game / kiln_glide::kRad, step / kiln_glide::kRad,
+             r.glide_steer_limit);
 }
 
 void hk_steer(safetyhook::Context& c) {

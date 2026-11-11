@@ -446,9 +446,25 @@ hooks. The Large Watering Can's lab check (`/watercan fill`, `refill on|off` aga
 restart) uses the same water rule.
 
 Not runnable without a client: the cursor (no building tool in hand: `cursor cleared 0`), placement costs (no building
-action), mining (a terraform impact spawned without a tool deals no damage the hook could scale), gliding (the lab
-character has no glider equipped; the three glider hooks and the steering hook install and resolve on both executables),
-the client's half.
+action), mining (a terraform impact spawned without a tool deals no damage the hook could scale), the client's half.
+
+Glider steering, a lab server (26430253, an empty world, 2026-11-11): a spawned `1_Player` 150 m up, `Rules.Simulate`, a
+T1 glider through the game's equip action, the two "ready" gates forced as `mods/tests/playerstate-test` does, the glider
+input bit, then `PlayerInput.fromClient.movementStick.y` written (S -1, centre 0, W +1) and the pitch read from
+`CurrentTransform` (+ = nose up here) at about 23 steps a second (a scratch check, not in the repository):
+```
+kiln-rules.dll] glider steering: actor_rotation's pitch step at rva 0x818f1 (S raises the nose, centred holds, W dives; ...)
+kiln-rules.dll] hooks: flight on, building zone on, placement on, costs on, mining on, Shroud timer on, gliding on, glider steering on
+no rule, S: stick -1, pitch -5 -> -5 degrees (min -5, max -5)
+GlideSteer, S: stick -1, pitch -5 -> 85 degrees; every 10 steps: -2.2 34.7 70.1 85 85 85 ...   (height 940 -> 963 m)
+GlideSteer, centred: stick 0, pitch 85 -> 85 degrees (min 85, max 85)                         (height -> 995 m)
+GlideSteer, W: stick 1, pitch 85 -> -80 degrees; every 10 steps: 82.2 46.8 0 -41.1 -76.5 -80 ...
+creative's glide (GlideSteer, GlideBoost.Default, sink 0): level, no sprint 10.4 m/s; sprint 150 steps: 11.1 20.6 29.8 35 35 ... m/s
+sprint with the nose at 60 degrees: highest climb rate 15 m/s; let go, level for 150 steps: 35 -> 10.3 m/s
+counters: glide steered 681, glide changed 1203, faults 0
+```
+Not shown by the lab: a player's prediction (no client joined), what the glider looks like, the camera, an analog stick,
+input mode 1, and SF Unlimited Flight together with it.
 
 ## Manual test (needs the game)
 No server needed: Kiln in the game, a throwaway world hosted from the game (co-op, or offline). On a dedicated server
