@@ -255,11 +255,11 @@ fn auto_loot_plus_gets_its_dll_and_its_eml_part_in_the_game_folder() {
     assert!(!d.reasons().contains("not needed"), "{}", d.reasons());
     assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
     assert!(d.reasons().contains("its package's dinput8.dll reads it from the game's mods folder, so Kiln copies it into the game's mods\\auto-loot-plus folder"), "{}", d.reasons());
-    // the DLL: a native mod named after the mod folder it reads (the same for every version and download of the
-    // package), chain-loaded in DllMain like the game loaded it before
+    // the DLL: a native mod with the id of the mod folder it reads and the package's name without its version (the
+    // same for every version and download of the package), chain-loaded in DllMain like the game loaded it before
     assert_eq!(d.natives(), ["auto-loot-plus"]);
     let lib = library::list(&d.dirs, Some(ModKind::Native)).unwrap();
-    assert_eq!(lib[0].name, "auto-loot-plus (dinput8.dll)");
+    assert_eq!(lib[0].name, "AutoLootPlus (dinput8.dll)");
     let native = lib[0].versions[0].folder.clone();
     let man: serde_json::Value = serde_json::from_slice(&std::fs::read(native.join("native.json")).unwrap()).unwrap();
     assert_eq!((man["phase"].as_str(), man["dlls"][0].as_str()), (Some("dllmain"), Some("dinput8.dll")));
@@ -1327,3 +1327,178 @@ fn copy_mode_profiles_pass_the_native_cores_own_parser() {
     assert!(out.status.success(), "the native parser refused a profile the launcher wrote:\n{text}");
     assert_eq!(text.matches("launcher profile ok").count(), files.len(), "{text}");
 }
+
+// ---- second review of the import fixes (rr-import, rr-placement) ----
+
+/// A fresh fixture game and data folder.
+fn fresh(tag: &str) -> (Tmp, DataDirs, GameInstall) {
+    let t = tmp(tag);
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    (t, dirs, g)
+}
+
+fn add(dirs: &DataDirs, g: &GameInstall, src: &Path) -> kiln_manage::quick::AddReport {
+    let r = kiln_manage::quick::add_with(dirs, g, &[src.to_path_buf()], false, &mut NoProgress).unwrap();
+    println!("=== {}\n{}\nnotices: {:?}", src.display(), summary(&r.import), r.notices);
+    r
+}
+
+/// The game profile's native entries: (id, enabled).
+fn native_entries(g: &GameInstall) -> Vec<(String, bool)> {
+    profile::read_game_profile(&g.path).unwrap().unwrap().mods.native.iter().map(|m| (m.id.clone(), m.enabled)).collect()
+}
+
+fn enabled_natives(g: &GameInstall) -> Vec<String> {
+    native_entries(g).into_iter().filter(|(_, on)| *on).map(|(id, _)| id).collect()
+}
+
+/// A package `name`.zip: a DirectInput8 proxy DLL mod (`dll`) with a settings file, plus `extra` files.
+fn proxy_package(t: &Tmp, name: &str, dll: &[u8], extra: &[(&str, &[u8])]) -> PathBuf {
+    let d = t.0.join("pkgs").join(name);
+    put(&d, "dinput8.dll", dll);
+    put(&d, "settings.ini", b"on=1");
+    for (rel, data) in extra { put(&d, rel, data); }
+    let z = t.0.join(format!("{name}.zip"));
+    zip_of(&d, &z);
+    z
+}
+
+fn proxy_dll(tag: &str) -> Vec<u8> { build_test_dll(&["DirectInput8Create"], format!("a plain proxy mod, {tag}").as_bytes()) }
+
+/// rr-import R3: two packages that have nothing in common but a word, or whose names are not in Latin letters, or that
+/// both carry the same mods/<folder>, are two mods; an update of one still replaces it.
+#[test]
+fn unrelated_packages_never_silently_share_one_native_entry() {
+    let (t, dirs, g) = fresh("r3");
+    for (a, b) in [("自动拾取 1.0", "无限耐久 2.0"), ("Enshrouded 2x Stamina", "Enshrouded 60 FPS")] {
+        add(&dirs, &g, &proxy_package(&t, a, &proxy_dll(a), &[]));
+        add(&dirs, &g, &proxy_package(&t, b, &proxy_dll(b), &[]));
+    }
+    assert_eq!(enabled_natives(&g).len(), 4, "{:?}", native_entries(&g));
+    // the update of one of them takes its place
+    add(&dirs, &g, &proxy_package(&t, "自动拾取 1.1", &proxy_dll("自动拾取 1.1"), &[]));
+    assert_eq!(enabled_natives(&g).len(), 4, "{:?}", native_entries(&g));
+    // two packages that both carry mods/shared-lib are taken for one mod: the player is told which replaced which
+    add(&dirs, &g, &proxy_package(&t, "Pack One", &proxy_dll("one"), &[("mods/shared-lib/config.txt", b"x")]));
+    let r = add(&dirs, &g, &proxy_package(&t, "Pack Two", &proxy_dll("two"), &[("mods/shared-lib/config.txt", b"x")]));
+    assert!(r.notices.iter().any(|n| n.contains("Pack Two") && n.contains("Pack One")), "{:?}", r.notices);
+    // an update says nothing of the kind
+    let r = add(&dirs, &g, &proxy_package(&t, "Pack Two 1.1", &proxy_dll("two 1.1"), &[("mods/shared-lib/config.txt", b"x")]));
+    assert!(r.notices.is_empty(), "{:?}", r.notices);
+}
+
+/// rr-import R5: the same DLL added alone (or from the game folder) and in its package runs once; the package's copy,
+/// with its files, is the one that stays on. An older copy of a package imported by dev.23 (a version in its id) goes
+/// off when the new version comes. A mod with its author's own native.json is never switched off.
+#[test]
+fn one_dll_added_alone_and_in_its_package_runs_once() {
+    let lite = |t: &Tmp| zip(t, "alp-lite", "AutoLootPlus Lite 1.1.8");
+    let (t, dirs, g) = fresh("r5-lone-first");
+    put(&t.0, "lone/dinput8.dll", &alp_dinput8());
+    add(&dirs, &g, &t.0.join("lone/dinput8.dll"));
+    let r = add(&dirs, &g, &lite(&t));
+    assert_eq!(enabled_natives(&g), ["auto-loot-plus"], "{:?}", native_entries(&g));
+    assert!(r.notices.iter().any(|n| n.contains("dinput8.dll")), "{:?}", r.notices);
+    assert_eq!(native_entries(&g).len(), 2, "the lone copy stays in the profile, switched off");
+
+    let (t, dirs, g) = fresh("r5-package-first");
+    add(&dirs, &g, &lite(&t));
+    put(&t.0, "lone/dinput8.dll", &alp_dinput8());
+    let r = add(&dirs, &g, &t.0.join("lone/dinput8.dll"));
+    assert_eq!(enabled_natives(&g), ["auto-loot-plus"], "the package keeps its files: {:?}", native_entries(&g));
+    assert!(r.notices.iter().any(|n| n.contains("dinput8.dll")), "{:?}", r.notices);
+    assert!(r.added.is_empty(), "a copy added switched off is not reported as running: {:?}", r.added);
+
+    // dev.23 named a package's DLL after the whole package name, version included
+    let (t, dirs, g) = fresh("r5-dev23");
+    let old = t.0.join("dev23/embervale-atlas");
+    put(&old, "dinput8.dll", &proxy_dll("1.0.0"));
+    put(&old, "settings.ini", b"on=1");
+    put(&old, "native.json", br#"{"format":1,"id":"embervale-atlas-1.0.0","name":"Embervale Atlas 1.0.0","version":"0.0.0",
+        "description":"Generated by Kiln from dinput8.dll and the files next to it (a dinput8 proxy, chain-loaded in DllMain)",
+        "side":"client","dlls":["dinput8.dll"],"phase":"dllmain"}"#);
+    add(&dirs, &g, &old);
+    assert_eq!(enabled_natives(&g), ["embervale-atlas-1.0.0"]);
+    add(&dirs, &g, &proxy_package(&t, "Embervale Atlas 1.0.1", &proxy_dll("1.0.1"), &[]));
+    assert_eq!(enabled_natives(&g), ["embervale-atlas"], "{:?}", native_entries(&g));
+
+    // the author's own native.json: never switched off
+    let (t, dirs, g) = fresh("r5-authored");
+    let own = t.0.join("authored/my-proxy");
+    put(&own, "dinput8.dll", &alp_dinput8());
+    put(&own, "native.json", br#"{"format":1,"id":"my-proxy","name":"My proxy","version":"1.0.0","side":"client","dlls":["dinput8.dll"],"phase":"dllmain"}"#);
+    add(&dirs, &g, &own);
+    add(&dirs, &g, &lite(&t));
+    let mut on = enabled_natives(&g);
+    on.sort();
+    assert_eq!(on, ["auto-loot-plus", "my-proxy"]);
+}
+
+/// A VS_VERSION_INFO resource with the file version a.b.c, as a stand-in DLL carries it.
+fn version_info(a: u16, b: u16, c: u16) -> Vec<u8> {
+    let mut v = vec![0u8; 6];
+    v.extend("VS_VERSION_INFO\0".encode_utf16().flat_map(|u| u.to_le_bytes()));
+    while v.len() % 4 != 0 { v.push(0); }
+    for x in [0xFEEF_04BDu32, 0x0001_0000, (u32::from(a) << 16) | u32::from(b), u32::from(c) << 16] { v.extend(x.to_le_bytes()); }
+    v.extend([0u8; 36]);
+    v
+}
+
+fn xhl_core_build(tag: &str, version: Option<(u16, u16, u16)>) -> Vec<u8> {
+    let mut extra = format!("XHL-Native-Plugin-Host.log\0dinput8-chain.ini\0native-plugin.ini\0{tag}\0").into_bytes();
+    if let Some((a, b, c)) = version { extra.extend(version_info(a, b, c)); }
+    build_test_dll(&["DirectInput8Create"], &extra)
+}
+
+/// An XHL mod's archive that bundles an XHL-Core build.
+fn xhl_package(t: &Tmp, name: &str, core: &[u8]) -> PathBuf {
+    let d = t.0.join("xhl").join(name);
+    put(&d, "dinput8.dll", core);
+    put(&d, &format!("mods/{name}/native-plugin.ini"), format!("[Plugin]\nDll={name}.dll\n").as_bytes());
+    put(&d, &format!("mods/{name}/{name}.dll"), &xhl_plugin());
+    let z = t.0.join(format!("{name}.zip"));
+    zip_of(&d, &z);
+    z
+}
+
+fn core_alone(t: &Tmp, tag: &str, core: &[u8]) -> PathBuf {
+    let d = t.0.join("core").join(tag).join("XHL-Core");
+    put(&d, "dinput8.dll", core);
+    put(&d, "README.txt", b"XHL-Core");
+    d
+}
+
+/// rr-import R6: an XHL mod that bundles an older XHL-Core build does not replace the one the profile runs. With the
+/// DLL's version resource Kiln keeps the newer build; without one it keeps the enabled build, and says another one is
+/// in the Library. XHL-Core dropped on its own is the player's choice and replaces it.
+#[test]
+fn an_older_xhl_core_bundled_with_an_xhl_mod_never_replaces_the_one_you_have() {
+    let core_entry = |dirs: &DataDirs, g: &GameInstall| {
+        let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+        let m = f.mods.native.iter().find(|m| m.id == "xhl-core" && m.enabled).expect("an enabled xhl-core").clone();
+        let r = library::LibraryRef { kind: ModKind::Native, id: m.id, version: m.version.unwrap(), hash: m.hash.unwrap() };
+        (r.version.clone(), kiln_manage::hash::sha256_hex(&std::fs::read(library::path_of(dirs, &r).unwrap().join("dinput8.dll")).unwrap()))
+    };
+    let sha = |b: &[u8]| kiln_manage::hash::sha256_hex(b);
+    let (t, dirs, g) = fresh("r6-versions");
+    let new = xhl_core_build("1.3", Some((1, 3, 0)));
+    add(&dirs, &g, &core_alone(&t, "1.3", &new));
+    assert_eq!(core_entry(&dirs, &g), ("1.3.0".to_string(), sha(&new)));
+    let r = add(&dirs, &g, &xhl_package(&t, "XHL-Old-Mod", &xhl_core_build("1.2", Some((1, 2, 0)))));
+    assert_eq!(core_entry(&dirs, &g).0, "1.3.0");
+    assert!(r.notices.iter().any(|n| n.contains("XHL-Core") && n.contains("1.2.0")), "{:?}", r.notices);
+    add(&dirs, &g, &xhl_package(&t, "XHL-New-Mod", &xhl_core_build("1.4", Some((1, 4, 0)))));
+    assert_eq!(core_entry(&dirs, &g).0, "1.4.0", "a newer bundled build is taken");
+
+    let (t, dirs, g) = fresh("r6-no-versions");
+    let a = xhl_core_build("build a", None);
+    add(&dirs, &g, &core_alone(&t, "a", &a));
+    let r = add(&dirs, &g, &xhl_package(&t, "XHL-Other-Mod", &xhl_core_build("build b", None)));
+    assert_eq!(core_entry(&dirs, &g).1, sha(&a), "the enabled build stays");
+    assert!(r.notices.iter().any(|n| n.contains("XHL-Core")), "{:?}", r.notices);
+    let b = xhl_core_build("build b", None);
+    add(&dirs, &g, &core_alone(&t, "b", &b));
+    assert_eq!(core_entry(&dirs, &g).1, sha(&b), "XHL-Core dropped on its own replaces it");
+}
+

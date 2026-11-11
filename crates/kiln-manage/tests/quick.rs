@@ -417,7 +417,7 @@ fn report_and_change_shapes_match_the_frontend() {
     let v = serde_json::to_value(quick::AddReport::default()).unwrap();
     let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort();
-    assert_eq!(keys, ["activation", "added", "already", "applied", "changes", "created", "import", "libraryOnly", "missing", "modpacks", "profileId", "profileName", "resumed", "running"]);
+    assert_eq!(keys, ["activation", "added", "already", "applied", "changes", "created", "import", "libraryOnly", "missing", "modpacks", "notices", "profileId", "profileName", "resumed", "running"]);
     let from_ui = r#"[{"kind":"kiln","before":null,"after":{"id":"night-owl","version":"1.2.0","hash":"kdh1:00","enabled":true}},
         {"kind":"native","before":{"id":"fps","version":"1.0.0","hash":"kdh1:01","enabled":false},"after":{"id":"fps","version":"1.0.0","hash":"kdh1:01","enabled":true}}]"#;
     let changes: Vec<quick::ProfileChange> = serde_json::from_str(from_ui).unwrap();
