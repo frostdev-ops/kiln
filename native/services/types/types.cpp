@@ -67,6 +67,10 @@ kset::ModuleWatch g_modules;
 // that was seen, or after ConflictGate::failures_to_step_aside failed inventories in a row. Tick thread only.
 kset::ConflictGate g_conflicts;
 bool g_external_runner = false;
+// Passive because the inventory could not be read, not because another runtime was seen: the gate keeps looking, and a
+// clean inventory makes the runner active again (its detour stays installed while passive, passing every slice on).
+// Tick thread; status() reads it under g_sys_mu.
+bool g_runner_unsure = false;
 
 // Requested update-function hooks, separate from the slice runner so callbacks get its actual ProgramContext.
 constexpr size_t kMaxSystemHooks = 64;
@@ -222,7 +226,9 @@ KilnResult KILN_CALL status(KilnTypesStatus* out) {
     if (g_profile.active) QueryPerformanceCounter(&now);
     out->profiling = g_profile.active;
     out->profile_seconds = g_profile.seconds(now.QuadPart, g_qpf);
-    out->detail = g_external_runner ? ks("native SET/power proxy detected; system runner passive until exit") : ks(g_detail);
+    out->detail = !g_external_runner ? ks(g_detail)
+                  : g_runner_unsure  ? ks("the loaded modules could not be read (kiln.log says why); system runner passive until a check reads them")
+                                     : ks("native SET/power proxy detected; system runner passive until exit");
     return KILN_OK;
 }
 uint32_t KILN_CALL type_count() { return g_tt.error.empty() ? g_tt.count : 0; }
@@ -485,13 +491,37 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     const bool reap = reap_due();
     if (reap) reap_system_hooks();
     std::string conflict;
-    if (g_systems_ok && (g_modules.due() || g_conflicts.retry_due())) conflict = g_conflicts.check();
+    if ((g_systems_ok || g_runner_unsure) && (g_modules.due() || g_conflicts.retry_due())) {
+        const kset::Inspection seen = kset::inspect_runtime();
+        conflict = g_conflicts.judge(seen, GetTickCount64());
+        if (g_runner_unsure) {  // already passive: only a clean look (back on) or a seen runtime (for good) changes that
+            if (seen.state == kset::Inventory::clean) {
+                {
+                    std::lock_guard lock(g_sys_mu);
+                    g_runner_unsure = false;
+                    g_external_runner = false;
+                }
+                g_systems_ok = true;
+                logf(KILN_LOG_INFO, "native SET/power proxy check: the loaded modules were read again (%zu modules, no SET or power proxy): "
+                     "system runner active again; switch and hook requests made before it went passive must be made again", seen.modules);
+            } else if (seen.state == kset::Inventory::foreign) {
+                {
+                    std::lock_guard lock(g_sys_mu);
+                    g_runner_unsure = false;
+                }
+                logf(KILN_LOG_WARN, "native SET/power proxy check: %s: runner left passive until exit", conflict.c_str());
+            }
+            return;
+        }
+    }
     if (!conflict.empty()) {
+        const bool unsure = g_conflicts.cannot_tell();
         {
         std::lock_guard lock(g_sys_mu);
         LARGE_INTEGER now{};
         QueryPerformanceCounter(&now);
         if (!displace_runner(true, g_external_runner, g_system_owners, g_profile, now.QuadPart)) return;
+        g_runner_unsure = unsure;
         g_systems_ok = false;
         g_prof = false;
         publish_system_switches();
@@ -501,7 +531,12 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         // restoring the entry or unloading its code here would invalidate the other runtime's hook chain.
         HMODULE pin = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&runner_detour), &pin);
-        logf(KILN_LOG_WARN, "native SET/power proxy check: %s: systems restored, runner left passive until exit", conflict.c_str());
+        if (unsure)
+            logf(KILN_LOG_WARN, "native SET/power proxy check: %s: systems restored, runner passive until a check reads the loaded "
+                 "modules again (looked at every %llu s)", conflict.c_str(),
+                 static_cast<unsigned long long>(kset::ConflictGate::passive_retry_ms / 1000));
+        else
+            logf(KILN_LOG_WARN, "native SET/power proxy check: %s: systems restored, runner left passive until exit", conflict.c_str());
         return;
     }
     if (!reap || !g_off_count.load(std::memory_order_acquire)) return;

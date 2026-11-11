@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <istream>
 #include <fstream>
@@ -11,12 +12,12 @@
 #include <mutex>
 #if defined(_WIN32) || defined(KSET_LOADER_HOST_TEST)
 #include <windows.h>
-#include <tlhelp32.h>
-#include "../../compat/module_watch.h"
+#include "../../compat/module_watch.h"  // and winternl.h: LDR_DATA_TABLE_ENTRY
 #include "../../compat/module_image.h"
 #endif
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace kset {
 // Scan incrementally, including markers split over a read boundary. Never load a whole DLL into RAM.
@@ -53,33 +54,84 @@ inline bool power_proxy(const std::filesystem::path& file, const std::filesystem
 enum class Inventory { clean, foreign, failed };
 struct Inspection {
     Inventory state = Inventory::clean;
-    std::string text;  // what was seen, or what could not be read; empty when clean
+    std::string text;  // what was seen, or what could not be read (the call and its code); empty when clean
+    size_t modules = 0;  // clean: how many modules the loader list had
 };
+// "<call> failed (error <code>)": what a player's report has to show for a failed inventory.
+inline std::string call_failed(const char* call, unsigned long code) {
+    char text[192];
+    std::snprintf(text, sizeof text, "%s failed (error %lu)", call, code);
+    return text;
+}
+// One entry of the process's loader list, as LdrEnumerateLoadedModules showed it.
+struct Listed {
+    HMODULE base;
+    std::wstring name;
+};
+struct Listing {
+    std::vector<Listed> modules;
+    bool copy_failed = false;
+};
+// Runs inside LdrEnumerateLoadedModules with the loader's lock held: it only copies, and no exception may unwind
+// through ntdll's frames. No loader, file or waiting call here: on Windows the walk may also hold the loader's module
+// table lock, which GetModuleHandleExW takes again, so the references are taken after the walk.
+inline void WINAPI copy_listed(LDR_DATA_TABLE_ENTRY* entry, void* context, BOOLEAN* stop) {
+    auto* out = static_cast<Listing*>(context);
+    try {
+        const UNICODE_STRING& name = entry->FullDllName;
+        out->modules.push_back({static_cast<HMODULE>(entry->DllBase),
+                                name.Buffer ? std::wstring(name.Buffer, name.Length / sizeof(wchar_t)) : std::wstring()});
+    } catch (...) {
+        out->copy_failed = true;
+        *stop = 1;
+    }
+}
+using LdrEnumerate = LONG(WINAPI*)(void* reserved, void(WINAPI* callback)(LDR_DATA_TABLE_ENTRY*, void*, BOOLEAN*), void* context);
 // Both kiln-set and kiln.types use this policy. Kiln plugins are excluded because the detector itself contains
 // SET's branding string; native SET does not export kiln_plugin_main, even when renamed.
+// The list of loaded modules is ntdll's own (LdrEnumerateLoadedModules): read in this process's memory under the
+// loader's locks, on Windows and under Wine. It is not a Toolhelp snapshot: Wine builds those through a handle to the
+// own pid (OpenProcess, then one wineserver read per entry and string, done with process_vm_readv or by stopping the
+// process's first thread with ptrace), so a process DACL without PROCESS_VM_READ or a process wineserver cannot read
+// fails every snapshot for as long as that lasts; and its walk takes no loader lock, so an unload under it cuts the
+// list short without an error. A failure here names the call and its code.
 inline Inspection inspect_runtime() {
     static std::mutex mutex;
     std::lock_guard lock(mutex);
-    const auto failed = [](const char* what) { return Inspection{Inventory::failed, what}; };
+    const auto failed = [](std::string what) { return Inspection{Inventory::failed, std::move(what)}; };
     const auto foreign = [](std::string what) { return Inspection{Inventory::foreign, std::move(what)}; };
     auto utf8 = [](const std::filesystem::path& p) { auto s = p.u8string(); return std::string(s.begin(), s.end()); };
     wchar_t system_path[32768]{};
     const UINT n = GetSystemDirectoryW(system_path, 32768);
-    if (!n || n >= 32768) return failed("the Windows system directory could not be identified");
+    if (!n || n >= 32768)
+        return failed(std::string("the Windows system directory could not be identified: ") +
+                      (n ? std::string("GetSystemDirectoryW: the path is too long") : call_failed("GetSystemDirectoryW", GetLastError())));
     const std::filesystem::path system(system_path);
     HMODULE self = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(&inspect_runtime), &self)) return failed("the inspecting module could not be identified");
-    // A module snapshot fails now and then while the module list changes under it (a thread or DLL going away): Windows
-    // documents ERROR_BAD_LENGTH as "try again". Three tries here; ConflictGate retries later checks.
-    HANDLE snapshot = INVALID_HANDLE_VALUE;
-    for (int attempt = 0; attempt < 3 && snapshot == INVALID_HANDLE_VALUE; ++attempt)
-        snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
-    if (snapshot == INVALID_HANDLE_VALUE) return failed("loaded modules could not be inspected");
-    struct Close { HANDLE h; ~Close() { CloseHandle(h); } } close{snapshot};
-    MODULEENTRY32W mod{};
-    mod.dwSize = sizeof mod;
-    if (!Module32FirstW(snapshot, &mod)) return failed("loaded modules could not be inspected");
+                           reinterpret_cast<LPCWSTR>(&inspect_runtime), &self))
+        return failed("the inspecting module could not be identified: " + call_failed("GetModuleHandleExW", GetLastError()));
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!ntdll) return failed("loaded modules could not be inspected: " + call_failed("GetModuleHandleW(ntdll.dll)", GetLastError()));
+    const auto walk = reinterpret_cast<LdrEnumerate>(reinterpret_cast<void*>(GetProcAddress(ntdll, "LdrEnumerateLoadedModules")));
+    if (!walk)
+        return failed("loaded modules could not be inspected: " +
+                      call_failed("GetProcAddress(ntdll.dll, LdrEnumerateLoadedModules)", GetLastError()));
+    Listing listing;
+    listing.modules.reserve(512);  // the copy inside the walk then rarely allocates
+    const LONG status = walk(nullptr, &copy_listed, &listing);
+    if (status < 0) {
+        char text[96];
+        std::snprintf(text, sizeof text, "LdrEnumerateLoadedModules failed (NTSTATUS 0x%08lX)", static_cast<unsigned long>(static_cast<ULONG>(status)));
+        return failed(std::string("loaded modules could not be inspected: ") + text);
+    }
+    if (listing.copy_failed)
+        return failed("loaded modules could not be inspected: copying the loader list failed after " +
+                      std::to_string(listing.modules.size()) + " entries (out of memory)");
+    // The list always has the module doing this: an empty or cut list is a failure, never a clean result.
+    if (std::none_of(listing.modules.begin(), listing.modules.end(), [&](const Listed& m) { return m.base == self; }))
+        return failed("loaded modules could not be inspected: LdrEnumerateLoadedModules listed " +
+                      std::to_string(listing.modules.size()) + " modules but not the inspecting one");
     // An unload and reload can both occur between scans, with the same path and even the same base address.
     // Cache only by file identity, write time and size. This keeps re-checks from re-reading the game image,
     // but cannot reuse a negative result for a rebuilt/replaced DLL. If a fingerprint is unavailable, read again.
@@ -98,16 +150,25 @@ inline Inspection inspect_runtime() {
     };
     static std::map<std::filesystem::path, Marker> inspected;
     std::map<std::filesystem::path, Marker> current;
-    do {
-        if (mod.hModule == self) continue;
-        // A Toolhelp snapshot does not keep its modules loaded. Hold a reference until the image/export reads finish.
+    for (const Listed& mod : listing.modules) {
+        if (mod.base == self) continue;
+        // The walk keeps nothing loaded. Hold a reference until the image/export reads finish; a module that is gone
+        // by now (unloaded after the walk) is no longer in the process, so it is no runtime either.
         HMODULE held = nullptr;
-        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(mod.hModule), &held))
-            return failed("a loaded module could not be retained for inspection");
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(mod.base), &held)) {
+            const DWORD error = GetLastError();
+            if (error == ERROR_MOD_NOT_FOUND) continue;
+            return failed("a loaded module could not be retained for inspection: " + call_failed("GetModuleHandleExW", error) +
+                          " for " + utf8(mod.name));
+        }
         struct Release { HMODULE h; ~Release() { FreeLibrary(h); } } release{held};
+        // The held module's own path: if another module took the address since the walk, that is the one inspected.
         wchar_t module_path[32768]{};
         const DWORD length = GetModuleFileNameW(held, module_path, 32768);
-        if (!length || length >= 32768) return failed("a loaded module's path could not be inspected");
+        if (!length || length >= 32768)
+            return failed("a loaded module's path could not be inspected: " +
+                          (length ? std::string("GetModuleFileNameW: the path is too long") : call_failed("GetModuleFileNameW", GetLastError())) +
+                          " for " + utf8(mod.name));
         const std::filesystem::path file(module_path);
         // Wine's builtin powrprof.dll reports a game-folder powrprof.dll's path without running that file: only a
         // module whose mapped image is the file at its path counts (module_image.h).
@@ -125,31 +186,51 @@ inline Inspection inspect_runtime() {
         else { std::ifstream f(file, std::ios::binary); found = kset::set_marker(f); }
         if (stamped) current[file] = {stamp, found};
         if (found) return foreign("a SET-branded module is loaded (" + utf8(file) + ")");
-    } while (Module32NextW(snapshot, &mod));
-    if (GetLastError() != ERROR_NO_MORE_FILES) return failed("the loaded module inventory was incomplete");
+    }
     inspected.swap(current);
-    return {};
+    return {Inventory::clean, {}, listing.modules.size()};
 }
 // One look, as text: empty when clean. A failed inventory reads like a conflict here; callers that keep running use
 // ConflictGate, which tells the two apart.
 inline std::string runtime_conflict() { return inspect_runtime().text; }
+
+// Diagnostic only: whether this process can be read through a handle to its own pid, which is what a Toolhelp module
+// snapshot of it needs (and other loaders' module scans through a process handle). "" when it can, else the call and
+// code that failed: OpenProcess refused (a process DACL without PROCESS_VM_READ), or the read itself (under Wine:
+// wineserver could not read the process). inspect_runtime() does not depend on it.
+inline std::string handle_read_probe() {
+    const HANDLE process = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE, GetCurrentProcessId());
+    if (!process) return call_failed("OpenProcess(this process, PROCESS_VM_READ)", GetLastError());
+    static const uint32_t canary = 0x6e6c696b;
+    uint32_t copy = 0;
+    SIZE_T got = 0;
+    const bool read = ReadProcessMemory(process, &canary, &copy, sizeof copy, &got) != 0;
+    const DWORD error = read ? 0 : GetLastError();
+    CloseHandle(process);
+    if (!read) return call_failed("ReadProcessMemory through that handle", error);
+    return got == sizeof copy && copy == canary ? std::string() : std::string("ReadProcessMemory through that handle copied other bytes");
+}
 
 // When to step aside. A foreign runtime that was actually seen: at once. A failed inventory: not on its own. It is
 // tried again every retry_ms, and only failures_to_step_aside failed checks in a row (with no clean one between) count
 // as "cannot tell, so do not run beside a possible SET". One clean inventory resets the count.
 // Five checks one second apart: a failure seen in the field lasted one check (the game's window thread had just ended),
 // so five in a row over four seconds is a lasting fault and not a moment; each check costs wineserver round trips per
-// module under Wine, so the retries are bounded and spaced, never per frame.
+// module under Wine, so the retries are bounded and spaced, never per frame. After that verdict a retry still comes due
+// every passive_retry_ms, for a caller that stays loaded and can take the verdict back on a clean look (kiln.types);
+// cannot_tell() says the verdict was of that kind.
 // check() and startup() are serialized by the caller (the plugin's lifecycle or its re-check lock); retry_due() is
 // lock-free for the per-tick path.
 class ConflictGate {
 public:
     static constexpr int failures_to_step_aside = 5;
-    static constexpr uint64_t retry_ms = 1000;
+    static constexpr uint64_t retry_ms = 1000, passive_retry_ms = 5000;
     // The verdict for one inspection at time now: the reason to step aside, or "" to keep running.
     std::string judge(const Inspection& seen, uint64_t now) {
+        last_ = seen.state;
         if (seen.state == Inventory::clean) {
             failures_ = 0;
+            modules_ = seen.modules;
             retry_at_.store(0, std::memory_order_release);
             return {};
         }
@@ -157,13 +238,15 @@ public:
             retry_at_.store(0, std::memory_order_release);
             return seen.text;
         }
-        if (++failures_ >= failures_to_step_aside) {
-            retry_at_.store(0, std::memory_order_release);
-            return seen.text + " (" + std::to_string(failures_) + " checks in a row)";
-        }
-        retry_at_.store(now + retry_ms ? now + retry_ms : 1, std::memory_order_release);
-        return {};
+        const bool verdict = ++failures_ >= failures_to_step_aside;
+        const uint64_t at = now + (verdict ? passive_retry_ms : retry_ms);
+        retry_at_.store(at ? at : 1, std::memory_order_release);
+        return verdict ? seen.text + " (" + std::to_string(failures_) + " checks in a row)" : std::string();
     }
+    // The last verdict came from inventories that could not be read (failures_to_step_aside in a row), not from a
+    // runtime that was seen: a later clean inventory may take it back.
+    bool cannot_tell() const { return last_ == Inventory::failed && failures_ >= failures_to_step_aside; }
+    size_t modules() const { return modules_; }  // in the last clean inventory
     std::string check() { return judge(inspect_runtime(), GetTickCount64()); }
     // The startup check, before anything runs: the retries happen here, a few milliseconds apart, so a start never
     // goes ahead on an inventory that was not read.
@@ -181,15 +264,17 @@ public:
         return retry_at_.compare_exchange_strong(at, 0, std::memory_order_acq_rel);
     }
     int failures() const { return failures_; }
-    void reset() { failures_ = 0; retry_at_.store(0, std::memory_order_release); }
+    void reset() { failures_ = 0; last_ = Inventory::clean; retry_at_.store(0, std::memory_order_release); }
 
 private:
     int failures_ = 0;
+    Inventory last_ = Inventory::clean;
+    size_t modules_ = 0;
     std::atomic<uint64_t> retry_at_{0};
 };
 
-// runtime_conflict() costs several wineserver round trips per loaded module under Wine (snapshot, path, stats, file
-// opens): never run it per frame or tick. Gate it with ModuleWatch (DLL loads, plus module-list changes seen by a cheap
+// runtime_conflict() costs wineserver round trips per loaded module under Wine (file opens and stats): never run it per
+// frame or tick. Gate it with ModuleWatch (DLL loads, plus module-list changes seen by a cheap
 // 3 s fingerprint; the throttled full check only where the fingerprint is unavailable).
 using ModuleWatch = kcompat::ModuleWatch;
 #endif

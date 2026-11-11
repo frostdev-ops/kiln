@@ -93,28 +93,28 @@ int main(int argc, char** argv) {
     g_running = true;
     // Steady state: 1000 UI frames and 1000 server steps over 16 s never re-run the module check (it was once per
     // frame/step), not even at the 3 s safety rounds: those only fingerprint the PEB list, which has not changed.
-    size_t base = loader_test::snapshots;
+    size_t base = loader_test::walks;
     const size_t probes = loader_test::lock_tries;
     frames_and_steps(1000);
     std::printf("steady state: %zu module checks, %zu fingerprint rounds in 1000 frames + 1000 steps over 16 s\n",
-                loader_test::snapshots - base, loader_test::lock_tries - probes);
-    assert(loader_test::snapshots == base && ticks == 1000 && frames == 1000 && shutdowns == 0);
+                loader_test::walks - base, loader_test::lock_tries - probes);
+    assert(loader_test::walks == base && ticks == 1000 && frames == 1000 && shutdowns == 0);
     assert(loader_test::lock_tries - probes == 5);
     // A silent load (in the PEB list, no notification) is caught at the next safety round, by one full check.
     loader_test::modules.push_back((root / "relocated/silent.dll").wstring());
     frames_and_steps(200);  // 3.2 s
-    assert(loader_test::snapshots == base + 1 && shutdowns == 0);
+    assert(loader_test::walks == base + 1 && shutdowns == 0);
     frames_and_steps(400);  // 6.4 s more, nothing new
-    assert(loader_test::snapshots == base + 1);
+    assert(loader_test::walks == base + 1);
     loader_test::modules = clean;  // an unload is a list change too: one more (harmless) check
     frames_and_steps(200);
-    assert(loader_test::snapshots == base + 2);
-    base = loader_test::snapshots;
+    assert(loader_test::walks == base + 2);
+    base = loader_test::walks;
     ticks = 1000;  // as if the silent-load rounds above had not stepped
     // A DLL load makes exactly one re-check due.
     loader_test::dll_loaded();
-    on_pre(nullptr, nullptr); assert(loader_test::snapshots == base + 1 && ticks == 1001);
-    frames_and_steps(100, 0); assert(loader_test::snapshots == base + 1 && ticks == 1101 && shutdowns == 0);
+    on_pre(nullptr, nullptr); assert(loader_test::walks == base + 1 && ticks == 1001);
+    frames_and_steps(100, 0); assert(loader_test::walks == base + 1 && ticks == 1101 && shutdowns == 0);
     // SET's proxy loading later is still caught at the next step after its load.
     loader_test::modules.push_back((root / "relocated/powrprof.dll").wstring());
     loader_test::dll_loaded();
@@ -130,31 +130,31 @@ int main(int argc, char** argv) {
     g_running = true;
     loader_test::dll_loaded();
     assert(!may_run() && shutdowns == 2);
-    // A module inventory that fails is not SET: kiln-set keeps running and looks again one second later. Each look
-    // tries the snapshot three times. One clean look resets the count; only five failed looks in a row step aside.
+    // A module inventory that fails is not SET: kiln-set keeps running and looks again one second later (one loader-list
+    // walk per look). One clean look resets the count; only five failed looks in a row step aside.
     loader_test::modules = clean;
     g_running = true; g_gate.reset();
     {
         const int before = shutdowns, ticked = ticks;
-        loader_test::snapshot_failures = 3;          // one whole look fails (the field report: a thread had just ended)
+        loader_test::walk_failures = 1;              // one whole look fails
         loader_test::dll_loaded();
         on_pre(nullptr, nullptr);
         assert(g_running && shutdowns == before && ticks == ticked + 1 && g_gate.failures() == 1);
-        size_t looks = loader_test::snapshots;
+        size_t looks = loader_test::walks;
         frames_and_steps(30);                        // 0.5 s: the retry is not due yet, and nothing looks per frame
-        assert(loader_test::snapshots == looks && g_running);
+        assert(loader_test::walks == looks && g_running);
         frames_and_steps(40);                        // past 1 s: one retry, clean this time
-        assert(loader_test::snapshots == looks + 1 && g_running && g_gate.failures() == 0 && shutdowns == before);
-        looks = loader_test::snapshots;
+        assert(loader_test::walks == looks + 1 && g_running && g_gate.failures() == 0 && shutdowns == before);
+        looks = loader_test::walks;
         frames_and_steps(120);                       // nothing pending any more
-        assert(loader_test::snapshots == looks && g_running);
+        assert(loader_test::walks == looks && g_running);
         // Four failed looks, then a clean one: still running.
-        loader_test::snapshot_failures = 4 * 3;
+        loader_test::walk_failures = 4;
         loader_test::dll_loaded();
         frames_and_steps(400);                       // 6.4 s
-        assert(g_running && g_gate.failures() == 0 && shutdowns == before && loader_test::snapshot_failures == 0);
+        assert(g_running && g_gate.failures() == 0 && shutdowns == before && loader_test::walk_failures == 0);
         // A foreign proxy seen while failures were pending steps aside at once.
-        loader_test::snapshot_failures = 3;
+        loader_test::walk_failures = 1;
         loader_test::dll_loaded();
         on_pre(nullptr, nullptr);
         assert(g_running && g_gate.failures() == 1);
@@ -164,13 +164,13 @@ int main(int argc, char** argv) {
         // The inventory keeps failing: five looks in a row, about four seconds, then kiln-set steps aside and says why.
         loader_test::modules = clean;
         g_running = true; g_gate.reset();
-        loader_test::snapshot_failures = 1000;
+        loader_test::walk_failures = 1000;
         loader_test::dll_loaded();
         frames_and_steps(200);                       // 3.2 s: four looks so far
         assert(g_running && g_gate.failures() == 4);
         frames_and_steps(100);
         assert(!g_running && shutdowns == before + 2 && g_aside.find("5 checks in a row") != std::string::npos);
-        loader_test::snapshot_failures = 0;
+        loader_test::walk_failures = 0;
         shutdowns = 2;                               // as the checks below count them
         g_running = true; g_gate.reset();
     }
@@ -181,9 +181,9 @@ int main(int argc, char** argv) {
     loader_test::modules = clean;
     assert(!g_modules.arm() && !g_modules.notifying() && !g_modules.fingerprinting());
     g_running = true;
-    base = loader_test::snapshots;
+    base = loader_test::walks;
     frames_and_steps(1000);  // 16 s
-    const size_t checks = loader_test::snapshots - base;
+    const size_t checks = loader_test::walks - base;
     std::printf("fallback: %zu module checks in 1000 frames + 1000 steps over 16 s\n", checks);
     assert(checks >= 4 && checks <= 6 && g_running && shutdowns == 2);
     // ...and still steps aside within the interval once SET appears.
@@ -222,9 +222,9 @@ int main(int argc, char** argv) {
         loader_test::modules = clean;
         loader_test::dll_loaded();
         check(watch.due(), "consume before the inventory check");
-        loader_test::on_snapshot = [] { loader_test::dll_loaded(); };
+        loader_test::on_walk = [] { loader_test::dll_loaded(); };
         set_in_process();
-        loader_test::on_snapshot = {};
+        loader_test::on_walk = {};
         check(watch.due() && !watch.due(), "a load during the check is not lost");
         // Only one consumer may claim an event, even with UI and tick threads racing.
         loader_test::dll_loaded();
@@ -366,22 +366,22 @@ int main(int argc, char** argv) {
     // Startup: a failed inventory is retried on the spot; kiln-set starts when one look succeeds, and refuses only
     // when five in a row fail.
     loader_test::modules = clean;
-    loader_test::snapshot_failures = 4 * 3;
+    loader_test::walk_failures = 4;
     on_ready(nullptr);
-    check(g_running && g_initialized && loader_test::snapshot_failures == 0, "startup retries a failed module inventory and starts");
+    check(g_running && g_initialized && loader_test::walk_failures == 0, "startup retries a failed module inventory and starts");
     on_unload(nullptr);
     g_running = false; g_initialized = false;
-    loader_test::snapshot_failures = 5 * 3;
+    loader_test::walk_failures = 5;
     on_ready(nullptr);
     check(!g_running && !g_initialized && g_aside.find("5 checks in a row") != std::string::npos,
           "startup steps aside when the inventory fails five times in a row");
-    loader_test::snapshot_failures = 0;
-    loader_test::on_snapshot = [&] {
+    loader_test::walk_failures = 0;
+    loader_test::on_walk = [&] {
         check(loader_test::registrations == 1, "on_ready arms before scanning");
         loader_test::dll_loaded();
     };
     on_ready(nullptr);
-    loader_test::on_snapshot = {};
+    loader_test::on_walk = {};
     check(g_running && g_modules.due(), "on_ready preserves a load during its startup scan");
     check(contracts::checks > 0 && overlay_reason == "Dedicated server: No overlay", "on_ready checks the rule catalog and reports the overlay feature");
     {
@@ -454,6 +454,127 @@ int main(int argc, char** argv) {
         loader_test::modules = clean;
         api.service = [](KilnStr, uint32_t) -> const void* { return nullptr; };
         api.side = []() -> uint32_t { return KILN_SIDE_SERVER; };
+    }
+    {  // The field (a real client under Proton, 2026-11-11): from the game's loading screen on, the module snapshot of the
+       // own process (Toolhelp) failed in every check for 42 s while the loader list was healthy, and kiln-set stepped
+       // aside after five checks. The inventory comes from the loader list, so a failing snapshot changes nothing.
+        loader_test::modules = clean;
+        loader_test::snapshot_failures = 1000000;    // every CreateToolhelp32Snapshot call fails
+        const std::string seen = set_in_process();
+        std::printf("inventory while every module snapshot fails: %s\n", seen.empty() ? "clean" : seen.c_str());
+        check(seen.empty(), "a failing module snapshot leaves the inventory clean: the loader list is read");
+        check(g_modules.arm(), "the DLL-load watch is armed, as after on_ready");
+        g_running = true; g_gate.reset();
+        const size_t walked = loader_test::walks, snapped = loader_test::snapshots;
+        int looks = 0;
+        for (int i = 0; i < 11; ++i) {               // the field: a DLL load, then the loading screen, one check after another
+            loader_test::dll_loaded();
+            frames_and_steps(63);                    // 1 s
+            looks += g_running;
+        }
+        std::printf("11 s of failing snapshots: %zu loader-list walks, %zu snapshot calls\n", loader_test::walks - walked,
+                    loader_test::snapshots - snapped);
+        check(looks == 11 && g_running && g_gate.failures() == 0 && loader_test::walks - walked == 11,
+              "...and kiln-set keeps running through 11 checks over 11 s of failing snapshots (the field stepped aside after 5)");
+        loader_test::modules.push_back((root / "relocated/powrprof.dll").wstring());
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        check(!g_running && g_aside.find("powrprof.dll") != std::string::npos, "...and still steps aside for a proxy it sees");
+        loader_test::snapshot_failures = 0;
+        loader_test::modules = clean;
+    }
+    {  // A failure that remains names the call and its code, in kiln.log and in set.json's reason.
+        loader_test::snapshot_failures = 1000000;    // the old enumeration's failure
+        loader_test::walk_failures = 1000000;        // the loader-list walk's
+        const std::string why = set_in_process();
+        std::printf("a failed inventory reads: %s\n", why.c_str());
+        const std::string call = "LdrEnumerateLoadedModules failed (NTSTATUS 0xC0000001)";
+        check(why.find(call) != std::string::npos, "a failed inventory names the call and its status");
+        g_running = true; g_gate.reset();
+        fileLines.clear();
+        loader_test::dll_loaded();
+        frames_and_steps(400);                       // 6.4 s: a check at once, then one each second
+        check(!g_running && g_aside.find(call) != std::string::npos && g_aside.find("5 checks in a row") != std::string::npos,
+              "five failed checks in a row step aside, with the call and its status in the reason");
+        const bool logged = std::any_of(fileLines.begin(), fileLines.end(), [&](const std::string& l) {
+            return l.find(call) != std::string::npos && l.find("checking again") != std::string::npos;
+        });
+        check(logged, "kiln.log's first-failure line names the call and its status");
+        const bool told = std::any_of(fileLines.begin(), fileLines.end(), [&](const std::string& l) {
+            return l.rfind("kiln-set steps aside: ", 0) == 0 && l.find(call) != std::string::npos &&
+                   l.find("cannot tell whether SET's own runtime is loaded") != std::string::npos;
+        });
+        check(told, "...and its step-aside line says it could not tell, rather than that SET runs");
+        std::ifstream f(g_state / "set.json");
+        std::stringstream ss;
+        ss << f.rdbuf();
+        check(ss.str().find(call) != std::string::npos && ss.str().find("\"steppedAside\": true") != std::string::npos,
+              "set.json's reason names the call and its status");
+        loader_test::snapshot_failures = 0;
+        loader_test::walk_failures = 0;
+        loader_test::modules = clean;
+    }
+    {  // A module the walk listed that is gone before the scan holds it is not in the process any more: skipped. Any other
+       // refusal is a failed look that names the call, its code and the module.
+        loader_test::modules = clean;
+        loader_test::modules.push_back((root / "relocated/renamed.dll").wstring());  // SET-branded, if it were inspected
+        loader_test::gone = reinterpret_cast<void*>(loader_test::modules.size() + 1);  // its HMODULE (index + 2)
+        check(set_in_process().empty(), "a module unloaded after the walk is skipped, neither inspected nor a failure");
+        loader_test::gone_error = 5;
+        const std::string refused = set_in_process();
+        std::printf("a listed module that cannot be held: %s\n", refused.c_str());
+        check(refused.find("GetModuleHandleExW failed (error 5) for ") != std::string::npos && refused.find("renamed.dll") != std::string::npos,
+              "...any other refusal to hold it names the call, its code and the module");
+        loader_test::gone = nullptr;
+        loader_test::gone_error = ERROR_MOD_NOT_FOUND;
+        loader_test::last_error = ERROR_NO_MORE_FILES;
+        loader_test::modules = clean;
+        loader_test::walk_export = false;
+        loader_test::last_error = 127;
+        check(set_in_process() == "loaded modules could not be inspected: GetProcAddress(ntdll.dll, LdrEnumerateLoadedModules) failed (error 127)",
+              "no LdrEnumerateLoadedModules in ntdll: a failed inventory that says so");
+        loader_test::walk_export = true;
+        loader_test::last_error = ERROR_NO_MORE_FILES;
+    }
+    {  // What kiln-set logs around the checks: the diagnostic handle read when it changes, a recovery after failed looks.
+        loader_test::modules = clean;
+        g_running = true; g_gate.reset();
+        fileLines.clear();
+        auto lines = [&](const char* text) {
+            return std::count_if(fileLines.begin(), fileLines.end(), [&](const std::string& l) { return l.find(text) != std::string::npos; });
+        };
+        loader_test::open_own_process = false;      // a process DACL without PROCESS_VM_READ, say
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        check(g_running && lines("kiln-set: diagnostic: this process cannot be read through a handle to its own pid: "
+                                 "OpenProcess(this process, PROCESS_VM_READ) failed (error 18)") == 1,
+              "the diagnostic handle read is logged once when it starts failing, with the call and its code");
+        loader_test::open_own_process = true;
+        loader_test::read_own_process = false;
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        check(lines("cannot be read through a handle to its own pid: ReadProcessMemory through that handle failed (error 18)") == 1,
+              "...and again when the read itself fails");
+        loader_test::read_own_process = true;
+        loader_test::dll_loaded();
+        on_pre(nullptr, nullptr);
+        check(lines("kiln-set: diagnostic: this process can be read through a handle to its own pid") == 1, "...and when it works again");
+        loader_test::walk_failures = 2;
+        loader_test::dll_loaded();
+        frames_and_steps(200);                       // a failed look, its retry (failed), the next (clean)
+        check(g_running && g_gate.failures() == 0 && lines("kiln-set: a check of the loaded modules failed once: ") == 1 &&
+                  lines("kiln-set: the loaded modules were read again after 2 failed check(s): 3 modules, no SET runtime") == 1,
+              "a recovery after failed looks is logged, with the module count");
+        g_modules.disarm();
+        // The startup line says how many modules the loader list had.
+        g_running = false; g_initialized = false;
+        fileLines.clear();
+        on_ready(nullptr);
+        check(g_running && lines("; 3 loaded modules read from the loader list, no SET runtime") == 1, "the startup line has the module count");
+        on_unload(nullptr);
+        g_running = false; g_initialized = false;
     }
     check(failures == 0, "all edge cases");
     if (failures) return 1;

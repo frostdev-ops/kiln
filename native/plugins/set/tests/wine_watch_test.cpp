@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Under Wine: kset::ModuleWatch gets DLL-load notifications (LdrRegisterDllNotification), a DLL load makes exactly one
 // re-check due, and the steady-state gate costs nothing next to the full module check (which it must keep off the
-// per-frame path). Run by test-wine.sh; exit 0 = pass.
+// per-frame path). The module inventory reads the loader list, so it stays clean while Toolhelp snapshots of the
+// process fail, and a module unloading around the scan is neither a crash nor a failed look. Run by test-wine.sh;
+// exit 0 = pass.
 #include <windows.h>
 
 #include <chrono>
@@ -19,12 +21,26 @@ DWORD WINAPI path_then_unload(HMODULE h, wchar_t* out, DWORD cap) {
     }
     return n;
 }
+HMODULE unload_before_hold = nullptr;
+bool unloaded_before_hold = false;
+BOOL WINAPI unload_then_hold(DWORD flags, LPCWSTR address, HMODULE* out) {
+    if (unload_before_hold && (flags & GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS) &&
+        reinterpret_cast<HMODULE>(const_cast<wchar_t*>(address)) == unload_before_hold) {
+        const HMODULE h = unload_before_hold;
+        unload_before_hold = nullptr;
+        unloaded_before_hold = FreeLibrary(h) != 0;
+    }
+    return GetModuleHandleExW(flags, address, out);
 }
-// Deterministically schedule another caller's last FreeLibrary after the scan got the module's path.
+}
+// Deterministically schedule another caller's last FreeLibrary after the scan got the module's path, or after the
+// loader-list walk listed it but before the scan holds it.
 #define GetModuleFileNameW path_then_unload
+#define GetModuleHandleExW unload_then_hold
 #endif
 #include "../src/coexist.h"
 #undef GetModuleFileNameW
+#undef GetModuleHandleExW
 
 #if defined(KSET_WATCH_DLL)
 // Built from this same source as an unloadable fixture. Its static watch must unregister even if the host
@@ -35,11 +51,39 @@ extern "C" __declspec(dllexport) void disarm_watch() { dll_watch.disarm(); }
 #elif defined(KSET_SILENT_DLL)
 extern "C" __declspec(dllexport) const char* marker() { return "Shrouded Engine Tweaks"; }
 #else
+#include <aclapi.h>
+#include <tlhelp32.h>
+
 #include <atomic>
 #include <thread>
+#pragma comment(lib, "advapi32.lib")
 
 namespace {
 int failures = 0;
+// This process's own object: deny PROCESS_VM_READ to everyone (deny = true), or back to no DACL.
+bool deny_vm_read(bool deny) {
+    if (!deny)
+        return SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
+                               nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+    SID_IDENTIFIER_AUTHORITY world = SECURITY_WORLD_SID_AUTHORITY;
+    PSID everyone = nullptr;
+    if (!AllocateAndInitializeSid(&world, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, &everyone)) return false;
+    EXPLICIT_ACCESSW ea[2]{};
+    ea[0].grfAccessPermissions = PROCESS_VM_READ;
+    ea[0].grfAccessMode = DENY_ACCESS;
+    ea[1].grfAccessPermissions = PROCESS_ALL_ACCESS & ~PROCESS_VM_READ;
+    ea[1].grfAccessMode = GRANT_ACCESS;
+    for (auto& e : ea) {
+        e.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        e.Trustee.ptstrName = static_cast<LPWSTR>(everyone);
+    }
+    PACL acl = nullptr;
+    bool ok = SetEntriesInAclW(2, ea, nullptr, &acl) == ERROR_SUCCESS &&
+              SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, acl, nullptr) == ERROR_SUCCESS;
+    if (acl) LocalFree(acl);
+    FreeSid(everyone);
+    return ok;
+}
 void check(bool ok, const char* what) {
     std::printf("%s: %s\n", ok ? "ok  " : "FAIL", what);
     if (!ok) ++failures;
@@ -73,8 +117,48 @@ int main() {
         for (int i = 0; i < kset::ConflictGate::failures_to_step_aside - 1; ++i) check(gate.judge(failed, now).empty(), "...still running");
         check(!gate.retry_due(), "the retry waits its interval");
         check(gate.judge(failed, now).find("5 checks in a row") != std::string::npos, "five failed inventories in a row step aside");
+        // kiln.types stays loaded after that verdict: it is told the verdict means "cannot tell", and keeps getting
+        // (slower) retries, so a clean inventory can take it back.
+        check(gate.cannot_tell(), "...and that verdict is a cannot-tell one");
+        check(gate.judge(failed, now - kset::ConflictGate::passive_retry_ms + 2000).find("6 checks in a row") != std::string::npos &&
+                  !gate.retry_due(), "after the verdict the retry waits passive_retry_ms");
+        check(!gate.judge(failed, now - kset::ConflictGate::passive_retry_ms - 1).empty() && gate.retry_due() && !gate.retry_due(),
+              "...then comes due once");
+        check(gate.judge({kset::Inventory::clean, {}, 42}, now).empty() && !gate.cannot_tell() && gate.failures() == 0 &&
+                  gate.modules() == 42 && !gate.retry_due(), "a clean inventory then clears it");
+        for (int i = 0; i < kset::ConflictGate::failures_to_step_aside; ++i) (void)gate.judge(failed, now);
+        check(gate.cannot_tell() && gate.judge(foreign, now) == foreign.text && !gate.cannot_tell() && !gate.retry_due(),
+              "a runtime seen after a cannot-tell verdict is a verdict of its own (no retry)");
         gate.reset();
         check(gate.judge(failed, now).empty() && gate.judge(foreign, now) == foreign.text, "a foreign runtime that is seen steps aside at once");
+    }
+    {  // The field (a real client under Proton, 2026-11-11): the module snapshot of the own process failed in every check
+       // for 42 s while the loader list was healthy. Wine's Toolhelp reads that list through a handle to the own pid
+       // (OpenProcess, then wineserver reads); a process DACL that denies PROCESS_VM_READ makes it fail the same way.
+        wchar_t exe[32768]{};
+        GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+        const auto dir = std::filesystem::path(exe).parent_path();
+        check(deny_vm_read(true), "this process's DACL denies PROCESS_VM_READ");
+        const HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
+        const DWORD error = snap == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+        if (snap != INVALID_HANDLE_VALUE) CloseHandle(snap);
+        std::printf("Toolhelp module snapshot of this process: %s (error %lu)\n", snap == INVALID_HANDLE_VALUE ? "failed" : "made", error);
+        check(snap == INVALID_HANDLE_VALUE, "...so Toolhelp's module snapshot of this process fails, as in the field");
+        const kset::Inspection seen = kset::inspect_runtime();
+        std::printf("inventory: %s\n", seen.text.empty() ? "clean" : seen.text.c_str());
+        check(seen.state == kset::Inventory::clean && seen.modules > 2, "the inventory still reads the loaded modules: clean");
+        const std::string probe = kset::handle_read_probe();
+        std::printf("handle-read probe: %s\n", probe.empty() ? "works" : probe.c_str());
+        check(probe == "OpenProcess(this process, PROCESS_VM_READ) failed (error 5)", "the diagnostic probe names the refused call and its code");
+        kset::ConflictGate gate;
+        bool running = true;
+        for (int i = 0; i < 2 * kset::ConflictGate::failures_to_step_aside; ++i) running = running && gate.check().empty();
+        check(running && gate.failures() == 0, "ten checks in a row: no failure, no stepping aside");
+        const HMODULE branded = LoadLibraryW((dir / L"silent-loader.dll").c_str());
+        check(branded && kset::inspect_runtime().state == kset::Inventory::foreign, "...and a SET-branded module that loads is still seen");
+        if (branded) FreeLibrary(branded);
+        check(deny_vm_read(false) && kset::handle_read_probe().empty(), "the DACL is restored, and the probe says so");
+        (void)watch.due();  // the load above: consumed, so the frame counts below start from a quiet list
     }
     int due = 0;
     for (int i = 0; i < 100000; ++i) due += watch.due();
@@ -185,6 +269,18 @@ int main() {
         check(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                  reinterpret_cast<LPCWSTR>(racing), &retained), "the inventory releases its module reference after inspection");
         if (unload_during_path) { FreeLibrary(unload_during_path); unload_during_path = nullptr; }
+    }
+    // Listed by the walk, then unloaded before the scan holds it: no longer in the process, so not a runtime and not a
+    // failed inventory either (Wine's GetModuleHandleExW reports such an address as ERROR_MOD_NOT_FOUND).
+    const HMODULE leaving = LoadLibraryW((dir / L"watch-fixture.dll").c_str());
+    check(leaving != nullptr, "loaded the walk-then-unload fixture");
+    if (leaving) {
+        unload_before_hold = leaving;
+        const kset::Inspection seen = kset::inspect_runtime();
+        std::printf("a module unloaded after the walk: %s\n", seen.text.empty() ? "clean" : seen.text.c_str());
+        check(unloaded_before_hold, "the fixture's last reference went between the walk and the scan's own reference");
+        check(seen.state == kset::Inventory::clean, "a module unloaded after the walk is skipped, not a failed inventory");
+        if (unload_before_hold) { FreeLibrary(unload_before_hold); unload_before_hold = nullptr; }
     }
     std::printf(failures ? "wine watch test: FAIL (%d)\n" : "wine watch test: PASS\n", failures);
     return failures;
