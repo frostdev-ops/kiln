@@ -1950,7 +1950,8 @@ fn stashed_settings(game: &Path, kind: ModKind, id: &str) -> Result<Vec<(String,
     refuse_symlink_path(game, &dir)?;
     if !dir.is_dir() { return Ok(Vec::new()); }
     let files = placement_files(&dir, kind)?;
-    read_settings(&dir, &files.into_keys().filter(|r| !r.ends_with('/')).collect::<Vec<_>>())
+    read_settings(&dir, &files.into_keys().filter(|r| !r.ends_with('/')
+        && !Path::new(r).components().any(|c| is_parked(&c.as_os_str().to_string_lossy()))).collect::<Vec<_>>())
 }
 
 fn drop_stash(game: &Path, kind: ModKind, id: &str, restored: &[(String, Vec<u8>)]) -> Result<()> {
@@ -2497,6 +2498,22 @@ mod tests {
             assert_eq!(rep.removed, [format!("{}:a", kind.as_str())], "retry remains owned: {rep:?}");
             assert!(placements(&game).unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn parked_settings_directories_never_return_as_live_mod_files() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "parked-settings").unwrap();
+        let game = tmp.path();
+        let kind = ModKind::Native;
+        let key = "package/settings";
+        stash_settings(game, kind, key, &[("config.txt/options.ini".into(), b"older settings".to_vec())]).unwrap();
+        // A newer version writes a file where the older one had a directory. The old directory is recovery only.
+        stash_settings(game, kind, key, &[("config.txt".into(), b"current settings".to_vec())]).unwrap();
+        let restored = stashed_settings(game, kind, key).unwrap();
+        assert_eq!(restored, [("config.txt".into(), b"current settings".to_vec())], "recovery directories must not be restored");
+        drop_stash(game, kind, key, &restored).unwrap();
+        assert_eq!(std::fs::read(stash_dir(game, kind, key).join("config.txt.kept-1/options.ini")).unwrap(), b"older settings");
+        assert!(!stash_dir(game, kind, key).join("config.txt").exists());
     }
 
     /// Review R4: when the copy cannot be published after an older Kiln's runtime files were split off the Library entry,
