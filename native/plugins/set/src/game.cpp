@@ -4,6 +4,7 @@
 // MIT (licenses/ShroudedEngineTweaks-LICENSE.txt). Table lookups, systems, entities, events and resources go through
 // kiln.types, kiln.world and kiln.assets.
 #include "game.h"
+#include "lua_budget.h"
 
 #include <windows.h>
 
@@ -576,6 +577,11 @@ void scanAll() {
     if (g_res_scanned || !T || !A) return;
     g_res_scanned = true;
     const auto t0 = std::chrono::steady_clock::now();
+    // Only the first scan is Kiln's work. Cached calls must not extend a mod's callback budget.
+    struct Excuse {
+        std::chrono::steady_clock::time_point started;
+        ~Excuse() { kset::budget::excuse(std::chrono::steady_clock::now() - started); }
+    } excuse{t0};
     for (uint32_t i = 0; i < T->type_count(); ++i) {
         KilnTypeInfo info{sizeof info};
         if (T->type_info(T->type_at(i), &info) != KILN_OK || info.kind != KILN_TYPE_STRUCT) continue;
