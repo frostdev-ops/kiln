@@ -1007,11 +1007,30 @@ fn copy_rel(pid: &str, kind: ModKind, id: &str) -> String {
 /// `<game>/kiln/profiles` relative to `<game>/kiln/`.
 const COPY_ROOT_REL: &str = "profiles";
 
+/// The reader revision (native/core/src/profile.h KILN_PROFILE_READER) from which a core reads Copy mode's paths into
+/// a game folder outside kiln/: `../mods/<folder>` in mods.eml, `../greeneye/<id>` in mods.greeneye.
+pub const PROFILE_READER_GAME_MODS: u32 = 2;
+
+/// The profile.json reader revision of the runtime in the game: what the kiln-runtime.json of the bundle its install
+/// receipt names declares (`profileReader`). 1 when it declares none (a runtime from before), and when the launcher
+/// cannot tell (no receipt, or no such bundle in `<data>/runtime/`): an older form is always read, a newer one is not.
+fn runtime_profile_reader(dirs: &DataDirs, install: &GameInstall) -> u32 {
+    let Ok(Some(receipt)) = crate::install::read_receipt(&install.path) else { return 1 };
+    crate::bundle::find(dirs, &receipt.runtime.version).ok().and_then(|b| crate::bundle::read(&b.file).ok())
+        .and_then(|m| m.profile_reader).unwrap_or(1)
+}
+
 /// Renders the game-side file for an install (no writes): game paths, fingerprint, generation.
 pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: PathMode) -> Result<ProfileFile> {
     check_profile(profile)?;
     let pid = &profile.id;
     let mut mods = ProfileFileMods::default();
+    // Copy mode names a game folder outside kiln/ (../mods/<folder>, ../greeneye/<id>) only for a core that reads that
+    // form, and only under its folder name rule: every older core calls the whole profile invalid and loads no mods,
+    // so those entries keep the copy under kiln/profiles/ (sync_copies makes it), as before the form existed.
+    let reader = std::cell::OnceCell::new();
+    let outside_kiln_ok = |placed: &Path| *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= PROFILE_READER_GAME_MODS
+        && placed.file_name().and_then(|n| n.to_str()).is_some_and(crate::engine_mods::is_game_folder_name);
     for k in ModKind::ALL.into_iter().filter(|k| *k != ModKind::Plugin) {
         for m in list_of(&profile.mods, k) {
             let folder = crate::library::path_of(dirs, &lref(k, m))?;
@@ -1023,7 +1042,7 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
             let placed = game_path.clone().or_else(|| crate::engine_mods::placed_folder(k, &install.path, &m.id));
             let path = match placed {
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
-                Some(placed) if game_path.is_some() => format!("../{}", placed.strip_prefix(&install.path)
+                Some(placed) if game_path.is_some() && outside_kiln_ok(&placed) => format!("../{}", placed.strip_prefix(&install.path)
                     .map_err(|_| Error::invalid("EML game folder is outside the install"))?.to_string_lossy().replace('\\', "/")),
                 _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
             };

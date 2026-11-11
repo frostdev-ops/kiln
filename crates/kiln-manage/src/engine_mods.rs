@@ -337,7 +337,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
-            ModKind::Xhl => work.join(XHL_PLUGIN_INI).is_file() && !work.join("mod.json").exists(),
+            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("mod.json").exists(),
             _ => true,
         };
         if !found {
@@ -401,14 +401,17 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
 /// XHL-Core's plugin description, in the folder of each XHL mod (`mods/<name>/native-plugin.ini`).
 pub const XHL_PLUGIN_INI: &str = "native-plugin.ini";
 
-/// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold.
+/// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold. The same rule
+/// as the native core's `../mods/<folder>` check (native/core/src/profile.cpp placed_eml_path) and the profile schema's
+/// pattern; schema/fixtures/profile/game-folder-names.json holds the names all three are tested with. The part before
+/// the first dot is the name Windows (a device) and Enshwick's loader folder are compared with.
 pub fn is_game_folder_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or_default().to_ascii_lowercase();
     let device = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
         || (stem.len() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) && stem.as_bytes()[3].is_ascii_digit());
     !name.is_empty() && name.chars().count() <= 128 && !name.starts_with('.') && !name.ends_with(['.', ' '])
         && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c)) && !device
-        && !name.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER)
+        && stem != ENSHWICK_LOADER_FOLDER
 }
 
 /// Does a native DLL read this EML mod in the game's `mods` folder? `src` is the mod folder as dropped (an unpacked
@@ -417,9 +420,12 @@ pub fn is_game_folder_name(name: &str) -> bool {
 /// proxy name next to the `mods` folder that holds it (Auto Loot Plus: its dinput8.dll reads and writes
 /// `mods/auto-loot-plus/config.txt` and needs the EML part there). Such a mod is placed there at activation
 /// ([`place`]), and kiln-eml runs that copy, so the DLL and the Lua read the same files.
+///
+/// The folder is named as the package names it, without a browser's or an unpacker's copy suffix ("XHL-Auto-Loot (1)"
+/// dropped on its own); a mod at an archive's root (no folder name of its own) takes its manifest's id.
 pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
-    let folder = src.file_name()?.to_str()?.to_string();
-    if !is_game_folder_name(&folder) { return None; }
+    let named = crate::library::strip_copy_suffix(src.file_name()?.to_str()?).to_string();
+    let folder = if is_game_folder_name(&named) { named } else { manifest_id_raw(src).filter(|id| is_game_folder_name(id))? };
     let files: Vec<PathBuf> = std::fs::read_dir(src).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
     if files.iter().any(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI))) {
         return Some((folder, "it is also an XHL-Core plugin (native-plugin.ini), which XHL-Core loads from the game's mods folder".into()));
@@ -431,12 +437,18 @@ pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
     let parent = src.parent()?;
     if !parent.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods")) { return None; }
     let package = parent.parent()?;
-    let dll = crate::engines::dlls_in(package).into_iter().find(|p| {
-        p.file_name().is_some_and(|n| crate::engines::is_proxy_name(&n.to_string_lossy()))
-            && crate::library::detect(p).is_ok_and(|d| d.kind == DetectKind::BareDll)
-    })?;
+    // A game folder is no package: Steam's steam_api64.dll (or any proxy-named DLL a player put there) says nothing
+    // about a hand-installed mod in its mods folder. The package's DLL is the one Library import makes its native mod.
+    if [crate::game::CLIENT_EXE, crate::game::SERVER_EXE].iter().any(|exe| package.join(exe).exists()) { return None; }
+    let dll = crate::library::native_bundle_proxy(package)?;
     let file = dll.file_name()?.to_string_lossy().into_owned();
     Some((folder, format!("its package's {file} reads it from the game's mods folder")))
+}
+
+/// Does `dir` hold XHL-Core's `native-plugin.ini`, spelled in any case (Windows and XHL-Core do not care)?
+pub fn has_xhl_plugin_ini(dir: &Path) -> bool {
+    std::fs::read_dir(dir).into_iter().flatten().flatten()
+        .any(|e| e.file_name().to_str().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI)) && e.path().is_file())
 }
 
 // ---- placing mods in their engine's folder: ShroudForge and SET always, the others for their own loader ----
@@ -1103,11 +1115,14 @@ fn manifest_id_raw(dir: &Path) -> Option<String> {
 }
 
 /// A folder in `root` other than `dst` that holds the same mod (the same manifest id, case ignored) and is not one of
-/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id.
+/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id. A folder whose
+/// name the game cannot be pointed at (hidden, a trailing dot or space, a character Windows has no name with) is no
+/// installation the game loads: Kiln places its own copy, and the profile never names that folder.
 fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
     let id = manifest_id_raw(src)?;
     std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
         .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(is_game_folder_name))
         .find(|p| manifest_id_raw(p).is_some_and(|other| other.eq_ignore_ascii_case(&id)))
 }
 
@@ -1584,6 +1599,8 @@ pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::Profil
 }
 
 /// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
+/// Its name always passes [`is_game_folder_name`] (the record's folder, or a hand installation [`same_mod_elsewhere`]
+/// accepts), so Copy mode's `../mods/<folder>` is one the native core reads.
 /// Greeneye: Kiln's copy in `<game>/greeneye/<id>/` once [`place`] has made it for this version (its receipt and marker
 /// name it), else None (the Library entry: a folder the player put there, a play-once version, a switched-off mod).
 pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {
@@ -2427,6 +2444,23 @@ mod tests {
         assert!(player_entries_of(now, &before, ModKind::Eml).is_none());
         assert!(!is_settings_file(ModKind::Eml, "native-plugin.ini"));
         assert!(!is_settings_file(ModKind::Eml, "mod.json"));
+    }
+
+    /// manage-import F5, native-core-sf F4: one table of folder names for the three validators of Copy mode's
+    /// `../mods/<folder>` (this one, native/core/tests/profile_test.cpp, schema/tests/profile_review.mjs).
+    #[test]
+    fn game_folder_names_follow_the_shared_table() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/fixtures/profile/game-folder-names.json");
+        let t: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+        let mut n = 0;
+        for (verdict, want) in [("accept", true), ("reject", false)] {
+            for name in t[verdict].as_array().unwrap() {
+                let name = name.as_str().unwrap();
+                assert_eq!(is_game_folder_name(name), want, "{verdict}: {name:?}");
+                n += 1;
+            }
+        }
+        assert!(n > 50);
     }
 
     #[test]

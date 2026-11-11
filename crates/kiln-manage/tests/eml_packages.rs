@@ -251,14 +251,15 @@ const NOT_NEEDED: &str = "EML's own loader is in this package: not needed, Kiln 
 #[test]
 fn auto_loot_plus_gets_its_dll_and_its_eml_part_in_the_game_folder() {
     let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
-    assert_eq!(d.found(), ["eml/auto-loot-plus", "native/autolootplus-1.1.8"]);
+    assert_eq!(d.found(), ["eml/auto-loot-plus", "native/auto-loot-plus"]);
     assert!(!d.reasons().contains("not needed"), "{}", d.reasons());
     assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
     assert!(d.reasons().contains("its package's dinput8.dll reads it from the game's mods folder, so Kiln copies it into the game's mods\\auto-loot-plus folder"), "{}", d.reasons());
-    // the DLL: a native mod named after the package, chain-loaded in DllMain like the game loaded it before
-    assert_eq!(d.natives(), ["autolootplus-1.1.8"]);
+    // the DLL: a native mod named after the mod folder it reads (the same for every version and download of the
+    // package), chain-loaded in DllMain like the game loaded it before
+    assert_eq!(d.natives(), ["auto-loot-plus"]);
     let lib = library::list(&d.dirs, Some(ModKind::Native)).unwrap();
-    assert_eq!(lib[0].name, "AutoLootPlus 1.1.8");
+    assert_eq!(lib[0].name, "auto-loot-plus (dinput8.dll)");
     let native = lib[0].versions[0].folder.clone();
     let man: serde_json::Value = serde_json::from_slice(&std::fs::read(native.join("native.json")).unwrap()).unwrap();
     assert_eq!((man["phase"].as_str(), man["dlls"][0].as_str()), (Some("dllmain"), Some("dinput8.dll")));
@@ -273,8 +274,8 @@ fn auto_loot_plus_gets_its_dll_and_its_eml_part_in_the_game_folder() {
 #[test]
 fn auto_loot_plus_lite_gets_its_dll_and_its_settings_in_the_game_folder() {
     let d = drop_on_launcher("alp-lite", "AutoLootPlus Lite 1.1.8");
-    assert_eq!(d.found(), ["native/autolootplus-lite-1.1.8"]);
-    assert_eq!(d.natives(), ["autolootplus-lite-1.1.8"]);
+    assert_eq!(d.found(), ["native/auto-loot-plus"]);
+    assert_eq!(d.natives(), ["auto-loot-plus"]);
     assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
     assert_eq!(std::fs::read(d.g.path.join("mods/auto-loot-plus/config.txt")).unwrap(), b"radius=15");
     assert!(d.eml_paths().is_empty(), "settings-only folders are not invented EML mods");
@@ -343,7 +344,7 @@ fn mixed_native_settings_folders_keep_separate_player_values_across_updates() {
 /// loads the plugin from <game>/mods/<name>.
 #[test]
 fn xhl_mods_are_placed_where_xhl_core_finds_their_plugin() {
-    for (which, natives) in [("xhl-hybrid", vec![]), ("xhl-hybrid-core", vec!["xhl-auto-loot-1.5.0".to_string()])] {
+    for (which, natives) in [("xhl-hybrid", vec![]), ("xhl-hybrid-core", vec!["xhl-core".to_string()])] {
         let d = drop_on_launcher(which, "XHL-Auto-Loot 1.5.0");
         assert_eq!(d.eml_paths(), [("xhl-auto-loot".to_string(), "mods/XHL-Auto-Loot".to_string())], "{which}");
         assert!(tree(&d.g.path).contains(&"mods/XHL-Auto-Loot/XHL-Auto-Loot.dll".to_string()), "{which}: {:?}", tree(&d.g.path));
@@ -865,6 +866,7 @@ fn xhl_cleanup_never_adopts_markers_or_removes_nested_or_unflagged_copies() {
 #[test]
 fn copy_mode_uses_the_native_mods_copy_too() {
     let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    runtime_in_game(&d.dirs, &d.g, Some(2), "a633659");
     let p = my_mods(&d);
     let rendered = profile::render(&d.dirs, &p, &d.g, PathMode::Copy).unwrap();
     assert_eq!(rendered.mods.eml[0].path.replace('\\', "/"), "../mods/auto-loot-plus");
@@ -896,7 +898,8 @@ fn assert_xhl_contract(dirs: &DataDirs, g: &GameInstall, native_count: usize) {
         assert_eq!(std::fs::read(src.join(name)).unwrap(), std::fs::read(g.path.join("mods/XHL-Vein-Mining").join(name)).unwrap());
     }
     assert_eq!(profile::list(dirs).unwrap()[0].counts.xhl, 1);
-    assert_eq!(profile::render(dirs, &p, g, PathMode::Copy).unwrap().mods.xhl[0].path, "../mods/XHL-Vein-Mining");
+    // Copy mode names the game folder only for a runtime that declares it reads that form (none here)
+    assert_eq!(profile::render(dirs, &p, g, PathMode::Copy).unwrap().mods.xhl[0].path, "profiles/my-mods/xhl/xhl-vein-mining");
     assert!(!ModKind::CORE.contains(&ModKind::Xhl));
     assert!(ModKind::Xhl.engine().is_none() && kiln_manage::engine_mods::plugin_of(ModKind::Xhl).is_none());
     // The native core's fixed ABI and validated engine arrays stay unchanged: XHL has no execution route there.
@@ -1040,4 +1043,287 @@ fn an_unrelated_chain_loader_never_satisfies_the_xhl_host_requirement() {
     assert!(kiln_manage::engine_mods::xhl_host(&d.g.path).available);
     std::fs::remove_file(d.g.path.join("dinput8.dll")).unwrap();
     assert!(!kiln_manage::engine_mods::xhl_host(&d.g.path).available);
+}
+
+// ---- review of draft PR #22 (manage-import, data-safety notes) ----
+
+/// The Library record of the only `kind` entry, as JSON.
+fn only_record(dirs: &DataDirs, kind: ModKind) -> serde_json::Value {
+    let lib = library::list(dirs, Some(kind)).unwrap();
+    assert_eq!(lib.len(), 1, "{lib:?}");
+    let rec = PathBuf::from(format!("{}.json", lib[0].versions[0].folder.display()));
+    serde_json::from_slice(&std::fs::read(rec).unwrap()).unwrap()
+}
+
+fn drop_more(d: &Dropped, src: &Path) -> kiln_manage::quick::AddReport {
+    let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[src.to_path_buf()], false, &mut NoProgress).unwrap();
+    println!("=== {}\n{}", src.display(), summary(&r.import));
+    r
+}
+
+/// manage-import F1: the package's own DLL runs once after an update of the package, after a browser's " (1)" copy of
+/// it, and when a second XHL package bundles XHL-Core again (another build of it), while two different DLL mods that
+/// share the proxy name (Auto Loot Plus and XHL-Core) both keep running.
+#[test]
+fn a_packages_dll_runs_once_after_updates_copies_and_a_second_package_with_the_same_host() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let t = tmp("alp-updates");
+    let pkg = t.0.join("pkg");
+    layout(&pkg, "alp-full");
+    put(&pkg, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0build 1.1.9"));
+    put(&pkg, "mods/auto-loot-plus/src/mod.lua", b"-- 1.1.9\nreturn {}");
+    for name in ["AutoLootPlus 1.1.9", "AutoLootPlus 1.1.9 (1)", "AutoLootPlus 1.1.9(2)"] {
+        let z = t.0.join(format!("{name}.zip"));
+        zip_of(&pkg, &z);
+        drop_more(&d, &z);
+        assert_eq!(d.natives().len(), 1, "{name}: {:?}", d.natives());
+        assert_eq!(d.chained().len(), 1, "{name}: chain.ini [profile] {:?}", d.chained());
+    }
+    let f = profile::read_game_profile(&d.g.path).unwrap().unwrap();
+    let native = f.mods.native.iter().find(|m| m.enabled).unwrap();
+    let r = library::LibraryRef { kind: ModKind::Native, id: native.id.clone(), version: native.version.clone().unwrap(), hash: native.hash.clone().unwrap() };
+    let folder = library::path_of(&d.dirs, &r).unwrap();
+    assert!(std::fs::read(folder.join("dinput8.dll")).unwrap().windows(11).any(|w| w == b"build 1.1.9"), "the newest DLL runs");
+
+    // two XHL packages, each with its own build of XHL-Core next to its EML part
+    let d = drop_on_launcher("xhl-hybrid-core", "XHL-Auto-Loot 1.5.0");
+    let other = d._t.0.join("XHL-Vein-Mining 2.0.0");
+    put(&other, "dbghelp.dll", &eml_dbghelp());
+    put(&other, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"XHL-Native-Plugin-Host.log\0dinput8-chain.ini\0native-plugin.ini\0core 1.1"));
+    eml_mod(&other, "mods/XHL-Vein-Mining", "XHL-Vein-Mining");
+    put(&other, "mods/XHL-Vein-Mining/XHL-Vein-Mining.dll", &xhl_plugin());
+    put(&other, "mods/XHL-Vein-Mining/native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+    let z = d._t.0.join("XHL-Vein-Mining 2.0.0.zip");
+    zip_of(&other, &z);
+    drop_more(&d, &z);
+    assert_eq!(d.natives().len(), 1, "one XHL-Core: {:?}", d.natives());
+    assert_eq!(d.chained().len(), 1, "{:?}", d.chained());
+    assert_eq!(d.eml_paths().len(), 2, "{:?}", d.eml_paths());
+
+    // Auto Loot Plus next to XHL-Core: two different mods, both run (Kiln chain-loads both dinput8.dll files)
+    let alp = d._t.0.join("AutoLootPlus 1.1.8.zip");
+    zip_of(&{ let p = d._t.0.join("alp"); layout(&p, "alp-full"); p }, &alp);
+    drop_more(&d, &alp);
+    assert_eq!(d.natives().len(), 2, "{:?}", d.natives());
+    assert_eq!(d.chained().len(), 2, "{:?}", d.chained());
+}
+
+/// data-safety note: the game folder of a dropped EML mod folder is its name as Windows' mods folder would hold it,
+/// not a browser's or an unpacker's copy suffix; and the same mod imported again under another name runs from one
+/// game folder.
+#[test]
+fn a_copy_suffix_on_a_dropped_mod_folder_is_not_its_game_folder() {
+    let t = tmp("suffix");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    let first = t.0.join("drop1/XHL-Auto-Loot (1)");
+    eml_mod(&first, ".", "XHL-Auto-Loot");
+    put(&first, "XHL-Auto-Loot.dll", &xhl_plugin());
+    put(&first, "native-plugin.ini", b"[Plugin]\nDll=XHL-Auto-Loot.dll\n");
+    kiln_manage::quick::add_with(&dirs, &g, &[first], false, &mut NoProgress).unwrap();
+    let rec = only_record(&dirs, ModKind::Eml);
+    assert_eq!(rec["gameFolder"], "XHL-Auto-Loot", "{rec}");
+    assert!(g.path.join("mods/XHL-Auto-Loot/native-plugin.ini").is_file(), "{:?}", tree(&g.path));
+}
+
+/// manage-import F2: an EML mod dragged out of the game's own mods folder is not an "EML part of a package" because
+/// the game folder holds Steam's steam_api64.dll (a proxy name) next to that mods folder.
+#[test]
+fn a_game_folders_own_steam_api_dll_is_not_a_packages_dll() {
+    let t = tmp("steam-api");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    put(&g.path, "steam_api64.dll", &build_test_dll(&["SteamAPI_Init"], b"steam"));
+    eml_mod(&g.path, "mods/Quick Stack", "quick-stack");
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[g.path.join("mods/Quick Stack")], false, &mut NoProgress).unwrap();
+    assert!(!summary(&r.import).contains("steam_api64.dll"), "{}", summary(&r.import));
+    let rec = only_record(&dirs, ModKind::Eml);
+    assert!(rec.get("gameFolder").is_none(), "{rec}");
+    // the same with the whole mods folder dragged in
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[g.path.join("mods")], false, &mut NoProgress).unwrap();
+    assert!(!summary(&r.import).contains("steam_api64.dll"), "{}", summary(&r.import));
+    assert!(only_record(&dirs, ModKind::Eml).get("gameFolder").is_none());
+}
+
+/// manage-import F4: the package's dinput8-chain.ini is read the way Kiln's proxy reads one: "key = value" lines by
+/// their value, lines that name no DLL ignored, file names matched without regard to case (Windows).
+#[test]
+fn a_packages_chain_file_is_read_like_the_proxy_reads_it() {
+    let t = tmp("chain-dialect");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    let pkg = t.0.join("Chain dialect");
+    put(&pkg, "dinput8.dll", &alp_dinput8());
+    put(&pkg, "extra/other.dll", &build_test_dll(&["Other"], b"chain target"));
+    put(&pkg, "extra/helper.dll", &build_test_dll(&["Helper"], b"chain helper"));
+    put(&pkg, "dinput8-chain.ini", b"[Chain]\nDelay=5\n1 = extra/other.dll\nExtra\\Helper.DLL\n");
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[pkg], false, &mut NoProgress).unwrap();
+    assert!(r.import.skipped.is_empty(), "{:?}", r.import.skipped);
+    let lib = library::list(&dirs, Some(ModKind::Native)).unwrap();
+    let man = kiln_manage::manifest::read_native(&lib[0].versions[0].folder).unwrap();
+    assert_eq!(man.dlls, ["dinput8.dll", "extra/other.dll", "extra/helper.dll"]);
+    assert!(!summary(&r.import).contains("not chained"), "{}", summary(&r.import));
+}
+
+/// manage-import F7: an archive with a DirectInput8 proxy mod and a second proxy-named DLL at its root is named after
+/// the archive, not after the temporary unpack folder, and dropping it again adds nothing.
+#[test]
+fn a_packages_proxy_mod_next_to_another_proxy_name_is_named_after_the_archive() {
+    let t = tmp("two-proxies");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    let pkg = t.0.join("pkg");
+    put(&pkg, "dinput8.dll", &alp_dinput8());
+    put(&pkg, "version.dll", &build_test_dll(&["GetFileVersionInfoW"], b"plain"));
+    put(&pkg, "settings.ini", b"x=1");
+    let z = t.0.join("Two Proxies 1.0.zip");
+    zip_of(&pkg, &z);
+    let r = kiln_manage::quick::add_with(&dirs, &g, std::slice::from_ref(&z), false, &mut NoProgress).unwrap();
+    println!("{}", summary(&r.import));
+    let lib = library::list(&dirs, Some(ModKind::Native)).unwrap();
+    assert!(lib.iter().all(|e| !e.id.contains("kiln-unpack") && !e.name.contains("kiln-unpack")), "{lib:?}");
+    assert!(lib.iter().any(|e| e.name == "Two Proxies 1.0"), "{lib:?}");
+    let before = profile::read_game_profile(&g.path).unwrap().unwrap().mods.native.len();
+    kiln_manage::quick::add_with(&dirs, &g, &[z], false, &mut NoProgress).unwrap();
+    assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().mods.native.len(), before);
+}
+
+/// manage-import F10: XHL-Core and Windows find native-plugin.ini whatever its case; on Linux the folder is still an
+/// XHL companion that Kiln places and never loads.
+#[test]
+fn an_xhl_plugin_ini_in_another_case_is_still_an_xhl_companion() {
+    let t = tmp("xhl-case");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    let pkg = t.0.join("pkg");
+    put(&pkg, "mods/XHL-Vein-Mining/XHL-Vein-Mining.dll", &xhl_plugin());
+    put(&pkg, "mods/XHL-Vein-Mining/Native-Plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+    put(&pkg, "mods/XHL-Vein-Mining/config.txt", b"x");
+    let z = t.0.join("XHL-Vein-Mining.zip");
+    zip_of(&pkg, &z);
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[z], false, &mut NoProgress).unwrap();
+    let found: Vec<String> = r.import.imported.iter().map(|x| format!("{}/{}", x.kind.as_str(), x.id)).collect();
+    assert_eq!(found, ["xhl/xhl-vein-mining"], "{}", summary(&r.import));
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert!(f.mods.native.is_empty(), "Kiln must not load the plugin DLL: {:?}", f.mods.native);
+    assert!(g.path.join("mods/XHL-Vein-Mining/Native-Plugin.ini").is_file());
+}
+
+/// A runtime bundle in the launcher's data folder, and the game's install receipt naming it (render reads only which
+/// runtime the receipt names). `reader`: the profile.json reader revision its kiln-runtime.json declares (None: a
+/// runtime from before the declaration, as dev.23).
+fn runtime_in_game(dirs: &DataDirs, g: &GameInstall, reader: Option<u32>, git: &str) -> String {
+    let s = g.path.parent().unwrap().join(format!("stage-{git}"));
+    let mut m = serde_json::json!({ "format": 1, "kiln": "0.2.0-dev", "abi": 1, "api": "0.2.0",
+        "components": { "core": { "sides": ["server", "client"], "default": true, "description": "core" } } });
+    if let Some(r) = reader { m["profileReader"] = r.into(); }
+    put(&s, "kiln-runtime.json", serde_json::to_string_pretty(&m).unwrap().as_bytes());
+    put(&s, "core/kiln/kiln-core.dll", format!("core {git}").as_bytes());
+    let opts = kiln_manage::bundle::CreateOptions { source_date_epoch: 1_794_000_000, git: git.into() };
+    let zip = kiln_manage::bundle::create(&s, &g.path.parent().unwrap().join(format!("out-{git}")), &opts).unwrap();
+    let b = kiln_manage::bundle::import(dirs, &zip).unwrap();
+    put(&g.path, "kiln/.install.json", serde_json::to_string_pretty(&serde_json::json!({
+        "format": 1, "installId": "c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b", "installed": "2026-11-11T00:00:00Z",
+        "runtime": { "version": b.version, "components": ["core"] }, "side": "client", "files": [],
+    })).unwrap().as_bytes());
+    b.version
+}
+
+/// launcher-schema F2, data-safety F4: Copy mode names an EML mod's game folder (`../mods/<folder>`) only for a runtime
+/// whose core reads that form. Every core before it calls the whole profile invalid and loads no mods, so for those (and
+/// when the launcher cannot tell which runtime the game has) the profile keeps the copy under kiln/profiles/.
+#[test]
+fn copy_mode_names_the_game_folder_only_for_a_runtime_that_reads_it() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let p = my_mods(&d);
+    let path = || profile::render(&d.dirs, &p, &d.g, PathMode::Copy).unwrap().mods.eml[0].path.replace('\\', "/");
+    assert_eq!(path(), "profiles/my-mods/eml/auto-loot-plus", "no receipt: the runtime is not known");
+    runtime_in_game(&d.dirs, &d.g, None, "e3d6185");
+    assert_eq!(path(), "profiles/my-mods/eml/auto-loot-plus", "a runtime from before the form");
+    runtime_in_game(&d.dirs, &d.g, Some(2), "a633659");
+    assert_eq!(path(), "../mods/auto-loot-plus");
+    // any form out of kiln/, XHL companions included
+    let x = drop_on_launcher("xhl-plugin", "XHL-Vein-Mining");
+    let xp = my_mods(&x);
+    let xhl = || profile::render(&x.dirs, &xp, &x.g, PathMode::Copy).unwrap().mods.xhl[0].path.replace('\\', "/");
+    runtime_in_game(&x.dirs, &x.g, None, "e3d6185");
+    assert_eq!(xhl(), "profiles/my-mods/xhl/xhl-vein-mining");
+    runtime_in_game(&x.dirs, &x.g, Some(2), "a633659");
+    assert_eq!(xhl(), "../mods/XHL-Vein-Mining");
+}
+
+/// The same after a rollback through the launcher: the active profile's file follows the runtime the game has now,
+/// written again right after the runtime changed (quick::resume_active), so a start from Steam loads the mods too.
+#[test]
+fn a_runtime_rollback_rewrites_the_active_profile_for_the_older_core() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let mut g = d.g.clone();
+    g.prefix = None;
+    g.path_mode = PathMode::Copy;
+    runtime_in_game(&d.dirs, &g, Some(2), "a633659");
+    profile::activate(&d.dirs, "my-mods", &g).unwrap();
+    let eml = || profile::read_game_profile(&g.path).unwrap().unwrap().mods.eml[0].path.replace('\\', "/");
+    assert_eq!(eml(), "../mods/auto-loot-plus");
+    runtime_in_game(&d.dirs, &g, None, "e3d6185"); // rolled back to dev.23
+    kiln_manage::quick::resume_active(&d.dirs, &g).unwrap();
+    assert_eq!(eml(), "profiles/my-mods/eml/auto-loot-plus");
+    assert!(g.path.join("kiln/profiles/my-mods/eml/auto-loot-plus/mod.json").is_file(), "the copy the old core runs");
+}
+
+/// manage-import F5, native-core-sf F4/F5, docs-contracts F3: every Copy-mode profile.json the launcher writes for an
+/// EML game folder is one the native core reads. These go through the core's own parser (a host build of profile.cpp,
+/// native/core/tests/test-profile.sh): Auto Loot Plus; an EML part in mods/Enshwick.Tweaks (the native rule reads the
+/// part before the first dot as the name); a hand-installed copy of the mod in a folder the game cannot be pointed at
+/// (a hidden ".auto-loot-plus"). KILN_PROFILE_FIXTURE_OUT=<folder> also keeps the files there.
+#[test]
+fn copy_mode_profiles_pass_the_native_cores_own_parser() {
+    let copy_game = |t: &Tmp| { let mut g = game_with_z(&t.0); g.prefix = None; g.path_mode = PathMode::Copy; g };
+    let mut files = Vec::new();
+    let keep = std::env::var_os("KILN_PROFILE_FIXTURE_OUT").map(PathBuf::from);
+    let mut write = |name: &str, f: &profile::ProfileFile, t: &Tmp| {
+        let file = t.0.join(format!("{name}.json"));
+        std::fs::write(&file, serde_json::to_vec_pretty(f).unwrap()).unwrap();
+        if let Some(dir) = &keep { std::fs::create_dir_all(dir).unwrap(); std::fs::copy(&file, dir.join(format!("{name}.json"))).unwrap(); }
+        files.push(file);
+    };
+    let eml = |f: &profile::ProfileFile| f.mods.eml.iter().map(|m| m.path.replace('\\', "/")).collect::<Vec<_>>();
+
+    let t1 = tmp("native-alp");
+    let (dirs, g) = (DataDirs::at(t1.0.join("data")), copy_game(&t1));
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    kiln_manage::quick::add_with(&dirs, &g, &[zip(&t1, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
+    let mut f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(eml(&f), ["../mods/auto-loot-plus"]);
+    // Kiln's copy of a Greeneye mod in <game>/greeneye/<id>/ (the greeneye branch renders it through game_path_of and
+    // the same Copy-mode arm): the core reads that form too, inside a profile the launcher wrote
+    f.mods.folders_mut(ModKind::Greeneye).unwrap().push(profile::FolderMod {
+        id: "greeneye-sample".into(), version: Some("1.0.0".into()), path: "../greeneye/greeneye-sample".into(), hash: None, enabled: true });
+    write("alp", &f, &t1);
+
+    let t2 = tmp("native-enshwick-folder");
+    let (dirs, g) = (DataDirs::at(t2.0.join("data")), copy_game(&t2));
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    let pkg = t2.0.join("Enshwick Tweaks");
+    put(&pkg, "dinput8.dll", &alp_dinput8());
+    eml_mod(&pkg, "mods/Enshwick.Tweaks", "enshwick-tweaks");
+    kiln_manage::quick::add_with(&dirs, &g, &[pkg], false, &mut NoProgress).unwrap();
+    write("enshwick-folder", &profile::read_game_profile(&g.path).unwrap().unwrap(), &t2);
+
+    let t3 = tmp("native-hidden-copy");
+    let (dirs, g) = (DataDirs::at(t3.0.join("data")), copy_game(&t3));
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    eml_mod(&g.path, "mods/.auto-loot-plus", "auto-loot-plus");
+    kiln_manage::quick::add_with(&dirs, &g, &[zip(&t3, "alp-full", "AutoLootPlus 1.1.8")], false, &mut NoProgress).unwrap();
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(eml(&f), ["../mods/auto-loot-plus"], "a hidden folder is no installation the game loads: Kiln places its own copy");
+    assert!(g.path.join("mods/.auto-loot-plus/mod.json").is_file() && g.path.join("mods/auto-loot-plus/mod.json").is_file());
+    write("hidden-copy", &f, &t3);
+
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native/core/tests/test-profile.sh");
+    let out = std::process::Command::new("bash").arg(&script).args(&files).env("TMPDIR", &t1.0).output()
+        .expect("bash runs native/core/tests/test-profile.sh (a C++20 compiler, c++ or $CXX, builds the parser)");
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    println!("{text}");
+    assert!(out.status.success(), "the native parser refused a profile the launcher wrote:\n{text}");
+    assert_eq!(text.matches("launcher profile ok").count(), files.len(), "{text}");
 }

@@ -14,6 +14,7 @@
     "created": { "$ref": "common.schema.json#/$defs/time", "description": "Commit time (SOURCE_DATE_EPOCH), not build time: keeps the zip deterministic." },
     "abi": { "type": "integer", "minimum": 1, "description": "KILN_ABI_VERSION" },
     "api": { "type": "string", "description": "Kiln.Mods.ApiVersion" },
+    "profileReader": { "type": "integer", "minimum": 1, "description": "The profile.json forms the runtime's kiln-core reads (native/core/src/profile.h KILN_PROFILE_READER). Absent: 1, a runtime from before the field. 2: a mods.eml path may be Copy mode's ../mods/<folder>; the launcher writes that form only for such a runtime." },
     "dotnet": { "type": "string", "description": "Bundled .NET runtime version (kiln/dotnet)." },
     "components": {
       "type": "object",

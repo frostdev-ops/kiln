@@ -416,7 +416,8 @@ through a JSONC CST (comments kept) and validates like Kiln.Api. Running servers
 ### 5.6 `kiln-runtime.json` (runtime bundle)
 Bundle file: `kiln-runtime-<VERSION>+<yyyymmdd>.<gitsha>.zip`, deterministic (entries sorted bytewise, times = the
 commit time, no extra attributes), its files laid out relative to the game folder. `kiln-runtime.json` at the root:
-`format`, `version` (= the zip's), `kiln` (VERSION), `git`, `created` (commit time), `abi`, `api`, `dotnet`,
+`format`, `version` (= the zip's), `kiln` (VERSION), `git`, `created` (commit time), `abi`, `api`, `profileReader`
+(the profile.json forms its kiln-core reads: `KILN_PROFILE_READER` in `native/core/src/profile.h`; absent = 1), `dotnet`,
 `components` (`core`, `admin`, `emf`, `samples`: `{sides, default, requires, description}`), `files[]`
 (`{path, size, sha256, component, config}`, sorted by path), `builds.{server,client}[]` (`{sha256, steamBuild, svn,
 verified}`). `config: true` files (`kiln/kiln.json`) are installed only when missing and never replaced or deleted.
@@ -590,8 +591,13 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
   (verified by kdh1 after the copy; unchanged copies are kept), the profile's config dir to
   `<game>/kiln/profiles/<pid>/config/` (copied back to `<data>/profiles/<pid>/config/` before the next activation and
   after the game exits), and writes relative paths (`profiles/<pid>/kiln/<id>`), resolved against `<game>/kiln/`.
-  The entries of XHL companions and of EML mods a native DLL reads name the copy placed in the game's mods folder
-  instead, as `../mods/<original folder>` (5.1).
+  The only paths that leave `<game>/kiln/`: an EML mod a native DLL reads in the game's mods folder and an XHL
+  companion as `../mods/<folder>`, an enabled Greeneye mod Kiln placed as `../greeneye/<id>`, each one folder name under
+  the rule of `schema/fixtures/profile/game-folder-names.json`. Every kiln-core before `profileReader` 2 calls a profile
+  with such an EML or Greeneye path invalid and loads no mods, so the launcher writes these forms only when the bundle
+  the game's receipt names declares `profileReader` 2 or more; otherwise (an older runtime, a rollback, or a runtime the
+  launcher has no bundle of) those entries keep their `profiles/<pid>/<kind>/<id>` copy. After a runtime install or
+  rollback the active profile is written again for the runtime the game has then (`quick::resume_active`).
 - Reverse (reading state files): `Z:\a\b` -> `/a/b`; `C:\…` -> `<pfx>/drive_c/…`; other letters through
   `<pfx>/dosdevices/<l>:`; relative -> `<game>/kiln/…`.
 

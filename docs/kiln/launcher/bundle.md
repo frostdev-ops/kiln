@@ -51,7 +51,9 @@ component for both sides; stage.sh runs it, release.sh runs it right after `bund
 The rsync filters are deploy-server.sh's (services `*.dll|*.pdb`, host `Kiln.*`, mod folders without the shared
 `Kiln.*`, `*.deps.json`, `*.runtimeconfig.json` except the entry assembly and exports). Other mod folders in
 `$KILN_OUT/mods` are not bundled (stage.sh warns). `abi` comes from `KILN_ABI_VERSION`, `api` from
-`Kiln.Mods.ApiVersion`, `dotnet` from the runtime folder, `builds` from the verified records in `sigdb/builds/`.
+`Kiln.Mods.ApiVersion`, `profileReader` from `KILN_PROFILE_READER` (`native/core/src/profile.h`: the profile.json
+forms the core reads; the launcher writes Copy mode's `../mods/` and `../greeneye/` paths only for a runtime that
+declares 2 or more), `dotnet` from the runtime folder, `builds` from the verified records in `sigdb/builds/`.
 
 ### The .NET runtime
 `fetch-dotnet.sh` pins `dotnet-runtime-10.0.14-win-x64.zip` by the sha512 Microsoft publishes in

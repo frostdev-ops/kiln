@@ -22,7 +22,7 @@ Code: `crates/kiln-manage/src/report.rs` (`build`, `redact`, `write_zip`), the T
 | `summary.txt` | readable in a post: findings, then the system, the game, Kiln in the game, the profile, the last start, sections that could not be read, the file list, what was left out |
 | `report.json` | the findings and the unreadable sections as JSON (`{format, written, tool, findings: [{id, level, text}], errors}`) |
 | `game/kiln/logs/kiln.log` | the last 1 MiB |
-| `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log`, `game/shroudlink_client.log` | the last 192 KiB of each, when present; addon initialization, input and menu-state diagnostics use the same path/name/Steam ID/IP redaction as Kiln's logs |
+| `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log`, `game/shroudlink_client.log` | the last 192 KiB of each, when present (a link in its place is not followed: the report says "a link, not followed"); the shroudlink addon's own log gets the same redaction as Kiln's logs and nothing more (see below) |
 | `game/kiln/logs/greeneye-loader.log`, `game/greeneye/loader.log`, `game/greeneye/loader.second-copy.log` | kiln-greeneye's log and Greeneye Loader's own, the last 64 KiB of each, when present |
 | `greeneye-mods/<id>/*.log`, `greeneye-mods/<id>/*.status` | each Greeneye mod's own log and status files (top level of its folder, at most 4 per mod and 12 mods, the last 64 KiB of each): a Greeneye mod writes what it found and patched only there (The Worst Map Mod: `unlock_map_markers.log`, `UnlockMapMarkers.status`). The folders are those `kiln/state/greeneye.json` names and those in `greeneye/`, read only inside `<game>/greeneye/` or the launcher's `library/greeneye/` (resolved, no links); any other folder is left out with a note (`greeneye-log-skipped`). Its settings (`.ini`) and data are not read |
 | `game/kiln/crash-reports/<newest>` | the last 64 KiB of the newest crash report |
@@ -101,7 +101,9 @@ listings), Steam's files other than `config.vdf`'s compat tool, the launch optio
 names to replace). `summary.txt` ends with this list.
 
 What redaction cannot catch: a character or server name the player chose that appears in a log line, and 8.3 short
-names that cut the user name (`FROSTL~1`).
+names that cut the user name (`FROSTL~1`). `game/shroudlink_client.log` is written by the third-party shroudlink
+client addon, not by Kiln: its text gets only the redaction above, so whatever else the addon logs stays as it is
+(IPv6 addresses, server DNS or UNC host names, other players' names, anything like `password=...`).
 
 ## When things are broken
 

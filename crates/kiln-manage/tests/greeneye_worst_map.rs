@@ -174,6 +174,25 @@ fn game(t: &Path, mode: PathMode) -> GameInstall {
     }
 }
 
+/// A runtime bundle in the launcher's data folder and the game's install receipt naming it. `reader`: the profile.json
+/// reader revision its kiln-runtime.json declares (None: a runtime from before the declaration, as dev.23). Copy mode
+/// names `../greeneye/<id>` only for a core that reads that form (profile::PROFILE_READER_GAME_MODS).
+fn runtime_in_game(dirs: &DataDirs, g: &GameInstall, reader: Option<u32>, git: &str) {
+    let s = g.path.parent().unwrap().join(format!("stage-{git}"));
+    let mut m = serde_json::json!({ "format": 1, "kiln": "0.2.0-dev", "abi": 1, "api": "0.2.0",
+        "components": { "core": { "sides": ["server", "client"], "default": true, "description": "core" } } });
+    if let Some(r) = reader { m["profileReader"] = r.into(); }
+    put(&s, "kiln-runtime.json", serde_json::to_string_pretty(&m).unwrap().as_bytes());
+    put(&s, "core/kiln/kiln-core.dll", format!("core {git}").as_bytes());
+    let opts = kiln_manage::bundle::CreateOptions { source_date_epoch: 1_794_000_000, git: git.into() };
+    let zip = kiln_manage::bundle::create(&s, &g.path.parent().unwrap().join(format!("out-{git}")), &opts).unwrap();
+    let b = kiln_manage::bundle::import(dirs, &zip).unwrap();
+    put(&g.path, "kiln/.install.json", serde_json::to_string_pretty(&serde_json::json!({
+        "format": 1, "installId": "c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b", "installed": "2026-11-11T00:00:00Z",
+        "runtime": { "version": b.version, "components": ["core"] }, "side": "client", "files": [],
+    })).unwrap().as_bytes());
+}
+
 fn z(p: &Path) -> String {
     format!("Z:{}", p.display()).replace('/', "\\")
 }
@@ -259,9 +278,17 @@ fn copy_mode_names_the_same_copy() {
     let g = game(&t.0, PathMode::Copy);
     let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
     let pid = profile::create(&dirs, "Map", None).unwrap().id;
+    // a runtime whose core does not read a path out of kiln/ (dev.23 and earlier call the whole profile invalid and load
+    // no mods), or one the launcher cannot tell: the copy under kiln/profiles/, as before
     let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
-    // relative to <game>/kiln/, as copy mode's other paths: not a copy under kiln/profiles/ that the next activation
-    // replaces (with the settings in it)
+    assert_eq!(file.mods.greeneye[0].path, format!("profiles/{pid}/greeneye/unlock-map-markers"), "no receipt: the runtime is not known");
+    runtime_in_game(&dirs, &g, None, "e3d6185");
+    let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
+    assert_eq!(file.mods.greeneye[0].path, format!("profiles/{pid}/greeneye/unlock-map-markers"), "a runtime from before the form");
+    // a core that reads it: relative to <game>/kiln/, as copy mode's other paths, and not a copy under kiln/profiles/
+    // that the next activation replaces (with the settings in it)
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
+    let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true)]);
     assert_eq!(file.mods.greeneye[0].path, "../greeneye/unlock-map-markers");
     assert!(g.path.join("greeneye/unlock-map-markers/mod.json").is_file());
 }
@@ -404,6 +431,7 @@ fn copy_mode_paths_pass_the_games_folder_name_rule_and_an_unsafe_id_is_not_place
     let t = tmp("copy-rule");
     let dirs = DataDirs::at(t.0.join("data"));
     let g = game(&t.0, PathMode::Copy);
+    runtime_in_game(&dirs, &g, Some(2), "a633659");
     let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
     // `nul` is a Kiln id but no folder Windows can hold
     let bad = other_mod(&dirs, &t.0, "nul");
