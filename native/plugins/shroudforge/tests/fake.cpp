@@ -33,6 +33,7 @@ extern "C" __declspec(dllexport) void ShroudforgeStop() {}
 // KILN_SF_FEED_VERSION, KILN_SF_FEED_BEGIN: what version() and begin() answer (default 1). KILN_SF_FEED_SLOW: each call
 // takes 2 ms (teardown races).
 #include <atomic>
+#include <cstring>
 static std::atomic<int> feed_state{0};  // 0 before begin, 1 fed, 2 ended
 static std::atomic<bool> destroyed{false};
 static uint32_t env_number(const wchar_t* name, uint32_t fallback) {
@@ -48,6 +49,11 @@ static void feed_mark(const char* what, bool needs_feed = true) {
         return;
     }
     mark(what);
+    char fault[16]{};
+    const DWORD n = GetEnvironmentVariableA("KILN_SF_FEED_FAULT", fault, sizeof fault);
+    if (n && n < sizeof fault && std::strncmp(what + 5, fault, n) == 0 &&
+        (what[5 + n] == '\0' || what[5 + n] == ' '))
+        RaiseException(0xC0000005, 0, 0, nullptr);
 }
 extern "C" __declspec(dllexport) uint32_t shroudforge_input_host_version() {
     feed_mark("feed-version", false);
