@@ -16,9 +16,10 @@ What changed for the public guide (frostdev.io/kiln/wiki). Suggested text below;
 >   never touched.
 > - **Settings:** ShroudForge mods get a settings page built from their own settings. Shroudtopia mods' settings are
 >   kept per profile. EMF mods keep their ini editor.
-> - **EML** changes the game's data files. To remove EML changes, disable EML mods and launch through updated
->   Kiln. Its archive writer restores only proven, unchanged EML output; another loader's data is kept. A difference
->   from a shared backup alone never authorizes restoration.
+> - **EML** changes the game's data files. To remove EML changes, disable EML mods and start the game through
+>   Kiln. Its archive writer restores only output it can prove it wrote (earlier Kiln versions' too); another loader's
+>   data is kept. When it cannot prove that, it leaves the data alone and the launcher says why; then enable any EML
+>   mod for one start and disable it again, or use Steam's "Verify integrity of game files".
 > - **Servers and modpacks:** the server's Mods page puts each mod where its loader looks on the server. A server
 >   modpack includes the EML, ShroudForge and Creative Mode mods that players need, so joining players get them
 >   in one step.

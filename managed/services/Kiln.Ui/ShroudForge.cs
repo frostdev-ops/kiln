@@ -444,6 +444,15 @@ internal static class ShroudForgePackages
             return s.Type == "integer" && kind == "number"
                 ? $"{s.Label} takes a whole number"
                 : $"{s.Label} takes a {Kind(s.Type)}, not a {Kind(kind)}";
+        // JSON has no NaN or infinity (the writer would put null there, and the file would no longer load)
+        foreach (var n in value is JsonArray items ? items.ToArray() : new[] { value })
+            if (n is JsonValue nv && nv.GetValueKind() == JsonValueKind.Number && NumberOf(nv) is { } f && !double.IsFinite(f))
+                return $"{s.Label} takes a finite number";
+        // ShroudForge types a list by its first member: a choice without a value (null) there would make it read the
+        // list as text and refuse the mod (kiln-manage check_value)
+        if (value is JsonArray list && list.Count > 0 && list[0] is null)
+            return $"{s.Label}: \"{s.Options.FirstOrDefault(o => o.Value is null)?.Label ?? "a choice without a value"}\" cannot come first in this list " +
+                   "(it has no value, and ShroudForge would refuse the mod)";
         if (value is JsonValue sv && sv.GetValueKind() == JsonValueKind.String)
         {
             var text = sv.GetValue<string>();

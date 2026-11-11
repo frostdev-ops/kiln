@@ -23,7 +23,9 @@ internal interface IModuleSpace
 
 // Cheap and rare: export tables are read without a module reference, and a reference is taken only for a match.
 // After a scan, an unchanged module list is not read again; only its matching copies are asked again (one that
-// has not started yet, was replaced or was busy). A load-order list changes whenever a module loads or unloads.
+// has not started yet, was replaced or was busy). The list is compared by base addresses in load order: a module
+// loaded at exactly the base of the last-loaded one after that one unloaded leaves it unchanged, and is found
+// only when the list changes again (a player's addon loads at process start, before any scan).
 internal sealed class ShroudlinkFinder(IModuleSpace space)
 {
     private nint[]? _scanned;

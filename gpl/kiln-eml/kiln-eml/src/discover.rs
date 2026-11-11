@@ -95,12 +95,50 @@ fn bounded_json(path: &Utf8Path, limit: u64) -> Option<serde_json::Value> {
 }
 
 fn placement_path_matches(recorded: &str, candidate: &Utf8Path) -> bool {
-    let recorded = Utf8PathBuf::from(recorded.replace('\\', "/"));
-    if relative_under(candidate, &recorded).is_some_and(|p| p.as_str().is_empty()) { return true; }
-    // A Linux launcher writes Unix receipt paths; Wine exposes those same paths through its Z: drive.
-    recorded.as_str().starts_with('/') && candidate.as_str().get(..2).is_some_and(|s| s.eq_ignore_ascii_case("Z:"))
-        && relative_under(candidate, &Utf8PathBuf::from(format!("Z:{recorded}"))).is_some_and(|p| p.as_str().is_empty())
+    placement_path_matches_with(recorded, candidate, dos_name)
 }
+
+/// `to_dos`: the Windows name Wine gives a Unix path (None off Wine).
+fn placement_path_matches_with(recorded: &str, candidate: &Utf8Path, to_dos: impl Fn(&str) -> Option<String>) -> bool {
+    let same = |root: &str| relative_under(candidate, &Utf8PathBuf::from(root.replace('\\', "/"))).is_some_and(|p| p.as_str().is_empty());
+    if same(recorded) { return true; }
+    // A Linux launcher writes Unix receipt paths; Wine exposes those same paths through its Z: drive, and through the
+    // drive whose folder holds them: Proton maps the Steam library to S:, so a game in it runs as S:\steamapps\...
+    recorded.starts_with('/') && ((candidate.as_str().get(..2).is_some_and(|s| s.eq_ignore_ascii_case("Z:")) && same(&format!("Z:{recorded}")))
+        || to_dos(recorded).is_some_and(|dos| same(&dos)))
+}
+
+/// The Windows name Wine gives the Unix path `unix` (`kernel32!wine_get_dos_file_name`: the drive whose folder is
+/// the deepest one holding it, the conversion that named the game's own path). None on Windows proper.
+#[cfg(windows)]
+fn dos_name(unix: &str) -> Option<String> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+        fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
+        fn GetProcessHeap() -> *mut c_void;
+        fn HeapFree(heap: *mut c_void, flags: u32, memory: *mut c_void) -> i32;
+    }
+    let kernel32: Vec<u16> = "kernel32.dll".encode_utf16().chain(Some(0)).collect();
+    let module = unsafe { GetModuleHandleW(kernel32.as_ptr()) };
+    if module.is_null() { return None; }
+    let export = unsafe { GetProcAddress(module, c"wine_get_dos_file_name".as_ptr().cast()) };
+    if export.is_null() { return None; }
+    // SAFETY: Wine's export, WCHAR *CDECL wine_get_dos_file_name(LPCSTR): a heap string the caller frees, or null
+    let convert: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut u16 = unsafe { std::mem::transmute(export) };
+    let unix = std::ffi::CString::new(unix).ok()?;
+    let wide = unsafe { convert(unix.as_ptr()) };
+    if wide.is_null() { return None; }
+    let mut len = 0;
+    while unsafe { *wide.add(len) } != 0 { len += 1; }
+    let name = String::from_utf16(unsafe { std::slice::from_raw_parts(wide, len) }).ok();
+    unsafe { HeapFree(GetProcessHeap(), 0, wide.cast()); }
+    name
+}
+
+#[cfg(not(windows))]
+fn dos_name(_unix: &str) -> Option<String> { None }
 
 /// A selected marked copy is already represented by its profile entry (even when disabled). An unselected copy
 /// retained after edits must not become a drop-in either, but only a matching install receipt establishes ownership:
@@ -538,6 +576,36 @@ mod tests {
         assert!(!placement_path_matches("/game/mods/edited", Utf8Path::new("Z:/other/mods/edited")));
         assert!(!placement_path_matches("/game/mods/edited", Utf8Path::new("C:/game/mods/edited")));
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    // Proton maps the Steam library to S: (its prefix's dosdevices/s:), so a client runs from S:\steamapps\...
+    // while the Linux launcher's receipt names the Unix path: a retained copy must still be recognised.
+    #[test]
+    fn a_receipt_path_matches_through_the_drive_wine_names_it_with() {
+        let steam = |u: &str| u.strip_prefix("/home/u/.local/share/Steam/").map(|rest| format!("S:/{rest}"));
+        let recorded = "/home/u/.local/share/Steam/steamapps/common/Enshrouded/mods/XHL-Edited";
+        assert!(placement_path_matches_with(recorded, Utf8Path::new("S:/steamapps/common/Enshrouded/mods/XHL-Edited"), steam));
+        if cfg!(windows) {
+            assert!(placement_path_matches_with(recorded, Utf8Path::new("s:/STEAMAPPS/common/Enshrouded/mods/xhl-edited"), steam),
+                "Windows names are case-insensitive");
+        }
+        assert!(!placement_path_matches_with(recorded, Utf8Path::new("S:/steamapps/common/Enshrouded/mods/other"), steam));
+        assert!(!placement_path_matches_with(recorded, Utf8Path::new("S:/steamapps/common/Enshrouded/mods/XHL-Edited"), |_| None),
+            "the Z: rule alone does not see it (the defect)");
+        assert!(placement_path_matches_with(recorded, Utf8Path::new("Z:/home/u/.local/share/Steam/steamapps/common/Enshrouded/mods/XHL-Edited"), |_| None));
+    }
+
+    // The same under Wine with a real drive: the harness maps dosdevices/s: to $KILN_EML_S_DRIVE (a Unix folder).
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs KILN_EML_S_DRIVE: a Unix folder the Wine prefix maps as s: (Wine harness)"]
+    fn wine_names_a_path_in_a_mapped_folder_with_that_drive() {
+        let Ok(folder) = std::env::var("KILN_EML_S_DRIVE") else { return };
+        let recorded = format!("{folder}/steamapps/common/Enshrouded/mods/XHL-Edited");
+        let dos = dos_name(&recorded).expect("running under Wine");
+        assert!(dos.to_ascii_uppercase().starts_with("S:\\STEAMAPPS"), "{dos}");
+        assert!(placement_path_matches(&recorded, Utf8Path::new(r"S:\steamapps\common\Enshrouded\mods\XHL-Edited")));
+        assert!(!placement_path_matches(&recorded, Utf8Path::new(r"S:\steamapps\common\Enshrouded\mods\other")));
     }
 
     #[test]

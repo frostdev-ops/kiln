@@ -964,7 +964,7 @@ const handlers: Record<string, Handler> = {
   eml_restore: (a) => {
     gameOf(S(a.gameId));
     if (running[S(a.gameId)]) reject("game_running", "Close the game first.");
-    return reject("refused", "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and launch through an updated Kiln; other loaders' data is kept.");
+    return reject("refused", "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and start the game through Kiln: its archive writer restores only output it can prove it wrote (earlier Kiln versions' too); other loaders' data is kept. When it cannot prove that, it leaves the data alone and says why (Logs > Engines); then enable any EML mod for one start and disable it again, or use Steam's \"Verify integrity of game files\".");
   },
 
   // mods in the game folder Kiln did not put there (kiln_manage::found)

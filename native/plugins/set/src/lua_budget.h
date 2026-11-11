@@ -23,6 +23,11 @@ struct Scope {
     }
     ~Scope() { if (outer) active = false; }
 };
+// Time Kiln spends inside a callback on its own one-time work (texts.inl: reading the client text catalog on the first
+// lookup) is not the mod's: the deadline moves by it. Instructions are not given back.
+inline void excuse(std::chrono::steady_clock::duration d) {
+    if (active && !failed) deadline += d;
+}
 inline void check(lua_State* L) {
     if (active && (failed || std::chrono::steady_clock::now() >= deadline)) { failed = true; luaL_error(L, "script instruction/time budget exceeded"); }
 }

@@ -22,7 +22,7 @@ mod load;
 mod transaction;
 mod ownership;
 // kiln-eml: restoration needs exact writer ownership, not an input/performance cache.
-pub use ownership::owns_output;
+pub use ownership::{owns_output, adopt, prune, Adoption};
 mod lua;
 
 #[derive(Debug, Clone, Default)]
@@ -58,6 +58,8 @@ pub struct RunResult {
     pub patched: usize,
     /// What the change cache and the input barriers read of the game's files.
     pub fingerprint: FingerprintStats,
+    /// kiln-eml: ShroudForge asset mods (`<id> <version>`) whose prepared output this run's publication replaced.
+    pub sf_displaced: Vec<String>,
 }
 
 pub fn run(
@@ -67,6 +69,11 @@ pub fn run(
     // kiln-eml: progress lines in the log, no sink
     let progress = Progress::start(None);
     run_with(env, args, &progress)
+}
+
+/// The run's fingerprint counters, with what the ownership checks of this run read.
+fn stats(prints: &Fingerprints) -> FingerprintStats {
+    FingerprintStats { ownership_bytes: ownership::read(), ..prints.stats() }
 }
 
 /// `run`, reporting what it does into `progress` (a stage, and while it reads game files the file and the bytes done and
@@ -83,6 +90,7 @@ pub fn run_with(
     let mut prints = Fingerprints::new(env.game_dir().as_std_path()).with_progress(progress.clone());
     // what an interrupted run had read, and a journal for this one (removed when it ends well)
     prints.resume_from(env.cache_dir().as_std_path());
+    ownership::reset_read();
     let result = run_steps(env, args, progress, &mut prints);
     if result.is_ok() {
         prints.finish();
@@ -122,20 +130,38 @@ fn run_steps(
 
         let cache_diff = new_cache.diff(current_cache);
 
+        // kiln-eml: an unchanged start skips the patch only over output Kiln can prove it published. This cache vouches
+        // for it when it recorded that receipt's output and every game file is as it recorded them (nothing is read);
+        // otherwise it is checked in full once (SHA-256 of the receipt's files and backups), and this cache records it.
+        let checked = cache_diff.is_none() && args.options.patch && !args.options.export;
+        let owned = if checked {
+            let root = env.game_dir().as_std_path();
+            match ownership::vouched(root, &file_name, current_cache.owner()) {
+                Ok(Some(marker)) => Some(marker),
+                _ => {
+                    info!("Nothing changed; checking the game data against its ownership receipt (once, until the next patch)");
+                    match owns_output(root, &file_name) {
+                        Ok(true) => ownership::marker(root, &file_name).ok().flatten(),
+                        _ => None,
+                    }
+                }
+            }
+        } else { None };
+        new_cache.set_owner(if checked { owned.clone() } else { current_cache.owner().map(str::to_owned) });
+
         // kiln-eml: nothing changed, but this start learned stamps the saved cache lacks (it predates them, or its
-        // files were still too fresh to stamp): save them, so the next start reads nothing either.
-        if cache_diff.is_none() && new_cache.stamps_differ(current_cache) {
+        // files were still too fresh to stamp), or its ownership: save them, so the next start reads nothing either.
+        if cache_diff.is_none() && (new_cache.stamps_differ(current_cache) || new_cache.owner() != current_cache.owner()) {
             new_cache.write(env.cache_dir());
         }
 
-        if cache_diff.is_none() && args.options.patch && !args.options.export &&
-            owns_output(env.game_dir().as_std_path(), &file_name).unwrap_or(false) {
+        if owned.is_some() {
             args.options.patch = false;
 
             info!("No changes detected, skipping patching");
 
             if !args.options.runtime {
-                return Ok(RunResult { cached: true, fingerprint: prints.stats(), ..RunResult::default() });
+                return Ok(RunResult { cached: true, fingerprint: stats(prints), ..RunResult::default() });
             }
         }
 
@@ -252,6 +278,8 @@ fn run_steps(
         new_cache.configuration(&cache_key);
 
         new_cache.track_game_files(env.game_dir(), prints);
+        // kiln-eml: these are the fingerprints of the output just published, which its receipt lists exactly
+        new_cache.set_owner(ownership::marker(env.game_dir().as_std_path(), &file_name).ok().flatten());
         // Reuse the exact fingerprints being saved; a second independent after-snapshot can hide an ABA edit.
         let inputs_after = new_cache.clone().only_game_inputs(env.game_dir().as_std_path(), &file_name, vanilla_containers);
         if mods_before.diff(&mods_after).is_none() && inputs_before.diff(&inputs_after).is_none() { new_cache.write(env.cache_dir()); }
@@ -264,7 +292,8 @@ fn run_steps(
     Ok(RunResult {
         cached,
         patched,
-        fingerprint: prints.stats(),
+        fingerprint: stats(prints),
+        sf_displaced: ownership::displaced(),
         dlls: app_state.registered_dlls()
             .into_iter()
             .map(|path| path.into_std_path_buf())
@@ -316,5 +345,16 @@ pub fn restore(
     let kfc_path = game_dir.as_ref()
         .join(format!("{file_name}.kfc"));
 
-    load::restore_backup(&kfc_path).is_ok()
+    // kiln-eml: the containers the owned live output added (its receipt lists them), read while its header is live
+    let root = game_dir.as_ref().as_std_path();
+    let added = ownership::live_containers(root, file_name).unwrap_or_else(|error| {
+        tracing::warn!(%error, "The receipt's containers cannot be read; the restore leaves them in place");
+        None
+    });
+    let restored = load::restore_backup(&kfc_path).is_ok();
+    // ... and are no longer referenced once the vanilla header is back: remove exactly those
+    if restored && let Some(added) = added && let Err(error) = ownership::remove_unreferenced(root, file_name, &added) {
+        tracing::warn!(%error, "The vanilla data is back; container files EML had added were left in place");
+    }
+    restored
 }

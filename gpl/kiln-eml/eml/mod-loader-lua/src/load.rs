@@ -121,6 +121,15 @@ pub fn create_backup(
     if bak_path.exists() && !validate_backup(path, bak_path) && backups_equal_live(path, bak_path) {
         write_backup_seal(path, bak_path)?;
     }
+    // kiln-eml: another writer replaced the whole pair after a game update and left this seal behind (an installed
+    // ShroudForge's Updater does). The backups then have other lengths than the seal recorded: a damaged one keeps
+    // its length and stays refused below. Such a pair is checked like an unsealed one (its version is the live
+    // one, the live resource prefix equals it) and sealed again; never promoted from a patched header of this build.
+    if bak_path.exists() && !validate_backup(path, bak_path) && replaced_since_sealed(path, bak_path)
+        && KFCFile::get_version_tag(bak_path).ok() == KFCFile::get_version_tag(path).ok() && validate_unsealed(path, bak_path) {
+        warn!("The vanilla backup pair was replaced since it was sealed (another loader after a game update); it matches the live resource file and is sealed again");
+        write_backup_seal(path, bak_path)?;
+    }
     if bak_path.exists() && !validate_backup(path, bak_path) {
         let old = KFCFile::get_version_tag(bak_path).map_err(|_| ())?;
         let current = KFCFile::get_version_tag(path).map_err(|_| ())?;
@@ -184,7 +193,8 @@ pub fn restore_backup(
 
     let root = path.parent().ok_or(())?;
     let stem = path.file_stem().ok_or(())?;
-    crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
+    // SF's locks (when its prepared-output state was handed over) stay held until both copies are done
+    let _sf = crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
         error!(%error, "Refusing archive restore: ShroudForge prepared-output cache could not be safely invalidated");
     })?;
     if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {
@@ -212,9 +222,33 @@ pub fn restore_backup(
     Ok(())
 }
 
+/// kiln-eml: the seal is there, and the backups' lengths are not the ones it recorded (a game update changes the header
+/// and the resource file; a damaged file keeps its length).
+fn replaced_since_sealed(path: &Path, bak: &Path) -> bool {
+    let seal = seal_path(path);
+    if !seal.metadata().is_ok_and(|m| m.is_file() && m.len() <= 1024) { return false; }
+    let Ok(bytes) = std::fs::read(&seal) else { return false };
+    let Ok(sealed) = serde_json::from_slice::<BackupSeal>(&bytes) else { return false };
+    let len = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
+    len(bak).is_some_and(|l| l != sealed.header.0) || len(&path.with_extension("kfc_resources.bak")).is_some_and(|l| l != sealed.resources.0)
+}
+
+/// kiln-eml: `validate_backup` for the pair as if it had no seal (the rule for a pair another writer made).
+fn validate_unsealed(path: &Path, bak: &Path) -> bool {
+    validate(path, bak, false)
+}
+
 pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
+) -> bool {
+    validate(kfc_path, kfc_path_bak, true)
+}
+
+fn validate(
+    kfc_path: &Path,
+    kfc_path_bak: &Path,
+    use_seal: bool,
 ) -> bool {
     if crate::transaction::regular(kfc_path_bak.as_std_path()).is_err() { return false; }
     let version_bak = match KFCFile::from_path(kfc_path_bak, false) {
@@ -237,7 +271,7 @@ pub fn validate_backup(
             return false;
         }
         let seal = seal_path(kfc_path);
-        if seal.exists() {
+        if use_seal && seal.exists() {
             if crate::transaction::regular(seal.as_std_path()).is_err() { return false; }
             if !seal.metadata().is_ok_and(|m| m.len() <= 1024) { return false; }
             let Ok(bytes) = std::fs::read(&seal) else { return false; };
@@ -254,7 +288,7 @@ pub fn validate_backup(
             if a != b || a.0 != len { return false; }
         }
     } else if seal_path(kfc_path).exists() {
-        return false; // a sealed pair must never silently degrade to a legacy header-only backup
+        return false; // a sealed pair must never silently degrade to a legacy header-only backup (with or without use_seal)
     }
     true
 }
@@ -666,6 +700,8 @@ mod kiln_tests {
         assert!(hit.cached);
         assert_eq!(hit.fingerprint.hashed_bytes, 0, "{}", hit.fingerprint);
         assert_eq!(hit.fingerprint.hashed_files, 0);
+        // and the ownership proof of the unchanged output is vouched for by that cache, not read again
+        assert_eq!(hit.fingerprint.ownership_bytes, 0, "{}", hit.fingerprint.brief());
         assert!(hit.fingerprint.reused_files >= 5, "{}", hit.fingerprint);
 
         // a mod changed: the game data that did not change is still not read; the mod and what the run publishes are
@@ -677,6 +713,29 @@ mod kiln_tests {
         assert!(patch.fingerprint.hashed_bytes <= patched_before - backups + game_bytes() - backups + mod_bytes(), "{}", patch.fingerprint);
         assert!(patch.fingerprint.reused_files >= 5, "{}", patch.fingerprint);
         println!("first: {}\nhit:   {}\npatch: {}", first.fingerprint, hit.fingerprint, patch.fingerprint);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_start_checks_ownership_in_full_once_when_the_cache_does_not_vouch_for_it() {
+        crate::cache::RACY_WINDOW_OVERRIDE.with(|w| w.set(Some(std::time::Duration::ZERO)));
+        let (dir, env, args) = patch_fixture();
+        assert!(!crate::run(&env, args.clone()).unwrap().cached);
+        // a cache saved without the receipt's mark (an earlier build of this cache, or a hit that could not check)
+        let files = env.cache_dir().join("files.json");
+        let mut saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&files).unwrap()).unwrap();
+        assert!(saved.as_object_mut().unwrap().remove("owner").is_some(), "the patch run recorded its receipt");
+        std::fs::write(&files, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let first = crate::run(&env, args.clone()).unwrap();
+        assert!(first.cached && first.fingerprint.ownership_bytes > 0, "checked in full once: {}", first.fingerprint.brief());
+        let next = crate::run(&env, args.clone()).unwrap();
+        assert!(next.cached && next.fingerprint.ownership_bytes == 0, "then vouched for: {}", next.fingerprint.brief());
+        // a receipt that is not the one the cache vouched for (and does not match the live output): the patch runs
+        let receipt = dir.join("kiln/eml/ownership/g.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&receipt).unwrap()).unwrap();
+        value["files"]["g.kfc"]["sha256"] = "0".repeat(64).into();
+        std::fs::write(&receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(!crate::run(&env, args).unwrap().cached);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -65,7 +65,9 @@ before that scan, shroudlink 0.8.0 reports `native UI disabled: pattern not foun
 host-link hooks initialized. Kiln now waits at the game entry point, outside the loader lock, after early native
 mods load and before serving its game hooks. This covers the normally imported `dllmain` addon and early native
 mods, not an addon explicitly configured to load after Kiln's hooks. For the same reason the profile page never
-offers its one-click "load late" for a hook overlap of this addon: it hooks before Kiln on purpose.
+offers its one-click "load late" for a hook overlap of this addon (it hooks before Kiln on purpose), and its chain
+entry's "Load after Kiln and ShroudForge" switch is refused with that reason. The launcher knows the addon the way
+Kiln's start does, by its `shroudlink_shutdown` and `DirectInput8Create` exports, whatever the file is called.
 
 The gate recognizes the addon's module-owned `shroudlink_shutdown` and `DirectInput8Create` exports. It proceeds
 when that copy logs a complete startup result of this start (only what the addon appended to `shroudlink_client.log`
@@ -147,19 +149,28 @@ hook, and a recent actual client update. A wholly failed native UI installation 
 a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. A UI frame outside the
 world (screen 0) or more than two seconds without a client update (a loading stall, a title-bar drag) means not
 ready while it lasts and ends the lease and its queued events; what the session received stays and shows again
-once the world and the updates are back, as upstream treats the same two-second threshold as a live value. A new
-beacon, a client-pointer change, module replacement and shutdown start a new session and drop everything received.
-Like the addon's own menu, the bridge keeps the last host's entries if a later world has no shroudlink host and the
-game reuses the same client object; events then go out as the native menu's would. Kiln releases its
+once the world and the updates are back, as upstream treats the same two-second threshold as a live value.
+Once the session has drawn a frame in a world, a UI frame outside the world after more than those two seconds
+without a client update means the player left, and the session ends: a stall or a drag draws no such frame, a
+screen-0 frame during play has a fresh update, and a join's own loading screen comes before its first frame in the
+world. The addon's in-game UI draws no frames at the main menu (in a real client log its first UI frame follows the
+first client update and the host's welcome), so a leave shows either as the closing world's frames after the
+updates stopped or as the next world's loading screen after its first update; an update that comes back after
+such a gap is not ready until the next frame shows which. A new beacon, a client-pointer change, module
+replacement and shutdown also start a new session and drop everything received. Not verified in a real client:
+a join whose first frame already shows the world, after a leave that drew no frame once the updates stopped, would
+bring the old host's entries back; and a loading screen inside a session that comes after more than two seconds
+without a client update ends the session like a leave, so its entries return only with a rejoin. Kiln releases its
 lease when the menu closes, another section is selected, or its menu frame fails; expiry handles stopped rendering.
 Discovery only examines already-loaded modules and never loads a DLL or resolves a forwarder. It runs on a worker
 thread, never on the render thread, at most once a second while Kiln's menu is drawn. Export tables are read through
 kernel-checked copies, bounded by the image size in the PE header, without taking a module reference; a reference
 is taken only for a module whose table names the bridge export, which is then checked again under it, and
-non-owned/non-executable exports are rejected. Each scan compares the loaded-module list with the last one; export
-tables are read again only after a module loaded or unloaded, and until then only a matching copy that declined
-is asked again. There are no
-transport taps, unknown game layouts, receive-injection API or test TCP listener.
+non-owned/non-executable exports are rejected. Each scan compares the loaded modules' base addresses, in load
+order, with the last scan's; export tables are read again only when they differ, and until then only a matching
+copy that declined is asked again. A copy loaded at exactly the base of the last-loaded module after that module
+unloaded leaves the list unchanged and is found only when it changes again; a player's addon loads at process
+start, before any scan, so this concerns late-loaded development copies. There are no transport taps, unknown game layouts, receive-injection API or test TCP listener.
 
 All ten real window node kinds are rendered. Text inputs send Change and have an explicit Apply/Submit button;
 item grids show the actual numeric item IDs/counts, not guessed names/icons. HUDs, slot marks and backpack sections

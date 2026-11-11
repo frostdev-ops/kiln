@@ -932,10 +932,18 @@ pub struct ChainView {
     pub error: Option<String>,
 }
 
-/// shroudlink's client addon, by its DLL (a chain entry or a profile native). Kiln's start waits for it to finish
-/// looking for the game's functions before Kiln hooks them (core/src/foreign_scan.h); loading it late skips that wait.
+/// The exports by which Kiln's start knows shroudlink's client addon (core/src/foreign_scan.h kAddonExport,
+/// kAddonProxyExport).
+const GATED_ADDON_EXPORTS: [&str; 2] = ["shroudlink_shutdown", "DirectInput8Create"];
+
+/// shroudlink's client addon, by its DLL (a chain entry or a profile native), recognised as Kiln's start recognises it:
+/// by its exports alone, whatever the file is called (the installer's second chain slot is `shroudlink-dinput8-2.dll`,
+/// a profile native may have been renamed). Kiln's start waits for it to finish looking for the game's functions
+/// before Kiln hooks them; loading it late skips that wait.
 fn is_gated_addon(install: &GameInstall, e: &PlanEntry) -> bool {
-    entry_host_path(install, &e.path).is_some_and(|h| crate::engines::shroudlink_addon_at(&h))
+    entry_host_path(install, &e.path)
+        .and_then(|h| crate::pe::exports(&h).ok())
+        .is_some_and(|x| GATED_ADDON_EXPORTS.iter().all(|n| x.iter().any(|e| e == n)))
 }
 
 /// `gated`: the entry is a DLL Kiln's start waits for ([`is_gated_addon`]); it is never offered "late".
@@ -1076,9 +1084,13 @@ pub fn find_entry(dirs: &DataDirs, profile: &Profile, install: &GameInstall, pat
 }
 
 /// The late switch of one chain entry of the view: a [profile] entry changes the profile (`late` list; the caller
-/// saves it), a [chain] entry changes chain.ini [late] (game-wide; refused while the game runs). Returns true when the
-/// profile changed.
+/// saves it), a [chain] entry changes chain.ini [late] (game-wide; refused while the game runs). shroudlink's client
+/// addon is never switched late ([`is_gated_addon`]): refused with the reason. Returns true when the profile changed.
 pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &PlanEntry, late: bool) -> Result<bool> {
+    if late && is_gated_addon(install, entry) {
+        return Err(Error::invalid(format!("{} is shroudlink's client addon: it must find the game's functions before Kiln \
+            hooks them, and Kiln waits for it at the start. Loaded late, it switches its MODS tab off (\"native UI disabled\").", entry.file)));
+    }
     match (entry.section, &entry.mod_id) {
         (Section::Profile, Some(id)) => {
             let has = profile.late.contains(id);
@@ -1423,23 +1435,59 @@ mod tests {
         let (_t, _dirs, install) = scratch_install("addon-late");
         let chain = install.path.join("kiln/chain");
         std::fs::create_dir_all(&chain).unwrap();
-        std::fs::write(chain.join("shroudlink-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"shroudlink addon")).unwrap();
+        // the addon as Kiln's start knows it: its two exports, whatever the file is called and whatever text it holds
+        let addon_dll = crate::pe::build_test_dll(&["DirectInput8Create", "shroudlink_shutdown"], b"");
+        for f in ["shroudlink-dinput8.dll", "shroudlink-dinput8-2.dll", "shroudlink-client.dll"] {
+            std::fs::write(chain.join(f), &addon_dll).unwrap();
+        }
         std::fs::write(chain.join("hook-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"some other mod")).unwrap();
+        // a proxy that only mentions shroudlink is not the addon
+        std::fs::write(chain.join("other-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"shroudlink addon")).unwrap();
         let gated = |e: &PlanEntry| is_gated_addon(&install, e);
         let overlap = |module: &str| Overlap {
             symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln-content".into()], hook: None,
             foreign: Some(ForeignDest { module: module.into(), offset: "0x1".into(), ..Default::default() }),
         };
-        let addon = [view_entry("chain\\shroudlink-dinput8.dll", Section::Chain, None, false)];
-        let v = overlap_view(overlap("shroudlink-dinput8.dll"), &addon, &[], &gated);
-        assert_eq!(v.fix, "none", "{}", v.hint);
-        assert!(v.hint.contains("shroudlink's client addon") && v.hint.contains("native UI disabled"), "{}", v.hint);
-        // the same addon chained from a profile (a native mod at its game-side path)
-        let game_side = format!("Z:{}", chain.join("shroudlink-dinput8.dll").display()).replace('/', "\\");
+        // the installer's first and second chain slots (install.rs chain_slot)
+        for f in ["shroudlink-dinput8.dll", "shroudlink-dinput8-2.dll"] {
+            let addon = [view_entry(&format!("chain\\{f}"), Section::Chain, None, false)];
+            let v = overlap_view(overlap(f), &addon, &[], &gated);
+            assert_eq!(v.fix, "none", "{f}: {}", v.hint);
+            assert!(v.hint.contains("shroudlink's client addon") && v.hint.contains("native UI disabled"), "{}", v.hint);
+        }
+        // the same addon chained from a profile (a native mod at its game-side path), also renamed before import
+        let game_side = format!("Z:{}", chain.join("shroudlink-client.dll").display()).replace('/', "\\");
         let native = [ChainViewEntry { entry: entry(&game_side, Section::Profile, None, Some("shroudlink-client")), late: false, late_by: None, off_by: None, loader: false }];
-        assert_eq!(overlap_view(overlap("shroudlink-dinput8.dll"), &native, &[], &gated).fix, "none");
-        let other = [view_entry("chain\\hook-dinput8.dll", Section::Chain, None, false)];
-        assert_eq!(overlap_view(overlap("hook-dinput8.dll"), &other, &[], &gated).fix, "late");
+        assert_eq!(overlap_view(overlap("shroudlink-client.dll"), &native, &[], &gated).fix, "none");
+        for f in ["hook-dinput8.dll", "other-dinput8.dll"] {
+            let other = [view_entry(&format!("chain\\{f}"), Section::Chain, None, false)];
+            assert_eq!(overlap_view(overlap(f), &other, &[], &gated).fix, "late", "{f}");
+        }
+    }
+
+    /// The manual late switch refuses it too, with the reason; switching late off stays possible.
+    #[test]
+    fn the_shroudlink_addon_cannot_be_switched_late() {
+        let (_t, _dirs, install) = scratch_install("addon-switch");
+        let chain = install.path.join("kiln/chain");
+        std::fs::create_dir_all(&chain).unwrap();
+        std::fs::write(chain.join("shroudlink-dinput8-2.dll"), crate::pe::build_test_dll(&["DirectInput8Create", "shroudlink_shutdown"], b"")).unwrap();
+        std::fs::write(install.path.join("kiln/chain.ini"), "[chain]\nchain\\shroudlink-dinput8-2.dll\n").unwrap();
+        let mut p = Profile {
+            format: 1, id: "p".into(), name: "p".into(), created: String::new(), updated: String::new(), generation: 1,
+            notes: String::new(), mods: Default::default(), dropins: vec![], dropins_engines: false, data_dir: Default::default(), server: None, late: vec![],
+        };
+        let chained = entry("chain\\shroudlink-dinput8-2.dll", Section::Chain, None, None);
+        let err = set_entry_late(&install, &mut p, &chained, true).unwrap_err();
+        assert!(err.message.contains("shroudlink's client addon") && err.message.contains("MODS tab"), "{}", err.message);
+        assert!(!std::fs::read_to_string(install.path.join("kiln/chain.ini")).unwrap().contains("[late]"), "chain.ini unchanged");
+        assert!(set_entry_late(&install, &mut p, &chained, false).is_ok(), "switching late off stays possible");
+        let game_side = format!("Z:{}", chain.join("shroudlink-dinput8-2.dll").display()).replace('/', "\\");
+        let native = entry(&game_side, Section::Profile, None, Some("shroudlink-client"));
+        assert!(set_entry_late(&install, &mut p, &native, true).is_err() && p.late.is_empty(), "{:?}", p.late);
+        std::fs::write(chain.join("hook-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"")).unwrap();
+        let hook = entry(&format!("Z:{}", chain.join("hook-dinput8.dll").display()).replace('/', "\\"), Section::Profile, None, Some("hook"));
+        assert!(set_entry_late(&install, &mut p, &hook, true).unwrap() && p.late == ["hook"]);
     }
 
     struct Scratch(PathBuf);

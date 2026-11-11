@@ -474,7 +474,10 @@ fn run_now() {
     }
     let summary = match out.phase {
         Phase::Idle if out.restored => "kiln-eml: no EML mods; the game data was restored to vanilla (EML's .kfc.bak)".to_string(),
-        Phase::Idle => "kiln-eml: no EML mods; game files untouched".to_string(),
+        Phase::Idle => match &out.reason {
+            Some(reason) => format!("kiln-eml: no EML mods; game files untouched. {reason}"),
+            None => "kiln-eml: no EML mods; game files untouched".to_string(),
+        },
         Phase::Done if out.cached => format!(
             "kiln-eml: {} EML mod(s) loaded; nothing changed since the last run, the game files keep their patches ({:.0} ms{})",
             out.loaded(),
@@ -497,7 +500,10 @@ fn run_now() {
             if out.restored { "restored to vanilla" } else { "left as it was" }
         ),
     };
-    klog(if out.phase == Phase::Failed { 1 } else { 3 }, &summary);
+    klog(if out.phase == Phase::Failed { 1 } else if out.reason.is_some() { 2 } else { 3 }, &summary);
+    if out.phase == Phase::Done && let Some(reason) = &out.reason {
+        klog(2, &format!("kiln-eml: {reason}"));
+    }
     publish(&out, state.as_deref());
     enforce_startup_safety(&out);
 }

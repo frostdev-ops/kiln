@@ -36,6 +36,13 @@ Measured (kiln.log, tick-stats.jsonl, probe mod):
 - `KILN_DISABLE=1 %command%` starts the game without Kiln (and without chained DLLs). Removing `dinput8.dll` does the
   same permanently. The launcher's "play vanilla once" does it for one start without touching Steam: it writes
   `kiln/play-once.ini` `mode=vanilla`, which the proxy deletes as it reads it ([profiles.md](profiles.md)).
+- **Limit of "play once vanilla" and "play once without mods": EML's data patches stay.** EML mods change the game's
+  data files themselves (`<exe>.kfc`, `.kfc_resources` and added `.dat` files), and only kiln-eml puts them back. A
+  vanilla start loads no Kiln code at all, and a no-mods start loads no plugins, so kiln-eml does not run in either and
+  the archives keep the last EML patch: those starts are vanilla in code, not in game data. ShroudForge's startup asset
+  patches stay the same way. To get truly vanilla data: switch the EML mods off in the active profile and start the
+  game once normally through Kiln (kiln-eml then restores the data it wrote, [eml.md](eml.md)); or use Steam's
+  "Verify integrity of game files". The next start with the EML mods on patches again.
 
 ## Profiles, chain loading, native mods
 On a client, the Kiln Launcher activates a **profile** by writing `<client>/kiln/profile.json`: the managed, native,

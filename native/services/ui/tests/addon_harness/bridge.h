@@ -105,11 +105,11 @@ int bridge_checks(const std::filesystem::path& dll, bool stock, bool late) {
     bridge_rpc(rpc,{{"op","acquire"},{"module",state["module"]},{"session",state["session"]},{"client","other"}},5);
     check(state["entries"][0]["label"]=="Storage" && state["lease"].is_string(),"actual Entries and opaque presentation lease available");
     // More than two seconds without a client update (a loading stall, a title-bar drag): not ready and no lease while
-    // it lasts; the next real update brings back what this session received, never the old lease.
+    // it lasts; the next real update and UI frame in the world bring back what this session received, never the old lease.
     Sleep(2100);
     const auto stalled=bridge_rpc(rpc,{{"op","read"}});
     check(!stalled["ready"].get<bool>() && stalled["leased"]==false && stalled["entries"].empty(),"stalled client update: not ready, lease ended");
-    client_tick();
+    client_tick(); frame();
     const auto resumed=bridge_rpc(rpc,{{"op","read"}});
     check(resumed["ready"].get<bool>() && resumed["session"]==state["session"] && resumed["leased"]==false && resumed["entries"].size()==1 && resumed["entries"][0]["label"]=="Storage",
           "next real update: the same session is ready again with its received Entries");
@@ -146,10 +146,28 @@ int bridge_checks(const std::filesystem::path& dll, bool stock, bool late) {
     check(back["ready"].get<bool>() && back["session"]==state["session"] && back["leased"]==false && back["entries"].size()==1,
           "world return: the same session is ready again with its Entries, the old lease stays ended");
     bridge_rpc(rpc,away,4);
+    // Leaving for a world without a shroudlink host, the game reusing the client object. The addon's UI hook draws
+    // no frames at the main menu, so the next world's first update comes after a gap and before its loading screen.
+    Sleep(2100);
+    client_tick();
+    check(!bridge_rpc(rpc,{{"op","read"}})["ready"].get<bool>(),"a world with no host after a leave: not ready while it loads");
+    set_screen(0); frame(); set_screen(1); frame(); client_tick();
+    const auto hostless=bridge_rpc(rpc,{{"op","read"}});
+    check(!hostless["ready"].get<bool>() && hostless["entries"].empty() && hostless["windows"].empty() && hostless["session"]!=state["session"],
+          "a world with no host after a leave: the old host's Entries are gone and its session ended");
+    bridge_rpc(rpc,away,4);
     beacon(); client_tick(); const auto rejoined_nonce=claim_nonce();
     server_message(rejoined_nonce,1,{{"mod","shroudlink"},{"op","welcome"},{"ui_protocol",2},{"mods",Json::array()}}); frame(); client_tick();
     const auto rejoined=bridge_rpc(rpc,{{"op","read"}});
     check(rejoined["ready"].get<bool>() && rejoined["entries"].empty() && rejoined["windows"].empty(),"real rejoin requires new host state, never revives old windows");
+    // The same leave with UI frames outside the world while the update is stale.
+    server_message(rejoined_nonce,2,{{"mod","ui"},{"op","entries"},{"owner","storage"},{"entries",Json::array({{{"id","settings"},{"label","Storage"}}})}});
+    check(bridge_rpc(rpc,{{"op","read"}})["entries"].size()==1,"the rejoined host's Entries arrived");
+    set_screen(0); frame(); Sleep(2100); frame();
+    set_screen(1); frame(); client_tick();
+    const auto left=bridge_rpc(rpc,{{"op","read"}});
+    check(!left["ready"].get<bool>() && left["entries"].empty() && left["session"]!=rejoined["session"],
+          "frames outside the world past the update lifetime: the session has left, its Entries are gone");
     bridge_rpc(rpc,queued,4);
     const auto copy=exe_dir()/L"dinput8-bridge-reload.dll"; std::filesystem::copy_file(dll,copy);
     auto replacement=load_addon(copy,true); auto rpc2=reinterpret_cast<BridgeCall>(GetProcAddress(replacement,"shroudlink_client_bridge_v1"));

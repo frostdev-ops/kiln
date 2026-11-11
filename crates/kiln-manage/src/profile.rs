@@ -1155,9 +1155,15 @@ fn ensure_kiln(install: &GameInstall) -> Result<PathBuf> {
 fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<u32> {
     let base = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id);
     let mut copied = 0;
+    // A Greeneye mod whose current copy is in <game>/greeneye/ runs from there when the core reads `../greeneye/<id>`
+    // (render): no copy here. An older core gets this copy, as the profile then names it.
+    let reader = std::cell::OnceCell::new();
+    let runs_placed = |k: ModKind, m: &ProfileMod| k == ModKind::Greeneye
+        && crate::engine_mods::game_path_of(dirs, k, m, &install.path).is_some()
+        && *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= PROFILE_READER_GAME_MODS;
     for k in ModKind::ALL {
         let kdir = base.join(k.as_str());
-        let wanted: Vec<&ProfileMod> = list_of(&profile.mods, k).iter().filter(|m| m.enabled).collect();
+        let wanted: Vec<&ProfileMod> = list_of(&profile.mods, k).iter().filter(|m| m.enabled && !runs_placed(k, m)).collect();
         for e in std::fs::read_dir(&kdir).into_iter().flatten().flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if !wanted.iter().any(|m| m.id == name) {

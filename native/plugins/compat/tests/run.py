@@ -178,6 +178,8 @@ def greeneye_legacy_client():
     g.expect(any(m.get("id") == "gtest" and m.get("hooks") == 2 for m in st.get("mods", [])), "state: gtest owns 2 hook sites")
     # the engine's word for the launcher's Engines page, the in-game Mods page and the support report (it said "?")
     g.expect((st.get("status"), st.get("started"), st.get("failed")) == ("running", 1, 3), f"state: status running, 1 started, 3 failed: {st}")
+    # the start it is of, as boot.json names it (the support report compares the two; the times say nothing)
+    g.expect(isinstance(st.get("pid"), int) and st.get("pid") > 0, f"state: pid: {st.get('pid')}")
     g.expect(os.path.isfile(g.p("kiln", "logs", "greeneye-loader.log")), "logs/greeneye-loader.log written")
     return g
 

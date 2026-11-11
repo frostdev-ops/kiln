@@ -22,7 +22,7 @@ use crate::library::{DetectKind, Detected, LibraryRef};
 use crate::manifest::ModKind;
 use crate::paths::DataDirs;
 use crate::profile::{Profile, ProfileMod};
-use crate::quick::{AddReport, AddedMod, ProfileChange};
+use crate::quick::{AddReport, AddedMod};
 use crate::task::Progress;
 use crate::{Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
@@ -636,23 +636,13 @@ pub fn add(dirs: &DataDirs, install: &GameInstall, profile_id: &str, rel: &str, 
         let name = crate::library::record(dirs, r).ok().and_then(|x| x.name).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| r.id.clone());
         AddedMod { kind: r.kind, id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), name }
     };
-    for r in &refs {
-        let after = ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true };
-        let list = p.mods.list_mut(r.kind);
-        match list.iter().position(|m| m.id == r.id) {
-            Some(i) if list[i] == after => report.already.push(named(r)),
-            Some(i) => {
-                let before = std::mem::replace(&mut list[i], after.clone());
-                report.changes.push(ProfileChange { kind: r.kind, before: Some(before), after });
-                report.added.push(named(r));
-            }
-            None => {
-                list.push(after.clone());
-                report.changes.push(ProfileChange { kind: r.kind, before: None, after });
-                report.added.push(named(r));
-            }
-        }
-    }
+    // the rules quick::add puts mods into a profile with (one copy of a proxy DLL, XHL-Core builds, notices)
+    let (changes, already, notices) = crate::quick::merge(dirs, &mut p.mods, &refs);
+    report.already = already.iter().map(named).collect();
+    report.added = changes.iter().filter(|c| c.after.enabled)
+        .map(|c| named(&LibraryRef { kind: c.kind, id: c.after.id.clone(), version: c.after.version.clone(), hash: c.after.hash.clone() })).collect();
+    report.changes = changes;
+    report.notices = notices;
     if !report.changes.is_empty() {
         crate::profile::save(dirs, &p)?;
     }

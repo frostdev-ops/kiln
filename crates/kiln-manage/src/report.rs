@@ -11,7 +11,7 @@
 //!
 //! Layout of the zip: `summary.txt` (for a forum post), `report.json` (findings and failed sections), `game/<path>`
 //! (tails of kiln.log, proxy.log, eml.log, shroudlink_client.log, the newest crash report; `kiln/state/*.json`, `kiln/profile.json`,
-//! `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`), `greeneye-mods/<id>/*.log|*.status` (tails of each Greeneye
+//! `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`), `greeneye-mods/<id>/<game|library>/*.log|*.status` (tails of each Greeneye
 //! mod's own log and status files, with Greeneye Loader's logs under `game/`), `launcher/launcher.log` (tail), `listings/*.txt` (names,
 //! sizes and times of the game folder's top level, `kiln/` two levels deep, each engine's mods folder).
 
@@ -612,6 +612,14 @@ fn tail(path: &Path, max: u64) -> std::result::Result<Option<(String, bool)>, St
 /// The first `max` bytes of a file; (bytes, cut).
 fn head(path: &Path, max: u64) -> std::result::Result<Option<(Vec<u8>, bool)>, String> {
     use std::io::Read;
+    // as in `tail`: the file itself, never what a link points at (the zip is posted in public)
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+        Ok(m) if crate::quick::import_is_link(&m) => return Err("a link, not followed".into()),
+        Ok(m) if !m.is_file() => return Err("not a file".into()),
+        Ok(_) => {}
+    }
     let f = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -1243,10 +1251,12 @@ pub fn build(input: &ReportInput) -> Report {
     }
     let aside: Vec<ModKind> = engines.iter().filter(|e| e.state.as_ref().is_some_and(stood_aside)).map(|e| e.kind).collect();
     // a plugin that says it did not stand aside, in a state file of the last start (boot.json's time or later)
-    let boot_ms = boot_time.map(|t| crate::util::unix(t) * 1000);
+    // of the last start: the process boot.json names (kiln-greeneye writes its pid; it writes before boot.json, so the
+    // times say nothing). A state file without a pid (an older plugin) is not taken as this start's.
+    let boot_pid = boot.as_ref().map(|b| u64::from(b.pid));
     let ran: Vec<ModKind> = engines.iter().filter(|e| e.state.as_ref().is_some_and(|st| {
         st.get("steppedAside").and_then(|v| v.as_bool()) == Some(false)
-            && boot_ms.zip(st.get("updatedUnixMs").and_then(|v| v.as_i64())).is_some_and(|(b, u)| u + 1000 >= b)
+            && boot_pid.is_some() && st.get("pid").and_then(|v| v.as_u64()) == boot_pid
     })).map(|e| e.kind).collect();
     check_loaders_in_folder(&mut cx, &proxies, facts.platform, &aside, &ran);
     if !failed.is_empty() {
@@ -1434,15 +1444,21 @@ fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>, dirs:
     cx.add_tail("kiln/logs/greeneye-loader.log", GREENEYE_LOG_MAX);
     cx.add_tail("greeneye/loader.log", GREENEYE_LOG_MAX);
     cx.add_tail("greeneye/loader.second-copy.log", GREENEYE_LOG_MAX);
-    let roots: Vec<PathBuf> = std::iter::once(game.join(crate::engine_mods::GREENEYE_MODS))
-        .chain(dirs.map(|d| d.library().join(ModKind::Greeneye.as_str()))).collect();
-    // inside one of the roots: no `..`, no link from the root down (the root included), the resolved folder below the
-    // resolved root
-    let allowed = |dir: &Path| roots.iter().any(|root| {
-        !dir.components().any(|c| matches!(c, std::path::Component::ParentDir)) && dir.starts_with(root)
-            && engine_mods::refuse_symlink_path(root, dir).is_ok()
-            && matches!((root.canonicalize(), dir.canonicalize()), (Ok(r), Ok(d)) if d != r && d.starts_with(&r))
-    });
+    let roots: Vec<(&str, PathBuf)> = std::iter::once(("game", game.join(crate::engine_mods::GREENEYE_MODS)))
+        .chain(dirs.map(|d| ("library", d.library().join(ModKind::Greeneye.as_str())))).collect();
+    // The root a folder lies in ("game": <game>/greeneye, "library": the launcher's Library), or None: no `..`, neither
+    // the root nor the folder a link, and the resolved folder strictly inside the resolved root. Compared resolved, so a
+    // case or alias difference on Windows is the same folder; a link further down that leads out resolves outside.
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| crate::quick::import_is_link(&m));
+    let place = |dir: &Path| -> Option<&str> {
+        if dir.components().any(|c| matches!(c, std::path::Component::ParentDir)) || is_link(dir) { return None; }
+        let d = dir.canonicalize().ok()?;
+        roots.iter().find_map(|(label, root)| {
+            let r = root.canonicalize().ok()?;
+            (!is_link(root) && d != r && d.starts_with(&r)).then_some(*label)
+        })
+    };
+    let mut used: Vec<String> = Vec::new();
     let mut folders: Vec<(String, PathBuf)> = Vec::new();
     let state = crate::util::read_json::<serde_json::Value>(&game.join(crate::paths::game::STATE).join("greeneye.json")).ok().flatten();
     for m in state.as_ref().and_then(|s| s.get("mods")).and_then(|m| m.as_array()).into_iter().flatten() {
@@ -1464,10 +1480,10 @@ fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>, dirs:
     let mut skipped: Vec<String> = Vec::new();
     for (id, dir) in folders {
         if !dir.is_dir() { continue; }
-        if !allowed(&dir) {
+        let Some(label) = place(&dir) else {
             if !skipped.contains(&id) { skipped.push(id); }
             continue;
-        }
+        };
         let key = dir.canonicalize().unwrap_or_else(|_| dir.clone());
         if seen.contains(&key) { continue; }
         if seen.len() == GREENEYE_MOD_FOLDERS {
@@ -1481,10 +1497,19 @@ fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>, dirs:
             .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("log") || x.eq_ignore_ascii_case("status")))
             .collect();
         logs.sort();
+        // one zip folder per mod folder: `greeneye-mods/<id>/game/` (the copy in greeneye/) and `.../library/` (a Library
+        // entry), so one id with logs in both never gives two entries of one name (the zip refuses those)
+        let mut at = format!("greeneye-mods/{safe}/{label}");
+        let mut n = 2;
+        while used.contains(&at) {
+            at = format!("greeneye-mods/{safe}/{label}-{n}");
+            n += 1;
+        }
+        used.push(at.clone());
         for p in logs.into_iter().take(GREENEYE_FILES_PER_MOD) {
             let file: String = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
                 .chars().map(|c| if c.is_ascii_alphanumeric() || "._+-".contains(c) { c } else { '_' }).collect();
-            cx.add_tail_at(&format!("greeneye-mods/{safe}/{file}"), &p, GREENEYE_LOG_MAX);
+            cx.add_tail_at(&format!("{at}/{file}"), &p, GREENEYE_LOG_MAX);
         }
     }
     if !skipped.is_empty() {
