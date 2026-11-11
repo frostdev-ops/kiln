@@ -35,9 +35,20 @@ bool flame_on = false;
 int flame_asks = 0;
 bool KILN_CALL flame_running(KilnStr id) { ++flame_asks; return flame_on && std::string(id.ptr, id.len) == "creative"; }
 const KilnFlameApi flame_table = {{sizeof(KilnFlameApi), KILN_FLAME_VERSION}, nullptr, nullptr, &flame_running, nullptr};
+// kiln-flame 1.1.0's symbols(): what <game>\mods\creative holds for this game build
+uint32_t flame_symbols_state = KILN_FLAME_SYMBOLS_FOUND;
+uint32_t KILN_CALL flame_symbols(KilnStr id, KilnStr* file) {
+    static const char sigs[] = "S:\\Enshrouded\\mods\\creative\\sigs\\6AEB144C-2A3F000.json";
+    if (file) *file = KilnStr{sigs, sizeof sigs - 1};
+    return std::string(id.ptr, id.len) == "creative" ? flame_symbols_state : KILN_FLAME_SYMBOLS_UNKNOWN;
+}
+KilnFlameApi flame_table_symbols = {{sizeof(KilnFlameApi), KILN_FLAME_VERSION}, nullptr, nullptr, &flame_running, nullptr, &flame_symbols};
+// an older kiln-flame: the four functions of 1.0.0 only, its header.size says so
+const KilnFlameApi flame_table_old = {{offsetof(KilnFlameApi, symbols), KILN_FLAME_VERSION}, nullptr, nullptr, &flame_running, nullptr, nullptr};
+const KilnFlameApi* flame_published_table = &flame_table;
 bool flame_published = true;
 const void* KILN_CALL api_service(KilnStr name, uint32_t) {
-    return flame_published && std::string(name.ptr, name.len) == KILN_FLAME_SERVICE ? &flame_table : nullptr;
+    return flame_published && std::string(name.ptr, name.len) == KILN_FLAME_SERVICE ? flame_published_table : nullptr;
 }
 uint32_t KILN_CALL api_side() { return KILN_SIDE_CLIENT; }
 bool KILN_CALL api_feature(KilnStr) { return false; }
@@ -172,6 +183,30 @@ int main() {
           "with Creative Mode running nothing is hooked, before any symbol lookup, and status says why");
     flame_on = false;
     check(c::flame_creative() && flame_asks == asks + 1, "once seen running, Creative Mode stays seen (its hooks stay too)");
+    {
+        // Creative Mode that cannot work: kiln-flame started it, but the folder it reads (<game>\mods\creative) has no
+        // symbol file for this build and no recipes, so it switched its game features off (the player's start of
+        // 2026-11-11: run from the Library, "No recipes at ...\mods\creative\symbols: game features stay disabled").
+        // Kiln's creative hooks must not stay off for it; a mod that may still resolve the build keeps them off.
+        c::g_flame = false;
+        flame_on = true;
+        flame_published_table = &flame_table_symbols;
+        flame_symbols_state = KILN_FLAME_SYMBOLS_NONE;
+        off.clear();
+        check(!c::flame_creative() && c::install(&api, 0, off) == 0 && off.find("Creative Mode runs") == std::string::npos && !c::idle(),
+              "a Creative Mode without symbols for this build leaves Kiln's creative hooks on");
+        flame_symbols_state = KILN_FLAME_SYMBOLS_RECIPES;
+        check(c::flame_creative() && c::idle(), "a Creative Mode that may resolve this build from its recipes keeps them off");
+        c::g_flame = false;
+        flame_symbols_state = KILN_FLAME_SYMBOLS_FOUND;
+        check(c::flame_creative(), "a Creative Mode with its symbol file for this build keeps them off");
+        c::g_flame = false;
+        flame_published_table = &flame_table_old;
+        check(c::flame_creative(), "an older kiln-flame (no symbols()) is still asked whether Creative Mode runs");
+        flame_published_table = &flame_table;
+        flame_on = false;
+        c::g_flame = true;  // as the checks above left it: Creative Mode seen running
+    }
     store(g_players[3], &rules);
     c::g_recipe_ret = 100;
     check(!c::pay_free(100, tx, 3), "late Creative Mode disables an already installed recipe waiver");
