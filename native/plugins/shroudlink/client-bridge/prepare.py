@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Source-only, offline, opt-in recipe. Run with python -I from outside the source.
 # Copyright (c) 2026 bjck's MIT notice in the supplied source/LICENSE must remain.
+# The patch anchors below are lines from shroudlink 0.8.0's client source (mod/client/src),
+# Copyright (c) 2026 bjck, MIT.
 # Usage: prepare.py PRISTINE_SHROUDLINK_SOURCE NEW_PRIVATE_OUTPUT_DIRECTORY
 # Does not build, install, replace, download or distribute an addon. Refuses an
 # existing destination and unknown inputs; count-independent prototype is separate.

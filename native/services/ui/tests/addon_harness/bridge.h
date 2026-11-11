@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// The packet and frame encoding follows shroudlink 0.8.0's link crate, Copyright (c) 2026 bjck, MIT.
 // Included inside the harness namespace. Only source-backed game stand-ins feed
 // real encoded packets through the addon's production store/update detours.
 using Json = nlohmann::json;

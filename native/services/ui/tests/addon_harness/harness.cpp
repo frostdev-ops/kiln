@@ -5,6 +5,7 @@
 //
 // The addon looks for 30 game functions by their bytes in the main exe's .text (client/src/link.rs, native.rs). This
 // exe carries source-backed stand-ins: matching patterns, layout checks, call targets and RIP-relative globals.
+// The patterns and layouts are from shroudlink 0.8.0's client source, Copyright (c) 2026 bjck, MIT.
 // The harness calls the synthetic per-frame UI function, running the addon's actual UI dispatch and input code.
 // A message-only HWND and two window-discovery API adapters let the unchanged addon subclass real user32 procedures
 // without any desktop window. Synthetic tab lists also exercise the addon's actual MODS-tab emission predicates.
