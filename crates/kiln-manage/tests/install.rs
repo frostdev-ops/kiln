@@ -1446,7 +1446,8 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                     ModKind::ShroudForge => (t.0.join("src/kiln-added"), "kiln-added", "runtime/settings.json", gi.path.join("SF-user-mods/kiln-added")),
                     _ => unreachable!(),
                 };
-                // SF has no arbitrary mutable shipped-file exception; only add its runtime file after placement.
+                // SF has no arbitrary mutable shipped-file exception: its "shipped" case is a changed setting in its
+                // shipped extended.mod.json, the other one a runtime file it adds after placement.
                 if shipped && kind != ModKind::ShroudForge { put(&src, rel, b"defaults"); }
                 let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
                 let r = imported.imported.iter().chain(&imported.existing).find(|r| r.kind == kind && r.id == id).unwrap();
@@ -1454,7 +1455,12 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                 p = profile::save(&dirs, &p).unwrap();
                 install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
                 profile::activate(&dirs, &p.id, &gi).unwrap();
-                put(&dst, rel, b"player runtime settings");
+                if shipped && kind == ModKind::ShroudForge {
+                    kiln_manage::shroudforge::set_setting(&dst, "speed", &serde_json::json!(7)).unwrap();
+                } else {
+                    put(&dst, rel, b"player runtime settings");
+                }
+                let folder = sf_inventory(&dst);
                 let report = if uninstall {
                     install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap().placements
                 } else {
@@ -1462,11 +1468,11 @@ fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
                 };
                 assert!(report.retained.iter().any(|r| r.path == dst && r.may_run), "{kind:?}/{shipped}/{uninstall}: {report:?}");
                 assert!(!report.removed.contains(&dst));
-                assert_eq!(std::fs::read(dst.join(rel)).unwrap(), b"player runtime settings");
+                assert_eq!(sf_inventory(&dst), folder, "{kind:?}/{shipped}/{uninstall}: the whole folder stays as it was");
                 // The receipt still records this as a retained placement; a second cleanup cannot adopt it as disposable.
                 let again = engine_mods::unplace(&gi.path).unwrap();
                 assert!(again.retained.iter().any(|r| r.path == dst));
-                assert_eq!(std::fs::read(dst.join(rel)).unwrap(), b"player runtime settings");
+                assert_eq!(sf_inventory(&dst), folder);
             }
         }
     }
