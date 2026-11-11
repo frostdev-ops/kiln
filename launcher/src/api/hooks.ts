@@ -18,7 +18,7 @@ export const qk = {
   runtimeStatus: (g: GameId) => ["runtime_status", g] as const,
   profiles: ["profile_list"] as const,
   profile: (p: ProfileId) => ["profile_get", p] as const,
-  resolve: (p: ProfileId, side: api.RunSide) => ["profile_resolve", p, side] as const,
+  resolve: (p: ProfileId, side: api.RunSide, g: GameId | null = null) => ["profile_resolve", p, side, g] as const,
   active: (g: GameId) => ["profile_active", g] as const,
   library: (k: ModKind | null) => ["library_list", k] as const,
   configs: (t: api.ConfigTarget) => ["config_list", t] as const,

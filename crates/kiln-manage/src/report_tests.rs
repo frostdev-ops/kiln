@@ -434,6 +434,27 @@ fn failed_mods_and_crash() {
     assert!(file(&r, "game/kiln/crash-reports/crash-20261110T110500Z.txt").is_some());
 }
 
+/// Player report (Nexus, 2026-11-11): a client's server mods (Loot Leveler) are "skipped" in the menu's mods.json and
+/// start with the player's own world. The report says so in words, and does not count them as failed.
+#[test]
+fn server_mods_waiting_for_the_players_world_are_a_note() {
+    let f = Fx::healthy("hosted");
+    f.w("kiln/state/mods.json", format!(r#"{{"format":1,"pid":412,"written":"2026-11-10T11:00:01Z","generation":3,"mods":[
+        {{"id":"loot-leveler","version":"0.1.0","state":"skipped","reason":"{}"}},
+        {{"id":"enemy-leveler","version":"0.1.0","state":"skipped","reason":"{}"}}]}}"#,
+        crate::profile::GAME_HOSTED_WAITING, crate::profile::GAME_HOSTED_OFF).as_bytes());
+    let r = build(&f.input());
+    assert!(!ids(&r).contains(&"mod-failed"));
+    let wait = finding(&r, "hosted-mods");
+    assert_eq!(wait.level, Level::Info);
+    assert_eq!(wait.text, "loot-leveler starts with the player's own world (single-player or co-op), so \"skipped\" in the main menu is \
+        expected; it does not run in someone else's world.");
+    let off = finding(&r, "hosted-off");
+    assert_eq!(off.level, Level::Warning);
+    assert!(off.text.contains("enemy-leveler") && off.text.contains("\"hosted\": false"), "{}", off.text);
+    assert!(r.summary.contains("loot-leveler") && r.summary.contains("[note] loot-leveler starts with"), "{}", r.summary);
+}
+
 // ---------------------------------------------------------------- broken installs, bounds
 
 #[test]

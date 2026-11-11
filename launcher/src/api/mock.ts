@@ -244,14 +244,30 @@ function slug(name: string): string {
   return id;
 }
 
-function resolve(p: Profile, side: "client" | "server"): ResolvePreview {
+/** What the launcher says about a client's side "server" Kiln mods (kiln_manage::profile WITH_WORLD, HOSTED_OFF,
+ *  WORLD_FAILS): they start with the player's own world (Kiln.Host ModManager.StartHosting). */
+const HOSTED = {
+  with: "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.",
+  off: "Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).",
+  fails: "Will not start with your world: ",
+};
+
+/** The game's kiln.json `"mods": {"hosted": false}` keeps a client's server mods off (anything else: on). */
+function kilnHosted(gameId: string | null): boolean {
+  if (!gameId || !games.some((g) => g.id === gameId)) return true;
+  const mods = (kilnFile(gameId).values as Record<string, Json> | null)?.mods;
+  return !(mods && typeof mods === "object" && !Array.isArray(mods) && (mods as Record<string, Json>).hosted === false);
+}
+
+/** One resolver pass (resolver.rs, simplified): `hosting` is a client whose own world runs, so server mods match. */
+function resolveOnce(p: Profile, side: "client" | "server", hosting: boolean): { order: string[]; rejected: Rejection[] } {
   const enabled = p.mods.kiln.filter((m) => m.enabled);
   const rejected: Rejection[] = [];
   const ok = new Map<string, MockManifest>();
   for (const m of enabled) {
     const man = manifestOf("kiln", m.id, m.version);
     if (!man) { rejected.push({ id: m.id, dir: m.id, state: "failed", reason: "kiln.mod.json: not found in the library" }); continue; }
-    if (side === "client" && man.side === "server") { rejected.push({ id: m.id, dir: m.id, state: "skipped", reason: "side 'server': not loaded on a client" }); continue; }
+    if (side === "client" && man.side === "server" && !hosting) { rejected.push({ id: m.id, dir: m.id, state: "skipped", reason: "side 'server': not loaded on a client" }); continue; }
     if (side === "server" && man.side === "client") { rejected.push({ id: m.id, dir: m.id, state: "skipped", reason: "side 'client': not loaded on a server" }); continue; }
     ok.set(m.id, man);
   }
@@ -266,14 +282,33 @@ function resolve(p: Profile, side: "client" | "server"): ResolvePreview {
       if (other) { ok.delete(id); rejected.push({ id, dir: id, state: "failed", reason: `incompatible with ${bad} ${other.version} (declared in its incompatible list)` }); }
     }
   }
-  const order = [...ok.keys()].sort();
+  return { order: [...ok.keys()].sort(), rejected };
+}
+
+function resolve(p: Profile, side: "client" | "server", gameId: string | null): ResolvePreview {
+  const kiln = resolveOnce(p, side, false);
+  const withWorld: string[] = [];
+  if (side === "client") {
+    // kiln_manage::profile::with_world: the menu, then what the player's own world adds
+    const world = kilnHosted(gameId) ? resolveOnce(p, side, true) : null;
+    const server = new Set(p.mods.kiln.filter((m) => manifestOf("kiln", m.id, m.version)?.side === "server").map((m) => m.id));
+    for (const r of kiln.rejected) {
+      const sideSkip = r.state === "skipped" && server.has(r.id);
+      if (!world) { if (sideSkip) r.reason = HOSTED.off; continue; }
+      const x = world.rejected.find((w) => w.dir === r.dir);
+      if (x) { if (sideSkip || x.reason !== r.reason) Object.assign(r, { state: x.state, reason: HOSTED.fails + x.reason }); }
+      else if (world.order.includes(r.id)) { Object.assign(r, { state: "skipped", reason: HOSTED.with }); withWorld.push(r.id); }
+    }
+    if (world) withWorld.sort((a, b) => world.order.indexOf(a) - world.order.indexOf(b));
+  }
+  for (const m of p.mods.kiln.filter((x) => !x.enabled)) kiln.rejected.push({ id: m.id, dir: m.id, state: "disabled", reason: "disabled in the profile" });
   const native: NativePlanEntry[] = p.mods.native.map((m) => {
     const man = manifestOf("native", m.id, m.version);
     return { id: m.id, version: m.version, phase: man?.phase ?? "early", enabled: m.enabled, reason: m.enabled ? null : "disabled in the profile" };
   });
   const warnings: string[] = [];
   if (native.some((n) => n.enabled && n.phase === "dllmain")) warnings.push("dllmain mods load inside the proxy; a bad one can hang the start.");
-  return { side, kiln: { order, rejected: rejected.sort((a, b) => a.dir.localeCompare(b.dir)) }, native, warnings };
+  return { side, kiln: { order: kiln.order, rejected: kiln.rejected.sort((a, b) => a.dir.localeCompare(b.dir)) }, native, warnings, withWorld };
 }
 
 // ---------------------------------------------------------------- other engines' mods
@@ -748,7 +783,7 @@ const handlers: Record<string, Handler> = {
     profiles.delete(id);
     return null;
   },
-  profile_resolve: (a) => resolve(profiles.get(S(a.profileId)) ?? reject("not_found", "No such profile."), (a.side as "client" | "server") ?? "client"),
+  profile_resolve: (a) => resolve(profiles.get(S(a.profileId)) ?? reject("not_found", "No such profile."), (a.side as "client" | "server") ?? "client", a.gameId ? S(a.gameId) : null),
   // the real activation answers after it has resolved and written the profile (seconds with big mods): the UI must
   // not wait for the answer to show the new name
   profile_activate: async (a) => {
@@ -1369,4 +1404,10 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   setPreStart: (p: PreStart | null) => { preStart = p; },
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
+  /** A hand edit of the game's kiln.json (a key the launcher's Settings do not list, such as `mods.hosted`). */
+  setKilnJson: (path: string, value: Json, gameId = "client-steam") => {
+    const f = kilnFile(gameId);
+    const values = setPath(f.values, path, value);
+    Object.assign(f, { values, text: JSON.stringify(values, null, 2) + "\n", modified: now() });
+  },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

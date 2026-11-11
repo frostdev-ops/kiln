@@ -71,7 +71,10 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
 `KILN_API`.
 - `resolve_preview(profile, side)`: managed mods through the Resolver.cs port (disabled entries come back as
   `disabled`), native mods through the same rules (`requires`, `after`, `before`, `incompatible`, `kiln`), plus
-  warnings for entries missing from the library.
+  warnings for entries missing from the library. On a client the managed mods resolve twice, as Kiln.Host does: the
+  menu, then with `Environment.hosting` (the player's own world); what loads only then is `with_world` (skipped,
+  `WITH_WORLD`), a server mod that fails then says `WORLD_FAILS` + the reason. `resolve_preview_for(.., hosted)` with
+  `hosted_server_mods(game)` (kiln.json `mods.hosted`; false: `HOSTED_OFF`, no `with_world`).
 - `activate(pid, install)`: refuses while running and without `kiln/`; path mode (Z when `pfx/dosdevices/z:` -> `/`,
   else copy; an untranslatable path also means copy); copy mode syncs verified copies into
   `<game>/kiln/profiles/<pid>/<kind>/<id>/` (unchanged copies stay, stale ones go) and copies the game-side config

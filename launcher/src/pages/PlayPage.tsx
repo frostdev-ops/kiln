@@ -98,7 +98,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const profiles = useProfiles();
   const pending = useQuery({ queryKey: qk.pending(game.id), queryFn: () => api.modpackPending(game.id), refetchInterval: usePoll(15000) });
   const activeId = active.data?.profileId ?? null;
-  const preview = useQuery({ queryKey: qk.resolve(activeId ?? "", "client"), queryFn: () => api.profileResolve(activeId!, "client"), enabled: !!activeId });
+  const preview = useQuery({ queryKey: qk.resolve(activeId ?? "", "client", game.id), queryFn: () => api.profileResolve(activeId!, "client", game.id), enabled: !!activeId });
   // mods extracted into the game folder that the active profile leaves out (kiln_manage::found)
   const found = useFound(status.data?.runtime.installed ? game.id : null, activeId);
   const unloaded = found.data?.mods.filter((m) => m.state === "off").length ?? 0;
@@ -135,8 +135,13 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   else if (preview.data) {
     const order = preview.data.kiln.order;
     const total = order.length + preview.data.kiln.rejected.filter((r) => r.state !== "disabled").length;
-    const away = preview.data.kiln.rejected.filter((r) => r.state === "skipped").map((r) => lib.data?.find((l) => l.id === r.id)?.name ?? r.id);
-    say = `${order.length} of ${total} mods load on this client.` + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} on the server.` : "");
+    const nameOf = (id: string) => lib.data?.find((l) => l.id === id)?.name ?? id;
+    // server mods start with the player's own world (single-player or co-op); off only by kiln.json mods.hosted
+    const later = preview.data.withWorld.map(nameOf);
+    const away = preview.data.kiln.rejected.filter((r) => r.state === "skipped" && !preview.data.withWorld.includes(r.id)).map((r) => nameOf(r.id));
+    say = `${order.length + later.length} of ${total} mods load on this client.`
+      + (later.length ? ` ${names(later)} ${later.length === 1 ? "starts" : "start"} with your world.` : "")
+      + (away.length ? ` ${names(away)} ${away.length === 1 ? "stays" : "stay"} off in this game.` : "");
   } else say = `${cur.counts.kiln} Kiln mods in this profile.`;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
   const runLine = prep && !fresh ? prep.message : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`

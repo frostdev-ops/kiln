@@ -215,6 +215,7 @@ fn resolver_fixtures(_t: &Path) -> R {
                 .map(|a| a.elements().iter().filter_map(|x| x.node.as_str().map(str::to_string)).collect())
                 .unwrap_or_default(),
             loaded,
+            hosting: env.get("hosting").and_then(Node::as_bool).unwrap_or(false),
         };
         let candidates: Vec<resolver::Candidate> = tree
             .get("mods")

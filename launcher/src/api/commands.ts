@@ -366,9 +366,15 @@ export interface NativePlanEntry {
 }
 export interface ResolvePreview {
   side: RunSide;
+  /** The main menu's load order and why the others wait or stay out (a client's server mods: `withWorld`). */
   kiln: Resolution;
   native: NativePlanEntry[];
   warnings: string[];
+  /** Client: the Kiln mods that start with the player's own world (single-player, or friends joining it) instead of in
+   *  the menu: side "server" mods and the mods that need one, in the order they load then. Each is also in
+   *  `kiln.rejected`, skipped, with the reason "Starts with your own world, ...". Empty on a server and when the game's
+   *  kiln.json has `"mods": {"hosted": false}` (then those mods say so). */
+  withWorld: string[];
 }
 
 // library
@@ -1064,7 +1070,9 @@ export const profileGet = (profileId: ProfileId) => call<Profile>("profile_get",
 export const profileCreate = (name: string, copyFrom: ProfileId | null = null) => call<Profile>("profile_create", { name, copyFrom });
 export const profileSave = (profile: Profile) => call<Profile>("profile_save", { profile });
 export const profileDelete = (profileId: ProfileId) => call<null>("profile_delete", { profileId });
-export const profileResolve = (profileId: ProfileId, side: RunSide) => call<ResolvePreview>("profile_resolve", { profileId, side });
+/** `gameId`: the game the preview is for (its kiln.json `mods.hosted`); null: Kiln's default. */
+export const profileResolve = (profileId: ProfileId, side: RunSide, gameId: GameId | null = null) =>
+  call<ResolvePreview>("profile_resolve", { profileId, side, gameId });
 export const profileActivate = (profileId: ProfileId, gameId: GameId) => call<Activation>("profile_activate", { profileId, gameId });
 export const profileDeactivate = (gameId: GameId) => call<PlacementCleanup>("profile_deactivate", { gameId });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });

@@ -67,6 +67,8 @@ Each is one plain sentence. `problem` explains why mods don't load, `warning` ma
 | `loader-in-folder` | another engine's own loader under a proxy name the game loads (EML's `dbghelp.dll`, SET's `powrprof.dll` ...): a warning on Windows (it always runs), a note under Wine/Proton (only with an override). Left out when that engine's plugin already said it stood aside |
 | `unlisted-mods` | mod folders in the game folder that the active profile does not load (drop-ins off for Kiln's kinds and EML; a `mods.<engine>` list for the compat-hosted engines; ShroudForge and SET always read their folders) and that the profile does not list itself |
 | `mod-failed` | `failed` in mods.json, native.json, boot.json's plugins, a chain entry `failed`/`missing`, or a mod in an engine's state file whose state says fail/error/refused; with the reasons |
+| `hosted-mods` | a note: Kiln mods `skipped` in mods.json with `side 'server': loads while this client hosts a world`: they start with the player's own world (single-player or co-op), so `skipped` in the menu is expected (docs/kiln/client.md, "Mods and sides") |
+| `hosted-off` | a warning: the same with kiln.json `"mods": {"hosted": false}`: they never start in this game |
 | `crash` | there is a crash report (the newest is in the zip) |
 | `profile-invalid` | `kiln/profile.json` does not parse, or the last start found it invalid |
 | `newer-mods` | Kiln mods of the profile built against a newer Kiln (`game::newer_mods`, the Play page's "Update Kiln") |
