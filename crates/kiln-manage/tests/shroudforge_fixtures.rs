@@ -105,3 +105,31 @@ fn shroudforge_packages_read_and_write_like_the_in_game_page() {
         }
     }
 }
+
+/// A package may declare many settings: reading it and building the launcher's form take time in proportion to them, not
+/// to their square (each lookup by key used to scan the list).
+#[test]
+fn many_settings_are_read_without_quadratic_work() {
+    let n = 20_000;
+    let root = std::env::temp_dir().join(format!("kiln-sf-many-{}", std::process::id()));
+    let _t = Tmp(root.clone());
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("mod.json"), r#"{"id":"many","name":"Many","version":"1.0.0","capabilities":["runtime"]}"#).unwrap();
+    std::fs::write(root.join("src/mod.lua"), "return {}").unwrap();
+    let keys: Vec<String> = (0..n).map(|i| format!("s{i:05}")).collect();
+    let settings: Vec<String> = keys.iter().rev().map(|k| format!(r#""{k}":{{"value":1}}"#)).collect();
+    let listed: Vec<String> = keys.iter().map(|k| format!(r#""{k}""#)).collect();
+    std::fs::write(
+        root.join("extended.mod.json"),
+        format!(r#"{{"enabled":true,"settings":{{{}}},"groups":[{{"label":"All","settings":[{}]}}]}}"#, settings.join(","), listed.join(",")),
+    )
+    .unwrap();
+    let start = std::time::Instant::now();
+    let m = shroudforge::read_mod(&root).unwrap();
+    let schema = shroudforge::settings_schema(&m);
+    let took = start.elapsed();
+    assert_eq!(m.settings.len(), n);
+    assert_eq!(m.settings[0].key, keys[n - 1], "declared order");
+    assert_eq!(schema["properties"][&keys[0]]["x-kiln-group"], "All");
+    assert!(took < std::time::Duration::from_secs(5), "{n} settings took {took:?}");
+}

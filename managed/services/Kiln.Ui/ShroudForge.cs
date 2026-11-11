@@ -9,6 +9,7 @@
 //
 // A write splices only the changed value into the file, so the rest stays byte-identical (comments, layout, keys we
 // do not know). A refused value never reaches the file.
+using System.Collections;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -47,6 +48,26 @@ internal sealed record SfSettingDef
     /// <summary>Written as <c>"key": value</c> (no label, no control).</summary>
     public bool Shorthand { get; init; }
     public JsonNode? Value { get; init; }
+}
+
+/// <summary>A package's settings in the order it declares them, indexed by key (the Mods page looks settings up every
+/// frame; a package may declare many).</summary>
+internal sealed class SfSettingList : IReadOnlyList<SfSettingDef>
+{
+    private readonly List<SfSettingDef> _list;
+    private readonly Dictionary<string, SfSettingDef> _byKey = new(StringComparer.Ordinal);
+
+    public SfSettingList(List<SfSettingDef> list)
+    {
+        _list = list;
+        foreach (var s in list) _byKey.TryAdd(s.Key, s);
+    }
+
+    public SfSettingDef? Find(string key) => _byKey.GetValueOrDefault(key);
+    public SfSettingDef this[int index] => _list[index];
+    public int Count => _list.Count;
+    public IEnumerator<SfSettingDef> GetEnumerator() => _list.GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 /// <summary>A button a package declares in a settings group; it runs the mod's <c>shroudforge.ui.on_action</c> handler.</summary>
@@ -266,7 +287,7 @@ internal static class ShroudForgePackages
         {
             Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = Str(mod, "version") ?? "", Description = Str(mod, "description") ?? "",
             Enabled = Flag(ext, "enabled") ?? Flag(mod, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
-            Capabilities = caps, Targets = targets, Settings = settings, Groups = groups,
+            Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups,
         };
     }
 
@@ -280,6 +301,10 @@ internal static class ShroudForgePackages
         return JsonNode.DeepEquals(a, b);
     }
 
+    /// <summary>The setting <paramref name="key"/> (an index lookup for a package's own list).</summary>
+    public static SfSettingDef? Find(IReadOnlyList<SfSettingDef> settings, string key) =>
+        settings is SfSettingList l ? l.Find(key) : settings.FirstOrDefault(x => x.Key == key);
+
     /// <summary>ShroudForge's <c>setting_is_enabled</c>: the <c>enabledWhen</c> chain holds for <paramref name="values"/>.
     /// A missing controller or a cycle disables the setting.</summary>
     public static bool IsEnabled(string key, IReadOnlyList<SfSettingDef> settings, IReadOnlyDictionary<string, JsonNode?> values)
@@ -288,7 +313,7 @@ internal static class ShroudForgePackages
         var seen = new HashSet<string>(StringComparer.Ordinal);
         while (true)
         {
-            var s = settings.FirstOrDefault(x => x.Key == current);
+            var s = Find(settings, current);
             if (s is null) return false;
             if (s.EnabledWhen is not { } cond) return true;
             if (!seen.Add(current)) return false;
@@ -403,7 +428,7 @@ internal static class ShroudForgePackages
     public static SfPackage SetSetting(string folder, string key, JsonNode? value)
     {
         var p = Read(folder);
-        var s = p.Settings.FirstOrDefault(x => x.Key == key) ?? throw new SfEditException($"{p.Name} has no setting {key}");
+        var s = Find(p.Settings, key) ?? throw new SfEditException($"{p.Name} has no setting {key}");
         if (Check(s, value) is { } why) throw new SfEditException(why);
         var text = p.Extended ? ReadText(Path.Combine(folder, "extended.mod.json")) : EmlExtension;
         var root = JsonSpans.Parse(text);

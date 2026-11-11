@@ -327,8 +327,10 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     if extended && let Ok(bytes) = std::fs::read(&ext_path) {
         let text = String::from_utf8_lossy(&bytes);
         if let Ok(tree) = crate::jsonc::parse_tree(text.trim_start_matches('\u{feff}')) {
-            let order: Vec<String> = tree.get("settings").map(|n| n.members().iter().map(|m| m.key.clone()).collect()).unwrap_or_default();
-            settings.sort_by_key(|s| order.iter().rposition(|k| *k == s.key).unwrap_or(usize::MAX));
+            // each key's place, indexed once (a package may declare many settings)
+            let order: std::collections::HashMap<&str, usize> =
+                tree.get("settings").map(|n| n.members().iter().enumerate().map(|(i, m)| (m.key.as_str(), i)).collect()).unwrap_or_default();
+            settings.sort_by_cached_key(|s| order.get(s.key.as_str()).copied().unwrap_or(usize::MAX));
         }
     }
     let capabilities: Vec<String> =
@@ -588,12 +590,15 @@ pub fn set_setting(folder: &Path, key: &str, value: &serde_json::Value) -> Resul
 /// hints for the control, the group and "applies after a restart").
 pub fn settings_schema(m: &SfMod) -> serde_json::Value {
     let mut props = serde_json::Map::new();
-    let group_of = |key: &str| -> Option<String> {
-        m.groups.iter().find_map(|g| {
-            let listed = g.get("settings").and_then(|s| s.as_array()).is_some_and(|a| a.iter().any(|v| v.as_str() == Some(key)));
-            listed.then(|| g.get("label").and_then(|l| l.as_str()).unwrap_or("Settings").to_owned())
-        })
-    };
+    // each key's group (the first that lists it), indexed once: a package may declare many settings
+    let mut groups: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for g in &m.groups {
+        let label = g.get("label").and_then(|l| l.as_str()).unwrap_or("Settings");
+        for key in g.get("settings").and_then(|s| s.as_array()).into_iter().flatten().filter_map(|v| v.as_str()) {
+            groups.entry(key).or_insert(label);
+        }
+    }
+    let group_of = |key: &str| groups.get(key).map(|l| (*l).to_owned());
     for s in &m.settings {
         let mut p = serde_json::Map::new();
         let ty = value_type(s);

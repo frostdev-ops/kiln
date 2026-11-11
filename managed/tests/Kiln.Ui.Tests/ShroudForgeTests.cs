@@ -98,6 +98,25 @@ public sealed class ShroudForgeTests : IDisposable
         if (c["enabledAfter"] is { } after) Same(after, EnabledNow(ShroudForgePackages.Read(dir)), name + ": enabledWhen after the edits");
     }
 
+    /// <summary>The Mods page asks IsEnabled for every setting every frame, on the game's render thread: a lookup by key
+    /// must not scan the list (50,000 settings fit in the 2 MiB file).</summary>
+    [Fact]
+    public void Settings_are_looked_up_by_key_not_by_scanning()
+    {
+        const int n = 50_000;
+        var dir = Package();
+        var body = string.Join(",", Enumerable.Range(0, n).Select(i => $"\"s{i:D5}\":{{\"value\":{i}}}"));
+        File.WriteAllText(Path.Combine(dir, "extended.mod.json"), "{\"enabled\":true,\"settings\":{" + body + "}}");
+        var p = ShroudForgePackages.Read(dir);
+        var values = p.Values;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var enabled = p.Settings.Count(s => ShroudForgePackages.IsEnabled(s.Key, p.Settings, values));
+        clock.Stop();
+        Assert.Equal(n, enabled);
+        Assert.Same(p.Settings[n - 1], ShroudForgePackages.Find(p.Settings, $"s{n - 1:D5}"));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"one frame's IsEnabled calls for {n} settings took {clock.Elapsed}");
+    }
+
     [Fact]
     public void An_action_request_is_the_file_shroudforges_runtime_reads()
     {
