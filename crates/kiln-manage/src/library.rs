@@ -600,7 +600,7 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
         return mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir));
     }
     // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own
-    if dir.join(crate::engine_mods::XHL_PLUGIN_INI).is_file() {
+    if crate::engine_mods::has_xhl_plugin_ini(dir) {
         let name = top_name.filter(|_| depth == 0).map(str::to_string).unwrap_or_else(|| file_name(dir));
         if !crate::engine_mods::is_game_folder_name(&name) {
             return mk(DetectKind::Unknown, None, None, None, "XHL-Core's plugin folder is not a safe Windows folder name".into());

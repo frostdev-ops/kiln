@@ -1025,3 +1025,24 @@ fn a_packages_proxy_mod_next_to_another_proxy_name_is_named_after_the_archive() 
     assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().mods.native.len(), before);
 }
 
+/// manage-import F10: XHL-Core and Windows find native-plugin.ini whatever its case; on Linux the folder is still an
+/// XHL companion that Kiln places and never loads.
+#[test]
+fn an_xhl_plugin_ini_in_another_case_is_still_an_xhl_companion() {
+    let t = tmp("xhl-case");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    let pkg = t.0.join("pkg");
+    put(&pkg, "mods/XHL-Vein-Mining/XHL-Vein-Mining.dll", &xhl_plugin());
+    put(&pkg, "mods/XHL-Vein-Mining/Native-Plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+    put(&pkg, "mods/XHL-Vein-Mining/config.txt", b"x");
+    let z = t.0.join("XHL-Vein-Mining.zip");
+    zip_of(&pkg, &z);
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[z], false, &mut NoProgress).unwrap();
+    let found: Vec<String> = r.import.imported.iter().map(|x| format!("{}/{}", x.kind.as_str(), x.id)).collect();
+    assert_eq!(found, ["xhl/xhl-vein-mining"], "{}", summary(&r.import));
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert!(f.mods.native.is_empty(), "Kiln must not load the plugin DLL: {:?}", f.mods.native);
+    assert!(g.path.join("mods/XHL-Vein-Mining/Native-Plugin.ini").is_file());
+}
+

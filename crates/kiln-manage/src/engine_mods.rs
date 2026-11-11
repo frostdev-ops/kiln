@@ -331,7 +331,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
-            ModKind::Xhl => work.join(XHL_PLUGIN_INI).is_file() && !work.join("mod.json").exists(),
+            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("mod.json").exists(),
             _ => true,
         };
         if !found {
@@ -434,6 +434,12 @@ pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
     let dll = crate::library::native_bundle_proxy(package)?;
     let file = dll.file_name()?.to_string_lossy().into_owned();
     Some((folder, format!("its package's {file} reads it from the game's mods folder")))
+}
+
+/// Does `dir` hold XHL-Core's `native-plugin.ini`, spelled in any case (Windows and XHL-Core do not care)?
+pub fn has_xhl_plugin_ini(dir: &Path) -> bool {
+    std::fs::read_dir(dir).into_iter().flatten().flatten()
+        .any(|e| e.file_name().to_str().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI)) && e.path().is_file())
 }
 
 // ---- placing mods in their engine's folder: ShroudForge and SET always, the others for their own loader ----
