@@ -1506,7 +1506,7 @@ fn sf_restore_retains_player_edits_unknown_old_receipts_and_unreceipted_markers(
             assert_eq!(report.placements.retained.len(), 1, "{scenario}: {report:?}");
             assert_eq!(report.placements.retained[0].path, dst);
             assert!(report.placements.retained[0].may_run);
-            assert!(report.placements.warning().unwrap().contains("standalone loader"));
+            assert!(report.placements.warning().unwrap().contains("may still run through Kiln or another loader"));
         }
     }
 }
@@ -1535,6 +1535,56 @@ fn sf_restore_settings_remain_player_owned_across_switch_and_mod_upgrade() {
     assert_eq!(report.retained.len(), 1);
     assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().settings[0].value, 7);
     assert_eq!(report.retained[0].path, dst);
+}
+
+/// A retained SET folder can be read by Kiln itself, not only a separately installed loader.
+#[test]
+fn retained_set_cleanup_warns_that_kiln_can_still_run_it_without_a_standalone_loader() {
+    use kiln_manage::{library, manifest::ModKind, own_loaders, profile, task::Progress};
+    #[derive(Default)]
+    struct Said(Vec<String>);
+    impl Progress for Said {
+        fn report(&mut self, _: Option<f32>, message: &str) { self.0.push(message.into()); }
+    }
+    for uninstall in [false, true] {
+        let t = tmp(&format!("set-cleanup-warning-{uninstall}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let game = t.0.join("game");
+        put(&game, "enshrouded.exe", b"MZ");
+        let gi = client(&game);
+        let zip = bundle::create(&stage(&t.0, "set-warning", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+        install::install(&dirs, &gi, &zip, &InstallOptions::default(), &mut NoProgress).unwrap();
+        assert!(own_loaders::find(&game, None).is_empty(), "there is no standalone loader");
+        let src = t.0.join("src/set-player");
+        put(&src, "init.lua", b"return {}");
+        let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+        let r = imported.imported.iter().find(|r| r.kind == ModKind::Set).unwrap();
+        let mut p = profile::create(&dirs, "SET", None).unwrap();
+        p.mods.set.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let p = profile::save(&dirs, &p).unwrap();
+        profile::activate(&dirs, &p.id, &gi).unwrap();
+        let dst = game.join("shrouded_engine_tweaks/mods/set-player");
+        put(&dst, "init.lua", b"player code");
+        let empty = profile::create(&dirs, "Empty", None).unwrap();
+        let activation = profile::activate(&dirs, &empty.id, &gi).unwrap();
+        let retained = activation.retained.iter().find(|r| r.path == dst).unwrap();
+        assert!(retained.may_run && retained.reason.contains("Kiln's SET plugin"), "{activation:?}");
+        let mut said = Said::default();
+        let cleanup = if uninstall {
+            install::uninstall_report(&dirs, &gi, &mut said).unwrap().placements
+        } else {
+            let cleanup = profile::deactivate_report(&dirs, &gi).unwrap();
+            assert!(profile::read_game_profile(&game).unwrap().is_none(), "the next start uses legacy mode");
+            cleanup
+        };
+        assert!(cleanup.retained.iter().any(|r| r.path == dst && r.may_run), "{cleanup:?}");
+        let warning = cleanup.warning().unwrap();
+        assert!(warning.contains("These mods may still run through Kiln or another loader; review or move these folders with the game closed."),
+            "retained SET can still run through Kiln without a standalone loader: {warning}");
+        assert!(!warning.contains("standalone loader"));
+        if uninstall { assert!(said.0.contains(&warning), "uninstall progress must carry the warning: {:?}", said.0); }
+        assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"player code");
+    }
 }
 
 /// Ownership accepts generated and documented mutable files for reapply, but cleanup must not turn that acceptance

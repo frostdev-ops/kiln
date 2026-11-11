@@ -1057,7 +1057,7 @@ pub struct PlacementCleanup {
 impl PlacementCleanup {
     pub fn warning(&self) -> Option<String> {
         (!self.retained.is_empty()).then(|| format!(
-            "Kept mod folders to preserve player files: {}. These mods may still run in the standalone loader; review or move these folders with the game closed.",
+            "Kept mod folders to preserve player files: {}. These mods may still run through Kiln or another loader; review or move these folders with the game closed.",
             self.retained.iter().map(|r| format!("{} ({})", r.path.display(), r.reason)).collect::<Vec<_>>().join("; ")))
     }
 }
