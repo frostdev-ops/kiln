@@ -124,7 +124,7 @@ int main() {
     CHECK(again.size() == 1 && again[0].act == Act::Keep);
 
     // log mirroring
-    CHECK(worth_mirroring("2026-11-07 INFO enshwick: Enshwick 1.0.0-alpha.13 starting on Wine 10.0"));
+    CHECK(worth_mirroring("2026-11-07 INFO enshwick: Enshwick 1.0.0-alpha.14 starting on Wine 10.0"));
     CHECK(worth_mirroring("INFO enshwick: ready: 2 of 2 mods running"));
     CHECK(worth_mirroring("INFO enshwick: you.welcome 1.0.0 initialised"));
     CHECK(!worth_mirroring("20:35:26.260Z debug [enshwick] page 0x1000 sealed"));

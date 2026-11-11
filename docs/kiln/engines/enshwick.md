@@ -6,8 +6,8 @@ packs. You don't need Enshwick's `powrprof.dll`, and under Proton you don't need
 launch option.
 
 The plugin does not re-implement Enshwick. It **hosts Enshwick's own loader**, `enshwick.dll`, built from Enshwick's
-source at a pinned tag (`native/plugins/enshwick/tools/build-runtime.sh`, now `v1.0.0-alpha.13`). The plugin starts
-the loader the way Enshwick's stub does. So every API a mod calls (the 193-entry host table, Luau, packs, settings,
+source at a pinned tag (`native/plugins/enshwick/tools/build-runtime.sh`, now `v1.0.0-alpha.14`). The plugin starts
+the loader the way Enshwick's stub does. So every API a mod calls (the 199-entry host table, Luau, packs, settings,
 the join check) is Enshwick's own code, and a new Enshwick release is a rebuild, not a port.
 
 ## Install a mod
@@ -103,7 +103,7 @@ Each arms its own inline hooks: Enshwick a 5-byte `jmp` to a relay, Kiln safetyh
 prologue that already begins with the other's jump into its trampoline, so on a function both hook, both chains run,
 in the order they were armed. Matching was the weak spot: a pattern that covers a prologue the other side has already
 hooked no longer matches the live code. Kiln has matched on the file since 2026-11-07, so it is now only Enshwick's
-weak spot. Measured on a lab server (Steam build 26430253):
+weak spot up to alpha.13. Measured on a lab server with alpha.13 (Steam build 26430253):
 
 | Start | Enshwick entries found | Kiln symbols / features |
 |---|---|---|
@@ -120,6 +120,22 @@ functions. The same holds when Enshwick's own stub runs
 next to Kiln. `"start": "ready"` (Kiln first) still costs Enshwick the entries listed above, because Enshwick scans
 the live code.
 
+**Since alpha.14** two things changed. Both are read from Enshwick's source (`crates/internal/loader/src/shipped.rs`,
+`patch.rs`, `start/game.rs`). Neither has been measured in a lab under Kiln yet, so the table above still shows alpha.13.
+
+- Enshwick searches the exe file's code, relocated to where the game runs, as Kiln does. Another program's hooks no
+  longer hide its entries. The `528 of 580` row should no longer apply. If the file does not read as the code in
+  memory, Enshwick falls back to the live code and logs `the executable on disk does not read as the code in memory`.
+- Enshwick writes no hook over a function whose bytes differ from the file. Up to alpha.13 it chained behind such a
+  hook. Now it turns off what needs that hook (`its hook on ... could not be armed: taken by <dll>`). Its log, its
+  Mods screen and the chat line a joining player reads name the DLL the jump leads into. So on every function Kiln
+  hooked first, Enshwick's part is off, and that line can name a Kiln DLL.
+
+Kiln is first with `"start": "ready"`. It is also first on the client with either setting, because Enshwick arms its
+client hooks only when the game window shows, after Kiln's. On the server with `"start": "early"` Enshwick arms first,
+as before, and Kiln's hooks chain behind it. The check runs once, when Enshwick arms. Watch Enshwick's log for
+`taken by` after moving to alpha.14.
+
 | Other overlap | What happens |
 |---|---|
 | An Enshwick **code patch** (`patch_code`, bytes compared before writing) on bytes Kiln already hooked | Enshwick skips the patch and turns the owning mod (or the loader feature) off, with the address in its log. Watch for `code patch of ... skipped`. |
@@ -132,15 +148,20 @@ the live code.
 
 ## Coverage
 
-Enshwick API 1.0.0-alpha.13: 59 public modules, about 1,270 public functions, 193 host-table entries, 37 Luau
-namespaces and 7 data-pack file kinds. Every item is **hosted**: the call goes to Enshwick's own loader inside Kiln,
-so coverage is complete by construction.
+Enshwick API 1.0.0-alpha.14: 60 public modules and 199 host-table entries (ABI 11.19; alpha.13 had 59 and 193, ABI
+11.15). Modules are the `pub mod` lines of `crates/enshwick/src/lib.rs`. Entries are the public fields of `HostApi` in
+`crates/enshwick/src/abi/host_api.rs`. Counted at alpha.13 and not counted again: about 1,270 public functions, 37
+Luau namespaces (alpha.14 adds `points` and `commands`) and 7 data-pack file kinds. Every item is **hosted**: the call
+goes to Enshwick's own loader inside Kiln, so coverage is complete by construction.
 
 The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod authors. **Tested** means:
 
 - **host**: the plugin's Wine host test starts the real loader under Kiln;
 - **lab**: an Enshwick mod ran on a dedicated lab server under Kiln;
 - **client**: needs the manual client test.
+
+The lab marks are from alpha.13 and earlier. Nothing alpha.14 added (commands, `add_experience`, Luau `define_point`,
+`read_only`, `resource_served`) has run in a lab under Kiln yet.
 
 | Enshwick area (host-table entries) | Kiln implementation | Kiln C# equivalent | Status / tested |
 |---|---|---|---|
@@ -150,10 +171,10 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 | Settings (`config_schema`, `config_check`, `settings`): per-world `settings.toml` | hosted | `Config.RegisterWorld<T>()` / `Mod.WorldConfig<T>()` (per-world config) | hosted; lab (files written), client (Settings button) |
 | Join check (`join_missing`, `hosting`, `mods.lock`) | hosted | `Kiln.Network` mod-set check | hosted; lab (`mods.lock`, server advertising), client (refusal) |
 | Hooks and raw access (`hook`, `hook_at`, `patch_code`, `code_range`, `symbol`, `find_call`, `field_offset`, `constant`, `caller_frame`, `fault`) | hosted, chained with Kiln's hooks (see above) | `Kiln.Hooks` | hosted; lab |
-| ECS and types (`component`, `component_write`, `system`, `types`, `type_size`, `type_hash`, `resource_read`, `resource_keys`, `rebuild_resource`, `serve_resource`) | hosted | `Reflected.Component`, `GameTypes`, `ReflectedResources.Get/All/FindByField`, `Assets` | hosted; lab |
+| ECS and types (`component`, `component_write`, `system`, `types`, `type_size`, `type_hash`, `resource_read`, `resource_keys`, `rebuild_resource`, `serve_resource`; alpha.14: `read_only`, `resource_served`) | hosted | `Reflected.Component`, `GameTypes`, `ReflectedResources.Get/All/FindByField`, `Assets` | hosted; lab |
 | Events and ticks (`subscribe*`, `define_event`, `send_event`, `emit`, `event_types`, `set_tick_every`, `loop_wait`, `task_workers`) | hosted | `Events`, `ModContext.Tick`, `Scheduler` | hosted; lab |
 | Services and calls between mods (`publish`, `service`, `serve_call`, `call`) | hosted | `Mods.Send`, `Kiln.Network` ModCalls | hosted; host (no game needed) |
-| Extension points (`define_point`, `attach_point`, `run_point`) | hosted | **`Kiln.Points`** (new, ported from Enshwick's model) | hosted; C# unit-tested |
+| Extension points (`define_point`, `attach_point`, `run_point`; alpha.14: Luau `points.define_point`, `[[point]]` in `pack.toml`) | hosted | **`Kiln.Points`** (new, ported from Enshwick's model) | hosted; C# unit-tested |
 | World, players, entities (`world_*`, `player`, `players`, `entities`, `entity_template`, `spawn`, `destroy`, `teleport`, `server_world`, `server_wait`) | hosted | `Kiln.World`, `Kiln.Players`, `Kiln.Spawn` | hosted; lab |
 | Entity and item data (`entity_data_open`, `item_data_*`) | hosted | `EntityData` (`Kiln.Saves`); gear uses `InventorySlot.ItemEntity` in the current world session; no persistent per-item store | hosted; client |
 | Saves and state (`save_world`, `save_info`, `hold_saves`, `data_dir`, `set_saved`) | hosted | `WorldData`, `PlayerData`, `ModContext.DataDirectory` | hosted; lab |
@@ -161,7 +182,7 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 | Content (`declare_content`, `declare_change`, `use_content`, `content_*`, `rename_*`, `add_text`, `texts`, `icons_ready`, `workshop_recipes`, `recipe_*`, `crafting_prop`) | hosted | `Kiln.Content`, `Kiln.Blocks` | hosted; client |
 | Loot and rewards | hosted | `Kiln.Content` loot, `Kiln.Quests` rewards | hosted; client |
 | Stats, buffs, affixes, damage (`stat_*`, `buff*`, `apply_buff`, `remove_buff`, `affix_*`, `damage_filter`, `stats_changed`) | hosted | `Attributes`, `Kiln.Combat`, `Kiln.Abilities`; affixes: no Kiln C# API | hosted; client |
-| Progress, knowledge, skills, experience, comfort (`knowledge*`, `grant/revoke_knowledge`, `skill_override`, `experience_filter`, `comfort_filter`, `quests`) | hosted | `Kiln.Skills`, `Kiln.Players`, `Kiln.Quests` | hosted; client |
+| Progress, knowledge, skills, experience, comfort (`knowledge*`, `grant/revoke_knowledge`, `skill_override`, `experience_filter`, `comfort_filter`, `quests`; alpha.14: `content` `Load::add_experience`, `vanilla::experience_values()`) | hosted | `Kiln.Skills`, `Kiln.Players` (`Progression.AddExperience`), `Kiln.Quests` (`QuestAction.Experience`); an experience value of a mod's own: no Kiln C# API | hosted; client |
 | Rates and game settings (`rate`, `set_rate`, `game_settings`, `set_game_settings`, `keep/forget_game_settings`) | hosted | `Kiln.Rules`, `Kiln.Settings` | hosted; lab |
 | Vetoes and filters (`craft_filter`, `build_filter`, `build_rights`, `interaction_filter`, `building_zone_check_filter`, `chat_filter`) | hosted | cancelable `Events`, `Kiln.Rules` | hosted; client |
 | Altars, bases, survivors (`altar*`, `base_*`, `raise_base_limit`, `request_base_limits`, `survivor_*`) | hosted | `Kiln.Build` (partial), `Villagers` (`Kiln.Creatures`) and `WorldProgress.Survivors` (read); recruit/assign and `raise_base_limit` remain gaps | hosted; client |
@@ -169,15 +190,15 @@ The "Kiln C#" column names Kiln's own API for the same capability, for Kiln mod 
 | Terrain, voxels (`terrain_*`, `voxel_read`) | hosted | `Kiln.Build`, `Kiln.Blocks` | hosted; client |
 | Map, fog, markers (`map_*`, `fog_*`, `ui_markers`) | hosted | `Kiln.Ui` map markers | hosted; client |
 | UI (`ui_frame`, `ui_widget`, `ui_dialog`, `ui_hud`, `ui_extension`, `notify`) | hosted | `Kiln.Ui` | hosted; client |
-| Controls, input (`control`, `actions`, `run_action*`) | hosted | `Kiln.Client` input | hosted; client |
-| Chat and console (`chat`, `chat_mute_*`, `run_console`, `account_*`) | hosted | `Kiln.Chat`, `kilnctl` commands | hosted; lab |
+| Controls, input (`control`, `actions`, `run_action*`; alpha.14: `actions_changed`) | hosted | `Kiln.Client` input | hosted; client |
+| Chat and console (`chat`, `chat_mute_*`, `run_console`, `account_*`; alpha.14: `commands`, `run_command`, `command_list`, used by `Actions::commands(name, alias)` and the `commands` module) | hosted | `Kiln.Chat` (`Commands.Register`: chat commands with permissions and `/help`), `kilnctl` commands | hosted; lab |
 | Net between a mod's server and client (`net_channel`, `net_send`, `net_ready`) | hosted | `Kiln.Network` | hosted; client |
 | Sound (`sound`) | hosted | `Kiln.Audio` | hosted; client |
 | Pacing (`pacing`, `set_change`, `change_data`) | hosted | **`Pacing`** (`OnLoopWait`, `OnServerWait`; worker caps by `kiln-pacing.json`, not by a mod: [lifecycle.md](../modding/lifecycle.md#pacing-pacing)); `set_change`, `change_data`: none | hosted; lab (Enshwick's optimizer mod next to a Kiln mod's handlers); Kiln's own: lab |
 | Status lines (`status`), mods list (`mods`, `mod_dir`, `host_version`, `game_version`, `language`, `feature`) | hosted | `Mods.All`, `StatusLines.Add/Set/All` (`Kiln.Ui`) | hosted; host |
 | Logging (`log`, `log_level`) | hosted; key lines mirrored into kiln.log | `ModContext.Log` | hosted; host + lab |
 
-Counts: 33 areas, 33 hosted. Of the 193 entries, 193 are served by Enshwick's own code. On Kiln's side,
+Counts: 33 areas, 33 hosted. Of the 199 entries, 199 are served by Enshwick's own code. On Kiln's side,
 `Kiln.Points`, per-world config, reflected resources and `StatusLines` have Kiln C# APIs.
 Persistent per-item data, affixes, survivor recruit/assign and base-limit increases remain gaps. Gear
 `EntityData` is limited to its item entity in the current world session. `Pacing` has native loop/server-wait hooks and startup worker caps on supported server builds. Its lab changed
@@ -214,7 +235,7 @@ need a Kiln change for Enshwick.
 - The same build produces `bin/enshwick-tests/enshwick-contract-test.exe`: run under Wine/Windows to check ABI
   canaries, initialization faults, receipts, marker spoofing, player additions, rollback, refresh and removal.
 - `KILN_OUT=<out> native/build.sh kiln-enshwick compathost`, then `KILN_OUT=<out> python3
-  native/plugins/enshwick/tests/run.py`: 16 Wine scenarios with a stand-in loader. Set `ENSHWICK_REAL=<enshwick.dll>`
+  native/plugins/enshwick/tests/run.py`: 17 Wine scenarios with a stand-in loader. Set `ENSHWICK_REAL=<enshwick.dll>`
   to add one that starts the real loader.
 - Lab: deploy Kiln with `tools/deploy-server.sh` (it ships `kiln/plugins/enshwick/` when the runtime was built), put
   a data pack or Luau mod into `<server>/mods/`, start, and read `kiln/logs/kiln.log` and `logs/enshwick_*.log`.

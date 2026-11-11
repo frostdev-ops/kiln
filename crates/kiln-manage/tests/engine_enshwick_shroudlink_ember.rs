@@ -488,10 +488,12 @@ fn shroudlinks_client_addon_is_kept_as_a_mod() {
     put(&pkg, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"shroudlink addon"));
     put(&pkg, "shroudlink_core.dll", &build_test_dll(&["DirectInput8Create", "CrashHandlerFactory"], b"shroudlink core"));
     put(&pkg, "shroudlink_mods/chestsort.dll", &build_test_dll(&["shroudlink_mod_v2"], b""));
+    put(&pkg, "shroudlink_mods/storage.dll", &build_test_dll(&["shroudlink_mod_v2"], b""));
     let r = library::import(&dirs, &[pkg], &mut NoProgress).unwrap();
     let kinds: Vec<(ModKind, &str)> = r.imported.iter().map(|m| (m.kind, m.id.as_str())).collect();
     assert!(kinds.iter().any(|(k, _)| *k == ModKind::Native), "the addon is a native mod: {r:#?}");
-    assert!(kinds.contains(&(ModKind::Shroudlink, "chestsort.dll")), "{r:#?}");
+    assert!(kinds.contains(&(ModKind::Shroudlink, "chestsort")), "{r:#?}");
+    assert!(kinds.contains(&(ModKind::Shroudlink, "storage")), "{r:#?}");
     assert!(r.notes.iter().any(|n| n.text.contains("shroudlink's own loader")), "the core is a note: {r:#?}");
     assert!(r.skipped.is_empty(), "{r:#?}");
 }

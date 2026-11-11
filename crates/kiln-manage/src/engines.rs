@@ -404,6 +404,11 @@ pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detec
     if SHROUDLINK_MOD_EXPORTS.iter().any(|e| has(e)) {
         return mod_dll(Engine::Shroudlink);
     }
+    if file.eq_ignore_ascii_case("shroudlink_core.dll") && has("CrashHandlerFactory") && has("DirectInput8Create")
+        && bytes.windows(b"chestsort_server_".len()).any(|part| part == b"chestsort_server_")
+    {
+        return Some(detected(DetectKind::Proxy, Some(Engine::Shroudlink), path, loader_reason(Engine::Shroudlink, &file)));
+    }
     let class = crate::pe::classify_bytes(bytes);
     let engine = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln)?; // Kiln's own proxy: library's rule
     // a plain DLL that merely mentions "dinput8-chain.ini" or "reshade" keeps Kiln's own rules unless it is one by name
@@ -660,8 +665,17 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
     if has("shroudtopia.json") {
         return Some(folder_detected(DetectKind::Shroudtopia, Engine::Shroudtopia, dir, None, "this Shroudtopia setup"));
     }
+    let dlls = dlls_in(dir);
+    let shroudlink_dir = dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case(crate::engine_mods::SHROUDLINK_MODS));
+    if shroudlink_dir && !has("mod.json") && dlls.iter().filter(|dll| {
+        std::fs::read(dll).ok().and_then(|bytes| crate::pe::parse(&bytes).ok()).is_some_and(|pe| {
+            pe.exports.iter().any(|export| SHROUDLINK_MOD_EXPORTS.contains(&export.as_str()))
+        })
+    }).nth(1).is_some() {
+        return None; // an upstream bundle of separate shroudlink modules
+    }
     // a folder whose DLL is another engine's mod: the folder is the mod (its other DLLs are the mod's own)
-    for dll in dlls_in(dir) {
+    for dll in dlls {
         let Ok(bytes) = std::fs::read(&dll) else { continue };
         let exports = crate::pe::parse(&bytes).map(|i| i.exports).unwrap_or_default();
         if let Some(d) = detect_dll(&dll, &bytes, &exports)
@@ -675,7 +689,7 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
             let mut found = folder_detected(d.kind, engine, dir, m.as_ref(), &format!("this {} mod", engine.name()));
             // a release zip's shroudlink_mods/ folder holding one mod: the mod is named after its DLL
             if engine == Engine::Shroudlink && m.is_none()
-                && dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case(crate::engine_mods::SHROUDLINK_MODS))
+                && shroudlink_dir
             {
                 found.id = d.id;
                 found.name = d.name;
