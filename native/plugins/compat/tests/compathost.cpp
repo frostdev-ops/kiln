@@ -497,6 +497,11 @@ int wmain(int argc, wchar_t** argv) {
         }
         line(std::string("[host] RESULT flame_running_ftest=") + (flame->running(KilnStr{"ftest", 5}) ? "yes" : "no"));
         line(std::string("[host] RESULT flame_stepped_aside=") + (flame->stepped_aside() ? "yes" : "no"));
+        if (flame->header.size >= offsetof(KilnFlameApi, symbols) + sizeof(void*) && flame->symbols) {
+            KilnStr file{};
+            const uint32_t st = flame->symbols(KilnStr{"ftest", 5}, &file);
+            line("[host] RESULT flame_symbols_ftest=" + std::to_string(st) + " file=" + sv(file));
+        }
     }
     if (!freed && info.on_unload) info.on_unload(info.user);
     {

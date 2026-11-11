@@ -21,6 +21,14 @@ enum {
     KILN_FLAME_SKIPPED = 3,  /* disabled, rejected, or another Flame loader runs the mods */
 };
 
+/* symbols(): what the folder a Flame mod reads its own files from holds for the running game build. */
+enum {
+    KILN_FLAME_SYMBOLS_UNKNOWN = 0,  /* no such mod, or no folder or build key to look at */
+    KILN_FLAME_SYMBOLS_FOUND = 1,    /* sigs\<build key>.json: the mod has its symbols for this build */
+    KILN_FLAME_SYMBOLS_RECIPES = 2,  /* no sigs\<build key>.json, but recipes in symbols\ it may resolve the build from */
+    KILN_FLAME_SYMBOLS_NONE = 3,     /* neither: by its own rule the mod switches its game features off */
+};
+
 typedef struct KilnFlameMod {
     uint32_t size;    /* set by the caller: sizeof(KilnFlameMod) */
     uint32_t status;  /* KILN_FLAME_* */
@@ -39,6 +47,14 @@ typedef struct KilnFlameApi {
     bool(KILN_CALL* running)(KilnStr id);
     /* true when kiln-flame stepped aside for Flame's own loader. */
     bool(KILN_CALL* stepped_aside)(void);
+    /* Added in kiln-flame 1.1.0, still version 1: call it only when header.size >= offsetof(KilnFlameApi, symbols) +
+     * sizeof(void*) (an older kiln-flame publishes the four functions above, and a caller reads running() from a table
+     * of that size too). A Flame mod reads its own files from <game>\mods\<its mod.json id>\, whatever folder its DLL
+     * was loaded from (Creative Mode 3.2.0's log: "Mod directory: ...\mods\creative"); its runtime looks there for
+     * sigs\<build key>.json, the build key being the game exe's TimeDateStamp and SizeOfImage ("%08X-%X"), else for
+     * recipes in symbols\. Which of the two that folder holds for the running game, checked before the mod starts:
+     * KILN_FLAME_SYMBOLS_*. `file` (may be NULL) receives the sigs file's absolute path (empty when unknown). */
+    uint32_t(KILN_CALL* symbols)(KilnStr id, KilnStr* file);
 } KilnFlameApi;
 
 #ifdef __cplusplus

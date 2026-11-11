@@ -289,6 +289,64 @@ def flame_profile():
     return g
 
 
+def build_key(exe):
+    """The build key a Flame runtime names a game build by: the exe's TimeDateStamp and SizeOfImage ("6AEB144C-2A3F000")."""
+    with open(exe, "rb") as f:
+        d = f.read(4096)
+    pe = int.from_bytes(d[0x3C:0x40], "little")
+    return f"{int.from_bytes(d[pe + 8:pe + 12], 'little'):08X}-{int.from_bytes(d[pe + 24 + 56:pe + 24 + 60], 'little'):X}"
+
+
+def flame_reads_from():
+    """A Flame mod reads its own files from <game>\\mods\\<id>\\ (Creative Mode: sigs\\<build key>.json, symbols\\), not from
+    the folder its DLL was loaded from. kiln-flame runs the profile's entry where the profile names it (the launcher names
+    Kiln's copy in mods\\<id>), and says in flame.json and the log where it ran from, which folder the mod reads, and
+    whether that folder has a symbol file for this game build: found, only recipes, or none (kiln.flame symbols())."""
+    combined = None
+    for case in ("placed", "library", "leftover", "recipes"):
+        g = Game(f"flame-reads-from-{case}")
+        key = build_key(g.p(g.exe))
+        folder = "mods/ftest" if case in ("placed", "recipes") else "library/ftest"
+        flame_mod(g, folder, "ftest", "flame_test.dll", dll_name="ftest.dll")
+        if folder.startswith("mods/"):
+            g.put(folder + "/.kiln-library.json", {"format": 1, "kind": "flame", "id": "ftest", "version": "3.2.0",
+                                                   "hash": "kdh1:" + "0" * 64})
+        if case != "recipes":
+            g.put(f"{folder}/sigs/{key}.json", "{}")
+        g.put(f"{folder}/symbols/client.json", "{}")
+        if case == "leftover":  # what the mod wrote into mods\\ftest\\ under an older Kiln: no mod, only its files
+            g.put("mods/ftest/logs/ftest.log", "No symbol file for this game build")
+            g.put("mods/ftest/notice.txt", "Enshrouded was updated")
+        g.profile({"flame": [{"id": "ftest", "path": winpath(g.p(*folder.split("/")))}]}, dropins=True)
+        g.run(g.plugin("kiln-flame.dll"), 600)
+        g.has("FTEST 3.2.0 (profile): FlameStartRuntime returned")
+        m = next((m for m in g.state("flame").get("mods", []) if m.get("id") == "ftest"), {})
+        reads = winpath(g.p("mods", "ftest"))
+        g.expect((m.get("readsFrom") or "").lower() == reads.lower(), f"{case}: readsFrom {m.get('readsFrom')!r}")
+        g.expect(m.get("buildKey") == key, f"{case}: buildKey {m.get('buildKey')!r}, want {key}")
+        with open(g.p(*folder.split("/"), "started.txt"), encoding="utf-8") as f:
+            data = f.read()
+        want = {"placed": ("found", "found", "1"), "recipes": ("recipes", "missing", "2"),
+                "library": ("none", "missing", "3"), "leftover": ("none", "missing", "3")}[case]
+        g.expect(m.get("symbols") == want[0], f"{case}: symbols {m.get('symbols')!r}, want {want[0]}")
+        g.expect(f"data={want[1]}" in data, f"{case}: the mod looked in mods\\ftest: {data!r}")
+        g.expect(g.result("flame_symbols_ftest") == want[2], f"{case}: kiln.flame symbols(ftest) = {g.result('flame_symbols_ftest')}")
+        if case in ("placed", "recipes"):
+            g.expect(m.get("note", "") == "", f"{case}: no note: {m.get('note')!r}")
+        else:
+            g.expect("may not find its files" in m.get("note", ""), f"{case}: note {m.get('note')!r}")
+            g.has("[flame:ftest] ran from " + winpath(g.p("library", "ftest")))
+            if case == "leftover":
+                g.expect("not Kiln's copy" in m.get("note", ""), f"{case}: note {m.get('note')!r}")
+        if case == "library":
+            g.has("no symbol file for this game build")
+        if combined is None:
+            combined = g
+        else:
+            combined.failures += [g.name + ": " + f for f in g.failures]
+    return combined
+
+
 def flame_aside():
     g = Game("flame-aside")
     flame_mod(g, "mods/ftest", "ftest", "flame_test.dll")
@@ -1075,7 +1133,7 @@ def wine_builtin_not_a_loader():
 
 SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_legacy_client, greeneye_profile_server, greeneye_hot_reload_server, greeneye_aside, greeneye_nomods,
-    flame_legacy, flame_profile, flame_aside,
+    flame_legacy, flame_profile, flame_reads_from, flame_aside,
     shroudtopia_legacy_server, shroudtopia_hooks_full, shroudtopia_hooks_refused, shroudtopia_profile_client, shroudtopia_aside, idle_without_mods,
     invalid_profiles, path_boundaries, flame_dllmain_fault, flame_fault_running, flame_lifetime, flame_late_loader, flame_dependency_loader,
     greeneye_hot_factory_faults, shroudtopia_late_loader, shroudtopia_lifetime, shroudtopia_renamed_loader,
