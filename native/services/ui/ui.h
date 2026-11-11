@@ -16,10 +16,25 @@ namespace kui {
 // Snapshots hold this state, not a bare callback. Unsubscribe cancels queued calls and waits for an in-flight call
 // before the plugin may unload. A callback may unsubscribe itself (the gate is recursive).
 struct CallbackLifetime {
+    // A recursive gate alone cannot distinguish self-unsubscribe from a nested callback canceling an outer one.
+    // Keep the invocation stack so the latter cannot claim that the still-running outer call has drained.
+    struct Invocation {
+        CallbackLifetime* state;
+        Invocation* outer;
+        inline static thread_local Invocation* current = nullptr;
+        explicit Invocation(CallbackLifetime* s) : state(s), outer(current) { current = this; }
+        ~Invocation() { current = outer; }
+        Invocation(const Invocation&) = delete;
+        Invocation& operator=(const Invocation&) = delete;
+    };
     std::recursive_mutex gate;
     std::atomic<bool> active{true};
     std::unique_lock<std::recursive_mutex> drain(bool nonblocking = false) {
         std::unique_lock lock(gate, std::defer_lock);
+        if (nonblocking && Invocation::current) {
+            for (auto* i = Invocation::current->outer; i; i = i->outer)
+                if (i->state == this) return lock;
+        }
         if (nonblocking && !lock.try_lock()) return lock;
         if (!nonblocking) lock.lock();
         return lock;

@@ -319,7 +319,9 @@ kiln-shroudforge feeds it (`native/plugins/shroudforge/src/key_feed.cpp`):
   `RIDEV_NOLEGACY`, so most keys arrive both ways, and the window can take `WM_INPUT` ahead of the messages
   ([docs/re/client-render.md](../re/client-render.md) "Input": clicks reached Kiln's overlay twice that way). Forwarded
   both ways, a quick tap could count as two presses, and so could Print Screen (the runtime counts its lone `WM_KEYUP`
-  as a press). Buttons the same way: raw button records, else the button messages. A focus loss calls `reset` once
+  as a press). Buttons the same way: raw button records, else the button messages. If the corresponding raw-input
+  registration is removed or targets another focused window, legacy input resumes (including releases of held raw keys
+  and buttons). A failed registration query keeps the existing source. A focus loss calls `reset` once
   (kiln.ui sends one record for `WM_ACTIVATEAPP` 0 and `WM_KILLFOCUS` together; `reset` re-reads about 500 key names
   on the window thread).
 - **Teardown** (the worker, also after a failed create or update): unsubscribe (kiln.ui waits for a record in flight),
@@ -348,15 +350,17 @@ window of the game's process is in front, with or without the feed.
 Checks (none with a game window):
 
 - `native/services/ui/tests/test-window-input-wine.sh`: kiln.ui's production window procedure on a message-only window
-  under Wine, with made-up raw input records (43 checks: every kind, unchanged and in order; what the game and Kiln's
-  own key handling get is the same with a subscriber; records Kiln keeps from the game while it captures input, or
-  that a binding consumes, still arrive; one record per focus loss; unsubscribe waits for a call in flight; a faulting
-  subscriber is removed).
-- `native/plugins/shroudforge/tests/run.py`, cases `keys-*` (15): a fake runtime and a fake kiln.ui. Begin before
+  under Wine, with made-up raw input records (76 checks: every kind, unchanged and in order, including extended keys,
+  repeats, double clicks and button press-before-release; what the game and Kiln's own key handling get is the same
+  with a subscriber; captured or consumed records still arrive; oversized HID records are not decoded; raw registration
+  removal and target changes; per-subscriber focus coalescing and clearing Kiln's held keys; subscribe/cancel during
+  delivery, cross-thread and reentrant unsubscribe; a faulting subscriber is removed).
+- `native/plugins/shroudforge/tests/run.py`, cases `keys-*` (23): a fake runtime and a fake kiln.ui. Begin before
   create, each kind forwarded unchanged and in order under the rule above, reset, unsubscribe before end before
-  destroy; one export missing, another version, begin refused, a dedicated server, no or an older kiln.ui, the switch;
-  a teardown while the window thread sends records without a pause, with and without a working unsubscribe (no export
-  after end or destroy; a copy that never shut the gate and one that ended first both fail it).
+  destroy; raw registration removal resumes legacy keys and buttons without duplicating returning raw taps; one export
+  missing, another version, begin refused, a dedicated server, no or an older kiln.ui, the switch; faults in all seven
+  exports; a teardown while the window thread sends records without a pause, with and without a working unsubscribe
+  (no export after end or destroy; a copy that never shut the gate and one that ended first both fail it).
 - `native/plugins/shroudforge/tests/real_keys.py`: the component built from `112d939` by its `kiln/build.sh` behind
   the adapter, in a scratch game folder with no SF installed and a probe mod with three shortcut settings (`SDL:66`,
   `Ctrl+SDL:66`, `Mouse:4`). SF's API needs the game's type registry and archive reader, so copies of the client's

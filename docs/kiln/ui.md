@@ -364,7 +364,8 @@ message, make_code, flags, vkey, button, down` as `uint32_t`, then `uint64_t wpa
 `KILN_UI_INPUT_MOUSE_BUTTON` (button 1 left, 2 middle, 3 right, 4 and 5 the side buttons, `down` 1/0; from each raw
 mouse record, presses before releases, and from each button message, a double click being a press; `message` says
 which) and `KILN_UI_INPUT_FOCUS_LOST` (`WM_KILLFOCUS` or `WM_ACTIVATEAPP` 0, one record per loss: the second message
-of the same loss gives none until the window regains the focus or gives a key or button record). A key or click
+of the same loss gives none until the window regains the focus or gives a key or button record; coalesced per
+subscription, so a new subscriber does not rearm an existing one). A key or click
 usually arrives both raw and as a message, in the order the window received them; nothing is merged. Characters,
 mouse motion and the wheel are not delivered. Remove it with `unsubscribe`, which waits for a call in flight (from
 inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Colours,

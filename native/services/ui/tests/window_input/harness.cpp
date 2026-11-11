@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "ui.h"
+#include "raw_input_source.h"
 
 // ---- what input.cpp needs from ui.cpp ----
 namespace kui {
@@ -359,6 +360,89 @@ void play_consumed() {  // Insert: the key a Kiln binding consumes here (the men
 }
 const std::vector<std::string> kConsumed = {"raw 52 2 2d", "key 0100 2d 1520001", "raw 52 3 2d", "key 0101 2d c1520001"};
 
+void play_edge_keys() {
+    send(WM_INPUT, RIM_INPUT, raw_key(0x2a, RI_KEY_E0, VK_SHIFT)); // Print Screen's fake extended Shift
+    send(WM_INPUT, RIM_INPUT, raw_key(0x37, RI_KEY_E0, VK_SNAPSHOT));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x37, RI_KEY_E0 | RI_KEY_BREAK, VK_SNAPSHOT));
+    send(WM_KEYUP, VK_SNAPSHOT, key_l(0x37, true, true));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x2a, RI_KEY_E0 | RI_KEY_BREAK, VK_SHIFT));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x38, RI_KEY_E0, VK_MENU)); // right Alt
+    send(WM_INPUT, RIM_INPUT, raw_key(0x38, RI_KEY_E0 | RI_KEY_BREAK, VK_MENU));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x48, 0, VK_NUMPAD8));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x48, 0, VK_NUMPAD8)); // repeat is still a raw record
+    send(WM_INPUT, RIM_INPUT, raw_key(0x48, RI_KEY_BREAK, VK_NUMPAD8));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x48, RI_KEY_E0, VK_UP)); // same make code, extended navigation key
+    send(WM_INPUT, RIM_INPUT, raw_key(0x48, RI_KEY_E0 | RI_KEY_BREAK, VK_UP));
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_4_UP));
+    send(WM_XBUTTONDBLCLK, MAKEWPARAM(MK_XBUTTON2, XBUTTON2), 0);
+}
+const std::vector<std::string> kEdgeKeys = {
+    "raw 2a 2 10", "raw 37 2 2c", "raw 37 3 2c", "key 0101 2c c1370001", "raw 2a 3 10",
+    "raw 38 2 12", "raw 38 3 12", "raw 48 0 68", "raw 48 0 68", "raw 48 1 68",
+    "raw 48 2 26", "raw 48 3 26", "button 4 1 via 00ff", "button 4 0 via 00ff", "button 5 1 via 020d",
+};
+
+void raw_boundaries() {
+    RAWINPUT hid{};
+    hid.header.dwType = RIM_TYPEHID;
+    hid.header.dwSize = 512; // only the size query succeeds; both readers' buffers are too small
+    g_raw.push_back(hid);
+    const LPARAM handle = static_cast<LPARAM>(kRawBase + g_raw.size() - 1);
+    Got got;
+    KilnHandle h = 0;
+    kui::input_feed_subscribe(1, &collect, &got, &h);
+    g_game.clear();
+    g_raw_reads = 0;
+    send(WM_INPUT, RIM_INPUT, handle);
+    check(got.lines.empty() && g_game.size() == 1 && g_raw_reads == 2,
+          "oversized HID record is not decoded, still reaches the game, and causes no oversized read");
+    kui::input_feed_unsubscribe(h);
+
+    const HWND other = CreateWindowExW(0, L"KilnWindowInputGame", L"other raw target", 0, 0, 0, 0, 0,
+                                       HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+    const RAWINPUTDEVICE target{1, 6, 0, other};
+    check(other && RegisterRawInputDevices(&target, 1, sizeof target), "raw keyboard targets another message-only window");
+    check(kui::raw_input::registered_for(6, other) && !kui::raw_input::registered_for(6, g_win),
+          "source selection distinguishes the raw target from a replacement window");
+    DestroyWindow(other);
+    check(!kui::raw_input::registered_for(6, g_win), "destroyed raw target does not disable the replacement's legacy input");
+    const RAWINPUTDEVICE restore{1, 6, 0, nullptr};
+    check(RegisterRawInputDevices(&restore, 1, sizeof restore), "raw keyboard registration restored");
+}
+
+void held_focus_lost() {
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_BREAK, 'J'));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_MAKE, 'J'));
+    send(WM_KILLFOCUS, 0, 0);
+    check(!kui::input_key_held('J'), "focus loss clears Kiln's held keys when no release arrives");
+    uint32_t mods = 0;
+    check(kui::input_take_pressed(&mods) == 0, "focus loss discards a pending bind-capture press");
+    send(WM_SETFOCUS, 0, 0);
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_MAKE, 'J'));
+    check(kui::g_kiln_keys.back().find("repeat=0") != std::string::npos,
+          "first key after refocus is not mistaken for a repeat: %s", kui::g_kiln_keys.back().c_str());
+    send(WM_ACTIVATEAPP, FALSE, 0);
+    check(!kui::input_key_held('J'), "app deactivation also clears Kiln's held keys");
+    send(WM_INPUT, RIM_INPUT, raw_key(0x24, RI_KEY_BREAK, 'J'));
+}
+
+void raw_unregistered() {
+    kui::g_consume_vk = 'J';
+    const RAWINPUTDEVICE remove{1, 6, RIDEV_REMOVE, nullptr};
+    check(RegisterRawInputDevices(&remove, 1, sizeof remove), "raw keyboard unregistered");
+    kui::g_kiln_keys.clear();
+    g_game.clear();
+    send(WM_KEYDOWN, 'J', key_l(0x24, false, false));
+    check(kui::input_key_held('J') && !contains(g_game, "0100 "),
+          "legacy key after raw stops reaches Kiln's binding and is consumed");
+    send(WM_KEYUP, 'J', key_l(0x24, false, true));
+    check(!kui::input_key_held('J') && kui::g_kiln_keys.size() == 2,
+          "legacy release after raw stops clears Kiln's held key (%zu callbacks)", kui::g_kiln_keys.size());
+    const RAWINPUTDEVICE add{1, 6, 0, nullptr};
+    check(RegisterRawInputDevices(&add, 1, sizeof add), "raw keyboard registered again");
+    kui::g_consume_vk = 0;
+}
+
 // ---- lifetime ----
 struct Blocking {
     HANDLE inside, release;
@@ -384,6 +468,108 @@ void KILN_CALL self_unsubscribe(const KilnUiWindowInput*, void* user) {
 void KILN_CALL faulting(const KilnUiWindowInput*, void* user) {
     ++*static_cast<int*>(user);
     RaiseException(0xC0000005, 0, 0, nullptr);
+}
+
+struct Nested {
+    KilnHandle outer_handle = 0, inner_handle = 0;
+    bool inside = false, finished = false;
+    int calls = 0;
+    KilnResult result = -1;
+};
+void KILN_CALL outer_callback(const KilnUiWindowInput*, void* user) {
+    auto* n = static_cast<Nested*>(user);
+    ++n->calls;
+    if (n->inside || n->finished) return;
+    n->inside = true;
+    send(WM_KEYDOWN, 'N', key_l(0x31, false, false));
+    n->inside = false;
+    n->finished = true;
+}
+void KILN_CALL inner_callback(const KilnUiWindowInput*, void* user) {
+    auto* n = static_cast<Nested*>(user);
+    if (n->inside && n->result == -1) n->result = kui::input_feed_unsubscribe(n->outer_handle);
+}
+void nested_unsubscribe() {
+    Nested n;
+    kui::input_feed_subscribe(1, &outer_callback, &n, &n.outer_handle);
+    kui::input_feed_subscribe(2, &inner_callback, &n, &n.inner_handle);
+    send(WM_KEYDOWN, 'M', key_l(0x32, false, false));
+    check(n.finished && n.result == KILN_ERR_WRONG_THREAD,
+          "a nested callback cannot drain an outer callback still on this thread's stack (result %d)", n.result);
+    check(kui::input_feed_unsubscribe(n.outer_handle) == KILN_OK,
+          "the canceled outer callback can be drained after it returns");
+    send(WM_KEYUP, 'M', key_l(0x32, false, true));
+    check(n.calls == 2, "the canceled outer callback gets no more records (%d calls)", n.calls);
+    kui::input_feed_unsubscribe(n.inner_handle);
+}
+
+void KILN_CALL recursive_self(const KilnUiWindowInput*, void* user) {
+    auto* n = static_cast<Nested*>(user);
+    if (!n->inside) {
+        n->inside = true;
+        send(WM_KEYDOWN, 'P', key_l(0x19, false, false));
+        n->inside = false;
+    } else {
+        n->result = kui::input_feed_unsubscribe(n->outer_handle);
+    }
+}
+void recursive_unsubscribe() {
+    Nested n;
+    kui::input_feed_subscribe(1, &recursive_self, &n, &n.outer_handle);
+    send(WM_KEYDOWN, 'O', key_l(0x18, false, false));
+    check(n.result == KILN_ERR_WRONG_THREAD,
+          "self-unsubscribe cannot drain an earlier invocation of the same callback (result %d)", n.result);
+    check(kui::input_feed_unsubscribe(n.outer_handle) == KILN_OK, "recursive self-unsubscribe can be retried after return");
+}
+
+struct Mutation {
+    KilnHandle victim = 0, added = 0;
+    Got got;
+    int calls = 0;
+    KilnResult canceled = -1;
+};
+void KILN_CALL mutate(const KilnUiWindowInput*, void* user) {
+    auto* m = static_cast<Mutation*>(user);
+    if (m->calls++ != 0) return;
+    kui::input_feed_subscribe(3, &collect, &m->got, &m->added);
+    m->canceled = kui::input_feed_unsubscribe(m->victim);
+}
+void delivery_mutation() {
+    Mutation m;
+    Got victim;
+    KilnHandle first = 0;
+    kui::input_feed_subscribe(1, &mutate, &m, &first);
+    kui::input_feed_subscribe(2, &collect, &victim, &m.victim);
+    send(WM_KEYDOWN, 'Q', key_l(0x10, false, false));
+    check(m.canceled == KILN_OK && victim.lines.empty(), "a callback cancels another queued callback without waiting");
+    check(m.added && m.got.lines.empty(), "a subscriber added during delivery does not receive that record");
+    send(WM_KEYUP, 'Q', key_l(0x10, false, true));
+    check(m.got.lines.size() == 1 && victim.lines.empty(), "the new subscriber receives the next record, not the canceled one");
+    kui::input_feed_unsubscribe(first);
+    kui::input_feed_unsubscribe(m.added);
+
+    Blocking b;
+    b.inside = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    b.release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    KilnHandle blocked = 0;
+    kui::input_feed_subscribe(1, &blocking, &b, &blocked);
+    KilnResult result = -1;
+    std::thread other([&] {
+        if (WaitForSingleObject(b.inside, 10000) == WAIT_OBJECT_0) {
+            kui::CallbackLifetime caller;
+            kui::CallbackLifetime::Invocation invocation(&caller);
+            kui::t_callback = &caller;
+            result = kui::input_feed_unsubscribe(blocked);
+            kui::t_callback = nullptr;
+        }
+        SetEvent(b.release);
+    });
+    send(WM_KEYDOWN, 'R', key_l(0x13, false, false));
+    other.join();
+    check(result == KILN_ERR_WRONG_THREAD, "another thread's callback cancels without waiting for an active callback (%d)", result);
+    check(kui::input_feed_unsubscribe(blocked) == KILN_OK, "a canceled cross-thread callback drains on retry outside callbacks");
+    CloseHandle(b.inside);
+    CloseHandle(b.release);
 }
 
 void lifetime() {
@@ -446,6 +632,14 @@ void lifetime() {
     check(got.lines == second.lines && got.lines.size() == 1, "two subscribers get the same records");
     // A new subscription starts with the focus as "not lost": its first loss gives a record.
     send(WM_KILLFOCUS, 0, 0);
+    const auto old_loss = got.lines;
+    Got late;
+    KilnHandle hl = 0;
+    kui::input_feed_subscribe(5, &collect, &late, &hl);
+    send(WM_ACTIVATEAPP, FALSE, 0);  // the second notification of the same loss, with a new subscriber in between
+    check(got.lines == old_loss, "adding a subscriber does not deliver the same focus loss twice to existing subscribers");
+    check(late.lines == std::vector<std::string>{"focus-lost 001c 0"}, "the late subscriber gets its first loss notification");
+    kui::input_feed_unsubscribe(hl);
     kui::input_feed_unsubscribe(hg);
     kui::input_feed_unsubscribe(h2);
     Got fresh;
@@ -474,8 +668,11 @@ int main() {
     check(g_win && !IsWindowVisible(g_win), "message-only window %p", static_cast<void*>(g_win));
     kui::input_attach(g_win);
     check(kui::input_attached(), "Kiln's window procedure is on the window");
+    const RAWINPUTDEVICE keyboard{1, 6, 0, nullptr};
+    check(RegisterRawInputDevices(&keyboard, 1, sizeof keyboard), "raw keyboard registered");
 
     same_for_game("play", &play_everything, kEverything);
+    same_for_game("extended, repeated and double-click input", &play_edge_keys, kEdgeKeys);
 
     kui::g_menu_open = true;  // the Kiln menu: Kiln keeps presses, characters and clicks from the game
     same_for_game("menu open", &play_captured, kCaptured);
@@ -495,6 +692,12 @@ int main() {
     kui::g_consume_vk = 0;
 
     lifetime();
+    raw_unregistered();
+    held_focus_lost();
+    nested_unsubscribe();
+    recursive_unsubscribe();
+    delivery_mutation();
+    raw_boundaries();
 
     std::printf("%s: %d checks, %d failed\n", g_fails ? "FAIL" : "PASS", g_checks, g_fails);
     return g_fails ? 1 : 0;

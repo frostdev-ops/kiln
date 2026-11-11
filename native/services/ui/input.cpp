@@ -25,6 +25,7 @@
 #include "imgui.h"
 #include "safetyhook.hpp"
 #include "ui.h"
+#include "raw_input_source.h"
 #include "wndproc_chain.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -122,6 +123,16 @@ bool on_key(uint32_t vk, uint32_t scan, bool down) {
     return consumed;
 }
 
+// Releases can go to the newly focused window. Forget local repeat/consumption state without inventing key messages
+// for either subscribers or the game (the v5 focus record lets subscribers reset their own state).
+void forget_keys() {
+    for (uint32_t vk = 0; vk < 256; ++vk) {
+        g_down[vk].store(false, std::memory_order_relaxed);
+        g_consumed[vk] = false;
+    }
+    g_pressed_vk.store(0, std::memory_order_relaxed);
+}
+
 // A Kiln panel next to a game screen (set_hover_capture) has the mouse over it: its clicks and wheel are Kiln's.
 bool hover_capture() {
     return g_hover_panels.load(std::memory_order_relaxed) > 0 && want_draw() && g_want_mouse.load(std::memory_order_relaxed);
@@ -139,14 +150,13 @@ struct FeedSub : CallbackLifetime {
     KilnOwner owner = 0;
     KilnUiWindowInputFn fn = nullptr;
     void* user = nullptr;
+    // Coalesce the two notifications per subscriber: joining must not rearm another subscriber's loss.
+    std::atomic<bool> focus_lost{false};
 };
 std::mutex g_feed_mu;
 std::vector<std::shared_ptr<FeedSub>> g_feed_subs;
 std::unordered_map<KilnHandle, std::shared_ptr<FeedSub>> g_feed_retiring;  // unsubscribed, a call may still be in flight
 std::atomic<uint32_t> g_feed_count{0};
-// One focus loss gives WM_ACTIVATEAPP(0) and WM_KILLFOCUS both: the first gives the record. Set when one was delivered,
-// cleared when the window gets the focus back or delivers a key or button record (and by a new subscription).
-std::atomic<bool> g_focus_lost_said{false};
 
 bool guarded_feed(KilnUiWindowInputFn fn, const KilnUiWindowInput* r, void* user) {
     __try {
@@ -159,7 +169,6 @@ bool guarded_feed(KilnUiWindowInputFn fn, const KilnUiWindowInput* r, void* user
 
 void feed(KilnUiWindowInput r) {
     r.size = sizeof r;
-    if (r.kind != KILN_UI_INPUT_FOCUS_LOST) g_focus_lost_said.store(false, std::memory_order_relaxed);
     std::vector<std::shared_ptr<FeedSub>> subs;
     {
         std::lock_guard lk(g_feed_mu);
@@ -168,6 +177,12 @@ void feed(KilnUiWindowInput r) {
     for (const auto& s : subs) {
         std::lock_guard call(s->gate);
         if (!s->active.load(std::memory_order_acquire)) continue;
+        if (r.kind == KILN_UI_INPUT_FOCUS_LOST) {
+            if (s->focus_lost.exchange(true, std::memory_order_relaxed)) continue;
+        } else {
+            s->focus_lost.store(false, std::memory_order_relaxed);
+        }
+        CallbackLifetime::Invocation invocation(s.get());
         auto* outer = t_callback;
         t_callback = s.get();
         const bool ok = guarded_feed(s->fn, &r, s->user);
@@ -244,7 +259,11 @@ void feed_button_message(UINT m, WPARAM w, LPARAM l) {
 }
 
 void feed_focus_lost(UINT m, WPARAM w, LPARAM l) {
-    if (!g_focus_lost_said.exchange(true, std::memory_order_relaxed)) feed(feed_record(KILN_UI_INPUT_FOCUS_LOST, m, w, l));
+    feed(feed_record(KILN_UI_INPUT_FOCUS_LOST, m, w, l));
+}
+void feed_focus_gained() {
+    std::lock_guard lk(g_feed_mu);
+    for (const auto& s : g_feed_subs) s->focus_lost.store(false, std::memory_order_relaxed);
 }
 
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -319,6 +338,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (fed) feed(feed_record(KILN_UI_INPUT_WINDOW_KEY, m, w, l));
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
             bool consumed = false;
+            if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) consumed = on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, true);
             else consumed = g_consumed[vk];
             enqueue(h, m, w, l);
@@ -332,6 +352,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_SYSKEYUP: {
             if (fed) feed(feed_record(KILN_UI_INPUT_WINDOW_KEY, m, w, l));
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
+            if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, false);
             enqueue(h, m, w, l);
             break;  // releases always reach the game
@@ -343,11 +364,12 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (cap) return 0;
             break;
         case WM_SETFOCUS:
-            if (fed) g_focus_lost_said.store(false, std::memory_order_relaxed);
+            if (fed) feed_focus_gained();
             enqueue(h, m, w, l);
             break;
         case WM_KILLFOCUS:
             if (fed) feed_focus_lost(m, w, l);
+            forget_keys();
             enqueue(h, m, w, l);
             break;
         case WM_DPICHANGED:
@@ -355,9 +377,10 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             break;
         case WM_ACTIVATEAPP:
             if (fed) {
-                if (w) g_focus_lost_said.store(false, std::memory_order_relaxed);
+                if (w) feed_focus_gained();
                 else feed_focus_lost(m, w, l);
             }
+            if (!w) forget_keys();
             break;
         case WM_SETCURSOR:
             if (cap && LOWORD(l) == HTCLIENT) {
@@ -727,7 +750,6 @@ KilnResult input_feed_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* u
     sub->handle = next_handle();
     if (out) *out = sub->handle;
     g_feed_subs.push_back(std::move(sub));
-    g_focus_lost_said.store(false, std::memory_order_relaxed);  // its first focus loss gives a record
     g_feed_count.store(static_cast<uint32_t>(g_feed_subs.size()), std::memory_order_release);
     return KILN_OK;
 }

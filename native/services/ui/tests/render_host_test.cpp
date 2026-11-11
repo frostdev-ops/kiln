@@ -147,6 +147,19 @@ int main() {
     assert(unsubscribe.wait_for(std::chrono::milliseconds(10)) == std::future_status::timeout);
     finish.set_value();
     callback.join(); unsubscribe.get();
-    { std::lock_guard call(state->gate); assert(!state->active); assert(state->drain(true).owns_lock()); } // self-unsubscribe is reentrant
+    {
+        std::lock_guard call(state->gate);
+        kui::CallbackLifetime::Invocation outer(state.get());
+        assert(!state->active);
+        assert(state->drain(true).owns_lock()); // self-unsubscribe is reentrant
+        kui::CallbackLifetime other;
+        kui::CallbackLifetime::Invocation inner(&other);
+        assert(!state->drain(true).owns_lock()); // the outer call is still on this thread's stack
+        assert(other.drain(true).owns_lock());
+        kui::CallbackLifetime idle;
+        assert(idle.drain(true).owns_lock()); // another idle subscription can still drain
+        kui::CallbackLifetime::Invocation recursive(state.get());
+        assert(!state->drain(true).owns_lock()); // self-unsubscribe also cannot drain an earlier recursive invocation
+    }
     std::puts("render_host: all checks passed");
 }

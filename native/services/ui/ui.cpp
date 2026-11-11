@@ -220,6 +220,7 @@ bool build_frame(float width, float height, float dpi) {
     for (const auto& s : subs) {
         std::lock_guard call(s->gate);
         if (!s->active.load(std::memory_order_acquire)) continue;
+        CallbackLifetime::Invocation invocation(s.get());
         auto* outer = t_callback;
         t_callback = s.get();
         const bool ok = guarded_frame(s->fn, &f, s->user);
@@ -268,6 +269,7 @@ bool dispatch_key(const KilnUiKey& key) {
         std::lock_guard call(s->gate);
         if (!s->active.load(std::memory_order_acquire)) continue;
         bool c = false;
+        CallbackLifetime::Invocation invocation(s.get());
         auto* outer = t_callback;
         t_callback = s.get();
         const bool ok = guarded_key(s->fn, &key, s->user, &c);

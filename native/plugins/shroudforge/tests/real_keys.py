@@ -41,10 +41,12 @@ local last = {}
 local function look(key)
     local down = shroudforge.input.is_keybind_down(key)
     local pressed = shroudforge.input.was_keybind_pressed(key)
-    if down ~= last[key] or pressed then
-        shroudforge.log.info("probe " .. key .. " down=" .. tostring(down) .. " pressed=" .. tostring(pressed))
+    -- These queries are independent snapshots: a window-thread press may land between them.
+    if down ~= last[key] then
+        shroudforge.log.info("probe " .. key .. " down=" .. tostring(down))
         last[key] = down
     end
+    if pressed then shroudforge.log.info("probe " .. key .. " pressed=true") end
 end
 local watching = false
 return {
@@ -64,16 +66,14 @@ return {
 '''
 # What the probe must log, in order, for host.cpp's steps (F9; F9 as window messages after raw input: not forwarded;
 # Ctrl+F9, where F9 alone is another binding; XBUTTON1; F9 held across a focus loss, then its late release).
-FED = [
-    'probe probeKey down=true pressed=true',
-    'probe probeKey down=false pressed=false',
-    'probe probeChord down=true pressed=true',
-    'probe probeChord down=false pressed=false',
-    'probe probeMouse down=true pressed=true',
-    'probe probeMouse down=false pressed=false',
-    'probe probeKey down=true pressed=true',
-    'probe probeKey down=false pressed=false',
+FED_DOWN = [
+    'probe probeKey down=true', 'probe probeKey down=false',
+    'probe probeChord down=true', 'probe probeChord down=false',
+    'probe probeMouse down=true', 'probe probeMouse down=false',
+    'probe probeKey down=true', 'probe probeKey down=false',
 ]
+FED_PRESSED = ['probe probeKey pressed=true', 'probe probeChord pressed=true',
+               'probe probeMouse pressed=true', 'probe probeKey pressed=true']
 
 with tempfile.TemporaryDirectory(prefix='kiln-sf-real-', dir=tests.parent) as tmp:
     root = Path(tmp)
@@ -115,7 +115,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-real-', dir=tests.parent) as tm
     assert status['mode'] == 'hosted' and status['keys']['source'] == 'kiln', status
     assert 'Keyboard and mouse input is fed by the host' in sf, sf[-3000:]
     assert 'Keyboard shortcuts unavailable' not in sf, sf[-3000:]
-    assert probe == FED, probe
+    assert [p for p in probe if ' down=' in p] == FED_DOWN, probe
+    assert [p for p in probe if ' pressed=' in p] == FED_PRESSED, probe
     result, out, sf, status, probe = run('helper-path', {'KILN_SF_KEY_FEED': 'off'})
     assert result.returncode == 0, out
     assert status['keys']['source'] == 'none', status

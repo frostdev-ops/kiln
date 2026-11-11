@@ -253,6 +253,14 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('keys-fed-bundled', installed='corrupt', runtime='runtime_feed', extra_env=ui5, verify=keys_from_kiln)
     case('keys-fed-installed', runtime='runtime_feed', extra_env=ui5, verify=keys_from_kiln)
     case('keys-fed-early', installed='corrupt', early=True, runtime='runtime_feed', extra_env=ui5, verify=keys_from_kiln)
+    def raw_unregistered(status, calls, out):
+        want = ['feed-raw 43 0 78', 'feed-mouse 4 1', 'feed-window 78 c0430001', 'feed-mouse 4 0',
+                'feed-window 78 430001', 'feed-window 78 c0430001', 'feed-mouse 4 1', 'feed-mouse 4 0',
+                'feed-raw 43 0 78', 'feed-raw 43 1 78', 'feed-raw 37 2 2c', 'feed-raw 37 3 2c',
+                'feed-mouse 4 1', 'feed-mouse 4 0']
+        assert feed_calls(calls) == ['feed-version', 'feed-begin'] + FED + want + ['feed-end'], feed_calls(calls)
+    case('keys-raw-unregistered', installed='corrupt', runtime='runtime_feed',
+         extra_env=dict(ui5, KILN_SF_FEED_UNREGISTER='1'), verify=raw_unregistered)
     # one export missing (an upstream runtime has none; the fork before 9d586f1 neither): no call to any of them
     case('keys-export-missing', installed='corrupt', runtime='runtime_feed_partial', extra_env=ui5,
          verify=no_feed('none', 'has no host key feed'))
@@ -275,6 +283,25 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
          verify=no_feed('none', 'kiln.ui v5'))
     case('keys-switched-off', installed='corrupt', runtime='runtime_feed', extra_env=dict(ui5, KILN_SF_KEY_FEED='off'),
          verify=no_feed('none', 'KILN_SF_KEY_FEED=off'))
+    def feed_fault(export):
+        def verify(status, calls, out):
+            fed = feed_calls(calls)
+            if export == 'version':
+                assert fed == ['feed-version'] and status['keys']['source'] == 'none', (fed, status)
+            elif export == 'begin':
+                assert fed == ['feed-version', 'feed-begin'] and 'faulted in begin' in status['keys']['reason'], (fed, status)
+                assert 'ui-unsubscribe' in calls, calls
+            elif export == 'end':
+                keys_from_kiln(status, calls, out)
+                assert 'faulted when it was ended' in out, out
+            else:
+                last = next(i for i, c in enumerate(FED) if c.split()[0] == 'feed-' + export)
+                assert fed == ['feed-version', 'feed-begin'] + FED[:last + 1], fed
+                assert 'host key feed faulted on the window thread' in out, out
+        return verify
+    for export in ('version', 'begin', 'raw', 'window', 'mouse', 'reset', 'end'):
+        case('keys-fault-' + export, installed='corrupt', runtime='runtime_feed',
+             extra_env=dict(ui5, KILN_SF_FEED_FAULT=export), verify=feed_fault(export))
     # Teardown while the window thread sends key records without a pause (each feed call takes 2 ms): no export after
     # end or destroy. STUCK: kiln.ui's unsubscribe fails and records keep coming after the teardown.
     def raced(stuck):
