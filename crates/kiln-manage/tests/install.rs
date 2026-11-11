@@ -98,6 +98,86 @@ fn outside_kiln(dir: &Path) -> Vec<(String, String)> {
     v
 }
 
+/// A later bundle can bring the same bytes as a pre-Kiln original. Uninstall must not delete that original after
+/// accepting it in place as its only surviving recovery source.
+#[test]
+fn uninstall_keeps_an_original_already_in_place_when_backups_are_gone() {
+    let t = tmp("original-in-place");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "kiln/kiln-core.dll", b"core b");
+    let inst = client(&game);
+    let a = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &inst, &a, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let b = bundle::create(&stage(&t.0, "b", false), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let r = install::install(&dirs, &inst, &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).unwrap(), b"core b");
+    assert!(r.replaced.iter().any(|r| r.path == "kiln/kiln-core.dll" && r.sha256 == hash::sha256_hex(b"core b")));
+    std::fs::remove_dir_all(game.join("kiln/backups")).unwrap();
+    std::fs::remove_dir_all(dirs.backups().join("install").join(&r.install_id)).unwrap();
+    let report = install::uninstall_report(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).ok().as_deref(), Some(b"core b".as_slice()),
+        "an original accepted in place must remain: {report:?}");
+    assert!(report.warnings.is_empty(), "no missing ShroudForge helper: {report:?}");
+    assert!(!game.join("dinput8.dll").exists());
+    assert!(!game.join("kiln/.install.json").exists());
+}
+
+#[test]
+fn installed_core_receipt_and_profile_reader_follow_install_update_repair_and_rollback() {
+    use kiln_manage::{library, manifest::ModKind, profile};
+    let t = tmp("core-reader-lifecycle");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    let inst = client(&game);
+    let make = |tag: &str, reader: u32, epoch, git| {
+        let s = stage(&t.0, tag, false);
+        let file = s.join("kiln-runtime.json");
+        let mut doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        doc["profileReader"] = reader.into();
+        std::fs::write(file, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let zip = bundle::create(&s, &t.0.join("out"), &opts(epoch, git)).unwrap();
+        bundle::import(&dirs, &zip).unwrap()
+    };
+    let a = make("a", 1, 1_793_793_600, "aaaaaaa");
+    let b = make("b", 2, 1_793_880_000, "bbbbbbb");
+    let src = t.0.join("map");
+    put(&src, "mod.json", br#"{"id":"map","name":"Map","version":"1.0.0","dll":"m.dll"}"#);
+    put(&src, "m.dll", &build_test_dll(&["GreeneyeModStart"], b"test mod"));
+    let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let r = imported.imported.iter().find(|r| r.kind == ModKind::Greeneye).unwrap();
+    let mut p = profile::create(&dirs, "Reader lifecycle", None).unwrap();
+    p.mods.greeneye.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+    let p = profile::save(&dirs, &p).unwrap();
+    let check = |expected: &bundle::RuntimeBundle, reader: u32| {
+        let rec = install::read_receipt(&game).unwrap().unwrap();
+        assert_eq!(rec.runtime.version, expected.version);
+        let manifest = bundle::read(&expected.file).unwrap();
+        let installed = rec.files.iter().find(|f| f.path == "kiln/kiln-core.dll").unwrap();
+        let shipped = manifest.files.iter().find(|f| f.path == installed.path).unwrap();
+        assert_eq!(installed.sha256, shipped.sha256);
+        assert_eq!(hash::sha256_file(&game.join(&installed.path)).unwrap().0, installed.sha256);
+        profile::refresh_active(&dirs, &inst).unwrap();
+        let file = profile::read_game_profile(&game).unwrap().unwrap();
+        assert_eq!(file.mods.greeneye[0].path.starts_with("../greeneye/"), reader >= 2, "{file:?}");
+    };
+    install::install(&dirs, &inst, &a.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    check(&a, 1);
+    install::install(&dirs, &inst, &b.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    check(&b, 2);
+    // A core that no longer matches its receipt must lose reader-2 trust until repair restores it.
+    put(&game, "kiln/kiln-core.dll", b"hand changed core");
+    profile::refresh_active(&dirs, &inst).unwrap();
+    assert!(!profile::read_game_profile(&game).unwrap().unwrap().mods.greeneye[0].path.starts_with("../greeneye/"));
+    install::install(&dirs, &inst, &b.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    check(&b, 2);
+    install::rollback(&dirs, &inst, &a.version, &mut NoProgress).unwrap();
+    check(&a, 1);
+}
+
 #[test]
 fn every_compatibility_component_is_default_on_both_sides() {
     use kiln_manage::manifest::RunSide;
@@ -1426,7 +1506,7 @@ fn sf_restore_retains_player_edits_unknown_old_receipts_and_unreceipted_markers(
             assert_eq!(report.placements.retained.len(), 1, "{scenario}: {report:?}");
             assert_eq!(report.placements.retained[0].path, dst);
             assert!(report.placements.retained[0].may_run);
-            assert!(report.placements.warning().unwrap().contains("standalone loader"));
+            assert!(report.placements.warning().unwrap().contains("may still run through Kiln or another loader"));
         }
     }
 }
@@ -1455,6 +1535,56 @@ fn sf_restore_settings_remain_player_owned_across_switch_and_mod_upgrade() {
     assert_eq!(report.retained.len(), 1);
     assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().settings[0].value, 7);
     assert_eq!(report.retained[0].path, dst);
+}
+
+/// A retained SET folder can be read by Kiln itself, not only a separately installed loader.
+#[test]
+fn retained_set_cleanup_warns_that_kiln_can_still_run_it_without_a_standalone_loader() {
+    use kiln_manage::{library, manifest::ModKind, own_loaders, profile, task::Progress};
+    #[derive(Default)]
+    struct Said(Vec<String>);
+    impl Progress for Said {
+        fn report(&mut self, _: Option<f32>, message: &str) { self.0.push(message.into()); }
+    }
+    for uninstall in [false, true] {
+        let t = tmp(&format!("set-cleanup-warning-{uninstall}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let game = t.0.join("game");
+        put(&game, "enshrouded.exe", b"MZ");
+        let gi = client(&game);
+        let zip = bundle::create(&stage(&t.0, "set-warning", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+        install::install(&dirs, &gi, &zip, &InstallOptions::default(), &mut NoProgress).unwrap();
+        assert!(own_loaders::find(&game, None).is_empty(), "there is no standalone loader");
+        let src = t.0.join("src/set-player");
+        put(&src, "init.lua", b"return {}");
+        let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+        let r = imported.imported.iter().find(|r| r.kind == ModKind::Set).unwrap();
+        let mut p = profile::create(&dirs, "SET", None).unwrap();
+        p.mods.set.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let p = profile::save(&dirs, &p).unwrap();
+        profile::activate(&dirs, &p.id, &gi).unwrap();
+        let dst = game.join("shrouded_engine_tweaks/mods/set-player");
+        put(&dst, "init.lua", b"player code");
+        let empty = profile::create(&dirs, "Empty", None).unwrap();
+        let activation = profile::activate(&dirs, &empty.id, &gi).unwrap();
+        let retained = activation.retained.iter().find(|r| r.path == dst).unwrap();
+        assert!(retained.may_run && retained.reason.contains("Kiln's SET plugin"), "{activation:?}");
+        let mut said = Said::default();
+        let cleanup = if uninstall {
+            install::uninstall_report(&dirs, &gi, &mut said).unwrap().placements
+        } else {
+            let cleanup = profile::deactivate_report(&dirs, &gi).unwrap();
+            assert!(profile::read_game_profile(&game).unwrap().is_none(), "the next start uses legacy mode");
+            cleanup
+        };
+        assert!(cleanup.retained.iter().any(|r| r.path == dst && r.may_run), "{cleanup:?}");
+        let warning = cleanup.warning().unwrap();
+        assert!(warning.contains("These mods may still run through Kiln or another loader; review or move these folders with the game closed."),
+            "retained SET can still run through Kiln without a standalone loader: {warning}");
+        assert!(!warning.contains("standalone loader"));
+        if uninstall { assert!(said.0.contains(&warning), "uninstall progress must carry the warning: {:?}", said.0); }
+        assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"player code");
+    }
 }
 
 /// Ownership accepts generated and documented mutable files for reapply, but cleanup must not turn that acceptance

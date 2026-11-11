@@ -1189,6 +1189,9 @@ pub fn uninstall_report(dirs: &DataDirs, install: &GameInstall, progress: &mut d
         }
         let p = game_dir.join(&f.path);
         match file_sha(&p) {
+            // Preflight accepts an original already at its path even when every backup is gone. It may also match
+            // this bundle's file (an update brought those bytes back); never delete our only surviving restore source.
+            Some((h, _)) if originals.iter().any(|r| r.path == f.path && r.sha256 == h && source(r).is_none()) => {}
             Some((h, _)) if h == f.sha256 => {
                 std::fs::remove_file(&p).map_err(io_at(&p, "removing"))?;
                 report.removed += 1;
