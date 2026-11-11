@@ -164,10 +164,11 @@ Discovery only examines already-loaded modules and never loads a DLL or resolves
 thread, never on the render thread, at most once a second while Kiln's menu is drawn. Export tables are read through
 kernel-checked copies, bounded by the image size in the PE header, without taking a module reference; a reference
 is taken only for a module whose table names the bridge export, which is then checked again under it, and
-non-owned/non-executable exports are rejected. Each scan compares the loaded-module list with the last one; export
-tables are read again only after a module loaded or unloaded, and until then only a matching copy that declined
-is asked again. There are no
-transport taps, unknown game layouts, receive-injection API or test TCP listener.
+non-owned/non-executable exports are rejected. Each scan compares the loaded modules' base addresses, in load
+order, with the last scan's; export tables are read again only when they differ, and until then only a matching
+copy that declined is asked again. A copy loaded at exactly the base of the last-loaded module after that module
+unloaded leaves the list unchanged and is found only when it changes again; a player's addon loads at process
+start, before any scan, so this concerns late-loaded development copies. There are no transport taps, unknown game layouts, receive-injection API or test TCP listener.
 
 All ten real window node kinds are rendered. Text inputs send Change and have an explicit Apply/Submit button;
 item grids show the actual numeric item IDs/counts, not guessed names/icons. HUDs, slot marks and backpack sections
