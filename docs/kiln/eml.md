@@ -193,6 +193,11 @@ It fails soft:
   names the backups present exactly (by content, or by a change stamp on a volume that passes the scratch-file test),
   and the backup pair passes its seal. Then a normal receipt is written and the restore goes on as above. This reads
   the header, the resource file and the backups once (about 0.45 GiB on a client) and says so in the log.
+- **A run killed half way** leaves its private stage folder (`.kiln-eml-stage-<uuid>` in the game folder: a full copy
+  of the resource file and what it had written), temp copies (`<exe>.kiln-<uuid>`, `<exe>.kfc.kiln-<uuid>`) and, one per
+  handoff, SF journals (`kiln/eml/ownership/sf-handoff-<uuid>.json`). The next run removes them under the install lock,
+  by their exact shape only: a stage folder that holds anything but staged game files is left (with a warning in the
+  log), and the 16 newest journals stay.
 - **When ownership cannot be proven** and the data differs from the backup, the data is left as it is and the idle
   start says why: a `reason` in `kiln/state/eml.json`, a warning in kiln.log (`kiln-eml: no EML mods; game files
   untouched. The game data differs ...`), and the launcher's archive banner. If ShroudForge asset mods or another

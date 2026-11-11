@@ -287,6 +287,70 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     Ok(guard)
 }
 
+fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
+
+/// `<base>.kiln-<uuid>`: the temp copy `atomic_copy`/`atomic_write` makes next to its destination (transaction.rs).
+fn temp_of(name: &str) -> Option<&str> {
+    let (base, id) = name.rsplit_once(".kiln-")?;
+    is_uuid(id).then_some(base)
+}
+
+/// Removes what a kiln-eml run killed half way left behind: its private stage folders (`.kiln-eml-stage-<uuid>`, a full
+/// copy of the resource file each), temp copies over the archives, backups and receipts (`<name>.kiln-<uuid>`), and
+/// SF handoff journals beyond the newest 16 (one is written per handoff; the newest hold any state worth recovering).
+/// Call it holding the install lock, so no other run of this install is writing. Only exact shapes go: a stage folder
+/// holding anything but staged game files, a link, or a name without kiln-eml's uuid is left alone.
+pub fn prune(root: &Path, stem: &str) {
+    if check_stem(stem).is_err() { return; }
+    let stems = ["enshrouded", "enshrouded_server", stem];
+    let staged = |name: &str| stems.iter().any(|s| valid_name(s, name)) || name == super::transaction::VANILLA_HEADER || temp_of(name).is_some();
+    let (mut removed, mut freed) = (Vec::new(), 0u64);
+    let mut remove = |path: &Path, what: String| {
+        let size = fs::symlink_metadata(path).map_or(0, |m| m.len());
+        if fs::remove_file(path).is_ok() { freed += size; removed.push(what); }
+    };
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let (path, name) = (entry.path(), entry.file_name().to_string_lossy().into_owned());
+        if checked_path(root, &path).is_err() { continue; }
+        if let Some(id) = name.strip_prefix(".kiln-eml-stage-") {
+            if !is_uuid(id) || !fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) { continue; }
+            let Ok(files) = fs::read_dir(&path).map(|e| e.flatten().collect::<Vec<_>>()) else { continue };
+            if !files.iter().all(|f| super::transaction::regular(&f.path()).is_ok() && staged(&f.file_name().to_string_lossy())) {
+                tracing::warn!(folder = %path.display(), "an old EML stage folder holds other files; left as it is");
+                continue;
+            }
+            for f in &files { remove(&f.path(), format!("{name}/{}", f.file_name().to_string_lossy())); }
+            let _ = fs::remove_dir(&path);
+        } else if let Some(base) = temp_of(&name) {
+            if stems.iter().any(|s| base == *s || base == format!("{s}.kfc") || base == format!("{s}.kfc.bak"))
+                && super::transaction::regular(&path).is_ok() {
+                remove(&path, name);
+            }
+        }
+    }
+    let dir = root.join("kiln/eml/ownership");
+    if checked_path(root, &dir).is_ok() && fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
+        let mut journals = Vec::new();
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let (path, name) = (entry.path(), entry.file_name().to_string_lossy().into_owned());
+            if super::transaction::regular(&path).is_err() { continue; }
+            if let Some(base) = temp_of(&name) {
+                if stems.contains(&base) || base.strip_prefix("sf-handoff-").is_some_and(|r| r.strip_suffix(".json").is_some_and(is_uuid)) {
+                    remove(&path, name);
+                }
+            } else if name.strip_prefix("sf-handoff-").and_then(|r| r.strip_suffix(".json")).is_some_and(is_uuid) {
+                journals.push((entry.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), path, name));
+            }
+        }
+        journals.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, path, name) in journals.into_iter().skip(16) { remove(&path, name); }
+    }
+    if !removed.is_empty() {
+        tracing::info!("Removed {} file(s) ({:.1} MiB) an earlier EML run left behind: {}", removed.len(), freed as f64 / (1u64 << 20) as f64, removed.join(", "));
+    }
+}
+
 /// What `adopt` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Adoption {
@@ -775,6 +839,63 @@ mod tests {
         reset_read();
         assert!(!owns_output(&root, "g").unwrap());
         assert_eq!(read(), 0, "rejected by size alone");
+        fs::remove_dir_all(root).unwrap();
+    }
+    // A run killed half way leaves its private stage (a full copy of the resource file), temp copies and, one per
+    // handoff, SF journals. The next run (under the install lock) removes exactly those, by their exact shape.
+    #[test]
+    fn leftovers_of_a_killed_run_are_pruned_and_nothing_else() {
+        let root = std::env::temp_dir().join(format!("kiln-leftovers-{}", uuid::Uuid::new_v4()));
+        let id = || uuid::Uuid::new_v4().to_string();
+        let stale = root.join(format!(".kiln-eml-stage-{}", id()));
+        fs::create_dir_all(&stale).unwrap();
+        for n in ["g.kfc", "g.kfc_resources", "g_002.dat", ".vanilla-header"] { fs::write(stale.join(n), "staged").unwrap(); }
+        fs::write(stale.join(format!("g.kiln-{}", id())), "temp").unwrap();
+        let foreign = root.join(format!(".kiln-eml-stage-{}", id()));
+        fs::create_dir_all(&foreign).unwrap();
+        fs::write(foreign.join("notes.txt"), "a player's").unwrap();
+        fs::create_dir_all(root.join(".kiln-eml-stage-mine")).unwrap();
+        let temp = root.join(format!("g.kiln-{}", id()));
+        fs::write(&temp, "temp").unwrap();
+        let backup_temp = root.join(format!("g.kfc.kiln-{}", id()));
+        fs::write(&backup_temp, "temp").unwrap();
+        for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { fs::write(root.join(n), "keep").unwrap(); }
+        fs::create_dir_all(root.join("kiln/eml/ownership")).unwrap();
+        for i in 0..20 {
+            let journal = root.join(format!("kiln/eml/ownership/sf-handoff-{}.json", id()));
+            fs::write(&journal, format!("{i}")).unwrap();
+            fs::File::options().write(true).open(&journal).unwrap()
+                .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + i)).unwrap();
+        }
+        fs::write(root.join(format!("kiln/eml/ownership/g.kiln-{}", id())), "receipt temp").unwrap();
+        prune(&root, "g");
+        assert!(!stale.exists() && !temp.exists() && !backup_temp.exists());
+        assert!(foreign.join("notes.txt").exists() && root.join(".kiln-eml-stage-mine").is_dir());
+        for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { assert!(root.join(n).exists(), "{n}"); }
+        let mut kept: Vec<String> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten()
+            .map(|e| fs::read_to_string(e.path()).unwrap()).collect();
+        kept.sort_by_key(|k| k.parse::<u32>().unwrap());
+        assert_eq!(kept, (4..20).map(|i| i.to_string()).collect::<Vec<_>>(), "the 16 newest journals stay, the receipt temp goes");
+        fs::remove_dir_all(root).unwrap();
+    }
+    // The stage a real writer leaves when the process dies before publication (no Drop runs).
+    #[test]
+    fn the_stage_of_a_run_killed_before_publication_is_pruned() {
+        use std::rc::Rc;
+        use kfc::{container::KFCFile, guid::ContentHash, reflection::TypeRegistry};
+        let root = real_patch(2, &[]);
+        let live = dats(&root);
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        let base = Rc::new(KFCFile::from_path(root.join("g.kfc.bak"), false).unwrap());
+        let mut patch = crate::load::create_writer(path, "g", &Rc::new(TypeRegistry::default()), &base).unwrap();
+        patch.write_content(&ContentHash::from_data(b"half way"), b"half way").unwrap();
+        let stage = patch.stage.clone();
+        std::mem::forget(patch);
+        assert!(stage.is_dir() && fs::read_dir(&stage).unwrap().count() >= 3);
+        prune(&root, "g");
+        assert!(!stage.exists(), "the stage a killed run left is removed");
+        assert_eq!(dats(&root), live, "the live game files are untouched");
+        assert!(owns_output(&root, "g").unwrap());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
