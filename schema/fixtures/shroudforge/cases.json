@@ -1865,6 +1865,15 @@
       "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[],\"options\":{\"wood\":\"Wood\"}}}}\n"
     },
     {
+      "name": "legacy-manifest-enabled-is-not-the-sf-switch",
+      "about": "ShroudForge ignores a legacy mod.json enabled member: without an extension the mod stays disabled until enabled is persisted in extended.mod.json.",
+      "mod": {"id": "legacy-switch", "name": "Legacy switch", "version": "1.0.0", "enabled": true, "capabilities": ["runtime"]},
+      "extended": null,
+      "read": {"enabled": false, "switchLive": true, "settings": [], "enabledNow": []},
+      "edits": [{"enabled": false, "ok": true}],
+      "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": false,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
+    },
+    {
       "name": "invalid-utf8-is-refused",
       "about": "a Latin-1 byte (not UTF-8): ShroudForge's serde_json refuses the file, and a lossy read would write U+FFFD back",
       "mod": {

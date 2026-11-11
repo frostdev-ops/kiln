@@ -167,7 +167,7 @@ pub struct SfMod {
     #[serde(default)]
     pub authors: Vec<String>,
     pub folder: PathBuf,
-    /// extended.mod.json `enabled` (false when the file is missing and mod.json says nothing).
+    /// extended.mod.json `enabled` (false when the file is missing; mod.json is not ShroudForge's switch).
     pub enabled: bool,
     /// "client", "server" (extended.mod.json `targets`; ShroudForge's defaults when missing).
     pub targets: Vec<String>,
@@ -440,7 +440,7 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         description: str_of(&m, "description").unwrap_or_default(),
         authors: m.get("authors").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
         folder: folder.to_path_buf(),
-        enabled: ext.get("enabled").and_then(|b| b.as_bool()).or_else(|| m.get("enabled").and_then(|b| b.as_bool())).unwrap_or(false),
+        enabled: ext.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false),
         targets,
         switch_live: runtime && !patch,
         capabilities,

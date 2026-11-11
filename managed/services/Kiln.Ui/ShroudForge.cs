@@ -391,7 +391,7 @@ internal static class ShroudForgePackages
         return new SfPackage
         {
             Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = Str(mod, "version") ?? "", Description = Str(mod, "description") ?? "",
-            Enabled = Flag(ext, "enabled") ?? Flag(mod, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
+            Enabled = Flag(ext, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
             Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups, Repair = repair,
         };
     }
