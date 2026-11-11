@@ -1,0 +1,11 @@
+{
+  "description": "Hosting resolves server mods against already loaded menu mods; ordering edges do not reorder running mods.",
+  "env": {
+    "kiln": "0.2.0", "api": "0.2.0", "side": "client", "hosting": true,
+    "loaded": [{ "id": "menu", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "M.dll", "side": "both", "loadBefore": ["world"] }]
+  },
+  "mods": [
+    { "dir": "/world", "manifest": { "id": "world", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "M.dll", "side": "server", "loadBefore": ["menu"] } }
+  ],
+  "expect": { "order": ["world"], "rejected": [] }
+}

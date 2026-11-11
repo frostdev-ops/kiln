@@ -54,6 +54,37 @@ fn game_mods(g: &GameInstall) -> Vec<(String, String)> {
     f.mods.kiln.iter().filter(|m| m.enabled).map(|m| (m.id.clone(), m.version.clone().unwrap_or_default())).collect()
 }
 
+/// The host keeps menu mods running, resolves server mods against them, then retries failed dependents.
+#[test]
+fn an_imported_profiles_hosting_preview_keeps_the_hosts_load_phases() {
+    use kiln_manage::manifest::RunSide;
+    for (tag, mods, menu, world) in [
+        ("order", vec![
+            ("menu", "both", r#", "loadBefore": ["world"]"#),
+            ("world", "server", r#", "loadBefore": ["menu"]"#),
+        ], vec!["menu"], vec!["world"]),
+        ("dependencies", vec![
+            ("a", "server", r#", "dependencies": {"b": "*"}"#),
+            ("b", "both", r#", "dependencies": {"c": "*"}"#),
+            ("c", "server", ""),
+        ], vec![], vec!["c", "b"]),
+    ] {
+        let t = tmp(&format!("host-phases-{tag}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0);
+        let paths: Vec<_> = mods.into_iter().map(|(id, side, extra)| {
+            let d = kiln_mod(&t.0, id, "1.0.0", "");
+            put(&d, "kiln.mod.json", format!(r#"{{"id":"{id}","version":"1.0.0","apiVersion":"0.2","entryAssembly":"M.dll","side":"{side}"{extra}}}"#).as_bytes());
+            d
+        }).collect();
+        quick::add_with(&dirs, &g, &paths, false, &mut NoProgress).unwrap();
+        let p = profile::get(&dirs, "my-mods").unwrap();
+        let preview = profile::resolve_preview_for(&dirs, &p, RunSide::Client, true).unwrap();
+        assert_eq!(preview.kiln.order, menu, "{tag}");
+        assert_eq!(preview.with_world, world, "{tag}: preview must follow ModManager.StartHosting, not re-resolve already running mods: {:?}", preview.kiln.rejected);
+    }
+}
+
 #[test]
 fn a_first_time_player_gets_my_mods_with_the_mod_in_the_game() {
     let t = tmp("first");

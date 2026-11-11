@@ -926,9 +926,41 @@ pub fn resolve_preview_for(dirs: &DataDirs, profile: &Profile, side: RunSide, ho
     let mut starts_with_world = Vec::new();
     if side == RunSide::Client {
         // Kiln.Host says when a server mod loads (ModManager.LoadSet); the resolver's "not loaded on a client" is not it
-        let server_dirs = candidates.iter().filter(|c| c.manifest.as_ref().is_some_and(|m| m.side == crate::manifest::Side::Server))
+        let server_dirs: std::collections::BTreeSet<String> = candidates.iter().filter(|c| c.manifest.as_ref().is_some_and(|m| m.side == crate::manifest::Side::Server))
             .map(|c| c.dir.clone()).collect();
-        let world = if hosted { Some(crate::resolver::resolve(&candidates, &Environment { hosting: true, ..environment(side) })?) } else { None };
+        let world = if hosted {
+            // ModManager.StartHosting keeps the menu's mods running: ordering edges cannot reorder them. It resolves
+            // the skipped server mods first, then retries failed dependents of the server mods that resolved.
+            let mut env = Environment { hosting: true, ..environment(side) };
+            let manifests = |ids: &[String]| candidates.iter().filter_map(|c|
+                c.manifest.as_ref().filter(|m| ids.contains(&m.id)).cloned()).collect::<Vec<_>>();
+            env.loaded = manifests(&kiln.order);
+            let servers: Vec<_> = candidates.iter().filter(|c| kiln.rejected.iter().any(|r|
+                r.dir == c.dir && r.state == ModState::Skipped && server_dirs.contains(&r.dir))).cloned().collect();
+            let mut world = crate::resolver::resolve(&servers, &env)?;
+            let mut dependents: std::collections::BTreeSet<String> = world.order.iter().cloned().collect();
+            let mut retry_dirs = std::collections::BTreeSet::new();
+            loop {
+                let mut changed = false;
+                for c in &candidates {
+                    if !retry_dirs.contains(&c.dir)
+                        && kiln.rejected.iter().chain(&world.rejected).any(|r| r.dir == c.dir && r.state == ModState::Failed)
+                        && c.manifest.as_ref().is_some_and(|m| m.dependencies.iter().any(|d| dependents.contains(&d.id)))
+                    {
+                        retry_dirs.insert(c.dir.clone());
+                        dependents.insert(c.id());
+                        changed = true;
+                    }
+                }
+                if !changed { break; }
+            }
+            let retry: Vec<_> = candidates.iter().filter(|c| retry_dirs.contains(&c.dir) && !servers.iter().any(|s| s.dir == c.dir)).cloned().collect();
+            env.loaded.extend(manifests(&world.order));
+            let retried = crate::resolver::resolve(&retry, &env)?;
+            world.order.extend(retried.order);
+            world.rejected.extend(retried.rejected);
+            Some(world)
+        } else { None };
         starts_with_world = with_world(&mut kiln, world.as_ref(), &server_dirs);
     }
     kiln.rejected.extend(disabled);
