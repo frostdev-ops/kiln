@@ -403,6 +403,7 @@ void run_loop() {
                 last_state = state;
             }
             set_status("native", st);
+            set_status("menu", helper_menu());
             set_status("turns", turns);
             write_status();
         }
@@ -707,6 +708,8 @@ void KILN_CALL on_ready(void*) {
     }
     g_tail.start();
     start_helper_processes(g_game, g_server);
+    set_status("menu", helper_menu());
+    set_status("menuKey", helper_menu_key(g_game));
     const auto t0 = std::chrono::steady_clock::now();
     bool prepared = false;
     invoke(prepare, &prepared, g_game.wstring().c_str());

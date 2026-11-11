@@ -9,7 +9,9 @@ static void mark(const char* what) {
     GetEnvironmentVariableW(L"KILN_SF_TEST_LOG", file, 32768);
     if (FILE* f = _wfopen(file, L"ab")) { std::fprintf(f, "%s\n", what); std::fclose(f); }
 }
-#if TEST_runtime
+#if TEST_bootstrap
+extern "C" __declspec(dllexport) void ShroudforgeStop() {}
+#elif TEST_runtime
 extern "C" __declspec(dllexport) bool shroudforge_prepare_startup(const wchar_t* root) { mark(root && *root ? "prepare" : "bad-root"); return root && *root; }
 extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t*) { mark("create"); return reinterpret_cast<void*>(1); }
 extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) { mark("update"); if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr); return h && std::isfinite(dt) && dt >= 0; }

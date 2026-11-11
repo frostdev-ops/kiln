@@ -12,8 +12,11 @@ are, and with one switch Kiln can run your own ShroudForge copy instead of the b
    If ShroudForge was already installed, Kiln replaces only its `dinput8.dll` and leaves `dbghelp.dll`, `winmm.dll`, the
    `shroudforge/` folder and `mods/` alone.
 2. Put ShroudForge mods where ShroudForge reads them: `<game>/mods/<mod>/`, or the folder set in ShroudForge's settings.
-3. Turn mods on and change their settings. Use the Kiln Launcher, ShroudForge's in-game Modloader window, or
-   `mods/<mod>/extended.mod.json`. A setting marked "live" applies while you play.
+3. In the game, open **Mods → ShroudForge**, pick a mod, and use its **Switch and settings** panel. This is Kiln's
+   existing in-process menu, not a second window; no separate ShroudForge installation is needed. The Kiln Launcher
+   and `mods/<mod>/extended.mod.json` edit the same settings. The panel says which changes need a game restart.
+   Runtime-only mods normally accept changes within a second or two; startup patches and their switches need a restart.
+   If the mod is in a Kiln profile, also change its enabled switch in the launcher profile to keep it across launches.
 4. To run your installed ShroudForge instead of Kiln's copy, switch on **Settings → Kiln (kiln.json) → ShroudForge mods
    → "Use my installed ShroudForge"** in the launcher (in the file: `"shroudforge": {"useInstalled": true}`), then
    restart the game. If your copy is missing or broken, Kiln uses its own and says so in `kiln.log`.
@@ -25,8 +28,17 @@ are, and with one switch Kiln can run your own ShroudForge copy instead of the b
    - `off`, `not-installed`, or `failed` with a `reason`. The game and Kiln run on in every case.
 
 Notes:
+- **Shortcut:** when Kiln hosts SF without a running Modloader helper, SF's menu key (**F9**, `SDL:66`, by default)
+  and `shroudforge.ui.toggle_modloader()` toggle Kiln's ShroudForge page. Remap `shroudforge.menu` in Kiln's **Keys**
+  tab. A supported configured keyboard chord is used initially; an explicitly empty, mouse-only, Meta or unsupported
+  chord gets no Kiln default binding, not a surprise F9. The **Mods** entry remains available.
+- **Installed / self-hosted SF:** an installed `shroudforge/shroudforge.exe` still supplies SF's own Modloader and
+  World Editor windows, respecting SF's module switches. Kiln does not consume the real helper's toggle event.
+  If that hosted helper exits, Kiln takes over the menu shortcut. Self-hosted SF retains its own shortcut behavior.
+  The bundled runtime does not include the World Editor window or Debug Console.
 - **Steam Deck / Linux:** when Kiln hosts ShroudForge you need no extra `WINEDLLOVERRIDES` beyond Kiln's own
-  (`dinput8=n,b`).
+  (`dinput8=n,b`). Its switches/settings use the game's existing Kiln overlay, so they do not depend on gamescope
+  presenting a separate WebView window. Actual Deck rendering and controller navigation still need client testing.
 - **Updates:** the bundled runtime updates with Kiln. While Kiln hosts your installed copy, ShroudForge does not update
   itself at game start, so its updater cannot replace Kiln's `dinput8.dll`. To update your own ShroudForge, run its
   updater (`shroudforge/shroudforge.exe`) with the game closed. If it puts its own `dinput8.dll` back, reinstall Kiln
@@ -45,7 +57,12 @@ Write your mod for ShroudForge exactly as its documentation says (`mod.json`, `e
 Things to know:
 - Kiln's own services may change the same game data your mod changes (for example game settings). The last write wins.
   Use `runtime.overrides` so ShroudForge restores your changes when your mod is switched off.
-- The Kiln Launcher builds its settings screen from your `extended.mod.json` settings: label, description, control,
-  min/max/step, options, groups, `enabledWhen` and `applyAt`. Declare them fully.
+- The Kiln Launcher and in-game Mods panel read your `extended.mod.json` metadata: label, description, control,
+  min/max/step, text lengths, typed options, groups, `enabledWhen` and `applyAt` / `restartRequired`. Declare them fully.
+  Edits splice only the changed value, preserving comments and layout. The in-game panel uses checkboxes, sliders,
+  numeric/text/multiline fields and choice lists; radio/segmented use a combo, colors use text. Keybind settings use
+  editable canonical SDL strings, not press-to-capture (for example `Ctrl+SDL:66|Mouse:4`, empty to disable).
+  SF's SDL backend additionally checks keyboard availability. Group action buttons write SF's public UI action requests;
+  the mod must be active and register `shroudforge.ui.on_action` to handle them. The panel does not promise execution.
 - To write a Kiln (C#) mod instead, see the coverage table in [shroudforge-compat.md](shroudforge-compat.md#8-api-coverage)
   for Kiln's equivalent of each ShroudForge function.

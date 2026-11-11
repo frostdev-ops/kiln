@@ -119,9 +119,14 @@ pub struct SfSetting {
     /// toggle, checkbox, text, textarea, number, slider, select, radio, segmented, multiselect, keybind, color
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control: Option<String>,
-    /// "live" (the running mod sees it at once) or "restart"
+    /// What the mod declares: "live" or "restart" (ShroudForge's default is "restart" unless `restartRequired` is false).
+    /// Whether a change really applies while the game runs is [`SfSetting::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apply_at: Option<String>,
+    /// A change applies while the game runs (ShroudForge's `settings_to_apply_live`): the mod has a runtime part, and it
+    /// has no startup (`patch`) part or the setting is declared live. Filled by [`read_mod`].
+    #[serde(default)]
+    pub live: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,6 +138,11 @@ pub struct SfSetting {
     pub options: Option<serde_json::Map<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled_when: Option<serde_json::Value>,
+    /// text length limits (`minLength`, `maxLength`, in characters)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u64>,
     /// the shorthand form `settings.<key> = value` (no label, no control)
     #[serde(default)]
     pub shorthand: bool,
@@ -156,6 +166,10 @@ pub struct SfMod {
     pub targets: Vec<String>,
     /// mod.json `capabilities`: patch (startup asset changes), export, runtime (live game access), runtime-register-dll
     pub capabilities: Vec<String>,
+    /// Switching it on or off applies while the game runs (a runtime mod without startup asset changes); otherwise at
+    /// the next start. ShroudForge's `refresh_runtime_configuration`.
+    #[serde(default)]
+    pub switch_live: bool,
     #[serde(default)]
     pub dependencies: Vec<serde_json::Value>,
     pub settings: Vec<SfSetting>,
@@ -213,6 +227,14 @@ pub fn is_sf_own_mod(folder: &Path) -> bool {
         .is_some_and(|s| s.to_ascii_lowercase().contains("shroudforge"))
 }
 
+/// (has a runtime part, has a startup asset part): ShroudForge's `Capability::requires_runtime` and `Patch`.
+fn runtime_parts(capabilities: &[String]) -> (bool, bool) {
+    (
+        capabilities.iter().any(|c| c == "runtime" || c == "runtime-register-dll"),
+        capabilities.iter().any(|c| c == "patch"),
+    )
+}
+
 fn str_of(v: &serde_json::Value, k: &str) -> Option<String> {
     v.get(k).and_then(|s| s.as_str()).map(str::to_owned)
 }
@@ -226,12 +248,15 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
             label: None,
             description: None,
             control: None,
-            apply_at: None,
+            apply_at: Some("restart".into()),
+            live: false,
             min: None,
             max: None,
             step: None,
             options: None,
             enabled_when: None,
+            min_length: None,
+            max_length: None,
             shorthand: true,
         };
     };
@@ -242,14 +267,18 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
         label: o.get("label").and_then(|s| s.as_str()).map(str::to_owned),
         description: o.get("description").and_then(|s| s.as_str()).map(str::to_owned),
         control: o.get("control").and_then(|s| s.as_str()).map(str::to_owned),
-        apply_at: o.get("applyAt").and_then(|s| s.as_str()).map(str::to_owned).or_else(|| {
-            o.get("restartRequired").and_then(|b| b.as_bool()).map(|r| if r { "restart" } else { "live" }.to_owned())
-        }),
+        // ShroudForge (read_mod_settings.rs): applyAt, else "live" when restartRequired is false, else "restart"
+        apply_at: Some(o.get("applyAt").and_then(|s| s.as_str()).map(str::to_owned).unwrap_or_else(|| {
+            if o.get("restartRequired").and_then(|b| b.as_bool()) == Some(false) { "live" } else { "restart" }.to_owned()
+        })),
+        live: false,
         min: f("min"),
         max: f("max"),
         step: f("step"),
         options: o.get("options").and_then(|v| v.as_object()).cloned(),
         enabled_when: o.get("enabledWhen").cloned(),
+        min_length: o.get("minLength").and_then(|v| v.as_u64()),
+        max_length: o.get("maxLength").and_then(|v| v.as_u64()),
         shorthand: false,
     }
 }
@@ -285,11 +314,35 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         None if launcher.as_deref() == Some("EML") => vec!["client".into(), "server".into()],
         None => vec!["client".into()],
     };
-    let settings = ext
+    let mut settings: Vec<SfSetting> = ext
         .get("settings")
         .and_then(|s| s.as_object())
         .map(|o| o.iter().map(|(k, v)| parse_setting(k, v)).collect())
         .unwrap_or_default();
+    // the order the mod declares them in (ShroudForge's own editor shows that order)
+    if extended && let Ok(bytes) = std::fs::read(&ext_path) {
+        let text = String::from_utf8_lossy(&bytes);
+        if let Ok(tree) = crate::jsonc::parse_tree(text.trim_start_matches('\u{feff}')) {
+            let order: Vec<String> = tree.get("settings").map(|n| n.members().iter().map(|m| m.key.clone()).collect()).unwrap_or_default();
+            settings.sort_by_key(|s| order.iter().rposition(|k| *k == s.key).unwrap_or(usize::MAX));
+        }
+    }
+    let capabilities: Vec<String> =
+        m.get("capabilities").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    let (runtime, patch) = runtime_parts(&capabilities);
+    for s in &mut settings {
+        let raw = &ext["settings"][&s.key];
+        if s.value.is_null() || s.value.is_object() ||
+            !matches!(s.apply_at.as_deref(), Some("live" | "restart")) ||
+            raw.get("restartRequired").and_then(|v| v.as_bool()).is_some_and(|r| r != (s.apply_at.as_deref() == Some("restart"))) ||
+            (s.value.is_array() && s.options.as_ref().is_none_or(|o| o.is_empty())) ||
+            s.options.as_ref().is_some_and(|o| o.keys().any(|k| option_value(s, k).is_none())) ||
+            s.enabled_when.as_ref().is_some_and(|w| w.get("setting").and_then(|v| v.as_str()).is_none() || w.get("equals").is_none())
+        {
+            return Err(Error::invalid(format!("setting {} has invalid metadata", s.key)));
+        }
+        s.live = runtime && (!patch || s.apply_at.as_deref() == Some("live"));
+    }
     Ok(SfMod {
         name: str_of(&m, "name").unwrap_or_else(|| id.clone()),
         id,
@@ -299,7 +352,8 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         folder: folder.to_path_buf(),
         enabled: ext.get("enabled").and_then(|b| b.as_bool()).or_else(|| m.get("enabled").and_then(|b| b.as_bool())).unwrap_or(false),
         targets,
-        capabilities: m.get("capabilities").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
+        switch_live: runtime && !patch,
+        capabilities,
         dependencies: m.get("dependencies").and_then(|a| a.as_array()).cloned().unwrap_or_default(),
         settings,
         groups: ext.get("groups").and_then(|a| a.as_array()).cloned().unwrap_or_default(),
@@ -418,6 +472,27 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
     if !same_kind {
         return Err(Error::invalid(format!("setting {} holds a {}, not a {}", s.key, kind(&s.value), kind(value))));
     }
+    // ShroudForge types a setting by its declared value: a whole number is an integer setting
+    if s.value.is_i64() {
+        let whole = value.is_i64() || value.as_f64().is_some_and(|n| n.fract() == 0.0 && n.abs() < 9.0e15);
+        if !whole {
+            return Err(Error::invalid(format!("setting {} holds a whole number, not {value}", s.key)));
+        }
+    }
+    if let Some(text) = value.as_str() {
+        if s.control.as_deref() == Some("keybind") && !valid_shortcut(text) {
+            return Err(Error::invalid(format!("setting {} requires a canonical SDL shortcut (e.g. Ctrl+SDL:66 or Mouse:4)", s.key)));
+        }
+        let n = text.chars().count() as u64;
+        if s.min_length.is_some_and(|m| n < m) || s.max_length.is_some_and(|m| n > m) {
+            return Err(Error::invalid(format!(
+                "setting {} must be {}..{} characters long",
+                s.key,
+                s.min_length.unwrap_or(0),
+                s.max_length.map(|v| v.to_string()).unwrap_or_default()
+            )));
+        }
+    }
     if let Some(n) = value.as_f64()
         && (s.min.is_some_and(|m| n < m) || s.max.is_some_and(|m| n > m))
     {
@@ -429,7 +504,7 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
         )));
     }
     if let Some(opts) = &s.options {
-        let ok = |v: &V| v.as_str().is_some_and(|k| opts.contains_key(k)) || v.as_f64().is_some_and(|n| opts.contains_key(&n.to_string()));
+        let ok = |v: &V| opts.keys().filter_map(|k| option_value(s, k)).any(|o| same_value(&o, v));
         let all = match value {
             V::Array(items) => items.iter().all(ok),
             v => ok(v),
@@ -439,6 +514,34 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// SF's canonical portable shortcut syntax. SF's SDL backend additionally checks keyboard scancode availability.
+pub fn valid_shortcut(text: &str) -> bool {
+    if text.is_empty() { return true; }
+    if text.len() > 100 { return false; }
+    let (mut keyboard, mut mouse) = (false, false);
+    for chord in text.split('|') {
+        let parts: Vec<_> = chord.split('+').collect();
+        let Some((device, number)) = parts[parts.len() - 1].split_once(':') else { return false };
+        let Ok(code) = number.parse::<u16>() else { return false };
+        if code.to_string() != number { return false; }
+        let primary = match device {
+            "SDL" if !keyboard && !mouse && (1..512).contains(&code) => {
+                keyboard = true;
+                match code { 224 | 228 => 1, 226 | 230 => 2, 225 | 229 => 4, 227 | 231 => 8, _ => 0 }
+            }
+            "Mouse" if !mouse && (1..=32).contains(&code) => { mouse = true; 0 }
+            _ => return false,
+        };
+        let mut previous = 0;
+        for modifier in &parts[..parts.len() - 1] {
+            let bit = match *modifier { "Ctrl" => 1, "Alt" => 2, "Shift" => 4, "Meta" => 8, _ => 0 };
+            if bit <= previous || bit & primary != 0 { return false; }
+            previous = bit;
+        }
+    }
+    true
 }
 
 fn kind(v: &serde_json::Value) -> &'static str {
@@ -463,7 +566,16 @@ pub fn set_setting(folder: &Path, key: &str, value: &serde_json::Value) -> Resul
     if !s.shorthand {
         path.push(PathSeg::Key("value".into()));
     }
-    let out = set_value(&text, &path, value)?;
+    let out = match value.as_f64() {
+        // ShroudForge types a setting by the number it finds in the file: a whole value of a fractional setting is
+        // written as 2.0, as ShroudForge itself writes it, or it would read the setting as a whole number from then on
+        Some(n) if value_type(s) == "number" && n.fract() == 0.0 && n.is_finite() && n.abs() < 1e15 => {
+            let root = crate::jsonc::parse_tree(&text)?;
+            let span = root.at(&path).ok_or_else(|| Error::not_found(format!("{} has no setting {key}", m.id)))?.span;
+            format!("{}{:.1}{}", &text[..span.start], n, &text[span.end..])
+        }
+        _ => set_value(&text, &path, value)?,
+    };
     write_extension(&m, &out)?;
     read_mod(folder)
 }
@@ -480,17 +592,9 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
     };
     for s in &m.settings {
         let mut p = serde_json::Map::new();
-        let ty = match &s.value {
-            serde_json::Value::Bool(_) => "boolean",
-            serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
-            serde_json::Value::Number(_) => "number",
-            serde_json::Value::Array(_) => "array",
-            _ => "string",
-        };
-        // an integer setting with a fractional step is a number
-        let ty = if ty == "integer" && s.step.is_some_and(|st| st.fract() != 0.0) { "number" } else { ty };
+        let ty = value_type(s);
         p.insert("type".into(), ty.into());
-        p.insert("title".into(), s.label.clone().unwrap_or_else(|| s.key.clone()).into());
+        p.insert("title".into(), label_of(s).into());
         if let Some(d) = &s.description {
             p.insert("description".into(), d.clone().into());
         }
@@ -504,11 +608,13 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
         if let Some(v) = s.step {
             p.insert("multipleOf".into(), v.into());
         }
+        if let Some(n) = s.min_length { p.insert("minLength".into(), n.into()); }
+        if let Some(n) = s.max_length { p.insert("maxLength".into(), n.into()); }
         if let Some(opts) = &s.options {
-            let keys: Vec<serde_json::Value> = opts.keys().map(|k| k.clone().into()).collect();
+            let keys: Vec<serde_json::Value> = opts.keys().filter_map(|k| option_value(s, k)).collect();
             let labels: Vec<serde_json::Value> = opts.values().cloned().collect();
             if ty == "array" {
-                p.insert("items".into(), serde_json::json!({ "type": "string", "enum": keys, "x-kiln-enum-labels": labels }));
+                p.insert("items".into(), serde_json::json!({ "type": option_type(s), "enum": keys, "x-kiln-enum-labels": labels }));
                 p.insert("uniqueItems".into(), true.into());
             } else {
                 p.insert("enum".into(), keys.into());
@@ -520,7 +626,7 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
         if let Some(c) = &s.control {
             p.insert("x-kiln-control".into(), c.clone().into());
         }
-        if s.apply_at.as_deref() == Some("restart") {
+        if !s.live {
             p.insert("x-kiln-restart".into(), true.into());
         }
         if let Some(g) = group_of(&s.key) {
@@ -539,6 +645,94 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
         "properties": props,
         "additionalProperties": false,
     })
+}
+
+/// ShroudForge's type of a setting, from its declared value: boolean, integer, number, string or array.
+pub fn value_type(s: &SfSetting) -> &'static str {
+    match &s.value {
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(n) if n.is_i64() => "integer",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Array(_) => "array",
+        _ => "string",
+    }
+}
+
+fn option_type(s: &SfSetting) -> &'static str {
+    if let Some(a) = s.value.as_array() {
+        match a.first() {
+            Some(serde_json::Value::Bool(_)) => "boolean",
+            Some(serde_json::Value::Number(n)) if n.is_i64() => "integer",
+            Some(serde_json::Value::Number(_)) => "number",
+            _ => "string",
+        }
+    } else { value_type(s) }
+}
+
+/// An option key typed as ShroudForge types it (the scalar value, or the first array member; an empty array uses text).
+pub fn option_value(s: &SfSetting, key: &str) -> Option<serde_json::Value> {
+    match option_type(s) {
+        "boolean" => key.parse::<bool>().ok().map(serde_json::Value::from),
+        "integer" => key.parse::<i64>().ok().map(serde_json::Value::from),
+        "number" => key.parse::<f64>().ok().and_then(serde_json::Number::from_f64).map(serde_json::Value::Number),
+        _ => Some(key.into()),
+    }
+}
+
+fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(a), Some(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// The label ShroudForge shows: `label`, else the key with a space before each capital (`noFallDamage` -> "no Fall
+/// Damage").
+pub fn label_of(s: &SfSetting) -> String {
+    if let Some(l) = &s.label {
+        return l.clone();
+    }
+    let mut out = String::with_capacity(s.key.len() + 4);
+    for (i, c) in s.key.chars().enumerate() {
+        if i > 0 && c.is_uppercase() {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The control ShroudForge draws: `control`, else a select (a multiselect for a list) when the setting has options.
+pub fn control_of(s: &SfSetting) -> Option<String> {
+    s.control.clone().or_else(|| s.options.as_ref().filter(|o| !o.is_empty()).map(|_| {
+        if s.value.is_array() { "multiselect" } else { "select" }.to_owned()
+    }))
+}
+
+/// Whether the setting is editable now: its `enabledWhen` chain holds for `values` (ShroudForge's
+/// `setting_is_enabled`: a missing controller or a cycle disables it; numbers compare by value, 5 = 5.0).
+pub fn setting_enabled(key: &str, settings: &[SfSetting], values: &serde_json::Value) -> bool {
+    let mut current = key.to_owned();
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let Some(s) = settings.iter().find(|s| s.key == current) else { return false };
+        let Some(cond) = &s.enabled_when else { return true };
+        if !seen.insert(current.clone()) {
+            return false;
+        }
+        let (Some(target), Some(equals)) = (cond.get("setting").and_then(|v| v.as_str()), cond.get("equals")) else {
+            return false;
+        };
+        let Some(value) = values.get(target) else { return false };
+        let same = match (value.as_f64(), equals.as_f64()) {
+            (Some(a), Some(b)) if value.is_number() && equals.is_number() => a == b,
+            _ => value == equals,
+        };
+        if !same {
+            return false;
+        }
+        current = target.to_owned();
+    }
 }
 
 /// The settings' current values as one object (key -> value), the SchemaForm's data.
@@ -652,7 +846,13 @@ mod tests {
         assert_eq!(s["properties"]["infiniteStamina"]["x-kiln-group"], "Survival");
         assert_eq!(s["properties"]["speed"]["type"], "integer");
         assert_eq!(s["properties"]["speed"]["maximum"], 10.0);
+        // a runtime mod without startup asset changes: ShroudForge hands every change to the running mod
+        assert!(s["properties"]["speed"].get("x-kiln-restart").is_none());
+        let patch = pkg(t.path(), "p", Some(EXT));
+        std::fs::write(patch.join("mod.json"), r#"{"id":"p","name":"P","version":"1.0.0","capabilities":["patch","runtime"]}"#).unwrap();
+        let s = settings_schema(&read_mod(&patch).unwrap());
         assert_eq!(s["properties"]["speed"]["x-kiln-restart"], true);
+        assert_eq!(s["properties"]["infiniteStamina"]["x-kiln-restart"], true, "no applyAt: ShroudForge's default is restart");
         assert_eq!(s["properties"]["mode"]["enum"], serde_json::json!(["a", "b"]));
     }
 

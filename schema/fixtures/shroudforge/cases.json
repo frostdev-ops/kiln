@@ -1,0 +1,743 @@
+{
+  "about": "ShroudForge mod packages (mod.json + extended.mod.json): how a setting reads (type, label, control, when it applies, enabledWhen) and how the switch and the settings are written (only the value changes, the rest of the file stays byte-identical). Run by crates/kiln-manage/tests/shroudforge_fixtures.rs (the launcher) and managed/tests/Kiln.Ui.Tests/ShroudForgeTests.cs (the in-game Mods page); ShroudForge's own rules: modules/modloader/read_mod_settings.rs, validate_mod_settings.rs and mod-runtime/ingame/refresh_runtime_configuration.rs in the fork. Edits run in order; a refused edit leaves the file as it was.",
+  "cases": [
+    {
+      "name": "runtime-mod",
+      "about": "sf-survival's shape: a runtime mod, settings without applyAt (ShroudForge's default: restart), one group",
+      "mod": {
+        "id": "sf-survival",
+        "name": "Survival",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"schemaVersion\": 1,\n  \"enabled\": false,\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ],\n  \"settings\": {\n    \"noFallDamage\": {\n      \"value\": true,\n      \"label\": \"No Fall Damage\",\n      \"description\": \"Turns off fall damage.\"\n    },\n    \"infiniteStamina\": {\n      \"value\": true,\n      \"label\": \"Infinite Stamina\"\n    }\n  },\n  \"groups\": [\n    {\n      \"label\": \"Survival\",\n      \"description\": \"Turn individual survival options on or off.\",\n      \"settings\": [\n        \"noFallDamage\",\n        \"infiniteStamina\"\n      ]\n    }\n  ]\n}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "noFallDamage",
+            "type": "boolean",
+            "label": "No Fall Damage",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "infiniteStamina",
+            "type": "boolean",
+            "label": "Infinite Stamina",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "noFallDamage",
+          "infiniteStamina"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "noFallDamage",
+          "value": false,
+          "ok": true
+        },
+        {
+          "enabled": true,
+          "ok": true
+        },
+        {
+          "setting": "infiniteStamina",
+          "value": "yes",
+          "ok": false
+        },
+        {
+          "setting": "nope",
+          "value": 1,
+          "ok": false
+        }
+      ],
+      "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ],\n  \"settings\": {\n    \"noFallDamage\": {\n      \"value\": false,\n      \"label\": \"No Fall Damage\",\n      \"description\": \"Turns off fall damage.\"\n    },\n    \"infiniteStamina\": {\n      \"value\": true,\n      \"label\": \"Infinite Stamina\"\n    }\n  },\n  \"groups\": [\n    {\n      \"label\": \"Survival\",\n      \"description\": \"Turn individual survival options on or off.\",\n      \"settings\": [\n        \"noFallDamage\",\n        \"infiniteStamina\"\n      ]\n    }\n  ]\n}\n"
+    },
+    {
+      "name": "patch-mod",
+      "about": "sf-crafting-essentials' shape: startup asset changes plus a runtime part; only settings declared live apply live, the switch at the next start",
+      "mod": {
+        "id": "sf-crafting-essentials",
+        "name": "Crafting Essentials",
+        "version": "1.0.0",
+        "capabilities": [
+          "patch",
+          "runtime"
+        ]
+      },
+      "extended": "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"targets\": [\"client\", \"server\"],\n  \"settings\": {\n    \"noResourceCost\": {\n      \"value\": false,\n      \"label\": \"No Recipe Resource Costs\",\n      \"control\": \"checkbox\",\n      \"applyAt\": \"restart\",\n      \"restartRequired\": true\n    },\n    \"infiniteItemUse\": {\n      \"value\": false,\n      \"label\": \"No Item Consumption\",\n      \"control\": \"checkbox\",\n      \"applyAt\": \"live\",\n      \"restartRequired\": false\n    },\n    \"productionTimeMode\": {\n      \"value\": \"original\",\n      \"control\": \"select\",\n      \"options\": {\n        \"original\": \"Original recipe times\",\n        \"fixed\": \"One shared time\"\n      }\n    },\n    \"productionSeconds\": {\n      \"value\": 3,\n      \"label\": \"Production Time in Seconds\",\n      \"control\": \"slider\",\n      \"min\": 1,\n      \"max\": 900,\n      \"step\": 1,\n      \"enabledWhen\": {\n        \"setting\": \"productionTimeMode\",\n        \"equals\": \"fixed\"\n      },\n      \"restartRequired\": false\n    }\n  }\n}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": false,
+        "settings": [
+          {
+            "key": "noResourceCost",
+            "type": "boolean",
+            "label": "No Recipe Resource Costs",
+            "control": "checkbox",
+            "applyAt": "restart",
+            "live": false
+          },
+          {
+            "key": "infiniteItemUse",
+            "type": "boolean",
+            "label": "No Item Consumption",
+            "control": "checkbox",
+            "applyAt": "live",
+            "live": true
+          },
+          {
+            "key": "productionTimeMode",
+            "type": "string",
+            "label": "production Time Mode",
+            "control": "select",
+            "applyAt": "restart",
+            "live": false,
+            "options": [
+              {
+                "value": "original",
+                "label": "Original recipe times"
+              },
+              {
+                "value": "fixed",
+                "label": "One shared time"
+              }
+            ]
+          },
+          {
+            "key": "productionSeconds",
+            "type": "integer",
+            "label": "Production Time in Seconds",
+            "control": "slider",
+            "applyAt": "live",
+            "live": true,
+            "enabledWhen": {
+              "setting": "productionTimeMode",
+              "equals": "fixed"
+            }
+          }
+        ],
+        "enabledNow": [
+          "noResourceCost",
+          "infiniteItemUse",
+          "productionTimeMode"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "productionTimeMode",
+          "value": "fixed",
+          "ok": true
+        },
+        {
+          "setting": "productionSeconds",
+          "value": 900,
+          "ok": true
+        },
+        {
+          "setting": "productionSeconds",
+          "value": 901,
+          "ok": false
+        },
+        {
+          "setting": "productionSeconds",
+          "value": 2.5,
+          "ok": false
+        },
+        {
+          "setting": "productionSeconds",
+          "value": 12.0,
+          "ok": true
+        },
+        {
+          "setting": "productionTimeMode",
+          "value": "bogus",
+          "ok": false
+        },
+        {
+          "enabled": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"enabled\": false,\n  \"targets\": [\"client\", \"server\"],\n  \"settings\": {\n    \"noResourceCost\": {\n      \"value\": false,\n      \"label\": \"No Recipe Resource Costs\",\n      \"control\": \"checkbox\",\n      \"applyAt\": \"restart\",\n      \"restartRequired\": true\n    },\n    \"infiniteItemUse\": {\n      \"value\": false,\n      \"label\": \"No Item Consumption\",\n      \"control\": \"checkbox\",\n      \"applyAt\": \"live\",\n      \"restartRequired\": false\n    },\n    \"productionTimeMode\": {\n      \"value\": \"fixed\",\n      \"control\": \"select\",\n      \"options\": {\n        \"original\": \"Original recipe times\",\n        \"fixed\": \"One shared time\"\n      }\n    },\n    \"productionSeconds\": {\n      \"value\": 12,\n      \"label\": \"Production Time in Seconds\",\n      \"control\": \"slider\",\n      \"min\": 1,\n      \"max\": 900,\n      \"step\": 1,\n      \"enabledWhen\": {\n        \"setting\": \"productionTimeMode\",\n        \"equals\": \"fixed\"\n      },\n      \"restartRequired\": false\n    }\n  }\n}\n",
+      "enabledAfter": [
+        "noResourceCost",
+        "infiniteItemUse",
+        "productionTimeMode",
+        "productionSeconds"
+      ]
+    },
+    {
+      "name": "one-line-file",
+      "about": "a shorthand setting (key = value), numbers with a fraction, text with escapes and a length limit, enabledWhen comparing 5 with 5.0, and a switch the file does not have yet",
+      "mod": {
+        "id": "one-line",
+        "name": "One line",
+        "version": "0.1.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"settings\": {\"raw\": 5, \"ratio\": {\"value\": 1.5, \"min\": 0, \"max\": 2, \"step\": 0.25, \"restartRequired\": false, \"enabledWhen\": {\"setting\": \"raw\", \"equals\": 5.0}}, \"name\": {\"value\": \"Ä\", \"control\": \"text\", \"maxLength\": 4}}}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "raw",
+            "type": "integer",
+            "label": "raw",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "ratio",
+            "type": "number",
+            "label": "ratio",
+            "control": null,
+            "applyAt": "live",
+            "live": true,
+            "enabledWhen": {
+              "setting": "raw",
+              "equals": 5.0
+            }
+          },
+          {
+            "key": "name",
+            "type": "string",
+            "label": "name",
+            "control": "text",
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "raw",
+          "ratio",
+          "name"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "raw",
+          "value": 9223372036854775808,
+          "ok": false
+        },
+        {
+          "setting": "raw",
+          "value": 7,
+          "ok": true
+        },
+        {
+          "setting": "ratio",
+          "value": 2,
+          "ok": true
+        },
+        {
+          "setting": "ratio",
+          "value": 2.25,
+          "ok": false
+        },
+        {
+          "setting": "ratio",
+          "value": 0.75,
+          "ok": true
+        },
+        {
+          "setting": "raw",
+          "value": true,
+          "ok": false
+        },
+        {
+          "setting": "name",
+          "value": "a\"b\\",
+          "ok": true
+        },
+        {
+          "setting": "name",
+          "value": "toolong",
+          "ok": false
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\"settings\": {\"raw\": 7, \"ratio\": {\"value\": 0.75, \"min\": 0, \"max\": 2, \"step\": 0.25, \"restartRequired\": false, \"enabledWhen\": {\"setting\": \"raw\", \"equals\": 5.0}}, \"name\": {\"value\": \"a\\\"b\\\\\", \"control\": \"text\", \"maxLength\": 4}}, \"enabled\": true}\n",
+      "enabledAfter": [
+        "raw",
+        "name"
+      ]
+    },
+    {
+      "name": "lists-and-bool-options",
+      "about": "a list setting with options (a multiselect when no control is given) and a yes/no setting shown as options",
+      "mod": {
+        "id": "lists",
+        "name": "Lists",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"kinds\": {\n      \"value\": [\"wood\"],\n      \"label\": \"Kinds\",\n      \"options\": {\n        \"wood\": \"Wood\",\n        \"stone\": \"Stone\"\n      }\n    },\n    \"mode\": {\n      \"value\": true,\n      \"control\": \"radio\",\n      \"options\": {\n        \"true\": \"On\",\n        \"false\": \"Off\"\n      }\n    }\n  }\n}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "kinds",
+            "type": "array",
+            "label": "Kinds",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": "wood",
+                "label": "Wood"
+              },
+              {
+                "value": "stone",
+                "label": "Stone"
+              }
+            ]
+          },
+          {
+            "key": "mode",
+            "type": "boolean",
+            "label": "mode",
+            "control": "radio",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": true,
+                "label": "On"
+              },
+              {
+                "value": false,
+                "label": "Off"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "kinds",
+          "mode"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "kinds",
+          "value": [
+            "wood",
+            "stone"
+          ],
+          "ok": true
+        },
+        {
+          "setting": "kinds",
+          "value": [
+            "iron"
+          ],
+          "ok": false
+        },
+        {
+          "setting": "mode",
+          "value": false,
+          "ok": true
+        }
+      ],
+      "expect": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"kinds\": {\n      \"value\": [\"wood\", \"stone\"],\n      \"label\": \"Kinds\",\n      \"options\": {\n        \"wood\": \"Wood\",\n        \"stone\": \"Stone\"\n      }\n    },\n    \"mode\": {\n      \"value\": false,\n      \"control\": \"radio\",\n      \"options\": {\n        \"true\": \"On\",\n        \"false\": \"Off\"\n      }\n    }\n  }\n}\n"
+    },
+    {
+      "name": "switch-added-to-a-file-without-one",
+      "about": "no enabled member yet: it is added as a new last line, everything else stays",
+      "mod": {
+        "id": "added",
+        "name": "Added",
+        "version": "1.0.0",
+        "capabilities": [
+          "patch"
+        ]
+      },
+      "extended": "{\n  \"schemaVersion\": 1,\n  \"settings\": {\n    \"a\": {\n      \"value\": 1\n    }\n  }\n}\n",
+      "read": {
+        "enabled": false,
+        "switchLive": false,
+        "settings": [
+          {
+            "key": "a",
+            "type": "integer",
+            "label": "a",
+            "control": null,
+            "applyAt": "restart",
+            "live": false
+          }
+        ],
+        "enabledNow": [
+          "a"
+        ]
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\n  \"schemaVersion\": 1,\n  \"settings\": {\n    \"a\": {\n      \"value\": 1\n    }\n  },\n  \"enabled\": true\n}\n"
+    },
+    {
+      "name": "crlf-and-bom",
+      "about": "Windows line ends stay; the byte order mark goes (ShroudForge's JSON reader does not accept it)",
+      "mod": {
+        "id": "crlf",
+        "name": "CRLF",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "﻿{\r\n  \"enabled\": false,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 10,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "x",
+            "type": "integer",
+            "label": "x",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "x"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "x",
+          "value": 20,
+          "ok": true
+        },
+        {
+          "setting": "x",
+          "value": 101,
+          "ok": false
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\r\n  \"enabled\": true,\r\n  \"settings\": {\r\n    \"x\": {\r\n      \"value\": 20,\r\n      \"min\": 0,\r\n      \"max\": 100\r\n    }\r\n  }\r\n}\r\n"
+    },
+    {
+      "name": "legacy-eml-package",
+      "about": "no extended.mod.json: the first switch writes the file ShroudForge's ensure_eml_extension would",
+      "mod": {
+        "id": "old",
+        "name": "Old",
+        "version": "1.0.0"
+      },
+      "extended": null,
+      "read": {
+        "enabled": false,
+        "switchLive": false,
+        "settings": [],
+        "enabledNow": []
+      },
+      "edits": [
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "{\n  \"$schema\": \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n  \"enabled\": true,\n  \"launcher\": \"EML\",\n  \"schemaVersion\": 1,\n  \"settings\": {},\n  \"targets\": [\n    \"client\",\n    \"server\"\n  ]\n}\n"
+    },
+    {
+      "name": "jsonc-comments-and-typed-options",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "// player comments\r\n{\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"old\", \"maxLength\": 4}, // leave this\r\n    \"gain\": {\"value\": 0.5, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}},\r\n  }, /* keep this too */\r\n}\r\n",
+      "read": {
+        "enabled": false,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "message",
+            "type": "string",
+            "label": "message",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "gain",
+            "type": "number",
+            "label": "gain",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.0,
+                "label": "One"
+              },
+              {
+                "value": 2.5,
+                "label": "Two"
+              }
+            ]
+          },
+          {
+            "key": "levels",
+            "type": "array",
+            "label": "levels",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1,
+                "label": "One"
+              },
+              {
+                "value": 2,
+                "label": "Two"
+              }
+            ]
+          }
+        ],
+        "enabledNow": [
+          "message",
+          "gain",
+          "levels"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "message",
+          "value": "é😀",
+          "ok": true
+        },
+        {
+          "setting": "message",
+          "value": "12345",
+          "ok": false
+        },
+        {
+          "setting": "gain",
+          "value": 1,
+          "ok": true
+        },
+        {
+          "setting": "levels",
+          "value": [
+            2,
+            1
+          ],
+          "ok": true
+        },
+        {
+          "setting": "levels",
+          "value": [
+            "2"
+          ],
+          "ok": false
+        },
+        {
+          "enabled": true,
+          "ok": true
+        }
+      ],
+      "expect": "// player comments\r\n{\r\n  \"settings\": {\r\n    \"message\": {\"value\": \"é😀\", \"maxLength\": 4}, // leave this\r\n    \"gain\": {\"value\": 1.0, \"options\": {\"1.00\": \"One\", \"2.5\": \"Two\"}},\r\n    \"levels\": {\"value\": [2, 1], \"options\": {\"1\": \"One\", \"2\": \"Two\"}},\r\n  },\r\n  \"enabled\": true, /* keep this too */\r\n}\r\n"
+    },
+    {
+      "name": "conditional-chains-and-cycles",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"enabled\":true,\"settings\":{\"base\":5,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5.0}},\"grand\":{\"value\":true,\"enabledWhen\":{\"setting\":\"child\",\"equals\":true}},\"lost\":{\"value\":true,\"enabledWhen\":{\"setting\":\"missing\",\"equals\":true}},\"loop\":{\"value\":true,\"enabledWhen\":{\"setting\":\"loop\",\"equals\":true}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "base",
+            "type": "integer",
+            "label": "base",
+            "control": null,
+            "applyAt": "restart",
+            "live": true
+          },
+          {
+            "key": "child",
+            "type": "boolean",
+            "label": "child",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "base",
+              "equals": 5.0
+            }
+          },
+          {
+            "key": "grand",
+            "type": "boolean",
+            "label": "grand",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "child",
+              "equals": true
+            }
+          },
+          {
+            "key": "lost",
+            "type": "boolean",
+            "label": "lost",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "missing",
+              "equals": true
+            }
+          },
+          {
+            "key": "loop",
+            "type": "boolean",
+            "label": "loop",
+            "control": null,
+            "applyAt": "restart",
+            "live": true,
+            "enabledWhen": {
+              "setting": "loop",
+              "equals": true
+            }
+          }
+        ],
+        "enabledNow": [
+          "base",
+          "child",
+          "grand"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "base",
+          "value": 6,
+          "ok": true
+        }
+      ],
+      "expect": "{\"enabled\":true,\"settings\":{\"base\":6,\"child\":{\"value\":true,\"enabledWhen\":{\"setting\":\"base\",\"equals\":5.0}},\"grand\":{\"value\":true,\"enabledWhen\":{\"setting\":\"child\",\"equals\":true}},\"lost\":{\"value\":true,\"enabledWhen\":{\"setting\":\"missing\",\"equals\":true}},\"loop\":{\"value\":true,\"enabledWhen\":{\"setting\":\"loop\",\"equals\":true}}}}\n",
+      "enabledAfter": [
+        "base"
+      ]
+    },
+    {
+      "name": "portable-sdl-shortcut",
+      "mod": {
+        "id": "fixture",
+        "name": "Fixture",
+        "version": "1.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "extended": "{\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"SDL:66\",\"control\":\"keybind\"}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {
+            "key": "shortcut",
+            "type": "string",
+            "label": "shortcut",
+            "control": "keybind",
+            "applyAt": "restart",
+            "live": true
+          }
+        ],
+        "enabledNow": [
+          "shortcut"
+        ]
+      },
+      "edits": [
+        {
+          "setting": "shortcut",
+          "value": "Ctrl+SDL:66|Mouse:4",
+          "ok": true
+        },
+        {
+          "setting": "shortcut",
+          "value": "Shift+Ctrl+SDL:66",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "SDL:066",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "SDL:512",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "Mouse:33",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "Ctrl+Ctrl+SDL:66",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "Mouse:4|SDL:66",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "F9",
+          "ok": false
+        },
+        {
+          "setting": "shortcut",
+          "value": "",
+          "ok": true
+        }
+      ],
+      "expect": "{\"enabled\":true,\"settings\":{\"shortcut\":{\"value\":\"\",\"control\":\"keybind\"}}}\n"
+    }
+  ]
+}

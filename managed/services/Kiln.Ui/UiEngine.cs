@@ -106,6 +106,7 @@ internal static unsafe class UiEngine
         var page = _pageHost ? GamePageHost.Read() : null;
         Ui.Screens.Start();
         RefusalNotice.Start();
+        ShroudForgeMenu.Start();
         Recount();
         Log(LogLevel.Info, $"Kiln.Ui ready; Kiln menu on {KeyBindings.MenuKey}; game UI {(UiNative.HasGameUi && Ui.Screens.Available ? "on" : "off")}, " +
                            $"crafting menu extension {(UiNative.Craft != null ? "on" : "off")}, " +
