@@ -143,9 +143,11 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   published durably before patching. Malformed or checksum-mismatched backups are refused. An interrupted seal
   update can be repaired only when both backups still match the untouched live files. Older unsealed resource
   backups must match the live vanilla prefix before adoption; legacy header-only backups cannot restore the
-  resource file byte for byte. After a game update ShroudForge replaces the pair itself: Kiln's bundled SF moves the
-  old pair and the seal to `shroudforge/backups/outdated-working-baseline/`, an installed SF's Updater replaces both
-  and leaves the seal. Either way kiln-eml takes up the new pair by the unsealed rule (the live build, the live
+  resource file byte for byte. After a game update ShroudForge replaces the pair itself when its asset mods run: Kiln's
+  bundled SF, from fork commit `2eb8f0b` on (the pin `112d939` includes it; the earlier pin `724a884` kept the old
+  pair and failed every preparation after an update, as it needs its Updater for this step), moves the old pair and
+  the seal to `shroudforge/backups/outdated-working-baseline/`; an installed SF (its Updater present) replaces both
+  through its Updater and recycle bin and leaves kiln-eml's seal behind. Either way kiln-eml takes up the new pair by the unsealed rule (the live build, the live
   resource prefix) and seals it; a sealed pair counts as replaced, not damaged, only when the files' lengths differ
   from what the seal recorded, and a same-length mismatch stays refused. The old receipt then lists other backups, so
   nothing is taken for EML's output and the old build's bytes never go back. ShroudForge writes its backup copies to
@@ -158,7 +160,12 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   and the resource prefix stay immutable. Interrupted publication leaves either vanilla or the complete patch.
   Windows uses `FlushFileBuffers` and `MoveFileExW(MOVEFILE_WRITE_THROUGH)`. Wine additionally flushes a writable
   directory handle after each rename, since its move implementation ignores that flag; live reader handles are
-  closed before publication so Wine can replace the resource file.
+  closed before publication so Wine can replace the resource file. Another process's open handle is a limit on native
+  Windows: `MoveFileExW` without POSIX rename semantics does not replace a file another process holds open, even with
+  delete sharing (documented behaviour, not tested on Windows here), and the launcher
+  keeps `<exe>.kfc_resources` and the `.dat` files it reads open while it extracts game art (it starts that on its own
+  after a mod change), so such a start can fail with `Access is denied (os error 5)`: that start runs vanilla (the
+  vanilla header is in place first) and the next start retries. Wine replaces such files regardless.
   Detected changes to immutable game inputs during Lua execution refuse publication; changes during publication prevent
   cache reuse. The per-install OS lock is held until process exit; on Windows an already-running game from the same
   install is also refused. Failure to acquire the install lock stops this start before the game entry point, since
@@ -286,7 +293,8 @@ usable cache, or the first start after a Kiln update, reads about a gigabyte of 
 - **The ownership receipt (dev.24)** is read outside the change cache and counted on its own (`ownershipBytes` in
   `fingerprint`, `checked ... against the ownership receipt` in the summary). A patch run hashes (SHA-256) what it
   publishes and the backups once, and the live files where their sizes equal the new ones, to write the receipt: about
-  0.45 GiB on a client more. An unchanged start reads none of it: the change cache records the receipt (`owner`, the
+  0.45 GiB on a client more. A patch that replaces an owned output also hashes that live previous set in full (to keep
+  it as the receipt's previous generation): about 0.67 GiB in all, plus the containers EML added. An unchanged start reads none of it: the change cache records the receipt (`owner`, the
   SHA-256 of its bytes) right after the publication it lists, and while every game file is as it recorded them and the
   receipt is those bytes, the output is still that one; only the receipt's sizes are compared, from metadata. A start
   whose cache does not record it yet (a cache saved before dev.24, say) checks in full once and records it. A start
