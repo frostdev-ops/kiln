@@ -311,9 +311,24 @@ fn loader_roots(game: &Utf8Path) -> Vec<Utf8PathBuf> {
     roots
 }
 
+/// ShroudForge's mods folder: its configured `paths.mods`, else `<game>/mods` (the first of [`loader_roots`]).
+fn shroudforge_root(game: &Utf8Path) -> Utf8PathBuf {
+    loader_roots(game).into_iter().next().unwrap_or_else(|| game.join("mods"))
+}
+
+/// ShroudForge's own proxy runs ShroudForge unless its config makes it plain EML (`"modloader": "eml"`).
+fn shroudforge_mode(game: &Utf8Path) -> bool {
+    std::fs::read_to_string(game.join("shroudforge/config/modloader-config.json")).ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t.trim_start_matches('\u{feff}')).ok())
+        .and_then(|v| v.get("modloader").and_then(|m| m.as_str()).map(str::to_owned))
+        .is_none_or(|m| !m.eq_ignore_ascii_case("eml"))
+}
+
 /// The `aside` outcome: `why` names the loader that runs the EML mods; the profile's EML mods are listed as running
-/// under it (Kiln's copy is in its folder) or not loading (only in the Library), the latter as warnings.
-fn aside_outcome(why: &str, who: &str) -> Outcome {
+/// under it (Kiln's copy is in its folder) or not loading (only in the Library), the latter as warnings. `shroudforge`:
+/// that loader is ShroudForge, which reads only its own mods folder and runs a package there only while the package's
+/// switch is on, for this side (discover::shroudforge_switch).
+fn aside_outcome(why: &str, who: &str, shroudforge: bool) -> Outcome {
     let mut out = Outcome::new(Phase::Aside, Vec::new());
     out.aside = Some(why.into());
     let (Some(game), Some(kiln)) = (kpath(KILN_PATH_GAME), kpath(KILN_PATH_KILN)) else { return out };
@@ -321,22 +336,12 @@ fn aside_outcome(why: &str, who: &str) -> Outcome {
     let mode = unsafe { (p.mode)() };
     if mode != KILN_PROFILE_ACTIVE && mode != KILN_PROFILE_ONCE { return out; }
     let json = unsafe { (p.json)().to_string() };
-    out.mods = discover::aside_entries(&json, &kiln, &loader_roots(&game), who);
-    let (mut runs, mut lost) = (0, 0);
-    for m in &out.mods {
-        match m.state.as_str() {
-            "own-loader" => runs += 1,
-            "not-loaded" => {
-                lost += 1;
-                klog(2, &format!("kiln-eml: profile EML mod {} does not load: {}", m.id.as_deref().unwrap_or("?"),
-                    m.reason.as_deref().unwrap_or("")));
-            }
-            _ => {}
-        }
-    }
-    if runs + lost > 0 {
-        klog(if lost > 0 { 2 } else { 3 }, &format!("kiln-eml: {runs} of the profile's {} EML mod(s) run under {who}{}",
-            runs + lost, if lost > 0 { format!("; {lost} do not load (kiln/state/eml.json)") } else { String::new() }));
+    let server = std::env::current_exe().ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().eq_ignore_ascii_case("enshrouded_server"))).unwrap_or(false);
+    let roots = if shroudforge { vec![shroudforge_root(&game)] } else { loader_roots(&game) };
+    out.mods = discover::aside_entries(&json, &kiln, &roots, who, shroudforge.then_some(server));
+    for (level, line) in discover::aside_log(&out.mods, who) {
+        klog(level, &line);
     }
     out
 }
@@ -564,7 +569,8 @@ fn start(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo, with_ready:
     if let Some((why, who)) = eml_loader_loaded() {
         RAN.store(true, Ordering::Release);
         klog(3, &format!("kiln-eml: standing aside: {why}. Remove it to let Kiln run the EML mods (kiln/state/eml.json)"));
-        let out = aside_outcome(&why, who);
+        let sf = who.starts_with("ShroudForge") && kpath(KILN_PATH_GAME).is_some_and(|g| shroudforge_mode(&g));
+        let out = aside_outcome(&why, who, sf);
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
     }
     KILN_OK
@@ -653,7 +659,7 @@ unsafe extern "C" fn eml_stand_aside(reason: KilnStr) -> i32 {
             if runner::lock_game(&game).is_err() { return KILN_ERR_UNAVAILABLE; }
         } else { return KILN_ERR_UNAVAILABLE; }
         RAN.store(true, Ordering::Release);
-        let out = aside_outcome(reason, "ShroudForge (hosted by Kiln)");
+        let out = aside_outcome(reason, "ShroudForge (hosted by Kiln)", true);
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
         KILN_OK
     })).unwrap_or(KILN_ERR_INTERNAL)

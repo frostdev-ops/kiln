@@ -7,7 +7,8 @@
 //!
 //! - [`find`]: which own loaders may run. A loader file under a proxy name next to the game, an active `[chain]` line
 //!   of `kiln/chain.ini`, a `dinput8-chain.ini` entry, or (for EML) a profile that makes Kiln host ShroudForge, which
-//!   then writes the EML packages of its mods folder itself. A file counts as "may run": on Windows the game imports
+//!   then writes the EML packages of its mods folder that its switch has on (Kiln's copies carry that switch,
+//!   engine_mods::place). A file counts as "may run": on Windows the game imports
 //!   these names, under Wine/Proton they load only with a DLL override the launcher cannot see.
 //! - [`notes`]: one line per engine for the launcher ("EML's own loader (dbghelp.dll) is installed: it runs the EML
 //!   mods; Kiln copied this profile's 3 EML mods into mods/ for it").
@@ -29,7 +30,7 @@ pub enum Via {
     /// Kiln's proxy chains it from `dinput8-chain.ini` (EMF's list).
     EmfChain,
     /// Kiln hosts ShroudForge for this profile (it lists enabled ShroudForge mods); ShroudForge then owns startup
-    /// patching and writes the EML packages of its mods folder.
+    /// patching and writes the EML packages of its mods folder whose `extended.mod.json` says `enabled: true`.
     HostedShroudForge,
 }
 
@@ -155,7 +156,8 @@ pub fn find(game_dir: &Path, profile: Option<&ProfileView>) -> Vec<OwnLoader> {
     }
     // kiln-shroudforge hosts ShroudForge when the profile lists an enabled ShroudForge mod, or has ShroudForge drop-ins
     // on and ShroudForge's mods folder holds a ShroudForge package, and a ShroudForge runtime is there. ShroudForge then
-    // owns the startup patch, runs the EML mods of its mods folder itself (an EML package is a folder with only mod.json),
+    // owns the startup patch, runs the EML mods of its mods folder itself (those its switch has on: Kiln's copies there
+    // carry it, engine_mods::place; an EML package is a folder with mod.json and no extended.mod.json, or one with launcher EML),
     // and kiln-eml stands aside for it through kiln.eml stand_aside (docs/kiln/eml.md section 6).
     let plugin = "kiln/plugins/kiln-shroudforge.dll";
     let runtime = game_dir.join("kiln/plugins/shroudforge/shroudforge-runtime.dll").is_file()
@@ -234,6 +236,11 @@ pub struct OwnLoaderNote {
     pub copied: Vec<String>,
     /// Ids that are not in the loader's folder: they do not load while the own loader runs.
     pub not_copied: Vec<String>,
+    /// Ids of [`OwnLoaderNote::copied`] that ShroudForge has switched off (EML mods while ShroudForge runs them: their
+    /// copy has no `extended.mod.json`, its `enabled` is not true, or ShroudForge cannot read the package): ShroudForge
+    /// does not run them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<String>,
     /// One sentence for the Play and profile pages.
     pub text: String,
 }
@@ -241,8 +248,15 @@ pub struct OwnLoaderNote {
 /// True when `<root>` holds Kiln's copy of this kind's mod `id` (a `.kiln-library.json` marker says so): `<root>/<id>`,
 /// or the folder an EML mod is placed in for its native DLL (`mods/XHL-Auto-Loot` for the Library id `xhl-auto-loot`).
 pub fn has_copy(root: &Path, kind: ModKind, id: &str) -> bool {
+    copy_of(root, kind, id).is_some()
+}
+
+/// The folder of [`has_copy`].
+fn copy_of(root: &Path, kind: ModKind, id: &str) -> Option<PathBuf> {
     let is = |dir: &Path| crate::engine_mods::marker(dir).is_some_and(|m| m.kind == kind && m.id == id);
-    is(&root.join(id)) || std::fs::read_dir(root).into_iter().flatten().flatten().any(|e| e.path().is_dir() && is(&e.path()))
+    let own = root.join(id);
+    if is(&own) { return Some(own); }
+    std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.is_dir() && is(p))
 }
 
 fn names(ids: &[String]) -> String {
@@ -262,6 +276,11 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
         let root = l.root(game_dir);
         let ids: Vec<String> = profile.map(|p| p.enabled(kind).map(str::to_owned).collect()).unwrap_or_default();
         let (copied, not_copied): (Vec<String>, Vec<String>) = ids.iter().cloned().partition(|id| has_copy(&root, kind, id));
+        // ShroudForge runs an EML package of its folder only while the package's switch is on, for this side
+        let server = game_dir.join(crate::game::SERVER_EXE).is_file();
+        let off: Vec<String> = if kind == ModKind::Eml && l.engine == Engine::ShroudForge {
+            copied.iter().filter(|id| copy_of(&root, kind, id).is_some_and(|dir| crate::shroudforge::switched_off(&dir, server).is_some())).cloned().collect()
+        } else { Vec::new() };
         let who = loader_name(l);
         let label = short(kind);
         let folder = format!("{}/", l.folder.trim_end_matches('/'));
@@ -291,12 +310,17 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                     not_copied.len(), names(&not_copied))),
             }
         }
+        if !off.is_empty() {
+            text.push_str(&format!(
+                ". ShroudForge has {} of them switched off in ShroudForge's settings and does not run them ({}): activate the profile again to switch them on",
+                off.len(), names(&off)));
+        }
         // On Windows the game imports these names, so the file always runs. A launcher built for Linux manages games
         // that run under Wine or Proton.
         if cfg!(not(windows)) && l.via == Via::Proxy && !l.file.eq_ignore_ascii_case("dinput8.dll") {
             text.push_str(". Under Wine or Proton it runs only with a DLL override; without one Kiln runs these mods itself");
         }
-        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, text });
+        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, off, text });
     }
     out
 }

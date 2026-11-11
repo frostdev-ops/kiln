@@ -296,7 +296,14 @@ ShroudForge's startup preparation returned success. Then an `applied` pass on th
 client, `enshrouded_server` on a server) that lists the mod at the version in its folder shows Loaded with the word
 `applied`; a `failed` pass of this process's lifetime shows Failed with its error. Any other record (an earlier start
 without the adapter's flag, the other target, a pass still `preparing`, the mod missing from the list or listed at
-another version) proves nothing either way, and the mod shows Waiting with the word `startup`. Enshwick's mods
+another version) proves nothing either way, and the mod shows Waiting with the word `startup`. While ShroudForge
+runs, the EML rows of packages in its mods folder are read the same way (ShroudForge runs a package there only while
+its `extended.mod.json` says `enabled: true`, on the sides its `targets` name): switched off there they show Off,
+word `off-in-shroudforge`, with where to switch it on (Play in the launcher for Kiln's copy; the ShroudForge group or
+ShroudForge's own Modloader for the player's own folder), and the EML engine line counts them as a problem; on, a mod
+with a startup part shows `applied` when the record lists it, else Waiting `unconfirmed`. Kiln's EML copies are not
+repeated in the ShroudForge group; a player's own legacy EML folder there (no `extended.mod.json`) is listed in it,
+switched off, with the switch that writes ShroudForge's file. Enshwick's mods
 come from the profile and mods folder, with loader state from `enshwick.json`; a folder there that another kind owns
 (a profile entry of another kind, a `native-plugin.ini`, a `mod.json`, or Kiln's placement marker of another kind) is
 not listed as Enshwick's. XHL companions (the profile's `mods.xhl`, and folders with XHL-Core's `native-plugin.ini` in

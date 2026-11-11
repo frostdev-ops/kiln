@@ -1,0 +1,294 @@
+//! The profile's EML mods while ShroudForge runs them (Kiln hosts ShroudForge for the profile's ShroudForge mods).
+//! ShroudForge runs a package of its mods folder only when its `extended.mod.json` says `enabled: true`, and a legacy
+//! EML package has no such file until ShroudForge writes one at the first change of its switch. A real client
+//! (2026-11-11) ran one of four EML mods: the three without that file were applied by nobody. So Kiln's copy of a
+//! profile EML mod in ShroudForge's folder carries ShroudForge's switch, set from the profile, and the file is part of
+//! what Kiln placed; what the player (or ShroudForge) changes in it later is the player's.
+#![cfg(all(unix, feature = "zip"))]
+
+use kiln_manage::engine_mods;
+use kiln_manage::library::{self, LibraryRef};
+use kiln_manage::manifest::ModKind;
+use kiln_manage::own_loaders;
+use kiln_manage::paths::DataDirs;
+use kiln_manage::pe::build_test_dll;
+use kiln_manage::profile::{self, ProfileMod};
+use kiln_manage::shroudforge;
+use kiln_manage::task::NoProgress;
+use std::path::{Path, PathBuf};
+
+struct Tmp(PathBuf);
+impl Drop for Tmp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+fn tmp(tag: &str) -> Tmp {
+    let p = std::env::temp_dir().join(format!("km-eml-under-sf-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&p);
+    std::fs::create_dir_all(&p).unwrap();
+    Tmp(p.canonicalize().unwrap())
+}
+fn put(root: &Path, rel: &str, data: &[u8]) {
+    let p = root.join(rel);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(p, data).unwrap();
+}
+
+/// A legacy EML package (More Gliders, Aldrich Bare Body): mod.json and Lua, no extended.mod.json.
+fn legacy(root: &Path, id: &str, version: &str) -> PathBuf {
+    let d = root.join("src").join(format!("{id}-{version}"));
+    put(&d, "mod.json", format!(r#"{{"id":"{id}","name":"{id}","version":"{version}","capabilities":["patch"]}}"#).as_bytes());
+    put(&d, "src/mod.lua", format!("-- {version}\nreturn {{}}").as_bytes());
+    d
+}
+
+/// An EML package whose author ships ShroudForge's file (Wardrobe - Transmog: `launcher: "EML"`), with a setting.
+const SHIPPED: &str = "{\n    \"$schema\" : \"https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json\",\n    \"schemaVersion\" : 1,\n    \"enabled\" :   false,\n    \"targets\": [ \"client\" ],\n    \"launcher\": \"EML\",\n    \"settings\": { \"radius\": { \"label\": \"Radius\", \"control\": \"slider\", \"min\": 1, \"max\": 50, \"value\": 5 } }\n}\n";
+
+fn shipped(root: &Path, id: &str, version: &str, ext: &str) -> PathBuf {
+    let d = legacy(root, id, version);
+    put(&d, "extended.mod.json", ext.as_bytes());
+    d
+}
+
+/// A ShroudForge package of its own (`launcher: "SF"`): with one of them switched on, Kiln hosts ShroudForge.
+fn sf_package(root: &Path, id: &str) -> PathBuf {
+    let d = root.join("src").join(id);
+    put(&d, "mod.json", format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0","capabilities":["runtime"]}}"#).as_bytes());
+    put(&d, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":false,"targets":["client"]}"#);
+    put(&d, "src/mod.lua", b"return {}");
+    d
+}
+
+fn import(dirs: &DataDirs, src: &Path, kind: ModKind, id: &str) -> LibraryRef {
+    let r = library::import(dirs, &[src.to_path_buf()], &mut NoProgress).unwrap();
+    r.imported.iter().chain(&r.existing).find(|x| x.kind == kind && x.id == id).cloned()
+        .unwrap_or_else(|| panic!("{kind:?} {id} not imported: {r:?}"))
+}
+
+fn pm(r: &LibraryRef, enabled: bool) -> ProfileMod {
+    ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled }
+}
+
+/// A game folder with Kiln's ShroudForge plugin and the bundled runtime (the files own_loaders::find looks for).
+fn game(t: &Tmp) -> PathBuf {
+    let g = t.0.join("game");
+    put(&g, "enshrouded.exe", b"MZ");
+    put(&g, "kiln/plugins/kiln-shroudforge.dll", b"x");
+    put(&g, "kiln/plugins/shroudforge/shroudforge-runtime.dll", b"x");
+    g
+}
+
+struct Setup {
+    t: Tmp,
+    dirs: DataDirs,
+    game: PathBuf,
+    sf: LibraryRef,
+}
+
+fn setup(tag: &str) -> Setup {
+    let t = tmp(tag);
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = game(&t);
+    let sf = import(&dirs, &sf_package(&t.0, "sf-crafting-essentials"), ModKind::ShroudForge, "sf-crafting-essentials");
+    Setup { t, dirs, game, sf }
+}
+
+impl Setup {
+    /// A profile with the ShroudForge mod on (Kiln hosts ShroudForge) and these EML mods.
+    fn profile(&self, eml: Vec<ProfileMod>) -> profile::Profile {
+        let mut p = profile::create(&self.dirs, "mixed", None).unwrap();
+        p.mods.shroudforge = vec![pm(&self.sf, true)];
+        p.mods.eml = eml;
+        p
+    }
+}
+
+fn ext_of(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(dir.join("extended.mod.json")).ok()
+}
+
+#[test]
+fn a_legacy_eml_mod_placed_while_kiln_hosts_shroudforge_gets_shroudforges_switch_on() {
+    let s = setup("legacy");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    let p = s.profile(vec![pm(&gliders, true)]);
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.placed.contains(&"eml:more-gliders".to_string()), "{rep:?}");
+    let copy = s.game.join("mods/more-gliders");
+    // the file ShroudForge's ensure_eml_extension writes for a legacy EML package, with the profile's switch
+    let ext: serde_json::Value = serde_json::from_str(&ext_of(&copy).expect("Kiln's copy carries ShroudForge's switch")).unwrap();
+    assert_eq!(ext, serde_json::json!({"$schema": "https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json",
+        "schemaVersion": 1, "enabled": true, "targets": ["client", "server"], "launcher": "EML", "settings": {}}));
+    // read as ShroudForge 1.7.9 reads packages: switched on, an EML package, both sides
+    let m = shroudforge::read_mod(&copy).unwrap();
+    assert_eq!((m.enabled, m.extended, m.launcher.as_deref(), m.targets.clone()), (true, true, Some("EML"), vec!["client".to_string(), "server".into()]));
+    let (listed, _) = shroudforge::list_mods(&s.game);
+    assert!(listed.iter().any(|x| x.id == "more-gliders" && x.enabled), "{listed:?}");
+    // the Library entry is immutable: nothing is written there
+    assert!(ext_of(&library::path_of(&s.dirs, &gliders).unwrap()).is_none());
+    // the file is part of what Kiln placed: the next activation keeps the copy, and uninstalling removes it
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.kept.contains(&"eml:more-gliders".to_string()) && rep.changed.is_empty() && rep.retained.is_empty(), "{rep:?}");
+    assert!(rep.own_loaders.iter().any(|n| n.loader.kind == ModKind::Eml && n.copied == ["more-gliders"] && n.off.is_empty()), "{:?}", rep.own_loaders);
+    let cleanup = engine_mods::unplace(&s.game).unwrap();
+    assert!(cleanup.retained.is_empty() && cleanup.removed.contains(&copy), "{cleanup:?}");
+}
+
+#[test]
+fn a_shipped_extension_only_has_its_switch_changed() {
+    let s = setup("shipped");
+    let wardrobe = import(&s.dirs, &shipped(&s.t.0, "fcu-render-observer", "0.8.4", SHIPPED), ModKind::Eml, "fcu-render-observer");
+    let p = s.profile(vec![pm(&wardrobe, true)]);
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/fcu-render-observer");
+    // byte for byte the author's file, with only the value of `enabled` replaced
+    assert_eq!(ext_of(&copy).unwrap(), SHIPPED.replace("\"enabled\" :   false", "\"enabled\" :   true"));
+    let m = shroudforge::read_mod(&copy).unwrap();
+    assert_eq!((m.enabled, m.targets.clone()), (true, vec!["client".to_string()]));
+    assert_eq!(ext_of(&library::path_of(&s.dirs, &wardrobe).unwrap()).unwrap(), SHIPPED, "the Library entry is not written");
+}
+
+#[test]
+fn what_the_player_changes_in_shroudforges_file_survives_activation_and_an_update() {
+    let s = setup("player");
+    let v1 = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.0.0", SHIPPED), ModKind::Eml, "radius-mod");
+    let mut p = s.profile(vec![pm(&v1, true)]);
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/radius-mod");
+    // in the game: a setting changed and the switch turned off on Kiln's ShroudForge page (or ShroudForge's Modloader)
+    shroudforge::set_setting(&copy, "radius", &serde_json::json!(9)).unwrap();
+    shroudforge::set_enabled(&copy, false).unwrap();
+    // the next activation: the copy is still Kiln's, the profile is the switch, the setting is the player's
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.kept.contains(&"eml:radius-mod".to_string()) && rep.changed.is_empty() && rep.retained.is_empty(), "{rep:?}");
+    let m = shroudforge::read_mod(&copy).unwrap();
+    assert_eq!((m.enabled, &m.settings[0].value), (true, &serde_json::json!(9)));
+    // a new version (new Lua, a new setting): placed, the player's value carried, the switch from the profile
+    let next = SHIPPED.replace("\"value\": 5 } }", "\"value\": 5 }, \"extra\": { \"label\": \"Extra\", \"value\": true } }");
+    let v2 = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.1.0", &next), ModKind::Eml, "radius-mod");
+    p.mods.eml = vec![pm(&v2, true)];
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.placed.contains(&"eml:radius-mod".to_string()) && rep.retained.is_empty(), "{rep:?}");
+    assert_eq!(std::fs::read(copy.join("src/mod.lua")).unwrap(), b"-- 1.1.0\nreturn {}");
+    let m = shroudforge::read_mod(&copy).unwrap();
+    let value = |k: &str| m.settings.iter().find(|x| x.key == k).map(|x| x.value.clone());
+    assert_eq!((m.enabled, value("radius"), value("extra")), (true, Some(serde_json::json!(9)), Some(serde_json::json!(true))));
+    // the player's value is not Kiln's to throw away: uninstalling keeps the copy and says why
+    let cleanup = engine_mods::unplace(&s.game).unwrap();
+    assert!(cleanup.retained.iter().any(|r| r.path == copy), "{cleanup:?}");
+    assert_eq!(shroudforge::read_mod(&copy).unwrap().settings[0].value, serde_json::json!(9));
+}
+
+#[test]
+fn the_profile_switching_an_eml_mod_off_takes_it_from_shroudforge_without_losing_the_players_values() {
+    let s = setup("off");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    let radius = import(&s.dirs, &shipped(&s.t.0, "radius-mod", "1.0.0", SHIPPED), ModKind::Eml, "radius-mod");
+    let mut p = s.profile(vec![pm(&gliders, true), pm(&radius, true)]);
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let (gcopy, rcopy) = (s.game.join("mods/more-gliders"), s.game.join("mods/radius-mod"));
+    shroudforge::set_setting(&rcopy, "radius", &serde_json::json!(12)).unwrap();
+    p.mods.eml.iter_mut().for_each(|m| m.enabled = false);
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    // a copy with nothing of the player's goes, as before: ShroudForge no longer sees it
+    assert!(rep.removed.contains(&"eml:more-gliders".to_string()) && !gcopy.exists(), "{rep:?}");
+    // a copy holding the player's ShroudForge setting stays, switched off in ShroudForge's file, and the result says so
+    let m = shroudforge::read_mod(&rcopy).unwrap();
+    assert_eq!((m.enabled, &m.settings[0].value), (false, &serde_json::json!(12)));
+    assert!(rep.retained.iter().any(|r| r.path == rcopy && r.reason.contains("switched it off")), "{rep:?}");
+    let (listed, _) = shroudforge::list_mods(&s.game);
+    assert!(!listed.iter().any(|x| x.enabled && x.id != "sf-crafting-essentials"), "{listed:?}");
+    // on again: the same copy, the switch on, the value as the player left it
+    p.mods.eml.iter_mut().for_each(|m| m.enabled = true);
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.kept.contains(&"eml:radius-mod".to_string()) && rep.placed.contains(&"eml:more-gliders".to_string()), "{rep:?}");
+    let m = shroudforge::read_mod(&rcopy).unwrap();
+    assert_eq!((m.enabled, &m.settings[0].value), (true, &serde_json::json!(12)));
+    assert!(shroudforge::read_mod(&gcopy).unwrap().enabled);
+}
+
+/// The DLL-carrying EML mods (Auto Loot Plus) live in `<game>/mods/<folder>`, which is ShroudForge's mods folder too.
+fn alp_package(root: &Path) -> PathBuf {
+    let d = root.join("pkg/AutoLootPlus 1.1.8");
+    put(&d, "dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0mods\\auto-loot-plus\\config.txt"));
+    put(&d, "mods/auto-loot-plus/mod.json", br#"{"id":"auto-loot-plus","name":"Auto Loot Plus","version":"1.1.8","capabilities":["patch"]}"#);
+    put(&d, "mods/auto-loot-plus/src/mod.lua", b"return {}");
+    put(&d, "mods/auto-loot-plus/config.txt", b"radius=15");
+    d
+}
+
+#[test]
+fn without_shroudforge_mods_no_switch_is_written_and_kiln_eml_runs_the_copy() {
+    let s = setup("no-sf");
+    let r = library::import(&s.dirs, &[alp_package(&s.t.0)], &mut NoProgress).unwrap();
+    let alp = r.imported.iter().find(|x| x.kind == ModKind::Eml).cloned().expect("the EML part");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    let mut p = s.profile(vec![pm(&alp, true), pm(&gliders, true)]);
+    p.mods.shroudforge.clear();
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/auto-loot-plus");
+    assert!(rep.placed.contains(&"eml:auto-loot-plus".to_string()), "{rep:?}");
+    assert!(ext_of(&copy).is_none(), "no ShroudForge this start: kiln-eml runs the copy, and nothing needs the switch");
+    assert!(!s.game.join("mods/more-gliders").exists(), "kiln-eml runs it from the Library");
+    // the DLL writes its settings; then the profile gains a ShroudForge mod: the same copy gets the switch, settings stay
+    std::fs::write(copy.join("config.txt"), b"radius=42").unwrap();
+    p.mods.shroudforge = vec![pm(&s.sf, true)];
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.changed.is_empty() && rep.retained.is_empty(), "{rep:?}");
+    assert!(shroudforge::read_mod(&copy).unwrap().enabled, "{rep:?}");
+    assert!(shroudforge::read_mod(&s.game.join("mods/more-gliders")).unwrap().enabled);
+    assert_eq!(std::fs::read(copy.join("config.txt")).unwrap(), b"radius=42");
+    // and without them again: the game-folder copy stays as it is (its switch is harmless: kiln-eml reads only
+    // `launcher`), the other copy goes
+    p.mods.shroudforge.clear();
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.kept.contains(&"eml:auto-loot-plus".to_string()) && rep.removed.contains(&"eml:more-gliders".to_string()), "{rep:?}");
+    assert!(rep.retained.is_empty(), "{rep:?}");
+}
+
+#[test]
+fn a_copy_an_older_kiln_placed_without_the_switch_gets_it_at_the_next_play() {
+    let s = setup("older");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    // dev.24 before this fix: Kiln hosted ShroudForge, placed the copy, and wrote no switch (EML's own loader stands
+    // in for that placement here: the same copy, the same receipt)
+    put(&s.game, "dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
+    let p = s.profile(vec![pm(&gliders, true)]);
+    engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    let copy = s.game.join("mods/more-gliders");
+    assert!(copy.is_dir() && ext_of(&copy).is_none());
+    std::fs::remove_file(s.game.join("dbghelp.dll")).unwrap();
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.kept.contains(&"eml:more-gliders".to_string()) && rep.switched.contains(&"eml:more-gliders".to_string()), "{rep:?}");
+    assert!(shroudforge::read_mod(&copy).unwrap().enabled);
+    // the file Kiln added is Kiln's: not a file the player wrote, so uninstalling removes the copy
+    let cleanup = engine_mods::unplace(&s.game).unwrap();
+    assert!(cleanup.retained.is_empty() && cleanup.removed.contains(&copy), "{cleanup:?}");
+    assert!(!s.game.join("kiln/kept-mod-files/eml/more-gliders").exists());
+}
+
+#[test]
+fn the_launcher_says_when_shroudforge_has_an_eml_mod_off_and_never_writes_a_players_folder() {
+    let s = setup("notes");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    let bare = import(&s.dirs, &legacy(&s.t.0, "aldrich-bare-body", "0.5.3"), ModKind::Eml, "aldrich-bare-body");
+    // the player installed this one by hand into the game's mods folder: no extended.mod.json, so ShroudForge has it off
+    let hand = s.game.join("mods/Aldrich Body");
+    put(&hand, "mod.json", br#"{"id":"aldrich-bare-body","name":"Aldrich","version":"0.5.3","capabilities":["patch"]}"#);
+    put(&hand, "src/mod.lua", b"return {}");
+    let p = s.profile(vec![pm(&gliders, true), pm(&bare, true)]);
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    assert!(rep.own.contains(&"eml:aldrich-bare-body".to_string()), "{rep:?}");
+    assert!(ext_of(&hand).is_none() && engine_mods::marker(&hand).is_none(), "a player's folder is never written to");
+    let note = rep.own_notes.iter().find(|n| n.starts_with("eml:aldrich-bare-body")).expect("a note for the player's folder");
+    assert!(note.contains("ShroudForge has it switched off") && !note.contains("the game uses your own folder"), "{note}");
+    // a copy whose switch is off (turned off in the game, or a write that failed) is not said to run
+    shroudforge::set_enabled(&s.game.join("mods/more-gliders"), false).unwrap();
+    let view = own_loaders::ProfileView::of_profile(&p);
+    let notes = own_loaders::notes(&s.game, &own_loaders::find(&s.game, Some(&view)), Some(&view));
+    let eml = notes.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+    assert_eq!(eml.off, ["more-gliders"], "{eml:?}");
+    assert!(eml.text.contains("switched off in ShroudForge's settings"), "{}", eml.text);
+}
