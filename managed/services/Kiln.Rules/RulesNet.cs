@@ -2,11 +2,17 @@
 // kiln:rules: the server tells each Kiln player's game its own rules for the client-side hooks (the fly-mode gate and
 // the glider in the prediction world, the build cursor). Opened by Kiln itself on both sides (not by a mod), not required: a client
 // without it joins as before and gets only the server-side rules.
+//
+// Messages (channel v4; additions never change the version, which must match exactly): 0 RulesMsg to the client
+// (dev.24 appends the glider steering limit; an older client reads the fields it knows, NetChannel ignores the rest),
+// 1 FlightCapability to the server, 2 ClientHooks to the server (since dev.24: the predicted hooks this game has; an
+// older server has no handler for it and drops it unread).
 namespace Kiln;
 
 internal static unsafe class RulesNet
 {
     private const ushort MsgRules = 0;
+    internal const ushort MsgClientHooks = 2;
     internal const string ChannelVersion = "4";  // character flight needs matching prediction hooks, including on older Kiln clients
     private static readonly object Lock = new();
     private static NetChannel? _channel;
@@ -14,6 +20,43 @@ internal static unsafe class RulesNet
     private readonly record struct FlightCapability(bool Enabled);
     private static readonly HashSet<NetPeer> FlightPeers = new();
     private static bool? _flightSent;
+
+    /// <summary>The client's own kiln.rules hooks its prediction applies (KILN_RULES_HOOK_* bits; since dev.24 the
+    /// server reads only <see cref="RulesNative.HookGlideSteer"/>).</summary>
+    internal readonly record struct ClientHooks(uint Hooks);
+    private const uint PredictedHooks = RulesNative.HookGlideSteer;
+    private static readonly HashSet<NetPeer> SteerPeers = new();
+    private static uint? _hooksSent;
+
+    internal static bool SteerReady(NetPeer? peer)
+    {
+        lock (Lock) return peer is { State: NetPeerState.Ready } && SteerPeers.Contains(peer);
+    }
+
+    internal static void ClientHooksOf(NetPeer peer, uint hooks)
+    {
+        lock (Lock)
+        {
+            if ((hooks & RulesNative.HookGlideSteer) != 0 && peer.State == NetPeerState.Ready) SteerPeers.Add(peer);
+            else SteerPeers.Remove(peer);
+        }
+        RulesRuntime.Dirty();
+    }
+
+    internal static void WriteClientHooks(ClientHooks m, NetWriter w) => w.UInt32(m.Hooks);
+    internal static ClientHooks ReadClientHooks(ref NetReader r) => new(r.UInt32());
+
+    private static void ClientPredicts(in TickInfo _)
+    {
+        try
+        {
+            // once per connection: the steering hook is installed at boot or never (reading the status costs a lock per slot)
+            if (_hooksSent is not null || Client.IsHosting) return;
+            var hooks = RulesNative.Hooks & PredictedHooks;
+            if (_channel?.SendToServer(new ClientHooks(hooks)) == true) _hooksSent = hooks;
+        }
+        catch (Exception) { } // no client world or channel yet; retry next client tick
+    }
 
     internal static bool FlightReady(NetPeer? peer)
     {
@@ -41,9 +84,26 @@ internal static unsafe class RulesNet
         catch (Exception) { } // no client world or channel yet; retry next client tick
     }
 
-    // v2: + the Shroud floor and the glider values; v3 (released in 0.2.0-dev.15): + the glider's climb rate
-    private readonly record struct RulesMsg(uint Flags, float BuildCost, float BuildRefund, float DigDamage, float ShroudFloor,
-        float GlideSink, float GlideThrust, float GlideMaxSpeed, float GlideLift, float GlideCoast, float GlideClimb);
+    // v2: + the Shroud floor and the glider values; v3 (released in 0.2.0-dev.15): + the glider's climb rate; v4 the same
+    // fields, and since dev.24 the glider steering limit at the end (an older server's message ends before it: 0)
+    internal readonly record struct RulesMsg(uint Flags, float BuildCost, float BuildRefund, float DigDamage, float ShroudFloor,
+        float GlideSink, float GlideThrust, float GlideMaxSpeed, float GlideLift, float GlideCoast, float GlideClimb,
+        float GlideSteerLimit = 0f);
+
+    internal static void WriteRules(RulesMsg m, NetWriter w) => w.UInt32(m.Flags).Single(m.BuildCost).Single(m.BuildRefund)
+        .Single(m.DigDamage).Single(m.ShroudFloor).Single(m.GlideSink).Single(m.GlideThrust).Single(m.GlideMaxSpeed).Single(m.GlideLift)
+        .Single(m.GlideCoast).Single(m.GlideClimb).Single(m.GlideSteerLimit);
+
+    // kiln.net may pad a frame by up to 3 zero bytes: a field is read only when all 4 of its bytes are there
+    internal static RulesMsg ReadRules(ref NetReader r) => new(r.UInt32(), r.Single(), r.Single(), r.Single(), r.Single(), r.Single(),
+        r.Single(), r.Single(), r.Single(), r.Single(), r.Single(), r.Remaining >= 4 ? r.Single() : 0f);
+
+    internal static RulesMsg MessageOf(RulesNativePart p) => new(p.Flags, p.BuildCost, p.BuildRefund, p.DigDamage, p.ShroudFloor,
+        p.GlideSink, p.GlideThrust, p.GlideMaxSpeed, p.GlideLift, p.GlideCoast, p.GlideClimb, p.GlideSteerLimit);
+
+    internal static RulesNativePart PartOf(RulesMsg m) => new(m.Flags, Clean(m.BuildCost), Clean(m.BuildRefund), Clean(m.DigDamage),
+        Clean(m.ShroudFloor, 0f), Clean(m.GlideSink), Clean(m.GlideThrust, 0f), Clean(m.GlideMaxSpeed, 0f), Clean(m.GlideLift, 0f),
+        Clean(m.GlideCoast, 0f), Clean(m.GlideClimb, 0f), Clean(m.GlideSteerLimit, 0f));
 
     public static bool Open => _channel is not null;
 
@@ -63,21 +123,20 @@ internal static unsafe class RulesNet
             try
             {
                 _channel = Network.Channel(Rules.ChannelName, ChannelVersion, required: false)
-                    .Register<RulesMsg>(MsgRules,
-                        static (m, w) => w.UInt32(m.Flags).Single(m.BuildCost).Single(m.BuildRefund).Single(m.DigDamage)
-                            .Single(m.ShroudFloor).Single(m.GlideSink).Single(m.GlideThrust).Single(m.GlideMaxSpeed).Single(m.GlideLift)
-                            .Single(m.GlideCoast).Single(m.GlideClimb),
-                        static (ref NetReader r) => new RulesMsg(r.UInt32(), r.Single(), r.Single(), r.Single(), r.Single(), r.Single(),
-                            r.Single(), r.Single(), r.Single(), r.Single(), r.Single()),
+                    .Register<RulesMsg>(MsgRules, static (m, w) => WriteRules(m, w), static (ref NetReader r) => ReadRules(ref r),
                         static (m, _) => OnRules(m), NetDirection.ToClient)
                     .Register<FlightCapability>(1, static (m, w) => w.Bool(m.Enabled),
                         static (ref NetReader r) => new FlightCapability(r.Bool()),
-                        static (m, c) => FlightCapabilityOf(c.Sender, m.Enabled), NetDirection.ToServer);
-                Network.Disconnected += _ => { _flightSent = null; SetLocal(RulesNativePart.Default); };
-                Network.ServerReady += _ => _flightSent = null;
-                Events.On<NetPeerLeftEvent>(e => FlightCapabilityOf(e.Peer, false));
-                Events.On<ServerStoppingEvent>(_ => { lock (Lock) FlightPeers.Clear(); });
+                        static (m, c) => FlightCapabilityOf(c.Sender, m.Enabled), NetDirection.ToServer)
+                    .Register<ClientHooks>(MsgClientHooks, static (m, w) => WriteClientHooks(m, w),
+                        static (ref NetReader r) => ReadClientHooks(ref r),
+                        static (m, c) => ClientHooksOf(c.Sender, m.Hooks), NetDirection.ToServer);
+                Network.Disconnected += _ => { _flightSent = null; _hooksSent = null; SetLocal(RulesNativePart.Default); };
+                Network.ServerReady += _ => { _flightSent = null; _hooksSent = null; };
+                Events.On<NetPeerLeftEvent>(e => { FlightCapabilityOf(e.Peer, false); ClientHooksOf(e.Peer, 0); });
+                Events.On<ServerStoppingEvent>(_ => { lock (Lock) { FlightPeers.Clear(); SteerPeers.Clear(); } });
                 Client.Tick += ClientFlight;
+                Client.Tick += ClientPredicts;
             }
             catch (Exception e)
             {
@@ -101,9 +160,7 @@ internal static unsafe class RulesNet
         {
             // no kiln.client
         }
-        SetLocal(new RulesNativePart(m.Flags, Clean(m.BuildCost), Clean(m.BuildRefund), Clean(m.DigDamage), Clean(m.ShroudFloor, 0f),
-            Clean(m.GlideSink), Clean(m.GlideThrust, 0f), Clean(m.GlideMaxSpeed, 0f), Clean(m.GlideLift, 0f), Clean(m.GlideCoast, 0f),
-            Clean(m.GlideClimb, 0f)));
+        SetLocal(PartOf(m));
     }
 
     private static float Clean(float v, float fallback = 1f) => float.IsFinite(v) && v >= 0 ? v : fallback;
@@ -123,7 +180,8 @@ internal static unsafe class RulesNet
             RulesRuntime.Log(LogLevel.Info, $"local player's rules: flags 0x{part.Flags:x}, build cost x{part.BuildCost}, glide sink x{part.GlideSink}" +
                 ((part.Flags & RulesNative.GlideBoost) != 0
                     ? $", boost {part.GlideThrust} m/s² to {part.GlideMaxSpeed} m/s, lift {part.GlideLift}, climb {part.GlideClimb} m/s"
-                    : ""));
+                    : "") +
+                ((part.Flags & RulesNative.GlideSteer) != 0 ? $", glider steering up to {part.GlideSteerLimit}°" : ""));
         }
     }
 
@@ -134,8 +192,7 @@ internal static unsafe class RulesNet
         if (ch is null) return false;
         try
         {
-            return ch.SendTo(player, new RulesMsg(part.Flags, part.BuildCost, part.BuildRefund, part.DigDamage, part.ShroudFloor,
-                part.GlideSink, part.GlideThrust, part.GlideMaxSpeed, part.GlideLift, part.GlideCoast, part.GlideClimb));
+            return ch.SendTo(player, MessageOf(part));
         }
         catch (Exception)
         {

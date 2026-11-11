@@ -42,3 +42,12 @@ void refresh();
 uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
 void counters(uint64_t* takeoffs, uint64_t* landings, uint64_t* ends, uint64_t* faults);
 }  // namespace kiln_rules_flight
+
+namespace kiln_rules_steer {
+// Glider steering's mid hook (steer.cpp; feature rules.glide_steer). Returns KILN_RULES_HOOK_GLIDE_STEER or 0 (`off`
+// says why). Called at boot with the other gliding hooks.
+uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
+bool active();  // the hook is installed: GLIDE_STEER steers, and GLIDE_BOOST takes its steering form (rules.cpp)
+uint64_t steered();
+uint64_t faults();
+}  // namespace kiln_rules_steer

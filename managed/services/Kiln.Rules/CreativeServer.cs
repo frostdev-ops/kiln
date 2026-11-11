@@ -456,7 +456,10 @@ internal static class CreativeServer
         string rules;
         try
         {
-            rules = Rules.Of(player).ToString();
+            var of = Rules.Of(player);
+            rules = of.ToString();
+            if (of.GlideSteer is not null && !RulesRuntime.CanPredictSteer(player))
+                rules += " (glider steering held back: your game has no steering hook, so the glide flies as before)";
         }
         catch (Exception)
         {

@@ -12,11 +12,12 @@ internal static unsafe class RulesNative
     // KilnRulesPlayer.flags
     public const uint FlyAnywhere = 0x01, BuildOutsideBases = 0x02, IgnoreNoBuildZones = 0x04, IgnoreEnemies = 0x08,
         IgnoreShroud = 0x10, IgnoreBasePermissions = 0x20, ShroudFreeze = 0x40, GlideUnlimited = 0x80, GlideBoost = 0x100,
-        FreeCrafting = 0x200, KeepConsumables = 0x400, CharacterFlight = 0x800, FlightBaseOnly = 0x1000;
+        FreeCrafting = 0x200, KeepConsumables = 0x400, CharacterFlight = 0x800, FlightBaseOnly = 0x1000, GlideSteer = 0x2000;
 
     // KilnRulesStatus.hooks
     public const uint HookFly = 0x01, HookCursor = 0x02, HookCosts = 0x04, HookDig = 0x08, HookZone = 0x10, HookShroud = 0x20,
-        HookGlide = 0x40, HookMap = 0x80, HookCraft = 0x100, HookCraftUi = 0x200, HookConsume = 0x400, HookConsumeBuff = 0x800, HookFlight = 0x1000;
+        HookGlide = 0x40, HookMap = 0x80, HookCraft = 0x100, HookCraftUi = 0x200, HookConsume = 0x400, HookConsumeBuff = 0x800, HookFlight = 0x1000,
+        HookGlideSteer = 0x2000;
 
     // map_reveal modes
     public const uint MapDefault = 0, MapRadius = 1, MapWhole = 2;
@@ -54,7 +55,7 @@ internal static unsafe class RulesNative
         public float GlideLift;
         public float GlideCoast;
         public float GlideClimb;
-        public uint Reserved2;
+        public float GlideSteerLimit;  // since 0.2.0-dev.24 (was reserved, 0): degrees
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -74,7 +75,7 @@ internal static unsafe class RulesNative
         public ulong ZoneForced;
         public ulong ShroudHeld;
         public ulong GlideChanged;
-        public ulong Reserved;
+        public ulong GlideSteered;  // since 0.2.0-dev.24 (was reserved, 0)
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -126,7 +127,7 @@ internal static unsafe class RulesNative
     {
         Size = (uint)sizeof(Player), Flags = p.Flags, BuildCost = p.BuildCost, BuildRefund = p.BuildRefund, DigDamage = p.DigDamage,
         ShroudFloor = p.ShroudFloor, GlideSink = p.GlideSink, GlideThrust = p.GlideThrust, GlideMaxSpeed = p.GlideMaxSpeed,
-        GlideLift = p.GlideLift, GlideCoast = p.GlideCoast, GlideClimb = p.GlideClimb,
+        GlideLift = p.GlideLift, GlideCoast = p.GlideCoast, GlideClimb = p.GlideClimb, GlideSteerLimit = p.GlideSteerLimit,
     };
 
     public static string Text(byte* p, int max)
@@ -140,12 +141,14 @@ internal static unsafe class RulesNative
 /// <summary>The part of a player's rules the native hooks apply (and a Kiln client gets).</summary>
 internal readonly record struct RulesNativePart(uint Flags, float BuildCost, float BuildRefund, float DigDamage,
     float ShroudFloor = 0f, float GlideSink = 1f, float GlideThrust = 0f, float GlideMaxSpeed = 0f, float GlideLift = 0f,
-    float GlideCoast = 0f, float GlideClimb = 0f)
+    float GlideCoast = 0f, float GlideClimb = 0f, float GlideSteerLimit = 0f)
 {
     public static readonly RulesNativePart Default = new(0, 1f, 1f, 1f);
     public bool IsDefault => this == Default;
 
-    private const uint GlideFlags = RulesNative.GlideUnlimited | RulesNative.GlideBoost;
+    // Every glide flag the player's game predicts: one missing here would reach a server-world hook while the game it
+    // is held back from (no rules channel) glides without it.
+    private const uint GlideFlags = RulesNative.GlideUnlimited | RulesNative.GlideBoost | RulesNative.GlideSteer;
 
     /// <summary>Changes the glide (which the player's game predicts).</summary>
     public bool HasGlide => (Flags & GlideFlags) != 0 || GlideSink != 1f;
@@ -153,8 +156,12 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
     public RulesNativePart WithoutGlide => this with
     {
         Flags = Flags & ~GlideFlags, GlideSink = 1f, GlideThrust = 0f, GlideMaxSpeed = 0f, GlideLift = 0f, GlideCoast = 0f,
-        GlideClimb = 0f,
+        GlideClimb = 0f, GlideSteerLimit = 0f,
     };
+
+    /// <summary>Without glider steering: for a game that has not confirmed it predicts the steering hook, the glide
+    /// (GlideBoost's plane path included) runs as before steering existed.</summary>
+    public RulesNativePart WithoutSteer => this with { Flags = Flags & ~RulesNative.GlideSteer, GlideSteerLimit = 0f };
 
     private const uint FlightFlags = RulesNative.CharacterFlight | RulesNative.FlightBaseOnly;
     public RulesNativePart WithoutFlight => this with { Flags = Flags & ~FlightFlags };
@@ -168,5 +175,6 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
     // The generated record formatter would recursively format the computed WithoutGlide property.
     public override string ToString() =>
         $"flags 0x{Flags:x}, build cost x{BuildCost}, refund x{BuildRefund}, dig x{DigDamage}, Shroud floor {ShroudFloor}, " +
-        $"glide sink x{GlideSink}, thrust {GlideThrust}, max speed {GlideMaxSpeed}, lift {GlideLift}, coast {GlideCoast}, climb {GlideClimb}";
+        $"glide sink x{GlideSink}, thrust {GlideThrust}, max speed {GlideMaxSpeed}, lift {GlideLift}, coast {GlideCoast}, climb {GlideClimb}, " +
+        $"steer limit {GlideSteerLimit}";
 }

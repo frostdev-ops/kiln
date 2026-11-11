@@ -9,8 +9,8 @@ belong to this service, so they work wherever a world runs (a dedicated server, 
 | Layer | Where |
 |---|---|
 | C table | `native/core/abi/services/kiln_rules.h` (`kiln.rules` v1) |
-| Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider) |
-| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.storage`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`); `client.d/rules.json` extends it with the client guards |
+| Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider, glider steering) |
+| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.storage`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`, `rules.glide_steer`); `client.d/rules.json` extends it with the client guards |
 | Managed | `managed/services/Kiln.Rules/` → `kiln/host/Kiln.Rules.dll` (`Rules`, `PlayerRules`, `RuleScope`, `RuleSet`) |
 | Uses | Kiln.Items (water refill policies), Kiln.Abilities (vitals), Kiln.Combat (invulnerability), Kiln.World (moving the character), Kiln.Build (keeping builds), Kiln.Network (the client's half) |
 | Tests | `managed/tests/Kiln.Rules.Tests` (how rules combine), `mods/tests/rules-test` (lab) |
@@ -77,7 +77,8 @@ Every member is optional (null: no opinion).
 | `MinShroudTime` | fraction 0..1 | the Shroud timer is kept at least this full (below it, it recovers at the game's 25 s per second) | server |
 | `UnlimitedGliding` | switch | gliding costs no stamina, so the glider is never forced down for lack of it | server + client |
 | `GlideSink` | multiplier | how fast the glider sinks (0 = holds altitude unless it points down) | server + client |
-| `GlideBoost` | `GlideBoostRule` | gliding like a plane: S pitches up, W pitches down (the mouse stays free), climbing trades speed for height and diving height for speed, holding sprint pushes along the path: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8), `Climb` (the highest climb rate, m/s, 15; 0 never climbs) | server + client |
+| `GlideBoost` | `GlideBoostRule` | gliding like a plane: S pitches up, W pitches down (the mouse stays free), climbing trades speed for height and diving height for speed, holding sprint pushes along the path: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8), `Climb` (the highest climb rate, m/s, 15; 0 never climbs). With `GlideSteer` in effect: no path, sprint speeds the glider up along its nose ("Gliding") | server + client |
+| `GlideSteer` | `GlideSteerRule` | the glider's own nose follows the movement keys: S raises it (up to `MaxClimbAngle` degrees above level, 85; 0 = level at most), a centred stick holds the pitch, W dives as in the game. Only for a player whose game confirms it steers too; others glide as before | server + client |
 | `Water` | `WaterRule` | the player's water containers refilled: `WaterRule.KeepFull(items)`, `WaterRule.Rate(chargesPerSecond, items)`; no items = every container | server |
 
 **How rule sets combine** (several mods, scopes and times at once):
@@ -86,6 +87,7 @@ Every member is optional (null: no opinion).
 - multipliers multiply (two half-cost rules make a quarter);
 - floors take the highest;
 - `GlideBoost` takes the most generous of each value (the server's `maxGlideSpeed` holds `MaxSpeed` and `Climb`);
+- `GlideSteer` takes the largest `MaxClimbAngle` (the server's `maxGlideSteerAngle` holds it);
 - water takes the fastest rate and the items of every rule set (one rule set without items means every container);
 - then the server's limits (`<configDir>/rules.json`) hold: a switch it denies is off for everyone (`EffectiveRules.Denied`
   names it), multipliers and floors are clamped.
@@ -101,8 +103,8 @@ positions four times a second.
 
 ### Other API
 - `Rules.Status()`: which hooks are installed on this build and side (`Flight`, `BuildingZone`, `Placement`, `Costs`,
-  `Mining`, `ShroudTimer`, `Gliding`), with counters (`FlyAllowed`, `ZoneForced`, `CursorCleared`, `CostsScaled`,
-  `RefundsScaled`, `DigsScaled`, `ShroudHeld`, `GlideChanged`, `Faults`) and `Detail`.
+  `Mining`, `ShroudTimer`, `Gliding`, `GlideSteer`), with counters (`FlyAllowed`, `ZoneForced`, `CursorCleared`, `CostsScaled`,
+  `RefundsScaled`, `DigsScaled`, `ShroudHeld`, `GlideChanged`, `GlideSteered`, `Faults`) and `Detail`.
 - `Rules.ClientOf(player)`: `Host`, `Kiln` (a Kiln game with the rules channel: flight and placement work),
   `KilnWithoutRules`, `Vanilla`, `Pending`, `Unknown`. Server-side rules apply whatever the client; flight and placement
   need `Kiln` or `Host`.
@@ -133,6 +135,7 @@ could name a preset too (an item that applies one while held, a quest reward of 
 `allowBuildInShroud`, `allowIgnoreBasePermissions` (**false** by default: other players' bases stay theirs),
 `allowInvulnerable`, `allowWater`, `minBuildCost`, `maxDigDamage`, `maxHealthFloor`, `maxStaminaFloor`, `maxManaFloor`,
 `allowFreezeShroudTimer`, `maxShroudFloor`, `allowUnlimitedGliding`, `allowGlideBoost`, `maxGlideSpeed` (60 m/s),
+`allowGlideSteer` (true), `maxGlideSteerAngle` (0..85 degrees, 85),
 `allowNoFallDamage`, `allowFreeCrafting`, `allowKeepConsumables`.
 Edits apply within a second.
 
@@ -269,7 +272,7 @@ upgrade (Creative Mode runs), character flight (Creative Mode runs)`.
 | Building costs and refunds, mining damage, the Shroud timer | the server's hooks (the Shroud countdown on the HUD is the server's replicated value) |
 | "Near a building zone" (the hammer's altar hint, the cursor, the fly gate) | the server's hook; the player's game gets the result through the game's own replicated cursor |
 | The fly-mode gate | the server's hook **and** the player's game (its prediction runs the same decision) |
-| Gliding (stamina, sink, boost) | the server's hooks **and** the player's game: the glide is predicted, and the same rules on both sides give the same motion |
+| Gliding (stamina, sink, boost, steering) | the server's hooks **and** the player's game: the glide is predicted, and the same rules on both sides give the same motion |
 | The build cursor | the server's hook **and** the player's game (its cursor tells the player what is allowed and starts the action) |
 
 The server sends each player's game its rules over `kiln:rules` (not required: a client without it joins as before).
@@ -278,7 +281,13 @@ prediction and cursor hooks, with no network message. Nothing on either side nee
 A vanilla game gets only the server-side half: its own prediction refuses the flight and its cursor refuses the
 placement, so it should not be given those rules (`/creative` refuses it). The glider's rules are held back on the
 server until the player's game has the matching rules channel (version 4 since character flight): a boost only the server applied
-would be corrected on the player's screen every step.
+would be corrected on the player's screen every step. Glider steering waits for more: the player's game says which predicted hooks
+it has (kiln:rules message 2, `ClientHooks`, since dev.24), and only a game with the steering hook gets `GlideSteer`; any other
+game (an older Kiln, a game build without `rules.glide_steer`) keeps today's glide, `GlideBoost`'s plane path included, on the
+server and in its prediction alike. kiln.log on the server says which, once per change: `kiln.rules: player <id>: glider steering
+on (their game steers too)` or `… held back until their game confirms its steering hook …`. The rules message carries the
+steering limit at its end: an older client reads the fields it knows (Kiln's channels ignore trailing bytes), a newer client
+reads 0 from an older server; an older server drops message 2 unread. The channel version stays 4.
 
 ## Gliding
 The game's glider is its own thrust against air drag, with gravity for the sink (docs/re/rules.md 7). Kiln wraps the
@@ -311,10 +320,42 @@ climbs or dives):
 - Once the path is no faster than the game's own glide (after letting go, or a climb that ran out of speed), the
   game's glide stands again: releasing everything settles into a normal glide, and a plain glide does not climb.
 `GlideSink` scales gravity for a gliding character (0: no gravity, and a glider that is not pointing down holds its
-altitude; with a sink above 0 a boosted glider also sinks by that gravity). `UnlimitedGliding` zeroes the glider's
+altitude; with a sink above 0 a boosted glider also sinks by that gravity; with `GlideSteer` it only scales gravity). `UnlimitedGliding` zeroes the glider's
 stamina drain. Hits, landing, water and letting go still end a glide, as in the game; Kiln's landing teleport belongs to
 the fly mode only, so a glide that ends on the ground never snaps the character anywhere. Without `GlideBoost` the glide
 is the game's (with `GlideSink` and `UnlimitedGliding`).
+
+### Steering the glider: `GlideSteer`
+The game itself turns the glider (docs/re/rules.md 7, "The glider's pitch"): its `actor_rotation` program measures the
+pitch each step, aims at a pitch from the stick (S up, W down) clamped to between 5 and 80 degrees nose down, and moves at
+most the glider's `pitchAngleSpeed` toward it. So a plain glider never climbs, and letting go of S returns it to 5 degrees
+nose down. `GlideSteer` changes that one step for the player (`native/services/rules/steer.cpp`, the math in
+`glide_steer_math.h`, tested by `test-glide-math.sh`), never the glider's shared item data:
+- Holding **S** raises the nose at the game's own rate (the glider's `pitchAngleSpeed`: 85 to 70 degrees a second for
+  T1 to T4), in proportion for an analog stick, up to `MaxClimbAngle` (85 by default; never straight up). A nose above a
+  lowered limit comes back to it at the same rate.
+- Letting go (a stick within 0.1 of centre) **holds** the pitch: the game's own step back toward 5 degrees nose down is
+  dropped while the nose is above it; any other correction of the game stands.
+- **W** is the game's own: back through level into its dive (at most 80 degrees down). A W held from before the glider
+  opened is ignored until released once, as in the game.
+- Input mode 1 (the game's pitch-to-an-angle stick mode), or a glider whose `pitchAngleSpeed` another mod set to 0 or
+  less (SF Unlimited Flight does that while it steers), keeps the game's step: that mod steers, Kiln does not as well.
+- The game's own glide follows the real pitch: its thrust along the nose and its drag. With a sink above 0 a steep
+  climb costs speed and a dive gives it, as in the game. Creative mode keeps `GlideSink` 0 (no gravity while gliding):
+  level flight then holds its altitude with the nose at level, and the game's thrust keeps the glider at its own speed
+  in a climb.
+- With `GlideBoost` too, there is no plane path and no energy trade: holding sprint raises the speed along the nose by
+  `Thrust` up to `MaxSpeed` (it sets that speed, the game's drag cannot eat it); a speed above the game's own (after a
+  sprint, a dive's) falls by at most `Coast` and is held at most at 2 x `MaxSpeed`; while sprint is held the climb rate
+  stays at most at `Climb` (or the game's own climb, if faster); `Lift` is not used. `GlideSink` scales gravity only,
+  and sink 0 no longer holds the altitude by itself (the nose decides).
+- It runs in the server's world and the player's prediction with the same rules and the same replicated input
+  (`ActorInput.desiredLocalMoveInput.z`, `PlayerInput.fromClient.movementStickInputMode`): see "Server and client" for
+  when a player gets it. Without `GlideSteer`, or on a build where the hook is missing (`rules.glide_steer`;
+  `glideSteerUnavailable` in `Denied`), the glide and `GlideBoost` are exactly as above.
+kiln.log: `kiln-rules.dll] glider steering: actor_rotation's pitch step at rva 0x818f1 …` at start (client `0x26f7f1`),
+`hooks: … gliding on, glider steering on`, and once a glider is steered `glider steering: first steered step (pitch …)`.
+`Rules.Status().GlideSteered` counts the steered steps.
 
 Channel versions must match exactly: a v2 or v3 peer still joins, but receives no v4 rules messages and gets no server-side
 predicted movement changes. Character flight also waits for that connection to confirm its flight hooks are available;
@@ -405,8 +446,25 @@ hooks. The Large Watering Can's lab check (`/watercan fill`, `refill on|off` aga
 restart) uses the same water rule.
 
 Not runnable without a client: the cursor (no building tool in hand: `cursor cleared 0`), placement costs (no building
-action), mining (a terraform impact spawned without a tool deals no damage the hook could scale), gliding (the lab
-character has no glider equipped; the three glider hooks install and resolve on both executables), the client's half.
+action), mining (a terraform impact spawned without a tool deals no damage the hook could scale), the client's half.
+
+Glider steering, a lab server (26430253, an empty world, 2026-11-11): a spawned `1_Player` 150 m up, `Rules.Simulate`, a
+T1 glider through the game's equip action, the two "ready" gates forced as `mods/tests/playerstate-test` does, the glider
+input bit, then `PlayerInput.fromClient.movementStick.y` written (S -1, centre 0, W +1) and the pitch read from
+`CurrentTransform` (+ = nose up here) at about 23 steps a second (a scratch check, not in the repository):
+```
+kiln-rules.dll] glider steering: actor_rotation's pitch step at rva 0x818f1 (S raises the nose, centred holds, W dives; ...)
+kiln-rules.dll] hooks: flight on, building zone on, placement on, costs on, mining on, Shroud timer on, gliding on, glider steering on
+no rule, S: stick -1, pitch -5 -> -5 degrees (min -5, max -5)
+GlideSteer, S: stick -1, pitch -5 -> 85 degrees; every 10 steps: -2.2 34.7 70.1 85 85 85 ...   (height 940 -> 963 m)
+GlideSteer, centred: stick 0, pitch 85 -> 85 degrees (min 85, max 85)                         (height -> 995 m)
+GlideSteer, W: stick 1, pitch 85 -> -80 degrees; every 10 steps: 82.2 46.8 0 -41.1 -76.5 -80 ...
+creative's glide (GlideSteer, GlideBoost.Default, sink 0): level, no sprint 10.4 m/s; sprint 150 steps: 11.1 20.6 29.8 35 35 ... m/s
+sprint with the nose at 60 degrees: highest climb rate 15 m/s; let go, level for 150 steps: 35 -> 10.3 m/s
+counters: glide steered 681, glide changed 1203, faults 0
+```
+Not shown by the lab: a player's prediction (no client joined), what the glider looks like, the camera, an analog stick,
+input mode 1, and SF Unlimited Flight together with it.
 
 ## Manual test (needs the game)
 No server needed: Kiln in the game, a throwaway world hosted from the game (co-op, or offline). On a dedicated server
@@ -414,7 +472,8 @@ the same works for an admin who joins with Kiln.
 1. `/creative` in chat (a world hosted offline has no chat: write the line `/creative` into
    `kiln/control/console/creative.cmd` in the game folder; it runs as your character, and
    `creative.result.json` next to it shows the reply) → "Creative mode is on: fly anywhere …". kiln.log:
-   `kiln.rules: applied … 'creative'` and `kiln.rules: local player's rules: flags 0x1df`.
+   `kiln.rules: applied … 'creative'` and `kiln.rules: local player's rules: flags 0x21df` (0x1df where glider steering
+   is held back or unavailable).
 2. Outside any base, take the construction hammer and press the fly key: the spark mode starts (the game refuses it
    without creative). Fly 200 m away and up 50 m. The character stays at the start point, sitting, as in the game.
 3. Press the fly key again: the character appears on the ground below the spark, no damage. Note anything odd about the
@@ -434,12 +493,27 @@ the same works for an admin who joins with Kiln.
     works and blocks place. kiln.log: `kiln-rules.dll] hooks: … building zone on`.
 12. Shroud: with creative on, walk into the Shroud and stay 2 minutes: the timer on the HUD does not move (note any
     flicker). `/creative off` there: it counts down again from the same number. Back on before it runs out.
-13. Gliding: with creative on, jump off a height and glide a long way: no height lost while looking level, stamina does
-    not drop. Hold Shift looking level: smooth acceleration up to about 35 m/s, the altitude holds. Hold Shift looking
-    up: the glider climbs (at most 15 m/s up). Let go after a boost and look up: it climbs while it slows, then glides on
-    normally. Look down: it dives and speeds up; level out and it slows back to a normal glide within a few seconds.
-    Land: no snap back. `/creative off`: the game's glide (sinks, uses stamina). kiln.log: `local player's rules: flags
-    0x1df, … glide sink x0, boost 15 m/s² to 35 m/s, lift 0, climb 15 m/s`.
+13. Gliding (glider steering, `GlideSteer`; a hosted world first, then a dedicated server): with creative on, jump off
+    a height and open the glider. kiln.log at start: `glider steering: actor_rotation's pitch step at rva 0x26f7f1 …`
+    and `hooks: … gliding on, glider steering on`; after `/creative`: `local player's rules: flags 0x21df, … glider
+    steering up to 85°`.
+    1. Hold **S**: the glider's nose visibly rises and it climbs; it stops short of straight up (85 degrees), with no
+       flip or snap. kiln.log once: `glider steering: first steered step (pitch …)`.
+    2. Let go: the pitch holds where it is for 10 s (no slow return to the normal glide angle).
+    3. Hold **W**: the nose comes back through level into the game's normal dive.
+    4. **A** / **D** while climbing: it turns and banks as usual, no snap.
+    5. Hold W before opening the glider: no dive until W is released and pressed again (the game's own rule).
+    6. Hold **Shift** (sprint) with the nose level: it speeds up along the nose to about 35 m/s and eases off after
+       letting go (2-3 s back to a plain glide). Shift with the nose high: the climb is no faster than about 15 m/s.
+    7. Stamina does not drop; with the nose level the altitude holds (creative has no gravity while gliding).
+    8. Land, fly into a wall, and into water: the glide ends as in the game and the character is upright afterwards.
+    9. `/creative off` in a climb: the nose returns to the game's angle within about a second and the glide sinks and
+       uses stamina again.
+    10. Dedicated server, a player with this Kiln: no rubber-banding or jumps while steering (the server kiln.log:
+        `player <id>: glider steering on (their game steers too)`). A player with an older Kiln: their glide is the plane
+        path as before, and the server kiln.log says `… glider steering held back until their game confirms its steering
+        hook …` once.
+    11. With SF Unlimited Flight on as well: SF steers (its own climb and hold), no doubled climb rate, no fighting.
 
 ## Client guards (the game client only)
 Not rules: two guards against a broken game camera, in kiln-rules because it already hooks the client's programs
@@ -459,6 +533,8 @@ Not rules: two guards against a broken game camera, in kiln-rules because it alr
   512 m margin): a flight that ended outside it leaves the character where it was (logged). The glider hooks never
   write a non-finite velocity, nor one faster than 150 m/s (or the game's own speed in that step, when that was
   faster), and their values are bounded natively as well (boost speed 120 m/s, accelerations 100 m/s², sink x10).
+  Glider steering writes only a finite pitch step and never raises the nose past 85 degrees; it never writes the
+  glider's item data (shared by every player with that glider).
 - Crafting costs, pouring costs (beyond refilling) and health/stamina/mana regeneration rates are not rules yet (hook
   points: docs/re/rules.md).
 - A hit still ends a glide (the game's own check on the glide's hit events), as does landing or water.

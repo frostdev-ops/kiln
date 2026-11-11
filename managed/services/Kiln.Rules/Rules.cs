@@ -99,6 +99,7 @@ public static unsafe class Rules
             GlideChanged = s.GlideChanged, FreeCrafting = (s.Hooks & RulesNative.HookCraft) != 0,
             KeptConsumables = (s.Hooks & RulesNative.HookConsume) != 0, KeptFoodAndPotions = (s.Hooks & RulesNative.HookConsumeBuff) != 0,
             CharacterFlight = (s.Hooks & RulesNative.HookFlight) != 0,
+            GlideSteer = (s.Hooks & RulesNative.HookGlideSteer) != 0, GlideSteered = s.GlideSteered,
             MapReveal = (s.Hooks & RulesNative.HookMap) != 0,
             CraftButtons = (s.Hooks & RulesNative.HookCraftUi) != 0,
             CraftsFree = RulesCrafting.Counters.Crafts, ConsumablesKept = RulesCrafting.Counters.Kept,
@@ -214,6 +215,12 @@ public sealed record RulesStatus(bool Flight, bool Placement, bool Costs, bool M
     /// <summary>Character flight's hooks (CharacterFlight): the locomotion state, gravity and the flying mover.</summary>
     public bool CharacterFlight { get; init; }
 
+    /// <summary>The glider's pitch step (GlideSteer; actor_rotation).</summary>
+    public bool GlideSteer { get; init; }
+
+    /// <summary>Glider pitch steps steered so far.</summary>
+    public ulong GlideSteered { get; init; }
+
     /// <summary>Game client: the fog of war's discover call (the creative menu's map reveal).</summary>
     public bool MapReveal { get; init; }
 
@@ -300,6 +307,12 @@ public sealed class RulesPolicy
     [Comment("The fastest a boosted glider may go, m/s."), Range(0, 120)]
     public double MaxGlideSpeed { get; set; } = 60;
 
+    [Comment("The glider's own nose may be steered for a player (GlideSteer): S raises it, letting go holds it, W dives. Applied only for a player whose game confirms it steers too; others glide as before.")]
+    public bool AllowGlideSteer { get; set; } = true;
+
+    [Comment("How far above level a steered glider's nose may rise, degrees (85 = almost straight up, 0 = level at most)."), Range(0, 85)]
+    public double MaxGlideSteerAngle { get; set; } = 85;
+
     [Comment("Falls may do no damage for a player (NoFallDamage).")]
     public bool AllowNoFallDamage { get; set; } = true;
 
@@ -315,5 +328,5 @@ public sealed class RulesPolicy
     internal RulesLimits Limits => new(AllowFlyAnywhere, AllowBuildOutsideBases, AllowIgnoreNoBuildZones, AllowIgnoreEnemiesNearby,
         AllowBuildInShroud, AllowIgnoreBasePermissions, AllowInvulnerable, MinBuildCost, MaxDigDamage, MaxStaminaFloor, MaxHealthFloor,
         MaxManaFloor, AllowWater, AllowFreezeShroudTimer, MaxShroudFloor, AllowUnlimitedGliding, AllowGlideBoost, MaxGlideSpeed,
-        AllowNoFallDamage, AllowFreeCrafting, AllowKeepConsumables, AllowCharacterFlight);
+        AllowNoFallDamage, AllowFreeCrafting, AllowKeepConsumables, AllowCharacterFlight, AllowGlideSteer, MaxGlideSteerAngle);
 }
