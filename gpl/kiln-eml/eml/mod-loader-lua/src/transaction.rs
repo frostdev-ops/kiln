@@ -16,9 +16,23 @@ pub fn regular(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)] {
         use std::os::windows::fs::MetadataExt;
-        if m.file_attributes() & 0x400 != 0 { return Err(io::Error::other("reparse point")); }
+        if (m.file_attributes() | attributes_by_name(path)?) & 0x400 != 0 { return Err(io::Error::other("reparse point")); }
     }
     Ok(())
+}
+
+/// kiln-eml: the attributes of `path` asked by name. Wine follows links made on the Linux side even with
+/// OPEN_REPARSE_POINT, so the handle-based metadata above shows a plain folder there; asked by name, Wine reports
+/// directory links as reparse points (discover.rs does the same). Wine shows file links to neither query.
+#[cfg(windows)]
+pub(crate) fn attributes_by_name(path: &Path) -> io::Result<u32> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" { fn GetFileAttributesW(path: *const u16) -> u32; }
+    let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let attributes = unsafe { GetFileAttributesW(name.as_ptr()) };
+    if attributes == u32::MAX { return Err(io::Error::last_os_error()); }
+    Ok(attributes)
 }
 
 fn sync_dir(dir: &Path) -> io::Result<()> {
@@ -121,7 +135,8 @@ impl PatchWriter {
         data.retain(|p| p.file_name() != Some(std::ffi::OsStr::new(VANILLA_HEADER)));
         data.sort();
         for p in &data { regular(p)?; OpenOptions::new().read(true).write(true).open(p)?.sync_all()?; }
-        crate::ownership::prepare(&self.game, &self.name, &data)?;
+        // SF's locks (when its prepared-output state was handed over) stay held until the patched header is live
+        let _sf = crate::ownership::prepare(&self.game, &self.name, &data)?;
         // No old patched header may refer to the containers we are about to replace.
         atomic_copy(&self.stage.join(VANILLA_HEADER), &self.game.join(&header))?;
         boundary(0)?;
@@ -132,6 +147,12 @@ impl PatchWriter {
             n += 1;
         }
         replace(&self.stage.join(&header), &self.game.join(&header))?;
+        // the new set is what the game runs now: the previous generation is no proof any more, and the containers only
+        // it had go. A failure here leaves the receipt's previous generation (it can only match if those exact files
+        // come back) or those containers (unreferenced) in place; the publication stands.
+        if let Err(error) = crate::ownership::committed(&self.game, &self.name) {
+            tracing::warn!(%error, "EML output published; tidying up after the output it replaced did not finish");
+        }
         boundary(n)
     }
 }
@@ -168,6 +189,37 @@ mod tests {
             drop(w);
             fs::remove_dir_all(game).unwrap();
         }
+    }
+    // The receipt is written ahead of the first change. Until that change happens, the previous (owned) output is what
+    // is live: it must stay provable, or a player who then switches EML off keeps the old patch for good.
+    #[test]
+    fn a_publication_that_fails_before_its_first_change_keeps_the_previous_proof() {
+        let game = std::env::temp_dir().join(format!("kiln-generations-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&game).unwrap();
+        for (n, b) in [("g.kfc", "vanilla"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base"), ("g.kfc_resources.bak", "base")] {
+            fs::write(game.join(n), b).unwrap();
+        }
+        let stage = |tag: &str, vanilla: bool| {
+            let stage = game.join(format!("stage-{tag}"));
+            fs::create_dir_all(&stage).unwrap();
+            for (n, b) in [("g.kfc", "patch"), ("g.kfc_resources", "base+"), ("g_002.dat", "data")] {
+                fs::write(stage.join(n), format!("{b} {tag}")).unwrap();
+            }
+            if vanilla { fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap(); }
+            PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() }
+        };
+        stage("one", true).publish(|_| Ok(())).unwrap();
+        assert!(crate::owns_output(&game, "g").unwrap());
+        // the first step (the vanilla header) fails: nothing of the new set is live
+        assert!(stage("two", false).publish(|_| Ok(())).is_err());
+        assert_eq!(fs::read(game.join("g.kfc")).unwrap(), b"patch one");
+        assert!(crate::owns_output(&game, "g").unwrap(), "the live previous output is still EML's");
+        // a publication that completes replaces the proof: the older set is no longer EML's current output
+        stage("three", true).publish(|_| Ok(())).unwrap();
+        assert!(crate::owns_output(&game, "g").unwrap());
+        for (n, b) in [("g.kfc", "patch one"), ("g.kfc_resources", "base+ one"), ("g_002.dat", "data one")] { fs::write(game.join(n), b).unwrap(); }
+        assert!(!crate::owns_output(&game, "g").unwrap(), "only the last published generation is proof");
+        fs::remove_dir_all(game).unwrap();
     }
     #[test]
     fn real_kfc_is_readable_at_every_publication_boundary() {

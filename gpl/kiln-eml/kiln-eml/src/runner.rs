@@ -81,6 +81,10 @@ pub struct Outcome {
     pub fingerprint: Option<FingerprintStats>,
     pub error: Option<String>,
     pub aside: Option<String>,
+    /// Why the game data was left as it is although it differs from the vanilla backup (an idle start): Kiln could not
+    /// prove it wrote it. One player-facing sentence with what to do; the launcher shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub mods: Vec<Entry>,
     // kiln-eml: only in the state file of a run that is going on (`phase: running`): what it is doing (progress.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,6 +108,7 @@ impl Outcome {
             fingerprint: None,
             error: None,
             aside: None,
+            reason: None,
             mods,
             progress: None,
         }
@@ -333,6 +338,9 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         return finish(out);
     }
 
+    // what an earlier run killed half way left (stage folders, temp copies), now that no other run of this install writes
+    if cfg.patch { lua::prune(cfg.game_dir.as_std_path(), &file); }
+
     // what the run does is reported into the live state file and the progress window (progress.rs), and to the log
     let progress = Progress::start(cfg.progress.clone().map(|d| d as Arc<dyn Sink>));
     if let Some(display) = &cfg.progress {
@@ -362,7 +370,10 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
             progress.end_file();
         }
         if differ {
-            if !owns_output(cfg, &file) { return finish(out); }
+            if let Err(why) = owned(cfg, &file) {
+                out.reason = Some(unproven_sentence(&why));
+                return finish(out);
+            }
             out.restored = lua::restore(&cfg.game_dir, &file);
             if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
             let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
@@ -373,11 +384,21 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         tracing::warn!(path = %cfg.cache_dir, error = %e, "cannot create the cache directory");
     }
 
+    // Output an earlier kiln-eml published has no receipt: adopt it now if its change cache proves it (once), so that a
+    // publication that fails before its first change, or a later start without EML mods, can still restore it.
+    if cfg.patch && backup.exists() {
+        match lua::adopt(cfg.game_dir.as_std_path(), &file, cfg.cache_dir.as_std_path()) {
+            Ok(lua::Adoption::Unproven(why)) => tracing::debug!(why, "no earlier EML output to adopt"),
+            Ok(_) => {}
+            Err(error) => tracing::warn!(%error, "could not check for earlier EML output to adopt"),
+        }
+    }
+
     let total = mods.len();
     for _attempt in 0..=total {
         if mods.is_empty() {
             out.phase = Phase::Idle;
-            if cfg.patch && backup.exists() && owns_output(cfg, &file) {
+            if cfg.patch && backup.exists() && owned(cfg, &file).is_ok() {
                 out.restored = lua::restore(&cfg.game_dir, &file);
                 let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
                 if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
@@ -471,7 +492,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
             e.reason = Some("the EML run failed (see error)".into());
         }
         // never start on a half-applied state: back to vanilla data, and forget the cache so the next start re-runs
-        if backup.exists() && cfg.patch && owns_output(cfg, &file) {
+        if backup.exists() && cfg.patch && owned(cfg, &file).is_ok() {
             out.restored = lua::restore(&cfg.game_dir, &file);
         }
         let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
@@ -479,14 +500,31 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     finish(out)
 }
 
-fn owns_output(cfg: &RunConfig, file: &str) -> bool {
-    match lua::owns_output(cfg.game_dir.as_std_path(), file) {
-        Ok(true) => true,
-        other => {
-            tracing::warn!(detail = ?other, "Game data is not unchanged EML-owned output; leaving it and the shared .bak files alone. Reapply mods in the owning loader if needed; old EML caches are not restoration receipts");
-            false
-        }
-    }
+/// Is the live game data output Kiln's EML writer can prove it published? Its receipt decides; with none, the change
+/// cache of an earlier kiln-eml may prove it once (`lua::adopt`). Err: why not, in a few words.
+fn owned(cfg: &RunConfig, file: &str) -> Result<(), String> {
+    let root = cfg.game_dir.as_std_path();
+    let why = match lua::owns_output(root, file) {
+        Ok(true) => return Ok(()),
+        Ok(false) => match lua::adopt(root, file, cfg.cache_dir.as_std_path()) {
+            Ok(lua::Adoption::Adopted) => return Ok(()),
+            Ok(lua::Adoption::Receipt) => "it is not the output its ownership receipt lists (another loader, a game update or a \
+                file check changed it since)".to_owned(),
+            Ok(lua::Adoption::Unproven(why)) => format!("it has no ownership receipt, and {why}"),
+            Err(error) => format!("its ownership could not be checked: {error}"),
+        },
+        Err(error) => format!("its ownership receipt cannot be used: {error}"),
+    };
+    tracing::warn!("Game data is not output Kiln's EML writer can prove it published ({why}); leaving it and the shared .bak files alone");
+    Err(why)
+}
+
+/// The `reason` of an idle start whose game data differs from the backup and is not provably EML's.
+fn unproven_sentence(why: &str) -> String {
+    format!("The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output ({why}), so it \
+        was left as it is. If ShroudForge asset mods or another loader wrote it, nothing needs doing. If it still carries \
+        EML mods you switched off: enable any EML mod for one start and disable it again, or use Steam's \"Verify \
+        integrity of game files\"")
 }
 
 /// `224.4 MiB`
@@ -864,3 +902,7 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+#[path = "runner_ownership_tests.rs"]
+mod ownership_tests;

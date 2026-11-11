@@ -245,8 +245,11 @@ engines' mods") and 5.8.
   mean the plugin has not run yet, while unreadable, invalid or symlinked files report an error.
 - **Shared archive backups.** `engine_mods::eml_backup` reports whether `<exe>.kfc` differs from `<exe>.kfc.bak`,
   not which loader wrote it. Inspection reports read failures and refuses symlinks. The legacy `eml_restore_vanilla`
-  command now refuses direct copies. Disable EML mods and launch through updated Kiln: the separate archive writer
-  restores only its own unchanged output using exact output/backup receipts and loader-state handoff ([eml.md](eml.md)).
+  command now refuses direct copies. Disable EML mods and start the game through Kiln: the separate archive writer
+  restores only its own unchanged output, proven by exact output/backup receipts (output of dev.20 to dev.23 once by
+  that release's change cache), with loader-state handoff ([eml.md](eml.md)). When it cannot prove ownership it leaves
+  the data and writes why into `kiln/state/eml.json` (`reason`); the way back is then to enable any EML mod for one
+  start and disable it again, or Steam's "Verify integrity of game files".
 - **Servers** keep the legacy layout. The server mod sync (`server::control`) copies each kind into the folder its
   plugin reads without a profile (`engine_mods::server_root`):
 
