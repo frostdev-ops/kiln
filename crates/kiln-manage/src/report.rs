@@ -1333,7 +1333,7 @@ pub fn build(input: &ReportInput) -> Report {
     for f in [crate::paths::game::PROFILE, crate::paths::game::CHAIN, "kiln/kiln.json", crate::paths::game::RECEIPT, crate::paths::game::EMF_CHAIN] {
         cx.add_file(f);
     }
-    greeneye_logs(&mut cx, &game, install.as_ref());
+    greeneye_logs(&mut cx, &game, install.as_ref(), dirs.as_ref());
     // listings: names, sizes and times only
     let skip_none = |_: &str| false;
     let mut top = Vec::new();
@@ -1406,12 +1406,23 @@ fn mod_roots(game: &Path) -> Vec<String> {
 /// `greeneye/loader.log` (and `loader.second-copy.log`), and each Greeneye mod's own `*.log` and `*.status` files in its
 /// folder. A Greeneye mod writes what it found and patched only there (The Worst Map Mod: unlock_map_markers.log,
 /// UnlockMapMarkers.status), not through the loader into kiln.log. The folders are the ones `kiln/state/greeneye.json`
-/// names (a profile's copy, or a Library entry under an older Kiln) and those in `<game>/greeneye/`. Top-level files
-/// only, each a bounded tail, redacted like every file; settings (`.ini`) and data are never read.
-fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>) {
+/// names (Kiln's copy in `greeneye/`, or a Library entry under an older Kiln) and those in `<game>/greeneye/`. The zip is
+/// posted in public, so a folder is read only when it lies inside `<game>/greeneye/` or the launcher's Library folder for
+/// Greeneye mods, after resolving it and with links refused from that root down; any other folder is left out with a
+/// note. Top-level files only, each a bounded tail, redacted like every file; settings (`.ini`) and data are never read.
+fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>, dirs: Option<&DataDirs>) {
     cx.add_tail("kiln/logs/greeneye-loader.log", GREENEYE_LOG_MAX);
     cx.add_tail("greeneye/loader.log", GREENEYE_LOG_MAX);
     cx.add_tail("greeneye/loader.second-copy.log", GREENEYE_LOG_MAX);
+    let roots: Vec<PathBuf> = std::iter::once(game.join(crate::engine_mods::GREENEYE_MODS))
+        .chain(dirs.map(|d| d.library().join(ModKind::Greeneye.as_str()))).collect();
+    // inside one of the roots: no `..`, no link from the root down (the root included), the resolved folder below the
+    // resolved root
+    let allowed = |dir: &Path| roots.iter().any(|root| {
+        !dir.components().any(|c| matches!(c, std::path::Component::ParentDir)) && dir.starts_with(root)
+            && engine_mods::refuse_symlink_path(root, dir).is_ok()
+            && matches!((root.canonicalize(), dir.canonicalize()), (Ok(r), Ok(d)) if d != r && d.starts_with(&r))
+    });
     let mut folders: Vec<(String, PathBuf)> = Vec::new();
     let state = crate::util::read_json::<serde_json::Value>(&game.join(crate::paths::game::STATE).join("greeneye.json")).ok().flatten();
     for m in state.as_ref().and_then(|s| s.get("mods")).and_then(|m| m.as_array()).into_iter().flatten() {
@@ -1430,9 +1441,15 @@ fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>) {
         folders.push((name, p));
     }
     let mut seen: Vec<PathBuf> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
     for (id, dir) in folders {
+        if !dir.is_dir() { continue; }
+        if !allowed(&dir) {
+            if !skipped.contains(&id) { skipped.push(id); }
+            continue;
+        }
         let key = dir.canonicalize().unwrap_or_else(|_| dir.clone());
-        if seen.contains(&key) || !dir.is_dir() { continue; }
+        if seen.contains(&key) { continue; }
         if seen.len() == GREENEYE_MOD_FOLDERS {
             cx.err("greeneye mod logs", format!("more than {GREENEYE_MOD_FOLDERS} Greeneye mod folders: the others are left out"));
             break;
@@ -1449,6 +1466,12 @@ fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>) {
                 .chars().map(|c| if c.is_ascii_alphanumeric() || "._+-".contains(c) { c } else { '_' }).collect();
             cx.add_tail_at(&format!("greeneye-mods/{safe}/{file}"), &p, GREENEYE_LOG_MAX);
         }
+    }
+    if !skipped.is_empty() {
+        cx.find("greeneye-log-skipped", Level::Info, format!(
+            "The logs of {} were left out: {} folder is not inside the game's greeneye folder or the launcher's Library \
+             (or is reached through a link), and the report reads no other folder.",
+            skipped.join(", "), if skipped.len() == 1 { "its" } else { "their" }));
     }
 }
 

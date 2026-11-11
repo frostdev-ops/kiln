@@ -21,7 +21,12 @@ Greeneye's own `dbgcore.dll`. kiln-greeneye and Greeneye Loader then run the sam
 player's: it stays when a new version replaces the copy, and waits in `kiln/kept-mod-files/greeneye/<id>/` while the
 mod is switched off (Greeneye Loader would run anything left in `greeneye/`). A folder the player put in `greeneye/`
 under that name, or holding the same mod (the same `mod.json` id), is never touched: the profile then names the Library
-entry, as for a play-once start with another version. Up to dev.23 the profile named the Library entry
+entry, as for a play-once start with another version. So does a mod Kiln could not place (an id that is no safe
+Windows folder name, a linked `greeneye` folder, a changed or unreadable Library entry): the launcher lists it as
+changed with the reason, and the other mods, the profile switch and Play go on. The forms `profile.json` gets for a
+placed copy: `Z:\...\greeneye\<id>` (Proton with the Z: drive), `C:\...\greeneye\<id>` (Windows), and
+`../greeneye/<id>` relative to `<game>/kiln/` (copy mode); otherwise the forms of a Library entry as before (the
+Library path, or `profiles/<profile>/greeneye/<id>` in copy mode). Up to dev.23 the profile named the Library entry
 (`library/greeneye/<id>/<version>+<hash>/`), so the mod wrote into the Library: settings were lost with every new
 version, and a later placement for Greeneye Loader refused the changed entry ("library hash mismatch"). The first
 placement moves those files out of the entry into the copy (only when the entry without them is exactly the import).

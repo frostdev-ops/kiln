@@ -380,6 +380,33 @@ fn greeneye_mod_logs_are_in_the_report() {
     assert!(r.summary.contains("kiln-greeneye      running"), "the engine's word: {}", r.summary);
 }
 
+/// The zip is posted in public: a folder that kiln/state/greeneye.json names is read only inside the game's greeneye/
+/// folder or the launcher's Library for Greeneye mods, resolved and without links. Anything else is left out, with a note.
+#[test]
+fn greeneye_logs_come_only_from_greeneyes_folders() {
+    let f = Fx::healthy("greeneye-outside");
+    let outside = f.root.join("elsewhere/private");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret.log"), "not a mod's log\n").unwrap();
+    std::fs::write(outside.join("mod.json"), r#"{"id":"x"}"#).unwrap();
+    // a folder in greeneye/ that is a link to the same place
+    std::fs::create_dir_all(f.game.join("greeneye")).unwrap();
+    std::os::unix::fs::symlink(&outside, f.game.join("greeneye/linked")).unwrap();
+    // and a Library path that climbs out of the Library
+    std::fs::create_dir_all(f.root.join("data/library/greeneye")).unwrap();
+    let climb = f.root.join("data/library/greeneye/../../../elsewhere/private");
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "updatedUnixMs": 1,
+        "mods": [{"id": "outside", "status": "started", "folder": format!("{}", outside.display())},
+                 {"id": "climb", "status": "started", "folder": format!("{}", climb.display())}]})).unwrap());
+    let r = build(&f.input());
+    assert!(!r.files.iter().any(|(n, b)| n.contains("secret") || String::from_utf8_lossy(b).contains("not a mod's log")),
+        "{:?}", r.files.iter().map(|(n, _)| n).collect::<Vec<_>>());
+    let note = r.findings.iter().find(|x| x.id == "greeneye-log-skipped").unwrap_or_else(|| panic!("{:#?}", r.findings));
+    assert_eq!(note.level, Level::Info);
+    assert!(note.text.contains("outside") && note.text.contains("climb") && note.text.contains("linked"), "{}", note.text);
+}
+
 /// Player report r1111 (Steam Deck, Proton without a dbgcore override): Greeneye's dbgcore.dll was in the folder but did
 /// not start, kiln-greeneye said so and ran the mods; the report said kiln-greeneye "stands aside for it".
 #[test]

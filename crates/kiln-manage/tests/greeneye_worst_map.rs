@@ -378,3 +378,93 @@ fn play_once_keeps_the_active_selection() {
     assert_eq!(e.code, kiln_manage::ErrorCode::Unsupported, "{e:?}");
     assert!(e.message.contains("Greeneye"), "{}", e.message);
 }
+
+// ---- review of 5af1974: game-side path forms, and one mod's trouble never stops an activation ----
+
+/// A Greeneye mod folder whose mod.json gives `id` (a stand-in DLL), imported on its own.
+fn other_mod(dirs: &DataDirs, t: &Path, id: &str) -> LibraryRef {
+    let src = t.join("src").join(format!("{id}-src"));
+    put(&src, "mod.json", format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0","dll":"m.dll","side":"client","api":2}}"#).as_bytes());
+    put(&src, "m.dll", &build_test_dll(&["GreeneyeModStart"], id.as_bytes()));
+    import_into(dirs, &src)
+}
+
+/// What the game's profile reader accepts for a Greeneye entry in copy mode: a path relative to `<game>/kiln/` without
+/// `..`, or exactly `../greeneye/<folder>` where the folder is the entry's id and a safe Windows folder name
+/// (engine_mods::is_game_folder_name). Anything else makes the whole profile invalid there (no mod loads).
+fn copy_mode_path_ok(id: &str, path: &str) -> bool {
+    match path.strip_prefix("../greeneye/") {
+        Some(name) => name == id && engine_mods::is_game_folder_name(name),
+        None => !path.split(['/', '\\']).any(|c| c == "..") && !path.starts_with(['/', '\\']) && !path.contains(':'),
+    }
+}
+
+#[test]
+fn copy_mode_paths_pass_the_games_folder_name_rule_and_an_unsafe_id_is_not_placed() {
+    let t = tmp("copy-rule");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Copy);
+    let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
+    // `nul` is a Kiln id but no folder Windows can hold
+    let bad = other_mod(&dirs, &t.0, "nul");
+    assert_eq!(bad.id, "nul");
+    assert!(!engine_mods::is_game_folder_name(&bad.id));
+    let pid = profile::create(&dirs, "Map", None).unwrap().id;
+    let file = activate_with(&dirs, &g, &pid, vec![pm(&v47, true), pm(&bad, true)]);
+    for m in &file.mods.greeneye {
+        assert!(copy_mode_path_ok(&m.id, &m.path), "{} -> {}", m.id, m.path);
+    }
+    assert_eq!(file.mods.greeneye[0].path, "../greeneye/unlock-map-markers");
+    assert_eq!(file.mods.greeneye[1].path, format!("profiles/{pid}/greeneye/nul"), "the copy path as before dev.24");
+    assert!(!g.path.join("greeneye/nul").exists(), "not placed");
+    // the other path modes: the Library entry, as before
+    let tz = tmp("z-rule");
+    let gz = game(&tz.0, PathMode::Z);
+    let file = activate_with(&dirs, &gz, &pid, vec![pm(&bad, true)]);
+    assert_eq!(file.mods.greeneye[0].path, z(&library::path_of(&dirs, &bad).unwrap()));
+    assert!(!gz.path.join("greeneye/nul").exists());
+}
+
+#[test]
+fn a_greeneye_mod_that_cannot_be_placed_does_not_stop_the_activation() {
+    let t = tmp("soft");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Z);
+    let good = import_into(&dirs, &release(&t.0, "1.3.47"));
+    let broken = other_mod(&dirs, &t.0, "find");
+    // an older Kiln let the mod write into its entry, and the import record is gone: nothing proves what is the mod's
+    let lib = library::path_of(&dirs, &broken).unwrap();
+    put(&lib, "find.ini", b"[x]\n");
+    std::fs::remove_file(lib.with_file_name(format!("{}.json", lib.file_name().unwrap().to_string_lossy()))).unwrap();
+    let pid = profile::create(&dirs, "Map", None).unwrap().id;
+    let mut p = profile::get(&dirs, &pid).unwrap();
+    p.mods.greeneye = vec![pm(&broken, true), pm(&good, true)];
+    profile::save(&dirs, &p).unwrap();
+    let rep = engine_mods::place(&dirs, &p, &g.path).expect("one mod's trouble is not the activation's");
+    assert!(rep.changed.iter().any(|c| c.starts_with("greeneye:find: ")), "listed with its reason: {rep:?}");
+    assert_eq!(rep.placed, ["greeneye:unlock-map-markers"], "{rep:?}");
+    profile::activate(&dirs, &pid, &g).expect("the profile switch and Play go on");
+    let file = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(file.mods.greeneye[0].path, z(&lib), "the broken one runs from the Library, as before");
+    assert_eq!(file.mods.greeneye[1].path, z(&g.path.join("greeneye/unlock-map-markers")));
+}
+
+#[test]
+fn a_linked_greeneye_folder_does_not_stop_the_activation() {
+    let t = tmp("linked");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Z);
+    let v47 = import_into(&dirs, &release(&t.0, "1.3.47"));
+    std::fs::create_dir_all(t.0.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink(t.0.join("elsewhere"), g.path.join("greeneye")).unwrap();
+    let pid = profile::create(&dirs, "Map", None).unwrap().id;
+    let mut p = profile::get(&dirs, &pid).unwrap();
+    p.mods.greeneye = vec![pm(&v47, true)];
+    profile::save(&dirs, &p).unwrap();
+    let rep = engine_mods::place(&dirs, &p, &g.path).expect("placement goes on");
+    assert!(rep.changed.iter().any(|c| c.starts_with("greeneye:unlock-map-markers: ")), "{rep:?}");
+    profile::activate(&dirs, &pid, &g).expect("activation goes on");
+    let file = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(file.mods.greeneye[0].path, z(&library::path_of(&dirs, &v47).unwrap()));
+    assert!(std::fs::read_dir(t.0.join("elsewhere")).unwrap().next().is_none(), "nothing written through the link");
+}
