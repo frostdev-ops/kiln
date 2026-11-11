@@ -400,22 +400,46 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal(ModCatalog.EngineOrder.ToList().IndexOf("eml") + 1, ModCatalog.EngineOrder.ToList().IndexOf("xhl"));
     }
 
-    /// <summary>A ShroudForge config Kiln cannot read (cut off mid-way) leaves the default folders, as ShroudForge's own
-    /// path lookup does, never rows that look Loaded because nothing refined them. (Repeated keys are readable: the last
-    /// value counts, as in ShroudForge.)</summary>
-    [Fact]
-    public void An_unreadable_shroudforge_config_does_not_leave_its_mods_looking_loaded()
+    // a profile with a switched-on runtime package and one switched off in ShroudForge, hosted by Kiln
+    private string TwoShroudForgeMods()
     {
-        var folder = Dir("mods", "pack");
-        File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
-        File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a", "sta""");
-        Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = folder }] });
-        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+        var mods = Dir("mods");
+        foreach (var (id, on) in new[] { ("pack", true), ("off", false) })
+        {
+            var folder = Dir("mods", id);
+            File.WriteAllText(Path.Combine(folder, "mod.json"), $$"""{"id":"{{id}}","name":"{{id}}","version":"1.0.0","capabilities":["runtime"]}""");
+            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{"enabled":{{(on ? "true" : "false")}},"targets":["client"]}""");
+        }
+        Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = Path.Combine(mods, "pack") }, new { id = "off", version = "1.0.0", path = Path.Combine(mods, "off") }] });
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = mods });
         File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new { runtime = new { pid = Pid, running = true, updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), active = new[] { "pack" } } }));
+        return mods;
+    }
+
+    /// <summary>ShroudForge's config names a state folder no file call takes (a NUL in it): its runtime report cannot be
+    /// read, so its mods are unconfirmed, never left looking Loaded because nothing refined them.</summary>
+    [Fact]
+    public void A_shroudforge_state_folder_no_file_call_takes_leaves_its_mods_unconfirmed_not_loaded()
+    {
+        TwoShroudForgeMods();
+        File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a\u0000b" } }""");
+        var s = Read();
+        Assert.Equal((ModRunState.Waiting, "unconfirmed"), (Mod(s, "shroudforge", "pack").State, Mod(s, "shroudforge", "pack").Word));
+        Assert.Equal(ModRunState.Disabled, Mod(s, "shroudforge", "off").State);
+    }
+
+    /// <summary>A package put into ShroudForge's folder by hand whose name holds a lone surrogate escape (a cut emoji) is
+    /// listed under its folder's name, and the others are still read.</summary>
+    [Fact]
+    public void A_hand_installed_package_with_a_cut_emoji_in_its_name_leaves_the_others_read()
+    {
+        var mods = TwoShroudForgeMods();
+        File.WriteAllText(Path.Combine(Dir("mods", "hand"), "extended.mod.json"), """{"enabled":false,"name":"Mod \ud83d"}""");
         var s = Read();
         var pack = Mod(s, "shroudforge", "pack");
-        Assert.Equal((ModRunState.Loaded, "active", true), (pack.State, pack.Word, pack.Active));  // read from the default state folder
+        Assert.Equal((ModRunState.Loaded, "active", true), (pack.State, pack.Word, pack.Active));
+        Assert.Equal(ModRunState.Disabled, Mod(s, "shroudforge", "off").State);
+        Assert.Equal(("hand", ModRunState.Disabled), (Mod(s, "shroudforge", "hand").Name, Mod(s, "shroudforge", "hand").State));
         Assert.Equal(EngineHealth.Ok, s.Engines.Single(e => e.Kind == "shroudforge").Health);
     }
 

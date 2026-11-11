@@ -184,12 +184,16 @@ internal static class ModCatalog
     private static string? Str(JsonElement o, string name)
     {
         if (o.ValueKind != JsonValueKind.Object || !o.TryGetProperty(name, out var v)) return null;
-        return v.ValueKind switch
+        try
         {
-            JsonValueKind.String => v.GetString() is { Length: > 0 } s ? s : null,
-            JsonValueKind.Number => v.GetRawText(),
-            _ => null,
-        };
+            return v.ValueKind switch
+            {
+                JsonValueKind.String => v.GetString() is { Length: > 0 } s ? s : null,
+                JsonValueKind.Number => v.GetRawText(),
+                _ => null,
+            };
+        }
+        catch (InvalidOperationException) { return null; }  // a lone surrogate escape ("\ud83d", a cut emoji): no string to show
     }
 
     private static bool? Bool(JsonElement o, string name) =>
@@ -295,8 +299,9 @@ internal static class ModCatalog
             error = "it is cut off or not valid JSON";
             return null;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
+            // ArgumentException / NotSupportedException: a path no file call takes (a NUL in a folder another config names)
             error = "the file could not be read: " + e.Message;
             return null;
         }
@@ -937,6 +942,14 @@ internal static class ModCatalog
             seen.Add(id);
         }
         var start = b.Mods.TryGetValue("shroudforge", out var before) ? before.Count : 0;
+        // while ShroudForge runs, a mod is only as far as its own report says: unconfirmed until SfRefine reads it, so a
+        // failure before that (the engine line names it) never leaves a row looking Loaded
+        var runs = mode is "hosted" or "self-hosted";
+        if (runs)
+        {
+            state = ModRunState.Waiting;
+            why = "ShroudForge runs, but Kiln could not read what it says about this mod (see the engine line). This is not proof the mod is active.";
+        }
         b.ProfileRest("shroudforge", _ => false, why ?? "", state, help);
         // mods the player put into ShroudForge's folder by hand (ShroudForge reads the whole folder)
         var dir = modsDir ?? SfFolder(b.Src.GameDir, "mods");
@@ -950,12 +963,12 @@ internal static class ModCatalog
             b.Add(new CatalogMod
             {
                 Engine = "shroudforge", Id = sid ?? name, Name = sname ?? name, Version = sversion ?? "",
-                Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? mode ?? "" : "disabled",
+                Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? runs ? "unconfirmed" : mode ?? "" : "disabled",
                 Reason = on ? why : "Switched off in ShroudForge's settings.", Help = on ? help : null,
             });
         }
         // what ShroudForge's runtime says per mod (its state.json, this process), and its own switch in the mod's files
-        if (mode is "hosted" or "self-hosted" && b.Mods.TryGetValue("shroudforge", out var list))
+        if (runs && b.Mods.TryGetValue("shroudforge", out var list))
         {
             var runtime = SfRuntime(b.Src);
             for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, b.Src.Side);
@@ -963,8 +976,9 @@ internal static class ModCatalog
         b.Engine("shroudforge", mode, health, note, f.Current);
     }
 
-    /// <summary><see cref="ShroudForgePackages.Folder"/> for mods or state, or its default when ShroudForge's config cannot be
-    /// read at all (duplicate keys get through its own catch): the list is still read, never left unrefined.</summary>
+    /// <summary><see cref="ShroudForgePackages.Folder"/> for mods or state. Folder catches what it knows of (the config
+    /// unreadable, cut off, a repeated key); this catch is kept for anything it may let through later, so the list is still
+    /// read from ShroudForge's default folder.</summary>
     private static string SfFolder(string gameDir, string key)
     {
         try { return ShroudForgePackages.Folder(gameDir, key); }
