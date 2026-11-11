@@ -814,7 +814,7 @@ void KILN_CALL on_ready(void*) {
 }
 
 void KILN_CALL on_unload(void*) {
-    // The ABI permits this at process exit. Never wait under a possible loader lock. The pinned worker owns
+    // kiln-core never calls this (kiln_api.h); a test host may. Never wait under a possible loader lock. The pinned worker owns
     // destroy/shutdown serially; retain its event, thread handle and modules until process teardown.
     if (g_stop) SetEvent(g_stop);
 }

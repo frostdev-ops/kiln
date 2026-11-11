@@ -253,7 +253,10 @@ typedef struct KilnPluginInfo {
     uint32_t size;
     KilnStr id;
     KilnStr version;
-    void(KILN_CALL* on_unload)(void* user); /* optional; process exit */
+    /* Reserved: kiln-core never calls it, also not at process exit. A plugin stays loaded for the life of the process,
+     * and no exit callback runs; exit work needs the plugin's own DLL_PROCESS_DETACH (under the loader lock, after
+     * Windows ended the other threads). Test hosts may call it. */
+    void(KILN_CALL* on_unload)(void* user);
     void* user;
     /* optional: runs once after every service DLL and plugin has run kiln_plugin_main, still before the game's entry
      * point. Look up other services here (api->service), not in kiln_plugin_main. */
