@@ -1016,6 +1016,19 @@ fn remove_copy(game: &Path, dst: &Path, persist: impl FnOnce() -> Result<()>) ->
     Ok(())
 }
 
+/// Publish a removal's receipt only after the folder transaction succeeds. A later mod must never save the
+/// rolled-back removal of an earlier mod from this run.
+fn remove_placement(game: &Path, receipts: &mut Vec<Placement>, dst: &Path) -> Result<()> {
+    let next = receipts.iter().filter(|r| r.path != dst).cloned().collect::<Vec<_>>();
+    if std::fs::symlink_metadata(dst).is_ok() {
+        remove_copy(game, dst, || save_placements(game, &next))?;
+    } else {
+        save_placements(game, &next)?;
+    }
+    *receipts = next;
+    Ok(())
+}
+
 /// A placed folder that cannot safely be removed. It stays at `path`; the foreign loader may still run it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1259,12 +1272,14 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             }
             if kind == ModKind::Set && !m.enabled {
                 if let Some(h) = have {
-                    rep.kept_files.extend(keep_player_files(game_dir, &dst, kind, &m.id, &h.player)?);
-                    remove_copy(game_dir, &dst, || {
-                        receipts.retain(|r| r.path != dst);
-                        save_placements(game_dir, &receipts)
-                    })?;
-                    rep.removed.push(tag(&m.id));
+                    let removed = (|| {
+                        rep.kept_files.extend(keep_player_files(game_dir, &dst, kind, &m.id, &h.player)?);
+                        remove_placement(game_dir, &mut receipts, &dst)
+                    })();
+                    match removed {
+                        Ok(()) => rep.removed.push(tag(&m.id)),
+                        Err(e) => retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, false, None, None)),
+                    }
                 }
                 continue;
             }
@@ -1322,8 +1337,9 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         for receipt in unlisted {
             let dst = &receipt.path;
             if !dst.exists() {
-                receipts.retain(|r| r.path != *dst);
-                save_placements(game_dir, &receipts)?;
+                if let Err(e) = remove_placement(game_dir, &mut receipts, dst) {
+                    rep.warnings.push(format!("{}: could not clear its old placement receipt: {}", tag(&receipt.marker.id), e.message));
+                }
                 continue;
             }
             let have = match owned(game_dir, &receipts, dst, kind, &receipt.marker.id) {
@@ -1331,14 +1347,16 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 Err(e) => { retain_runs(&mut rep, tag(&receipt.marker.id), dst, e.message, still_runs(kind, false, None, None)); continue; }
             };
             if kind == ModKind::Set {
-                if let Some(h) = &have {
-                    rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &receipt.marker.id, &h.player)?);
+                let removed = (|| {
+                    if let Some(h) = &have {
+                        rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &receipt.marker.id, &h.player)?);
+                    }
+                    remove_placement(game_dir, &mut receipts, dst)
+                })();
+                match removed {
+                    Ok(()) => rep.removed.push(tag(&receipt.marker.id)),
+                    Err(e) => retain_runs(&mut rep, tag(&receipt.marker.id), dst, e.message, still_runs(kind, false, None, None)),
                 }
-                remove_copy(game_dir, dst, || {
-                    receipts.retain(|r| r.path != *dst);
-                    save_placements(game_dir, &receipts)
-                })?;
-                rep.removed.push(tag(&receipt.marker.id));
                 continue;
             }
             match crate::shroudforge::read_mod(dst) {
@@ -1502,8 +1520,9 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 continue;
             }
             if !dst.exists() {
-                receipts.retain(|r| r.path != *dst);
-                save_placements(game_dir, &receipts)?;
+                if let Err(e) = remove_placement(game_dir, &mut receipts, dst) {
+                    rep.warnings.push(format!("{}: could not clear its old placement receipt: {}", tag(&receipt.marker.id), e.message));
+                }
                 continue;
             }
             if receipt.game_folder {
@@ -1515,12 +1534,18 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                             Ok(files) => files,
                             Err(e) => { retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)); continue; }
                         };
-                        stash_settings(game_dir, kind, &key, &files)?;
+                        if let Err(e) = stash_settings(game_dir, kind, &key, &files) {
+                            retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None));
+                            continue;
+                        }
                         if !files.is_empty() {
                             rep.kept_files.push(format!("{}: kept runtime settings ({}) in {}; they return when the mod is enabled again",
                                 tag(id), some_names(&changed), stash_dir(game_dir, kind, &key).display()));
                         }
-                        rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &key, &added)?);
+                        match keep_player_files(game_dir, dst, kind, &key, &added) {
+                            Ok(said) => rep.kept_files.extend(said),
+                            Err(e) => { retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)); continue; }
+                        }
                     }
                     Ok(Mine::Changed(files)) => { retain_runs(&mut rep, tag(id), dst, changed_reason(&files), still_runs(kind, false, None, None)); continue; }
                     Ok(_) => { retain_runs(&mut rep, tag(id), dst, "placement ownership could not be verified (its marker is not the receipt's)", still_runs(kind, false, None, None)); continue; }
@@ -1532,13 +1557,15 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     Ok(None) => { retain_runs(&mut rep, tag(id), dst, "placement ownership could not be verified", still_runs(kind, false, None, None)); continue; }
                     Err(e) => { retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)); continue; }
                 };
-                rep.kept_files.extend(keep_player_files(game_dir, dst, kind, id, &have.player)?);
+                match keep_player_files(game_dir, dst, kind, id, &have.player) {
+                    Ok(said) => rep.kept_files.extend(said),
+                    Err(e) => { retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)); continue; }
+                }
             }
-            remove_copy(game_dir, dst, || {
-                receipts.retain(|r| r.path != *dst);
-                save_placements(game_dir, &receipts)
-            })?;
-            rep.removed.push(tag(id));
+            match remove_placement(game_dir, &mut receipts, dst) {
+                Ok(()) => rep.removed.push(tag(id)),
+                Err(e) => retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)),
+            }
         }
     }
     Ok(rep)
@@ -2434,6 +2461,42 @@ mod tests {
         let rep = greeneye_place(&dirs, &game, vec![off(&a2), off(&b2)]);
         assert_eq!(rep.removed, [format!("greeneye:{left}")], "still Kiln's copy, removed now: {rep:?}");
         assert!(!game.join("greeneye").join(left).exists());
+    }
+
+    /// A failure for one stale copy must not leak its rolled-back removal into the next copy's saved receipt list.
+    #[test]
+    fn failed_stale_removal_keeps_its_receipt_and_removes_the_next_mod() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "stale-receipts").unwrap();
+        let dirs = DataDirs::at(tmp.path().join("data"));
+        let profile = crate::profile::create(&dirs, "empty", None).unwrap();
+        for (kind, rel, game_folder) in [(ModKind::Set, SET_MODS, false), (ModKind::Eml, "mods", false),
+            (ModKind::Emf, "emf/mods", false), (ModKind::Flame, "mods", false), (ModKind::Shroudtopia, "mods", false),
+            (ModKind::Native, "mods", true), (ModKind::Xhl, "mods", true), (ModKind::Eml, "mods", true)] {
+            let game = tmp.path().join(format!("{}-{game_folder}", kind.as_str()));
+            let mut receipts = Vec::new();
+            for id in ["a", "b"] {
+                let dst = game.join(rel).join(id);
+                std::fs::create_dir_all(&dst).unwrap();
+                std::fs::write(dst.join("config.txt"), b"defaults").unwrap();
+                let marker = Marker { format: 1, kind, id: id.into(), version: "1.0.0".into(), hash: crate::hash::dirhash(&dst).unwrap() };
+                crate::util::write_json_atomic(&dst.join(MARKER), &marker).unwrap();
+                receipts.push(Placement { path: dst, marker, files: placement_files(&game.join(rel).join(id), kind).unwrap(),
+                    extension: None, game_folder });
+            }
+            save_placements(&game, &receipts).unwrap();
+            FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+            let result = place(&dirs, &profile, &game);
+            assert!(result.is_ok(), "one failed receipt must not stop the next removal: {kind:?}: {result:?}");
+            let rep = result.unwrap();
+            assert_eq!(rep.removed, [format!("{}:b", kind.as_str())], "{rep:?}");
+            assert!(rep.retained.iter().any(|r| r.path == game.join(rel).join("a") && r.may_run), "{rep:?}");
+            assert_eq!(serde_json::to_value(placements(&game).unwrap()).unwrap(), serde_json::to_value(&receipts[..1]).unwrap());
+            assert_eq!(std::fs::read(game.join(rel).join("a/config.txt")).unwrap(), b"defaults");
+            assert!(!game.join(rel).join("b").exists());
+            let rep = place(&dirs, &profile, &game).unwrap();
+            assert_eq!(rep.removed, [format!("{}:a", kind.as_str())], "retry remains owned: {rep:?}");
+            assert!(placements(&game).unwrap().is_empty());
+        }
     }
 
     /// Review R4: when the copy cannot be published after an older Kiln's runtime files were split off the Library entry,

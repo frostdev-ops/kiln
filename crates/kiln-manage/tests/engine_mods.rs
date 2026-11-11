@@ -79,6 +79,49 @@ fn game_with_z(t: &Path) -> GameInstall {
     }
 }
 
+/// A failed recovery copy leaves that mod running, but must not prevent another profile or Play.
+#[test]
+fn linked_set_recovery_does_not_block_switching_profiles_or_play() {
+    use kiln_manage::launch::{self, LaunchMode, LaunchRequest};
+    for listed_off in [false, true] {
+        let t = tmp(&format!("linked-recovery-{listed_off}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+        let set = refs(&r, ModKind::Set, "flymode");
+        let ge = refs(&r, ModKind::Greeneye, "worstmap");
+        let game = game_with_z(&t.0);
+        let mut first = profile::create(&dirs, "First", None).unwrap();
+        first.mods.set.push(pm(&set, true));
+        let first = profile::save(&dirs, &first).unwrap();
+        profile::activate(&dirs, &first.id, &game).unwrap();
+        let dst = game.path.join("shrouded_engine_tweaks/mods/flymode");
+        put(&dst, "settings.json", b"player settings");
+        let outside = t.0.join("outside");
+        put(&outside, "settings.json", b"older recovery");
+        let kept = game.path.join("kiln/kept-mod-files/set/flymode");
+        std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside, &kept).unwrap();
+        let mut second = profile::create(&dirs, "Second", None).unwrap();
+        if listed_off { second.mods.set.push(pm(&set, false)); }
+        second.mods.greeneye.push(pm(&ge, true));
+        let second = profile::save(&dirs, &second).unwrap();
+        let result = profile::activate(&dirs, &second.id, &game);
+        assert!(result.is_ok(), "one refused recovery copy must not block activation: {result:?}");
+        let a = result.unwrap();
+        assert_eq!(a.profile_id, second.id);
+        assert!(a.retained.iter().any(|r| r.path == dst && r.may_run && r.reason.contains("symlink")), "{a:?}");
+        assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), b"player settings");
+        assert_eq!(std::fs::read(outside.join("settings.json")).unwrap(), b"older recovery");
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 1);
+        assert!(game.path.join("greeneye/worstmap/map.dll").is_file(), "the next mod is placed");
+        let opened = std::cell::Cell::new(false);
+        let request = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+        let played = launch::play_with(&dirs, &game, &request, Some(&[]), &|_| { opened.set(true); Ok(()) }).unwrap();
+        assert!(opened.get());
+        assert!(played.activation.unwrap().retained.iter().any(|r| r.path == dst && r.may_run));
+    }
+}
+
 #[test]
 fn every_engine_kind_is_imported_profiled_placed_and_rendered() {
     let t = tmp("flow");
