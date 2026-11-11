@@ -38,8 +38,9 @@ internal static class ShroudForgeUi
     private static readonly AutoResetEvent Wake = new(false);
     private static int _writer;
     private static (string Folder, string Action, long AtMs)? _armed;
-    // text fields keep what the player types until they leave the field
-    private static readonly Dictionary<(string, string), string> Typing = new();
+    // text fields keep what the player types until they leave the field (with the frame the field was last drawn)
+    private static readonly Dictionary<(string, string), (string Text, ulong Frame)> Typing = new();
+    private static ulong _activeFrame;  // the last frame a setting's text field had the keyboard
 
     /// <summary>Slider and other quick edits are written once the value rests this long.</summary>
     internal const int SettleMs = 350;
@@ -169,6 +170,10 @@ internal static class ShroudForgeUi
         return s is { Live: true } ? $"Saved: {s.Label} can apply while its mod is active; ShroudForge normally picks this up within a second or two."
             : $"Saved: {s?.Label ?? key} is configured for the next game start.";
     }
+
+    /// <summary>A setting's text field had the keyboard in the frame before <paramref name="frame"/> (or in it): the page's
+    /// section keys (Tab, LB / RB) leave it alone, as they do the search box.</summary>
+    internal static bool FieldActive(ulong frame) => _activeFrame != 0 && frame >= _activeFrame && frame - _activeFrame <= 1;
 
     /// <summary>Waits until every queued edit is written (tests, the preview).</summary>
     internal static void Flush()
@@ -408,8 +413,16 @@ internal static class ShroudForgeUi
     private static void TextField(UiDraw ui, string folder, SfSettingDef d, JsonNode? value, float width, Func<string, JsonNode?> parse)
     {
         var shown = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
+        var id = (folder, d.Key);
+        var frame = ui.FrameNumber;
         string text;
-        lock (Lock) text = Typing.TryGetValue((folder, d.Key), out var t) ? t : shown;
+        lock (Lock)
+        {
+            // what was typed into a field that then went away (another section, the menu closed) without the player leaving
+            // it is dropped: never saved, and never shown as if it were the value
+            if (Typing.TryGetValue(id, out var gone) && frame > gone.Frame + 1) Typing.Remove(id);
+            text = Typing.TryGetValue(id, out var t) ? t.Text : shown;
+        }
         var multi = d.Control == "textarea";
         // the field holds the declared length and the whole value with room to type: it never shows a value cut to fit
         // (and the cut text is never saved); a value too long for any field is shown, not edited
@@ -426,10 +439,12 @@ internal static class ShroudForgeUi
         var max = (int)Math.Clamp(Math.Max((long)(d.MaxLength ?? 256) * 4, need + 1024L) + 1, 16, cap);
         var changed = multi ? ui.InputMultiline("##v", ref text, max, width, 90 * ui.Scale) : ui.InputText("##v", ref text, max);
         var it = ui.LastItem;
+        if (it.Active) _activeFrame = frame;
         lock (Lock)
         {
-            if (changed) Typing[(folder, d.Key)] = text;
-            if (!it.Deactivated || !Typing.Remove((folder, d.Key))) return;
+            if (changed) Typing[id] = (text, frame);
+            else if (Typing.TryGetValue(id, out var cur)) Typing[id] = (cur.Text, frame);
+            if (!it.Deactivated || !Typing.Remove(id)) return;
         }
         if (text == shown) return;
         if (parse(text) is { } parsed) Edit(folder, d.Key, parsed);
@@ -484,6 +499,7 @@ internal static class ShroudForgeUi
             Results.Clear();
             Typing.Clear();
         }
+        _activeFrame = 0;
         Packages.Clear();
     }
 }

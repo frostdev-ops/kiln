@@ -254,11 +254,13 @@ internal sealed class ModManagerPage
         if (ui.FrameNumber != _lastFrame + 1) _framesShown = 0;  // opened again (or the first time)
         _lastFrame = ui.FrameNumber;
         _framesShown++;
-        // Tab / Shift+Tab and the shoulder buttons switch sections (claimed, so ImGui's own focus does not move too)
+        // Tab / Shift+Tab and the shoulder buttons switch sections (claimed, so ImGui's own focus does not move too), but
+        // not while a text field has the keyboard: the field would go away without saving what was typed
+        var typing = _searchActive || ShroudForgeUi.FieldActive(ui.FrameNumber);
         var tab = ui.KeyPressed(UiKey.Tab, repeat: false, claim: true);
-        if (!_searchActive && tab) Section = ModManagerLogic.Step(Section, (ui.HeldMods & KeyMods.Shift) != 0 ? -1 : 1);
-        if (ui.KeyPressed(UiKey.GamepadRB, claim: true)) Section = ModManagerLogic.Step(Section, 1);
-        if (ui.KeyPressed(UiKey.GamepadLB, claim: true)) Section = ModManagerLogic.Step(Section, -1);
+        if (!typing && tab) Section = ModManagerLogic.Step(Section, (ui.HeldMods & KeyMods.Shift) != 0 ? -1 : 1);
+        if (ui.KeyPressed(UiKey.GamepadRB, claim: true) && !typing) Section = ModManagerLogic.Step(Section, 1);
+        if (ui.KeyPressed(UiKey.GamepadLB, claim: true) && !typing) Section = ModManagerLogic.Step(Section, -1);
         if (Section == ModManagerSection.Mods && (ui.HeldMods & KeyMods.Ctrl) != 0 && ui.KeyPressed(UiKey.F)) FocusSearch = true;
 
         var win = ui.Cursor;

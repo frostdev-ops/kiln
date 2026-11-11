@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Kiln.KeyRemapTests;
 
-[Collection("bus")]
+[Collection(UiSerial.Name)]
 public sealed class KeyRemapTests : IDisposable
 {
     private readonly IKilnBackend _previous;

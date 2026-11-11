@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Kiln.ShroudForgeMenuTests;
 
-[Collection("bus")]
+[Collection(UiSerial.Name)]
 public sealed class ShroudForgeMenuTests : IDisposable
 {
     private readonly IKilnBackend _previous;

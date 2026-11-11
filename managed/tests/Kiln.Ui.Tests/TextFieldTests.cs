@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Kiln.TextFieldTests;
 
-[Collection("bus")]
+[Collection(UiSerial.Name)]
 public sealed class TextFieldTests : IDisposable
 {
     private const uint ReadOnly = 1u << 9;  // ImGuiInputTextFlags_ReadOnly (Dear ImGui 1.93)
@@ -47,7 +47,7 @@ public sealed class TextFieldTests : IDisposable
         var shroudlink = "x" + new string('y', 200);           // the shroudlink bridge's 256-byte field: 201 bytes
         Assert.False(_ui.InputText("##v", ref shroudlink, 256));
         Assert.Equal(shroudlink, FakeUiTable.Fields[^1].Text);
-        Assert.False(_ui.InputMultiline("##m", ref wide, 301));
+        Assert.False(_ui.InputMultiline("##v", ref wide, 301));
         Assert.Equal(wide, FakeUiTable.Fields[^1].Text);
     }
 
@@ -72,7 +72,7 @@ public sealed class TextFieldTests : IDisposable
         Assert.Equal(1025, shown.Length);
 
         var multi = string.Concat(Enumerable.Repeat("é", 600));  // 1200 bytes
-        Assert.False(_ui.InputMultiline("##m", ref multi, 1025));
+        Assert.False(_ui.InputMultiline("##v", ref multi, 1025));
         Assert.Equal(string.Concat(Enumerable.Repeat("é", 600)), multi);
         Assert.Equal(512, FakeUiTable.Fields[^1].Text.Length);  // cut at a character, never inside one
 

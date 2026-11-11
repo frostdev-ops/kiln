@@ -8,6 +8,14 @@ using System.Text;
 
 namespace Kiln.Ui.Tests;
 
+/// <summary>Tests that swap the backend and drive Kiln.Ui's shared state (the ShroudForge settings writer, the Keys tab, the
+/// Kiln menu's page): they run alone, so no other class's writes or backend swap interleave with theirs.</summary>
+[Xunit.CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class UiSerial
+{
+    public const string Name = "ui-serial";
+}
+
 internal static unsafe class FakeUiTable
 {
     public static UiNative.Table4* Table;
@@ -18,6 +26,12 @@ internal static unsafe class FakeUiTable
     /// <summary>Every text field call: (the text it was given, its buffer size, its flags).</summary>
     public static readonly List<(string Text, int Capacity, uint Flags)> Fields = [];
     public static readonly List<string> Texts = [];
+    /// <summary>Keys that "went down" this frame for <see cref="UiDraw.KeyPressed"/>.</summary>
+    public static readonly HashSet<UiKey> Pressed = [];
+    /// <summary>Only the text fields with this label report <see cref="Item"/> (the others, and every other widget, report
+    /// nothing): the search box and a setting's field are told apart.</summary>
+    public static string FieldLabel = "##v";
+    private static bool _lastWasField;
 
     public sealed class Backend : IKilnBackend
     {
@@ -84,13 +98,13 @@ internal static unsafe class FakeUiTable
     private static void PushVar(uint slot, float a, float b) { }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte FalseStrFloat2(NativeStr s, float a, float b) => 0;
+    private static byte FalseStrFloat2(NativeStr s, float a, float b) { _lastWasField = false; return 0; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte FalseStr(NativeStr s) => 0;
+    private static byte FalseStr(NativeStr s) { _lastWasField = false; return 0; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte Checkbox(NativeStr s, byte* v) => 0;
+    private static byte Checkbox(NativeStr s, byte* v) { _lastWasField = false; return 0; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void GetCursor(UiNative.Cursor* c)
@@ -107,21 +121,58 @@ internal static unsafe class FakeUiTable
     private static void GetItem(UiNative.Item* it)
     {
         var size = it->Size;
-        *it = Item;
+        *it = _lastWasField ? Item : default;
         it->Size = size;
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte InputText(NativeStr label, byte* buf, nuint cap, uint flags) => Field(buf, cap, flags);
+    private static byte InputText(NativeStr label, byte* buf, nuint cap, uint flags) => Field(label, buf, cap, flags);
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte InputMultiline(NativeStr label, byte* buf, nuint cap, float w, float h) => Field(buf, cap, uint.MaxValue);
+    private static byte InputMultiline(NativeStr label, byte* buf, nuint cap, float w, float h) => Field(label, buf, cap, uint.MaxValue);
 
-    private static byte Field(byte* buf, nuint cap, uint flags)
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte KeyPressed(uint key, uint flags) => Pressed.Contains((UiKey)key) ? (byte)1 : (byte)0;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static uint NoMods() => 0;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte BeginChildEx(NativeStr id, float w, float h, uint flags, uint windowFlags) { _lastWasField = false; return 1; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte SelectableEx(NativeStr label, byte selected, uint flags, float w, float h) { _lastWasField = false; return 0; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void Int(int n) { }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void DrawRectIn(uint layer, float x0, float y0, float x1, float y1, uint c, float r, float t) { }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void DrawTextIn(uint layer, float x, float y, uint c, float size, float wrap, NativeStr s) { lock (Texts) Texts.Add(s.ToString()); }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void TextSizeEx(NativeStr s, float size, float wrap, float* w, float* h)
     {
+        *w = 8 * (float)s.Len;
+        *h = 16;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte Hovered() => 0;
+
+    // Every slot a test does not set: does nothing and answers 0 (x64: the caller cleans up any arguments it passed).
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static nint Zero() => 0;
+
+    private static byte Field(NativeStr label, byte* buf, nuint cap, uint flags)
+    {
+        _lastWasField = label.ToString() == FieldLabel;
         var len = 0;
         while ((nuint)len < cap && buf[len] != 0) len++;
         var text = Encoding.UTF8.GetString(buf, len);
+        if (!_lastWasField) return 0;
         Fields.Add((text, (int)cap, flags));
         if (Type?.Invoke(text) is not { } typed) return 0;
         var bytes = Encoding.UTF8.GetBytes(typed);
@@ -171,6 +222,24 @@ internal static unsafe class FakeUiTable
         t3.PopColor = &U32;
         t3.PushVar = &PushVar;
         t3.PopVar = &U32;
+        t3.KeyPressed = &KeyPressed;
+        t3.KeyMods = &NoMods;
+        t3.SetCursorPos = &FloatFloat;
+        t3.BeginChildEx = &BeginChildEx;
+        t3.SelectableEx = &SelectableEx;
+        t3.SetKeyboardFocusHere = &Int;
+        t3.SetItemDefaultFocus = &Void;
+        t3.DrawRectIn = &DrawRectIn;
+        t3.DrawTextIn = &DrawTextIn;
+        t3.TextSizeEx = &TextSizeEx;
+        t3.SetScrollHereY = &Float;
+        t.EndChild = &Void;
+        t.IsItemHovered = &Hovered;
+        t.SetTooltip = &Str;
+        t.Separator = &Void;
+        var slots = (nint*)((byte*)Table + sizeof(ServiceHeader));
+        for (var i = 0; i < (sizeof(UiNative.Table4) - sizeof(ServiceHeader)) / sizeof(nint); i++)
+            if (slots[i] == 0) slots[i] = (nint)(delegate* unmanaged[Cdecl]<nint>)&Zero;
         Reset();
     }
 
@@ -179,6 +248,9 @@ internal static unsafe class FakeUiTable
         MenuOpen = false;
         Type = null;
         Item = default;
+        Pressed.Clear();
+        FieldLabel = "##v";
+        _lastWasField = false;
         Fields.Clear();
         lock (Texts) Texts.Clear();
     }
