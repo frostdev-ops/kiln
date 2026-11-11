@@ -24,16 +24,21 @@ export function Menu({ label, icon, items, align = "right", variant, size }: { l
     };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     const gone = () => setOpen(false);
+    // Only scrolling an ancestor moves the trigger away from this fixed popover. Scrolling the list itself or an
+    // unrelated pane (including the toaster's automatic scroll) must not dismiss an action under the pointer.
+    const scrolled = (e: Event) => {
+      if (e.target === window || (e.target instanceof Node && ref.current && e.target.contains(ref.current))) gone();
+    };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
     window.addEventListener("resize", gone);
-    window.addEventListener("scroll", gone, true);
+    window.addEventListener("scroll", scrolled, true);
     list.current?.querySelector<HTMLElement>(".k-menu-item")?.focus();
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", esc);
       window.removeEventListener("resize", gone);
-      window.removeEventListener("scroll", gone, true);
+      window.removeEventListener("scroll", scrolled, true);
     };
   }, [open]);
   // The list lives on the body at a fixed place, so a parent with overflow: hidden can't cut it off.
