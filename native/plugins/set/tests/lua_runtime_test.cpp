@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Executes the production Lua bridge and bundled Lua, with only game/OS services substituted.
 #include <cassert>
+#include <csignal>
+#include <sys/resource.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -20,6 +22,10 @@ namespace kset::hooktest { extern bool (*on_stack)(uintptr_t at, size_t n); }
 void rt::openImGui(lua_State* L){for(const char* n:{"ImGui","ImGuiCond","ImGuiWindowFlags"}){lua_newtable(L);lua_setglobal(L,n);}}
 void rt::imguiMark(){} void rt::imguiRecover(){}
 
+// The settings save's disk sync (modsettings.cpp) is the test's: counted, and as slow as asked (an HDD, btrfs under
+// Proton), so a test can see which saves sync and what that costs the thread that saves.
+unsigned fsyncCalls=0,slowSyncMs=0;
+extern "C" int fsync(int){++fsyncCalls;if(slowSyncMs)std::this_thread::sleep_for(std::chrono::milliseconds(slowSyncMs));return 0;}
 namespace {
 struct TypeFixture { std::string name,qn; uint32_t size; uint8_t kind; int inner=-1; std::vector<std::tuple<std::string,int,uint64_t>> fields; };
 std::vector<TypeFixture> ts = {
@@ -283,10 +289,16 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   {static unsigned lists;lists=0;auto saved=assets.resource_list;
    assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{++lists;*n=0;return KILN_OK;};
    auto resources=[]{for(auto& f:rt::features())if(f.id=="resources")return f;assert(false);return rt::Feature{};};
-   tickThread=false;const auto off=resources();tickThread=true;
+   tickThread=false;const auto off=resources();
+   // a client mod's init.lua runs in the main menu, before any world: resources were available to it at 5edcf5c
+   const bool menuMod=run(L,two,"local r=Features().resources;assert(r.compatible and r.available and r.reason=='')");
+   tickThread=true;
    if(lists)std::cerr<<"features: the resource scan ran off the tick thread ("<<lists<<" resource_list calls)\n";
-   assert(lists==0&&!off.available&&off.reason=="Not loaded yet"&&gScanAsked);
+   if(!menuMod)std::cerr<<"features: a mod in the main menu sees resources unavailable before anything was checked\n";
+   assert(lists==0&&menuMod&&gScanAsked&&off.compatible&&off.available&&off.unchecked&&off.reason.empty());
    scanIfAsked();assert(lists>0&&!gScanAsked);   // the next world tick scans (tickMods)
+   tickThread=false;const auto after=resources();tickThread=true;                    // checked: this fixture has none
+   assert(!after.available&&!after.unchecked&&after.reason=="Not loaded yet"&&!gScanAsked);
    assets.resource_list=saved;}
   gKItems=&items;gKSpawn=&spawn;
   must(L,two,"assert(Res.text('11111111-1111-1111-1111-111111111111')=='Wood Logs')");

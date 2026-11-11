@@ -34,6 +34,7 @@ struct Page {
     std::map<std::string, std::string> unknown;  // keys the file has and the mod doesn't define: JSON text, kept
     bool dirty = false;                          // changed since the last save
     bool told = false;                           // a failed save was reported
+    bool edited = false;                         // changed from the SET tools since the last save: that save syncs
     uint64_t revision = 0;                       // a stale overlay copy cannot edit a reloaded page
 };
 

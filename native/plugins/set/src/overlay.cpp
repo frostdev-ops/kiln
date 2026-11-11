@@ -32,6 +32,9 @@ constexpr uint32_t kEnterReturnsTrue = 1u << 6;
 const KilnUiApi* ui = nullptr;
 std::vector<KilnHandle> subscriptions;
 std::atomic<bool> active{false}, opened{false}, remapping{false}, cancelRemap{false};
+// The tools have the game's input (this plugin's set_capture(1)): what the runtime calls "overlay open". The crash notice
+// that opened by itself draws without it.
+std::atomic<bool> captured{false};
 // Serialize demand/capture and inspector requests with window-thread Escape and runtime teardown.
 std::mutex lifecycleMx, mx;
 std::string requestedMod;
@@ -59,7 +62,7 @@ KilnResult openToolsFor(KilnStr mod, bool prompt) {
     opened = true;
     // The crash notice opens by itself and only draws: the game keeps its input. Tools the player opened take it.
     ui->set_demand(1);
-    if (!prompt) ui->set_capture(1);
+    if (!prompt) { ui->set_capture(1); captured = true; }
     return KILN_OK;
 }
 KilnResult KILN_CALL openTools(KilnStr mod) { return openToolsFor(mod, false); }
@@ -109,24 +112,64 @@ std::string validUtf8(const std::string& in) {
 }
 std::string lower(std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; }
 bool separator(char c) { return c == '\\' || c == '/'; }
-// The user name in a home folder path, by its shape: \home\<name>, /home/<name>, \Users\<name>, /Users/<name>, with
-// either separator, single or doubled (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and
-// USERPROFILE (Proton: C:\users\steamuser) say. The name ends at a separator, a quote or a control character.
+// Where a path in a log line starts: back to a space, a quote, '=' or the like.
+bool pathStop(char c) {
+    return static_cast<unsigned char>(c) < 32 || std::strchr(" \"'=([,;<>|", c) != nullptr;
+}
+// The word at `word` (after a separator) is a home root only near the start of an absolute path: the path's first
+// component (Z:\home, C:\Users, /media), its second (/var/home, /run/media), or for \\server\share or \\?\ prefixes
+// its third (\\wsl$\Ubuntu\home). A drive (X:) is not a component. A folder called home or users deeper down (a mod's)
+// or in a relative path is not a home.
+bool homeRoot(const std::string& in, size_t word) {
+    size_t from = word;
+    while (from > 0 && !pathStop(in[from - 1])) --from;
+    const bool drive = word - from >= 2 && std::isalpha(static_cast<unsigned char>(in[from])) && in[from + 1] == ':';
+    if (!drive && !separator(in[from])) return false;  // relative
+    const bool unc = from + 1 < word && separator(in[from]) && separator(in[from + 1]);
+    int parts = 0;
+    for (size_t i = from + (drive ? 2 : 0); i < word;) {
+        while (i < word && separator(in[i])) ++i;
+        size_t e = i;
+        while (e < word && !separator(in[e])) ++e;
+        parts += e > i;
+        i = e;
+    }
+    return parts <= (unc ? 2 : 1);
+}
+// The user name in a home folder path, by its shape: \home\<name>, \Users\<name>, \media\<name> (also
+// /run/media/<name>: udisks' mounts, where a second drive's Steam library is), with either separator, single or doubled
+// (JSON), any case. Wine shows the Linux home as Z:\home\<name>, whatever HOME and USERPROFILE (Proton: C:\users\steamuser)
+// say. Only the name goes: it ends at a separator, a quote or a control character; at an apostrophe that ends a word
+// (O'Brien keeps his); and at a space after a '/' path (Unix names have none) or, after a '\' path, at a space whose
+// next word doesn't go on into the path (C:\Users\Bob Fix\AppData is one name, C:\Users\alice exit=3 is not).
 std::string redactHomes(const std::string& in) {
+    auto nameChar = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || static_cast<unsigned char>(c) >= 0x80; };
     std::string out;
     size_t i = 0;
     while (i < in.size()) {
         if (!separator(in[i])) { out += in[i++]; continue; }
         size_t word = i, name = std::string::npos;
         while (word < in.size() && separator(in[word])) ++word;
-        for (const std::string w : {"home", "users"})
-            if (in.size() - word > w.size() && lower(in.substr(word, w.size())) == w && separator(in[word + w.size()])) {
+        for (const std::string w : {"home", "users", "media"})
+            if (in.size() - word > w.size() && lower(in.substr(word, w.size())) == w && separator(in[word + w.size()]) &&
+                homeRoot(in, word)) {
                 name = word + w.size();
                 while (name < in.size() && separator(in[name])) ++name;
                 break;
             }
         size_t end = name;
-        while (end < in.size() && !separator(in[end]) && in[end] != '"' && in[end] != '\'' && static_cast<unsigned char>(in[end]) >= 32) ++end;
+        const bool unix = name != std::string::npos && name > 0 && in[name - 1] == '/';
+        for (; end < in.size(); ++end) {
+            const char c = in[end];
+            if (separator(c) || c == '"' || static_cast<unsigned char>(c) < 32) break;
+            if (c == '\'' && !(end + 1 < in.size() && nameChar(in[end + 1]))) break;
+            if (c == ' ') {
+                if (unix) break;
+                size_t k = end + 1;
+                while (k < in.size() && !separator(in[k]) && !pathStop(in[k])) ++k;
+                if (k >= in.size() || !separator(in[k])) break;  // the next word doesn't go on into the path
+            }
+        }
         if (name == std::string::npos || end == name) { out.append(in, i, word - i); i = word; continue; }
         out.append(in, i, name - i);
         out += "<user>";
@@ -151,20 +194,21 @@ bool sessionMark(bool running) {
     if (!f) return false;
     bool ok = fputs(running ? "running=1\n" : "running=0\n", f) >= 0; return fclose(f) == 0 && ok;
 }
-// The game's crash report from the end of the previous session (crash_dumps/*/enshrouded.info written no earlier than
-// a minute before kiln.prev.log's last write), or "" when there is none.
-std::string gameCrashSummary() {
+// The game's crash report from the previous SET session, or "" when there is none: crash_dumps/*/enshrouded.info
+// written after that session started (the marker's time) and no later than a minute after kiln.prev.log's last write
+// (its end). A crash of a later run without Kiln, or of an earlier one, is not this session's.
+std::string gameCrashSummary(std::filesystem::file_time_type started) {
     const auto game = logsDir.parent_path().parent_path(); std::error_code ec;
-    const auto since = std::filesystem::last_write_time(logsDir / "kiln.prev.log", ec);
+    const auto ended = std::filesystem::last_write_time(logsDir / "kiln.prev.log", ec);
     if (ec) return "";
-    auto latest = since - std::chrono::seconds(60); std::string relative;
+    auto latest = started; const auto until = ended + std::chrono::seconds(60); std::string relative;
     auto dir = std::filesystem::directory_iterator(game / "crash_dumps", ec);
     unsigned checked = 0;
     for (auto end = std::filesystem::directory_iterator(); !ec && dir != end && checked++ < 256; dir.increment(ec)) {
         if (!dir->is_directory(ec) || dir->is_symlink(ec)) continue;
         const auto file = dir->path() / "enshrouded.info"; auto time = std::filesystem::last_write_time(file, ec);
         if (ec) { ec.clear(); continue; }
-        if (time >= latest) { latest = time; relative = "crash_dumps/" + utf8(dir->path().filename()) + "/enshrouded.info"; }
+        if (time >= latest && time <= until) { latest = time; relative = "crash_dumps/" + utf8(dir->path().filename()) + "/enshrouded.info"; }
     }
     if (relative.empty()) return "";
     const auto info = nlohmann::json::parse(read(game, relative.c_str()), nullptr, false);
@@ -205,7 +249,7 @@ bool copyClipboard(const std::string& value) {
 void copyLog(bool previous) { message = copyClipboard(setui::logText(previous)) ? "Copied redacted logs. Review before sharing; nothing was uploaded." : "Clipboard unavailable. Save the local report instead."; }
 std::string report() {
     std::string out = "Kiln SET 0.2.0 support report\nGame build: " + std::to_string(rt::gameBuild()) + "\n";
-    for (const auto& f : rt::features()) out += f.id + ": compatible=" + (f.compatible ? "yes" : "no") + " available=" + (f.available ? "yes" : "no") + " " + f.reason + "\n";
+    for (const auto& f : rt::features()) out += f.id + ": compatible=" + (f.compatible ? "yes" : "no") + " available=" + (f.unchecked ? "not checked yet (at the first step of a world you host)" : f.available ? "yes" : "no") + " " + f.reason + "\n";
     for (const auto& m : rt::modReports()) out += "mod " + m.name + ": " + m.status + " " + m.reason + "\n";
     for (const auto& t : hk::info()) for (const auto& r : t.rules) out += "rule " + r.key + ": hits=" + std::to_string(r.hits) + " faults=" + std::to_string(r.faults) + " refused=" + std::to_string(r.refused) + " " + r.conflict + "\n";
     for (const auto& d : hk::diagnostics()) out += d + "\n";
@@ -277,7 +321,8 @@ void settings() {
 void compatibility() {
     for (const auto& f : rt::features()) {
         ui->text_colored(f.available ? 0x80dd99ff : f.compatible ? 0xffd577ff : 0xff8888ff, s(f.label + " [" + f.id + "]"));
-        text(std::string("Compatible: ") + (f.compatible ? "yes" : "no") + "   Available: " + (f.available ? "yes" : "no"));
+        text(std::string("Compatible: ") + (f.compatible ? "yes" : "no") + "   Available: " + (f.unchecked ? "not checked yet" : f.available ? "yes" : "no"));
+        if (f.unchecked) ui->text_wrapped(s("Checked at the first step of a world you host."));
         if (!f.reason.empty()) ui->text_wrapped(s(f.reason));
     }
 }
@@ -351,12 +396,19 @@ void entities() {
 }
 }
 const setui::Api* setui::service() { return &api; }
+void setui::sessionOff(std::filesystem::path control) {
+    controlDir = std::move(control);
+    sessionMark(false);
+}
 void setui::configure(std::filesystem::path logs, std::filesystem::path control, void (*sink)(const char*)) {
     logsDir = std::move(logs); controlDir = std::move(control); logSink = sink;
     debugLog = read(controlDir, "set-ui.ini").find("debugLog=0") == std::string::npos;
     // The marker alone proves nothing: the core never runs on_unload when the game exits normally, so it still says
     // running=1 after every session. The game's crash report from the end of that session is the evidence.
-    crashSummary = read(controlDir, "set-session.txt").starts_with("running=1") ? gameCrashSummary() : "";
+    // The marker's own time is when that session's SET started (configure writes it; stop() never runs at exit).
+    std::error_code ec;
+    const auto started = std::filesystem::last_write_time(controlDir / "set-session.txt", ec);
+    crashSummary = !ec && read(controlDir, "set-session.txt").starts_with("running=1") ? gameCrashSummary(started) : "";
     lastUnclean = !crashSummary.empty();
     sessionStarted = sessionMark(true);
 }
@@ -377,15 +429,16 @@ void setui::bind(const KilnUiApi* value, KilnOwner owner) {
             if (!opened) return false;
             if (remapping.exchange(false)) { cancelRemap = true; return true; }
             opened = false;
-            ui->set_capture(0); ui->set_demand(0); setinspect::request(false); return true;
+            captured = false; ui->set_capture(0); ui->set_demand(0); setinspect::request(false); return true;
         }, nullptr, &h) == KILN_OK) subscriptions.push_back(h);
     }
     if (lastUnclean) openToolsFor({nullptr, 0}, true);
 }
 bool setui::isOpen() { return active && opened; }
+bool setui::hasInput() { return active && opened && captured; }
 std::string setui::logText(bool previous) {
     std::string out;
-    if (previous && lastUnclean) out = "The game wrote a crash report as the last SET session ended. " + crashSummary + "\n\n";
+    if (previous && lastUnclean) out = "The game wrote a crash report while the last SET session ran (by the times only). " + crashSummary + "\n\n";
     return validUtf8(redact(out + read(logsDir, previous ? "kiln.prev.log" : "kiln.log", true)));
 }
 void setui::line(const char* v) { std::lock_guard lock(mx); lines.emplace_back(v ? v : "", v ? strnlen(v, 4096) : 0); while (lines.size() > 2000) lines.pop_front(); }
@@ -394,6 +447,7 @@ void setui::stop() {
     {
         std::lock_guard lifecycle(lifecycleMx);
         active = opened = remapping = cancelRemap = false;
+        captured = false;
         if (ui) { ui->set_capture(0); ui->set_demand(0); handles.swap(subscriptions); }
         setinspect::request(false);
         if (sessionStarted) { sessionMark(false); sessionStarted = false; }
@@ -410,7 +464,7 @@ void setui::draw() {
     ui->set_next_window_size(760, 600, KILN_UI_COND_FIRST_USE);
     if (ui->begin(s("Shrouded Engine Tweaks###kiln.set.tools"), &open, 0)) {
         if (lastUnclean) {
-            ui->text_wrapped(s("Last Session: the game wrote a crash report as the last SET session ended. " + crashSummary));
+            ui->text_wrapped(s("Last Session: the game wrote a crash report while the last SET session ran (by the times only; the cause may be anything). " + crashSummary));
             // Opened by itself, this notice has no input: its buttons would be clicks the game gets too.
             if (promptOnly) ui->text_wrapped(s("Open SET tools in the game's menu to copy the logs or save a report. Escape hides this notice."));
             else {
@@ -443,7 +497,7 @@ void setui::draw() {
         std::lock_guard lifecycle(lifecycleMx);
         closed = !open || !opened || !active;
         if (closed || !entitiesOpen) setinspect::request(false, component, selected);
-        if (closed) { opened = false; promptOnly = false; remapping = cancelRemap = false; binding.clear(); buffers.clear(); ui->set_capture(0); ui->set_demand(0); }
+        if (closed) { opened = false; promptOnly = false; remapping = cancelRemap = false; binding.clear(); buffers.clear(); captured = false; ui->set_capture(0); ui->set_demand(0); }
         else if (!bindingsOpen) { binding.clear(); remapping = cancelRemap = false; }
     }
     if (closed) debug("Closed tools");

@@ -66,6 +66,26 @@
   assert(shaped.find("Z:\\home\\")!=std::string::npos&&shaped.find("\\.local\\share\\Steam\\steamapps")!=std::string::npos&&
          shaped.find("\\\\AppData\\\\Local")!=std::string::npos&&shaped.find("/Library and")!=std::string::npos);
  }
+ // Both directions of the shape rule, on the second-pass reviewer's lines: a library on a second drive (udisks'
+ // /run/media, /media), a name with an apostrophe, and nothing more than the name taken (the rest of a line after a
+ // name, WINEPREFIX=, a mod folder called home or users). The cases it found right stay right.
+ {const std::vector<std::pair<std::string,std::string>> lines={
+   {"lib Z:\\run\\media\\aliceq\\Games\\SteamLibrary\\steamapps","lib Z:\\run\\media\\<user>\\Games\\SteamLibrary\\steamapps"},
+   {"old Z:\\media\\bobq\\Games","old Z:\\media\\<user>\\Games"},
+   {"json \"C:\\\\Users\\\\O'Brienq\\\\AppData\"","json \"C:\\\\Users\\\\<user>\\\\AppData\""},
+   {"cwd=C:\\Users\\carolq exit=3 (code 0xC0000005)","cwd=C:\\Users\\<user> exit=3 (code 0xC0000005)"},
+   {"mods in Z:\\home\\daveq\\Enshrouded\\shrouded_engine_tweaks\\mods\\home\\init.lua","mods in Z:\\home\\<user>\\Enshrouded\\shrouded_engine_tweaks\\mods\\home\\init.lua"},
+   {"HOME=/home/erinq WINEPREFIX=/home/erinq/.wine","HOME=/home/<user> WINEPREFIX=/home/<user>/.wine"},
+   {"kept \\\\wsl$\\Ubuntu\\home\\frankq\\x and \\\\?\\unix\\home\\graceq\\y and /var/home/heidiq/z","kept \\\\wsl$\\Ubuntu\\home\\<user>\\x and \\\\?\\unix\\home\\<user>\\y and /var/home/<user>/z"},
+   {"space C:\\Users\\Ivan Q\\AppData and \"Z:\\home\\judyq\" end","space C:\\Users\\<user>\\AppData and \"Z:\\home\\<user>\" end"},
+   {"mod folder users\\x.lua and C:\\Games\\mods\\users\\x.lua and settest\\home\\y","mod folder users\\x.lua and C:\\Games\\mods\\users\\x.lua and settest\\home\\y"},
+   {"Z:\\home\\ölafq\\x","Z:\\home\\<user>\\x"},
+   {"cannot open '/home/kateq'","cannot open '/home/<user>'"}};
+  std::string in;for(const auto& [from,to]:lines)in+=from+"\n";
+  std::ofstream(work/"kiln.log",std::ios::binary)<<in;
+  const auto out=setui::logText(false);std::istringstream got(out);std::string line;bool bad=false;
+  for(const auto& [from,to]:lines){std::getline(got,line);if(line!=to){std::cerr<<"redaction: ["<<from<<"] -> ["<<line<<"], wanted ["<<to<<"]\n";bad=true;}}
+  assert(!bad);}
  // A long session's log: the copy and the report keep its end (where a crash is), at most 1 MiB of it, from a line
  // start. A mod's stray byte or non-ASCII text never makes the clipboard text invalid UTF-8.
  {std::ofstream big(work/"kiln.log",std::ios::binary);big<<"FIRST LINE of the session\n";
@@ -129,12 +149,33 @@
  if(setui::isOpen())std::cerr<<"last session: notice opened after a normal exit, capture="<<toolsCapture<<"\n";
  assert(!setui::isOpen()&&!toolsDemand&&!toolsCapture&&setui::logText(true).rfind("previous session log",0)==0);
  setui::stop();
+ // A crash report from outside the previous SET session is not its crash: the marker's time is that session's start,
+ // and kiln.prev.log's last write its end (plus a minute for the game to write its report).
+ {const auto mark=controlFolder/"set-session.txt",prev=logFolder/"kiln.prev.log";
+  auto crashAt=[&](const char* name,std::filesystem::file_time_type t){std::filesystem::create_directories(game/"crash_dumps"/name);
+   const auto f=game/"crash_dumps"/name/"enshrouded.info";std::ofstream(f)<<R"({"info":"another run's crash","exception":"not this session"})";std::filesystem::last_write_time(f,t);};
+  auto opensNotice=[&]{setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);const bool open=setui::isOpen();setui::stop();return open;};
+  const auto start=std::filesystem::last_write_time(prev)-std::chrono::hours(1);
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);std::filesystem::last_write_time(prev,start+std::chrono::minutes(30));
+  crashAt("later",start+std::chrono::hours(3));                      // a later run without Kiln crashed
+  if(opensNotice())std::cerr<<"last session: a crash 2.5 h after the SET session's log ended opened the notice\n";
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);assert(!opensNotice());
+  std::filesystem::remove_all(game/"crash_dumps/later");
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);std::filesystem::last_write_time(prev,start+std::chrono::seconds(10));
+  crashAt("before",start-std::chrono::seconds(30));                  // a crash just before the session started
+  if(opensNotice())std::cerr<<"last session: a crash before the SET session started opened the notice\n";
+  std::ofstream(mark)<<"running=1\n";std::filesystem::last_write_time(mark,start);assert(!opensNotice());
+  std::filesystem::remove_all(game/"crash_dumps/before");std::ofstream(prev)<<"previous session log";
+  // A start that ran no SET (play once without mods) clears the marker: a crash in it is not SET's.
+  std::ofstream(mark)<<"running=1\n";crashAt("noset",std::filesystem::file_time_type::clock::now());
+  setui::sessionOff(controlFolder);assert(slurp(mark)=="running=0\n"&&!opensNotice());
+  std::filesystem::remove_all(game/"crash_dumps/noset");}
  std::filesystem::create_directories(game/"crash_dumps/test");std::ofstream(controlFolder/"set-session.txt")<<"running=1\n";
  std::ofstream(game/"crash_dumps/test/enshrouded.info")<<R"({"info":"fixture crash","exception":"fixture exception","source":")"
    <<std::string(199,'x')<<"\u00e9 and more\"}";  // the 200-byte cut of a value falls inside the two bytes of the e
  setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);
  if(setui::isOpen()&&toolsCapture)std::cerr<<"last session: the crash notice took the game's input\n";
- assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==0);toolsRows.clear();setui::draw();
+ assert(setui::isOpen()&&!setui::hasInput()&&toolsDemand==1&&toolsCapture==0);toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos&&row.find("fixture exception")!=std::string::npos;}));
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Escape hides")!=std::string::npos;}));
  {const auto copied=setui::logText(true);
@@ -142,12 +183,12 @@
   if(!validUtf8(copied))std::cerr<<"last session: the crash summary's cut left invalid UTF-8\n";
   assert(validUtf8(copied)&&copied.find("source="+std::string(199,'x')+"\n")!=std::string::npos);}
  assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);  // Escape hides the notice
- toolsMenu(1,nullptr);assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==1);       // SET tools from the game menu
+ toolsMenu(1,nullptr);assert(setui::isOpen()&&setui::hasInput()&&toolsDemand==1&&toolsCapture==1);  // SET tools from the game menu
  toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos;}));
  toolsClick="Dismiss";setui::draw();toolsRows.clear();setui::draw();
  assert(setui::isOpen()&&toolsCapture==1&&std::none_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos;}));
- assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);setui::stop();
+ assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!setui::hasInput()&&!toolsDemand&&!toolsCapture);setui::stop();
  setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);assert(!setui::isOpen());setui::stop();
  std::cout<<"SET tools settings/onChange, precision, compatibility, reporting/crash prompt, console and lifecycle: PASS\n";
 }
