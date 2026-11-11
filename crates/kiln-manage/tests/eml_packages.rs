@@ -1482,6 +1482,28 @@ fn one_dll_added_alone_and_in_its_package_runs_once() {
     assert_eq!(on, ["auto-loot-plus", "my-proxy"]);
 }
 
+/// A filename-inferred id is not permission to replace an author's explicit native.json, even when the entry is off.
+#[test]
+fn an_inferred_proxy_id_never_replaces_an_authored_native_with_the_same_id() {
+    for enabled in [true, false] {
+        let (t, dirs, g) = fresh("authored-id-collision");
+        let own = t.0.join("authored/Embervale Atlas");
+        put(&own, "dinput8.dll", &proxy_dll("authored"));
+        put(&own, "native.json", br#"{"format":1,"id":"embervale-atlas","name":"Embervale Atlas","version":"1.0.0","side":"client","dlls":["dinput8.dll"],"phase":"dllmain"}"#);
+        add(&dirs, &g, &own);
+        let mut p = profile::get(&dirs, "my-mods").unwrap();
+        p.mods.native[0].enabled = enabled;
+        profile::save(&dirs, &p).unwrap();
+        profile::activate(&dirs, &p.id, &g).unwrap();
+        let before = profile::get(&dirs, "my-mods").unwrap().mods.native;
+        let r = add(&dirs, &g, &proxy_package(&t, "Embervale Atlas 2.0", &proxy_dll("inferred"), &[]));
+        assert_eq!(profile::get(&dirs, "my-mods").unwrap().mods.native, before,
+            "an inferred id must preserve the authored selection and its enabled state");
+        assert!(r.added.is_empty() && r.changes.is_empty(), "{r:?}");
+        assert!(r.notices.iter().any(|n| n.contains("Embervale Atlas") && n.contains("native.json") && n.contains("Library")), "{r:?}");
+    }
+}
+
 /// A VS_VERSION_INFO resource with the file version a.b.c, as a stand-in DLL carries it.
 fn version_info(a: u16, b: u16, c: u16) -> Vec<u8> {
     let mut v = vec![0u8; 6];

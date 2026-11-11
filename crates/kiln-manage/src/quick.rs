@@ -437,6 +437,12 @@ pub(crate) fn merge(dirs: &DataDirs, mods: &mut ProfileMods, refs: &[LibraryRef]
         match list.iter().position(|m| m.id == r.id) {
             Some(i) if list[i] == after => { already.push(r.clone()); continue; }
             Some(i) => {
+                let old_ref = lref(r.kind, &list[i]);
+                if r.kind == ModKind::Native && generated_proxy(dirs, r).is_some() && generated_proxy(dirs, &old_ref).is_none() {
+                    notices.push(format!("{} stays as selected: its author supplied native.json. {} has the same inferred id ({}), so it is only in your Library.",
+                        name(&old_ref), name(r), r.id));
+                    continue;
+                }
                 if let Some(why) = keep_xhl_core(r, &list[i], refs, &name) {
                     notices.push(why);
                     continue;
