@@ -128,6 +128,8 @@ test("a server mod on a client profile starts with the player's own world", asyn
     await expect(row.locator(".k-order-note")).toHaveAttribute("title", "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.");
     await expect(page.getByText(/not loaded on a client/)).toHaveCount(0);
     await expect(page.getByText("2 mods load on a client. 1 starts with your world. 2 stay out.")).toBeVisible();
+    // players look for their mods in the game folder: the page says where they are
+    await expect(page.getByText("The game loads these mods from Kiln's Library, so they are not copied into the game folder.", { exact: false })).toBeVisible();
     // a server loads it like any other mod
     await page.getByRole("radio", { name: "Server" }).click();
     await expect(page.locator(".k-order-row.lit", { hasText: "big-stacks" })).toBeVisible();

@@ -9,7 +9,7 @@ import { MoreHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import * as api from "../../api/commands";
 import type { ProfileMod, RunSide } from "../../api/commands";
-import { qk, useGame, useLibrary } from "../../api/hooks";
+import { qk, useActiveProfile, useGame, useLibrary } from "../../api/hooks";
 import { Banner, Button, FlameToggle, Menu, Segmented, Skeleton, errorText, type MenuItem } from "../../ui";
 import { GameFolderSection } from "./GameFolder";
 import { AddModsModal, libName } from "./ModList";
@@ -26,6 +26,7 @@ export default function ProfileModsPage() {
   const [adding, setAdding] = useState(false);
   const { game } = useGame();
   const gameId = game?.id ?? null;
+  const active = useActiveProfile(gameId);
   const preview = useQuery({ queryKey: qk.resolve(id, side, gameId), queryFn: () => api.profileResolve(id, side, gameId), enabled: !!profile });
   const lib = useLibrary("kiln");
   // the picker lists the Library as it is now: a mod imported a moment ago on the Library page must be in it
@@ -59,6 +60,10 @@ export default function ProfileModsPage() {
     { label: "Remove from this profile", danger: true, onSelect: () => remove("kiln", m.id) },
   ];
   const counts = profile.mods.native.length + profile.mods.plugin.length + profile.mods.emf.length;
+  // where the game reads Kiln mods from (profile::render): players look for them in the game folder and find nothing
+  const mode = (active.data?.profileId === id ? active.data.pathMode : null) ?? game?.pathMode;
+  const where = !game ? "" : mode === "copy" ? " While this profile is active, Kiln copies these mods into the game's kiln/profiles folder."
+    : " The game loads these mods from Kiln's Library, so they are not copied into the game folder.";
   const stays = out.length;
   const height = mods.length ? (loading.length + later.length + out.length) * ROW + (out.length ? GAP : 0) : 0;
   return (
@@ -113,7 +118,7 @@ export default function ProfileModsPage() {
           </p>
         )}
         <p className="k-hint" style={{ fontSize: 16 }}>
-          Light a mod or put it out and the order closes up. {counts ? `${profile.mods.native.length + profile.mods.plugin.length} native, ${profile.mods.emf.length} EMF in this profile.` : "No native or EMF mods in this profile."}
+          Light a mod or put it out and the order closes up.{where} {counts ? `${profile.mods.native.length + profile.mods.plugin.length} native, ${profile.mods.emf.length} EMF in this profile.` : "No native or EMF mods in this profile."}
         </p>
         <div className="k-row" style={{ marginTop: "auto", gap: 8 }}>
           {act.button}
