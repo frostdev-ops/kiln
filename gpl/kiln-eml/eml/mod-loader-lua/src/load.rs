@@ -213,6 +213,8 @@ pub fn restore_backup(
         );
     }
 
+    #[cfg(test)]
+    crate::transaction::DURING_RESTORE.with(|check| { if let Some(check) = check.take() { check(root.as_std_path()); } });
     // kiln-eml: new backups restore the resource file exactly too, after the vanilla header is live.
     let resources_backup = path.with_extension("kfc_resources.bak");
     if resources_backup.exists() {

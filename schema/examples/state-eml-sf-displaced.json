@@ -21,7 +21,7 @@
   },
   "error": null,
   "aside": null,
-  "reason": "ShroudForge's asset mods better-chests 1.2.0, unlock-blueprints 0.4.1 are not in this start's game data: kiln-eml's EML patches replaced what ShroudForge prepared, because both build on the same vanilla backup. Every start ShroudForge prepares them again and kiln-eml replaces them again (two full rewrites per start). To have them, turn off either the EML mods or those ShroudForge asset mods",
+  "reason": "ShroudForge's asset mods better-chests 1.2.0, unlock-blueprints 0.4.1, prepared by an earlier start, are not in this start's game data: ShroudForge did not run this start (its mods are off in the active profile, or it could not start: see its row on Logs > Engines), so kiln-eml built the game data from the vanilla backup with the EML mods only. ShroudForge prepares them again the next time it runs",
   "sfDisplaced": [
     "better-chests 1.2.0",
     "unlock-blueprints 0.4.1"

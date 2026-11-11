@@ -600,7 +600,7 @@ mod tests {
     #[test]
     #[ignore = "needs KILN_EML_S_DRIVE: a Unix folder the Wine prefix maps as s: (Wine harness)"]
     fn wine_names_a_path_in_a_mapped_folder_with_that_drive() {
-        let Ok(folder) = std::env::var("KILN_EML_S_DRIVE") else { return };
+        let folder = std::env::var("KILN_EML_S_DRIVE").expect("run by the Wine harness, which maps s: and sets KILN_EML_S_DRIVE");
         let recorded = format!("{folder}/steamapps/common/Enshrouded/mods/XHL-Edited");
         let dos = dos_name(&recorded).expect("running under Wine");
         assert!(dos.to_ascii_uppercase().starts_with("S:\\STEAMAPPS"), "{dos}");

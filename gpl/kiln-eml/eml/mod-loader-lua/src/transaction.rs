@@ -8,6 +8,9 @@ pub type Writer = KFCWriter<Rc<KFCFile>, Rc<TypeRegistry>>;
 pub(crate) const VANILLA_HEADER: &str = ".vanilla-header";
 #[cfg(test)]
 thread_local! { pub(crate) static BEFORE_PUBLISH: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
+// kiln-eml: between the two copies of a restore (load.rs), for the tests that look at what is held meanwhile
+#[cfg(test)]
+thread_local! { pub(crate) static DURING_RESTORE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) }; }
 
 pub fn regular(path: &Path) -> io::Result<()> {
     let m = fs::symlink_metadata(path)?;
@@ -21,12 +24,16 @@ pub fn regular(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// kiln-eml: the attributes of `path` asked by name. Wine follows links made on the Linux side even with
-/// OPEN_REPARSE_POINT, so the handle-based metadata above shows a plain folder there; asked by name, Wine reports
-/// directory links as reparse points (discover.rs does the same). Wine shows file links to neither query.
+/// kiln-eml: the attributes of `path` asked by name, under Wine (0 on Windows proper). Wine follows links made on the
+/// Linux side even with OPEN_REPARSE_POINT, so the handle-based metadata above shows a plain folder there; asked by
+/// name, Wine reports directory links as reparse points (discover.rs does the same). Wine shows file links to neither
+/// query. Windows proper reports junctions and links through the handle query already, and a raw by-name query of a
+/// path longer than MAX_PATH fails there where std's (verbatim) one works: a deep game folder must not stop every
+/// publication.
 #[cfg(windows)]
 pub(crate) fn attributes_by_name(path: &Path) -> io::Result<u32> {
     use std::os::windows::ffi::OsStrExt;
+    if !under_wine() { return Ok(0); }
     #[link(name = "kernel32")]
     unsafe extern "system" { fn GetFileAttributesW(path: *const u16) -> u32; }
     let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -158,7 +165,7 @@ impl PatchWriter {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     #[test]
     fn directory_barrier_propagates_sync_errors() {
@@ -221,6 +228,39 @@ mod tests {
         assert!(!crate::owns_output(&game, "g").unwrap(), "only the last published generation is proof");
         fs::remove_dir_all(game).unwrap();
     }
+    /// Is ShroudForge's write lock in `game` held by someone (this process's handoff guard, in these tests)?
+    pub(crate) fn sf_write_lock_busy(game: &Path) -> bool {
+        OpenOptions::new().read(true).write(true).open(game.join("shroudforge/config/.shroudforge-write.lock"))
+            .is_ok_and(|f| f.try_lock().is_err())
+    }
+    /// ShroudForge's state after it prepared asset mods for `stem` (asset-preparation.schema.json).
+    pub(crate) fn sf_applied(game: &Path, stem: &str) {
+        fs::create_dir_all(game.join("shroudforge/config")).unwrap();
+        fs::write(game.join("shroudforge/state.json"), serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"assets":{
+            "schemaVersion":1,"status":"applied","phase":"startup","target":stem,"fingerprint":"a".repeat(64),
+            "completedAt":42,"mods":[{"id":"sf-mod","version":"1.0.0"}]}})).unwrap()).unwrap();
+    }
+    // SF writes `preparing` under its write lock before its own preparation touches an archive: the handoff's lock is
+    // held from the state edit through every step of the publication.
+    #[test]
+    fn the_sf_write_lock_is_held_at_every_publication_boundary() {
+        let game = std::env::temp_dir().join(format!("kiln-sf-lock-{}", uuid::Uuid::new_v4()));
+        let stage = game.join("stage");
+        fs::create_dir_all(&stage).unwrap();
+        for (n, b) in [("g.kfc", "old patch"), ("g.kfc.bak", "vanilla"), ("g.kfc_resources", "base old"), ("g_002.dat", "old")] {
+            fs::write(game.join(n), b).unwrap();
+        }
+        for (n, b) in [("g.kfc", "new patch"), ("g.kfc_resources", "base new"), ("g_002.dat", "new")] { fs::write(stage.join(n), b).unwrap(); }
+        fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+        sf_applied(&game, "g");
+        let w = PatchWriter { writer: None, game: game.clone(), stage, name: "g".into() };
+        let mut seen = Vec::new();
+        w.publish(|n| { seen.push((n, sf_write_lock_busy(&game))); Ok(()) }).unwrap();
+        assert_eq!(seen, [(0, true), (1, true), (2, true), (3, true)], "held at every boundary");
+        assert!(!sf_write_lock_busy(&game), "released once published");
+        drop(w);
+        fs::remove_dir_all(game).unwrap();
+    }
     #[test]
     fn real_kfc_is_readable_at_every_publication_boundary() {
         use kfc::{container::KFCReader, guid::ContentHash};
@@ -257,6 +297,22 @@ mod tests {
             drop(patch);
             fs::remove_dir_all(game).unwrap();
         }
+    }
+    // A game folder deep enough that its stage files pass MAX_PATH (Steam libraries in long folder names).
+    #[cfg(windows)]
+    #[test]
+    fn a_long_game_folder_path_passes_the_link_checks() {
+        let mut game = std::env::temp_dir().join(format!("kiln-long-{}", uuid::Uuid::new_v4()));
+        while game.as_os_str().len() < 300 { game = game.join("a-rather-long-steam-library-folder-name"); }
+        fs::create_dir_all(&game).unwrap();
+        let file = game.join(".kiln-eml-stage-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0").join("enshrouded.kfc_resources");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "staged").unwrap();
+        regular(&file).unwrap();
+        crate::ownership::tests::checked(&game, &file).unwrap();
+        let mut top = game.as_path();
+        while top.parent() != Some(&std::env::temp_dir()) { top = top.parent().unwrap(); }
+        fs::remove_dir_all(top).unwrap();
     }
     #[cfg(unix)]
     #[test]

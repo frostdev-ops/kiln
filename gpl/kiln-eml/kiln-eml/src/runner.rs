@@ -89,6 +89,10 @@ pub struct Outcome {
     /// this start's game data does not have their patches. `reason` says so in a sentence.
     #[serde(rename = "sfDisplaced", skip_serializing_if = "Vec::is_empty")]
     pub sf_displaced: Vec<String>,
+    /// An idle start found the vanilla backup of another game build than the game data (the game was updated since):
+    /// it was not compared with it and nothing was claimed or restored.
+    #[serde(rename = "staleBackup", skip_serializing_if = "std::ops::Not::not")]
+    pub stale_backup: bool,
     pub mods: Vec<Entry>,
     // kiln-eml: only in the state file of a run that is going on (`phase: running`): what it is doing (progress.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,6 +118,7 @@ impl Outcome {
             aside: None,
             reason: None,
             sf_displaced: Vec::new(),
+            stale_backup: false,
             mods,
             progress: None,
         }
@@ -354,35 +359,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
 
     let backup = cfg.game_dir.join(format!("{file}.kfc.bak"));
     if mods.is_empty() {
-        // no EML mod (left): put the game data back byte for byte from EML's backup, once
-        out.phase = Phase::Idle;
-        let kfc = cfg.game_dir.join(format!("{file}.kfc"));
-        let resources_backup = cfg.game_dir.join(format!("{file}.kfc_resources.bak"));
-        // comparing the live files with the backup reads both (hundreds of MiB on a real client): say so
-        let len = |p: &Utf8Path| std::fs::metadata(p.as_std_path()).map_or(0, |m| m.len());
-        let live_resources = cfg.game_dir.join(format!("{file}.kfc_resources"));
-        let comparing = cfg.patch && backup.exists();
-        if comparing {
-            let bytes = 2 * (len(&kfc) + len(&live_resources) * u64::from(resources_backup.exists()));
-            tracing::info!("No EML mods: comparing the game data with the vanilla backup ({} read) to see whether it needs restoring", mib(bytes));
-            progress.stage(Stage::Checking);
-            progress.announce(if resources_backup.exists() { 4 } else { 2 }, bytes);
-            progress.begin_file(resources_backup.file_name().unwrap_or("the vanilla backup"));
-        }
-        let resource_difference = resources_backup.exists() && files_differ(&live_resources, &resources_backup, &progress);
-        let differ = backup.exists() && cfg.patch && (files_differ(&kfc, &backup, &progress) || resource_difference);
-        if comparing {
-            progress.end_file();
-        }
-        if differ {
-            if let Err(why) = owned(cfg, &file) {
-                out.reason = Some(unproven_sentence(&why));
-                return finish(out);
-            }
-            out.restored = lua::restore(&cfg.game_dir, &file);
-            if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
-            let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
-        }
+        idle(cfg, &file, &progress, &mut out);
         return finish(out);
     }
     if let Err(e) = std::fs::create_dir_all(&cfg.cache_dir) {
@@ -402,12 +379,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     let total = mods.len();
     for _attempt in 0..=total {
         if mods.is_empty() {
-            out.phase = Phase::Idle;
-            if cfg.patch && backup.exists() && owned(cfg, &file).is_ok() {
-                out.restored = lua::restore(&cfg.game_dir, &file);
-                let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
-                if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
-            }
+            idle(cfg, &file, &progress, &mut out);
             break;
         }
         let env = match ModEnvironment::load_from(&cfg.game_dir, &cfg.cache_dir, mods.clone()) {
@@ -509,6 +481,45 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     finish(out)
 }
 
+/// No EML mod (left): put the game data back byte for byte from EML's backup, once, when it is output kiln-eml can
+/// prove it wrote; otherwise leave it and say why (`reason`). A backup of another game build than the live data (the
+/// game was updated since it was made) is not compared with at all (`staleBackup`): it is of no use for this build, and
+/// the next start with an EML mod makes a new one.
+fn idle(cfg: &RunConfig, file: &str, progress: &Progress, out: &mut Outcome) {
+    out.phase = Phase::Idle;
+    let backup = cfg.game_dir.join(format!("{file}.kfc.bak"));
+    let kfc = cfg.game_dir.join(format!("{file}.kfc"));
+    if !cfg.patch || !backup.exists() { return; }
+    let build = |p: &Utf8Path| kfc::container::KFCFile::get_version_tag(p).ok();
+    if let (Some(live), Some(saved)) = (build(&kfc), build(&backup)) && live != saved {
+        tracing::info!("No EML mods; the vanilla backup is of another game build ({saved}) than the game data ({live}): \
+            the game was updated since it was made, so it is not compared and nothing is restored. The next start with an \
+            EML mod makes a new backup");
+        out.stale_backup = true;
+        return;
+    }
+    let resources_backup = cfg.game_dir.join(format!("{file}.kfc_resources.bak"));
+    // comparing the live files with the backup reads both (hundreds of MiB on a real client): say so
+    let len = |p: &Utf8Path| std::fs::metadata(p.as_std_path()).map_or(0, |m| m.len());
+    let live_resources = cfg.game_dir.join(format!("{file}.kfc_resources"));
+    let bytes = 2 * (len(&kfc) + len(&live_resources) * u64::from(resources_backup.exists()));
+    tracing::info!("No EML mods: comparing the game data with the vanilla backup ({} read) to see whether it needs restoring", mib(bytes));
+    progress.stage(Stage::Checking);
+    progress.announce(if resources_backup.exists() { 4 } else { 2 }, bytes);
+    progress.begin_file(resources_backup.file_name().unwrap_or("the vanilla backup"));
+    let resource_difference = resources_backup.exists() && files_differ(&live_resources, &resources_backup, progress);
+    let differ = files_differ(&kfc, &backup, progress) || resource_difference;
+    progress.end_file();
+    if !differ { return; }
+    if let Err(why) = owned(cfg, file) {
+        out.reason = Some(unproven_sentence(&why));
+        return;
+    }
+    out.restored = lua::restore(&cfg.game_dir, file);
+    if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
+    let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
+}
+
 /// Is the live game data output Kiln's EML writer can prove it published? Its receipt decides; with none, the change
 /// cache of an earlier kiln-eml may prove it once (`lua::adopt`). Err: why not, in a few words.
 fn owned(cfg: &RunConfig, file: &str) -> Result<(), String> {
@@ -528,12 +539,15 @@ fn owned(cfg: &RunConfig, file: &str) -> Result<(), String> {
     Err(why)
 }
 
-/// The `reason` of a start whose publication replaced ShroudForge's prepared asset patches.
+/// The `reason` of a start whose publication replaced ShroudForge's prepared asset patches. kiln-eml publishes only in a
+/// start where ShroudForge does not run: hosted ShroudForge reserves the writer and kiln-eml stands aside
+/// (`eml_stand_aside`), and ShroudForge's own proxy makes it stand aside too. So the SF state it replaced is from an
+/// earlier start.
 fn displaced_sentence(mods: &[String]) -> String {
-    format!("ShroudForge's asset mods {} are not in this start's game data: kiln-eml's EML patches replaced what \
-        ShroudForge prepared, because both build on the same vanilla backup. Every start ShroudForge prepares them again \
-        and kiln-eml replaces them again (two full rewrites per start). To have them, turn off either the EML mods or \
-        those ShroudForge asset mods", mods.join(", "))
+    format!("ShroudForge's asset mods {}, prepared by an earlier start, are not in this start's game data: ShroudForge \
+        did not run this start (its mods are off in the active profile, or it could not start: see its row on Logs > \
+        Engines), so kiln-eml built the game data from the vanilla backup with the EML mods only. ShroudForge prepares \
+        them again the next time it runs", mods.join(", "))
 }
 
 /// The `reason` of an idle start whose game data differs from the backup and is not provably EML's.

@@ -16,7 +16,8 @@ pub(crate) fn reset_read() { READ.with(|r| r.set(0)); DISPLACED.with(|d| d.borro
 thread_local! { static DISPLACED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 /// The ShroudForge asset mods (`<id> <version>`) whose prepared output a publication of this thread replaced since
-/// `reset_read`: both loaders build on the same vanilla backup, so this start's game data does not have their patches.
+/// `reset_read`: kiln-eml builds from the vanilla backup, so this start's game data does not have their patches. (It
+/// publishes only in a start where ShroudForge does not run: hosted ShroudForge makes it stand aside.)
 pub(crate) fn displaced() -> Vec<String> { DISPLACED.with(|d| d.borrow().clone()) }
 fn count(n: usize) { READ.with(|r| r.set(r.get() + n as u64)); }
 
@@ -329,7 +330,9 @@ pub fn prune(root: &Path, stem: &str) {
             for f in &files { remove(&f.path(), format!("{name}/{}", f.file_name().to_string_lossy())); }
             let _ = fs::remove_dir(&path);
         } else if let Some(base) = temp_of(&name) {
-            if stems.iter().any(|s| base == *s || base == format!("{s}.kfc") || base == format!("{s}.kfc.bak"))
+            // temp copies over <stem>.kfc / .kfc_resources (`<stem>.kiln-*`), .kfc.bak (`<stem>.kfc.kiln-*`),
+            // .kfc_resources.bak (`<stem>.kfc_resources.kiln-*`) and the seal (`<stem>.kfc.bak.kiln-*`)
+            if stems.iter().any(|s| [s.to_string(), format!("{s}.kfc"), format!("{s}.kfc.bak"), format!("{s}.kfc_resources")].contains(&base.to_owned()))
                 && super::transaction::regular(&path).is_ok() {
                 remove(&path, name);
             }
@@ -342,7 +345,8 @@ pub fn prune(root: &Path, stem: &str) {
             let (path, name) = (entry.path(), entry.file_name().to_string_lossy().into_owned());
             if super::transaction::regular(&path).is_err() { continue; }
             if let Some(base) = temp_of(&name) {
-                if stems.contains(&base) || base.strip_prefix("sf-handoff-").is_some_and(|r| r.strip_suffix(".json").is_some_and(is_uuid)) {
+                // a receipt's temp (`<stem>.kiln-*`) or a journal's (`sf-handoff-<uuid>.json` -> `sf-handoff-<uuid>.kiln-*`)
+                if stems.contains(&base) || base.strip_prefix("sf-handoff-").is_some_and(is_uuid) {
                     remove(&path, name);
                 }
             } else if name.strip_prefix("sf-handoff-").and_then(|r| r.strip_suffix(".json")).is_some_and(is_uuid) {
@@ -445,12 +449,14 @@ pub fn adopt(root: &Path, stem: &str, cache_dir: &Path) -> io::Result<Adoption> 
         return unproven("the game folder's path is not valid UTF-8");
     };
     if !crate::load::validate_backup(header, backup) { return unproven("the vanilla backup does not pass its seal"); }
-    // the containers that run added (beyond the vanilla header's), where the cache names them by content: listed, so
-    // that a restore can remove them too. One the cache does not prove is left out (and so never removed).
+    // the containers that run added (beyond the vanilla header's, up to the adopted header's own count: each of those
+    // came out of that run's stage), where the cache names them by content: listed, so that a restore can remove them
+    // too. One the cache does not prove, or one above them (a leftover, a player's file), is left out and never removed.
     let vanilla = containers(root, &backups[0]).unwrap_or(usize::MAX);
+    let published = containers(root, &outputs[0]).unwrap_or(0);
     for entry in fs::read_dir(root)? {
         let name = entry?.file_name().to_string_lossy().into_owned();
-        if container_index(stem, &name).is_none_or(|i| i < vanilla) { continue; }
+        if container_index(stem, &name).is_none_or(|i| i < vanilla || i >= published) { continue; }
         let path = root.join(&name);
         if !cache.saved(&path).is_some_and(|(len, content)| content && live.size(&name).ok().flatten() == Some(len)) { continue; }
         let (digest, crc) = digest_and_crc(root, &path)?;
@@ -642,8 +648,9 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    pub(crate) fn checked(root: &Path, path: &Path) -> io::Result<()> { checked_path(root, path) }
     fn fixture() -> (PathBuf, Vec<PathBuf>) {
         let root = std::env::temp_dir().join(format!("kiln-ownership-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("stage")).unwrap();
@@ -884,6 +891,58 @@ mod tests {
         assert_eq!(fs::read(root.join("g.kfc.bak")).unwrap(), bytes);
         fs::remove_dir_all(root).unwrap();
     }
+    /// The change cache a release before receipts left after this publication: every game file by length and CRC-64.
+    fn legacy_cache(root: &Path) -> PathBuf {
+        let cache = root.join("kiln/eml/cache");
+        fs::create_dir_all(&cache).unwrap();
+        let mut files = serde_json::Map::new();
+        for entry in fs::read_dir(root).unwrap().flatten() {
+            if !entry.file_type().unwrap().is_file() { continue; }
+            let bytes = fs::read(entry.path()).unwrap();
+            files.insert(entry.path().to_string_lossy().into_owned(), serde_json::json!([bytes.len(), 0, crate::cache::CRC64.checksum(&bytes)]));
+        }
+        let build = "kiln-eml-v2-0123456789abcdefg|RunOptions { skip_cache: false, is_server: None, patch: true, export: false, runtime: false, export_dir: None }";
+        fs::write(cache.join("files.json"), serde_json::to_vec(&serde_json::json!({"build_id": build, "files": files})).unwrap()).unwrap();
+        fs::remove_file(root.join("kiln/eml/ownership/g.json")).unwrap();
+        cache
+    }
+    // Adoption needs the backups the cache names, and a backup pair that passes its seal.
+    #[test]
+    fn adoption_refuses_a_changed_backup_and_a_backup_failing_its_seal() {
+        let (root, _, _) = real_published();
+        let cache = legacy_cache(&root);
+        assert_eq!(adopt(&root, "g", &cache).unwrap(), Adoption::Adopted, "the crafted cache is proof as it stands");
+        // a backup changed after the cache recorded it (same length)
+        let (root, _, _) = real_published();
+        let cache = legacy_cache(&root);
+        let mut bytes = fs::read(root.join("g.kfc.bak")).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 1;
+        fs::write(root.join("g.kfc.bak"), &bytes).unwrap();
+        assert_eq!(adopt(&root, "g", &cache).unwrap(), Adoption::Unproven("its backups are not the ones the earlier change cache recorded".into()));
+        assert!(!root.join("kiln/eml/ownership/g.json").exists());
+        // a seal that does not describe the backups, as the cache recorded it
+        let (root, _, _) = real_published();
+        fs::write(root.join("g.kfc.bak.integrity"), r#"{"header":[1,2],"resources":[3,4]}"#).unwrap();
+        let cache = legacy_cache(&root);
+        assert_eq!(adopt(&root, "g", &cache).unwrap(), Adoption::Unproven("the vanilla backup does not pass its seal".into()));
+        assert!(!root.join("kiln/eml/ownership/g.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+    // The restore holds SF's write lock across both copies (the header, then the resource file).
+    #[test]
+    fn the_sf_write_lock_is_held_between_the_two_copies_of_a_restore() {
+        let (root, header, _) = real_published();
+        crate::transaction::tests::sf_applied(&root, "g");
+        crate::transaction::DURING_RESTORE.with(|check| check.set(Some(|game| {
+            assert!(crate::transaction::tests::sf_write_lock_busy(game), "SF's write lock is held between the copies");
+        })));
+        assert!(crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"));
+        assert!(crate::transaction::DURING_RESTORE.with(|check| check.take()).is_none(), "the probe ran");
+        assert_eq!(fs::read(root.join("g.kfc")).unwrap(), header);
+        assert!(!crate::transaction::tests::sf_write_lock_busy(&root), "released after the restore");
+        fs::remove_dir_all(root).unwrap();
+    }
     // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
     // back; a busy SF, an SF preparation in progress or a state Kiln does not know refuses, and nothing is copied.
     #[test]
@@ -948,6 +1007,9 @@ mod tests {
         fs::write(&temp, "temp").unwrap();
         let backup_temp = root.join(format!("g.kfc.kiln-{}", id()));
         fs::write(&backup_temp, "temp").unwrap();
+        // the temp copy of the resource backup (`g.kfc_resources.bak` -> `g.kfc_resources.kiln-<uuid>`, 215 MiB on a client)
+        let resources_temp = root.join(format!("g.kfc_resources.kiln-{}", id()));
+        fs::write(&resources_temp, "temp").unwrap();
         for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { fs::write(root.join(n), "keep").unwrap(); }
         fs::create_dir_all(root.join("kiln/eml/ownership")).unwrap();
         for i in 0..20 {
@@ -957,8 +1019,13 @@ mod tests {
                 .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + i)).unwrap();
         }
         fs::write(root.join(format!("kiln/eml/ownership/g.kiln-{}", id())), "receipt temp").unwrap();
+        // a journal's temp: `sf-handoff-<uuid>.json` -> `sf-handoff-<uuid>.kiln-<uuid>`
+        let journal_temp = root.join(format!("kiln/eml/ownership/sf-handoff-{}.kiln-{}", id(), id()));
+        fs::write(&journal_temp, "journal temp").unwrap();
         prune(&root, "g");
         assert!(!stale.exists() && !temp.exists() && !backup_temp.exists());
+        assert!(!resources_temp.exists(), "the resource backup's temp copy goes");
+        assert!(!journal_temp.exists(), "a journal's temp goes");
         assert!(foreign.join("notes.txt").exists() && root.join(".kiln-eml-stage-mine").is_dir());
         for n in ["g.kfc", "g.kiln-backup", "other.kiln-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"] { assert!(root.join(n).exists(), "{n}"); }
         let mut kept: Vec<String> = fs::read_dir(root.join("kiln/eml/ownership")).unwrap().flatten()
@@ -1256,7 +1323,7 @@ mod tests {
     #[test]
     #[ignore = "needs KILN_EML_HOST_LINK_FIXTURE: a game folder with links made on the Linux side (Wine harness)"]
     fn links_made_on_the_linux_side_are_refused_under_wine() {
-        let Some(fixture) = std::env::var_os("KILN_EML_HOST_LINK_FIXTURE") else { return };
+        let fixture = std::env::var_os("KILN_EML_HOST_LINK_FIXTURE").expect("run by the Wine harness, which sets KILN_EML_HOST_LINK_FIXTURE");
         let game = PathBuf::from(fixture).join("game");
         assert!(fs::symlink_metadata(game.join("kiln/eml/ownership")).unwrap().is_dir(), "the harness made the link");
         assert!(checked_path(&game, &game.join("kiln/eml/ownership/g.json")).is_err(), "linked receipt folder");

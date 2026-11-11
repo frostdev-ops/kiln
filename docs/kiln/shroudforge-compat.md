@@ -310,17 +310,16 @@ statically. kiln-eml becomes relevant in three places:
 3. **SF's in-game API ported to Kiln's C# API (section 8).** It must not use kfc. Kiln's own reflection and type data
    (`kiln.assets`, typegen) cover it.
 
-**Limit: SF asset mods and EML mods do not combine (dev.24).** Both write the game's data files, and both build them
-from the same vanilla backup (`<exe>.kfc.bak`), so whoever writes second drops the other's patches. Under hosted SF the
-order in a start is fixed: SF prepares its startup asset mods first (in `kiln_plugin_early`), kiln-eml publishes its
-EML patches after it (in `on_ready`) and sets SF's prepared-output state to `failed`. The game therefore runs with the
-EML patches only, and the SF asset mods' changes are missing. On the next start SF sees `failed`, puts the vanilla
-backups back and prepares again, and kiln-eml replaces that again: two full rewrites of the game data every start,
-for nothing. It is not silent: kiln-eml writes `ShroudForge's asset mods <id> <version>, ... are not in this start's
-game data ...` as a warning into kiln.log and as `reason` (with the list in `sfDisplaced`) into
-`kiln/state/eml.json`, which the launcher's Engines row shows. To have the SF asset mods, turn off the EML mods, or
-the other way round. SF mods that change the game at run time only (no startup asset patch) are not affected.
-Combining both (one writer building on the other's output) is not designed yet.
+**SF asset mods and EML mods together.** Both write the game's data files from the same vanilla backup
+(`<exe>.kfc.bak`), so there must be one writer per start. When Kiln hosts SF, SF is that writer: its early step reserves
+`kiln.eml` (`stand_aside`) before it prepares, kiln-eml publishes `aside` and writes nothing, and SF builds its startup
+asset mods and the EML packages in its mods folder in one pass (the launcher copies the profile's EML mods there, so
+the game has both). kiln-eml writes only in a start where SF does not run (its mods off in the active profile,
+`KILN_SHROUDFORGE=0`, or SF could not start). Then, if SF's state says it prepared asset mods in an earlier start, that
+start's game data has the EML mods only: kiln-eml sets SF's state to `failed` and names the SF mods that are missing
+(a warning in kiln.log and `reason` plus `sfDisplaced` in `kiln/state/eml.json`). The next start in which SF runs
+prepares them again. EML mods that are only in the Library, not in SF's mods folder, do not load while SF is hosted
+(`not-loaded` in `eml.json`).
 
 ## 8. API coverage
 
