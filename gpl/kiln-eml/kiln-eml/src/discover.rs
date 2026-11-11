@@ -85,12 +85,40 @@ pub fn kiln_copy_of(dir: &Utf8Path) -> Option<String> {
     v.get("id")?.as_str().map(str::to_owned)
 }
 
-/// Drop-ins without the launcher's copies of the profile's own EML mods: such a copy is the same mod as the profile
-/// entry (placed for EML's own loader), so it neither runs a second time nor shows as a duplicate.
-pub fn without_profile_copies(candidates: Vec<Candidate>, profile: &[(String, bool)]) -> (Vec<Candidate>, Vec<Utf8PathBuf>) {
+fn bounded_json(path: &Utf8Path, limit: u64) -> Option<serde_json::Value> {
+    let m = checked_metadata(path).ok()?;
+    if !m.is_file() || m.len() > limit { return None; }
+    let mut text = String::new();
+    std::fs::File::open(path).ok()?.take(limit + 1).read_to_string(&mut text).ok()?;
+    if text.len() as u64 > limit { return None; }
+    serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()
+}
+
+fn placement_path_matches(recorded: &str, candidate: &Utf8Path) -> bool {
+    let recorded = Utf8PathBuf::from(recorded.replace('\\', "/"));
+    if relative_under(candidate, &recorded).is_some_and(|p| p.as_str().is_empty()) { return true; }
+    // A Linux launcher writes Unix receipt paths; Wine exposes those same paths through its Z: drive.
+    recorded.as_str().starts_with('/') && candidate.as_str().get(..2).is_some_and(|s| s.eq_ignore_ascii_case("Z:"))
+        && relative_under(candidate, &Utf8PathBuf::from(format!("Z:{recorded}"))).is_some_and(|p| p.as_str().is_empty())
+}
+
+/// A selected marked copy is already represented by its profile entry (even when disabled). An unselected copy
+/// retained after edits must not become a drop-in either, but only a matching install receipt establishes ownership:
+/// a marker shipped in an archive alone does not prevent a genuine manual mod from running.
+pub fn without_profile_copies(candidates: Vec<Candidate>, profile: &[(String, bool)], kiln: &Utf8Path) -> (Vec<Candidate>, Vec<Utf8PathBuf>) {
+    let receipts = if checked_metadata(kiln).is_ok_and(|m| m.is_dir())
+        && checked_metadata(&kiln.join("state")).is_ok_and(|m| m.is_dir()) {
+        bounded_json(&kiln.join("state/library-placements.json"), 8 * 1024 * 1024)
+    } else { None };
     let mut skipped = Vec::new();
     let kept = candidates.into_iter().filter(|c| {
-        let ours = kiln_copy_of(&c.path).is_some_and(|id| profile.iter().any(|(p, _)| p.eq_ignore_ascii_case(&id)));
+        let ours = kiln_copy_of(&c.path).is_some_and(|id| {
+            profile.iter().any(|(p, _)| p.eq_ignore_ascii_case(&id)) || receipts.as_ref().and_then(|v| v.as_array()).is_some_and(|rs| {
+                let marker = bounded_json(&c.path.join(".kiln-library.json"), 64 * 1024);
+                rs.iter().any(|r| r.get("path").and_then(|p| p.as_str()).is_some_and(|p| placement_path_matches(p, &c.path))
+                    && marker.as_ref().is_some_and(|m| m.get("format").and_then(|v| v.as_u64()) == Some(1) && r.get("marker") == Some(m)))
+            })
+        });
         if ours { skipped.push(c.path.clone()); }
         !ours
     }).collect();
@@ -107,17 +135,27 @@ pub fn aside_entries(profile_json: &str, kiln_dir: &Utf8Path, roots: &[Utf8PathB
     let folder = roots.first().map(|r| r.to_string()).unwrap_or_else(|| "mods".into());
     ids.into_iter().enumerate().map(|(i, (id, enabled))| {
         let path = paths.get(i).map(|c| c.path.to_string()).unwrap_or_default();
-        let copy = roots.iter().map(|r| r.join(&id)).find(|d| kiln_copy_of(d).is_some_and(|m| m == id));
+        // `<root>/<id>`, or the entry's own path when the launcher placed it in that folder under the name a native
+        // DLL looks for (`mods/XHL-Auto-Loot` for the Library id `xhl-auto-loot`)
+        let own_path = paths.get(i).map(|c| c.path.clone())
+            .filter(|p| p.parent().is_some_and(|parent| roots.iter().any(|r| relative_under(parent, r).is_some_and(|rel| rel.as_str().is_empty()))));
+        let copy = roots.iter().map(|r| r.join(&id)).chain(own_path).find(|d| kiln_copy_of(d).is_some_and(|m| m == id));
+        let wanted = paths.get(i).and_then(|c| classify(&c.path).ok()).map(|m| m.id).unwrap_or_else(|| id.clone());
+        let manual = if copy.is_none() {
+            roots.iter().flat_map(|r| folder_candidates(r, "own-loader")).map(|c| c.path)
+                .find(|p| classify(p).is_ok_and(|m| m.id.eq_ignore_ascii_case(&wanted)))
+        } else { None };
+        let own = copy.clone().or(manual);
         let (state, reason) = if !enabled {
             ("disabled", "switched off in the profile".to_string())
-        } else if let Some(c) = &copy {
-            ("own-loader", format!("runs under {who} (Kiln copied it to {c})"))
+        } else if let Some(c) = &own {
+            ("own-loader", format!("runs under {who} ({} at {c})", if copy.is_some() { "Kiln's copy" } else { "hand-installed mod" }))
         } else {
             ("not-loaded", format!("{who} runs this start and reads only {folder}; this mod is in Kiln's Library, so it does \
                 not load. Activate the profile again in the Kiln launcher to copy it there, or remove that loader to let Kiln run it"))
         };
         Entry { id: Some(id), version: None, name: None, source: "profile".into(),
-            path: copy.map(|c| c.to_string()).unwrap_or(path), state: state.into(), reason: Some(reason), capabilities: Vec::new() }
+            path: own.map(|c| c.to_string()).unwrap_or(path), state: state.into(), reason: Some(reason), capabilities: Vec::new() }
     }).collect()
 }
 
@@ -471,10 +509,34 @@ mod tests {
         let j = r#"{"mods":{"eml":[{"id":"hoarders-helper","path":"Z:\\lib\\eml\\hoarders-helper\\1.0.0+h"}]},"dropins":true}"#;
         let ids = profile_ids(j);
         assert_eq!(ids, [("hoarders-helper".to_string(), true)]);
-        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &ids);
+        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &ids, &d.join("kiln"));
         assert_eq!(skipped, [copy]);
         // a marked copy the profile does not list, or a copy of another kind, stays an ordinary drop-in
         assert_eq!(kept.iter().map(|c| c.path.file_name().unwrap()).collect::<Vec<_>>(), ["other", "sf"]);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn removed_receipt_owned_copies_never_become_dropins_but_shipped_markers_are_not_ownership() {
+        let d = tmp("removed-owned-copy");
+        let copy = eml_mod(&d, "mods/XHL-Edited", "XHL-Edited");
+        let manual = eml_mod(&d, "mods/manual", "manual");
+        let forged = eml_mod(&d, "mods/shipped-marker", "shipped-marker");
+        let marker = serde_json::json!({"format":1,"kind":"eml","id":"xhl-edited","version":"1.0.0","hash":"hash"});
+        std::fs::write(copy.join(".kiln-library.json"), marker.to_string()).unwrap();
+        std::fs::write(forged.join(".kiln-library.json"), marker.to_string()).unwrap();
+        std::fs::create_dir_all(d.join("kiln/state")).unwrap();
+        let receipts = serde_json::json!([{"path":copy.as_str(),"marker":marker,"files":{},"game_folder":true}]);
+        std::fs::write(d.join("kiln/state/library-placements.json"), receipts.to_string()).unwrap();
+        // The profile has removed this mod; shipped Lua was edited, so placement correctly retained the folder.
+        std::fs::write(copy.join("src/mod.lua"), "-- edited code\nreturn {}").unwrap();
+        let json = r#"{"mods":{"eml":[]},"dropins":true}"#;
+        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &profile_ids(json), &d.join("kiln"));
+        assert_eq!(skipped, [copy]);
+        assert_eq!(kept.iter().map(|c| c.path.clone()).collect::<Vec<_>>(), [manual, forged]);
+        assert!(placement_path_matches("/game/mods/edited", Utf8Path::new("Z:/game/mods/edited")));
+        assert!(!placement_path_matches("/game/mods/edited", Utf8Path::new("Z:/other/mods/edited")));
+        assert!(!placement_path_matches("/game/mods/edited", Utf8Path::new("C:/game/mods/edited")));
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -490,6 +552,29 @@ mod tests {
         assert_eq!(e[0].path, copy.as_str());
         assert!(e[1].reason.as_deref().unwrap().starts_with("EML's own loader runs this start and reads only"));
         assert_eq!(e[1].path, "/lib/b");
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn native_folder_runs_once_with_kiln_or_is_reported_under_the_loaded_foreign_loader() {
+        let d = tmp("native-folder");
+        let copy = eml_mod(&d, "mods/XHL-Native-Mod", "XHL-Native-Mod");
+        std::fs::write(copy.join(".kiln-library.json"), r#"{"format":1,"kind":"eml","id":"xhl-native-mod"}"#).unwrap();
+        let json = serde_json::json!({"mods":{"eml":[{"id":"xhl-native-mod","path":copy.as_str()}]},"dropins":true}).to_string();
+        let (dropins, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &profile_ids(&json), &d.join("kiln"));
+        assert_eq!(skipped, [copy.clone()]);
+        let mut candidates = profile_candidates(&json, &d.join("kiln"));
+        candidates.extend(dropins);
+        let (run, entries) = resolve(&candidates);
+        assert_eq!(run, [copy.clone()]);
+        assert_eq!(entries.len(), 1);
+        let aside = aside_entries(&json, &d.join("kiln"), &[d.join("mods")], "EML's own loader");
+        assert_eq!((aside[0].state.as_str(), aside[0].path.as_str()), ("own-loader", copy.as_str()));
+        // No marker: a real hand installation is still loaded by the foreign loader, not missing in the Library.
+        std::fs::remove_file(copy.join(".kiln-library.json")).unwrap();
+        let aside = aside_entries(&json, &d.join("kiln"), &[d.join("mods")], "EML's own loader");
+        assert_eq!(aside[0].state, "own-loader");
+        assert!(aside[0].reason.as_deref().unwrap().contains("hand-installed"));
         std::fs::remove_dir_all(d).unwrap();
     }
 

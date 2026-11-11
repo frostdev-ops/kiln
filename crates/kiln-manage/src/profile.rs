@@ -881,8 +881,14 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
             let folder = crate::library::path_of(dirs, &lref(k, m))?;
             // ShroudForge and SET read their mods from their own folder in the game: the copy placed there
             // (their plugins take the list as "this profile uses the engine"; copy mode keeps the relative copy path)
-            let path = match crate::engine_mods::placed_folder(k, &install.path, &m.id) {
+            // An EML mod a native DLL reads in the game's mods folder runs from the copy placed there, so the DLL and
+            // the Lua read the same settings (engine_mods::game_folder_of)
+            let game_path = crate::engine_mods::game_path_of(dirs, k, m, &install.path);
+            let placed = game_path.clone().or_else(|| crate::engine_mods::placed_folder(k, &install.path, &m.id));
+            let path = match placed {
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
+                Some(placed) if game_path.is_some() => format!("../{}", placed.strip_prefix(&install.path)
+                    .map_err(|_| Error::invalid("EML game folder is outside the install"))?.to_string_lossy().replace('\\', "/")),
                 _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
             };
             let fm = FolderMod { id: m.id.clone(), version: Some(m.version.clone()), path, hash: Some(m.hash.clone()), enabled: m.enabled };
@@ -1196,6 +1202,25 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
             };
             return Err(Error::new(ErrorCode::Unsupported,
                 format!("{why}; activate this profile to change them before playing (play-once keeps the active selection)")));
+        }
+    }
+    // EML/native companions a DLL reads in the game's mods folder are fixed copies there too.
+    let in_game = |kind, mods: Vec<ProfileMod>| {
+        let mut v: Vec<_> = mods.into_iter().filter(|m| match kind {
+            ModKind::Eml => crate::engine_mods::game_folder_of(dirs, kind, m).is_some(),
+            ModKind::Native => crate::library::path_of(dirs, &lref(kind, m)).is_ok_and(|p| !crate::library::native_settings_dirs(&p).is_empty()),
+            _ => false,
+        }).map(|m| (m.id, m.version, m.hash, m.enabled)).collect();
+        v.sort_unstable();
+        v
+    };
+    for kind in [ModKind::Eml, ModKind::Native] {
+        let current = active.as_ref().and_then(|f| f.mods.folders(kind)).map(|list| list.iter().map(|m| ProfileMod {
+            id: m.id.clone(), version: m.version.clone().unwrap_or_default(), hash: m.hash.clone().unwrap_or_default(), enabled: m.enabled,
+        }).collect()).unwrap_or_default();
+        if in_game(kind, profile.mods.list(kind).clone()) != in_game(kind, current) {
+            return Err(Error::new(ErrorCode::Unsupported, "Mods that a DLL reads in the game's mods folder (Auto Loot Plus, the XHL mods) are \
+                copies there; activate this profile to change them before playing (play-once keeps the active selection)"));
         }
     }
     let (mut file, _, _) = prepare(dirs, &profile, install)?;

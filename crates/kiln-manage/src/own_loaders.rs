@@ -237,9 +237,11 @@ pub struct OwnLoaderNote {
     pub text: String,
 }
 
-/// True when `<root>/<id>` is Kiln's copy of this kind's mod `id` (its `.kiln-library.json` marker says so).
+/// True when `<root>` holds Kiln's copy of this kind's mod `id` (a `.kiln-library.json` marker says so): `<root>/<id>`,
+/// or the folder an EML mod is placed in for its native DLL (`mods/XHL-Auto-Loot` for the Library id `xhl-auto-loot`).
 pub fn has_copy(root: &Path, kind: ModKind, id: &str) -> bool {
-    crate::engine_mods::marker(&root.join(id)).is_some_and(|m| m.kind == kind && m.id == id)
+    let is = |dir: &Path| crate::engine_mods::marker(dir).is_some_and(|m| m.kind == kind && m.id == id);
+    is(&root.join(id)) || std::fs::read_dir(root).into_iter().flatten().flatten().any(|e| e.path().is_dir() && is(&e.path()))
 }
 
 fn names(ids: &[String]) -> String {

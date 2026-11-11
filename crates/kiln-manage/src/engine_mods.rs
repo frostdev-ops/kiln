@@ -336,6 +336,11 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     };
     let hash = crate::hash::dirhash(&work)?;
     let (side, clients) = side_of(kind, &work);
+    let game_folder = if kind == ModKind::Eml && src.is_dir() { eml_game_folder(src) } else { None };
+    if let Some((folder, why)) = &game_folder {
+        let shown = name.clone().unwrap_or_else(|| folder.clone());
+        ctx.report.note(&d.path, format!("{shown}: {why}, so Kiln copies it into the game's mods\\{folder} folder while a profile with it is active"));
+    }
     let rec = ImportRecord {
         format: 1,
         kind,
@@ -350,8 +355,50 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         clients: Some(clients),
         file: None,
         manifest_id,
+        game_folder: game_folder.map(|(f, _)| f),
     };
     crate::library::commit_folder(ctx.dirs, &work, rec, ctx.report)
+}
+
+/// XHL-Core's plugin description, in the folder of each XHL mod (`mods/<name>/native-plugin.ini`).
+pub const XHL_PLUGIN_INI: &str = "native-plugin.ini";
+
+/// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold.
+pub fn is_game_folder_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    let device = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) && stem.as_bytes()[3].is_ascii_digit());
+    !name.is_empty() && name.chars().count() <= 128 && !name.starts_with('.') && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c)) && !device
+        && !name.eq_ignore_ascii_case(ENSHWICK_LOADER_FOLDER)
+}
+
+/// Does a native DLL read this EML mod in the game's `mods` folder? `src` is the mod folder as dropped (an unpacked
+/// archive's entry). Some((folder name, why)) when the mod's own folder holds a DLL or XHL-Core's `native-plugin.ini`
+/// (the XHL mods: XHL-Core loads the plugin from `<game>/mods/<name>/`), or when its package carries a DLL mod under a
+/// proxy name next to the `mods` folder that holds it (Auto Loot Plus: its dinput8.dll reads and writes
+/// `mods/auto-loot-plus/config.txt` and needs the EML part there). Such a mod is placed there at activation
+/// ([`place`]), and kiln-eml runs that copy, so the DLL and the Lua read the same files.
+pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
+    let folder = src.file_name()?.to_str()?.to_string();
+    if !is_game_folder_name(&folder) { return None; }
+    let files: Vec<PathBuf> = std::fs::read_dir(src).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+    if files.iter().any(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI))) {
+        return Some((folder, "it is also an XHL-Core plugin (native-plugin.ini), which XHL-Core loads from the game's mods folder".into()));
+    }
+    if let Some(dll) = files.iter().find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"))) {
+        let file = dll.file_name()?.to_string_lossy().into_owned();
+        return Some((folder, format!("it carries {file}, which is loaded from the game's mods folder")));
+    }
+    let parent = src.parent()?;
+    if !parent.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods")) { return None; }
+    let package = parent.parent()?;
+    let dll = crate::engines::dlls_in(package).into_iter().find(|p| {
+        p.file_name().is_some_and(|n| crate::engines::is_proxy_name(&n.to_string_lossy()))
+            && crate::library::detect(p).is_ok_and(|d| d.kind == DetectKind::BareDll)
+    })?;
+    let file = dll.file_name()?.to_string_lossy().into_owned();
+    Some((folder, format!("its package's {file} reads it from the game's mods folder")))
 }
 
 // ---- placing mods in their engine's folder: ShroudForge and SET always, the others for their own loader ----
@@ -457,6 +504,10 @@ struct Placement {
     marker: Marker,
     // Includes hidden files and unexpected additions. SF's mutable switch and settings are normalized below.
     files: std::collections::BTreeMap<String, String>,
+    /// An EML mod placed in `<game>/mods/` for a native DLL that reads it there (ImportRecord::game_folder): the DLL
+    /// may write its settings into the copy, which Kiln keeps across updates ([`settings_changed`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    game_folder: bool,
 }
 
 /// `managed` is the folder links are refused from (see [`refuse_symlink_path`]); the lock lives in `root` below it.
@@ -557,17 +608,32 @@ struct Roots<'a> {
 /// Stage the entire replacement first, then rename the old copy aside; restore it if publication fails.
 fn copy_in(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
            persist: impl FnOnce(&Placement) -> Result<()>) -> Result<()> {
+    copy_in_with(roots, src, dst, m, kept, enabled, &[], false, persist)
+}
+
+/// [`copy_in`], writing `carry` (relative path, bytes: the settings a DLL wrote into the old copy) over the new copy
+/// before its receipt is taken; `game_folder` goes into the receipt.
+#[allow(clippy::too_many_arguments)]
+fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
+                carry: &[(String, Vec<u8>)], game_folder: bool, persist: impl FnOnce(&Placement) -> Result<()>) -> Result<()> {
     refuse_symlink_path(roots.data, src)?;
     refuse_symlink_path(roots.game, dst)?;
-    if crate::hash::dirhash(src)? != m.hash {
-        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch", src.display())));
+    // A native settings companion is a subtree of its selected Library package; the marker still identifies that
+    // package, not an invented executable mod. Verify the parent package and the copied subtree independently.
+    let package = if m.kind == ModKind::Native && game_folder {
+        src.parent().filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods"))).and_then(Path::parent)
+            .ok_or_else(|| Error::invalid("native settings must be under the package's mods folder"))?
+    } else { src };
+    if crate::hash::dirhash(package)? != m.hash {
+        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch", package.display())));
     }
+    let source_hash = crate::hash::dirhash(src)?;
     let parent = dst.parent().ok_or_else(|| Error::invalid("no mod parent"))?;
     std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?;
     let tmp = crate::library::TempDir::new(parent, "kiln-place")?;
     let staged = tmp.path().join("new");
     crate::library::copy_mod_tree(src, &staged)?;
-    if crate::hash::dirhash(&staged)? != m.hash {
+    if crate::hash::dirhash(&staged)? != source_hash || crate::hash::dirhash(package)? != m.hash {
         return Err(Error::new(ErrorCode::HashMismatch, "mod changed while placing"));
     }
     if m.kind == ModKind::ShroudForge {
@@ -579,8 +645,18 @@ fn copy_in(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, se
         }
         crate::shroudforge::set_enabled(&staged, enabled)?;
     }
+    // the receipt lists the Library's files: what the DLL or the player wrote stays "changed" against it, so it is kept
+    // again at the next update or when the mod is switched off
+    let files = placement_files(&staged, m.kind)?;
+    for (rel, bytes) in carry {
+        crate::bundle::safe_rel_path(rel)?;
+        let to = staged.join(rel);
+        refuse_symlink_path(&staged, &to)?;
+        if let Some(p) = to.parent() { std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?; }
+        std::fs::write(&to, bytes).map_err(io_at(&to, "writing"))?;
+    }
     crate::util::write_json_atomic(&staged.join(MARKER), m)?;
-    let receipt = Placement { path: dst.to_path_buf(), marker: m.clone(), files: placement_files(&staged, m.kind)? };
+    let receipt = Placement { path: dst.to_path_buf(), marker: m.clone(), files, game_folder };
     let old = tmp.path().join("old");
     let replaced = dst.exists();
     if replaced { std::fs::rename(dst, &old).map_err(io_at(dst, "parking old mod"))?; }
@@ -732,7 +808,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             }
         }
     }
-    for kind in crate::own_loaders::PLACED_FOR_LOADER {
+    for kind in crate::own_loaders::PLACED_FOR_LOADER.into_iter().chain([ModKind::Native]) {
         let loader = crate::own_loaders::of_kind(loaders, kind).filter(|l| l.delivery == crate::own_loaders::Delivery::Placed);
         let root = loader.map(|l| l.root(game_dir));
         let list = profile.mods.list(kind);
@@ -745,38 +821,93 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         };
         if let Some(root) = &root {
             refuse_symlink_path(game_dir, root)?;
-            for m in list.iter().filter(|m| m.enabled) {
-                let src = crate::library::path_of(dirs, &crate::library::LibraryRef {
-                    kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
-                let dst = root.join(&m.id);
-                let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
-                let Some(have) = soft(owned(game_dir, &receipts, &dst, kind, &m.id))? else {
-                    rep.changed.push(tag(&m.id));
-                    continue;
+        }
+        // Where each enabled mod goes: `<game>/mods/<folder>` for an EML mod a native DLL reads there (always, with or
+        // without EML's own loader), else the own loader's folder while that loader is installed.
+        let mut targets: Vec<(&crate::profile::ProfileMod, PathBuf, PathBuf, bool)> = Vec::new();
+        for m in list.iter().filter(|m| m.enabled) {
+            if kind != ModKind::Native && root.is_none() && game_folder_of(dirs, kind, m).is_none() { continue; }
+            let src = crate::library::path_of(dirs, &crate::library::LibraryRef {
+                kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
+            if kind == ModKind::Native {
+                for folder in crate::library::native_settings_dirs(&src) {
+                    let dst = game_dir.join(EML_GAME_MODS).join(folder.file_name().expect("settings folder"));
+                    targets.push((m, folder, dst, true));
+                }
+                continue;
+            }
+            match (game_folder_of(dirs, kind, m), &root) {
+                (Some(folder), _) => targets.push((m, src, game_dir.join(EML_GAME_MODS).join(folder), true)),
+                (None, Some(root)) => targets.push((m, src, root.join(&m.id), false)),
+                (None, None) => {}
+            }
+        }
+        for (m, src, dst, game_folder) in &targets {
+            let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+            let dst = dst.clone();
+            if *game_folder {
+                let settings_key = settings_key(kind, &m.id, &dst);
+                refuse_symlink_path(game_dir, &dst)?;
+                let mods = game_dir.join(EML_GAME_MODS);
+                let carry = match settings_changed(game_dir, &receipts, &dst, kind, &m.id)? {
+                    Mine::Yes(have, _) if have.marker == want => {
+                        rep.kept.push(tag(&m.id));
+                        continue;
+                    }
+                    // another version: the new copy keeps the settings the DLL or the player wrote into the old one
+                    Mine::Yes(_, changed) => read_settings(&dst, &changed)?,
+                    Mine::No => {
+                        rep.own.push(tag(&m.id));
+                        continue;
+                    }
+                    Mine::Changed => {
+                        rep.changed.push(tag(&m.id));
+                        continue;
+                    }
+                    Mine::Absent => {
+                        if same_mod_elsewhere(&mods, kind, &src, &dst).is_some() {
+                            rep.own.push(tag(&m.id));
+                            continue;
+                        }
+                        stashed_settings(game_dir, kind, &settings_key)?
+                    }
                 };
-                if have.is_none() && dst.exists() {
-                    rep.own.push(tag(&m.id));
-                    continue;
-                }
-                if have.as_ref().is_some_and(|h| h.marker == want) {
-                    rep.kept.push(tag(&m.id));
-                    continue;
-                }
-                if have.is_none() && same_mod_elsewhere(root, kind, &src, &dst).is_some() {
-                    rep.own.push(tag(&m.id));
-                    continue;
-                }
-                copy_in(Roots { data: &dirs.root, game: game_dir }, &src, &dst, &want, &[], true, |receipt| {
+                copy_in_with(Roots { data: &dirs.root, game: game_dir }, &src, &dst, &want, &[], true, &carry, true, |receipt| {
                     receipts.retain(|r| r.path != dst);
                     receipts.push(receipt.clone());
                     save_placements(game_dir, &receipts)
                 })?;
+                drop_stash(game_dir, kind, &settings_key)?;
                 rep.placed.push(tag(&m.id));
+                continue;
             }
+            let Some(have) = soft(owned(game_dir, &receipts, &dst, kind, &m.id))? else {
+                rep.changed.push(tag(&m.id));
+                continue;
+            };
+            if have.is_none() && dst.exists() {
+                rep.own.push(tag(&m.id));
+                continue;
+            }
+            if have.as_ref().is_some_and(|h| h.marker == want) {
+                rep.kept.push(tag(&m.id));
+                continue;
+            }
+            let root = dst.parent().expect("own loader folder").to_path_buf();
+            if have.is_none() && same_mod_elsewhere(&root, kind, &src, &dst).is_some() {
+                rep.own.push(tag(&m.id));
+                continue;
+            }
+            copy_in(Roots { data: &dirs.root, game: game_dir }, &src, &dst, &want, &[], true, |receipt| {
+                receipts.retain(|r| r.path != dst);
+                receipts.push(receipt.clone());
+                save_placements(game_dir, &receipts)
+            })?;
+            rep.placed.push(tag(&m.id));
         }
-        // Kiln's copies the loader should not run (switched off, gone from the profile, no loader, another folder).
-        let stale: Vec<_> = receipts.iter().filter(|r| r.marker.kind == kind && !root.as_ref().is_some_and(|root|
-            r.path.parent() == Some(root.as_path()) && list.iter().any(|m| m.enabled && m.id == r.marker.id))).cloned().collect();
+        // Kiln's copies the profile does not want there (switched off, gone from the profile, no loader, another folder).
+        let stale: Vec<_> = receipts.iter().filter(|r| r.marker.kind == kind
+            && !targets.iter().any(|(m, _, dst, _)| r.path == *dst && m.id == r.marker.id)).cloned().collect();
         for receipt in stale {
             let dst = &receipt.path;
             if !dst.exists() {
@@ -784,7 +915,17 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 save_placements(game_dir, &receipts)?;
                 continue;
             }
-            if soft(owned(game_dir, &receipts, dst, kind, &receipt.marker.id))?.is_none() {
+            if receipt.game_folder {
+                // its DLL's settings wait in kiln/state for the mod to come back; the copy goes, so neither the DLL nor
+                // a drop-in scan finds a mod the profile no longer runs
+                match settings_changed(game_dir, &receipts, dst, kind, &receipt.marker.id)? {
+                    Mine::Yes(_, changed) => stash_settings(game_dir, kind, &settings_key(kind, &receipt.marker.id, dst), &read_settings(dst, &changed)?)?,
+                    _ => {
+                        rep.changed.push(tag(&receipt.marker.id));
+                        continue;
+                    }
+                }
+            } else if soft(owned(game_dir, &receipts, dst, kind, &receipt.marker.id))?.is_none() {
                 rep.changed.push(tag(&receipt.marker.id));
                 continue;
             }
@@ -796,6 +937,119 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         }
     }
     Ok(rep)
+}
+
+// ---- EML mods a native DLL reads in the game's mods folder (ImportRecord::game_folder) ----
+
+/// The folder those EML mods are placed in, relative to the game.
+pub const EML_GAME_MODS: &str = "mods";
+
+/// The `<game>/mods/` folder name of a profile's mod when a native DLL reads it there (EML only), from its import record.
+pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod) -> Option<String> {
+    if kind != ModKind::Eml { return None; }
+    let r = crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+    crate::library::record(dirs, &r).ok()?.game_folder.filter(|f| is_game_folder_name(f))
+}
+
+/// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
+pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {
+    let root = game.join(EML_GAME_MODS);
+    let dst = root.join(game_folder_of(dirs, kind, m)?);
+    if dst.exists() { return Some(dst); }
+    let r = crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+    let src = crate::library::path_of(dirs, &r).ok()?;
+    Some(same_mod_elsewhere(&root, kind, &src, &dst).unwrap_or(dst))
+}
+
+// One native package can carry several settings folders; their config.txt files must not share a stash.
+fn settings_key(kind: ModKind, id: &str, dst: &Path) -> String {
+    if kind == ModKind::Native { format!("{id}/{}", dst.file_name().expect("settings folder").to_string_lossy()) }
+    else { id.to_string() }
+}
+
+/// Whose is a game-folder copy, and what in it changed since Kiln placed it.
+enum Mine {
+    /// Kiln's (its receipt and its marker agree), with the files changed or added since (relative, '/' separated).
+    Yes(Placement, Vec<String>),
+    /// There, and not Kiln's: the player's own folder, or one whose marker is not the receipt's.
+    No,
+    /// Kiln's marker still matches, but code, the manifest or another non-settings file changed: leave it intact.
+    Changed,
+    Absent,
+}
+
+fn settings_changed(game: &Path, receipts: &[Placement], dst: &Path, kind: ModKind, id: &str) -> Result<Mine> {
+    refuse_symlink_path(game, dst)?;
+    if !dst.exists() { return Ok(Mine::Absent); }
+    let Some(receipt) = receipts.iter().find(|r| r.path == dst && r.marker.kind == kind && r.marker.id == id) else { return Ok(Mine::No) };
+    if receipt.marker.format != 1 || !crate::manifest::is_mod_id(&receipt.marker.id) || marker(dst).as_ref() != Some(&receipt.marker) {
+        return Ok(Mine::No);
+    }
+    let now = placement_files(dst, kind)?;
+    // Receipt ownership never authorizes throwing away player edits to code or manifests, including removed files.
+    if now.iter().chain(&receipt.files).any(|(rel, _)| !rel.ends_with('/') && !is_settings_file(rel)
+        && now.get(rel) != receipt.files.get(rel)) {
+        return Ok(Mine::Changed);
+    }
+    let changed = now.into_iter().filter(|(rel, hash)| !rel.ends_with('/') && receipt.files.get(rel) != Some(hash)).map(|(rel, _)| rel).collect();
+    Ok(Mine::Yes(receipt.clone(), changed))
+}
+
+/// A file a mod's DLL (or the player) may have written as settings: not the manifest, the Lua, code or the plugin ini.
+fn is_settings_file(rel: &str) -> bool {
+    let low = rel.to_ascii_lowercase();
+    let ext = low.rsplit_once('.').map(|(_, x)| x).unwrap_or("");
+    !(low == "mod.json" || low == MARKER || low == XHL_PLUGIN_INI || low.starts_with("src/"))
+        && matches!(ext, "txt" | "ini" | "cfg" | "json" | "toml" | "yaml" | "yml")
+}
+
+fn read_settings(dir: &Path, changed: &[String]) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut out = Vec::new();
+    for rel in changed.iter().filter(|r| is_settings_file(r)) {
+        crate::bundle::safe_rel_path(rel)?;
+        let p = dir.join(rel);
+        refuse_symlink_path(dir, &p)?;
+        let meta = std::fs::metadata(&p).map_err(io_at(&p, "reading"))?;
+        if meta.len() > 16 * 1024 * 1024 {
+            return Err(Error::new(ErrorCode::Refused, format!("{}: changed settings exceed 16 MiB; keeping the mod folder intact", p.display())));
+        }
+        out.push((rel.clone(), std::fs::read(&p).map_err(io_at(&p, "reading"))?));
+    }
+    Ok(out)
+}
+
+fn stash_dir(game: &Path, kind: ModKind, id: &str) -> PathBuf {
+    game.join("kiln/state/placed-settings").join(kind.as_str()).join(id)
+}
+
+fn stash_settings(game: &Path, kind: ModKind, id: &str, files: &[(String, Vec<u8>)]) -> Result<()> {
+    let dir = stash_dir(game, kind, id);
+    refuse_symlink_path(game, &dir)?;
+    let _ = std::fs::remove_dir_all(&dir);
+    for (rel, bytes) in files {
+        crate::bundle::safe_rel_path(rel)?;
+        let to = dir.join(rel);
+        if let Some(p) = to.parent() { std::fs::create_dir_all(p).map_err(io_at(p, "creating"))?; }
+        std::fs::write(&to, bytes).map_err(io_at(&to, "writing"))?;
+    }
+    Ok(())
+}
+
+fn stashed_settings(game: &Path, kind: ModKind, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+    let dir = stash_dir(game, kind, id);
+    refuse_symlink_path(game, &dir)?;
+    if !dir.is_dir() { return Ok(Vec::new()); }
+    let files = placement_files(&dir, kind)?;
+    read_settings(&dir, &files.into_keys().filter(|r| !r.ends_with('/')).collect::<Vec<_>>())
+}
+
+fn drop_stash(game: &Path, kind: ModKind, id: &str) -> Result<()> {
+    let dir = stash_dir(game, kind, id);
+    refuse_symlink_path(game, &dir)?;
+    match std::fs::remove_dir_all(&dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_at(&dir, "removing")(e)),
+        _ => Ok(()),
+    }
 }
 
 // ---- servers: each engine's own folder (servers keep the legacy layout, no profiles) ----
