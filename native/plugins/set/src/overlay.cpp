@@ -32,6 +32,9 @@ constexpr uint32_t kEnterReturnsTrue = 1u << 6;
 const KilnUiApi* ui = nullptr;
 std::vector<KilnHandle> subscriptions;
 std::atomic<bool> active{false}, opened{false}, remapping{false}, cancelRemap{false};
+// The tools have the game's input (this plugin's set_capture(1)): what the runtime calls "overlay open". The crash notice
+// that opened by itself draws without it.
+std::atomic<bool> captured{false};
 // Serialize demand/capture and inspector requests with window-thread Escape and runtime teardown.
 std::mutex lifecycleMx, mx;
 std::string requestedMod;
@@ -59,7 +62,7 @@ KilnResult openToolsFor(KilnStr mod, bool prompt) {
     opened = true;
     // The crash notice opens by itself and only draws: the game keeps its input. Tools the player opened take it.
     ui->set_demand(1);
-    if (!prompt) ui->set_capture(1);
+    if (!prompt) { ui->set_capture(1); captured = true; }
     return KILN_OK;
 }
 KilnResult KILN_CALL openTools(KilnStr mod) { return openToolsFor(mod, false); }
@@ -377,12 +380,13 @@ void setui::bind(const KilnUiApi* value, KilnOwner owner) {
             if (!opened) return false;
             if (remapping.exchange(false)) { cancelRemap = true; return true; }
             opened = false;
-            ui->set_capture(0); ui->set_demand(0); setinspect::request(false); return true;
+            captured = false; ui->set_capture(0); ui->set_demand(0); setinspect::request(false); return true;
         }, nullptr, &h) == KILN_OK) subscriptions.push_back(h);
     }
     if (lastUnclean) openToolsFor({nullptr, 0}, true);
 }
 bool setui::isOpen() { return active && opened; }
+bool setui::hasInput() { return active && opened && captured; }
 std::string setui::logText(bool previous) {
     std::string out;
     if (previous && lastUnclean) out = "The game wrote a crash report as the last SET session ended. " + crashSummary + "\n\n";
@@ -394,6 +398,7 @@ void setui::stop() {
     {
         std::lock_guard lifecycle(lifecycleMx);
         active = opened = remapping = cancelRemap = false;
+        captured = false;
         if (ui) { ui->set_capture(0); ui->set_demand(0); handles.swap(subscriptions); }
         setinspect::request(false);
         if (sessionStarted) { sessionMark(false); sessionStarted = false; }
@@ -443,7 +448,7 @@ void setui::draw() {
         std::lock_guard lifecycle(lifecycleMx);
         closed = !open || !opened || !active;
         if (closed || !entitiesOpen) setinspect::request(false, component, selected);
-        if (closed) { opened = false; promptOnly = false; remapping = cancelRemap = false; binding.clear(); buffers.clear(); ui->set_capture(0); ui->set_demand(0); }
+        if (closed) { opened = false; promptOnly = false; remapping = cancelRemap = false; binding.clear(); buffers.clear(); captured = false; ui->set_capture(0); ui->set_demand(0); }
         else if (!bindingsOpen) { binding.clear(); remapping = cancelRemap = false; }
     }
     if (closed) debug("Closed tools");

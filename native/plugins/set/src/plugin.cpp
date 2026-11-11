@@ -259,7 +259,7 @@ void KILN_CALL on_ui_tick(uint64_t, void*) {
 void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
     if (!g_running.load()) return;
     setui::draw();
-    rt::setOverlayOpen((f && f->menu_open) || setui::isOpen());
+    rt::setOverlayOpen((f && f->menu_open) || setui::hasInput());  // the crash notice alone leaves mods their keys
     if (!rt::hasDraw()) return;
     if (rt::tryLockDraw()) rt::drawLocked();
 }

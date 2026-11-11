@@ -12,7 +12,7 @@ void setFeature(const char* id, bool, std::string reason, bool) { if (std::strin
 uint32_t gameBuild() { return 0; }
 void tick(uintptr_t) { ++ticks; } void settleWrites() { ++settles; }
 void afterTick(uintptr_t) {} void worldLeft() {} void frame() { ++frames; }
-void setOverlayOpen(bool) {} bool hasDraw() { return false; }
+int overlayOpen = -1; void setOverlayOpen(bool open) { overlayOpen = open; } bool hasDraw() { return false; }
 bool tryLockDraw() { return false; } void drawLocked() {}
 void setSystemsAvailable(bool) {} void bindKiln(const KilnApi*, KilnOwner) {}
 void configure(const std::string&, Sink) {} void setGameBuild(uint32_t) {}
@@ -21,7 +21,9 @@ std::vector<ModReport> modReports() { return reports; } void onModsReported(void
 void queue(std::string) { if (throw_queue) throw std::runtime_error("queue failed"); ++queued; }
 }
 namespace setui {
-void line(const char* text) { consoleLines.emplace_back(text); } void draw() {} void stop() {} bool isOpen() { return false; }
+bool windowOpen = false, windowInput = false;
+void line(const char* text) { consoleLines.emplace_back(text); } void draw() {} void stop() {} bool isOpen() { return windowOpen; }
+bool hasInput() { return windowInput; }
 void configure(std::filesystem::path, std::filesystem::path, void (*)(const char*)) {} void bind(const KilnUiApi*, KilnOwner) {}
 const Api* service() { static const Api api{}; return &api; }
 }
@@ -414,6 +416,21 @@ int main(int argc, char** argv) {
         s2 << f2.rdbuf();
         check(s2.str().find("\"steppedAside\": true") != std::string::npos && s2.str().find("\"mods\": []") != std::string::npos,
               "stepping aside is reported with no mods");
+    }
+    {  // The runtime's "overlay open" (Keys off, onOverlayOpen) means SET tools that have the input, not any SET window:
+       // the crash notice that opened by itself draws while the game keeps its input.
+        g_running = true;
+        KilnUiFrame frame{sizeof frame};
+        setui::windowOpen = true; setui::windowInput = false;
+        on_frame(&frame, nullptr);
+        check(rt::overlayOpen == 0, "a SET window without input is not the overlay open");
+        setui::windowInput = true;
+        on_frame(&frame, nullptr);
+        check(rt::overlayOpen == 1, "SET tools with input are");
+        setui::windowOpen = setui::windowInput = false; frame.menu_open = 1;
+        on_frame(&frame, nullptr);
+        check(rt::overlayOpen == 1, "...and so is the Kiln menu");
+        g_running = false;
     }
     check(failures == 0, "all edge cases");
     if (failures) return 1;

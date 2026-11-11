@@ -134,7 +134,7 @@
    <<std::string(199,'x')<<"\u00e9 and more\"}";  // the 200-byte cut of a value falls inside the two bytes of the e
  setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);
  if(setui::isOpen()&&toolsCapture)std::cerr<<"last session: the crash notice took the game's input\n";
- assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==0);toolsRows.clear();setui::draw();
+ assert(setui::isOpen()&&!setui::hasInput()&&toolsDemand==1&&toolsCapture==0);toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos&&row.find("fixture exception")!=std::string::npos;}));
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Escape hides")!=std::string::npos;}));
  {const auto copied=setui::logText(true);
@@ -142,12 +142,12 @@
   if(!validUtf8(copied))std::cerr<<"last session: the crash summary's cut left invalid UTF-8\n";
   assert(validUtf8(copied)&&copied.find("source="+std::string(199,'x')+"\n")!=std::string::npos);}
  assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);  // Escape hides the notice
- toolsMenu(1,nullptr);assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==1);       // SET tools from the game menu
+ toolsMenu(1,nullptr);assert(setui::isOpen()&&setui::hasInput()&&toolsDemand==1&&toolsCapture==1);  // SET tools from the game menu
  toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos;}));
  toolsClick="Dismiss";setui::draw();toolsRows.clear();setui::draw();
  assert(setui::isOpen()&&toolsCapture==1&&std::none_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos;}));
- assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);setui::stop();
+ assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!setui::hasInput()&&!toolsDemand&&!toolsCapture);setui::stop();
  setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);assert(!setui::isOpen());setui::stop();
  std::cout<<"SET tools settings/onChange, precision, compatibility, reporting/crash prompt, console and lifecycle: PASS\n";
 }
