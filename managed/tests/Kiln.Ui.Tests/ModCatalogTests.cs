@@ -178,6 +178,36 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal(2, s.Problems);
     }
 
+    /// <summary>Player report (Nexus, 2026-11-11): Loot Leveler and Enemy Leveler (<c>side: "server"</c>) showed "Not
+    /// loaded" and "Server only" in the main menu, read as "does not work in single-player". On a client Kiln.Host
+    /// starts them with the player's own world (ModManager.StartHosting).</summary>
+    [Fact]
+    public void A_server_mod_on_a_client_waits_for_the_players_own_world()
+    {
+        Profile([]);
+        var s = Read(
+            new KilnModInput("loot-leveler", "Loot Leveler", "0.1.0", Dir("lib", "loot"), ModSide.Server, ModState.Skipped,
+                "side 'server': loads while this client hosts a world", [], -1),
+            new KilnModInput("enemy-leveler", "Enemy Leveler", "0.1.0", Dir("lib", "enemy"), ModSide.Server, ModState.Skipped,
+                "side 'server': not loaded on a client (kiln.json mods.hosted is false)", [], -1),
+            new KilnModInput("off", "Off", "1.0.0", Dir("lib", "off"), ModSide.Server, ModState.Skipped, "disabled by a .disabled file", [], -1));
+        var loot = Mod(s, "kiln", "loot-leveler");
+        Assert.Equal((ModRunState.Waiting, "Waiting"), (loot.State, loot.Chip));
+        Assert.Equal("Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.", loot.Reason);
+        Assert.Null(loot.Help);
+        var enemy = Mod(s, "kiln", "enemy-leveler");
+        Assert.Equal(ModRunState.NotLoaded, enemy.State);
+        Assert.Equal("Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).", enemy.Reason);
+        Assert.NotNull(enemy.Help);
+        Assert.Equal((ModRunState.NotLoaded, "Disabled by a .disabled file"), (Mod(s, "kiln", "off").State, Mod(s, "kiln", "off").Reason));
+        Assert.Equal(0, s.Problems);
+        // the side chip names where it runs in a player's words: on a client a server mod runs in their own world
+        Assert.Equal("Your world only", ModManagerLogic.SideText("server", "client"));
+        Assert.Equal("Server only", ModManagerLogic.SideText("server", "server"));
+        Assert.Equal("Game only", ModManagerLogic.SideText("client", "client"));
+        Assert.Equal("Server only", ModManagerLogic.SideText("server", "client", "emf"));  // other engines decide for themselves
+    }
+
     [Fact]
     public void Emf_greeneye_flame_and_shroudtopia_lists_are_read()
     {

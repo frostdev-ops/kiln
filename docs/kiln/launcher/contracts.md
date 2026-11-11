@@ -724,7 +724,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | profile | `profile_create` | name: string, copyFrom: ProfileId \| null | `Profile` |
 | profile | `profile_save` | profile: Profile | `Profile` (conflict on a stale generation) |
 | profile | `profile_delete` | profileId | null |
-| profile | `profile_resolve` | profileId, side: RunSide | `ResolvePreview` |
+| profile | `profile_resolve` | profileId, side: RunSide, gameId?: the game whose kiln.json `mods.hosted` applies (absent: on) | `ResolvePreview` (`withWorld`: a client's Kiln mods that start with the player's own world) |
 | profile | `profile_activate` | profileId, gameId | `Activation` |
 | profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
 | profile | `profile_active` | gameId | `Activation \| null` |

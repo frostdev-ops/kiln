@@ -246,6 +246,8 @@ internal static class Scenes
         new("typical-emf", Typical) { Filter = new EngineFilter("emf"), Selected = "emf/fishing-plus" },
         new("typical-search", Typical) { Search = "map", OnlyAt = "1920x1080" },
         new("typical-config", Typical) { Selected = "kiln/frost-edge", OnlyAt = "1920x1080" },
+        // a side "server" mod in the menu: it waits for the player's own world (not "Not loaded", not "Server only")
+        new("typical-hosted", Typical) { Selected = "kiln/kiln-test-helper", OnlyAt = "1920x1080" },
         new("shroudforge-settings", SfSettings) { Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/sf-crafting-essentials", Summary = true },
         new("game-page-shroudforge", SfSettings) { Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/sf-crafting-essentials", GamePage = true },
         new("typical-keys", Typical) { Keys = [(516 /* ImGuiKey_DownArrow */, 3)], OnlyAt = "1920x1080" },

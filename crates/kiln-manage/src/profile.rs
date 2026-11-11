@@ -493,9 +493,38 @@ pub struct NativePlanEntry {
 #[serde(rename_all = "camelCase")]
 pub struct ResolvePreview {
     pub side: RunSide,
+    /// The main menu's load order and why the others wait or stay out. On a client a `side: "server"` mod is never
+    /// "not loaded on a client" here: see `with_world`.
     pub kiln: Resolution,
     pub native: Vec<NativePlanEntry>,
     pub warnings: Vec<String>,
+    /// Client: the Kiln mods that start with the player's own world (single-player, or friends joining it) instead of
+    /// in the menu: `side: "server"` mods and the mods that need one (Kiln.Host ModManager.StartHosting), in the order
+    /// they load then. Each is also in `kiln.rejected`, skipped, with [`WITH_WORLD`] as its reason. Empty on a server
+    /// and when kiln.json `mods.hosted` is false ([`HOSTED_OFF`]).
+    #[serde(default)]
+    pub with_world: Vec<String>,
+}
+
+/// A client's `side: "server"` Kiln mod in the launcher: it starts with the player's own world, not in the menu, and
+/// not in someone else's world (docs/kiln/client.md, "Mods and sides"). The game says `side 'server': loads while this
+/// client hosts a world` (Kiln.Host ModManager.HostedReason).
+pub const WITH_WORLD: &str = "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.";
+/// The same with kiln.json `"mods": {"hosted": false}` in the game (Kiln.Host ModManager.HostedOffReason).
+pub const HOSTED_OFF: &str = "Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).";
+/// A server mod that would not load when the player's world starts: this, then the resolver's reason.
+pub const WORLD_FAILS: &str = "Will not start with your world: ";
+/// The game's own words for the two (state/mods.json, kiln.log; managed/Kiln.Api/Mods.cs HostedReasons, a test keeps
+/// them equal).
+pub const GAME_HOSTED_WAITING: &str = "side 'server': loads while this client hosts a world";
+pub const GAME_HOSTED_OFF: &str = "side 'server': not loaded on a client (kiln.json mods.hosted is false)";
+
+/// kiln.json `"mods": {"hosted": false}` keeps a client's server mods off; anything else, a missing or unreadable file
+/// too, leaves them on (Kiln.Host HostConfig.Read).
+pub fn hosted_server_mods(game: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(game.join(crate::paths::game::KILN).join("kiln.json")) else { return true };
+    let Ok(tree) = crate::jsonc::parse_tree(&text) else { return true };
+    tree.get("mods").and_then(|m| m.get("hosted")).and_then(|h| h.as_bool()) != Some(false)
 }
 
 /// A Kiln mod of a profile that was built against a newer Kiln than a game's runtime (its kiln.mod.json `kilnBuild`): it may
@@ -822,10 +851,48 @@ fn skipped_set_loader(id: &str, file: &str) -> String {
 }
 
 fn environment(side: RunSide) -> Environment {
-    Environment { kiln: crate::VERSION.into(), api: KILN_API.into(), side, unavailable_features: Vec::new(), loaded: Vec::new() }
+    Environment { kiln: crate::VERSION.into(), api: KILN_API.into(), side, unavailable_features: Vec::new(), loaded: Vec::new(), hosting: false }
+}
+
+/// A client's menu resolution (`menu`) as the launcher shows it, with what happens when the player's own world starts
+/// (`world`, resolved with `hosting`): Kiln.Host loads the server mods then, and the mods that failed for want of
+/// one. Returns the ids that start with the world; their rejections become [`WITH_WORLD`]. A mod that would not load
+/// then either says why (the two resolutions differ only where a server mod is involved). Without `world` (kiln.json
+/// `mods.hosted` false) the server mods say [`HOSTED_OFF`].
+fn with_world(menu: &mut Resolution, world: Option<&Resolution>, server_dirs: &std::collections::BTreeSet<String>) -> Vec<String> {
+    let mut ids = Vec::new();
+    for r in &mut menu.rejected {
+        if r.state == ModState::Disabled {
+            continue;
+        }
+        let side_skip = r.state == ModState::Skipped && server_dirs.contains(&r.dir);
+        match world {
+            None if side_skip => r.reason = HOSTED_OFF.into(),
+            None => {}
+            Some(w) => match w.rejected.iter().find(|x| x.dir == r.dir) {
+                Some(x) if side_skip || x.reason != r.reason => (r.state, r.reason) = (x.state, format!("{WORLD_FAILS}{}", x.reason)),
+                Some(_) => {}
+                None if w.order.contains(&r.id) => {
+                    (r.state, r.reason) = (ModState::Skipped, WITH_WORLD.into());
+                    ids.push(r.id.clone());
+                }
+                None => {}
+            },
+        }
+    }
+    if let Some(w) = world {
+        ids.sort_by_key(|id| w.order.iter().position(|x| x == id));
+    }
+    ids
 }
 
 pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Result<ResolvePreview> {
+    resolve_preview_for(dirs, profile, side, true)
+}
+
+/// [`resolve_preview`] for a game whose kiln.json says whether a client's server mods start with the player's own
+/// world (`hosted`: [`hosted_server_mods`]).
+pub fn resolve_preview_for(dirs: &DataDirs, profile: &Profile, side: RunSide, hosted: bool) -> Result<ResolvePreview> {
     let mut warnings = Vec::new();
     // managed mods
     let mut candidates = Vec::new();
@@ -848,6 +915,14 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
         }
     }
     let mut kiln = crate::resolver::resolve(&candidates, &environment(side))?;
+    let mut starts_with_world = Vec::new();
+    if side == RunSide::Client {
+        // Kiln.Host says when a server mod loads (ModManager.LoadSet); the resolver's "not loaded on a client" is not it
+        let server_dirs = candidates.iter().filter(|c| c.manifest.as_ref().is_some_and(|m| m.side == crate::manifest::Side::Server))
+            .map(|c| c.dir.clone()).collect();
+        let world = if hosted { Some(crate::resolver::resolve(&candidates, &Environment { hosting: true, ..environment(side) })?) } else { None };
+        starts_with_world = with_world(&mut kiln, world.as_ref(), &server_dirs);
+    }
     kiln.rejected.extend(disabled);
     // native mods: the same rules over their native.json
     let mut ncands = Vec::new();
@@ -903,7 +978,7 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
             }
         }
     }
-    Ok(ResolvePreview { side, kiln, native: ordered, warnings })
+    Ok(ResolvePreview { side, kiln, native: ordered, warnings, with_world: starts_with_world })
 }
 
 fn game_or_copy(host: &Path, install: &GameInstall, mode: PathMode, rel: impl FnOnce() -> String) -> Result<String> {

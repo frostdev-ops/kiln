@@ -117,6 +117,34 @@ test("import → add to profile → light → resolver preview", async ({ page }
   expect(errors).toEqual([]);
 });
 
+// Player report (Nexus, 2026-11-11): Loot Leveler and Enemy Leveler (side "server") read "not loaded on a client" here,
+// so the player took them for server-only. On a client they start with the player's own world (Kiln.Host StartHosting).
+test("a server mod on a client profile starts with the player's own world", async ({ page }) => {
+  const errors = await collectErrors(page, async () => {
+    await open(page, "/profiles/ember-run/mods");
+    await page.getByRole("button", { name: "Light Big Stacks" }).click();
+    const row = page.locator(".k-order-row", { hasText: "big-stacks" });
+    await expect(row.getByText("Starts with your world", { exact: true })).toBeVisible();
+    await expect(row.locator(".k-order-note")).toHaveAttribute("title", "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.");
+    await expect(page.getByText(/not loaded on a client/)).toHaveCount(0);
+    await expect(page.getByText("2 mods load on a client. 1 starts with your world. 2 stay out.")).toBeVisible();
+    // a server loads it like any other mod
+    await page.getByRole("radio", { name: "Server" }).click();
+    await expect(page.locator(".k-order-row.lit", { hasText: "big-stacks" })).toBeVisible();
+    await open(page, "/");
+    await expect(page.locator(".k-hero").getByText("3 of 5 mods load on this client. Big Stacks starts with your world.")).toBeVisible();
+    // kiln.json "mods": {"hosted": false} keeps it off in this game, and the page says so
+    await page.evaluate(() => (window as unknown as { __kilnMock: { setKilnJson: (path: string, value: unknown) => void } }).__kilnMock.setKilnJson("mods.hosted", false));
+    await open(page, "/profiles/ember-run/mods");
+    await page.getByRole("radio", { name: "Client" }).click();
+    await expect(row.locator(".k-order-note")).toHaveText("Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).");
+    await expect(page.getByText("2 mods load on a client. 3 stay out.")).toBeVisible();
+    await open(page, "/");
+    await expect(page.locator(".k-hero").getByText("2 of 5 mods load on this client. Big Stacks stays off in this game.")).toBeVisible();
+  });
+  expect(errors).toEqual([]);
+});
+
 test("the mouth is the Play button and follows the game state", async ({ page }) => {
   await open(page, "/");
   const play = page.locator(".k-door");

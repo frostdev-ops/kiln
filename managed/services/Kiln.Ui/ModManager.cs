@@ -104,6 +104,16 @@ internal static class ModManagerLogic
         return rows.Count > 0 ? rows[0].Key : null;
     }
 
+    /// <summary>The side chip: where a mod runs, in a player's words. In a game (<paramref name="process"/> client) a
+    /// Kiln server mod runs in the player's own world (single-player or co-op: Kiln.Host loads it with that world), not
+    /// only on a dedicated server. Other engines decide that themselves.</summary>
+    public static string SideText(string side, string process, string engine = "kiln") => side switch
+    {
+        "client" => "Game only", "both" => "Game and server",
+        "server" => process == "client" && engine == "kiln" ? "Your world only" : "Server only",
+        _ => side,
+    };
+
     /// <summary>The next section for Tab (+1) / Shift+Tab (-1), wrapping.</summary>
     public static ModManagerSection Step(ModManagerSection s, int by)
     {
@@ -584,7 +594,7 @@ internal sealed class ModManagerPage
         var x = c.ScreenX;
         x += Chip(ui, x, c.ScreenY, m.Chip, GameColors.Of(m.State, m.Missing), s) + 8 * s;
         x += Chip(ui, x, c.ScreenY, ModCatalog.EngineName(m.Engine), GameColors.Gold, s) + 8 * s;
-        if (m.Side.Length > 0) Chip(ui, x, c.ScreenY, SideText(m.Side), GameColors.Idle, s);
+        if (m.Side.Length > 0) Chip(ui, x, c.ScreenY, ModManagerLogic.SideText(m.Side, _snap.Side, m.Engine), GameColors.Idle, s);
         ui.Space(1, 26 * s);
 
         if (m.Reason is not null || m.Help is not null)
@@ -644,11 +654,6 @@ internal sealed class ModManagerPage
         }
         if (m.Engine == "set") SetTools.Draw(ui, m);
     }
-
-    private static string SideText(string side) => side switch
-    {
-        "client" => "Game only", "server" => "Server only", "both" => "Game and server", _ => side,
-    };
 
     private void SettingsColumns(UiDraw ui, PageRect mid, PageRect right, float s)
     {

@@ -131,7 +131,10 @@ public sealed class FixtureTests
         var result = Resolver.Resolve(
             doc["mods"]!.AsArray().Select(m => Candidate(m!.AsObject())).ToList(),
             new ResolveEnvironment(SemVersion.Parse(env["kiln"]!.GetValue<string>()), SemVersion.Parse(env["api"]!.GetValue<string>()),
-                side, f => !unavailable.Contains(f), loaded));
+                side, f => !unavailable.Contains(f), loaded)
+            {
+                Hosting = env["hosting"]?.GetValue<bool>() ?? false,
+            });
         var actual = new JsonObject
         {
             ["order"] = Strings(result.Order.Select(c => c.Id)),

@@ -481,7 +481,7 @@ pub enum Level {
 pub struct Finding {
     /// Stable name: `not-installed`, `proxy-not-kiln`, `files-missing`, `files-changed`, `not-loaded`,
     /// `proton-override`, `unknown-build`, `safe-idle`, `own-loader`, `loader-in-folder`, `unlisted-mods`,
-    /// `mod-failed`, `crash`, `profile-invalid`, `newer-mods`, `no-game`.
+    /// `mod-failed`, `hosted-mods`, `hosted-off`, `crash`, `profile-invalid`, `newer-mods`, `no-game`.
     pub id: String,
     pub level: Level,
     pub text: String,
@@ -1126,6 +1126,8 @@ pub fn build(input: &ReportInput) -> Report {
     });
     let engines = engine_mods::status(&game);
     let mut failed: Vec<String> = Vec::new();
+    // a client's server mods: skipped in the menu, they start with the player's own world (docs/kiln/client.md)
+    let (mut hosted, mut hosted_off): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     if let Some(m) = &mods {
         let _ = writeln!(ls, "Kiln mods (mods.json, {}):", m.written);
         for x in &m.mods {
@@ -1134,7 +1136,23 @@ pub fn build(input: &ReportInput) -> Report {
             if x.state == crate::state::ManagedState::Failed {
                 failed.push(format!("{} (Kiln): {}", x.id, x.reason.as_deref().unwrap_or("no reason given")));
             }
+            if x.state == crate::state::ManagedState::Skipped {
+                match x.reason.as_deref() {
+                    Some(crate::profile::GAME_HOSTED_WAITING) => hosted.push(&x.id),
+                    Some(crate::profile::GAME_HOSTED_OFF) => hosted_off.push(&x.id),
+                    _ => {}
+                }
+            }
         }
+    }
+    if !hosted.is_empty() {
+        let one = hosted.len() == 1;
+        cx.find("hosted-mods", Level::Info, format!("{} {} with the player's own world (single-player or co-op), so \"skipped\" in the main \
+            menu is expected; {} not run in someone else's world.", hosted.join(", "), if one { "starts" } else { "start" }, if one { "it does" } else { "they do" }));
+    }
+    if !hosted_off.is_empty() {
+        cx.find("hosted-off", Level::Warning, format!("kiln/kiln.json has \"mods\": {{\"hosted\": false}}, so {} never {} in this game, not even \
+            in the player's own world.", hosted_off.join(", "), if hosted_off.len() == 1 { "starts" } else { "start" }));
     }
     if let Some(n) = &native {
         let _ = writeln!(ls, "Native mods (native.json, {}, policy {}):", n.written, n.policy);

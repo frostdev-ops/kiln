@@ -606,6 +606,13 @@ internal static class ModCatalog
 
     private static long _version;
 
+    /// <summary>A client's <c>side: "server"</c> Kiln mod before the player's own world starts (the launcher says the same:
+    /// kiln_manage::profile::WITH_WORLD).</summary>
+    internal const string StartsWithWorld = "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.";
+
+    /// <summary>The same with kiln.json <c>"mods": {"hosted": false}</c> (kiln_manage::profile::HOSTED_OFF).</summary>
+    internal const string HostedOff = "Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).";
+
     // ---- Kiln's managed mods: Mods.All, plus profile entries the host never saw (missing folders) ----
     private static void KilnMods(Builder b)
     {
@@ -621,11 +628,18 @@ internal static class ModCatalog
                 ModState.Unloaded => (ModRunState.NotLoaded, "It was unloaded by a command. Start the game again to load it."),
                 _ => (ModRunState.NotLoaded, (string?)null),
             };
+            var reason = m.Error;
+            // a client's server mod in the menu (or in someone else's world) waits for the player's own world: Kiln.Host
+            // loads it when that world starts (ModManager.StartHosting). Not a failure, and not "server only".
+            if (m.State == ModState.Skipped && m.Side == ModSide.Server && m.Error == HostedReasons.Waiting)
+                (state, reason, help) = (ModRunState.Waiting, StartsWithWorld, null);
+            else if (m.State == ModState.Skipped && m.Side == ModSide.Server && m.Error == HostedReasons.Off)
+                (reason, help) = (HostedOff, "To let it start, remove \"hosted\": false from the \"mods\" part of kiln/kiln.json in the game folder, then start the game again.");
             var side = m.Side switch { ModSide.Client => "client", ModSide.Both => "both", _ => "server" };
             b.Add(new CatalogMod
             {
                 Engine = "kiln", Id = m.Id, Name = string.IsNullOrWhiteSpace(m.Name) ? m.Id : m.Name, Version = m.Version, State = state,
-                Word = m.State.ToString().ToLowerInvariant(), Reason = m.Error, Help = help, Folder = m.Directory, Side = side,
+                Word = m.State.ToString().ToLowerInvariant(), Reason = reason, Help = help, Folder = m.Directory, Side = side,
                 Source = "kiln", LoadIndex = m.LoadIndex, Dependencies = m.Dependencies,
             });
         }

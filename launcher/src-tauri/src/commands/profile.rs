@@ -87,12 +87,18 @@ pub async fn profile_delete(profile_id: String) -> Result<(), Error> {
     blocking(move || profile::delete(&dirs()?, &profile_id)).await
 }
 
+/// `game_id`: the game the preview is for; its kiln.json `mods.hosted` says whether a client's server mods start with
+/// the player's own world (absent: they do, Kiln's default).
 #[tauri::command]
-pub async fn profile_resolve(profile_id: String, side: RunSide) -> Result<ResolvePreview, Error> {
+pub async fn profile_resolve(profile_id: String, side: RunSide, game_id: Option<String>) -> Result<ResolvePreview, Error> {
     blocking(move || {
         let d = dirs()?;
         let p = profile::get(&d, &profile_id)?;
-        profile::resolve_preview(&d, &p, side)
+        let hosted = match game_id {
+            Some(g) => profile::hosted_server_mods(&crate::state::game(&g)?.path),
+            None => true,
+        };
+        profile::resolve_preview_for(&d, &p, side, hosted)
     })
     .await
 }
