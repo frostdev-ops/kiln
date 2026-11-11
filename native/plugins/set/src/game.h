@@ -129,6 +129,7 @@ struct Blob {
     uint32_t rel, count, hash;
 };
 bool ready();
+bool scanned();  // ready()'s last answer without scanning or waiting: for threads that must not scan (the renderer)
 bool write(void* dst, const void* src, size_t n, uint32_t& prot);
 size_t count();
 uint8_t* data(const Entry& e, uint32_t* size = nullptr);

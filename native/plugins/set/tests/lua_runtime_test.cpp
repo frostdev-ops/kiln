@@ -278,6 +278,16 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   prog.submit=[](KilnOwner,const KilnProgressionRequest* q,uint64_t*)->KilnResult{submitted.push_back(*q);return submitRc;};
   if(!core.log)core.log=[](KilnOwner,int32_t,KilnStr){};
   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{*n=0;return KILN_OK;};
+  // Features() off the tick thread (the SET tools' Compatibility tab and support report run on the render thread)
+  // never runs the whole resource scan there; the first one on the tick thread does. (Nothing scanned before here.)
+  {static unsigned lists;lists=0;auto saved=assets.resource_list;
+   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{++lists;*n=0;return KILN_OK;};
+   auto resources=[]{for(auto& f:rt::features())if(f.id=="resources")return f;assert(false);return rt::Feature{};};
+   tickThread=false;const auto off=resources();tickThread=true;
+   if(lists)std::cerr<<"features: the resource scan ran off the tick thread ("<<lists<<" resource_list calls)\n";
+   assert(lists==0&&!off.available&&off.reason=="Not loaded yet"&&gScanAsked);
+   scanIfAsked();assert(lists>0&&!gScanAsked);   // the next world tick scans (tickMods)
+   assets.resource_list=saved;}
   gKItems=&items;gKSpawn=&spawn;
   must(L,two,"assert(Res.text('11111111-1111-1111-1111-111111111111')=='Wood Logs')");
   must(L,two,"assert(Res.text('22222222-2222-2222-2222-222222222222')=='Common Goat')");

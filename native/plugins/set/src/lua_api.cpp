@@ -2903,7 +2903,14 @@ void updatePlayer(uintptr_t world) {
     rules::setPlayer(last);
 }
 
+// Features() off the tick thread found nothing scanned yet: the next tick of a world scans, so the tools show the answer.
+std::atomic<bool> gScanAsked;
+void scanIfAsked() {
+    if (gScanAsked.exchange(false)) res::ready();
+}
+
 void tickMods(uintptr_t world) {
+    if (world) scanIfAsked();
     static auto last = std::chrono::steady_clock::now();
     updatePlayer(world);
     auto now = std::chrono::steady_clock::now();
@@ -3144,7 +3151,10 @@ std::vector<rt::Feature> rt::features() {
     out.push_back({"game_build", "Game Build " + std::to_string(build),
                    tested ? "" : "Not tested with this version: Each feature checks itself", tested, tested});
     const bool assets = kset::has("assets");
-    add("resources", "Resources (Res)", assets, res::ready(), assets ? "Not loaded yet" : "kiln.assets is not running");
+    // The first ready() scans every resource type: only on the tick thread, never in a present (the tools' tabs).
+    const bool tick = kset::tickThread(), resources = tick ? res::ready() : res::scanned();
+    if (assets && !tick && !resources) gScanAsked = true;
+    add("resources", "Resources (Res)", assets, resources, assets ? "Not loaded yet" : "kiln.assets is not running");
     add("english_names", "English Names (Res.text)", true, true, "");
     add("game_options", "Game Options (GameOptions)", false, false, "Not available on Kiln");
     add("field_of_view", "Live Field of View", false, false, "Needs GameOptions: Not available on Kiln");
