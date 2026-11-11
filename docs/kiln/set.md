@@ -78,10 +78,13 @@ Escape or the window's close button releases their input capture. No real-client
   prefixes are redacted case-insensitively; review before sharing. Nothing is uploaded or opens a report website.
   **Debug logs** adds tool lifecycle diagnostics to `kiln.log`, not the Lua console; it defaults on and is saved in `kiln/control/set-ui.ini`,
   not upstream's `settings.ini`.
-- **Last Session**: an unclean `kiln/control/set-session.txt` marker opens a dismissible notice on the next client
-  start, with the matching game's `crash_dumps/*/enshrouded.info` reason when available. It distinguishes unclean exit
-  from proof of a crash or mod fault. No report or clipboard write happens until chosen. Normal teardown marks the
-  session clean. The first start after installing this implementation has no earlier SET session marker.
+- **Last Session**: on the next client start, a notice opens when the game wrote a crash report
+  (`crash_dumps/*/enshrouded.info`, no earlier than a minute before the previous session's `kiln.prev.log` ends) and
+  `kiln/control/set-session.txt` shows that SET ran in that session. The marker alone opens nothing: Kiln's core does
+  not run a plugin's unload at a normal game exit, so the marker is not cleared then. The notice shows the report's
+  reason and does not blame a mod. It only draws and never takes the game's mouse or keyboard; Escape hides it. Its
+  copy, report and **Dismiss** buttons are in SET tools opened from the game's menu. No report or clipboard write
+  happens until chosen.
 
 ## What works
 Every function in SET 0.2.0's api-reference has a Kiln implementation, except those marked missing. The full table, with the

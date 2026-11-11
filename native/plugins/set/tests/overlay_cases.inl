@@ -69,16 +69,37 @@
  assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);
  setui::stop();assert(toolsUnsubscribed==3&&setui::service()->open({nullptr,0})==KILN_ERR_UNAVAILABLE);
  assert(slurp(work/"set-session.txt")=="running=0\n");
- // An unclean previous session prompts without exporting anything; dismissal releases capture. Normal teardown
- // marks the next boot clean. The game's own bounded crash summary is displayed, not blamed on a mod.
+ // Last Session. The core never runs a plugin's on_unload when the game exits normally, so set-session.txt still says
+ // running=1 after every session: the marker alone opens nothing. A game crash report written as the previous session
+ // ended does, and that notice never takes the game's input; only SET tools the player opens do. The game's own
+ // bounded crash summary is displayed, not blamed on a mod, and nothing is exported until the player chooses it.
  const auto game=work/"game",logFolder=game/"kiln/logs",controlFolder=game/"kiln/control";
- std::filesystem::create_directories(logFolder);std::filesystem::create_directories(controlFolder);std::filesystem::create_directories(game/"crash_dumps/test");
- std::ofstream(controlFolder/"set-session.txt")<<"running=1\n";std::ofstream(logFolder/"kiln.prev.log")<<"previous crash log";
+ std::filesystem::create_directories(logFolder);std::filesystem::create_directories(controlFolder);std::filesystem::create_directories(game/"crash_dumps/old");
+ std::ofstream(logFolder/"kiln.prev.log")<<"previous session log";
+ std::ofstream(game/"crash_dumps/old/enshrouded.info")<<R"({"info":"an older crash","exception":"older exception"})";
+ std::filesystem::last_write_time(game/"crash_dumps/old/enshrouded.info",std::filesystem::last_write_time(logFolder/"kiln.prev.log")-std::chrono::hours(2));
+ setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);           // a session that the game then ends normally
+ assert(!setui::isOpen()&&!toolsDemand&&!toolsCapture&&slurp(controlFolder/"set-session.txt")=="running=1\n");
+ setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);           // the next start: no stop() ran in between
+ if(setui::isOpen())std::cerr<<"last session: notice opened after a normal exit, capture="<<toolsCapture<<"\n";
+ assert(!setui::isOpen()&&!toolsDemand&&!toolsCapture&&setui::logText(true).rfind("previous session log",0)==0);
+ setui::stop();
+ std::filesystem::create_directories(game/"crash_dumps/test");std::ofstream(controlFolder/"set-session.txt")<<"running=1\n";
  std::ofstream(game/"crash_dumps/test/enshrouded.info")<<R"({"info":"fixture crash","exception":"fixture exception"})";
- setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);assert(setui::isOpen());toolsRows.clear();setui::draw();
+ setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);
+ if(setui::isOpen()&&toolsCapture)std::cerr<<"last session: the crash notice took the game's input\n";
+ assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==0);toolsRows.clear();setui::draw();
  assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos&&row.find("fixture exception")!=std::string::npos;}));
- assert(!std::filesystem::exists(controlFolder/"set-report.txt")&&setui::logText(true).find("previous crash log")!=std::string::npos);
- toolsClick="Dismiss";setui::draw();assert(!setui::isOpen()&&!toolsDemand&&!toolsCapture);setui::stop();
+ assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Escape hides")!=std::string::npos;}));
+ {const auto copied=setui::logText(true);
+  assert(!std::filesystem::exists(controlFolder/"set-report.txt")&&copied.find("fixture exception")<copied.find("previous session log")&&copied.find("previous session log")!=std::string::npos);}
+ assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);  // Escape hides the notice
+ toolsMenu(1,nullptr);assert(setui::isOpen()&&toolsDemand==1&&toolsCapture==1);       // SET tools from the game menu
+ toolsRows.clear();setui::draw();
+ assert(std::any_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos;}));
+ toolsClick="Dismiss";setui::draw();toolsRows.clear();setui::draw();
+ assert(setui::isOpen()&&toolsCapture==1&&std::none_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("Last Session:")!=std::string::npos;}));
+ assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);setui::stop();
  setui::configure(logFolder,controlFolder);setui::bind(&toolsUi,1);assert(!setui::isOpen());setui::stop();
  std::cout<<"SET tools settings/onChange, precision, compatibility, reporting/crash prompt, console and lifecycle: PASS\n";
 }

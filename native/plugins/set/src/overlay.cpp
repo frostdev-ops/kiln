@@ -57,7 +57,9 @@ KilnResult openToolsFor(KilnStr mod, bool prompt) {
     if (!active.load() || mod.len > 256 || (!mod.ptr && mod.len)) return KILN_ERR_UNAVAILABLE;
     { std::lock_guard lock(mx); requestedMod = mod.len ? std::string(mod.ptr, mod.len) : ""; requestPending = true; requestedPrompt = prompt; }
     opened = true;
-    ui->set_demand(1); ui->set_capture(1);
+    // The crash notice opens by itself and only draws: the game keeps its input. Tools the player opened take it.
+    ui->set_demand(1);
+    if (!prompt) ui->set_capture(1);
     return KILN_OK;
 }
 KilnResult KILN_CALL openTools(KilnStr mod) { return openToolsFor(mod, false); }
@@ -89,10 +91,12 @@ bool sessionMark(bool running) {
     if (!f) return false;
     bool ok = fputs(running ? "running=1\n" : "running=0\n", f) >= 0; return fclose(f) == 0 && ok;
 }
+// The game's crash report from the end of the previous session (crash_dumps/*/enshrouded.info written no earlier than
+// a minute before kiln.prev.log's last write), or "" when there is none.
 std::string gameCrashSummary() {
     const auto game = logsDir.parent_path().parent_path(); std::error_code ec;
     const auto since = std::filesystem::last_write_time(logsDir / "kiln.prev.log", ec);
-    if (ec) return "No matching game crash report was found.";
+    if (ec) return "";
     auto latest = since - std::chrono::seconds(60); std::string relative;
     auto dir = std::filesystem::directory_iterator(game / "crash_dumps", ec);
     unsigned checked = 0;
@@ -102,7 +106,7 @@ std::string gameCrashSummary() {
         if (ec) { ec.clear(); continue; }
         if (time >= latest) { latest = time; relative = "crash_dumps/" + utf8(dir->path().filename()) + "/enshrouded.info"; }
     }
-    if (relative.empty()) return "No matching game crash report was found.";
+    if (relative.empty()) return "";
     const auto info = nlohmann::json::parse(read(game, relative.c_str()), nullptr, false);
     if (!info.is_object()) return "The matching game crash report could not be read.";
     std::string result = "Game crash report:";
@@ -283,8 +287,10 @@ const setui::Api* setui::service() { return &api; }
 void setui::configure(std::filesystem::path logs, std::filesystem::path control, void (*sink)(const char*)) {
     logsDir = std::move(logs); controlDir = std::move(control); logSink = sink;
     debugLog = read(controlDir, "set-ui.ini").find("debugLog=0") == std::string::npos;
-    lastUnclean = read(controlDir, "set-session.txt").starts_with("running=1");
-    crashSummary = lastUnclean ? gameCrashSummary() : "";
+    // The marker alone proves nothing: the core never runs on_unload when the game exits normally, so it still says
+    // running=1 after every session. The game's crash report from the end of that session is the evidence.
+    crashSummary = read(controlDir, "set-session.txt").starts_with("running=1") ? gameCrashSummary() : "";
+    lastUnclean = !crashSummary.empty();
     sessionStarted = sessionMark(true);
 }
 void setui::bind(const KilnUiApi* value, KilnOwner owner) {
@@ -312,7 +318,7 @@ void setui::bind(const KilnUiApi* value, KilnOwner owner) {
 bool setui::isOpen() { return active && opened; }
 std::string setui::logText(bool previous) {
     std::string out;
-    if (previous && lastUnclean) out = "The last SET session did not close normally (crash or external termination). " + crashSummary + "\n\n";
+    if (previous && lastUnclean) out = "The game wrote a crash report as the last SET session ended. " + crashSummary + "\n\n";
     return redact(out + read(logsDir, previous ? "kiln.prev.log" : "kiln.log"));
 }
 void setui::line(const char* v) { std::lock_guard lock(mx); lines.emplace_back(v ? v : "", v ? strnlen(v, 4096) : 0); while (lines.size() > 2000) lines.pop_front(); }
@@ -337,11 +343,15 @@ void setui::draw() {
     ui->set_next_window_size(760, 600, KILN_UI_COND_FIRST_USE);
     if (ui->begin(s("Shrouded Engine Tweaks###kiln.set.tools"), &open, 0)) {
         if (lastUnclean) {
-            ui->text_wrapped(s("Last Session: SET did not close normally (a crash or external termination). " + crashSummary));
-            if (button("Copy last session's logs")) copyLog(true);
-            if (button("Save local support report")) saveReport();
-            if (!message.empty()) ui->text_wrapped(s(message));
-            if (button("Dismiss")) { lastUnclean = false; if (promptOnly) open = false; }
+            ui->text_wrapped(s("Last Session: the game wrote a crash report as the last SET session ended. " + crashSummary));
+            // Opened by itself, this notice has no input: its buttons would be clicks the game gets too.
+            if (promptOnly) ui->text_wrapped(s("Open SET tools in the game's menu to copy the logs or save a report. Escape hides this notice."));
+            else {
+                if (button("Copy last session's logs")) copyLog(true);
+                if (button("Save local support report")) saveReport();
+                if (!message.empty()) ui->text_wrapped(s(message));
+                if (button("Dismiss")) lastUnclean = false;
+            }
         }
         if (!promptOnly && button("Reload mods")) { rt::requestReload(); debug("Reload requested"); }
         if (!promptOnly && ui->begin_tab_bar(s("SET tools"))) {
