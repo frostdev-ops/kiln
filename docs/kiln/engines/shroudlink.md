@@ -64,7 +64,8 @@ The addon scans the **live** executable on its own initialization thread. If Kil
 before that scan, shroudlink 0.8.0 reports `native UI disabled: pattern not found: 89 4C 24 08 ...` even though its
 host-link hooks initialized. Kiln now waits at the game entry point, outside the loader lock, after early native
 mods load and before serving its game hooks. This covers the normally imported `dllmain` addon and early native
-mods, not an addon explicitly configured to load after Kiln's hooks.
+mods, not an addon explicitly configured to load after Kiln's hooks. For the same reason the profile page never
+offers its one-click "load late" for a hook overlap of this addon: it hooks before Kiln on purpose.
 
 The gate recognizes the addon's module-owned `shroudlink_shutdown` and `DirectInput8Create` exports. It proceeds
 when that copy logs a complete, current startup result or when its first UI hook demonstrably jumps into that
