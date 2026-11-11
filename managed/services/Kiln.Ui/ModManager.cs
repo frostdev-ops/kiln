@@ -711,6 +711,7 @@ internal sealed class ModManagerPage
 internal static class ModManagerHost
 {
     public static readonly ModManagerPage Page = new();
+    private static ulong _lastFrame;
 
     public static void Draw(UiDraw ui)
     {
@@ -737,7 +738,9 @@ internal static class ModManagerHost
             ui.NextWindowSize(w, h, 1);
             using var pad = ui.PushVar(UiStyleVar.WindowPadding, 0, 0);
             using var border = ui.PushVar(UiStyleVar.WindowBorderSize, 0);
-            if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.main", ModManagerChrome.PageWindowFlags))
+            var appearing = ui.FrameNumber != _lastFrame + 1;
+            _lastFrame = ui.FrameNumber;
+            if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.main", ModManagerChrome.PageFlags(appearing)))
             {
                 var margin = Math.Max(48 * s, w * 0.055f);
                 var top = Math.Max(36 * s, h * 0.055f);
@@ -777,6 +780,11 @@ internal static class ModManagerChrome
     // no title bar, resize, move, scrollbar, mouse-wheel scroll, collapse, background, saved settings; and no bringing to
     // front on a click: the page covers the display, so a window opened over it (SET's tools) would go behind it
     public const uint PageWindowFlags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 8) | (1u << 13);
+
+    /// <summary>The page's flags for this frame. On the frame it appears it may come to the front (ImGui brings a window
+    /// that appears to the front unless it has NoBringToFrontOnFocus): a mod's full-screen screen open before would
+    /// otherwise hide the menu. After that a click on it does not raise it.</summary>
+    public static uint PageFlags(bool appearing) => appearing ? PageWindowFlags & ~(1u << 13) : PageWindowFlags;
 
     /// <summary>The widest the page's content gets, in UI units (1920x1080 = 1 unit per pixel). 16:9 and 16:10 pages are
     /// narrower (1760 units inside the game's padding); on ultrawide displays the rest stays empty on the right, so lines

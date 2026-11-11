@@ -73,6 +73,8 @@ internal static unsafe class Program
         Samples.RegisterExtras();
 
         if (args.Contains("--check-z")) return CheckZ(lib, Path.Combine(work, "check-z"));
+        if (args.Contains("--check-text"))
+            return Math.Max(CheckText(lib, Path.Combine(work, "check-text"), w, h, "text"), CheckText(lib, Path.Combine(work, "check-textarea"), w, h, "textarea"));
 
         var rendered = 0;
         foreach (var scene in Scenes.All)
@@ -150,7 +152,100 @@ internal static unsafe class Program
         tools.Dispose();
         Console.WriteLine($"front before the click: {before}");
         Console.WriteLine($"front after the click:  {after}");
-        return after.StartsWith("Shrouded Engine Tweaks", StringComparison.Ordinal) ? 0 : 1;
+        var ok = after.StartsWith("Shrouded Engine Tweaks", StringComparison.Ordinal);
+
+        // a mod's full-screen screen open first (managed-ui R6): the menu opened over it must be in front of it, or it is open
+        // but cannot be seen (and Escape closes the unseen menu first)
+        for (var i = 0; i < 3; i++) _frame(0);  // the menu closed
+        var screen = Ui.Screen("A mod's screen", ui => ui.Text("a full-screen mod screen"), new UiScreenOptions { FullScreen = true });
+        screen.Open();
+        for (var i = 0; i < 3; i++) _frame(0);
+        var under = Front();
+        for (var i = 0; i < 3; i++) _frame(1);  // the menu key
+        var menu = Front();
+        screen.Dispose();
+        Console.WriteLine($"front with a full-screen screen open: {under}");
+        Console.WriteLine($"front after the menu opened over it:  {menu}");
+        ok &= menu.Contains("###kiln.menu.main", StringComparison.Ordinal);
+        return ok ? 0 : 1;
+    }
+
+    // A ShroudForge text setting typed into with the real ImGui (managed-ui R1): ImGui makes its own copy of an active
+    // field's text once, when the field becomes active, and then takes the buffer size it is given every frame as its only
+    // bound. Clicks into the field, types 3 KB in pieces and checks after every frame that the size ImGui was given still
+    // fits its copy. Exit 1 at the first frame where it does not (the next typed bytes would land outside ImGui's buffer).
+    private static int CheckText(nint lib, string root, int w, int h, string control)
+    {
+        Console.WriteLine($"check-text: a {control} setting");
+        var chars = (delegate* unmanaged[Cdecl]<byte*, void>)NativeLibrary.GetExport(lib, "kiln_preview_chars");
+        var cursor = (delegate* unmanaged[Cdecl]<int>)NativeLibrary.GetExport(lib, "kiln_preview_mouse_cursor");
+        var state = (delegate* unmanaged[Cdecl]<int*, int*, int*, int>)NativeLibrary.GetExport(lib, "kiln_preview_text_state");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var kiln = Path.Combine(root, "kiln");
+        var folder = Path.Combine(root, "mods", "notes");
+        Directory.CreateDirectory(Path.Combine(kiln, "state"));
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"notes","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{ "enabled": true, "settings": { "note": { "value": "old", "label": "Note", "control": "{{control}}" } } }""");
+        File.WriteAllText(Path.Combine(kiln, "state", "shroudforge.json"), JsonSerializer.Serialize(new { pid = Environment.ProcessId, mode = "hosted", menu = "kiln", modsDir = Path.Combine(root, "mods") }));
+        ShroudForgeUi.ResetForTests();
+        ShroudForgeUi.Load(folder);
+        ModCatalog.Sources = () => new CatalogSources { KilnRoot = kiln, Side = "client" };
+        ModCatalog.WaitForSnapshot();
+        var page = ModManagerHost.Page;
+        page.Section = ModManagerSection.Mods;
+        page.Filter = new EngineFilter("shroudforge");
+        page.Selected = "shroudforge/notes";
+        _page(0);
+        for (var i = 0; i < 4; i++) _frame(1);
+        // find the field: the details column, where the mouse turns into a text cursor
+        float fx = 0, fy = 0;
+        for (var y = 150f; y < h - 80 && fy == 0; y += 4)
+        {
+            _mouse(w * 0.8f, y, 0);
+            _frame(1);
+            if (cursor() == 1) (fx, fy) = (w * 0.8f, y);
+        }
+        if (fy == 0)
+        {
+            Console.WriteLine("check-text: the setting's text field was not found");
+            return 2;
+        }
+        _mouse(fx, fy, 1);
+        _frame(1);
+        _mouse(fx, fy, 0);
+        _frame(1);
+        _key(520 /* ImGuiKey_End */, 1);  // the end of the text (a click in a text area puts the cursor where it lands)
+        _frame(1);
+        _key(520, 0);
+        _frame(1);
+        int cap, size, len;
+        if (state(&cap, &size, &len) == 0)
+        {
+            Console.WriteLine("check-text: clicking the field did not activate it");
+            return 2;
+        }
+        Console.WriteLine($"check-text: active at y={fy}: ImGui's copy {size} bytes, size given {cap}, text {len}");
+        var piece = System.Text.Encoding.UTF8.GetBytes(new string('x', 300) + "\0");
+        for (var i = 0; i < 10; i++)
+        {
+            fixed (byte* p = piece) chars(p);
+            _frame(1);
+            state(&cap, &size, &len);
+            if (cap + 1 > size)
+            {
+                Console.WriteLine($"check-text: after {(i + 1) * 300} bytes typed ImGui was given a buffer of {cap} bytes for its copy of {size}: " +
+                                  $"{len} bytes held, {cap - 1 - len} more accepted, {size - 1 - len} fit");
+                return 1;
+            }
+        }
+        Console.WriteLine($"check-text: 3000 bytes typed, ImGui's copy {size} bytes, size given {cap}, text {len}: in bounds");
+        // leave the field (Escape: ImGui puts the text back), so the next check starts from a field that is not active
+        _key(526 /* ImGuiKey_Escape */, 1);
+        _frame(1);
+        _key(526, 0);
+        _frame(1);
+        return len >= 3003 ? 0 : 1;
     }
 
     // PNG: RGB, one IDAT (zlib from .NET), CRCs.

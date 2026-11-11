@@ -189,6 +189,10 @@ internal static class ConfigScreens
                     var t when t.StartsWith("list") => "a list: [1, 2, 3] or 1, 2, 3",
                     _ => e.Type,
                 });
+                // the field shows such a value cut and read-only (UiDraw.InputText): say why
+                if (!UiDraw.Editable(text, 512))
+                    ui.TextDisabled(text.Contains('\0') ? "Read-only here: it holds a NUL character. Change it in the config file."
+                        : "Read-only here: longer than 512 bytes. Change it in the config file.");
                 break;
             }
         }

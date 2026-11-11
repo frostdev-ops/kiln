@@ -88,6 +88,7 @@ internal static unsafe class UiEngine
     private static uint _lastDemand = uint.MaxValue, _lastCapture = uint.MaxValue, _lastHover = uint.MaxValue;
     private static volatile string? _remapping;  // binding id waiting for "press a key"
     private static bool _keysDrawn;               // the Keys tab was drawn this frame
+    private static long _keysDrawnAtMs;           // ... and when it was drawn last
     private static bool _pageHost;      // this Kiln.Ui draws the Kiln menu inside the game's main menu (kiln.ui v4)
 
     public static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, "ui: " + text);
@@ -811,7 +812,12 @@ internal static unsafe class UiEngine
     internal static void KeysTab(UiDraw ui)
     {
         _keysDrawn = true;
-        ui.TextDisabled("Click a key, then press the new one (click it again, or Escape, to cancel). Saved to kiln/config/keybinds.json.");
+        // Escape and the menu key close the menu inside kiln.ui, and no frame is built while it is closed: a gap since the tab
+        // was last drawn means the menu was closed in between, and a rebind armed before that is gone
+        var now = Environment.TickCount64;
+        if (now - _keysDrawnAtMs > 250) _remapping = null;
+        _keysDrawnAtMs = now;
+        ui.TextDisabled("Click a key, then press the new one. Click it again to cancel; Escape cancels and closes the menu. Saved to kiln/config/keybinds.json.");
         if (!ui.BeginTable("kiln.keys", "Action", "Key", "Default", "")) return;
         void Line(string id, string what, KeyChord key, KeyChord def)
         {

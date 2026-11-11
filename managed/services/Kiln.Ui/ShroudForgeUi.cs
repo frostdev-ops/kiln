@@ -20,12 +20,18 @@ namespace Kiln;
 
 internal static class ShroudForgeUi
 {
+    /// <summary>What a read or a save left of a package, published as one: the package (or why there is none), the page's
+    /// view of it (made on the worker that read it) and a hash of the files it was read from.</summary>
+    private sealed record State(SfPackage? Package, string? Error, View? View, string? Hash);
+
     private sealed class Entry
     {
-        public volatile SfPackage? Package;
-        public volatile string? Error;
+        public volatile State Now = new(null, null, null, null);
+        public SfPackage? Package => Now.Package;
+        public string? Error => Now.Error;
         public long ReadAtMs;
         public int Reading;
+        public int Building;
         /// <summary>Bumped by each save that publishes the package (under the entry's lock): a read that began before it
         /// is older than what the save published.</summary>
         public long Generation;
@@ -67,13 +73,16 @@ internal static class ShroudForgeUi
 
     /// <summary>The package in <paramref name="folder"/> as last read (render thread: no file access). Starts a read on a
     /// worker when the last one is older than a second.</summary>
-    public static SfPackage? Get(string folder, out string? error)
+    public static SfPackage? Get(string folder, out string? error) => Current(folder, out error).Package;
+
+    private static State Current(string folder, out string? error)
     {
         var e = Packages.GetOrAdd(folder, _ => new Entry());
         if (Environment.TickCount64 - Interlocked.Read(ref e.ReadAtMs) > 1000 && Interlocked.CompareExchange(ref e.Reading, 1, 0) == 0)
             Task.Run(() => Refresh(folder, e));
-        error = e.Error;
-        return e.Package;
+        var now = e.Now;
+        error = now.Error;
+        return now;
     }
 
     private static void Refresh(string folder, Entry e)
@@ -81,18 +90,25 @@ internal static class ShroudForgeUi
         var generation = Interlocked.Read(ref e.Generation);
         SfPackage? package = null;
         string? error = null;
+        View? view = null;
+        var hash = FilesHash(folder);
         try
         {
+            // the files as last read (and the page's view of them) stay: a re-read of the same bytes makes nothing new
+            if (hash is not null && e.Now is { Hash: { } last } now && last == hash && (now.Package is not null || now.Error is not null)) return;
             package = ShroudForgePackages.Read(folder);
             if (Unreadable(package) is { } why)
             {
                 package = null;
                 error = why;
             }
+            if (package is not null) view = ViewOf(folder, package);
         }
         catch (Exception x)
         {
             // never offer stale editable controls for a broken or removed file
+            package = null;
+            view = null;
             error = x is SfEditException ? x.Message : $"its files could not be read: {x.Message}";
         }
         finally
@@ -100,15 +116,38 @@ internal static class ShroudForgeUi
             lock (e)
             {
                 // a save that published while this read ran has newer values than this read may have seen
-                if (e.Generation == generation)
-                {
-                    e.Package = package;
-                    e.Error = error;
-                }
+                if (e.Generation == generation && (package is not null || error is not null)) e.Now = new State(package, error, view, hash);
             }
             Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
             Interlocked.Exchange(ref e.Reading, 0);
         }
+    }
+
+    /// <summary>A hash of mod.json and extended.mod.json as they are now, or null when they cannot be read.</summary>
+    private static string? FilesHash(string folder)
+    {
+        try
+        {
+            using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            foreach (var name in new[] { "mod.json", "extended.mod.json" })
+            {
+                var path = Path.Combine(folder, name);
+                if (!File.Exists(path))
+                {
+                    sha.AppendData([0]);
+                    continue;
+                }
+                using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (f.Length > ShroudForgePackages.MaxFileBytes) return null;
+                var bytes = new byte[f.Length];
+                f.ReadExactly(bytes);
+                sha.AppendData([1]);
+                sha.AppendData(BitConverter.GetBytes(bytes.LongLength));
+                sha.AppendData(bytes);
+            }
+            return Convert.ToHexString(sha.GetHashAndReset());
+        }
+        catch (Exception) { return null; }
     }
 
     /// <summary>Why a value of the package cannot be used (read on this worker, not on the render thread), or null. A string
@@ -150,14 +189,17 @@ internal static class ShroudForgeUi
         return null;
     }
 
-    /// <summary>What a save leaves: the package it read back (or none, with why).</summary>
-    private static void Publish(Entry e, SfPackage? package, string? error)
+    /// <summary>What a save leaves: the package it read back (or none, with why), with its view made here, on the writer.</summary>
+    private static void Publish(string folder, Entry e, SfPackage? package, string? error)
     {
+        View? view = null;
+        try { if (package is not null) view = ViewOf(folder, package); }
+        catch (Exception) { view = null; }  // the render thread makes it then
+        var hash = FilesHash(folder);
         lock (e)
         {
             e.Generation++;
-            e.Package = package;
-            e.Error = error;
+            e.Now = new State(package, error, view, hash);
         }
         Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
     }
@@ -231,7 +273,7 @@ internal static class ShroudForgeUi
                     var p = id.Key is null
                         ? ShroudForgePackages.SetEnabled(id.Folder, value is JsonValue v && v.GetValueKind() == JsonValueKind.True)
                         : SetSetting(id.Folder, id.Key, value);
-                    Publish(e, p, null);
+                    Publish(id.Folder, e, p, null);
                     result = Saved(p, id.Key);
                     UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: {(id.Key is null ? "switched " + (p.Enabled ? "on" : "off") : id.Key + " = " + ShroudForgePackages.Render(value))} " +
                                                 $"(extended.mod.json, from the Kiln menu)");
@@ -244,7 +286,7 @@ internal static class ShroudForgeUi
                     {
                         // the file changed but cannot be read back: not "not saved", and no controls of the old package
                         result = $"extended.mod.json was changed, but it cannot be read back: {x.Message}. ShroudForge may refuse the mod until the file is fixed.";
-                        Publish(e, null, result);
+                        Publish(id.Folder, e, null, result);
                         UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {what} written, but extended.mod.json cannot be read back: {x.Message}");
                     }
                     else
@@ -296,45 +338,93 @@ internal static class ShroudForgeUi
 
     // ------------------------------------------------------------------------------------- drawing ----
 
-    /// <summary>One setting as the page draws it.</summary>
+    /// <summary>What the data layer's <see cref="SfPackage.Repair"/> means for the player, or null when nothing needs it.</summary>
+    internal static string? RepairNote(SfPackage p)
+    {
+        if (p.Repair.Count == 0) return null;
+        var names = p.Repair.Take(3).Select(key => Clip(p.Settings.FirstOrDefault(x => x.Key == key)?.Label ?? key, 80)).ToList();
+        var more = p.Repair.Count > 3 ? $" and {p.Repair.Count - 3} more" : "";
+        return $"ShroudForge refuses this mod until its settings are saved once: an earlier Kiln wrote {string.Join(", ", names)}{more} " +
+               "without its fraction.";
+    }
+
+    /// <summary>The most settings the page draws of one package; a line says how many more it has.</summary>
+    internal const int DrawnSettings = 300;
+
+    /// <summary>One setting as the page draws it: everything a frame needs, made when the view is.</summary>
     private sealed record Item(SfSettingDef Def, string Label, string? Description, JsonNode? Value, bool Enabled, string? Disabled,
         string[] OptionLabels, string? Error)
     {
+        /// <summary>ImGui's id for it (its key, or its place when the key is long).</summary>
+        public string Id { get; init; } = "";
         /// <summary>The value as a text field shows it (a string as it is, anything else as JSON).</summary>
         public string Text { get; init; } = "";
+        /// <summary>Keybinds: the shortcut as Kiln names it.</summary>
+        public string KeyLabel { get; init; } = "";
+        /// <summary>Lists: each option's checkbox label and whether the value holds it.</summary>
+        public string[] OptionIds { get; init; } = [];
+        public bool[] Chosen { get; init; } = [];
+        /// <summary>Choices: the combo's items as ImGui takes them, and the one the value is.</summary>
+        public byte[] ComboItems { get; init; } = [];
+        public int ComboIndex { get; init; }
     }
 
-    /// <summary>What the page draws of a package, worked out when the package, an edit or an error changes, not per frame:
-    /// the settings by key and by group, the shown values (a pending edit, else the file's), which can be changed now,
-    /// and every text clipped to what a frame draws.</summary>
+    /// <summary>What the page draws of a package, made on the worker that read it (and again after an edit or an error),
+    /// never per frame: the first <see cref="DrawnSettings"/> settings by group with their shown values (a pending edit,
+    /// else the file's), which can be changed now, and every text clipped to what a frame draws.</summary>
     private sealed class View
     {
         public required SfPackage Package;
         public long Version;
         public string? Error;
         public string Id = "";
-        public bool SwitchPending, SwitchOn;
+        public bool SwitchOn;
         public (string Label, string? Description, Item[] Settings, (SfAction Action, string Label, string? Confirm)[] Actions)[] Groups = [];
         public Item[] Rest = [];
         public bool Empty;
+        /// <summary>Settings the package has that the page does not draw.</summary>
+        public int Hidden;
     }
-
-    // the render thread's views, by folder (one per ShroudForge mod shown this session)
-    private static readonly ConcurrentDictionary<string, View> Views = new(StringComparer.Ordinal);
 
     private static View ViewOf(string folder, SfPackage p)
     {
-        var version = Interlocked.Read(ref _version);
-        if (Views.TryGetValue(folder, out var cached) && ReferenceEquals(cached.Package, p) && cached.Version == version) return cached;
-        var view = new View { Package = p, Version = version, Id = "sf." + folder };
+        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder };
         try { Build(view, folder, p); }
         catch (Exception e)  // a value no reader can use: said once, not thrown every frame
         {
             view.Error = $"a value cannot be read ({e.Message})";
             UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {folder}: its settings cannot be shown: {e.Message}");
         }
-        Views[folder] = view;
         return view;
+    }
+
+    /// <summary>The view to draw this frame, or null while none is made. A view made before the last edit or error is made
+    /// again: at once for a package the page draws whole, on a worker for a larger one (this frame draws the last).</summary>
+    private static View? ViewFor(string folder, Entry e, State now)
+    {
+        if (now.Package is not { } p) return null;
+        var version = Interlocked.Read(ref _version);
+        var view = now.View is { } v && ReferenceEquals(v.Package, p) ? v : null;
+        if (view is not null && view.Version == version) return view;
+        if (p.Settings.Count <= DrawnSettings)
+        {
+            view = ViewOf(folder, p);
+            Keep(e, p, view);
+            return view;
+        }
+        if (Interlocked.CompareExchange(ref e.Building, 1, 0) == 0)
+            Task.Run(() =>
+            {
+                try { Keep(e, p, ViewOf(folder, p)); }
+                finally { Interlocked.Exchange(ref e.Building, 0); }
+            });
+        return view;
+    }
+
+    private static void Keep(Entry e, SfPackage p, View view)
+    {
+        lock (e)
+            if (ReferenceEquals(e.Now.Package, p) && (e.Now.View is not { } old || old.Version <= view.Version)) e.Now = e.Now with { View = view };
     }
 
     private static void Build(View view, string folder, SfPackage p)
@@ -349,14 +439,15 @@ internal static class ShroudForgeUi
             foreach (var x in p.Settings) values[x.Key] = Pending.TryGetValue((folder, x.Key), out var pe) ? pe.Value : x.Value;
             foreach (var ((f, key), text) in Errors)
                 if (key is not null && string.Equals(f, folder, StringComparison.Ordinal)) errors[key] = text;
-            view.SwitchPending = Pending.TryGetValue((folder, null), out var sw);
-            view.SwitchOn = view.SwitchPending ? sw.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
+            var pending = Pending.TryGetValue((folder, null), out var sw);
+            view.SwitchOn = pending ? sw.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
         }
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var rule = new EnabledRule(byKey, values);
+        var made = 0;
         Item Make(SfSettingDef d)
         {
             var value = values.TryGetValue(d.Key, out var v) ? v : d.Value;
-            var enabled = IsEnabled(d.Key, byKey, values, seen);
+            var enabled = rule.Of(d.Key);
             string? disabled = null;
             if (!enabled)
             {
@@ -365,57 +456,108 @@ internal static class ShroudForgeUi
                 var want = ctl?.Options.FirstOrDefault(o => JsonNode.DeepEquals(o.Value, cond.EqualsValue))?.Label ?? Plain(cond.EqualsValue);
                 disabled = Clip($"{Plain(value)}  (only used while {ctl?.Label ?? cond.Setting} is {want})", MaxDrawnText);
             }
-            return new Item(d, Clip(d.Label, MaxDrawnText), d.Description is { } desc ? Clip(desc, MaxDrawnText) : null, value, enabled, disabled,
-                d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray(), errors.TryGetValue(d.Key, out var err) ? Clip(err, MaxDrawnText) : null)
+            var labels = d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray();
+            var text = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
+            var chosen = value as JsonArray;
+            var combo = 0;
+            for (var oi = 0; oi < d.Options.Count; oi++)
             {
-                Text = value is JsonValue jv && jv.TryGetValue<string>(out var text) ? text : Plain(value),
+                var o = d.Options[oi];
+                if (!JsonNode.DeepEquals(o.Value, value) && !(ShroudForgePackages.NumberOf(o.Value) is { } a && a == ShroudForgePackages.NumberOf(value))) continue;
+                combo = oi;
+                break;
+            }
+            return new Item(d, Clip(d.Label, MaxDrawnText), d.Description is { } desc ? Clip(desc, MaxDrawnText) : null, value, enabled, disabled,
+                labels, errors.TryGetValue(d.Key, out var err) ? Clip(err, MaxDrawnText) : null)
+            {
+                Id = d.Key.Length <= 200 ? d.Key : "#" + made++,
+                Text = text,
+                KeyLabel = d.Control == "keybind" ? Clip(SdlKeys.Label(value is JsonValue kv && kv.GetValueKind() == JsonValueKind.String ? text : "") ?? text, 200) : "",
+                OptionIds = labels.Select((l, oi) => l + "###o" + oi).ToArray(),
+                Chosen = d.Options.Select(o => chosen?.Any(x => JsonNode.DeepEquals(x, o.Value)) == true).ToArray(),
+                ComboItems = d.Options.Count > 0 ? UiDraw.ComboItems(labels) : [],
+                ComboIndex = combo,
             };
         }
+        // the settings in the order the page shows them (by group, then the rest), the first DrawnSettings of them made
+        var left = DrawnSettings;
         var placed = new HashSet<string>(StringComparer.Ordinal);
         var groups = new List<(string, string?, Item[], (SfAction, string, string?)[])>();
         foreach (var g in p.Groups)
         {
             var items = new List<Item>();
             foreach (var key in g.Settings)
-                if (byKey.TryGetValue(key, out var d) && placed.Add(key)) items.Add(Make(d));
+                if (byKey.TryGetValue(key, out var d) && placed.Add(key) && left > 0)
+                {
+                    items.Add(Make(d));
+                    left--;
+                }
             groups.Add((Clip(g.Label, MaxDrawnText), g.Description is { } gd ? Clip(gd, MaxDrawnText) : null, items.ToArray(),
                 g.Actions.Select(a => (a, Clip(a.Label, MaxDrawnText), a.Confirm is { } c ? Clip(c, MaxDrawnText) : null)).ToArray()));
         }
+        var rest = new List<Item>();
+        foreach (var x in p.Settings)
+            if (!placed.Contains(x.Key) && left > 0)
+            {
+                rest.Add(Make(x));
+                left--;
+            }
         view.Groups = groups.ToArray();
-        view.Rest = p.Settings.Where(x => !placed.Contains(x.Key)).Select(Make).ToArray();
+        view.Rest = rest.ToArray();
+        view.Hidden = Math.Max(0, byKey.Count - (DrawnSettings - left));
         view.Empty = p.Settings.Count == 0 && !p.Groups.Any(g => g.Actions.Count > 0);
     }
 
-    /// <summary><see cref="ShroudForgePackages.IsEnabled"/> over an index by key: the same rule (the enabledWhen chain holds
-    /// for <paramref name="values"/>; a missing controller or a cycle disables), without a search per step.</summary>
-    internal static bool IsEnabled(string key, IReadOnlyDictionary<string, SfSettingDef> byKey, IReadOnlyDictionary<string, JsonNode?> values,
-        HashSet<string> seen)
+    /// <summary><see cref="ShroudForgePackages.IsEnabled"/> over an index by key, remembering each answer: the same rule
+    /// (the enabledWhen chain holds for the values; a missing controller or a cycle disables), each chain walked once.</summary>
+    internal sealed class EnabledRule(IReadOnlyDictionary<string, SfSettingDef> byKey, IReadOnlyDictionary<string, JsonNode?> values)
     {
-        seen.Clear();
-        var current = key;
-        while (true)
+        private readonly Dictionary<string, bool> _known = new(StringComparer.Ordinal);
+        private readonly List<string> _path = [];
+        private readonly HashSet<string> _onPath = new(StringComparer.Ordinal);
+
+        public bool Of(string key)
         {
-            if (!byKey.TryGetValue(current, out var s)) return false;
-            if (s.EnabledWhen is not { } cond) return true;
-            if (!seen.Add(current)) return false;
-            if (!values.TryGetValue(cond.Setting, out var v)) return false;
-            // ShroudForge compares numbers by value (5 = 5.0)
-            var same = v is JsonValue av && cond.EqualsValue is JsonValue bv && av.GetValueKind() == JsonValueKind.Number && bv.GetValueKind() == JsonValueKind.Number
-                ? ShroudForgePackages.NumberOf(av) == ShroudForgePackages.NumberOf(bv)
-                : JsonNode.DeepEquals(v, cond.EqualsValue);
-            if (!same) return false;
-            current = cond.Setting;
+            if (_known.TryGetValue(key, out var known)) return known;
+            _path.Clear();
+            _onPath.Clear();
+            var current = key;
+            bool result;
+            while (true)
+            {
+                if (_known.TryGetValue(current, out result)) break;
+                if (!byKey.TryGetValue(current, out var s)) { result = false; break; }
+                if (s.EnabledWhen is not { } cond)
+                {
+                    _known[current] = result = true;
+                    break;
+                }
+                if (!_onPath.Add(current)) { result = false; break; }  // a cycle
+                _path.Add(current);
+                if (!values.TryGetValue(cond.Setting, out var v) || !Same(v, cond.EqualsValue)) { result = false; break; }
+                current = cond.Setting;
+            }
+            // every setting on the way holds its own condition, so each is enabled exactly when the end of the chain is
+            foreach (var k in _path) _known[k] = result;
+            return _known.TryGetValue(key, out known) ? known : result;
         }
+
+        // ShroudForge compares numbers by value (5 = 5.0)
+        private static bool Same(JsonNode? a, JsonNode? b) =>
+            a is JsonValue av && b is JsonValue bv && av.GetValueKind() == JsonValueKind.Number && bv.GetValueKind() == JsonValueKind.Number
+                ? ShroudForgePackages.NumberOf(av) == ShroudForgePackages.NumberOf(bv)
+                : JsonNode.DeepEquals(a, b);
     }
 
     /// <summary>The ShroudForge part of a mod's details: its switch, its settings by group, its buttons.</summary>
     public static void Draw(UiDraw ui, CatalogMod m, float s, float k, Action<UiDraw, string, float> label)
     {
         if (m.Folder is not { } folder) return;
-        var p = Get(folder, out var error);
+        var now = Current(folder, out var error);
+        var p = now.Package;
         label(ui, "SWITCH AND SETTINGS", s);
-        var view = p is null ? null : ViewOf(folder, p);
-        if (p is null || view?.Error is not null)
+        var view = ViewFor(folder, Packages.GetOrAdd(folder, _ => new Entry()), now);
+        if (p is null || view?.Error is not null || view is null)
         {
             error = view?.Error ?? error;
             using (ui.PushColor(UiColorSlot.Text, error is null ? GameColors.Muted : GameColors.Warning))
@@ -423,7 +565,7 @@ internal static class ShroudForgeUi
             Result(ui, folder, k, problemsOnly: true);  // what the last save did to the file stays visible
             return;
         }
-        using var id = ui.Id(view!.Id);
+        using var id = ui.Id(view.Id);
 
         // the switch
         var on = view.SwitchOn;
@@ -437,6 +579,10 @@ internal static class ShroudForgeUi
                 ui.TextWrapped("Your Kiln profile lists this mod: the Kiln launcher sets this switch from the profile when it starts the game. To keep a change, make it in the profile too.");
         }
         Result(ui, folder, k);
+        if (RepairNote(p) is { } repair)
+            using (ui.FontSize(14 * k))
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Warning))
+                ui.TextWrapped(repair + " Changing any setting or its switch here repairs it.");
 
         if (view.Empty)
         {
@@ -469,6 +615,13 @@ internal static class ShroudForgeUi
             }
             foreach (var item in view.Rest) Setting(ui, folder, item, s, k);
         }
+        if (view.Hidden > 0)
+        {
+            ui.Space(1, 10 * s);
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
+                ui.TextWrapped($"{view.Hidden} more setting{(view.Hidden == 1 ? " is" : "s are")} not shown here (this mod has {p.Settings.Count}; " +
+                               $"the page shows the first {DrawnSettings}). Change them in the mod's extended.mod.json.");
+        }
         ui.Space(1, 10 * s);
         using (ui.FontSize(13 * k))
         using (ui.PushColor(UiColorSlot.Text, GameColors.Faint))
@@ -491,7 +644,7 @@ internal static class ShroudForgeUi
     private static void Setting(UiDraw ui, string folder, Item item, float s, float k)
     {
         var d = item.Def;
-        using var _ = ui.Id(d.Key);
+        using var _ = ui.Id(item.Id);
         ui.Space(1, 8 * s);
         using (ui.PushColor(UiColorSlot.Text, item.Enabled ? GameColors.Text : GameColors.Faint))
             ui.TextWrapped(item.Label);
@@ -532,7 +685,7 @@ internal static class ShroudForgeUi
             case (_, "keybind"):
             {
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Text))
-                    ui.Text("Shortcut: " + Clip(SdlKeys.Label(value is JsonValue kv && kv.GetValueKind() == JsonValueKind.String ? item.Text : "") ?? item.Text, 200));
+                    ui.Text("Shortcut: " + item.KeyLabel);
                 using (ui.FontSize(14 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                     ui.TextWrapped("Edit the SDL binding below (not key capture): Ctrl+SDL:66 is Ctrl+F9; Mouse:4 is mouse button 4. Empty disables it. SF checks keyboard availability.");
@@ -548,34 +701,22 @@ internal static class ShroudForgeUi
             }
             case ("array", _):
             {
-                var chosen = value as JsonArray ?? [];
                 for (var oi = 0; oi < d.Options.Count; oi++)
                 {
-                    var o = d.Options[oi];
-                    var has = chosen.Any(x => JsonNode.DeepEquals(x, o.Value));
-                    var before = has;
-                    if (ui.Checkbox(item.OptionLabels[oi] + "###o" + oi, ref has) && has != before)
-                    {
-                        // ShroudForge keeps the options' order
-                        var next = d.Options.Where(x => x == o ? has : chosen.Any(c => JsonNode.DeepEquals(c, x.Value))).Select(x => x.Value?.DeepClone()).ToArray();
-                        Edit(folder, d.Key, new JsonArray(next));
-                    }
+                    var has = item.Chosen[oi];
+                    if (!ui.Checkbox(item.OptionIds[oi], ref has) || has == item.Chosen[oi]) continue;
+                    // ShroudForge keeps the options' order
+                    var next = d.Options.Select((x, xi) => (x, xi)).Where(t => t.xi == oi ? has : item.Chosen[t.xi]).Select(t => t.x.Value?.DeepClone()).ToArray();
+                    Edit(folder, d.Key, new JsonArray(next));
                 }
                 return;
             }
             case (_, _) when d.Options.Count > 0:
             {
-                var i = 0;
-                for (var oi = 0; oi < d.Options.Count; oi++)
-                {
-                    var o = d.Options[oi];
-                    if (!JsonNode.DeepEquals(o.Value, value) && !(ShroudForgePackages.NumberOf(o.Value) is { } a && a == ShroudForgePackages.NumberOf(value))) continue;
-                    i = oi;
-                    break;
-                }
+                var i = item.ComboIndex;
                 var before = i;
                 ui.NextItemWidth(width);
-                if (ui.Combo("##v", ref i, item.OptionLabels) && i != before) Edit(folder, d.Key, d.Options[i].Value?.DeepClone());
+                if (ui.Combo("##v", ref i, item.ComboItems, d.Options.Count) && i != before) Edit(folder, d.Key, d.Options[i].Value?.DeepClone());
                 return;
             }
             case ("integer", not "number") when d.Min is { } lo && d.Max is { } hi && lo <= hi && lo >= int.MinValue && hi <= int.MaxValue && hi - lo <= 1_000_000:
@@ -631,20 +772,24 @@ internal static class ShroudForgeUi
             text = Typing.TryGetValue(id, out var t) ? t.Text : shown;
         }
         var multi = d.Control == "textarea";
-        // the field holds the declared length and the whole value with room to type: it never shows a value cut to fit
-        // (and the cut text is never saved); a value too long for any field is shown, not edited
-        var need = Math.Max(Encoding.UTF8.GetByteCount(text), Encoding.UTF8.GetByteCount(shown));
+        // the field holds the whole value with room to type: it never shows a value cut to fit (and the cut text is never
+        // saved); a value too long for any field is shown, not edited
         var cap = multi ? MaxAreaBytes : MaxLineBytes;
-        if (need > cap || text.Contains('\0') || shown.Contains('\0'))
+        if (!UiDraw.Editable(text, cap) || !UiDraw.Editable(shown, cap))
         {
-            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(Clip(shown, MaxDrawnText));
+            var nul = shown.Contains('\0') || text.Contains('\0');
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(Clip(shown.Replace('\0', ' '), MaxDrawnText));
             using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
-                ui.TextWrapped($"Too long to edit here ({shown.Length} characters): change it in the mod's extended.mod.json.");
+                ui.TextWrapped(nul
+                    ? "This value holds a NUL character, which a text field cannot show or keep: change it in the mod's extended.mod.json."
+                    : $"Too long to edit here ({shown.Length} characters): change it in the mod's extended.mod.json.");
             return;
         }
         ui.NextItemWidth(width);
-        var max = (int)Math.Clamp(Math.Max((long)(d.MaxLength ?? 256) * 4, need + 1024L) + 1, 16, cap);
-        var changed = multi ? ui.InputMultiline("##v", ref text, max, width, 90 * ui.Scale) : ui.InputText("##v", ref text, max);
+        // always the same size for a field: ImGui sizes its own copy of the text once, when the field becomes active, and
+        // takes the size given every frame as its bound, so a size that grew while the player types let ImGui write past
+        // its buffer. A declared maxLength is not a limit here; Check refuses a longer value when it is saved.
+        var changed = multi ? ui.InputMultiline("##v", ref text, cap, width, 90 * ui.Scale) : ui.InputText("##v", ref text, cap);
         var it = ui.LastItem;
         if (it.Active) _activeFrame = frame;
         lock (Lock)
@@ -694,7 +839,8 @@ internal static class ShroudForgeUi
                         if (Waiting(game, p.Id))
                         {
                             ok = false;
-                            text = $"{label}: an earlier request for {p.Name} is still waiting for ShroudForge; nothing new was queued.";
+                            text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
+                                   "which runs it once the mod takes it; nothing new was queued.";
                         }
                         else
                         {
@@ -721,14 +867,15 @@ internal static class ShroudForgeUi
 
     internal static string GameDir() => ModCatalog.Sources().GameDir;
 
-    /// <summary>A request this process queued for mod <paramref name="id"/> is still in ShroudForge's actions folder
-    /// (ShroudForgePackages.QueueAction names them <c>&lt;id&gt;-&lt;time&gt;-&lt;guid&gt;-&lt;pid&gt;.json</c>).</summary>
+    /// <summary>A request Kiln queued for mod <paramref name="id"/>, in this game or an earlier one, is still in ShroudForge's
+    /// actions folder (ShroudForgePackages.QueueAction names them <c>&lt;id&gt;-&lt;time&gt;-&lt;guid&gt;-&lt;pid&gt;.json</c>).
+    /// ShroudForge never drops one by age, so one from an earlier start may still run.</summary>
     private static bool Waiting(string game, string id)
     {
         var dir = Path.Combine(ShroudForgePackages.Folder(game, "ui"), "actions");
         if (!Directory.Exists(dir)) return false;
         var ours = new System.Text.RegularExpressions.Regex(
-            "^" + System.Text.RegularExpressions.Regex.Escape(id) + "-[0-9]+-[0-9a-f]{32}-" + Environment.ProcessId + "\\.json$",
+            "^" + System.Text.RegularExpressions.Regex.Escape(id) + "-[0-9]+-[0-9a-f]{32}-[0-9]+\\.json$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         return Directory.EnumerateFiles(dir, "*.json").Any(f => ours.IsMatch(Path.GetFileName(f)));
     }
@@ -744,7 +891,6 @@ internal static class ShroudForgeUi
             _version++;
         }
         _activeFrame = 0;
-        Views.Clear();
         Packages.Clear();
     }
 }

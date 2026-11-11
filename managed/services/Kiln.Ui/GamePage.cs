@@ -141,7 +141,7 @@ internal static unsafe class GamePageHost
             // vignette; the shot behind may still be bright)
             // full strength through the tab row (the first 46 units of the body) and the hint bar, fading after
             ModManagerChrome.Bands(ui, (body.Y + 52 * s) / 0.65f, h - (h - footer.Y + 8 * s) / 0.65f, 170);
-            if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.page", ModManagerChrome.PageWindowFlags))
+            if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.page", ModManagerChrome.PageFlags(first)))
             {
                 ModManagerHost.Page.Backed = true;
                 ModManagerChrome.Title(ui, ChromeLook.GamePage, header.X, header.Y, header.Right, header.Height, s);

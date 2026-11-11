@@ -9,7 +9,7 @@ repo=$(cd "$here/../.." && pwd)
 : "${KILN_OUT:=$repo/.out}"
 out=$KILN_OUT/preview
 mkdir -p "$out" "$KILN_OUT/ui-preview"
-font="" scene="" size="" scale=1 gamefont=1 checkz=0
+font="" scene="" size="" scale=1 gamefont=1 checkz=0 checktext=0
 while (($#)); do
   case $1 in
     --font) font=$2; shift 2 ;;
@@ -18,6 +18,7 @@ while (($#)); do
     --size) size=$2; shift 2 ;;
     --scale) scale=$2; shift 2 ;;
     --check-z) checkz=1; shift ;;
+    --check-text) checktext=1; shift ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -44,6 +45,7 @@ fi
 dotnet build "$here/Kiln.Ui.Preview/Kiln.Ui.Preview.csproj" --artifacts-path "$KILN_OUT/dotnet" -v q -nologo | grep -E "error|Error" || true
 app=$KILN_OUT/dotnet/bin/Kiln.Ui.Preview/debug/Kiln.Ui.Preview.dll
 if ((checkz)); then exec dotnet "$app" --shim "$b/libkiln_ui_preview.so" --out "$out" --size 1920x1080 --check-z; fi
+if ((checktext)); then exec dotnet "$app" --shim "$b/libkiln_ui_preview.so" --out "$out" --size 1920x1080 --check-text; fi
 for s in "${sizes[@]}"; do
   read -r size scale <<<"$s"
   args=(--shim "$b/libkiln_ui_preview.so" --out "$out" --size "$size" --scale "$scale")

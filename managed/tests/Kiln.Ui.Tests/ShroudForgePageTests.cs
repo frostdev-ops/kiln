@@ -224,8 +224,8 @@ public sealed class ShroudForgePageTests : IDisposable
         var p = ShroudForgePackages.Read(folder);
         var byKey = p.Settings.ToDictionary(x => x.Key, StringComparer.Ordinal);
         var values = p.Values;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var ours = p.Settings.Select(x => (x.Key, ShroudForgeUi.IsEnabled(x.Key, byKey, values, seen))).ToArray();
+        var rule = new ShroudForgeUi.EnabledRule(byKey, values);
+        var ours = p.Settings.Reverse().Select(x => (x.Key, rule.Of(x.Key))).Reverse().ToArray();  // remembered answers in any order
         var theirs = p.Settings.Select(x => (x.Key, ShroudForgePackages.IsEnabled(x.Key, p.Settings, values))).ToArray();
         Assert.Equal(theirs, ours);
         Assert.Equal([true, true, true, false, false, false, false, true, true, false], ours.Select(x => x.Item2));
@@ -309,8 +309,31 @@ public sealed class ShroudForgePageTests : IDisposable
         finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
     }
 
-    /// <summary>A request that cannot be written (a file is where the actions folder would be) fails with a message, not
-    /// a silent worker.</summary>
+    /// <summary>A request an earlier game start left (another pid) is still one waiting: ShroudForge keeps it and may run
+    /// it at a later start, so Kiln adds none and says so.</summary>
+    [Fact]
+    public void A_request_an_earlier_game_left_counts_as_waiting()
+    {
+        UseGame();
+        try
+        {
+            var folder = ActionPackage();
+            Directory.CreateDirectory(Actions(folder));
+            var old = Path.Combine(Actions(folder), $"notes-1762800000000000000-{Guid.NewGuid():N}-{Environment.ProcessId + 1}.json");
+            File.WriteAllText(old, """{"modId":"notes","action":"reset","createdAt":1762800000}""");
+            File.WriteAllText(Path.Combine(Actions(folder), $"notes-extra-1762800000000000000-{Guid.NewGuid():N}-7.json"), "{}");  // another mod's
+            var line = ClickAction(Page(Mod(folder) with { Active = true }));
+            Assert.NotNull(line);
+            Assert.Contains("still waiting", line);
+            Assert.Equal(2, Directory.EnumerateFiles(Actions(folder)).Count());
+            File.Delete(old);
+            Assert.StartsWith("Requested", ClickAction(Page(Mod(folder) with { Active = true })));  // another mod's file is not this one's
+        }
+        finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
+    }
+
+    /// <summary>A request that cannot be written (ShroudForge's config names a ui folder with a NUL in it, which no file
+    /// call takes) fails with a message, not a silent worker.</summary>
     [Fact]
     public void An_action_that_cannot_be_sent_says_why()
     {
@@ -318,8 +341,9 @@ public sealed class ShroudForgePageTests : IDisposable
         try
         {
             var folder = ActionPackage();
-            Directory.CreateDirectory(Path.GetDirectoryName(Actions(folder))!);
-            File.WriteAllText(Actions(folder), "not a folder");
+            var config = Path.Combine(_root, "shroudforge", "config");
+            Directory.CreateDirectory(config);
+            File.WriteAllText(Path.Combine(config, "modloader-config.json"), """{ "paths": { "ui": "a\u0000b" } }""");
             var line = ClickAction(Page(Mod(folder) with { Active = true }));
             Assert.NotNull(line);
             Assert.Contains("could not be sent", line);
@@ -342,5 +366,57 @@ public sealed class ShroudForgePageTests : IDisposable
             Assert.Equal(ModManagerSection.Mods, page.Section);
         }
         finally { ShroudlinkMenu.Open = false; }
+    }
+    /// <summary>The page re-reads the selected package every second: the same bytes make no new package and no new view.</summary>
+    [Fact]
+    public void A_reread_of_unchanged_files_keeps_the_package()
+    {
+        var folder = Package("""{ "level": { "value": 1, "label": "Level" } }""");
+        var first = ShroudForgeUi.Get(folder, out _);
+        ShroudForgeUi.Load(folder);
+        Assert.Same(first, ShroudForgeUi.Get(folder, out _));
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), File.ReadAllText(Path.Combine(folder, "extended.mod.json")).Replace("1", "2"));
+        ShroudForgeUi.Load(folder);
+        Assert.NotSame(first, ShroudForgeUi.Get(folder, out _));
+    }
+
+    /// <summary>A package with more settings than a page can hold (a generated or broken file) shows the first ones and
+    /// says how many more it has.</summary>
+    [Fact]
+    public void A_large_package_draws_its_first_settings_and_says_how_many_are_left()
+    {
+        var folder = Package("{ " + string.Join(", ", Enumerable.Range(0, 1000).Select(i => $"\"s{i}\": true")) + " }");
+        ShroudForgeUi.Draw(_ui, Mod(folder), 1, 1, (_, _, _) => { });
+        lock (FakeUiTable.Texts)
+        {
+            Assert.Contains("s299", FakeUiTable.Texts);
+            Assert.DoesNotContain("s300", FakeUiTable.Texts);
+            Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("700 more settings are not shown here", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>A 10,000-step enabledWhen chain: each setting's answer is worked out once, on the worker that read the
+    /// package, not by walking the chain again for every setting on the render thread.</summary>
+    [Fact]
+    public void A_long_enabled_chain_costs_one_walk_and_the_frame_none()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var folder = Package(Chain(10_000));  // read (and its view made) here, as the read worker does
+        var mod = Mod(folder);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(watch.ElapsedMilliseconds < 3000, $"reading and drawing a 10,000-step chain took {watch.ElapsedMilliseconds} ms");
+        Assert.True(bytes < 256 * 1024, $"the first frame allocated {bytes} bytes");
+    }
+    /// <summary>The page of a mod whose settings an earlier Kiln damaged says that ShroudForge refuses it until a save.</summary>
+    [Fact]
+    public void A_mod_whose_settings_need_repair_says_so_on_its_page()
+    {
+        var folder = Package("""{ "speed": { "value": 2, "label": "Speed", "options": { "1.5": "Slow", "2.0": "Fast" } } }""");
+        ShroudForgeUi.Draw(_ui, Mod(folder), 1, 1, (_, _, _) => { });
+        lock (FakeUiTable.Texts)
+            Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("ShroudForge refuses this mod until its settings are saved once", StringComparison.Ordinal) &&
+                                                    t.Contains("Changing any setting or its switch here repairs it", StringComparison.Ordinal));
     }
 }
