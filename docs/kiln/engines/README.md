@@ -99,8 +99,10 @@ launcher puts them there:
   that switch from the profile; EML's own loader, when it runs instead, reads only `launcher` from the file: the file ShroudForge's own Modloader writes for a legacy
   EML package, or only the `enabled` value of a shipped one. The file is part of Kiln's copy; setting values changed
   in it later are the player's (carried to the next version; a copy holding them is kept, switched off, when the
-  profile turns the mod off). A player's own folder is never written, and the launcher says when ShroudForge has it
-  off (activation notes, `ownLoaders[].off` for Kiln's copies). Without ShroudForge nothing is written.
+  profile turns the mod off). A player's own folder is never written, and the launcher says when ShroudForge does not
+  run a package and what helps (activation notes; for Kiln's copies `ownLoaders[].off`: switched off, the next
+  activation switches it on; `otherSide`: its `targets` name the other side only, nothing to do; `unreadable`:
+  ShroudForge refuses its files, no switch helps). Without ShroudForge nothing is written.
 - **No double load.** When the loader does not start after all (Wine/Proton without the override), the plugin runs
   the profile's mods from the Library as usual (EML's: unless Kiln hosts ShroudForge for the profile, which then runs
   Kiln's copies in its folder). A folder in the engine's drop-in folder whose marker names this

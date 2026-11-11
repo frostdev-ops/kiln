@@ -530,26 +530,47 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     })
 }
 
+/// Why ShroudForge does not run a package ([`switched_off`]), with the reason in plain words. What helps differs: a
+/// switch helps only [`SfOff::Switch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SfOff {
+    /// Its switch is off: it has no `extended.mod.json`, or `enabled` is not true.
+    Switch(String),
+    /// Its `targets` name the other side only: ShroudForge runs it there, not in this process.
+    Side(String),
+    /// ShroudForge cannot read the package (it refuses its `mod.json` or `extended.mod.json`; the reader's message): no
+    /// switch helps.
+    Unreadable(String),
+}
+
+impl SfOff {
+    pub fn reason(&self) -> &str {
+        match self {
+            SfOff::Switch(r) | SfOff::Side(r) | SfOff::Unreadable(r) => r,
+        }
+    }
+}
+
 /// Why ShroudForge does not run the package in `folder` in this game's process (`server`: a dedicated server), or None
 /// when it does as far as its switch and side say. ShroudForge runs a package only while its `extended.mod.json` says
 /// `enabled: true` (a legacy EML package has no such file until ShroudForge's own Modloader writes one at the first
 /// change of its switch), and only on the sides its `targets` name: an array with "server" alone is the server only,
 /// any other array the client (with "server" too, both); without one an EML package runs on both.
-pub fn switched_off(folder: &Path, server: bool) -> Option<String> {
+pub fn switched_off(folder: &Path, server: bool) -> Option<SfOff> {
     let m = match read_mod(folder) {
         Ok(m) => m,
-        Err(e) => return Some(format!("ShroudForge cannot read the package: {}", e.message)),
+        Err(e) => return Some(SfOff::Unreadable(e.message)),
     };
     if !m.enabled {
-        return Some(if m.extended {
+        return Some(SfOff::Switch(if m.extended {
             "its extended.mod.json, the file that holds ShroudForge's switch, says enabled: false".into()
         } else {
             "it has no extended.mod.json, the file that holds ShroudForge's switch (ShroudForge keeps a package off until its switch is on)".into()
-        });
+        }));
     }
     let (client, srv) = (m.targets.iter().any(|t| t == "client"), m.targets.iter().any(|t| t == "server"));
     let runs = if server { srv } else { client || !srv };
-    (!runs).then(|| format!("its extended.mod.json targets the {} only", if server { "client" } else { "server" }))
+    (!runs).then(|| SfOff::Side(format!("its extended.mod.json targets the {} only", if server { "client" } else { "server" })))
 }
 
 /// A folder in the mods dir that is not a readable ShroudForge package, and why.
@@ -1196,7 +1217,7 @@ mod tests {
             // each case is well-formed JSON: it is the field's value that ShroudForge's schema refuses
             assert!(serde_json::from_str::<serde_json::Value>(&ext).is_ok(), "{ext}");
             let f = pkg(t.path(), "invalid", Some(&ext));
-            assert!(switched_off(&f, false).is_some(), "{ext}");
+            assert!(matches!(switched_off(&f, false), Some(SfOff::Unreadable(_))), "{ext}");
         }
     }
 

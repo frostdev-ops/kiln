@@ -1393,13 +1393,22 @@ fn own_folder(rep: &mut PlaceReport, tag: String, path: &Path, on: bool) {
 }
 
 /// [`own_folder`] for an EML entry the player's own folder serves. `sf`: the folder is the one ShroudForge reads while it
-/// runs the EML mods, and ShroudForge runs a package there only while its switch is on. Kiln never writes into the
-/// player's folder, so when ShroudForge has it off the note says so, and where to switch it on.
+/// runs the EML mods, and ShroudForge runs a package there only while its switch is on, for this side. Kiln never writes
+/// into the player's folder, so when ShroudForge does not run it the note says why, and where to switch it on when a
+/// switch helps.
 fn own_eml_folder(rep: &mut PlaceReport, tag: String, path: &Path, sf: bool, server: bool) {
-    let Some(why) = sf.then(|| crate::shroudforge::switched_off(path, server)).flatten() else { return own_folder(rep, tag, path, true) };
-    rep.own_notes.push(format!("{tag}: your own folder {} is in ShroudForge's mods folder, but ShroudForge has it switched off ({why}), \
-        so it does not run while ShroudForge runs the EML mods. Kiln never writes into your own folder: switch it on in Kiln's menu \
-        (Mods, ShroudForge) or in ShroudForge's own Modloader, then start the game again.", path.display()));
+    use crate::shroudforge::SfOff;
+    let Some(off) = sf.then(|| crate::shroudforge::switched_off(path, server)).flatten() else { return own_folder(rep, tag, path, true) };
+    let folder = path.display();
+    rep.own_notes.push(match off {
+        SfOff::Switch(why) => format!("{tag}: your own folder {folder} is in ShroudForge's mods folder, but ShroudForge has it switched off \
+            ({why}), so it does not run while ShroudForge runs the EML mods. Kiln never writes into your own folder: switch it on in Kiln's \
+            menu (Mods, ShroudForge) or in ShroudForge's own Modloader, then start the game again."),
+        SfOff::Side(why) => format!("{tag}: your own folder {folder} is in ShroudForge's mods folder, and {why}: ShroudForge runs it on \
+            that side, not {}. Kiln leaves it as it is.", if server { "on this server" } else { "in this game" }),
+        SfOff::Unreadable(why) => format!("{tag}: your own folder {folder} is in ShroudForge's mods folder, but ShroudForge cannot read it \
+            ({why}), so it does not run while ShroudForge runs the EML mods, and no switch changes that. Kiln never writes into your own folder."),
+    });
     rep.own.push(tag);
 }
 

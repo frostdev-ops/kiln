@@ -426,6 +426,43 @@ fn with_emls_proxy_file_in_the_folder_kilns_copies_still_carry_shroudforges_swit
     assert!(eml.text.contains("without one Kiln runs these mods itself"), "{}", eml.text);
 }
 
+/// pr-manage P5: "activate the profile again to switch them on" helps a copy whose switch is off, not one for the other
+/// side or one ShroudForge cannot read. Each gets its own list and a sentence that is true, Kiln's copies and the
+/// player's own folders alike.
+#[test]
+fn the_launcher_tells_switched_off_other_side_and_unreadable_eml_mods_apart() {
+    let s = setup("why-off");
+    let gliders = import(&s.dirs, &legacy(&s.t.0, "more-gliders", "0.2.2"), ModKind::Eml, "more-gliders");
+    let server = SHIPPED.replace("\"targets\": [ \"client\" ]", "\"targets\": [ \"server\" ]");
+    let srv = import(&s.dirs, &shipped(&s.t.0, "server-tweaks", "1.0.0", &server), ModKind::Eml, "server-tweaks");
+    let refused = SHIPPED.replace("\"schemaVersion\" : 1", "\"schemaVersion\" : 2");
+    let bad = import(&s.dirs, &shipped(&s.t.0, "schema-two", "1.0.0", &refused), ModKind::Eml, "schema-two");
+    // the player's own folders of two more profile mods: one for the other side, one ShroudForge cannot read
+    let hand_srv = import(&s.dirs, &legacy(&s.t.0, "hand-server", "1.0.0"), ModKind::Eml, "hand-server");
+    let hand_bad = import(&s.dirs, &legacy(&s.t.0, "hand-bad", "1.0.0"), ModKind::Eml, "hand-bad");
+    for (dir, id, ext) in [("Hand Server", "hand-server", &server), ("Hand Bad", "hand-bad", &refused)] {
+        let d = s.game.join("mods").join(dir);
+        put(&d, "mod.json", format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0","capabilities":["patch"]}}"#).as_bytes());
+        put(&d, "src/mod.lua", b"return {}");
+        put(&d, "extended.mod.json", ext.replace("\"enabled\" :   false", "\"enabled\" :   true").as_bytes());
+    }
+    let p = s.profile(vec![pm(&gliders, true), pm(&srv, true), pm(&bad, true), pm(&hand_srv, true), pm(&hand_bad, true)]);
+    let rep = engine_mods::place(&s.dirs, &p, &s.game).unwrap();
+    shroudforge::set_enabled(&s.game.join("mods/more-gliders"), false).unwrap();
+    let view = own_loaders::ProfileView::of_profile(&p);
+    let notes = own_loaders::notes(&s.game, &own_loaders::find(&s.game, Some(&view)), Some(&view));
+    let eml = notes.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+    assert_eq!((eml.off.clone(), eml.other_side.clone(), eml.unreadable.clone()),
+        (vec!["more-gliders".to_string()], vec!["server-tweaks".to_string()], vec!["schema-two".to_string()]), "{eml:?}");
+    let sentence = |id: &str| eml.text.split(". ").find(|s| s.contains(&format!("({id}"))).unwrap_or_else(|| panic!("{id}: {}", eml.text)).to_string();
+    assert!(sentence("more-gliders").contains("activate the profile again to switch them on"), "{}", eml.text);
+    assert!(sentence("server-tweaks").contains("server only") && !sentence("server-tweaks").contains("activate"), "{}", eml.text);
+    assert!(sentence("schema-two").contains("cannot read") && !sentence("schema-two").contains("activate the profile again"), "{}", eml.text);
+    let own = |id: &str| rep.own_notes.iter().find(|n| n.starts_with(&format!("eml:{id}"))).unwrap_or_else(|| panic!("{id}: {:?}", rep.own_notes)).clone();
+    assert!(own("hand-server").contains("server only") && !own("hand-server").contains("switch it on"), "{}", own("hand-server"));
+    assert!(own("hand-bad").contains("cannot read") && !own("hand-bad").contains("switch it on"), "{}", own("hand-bad"));
+}
+
 #[test]
 fn the_launcher_says_when_shroudforge_has_an_eml_mod_off_and_never_writes_a_players_folder() {
     let s = setup("notes");

@@ -133,7 +133,8 @@ it off. EML's own loader runs every package of its folder. ShroudForge reads onl
 package there only while that package's `extended.mod.json` says `enabled: true`, on the sides its `targets` name
 (none: an EML package runs on both); a legacy EML package has no such file until ShroudForge (or Kiln's launcher, for
 its own copies) writes one. So under ShroudForge a mod in its folder that it has off is `off-in-shroudforge` and one
-for the other side `other-side`, each with a reason that says what to do, and the kiln.log line counts only the mods
+for the other side `other-side`, each with a reason that says what to do (for a file ShroudForge refuses, such as
+another `schemaVersion`, that no switch helps), and the kiln.log line counts only the mods
 that run (`discover::shroudforge_switch`, kiln-eml's own reader of that boolean and the targets; no ShroudForge code).
 ShroudForge's own proxy with `"modloader": "eml"` in its config keeps EML's rule. In a start without ShroudForge
 kiln-eml reads only `launcher` from that file: `enabled: false` there never switches a mod off for kiln-eml.

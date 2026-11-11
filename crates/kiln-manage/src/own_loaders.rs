@@ -248,10 +248,18 @@ pub struct OwnLoaderNote {
     /// Ids that are not in the loader's folder: they do not load while the own loader runs.
     pub not_copied: Vec<String>,
     /// Ids of [`OwnLoaderNote::copied`] that ShroudForge has switched off (EML mods while ShroudForge runs them: their
-    /// copy has no `extended.mod.json`, its `enabled` is not true, or ShroudForge cannot read the package): ShroudForge
-    /// does not run them.
+    /// copy has no `extended.mod.json`, or its `enabled` is not true): ShroudForge does not run them, and activating the
+    /// profile again switches them on.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub off: Vec<String>,
+    /// Ids of [`OwnLoaderNote::copied`] whose `extended.mod.json` targets the other side only (a server-only mod on a
+    /// client, a client-only one on a dedicated server): ShroudForge does not run them here, and nothing needs doing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub other_side: Vec<String>,
+    /// Ids of [`OwnLoaderNote::copied`] whose package ShroudForge cannot read (it refuses their `mod.json` or
+    /// `extended.mod.json`): ShroudForge does not run them, and no switch changes that.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreadable: Vec<String>,
     /// One sentence for the Play and profile pages.
     pub text: String,
 }
@@ -292,9 +300,18 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
         let server = game_dir.join(crate::game::SERVER_EXE).is_file();
         let hosted = loaders.iter().find(|o| o.kind == kind && o.via == Via::HostedShroudForge);
         let sf_reads = kind == ModKind::Eml && shroudforge_runs_eml(loaders) && root == crate::shroudforge::mods_dir(game_dir);
-        let off: Vec<String> = if sf_reads {
-            copied.iter().filter(|id| copy_of(&root, kind, id).is_some_and(|dir| crate::shroudforge::switched_off(&dir, server).is_some())).cloned().collect()
-        } else { Vec::new() };
+        let (mut off, mut other_side, mut unreadable, mut refused) = (Vec::new(), Vec::new(), Vec::new(), None);
+        for id in copied.iter().filter(|_| sf_reads) {
+            match copy_of(&root, kind, id).and_then(|dir| crate::shroudforge::switched_off(&dir, server)) {
+                Some(crate::shroudforge::SfOff::Switch(_)) => off.push(id.clone()),
+                Some(crate::shroudforge::SfOff::Side(_)) => other_side.push(id.clone()),
+                Some(crate::shroudforge::SfOff::Unreadable(why)) => {
+                    refused.get_or_insert(format!("{id}: {why}"));
+                    unreadable.push(id.clone());
+                }
+                None => {}
+            }
+        }
         let who = loader_name(l);
         let label = short(kind);
         let folder = format!("{}/", l.folder.trim_end_matches('/'));
@@ -342,7 +359,16 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                 ". ShroudForge has {} of them switched off in ShroudForge's settings and does not run them ({}): activate the profile again to switch them on",
                 off.len(), names(&off)));
         }
-        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, off, text });
+        if !other_side.is_empty() {
+            text.push_str(&format!(". {} of them target the {} only, so ShroudForge does not run them {} ({}); nothing needs doing",
+                other_side.len(), if server { "client" } else { "server" }, if server { "on this server" } else { "in this game" }, names(&other_side)));
+        }
+        if !unreadable.is_empty() {
+            text.push_str(&format!(". ShroudForge cannot read {} of them, so it does not run them and no switch changes that ({}{}): a version \
+                of the mod whose files ShroudForge reads does, or a profile without ShroudForge mods (Kiln then runs them itself)",
+                unreadable.len(), if unreadable.len() == 1 { String::new() } else { format!("{}; ", names(&unreadable)) }, refused.unwrap_or_default()));
+        }
+        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, off, other_side, unreadable, text });
     }
     out
 }
