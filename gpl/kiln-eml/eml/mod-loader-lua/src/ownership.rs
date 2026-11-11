@@ -7,6 +7,13 @@ use sha2::{Digest as _, Sha256};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Digest { size: u64, sha256: String }
 
+thread_local! { static READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+
+/// Bytes the ownership checks of this thread hashed since `reset_read` (they are outside the change cache's counter).
+pub(crate) fn read() -> u64 { READ.with(|r| r.get()) }
+pub(crate) fn reset_read() { READ.with(|r| r.set(0)); }
+fn count(n: usize) { READ.with(|r| r.set(r.get() + n as u64)); }
+
 fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
     checked_path(root, path)?;
     super::transaction::regular(path)?;
@@ -18,6 +25,7 @@ fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
         let n = file.read(&mut buffer)?;
         if n == 0 { break; }
         size += n as u64;
+        count(n);
         hash.update(&buffer[..n]);
     }
     Ok(Digest { size, sha256: format!("{:x}", hash.finalize()) })
@@ -157,24 +165,35 @@ impl<'a> Live<'a> {
         Ok(found)
     }
 
-    /// Is every file exactly as listed? Sizes are compared first, so another writer's output is rejected unread.
-    fn matches(&mut self, files: &BTreeMap<String, Digest>) -> io::Result<bool> {
+    /// Has every file the listed size (from metadata, nothing read)?
+    fn sizes(&self, files: &BTreeMap<String, Digest>) -> io::Result<bool> {
         for (name, expected) in files {
             if self.size(name)? != Some(expected.size) { return Ok(false); }
         }
+        Ok(true)
+    }
+
+    /// Is every file exactly as listed? Sizes are compared first, so another writer's output is rejected unread.
+    fn matches(&mut self, files: &BTreeMap<String, Digest>) -> io::Result<bool> {
+        if !self.sizes(files)? { return Ok(false); }
         for (name, expected) in files {
             if self.digest(name)?.as_ref() != Some(expected) { return Ok(false); }
         }
         Ok(true)
     }
 
-    /// The backups present, exactly as listed (and no other): the working baseline the output was built from.
-    fn same_backups(&mut self, stem: &str, expected: &BTreeMap<String, Digest>) -> io::Result<bool> {
+    /// The backups present are the listed ones, with the listed sizes (and no other; nothing read).
+    fn backup_sizes(&self, stem: &str, expected: &BTreeMap<String, Digest>) -> io::Result<bool> {
         for extension in ["kfc.bak", "kfc_resources.bak", "kfc.bak.integrity"] {
             let name = format!("{stem}.{extension}");
             if self.size(&name)? != expected.get(&name).map(|d| d.size) { return Ok(false); }
         }
-        self.matches(expected)
+        Ok(true)
+    }
+
+    /// The backups present, exactly as listed (and no other): the working baseline the output was built from.
+    fn same_backups(&mut self, stem: &str, expected: &BTreeMap<String, Digest>) -> io::Result<bool> {
+        Ok(self.backup_sizes(stem, expected)? && self.matches(expected)?)
     }
 
     fn backups(&mut self, stem: &str) -> io::Result<BTreeMap<String, Digest>> {
@@ -187,9 +206,16 @@ impl<'a> Live<'a> {
         Ok(result)
     }
 
-    /// The generation of `receipt` that is live and was built from the backups present, if one is.
+    /// Could a generation of `receipt` be live, from sizes alone (metadata only)?
+    fn plausible(&self, stem: &str, receipt: &Receipt) -> io::Result<bool> {
+        Ok(self.backup_sizes(stem, &receipt.backups)?
+            && (self.sizes(&receipt.files)? || match &receipt.previous { Some(p) => self.sizes(p)?, None => false }))
+    }
+
+    /// The generation of `receipt` that is live and was built from the backups present, if one is. Every size is
+    /// compared before anything is read.
     fn owned(&mut self, stem: &str, receipt: &Receipt) -> io::Result<Option<BTreeMap<String, Digest>>> {
-        if !self.same_backups(stem, &receipt.backups)? { return Ok(None); }
+        if !self.plausible(stem, receipt)? || !self.same_backups(stem, &receipt.backups)? { return Ok(None); }
         if self.matches(&receipt.files)? { return Ok(Some(receipt.files.clone())); }
         match &receipt.previous {
             Some(previous) if self.matches(previous)? => Ok(Some(previous.clone())),
@@ -202,6 +228,25 @@ impl<'a> Live<'a> {
 pub fn owns_output(root: &Path, stem: &str) -> io::Result<bool> {
     let Some(receipt) = read_receipt(root, stem)? else { return Ok(false) };
     Ok(Live::new(root).owned(stem, &receipt)?.is_some())
+}
+
+/// SHA-256 of the receipt's bytes: what the change cache keeps as `owner` (cache/mod.rs) once its fingerprints of the
+/// game files are known to be that receipt's live output. None: no receipt.
+pub(crate) fn marker(root: &Path, stem: &str) -> io::Result<Option<String>> {
+    let path = receipt_path(root, stem)?;
+    if !path.try_exists()? { return Ok(None); }
+    Ok(Some(format!("{:x}", Sha256::digest(bounded(root, &path)?))))
+}
+
+/// The unchanged start (cache hit): the change cache found every game file as it fingerprinted them when it recorded
+/// `marker` for this very receipt, so the receipt's output is still what is live. Only metadata is looked at here
+/// (the receipt's sizes, as a second opinion); the full SHA-256 check stays for the moment before a restore.
+pub(crate) fn vouched(root: &Path, stem: &str, saved: Option<&str>) -> io::Result<Option<String>> {
+    let Some(saved) = saved else { return Ok(None) };
+    let Some(now) = marker(root, stem)? else { return Ok(None) };
+    if now != saved { return Ok(None); }
+    let Some(receipt) = read_receipt(root, stem)? else { return Ok(None) };
+    Ok(Live::new(root).plausible(stem, &receipt)?.then_some(now))
 }
 
 /// Write ahead: only the exact staged set can later match this proof, including after a publication failure. The
@@ -262,6 +307,7 @@ fn digest_and_crc(root: &Path, path: &Path) -> io::Result<(Digest, u64)> {
         let n = file.read(&mut buffer)?;
         if n == 0 { break; }
         size += n as u64;
+        count(n);
         hash.update(&buffer[..n]);
         crc.update(&buffer[..n]);
     }
@@ -407,9 +453,11 @@ pub(crate) fn remove_unreferenced(root: &Path, stem: &str, files: &BTreeMap<Stri
 /// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
 pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGuard>> {
     check_stem(stem)?;
+    let mut live = Live::new(root);
     for extension in ["kfc", "kfc_resources"] {
-        let backup = root.join(format!("{stem}.{extension}.bak"));
-        if backup.try_exists()? && digest(root, &backup)? != digest(root, &root.join(format!("{stem}.{extension}")))? {
+        let (backup, current) = (format!("{stem}.{extension}.bak"), format!("{stem}.{extension}"));
+        let Some(size) = live.size(&backup)? else { continue };
+        if live.size(&current)? != Some(size) || live.digest(&backup)? != live.digest(&current)? {
             return handoff(root, stem);
         }
     }
@@ -712,6 +760,20 @@ mod tests {
             drop(held);
             fs::remove_dir_all(root).unwrap();
         }
+    }
+    // Another writer's output (another size than the receipt lists) is rejected from metadata: no backup and no live
+    // file is read. On an idle start that is every start while SF's output is live.
+    #[test]
+    fn another_writers_output_is_rejected_without_reading_anything() {
+        let (root, files) = fixture();
+        prepare(&root, "g", &files).unwrap();
+        publish(&root, &files);
+        assert!(owns_output(&root, "g").unwrap());
+        fs::write(root.join("g.kfc"), "a header of another length").unwrap();
+        reset_read();
+        assert!(!owns_output(&root, "g").unwrap());
+        assert_eq!(read(), 0, "rejected by size alone");
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn legacy_cache_and_foreign_backups_do_not_authorize_restore() {

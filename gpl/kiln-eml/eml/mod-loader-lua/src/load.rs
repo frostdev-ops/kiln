@@ -667,6 +667,8 @@ mod kiln_tests {
         assert!(hit.cached);
         assert_eq!(hit.fingerprint.hashed_bytes, 0, "{}", hit.fingerprint);
         assert_eq!(hit.fingerprint.hashed_files, 0);
+        // and the ownership proof of the unchanged output is vouched for by that cache, not read again
+        assert_eq!(hit.fingerprint.ownership_bytes, 0, "{}", hit.fingerprint.brief());
         assert!(hit.fingerprint.reused_files >= 5, "{}", hit.fingerprint);
 
         // a mod changed: the game data that did not change is still not read; the mod and what the run publishes are
@@ -678,6 +680,29 @@ mod kiln_tests {
         assert!(patch.fingerprint.hashed_bytes <= patched_before - backups + game_bytes() - backups + mod_bytes(), "{}", patch.fingerprint);
         assert!(patch.fingerprint.reused_files >= 5, "{}", patch.fingerprint);
         println!("first: {}\nhit:   {}\npatch: {}", first.fingerprint, hit.fingerprint, patch.fingerprint);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_start_checks_ownership_in_full_once_when_the_cache_does_not_vouch_for_it() {
+        crate::cache::RACY_WINDOW_OVERRIDE.with(|w| w.set(Some(std::time::Duration::ZERO)));
+        let (dir, env, args) = patch_fixture();
+        assert!(!crate::run(&env, args.clone()).unwrap().cached);
+        // a cache saved without the receipt's mark (an earlier build of this cache, or a hit that could not check)
+        let files = env.cache_dir().join("files.json");
+        let mut saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&files).unwrap()).unwrap();
+        assert!(saved.as_object_mut().unwrap().remove("owner").is_some(), "the patch run recorded its receipt");
+        std::fs::write(&files, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let first = crate::run(&env, args.clone()).unwrap();
+        assert!(first.cached && first.fingerprint.ownership_bytes > 0, "checked in full once: {}", first.fingerprint.brief());
+        let next = crate::run(&env, args.clone()).unwrap();
+        assert!(next.cached && next.fingerprint.ownership_bytes == 0, "then vouched for: {}", next.fingerprint.brief());
+        // a receipt that is not the one the cache vouched for (and does not match the live output): the patch runs
+        let receipt = dir.join("kiln/eml/ownership/g.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&receipt).unwrap()).unwrap();
+        value["files"]["g.kfc"]["sha256"] = "0".repeat(64).into();
+        std::fs::write(&receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(!crate::run(&env, args).unwrap().cached);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -248,6 +248,15 @@ usable cache, or the first start after a Kiln update, reads about a gigabyte of 
   copy loops in all, most of it files written a moment before and still in the page cache, instead of 48 GiB. A start after that reads the 224 MiB the patch wrote once (their stamps were too new
   to record) and then nothing; a start after a mod change reads the 0.7 GiB of the backup seal and the stage copy and the
   224 MiB the patch writes.
+- **The ownership receipt (dev.24)** is read outside the change cache and counted on its own (`ownershipBytes` in
+  `fingerprint`, `checked ... against the ownership receipt` in the summary). A patch run hashes (SHA-256) what it
+  publishes and the backups once, and the live files where their sizes equal the new ones, to write the receipt: about
+  0.45 GiB on a client more. An unchanged start reads none of it: the change cache records the receipt (`owner`, the
+  SHA-256 of its bytes) right after the publication it lists, and while every game file is as it recorded them and the
+  receipt is those bytes, the output is still that one; only the receipt's sizes are compared, from metadata. A start
+  whose cache does not record it yet (a cache saved before dev.24, say) checks in full once and records it. A start
+  without EML mods compares sizes first, so another writer's output (another length) is rejected unread; the full check
+  is kept for the moment before a restore.
 - **When a saved fingerprint is reused:** the stamp is the one it was recorded under, and length and last-write time are
   unchanged. An unread record is reused the same way: it is its stamp.
 - **A file whose stamp changed.** With a CRC on record, the file is read and the CRC decides, as in dev.21, until the
@@ -411,7 +420,8 @@ in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab
   one sentence for the player with what to do (see "It fails soft").
   `fingerprint` (dev.21, only when a run finished) is `{ hashedBytes, hashedFiles, reusedFiles, reusedBytes, ms }` plus,
   since dev.22, `recordedFiles` and `recordedBytes` (files recorded by their stamp, not read): what reading the game's
-  files for the change cache cost this start. `phase: "running"` and `progress` (dev.22, only while the run goes on) are
+  files for the change cache cost this start, and since dev.24 `ownershipBytes` (what the ownership receipt's SHA-256
+  checks read, apart). `phase: "running"` and `progress` (dev.22, only while the run goes on) are
   described under [What you see while it runs](#what-you-see-while-it-runs).
 
 ### Licence layout
@@ -668,7 +678,7 @@ it just written and still in the cache) is not in these rows.
 |---|---|---|---|
 | first start ever (no cache), patch run | 221.5 GiB, 194 s | 55.7 GiB, 28 s | 0.22 GiB, 0.2 s |
 | the start after a patch run (stamps of the files it wrote) | 55.5 GiB, 37 s | 0.22 GiB, 0.1 s | 0.22 GiB, 0.2 s |
-| nothing changed | 55.5 GiB, 49 s | 0 B | 0 B |
+| nothing changed | 55.5 GiB, 49 s | 0 B | 0 B (dev.24: also nothing for the ownership receipt, see above) |
 | a mod changed (patch run, warm cache) | 221.5 GiB, 189 s | 0.22 GiB, 0.2 s | 0.22 GiB, 0.2 s |
 | first start after a Kiln update, saved cache from dev.21 (stamps) | | 0 B | 0 B |
 | first start after a Kiln update, saved cache from dev.20 (CRCs, no stamps) | | 55.5 GiB, 37 s | 0 B |

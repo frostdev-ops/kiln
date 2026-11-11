@@ -32,6 +32,12 @@ pub struct FileStateCache {
     // only entries that were read.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     unread: BTreeSet<PathBuf>,
+    // kiln-eml: SHA-256 of the ownership receipt (ownership.rs `marker`) whose output the game-file fingerprints above
+    // are: recorded right after a publication (the receipt lists exactly the bytes just put in place) or after a full
+    // check on a start that changed nothing. While the cache is a hit and the receipt is these bytes, that output is
+    // still live and is not read again. Not part of what `diff` compares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
 }
 
 impl Default for FileStateCache {
@@ -41,6 +47,7 @@ impl Default for FileStateCache {
             files: HashMap::new(),
             stamps: HashMap::new(),
             unread: BTreeSet::new(),
+            owner: None,
         }
     }
 }
@@ -57,8 +64,13 @@ impl FileStateCache {
             files: HashMap::new(),
             stamps: HashMap::new(),
             unread: BTreeSet::new(),
+            owner: None,
         }
     }
+
+    // kiln-eml
+    pub(crate) fn owner(&self) -> Option<&str> { self.owner.as_deref() }
+    pub(crate) fn set_owner(&mut self, owner: Option<String>) { self.owner = owner; }
 
     pub fn track(
         &mut self,
