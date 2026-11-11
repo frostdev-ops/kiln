@@ -650,13 +650,7 @@ fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTree
                 out.insert(format!("{rel}/"), String::new());
                 walk(root, &path, kind, out)?;
             } else if entry.file_type()?.is_file() {
-                let hash = if kind == ModKind::ShroudForge && rel == "extended.mod.json" {
-                    let mut doc = read_json_checked(root, &path)?.ok_or_else(|| Error::invalid("missing SF extension"))?;
-                    let obj = doc.as_object_mut().ok_or_else(|| Error::invalid("SF extension must be an object"))?;
-                    obj.remove("enabled");
-                    obj.remove("settings");
-                    crate::hash::sha256_hex(&serde_json::to_vec(&doc)?)
-                } else { crate::hash::sha256_file(&path)?.0 };
+                let hash = if rel == "extended.mod.json" { extension_hash(root, &path, kind)? } else { crate::hash::sha256_file(&path)?.0 };
                 out.insert(rel, hash);
             } else {
                 return Err(Error::new(ErrorCode::Refused, format!("{}: not a regular file", path.display())));
@@ -667,6 +661,126 @@ fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTree
     let mut files = std::collections::BTreeMap::new();
     walk(root, root, kind, &mut files)?;
     Ok(files)
+}
+
+/// The inventory hash of a copy's `extended.mod.json` ([`placement_files`]): ShroudForge's file of a ShroudForge mod,
+/// and of an EML mod (ShroudForge runs those from its mods folder too, by the same switch), without its switch and
+/// settings, which are the player's to change. An EML mod's file that is no JSON object is hashed as it is (kiln-eml
+/// and EML do not read it; ShroudForge refuses it).
+fn extension_hash(root: &Path, path: &Path, kind: ModKind) -> Result<String> {
+    let doc = match kind {
+        ModKind::ShroudForge => Some(read_json_checked(root, path)?.ok_or_else(|| Error::invalid("missing SF extension"))?),
+        ModKind::Eml => read_json_checked(root, path).ok().flatten().filter(serde_json::Value::is_object),
+        _ => None,
+    };
+    let Some(mut doc) = doc else { return Ok(crate::hash::sha256_file(path)?.0) };
+    let obj = doc.as_object_mut().ok_or_else(|| Error::invalid("SF extension must be an object"))?;
+    obj.remove("enabled");
+    obj.remove("settings");
+    Ok(crate::hash::sha256_hex(&serde_json::to_vec(&doc)?))
+}
+
+/// An EML copy's receipt as [`placement_files`] lists it now. Before ShroudForge's switch was part of Kiln's EML copies
+/// (0.2.0-dev.24), a receipt listed a shipped `extended.mod.json` by the file's own hash; while the file is still the one
+/// Kiln placed, that entry means the same, and Kiln's bytes are its proof ([`Placement::extension`]).
+fn current_receipt(dst: &Path, r: &Placement) -> Placement {
+    const EXT: &str = "extended.mod.json";
+    let path = dst.join(EXT);
+    if r.marker.kind != ModKind::Eml || r.extension.is_some() { return r.clone(); }
+    let Some(listed) = r.files.get(EXT) else { return r.clone() };
+    if crate::hash::sha256_file(&path).ok().map(|h| h.0).as_ref() != Some(listed) { return r.clone(); }
+    let (Ok(hash), Ok(text)) = (extension_hash(dst, &path, ModKind::Eml), std::fs::read_to_string(&path)) else { return r.clone() };
+    let mut r = r.clone();
+    r.files.insert(EXT.into(), hash);
+    r.extension = Some(text);
+    r
+}
+
+/// The setting values of a ShroudForge `extended.mod.json` text (`settings.<key>.value`, or the shorthand value), by
+/// key; None when it is no JSON object.
+fn sf_values(text: &str) -> Option<std::collections::BTreeMap<String, serde_json::Value>> {
+    let doc = crate::jsonc::parse(text.trim_start_matches('\u{feff}')).ok().filter(serde_json::Value::is_object)?;
+    Some(doc.get("settings").and_then(|s| s.as_object()).into_iter().flatten().map(|(k, e)| {
+        (k.clone(), e.as_object().and_then(|o| o.get("value")).cloned().unwrap_or_else(|| e.clone()))
+    }).collect())
+}
+
+/// Kiln's EML copy `dst` holds ShroudForge setting values that are not the ones Kiln placed (the player changed them in
+/// the game, or Kiln carried them from an earlier version): they are the player's. Only a receipt that records Kiln's
+/// own file can tell ([`Placement::extension`]).
+fn sf_values_changed(dst: &Path, r: &Placement) -> bool {
+    let Some(placed) = current_receipt(dst, r).extension else { return false };
+    match std::fs::read_to_string(dst.join("extended.mod.json")) {
+        Ok(now) => sf_values(&now) != sf_values(&placed),
+        Err(_) => false,
+    }
+}
+
+/// Sets ShroudForge's switch of Kiln's EML copy `dst` (in ShroudForge's mods folder) to `on`, writing the file
+/// ShroudForge's own `ensure_eml_extension` writes when the copy has none (an older Kiln placed it without). The receipt
+/// advances with Kiln's own write when it recorded the file as it is now, or the copy had none: the file is part of what
+/// Kiln placed. A file holding the player's changes gets the switch and keeps its earlier record, as a ShroudForge
+/// mod's does ([`switch_copy`]). Ok(true) when the file changed.
+fn switch_eml_copy(game: &Path, receipts: &mut Vec<Placement>, dst: &Path, on: bool) -> Result<bool> {
+    let ext = dst.join("extended.mod.json");
+    refuse_symlink_path(game, &dst.join("extended.mod.json.tmp"))?;
+    refuse_symlink_path(game, &ext)?;
+    let m = crate::shroudforge::read_mod(dst)?;
+    if m.extended && m.enabled == on && m.repair.is_empty() { return Ok(false); }
+    let before = if m.extended { Some(std::fs::read_to_string(&ext).map_err(io_at(&ext, "reading"))?) } else { None };
+    let index = receipts.iter().position(|r| r.path == dst);
+    let ours = index.map(|i| current_receipt(dst, &receipts[i])).filter(|r| match &before {
+        Some(text) => r.extension.as_deref() == Some(text.as_str()),
+        None => !r.files.contains_key("extended.mod.json"),
+    });
+    crate::shroudforge::set_enabled(dst, on)?;
+    if let (Some(i), Some(mut receipt)) = (index, ours) {
+        let mut next = receipts.clone();
+        let saved = (|| {
+            receipt.files.insert("extended.mod.json".into(), extension_hash(dst, &ext, ModKind::Eml)?);
+            receipt.extension = Some(std::fs::read_to_string(&ext).map_err(io_at(&ext, "reading"))?);
+            next[i] = receipt;
+            save_placements(game, &next)
+        })();
+        if let Err(e) = saved {
+            let back = match &before {
+                Some(text) => crate::util::write_atomic(&ext, text.as_bytes()),
+                None => std::fs::remove_file(&ext).map_err(io_at(&ext, "removing")),
+            };
+            if let Err(back) = back {
+                return Err(Error::new(e.code, format!("{}; the previous ShroudForge switch could not be restored: {}", e.message, back.message)));
+            }
+            return Err(e);
+        }
+        *receipts = next;
+    }
+    Ok(true)
+}
+
+/// [`switch_eml_copy`] for a copy activation keeps or has just placed: a copy whose switch changed is in
+/// [`PlaceReport::switched`]; one that cannot be switched (ShroudForge cannot read the package, a write failed) does not
+/// run under ShroudForge, and the result says so.
+fn switch_on_eml_copy(game: &Path, receipts: &mut Vec<Placement>, rep: &mut PlaceReport, tag: String, dst: &Path) {
+    match switch_eml_copy(game, receipts, dst, true) {
+        Ok(true) => rep.switched.push(tag),
+        Ok(false) => {}
+        Err(e) => rep.warnings.push(format!("{tag}: ShroudForge's switch in {} could not be turned on ({}), so ShroudForge does not run it",
+            dst.display(), reason_at(dst, e.message))),
+    }
+}
+
+/// A copy of an EML mod the profile no longer runs that holds the player's ShroudForge settings ([`sf_values_changed`]):
+/// it stays where it is, switched off in ShroudForge's file so ShroudForge does not run it either, and the result says
+/// why. Some(()) when it was kept so.
+fn keep_sf_values(game: &Path, receipts: &mut Vec<Placement>, rep: &mut PlaceReport, tag: String, dst: &Path) -> Option<()> {
+    if !sf_values_changed(dst, receipts.iter().find(|r| r.path == dst)?) { return None; }
+    let off = match switch_eml_copy(game, receipts, dst, false) {
+        Ok(_) => "Kiln switched it off in ShroudForge's settings".to_string(),
+        Err(e) => format!("Kiln could not switch it off in ShroudForge's settings ({}), so ShroudForge may still run it", reason_at(dst, e.message)),
+    };
+    retain(rep, tag, dst, format!("its ShroudForge settings (extended.mod.json) hold values changed in the game, so Kiln keeps the folder and {off}. \
+        Switch the mod on in the profile to use them again, or remove the folder by hand to drop them"));
+    Some(())
 }
 
 /// What a placed copy holds beyond the library copy its receipt lists: the files and folders the mod or the player
@@ -700,6 +814,7 @@ fn owned(game: &Path, entries: &[Placement], dst: &Path, kind: ModKind, id: &str
     refuse_symlink_path(game, dst)?;
     if !dst.exists() { return Ok(None); }
     let Some(receipt) = entries.iter().find(|r| r.path == dst && r.marker.kind == kind && r.marker.id == id) else { return Ok(None) };
+    let receipt = &current_receipt(dst, receipt);
     let valid = receipt.marker.format == 1 && crate::manifest::is_mod_id(&receipt.marker.id)
         && marker(dst).as_ref() == Some(&receipt.marker);
     let player = if valid { player_entries(dst, kind, receipt)? } else { None };
@@ -912,7 +1027,7 @@ struct Roots<'a> {
 #[allow(clippy::too_many_arguments)]
 fn copy_in(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
            carry: Option<Carry>, persist: impl FnOnce(&Placement) -> Result<()>) -> Result<(Option<String>, Vec<String>)> {
-    copy_in_with(roots, src, dst, m, kept, enabled, carry, &[], None, persist)
+    copy_in_with(roots, src, dst, m, kept, enabled, carry, &[], None, false, persist)
 }
 
 /// The last step of publishing a staged copy (tests make it fail).
@@ -926,9 +1041,12 @@ fn rename_in(staged: &Path, dst: &Path) -> std::io::Result<()> {
 /// go over the staged Library copy only after its receipt is taken; neither becomes a disposable shipped default.
 /// `game_folder`: a copy in `<game>/mods/` ([`Placement::game_folder`]), with its [`settings_key`]; player files set
 /// aside go to the [`kept_dir`] of that key (one native package can have several such folders).
+/// `sf_switch`: an EML copy in the mods folder ShroudForge reads while ShroudForge runs the profile's EML mods. It gets
+/// ShroudForge's switch (`enabled`) as a ShroudForge mod's copy does, and `kept` carries the player's ShroudForge
+/// settings to it the same way.
 #[allow(clippy::too_many_arguments)]
 fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(String, serde_json::Value)], enabled: bool,
-                carry: Option<Carry>, settings: &[(String, Vec<u8>)], game_folder: Option<&str>,
+                carry: Option<Carry>, settings: &[(String, Vec<u8>)], game_folder: Option<&str>, sf_switch: bool,
                 persist: impl FnOnce(&Placement) -> Result<()>) -> Result<(Option<String>, Vec<String>)> {
     refuse_symlink_path(roots.data, src)?;
     refuse_symlink_path(roots.game, dst)?;
@@ -952,8 +1070,14 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
         return Err(Error::new(ErrorCode::HashMismatch, "mod changed while placing"));
     }
     let mut warnings = Vec::new();
-    let extension = if m.kind == ModKind::ShroudForge {
-        crate::shroudforge::set_enabled(&staged, enabled)?;
+    // An EML package ShroudForge cannot read gets no switch: placed as before, it does not run under ShroudForge (the
+    // caller's switch_on_eml_copy says why).
+    let switched = (m.kind == ModKind::ShroudForge || (m.kind == ModKind::Eml && sf_switch)) && match crate::shroudforge::set_enabled(&staged, enabled) {
+        Ok(_) => true,
+        Err(_) if m.kind == ModKind::Eml => false,
+        Err(e) => return Err(e),
+    };
+    let extension = if switched {
         // Record the Library defaults before carrying the player's settings to an upgraded copy. Carried changes
         // remain player-owned, so cleanup retains them even after a version change.
         let expected = std::fs::read_to_string(staged.join("extended.mod.json"))?;
@@ -1132,6 +1256,10 @@ pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
                     return Err(Error::new(ErrorCode::Refused, "ShroudForge settings changed, or an older receipt cannot prove they are unchanged"));
                 }
             }
+            // an EML copy's ShroudForge switch is the profile's; its setting values may be the player's
+            if kind == ModKind::Eml && sf_values_changed(dst, &receipt) {
+                return Err(Error::new(ErrorCode::Refused, "its ShroudForge settings (extended.mod.json) hold values changed in the game"));
+            }
             Ok(Vec::new())
         })();
         let player = match check {
@@ -1211,6 +1339,13 @@ fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Opt
 /// there as `<folder>/<library id>/` with the marker, current copies are kept, Kiln's copies of mods switched off or
 /// gone from the profile are removed. Without that loader Kiln's copies of the kind are removed again (the plugin runs
 /// the mods from the Library and skips marked copies). Player folders are never touched.
+///
+/// When that loader is ShroudForge (Kiln hosts it, or its own loader is installed), Kiln's EML copies in its mods folder
+/// (the game-folder ones too) carry ShroudForge's switch: ShroudForge runs a package there only while its
+/// `extended.mod.json` says `enabled: true`. A copy without that file gets the one ShroudForge's own Modloader writes for
+/// a legacy EML package, a shipped one only its `enabled` value (byte-preserving). The file is part of what Kiln placed;
+/// the setting values in it are the player's afterwards, carried to the next version as a ShroudForge mod's are, and a
+/// copy holding them is kept (switched off) rather than removed. The profile is the switch, as for ShroudForge mods.
 pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path) -> Result<PlaceReport> {
     let view = crate::own_loaders::ProfileView::of_profile(profile);
     let loaders = crate::own_loaders::find(game_dir, Some(&view));
@@ -1235,6 +1370,23 @@ fn own_folder(rep: &mut PlaceReport, tag: String, path: &Path, on: bool) {
         format!("{tag}: your own folder {} stays as it is; Kiln never switches a folder it did not place.", path.display())
     });
     rep.own.push(tag);
+}
+
+/// [`own_folder`] for an EML entry the player's own folder serves. `sf`: the folder is the one ShroudForge reads while it
+/// runs the EML mods, and ShroudForge runs a package there only while its switch is on. Kiln never writes into the
+/// player's folder, so when ShroudForge has it off the note says so, and where to switch it on.
+fn own_eml_folder(rep: &mut PlaceReport, tag: String, path: &Path, sf: bool, server: bool) {
+    let Some(why) = sf.then(|| crate::shroudforge::switched_off(path, server)).flatten() else { return own_folder(rep, tag, path, true) };
+    rep.own_notes.push(format!("{tag}: your own folder {} is in ShroudForge's mods folder, but ShroudForge has it switched off ({why}), \
+        so it does not run while ShroudForge runs the EML mods. Kiln never writes into your own folder: switch it on in Kiln's menu \
+        (Mods, ShroudForge) or in ShroudForge's own Modloader, then start the game again.", path.display()));
+    rep.own.push(tag);
+}
+
+/// The ShroudForge setting values of the copy in `dst` ([`crate::shroudforge::read_mod`]), to carry to its next version:
+/// none when it has no settings or ShroudForge cannot read it.
+fn sf_settings(dst: &Path) -> Vec<(String, serde_json::Value)> {
+    crate::shroudforge::read_mod(dst).map(|m| m.settings.into_iter().map(|s| (s.key, s.value)).collect()).unwrap_or_default()
 }
 
 /// [`retain`], with what still runs from that copy ([`still_runs`]) after the reason.
@@ -1452,6 +1604,13 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
         if let Some(root) = &root {
             refuse_symlink_path(game_dir, root)?;
         }
+        // ShroudForge runs the profile's EML mods (Kiln hosts it, or its own loader is installed): it runs a package of
+        // its mods folder only while the package's switch is on, so Kiln's copies there carry that switch. Copies in
+        // another folder (a game-folder copy while ShroudForge reads a mods folder configured elsewhere) are not its.
+        let sf_root = (kind == ModKind::Eml && loader.is_some_and(|l| l.engine == crate::engines::Engine::ShroudForge))
+            .then(|| crate::shroudforge::mods_dir(game_dir));
+        let sf_reads = |dst: &Path| sf_root.as_ref().is_some_and(|r| dst.parent() == Some(r.as_path()));
+        let server = game_dir.join(crate::game::SERVER_EXE).is_file();
         // Where each enabled mod goes: `<game>/mods/<folder>` for an EML mod a native DLL reads there (always, with or
         // without EML's own loader), else the own loader's folder while that loader is installed.
         let mut targets: Vec<(&crate::profile::ProfileMod, PathBuf, PathBuf, bool)> = Vec::new();
@@ -1487,6 +1646,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     }
                     Err(e) => { retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, true, marker_at(&receipts, &dst), Some(&want))); continue; }
                     Ok(Mine::Yes(have, ..)) if have.marker == want => {
+                        if sf_reads(&dst) { switch_on_eml_copy(game_dir, &mut receipts, &mut rep, tag(&m.id), &dst); }
                         rep.kept.push(tag(&m.id));
                         continue;
                     }
@@ -1497,7 +1657,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                         Err(e) => { retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, true, marker_at(&receipts, &dst), Some(&want))); continue; }
                     },
                     Ok(Mine::No) => {
-                        own_folder(&mut rep, tag(&m.id), &dst, true);
+                        own_eml_folder(&mut rep, tag(&m.id), &dst, sf_reads(&dst), server);
                         continue;
                     }
                     Ok(Mine::Changed(files)) => {
@@ -1506,7 +1666,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     }
                     Ok(Mine::Absent) => {
                         if let Some(theirs) = same_mod_elsewhere(&mods, kind, src, &dst) {
-                            own_folder(&mut rep, tag(&m.id), &theirs, true);
+                            own_eml_folder(&mut rep, tag(&m.id), &theirs, sf_reads(&theirs), server);
                             continue;
                         }
                         // what it wrote before it was switched off: its settings in the stash, other files (and those of
@@ -1525,7 +1685,9 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     }
                 };
                 refuse_symlink_path(roots.data, src)?;
-                let (said, warned) = match copy_in_with(roots, src, &dst, &want, &[], true, carry, &settings, Some(&key),
+                let sf = sf_reads(&dst);
+                let values = if sf { sf_settings(&dst) } else { Vec::new() };
+                let (said, warned) = match copy_in_with(roots, src, &dst, &want, &values, true, carry, &settings, Some(&key), sf,
                     |receipt| put_placement(game_dir, &mut receipts, receipt)) {
                     Ok(done) => done,
                     Err(e) if e.code == ErrorCode::HashMismatch => return Err(e),
@@ -1536,6 +1698,9 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 };
                 rep.kept_files.extend(said);
                 rep.warnings.extend(warned);
+                // a whole extended.mod.json carried as the player's settings file holds the old copy's switch; a package
+                // ShroudForge cannot read got none, and this says why
+                if sf { switch_on_eml_copy(game_dir, &mut receipts, &mut rep, tag(&m.id), &dst); }
                 // tidying the stash never undoes a placed copy (an unreadable stash was reported above)
                 if !settings.is_empty() && let Err(e) = drop_stash(game_dir, kind, &key, &settings) {
                     rep.warnings.push(format!("{}: the settings that went back stay in {} too: {}", tag(&m.id), stash_dir(game_dir, kind, &key).display(), e.message));
@@ -1553,26 +1718,29 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 Err(e) => { retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, true, marker_at(&receipts, &dst), Some(&want))); continue; }
             };
             if have.is_none() && dst.exists() {
-                own_folder(&mut rep, tag(&m.id), &dst, true);
+                own_eml_folder(&mut rep, tag(&m.id), &dst, sf_reads(&dst), server);
                 continue;
             }
             if have.as_ref().is_some_and(|h| h.receipt.marker == want) {
+                if sf_reads(&dst) { switch_on_eml_copy(game_dir, &mut receipts, &mut rep, tag(&m.id), &dst); }
                 rep.kept.push(tag(&m.id));
                 continue;
             }
             let root = dst.parent().expect("own loader folder").to_path_buf();
             if let Some(theirs) = same_mod_elsewhere(&root, kind, src, &dst).filter(|_| have.is_none()) {
-                own_folder(&mut rep, tag(&m.id), &theirs, true);
+                own_eml_folder(&mut rep, tag(&m.id), &theirs, sf_reads(&theirs), server);
                 continue;
             }
             refuse_symlink_path(roots.data, src)?;
             let kept_at = kept_dir(game_dir, kind, &m.id);
+            let sf = sf_reads(&dst);
+            let values = if sf && have.is_some() { sf_settings(&dst) } else { Vec::new() };
             let published = (|| {
                 let carry = match &have {
                     Some(h) => Some(Carry { from: &dst, entries: h.player.clone(), from_kept: false }),
                     None => kept_carry(game_dir, &kept_at, kind)?,
                 };
-                copy_in(roots, src, &dst, &want, &[], true, carry,
+                copy_in_with(roots, src, &dst, &want, &values, true, carry, &[], None, sf,
                     |receipt| put_placement(game_dir, &mut receipts, receipt))
             })();
             let (said, warned) = match published {
@@ -1585,6 +1753,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             };
             rep.kept_files.extend(said);
             rep.warnings.extend(warned);
+            if sf { switch_on_eml_copy(game_dir, &mut receipts, &mut rep, tag(&m.id), &dst); }
             rep.placed.push(tag(&m.id));
         }
         // Kiln's copies the profile does not want there (switched off, gone from the profile, no loader, another folder).
@@ -1607,6 +1776,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                 // Its DLL's settings and files wait for the mod to come back. The copy goes so a drop-in scan cannot run it.
                 let key = settings_key(kind, id, dst);
                 match settings_changed(game_dir, &receipts, dst, kind, id) {
+                    Ok(Mine::Yes(..)) if kind == ModKind::Eml && keep_sf_values(game_dir, &mut receipts, &mut rep, tag(id), dst).is_some() => continue,
                     Ok(Mine::Yes(_, changed, added)) => {
                         let files = match read_settings(dst, &changed) {
                             Ok(files) => files,
@@ -1635,6 +1805,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                     Ok(None) => { retain_runs(&mut rep, tag(id), dst, "placement ownership could not be verified", still_runs(kind, false, None, None)); continue; }
                     Err(e) => { retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)); continue; }
                 };
+                if kind == ModKind::Eml && keep_sf_values(game_dir, &mut receipts, &mut rep, tag(id), dst).is_some() { continue; }
                 match keep_player_files(game_dir, dst, kind, id, &have.player) {
                     Ok(said) => rep.kept_files.extend(said),
                     Err(e) => { retain_runs(&mut rep, tag(id), dst, e.message, still_runs(kind, false, None, None)); continue; }
@@ -1977,6 +2148,7 @@ fn settings_changed(game: &Path, receipts: &[Placement], dst: &Path, kind: ModKi
     refuse_symlink_path(game, dst)?;
     if !dst.exists() { return Ok(Mine::Absent); }
     let Some(receipt) = receipts.iter().find(|r| r.path == dst && r.marker.kind == kind && r.marker.id == id) else { return Ok(Mine::No) };
+    let receipt = &current_receipt(dst, receipt);
     if receipt.marker.format != 1 || !crate::manifest::is_mod_id(&receipt.marker.id) || marker(dst).as_ref() != Some(&receipt.marker) {
         return Ok(Mine::No);
     }
@@ -2828,7 +3000,7 @@ mod tests {
         std::fs::write(gdst.join("config.txt"), b"old copy's settings").unwrap();
         let gbefore = files_of(&gdst);
         let stashed = [("config.txt".to_string(), b"stashed settings".to_vec())];
-        assert!(copy_in_with(roots, &src, &gdst, &eml, &[], true, None, &stashed, Some("test"), injected).is_err());
+        assert!(copy_in_with(roots, &src, &gdst, &eml, &[], true, None, &stashed, Some("test"), false, injected).is_err());
         assert_eq!(files_of(&gdst), gbefore);
         // no staging folder is left beside the copies
         for parent in [dst.parent().unwrap(), gdst.parent().unwrap()] {

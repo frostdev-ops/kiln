@@ -521,6 +521,28 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     })
 }
 
+/// Why ShroudForge does not run the package in `folder` in this game's process (`server`: a dedicated server), or None
+/// when it does as far as its switch and side say. ShroudForge runs a package only while its `extended.mod.json` says
+/// `enabled: true` (a legacy EML package has no such file until ShroudForge's own Modloader writes one at the first
+/// change of its switch), and only on the sides its `targets` name: an array with "server" alone is the server only,
+/// any other array the client (with "server" too, both); without one an EML package runs on both.
+pub fn switched_off(folder: &Path, server: bool) -> Option<String> {
+    let m = match read_mod(folder) {
+        Ok(m) => m,
+        Err(e) => return Some(format!("ShroudForge cannot read the package: {}", e.message)),
+    };
+    if !m.enabled {
+        return Some(if m.extended {
+            "its extended.mod.json, the file that holds ShroudForge's switch, says enabled: false".into()
+        } else {
+            "it has no extended.mod.json, the file that holds ShroudForge's switch (ShroudForge keeps a package off until its switch is on)".into()
+        });
+    }
+    let (client, srv) = (m.targets.iter().any(|t| t == "client"), m.targets.iter().any(|t| t == "server"));
+    let runs = if server { srv } else { client || !srv };
+    (!runs).then(|| format!("its extended.mod.json targets the {} only", if server { "client" } else { "server" }))
+}
+
 /// A folder in the mods dir that is not a readable ShroudForge package, and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
