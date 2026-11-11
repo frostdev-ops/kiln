@@ -106,6 +106,7 @@ Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `
 | `profiles/<pid>/<kind>/<id>/`, `profiles/<pid>/config/` | copy mode (section 6) |
 | `../mods/<id>/` (ShroudForge's mods folder, `shroudforge::mods_dir`), `../shrouded_engine_tweaks/mods/<id>/` | ShroudForge and SET mods of the active profile, placed by activation with a `.kiln-library.json` marker (`{format, kind, id, version, hash}`; 5.1) plus a trusted placement receipt. A marker alone never authorizes changes; player folders are never touched |
 | `../mods/<original folder>/` | the active profile's XHL companions (only XHL-Core loads them) and EML mods a native DLL reads there, placed by activation under the folder name they came with (5.1) |
+| `../mods/<id>/`, `../greeneye/<id>/` | the active profile's enabled Flame and Greeneye mods, placed by activation with a marker and a receipt, with or without the engine's own loader: a Flame mod reads its own files (`sigs/`, `symbols/`, settings) from `<game>/mods/<id>/` wherever its DLL is loaded from, a Greeneye mod gets its folder as `greeneye\<id>\` from Greeneye's API. Files the mod wrote there stay across updates and go to `kiln/kept-mod-files/<kind>/<id>/` when the copy goes (5.1) |
 | `state/` | status files for the launcher (section 5.9); created by kiln-core at boot (`KILN_PATH_STATE`) |
 | `.install.json` | install receipt (section 5.7) |
 | `backups/install-<yyyymmddThhmmssZ>/` | what the installer replaced, byte-identical |
@@ -149,10 +150,12 @@ Rules:
 - `path`: absolute game-side path (Z: or a Windows path), or relative to `<game>/kiln/` (copy mode). Kiln mods, native
   mods and EMF mods name a folder; plugins name the DLL. `mods.xhl` entries, and `mods.eml` entries of EML mods a native
   DLL reads in the game's mods folder, name the copy placed in `<game>/mods/<original folder>`; `mods.greeneye` entries
-  of enabled Greeneye mods name Kiln's copy in `<game>/greeneye/<id>`. In copy mode those are `../mods/<original
-  folder>` and `../greeneye/<id>`, the only `..` forms the format allows (`../mods/` in these two lists, `../greeneye/`
-  in `mods.greeneye`; one direct child with a name under the rule of `schema/fixtures/profile/game-folder-names.json`),
-  written only for a runtime that declares `profileReader` 2 or more (section 6, copy mode).
+  of enabled Greeneye mods name Kiln's copy in `<game>/greeneye/<id>`, `mods.flame` entries of enabled Flame mods Kiln's
+  copy in `<game>/mods/<id>`. In copy mode those are `../mods/<original folder>`, `../greeneye/<id>` and
+  `../mods/<id>`, the only `..` forms the format allows (`../mods/` in `mods.xhl`, `mods.eml` and `mods.flame`,
+  `../greeneye/` in `mods.greeneye`; one direct child with a name under the rule of
+  `schema/fixtures/profile/game-folder-names.json`), written only for a runtime that declares `profileReader` 2 or more
+  (3 or more for `mods.flame`; section 6, copy mode).
 - `configDir` (default `<game>/kiln/config`) becomes `KILN_PATH_CONFIG`, `KilnPaths.Config` and
   `kiln.profile.config_dir()`. Mod config files (`<id>.json`), `.schema/`, `native.json` and EMF settings
   (`emf/<id>.ini`) live there.
@@ -189,7 +192,7 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 | `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes only Kiln-owned copies' `extended.mod.json` `enabled` (`engine_mods::place`); original player folders are never switched. Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
 | `set` | kiln-set | the placed copy in `shrouded_engine_tweaks/mods/` | kiln-set reads that folder. Activation places the enabled mods and removes Kiln's copies of disabled or unlisted ones (SET has no switch). kiln-set loads nothing under play-once no-mods or an invalid profile |
 | `greeneye` | kiln-greeneye | Kiln's placed copy in `<game>/greeneye/<id>/` (an enabled mod), else the library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
-| `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
+| `flame` | kiln-flame | Kiln's placed copy in `<game>/mods/<id>/` (an enabled mod: the folder a Flame mod reads its own files from), else the library folder (`flame.json`) | `plan_engine("flame")`; `kiln/state/flame.json` says where each mod ran from and whether that is the folder it reads (`docs/kiln/engines/flame.md`) |
 | `shroudtopia` | kiln-shroudtopia | library folder (mod DLL) | `plan_engine("shroudtopia")`; settings in `<configDir>/shroudtopia/shroudtopia.json` |
 | `enshwick` | kiln-enshwick | library folder (`pack.toml`, or a folder with the mod DLL) | `plan_engine("enshwick")`; the plugin copies each enabled entry into `<game>/mods/<id>/` (Enshwick's loader reads only that folder), with its own receipts, and starts Enshwick's loader |
 | `shroudlink` | kiln-shroudlink | library folder (mod DLLs directly in it) | its own `plan_from` (the same rule as `compat.h`); roots are the enabled entries, then `shroudlink_mods/` and its direct subfolders |
@@ -598,11 +601,12 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
   `<game>/kiln/profiles/<pid>/config/` (copied back to `<data>/profiles/<pid>/config/` before the next activation and
   after the game exits), and writes relative paths (`profiles/<pid>/kiln/<id>`), resolved against `<game>/kiln/`.
   The only paths that leave `<game>/kiln/`: an EML mod a native DLL reads in the game's mods folder and an XHL
-  companion as `../mods/<folder>`, an enabled Greeneye mod Kiln placed as `../greeneye/<id>`, each one folder name under
-  the rule of `schema/fixtures/profile/game-folder-names.json`. Every kiln-core before `profileReader` 2 calls a profile
-  with such an EML or Greeneye path invalid and loads no mods, so the launcher writes these forms only when the bundle
-  the game's receipt names declares `profileReader` 2 or more and the receipt's `kiln/kiln-core.dll` is the file in the
-  game; otherwise (an older runtime, a rollback, an older core unzipped by hand over an install, or a runtime the
+  companion as `../mods/<folder>`, an enabled Greeneye mod Kiln placed as `../greeneye/<id>`, an enabled Flame mod Kiln
+  placed as `../mods/<id>`, each one folder name under the rule of `schema/fixtures/profile/game-folder-names.json`.
+  Every kiln-core before `profileReader` 2 calls a profile with such an EML or Greeneye path invalid and loads no mods,
+  and every one before 3 one with such a Flame path, so the launcher writes these forms only when the bundle the game's
+  receipt names declares that revision or more and the receipt's `kiln/kiln-core.dll` is the file in the game;
+  otherwise (an older runtime, a rollback, an older core unzipped by hand over an install, or a runtime the
   launcher has no bundle of), and for a hand-installed copy whose folder name the rule refuses (Kiln places no second
   copy beside it), those entries keep their `profiles/<pid>/<kind>/<id>` copy. After every install, update or
   rollback, of a client or a server, through the launcher (`runtime_install`, `runtime_rollback`, `server_deploy`:

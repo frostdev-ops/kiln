@@ -73,7 +73,8 @@ public static class Creative
         CreativeServer.Push(player);
         Tell(player, $"Creative mode is on: {now}. For throwaway or creative worlds: it grants no levels, XP, skill points or unlocks.");
         return new(true, true, $"Creative mode on for {name}: {now}" +
-                               (now.Denied.Count > 0 ? $" (this server's rules.json denies {string.Join(", ", now.Denied)})" : ""));
+                               (now.Denied.Count > 0 ? $" (this server's rules.json denies {string.Join(", ", now.Denied)})" : "") +
+                               (CreativeFlame.SwitchedOff is { } off ? $". {off}." : ""));
     }
 
     /// <summary>Sets how <paramref name="player"/>'s character flies in creative mode (<see cref="PlayerRules.CharacterFlight"/>
@@ -126,7 +127,8 @@ public static class Creative
             : $"hooks: flight {On(s.Flight)}, building zone {On(s.BuildingZone)}, placement {On(s.Placement)}, costs {On(s.Costs)}, " +
               $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}, character flight {On(s.CharacterFlight)}";
         var line = (names.Count == 0 ? "Nobody is in creative mode" : "Creative mode: " + string.Join(", ", names)) + "; " + hooks + ".";
-        return CreativeFlame.Running ? CreativeFlame.Note + ". " + line : line;
+        if (CreativeFlame.Running) return CreativeFlame.Note + ". " + line;
+        return CreativeFlame.SwitchedOff is { } off ? off + ". " + line : line;
         static string On(bool b) => b ? "on" : "off";
     }
 

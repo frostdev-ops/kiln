@@ -17,7 +17,62 @@ public sealed class CreativeFlameTests : IDisposable
     public void Dispose()
     {
         CreativeFlame.Probe = null;
+        CreativeFlame.SymbolsProbe = null;
         CreativeFlame.Reset();
+    }
+
+    private const string Sigs = @"S:\steamapps\common\Enshrouded\mods\creative\sigs\6AEB144C-2A3F000.json";
+
+    /// <summary>The player's start of 2026-11-11: kiln-flame started Creative Mode from the launcher's Library, the mod
+    /// looked for its files in &lt;game&gt;\mods\creative, found no symbol file for the build and no recipes there, and
+    /// switched its game features off. Kiln's creative mode must not go idle for it, and says why.</summary>
+    [Fact]
+    public void ACreativeModeWithoutSymbolsForThisBuildLeavesKilnsCreativeModeAvailableAndSaysWhy()
+    {
+        CreativeFlame.Probe = () => true;
+        CreativeFlame.SymbolsProbe = () => (CreativeFlame.SymbolsNone, Sigs);
+        Assert.False(CreativeFlame.Running);
+        Assert.False((CreativeServer.StateOf(P).Access & CreativeAccess.Idle) != 0);
+        var status = Creative.Status();
+        Assert.Contains("switched its game features off", status);
+        Assert.Contains(Sigs, status);
+        Assert.Contains("Kiln's creative mode is available", status);
+        Assert.DoesNotContain(CreativeFlame.Note, status);
+        Assert.Contains("6AEB144C-2A3F000", CreativeFlame.SwitchedOff);
+    }
+
+    /// <summary>A Creative Mode that has no symbol file for this build but recipes may still resolve the build and hook
+    /// the same functions: Kiln's creative mode stays idle, and /creative says why and what to do if the mod's menu
+    /// does not open.</summary>
+    [Fact]
+    public void ACreativeModeThatMayResolveTheBuildKeepsKilnsIdleAndCreativeSaysWhatToDo()
+    {
+        CreativeFlame.Probe = () => true;
+        CreativeFlame.SymbolsProbe = () => (CreativeFlame.SymbolsRecipes, Sigs);
+        Assert.True(CreativeFlame.Running);
+        var on = Creative.Set(P, true);
+        Assert.False(on.Ok);
+        Assert.Contains("Creative Mode", on.Message);
+        Assert.Contains("no symbol file for this game build", on.Message);
+        Assert.Contains(Sigs, on.Message);
+        Assert.Contains("Kiln profile", on.Message);
+        Assert.Null(CreativeFlame.SwitchedOff);
+    }
+
+    /// <summary>Whatever kiln.flame says, /creative (Creative.Set, its reply in chat) never answers with nothing.</summary>
+    [Theory]
+    [InlineData(false, 0u)]
+    [InlineData(true, 0u)]
+    [InlineData(true, 1u)]
+    [InlineData(true, 2u)]
+    [InlineData(true, 3u)]
+    public void CreativeAlwaysAnswers(bool running, uint symbols)
+    {
+        CreativeFlame.Probe = () => running;
+        CreativeFlame.SymbolsProbe = () => (symbols, Sigs);
+        Assert.False(string.IsNullOrWhiteSpace(Creative.Set(P, true).Message));
+        Assert.False(string.IsNullOrWhiteSpace(Creative.Set(P, false).Message));
+        Assert.False(string.IsNullOrWhiteSpace(Creative.Status()));
     }
 
     [Fact]

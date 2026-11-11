@@ -171,7 +171,10 @@ Creative mode's tools beyond the rules, in one Kiln screen: **F7** in the game (
   crafting, kept consumables, the storage upgrade, map reveal, craft buttons, character flight). kiln.log says it once
   (`Creative Mode (the Flame mod "creative") runs in this game: Kiln's creative hooks stay off ...`), and
   `/creative status` starts with it. A dedicated server running it tells Kiln clients (state bit `Idle`) and their menu
-  says so.
+  says so. A Creative Mode that kiln.flame reports with no symbol file for this game build and no recipes in the folder
+  it reads (`symbols("creative")` = none: it switched its game features off) does not count: Kiln's creative mode stays
+  available and kiln.log, `/creative status` and `/creative on` say why; with recipes only it stays idle and the refusal
+  says what to do ([engines/flame.md](../engines/flame.md) "Creative Mode and Kiln's own creative features").
 
 `/creative` requests `FreeCrafting` and `KeepConsumables` (`PlayerRules.CreativeExtras`) wherever the server's
 `creative.json` says nothing about them. Both are native hooks inside the game's own transactions (kiln.rules,

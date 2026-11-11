@@ -19,11 +19,14 @@
 //
 // Every hook body runs under a structured-exception guard; a fault counts, and the game's own path runs.
 // None of them is installed while Creative Mode (the Flame mod "creative", kiln.flame) runs: it hooks the same functions.
+// A Creative Mode that kiln.flame says has no symbols for this game build (it switched its game features off) does not
+// count (flame_creative).
 #include <windows.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -247,6 +250,7 @@ bool inline_hook(kiln::RawHook& h, uintptr_t target, void* detour, const char* w
 }
 
 std::atomic<bool> g_flame{false};  // Creative Mode seen running (it stays: an entered mod keeps its hooks)
+std::atomic<bool> g_flame_off{false};  // seen started without symbols for this build (logged once)
 
 }  // namespace
 
@@ -257,7 +261,21 @@ bool flame_creative() {
     if (!g_api) return false;
     const auto* f = static_cast<const KilnFlameApi*>(
         g_api->service(KilnStr{KILN_FLAME_SERVICE, sizeof(KILN_FLAME_SERVICE) - 1}, KILN_FLAME_VERSION));
-    if (!f || f->header.size < sizeof(KilnFlameApi) || !f->running || !f->running(KilnStr{"creative", 8})) return false;
+    // running() is in the table of every kiln-flame; symbols() only from 1.1.0 (its header.size says so)
+    if (!f || f->header.size < offsetof(KilnFlameApi, symbols) || !f->running || !f->running(KilnStr{"creative", 8})) return false;
+    // A Creative Mode whose folder (<game>\mods\creative, where it reads its own files) has neither a symbol file for
+    // this game build nor recipes switches its game features off by its own rule (it has nothing to find the game's
+    // functions with): Kiln's creative hooks stay on for it. One that may resolve the build from its recipes counts as running.
+    if (f->header.size >= offsetof(KilnFlameApi, symbols) + sizeof(f->symbols) && f->symbols) {
+        KilnStr file{};
+        if (f->symbols(KilnStr{"creative", 8}, &file) == KILN_FLAME_SYMBOLS_NONE) {
+            if (!g_flame_off.exchange(true))
+                logf(KILN_LOG_INFO, "Creative Mode (the Flame mod \"creative\") was started, but it has no symbol file for "
+                                    "this game build (%.*s) and no recipes, so it switched its game features off: Kiln's "
+                                    "creative hooks stay on", static_cast<int>(file.len), file.ptr ? file.ptr : "");
+            return false;
+        }
+    }
     if (!g_flame.exchange(true))
         logf(KILN_LOG_INFO, "Creative Mode (the Flame mod \"creative\") runs in this game: Kiln's creative hooks stay off "
                             "(free crafting, kept consumables, storage upgrade, map reveal, craft buttons, character flight)");

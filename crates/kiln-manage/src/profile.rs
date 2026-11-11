@@ -1059,6 +1059,15 @@ const COPY_ROOT_REL: &str = "profiles";
 /// a game folder outside kiln/: `../mods/<folder>` in mods.eml, `../greeneye/<id>` in mods.greeneye.
 pub const PROFILE_READER_GAME_MODS: u32 = 2;
 
+/// The reader revision from which a core reads `../mods/<id>` in mods.flame (Kiln's copy of a Flame mod in the folder it
+/// reads its own files from, engine_mods::FLAME_MODS). A core of revision 2 calls such a profile invalid.
+pub const PROFILE_READER_FLAME_MODS: u32 = 3;
+
+/// The reader revision a Copy-mode path into the game folder outside kiln/ needs for mods of `kind`.
+fn reader_for_game_path(kind: ModKind) -> u32 {
+    if kind == ModKind::Flame { PROFILE_READER_FLAME_MODS } else { PROFILE_READER_GAME_MODS }
+}
+
 /// The profile.json reader revision of the runtime in the game: what the kiln-runtime.json of the bundle its install
 /// receipt names declares (`profileReader`). 1 when it declares none (a runtime from before), and when the launcher
 /// cannot tell (no receipt, a core file that is not the receipt's, or no such bundle in `<data>/runtime/`): an older
@@ -1081,11 +1090,12 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
     check_profile(profile)?;
     let pid = &profile.id;
     let mut mods = ProfileFileMods::default();
-    // Copy mode names a game folder outside kiln/ (../mods/<folder>, ../greeneye/<id>) only for a core that reads that
-    // form, and only under its folder name rule: every older core calls the whole profile invalid and loads no mods,
-    // so those entries keep the copy under kiln/profiles/ (sync_copies makes it), as before the form existed.
+    // Copy mode names a game folder outside kiln/ (../mods/<folder>, ../greeneye/<id>, ../mods/<id> for Flame) only for a
+    // core that reads that form in that list, and only under its folder name rule: every older core calls the whole
+    // profile invalid and loads no mods, so those entries keep the copy under kiln/profiles/ (sync_copies makes it), as
+    // before the form existed.
     let reader = std::cell::OnceCell::new();
-    let outside_kiln_ok = |placed: &Path| *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= PROFILE_READER_GAME_MODS
+    let outside_kiln_ok = |k: ModKind, placed: &Path| *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= reader_for_game_path(k)
         && placed.file_name().and_then(|n| n.to_str()).is_some_and(crate::engine_mods::is_game_folder_name);
     for k in ModKind::ALL.into_iter().filter(|k| *k != ModKind::Plugin) {
         for m in list_of(&profile.mods, k) {
@@ -1098,7 +1108,7 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
             let placed = game_path.clone().or_else(|| crate::engine_mods::placed_folder(k, &install.path, &m.id));
             let path = match placed {
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
-                Some(placed) if game_path.is_some() && outside_kiln_ok(&placed) => format!("../{}", placed.strip_prefix(&install.path)
+                Some(placed) if game_path.is_some() && outside_kiln_ok(k, &placed) => format!("../{}", placed.strip_prefix(&install.path)
                     .map_err(|_| Error::invalid("EML game folder is outside the install"))?.to_string_lossy().replace('\\', "/")),
                 _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
             };
@@ -1191,12 +1201,13 @@ fn ensure_kiln(install: &GameInstall) -> Result<PathBuf> {
 fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<u32> {
     let base = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id);
     let mut copied = 0;
-    // A Greeneye mod whose current copy is in <game>/greeneye/ runs from there when the core reads `../greeneye/<id>`
-    // (render): no copy here. An older core gets this copy, as the profile then names it.
+    // A Greeneye or Flame mod whose current copy is in <game>/greeneye/ or <game>/mods/ runs from there when the core
+    // reads `../greeneye/<id>` or `../mods/<id>` in that list (render): no copy here. An older core gets this copy, as
+    // the profile then names it.
     let reader = std::cell::OnceCell::new();
-    let runs_placed = |k: ModKind, m: &ProfileMod| k == ModKind::Greeneye
+    let runs_placed = |k: ModKind, m: &ProfileMod| crate::engine_mods::run_folder(k).is_some()
         && crate::engine_mods::game_path_of(dirs, k, m, &install.path).is_some()
-        && *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= PROFILE_READER_GAME_MODS;
+        && *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= reader_for_game_path(k);
     for k in ModKind::ALL {
         let kdir = base.join(k.as_str());
         let wanted: Vec<&ProfileMod> = list_of(&profile.mods, k).iter().filter(|m| m.enabled && !runs_placed(k, m)).collect();
@@ -1341,7 +1352,8 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     write_chain_plan(dirs, &profile, install, &file)?;
     // ShroudForge and SET read their mods from their own folder in the game; the other engines' own loaders too.
     let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
-    // Greeneye mods run from the copies place() just made in <game>/greeneye/ (engine_mods::game_path_of)
+    // Greeneye and Flame mods run from the copies place() just made in <game>/greeneye/ and <game>/mods/
+    // (engine_mods::game_path_of)
     file.mods = render(dirs, &profile, install, mode)?.mods;
     let pj = install.path.join(crate::paths::game::PROFILE);
     crate::util::write_json_atomic(&pj, &file)?;
@@ -1431,8 +1443,10 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     let loaders = crate::own_loaders::find(&install.path, Some(&crate::own_loaders::ProfileView::of_profile(&profile)));
     let fixed = crate::own_loaders::PLACED_FOR_LOADER.into_iter().filter(|k| crate::own_loaders::of_kind(&loaders, *k)
         .is_some_and(|l| l.delivery == crate::own_loaders::Delivery::Placed));
-    // Greeneye mods run from Kiln's copies in <game>/greeneye/ (engine_mods::GREENEYE_MODS): a fixed folder as well
-    for kind in [ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye].into_iter().chain(fixed) {
+    // Greeneye and Flame mods run from Kiln's copies in <game>/greeneye/ and <game>/mods/ (engine_mods::run_folder): a
+    // fixed folder as well
+    for kind in [ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye, ModKind::Flame].into_iter()
+        .chain(fixed.filter(|k| crate::engine_mods::run_folder(*k).is_none())) {
         let mut wanted: Vec<_> = profile.mods.list(kind).iter()
             .map(|m| (m.id.as_str(), Some(m.version.as_str()), Some(m.hash.as_str()), m.enabled)).collect();
         let mut current: Vec<_> = active.as_ref().and_then(|f| f.mods.folders(kind)).into_iter().flatten()

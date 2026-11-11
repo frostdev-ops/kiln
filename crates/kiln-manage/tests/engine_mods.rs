@@ -227,7 +227,9 @@ fn every_engine_kind_is_imported_profiled_placed_and_rendered() {
     let z = |p: &Path| format!("Z:{}", p.display()).replace('/', "\\");
     assert_eq!(file.mods.eml[0].path, z(&library::path_of(&dirs, &eml).unwrap()));
     assert_eq!(file.mods.greeneye[0].enabled, false);
-    assert_eq!(file.mods.flame[0].path, z(&library::path_of(&dirs, &flame).unwrap()));
+    // a Flame mod reads its own files from <game>\mods\<id>\: it runs from Kiln's copy there (flame_creative_mode.rs)
+    assert_eq!(file.mods.flame[0].path, z(&game.path.join("mods/creative")));
+    assert_eq!(engine_mods::marker(&game.path.join("mods/creative")).unwrap().hash, flame.hash);
     // ShroudForge and SET: the copies in their own folders, marked as Kiln's, switched as the profile says
     let sf_copy = game.path.join("mods/sfpack");
     let set_copy = game.path.join("shrouded_engine_tweaks/mods/flymode");

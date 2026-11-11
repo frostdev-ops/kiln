@@ -6,9 +6,12 @@
 // Flame's loader is used; docs/kiln/engines/flame.md has the evidence):
 //   1. step aside when Flame's own loader runs in this process (it starts the mods in <game>/mods itself);
 //   2. find the mods: the active profile's "flame" entries, then <game>/mods/<id>/flame.json (compat.h's rule);
+//      say where each one runs from and whether that is <game>\mods\<its id>, the folder a Flame mod reads its own
+//      files from (sigs\<build key>.json, symbols\, its settings) whatever folder its DLL was loaded from, and what
+//      that folder holds for this game build (the launcher places the profile's mods there; docs/kiln/engines/flame.md);
 //   3. on one worker thread, as Flame's loader does: LoadLibraryExW(dll, LOAD_WITH_ALTERED_SEARCH_PATH), then
 //      FlameStartRuntime() under a fault guard, one mod after the other; a DLL is never unloaded;
-//   4. publish kiln.flame (who runs) and write <state>/flame.json.
+//   4. publish kiln.flame (who runs, and whether its folder has symbols for this build) and write <state>/flame.json.
 // Running a Flame mod runs that mod's own code in the game process, as with any native mod.
 #include <windows.h>
 
@@ -30,7 +33,7 @@ using kcompat::to_utf8;
 using kcompat::to_wide;
 
 constexpr const char* kPluginId = "kiln-flame";
-constexpr const char* kPluginVersion = "1.0.0";
+constexpr const char* kPluginVersion = "1.1.0";
 
 kcompat::Host H{nullptr, 0, "flame"};
 fs::path g_state;
@@ -46,10 +49,19 @@ struct Mod {
     std::atomic<bool> entered{false};  // a failed start may already have installed hooks or launched threads
     double start_ms = 0;
     std::string folder_u8;
+    // <game>\mods\<mod.json id, else the entry's id>: where the mod reads its own files (set by assess)
+    std::string reads_u8, note, sigs_u8;
+    uint32_t symbols = KILN_FLAME_SYMBOLS_UNKNOWN;
 };
 std::vector<std::unique_ptr<Mod>> g_mods;
 std::mutex g_mu;  // mutable mod state and step-aside reason
 std::atomic<bool> g_stop{false};
+
+std::string g_build_key;  // the game exe's "%08X-%X" (TimeDateStamp, SizeOfImage), as a Flame runtime names the build
+
+const char* symbols_word(uint32_t s) {
+    return s == KILN_FLAME_SYMBOLS_FOUND ? "found" : s == KILN_FLAME_SYMBOLS_RECIPES ? "recipes" : s == KILN_FLAME_SYMBOLS_NONE ? "none" : "";
+}
 
 void write_status() {
     using json = nlohmann::json;
@@ -63,6 +75,10 @@ void write_status() {
                       {"origin", m->origin}, {"status", !m->state.empty() ? m->state.c_str() : st < 4 ? kStatus[st] : "?"},
                       {"reason", m->reason}, {"folder", path_utf8(m->folder)}, {"startMs", m->start_ms}};
             if (!m->dll.empty()) j["dll"] = path_utf8(m->dll);
+            j["readsFrom"] = m->reads_u8;
+            j["note"] = m->note;
+            j["buildKey"] = g_build_key;
+            j["symbols"] = symbols_word(m->symbols);
             mods.push_back(std::move(j));
         }
     }
@@ -107,8 +123,19 @@ bool KILN_CALL f_running(KilnStr id) {
     return false;
 }
 bool KILN_CALL f_stepped_aside(void) { std::lock_guard lock(g_mu); return !g_stepped_aside.empty(); }
+uint32_t KILN_CALL f_symbols(KilnStr id, KilnStr* file) {
+    if (file) *file = KilnStr{"", 0};
+    const std::string want = kcompat::lower(kcompat::sv(id));
+    std::lock_guard lock(g_mu);
+    for (const auto& m : g_mods) {
+        if (kcompat::lower(m->id) != want && kcompat::lower(m->manifest_id) != want) continue;
+        if (file) *file = kcompat::kstr(m->sigs_u8);
+        return m->symbols;
+    }
+    return KILN_FLAME_SYMBOLS_UNKNOWN;
+}
 
-const KilnFlameApi kTable = {{sizeof(KilnFlameApi), KILN_FLAME_VERSION}, &f_count, &f_get, &f_running, &f_stepped_aside};
+const KilnFlameApi kTable = {{sizeof(KilnFlameApi), KILN_FLAME_VERSION}, &f_count, &f_get, &f_running, &f_stepped_aside, &f_symbols};
 
 // ---- step aside -------------------------------------------------------------------------------------------------
 // Flame's loader is a proxy DLL (dinput8.dll on clients, powrprof.dll on servers per its guide) whose file names the
@@ -182,6 +209,81 @@ std::unique_ptr<Mod> read_mod(const fs::path& folder, const std::string& profile
                         ? "no FlameStartRuntime in " + path_utf8(m->dll)
                         : checked.error + " (" + path_utf8(m->dll) + ")");
     return m;
+}
+
+// ---- where a mod reads its own files ---------------------------------------------------------------------------
+// Creative Mode 3.2.0, loaded by kiln-flame from the launcher's Library, logged "Mod directory: S:\...\Enshrouded\mods\
+// creative", looked for "...\mods\creative\sigs\6AEB144C-2A3F000.json" and "...\mods\creative\symbols", found
+// neither and switched its game features off: a Flame runtime takes <game>\mods\<its id> for its folder, not the folder
+// of its module. The build key is the game exe's header (its log: "build key 6AEB144C-2A3F000" for 1.0.1.2).
+std::string game_build_key() {
+    const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+    if (!base) return {};
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 4096) return {};
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return {};
+    char b[32];
+    std::snprintf(b, sizeof b, "%08lX-%lX", static_cast<unsigned long>(nt->FileHeader.TimeDateStamp),
+                  static_cast<unsigned long>(nt->OptionalHeader.SizeOfImage));
+    return b;
+}
+
+// Fills reads_u8, sigs_u8, symbols and note (g_mu held): where the mod reads its own files, whether that is the folder
+// it runs from (else whether Kiln's copy is there), and what it holds for this game build. Files only; nothing runs.
+void assess(Mod& m, const fs::path& game) {
+    const std::string id = !m.manifest_id.empty() ? m.manifest_id : m.id;
+    if (!kcompat::safe_component(id)) return;
+    const fs::path reads = game / L"mods" / to_wide(id);
+    m.reads_u8 = path_utf8(reads);
+    std::error_code ec;
+    const bool there = fs::is_directory(reads, ec);
+    if (!g_build_key.empty() && there) {
+        const fs::path sigs = reads / L"sigs" / to_wide(g_build_key + ".json");
+        m.sigs_u8 = path_utf8(sigs);
+        if (fs::is_regular_file(sigs, ec)) {
+            m.symbols = KILN_FLAME_SYMBOLS_FOUND;
+        } else {
+            m.symbols = KILN_FLAME_SYMBOLS_NONE;
+            for (const auto& e : fs::directory_iterator(reads / L"symbols", ec))
+                if (e.is_regular_file(ec) && kcompat::lower(to_utf8(e.path().extension().wstring())) == ".json") {
+                    m.symbols = KILN_FLAME_SYMBOLS_RECIPES;
+                    break;
+                }
+        }
+    } else if (!g_build_key.empty()) {
+        m.sigs_u8 = path_utf8(reads / L"sigs" / to_wide(g_build_key + ".json"));
+        m.symbols = KILN_FLAME_SYMBOLS_NONE;
+    }
+    // where it ran from: only for a mod that runs this start (kiln-flame's, or Flame's own loader's)
+    const uint32_t st = m.status.load();
+    const bool runs = st == KILN_FLAME_PENDING || m.own_loader || (st == KILN_FLAME_SKIPPED && m.reason.empty());
+    if (!runs || m.folder.empty() || (there && fs::equivalent(m.folder, reads, ec))) return;
+    std::string kind, marker_id;
+    const bool kilns = there && kcompat::read_library_marker(reads, &kind, &marker_id) && kind == "flame" &&
+                       kcompat::lower(marker_id) == kcompat::lower(m.id);
+    if (kilns) return;  // Kiln's copy of this mod is where it reads (a profile naming another copy of it, as copy mode does
+                        // for a runtime the launcher cannot tell): it finds its files there
+    m.note = "ran from " + m.folder_u8 + ", but a Flame mod reads its own files from " + m.reads_u8 + ", which " +
+             (there ? std::string("is not Kiln's copy of it (a folder of yours, or one the mod made there earlier)")
+                    : std::string("does not exist")) +
+             ": it may not find its files there (Creative Mode: sigs\\<build key>.json, symbols\\) and then switches "
+             "its game features off. Activate the profile again in the Kiln launcher: it places the mod in that folder";
+}
+
+// One line per mod Kiln (or Flame's loader) runs: where it runs from and reads, and its symbols for this build.
+void log_reads(const Mod& m) {
+    if (m.reads_u8.empty()) return;
+    if (!m.note.empty()) H.mod_log(KILN_LOG_WARN, m.id, m.note);
+    const std::string sigs = "sigs\\" + g_build_key + ".json";
+    if (m.symbols == KILN_FLAME_SYMBOLS_NONE)
+        H.mod_log(KILN_LOG_WARN, m.id, m.reads_u8 + " has no symbol file for this game build (" + sigs + ") and no recipes "
+                                       "(symbols\\): by its own rule the mod switches its game features off");
+    else if (m.symbols == KILN_FLAME_SYMBOLS_RECIPES)
+        H.mod_log(KILN_LOG_INFO, m.id, m.reads_u8 + " has no symbol file for this game build (" + sigs + "); the mod may "
+                                       "resolve the build from its recipes (symbols\\)");
+    else if (m.symbols == KILN_FLAME_SYMBOLS_FOUND && m.note.empty())
+        H.mod_log(KILN_LOG_INFO, m.id, "reads its own files from " + m.reads_u8 + " (" + sigs + " is there for this game build)");
 }
 
 // A pending profile entry while kiln-flame stands aside (g_mu held): Flame's loader reads only <game>/mods, so the
@@ -288,6 +390,7 @@ void KILN_CALL on_ready(void*) {
     const fs::path game = H.path(KILN_PATH_GAME);
     const fs::path kiln = H.path(KILN_PATH_KILN);
     g_state = H.state_dir();
+    g_build_key = game_build_key();
     const kcompat::EnginePlan plan = kcompat::plan_engine(H, "flame");
 
     // 1. Flame's own loader
@@ -332,12 +435,17 @@ void KILN_CALL on_ready(void*) {
             for (auto& m : g_mods)
                 if (m->status.load() == KILN_FLAME_PENDING) mark_aside(*m);
         }
+        for (auto& m : g_mods) assess(*m, game);
     }
     H.logf(KILN_LOG_INFO, "kiln-flame %s on %s: %s; %zu Flame mod(s)", kPluginVersion,
            H.api->side() == KILN_SIDE_SERVER ? "the server" : "the client", plan.note.c_str(), g_mods.size());
-    for (const auto& m : g_mods)
+    for (const auto& m : g_mods) {
         if (m->status.load() == KILN_FLAME_SKIPPED && !m->reason.empty() && m->state.empty())
             H.logf(KILN_LOG_INFO, "%s %s: %s", m->name.c_str(), m->version.c_str(), m->reason.c_str());
+        // the mods that run this start (kiln-flame's, or Flame's own loader's; assess's rule)
+        const uint32_t st = m->status.load();
+        if (st == KILN_FLAME_PENDING || m->own_loader || (st == KILN_FLAME_SKIPPED && m->reason.empty())) log_reads(*m);
+    }
     if (!g_stepped_aside.empty()) {
         H.logf(KILN_LOG_WARN,
                "kiln-flame steps aside: %s. To start them with Kiln instead (and from Kiln profiles), switch Flame's "
