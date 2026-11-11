@@ -32,26 +32,30 @@ fn check_stem(stem: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn above_root(root: &Path, path: &Path) -> bool {
+/// `path` is the trusted location itself or one of its ancestors (lexically; case-insensitive on Windows).
+fn at_or_above_root(root: &Path, path: &Path) -> bool {
     #[cfg(windows)]
     fn lexical(path: &Path) -> PathBuf {
-        // SF persists verbatim paths; Kiln's native host may supply ordinary drive/UNC paths.
+        // SF persists verbatim paths; Kiln's native host may supply ordinary drive/UNC paths. NTFS names are
+        // case-insensitive, so a custom SF path spelled in another case than the exe path is the same location.
         let text = path.to_string_lossy();
-        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") { PathBuf::from(format!(r"\\{rest}")) }
-        else { PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text)) }
+        let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") { format!(r"\\{rest}") }
+            else { text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned() };
+        PathBuf::from(text.to_lowercase())
     }
     #[cfg(windows)]
     let (root, path) = (lexical(root), lexical(path));
-    root != path && root.starts_with(path)
+    root.starts_with(path)
 }
 
 // Check existing descendants of the selected game location, including Windows junctions.
-// Ancestors ABOVE that trusted location may be legitimate volume mounts (Wine reports them as links).
+// The location itself and ancestors ABOVE it may be legitimate links: volume mounts (Wine reports them as links), or
+// a game folder moved with Steam Mover / `mklink /J`. Only what lies below it is Kiln's to vouch for.
 // Custom SF state outside the game is checked up to its common ancestor with that location, or its drive root.
 fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
     for component in path.ancestors() {
         if component.as_os_str().is_empty() { continue; }
-        if above_root(root, component) { break; }
+        if at_or_above_root(root, component) { break; }
         if component.parent().is_none() { break; }
         match fs::symlink_metadata(component) {
             Ok(m) => {
@@ -418,6 +422,24 @@ mod tests {
         assert!(checked_path(&root, &game.join("safe")).is_err());
         fs::remove_dir_all(root).unwrap();
     }
+    // Steam Mover and `mklink /J` leave the game folder itself as a link: the trusted location may be one.
+    #[cfg(unix)]
+    #[test]
+    fn a_game_folder_that_is_itself_a_link_can_publish_and_restore() {
+        let (real, files) = fixture();
+        let game = real.with_extension("link");
+        std::os::unix::fs::symlink(&real, &game).unwrap();
+        let files: Vec<PathBuf> = files.iter().map(|f| game.join("stage").join(f.file_name().unwrap())).collect();
+        prepare(&game, "g", &files).unwrap();
+        publish(&game, &files);
+        assert!(owns_output(&game, "g").unwrap());
+        before_restore(&game, "g").unwrap();
+        // a link below the trusted location is still refused
+        std::os::unix::fs::symlink(real.join("victim"), game.join("kiln/eml/linked")).unwrap();
+        assert!(checked_path(&game, &game.join("kiln/eml/linked/g.json")).is_err());
+        fs::remove_file(&game).unwrap();
+        fs::remove_dir_all(real).unwrap();
+    }
     #[cfg(windows)]
     #[test]
     fn logical_windows_game_root_accepts_ordinary_and_verbatim_paths() {
@@ -426,6 +448,20 @@ mod tests {
         let verbatim = root.canonicalize().unwrap();
         assert!(checked_path(&root, &verbatim.join("stage/g.kfc")).is_ok());
         assert!(checked_path(&verbatim, &root.join("stage/g.kfc")).is_ok());
+        // the same folder spelled in another case (a custom SF path typed by hand) is the trusted location too
+        let upper = PathBuf::from(root.to_string_lossy().to_uppercase());
+        assert!(checked_path(&upper, &root.join("stage/g.kfc")).is_ok());
+        // a game folder that is itself a directory link (Steam Mover, mklink /J) is trusted; links below it are not
+        let link = root.with_extension("link");
+        std::os::windows::fs::symlink_dir(&root, &link).unwrap();
+        let staged: Vec<PathBuf> = files.iter().map(|f| link.join("stage").join(f.file_name().unwrap())).collect();
+        prepare(&link, "g", &staged).unwrap();
+        publish(&link, &staged);
+        assert!(owns_output(&link, "g").unwrap());
+        std::os::windows::fs::symlink_dir(root.join("stage"), link.join("kiln/eml/linked")).unwrap();
+        assert!(checked_path(&link, &link.join("kiln/eml/linked/g.json")).is_err());
+        fs::remove_dir(link.join("kiln/eml/linked")).unwrap();
+        fs::remove_dir(&link).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
     #[cfg(any(unix, windows))]
