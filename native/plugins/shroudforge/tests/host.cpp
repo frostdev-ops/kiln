@@ -308,9 +308,12 @@ static void slow_io(LPCWSTR file) {
     std::printf("slow-io %llu %llu %lu %ls\n", begin, GetTickCount64(), GetCurrentThreadId(),
                 std::filesystem::path(file).filename().c_str());
 }
+static std::atomic<int> heartbeats_written{0};  // renames of heartbeat.json that completed
 static BOOL WINAPI slow_move(LPCWSTR from, LPCWSTR to, DWORD flags) {
     if (to) slow_io(to);
-    return original_move(from, to, flags);
+    const BOOL moved = original_move(from, to, flags);
+    if (moved && to && std::filesystem::path(to).filename() == L"heartbeat.json") ++heartbeats_written;
+    return moved;
 }
 static HANDLE WINAPI slow_create(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags,
                                  HANDLE tmpl) {
@@ -394,7 +397,14 @@ int main(int argc, char** argv) {
     } else if (GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", nullptr, 0)) {
         play_script();
     }
-    Sleep(stalled ? 2900 : stop_during_write ? 60 : delayed ? 1300 : 120);  // delayed: one writer turn (3 x 350 ms) in the loop
+    if (stalled) {
+        // The writer's second heartbeat, not its first (which both clocks would stamp alike): a writer turn is three
+        // delayed operations (about 1050 ms), then 2 s of waiting; the one update stalls 4400 ms (fake.cpp), so the
+        // second heartbeat is written while the loop still stands in it. Waited for, not timed.
+        for (int i = 0; i < 200 && heartbeats_written < 2; ++i) Sleep(50);
+    } else {
+        Sleep(stop_during_write ? 60 : delayed ? 1300 : 120);  // delayed: one writer turn (3 x 350 ms) in the loop
+    }
     if (GetEnvironmentVariableW(L"KILN_SF_CLIENT", nullptr, 0)) {
         const auto suffix = std::to_wstring(GetCurrentProcessId());
         HANDLE event = nullptr;

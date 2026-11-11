@@ -100,7 +100,7 @@ extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t* root) {
 extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) {
     timing("update", dt);
     mark("update");
-    if (GetEnvironmentVariableW(L"KILN_SF_STALL_UPDATE", nullptr, 0)) Sleep(3200);
+    if (GetEnvironmentVariableW(L"KILN_SF_STALL_UPDATE", nullptr, 0)) Sleep(4400);  // past the writer's second turn (host.cpp)
     if (GetEnvironmentVariableW(L"KILN_SF_FAULT_UPDATE", nullptr, 0)) RaiseException(0xc0000005, 0, 0, nullptr);
     return h && std::isfinite(dt) && dt >= 0;
 }
