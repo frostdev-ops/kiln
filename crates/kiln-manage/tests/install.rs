@@ -1627,6 +1627,42 @@ fn legacy_shroudforge_helper_backups_never_block_an_update() {
     }
 }
 
+/// Uninstall in the state an update now accepts: a legacy helper backup gone, the helper itself back at its path with
+/// its original bytes, or only the launcher's copy of the backup left. It uninstalls, and warns where nothing can come back.
+#[test]
+fn uninstall_after_legacy_helper_backups_went_missing() {
+    for scenario in ["already-there", "data-copy", "gone"] {
+        let t = tmp(&format!("sf-legacy-uninstall-{scenario}"));
+        let (dirs, gi, zip, _) = sf_setup(&t.0);
+        let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+        let before = sf_inventory(&gi.path);
+        let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+        sf_legacy_helpers(&gi.path, &mut receipt);
+        let winmm = std::fs::read(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+        match scenario {
+            "already-there" => {
+                install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap(); // the helpers come back
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            "data-copy" => {
+                put(&dirs.backups().join("install").join(&receipt.install_id), "legacy/winmm.dll", &winmm);
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            _ => std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap(),
+        }
+        let r = install::uninstall_report(&dirs, &gi, &mut NoProgress);
+        assert!(r.is_ok(), "{scenario}: {:?}", r.err());
+        let r = r.unwrap();
+        match scenario {
+            "gone" => {
+                assert!(!gi.path.join("winmm.dll").exists());
+                assert!(r.warnings.iter().any(|w| w.contains("winmm.dll")), "{r:?}");
+            }
+            _ => assert_eq!(sf_inventory(&gi.path), before, "{scenario}"),
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn sf_restore_cleanup_retains_symlinked_placement_without_touching_its_target() {

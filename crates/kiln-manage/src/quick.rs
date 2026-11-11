@@ -373,13 +373,22 @@ pub fn ensure_default_with(dirs: &DataDirs, install: &GameInstall, running: bool
 /// active, none is remembered, or `profile.json` names a profile of another data folder). Refused (GameRunning) while
 /// the game runs, like any activation. An active profile is written again when it renders differently for the runtime
 /// the game has now (an update or a rollback: a path form an older core refuses, profile::render), so a start from
-/// Steam does not boot with a file the installed core calls invalid; that still returns None.
+/// Steam does not boot with a file the installed core calls invalid; its activation is returned too (what it kept in the
+/// game folder belongs in the install's result), as is profile::refresh_active's report for a current file. A dedicated
+/// server resumes no remembered profile, but its active one follows its runtime the same way.
 pub fn resume_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
+    if install.kind != GameKind::Client {
+        if !install.path.join(crate::paths::game::KILN).is_dir() {
+            return Err(Error::new(ErrorCode::Unsupported, "Kiln is not in this game yet: install it first."));
+        }
+        let _lock = lock(dirs)?;
+        return profile::refresh_active(dirs, install);
+    }
     kiln_in_game(install)?;
     let _lock = lock(dirs)?;
     match destination(dirs, install)? {
         Dest::Resume(p) => profile::activate(dirs, &p.id, install).map(Some),
-        Dest::Active(_) => profile::refresh_active(dirs, install).map(|_| None),
+        Dest::Active(_) => profile::refresh_active(dirs, install),
         _ => Ok(None),
     }
 }
@@ -687,9 +696,11 @@ fn put_in_profile(dirs: &DataDirs, install: &GameInstall, target: &Target, refs:
     if !running {
         progress.report(None, "writing the game's profile.json");
         match profile::refresh_active(dirs, install) {
-            Ok(Some(a)) => {
+            Ok(Some(mut a)) => {
                 // another active profile that had changed is written again too; only the target's write counts here
                 report.applied = a.profile_id == saved.id;
+                // a new or resumed profile was activated just before: what that activation kept or noted stays in the result
+                if let Some(first) = report.activation.take() { a.keep_notes_of(first); }
                 report.activation = Some(a);
             }
             Ok(None) => {}

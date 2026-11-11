@@ -9,7 +9,7 @@ import type { AddReport, FoundMod, FoundReport, GameId, ModKind, ProfileId } fro
 import { qk, useGame } from "../../api/hooks";
 import { KIND_SHORT, KIND_TONE } from "../../api/kinds";
 import { Badge, Button, Skeleton, Table, errorText, runTask, toast, type Column } from "../../ui";
-import { notifyActivation } from "../../shell/notices";
+import { notifyAdd } from "../../shell/notices";
 import { withDropin } from "./dropins";
 import { useProfileEdit } from "./useProfileEdit";
 
@@ -51,7 +51,7 @@ export function GameFolderSection({ profileId, kinds }: { profileId: ProfileId; 
     try {
       const r = await runTask<AddReport>(() => api.foundAdd(game.id, profileId, m.path), { quiet: true });
       const skipped = r.import.skipped[0];
-      notifyActivation(r.activation);
+      notifyAdd(r);
       if (!r.added.length && !r.already.length && skipped) toast.error({ code: "refused", message: skipped.reason }, `The Library did not take ${m.name}`);
       else toast.ok(`${m.name} is in this profile`, r.applied ? "Written to the game." : undefined);
     } catch (e) {

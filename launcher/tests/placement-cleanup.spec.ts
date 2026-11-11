@@ -59,10 +59,12 @@ test("an empty cleanup result does not show a retained-folder warning", async ({
   await expect(page.locator(".k-toast", { hasText: "Some mod folders were kept" })).toHaveCount(0);
 });
 
-// Every activation path reports the copies it left in the game folder (Activation.retained) with the same warning, and
-// the settings it kept and its notes, all until closed: the Play page's profile switch, the Profiles list, a profile's
-// own Activate, the re-apply after a profile edit, Play itself, a reinstall's resume, the Deck's profile dialog.
-const RETAINED = { path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini)", mayRun: true };
+// Every activation path reports the copies it left in the game folder (Activation.retained), the settings it kept and
+// its notes, all until closed: the Play page's profile switch, the Profiles list, a profile's own Activate, the re-apply
+// after a profile edit (also one before the window listened), Play itself (also when the start fails), a modpack from
+// a server's offer and its Launch. The drop, the Deck, an update and a reinstall have theirs in firstrun, deck and
+// update specs. Each reason ends with what still runs from that folder (engine_mods::still_runs).
+const RETAINED = { path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true };
 const REPORT = {
   retained: [RETAINED],
   keptFiles: ["xhl:xhl-vein-mining: kept runtime settings (config.txt) in kiln/state/placed-settings/xhl/xhl-vein-mining; they return when the mod is enabled again"],
@@ -75,7 +77,8 @@ async function expectActivationNotices(page: import("@playwright/test").Page) {
   const kept = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
   await expect(kept).toContainText(RETAINED.path);
   await expect(kept).toContainText(RETAINED.reason);
-  await expect(kept).toContainText("may still run in the standalone loader");
+  await expect(kept).toContainText("Kiln left these folders as they are");
+  await expect(kept).not.toContainText("standalone loader");
   const settings = page.locator(".k-toast", { hasText: "Mod settings kept" });
   await expect(settings).toContainText("kiln/state/placed-settings/xhl/xhl-vein-mining");
   const notes = page.locator(".k-toast", { hasText: "Profile notes" });
@@ -121,11 +124,68 @@ test("the automatic re-apply after a profile edit shows what it kept in the game
   await page.locator(".k-splash").waitFor({ state: "detached" });
   await planActivation(page);
   // what every profile page does on a change (useProfileEdit): profile_save, which writes the active profile again
-  await page.evaluate(async () => {
+  // when what profile.json holds changed (a mod switched off); its notes are not in profile.json (refresh_active)
+  const save = (edit: string) => page.evaluate(async (edit) => {
     const api = await import("/src/api/commands.ts");
     const p = await api.profileGet("ember-run");
-    await api.profileSave({ ...p, notes: "edited" });
-  });
+    await api.profileSave(edit === "notes" ? { ...p, notes: "edited" } : { ...p, mods: { ...p.mods, kiln: p.mods.kiln.map((m, i) => (i === 0 ? { ...m, enabled: !m.enabled } : m)) } });
+  }, edit);
+  await save("notes");
+  await page.clock.fastForward(1000);
+  await expect(page.locator(".k-toast", { hasText: "Some mod folders were kept" })).toHaveCount(0);
+  await save("mod");
+  await expectActivationNotices(page);
+});
+
+test("a re-apply before the window listened is shown once it does", async ({ page }) => {
+  // the watcher's start-up pass (a profile.json an older Kiln wrote) runs before the page has its listener: the
+  // backend keeps the activation until activation_notices takes it
+  await page.addInitScript((a) => { (window as unknown as { __kilnMockNotices: unknown[] }).__kilnMockNotices = [a]; },
+    { gameId: "client-steam", profileId: "ember-run", generation: 8, pathMode: "z", profileJson: "/x/kiln/profile.json", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", ...REPORT });
+  await page.clock.install();
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await expectActivationNotices(page);
+  // taken once: a reload of the page asks again and gets nothing new
+  expect(await page.evaluate(async () => (await import("/src/api/commands.ts")).activationNotices())).toEqual([]);
+});
+
+test("Play shows what writing the profile again kept", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await planActivation(page);
+  await page.getByRole("button", { name: /^Play / }).first().click();
+  await expectActivationNotices(page);
+});
+
+test("a start that fails after the profile was written again still shows what that kept", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  // launch.rs: the error carries the re-apply's activation in detail.activation
+  await page.evaluate((r) => (window as unknown as { __kilnMock: { planCommand: (c: string, p: unknown) => void } }).__kilnMock.planCommand("launch_play", {
+    error: { code: "io", message: "the save backup before the launch failed: disk full", detail: { activation: { gameId: "client-steam", profileId: "ember-run",
+      generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", ...r } } } }), REPORT);
+  await page.getByRole("button", { name: /^Play / }).first().click();
+  await expect(page.locator(".k-toast", { hasText: "disk full" })).toBeVisible();
+  await expectActivationNotices(page);
+});
+
+test("a modpack from a server's offer, and its Launch, show what the activation kept", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.locator(".k-hero-banner .k-banner").getByRole("button", { name: "Get modpack" }).click();
+  const offer = page.getByRole("dialog", { name: /uses mods$/ });
+  await offer.getByText(/^I trust .* and want its mods$/).click();
+  await planActivation(page);
+  await offer.getByRole("button", { name: "Download and install" }).click();
+  await expect(page.getByRole("dialog", { name: "Modpack installed" })).toBeVisible({ timeout: 8000 });
+  await page.clock.fastForward(3000);
+  await expectActivationNotices(page);
+  await planActivation(page);
+  await page.getByRole("dialog", { name: "Modpack installed" }).getByRole("button", { name: "Launch" }).click();
   await expectActivationNotices(page);
 });
 
@@ -145,7 +205,8 @@ test("a server deploy's warnings stay until closed", async ({ page }) => {
     started: "2026-11-11T10:00:00Z", finished: "2026-11-11T10:00:05Z",
     result: { changedBackedUp: [], backup: null, warnings: ["Kept current dinput8.dll because it changed outside Kiln."] },
   }));
-  const kept = page.locator(".k-toast", { hasText: "Some files were kept" });
+  // an install's own warnings have their own title (an uninstall's say "Some files were kept")
+  const kept = page.locator(".k-toast", { hasText: "Install notes" });
   await expect(kept).toContainText("Kept current dinput8.dll");
   await page.clock.fastForward(10_000);
   await expect(kept).toBeVisible();
@@ -164,4 +225,21 @@ test("adding a mod shows what writing the profile again kept in the game folder"
   const warning = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
   await expect(warning).toContainText("greeneye/unlock-map-markers");
   await expect(warning).toContainText("unlock-map-markers.dll was changed");
+});
+
+// AddReport.notices (quick::merge): what an add did in the profile besides adding. They stay until closed.
+const ADD_NOTICE = "AutoLootPlus 1.1.9 took the place of Auto Loot Plus: Kiln reads the two as one mod (native autolootplus). Undo puts Auto Loot Plus back.";
+
+test("a dropped mod's add says what else it changed in the profile, until closed", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.evaluate((n) => (window as unknown as { __kilnMock: { planAddNotices: (l: string[]) => void } }).__kilnMock.planAddNotices([n]), ADD_NOTICE);
+  const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "night-owl-1.2.0.zip")); return d; });
+  await page.locator(".k-hero").dispatchEvent("drop", { dataTransfer: dt });
+  await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
+  const changed = page.locator(".k-toast", { hasText: "Changes in the profile" });
+  await expect(changed).toContainText(ADD_NOTICE);
+  await page.clock.fastForward(10_000);
+  await expect(changed).toBeVisible();
 });

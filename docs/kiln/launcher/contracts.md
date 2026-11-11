@@ -601,10 +601,13 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
   companion as `../mods/<folder>`, an enabled Greeneye mod Kiln placed as `../greeneye/<id>`, each one folder name under
   the rule of `schema/fixtures/profile/game-folder-names.json`. Every kiln-core before `profileReader` 2 calls a profile
   with such an EML or Greeneye path invalid and loads no mods, so the launcher writes these forms only when the bundle
-  the game's receipt names declares `profileReader` 2 or more; otherwise (an older runtime, a rollback, or a runtime the
+  the game's receipt names declares `profileReader` 2 or more and the receipt's `kiln/kiln-core.dll` is the file in the
+  game; otherwise (an older runtime, a rollback, an older core unzipped by hand over an install, or a runtime the
   launcher has no bundle of), and for a hand-installed copy whose folder name the rule refuses (Kiln places no second
-  copy beside it), those entries keep their `profiles/<pid>/<kind>/<id>` copy. After a runtime install or
-  rollback the active profile is written again for the runtime the game has then (`quick::resume_active`).
+  copy beside it), those entries keep their `profiles/<pid>/<kind>/<id>` copy. After every install, update or
+  rollback, of a client or a server, through the launcher (`runtime_install`, `runtime_rollback`, `server_deploy`:
+  `quick::resume_active`) or `kilnctl` (`profile::refresh_active`), the active profile is written again for the runtime
+  the game has then; the task's result carries that `activation`, and a failure of it is one of its `warnings`.
 - Reverse (reading state files): `Z:\a\b` -> `/a/b`; `C:\…` -> `<pfx>/drive_c/…`; other letters through
   `<pfx>/dosdevices/<l>:`; relative -> `<game>/kiln/…`.
 
@@ -616,9 +619,15 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
    Place the fixed-folder copies (5.1, `engine_mods::place`). The answer, `Activation`, says what that left for the
    player: `retained` (`{path, reason, mayRun}`, as above), `keptFiles` (one sentence per mod whose files went to or came
    back from `kiln/kept-mod-files/` or `kiln/state/placed-settings/`), `warnings` (notes such as a ShroudForge setting
-   value a new version refuses), `ownLoaders`. The launcher shows the first three at every call site until dismissed;
-   a re-apply after a profile save or a change outside the launcher sends the same `Activation` as `kiln://activation`,
-   and `launch_play` returns it as `LaunchResult.activation` when it wrote the profile again before the start.
+   value a new version refuses, a profile entry the player's own folder serves), `ownLoaders`. Each `retained` reason
+   ends with what still runs from that folder. The launcher shows the first three until dismissed wherever a command
+   returns an `Activation` or carries one (`AddReport.activation`, `ModpackInstallResult.activation`,
+   `LaunchResult.activation`, an install result's `activation`, an error's `detail.activation`: `shell/notices.ts`).
+   A re-apply without `profile_activate` (a profile save, a change outside the launcher, the watcher's start-up pass,
+   a profile made or turned back on by `profile_ensure_default`) keeps its `Activation` in the launcher until the window
+   takes it with `activation_notices` (each once), and says so with `kiln://activation`. `launch_play` returns
+   `LaunchResult.activation` when it wrote the profile again before the start, or when reconciling an unchanged
+   profile's fixed folders kept a copy, files or notes (a placed copy the player changed since).
 4. Write `kiln/profile.json` (generation + 1, fingerprint, writer, written) atomically; delete a stale
    `kiln/chain/once.ini` and `kiln/profile.once.json`.
 5. Record the activation in `<data>/installs/<installId>.json`; emit `kiln://game` `{kind: "status"}`.
@@ -759,6 +768,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | profile | `profile_activate` | profileId, gameId | `Activation` |
 | profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
 | profile | `profile_active` | gameId | `Activation \| null` |
+| profile | `activation_notices` | - | `Activation[]`: the re-applies' activations the window has not shown yet, oldest first; each is returned once (`kiln://activation`) |
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |
@@ -958,7 +968,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
 | `kiln://gamepad` | `{kind: 'button', button: 'a'\|'b'\|'x'\|'y'\|'lb'\|'rb'\|'lt'\|'rt'\|'select'\|'start'\|'guide'\|'ls'\|'rs'\|'up'\|'down'\|'left'\|'right', pressed, repeat, device} \| {kind: 'axis', axis: 'rx'\|'ry', value: -1..1, device} \| {kind: 'connected', device, name, vendor, product} \| {kind: 'disconnected', device, name}` (the Deck UI's native reader while `deck_gamepad(true)`: directions merge the D-pad and the left stick and repeat while held (`repeat: true`); the right stick is sent for scrolling, at most ~25 a second, then one 0; [deck.md](deck.md)) |
 | `kiln://nxm` | `{count}` (an Enshrouded Mod Manager Download link arrived; `count` links wait in `nexus_links`; the window comes to the front) |
-| `kiln://activation` | `Activation` (a profile written again without `profile_activate`: after `profile_save`, `profile_revert` or `chain_set_late`, or a change of `profile.json` outside the launcher; the launcher shows its `retained`, `keptFiles` and `warnings` as it does `profile_activate`'s) |
+| `kiln://activation` | `{gameId}` (a profile was written again without `profile_activate`: after `profile_save`, `profile_revert` or `chain_set_late`, a change of `profile.json` outside the launcher, the watcher's start-up pass, `profile_ensure_default`; its `Activation` waits until the window takes it with `activation_notices`, which the launcher also calls once its listener is up) |
 
 ## 11. Errors
 Every command rejects with `KilnError = {code, message, detail?}` (`kiln_manage::Error`, serialized as is). `message`

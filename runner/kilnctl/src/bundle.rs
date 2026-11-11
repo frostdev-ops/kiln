@@ -132,6 +132,18 @@ pub fn install_into(g: &GameInstall, zip: &Path, components: Option<Vec<String>>
     }, &mut Printer::new())
     .km()?;
     print_receipt(&r, &g.path);
+    // the active profile, written again for the runtime the game has now (an older core refuses newer forms)
+    match kiln_manage::profile::refresh_active(&dirs, g) {
+        Ok(Some(a)) => {
+            println!("  profile {} written again for this runtime (generation {})", a.profile_id, a.generation);
+            for line in a.kept_files.iter().chain(&a.warnings) { println!("  note: {line}"); }
+            for k in &a.retained {
+                println!("  kept {}: {}{}", k.path.display(), k.reason, if k.may_run { " (this mod may still run)" } else { "" });
+            }
+        }
+        Ok(None) => {}
+        Err(e) => println!("  note: the active profile was not written again for this runtime: {}", e.message),
+    }
     Ok(r)
 }
 

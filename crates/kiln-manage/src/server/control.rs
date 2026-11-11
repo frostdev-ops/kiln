@@ -389,10 +389,23 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         }
         if r.kind == ModKind::ShroudForge {
             if target.exists() {
-                for setting in crate::shroudforge::read_mod(&target)?.settings {
-                    // Removed settings are allowed; retained settings must continue accepting the player's value.
-                    if crate::shroudforge::read_mod(&tmp)?.settings.iter().any(|s| s.key == setting.key) {
-                        crate::shroudforge::set_setting(&tmp, &setting.key, &setting.value)?;
+                // settings the old copy cannot show are not thrown away: that copy stays, the others go on
+                let old = match crate::shroudforge::read_mod(&target) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        conflicts.push(format!("{}: {} was left as it is: its ShroudForge settings cannot be read ({})", r.id, target.display(), e.message));
+                        continue;
+                    }
+                };
+                for setting in old.settings {
+                    // Removed settings are allowed; a value the new version refuses keeps its default (as activation does)
+                    let Some(default) = crate::shroudforge::read_mod(&tmp)?.settings.into_iter().find(|s| s.key == setting.key).map(|s| s.value) else { continue };
+                    match crate::shroudforge::set_setting(&tmp, &setting.key, &setting.value) {
+                        Ok(_) => {}
+                        Err(e) if e.code == ErrorCode::InvalidArgument => progress.report(None, &format!(
+                            "{}: the setting {} was {}, which version {} does not accept ({}); it starts with that version's default {default}",
+                            r.id, setting.key, setting.value, r.version, e.message)),
+                        Err(e) => return Err(e),
                     }
                 }
             }

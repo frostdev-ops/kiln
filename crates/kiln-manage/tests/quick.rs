@@ -427,6 +427,19 @@ fn report_and_change_shapes_match_the_frontend() {
     assert_eq!(missing, serde_json::json!({ "id": "ui-lib", "range": "^1.0", "by": "more-hotbars" }));
 }
 
+/// The frontend's side of the same shape: launcher/src/api/commands.ts `AddReport` declares every key the backend sends
+/// (a key it lacks is one the launcher never shows, as `notices` was).
+#[test]
+fn the_launchers_add_report_type_declares_every_key() {
+    let ts = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../launcher/src/api/commands.ts")).unwrap();
+    let start = ts.find("export interface AddReport {").expect("AddReport in commands.ts");
+    let body = &ts[start..start + ts[start..].find("\n}").expect("end of AddReport")];
+    let v = serde_json::to_value(quick::AddReport::default()).unwrap();
+    for key in v.as_object().unwrap().keys() {
+        assert!(body.contains(&format!("\n  {key}:")) || body.contains(&format!("\n  {key}?:")), "AddReport.{key} is not in commands.ts");
+    }
+}
+
 /// What an uninstall of Kiln leaves behind for the next drop: the game's `kiln/profile.json` goes with Kiln's files in the
 /// game folder, the launcher's profiles and its record of the profile it activated stay.
 fn kiln_uninstalled(g: &GameInstall) {

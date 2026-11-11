@@ -116,7 +116,11 @@ pub async fn server_deploy(app: AppHandle, server_id: String, version: String) -
         let game = kiln_manage::game::inspect(inst.local_dir()?)?;
         let opts = kiln_manage::install::InstallOptions { components: None, switch_from_shroudforge: false, installer: Some(format!("kiln-launcher {}", env!("CARGO_PKG_VERSION"))) };
         let (receipt, report) = kiln_manage::install::install_report(&d, &game, &bundle.file, &opts, p)?;
-        super::runtime::install_result(&receipt, &report)
+        // the server's active profile, written again for the runtime it has now (an older core refuses newer forms)
+        let resumed = super::runtime::resume_profile(&d, &game, p);
+        let mut v = super::runtime::install_result(&receipt, &report)?;
+        super::runtime::add_resumed(&mut v, resumed);
+        Ok(v)
     }))
 }
 
