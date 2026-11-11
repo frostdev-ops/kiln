@@ -16,6 +16,8 @@ ASAN_OPTIONS=detect_leaks=0 "$out/rules_review_test"
 ${CXX:-clang++} -std=c++20 -O1 -Wall -Wextra -I"$here/tests/plugin_host" -I"$here/../../core/abi" \
   "$here/tests/plugin_review_test.cpp" -o "$out/plugin_review_test"
 "$out/plugin_review_test" "$out/loader-fixture"
+"$out/plugin_review_test" "$out/loader-fixture" inventory-lock
+"$out/plugin_review_test" "$out/loader-fixture" plugin-lock
 lua_sources=()
 for source in "$here"/../../third_party/lua/*.c; do
   case ${source##*/} in lua.c|luac.c) continue ;; esac

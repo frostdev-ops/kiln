@@ -47,6 +47,7 @@ std::atomic<bool> g_running{false};
 bool g_initialized = false;
 // Taken only when a re-check is due (a DLL has loaded), never on the steady-state frame/tick path.
 std::mutex g_coexist_mx;
+std::atomic<bool> g_coexist_pending{false};  // a due caller could not take the check lock; its notification is not lost
 kset::ModuleWatch g_modules;
 kset::ConflictGate g_gate;  // a failed module inventory is retried; only a seen SET or 5 failures in a row step aside
 // The console folder is checked at most every console_ms, by one thread at a time (the UI and the tick thread both
@@ -195,8 +196,14 @@ void probe_handle_reads() {
 // steady-state lock or wineserver call, and no periodic full check.
 bool may_run() {
     if (!g_running.load(std::memory_order_acquire)) return false;
-    if (!g_modules.due() && !g_gate.retry_due()) return true;
-    std::lock_guard lock(g_coexist_mx);
+    if (!g_modules.due() && !g_gate.retry_due() && !g_coexist_pending.load(std::memory_order_acquire)) return true;
+    // A reentrant call from a DLL initializer owns the loader lock that this check may be waiting for.
+    std::unique_lock lock(g_coexist_mx, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        g_coexist_pending.store(true, std::memory_order_release);
+        return g_running.load(std::memory_order_acquire);
+    }
+    g_coexist_pending.store(false, std::memory_order_release);
     if (!g_running.load()) return false;
     const kset::Inspection seen = kset::inspect_runtime();
     const int failed_before = g_gate.failures();

@@ -70,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         if result.returncode:
             raise RuntimeError(f'{name}: host exit {result.returncode}\n{result.stdout.decode(errors="replace")}')
         status = json.loads((game / 'kiln/state/shroudforge.json').read_text())
+        pid = int(re.search(rb'\[host\] pid: (\d+)', result.stdout).group(1))
+        assert status.get('pid') == pid, ('status must identify the process whose startup pass it describes', status, pid)
         if self_hosted:
             assert status['mode'] == 'self-hosted' and not log.exists(), (name, status)
             assert status.get('menu') != 'kiln', status
@@ -344,10 +346,19 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
                 last = next(i for i, c in enumerate(FED) if c.split()[0] == 'feed-' + export)
                 assert fed == ['feed-version', 'feed-begin'] + FED[:last + 1], fed
                 assert 'host key feed faulted on the window thread' in out, out
+                assert status['keys']['source'] == 'none' and 'faulted on the window thread' in status['keys']['reason'], status['keys']
         return verify
     for export in ('version', 'begin', 'raw', 'window', 'mouse', 'reset', 'end'):
         keys_case('keys-fault-' + export, installed='corrupt', runtime='runtime_feed',
                   extra_env=dict(ui5, KILN_SF_FEED_FAULT=export), verify=feed_fault(export))
+    def fault_after_snapshot(status, calls, out):
+        assert 'fault-after-last-snapshot' in calls, calls
+        assert feed_calls(calls) == ['feed-version', 'feed-begin', 'feed-raw 43 0 78'], feed_calls(calls)
+        assert 'host key feed faulted on the window thread' in out, out
+        assert status['keys']['source'] == 'none' and 'faulted on the window thread' in status['keys']['reason'], status['keys']
+        assert '[fake kiln.ui] subscriptions left: 0' in out, out
+    keys_case('keys-fault-after-last-snapshot', installed='corrupt', runtime='runtime_feed',
+              extra_env=dict(ui5, KILN_SF_FEED_FAULT='raw', KILN_SF_FAULT_AFTER_SNAPSHOT='1'), verify=fault_after_snapshot)
     # Teardown while the window thread sends key records without a pause (each feed call takes 2 ms): no export after
     # end or destroy. STUCK: kiln.ui's unsubscribe fails and records keep coming after the teardown.
     def raced(stuck):

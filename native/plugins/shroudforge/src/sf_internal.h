@@ -51,6 +51,9 @@ KeySource key_feed_start(const KilnApi* api, KilnOwner owner, HMODULE runtime, c
 // The plugin step's on_ready (boot thread; the worker may run): a waiting feed subscribes to kiln.ui v5 now. True with the
 // final word in *out ("kiln" or "none"); false when there was nothing to attach or the teardown came first.
 bool key_feed_attach(const KilnApi* api, KilnOwner owner, KeySource* out);
+// A record export faulted and forwarding stopped for the session. Lock-free: the status writer can report it
+// even if the boot thread is still publishing its attach result; no status allocation or file I/O on the window thread.
+bool key_feed_faulted();
 // Unsubscribes (waiting for a record in flight) and ends the feed; no feed export is called afterwards. Call before
 // shroudforge_destroy. Does nothing without a feed. True with the final word in *out when the feed was still waiting
 // for the plugin step's attach.

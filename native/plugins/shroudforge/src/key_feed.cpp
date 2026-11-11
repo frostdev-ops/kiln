@@ -73,6 +73,7 @@ bool g_waiting = false;           // begun at the early on_ready, the plugin ste
 // Teardown has begun: records are dropped before they ask for g_mu. A window thread that delivers without a pause (and
 // a kiln.ui that could not remove the subscription) would otherwise keep taking the lock ahead of the worker's end.
 std::atomic<bool> g_stopping{false};
+std::atomic<bool> g_faulted{false};  // the status writer observes this without taking the window callback's lock
 bool g_raw_keys = false;          // the window has given a raw keyboard record (g_mu)
 bool g_raw_buttons = false;       // ...a raw mouse button record (g_mu)
 
@@ -123,6 +124,7 @@ void KILN_CALL on_window_input(const KilnUiWindowInput* r, void*) {
             return;
     }
     if (!ok) {
+        g_faulted.store(true, std::memory_order_release);
         g_live = g_begun = false;  // no end: the runtime faulted inside its own feed
         logf(KILN_LOG_ERROR, "ShroudForge's host key feed faulted on the window thread: Kiln stops passing keys to it; "
                              "ShroudForge mod shortcuts do not fire for the rest of this session");
@@ -254,6 +256,8 @@ bool key_feed_attach(const KilnApi* api, KilnOwner owner, KeySource* out) {
                                     "runtime's host key feed had begun") + kNoHelper};
     return true;
 }
+
+bool key_feed_faulted() { return g_faulted.load(std::memory_order_acquire); }
 
 bool key_feed_stop(KeySource* out) {
     g_stopping.store(true, std::memory_order_release);

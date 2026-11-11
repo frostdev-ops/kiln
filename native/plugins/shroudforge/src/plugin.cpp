@@ -159,6 +159,12 @@ void write_status() {
     std::string text;
     {
         std::lock_guard lock(g_status_mutex);
+        g_status["pid"] = GetCurrentProcessId();
+        // A window record may fault immediately after attach, before the boot thread reports "kiln".
+        // Resolve that race here, off the window thread, for every snapshot (including the final one).
+        if (key_feed_faulted())
+            g_status["keys"] = {{"source", "none"}, {"reason", "ShroudForge's host key feed faulted on the window thread: "
+                                                            "Kiln stopped passing records; mod shortcuts do not fire for the rest of this session"}};
         g_status["updated"] = static_cast<int64_t>(std::time(nullptr));
         text = g_status.dump(2);
     }
@@ -402,9 +408,10 @@ void report_keys(const KeySource& keys) {
 // The key feed's teardown, before shroudforge_destroy. A feed still waiting for the plugin step gets its last word here.
 void stop_key_feed() {
     KeySource last{};
-    if (!key_feed_stop(&last)) return;
-    report_keys(last);
-    write_status();
+    const bool waited = key_feed_stop(&last);
+    if (waited) report_keys(last);
+    // A record can fault after run_loop's final snapshot, but not after stop drained it.
+    if (waited || key_feed_faulted()) write_status();
 }
 
 std::string kfc_status() {
