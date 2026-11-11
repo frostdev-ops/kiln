@@ -49,7 +49,7 @@ internal static unsafe class FakeUiTable
     private static void U32(uint n) { }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void I32(int n) { }
+    private static void SetMenu(int open) => MenuOpen = open < 0 ? !MenuOpen : open != 0;
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void U32U32(uint a, uint b) { }
@@ -144,7 +144,7 @@ internal static unsafe class FakeUiTable
         t.SetDemand = &U32;
         t.SetCapture = &U32;
         t.SetHoverCapture = &U32;
-        t.SetMenu = &I32;
+        t.SetMenu = &SetMenu;
         t.SetMenuKey = &U32U32;
         t.KeyName = &KeyName;
         t.Text = &Str;

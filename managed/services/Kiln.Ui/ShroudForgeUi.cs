@@ -636,7 +636,14 @@ internal static class ShroudForgeMenu
     /// <summary>The shortcut: opens the Kiln menu on ShroudForge, or closes it when it already shows ShroudForge.</summary>
     public static void Toggle()
     {
-        if (Ui.MenuOpen && ModManagerHost.Page.Section == ModManagerSection.Mods && ModManagerHost.Page.Filter.Kind == "shroudforge") Ui.MenuOpen = false;
+        var page = ModManagerHost.Page;
+        // a press before the page drew a frame finds its request still pending: that is the ShroudForge page too
+        var shown = page.PendingRequest == "shroudforge" || page.PendingRequest is null && page.Section == ModManagerSection.Mods && page.Filter.Kind == "shroudforge";
+        if (Ui.MenuOpen && shown)
+        {
+            page.CancelRequest();
+            Ui.MenuOpen = false;
+        }
         else Open();
     }
 

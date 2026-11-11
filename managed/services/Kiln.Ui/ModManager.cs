@@ -194,7 +194,8 @@ internal sealed class ModManagerPage
             _rowsSettings = kilnSettings;
             _engines = ModManagerLogic.EngineRows(snap, kilnSettings);
         }
-        Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings);
+        // before the first list landed nothing is known to be gone: an engine asked for (ShroudForge's F9) stays chosen
+        if (!ReferenceEquals(snap, CatalogSnapshot.Empty)) Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings);
         if (!changed && Filter == _rowsFilter && Search == _rowsSearch) return;
         _rowsFilter = Filter;
         _rowsSearch = Search;
@@ -224,6 +225,22 @@ internal sealed class ModManagerPage
     /// <summary>Shows the Mods section on <paramref name="f"/> at the next frame (any thread: a key binding, ShroudForge's
     /// menu request).</summary>
     public void Request(EngineFilter f) => Volatile.Write(ref _request, f.Kind);
+
+    /// <summary>The engine a <see cref="Request"/> asked for that no frame has shown yet, or null.</summary>
+    internal string? PendingRequest => Volatile.Read(ref _request);
+
+    /// <summary>Forgets a request no frame has shown (the menu closed first).</summary>
+    internal void CancelRequest() => Volatile.Write(ref _request, null);
+
+    /// <summary>Shows a pending request: the Mods section on its engine (the first thing a frame does).</summary>
+    internal void TakeRequest()
+    {
+        if (Interlocked.Exchange(ref _request, null) is not { } wanted) return;
+        Section = ModManagerSection.Mods;
+        Filter = new EngineFilter(wanted);
+        Search = "";
+    }
+
     internal IReadOnlyList<EngineRow> EngineRows => _engines;
 
     /// <summary>Draws the page into <paramref name="r"/> (screen pixels) at UI scale <paramref name="s"/>. Call inside a
@@ -231,12 +248,7 @@ internal sealed class ModManagerPage
     public void Draw(UiDraw ui, PageRect r, float s)
     {
         _k = s / (ui.Scale > 0 ? ui.Scale : 1);
-        if (Interlocked.Exchange(ref _request, null) is { } wanted)
-        {
-            Section = ModManagerSection.Mods;
-            Filter = new EngineFilter(wanted);
-            Search = "";
-        }
+        TakeRequest();
         var kilnSettings = ConfigScreens.HasConfigs("kiln");
         Update(Source(), kilnSettings);
         if (ui.FrameNumber != _lastFrame + 1) _framesShown = 0;  // opened again (or the first time)
