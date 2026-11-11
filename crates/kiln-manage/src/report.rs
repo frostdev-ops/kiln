@@ -1154,6 +1154,22 @@ pub fn build(input: &ReportInput) -> Report {
             failed.push(format!("{} (chain.ini): {}", c.path.rsplit(['\\', '/']).next().unwrap_or(&c.path), format!("{:?}", c.status).to_lowercase()));
         }
     }
+    // the profile's native mods that are another engine's own loader (r1110: SET's powrprof.dll imported as a native mod)
+    let native_loaders: Vec<(String, crate::engines::Engine, String)> = match (&profile, &install) {
+        (Some(p), Some(i)) => p.mods.native.iter().filter(|m| m.enabled)
+            .filter_map(|m| {
+                let host = crate::winpath::to_host(&m.path, i).ok()?;
+                let (engine, file) = crate::engines::own_loader_in(&host)?;
+                Some((m.id.clone(), engine, file))
+            }).collect(),
+        _ => Vec::new(),
+    };
+    for (id, engine, file) in &native_loaders {
+        let aside = engines.iter().any(|e| e.kind.engine() == Some(*engine) && e.state.as_ref().is_some_and(stood_aside));
+        if !aside {
+            cx.find("native-loader", Level::Warning, format!("The profile's {}.", crate::profile::native_loader_warning(id, *engine, file)));
+        }
+    }
     let _ = writeln!(ls, "Engines:");
     let mut any_engine = false;
     for e in &engines {
@@ -1174,7 +1190,10 @@ pub fn build(input: &ReportInput) -> Report {
                 failed.push(format!("{id} ({}): {}", kind_name(e.kind), why.as_deref().unwrap_or("no reason given")));
             }
         }
-        if stood_aside(st) {
+        if stood_aside(st) && let Some((id, engine, file)) = native_loaders.iter().find(|(_, en, _)| Some(*en) == e.kind.engine()) {
+            cx.find("native-loader", Level::Problem, format!("{} stood aside at the last start: the profile's {}.",
+                e.plugin, crate::profile::native_loader_warning(id, *engine, file)));
+        } else if stood_aside(st) {
             let n = kind_name(e.kind);
             cx.find("own-loader", Level::Problem, format!(
                 "{} stood aside at the last start: {n}'s own loader runs in the game{}. The {n} mods in the profile did not load through Kiln; only the mods in {n}'s own folder ran.",

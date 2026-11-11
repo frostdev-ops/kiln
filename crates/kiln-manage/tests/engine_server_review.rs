@@ -52,10 +52,17 @@ fn player_additions_and_symlinked_roots_are_preserved() {
     let r=import(&dirs,&src); let server=t.0.join("server"); let i=instance(&server);
     control::sync(&dirs,&i,&[r.clone()],&mut NoProgress).unwrap();
     let copy=server.join("shrouded_engine_tweaks/mods/additions"); put(&copy,".player-save",b"keep");
+    // a file the mod added is the player's: kept under kiln/ when the copy goes, back with the mod
     control::sync(&dirs,&i,&[],&mut NoProgress).unwrap();
+    assert!(!copy.exists());
+    assert_eq!(std::fs::read(server.join("kiln/kept-mod-files/set/additions/.player-save")).unwrap(),b"keep");
+    control::sync(&dirs,&i,&[r.clone()],&mut NoProgress).unwrap();
     assert_eq!(std::fs::read(copy.join(".player-save")).unwrap(),b"keep");
     control::set_enabled(&i,"additions",false).unwrap();
+    control::sync(&dirs,&i,&[r.clone()],&mut NoProgress).unwrap();
+    assert!(!copy.exists());
     // A modified disabled copy must never cause sync to create a second, enabled copy.
+    put(&server,"kiln/disabled/set/additions/init.lua",b"edited");
     assert_eq!(control::sync(&dirs,&i,&[r.clone()],&mut NoProgress).unwrap_err().code,ErrorCode::Conflict);
     assert!(!copy.exists());
     assert_eq!(std::fs::read(server.join("kiln/disabled/set/additions/.player-save")).unwrap(),b"keep");
@@ -178,4 +185,53 @@ fn symlinked_system_ancestors_work_but_links_inside_the_server_folder_do_not() {
     std::os::unix::fs::symlink(&outside,staging2.join("set")).unwrap();
     assert_eq!(modpack::extract(&zip,&m,&staging2).unwrap_err().code,ErrorCode::Refused);
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(),0);
+}
+
+/// kiln-set runs SET mods on dedicated servers too, so a mod saves its `settings.json` in the synced copy there. That
+/// file is the server owner's: syncing again, updating and removing the mod must neither fail on it nor lose it.
+#[test]
+fn set_settings_on_a_server_survive_sync_update_and_removal() {
+    let t=tmp("set-settings"); let dirs=DataDirs::at(t.0.join("data")); let src=t.0.join("src/flymode"); set_mod(&src);
+    let v1=import(&dirs,&src); let server=t.0.join("server"); let i=instance(&server);
+    control::sync(&dirs,&i,&[v1.clone()],&mut NoProgress).unwrap();
+    let copy=server.join("shrouded_engine_tweaks/mods/flymode");
+    put(&copy,"settings.json",br#"{"speed":4}"#); put(&copy,"logs/today.txt",b"x");
+    // the same list again: no conflict, nothing touched
+    control::sync(&dirs,&i,&[v1.clone()],&mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(copy.join("settings.json")).unwrap(),br#"{"speed":4}"#);
+    // an update: the new version, with the owner's files
+    put(&src,"init.lua",b"return {v=2}"); let v2=import(&dirs,&src); assert_ne!(v1.hash,v2.hash);
+    control::sync(&dirs,&i,&[v2.clone()],&mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(copy.join("init.lua")).unwrap(),b"return {v=2}");
+    assert_eq!(std::fs::read(copy.join("settings.json")).unwrap(),br#"{"speed":4}"#);
+    assert_eq!(std::fs::read(copy.join("logs/today.txt")).unwrap(),b"x");
+    // removed from the list: the copy goes, the owner's files are kept under kiln/ and come back with the mod
+    control::sync(&dirs,&i,&[],&mut NoProgress).unwrap();
+    assert!(!copy.exists());
+    assert_eq!(std::fs::read(server.join("kiln/kept-mod-files/set/flymode/settings.json")).unwrap(),br#"{"speed":4}"#);
+    control::sync(&dirs,&i,&[v2],&mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(copy.join("settings.json")).unwrap(),br#"{"speed":4}"#);
+    assert!(!server.join("kiln/kept-mod-files").exists());
+    // an edited synced file is still the owner's copy: left alone, as before
+    put(&copy,"init.lua",b"edited");
+    assert_eq!(control::sync(&dirs,&i,&[v1],&mut NoProgress).unwrap_err().code,ErrorCode::Conflict);
+    assert_eq!(std::fs::read(copy.join("init.lua")).unwrap(),b"edited");
+}
+
+/// A receipt written before the launcher kept the synced file list: read against the Library entry, so a server whose
+/// SET mod already saved settings is not stuck.
+#[test]
+fn old_server_receipts_without_a_file_list_accept_the_mods_own_files() {
+    let t=tmp("set-legacy"); let dirs=DataDirs::at(t.0.join("data")); let src=t.0.join("src/flymode"); set_mod(&src);
+    let v1=import(&dirs,&src); let server=t.0.join("server"); let i=instance(&server);
+    control::sync(&dirs,&i,&[v1.clone()],&mut NoProgress).unwrap();
+    let receipt=server.join("kiln/state/server-library.json");
+    let mut doc:serde_json::Value=serde_json::from_slice(&std::fs::read(&receipt).unwrap()).unwrap();
+    for (_,v) in doc.as_object_mut().unwrap().iter_mut(){ v.as_object_mut().unwrap().remove("files"); }
+    std::fs::write(&receipt,serde_json::to_vec(&doc).unwrap()).unwrap();
+    let copy=server.join("shrouded_engine_tweaks/mods/flymode"); put(&copy,"settings.json",b"{}");
+    put(&src,"init.lua",b"return {v=2}"); let v2=import(&dirs,&src);
+    control::sync(&dirs,&i,&[v2],&mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(copy.join("init.lua")).unwrap(),b"return {v=2}");
+    assert_eq!(std::fs::read(copy.join("settings.json")).unwrap(),b"{}");
 }

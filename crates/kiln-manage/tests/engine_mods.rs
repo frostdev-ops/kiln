@@ -401,10 +401,11 @@ fn placement_refuses_modified_owned_trees_and_symlinked_roots() {
     let game = t.0.join("game");
     engine_mods::place(&dirs, &p, &game).unwrap();
     let dst = game.join("shrouded_engine_tweaks/mods/flymode");
-    put(&dst, "player.txt", b"keep");
+    // the player edited a file of the library copy: that copy is no longer Kiln's to remove
+    put(&dst, "init.lua", b"print('edited')");
     p.mods.set.clear();
-    assert!(engine_mods::place(&dirs, &p, &game).is_err());
-    assert!(dst.join("player.txt").is_file());
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"print('edited')");
     let linked_game = t.0.join("linked-game");
     std::fs::create_dir_all(&linked_game).unwrap();
     std::os::unix::fs::symlink(game.join("shrouded_engine_tweaks"), linked_game.join("shrouded_engine_tweaks")).unwrap();
@@ -656,4 +657,181 @@ fn a_data_only_kiln_mod_imports_and_joins_a_profile() {
     let file = profile::read_game_profile(&game.path).unwrap().unwrap();
     assert_eq!(file.mods.kiln.len(), 1);
     assert_eq!(file.mods.kiln[0].id, "isle-colours");
+}
+
+/// A SET 0.2.0 mod saves `Settings.define` values to `settings.json` in its placed folder (kiln-set's modsettings), and
+/// may write other files there. They are the player's: activation keeps working, keeps them across updates, and does
+/// not lose them when the mod leaves the profile (docs/kiln/set.md "Settings and the launcher").
+#[test]
+fn set_settings_written_by_the_mod_survive_activation_updates_and_removal() {
+    let t = tmp("set-settings");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/flymode");
+    put(&src, "init.lua", b"Settings.define{speed={type='number',default=1}}");
+    let r1 = library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap();
+    let v1 = refs(&r1, ModKind::Set, "flymode");
+    let mut p = profile::create(&dirs, "set-settings", None).unwrap();
+    p.mods.set = vec![pm(&v1, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let game = game_with_z(&t.0);
+    let dst = game.path.join("shrouded_engine_tweaks/mods/flymode");
+
+    // 1. first placement
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(dst.join("init.lua").is_file() && engine_mods::marker(&dst).is_some());
+    assert!(a.kept_files.is_empty(), "{a:?}");
+
+    // 2. the mod saved its settings (and a log of its own): the next activation keeps the copy and the files
+    put(&dst, "settings.json", br#"{"speed":4}"#);
+    put(&dst, "settings.json.bad", b"{broken");
+    put(&dst, "data/visits.txt", b"3");
+    let rep = engine_mods::place(&dirs, &p, &game.path).unwrap();
+    assert_eq!(rep.kept, ["set:flymode"], "{rep:?}");
+    let edit = |f: &dyn Fn(&mut profile::Profile)| {
+        let mut x = profile::get(&dirs, &p.id).unwrap();
+        f(&mut x);
+        profile::save(&dirs, &x).unwrap()
+    };
+    let p2 = edit(&|x| x.name = "touched".into());
+    profile::activate(&dirs, &p2.id, &game).unwrap();
+    assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), br#"{"speed":4}"#);
+
+    // 3. an update of the mod: the new version is placed, the player's files come along
+    put(&src, "init.lua", b"Settings.define{speed={type='number',default=2}} -- 2.0");
+    let v2 = refs(&library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap(), ModKind::Set, "flymode");
+    assert_ne!(v1.hash, v2.hash);
+    let p3 = edit(&|x| x.mods.set = vec![pm(&v2, true)]);
+    let a = profile::activate(&dirs, &p3.id, &game).unwrap();
+    assert!(std::fs::read_to_string(dst.join("init.lua")).unwrap().ends_with("-- 2.0"));
+    assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), br#"{"speed":4}"#);
+    assert_eq!(std::fs::read(dst.join("data/visits.txt")).unwrap(), b"3");
+    assert_eq!(engine_mods::marker(&dst).unwrap().hash, v2.hash);
+    assert!(a.kept_files.is_empty(), "carried files need no sentence: {a:?}");
+    // the carried files are still the player's for the receipt: the next pass keeps the copy as it is
+    put(&dst, "settings.json", br#"{"speed":5}"#);
+    assert_eq!(engine_mods::place(&dirs, &p3, &game.path).unwrap().kept, ["set:flymode"]);
+
+    // 4. switched off: the copy goes, the files the mod wrote are kept under kiln/ and the result says where
+    let p4 = edit(&|x| x.mods.set[0].enabled = false);
+    let a = profile::activate(&dirs, &p4.id, &game).unwrap();
+    assert!(!dst.exists());
+    let kept = game.path.join("kiln/kept-mod-files/set/flymode");
+    assert_eq!(std::fs::read(kept.join("settings.json")).unwrap(), br#"{"speed":5}"#);
+    assert_eq!(std::fs::read(kept.join("data/visits.txt")).unwrap(), b"3");
+    assert_eq!(a.kept_files.len(), 1, "{a:?}");
+    assert!(a.kept_files[0].starts_with("set:flymode: kept the files the mod wrote (data/visits.txt, settings.json, settings.json.bad)")
+        && a.kept_files[0].contains("kiln/kept-mod-files/set/flymode"), "{a:?}");
+
+    // 5. on again: they go back into the new copy and the kept folder is gone
+    let p5 = edit(&|x| x.mods.set[0].enabled = true);
+    let a = profile::activate(&dirs, &p5.id, &game).unwrap();
+    assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), br#"{"speed":5}"#);
+    assert_eq!(std::fs::read(dst.join("data/visits.txt")).unwrap(), b"3");
+    assert!(!game.path.join("kiln/kept-mod-files").exists());
+    assert!(a.kept_files[0].starts_with("set:flymode: put back the files the mod wrote earlier"), "{a:?}");
+    assert_eq!(engine_mods::place(&dirs, &p5, &game.path).unwrap().kept, ["set:flymode"]);
+
+    // 6. removed from the profile (not only switched off): the same
+    let p6 = edit(&|x| x.mods.set.clear());
+    let a = profile::activate(&dirs, &p6.id, &game).unwrap();
+    assert!(!dst.exists());
+    assert_eq!(std::fs::read(kept.join("settings.json")).unwrap(), br#"{"speed":5}"#);
+    assert_eq!(a.kept_files.len(), 1);
+}
+
+/// A settings file the library copy ships itself (a mod with default settings) is the player's once the mod changed
+/// it; any other library file that changed still makes the copy the player's (refused, as before).
+#[test]
+fn shipped_settings_file_may_change_other_library_files_may_not() {
+    let t = tmp("set-shipped-settings");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/glider");
+    put(&src, "init.lua", b"print(1)");
+    put(&src, "settings.json", br#"{"height":1}"#);
+    put(&src, "readme.txt", b"v1");
+    let v1 = refs(&library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap(), ModKind::Set, "glider");
+    let mut p = profile::create(&dirs, "shipped", None).unwrap();
+    p.mods.set = vec![pm(&v1, true)];
+    let game = t.0.join("game");
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    let dst = game.join("shrouded_engine_tweaks/mods/glider");
+    put(&dst, "settings.json", br#"{"height":9}"#);
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap().kept, ["set:glider"]);
+    // an update that ships settings.json and a file the mod also wrote (notes.txt)
+    put(&dst, "notes.txt", b"mine");
+    put(&src, "notes.txt", b"theirs");
+    put(&src, "readme.txt", b"v2");
+    let v2 = refs(&library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap(), ModKind::Set, "glider");
+    p.mods.set = vec![pm(&v2, true)];
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.placed, ["set:glider"]);
+    assert_eq!(std::fs::read(dst.join("settings.json")).unwrap(), br#"{"height":9}"#, "the player's settings win");
+    assert_eq!(std::fs::read(dst.join("notes.txt")).unwrap(), b"theirs", "the new version's own file wins");
+    assert_eq!(std::fs::read(game.join("kiln/kept-mod-files/set/glider/notes.txt")).unwrap(), b"mine");
+    assert!(rep.kept_files[0].contains("notes.txt") && rep.kept_files[0].contains("ships its own file"), "{rep:?}");
+    assert_eq!(std::fs::read(dst.join("readme.txt")).unwrap(), b"v2");
+    // a changed library file that is no settings file: refused, nothing removed
+    put(&dst, "readme.txt", b"edited");
+    p.mods.set.clear();
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(std::fs::read(dst.join("readme.txt")).unwrap(), b"edited");
+}
+
+/// ShroudForge packages placed through the same code: a file the mod writes next to its package is the player's too.
+#[test]
+fn shroudforge_files_written_by_the_mod_are_kept_like_sets() {
+    let t = tmp("sf-written");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = sources(&t.0)[1].clone();
+    let v1 = refs(&library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap(), ModKind::ShroudForge, "sfpack");
+    let mut p = profile::create(&dirs, "sf-written", None).unwrap();
+    p.mods.shroudforge = vec![pm(&v1, true)];
+    let game = t.0.join("game");
+    engine_mods::place(&dirs, &p, &game).unwrap();
+    let dst = game.join("mods/sfpack");
+    put(&dst, "cache/state.json", b"{}");
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap().kept, ["shroudforge:sfpack"]);
+    put(&src, "mod.json", br#"{"id":"sfpack","name":"SF Pack","version":"2.0.0"}"#);
+    let v2 = refs(&library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap(), ModKind::ShroudForge, "sfpack");
+    p.mods.shroudforge = vec![pm(&v2, true)];
+    assert_eq!(engine_mods::place(&dirs, &p, &game).unwrap().placed, ["shroudforge:sfpack"]);
+    assert_eq!(std::fs::read(dst.join("cache/state.json")).unwrap(), b"{}");
+    assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().version, "2.0.0");
+}
+
+/// Player report r1110: a native mod in the Library that is SET's own loader (imported before the Library recognised
+/// loaders). The launcher's plan for the profile says so; the import of SET's release zip leaves the loader out
+/// (import_shapes.rs set_release_zip_leaves_its_loader_out_and_imports_its_mods).
+#[test]
+fn a_native_mod_that_is_sets_loader_is_named_in_the_profile_plan() {
+    let t = tmp("native-set-loader");
+    let dirs = DataDirs::at(t.0.join("data"));
+    put(&t.0, "src/powrprof.dll", &build_test_dll(&["PowerGetActiveScheme"], b"a plain power proxy"));
+    let r = library::import(&dirs, &[t.0.join("src/powrprof.dll")], &mut NoProgress).unwrap();
+    let native = r.imported.iter().find(|x| x.kind == ModKind::Native).cloned().unwrap_or_else(|| panic!("{r:?}"));
+    let mut p = profile::create(&dirs, "r1110", None).unwrap();
+    p.mods.native = vec![pm(&native, true)];
+    let pre = profile::resolve_preview(&dirs, &p, kiln_manage::manifest::RunSide::Client).unwrap();
+    assert!(!pre.warnings.iter().any(|w| w.contains("own loader")), "{:?}", pre.warnings);
+    // the entry as an old launcher imported it: SET's loader
+    let folder = library::path_of(&dirs, &native).unwrap();
+    std::fs::write(folder.join("powrprof.dll"), build_test_dll(&["PowerGetActiveScheme"], b"VK_LAYER_SHROUDED_ENGINE_TWEAKS")).unwrap();
+    let pre = profile::resolve_preview(&dirs, &p, kiln_manage::manifest::RunSide::Client).unwrap();
+    assert!(pre.warnings.iter().any(|w| w.starts_with(&format!("Skipped native mod {}: powrprof.dll is Shrouded Engine Tweaks's own loader", native.id))),
+        "{:?}", pre.warnings);
+    assert!(!pre.native[0].enabled && pre.native[0].reason.as_ref().unwrap().contains("Library source"));
+    let game = game_with_z(&t.0);
+    let p = profile::save(&dirs, &p).unwrap();
+    let source_hash = hash::dirhash(&folder).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(a.warnings, pre.warnings);
+    assert!(!profile::read_game_profile(&game.path).unwrap().unwrap().mods.native[0].enabled);
+    assert!(profile::get(&dirs, &p.id).unwrap().mods.native[0].enabled, "the stored selection is unchanged");
+    assert_eq!(hash::dirhash(&folder).unwrap(), source_hash, "no source bytes removed or rewritten");
+    assert!(!std::fs::read_to_string(game.path.join("kiln/chain.ini")).unwrap().contains("powrprof.dll"));
+    // The same render rule covers play-once and copy-mode profiles, not just persistent activation.
+    assert!(!profile::render(&dirs, &p, &game, PathMode::Copy).unwrap().mods.native[0].enabled);
+    let mut p = p;
+    p.mods.native[0].enabled = false;
+    assert!(profile::resolve_preview(&dirs, &p, kiln_manage::manifest::RunSide::Client).unwrap().warnings.is_empty());
 }

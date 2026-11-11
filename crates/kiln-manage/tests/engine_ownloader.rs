@@ -130,12 +130,24 @@ fn player_folders_are_never_touched() {
     engine_mods::place(&dirs, &p, &game).unwrap();
     assert!(game.join("mods/Stacks Mod/mod.json").is_file());
     std::fs::remove_dir_all(game.join("mods/Stacks Mod")).unwrap();
-    // a copy the mod wrote into is left as it is, not an error
+    // a file the mod wrote into its copy is the player's: the copy stays Kiln's, the file is kept
     p.mods.eml[0].enabled = true;
     engine_mods::place(&dirs, &p, &game).unwrap();
     put(&game, "mods/stacks/settings.txt", b"written by the player");
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!(rep.changed, ["eml:stacks"]);
+    assert_eq!((rep.kept.as_slice(), rep.changed.len()), (&["eml:stacks".to_string()][..], 0), "{rep:?}");
+    p.mods.eml.clear();
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.removed, ["eml:stacks"]);
+    assert!(!game.join("mods/stacks").exists());
+    assert_eq!(std::fs::read(game.join("kiln/kept-mod-files/eml/stacks/settings.txt")).unwrap(), b"written by the player");
+    assert!(rep.kept_files[0].contains("settings.txt"), "{rep:?}");
+    // an edited library file still makes the copy the player's: left as it is, neither refreshed nor removed
+    p.mods.eml = vec![pm(&a, true)];
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(std::fs::read(game.join("mods/stacks/settings.txt")).unwrap(), b"written by the player", "{rep:?}");
+    assert!(!game.join("kiln/kept-mod-files/eml/stacks").exists());
+    put(&game, "mods/stacks/mod.json", br#"{"id":"stacks","name":"Edited","version":"1.0.0"}"#);
     p.mods.eml.clear();
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
     assert_eq!(rep.changed, ["eml:stacks"]);

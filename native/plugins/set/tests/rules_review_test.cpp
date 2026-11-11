@@ -431,11 +431,13 @@ void checkCatalog() {
     contracts::Status found;
     CHECK(contracts::find("ok", found) && found.fn == s[0].fn && !contracts::find("missing", found));
     contracts::setChecked({});
-    // SET's own catalog is well formed, lists SET's three builds, and is off on any other build (the dedicated server's).
+    // SET's catalog lists its three client builds; Kiln also verifies combat_xp on its dedicated-server build.
     const auto& cat = contracts::catalog();
     CHECK(cat.size() == 2 && std::string(cat[0].name) == "combat_xp" && std::string(cat[1].name) == "hit");
     CHECK(cat[0].thunk == hk::ThunkCombatXp && cat[1].thunk == hk::NoThunk && (cat[0].caps & contracts::After) && !(cat[1].caps & contracts::After));
-    for (const auto& e : contracts::check(base, 1793791038, cat)) CHECK(!e.fn && e.why == "Untested build");
+    const auto server = contracts::check(base, 1793791038, cat);
+    CHECK(!server[0].fn && server[0].why.find("Pattern: ") == 0);
+    CHECK(!server[1].fn && server[1].why == "Untested build");
     for (const auto& e : contracts::check(base, 1793791052, cat)) CHECK(!e.fn && e.why.find("Pattern: ") == 0);  // listed, not in this image
     // With the patterns "found" and the anchors in place, both check out on a listed build.
     std::string err;
@@ -456,6 +458,8 @@ void checkCatalog() {
     put(0x200 + 0x94F, {0x89, 0xB3, 0xBC, 0, 0, 0});
     auto real = contracts::check(nb, 1793791052, cat);
     CHECK(real[0].why.empty() && real[0].fn == nb + 0x800 && real[1].why.empty() && real[1].fn == nb + 0x200);
+    const auto realServer = contracts::check(nb, 1793791038, cat);
+    CHECK(realServer[0].fn == nb + 0x800 && !realServer[1].fn && realServer[1].why == "Untested build");
     image[0x200 + 0x94F] = 0x90;  // one anchor differs: only that entry is off
     real = contracts::check(nb, 1793791052, cat);
     CHECK(real[0].fn && !real[1].fn && real[1].why == "Anchor 3 differs");

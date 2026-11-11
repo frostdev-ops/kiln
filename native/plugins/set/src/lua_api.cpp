@@ -1594,11 +1594,33 @@ int registerGuarded(lua_State* L, lua_CFunction fn) {
 // ---- Hooks.rule, Hooks.param, Hooks.list (from SET 0.2.0 runtime/lua_api.cpp) ----
 int hookObserve(lua_State* L) { return registerGuarded(L, hookRegister); }
 
+// Do not silently drop malformed conditions or id/build entries. rawlen alone does not prove a contiguous array:
+// a table can have holes and unrelated keys while its key count happens to equal rawlen.
+size_t ruleArray(lua_State* L, int idx, const char* what) {
+    idx = lua_absindex(L, idx);
+    luaL_checktype(L, idx, LUA_TTABLE);
+    const size_t n = lua_rawlen(L, idx);
+    size_t count = 0;
+    for (lua_pushnil(L); lua_next(L, idx); lua_pop(L, 1)) {
+        if (!lua_isinteger(L, -2) || lua_tointeger(L, -2) < 1 || lua_Unsigned(lua_tointeger(L, -2)) > n)
+            luaL_error(L, "rule %s must be a contiguous array", what);
+        ++count;
+    }
+    if (count != n) luaL_error(L, "rule %s must be a contiguous array", what);
+    return n;
+}
+
+double ruleNumber(lua_State* L, int idx) {
+    const double v = luaL_checknumber(L, idx);
+    if (!std::isfinite(v)) luaL_error(L, "rule numbers must be finite");
+    return v;
+}
+
 // Up to 64 entity ids from the table at idx.
 std::vector<uint32_t> ruleIds(lua_State* L, int idx) {
-    luaL_checktype(L, idx, LUA_TTABLE);
+    idx = lua_absindex(L, idx);
+    lua_Integer n = lua_Integer(ruleArray(L, idx, "id list"));
     std::vector<uint32_t> ids;
-    lua_Integer n = lua_Integer(lua_rawlen(L, idx));
     if (n > rules::kMaxList) luaL_error(L, "a rule's id list holds at most 64 ids");
     for (lua_Integer i = 1; i <= n; ++i) {
         lua_rawgeti(L, idx, i);
@@ -1628,7 +1650,7 @@ void ruleParams(lua_State* L, RuleParse& p) {
         while (lua_next(L, -2)) {
             if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TNUMBER)
                 luaL_error(L, "rule params must be a table of names to numbers");
-            named[lua_tostring(L, -2)] = lua_tonumber(L, -1);
+            named[lua_tostring(L, -2)] = ruleNumber(L, -1);
             lua_pop(L, 1);
         }
     }
@@ -1643,7 +1665,7 @@ void ruleParams(lua_State* L, RuleParse& p) {
 // A number, true/false, "player" (the host player's entity) or "$name" (a param).
 rules::Operand ruleOperand(lua_State* L, int idx, const RuleParse& p) {
     rules::Operand o;
-    if (lua_type(L, idx) == LUA_TNUMBER) { o.value = lua_tonumber(L, idx); return o; }
+    if (lua_type(L, idx) == LUA_TNUMBER) { o.value = ruleNumber(L, idx); return o; }
     if (lua_type(L, idx) == LUA_TBOOLEAN) { o.value = lua_toboolean(L, idx); return o; }
     const char* s = lua_type(L, idx) == LUA_TSTRING ? lua_tostring(L, idx) : "";
     if (!strcmp(s, "player")) { o.src = rules::Player; return o; }
@@ -1707,9 +1729,7 @@ int ruleList(lua_State* L, const char* field) {
     int type = lua_getfield(L, 1, field);
     if (type == LUA_TNIL) { lua_pop(L, 1); return 0; }
     if (type != LUA_TTABLE) luaL_error(L, "rule %s must be a list of tables", field);
-    size_t n = 0;
-    for (lua_pushnil(L); lua_next(L, -2); lua_pop(L, 1)) ++n;
-    if (n != lua_rawlen(L, -1)) luaL_error(L, "rule %s is a list: %s = {{arg = 1, ...}}", field, field);
+    ruleArray(L, -1, field);
     return lua_gettop(L);
 }
 
@@ -1785,9 +1805,13 @@ void ruleAfter(lua_State* L, RuleParse& p) {
 bool ruleBuildListed(lua_State* L) {
     if (lua_getfield(L, 1, "builds") != LUA_TTABLE || !lua_rawlen(L, -1))
         luaL_error(L, "a rule on a pattern needs builds = {...}: the game builds it was verified on");
+    ruleArray(L, -1, "builds");
     bool listed = false;
-    for (lua_Integer i = 1; lua_rawgeti(L, -1, i) != LUA_TNIL; ++i, lua_pop(L, 1))
-        listed |= lua_isinteger(L, -1) && lua_tointeger(L, -1) == lua_Integer(gBuild.load());
+    for (lua_Integer i = 1; lua_rawgeti(L, -1, i) != LUA_TNIL; ++i, lua_pop(L, 1)) {
+        if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 0 || lua_tointeger(L, -1) > UINT32_MAX)
+            luaL_error(L, "rule builds must be whole-number game build stamps");
+        listed |= lua_tointeger(L, -1) == lua_Integer(gBuild.load());
+    }
     lua_pop(L, 2);
     return listed;
 }
@@ -1906,7 +1930,7 @@ HookHandler& ownRule(lua_State* L) {
 int hookParam(lua_State* L) {
     HookHandler& h = ownRule(L);
     const char* name = luaL_checkstring(L, 2);
-    double v = luaL_checknumber(L, 3);
+    double v = ruleNumber(L, 3);
     auto at = std::find(h.params.begin(), h.params.end(), name);
     if (at == h.params.end()) return luaL_error(L, "rule has no param '%s'", name);
     hk::setParam(h.rule, int(at - h.params.begin()), v);
