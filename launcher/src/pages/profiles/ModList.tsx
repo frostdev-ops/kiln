@@ -3,9 +3,10 @@
 import { MoreHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { toKilnError, type LibraryEntry, type ModKind, type ProfileMod } from "../../api/commands";
+import type { LibraryEntry, ModKind, ProfileMod } from "../../api/commands";
 import { useLibrary } from "../../api/hooks";
-import { Badge, Button, EmptyState, FlameToggle, Menu, Modal, NameId, Table, WellInput, type Column, type MenuItem } from "../../ui";
+import { KIND_SHORT } from "../../api/kinds";
+import { Badge, Button, EmptyState, FlameToggle, Menu, Modal, NameId, Table, WellInput, errorText, type Column, type MenuItem } from "../../ui";
 
 export function libName(lib: LibraryEntry[] | undefined, kind: ModKind, id: string) {
   return lib?.find((l) => l.kind === kind && l.id === id)?.name ?? id;
@@ -62,12 +63,21 @@ export function ModList({ kind, mods, onToggle, onRemove, onAdd, onVersion, extr
         empty={<EmptyState title={emptyHint ?? "None in this profile."} action={<Button size="s" onClick={() => setAdding(true)}>Add from the library</Button>} />} />
       {mods.length > 0 && <div><Button size="s" onClick={() => setAdding(true)}>Add</Button></div>}
       <AddModsModal open={adding} onClose={() => setAdding(false)} kind={kind} have={mods.map((m) => m.id)} lib={lib.data ?? []}
-        onAdd={(ms) => { onAdd(ms); setAdding(false); }} loading={lib.isFetching && !lib.data?.length} error={lib.error ? toKilnError(lib.error).message : undefined} />
+        onAdd={(ms) => { onAdd(ms); setAdding(false); }} loading={lib.isFetching && !lib.data?.length} error={lib.error ? errorText(lib.error) : undefined} />
     </>
   );
 }
 
-export function AddModsModal({ open, onClose, have, lib, onAdd, loading, error }: { open: boolean; onClose: () => void; kind: ModKind; have: string[]; lib: LibraryEntry[]; onAdd: (m: ProfileMod[]) => void; loading?: boolean; error?: string }) {
+/** Why the picker lists nothing. It shows one kind of mod: "The library is empty" was wrong whenever the Library held
+ * mods of other kinds only (a player took it for a broken Library). */
+function emptyPick(kind: ModKind, inLibrary: number, inProfile: number, filtered: boolean): { title: string; hint?: string } {
+  if (inLibrary === 0)
+    return { title: `No ${KIND_SHORT[kind]} mods in the library.`, hint: "This list shows one kind of mod. Mods of another kind are added on that kind's tab of the profile. Import more on the Library page." };
+  if (filtered) return { title: "Nothing matches the filter." };
+  return { title: "Everything is in this profile already.", hint: inProfile ? undefined : "Import more on the Library page." };
+}
+
+export function AddModsModal({ open, onClose, kind, have, lib, onAdd, loading, error }: { open: boolean; onClose: () => void; kind: ModKind; have: string[]; lib: LibraryEntry[]; onAdd: (m: ProfileMod[]) => void; loading?: boolean; error?: string }) {
   const [q, setQ] = useState("");
   const [pick, setPick] = useState<Set<string>>(new Set());
   const avail = useMemo(() => lib.filter((l) => !have.includes(l.id) && (!q || (l.name + l.id).toLowerCase().includes(q.toLowerCase()))), [lib, have, q]);
@@ -81,7 +91,7 @@ export function AddModsModal({ open, onClose, have, lib, onAdd, loading, error }
       footer={<><Link to="/library" className="k-link" style={{ marginRight: "auto", fontSize: 16 }}>Import more</Link><Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={!pick.size} onClick={done}>Add {pick.size || ""}</Button></>}>
       <WellInput label="Filter" data-autofocus value={q} onChange={(e) => setQ(e.target.value)} />
-      {loading ? <EmptyState title="Loading the library…" /> : error ? <EmptyState title="Could not read the library." hint={error} /> : avail.length === 0 ? <EmptyState title={lib.length ? "Everything is in this profile already." : "The library is empty."} hint={lib.length ? undefined : "Import mods on the Library page."} /> : (
+      {loading ? <EmptyState title="Loading the library…" /> : error ? <EmptyState title="Could not read the library." hint={error} /> : avail.length === 0 ? <EmptyState {...emptyPick(kind, lib.length, have.length, !!q)} /> : (
         <div className="k-list" style={{ maxHeight: 340, overflow: "auto" }}>
           {avail.map((l) => (
             <label key={l.id} className="k-list-item clickable">

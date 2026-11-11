@@ -47,6 +47,9 @@ test("a profile's Engines tab switches an engine mod and adds one from the libra
   await expect(flame).toContainText("Creative Build");
   await expect.poll(async () => (await api<{ mods: Record<string, { id: string }[]> }>(page, "profileGet", "ember-run")).mods.flame.map((m) => m.id)).toEqual(["creative-build"]);
   await expect(page.getByRole("link", { name: /Engines/ })).toContainText("5");
+  // the picker again: the library's one Flame mod is in the profile now
+  await flame.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(dialog.getByText("Everything is in this profile already.")).toBeVisible();
 });
 
 test("ShroudForge settings edit a value through the SchemaForm; kinds without settings say so", async ({ page }) => {
@@ -160,6 +163,19 @@ test("the Engines page reports library failures instead of claiming the library 
   await expect(page.getByText("The library is not readable")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("engine library denied")).toBeVisible();
   await expect(page.getByText("No other engines' mods.")).toHaveCount(0);
+});
+
+test("the library picker says which kind it lists when the library has none of it", async ({ page }) => {
+  // a player with mods of other kinds only read "The library is empty" here and took the Library for broken
+  await page.addInitScript(() => {
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = { library_list: Array.from({ length: 40 }, () => ({ result: [] })) };
+  });
+  await desktop(page, "/profiles/ember-run/mods");
+  await page.getByRole("button", { name: "Add mod", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add from the library" });
+  await expect(dialog.getByText("No Kiln mods in the library.")).toBeVisible({ timeout: 20_000 });
+  await expect(dialog.getByText("Mods of another kind are added on that kind's tab of the profile.", { exact: false })).toBeVisible();
+  await expect(dialog.getByText("The library is empty")).toHaveCount(0);
 });
 
 test("engine state parse errors and backup failures remain visible", async ({ page }) => {
