@@ -427,7 +427,8 @@ fn a_proxy_dll_keeps_the_files_it_reads_beside_it() {
         assert!(r.skipped.is_empty(), "{how}: {r:?}");
         assert_eq!(r.notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(),
             ["Embervale Atlas 1.0.0 is a DLL mod with files: Kiln loads dinput8.dll from its own folder, with those files beside it"], "{how}");
-        assert_eq!(found(&r), ["native/embervale-atlas-1.0.0"], "{how}");
+        // the id leaves the version out, so the next version replaces this one in a profile (manage-import F1)
+        assert_eq!(found(&r), ["native/embervale-atlas"], "{how}");
         let folder = library::path_of(&dirs, &r.imported[0]).unwrap();
         for f in ["dinput8.dll", "embervale_atlas.dat", "embervale_atlas_map.jpg", "Embervale Atlas - Licenses.txt"] {
             assert!(folder.join(f).is_file(), "{how}: {f} lost");

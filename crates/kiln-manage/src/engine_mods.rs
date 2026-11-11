@@ -411,9 +411,12 @@ pub fn is_game_folder_name(name: &str) -> bool {
 /// proxy name next to the `mods` folder that holds it (Auto Loot Plus: its dinput8.dll reads and writes
 /// `mods/auto-loot-plus/config.txt` and needs the EML part there). Such a mod is placed there at activation
 /// ([`place`]), and kiln-eml runs that copy, so the DLL and the Lua read the same files.
+///
+/// The folder is named as the package names it, without a browser's or an unpacker's copy suffix ("XHL-Auto-Loot (1)"
+/// dropped on its own); a mod at an archive's root (no folder name of its own) takes its manifest's id.
 pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
-    let folder = src.file_name()?.to_str()?.to_string();
-    if !is_game_folder_name(&folder) { return None; }
+    let named = crate::library::strip_copy_suffix(src.file_name()?.to_str()?).to_string();
+    let folder = if is_game_folder_name(&named) { named } else { manifest_id_raw(src).filter(|id| is_game_folder_name(id))? };
     let files: Vec<PathBuf> = std::fs::read_dir(src).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
     if files.iter().any(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI))) {
         return Some((folder, "it is also an XHL-Core plugin (native-plugin.ini), which XHL-Core loads from the game's mods folder".into()));

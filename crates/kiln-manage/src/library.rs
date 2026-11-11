@@ -246,8 +246,11 @@ fn detect_dll(path: &Path) -> Detected {
     };
     // A DLL under a proxy name says nothing about what mod it is (`winmm.dll`, `dinput8.dll`): two of them must not
     // become one library entry, so its id carries a few characters of its content.
+    // XHL-Core is one mod whatever copy of it this is: its builds replace each other (package_dll_identity).
     let plain = |mut x: Detected| {
-        if crate::engines::is_proxy_name(&file_name(path)) {
+        if is_xhl_core(&bytes) {
+            x.id = Some(XHL_CORE_ID.into());
+        } else if crate::engines::is_proxy_name(&file_name(path)) {
             x.id = Some(format!("{stem_id}-{}", &crate::hash::sha256_hex(&bytes)[..6]));
         }
         x
@@ -308,6 +311,77 @@ pub fn id_from_name(name: &str) -> String {
     let s = s.trim_matches(|c| c == '-' || c == '.' || c == '_').to_string();
     let s: String = s.chars().take(64).collect();
     if s.is_empty() { "mod".into() } else { s }
+}
+
+/// A browser's or an unpacker's copy suffix gone: `Name (1)`, `Name(2)` -> `Name`.
+pub(crate) fn strip_copy_suffix(name: &str) -> &str {
+    let t = name.trim_end();
+    if let Some(open) = t.strip_suffix(')').and_then(|s| s.rfind('('))
+        && t[open + 1..t.len() - 1].bytes().all(|b| b.is_ascii_digit()) && t.len() - open > 2 && open > 0
+    {
+        return t[..open].trim_end();
+    }
+    t
+}
+
+/// What a package is called without its version and download decorations: the words before the first one that is a
+/// number or a version (`AutoLootPlus 1.1.8 170 1.1.8 2026-10-23T21-27Z 2FzbANfp1` -> `AutoLootPlus`, Nexus'
+/// `Auto-Loot-Plus-170-1-1-8-1731234567` -> `Auto-Loot-Plus`), after a copy suffix; the name itself when it starts with one.
+fn package_stem(name: &str) -> &str {
+    let name = strip_copy_suffix(name);
+    let mut start = 0;
+    for (i, c) in name.char_indices() {
+        if i == start {
+            let rest = &name[i..];
+            let digit = |s: &str| s.bytes().next().is_some_and(|b| b.is_ascii_digit());
+            if digit(rest) || (rest.starts_with(['v', 'V']) && digit(&rest[1..])) {
+                let stem = name[..i].trim_end_matches([' ', '-', '_', '.']);
+                return if stem.is_empty() { name } else { stem };
+            }
+        }
+        if matches!(c, ' ' | '-' | '_') {
+            start = i + c.len_utf8();
+        }
+    }
+    name
+}
+
+/// XHL-Core's DLL, by the markers engine_mods::xhl_host recognises it with on the game's load paths.
+fn is_xhl_core(bytes: &[u8]) -> bool {
+    crate::pe::is_pe64_dll(bytes) && crate::pe::parse(bytes).is_ok_and(|p| p.exports.iter().any(|s| s == crate::pe::DINPUT8_EXPORT))
+        && [b"XHL-Native-Plugin-Host.log".as_slice(), b"native-plugin.ini".as_slice()].iter()
+            .all(|s| bytes.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
+}
+
+const XHL_CORE_ID: &str = "xhl-core";
+
+/// The id and name of a package's own DLL under a proxy name (Auto Loot Plus's dinput8.dll, an XHL-Core bundled with an
+/// XHL mod): what stays the same across versions and downloads, so that a new version or a second copy replaces the
+/// one in the profile (quick::merge goes by id) instead of being chain-loaded next to it. XHL-Core is "xhl-core"; a DLL
+/// that reads its package's `mods/<folder>` (Auto Loot Plus and Auto Loot Plus Lite: `mods/auto-loot-plus`, a folder
+/// name the DLL itself names) takes that folder's name; any other the package's name without its version.
+/// `package`: the folder holding the DLL; `package_name`: what the package is called (an archive's file name).
+fn package_dll_identity(dll: &Path, package: &Path, package_name: &str) -> (String, String) {
+    if std::fs::read(dll).is_ok_and(|b| is_xhl_core(&b)) {
+        return (XHL_CORE_ID.into(), "XHL-Core".into());
+    }
+    let mut folders: Vec<PathBuf> = std::fs::read_dir(package).into_iter().flatten().flatten().map(|e| e.path())
+        .filter(|p| file_name(p).eq_ignore_ascii_case("mods") && p.is_dir() && !p.is_symlink())
+        .flat_map(|p| std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()))
+        .filter(|p| p.is_dir() && !p.is_symlink() && crate::engine_mods::is_game_folder_name(&file_name(p)))
+        .collect();
+    folders.sort();
+    if folders.is_empty() {
+        return (id_from_name(package_stem(package_name)), package_name.to_string());
+    }
+    let names: Vec<String> = folders.iter().map(|p| file_name(p)).collect();
+    let shown = match folders.as_slice() {
+        [one] => crate::manifest::read_text(&one.join(EMF_MANIFEST)).ok().and_then(|t| crate::jsonc::parse(&t).ok())
+            .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string))
+            .unwrap_or_else(|| names[0].clone()),
+        _ => names.join(", "),
+    };
+    (id_from_name(&names.join("-")), format!("{shown} ({})", file_name(dll)))
 }
 
 fn emf_manifest(dir: &Path) -> Option<(serde_json::Value, String)> {
@@ -476,7 +550,7 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     if dir.join(MODPACK_MANIFEST).is_file() {
         let mut d = mk(DetectKind::Modpack, None, None, None, "a server modpack (kiln-modpack.json)".into());
-        d.items = children(dir, depth);
+        d.items = children(dir, depth, top_name);
         return d;
     }
     if dir.join(crate::manifest::KILN_MANIFEST).is_file() {
@@ -536,19 +610,27 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
                 _ => file_name(dir),
             };
             let reason = format!("{}: a DLL mod with its files, added as one native mod", file_name(&dll));
-            return mk(DetectKind::BareDll, Some(id_from_name(&shown)), Some("0.0.0".into()), Some(shown), reason);
+            // under a proxy name the DLL says nothing about the mod: the same identity as a bundle's proxy, so the next
+            // version replaces this one (Auto Loot Plus Lite: dinput8.dll + mods/auto-loot-plus/config.txt)
+            let (id, shown) = if crate::engines::is_proxy_name(&file_name(&dll)) {
+                package_dll_identity(&dll, dir, &shown)
+            } else {
+                (id_from_name(&shown), shown)
+            };
+            return mk(DetectKind::BareDll, Some(id), Some("0.0.0".into()), Some(shown), reason);
         }
     }
     // a folder of mods (an unpacked zip): what is inside
-    let mut items = children(dir, depth);
+    let mut items = children(dir, depth, top_name);
     // A package shaped like the game folder whose own DLL sits under a proxy name next to its `mods` folder (Auto Loot
     // Plus: dinput8.dll + mods/auto-loot-plus): the DLL is named after the package, not "dinput8.dll".
     if let (0, Some(n)) = (depth, top_name) {
         let mut top = items.iter_mut().filter(|i| i.kind == DetectKind::BareDll && Path::new(&i.path).parent() == Some(dir)
             && crate::engines::is_proxy_name(&file_name(Path::new(&i.path))));
         if let (Some(only), None) = (top.next(), top.next()) {
-            only.id = Some(id_from_name(n));
-            only.name = Some(n.to_string());
+            let (id, name) = package_dll_identity(Path::new(&only.path), dir, n);
+            only.id = Some(id);
+            only.name = Some(name);
         }
     }
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
@@ -601,11 +683,23 @@ pub(crate) fn native_settings_dirs(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn children(dir: &Path, depth: usize) -> Vec<Detected> {
+/// `top_name`: what `dir` is called when it is an unpacked archive at depth 0 (detect_folder_at).
+fn children(dir: &Path, depth: usize, top_name: Option<&str>) -> Vec<Detected> {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
     entries.sort();
     let native = native_bundle_proxy(dir);
     let settings = if native.is_some() { native_settings_dirs(dir) } else { Vec::new() };
+    // `dir` is a package's `mods` folder: its settings-only folders belong to the package's native proxy (read once,
+    // not once per entry: each look reads and parses the proxy DLL)
+    let parent_settings = match dir.parent() {
+        Some(parent) if dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods")) && native_bundle_proxy(parent).is_some() =>
+            native_settings_dirs(parent),
+        _ => Vec::new(),
+    };
+    let package_name = match (depth, top_name) {
+        (0, Some(n)) => n.to_string(),
+        _ => file_name(dir),
+    };
     let mut out = Vec::new();
     for e in entries {
         let name = e.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -622,9 +716,7 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
                 entry.is_ok_and(|entry| settings.contains(&entry.path()))))))) {
             continue; // kept with the native proxy, never imported/executed as another mod
         }
-        if dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods"))
-            && dir.parent().is_some_and(|parent| native_bundle_proxy(parent).is_some()
-                && native_settings_dirs(parent).contains(&e)) {
+        if parent_settings.contains(&e) {
             continue;
         }
         if e.is_dir() {
@@ -637,9 +729,9 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
         } else if name.to_lowercase().ends_with(".dll") {
             let mut d = detect_dll(&e);
             if native.as_ref() == Some(&e) {
-                let shown = file_name(dir);
-                d.id = Some(id_from_name(&shown));
-                d.name = Some(shown);
+                let (id, name) = package_dll_identity(&e, dir, &package_name);
+                d.id = Some(id);
+                d.name = Some(name);
             }
             out.push(d);
         } else if let Some(d) = crate::engines::detect_file(&e) {
