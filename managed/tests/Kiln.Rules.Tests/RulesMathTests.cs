@@ -163,7 +163,9 @@ public class RulesMathTests
         Assert.NotNull(e.GlideBoost);
         var n = e.Native;
         Assert.Equal(RulesNative.FlyAnywhere | RulesNative.BuildOutsideBases | RulesNative.IgnoreNoBuildZones | RulesNative.IgnoreEnemies |
-                     RulesNative.IgnoreShroud | RulesNative.ShroudFreeze | RulesNative.GlideUnlimited | RulesNative.GlideBoost, n.Flags);
+                     RulesNative.IgnoreShroud | RulesNative.ShroudFreeze | RulesNative.GlideUnlimited | RulesNative.GlideBoost |
+                     RulesNative.GlideSteer, n.Flags);
+        Assert.Equal(85f, n.GlideSteerLimit);  // since dev.24 the glider's own nose is steered, up to 85 degrees
         Assert.Equal(0f, n.BuildCost);
         Assert.Equal(0f, n.GlideSink);
         Assert.Equal((float)GlideBoostRule.Default.Thrust, n.GlideThrust);
@@ -282,7 +284,8 @@ public class RulesMathTests
     public void TheFirstPresetReadAfterAnUpdateIsThisVersions()
     {
         // The first /creative after an update read the preset before Kiln.Rules started (and updated the file), so it
-        // applied the earlier Kiln's rules (no Shroud timer, no gliding: native flags 0x1f instead of 0x1df).
+        // applied the earlier Kiln's rules (no Shroud timer, no gliding: native flags 0x1f instead of 0x1df, 0x21df with dev.24's
+        // glider steering).
         var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var outer = RulesPresets.FolderOverride;
@@ -290,11 +293,14 @@ public class RulesMathTests
         try
         {
             var file = Path.Combine(dir, "creative.json");
-            var earlier = PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null };
+            var earlier = PlayerRules.Creative with
+            {
+                FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null, GlideSteer = null,
+            };
             File.WriteAllText(file, Dev14Preset);
             var got = RulesPresets.Get("creative");
             Assert.Equal(PlayerRules.Creative, got);
-            Assert.Equal(0x1dfu, Combine(got!).Native.Flags);
+            Assert.Equal(0x21dfu, Combine(got!).Native.Flags);  // + GLIDE_STEER since dev.24
             // the file is this version's now, and stays the owner's once edited
             Assert.Equal(PlayerRules.Creative, PlayerRules.FromJson(File.ReadAllText(file)));
             File.WriteAllText(file, (earlier with { DigDamage = 10 }).ToJson());

@@ -125,7 +125,8 @@ public static class Creative
         var hooks = s is null
             ? "kiln.rules is not loaded"
             : $"hooks: flight {On(s.Flight)}, building zone {On(s.BuildingZone)}, placement {On(s.Placement)}, costs {On(s.Costs)}, " +
-              $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}, character flight {On(s.CharacterFlight)}";
+              $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}, glider steering {On(s.GlideSteer)}, " +
+              $"character flight {On(s.CharacterFlight)}";
         var line = (names.Count == 0 ? "Nobody is in creative mode" : "Creative mode: " + string.Join(", ", names)) + "; " + hooks + ".";
         if (CreativeFlame.Running) return CreativeFlame.Note + ". " + line;
         return CreativeFlame.SwitchedOff is { } off ? off + ". " + line : line;
