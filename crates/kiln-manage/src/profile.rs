@@ -490,7 +490,11 @@ impl Activation {
     /// Two activations in one operation (a profile made or resumed, then written again with the added mods): what the
     /// earlier one kept or noted is kept in this one's lists. `retained` stays this one's: it is the game folder now.
     pub fn keep_notes_of(&mut self, earlier: Activation) {
-        for (mine, theirs) in [(&mut self.kept_files, earlier.kept_files), (&mut self.warnings, earlier.warnings)] {
+        self.keep_notes(earlier.kept_files, earlier.warnings);
+    }
+
+    fn keep_notes(&mut self, kept_files: Vec<String>, warnings: Vec<String>) {
+        for (mine, theirs) in [(&mut self.kept_files, kept_files), (&mut self.warnings, warnings)] {
             let later = std::mem::take(mine);
             *mine = theirs;
             for s in later { if !mine.contains(&s) { mine.push(s); } }
@@ -1388,7 +1392,11 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
             let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
             // a copy placed only now (an older Kiln's file names the Library entry): the file must name the copy
             if !render(dirs, &profile, install, mode).is_ok_and(|fresh| same(&fresh, &file)) {
-                return activate(dirs, &profile.id, install).map(Some);
+                let mut a = activate(dirs, &profile.id, install)?;
+                // Restored files and other one-time notes belong to this operation, even when the second placement
+                // has nothing left to do. Retained copies remain the final activation's current-state report.
+                a.keep_notes(placed.kept_files, placed.warnings.into_iter().chain(placed.own_notes).collect());
+                return Ok(Some(a));
             }
             // the profile's late natives and the compat rules live in chain.ini only
             write_chain_plan(dirs, &profile, install, &file)?;

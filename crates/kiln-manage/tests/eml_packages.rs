@@ -1420,6 +1420,39 @@ fn a_servers_active_profile_follows_its_runtime_too() {
     assert_eq!(eml(), "profiles/server-mods/eml/auto-loot-plus");
 }
 
+/// Reconciliation of an older profile places Greeneye before re-rendering it. The activation that writes the new
+/// path must still report files restored by that first placement, even though a second placement has nothing to restore.
+#[test]
+fn refreshing_an_older_greeneye_profile_keeps_its_first_placement_notes() {
+    for mode in [PathMode::Copy, PathMode::Z] {
+        let t = tmp("greeneye-refresh-notes");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let mut g = game_with_z(&t.0);
+        g.path_mode = mode;
+        if mode == PathMode::Copy { g.prefix = None; }
+        runtime_in_game(&dirs, &g, Some(2), "a633659");
+        let src = t.0.join("src/worstmap");
+        put(&src, "mod.json", br#"{"id":"worstmap","name":"The Worst Map Mod","version":"1.0.0","dll":"map.dll","side":"client"}"#);
+        put(&src, "map.dll", &build_test_dll(&["GreeneyeModStart"], b""));
+        let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+        let r = &imported.imported[0];
+        let mut p = profile::create(&dirs, "Old Greeneye profile", None).unwrap();
+        p.mods.greeneye.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let p = profile::save(&dirs, &p).unwrap();
+        // An old profile naming the Library (Z) or the kiln/profiles fallback (Copy), before the game-folder copy exists.
+        let old = profile::render(&dirs, &p, &g, mode).unwrap();
+        put(&g.path, "kiln/profile.json", &serde_json::to_vec_pretty(&old).unwrap());
+        put(&g.path, "kiln/kept-mod-files/greeneye/worstmap/settings.ini", b"the player's settings");
+        let a = profile::refresh_active(&dirs, &g).unwrap().expect("the new game-folder path is written");
+        let current = profile::read_game_profile(&g.path).unwrap().unwrap();
+        assert_ne!(current.mods.greeneye[0].path, old.mods.greeneye[0].path, "{mode:?}");
+        assert_eq!(std::fs::read(g.path.join("greeneye/worstmap/settings.ini")).unwrap(), b"the player's settings");
+        assert!(a.kept_files.iter().any(|s| s.contains("put back") && s.contains("settings.ini")), "{mode:?}: {a:?}");
+        assert!(profile::refresh_active(&dirs, &g).unwrap().is_none(), "the next refresh has nothing new to report");
+        assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().generation, current.generation, "no rewrite loop");
+    }
+}
+
 /// An older runtime unzipped by hand over a launcher install keeps the newer receipt: the profile form the receipt's
 /// bundle reads is believed only while the core file in the game is the one the receipt lists.
 #[test]
