@@ -228,6 +228,27 @@ fn a_creative_mode_folder_the_player_put_in_mods_stays_theirs() {
     }
 }
 
+/// A data-only package still belongs to the player, even without a DLL or Lua file.
+#[test]
+fn a_folder_with_another_engines_manifest_is_never_adopted_as_flame_output() {
+    for name in ["kiln.mod.json", "native.json", "KILN.MOD.JSON", "NATIVE.JSON"] {
+        let t = tmp("foreign-manifest");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Z);
+        let own = g.path.join("mods/creative");
+        put(&own, name, br#"{"id":"players-package","version":"1.0.0"}"#);
+        put(&own, "data/items.json", b"player data");
+        let before = hash::dirhash(&own).unwrap();
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]);
+        assert!(engine_mods::marker(&own).is_none(), "{name}: a player's package must not become Kiln's copy");
+        assert_eq!(hash::dirhash(&own).unwrap(), before, "{name}: the folder stays untouched");
+        activate_with(&dirs, &g, &pid, vec![]);
+        assert_eq!(hash::dirhash(&own).unwrap(), before, "{name}: switching off leaves it in place");
+    }
+}
+
 fn walk(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];

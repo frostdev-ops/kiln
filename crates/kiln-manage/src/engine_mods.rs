@@ -1878,7 +1878,7 @@ fn place_run_folder(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir
 
 /// Top-level files that make a folder in the game's `mods` a mod of some engine (EML, ShroudForge, Flame, Shroudtopia,
 /// Enshwick, XHL-Core) or Kiln's copy: a folder with one is never taken for files a mod only wrote.
-const MOD_MANIFESTS: [&str; 7] = ["mod.json", "flame.json", "shroudtopia.json", "pack.toml", "extended.mod.json", XHL_PLUGIN_INI, MARKER];
+const MOD_MANIFESTS: [&str; 9] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "shroudtopia.json", "pack.toml", "extended.mod.json", XHL_PLUGIN_INI, MARKER];
 
 /// The files of `dst`, a folder at a Flame mod's place in `<game>/mods/` that no receipt names, when it holds no mod:
 /// only files a mod wrote there. Creative Mode makes `<game>\mods\creative\` and writes `logs\` and `notice.txt` into it
