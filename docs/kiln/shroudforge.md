@@ -36,12 +36,19 @@ Notes:
   World Editor windows, respecting SF's module switches. Kiln does not consume the real helper's toggle event.
   If that hosted helper exits, Kiln takes over the menu shortcut. Self-hosted SF retains its own shortcut behavior.
   The bundled runtime does not include the World Editor window or Debug Console.
-- **Mod shortcuts:** ShroudForge mods with keyboard shortcuts (a `keybind` setting, read through `shroudforge.input`)
-  get their key presses from ShroudForge's own `shroudforge/shroudforge.exe`. Kiln's bundled runtime does not include
-  it, so without an installed ShroudForge those shortcuts do nothing, and `kiln.log` shows
-  `[sf] ... Keyboard shortcuts unavailable`. With ShroudForge installed, the runtime starts that exe for them (not
-  yet checked in a game client). Mods that read the game's own movement keys, such as SF Unlimited Flight's glider
-  steering, do not use it.
+- **Mod shortcuts:** ShroudForge mods with keyboard or mouse shortcuts (a `keybind` setting, read through
+  `shroudforge.input`) get their key state from Kiln in the game: Kiln passes the game window's own key presses to
+  the bundled runtime, so no separate ShroudForge installation is needed for them. `kiln.log` says where the key
+  state comes from (`ShroudForge mod shortcuts: key state from Kiln: ...`), and so does `kiln/state/shroudforge.json`
+  (`keys`). This has been checked with ShroudForge's real runtime in a test without the game, not yet in a game
+  client. Shortcuts react only while the game window has the keyboard (as with ShroudForge itself); AltGr counts as
+  right Alt. To record a new shortcut, type it in the setting (for example `Ctrl+SDL:66`) on the Mods page.
+  - When you use your installed ShroudForge (an upstream release, which has no such interface), its own
+    `shroudforge/shroudforge.exe` supplies the key state, as before. `KILN_SF_KEY_FEED=off` in the launch environment
+    goes back to that exe with the bundled runtime too; without an installed ShroudForge the shortcuts then do
+    nothing, and `kiln.log` shows `[sf] ... Keyboard shortcuts unavailable`.
+  - Mods that read the game's own movement keys, such as SF Unlimited Flight's glider steering, use neither; this
+    does not change the open W/S steering report ([shroudforge-compat.md](shroudforge-compat.md#55-held-ws-glider-steering-unresolved-client-check)).
 - **Steam Deck / Linux:** when Kiln hosts ShroudForge you need no extra `WINEDLLOVERRIDES` beyond Kiln's own
   (`dinput8=n,b`). Its switches/settings use the game's existing Kiln overlay, so they do not depend on gamescope
   presenting a separate WebView window. Actual Deck rendering and controller navigation still need client testing.
@@ -78,9 +85,10 @@ Notes:
 Write your mod for ShroudForge exactly as its documentation says (`mod.json`, `extended.mod.json`, `src/mod.lua`,
 `shroudforge.*`, `runtime.*` and the EML `game.*` API). Under Kiln the same runtime runs it, so you need nothing extra.
 Things to know:
-- `shroudforge.input` keybind queries answer "not held" and "not pressed" unless the player has ShroudForge installed
-  (its `shroudforge.exe` supplies the key state; see "Mod shortcuts" above). Reading the game's own input components
-  through `runtime.ecs` does not depend on it.
+- `shroudforge.input` keybind queries get their key state from Kiln with the bundled runtime in a game client (see
+  "Mod shortcuts" above), and from ShroudForge's own `shroudforge.exe` with an installed upstream ShroudForge. On a
+  dedicated server they answer "not held" and "not pressed". Reading the game's own input components through
+  `runtime.ecs` does not depend on either.
 - Kiln's own services may change the same game data your mod changes (for example game settings). The last write wins.
   Use `runtime.overrides` so ShroudForge restores your changes when your mod is switched off.
 - The Kiln Launcher and in-game Mods panel read your `extended.mod.json` metadata: label, description, control,

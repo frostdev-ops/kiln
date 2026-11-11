@@ -341,7 +341,24 @@ the wheel: `wheel_open(owner, &KilnUiWheel, fn, user, &handle)` (`fn(choice, use
 sizeof(void*)`): `menu_page(&KilnUiMenuPage)` (state `KILN_UI_PAGE_HIDDEN/OPENING/SHOWN`, the game's canvas, viewport,
 pixels per unit, padding and the content rectangle `x0..y1` in pixels, `error_popup`), `menu_page_drawn()`,
 `menu_page_leave()`, `menu_page_host(on)`, and `push_font(KILN_UI_FONT_GAME / GAME_BOLD)` / `pop_font()` (C#:
-`using (ui.Font(UiFont.GameBold)) …`). Colours, vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
+`using (ui.Font(UiFont.GameBold)) …`). Version 5 appends `subscribe_window_input(owner, fn, user, &handle)` (check
+`header.version >= 5` and `header.size >= offsetof(KilnUiApi, subscribe_window_input) + sizeof(void*)`): the game
+window's own input records for a native plugin that keeps a key state of its own (kiln-shroudforge feeds ShroudForge's
+mod shortcuts with it, [shroudforge-compat.md](shroudforge-compat.md#56-mod-shortcuts-kilns-host-key-feed)).
+`fn(const KilnUiWindowInput*, user)` runs on the window thread inside Kiln's window procedure, before Kiln handles the
+message, also for what Kiln then keeps from the game (its menu or a screen captures input, a binding or the menu key
+consumes a key, the wheel is open); it cannot keep anything itself. `KilnUiWindowInput` (48 bytes: `size, kind,
+message, make_code, flags, vkey, button, down` as `uint32_t`, then `uint64_t wparam`, `int64_t lparam`) is one of:
+`KILN_UI_INPUT_RAW_KEY` (every keyboard record of `WM_INPUT`: `RAWKEYBOARD.MakeCode`, `.Flags`, `.VKey` unchanged),
+`KILN_UI_INPUT_WINDOW_KEY` (every `WM_KEYDOWN`/`UP`, `WM_SYSKEYDOWN`/`UP`: `wparam`, `lparam` unchanged),
+`KILN_UI_INPUT_MOUSE_BUTTON` (button 1 left, 2 middle, 3 right, 4 and 5 the side buttons, `down` 1/0; from each raw
+mouse record, presses before releases, and from each button message, a double click being a press; `message` says
+which) and `KILN_UI_INPUT_FOCUS_LOST` (`WM_KILLFOCUS` or `WM_ACTIVATEAPP` 0, one record per loss: the second message
+of the same loss gives none until the window regains the focus or gives a key or button record). A key or click
+usually arrives both raw and as a message, in the order the window received them; nothing is merged. Characters,
+mouse motion and the wheel are not delivered. Remove it with `unsubscribe`, which waits for a call in flight (from
+inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Colours,
+vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
 slots live in `native/services/ui/draw_slots.h`, shared with the preview shim. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate
 tables in the same header.
@@ -354,7 +371,9 @@ tables in the same header.
 - Resize, minimise and SDR↔HDR swapchain changes are handled. HDR (PQ) output is not tone-mapped yet, so the overlay
   is too bright there.
 - Work under the overlay (kiln.screen) is called only while it says it has something to do; otherwise the present reads one counter.
-- No wheel open: the wheel costs one atomic read per frame and per input message. `is_item_clicked` costs nothing unless a
+- No wheel open: the wheel costs one atomic read per frame and per input message.
+- No `subscribe_window_input` subscriber: one relaxed atomic read per window message. With one, a record per key,
+  button or focus message, handed over on the window thread. `is_item_clicked` costs nothing unless a
   window asks. With a wheel open it is one more ImGui window with a few shapes.
 - `KILN_UI_DISABLE=1` turns the overlay off (the service is then unavailable). It also turns off the progress window of the
   early step (`kiln.progress`, [eml.md](eml.md#what-you-see-while-it-runs)).
