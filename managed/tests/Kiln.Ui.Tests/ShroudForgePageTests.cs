@@ -151,26 +151,30 @@ public sealed class ShroudForgePageTests : IDisposable
     [Fact]
     public void A_save_whose_file_cannot_be_read_back_says_it_changed_the_file()
     {
-        // a whole member of a fractional list is written without its fraction; the list then reads as whole numbers and
-        // its options "1.5" no longer parse (sf-settings-data F1): the data layer refuses the file it just wrote
+        // a write that leaves a file the data layer refuses (as an earlier writer did with a whole member of a fractional
+        // list, sf-settings-data F1). The real writer reads back what it writes now, so a stand-in does it here.
         var folder = Package("""{ "mult": { "value": [1.5], "label": "Multipliers", "options": { "1.0": "1x", "1.5": "1.5x" } } }""");
-        var before = File.ReadAllText(Path.Combine(folder, "extended.mod.json"));
-        ShroudForgeUi.Edit(folder, "mult", new JsonArray(JsonValue.Create(1.0)));
-        ShroudForgeUi.Flush();
-        var after = File.ReadAllText(Path.Combine(folder, "extended.mod.json"));
-        bool readable;
-        try { ShroudForgePackages.Read(folder); readable = true; }
-        catch (SfEditException) { readable = false; }
-        Assert.SkipWhen(after == before || readable, "the data layer now reads back what it wrote (sf-settings-data F1 fixed): no such save to report");
-        var page = Page(Mod(folder));
-        Frame(page);
-        lock (FakeUiTable.Texts)
+        ShroudForgeUi.SetSetting = (f, _, _) =>
         {
-            Assert.DoesNotContain(FakeUiTable.Texts, t => t.Contains("not saved", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(FakeUiTable.Texts, t => t.Contains("was changed", StringComparison.Ordinal) && t.Contains("cannot be read", StringComparison.Ordinal));
+            File.WriteAllText(Path.Combine(f, "extended.mod.json"), """{ "enabled": true, "settings": { "mult": { "value": [1.5], "label": "Multipliers", "options": {} } } }""");
+            return ShroudForgePackages.Read(f);  // throws: the file it just wrote cannot be read
+        };
+        try
+        {
+            ShroudForgeUi.Edit(folder, "mult", new JsonArray(JsonValue.Create(1.0)));
+            ShroudForgeUi.Flush();
+            Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(folder));
+            var page = Page(Mod(folder));
+            Frame(page);
+            lock (FakeUiTable.Texts)
+            {
+                Assert.DoesNotContain(FakeUiTable.Texts, t => t.Contains("not saved", StringComparison.OrdinalIgnoreCase));
+                Assert.Contains(FakeUiTable.Texts, t => t.Contains("was changed", StringComparison.Ordinal) && t.Contains("cannot be read", StringComparison.Ordinal));
+            }
+            Assert.Null(ShroudForgeUi.Get(folder, out var error));  // no controls of the old package
+            Assert.NotNull(error);
         }
-        Assert.Null(ShroudForgeUi.Get(folder, out var error));  // no controls of the old package
-        Assert.NotNull(error);
+        finally { ShroudForgeUi.SetSetting = ShroudForgePackages.SetSetting; }
     }
     private static string Chain(int n)
     {
@@ -227,8 +231,9 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.Equal([true, true, true, false, false, false, false, true, true, false], ours.Select(x => x.Item2));
     }
 
-    /// <summary>A string value with an unpaired surrogate escape (what JSON.stringify writes for a cut emoji) parses, but
-    /// every read of it throws: the page says so once instead of throwing on the render thread every frame.</summary>
+    /// <summary>A string value with an unpaired surrogate escape (what JSON.stringify writes for a cut emoji): every read
+    /// of it would throw. The data layer refuses the file when it reads it, as ShroudForge does, and the page says so
+    /// once instead of throwing on the render thread every frame.</summary>
     [Fact]
     public void A_value_no_reader_can_use_is_reported_not_thrown_every_frame()
     {
@@ -237,7 +242,7 @@ public sealed class ShroudForgePageTests : IDisposable
         Frame(page);  // used to throw InvalidOperationException out of the frame
         Frame(page);
         Assert.Null(ShroudForgeUi.Get(folder, out var error));
-        Assert.Contains("name", error);
+        Assert.Contains("lone surrogate", error);
         lock (FakeUiTable.Texts) Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("Its settings cannot be shown", StringComparison.Ordinal));
     }
     private string Actions(string folder) => Path.Combine(_root, "shroudforge", "ui", "actions");
@@ -304,8 +309,8 @@ public sealed class ShroudForgePageTests : IDisposable
         finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
     }
 
-    /// <summary>A ShroudForge config the data layer cannot read (duplicate keys) makes the request fail with a message,
-    /// not a silent worker.</summary>
+    /// <summary>A request that cannot be written (a file is where the actions folder would be) fails with a message, not
+    /// a silent worker.</summary>
     [Fact]
     public void An_action_that_cannot_be_sent_says_why()
     {
@@ -313,9 +318,8 @@ public sealed class ShroudForgePageTests : IDisposable
         try
         {
             var folder = ActionPackage();
-            var config = Path.Combine(_root, "shroudforge", "config");
-            Directory.CreateDirectory(config);
-            File.WriteAllText(Path.Combine(config, "modloader-config.json"), """{ "paths": { "ui": "a", "ui": "b" } }""");
+            Directory.CreateDirectory(Path.GetDirectoryName(Actions(folder))!);
+            File.WriteAllText(Actions(folder), "not a folder");
             var line = ClickAction(Page(Mod(folder) with { Active = true }));
             Assert.NotNull(line);
             Assert.Contains("could not be sent", line);

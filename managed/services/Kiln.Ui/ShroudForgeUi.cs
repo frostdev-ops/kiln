@@ -203,6 +203,10 @@ internal static class ShroudForgeUi
         Wake.Set();
     }
 
+    /// <summary>The data layer's setting write. Tests replace it with one that changes the file and then fails, which
+    /// the real writer no longer does since it writes fractional numbers as ShroudForge reads them.</summary>
+    internal static Func<string, string, JsonNode?, SfPackage> SetSetting = ShroudForgePackages.SetSetting;
+
     private static void Writer()
     {
         while (true)
@@ -226,7 +230,7 @@ internal static class ShroudForgeUi
                 {
                     var p = id.Key is null
                         ? ShroudForgePackages.SetEnabled(id.Folder, value is JsonValue v && v.GetValueKind() == JsonValueKind.True)
-                        : ShroudForgePackages.SetSetting(id.Folder, id.Key, value);
+                        : SetSetting(id.Folder, id.Key, value);
                     Publish(e, p, null);
                     result = Saved(p, id.Key);
                     UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: {(id.Key is null ? "switched " + (p.Enabled ? "on" : "off") : id.Key + " = " + ShroudForgePackages.Render(value))} " +

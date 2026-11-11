@@ -400,15 +400,16 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal(ModCatalog.EngineOrder.ToList().IndexOf("eml") + 1, ModCatalog.EngineOrder.ToList().IndexOf("xhl"));
     }
 
-    /// <summary>A ShroudForge config Kiln cannot read (duplicate keys) leaves the default folders, never rows that look
-    /// Loaded because nothing refined them.</summary>
+    /// <summary>A ShroudForge config Kiln cannot read (cut off mid-way) leaves the default folders, as ShroudForge's own
+    /// path lookup does, never rows that look Loaded because nothing refined them. (Repeated keys are readable: the last
+    /// value counts, as in ShroudForge.)</summary>
     [Fact]
     public void An_unreadable_shroudforge_config_does_not_leave_its_mods_looking_loaded()
     {
         var folder = Dir("mods", "pack");
         File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"pack","name":"Pack","version":"1.0.0","capabilities":["runtime"]}""");
         File.WriteAllText(Path.Combine(folder, "extended.mod.json"), """{"enabled":true,"targets":["client"]}""");
-        File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a", "state": "b" } }""");
+        File.WriteAllText(Path.Combine(Dir("shroudforge", "config"), "modloader-config.json"), """{ "paths": { "state": "a", "sta""");
         Profile(new() { ["shroudforge"] = [new { id = "pack", version = "1.0.0", path = folder }] });
         Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
         File.WriteAllText(Path.Combine(Dir("shroudforge"), "state.json"), JsonSerializer.Serialize(new { runtime = new { pid = Pid, running = true, updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), active = new[] { "pack" } } }));
