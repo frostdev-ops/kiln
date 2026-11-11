@@ -97,6 +97,11 @@ const planCommand = (page: Page, cmd: string, plan: unknown) => page.evaluate(([
 // Remove goes past only the users the dialog named: Confirm waits for the backend's list, and a failed list forces past
 // nobody (a user the dialog did not show stays a conflict).
 test("Remove waits for what uses the version and never forces past users the dialog did not show", async ({ page }) => {
+  await page.addInitScript(() => {
+    const rejected: string[] = [];
+    Object.assign(window, { __rejectedActions: rejected });
+    window.addEventListener("unhandledrejection", (event) => rejected.push(String(event.reason?.message ?? event.reason)));
+  });
   await library(page);
   const [r] = await unused(page);
   const name = await page.evaluate(async (id) => (await (await import("/src/api/commands.ts")).libraryList()).find((e) => e.id === id)!.name, r.id);
@@ -125,4 +130,11 @@ test("Remove waits for what uses the version and never forces past users the dia
   await dialog.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "is used by profile(s) ember-run (active in Enshrouded)" })).toBeVisible();
   expect(await inLibrary(page, r)).toBe(true);
+  await expect(dialog).toContainText("Used by Ember run (active in Enshrouded).");
+  await expect(dialog.getByRole("button", { name: "Remove" })).toBeEnabled();
+  expect(await page.evaluate(() => (window as unknown as { __rejectedActions: string[] }).__rejectedActions)).toEqual([]);
+  // Retry by keyboard with the freshly named users: success still closes the dialog and removes the version.
+  await dialog.getByRole("textbox").press("Enter");
+  await expect(dialog).toBeHidden();
+  expect(await inLibrary(page, r)).toBe(false);
 });

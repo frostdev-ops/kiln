@@ -95,6 +95,7 @@ export interface ConfirmDangerProps {
   word: string;
   /** Button label, e.g. "Delete". */
   action: string;
+  /** Report action failures to the user, then reject to keep this dialog open for retry. */
   onConfirm: () => void | Promise<void>;
   /** Keeps the action disabled (e.g. while what the message names is still loading). */
   disabled?: boolean;
@@ -124,7 +125,10 @@ export function ConfirmDanger({ open, onClose, title, message, word, action, onC
   const run = async () => {
     if (!ok || busy) return;
     setBusy(true);
-    try { await onConfirm(); onClose(); } finally { setBusy(false); }
+    try { await onConfirm(); }
+    catch { return; } // The action reports the failure; keep the dialog open without leaking an event-handler rejection.
+    finally { setBusy(false); }
+    onClose();
   };
   return (
     <Modal arch open={open} onClose={onClose} title={title} locked={busy}
