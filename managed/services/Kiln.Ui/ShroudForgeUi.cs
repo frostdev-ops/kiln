@@ -195,11 +195,12 @@ internal static class ShroudForgeUi
         View? view = null;
         try { if (package is not null) view = ViewOf(folder, package); }
         catch (Exception) { view = null; }  // the render thread makes it then
-        var hash = FilesHash(folder);
         lock (e)
         {
             e.Generation++;
-            e.Now = new State(package, error, view, hash);
+            // The other menu can write after the save's read-back. A hash taken here could belong to that newer
+            // file, not to this package, and suppress every later refresh. Let the next read establish the hash.
+            e.Now = new State(package, error, view, null);
         }
         Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
     }

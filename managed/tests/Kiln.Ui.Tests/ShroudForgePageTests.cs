@@ -133,6 +133,31 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.True(stale.Count == 0, $"old values shown after save {string.Join(", ", stale)}");
     }
 
+    /// <summary>The native ShroudForge window may write after a save's read-back and before publication.</summary>
+    [Fact]
+    public void An_external_edit_after_a_saves_read_back_is_not_cached_as_the_saved_package()
+    {
+        var folder = Package("""{ "note": { "value": "old", "label": "Note" } }""");
+        ShroudForgeUi.SetSetting = (f, key, value) =>
+        {
+            var saved = ShroudForgePackages.SetSetting(f, key, value);
+            ShroudForgePackages.SetSetting(f, key, JsonValue.Create("external"));
+            return saved;
+        };
+        try
+        {
+            ShroudForgeUi.Edit(folder, "note", JsonValue.Create("saved"));
+            ShroudForgeUi.Flush();
+            Assert.Equal("external", Value(folder, "note"));
+            ShroudForgeUi.Load(folder);
+            Assert.Equal("external", ShroudForgeUi.Get(folder, out _)!.Settings[0].Value!.GetValue<string>());
+            var current = ShroudForgeUi.Get(folder, out _);
+            ShroudForgeUi.Load(folder);
+            Assert.Same(current, ShroudForgeUi.Get(folder, out _));  // ordinary unchanged reads still use the cache
+        }
+        finally { ShroudForgeUi.SetSetting = ShroudForgePackages.SetSetting; }
+    }
+
     /// <summary>A setting whose key is the empty string is a setting, not the mod's switch.</summary>
     [Fact]
     public void A_setting_with_an_empty_key_is_not_the_switch()
