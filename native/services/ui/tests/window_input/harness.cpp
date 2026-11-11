@@ -419,6 +419,58 @@ void KILN_CALL faulting(const KilnUiWindowInput*, void* user) {
     RaiseException(0xC0000005, 0, 0, nullptr);
 }
 
+struct Nested {
+    KilnHandle outer_handle = 0, inner_handle = 0;
+    bool inside = false, finished = false;
+    int calls = 0;
+    KilnResult result = -1;
+};
+void KILN_CALL outer_callback(const KilnUiWindowInput*, void* user) {
+    auto* n = static_cast<Nested*>(user);
+    ++n->calls;
+    if (n->inside || n->finished) return;
+    n->inside = true;
+    send(WM_KEYDOWN, 'N', key_l(0x31, false, false));
+    n->inside = false;
+    n->finished = true;
+}
+void KILN_CALL inner_callback(const KilnUiWindowInput*, void* user) {
+    auto* n = static_cast<Nested*>(user);
+    if (n->inside && n->result == -1) n->result = kui::input_feed_unsubscribe(n->outer_handle);
+}
+void nested_unsubscribe() {
+    Nested n;
+    kui::input_feed_subscribe(1, &outer_callback, &n, &n.outer_handle);
+    kui::input_feed_subscribe(2, &inner_callback, &n, &n.inner_handle);
+    send(WM_KEYDOWN, 'M', key_l(0x32, false, false));
+    check(n.finished && n.result == KILN_ERR_WRONG_THREAD,
+          "a nested callback cannot drain an outer callback still on this thread's stack (result %d)", n.result);
+    check(kui::input_feed_unsubscribe(n.outer_handle) == KILN_OK,
+          "the canceled outer callback can be drained after it returns");
+    send(WM_KEYUP, 'M', key_l(0x32, false, true));
+    check(n.calls == 2, "the canceled outer callback gets no more records (%d calls)", n.calls);
+    kui::input_feed_unsubscribe(n.inner_handle);
+}
+
+void KILN_CALL recursive_self(const KilnUiWindowInput*, void* user) {
+    auto* n = static_cast<Nested*>(user);
+    if (!n->inside) {
+        n->inside = true;
+        send(WM_KEYDOWN, 'P', key_l(0x19, false, false));
+        n->inside = false;
+    } else {
+        n->result = kui::input_feed_unsubscribe(n->outer_handle);
+    }
+}
+void recursive_unsubscribe() {
+    Nested n;
+    kui::input_feed_subscribe(1, &recursive_self, &n, &n.outer_handle);
+    send(WM_KEYDOWN, 'O', key_l(0x18, false, false));
+    check(n.result == KILN_ERR_WRONG_THREAD,
+          "self-unsubscribe cannot drain an earlier invocation of the same callback (result %d)", n.result);
+    check(kui::input_feed_unsubscribe(n.outer_handle) == KILN_OK, "recursive self-unsubscribe can be retried after return");
+}
+
 void lifetime() {
     // A call in flight on the window thread: unsubscribe from another thread waits for it, and nothing comes after.
     Blocking b;
@@ -540,6 +592,8 @@ int main() {
     lifetime();
     raw_unregistered();
     held_focus_lost();
+    nested_unsubscribe();
+    recursive_unsubscribe();
 
     std::printf("%s: %d checks, %d failed\n", g_fails ? "FAIL" : "PASS", g_checks, g_fails);
     return g_fails ? 1 : 0;

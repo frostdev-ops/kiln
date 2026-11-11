@@ -182,6 +182,7 @@ void feed(KilnUiWindowInput r) {
         } else {
             s->focus_lost.store(false, std::memory_order_relaxed);
         }
+        CallbackLifetime::Invocation invocation(s.get());
         auto* outer = t_callback;
         t_callback = s.get();
         const bool ok = guarded_feed(s->fn, &r, s->user);
