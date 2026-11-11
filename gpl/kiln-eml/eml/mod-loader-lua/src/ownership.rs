@@ -890,6 +890,8 @@ mod tests {
         let mut patch = crate::load::create_writer(path, "g", &Rc::new(TypeRegistry::default()), &base).unwrap();
         patch.write_content(&ContentHash::from_data(b"half way"), b"half way").unwrap();
         let stage = patch.stage.clone();
+        // a killed process holds no handles any more: close the writer's files, then skip the stage's own clean-up
+        drop(patch.writer.take());
         std::mem::forget(patch);
         assert!(stage.is_dir() && fs::read_dir(&stage).unwrap().count() >= 3);
         prune(&root, "g");

@@ -147,10 +147,11 @@ impl PatchWriter {
             n += 1;
         }
         replace(&self.stage.join(&header), &self.game.join(&header))?;
-        // the new set is what the game runs now: the previous generation is no proof any more. A failure here leaves
-        // it in the receipt, where it can only match if those exact files come back; the publication stands.
+        // the new set is what the game runs now: the previous generation is no proof any more, and the containers only
+        // it had go. A failure here leaves the receipt's previous generation (it can only match if those exact files
+        // come back) or those containers (unreferenced) in place; the publication stands.
         if let Err(error) = crate::ownership::committed(&self.game, &self.name) {
-            tracing::warn!(%error, "EML output published; its receipt still lists the previous output too");
+            tracing::warn!(%error, "EML output published; tidying up after the output it replaced did not finish");
         }
         boundary(n)
     }
