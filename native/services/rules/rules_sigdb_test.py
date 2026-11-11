@@ -158,6 +158,82 @@ def check_glide_stick(side, image, doc, symbols, constants, baseline):
           side + " a disagreeing stick offset turns only rules.glide_stick off")
 
 
+def check_glide_steer(side, image, doc, symbols, constants, baseline):
+    # The glider's real pitch (actor_rotation's glider branch): a mid hook on the roll-rate load changes xmm6, this
+    # step's bounded pitch change. The patterns' literal bytes pin the register roles; a changed one must turn the
+    # optional rules.glide_steer off and leave every other feature as it was.
+    feature = "rules.glide_steer"
+    check(baseline.get(feature) is True, side + " " + feature + " resolves")
+    decoder = Cs(CS_ARCH_X86, CS_MODE_64)
+    site = symbols["rules/GlideSteer"]["rva"]
+    spec = doc["symbols"]["rules/GlideSteer"]["find"][0]
+    at, _ = matches(image, symbols, spec)
+    code = list(decoder.disasm(image.img[at:site + 16], at))
+    hooked = next((i for i in code if i.address == site), None)
+    check(hooked is not None and hooked.mnemonic == "movss" and hooked.op_str.startswith("xmm2, dword ptr [rdi + "),
+          f"{side} glider pitch hook is on the roll-rate load, an instruction boundary ({site:#x})")
+    text = [(i.mnemonic, i.op_str) for i in code if i.address < site]
+    check(("subss", "xmm6, xmm14") in text and ("comiss", "xmm0, xmm2") in text and ("mulss", "xmm6, xmm2") in text,
+          side + " before the hook xmm6 = target - pitch (xmm14), bounded by xmm2 (the game's max step)")
+    # after the hook the program adds the step to the pitch it measured, with neither register written in between
+    after = decoder.disasm(image.img[site:site + 0x200], site)
+    use = None
+    for i in after:
+        if i.mnemonic == "addss" and i.op_str == "xmm6, xmm14":
+            use = i
+            break
+        dst = i.op_str.split(",")[0]
+        check(dst not in ("xmm6", "xmm14") or i.mnemonic in ("comiss", "ucomiss"),
+              f"{side} nothing writes xmm6 or xmm14 between the hook and their use ({i.address:#x} {i.mnemonic} {i.op_str})")
+    check(use is not None, side + " the rebuilt orientation takes pitch + xmm6 (addss xmm6, xmm14)")
+
+    expected = {"rules/glider.yaw_speed": 0x4D0, "rules/glider.pitch_speed": 0x4D4, "rules/glider.roll_speed": 0x4D8,
+                "rules/rot.actor_input": 0xD8, "rules/rot.player_input": 0x10, "rules/rot.move_z": 0x194,
+                "rules/input.stick_mode": 0x2C8, "rules/rot.ctx": 0x1670}
+    for name, value in expected.items():
+        check(constants[name]["ok"] and constants[name]["value"] == value, f"{side} {name} = {value:#x}")
+    check(constants["rules/input.stick_mode"]["value"] == constants["rules/input.stick"]["value"] + 8,
+          side + " the stick's input mode follows movementStick (PlayerInput.fromClient)")
+    check(symbols["rules/GlideSteerEntityId"]["ok"] and
+          symbols["rules/GlideSteerEntityId"]["rva"] == symbols["rules/CurrentEntityId"]["rva"],
+          side + " the rotation program passes its context slot to CurrentEntityId")
+
+    def only_steer_off(edits, why):
+        _, _, features = Resolver(changed(image, edits), doc).run()
+        check(not features[feature] and all(features[n] == ok for n, ok in baseline.items() if n != feature),
+              side + " " + why + " turns only " + feature + " off")
+
+    # a register byte of the site pattern: subss xmm6, xmm14 -> subss xmm6, xmm13
+    sub = next(i for i in code if i.mnemonic == "subss" and i.op_str == "xmm6, xmm14")
+    only_steer_off([(sub.address + len(sub.bytes) - 1, bytes([sub.bytes[-1] - 1]))], "a changed pitch register at the site")
+    # a register byte of the mode-0 target: addss xmm8, xmm14 -> addss xmm8, xmm13
+    target = doc["symbols"]["rules/GlideSteerInput"]["find"][0]
+    tat, _ = matches(image, symbols, target)
+    tcode = list(decoder.disasm(image.img[tat:tat + parse(target["pattern"])[2]], tat))
+    add = next(i for i in tcode if i.mnemonic == "addss" and i.op_str == "xmm8, xmm14")
+    only_steer_off([(add.address + len(add.bytes) - 1, bytes([add.bytes[-1] - 1]))], "a changed pitch register in the target")
+    # the pitch rate read by the target and the step disagree
+    mov = next(i for i in code if i.mnemonic == "movss" and i.op_str.startswith("xmm2, dword ptr [rdi + 0x4d4]"))
+    only_steer_off([(mov.address + 4, (0x4D0).to_bytes(4, "little"))], "a disagreeing pitch-rate offset")
+    # the context slot's call goes elsewhere: the resolver cannot compare two symbols, kiln.rules' install does
+    # (steer.cpp: rules/GlideSteerEntityId must be rules/CurrentEntityId, or the hook stays off)
+    ctx = doc["symbols"]["@rules/GlideSteer.ctx"]["find"][0]
+    cat, choles = matches(image, symbols, ctx)
+    rel = next(offset for name, kind, offset in choles if kind == "rel32")
+    old = int.from_bytes(image.img[cat + rel:cat + rel + 4], "little", signed=True)
+    syms, _, features = Resolver(changed(image, [(cat + rel, (old + 16).to_bytes(4, "little", signed=True))]), doc).run()
+    usable = features[feature] and syms["rules/GlideSteerEntityId"]["rva"] == syms["rules/CurrentEntityId"]["rva"]
+    check(not usable and all(features[n] == ok for n, ok in baseline.items() if n != feature),
+          side + " a context slot passed to another function is refused by the install check only")
+    for name in ["rules/GlideSteerInput", "rules/GlideSteer", "@rules/GlideSteer.ctx"]:
+        s = doc["symbols"][name]["find"][0]
+        sat, _ = matches(image, symbols, s)
+        only_steer_off([(sat, b"\x90")], "a missing " + name)
+        if "scope" not in s:
+            size = parse(s["pattern"])[2]
+            only_steer_off([(image.text_va + len(image.text) - size, image.img[sat:sat + size])], "an ambiguous " + name)
+
+
 def check_storage(side, image, doc, symbols, constants):
     # Storage's dependencies are isolated so a failed optional hook cannot suppress building/crafting elsewhere.
     name = "rules/UpgradeStoragePaid"
@@ -309,7 +385,7 @@ def run(side, path):
     image = Image(path)
     symbols, constants, features = Resolver(image, tree.doc).run()
     rules = {name: ok for name, ok in features.items() if name.startswith("rules.")}
-    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "costs", "dig")}
+    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "glide_steer", "costs", "dig")}
     if side == "client":
         required |= {"rules.healthbar_guard", "rules.camera_check"}
     check(required.issubset(rules), side + " defines every expected rules feature")
@@ -323,6 +399,7 @@ def run(side, path):
     check_character_flight(side, image, tree.doc, symbols)
     check_boundaries(side, image, tree.doc, symbols)
     check_glide_stick(side, image, tree.doc, symbols, constants, features)
+    check_glide_steer(side, image, tree.doc, symbols, constants, features)
     if side == "client":
         check_guard_failures(image, tree.doc, symbols, constants)
 

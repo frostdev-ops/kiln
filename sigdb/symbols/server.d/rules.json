@@ -124,6 +124,24 @@
         { "pattern": "41 0F 28 F9 48 8D 95 ?? ?? ?? ?? 48 8B CF E8 ?? ?? ?? ?? 48 8B 4D ?? 0F 57 C0 F2 48 0F 2A 00 F2 41 0F 59 C2 66 0F 5A F0 F3 41 0F 59 F0 F3 0F 59 F7 48 85 C9 74 ?? 0F B6 45 ?? 4C 8B 4D ?? 4C 8B 45 ?? 48 8B 55 ?? 88 44 24 28 0F B7 45 ?? 66 89 44 24 20 E8 ?? ?? ?? ?? 48 8B 45 ?? F3 0F 58 30 F3 0F 11 30", "offset": 88 }
       ]
     },
+    "rules/GlideSteerInput": {
+      "comment": "actor_rotation (server 0x80720, client 0x26e620), its glider branch: the stick's forward axis (ActorInput.desiredLocalMoveInput.z, frame slot rbp + (int8)rot.actor_input) into edx, PlayerInput.fromClient.movementStickInputMode (frame slot rbp + (int8)rot.player_input, null for non-players: mode 0) into al, the pitch measured from the transform (+ = nose down) into xmm14; then the pitch target by mode: 1 = z x 90 degrees, 0 = xmm14 + pitchAngleSpeed x deg2rad x z x dt (xmm10). Server 0x815a6, client 0x26f4a6",
+      "find": [
+        { "pattern": "48 8B 45 {rules/rot.actor_input:d8} F3 44 0F 10 74 24 ?? F3 44 0F 59 D8 45 0F 28 C6 F2 0F 10 80 ?? ?? ?? ?? 8B 90 {rules/rot.move_z:d32} 48 8B 45 {rules/rot.player_input:d8} F2 0F 11 85 ?? ?? ?? ?? 48 85 C0 74 07 0F B6 80 {rules/input.stick_mode:d32} F3 0F 10 87 {rules/glider.yaw_speed:d32} F3 0F 10 0D ?? ?? ?? ?? F3 44 0F 10 8D ?? ?? ?? ?? F3 44 0F 10 95 ?? ?? ?? ?? F3 44 0F 10 7C 24 ?? F3 0F 59 C1 41 0F 28 FF 0F B6 C8 F3 41 0F 59 C1 F3 41 0F 59 C2 F3 0F 5C F8 84 C0 74 15 83 F9 01 75 31 66 44 0F 6E C2 F3 44 0F 59 05 ?? ?? ?? ?? EB 21 F3 44 0F 10 87 {rules/glider.pitch_speed:d32} F3 44 0F 59 C1 66 0F 6E C2 F3 44 0F 59 C0 F3 45 0F 59 C2 F3 45 0F 58 C6" }
+      ]
+    },
+    "rules/GlideSteer": {
+      "comment": "the same branch at the roll-rate load (movss xmm2, [rdi + glider.roll_speed]), after the pitch step: xmm6 = clamp(target, 5, 80 degrees) - xmm14, bounded to +/- xmm2 = pitchAngleSpeed x deg2rad x dt (the game's max step; a negative or zero rate gives a step away from the target or none); the program later rebuilds the orientation from xmm14 + xmm6. The literal bytes pin these registers. Server 0x818f1, client 0x26f7f1 (offset 83); docs/re/rules.md 7",
+      "find": [
+        { "scope": { "symbol": "rules/GlideSteerInput", "size": 1024 }, "pattern": "F3 0F 10 97 {rules/glider.pitch_speed:d32} F3 41 0F 5C F6 F3 0F 59 D4 F3 41 0F 58 FF 0F 28 CE F3 41 0F 59 D2 41 0F 57 CD 0F 28 C6 F3 0F 5F C1 0F 2F C2 76 25 41 0F 2E F4 7A 08 75 06 41 0F 28 F4 EB 13 44 0F 2F E6 76 0A F3 0F 10 35 ?? ?? ?? ?? EB 03 0F 28 F3 F3 0F 59 F2 F3 0F 10 97 {rules/glider.roll_speed:d32}", "offset": 83 }
+      ]
+    },
+    "@rules/GlideSteer.ctx": {
+      "comment": "the same function passes its ProgramContext home slot (rbp + rot.ctx, the prologue's [rsp+8]) to CurrentEntityId 0x710 bytes after the hook; the call target is captured as rules/GlideSteerEntityId and must be rules/CurrentEntityId",
+      "find": [
+        { "scope": { "symbol": "rules/GlideSteer", "size": 2048 }, "pattern": "48 8B 8D {rules/rot.ctx:d32} 48 8D 95 ?? ?? ?? ?? 48 C7 85 ?? ?? ?? ?? 00 00 80 3F C7 85 ?? ?? ?? ?? 00 00 00 00 C7 85 ?? ?? ?? ?? 00 00 00 00 48 C7 85 ?? ?? ?? ?? 00 00 80 3F 48 C7 85 ?? ?? ?? ?? 00 00 00 00 C7 85 ?? ?? ?? ?? 00 00 80 3F E8 {rules/GlideSteerEntityId:rel32}" }
+      ]
+    },
     "rules/ApplyMaterials": {
       "comment": "takes (r8 1) or gives (r8 0) a building action's materials list {ptr, count} of 0x18-byte entries (item +0x10, count +0x14) through the cost context's inventory transaction (+8; mode byte +0)",
       "find": [
@@ -234,6 +252,14 @@
     "rules/flight.grav_actor": { "min_votes": 1 },
     "rules/flight.dynloco": { "min_votes": 1 },
     "rules/flight.actor": { "min_votes": 1 },
+    "rules/glider.yaw_speed": { "min_votes": 1 },
+    "rules/glider.pitch_speed": { "min_votes": 2 },
+    "rules/glider.roll_speed": { "min_votes": 1 },
+    "rules/rot.actor_input": { "min_votes": 1 },
+    "rules/rot.player_input": { "min_votes": 1 },
+    "rules/rot.move_z": { "min_votes": 1 },
+    "rules/input.stick_mode": { "min_votes": 1 },
+    "rules/rot.ctx": { "min_votes": 1 },
     "rules/input.camera_rot": { "value": 64 },
     "rules/input.attack_dir": { "value": 1453 }
   },
@@ -268,6 +294,11 @@
     "rules.glide_view": {
       "symbols": ["@rules/Input.camera", "rules/QuatRotate"],
       "constants": ["rules/input.camera_rot", "rules/input.attack_dir"]
+    },
+    "rules.glide_steer": {
+      "symbols": ["rules/GlideSteerInput", "rules/GlideSteer", "@rules/GlideSteer.ctx", "rules/GlideSteerEntityId", "rules/CurrentEntityId"],
+      "constants": ["rules/glider.yaw_speed", "rules/glider.pitch_speed", "rules/glider.roll_speed", "rules/rot.actor_input",
+                    "rules/rot.player_input", "rules/rot.move_z", "rules/input.stick_mode", "rules/rot.ctx"]
     },
     "rules.costs": {
       "symbols": ["rules/ApplyMaterials"],
