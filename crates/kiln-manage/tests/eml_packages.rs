@@ -705,6 +705,7 @@ fn xhl_cleanup_never_adopts_markers_or_removes_nested_or_unflagged_copies() {
 #[test]
 fn copy_mode_uses_the_native_mods_copy_too() {
     let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    runtime_in_game(&d.dirs, &d.g, Some(2), "a633659");
     let p = my_mods(&d);
     let rendered = profile::render(&d.dirs, &p, &d.g, PathMode::Copy).unwrap();
     assert_eq!(rendered.mods.eml[0].path.replace('\\', "/"), "../mods/auto-loot-plus");
@@ -736,7 +737,8 @@ fn assert_xhl_contract(dirs: &DataDirs, g: &GameInstall, native_count: usize) {
         assert_eq!(std::fs::read(src.join(name)).unwrap(), std::fs::read(g.path.join("mods/XHL-Vein-Mining").join(name)).unwrap());
     }
     assert_eq!(profile::list(dirs).unwrap()[0].counts.xhl, 1);
-    assert_eq!(profile::render(dirs, &p, g, PathMode::Copy).unwrap().mods.xhl[0].path, "../mods/XHL-Vein-Mining");
+    // Copy mode names the game folder only for a runtime that declares it reads that form (none here)
+    assert_eq!(profile::render(dirs, &p, g, PathMode::Copy).unwrap().mods.xhl[0].path, "profiles/my-mods/xhl/xhl-vein-mining");
     assert!(!ModKind::CORE.contains(&ModKind::Xhl));
     assert!(ModKind::Xhl.engine().is_none() && kiln_manage::engine_mods::plugin_of(ModKind::Xhl).is_none());
     // The native core's fixed ABI and validated engine arrays stay unchanged: XHL has no execution route there.
@@ -1044,5 +1046,66 @@ fn an_xhl_plugin_ini_in_another_case_is_still_an_xhl_companion() {
     let f = profile::read_game_profile(&g.path).unwrap().unwrap();
     assert!(f.mods.native.is_empty(), "Kiln must not load the plugin DLL: {:?}", f.mods.native);
     assert!(g.path.join("mods/XHL-Vein-Mining/Native-Plugin.ini").is_file());
+}
+
+/// A runtime bundle in the launcher's data folder, and the game's install receipt naming it (render reads only which
+/// runtime the receipt names). `reader`: the profile.json reader revision its kiln-runtime.json declares (None: a
+/// runtime from before the declaration, as dev.23).
+fn runtime_in_game(dirs: &DataDirs, g: &GameInstall, reader: Option<u32>, git: &str) -> String {
+    let s = g.path.parent().unwrap().join(format!("stage-{git}"));
+    let mut m = serde_json::json!({ "format": 1, "kiln": "0.2.0-dev", "abi": 1, "api": "0.2.0",
+        "components": { "core": { "sides": ["server", "client"], "default": true, "description": "core" } } });
+    if let Some(r) = reader { m["profileReader"] = r.into(); }
+    put(&s, "kiln-runtime.json", serde_json::to_string_pretty(&m).unwrap().as_bytes());
+    put(&s, "core/kiln/kiln-core.dll", format!("core {git}").as_bytes());
+    let opts = kiln_manage::bundle::CreateOptions { source_date_epoch: 1_794_000_000, git: git.into() };
+    let zip = kiln_manage::bundle::create(&s, &g.path.parent().unwrap().join(format!("out-{git}")), &opts).unwrap();
+    let b = kiln_manage::bundle::import(dirs, &zip).unwrap();
+    put(&g.path, "kiln/.install.json", serde_json::to_string_pretty(&serde_json::json!({
+        "format": 1, "installId": "c7a3e1f0-2b4d-4e6f-8a9b-0c1d2e3f4a5b", "installed": "2026-11-11T00:00:00Z",
+        "runtime": { "version": b.version, "components": ["core"] }, "side": "client", "files": [],
+    })).unwrap().as_bytes());
+    b.version
+}
+
+/// launcher-schema F2, data-safety F4: Copy mode names an EML mod's game folder (`../mods/<folder>`) only for a runtime
+/// whose core reads that form. Every core before it calls the whole profile invalid and loads no mods, so for those (and
+/// when the launcher cannot tell which runtime the game has) the profile keeps the copy under kiln/profiles/.
+#[test]
+fn copy_mode_names_the_game_folder_only_for_a_runtime_that_reads_it() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let p = my_mods(&d);
+    let path = || profile::render(&d.dirs, &p, &d.g, PathMode::Copy).unwrap().mods.eml[0].path.replace('\\', "/");
+    assert_eq!(path(), "profiles/my-mods/eml/auto-loot-plus", "no receipt: the runtime is not known");
+    runtime_in_game(&d.dirs, &d.g, None, "e3d6185");
+    assert_eq!(path(), "profiles/my-mods/eml/auto-loot-plus", "a runtime from before the form");
+    runtime_in_game(&d.dirs, &d.g, Some(2), "a633659");
+    assert_eq!(path(), "../mods/auto-loot-plus");
+    // any form out of kiln/, XHL companions included
+    let x = drop_on_launcher("xhl-plugin", "XHL-Vein-Mining");
+    let xp = my_mods(&x);
+    let xhl = || profile::render(&x.dirs, &xp, &x.g, PathMode::Copy).unwrap().mods.xhl[0].path.replace('\\', "/");
+    runtime_in_game(&x.dirs, &x.g, None, "e3d6185");
+    assert_eq!(xhl(), "profiles/my-mods/xhl/xhl-vein-mining");
+    runtime_in_game(&x.dirs, &x.g, Some(2), "a633659");
+    assert_eq!(xhl(), "../mods/XHL-Vein-Mining");
+}
+
+/// The same after a rollback through the launcher: the active profile's file follows the runtime the game has now,
+/// written again right after the runtime changed (quick::resume_active), so a start from Steam loads the mods too.
+#[test]
+fn a_runtime_rollback_rewrites_the_active_profile_for_the_older_core() {
+    let d = drop_on_launcher("alp-full", "AutoLootPlus 1.1.8");
+    let mut g = d.g.clone();
+    g.prefix = None;
+    g.path_mode = PathMode::Copy;
+    runtime_in_game(&d.dirs, &g, Some(2), "a633659");
+    profile::activate(&d.dirs, "my-mods", &g).unwrap();
+    let eml = || profile::read_game_profile(&g.path).unwrap().unwrap().mods.eml[0].path.replace('\\', "/");
+    assert_eq!(eml(), "../mods/auto-loot-plus");
+    runtime_in_game(&d.dirs, &g, None, "e3d6185"); // rolled back to dev.23
+    kiln_manage::quick::resume_active(&d.dirs, &g).unwrap();
+    assert_eq!(eml(), "profiles/my-mods/eml/auto-loot-plus");
+    assert!(g.path.join("kiln/profiles/my-mods/eml/auto-loot-plus/mod.json").is_file(), "the copy the old core runs");
 }
 

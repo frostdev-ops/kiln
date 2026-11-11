@@ -30,6 +30,11 @@ pub struct RuntimeManifest {
     pub files: Vec<RuntimeFile>,
     #[serde(default)]
     pub builds: RuntimeBuilds,
+    /// The profile.json forms the runtime's core reads (native/core/src/profile.h KILN_PROFILE_READER, copied in by
+    /// tools/package/stage.sh). None: a runtime from before the field, reader 1. profile::render writes a form only
+    /// for a runtime that declares it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_reader: Option<u32>,
 }
 
 fn yes() -> bool {

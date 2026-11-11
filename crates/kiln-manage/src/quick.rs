@@ -367,12 +367,15 @@ pub fn ensure_default_with(dirs: &DataDirs, install: &GameInstall, running: bool
 /// After Kiln is installed into a game (a reinstall after an uninstall): the profile the launcher remembers for the game
 /// is made the active one again, so the player's mods load without a step. Ok(None): nothing to do (a profile is
 /// active, none is remembered, or `profile.json` names a profile of another data folder). Refused (GameRunning) while
-/// the game runs, like any activation.
+/// the game runs, like any activation. An active profile is written again when it renders differently for the runtime
+/// the game has now (an update or a rollback: a path form an older core refuses, profile::render), so a start from
+/// Steam does not boot with a file the installed core calls invalid; that still returns None.
 pub fn resume_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
     kiln_in_game(install)?;
     let _lock = lock(dirs)?;
     match destination(dirs, install)? {
         Dest::Resume(p) => profile::activate(dirs, &p.id, install).map(Some),
+        Dest::Active(_) => profile::refresh_active(dirs, install).map(|_| None),
         _ => Ok(None),
     }
 }
