@@ -51,8 +51,8 @@
           "source": { "type": "string", "description": "profile, kiln-dropin, game-mods, or the engine plugin that added it." },
           "path": { "type": "string" },
           "state": {
-            "enum": ["loaded", "failed", "skipped", "disabled", "duplicate", "pending", "own-loader", "not-loaded"],
-            "description": "With phase aside (dev.22): own-loader (Kiln copied the profile mod into the running loader's folder, it runs there) or not-loaded (the mod is only in Kiln's Library, which that loader never reads)."
+            "enum": ["loaded", "failed", "skipped", "disabled", "duplicate", "pending", "own-loader", "not-loaded", "off-in-shroudforge", "other-side"],
+            "description": "With phase aside (dev.22): own-loader (the mod is in the running loader's folder and runs there; under ShroudForge only while ShroudForge's switch for it is on) or not-loaded (the mod is only in Kiln's Library, which that loader never reads). Under ShroudForge (dev.24): off-in-shroudforge (in ShroudForge's folder, but its extended.mod.json is missing or does not say enabled: true, so nothing applies it) or other-side (its extended.mod.json targets the other side only)."
           },
           "reason": { "type": ["string", "null"] },
           "capabilities": { "type": "array", "items": { "type": "string" } }
