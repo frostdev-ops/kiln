@@ -1220,8 +1220,41 @@ fn same_copy_tree(a: &Path, b: &Path) -> Result<bool> {
     Ok(true)
 }
 
+// The Library's files are all in `dst`, unchanged, and nothing in `dst` is a link: whatever else the folder holds, the
+// mod or the player wrote there (settings, logs). Such a copy is still the copy of that version and is used as it is;
+// a fresh sibling at every activation would leave the mod's settings behind each time.
+fn holds_copy_tree(src: &Path, dst: &Path) -> Result<bool> {
+    fn no_links(p: &Path) -> Result<bool> {
+        for e in std::fs::read_dir(p)? {
+            let e = e?.path();
+            let m = std::fs::symlink_metadata(&e)?;
+            if m.file_type().is_symlink() || !(m.is_dir() || m.is_file()) || (m.is_dir() && !no_links(&e)?) { return Ok(false); }
+        }
+        Ok(true)
+    }
+    fn within(src: &Path, dst: &Path) -> Result<bool> {
+        for e in std::fs::read_dir(src)? {
+            let name = e?.file_name();
+            let (a, b) = (src.join(&name), dst.join(&name));
+            let am = std::fs::symlink_metadata(&a)?;
+            let Ok(bm) = std::fs::symlink_metadata(&b) else { return Ok(false) };
+            if am.is_dir() {
+                if !(bm.is_dir() && within(&a, &b)?) { return Ok(false); }
+            } else if !(am.is_file() && bm.is_file() && crate::hash::sha256_file(&a)? == crate::hash::sha256_file(&b)?) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+    crate::engine_mods::refuse_symlink_path(src, src)?;
+    crate::engine_mods::refuse_symlink_path(dst, dst)?;
+    Ok(std::fs::symlink_metadata(dst)?.is_dir() && no_links(dst)? && within(src, dst)?)
+}
+
 // A fallback that a mod or player changed is not disposable, even while an older runtime still needs a copy.
-// Use a free sibling instead; the unused-copy pass keeps the old folder in place and reports its exact path.
+// A copy that still holds every Library file unchanged is used as it is, with what was written beside them. Any other
+// (another version, a changed shipped file, a link) is left alone and a free sibling is used instead; the unused-copy
+// pass keeps the old folder in place and reports its exact path.
 fn run_folder_copy_rel(profile: &Profile, install: &GameInstall, kind: ModKind, m: &ProfileMod, src: &Path) -> Result<String> {
     let parent = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id).join(kind.as_str());
     crate::engine_mods::refuse_symlink_path(&install.path, &parent)?;
@@ -1233,7 +1266,7 @@ fn run_folder_copy_rel(profile: &Profile, install: &GameInstall, kind: ModKind, 
         match std::fs::symlink_metadata(&dst) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(rel),
             Err(e) => return Err(io_at(&dst, "checking")(e)),
-            Ok(_) if same_copy_tree(src, &dst).unwrap_or(false) => return Ok(rel),
+            Ok(_) if holds_copy_tree(src, &dst).unwrap_or(false) => return Ok(rel),
             Ok(_) => {},
         }
     }
@@ -1296,7 +1329,8 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 if crate::engine_mods::run_folder(k).is_some() {
                     crate::engine_mods::refuse_symlink_path(&install.path, &dst)?;
                     match std::fs::symlink_metadata(&dst) {
-                        Ok(_) if same_copy_tree(&src, &dst)? && crate::hash::dirhash(&dst)? == m.hash => continue,
+                        // the Library entry is the profile's version and the copy still holds all of it
+                        Ok(_) if crate::hash::dirhash(&src)? == m.hash && holds_copy_tree(&src, &dst)? => continue,
                         Ok(_) => return Err(Error::new(ErrorCode::Refused,
                             format!("{}: the fallback copy changed while preparing it; its files were kept", dst.display()))),
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},

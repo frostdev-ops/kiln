@@ -386,6 +386,44 @@ fn updating_a_still_used_fallback_keeps_its_changed_files_and_runs_the_new_versi
     }
 }
 
+/// The same version, and the mod wrote beside its files in the copy an older runtime runs it from (settings, a log):
+/// the copy is still that version's and is used as it is. A fresh sibling at every activation would leave the mod's
+/// settings behind each time and fill the folder. A link in the copy is not followed: that copy is left and kept.
+#[test]
+fn a_fallback_copy_the_mod_wrote_into_is_used_again_for_the_same_version() {
+    for linked in [false, true] {
+        let t = tmp("fallback-same");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Copy);
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        runtime_in_game(&dirs, &g, Some(2), "a633659");
+        let first = activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]).mods.flame[0].path.clone();
+        let fallback = g.path.join("kiln").join(&first);
+        put(&fallback, "settings.json", b"the mod's settings");
+        put(&fallback.join("logs"), "run.log", b"a log");
+        if linked {
+            put(&t.0, "outside", b"elsewhere");
+            std::os::unix::fs::symlink(t.0.join("outside"), fallback.join("linked")).unwrap();
+        }
+        let a = profile::activate(&dirs, &pid, &g).unwrap();
+        let now = profile::read_game_profile(&g.path).unwrap().unwrap().mods.flame[0].path.clone();
+        assert_eq!(std::fs::read(fallback.join("settings.json")).unwrap(), b"the mod's settings");
+        assert_eq!(std::fs::read(fallback.join("logs/run.log")).unwrap(), b"a log");
+        if linked {
+            assert_ne!(now, first, "a copy with a link in it is not run");
+            assert!(a.warnings.iter().any(|w| w.contains("kept the unused profile copy")), "{a:?}");
+        } else {
+            assert_eq!(now, first, "the same folder runs again");
+            assert_eq!(a.copied, 0, "{a:?}");
+            assert!(!a.warnings.iter().any(|w| w.contains("kept the unused profile copy")), "{a:?}");
+            assert_eq!(std::fs::read_dir(fallback.parent().unwrap()).unwrap().count(), 1, "no sibling was made");
+            // a third activation is as quiet
+            assert_eq!(profile::activate(&dirs, &pid, &g).unwrap().copied, 0);
+        }
+    }
+}
+
 #[test]
 fn an_id_that_is_no_folder_name_is_not_placed_and_said_so() {
     let t = tmp("unsafe");

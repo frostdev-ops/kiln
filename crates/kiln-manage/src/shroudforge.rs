@@ -1190,9 +1190,11 @@ mod tests {
     #[test]
     fn refused_launcher_and_targets_never_claim_to_run() {
         let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-invalid-switch").unwrap();
-        for fields in [r#""launcher":null"#, r#""launcher":"eml"#, r#""targets":"server"#,
+        for fields in [r#""launcher":null"#, r#""launcher":"eml""#, r#""targets":"server""#,
             r#""targets":[]"#, r#""targets":["client",42]"#, r#""targets":["client","client"]"#] {
             let ext = format!(r#"{{"schemaVersion":1,"enabled":true,{fields}}}"#);
+            // each case is well-formed JSON: it is the field's value that ShroudForge's schema refuses
+            assert!(serde_json::from_str::<serde_json::Value>(&ext).is_ok(), "{ext}");
             let f = pkg(t.path(), "invalid", Some(&ext));
             assert!(switched_off(&f, false).is_some(), "{ext}");
         }
