@@ -185,6 +185,28 @@ An SF mod that uses only SF's public API: `runtime.services.get("ecs::GameSettin
 `runtime.overrides.service(...,"enableDurability")` with the setting `disableDurability`. It proves a guarded write, SF's
 readback and the restore on a live setting change, all without players.
 
+### 5.5 Held W/S glider steering: unresolved client check
+
+The sustained W/S steering report for SF Unlimited Flight is **not confirmed fixed**. The heartbeat change fixes
+reproduced update-loop stalls; native data-flow analysis and synthetic input/override tests do not establish the
+mode, input, selected resource or rate seen by an affected client's actual rotation consumer. A `write-confirmed`
+effect report alone is not that evidence. Exact ECS/resource profile support also does not establish availability
+of SF's separate legacy execution-hook contracts.
+
+For a controlled client observation, keep the game/SF versions, glider, world and settings the same, with **Upward
+Gliding enabled in pitch-speed controls**:
+
+1. Close all Kiln menus, screens, interactive windows and wheels; release W/S.
+2. Check ordinary on-foot W/S movement.
+3. During a normal glide, hold S for about two seconds, release briefly, then hold W for two seconds. Note which
+   response fails. Do not open a capturing menu during this check.
+4. Afterward, preserve a fresh support report, the SF Unlimited Flight effect detail, exact versions and settings.
+
+Kiln's UI can capture input while an interactive surface or consuming key subscriber is active, but there is no
+evidence that this caused the reported failure. Working on-foot movement makes unconditional capture less likely,
+not impossible. Definitive localization still needs affected-session, same-frame mode/input and selected ItemInfo
+pointer/rate at the native consumer; a Lua replay or aggregate memory-write observation cannot substitute for it.
+
 ## 6. What other agents need to do (detect, launcher)
 
 - **Installer** (agent `detect`, `install.rs`): when ShroudForge is installed, install "next to ShroudForge" by default.
