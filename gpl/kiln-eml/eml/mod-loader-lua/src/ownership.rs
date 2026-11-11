@@ -70,7 +70,9 @@ fn checked_path(root: &Path, path: &Path) -> io::Result<()> {
                 if m.file_type().is_symlink() { return Err(invalid(&format!("linked archive/state path: {}", component.display()))); }
                 #[cfg(windows)] {
                     use std::os::windows::fs::MetadataExt;
-                    if m.file_attributes() & 0x400 != 0 { return Err(invalid("reparse archive/state path")); }
+                    if (m.file_attributes() | super::transaction::attributes_by_name(component)?) & 0x400 != 0 {
+                        return Err(invalid(&format!("reparse archive/state path: {}", component.display())));
+                    }
                 }
             },
             Err(e) if e.kind() == io::ErrorKind::NotFound => {},
@@ -1034,6 +1036,21 @@ mod tests {
         fs::remove_dir(link.join("kiln/eml/linked")).unwrap();
         fs::remove_dir(&link).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+    // Under Wine, a link made on the Linux side (`ln -s`) is followed by handle-based queries and shows as a plain
+    // folder; only the by-name attribute query exposes it (discover.rs). The harness (out of tree) makes such links in
+    // a fixture: <fixture>/game with kiln/eml/ownership -> ../../../victim and shroudforge -> ../sf-elsewhere.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs KILN_EML_HOST_LINK_FIXTURE: a game folder with links made on the Linux side (Wine harness)"]
+    fn links_made_on_the_linux_side_are_refused_under_wine() {
+        let Some(fixture) = std::env::var_os("KILN_EML_HOST_LINK_FIXTURE") else { return };
+        let game = PathBuf::from(fixture).join("game");
+        assert!(fs::symlink_metadata(game.join("kiln/eml/ownership")).unwrap().is_dir(), "the harness made the link");
+        assert!(checked_path(&game, &game.join("kiln/eml/ownership/g.json")).is_err(), "linked receipt folder");
+        assert!(checked_path(&game, &game.join("shroudforge/state.json")).is_err(), "linked SF folder");
+        assert!(directory(&game).is_err());
+        assert!(checked_path(&game, &game.join("g.kfc")).is_ok(), "the game folder itself is fine");
     }
     #[cfg(any(unix, windows))]
     #[test]

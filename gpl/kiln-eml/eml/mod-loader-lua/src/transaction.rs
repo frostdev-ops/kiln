@@ -16,9 +16,23 @@ pub fn regular(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)] {
         use std::os::windows::fs::MetadataExt;
-        if m.file_attributes() & 0x400 != 0 { return Err(io::Error::other("reparse point")); }
+        if (m.file_attributes() | attributes_by_name(path)?) & 0x400 != 0 { return Err(io::Error::other("reparse point")); }
     }
     Ok(())
+}
+
+/// kiln-eml: the attributes of `path` asked by name. Wine follows links made on the Linux side even with
+/// OPEN_REPARSE_POINT, so the handle-based metadata above shows a plain folder there; asked by name, Wine reports
+/// directory links as reparse points (discover.rs does the same). Wine shows file links to neither query.
+#[cfg(windows)]
+pub(crate) fn attributes_by_name(path: &Path) -> io::Result<u32> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" { fn GetFileAttributesW(path: *const u16) -> u32; }
+    let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let attributes = unsafe { GetFileAttributesW(name.as_ptr()) };
+    if attributes == u32::MAX { return Err(io::Error::last_os_error()); }
+    Ok(attributes)
 }
 
 fn sync_dir(dir: &Path) -> io::Result<()> {
