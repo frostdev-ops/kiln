@@ -292,7 +292,9 @@ game-data pass. The record has no pid. It describes this start in two cases: its
 process's lifetime, or kiln-shroudforge's status of this process (`kiln/state/shroudforge.json`) has
 `startupPrepared: true`. The second is the usual start: ShroudForge finds the pass of an earlier start still current
 for this start's mods and leaves the record as it is, with that start's time; the adapter sets the flag when
-ShroudForge's startup preparation returned success. Then an `applied` pass on this side's target (`enshrouded` on a
+ShroudForge's startup preparation returned success, which it also does after a pass that failed and restored the saved
+baseline (it writes a fresh `failed` record first). The flag says only that the record is this start's; what happened
+is the record's own `status` beside it. Then an `applied` pass on this side's target (`enshrouded` on a
 client, `enshrouded_server` on a server) that lists the mod at the version in its folder shows Loaded with the word
 `applied`; a `failed` pass of this process's lifetime shows Failed with its error. Any other record (an earlier start
 without the adapter's flag, the other target, a pass still `preparing`, the mod missing from the list or listed at

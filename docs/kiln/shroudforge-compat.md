@@ -143,9 +143,13 @@ folder is SF's own `<game>/shroudforge/` (config, logs, state, cache, profiles).
 `kiln/state/shroudforge.json` gains `source` (bundled|installed), `runtimeDir`, `bundled`, `installed` and
 `useInstalled`. Then, for whichever runtime was chosen:
 Since dev.24 it also has `startupPrepared: true` once `shroudforge_prepare_startup` returned success in this process
-(absent when it failed or did not run): ShroudForge then either applied its startup asset mods or found an earlier
-pass still current, so its own record of that pass (`shroudforge/state.json` `assets`) describes this start's game
-data. Kiln's menu reads the record on that word (ui.md).
+(absent when it failed or did not run). ShroudForge returns success when it applied its startup asset mods, when it
+found an earlier pass still current, and also when a pass failed and it restored the saved baseline (it writes a fresh
+`failed` record first: fork `embedded.rs`, `recover_failed_startup`). So the flag means only that its own record of
+the pass (`shroudforge/state.json` `assets`) describes this start's game data, not that any asset mod applied: a
+reader needs the record's own `status` (`applied`, `failed`) beside it. Kiln's menu reads both (ui.md). kiln.log says
+`ShroudForge startup preparation returned (... ms): the [sf] lines and its record of the pass ... say whether its
+startup asset mods applied` (before this, `ShroudForge startup preparation done`, the line in the evidence below).
 
 Its early export runs preparation on the main thread while Kiln's gate holds the game entry point. Both runtime DLLs
 are validated before preparation. The `kiln.eml` v2 reservation prevents two startup KFC writers:
