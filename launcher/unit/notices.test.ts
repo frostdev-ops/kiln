@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import type { InstallResult, UninstallResult } from "../src/api/commands";
 import { notifyInstall } from "../src/shell/notices";
-import { useToasts } from "../src/ui/Toast";
+import { notifyPlacementCleanup, useToasts } from "../src/ui/Toast";
 
 beforeEach(() => useToasts.setState({ items: [] }));
 
@@ -30,6 +30,13 @@ test("uninstall lists changed runtime files even without restoration warnings", 
   expect(notices[0].persistent).toBe(true);
   expect(notices[0].detail).toContain("dinput8.dll");
   expect(notices[0].detail).toContain("kiln/plugins/edited.dll");
+});
+
+test("cleanup warns that a retained SET copy can still run through Kiln itself", () => {
+  notifyPlacementCleanup({ removed: [], retained: [{ path: "shrouded_engine_tweaks/mods/edited", reason: "init.lua was changed", mayRun: true }] });
+  const notice = useToasts.getState().items[0];
+  expect(notice.persistent).toBe(true);
+  expect(notice.detail).toContain("may still run through Kiln or another loader");
 });
 
 test("an uneventful runtime change has no recovery notice", () => {

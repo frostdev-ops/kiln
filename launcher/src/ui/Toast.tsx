@@ -140,7 +140,7 @@ export const toast = {
 export function notifyPlacementCleanup(report: PlacementCleanup | null | undefined) {
   if (!report?.retained.length) return;
   const detail = report.retained.map((r) => `${r.path}: ${r.reason}`).join("; ");
-  toast.info("Some mod folders were kept", `${detail}. These mods may still run in the standalone loader. With the game closed, review or move the listed folders to stop them; your settings have not been deleted.`, { ms: 0 });
+  toast.info("Some mod folders were kept", `${detail}. These mods may still run through Kiln or another loader. With the game closed, review or move the listed folders to stop them; your settings have not been deleted.`, { ms: 0 });
 }
 
 export function Toaster() {

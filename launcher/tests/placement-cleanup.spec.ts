@@ -16,7 +16,7 @@ test("deactivating a profile keeps retained-folder warnings through later notifi
   const warning = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
   await expect(warning).toContainText("mods/edited-addon");
   await expect(warning).toContainText("player-settings.json was added by the player");
-  await expect(warning).toContainText("may still run in the standalone loader");
+  await expect(warning).toContainText("may still run through Kiln or another loader");
   await page.clock.install();
   await page.evaluate(async () => {
     const { toast } = await import("/src/ui/Toast.tsx");
