@@ -24,12 +24,16 @@ pub fn regular(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// kiln-eml: the attributes of `path` asked by name. Wine follows links made on the Linux side even with
-/// OPEN_REPARSE_POINT, so the handle-based metadata above shows a plain folder there; asked by name, Wine reports
-/// directory links as reparse points (discover.rs does the same). Wine shows file links to neither query.
+/// kiln-eml: the attributes of `path` asked by name, under Wine (0 on Windows proper). Wine follows links made on the
+/// Linux side even with OPEN_REPARSE_POINT, so the handle-based metadata above shows a plain folder there; asked by
+/// name, Wine reports directory links as reparse points (discover.rs does the same). Wine shows file links to neither
+/// query. Windows proper reports junctions and links through the handle query already, and a raw by-name query of a
+/// path longer than MAX_PATH fails there where std's (verbatim) one works: a deep game folder must not stop every
+/// publication.
 #[cfg(windows)]
 pub(crate) fn attributes_by_name(path: &Path) -> io::Result<u32> {
     use std::os::windows::ffi::OsStrExt;
+    if !under_wine() { return Ok(0); }
     #[link(name = "kernel32")]
     unsafe extern "system" { fn GetFileAttributesW(path: *const u16) -> u32; }
     let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -293,6 +297,22 @@ pub(crate) mod tests {
             drop(patch);
             fs::remove_dir_all(game).unwrap();
         }
+    }
+    // A game folder deep enough that its stage files pass MAX_PATH (Steam libraries in long folder names).
+    #[cfg(windows)]
+    #[test]
+    fn a_long_game_folder_path_passes_the_link_checks() {
+        let mut game = std::env::temp_dir().join(format!("kiln-long-{}", uuid::Uuid::new_v4()));
+        while game.as_os_str().len() < 300 { game = game.join("a-rather-long-steam-library-folder-name"); }
+        fs::create_dir_all(&game).unwrap();
+        let file = game.join(".kiln-eml-stage-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0").join("enshrouded.kfc_resources");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "staged").unwrap();
+        regular(&file).unwrap();
+        crate::ownership::tests::checked(&game, &file).unwrap();
+        let mut top = game.as_path();
+        while top.parent() != Some(&std::env::temp_dir()) { top = top.parent().unwrap(); }
+        fs::remove_dir_all(top).unwrap();
     }
     #[cfg(unix)]
     #[test]

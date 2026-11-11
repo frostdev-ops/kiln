@@ -648,8 +648,9 @@ fn handoff(root: &Path, stem: &str, publishing: bool) -> io::Result<Option<SfGua
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    pub(crate) fn checked(root: &Path, path: &Path) -> io::Result<()> { checked_path(root, path) }
     fn fixture() -> (PathBuf, Vec<PathBuf>) {
         let root = std::env::temp_dir().join(format!("kiln-ownership-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("stage")).unwrap();
