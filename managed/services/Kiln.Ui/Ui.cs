@@ -208,16 +208,24 @@ public sealed unsafe partial class UiDraw
         T->ImageButton(Utf8.Of(id), image.Handle, width > 0 ? width : image.Width * Scale, height > 0 ? height : image.Height * Scale) != 0;
 
     /// <summary>A drop-down list; true when <paramref name="index"/> changed.</summary>
-    public bool Combo(string label, ref int index, IReadOnlyList<string> items)
+    public bool Combo(string label, ref int index, IReadOnlyList<string> items) =>
+        items.Count > 0 && Combo(label, ref index, ComboItems(items), items.Count);
+
+    /// <summary>Combo items as ImGui takes them (each ends with a NUL, the list with another): made once, drawn many times.</summary>
+    internal static byte[] ComboItems(IReadOnlyList<string> items)
     {
-        if (!UiNative.HasGameUi || items.Count == 0) return false;
         var sb = new StringBuilder();
         foreach (var i in items) sb.Append(i.Replace('\0', ' ')).Append('\0');
         sb.Append('\0');
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        var v = Math.Clamp(index, 0, items.Count - 1);
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    internal bool Combo(string label, ref int index, byte[] items, int count)
+    {
+        if (!UiNative.HasGameUi || count == 0 || items.Length == 0) return false;
+        var v = Math.Clamp(index, 0, count - 1);
         bool changed;
-        fixed (byte* p = bytes) changed = T->Combo(Utf8.Of(label), &v, p) != 0;
+        fixed (byte* p = items) changed = T->Combo(Utf8.Of(label), &v, p) != 0;
         index = v;
         return changed;
     }

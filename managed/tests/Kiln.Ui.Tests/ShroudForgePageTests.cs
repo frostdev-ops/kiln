@@ -224,8 +224,8 @@ public sealed class ShroudForgePageTests : IDisposable
         var p = ShroudForgePackages.Read(folder);
         var byKey = p.Settings.ToDictionary(x => x.Key, StringComparer.Ordinal);
         var values = p.Values;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var ours = p.Settings.Select(x => (x.Key, ShroudForgeUi.IsEnabled(x.Key, byKey, values, seen))).ToArray();
+        var rule = new ShroudForgeUi.EnabledRule(byKey, values);
+        var ours = p.Settings.Reverse().Select(x => (x.Key, rule.Of(x.Key))).Reverse().ToArray();  // remembered answers in any order
         var theirs = p.Settings.Select(x => (x.Key, ShroudForgePackages.IsEnabled(x.Key, p.Settings, values))).ToArray();
         Assert.Equal(theirs, ours);
         Assert.Equal([true, true, true, false, false, false, false, true, true, false], ours.Select(x => x.Item2));
@@ -366,5 +366,47 @@ public sealed class ShroudForgePageTests : IDisposable
             Assert.Equal(ModManagerSection.Mods, page.Section);
         }
         finally { ShroudlinkMenu.Open = false; }
+    }
+    /// <summary>The page re-reads the selected package every second: the same bytes make no new package and no new view.</summary>
+    [Fact]
+    public void A_reread_of_unchanged_files_keeps_the_package()
+    {
+        var folder = Package("""{ "level": { "value": 1, "label": "Level" } }""");
+        var first = ShroudForgeUi.Get(folder, out _);
+        ShroudForgeUi.Load(folder);
+        Assert.Same(first, ShroudForgeUi.Get(folder, out _));
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), File.ReadAllText(Path.Combine(folder, "extended.mod.json")).Replace("1", "2"));
+        ShroudForgeUi.Load(folder);
+        Assert.NotSame(first, ShroudForgeUi.Get(folder, out _));
+    }
+
+    /// <summary>A package with more settings than a page can hold (a generated or broken file) shows the first ones and
+    /// says how many more it has.</summary>
+    [Fact]
+    public void A_large_package_draws_its_first_settings_and_says_how_many_are_left()
+    {
+        var folder = Package("{ " + string.Join(", ", Enumerable.Range(0, 1000).Select(i => $"\"s{i}\": true")) + " }");
+        ShroudForgeUi.Draw(_ui, Mod(folder), 1, 1, (_, _, _) => { });
+        lock (FakeUiTable.Texts)
+        {
+            Assert.Contains("s299", FakeUiTable.Texts);
+            Assert.DoesNotContain("s300", FakeUiTable.Texts);
+            Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("700 more settings are not shown here", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>A 10,000-step enabledWhen chain: each setting's answer is worked out once, on the worker that read the
+    /// package, not by walking the chain again for every setting on the render thread.</summary>
+    [Fact]
+    public void A_long_enabled_chain_costs_one_walk_and_the_frame_none()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var folder = Package(Chain(10_000));  // read (and its view made) here, as the read worker does
+        var mod = Mod(folder);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        ShroudForgeUi.Draw(_ui, mod, 1, 1, (_, _, _) => { });
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(watch.ElapsedMilliseconds < 3000, $"reading and drawing a 10,000-step chain took {watch.ElapsedMilliseconds} ms");
+        Assert.True(bytes < 256 * 1024, $"the first frame allocated {bytes} bytes");
     }
 }
