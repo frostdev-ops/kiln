@@ -149,7 +149,27 @@ static KilnUiWindowInput button(uint32_t message, uint32_t b, uint32_t down) {
 // What the game window gives kiln.ui, in its order: window keys before the first raw keyboard record, raw keys and their
 // window messages, button messages before the first raw button record, raw buttons and their messages, a focus loss, a
 // kind this adapter does not know, and a record too short to read.
+static void feed_registration(bool keyboard, bool mouse) {
+    // Initialise user32's message queue without a visible window or desktop input.
+    static const HWND window = [] {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"KilnSfRawRegistration";
+        RegisterClassW(&wc);
+        return CreateWindowExW(0, wc.lpszClassName, L"raw registration", 0, 0, 0, 0, 0,
+                               HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+    }();
+    if (!window) { std::fflush(stdout); ExitProcess(3); }
+    const RAWINPUTDEVICE devices[] = {{1, 6, keyboard ? 0u : RIDEV_REMOVE, nullptr},
+                                      {1, 2, mouse ? 0u : RIDEV_REMOVE, nullptr}};
+    if (!RegisterRawInputDevices(devices, 2, sizeof(RAWINPUTDEVICE))) {
+        std::printf("[fake kiln.ui] raw registration failed: %lu\n", GetLastError());
+        ExitProcess(3);
+    }
+}
 static void play_script() {
+    feed_registration(true, true);
     ui_deliver(key(WM_KEYDOWN, 'A', 0x1e0001));
     ui_deliver(key(WM_KEYUP, 'A', 0xc01e0001));
     ui_deliver(raw(0x43, 0, VK_F9));
@@ -168,6 +188,31 @@ static void play_script() {
     auto short_record = raw(0x44, 0, VK_F10);
     short_record.size = offsetof(KilnUiWindowInput, wparam);
     ui_deliver(short_record);
+    if (GetEnvironmentVariableW(L"KILN_SF_FEED_UNREGISTER", nullptr, 0)) {
+        // A held raw key/button must still get its legacy release after raw input stops.
+        ui_deliver(raw(0x43, 0, VK_F9));
+        ui_deliver(button(WM_INPUT, 4, 1));
+        feed_registration(false, false);
+        ui_deliver(key(WM_KEYUP, VK_F9, 0xc0430001));
+        ui_deliver(button(WM_XBUTTONUP, 4, 0));
+        ui_deliver(key(WM_KEYDOWN, VK_F9, 0x430001));
+        ui_deliver(key(WM_KEYUP, VK_F9, 0xc0430001));
+        ui_deliver(button(WM_XBUTTONDOWN, 4, 1));
+        ui_deliver(button(WM_XBUTTONUP, 4, 0));
+        // Raw input returns: a quick tap and Print Screen's lone legacy release must not count twice.
+        feed_registration(true, true);
+        ui_deliver(raw(0x43, 0, VK_F9));
+        ui_deliver(raw(0x43, RI_KEY_BREAK, VK_F9));
+        ui_deliver(key(WM_KEYDOWN, VK_F9, 0x430001));
+        ui_deliver(key(WM_KEYUP, VK_F9, 0xc0430001));
+        ui_deliver(raw(0x37, RI_KEY_E0, VK_SNAPSHOT));
+        ui_deliver(raw(0x37, RI_KEY_E0 | RI_KEY_BREAK, VK_SNAPSHOT));
+        ui_deliver(key(WM_KEYUP, VK_SNAPSHOT, 0xc1370001));
+        ui_deliver(button(WM_INPUT, 4, 1));
+        ui_deliver(button(WM_INPUT, 4, 0));
+        ui_deliver(button(WM_XBUTTONDOWN, 4, 1));
+        ui_deliver(button(WM_XBUTTONUP, 4, 0));
+    }
     std::printf("[fake kiln.ui] script delivered\n");
 }
 // KILN_SF_REAL_KEYS (real_keys.py): the real runtime with a probe mod that logs its shortcut state. Steps a quarter of a
@@ -182,6 +227,7 @@ static bool log_has(const std::filesystem::path& file, const char* needle, int w
     }
 }
 static void play_real(const std::filesystem::path& game) {
+    feed_registration(true, true);
     if (!log_has(game / L"shroudforge/logs/shroudforge-client.log", "probe ready", 30000)) {
         std::printf("[real] the probe mod did not report ready\n");
         return;

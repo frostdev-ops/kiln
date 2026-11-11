@@ -319,7 +319,9 @@ kiln-shroudforge feeds it (`native/plugins/shroudforge/src/key_feed.cpp`):
   `RIDEV_NOLEGACY`, so most keys arrive both ways, and the window can take `WM_INPUT` ahead of the messages
   ([docs/re/client-render.md](../re/client-render.md) "Input": clicks reached Kiln's overlay twice that way). Forwarded
   both ways, a quick tap could count as two presses, and so could Print Screen (the runtime counts its lone `WM_KEYUP`
-  as a press). Buttons the same way: raw button records, else the button messages. A focus loss calls `reset` once
+  as a press). Buttons the same way: raw button records, else the button messages. If the corresponding raw-input
+  registration is removed or targets another focused window, legacy input resumes (including releases of held raw keys
+  and buttons). A failed registration query keeps the existing source. A focus loss calls `reset` once
   (kiln.ui sends one record for `WM_ACTIVATEAPP` 0 and `WM_KILLFOCUS` together; `reset` re-reads about 500 key names
   on the window thread).
 - **Teardown** (the worker, also after a failed create or update): unsubscribe (kiln.ui waits for a record in flight),

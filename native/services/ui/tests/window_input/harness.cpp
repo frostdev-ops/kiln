@@ -359,6 +359,23 @@ void play_consumed() {  // Insert: the key a Kiln binding consumes here (the men
 }
 const std::vector<std::string> kConsumed = {"raw 52 2 2d", "key 0100 2d 1520001", "raw 52 3 2d", "key 0101 2d c1520001"};
 
+void raw_unregistered() {
+    kui::g_consume_vk = 'J';
+    const RAWINPUTDEVICE remove{1, 6, RIDEV_REMOVE, nullptr};
+    check(RegisterRawInputDevices(&remove, 1, sizeof remove), "raw keyboard unregistered");
+    kui::g_kiln_keys.clear();
+    g_game.clear();
+    send(WM_KEYDOWN, 'J', key_l(0x24, false, false));
+    check(kui::input_key_held('J') && !contains(g_game, "0100 "),
+          "legacy key after raw stops reaches Kiln's binding and is consumed");
+    send(WM_KEYUP, 'J', key_l(0x24, false, true));
+    check(!kui::input_key_held('J') && kui::g_kiln_keys.size() == 2,
+          "legacy release after raw stops clears Kiln's held key (%zu callbacks)", kui::g_kiln_keys.size());
+    const RAWINPUTDEVICE add{1, 6, 0, nullptr};
+    check(RegisterRawInputDevices(&add, 1, sizeof add), "raw keyboard registered again");
+    kui::g_consume_vk = 0;
+}
+
 // ---- lifetime ----
 struct Blocking {
     HANDLE inside, release;
@@ -474,6 +491,8 @@ int main() {
     check(g_win && !IsWindowVisible(g_win), "message-only window %p", static_cast<void*>(g_win));
     kui::input_attach(g_win);
     check(kui::input_attached(), "Kiln's window procedure is on the window");
+    const RAWINPUTDEVICE keyboard{1, 6, 0, nullptr};
+    check(RegisterRawInputDevices(&keyboard, 1, sizeof keyboard), "raw keyboard registered");
 
     same_for_game("play", &play_everything, kEverything);
 
@@ -495,6 +514,7 @@ int main() {
     kui::g_consume_vk = 0;
 
     lifetime();
+    raw_unregistered();
 
     std::printf("%s: %d checks, %d failed\n", g_fails ? "FAIL" : "PASS", g_checks, g_fails);
     return g_fails ? 1 : 0;

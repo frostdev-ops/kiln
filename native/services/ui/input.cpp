@@ -25,6 +25,7 @@
 #include "imgui.h"
 #include "safetyhook.hpp"
 #include "ui.h"
+#include "raw_input_source.h"
 #include "wndproc_chain.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -319,6 +320,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (fed) feed(feed_record(KILN_UI_INPUT_WINDOW_KEY, m, w, l));
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
             bool consumed = false;
+            if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) consumed = on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, true);
             else consumed = g_consumed[vk];
             enqueue(h, m, w, l);
@@ -332,6 +334,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_SYSKEYUP: {
             if (fed) feed(feed_record(KILN_UI_INPUT_WINDOW_KEY, m, w, l));
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
+            if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, false);
             enqueue(h, m, w, l);
             break;  // releases always reach the game

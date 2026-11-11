@@ -19,6 +19,7 @@
 // loss).
 #include <mutex>
 
+#include "../../../services/ui/raw_input_source.h"
 #include "services/kiln_ui.h"
 #include "sf_internal.h"
 
@@ -64,7 +65,8 @@ template <class F> bool guarded_value(F fn, uint32_t* out) {
 // input, the window message while it has given none. The window gets both for a key (the game registers raw input
 // without RIDEV_NOLEGACY) and may take WM_INPUT ahead of the messages: a tap can arrive as raw press, raw release, then
 // WM_KEYDOWN, WM_KEYUP, which forwarded both ways would be two presses, and Print Screen's lone WM_KEYUP after its raw
-// release a second press too. Buttons the same way: raw button records, else the button messages.
+// release a second press too. Buttons the same way: raw button records, else the button messages. If the registration
+// is removed or targets a different window, resume legacy input, including the release of an already held raw key.
 void KILN_CALL on_window_input(const KilnUiWindowInput* r, void*) {
     if (!r || r->size < sizeof(KilnUiWindowInput)) return;
     std::lock_guard lock(g_mu);
@@ -76,12 +78,16 @@ void KILN_CALL on_window_input(const KilnUiWindowInput* r, void*) {
             ok = guarded(g_fn.raw_key, r->make_code, r->flags, r->vkey);
             break;
         case KILN_UI_INPUT_WINDOW_KEY:
-            if (g_raw_keys) return;
+            if (g_raw_keys && kui::raw_input::registered_for(6, GetFocus())) return;
+            g_raw_keys = false;
             ok = guarded(g_fn.window_key, static_cast<uintptr_t>(r->wparam), static_cast<intptr_t>(r->lparam));
             break;
         case KILN_UI_INPUT_MOUSE_BUTTON:
             if (r->message == WM_INPUT) g_raw_buttons = true;
-            else if (g_raw_buttons) return;
+            else {
+                if (g_raw_buttons && kui::raw_input::registered_for(2, GetFocus())) return;
+                g_raw_buttons = false;
+            }
             ok = guarded(g_fn.mouse_button, r->button, r->down);
             break;
         case KILN_UI_INPUT_FOCUS_LOST:
@@ -153,6 +159,7 @@ KeySource key_feed_start(const KilnApi* api, KilnOwner owner, HMODULE runtime, c
     }
     {
         std::lock_guard lock(g_mu);
+        g_raw_keys = g_raw_buttons = false;
         g_live = true;
     }
     return {"kiln", "Kiln passes the game window's key, mouse button and focus records to the runtime (host key feed v1); "
