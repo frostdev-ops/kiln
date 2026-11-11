@@ -112,6 +112,35 @@ class ExportTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 module.gpl_plugins(str(REPO))
 
+def stage_fixture(root):
+    """Complete inert prerequisites, so each test fails at its intended component, not an earlier missing helper."""
+    repo, out, bins = root / 'repo', root / 'build', root / 'bin'
+    target = repo / 'tools/package/stage.sh'
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(REPO / 'tools/package/stage.sh', target)
+    for script in ('tools/package/fetch-dotnet.sh', 'native/build.sh', 'gpl/kiln-eml/build.sh',
+                   'third_party/shroudforge/kiln/build.sh', 'native/plugins/enshwick/tools/build-runtime.sh'):
+        write(repo / script, '#!/bin/sh\nexit 0\n', True)
+    write(repo / 'native/plugins/shroudforge/CMakeLists.txt', '# fixture')
+    write(repo / 'managed/services/Kiln.Eml/Kiln.Eml.csproj', '<Project/>')
+    write(bins / 'dotnet', '#!/bin/sh\nexit 0\n', True)
+    for path in ('cmake/bin/dinput8.dll', 'cmake/bin/kiln-core.dll', 'cmake/bin/kiln-core.pdb',
+                 'cmake/bin/plugins/kiln-eml.dll', 'cmake/bin/plugins/kiln-shroudforge.dll',
+                 'host/Kiln.Host.dll', 'host/Kiln.Eml.dll', 'host/Kiln.Api.dll', 'host/Kiln.Game.dll',
+                 'mods/kiln-admin/Kiln.Admin.dll', 'mods/kiln-admin/kiln.mod.json',
+                 'mods/hello/Hello.dll', 'mods/hello/kiln.mod.json', 'cmake/bin/kiln-native-hello.dll',
+                 'enshwick-runtime/enshwick.dll', 'enshwick-runtime/LICENSE', 'enshwick-runtime/enshwick-version.txt'):
+        write(out / path, 'fixture only - never executed')
+    for path in ('shroudforge-runtime.dll', 'kfc-runtime.dll', 'NOTICE.txt', 'SOURCE.txt', 'version.json',
+                 'LICENSES/kfc-parser-GPL-3.0.txt', 'LICENSES/ShroudForge-MIT.txt'):
+        write(out / 'shroudforge-build/shroudforge' / path, 'fixture only - never executed')
+    for path in ('LICENSE', 'NOTICE.txt'):
+        write(repo / 'gpl/kiln-eml' / path, 'fixture')
+    (out / 'cmake/bin/services').mkdir()
+    (repo / '.cache/dotnet-win-x64/root').mkdir(parents=True)
+    return repo, out, bins, target
+
+
 class StageTests(unittest.TestCase):
     def test_deploy_refuses_a_component_missing_its_mit_license(self):
         with tempfile.TemporaryDirectory(prefix='kiln-deploy-license-') as tmp:
@@ -132,65 +161,53 @@ class StageTests(unittest.TestCase):
             self.assertFalse((server / 'kiln').exists())
 
     def test_successful_build_commands_must_produce_required_components(self):
-        for missing in ('kiln-eml.dll', 'kiln-shroudforge.dll', 'Kiln.Eml.dll', 'shroudforge-runtime.dll'):
-            with self.subTest(missing=missing), tempfile.TemporaryDirectory(prefix='kiln-stage-missing-') as tmp:
+        for path in ('cmake/bin/plugins/kiln-eml.dll', 'cmake/bin/plugins/kiln-shroudforge.dll',
+                     'host/Kiln.Eml.dll', 'shroudforge-build/shroudforge/shroudforge-runtime.dll',
+                     'enshwick-runtime/enshwick.dll'):
+            with self.subTest(missing=Path(path).name), tempfile.TemporaryDirectory(prefix='kiln-stage-missing-') as tmp:
                 root = Path(tmp)
-                repo, out, bins = root / 'repo', root / 'build', root / 'bin'
-                target = repo / 'tools/package/stage.sh'
-                target.parent.mkdir(parents=True)
-                shutil.copyfile(REPO / 'tools/package/stage.sh', target)
-                for script in ('tools/package/fetch-dotnet.sh', 'native/build.sh', 'gpl/kiln-eml/build.sh',
-                               'third_party/shroudforge/kiln/build.sh'):
-                    write(repo / script, '#!/bin/sh\nexit 0\n', True)
-                write(repo / 'native/plugins/shroudforge/CMakeLists.txt', '# fixture')
-                write(bins / 'dotnet', '#!/bin/sh\nexit 0\n', True)
-                for path in ('cmake/bin/dinput8.dll', 'cmake/bin/kiln-core.dll', 'cmake/bin/kiln-core.pdb',
-                             'cmake/bin/plugins/kiln-eml.dll', 'cmake/bin/plugins/kiln-shroudforge.dll',
-                             'host/Kiln.Host.dll', 'host/Kiln.Eml.dll'):
-                    if Path(path).name != missing:
-                        write(out / path, 'fixture')
-                for path in ('LICENSE', 'NOTICE.txt'):
-                    write(repo / 'gpl/kiln-eml' / path, 'fixture')
-                (repo / '.cache/dotnet-win-x64/root').mkdir(parents=True)
+                repo, out, bins, target = stage_fixture(root)
+                (out / path).unlink()
                 env = dict(os.environ, PATH=str(bins) + ':' + os.environ['PATH'], KILN_OUT=str(out))
                 result = run('bash', str(target), str(root / 'stage'), env=env)
                 self.assertNotEqual(result.returncode, 0, result.stdout.decode())
-                self.assertIn(missing.encode(), result.stderr)
+                self.assertIn(Path(path).name.encode(), result.stderr)
                 self.assertFalse((root / 'stage/kiln-runtime.json').exists())
 
-    def test_eml_and_sf_build_failures_are_fatal_despite_stale_outputs(self):
-        for failure in ('eml', 'sf', 'adapter', 'managed'):
+    def test_component_build_failures_are_fatal_despite_stale_outputs(self):
+        expected = {'eml': b'plugin kiln-eml failed', 'sf': b'ShroudForge runtime build failed',
+                    'adapter': b'native plugin kiln-shroudforge failed', 'managed': b'managed service Kiln.Eml failed',
+                    'enshwick': b'Enshwick loader (enshwick.dll for kiln-enshwick) failed'}
+        for failure, reason in expected.items():
             with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix='kiln-stage-test-') as tmp:
                 root = Path(tmp)
-                repo, out, bins = root / 'repo', root / 'build', root / 'bin'
-                target = repo / 'tools/package/stage.sh'
-                target.parent.mkdir(parents=True)
-                shutil.copyfile(REPO / 'tools/package/stage.sh', target)
-                write(repo / 'tools/package/fetch-dotnet.sh', '#!/bin/sh\nexit 0\n', True)
-                write(repo / 'native/plugins/shroudforge/CMakeLists.txt', '# fixture')
-                write(repo / 'managed/services/Kiln.Eml/Kiln.Eml.csproj', '<Project/>')
+                repo, out, bins, target = stage_fixture(root)
                 write(repo / 'native/build.sh', '#!/bin/sh\nif [ "$TEST_FAIL" = adapter ] && [ "$1" = kiln-shroudforge ]; then exit 11; fi\nexit 0\n', True)
                 write(repo / 'gpl/kiln-eml/build.sh', '#!/bin/sh\n[ "$TEST_FAIL" != eml ]\n', True)
-                write(repo / 'third_party/shroudforge/kiln/build.sh', '#!/bin/sh\nexit 12\n', True)
-                for path in ('cmake/bin/dinput8.dll', 'cmake/bin/kiln-core.dll', 'cmake/bin/kiln-core.pdb',
-                             'host/Kiln.Host.dll', 'shroudforge-build/shroudforge/shroudforge-runtime.dll'):
-                    write(out / path, 'stale binary')
-                (repo / '.cache/dotnet-win-x64/root').mkdir(parents=True)
+                write(repo / 'third_party/shroudforge/kiln/build.sh', '#!/bin/sh\n[ "$TEST_FAIL" != sf ]\n', True)
+                write(repo / 'native/plugins/enshwick/tools/build-runtime.sh', '#!/bin/sh\n[ "$TEST_FAIL" != enshwick ]\n', True)
                 write(bins / 'dotnet', '#!/bin/sh\nif [ "$TEST_FAIL" = managed ]; then case "$*" in *Kiln.Eml.csproj*) exit 13;; esac; fi\nexit 0\n', True)
                 env = dict(os.environ, PATH=str(bins) + ':' + os.environ['PATH'], KILN_OUT=str(out), TEST_FAIL=failure)
                 result = run('bash', str(target), str(root / 'stage'), env=env)
                 self.assertNotEqual(result.returncode, 0, result.stdout.decode())
-                self.assertIn(b'failed', result.stderr)
+                self.assertIn(reason, result.stderr)
                 self.assertFalse((root / 'stage/kiln-runtime.json').exists())
+                if failure == 'enshwick':
+                    continue  # deploy-server consumes a prebuilt Enshwick loader; stage owns its build gate.
                 deploy = repo / 'tools/deploy-server.sh'
                 shutil.copyfile(REPO / 'tools/deploy-server.sh', deploy)
                 server = root / 'fake-server'
                 write(server / 'enshrouded_server.exe', 'fixture only - never executed')
                 write(bins / 'pgrep', '#!/bin/sh\nexit 1\n', True)
+                if failure == 'sf':
+                    (out / 'shroudforge-build/shroudforge/kfc-runtime.dll').unlink()
                 args = ['--no-build'] if failure == 'sf' else []
                 deployed = run('bash', str(deploy), str(server), *args, env=env)
                 self.assertNotEqual(deployed.returncode, 0, deployed.stdout.decode())
-                self.assertIn(b'incomplete' if failure == 'sf' else b'failed', deployed.stderr)
+                deploy_reason = {'sf': b'incomplete ShroudForge component: kfc-runtime.dll',
+                                 'eml': b'kiln-eml build failed', 'adapter': b'ShroudForge adapter build failed',
+                                 'managed': b'Kiln.Eml build failed'}[failure]
+                self.assertIn(deploy_reason, deployed.stderr)
                 self.assertFalse((server / 'kiln').exists())
 
 @unittest.skipUnless((FORK_LAYER / 'kiln/check-contract.py').exists(), 'set KILN_SF_REVIEW_LAYER to the reviewed fork source')
