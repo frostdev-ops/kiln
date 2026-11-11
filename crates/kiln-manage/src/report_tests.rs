@@ -387,11 +387,11 @@ fn greeneye_mod_logs_are_in_the_report() {
     f.w("greeneye/loader.log", "[10:00:00.000] Greeneye Loader 1.2.2 loaded as dbgcore.dll in enshrouded.exe (game)\n");
     f.w("kiln/logs/greeneye-loader.log", "[10:00:00.000] kiln-greeneye 1.0.0 (GreeneyeHost API 2) on the client\n");
     let r = build(&f.input());
-    let log = file(&r, "greeneye-mods/unlock-map-markers/unlock_map_markers.log").expect("the mod's own log");
+    let log = file(&r, "greeneye-mods/unlock-map-markers/game/unlock_map_markers.log").expect("the mod's own log");
     assert!(log.starts_with("... (older lines left out") && log.len() as u64 <= GREENEYE_LOG_MAX + 200, "bounded");
     assert!(log.contains("Failed to find signature") && log.contains("(<user>)") && !log.contains("frostling"), "{log}");
-    assert!(file(&r, "greeneye-mods/unlock-map-markers/UnlockMapMarkers.status").is_some_and(|t| t.contains("patched=0")));
-    assert!(file(&r, "greeneye-mods/find/find.log").is_some_and(|t| t.contains("Find started") && !t.contains("frostling")), "a Library folder too");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/game/UnlockMapMarkers.status").is_some_and(|t| t.contains("patched=0")));
+    assert!(file(&r, "greeneye-mods/find/library/find.log").is_some_and(|t| t.contains("Find started") && !t.contains("frostling")), "a Library folder too");
     assert!(file(&r, "game/greeneye/loader.log").is_some_and(|t| t.contains("Greeneye Loader 1.2.2")));
     assert!(file(&r, "game/kiln/logs/greeneye-loader.log").is_some());
     assert!(!r.files.iter().any(|(n, _)| n.ends_with("minimap_config.ini")), "the mod's settings stay private");
@@ -436,12 +436,55 @@ fn a_loader_in_the_folder_that_did_not_start_is_not_said_to_have_made_kiln_stand
     // no state from this start: the note says what the loader would do
     let l = finding(&build(&i), "loader-in-folder").text.clone();
     assert!(l.contains("stands aside"), "{l}");
-    // kiln-greeneye wrote at the last start that it did not step aside
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    // kiln-greeneye wrote at the last start (the process boot.json names, pid 412) that it did not step aside. It writes
+    // in on_ready, seconds before the core writes boot.json after the CLR: its time says nothing about which start it is.
     f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
-        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "updatedUnixMs": now, "mods": []})).unwrap());
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "pid": 412, "updatedUnixMs": 1, "mods": []})).unwrap());
     let l = finding(&build(&i), "loader-in-folder").text.clone();
     assert!(!l.contains("stands aside") && l.contains("did not start at the last start") && l.contains("ran the Greeneye Loader mods itself"), "{l}");
+    // a state file of another start (another process), however recent: what the loader would do
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "pid": 9, "updatedUnixMs": now, "mods": []})).unwrap());
+    assert!(finding(&build(&i), "loader-in-folder").text.contains("stands aside"));
+}
+
+/// Review R8: the head of a JSON or INI game file is read only from the file itself, never through a link (a link at
+/// `<game>/dinput8-chain.ini` put up to 1 MiB of its target into a zip players post in public).
+#[test]
+fn a_linked_game_file_is_not_followed() {
+    let f = Fx::healthy("linked-head");
+    let target = f.root.join("elsewhere/private.txt");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "[Chain]\nnot the game's chain file, private text\n").unwrap();
+    std::os::unix::fs::symlink(&target, f.game.join("dinput8-chain.ini")).unwrap();
+    let r = build(&f.input());
+    assert!(!r.files.iter().any(|(_, b)| String::from_utf8_lossy(b).contains("private text")), "the target is not in the report");
+    assert!(r.errors.iter().any(|e| e.contains("dinput8-chain.ini") && e.contains("link")), "{:?}", r.errors);
+}
+
+/// Review R2: one Greeneye id with logs in two folders (the Library entry it runs from, and a copy that stays in
+/// greeneye/) gave two zip entries of one name, and "Save report" failed with "Duplicate filename".
+#[test]
+fn one_greeneye_id_in_two_folders_saves_as_a_zip() {
+    let f = Fx::healthy("greeneye-two-folders");
+    let lib = f.root.join("data/library/greeneye/unlock-map-markers/1.3.48+cccccccc");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("unlock_map_markers.log"), "from the Library entry\n").unwrap();
+    f.w("greeneye/unlock-map-markers/mod.json", br#"{"id":"unlock-map-markers"}"#);
+    f.w("greeneye/unlock-map-markers/unlock_map_markers.log", "from the game folder copy\n");
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "pid": 412,
+        "mods": [{"id": "unlock-map-markers", "status": "started", "folder": format!("{}", lib.display())}]})).unwrap());
+    let r = build(&f.input());
+    let out = f.root.join("report.zip");
+    write_zip(&r, &out).expect("the report is saved");
+    let mut a = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
+    let names: Vec<String> = (0..a.len()).map(|i| a.by_index(i).unwrap().name().unwrap().to_string()).collect();
+    let logs: Vec<&String> = names.iter().filter(|n| n.ends_with("unlock_map_markers.log")).collect();
+    assert_eq!(logs.len(), 2, "{names:?}");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/library/unlock_map_markers.log").is_some_and(|t| t.contains("from the Library entry")), "{names:?}");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/game/unlock_map_markers.log").is_some_and(|t| t.contains("from the game folder copy")), "{names:?}");
 }
 
 /// Player report r1110: SET's powrprof.dll had been imported as a native mod (before the Library recognised loaders).

@@ -604,6 +604,8 @@ fn placements(game: &Path) -> Result<Vec<Placement>> {
 }
 
 fn save_placements(game: &Path, entries: &[Placement]) -> Result<()> {
+    #[cfg(test)]
+    if tests::FAIL_SAVE_PLACEMENTS.with(|f| f.replace(false)) { return Err(Error::invalid("injected receipt write failure")); }
     let file = placements_file(game);
     refuse_symlink_path(game, &file)?;
     let parent = file.parent().expect("receipt parent");
@@ -1059,14 +1061,18 @@ pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
             ModKind::Native | ModKind::Xhl if receipt.game_folder => game_dir.join(EML_GAME_MODS),
             _ => PathBuf::new(),
         };
-        let check = (|| -> Result<()> {
+        let check = (|| -> Result<Vec<String>> {
             if root.as_os_str().is_empty() || dst.parent() != Some(root.as_path()) {
                 return Err(Error::new(ErrorCode::Refused, "placement folder changed or is not an engine mod folder"));
             }
             refuse_symlink_path(game_dir, dst)?;
-            if !dst.exists() { return Ok(()); }
+            if !dst.exists() { return Ok(Vec::new()); }
             let have = owned(game_dir, &receipts, dst, kind, &receipt.marker.id)?
                 .ok_or_else(|| Error::new(ErrorCode::Refused, "placement ownership could not be verified"))?;
+            // Greeneye: a copy its mod only added files to (settings, logs) goes, those files wait in kept_dir as on a
+            // switch-off: left in greeneye/ it would run without the profile (kiln-greeneye's drop-in scan of the
+            // legacy layout, Greeneye Loader). A changed file Kiln placed still keeps the whole copy (owned refuses).
+            if kind == ModKind::Greeneye { return Ok(have.player); }
             if !have.player.is_empty() {
                 return Err(Error::new(ErrorCode::Refused, format!(
                     "player files or runtime settings were added or changed: {}", some_names(&have.player))));
@@ -1077,9 +1083,16 @@ pub fn unplace(game_dir: &Path) -> Result<PlacementCleanup> {
                     return Err(Error::new(ErrorCode::Refused, "ShroudForge settings changed, or an older receipt cannot prove they are unchanged"));
                 }
             }
-            Ok(())
+            Ok(Vec::new())
         })();
-        if let Err(e) = check {
+        let player = match check {
+            Ok(player) => player,
+            Err(e) => {
+                report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
+                continue;
+            }
+        };
+        if !player.is_empty() && let Err(e) = keep_player_files(game_dir, dst, kind, &receipt.marker.id, &player) {
             report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
             continue;
         }
@@ -1544,20 +1557,38 @@ fn place_greeneye_one(dirs: &DataDirs, game_dir: &Path, roots: Roots, receipts: 
         rep.own.push(tag);
         return Ok(());
     }
-    if !split_runtime_files(dirs, game_dir, kind, m, &src)? {
+    let Some(split) = split_runtime_files(dirs, game_dir, kind, m, &src)? else {
         return Err(Error::new(ErrorCode::HashMismatch,
             "its Library entry differs from the import in a file of the mod itself, so it runs from the Library"));
-    }
-    let kept_at = kept_dir(game_dir, kind, &m.id);
-    let carry = match &have {
-        Some(h) => Some(Carry { from: dst, entries: h.player.clone(), from_kept: false }),
-        None => kept_carry(game_dir, &kept_at, kind)?,
     };
-    let (said, warned) = copy_in(roots, &src, dst, &want, &[], true, carry, |receipt| {
-        receipts.retain(|r| r.path != dst);
-        receipts.push(receipt.clone());
-        save_placements(game_dir, receipts)
-    })?;
+    let kept_at = kept_dir(game_dir, kind, &m.id);
+    let published = (|| {
+        let carry = match &have {
+            Some(h) => Some(Carry { from: dst, entries: h.player.clone(), from_kept: false }),
+            None => kept_carry(game_dir, &kept_at, kind)?,
+        };
+        // the new receipt list is written first and only then taken: a failed write leaves the list as on disk, so a
+        // later save of this run cannot record a copy that was rolled back
+        copy_in(roots, &src, dst, &want, &[], true, carry, |receipt| {
+            let mut next = receipts.clone();
+            next.retain(|r| r.path != dst);
+            next.push(receipt.clone());
+            save_placements(game_dir, &next)?;
+            *receipts = next;
+            Ok(())
+        })
+    })();
+    let (said, warned) = match published {
+        Ok(done) => done,
+        Err(e) => {
+            // not placed: the mod runs from its Library entry, so what was split off it goes back there
+            if let Err(back) = unsplit(dirs, game_dir, kind, &m.id, &src, &split) {
+                return Err(Error::new(e.code, format!("{}; and the files it wrote could not go back into its Library entry ({}): \
+                    they are in {}", e.message, back.message, kept_at.display())));
+            }
+            return Err(e);
+        }
+    };
     rep.kept_files.extend(said);
     rep.warnings.extend(warned);
     rep.placed.push(tag);
@@ -1568,9 +1599,13 @@ fn remove_greeneye_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &mu
     let kind = ModKind::Greeneye;
     let dst = &receipt.path;
     let tag = format!("{}:{}", kind.as_str(), receipt.marker.id);
+    // the list without this receipt, taken only once it is written (see place_greeneye_one)
+    let without = || receipts.iter().filter(|r| r.path != *dst).cloned().collect::<Vec<_>>();
     if !dst.exists() {
-        receipts.retain(|r| r.path != *dst);
-        return save_placements(game_dir, receipts);
+        let next = without();
+        save_placements(game_dir, &next)?;
+        *receipts = next;
+        return Ok(());
     }
     let have = match owned(game_dir, receipts, dst, kind, &receipt.marker.id) {
         Ok(Some(h)) => h,
@@ -1582,10 +1617,9 @@ fn remove_greeneye_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &mu
         Err(e) => return Err(e),
     };
     rep.kept_files.extend(keep_player_files(game_dir, dst, kind, &receipt.marker.id, &have.player)?);
-    remove_copy(game_dir, dst, || {
-        receipts.retain(|r| r.path != *dst);
-        save_placements(game_dir, receipts)
-    })?;
+    let next = without();
+    remove_copy(game_dir, dst, || save_placements(game_dir, &next))?;
+    *receipts = next;
     rep.removed.push(tag);
     Ok(())
 }
@@ -1627,9 +1661,11 @@ pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileM
 /// logs into its own folder, so such an entry no longer matches its kdh1 and could not be placed ("library hash
 /// mismatch"). What the mod wrote are the newest files: when leaving out the newest few (at most 64) gives exactly the
 /// imported size and kdh1, those files move to [`kept_dir`], from where the placement carries them into the game-folder
-/// copy, and the entry is as imported again. Ok(false): the entry differs in a file of the mod itself; nothing moves.
-fn split_runtime_files(dirs: &DataDirs, game: &Path, kind: ModKind, m: &crate::profile::ProfileMod, src: &Path) -> Result<bool> {
-    if crate::hash::dirhash(src)? == m.hash { return Ok(true); }
+/// copy, and the entry is as imported again. Some(moved files, relative): empty when the entry is as imported. None: the
+/// entry differs in a file of the mod itself, or the kept folder already holds a file of one of those names; nothing
+/// moves. When the placement then fails, [`unsplit`] puts them back.
+fn split_runtime_files(dirs: &DataDirs, game: &Path, kind: ModKind, m: &crate::profile::ProfileMod, src: &Path) -> Result<Option<Vec<String>>> {
+    if crate::hash::dirhash(src)? == m.hash { return Ok(Some(Vec::new())); }
     let r = crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
     let imported = crate::library::record(dirs, &r)?.size;
     // the files dirhash counts (no dot entries), newest first
@@ -1654,7 +1690,7 @@ fn split_runtime_files(dirs: &DataDirs, game: &Path, kind: ModKind, m: &crate::p
     walk(src, "", &mut files)?;
     files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.cmp(&b.1.path)));
     let total: u64 = files.iter().map(|(_, f)| f.size).sum();
-    let Some(extra) = total.checked_sub(imported) else { return Ok(false) };
+    let Some(extra) = total.checked_sub(imported) else { return Ok(None) };
     let mut added = 0u64;
     let mut cut = None;
     for n in 1..=files.len().min(64) {
@@ -1665,25 +1701,52 @@ fn split_runtime_files(dirs: &DataDirs, game: &Path, kind: ModKind, m: &crate::p
             break;
         }
     }
-    let Some(n) = cut else { return Ok(false) };
+    let Some(n) = cut else { return Ok(None) };
     let kept = kept_dir(game, kind, &m.id);
-    for (_, f) in &files[..n] {
-        let from = src.join(&f.path);
-        let to = kept.join(&f.path);
-        refuse_symlink_path(&dirs.root, &from)?;
-        refuse_symlink_path(game, &to)?;
-        if let Some(parent) = to.parent() {
-            refuse_symlink_path(game, parent)?;
-            std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?;
+    let rels: Vec<String> = files[..n].iter().map(|(_, f)| f.path.clone()).collect();
+    // never park a kept file here: what is already kept for this mod is its own and stays as it is
+    if rels.iter().any(|rel| std::fs::symlink_metadata(kept.join(rel)).is_ok()) { return Ok(None); }
+    let mut moved: Vec<String> = Vec::new();
+    for rel in &rels {
+        let step = (|| -> Result<()> {
+            let from = src.join(rel);
+            let to = kept.join(rel);
+            refuse_symlink_path(&dirs.root, &from)?;
+            refuse_symlink_path(game, &to)?;
+            if let Some(parent) = to.parent() {
+                refuse_symlink_path(game, parent)?;
+                std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?;
+            }
+            std::fs::copy(&from, &to).map_err(io_at(&from, "keeping"))?;
+            std::fs::remove_file(&from).map_err(io_at(&from, "removing"))
+        })();
+        if let Err(e) = step {
+            unsplit(dirs, game, kind, &m.id, src, &moved)?;
+            return Err(e);
         }
-        if to.exists() { park_kept(game, &to)?; }
-        std::fs::copy(&from, &to).map_err(io_at(&from, "keeping"))?;
-        std::fs::remove_file(&from).map_err(io_at(&from, "removing"))?;
+        moved.push(rel.clone());
     }
     if crate::hash::dirhash(src)? != m.hash {
+        unsplit(dirs, game, kind, &m.id, src, &moved)?;
         return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch after keeping the mod's own files", src.display())));
     }
-    Ok(true)
+    Ok(Some(moved))
+}
+
+/// Puts the files [`split_runtime_files`] moved to [`kept_dir`] back into the Library entry `src` (a placement that
+/// failed after the split: the mod runs from that entry again, with its own files).
+fn unsplit(dirs: &DataDirs, game: &Path, kind: ModKind, id: &str, src: &Path, moved: &[String]) -> Result<()> {
+    if moved.is_empty() { return Ok(()); }
+    let kept = kept_dir(game, kind, id);
+    for rel in moved {
+        let from = kept.join(rel);
+        let to = src.join(rel);
+        refuse_symlink_path(game, &from)?;
+        refuse_symlink_path(&dirs.root, &to)?;
+        if let Some(parent) = to.parent() { std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?; }
+        std::fs::copy(&from, &to).map_err(io_at(&from, "putting back"))?;
+    }
+    prune_kept(game, &kept, moved)
 }
 
 // One native package can carry several settings folders; their config.txt files must not share a stash.
@@ -2249,7 +2312,87 @@ mod tests {
     std::thread_local! {
         /// The next [`rename_in`] on this thread fails.
         pub(super) static FAIL_RENAME_IN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// The next [`save_placements`] on this thread fails.
+        pub(super) static FAIL_SAVE_PLACEMENTS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
+
+    /// Greeneye mods of a test Library, by id and version (a stand-in DLL whose bytes differ per version).
+    fn greeneye_mod(dirs: &DataDirs, root: &Path, id: &str, version: &str) -> crate::profile::ProfileMod {
+        let src = root.join(format!("src-{id}-{version}"));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("mod.json"), format!(r#"{{"id":"{id}","version":"{version}","dll":"m.dll","side":"client","api":2}}"#)).unwrap();
+        std::fs::write(src.join("m.dll"), crate::pe::build_test_dll(&["GreeneyeModStart"], format!("{id} {version}").as_bytes())).unwrap();
+        let r = crate::library::import(dirs, &[src], &mut crate::task::NoProgress).unwrap();
+        let r = r.imported.iter().chain(&r.existing).find(|x| x.kind == ModKind::Greeneye).cloned().unwrap();
+        crate::profile::ProfileMod { id: r.id, version: r.version, hash: r.hash, enabled: true }
+    }
+
+    fn greeneye_place(dirs: &DataDirs, game: &Path, mods: Vec<crate::profile::ProfileMod>) -> PlaceReport {
+        let mut p = crate::profile::create(dirs, "p", None).unwrap();
+        p.mods.greeneye = mods;
+        place(dirs, &p, game).unwrap()
+    }
+
+    /// Review R3: a receipt write that fails for one Greeneye mod must not leave its change in the receipt list a later
+    /// save of the same run writes. Before, the list said version 2 for a copy rolled back to version 1 (Kiln's own
+    /// copy then "changed" for good), or had no receipt for a copy whose removal was rolled back (taken for the
+    /// player's from then on).
+    #[test]
+    fn a_failed_greeneye_receipt_write_leaves_the_receipts_as_on_disk() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "greeneye-receipts").unwrap();
+        let dirs = DataDirs::at(tmp.path().join("data"));
+        let game = tmp.path().join("game");
+        std::fs::create_dir_all(game.join("kiln")).unwrap();
+        let (a1, b1) = (greeneye_mod(&dirs, tmp.path(), "a", "1.0.0"), greeneye_mod(&dirs, tmp.path(), "b", "1.0.0"));
+        let (a2, b2) = (greeneye_mod(&dirs, tmp.path(), "a", "2.0.0"), greeneye_mod(&dirs, tmp.path(), "b", "2.0.0"));
+        assert_eq!(greeneye_place(&dirs, &game, vec![a1.clone(), b1.clone()]).placed, ["greeneye:a", "greeneye:b"]);
+        // update: a's receipt write fails (its copy goes back to 1.0.0), b's succeeds in the same run
+        FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+        let rep = greeneye_place(&dirs, &game, vec![a2.clone(), b2.clone()]);
+        assert_eq!(rep.placed, ["greeneye:b"], "{rep:?}");
+        assert_eq!(marker(&game.join("greeneye/a")).unwrap().version, "1.0.0");
+        let rep = greeneye_place(&dirs, &game, vec![a2.clone(), b2.clone()]);
+        assert_eq!((rep.placed.as_slice(), rep.retained.len()), (&["greeneye:a".to_string()][..], 0), "Kiln's copy is still Kiln's: {rep:?}");
+        // removal: both switched off; the first receipt write fails (that copy comes back), the second removal succeeds
+        // in the same run
+        let off = |m: &crate::profile::ProfileMod| crate::profile::ProfileMod { enabled: false, ..m.clone() };
+        FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+        let rep = greeneye_place(&dirs, &game, vec![off(&a2), off(&b2)]);
+        assert_eq!(rep.removed.len(), 1, "{rep:?}");
+        let left = if rep.removed[0] == "greeneye:a" { "b" } else { "a" };
+        assert!(game.join("greeneye").join(left).is_dir());
+        let rep = greeneye_place(&dirs, &game, vec![off(&a2), off(&b2)]);
+        assert_eq!(rep.removed, [format!("greeneye:{left}")], "still Kiln's copy, removed now: {rep:?}");
+        assert!(!game.join("greeneye").join(left).exists());
+    }
+
+    /// Review R4: when the copy cannot be published after an older Kiln's runtime files were split off the Library entry,
+    /// they go back into the entry. Left in the kept folder, the mod ran from the stripped entry, wrote defaults, and
+    /// the next placement parked the player's real files as `.kept-1` in favour of those defaults.
+    #[test]
+    fn a_failed_greeneye_placement_puts_split_files_back() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "greeneye-split-undo").unwrap();
+        let dirs = DataDirs::at(tmp.path().join("data"));
+        let game = tmp.path().join("game");
+        std::fs::create_dir_all(game.join("kiln")).unwrap();
+        let a = greeneye_mod(&dirs, tmp.path(), "a", "1.0.0");
+        let lib = crate::library::path_of(&dirs, &crate::library::LibraryRef { kind: ModKind::Greeneye, id: a.id.clone(),
+            version: a.version.clone(), hash: a.hash.clone() }).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(lib.join("settings.ini"), b"the player's real settings").unwrap();
+        FAIL_RENAME_IN.with(|f| f.set(true));
+        let rep = greeneye_place(&dirs, &game, vec![a.clone()]);
+        assert!(rep.placed.is_empty() && !game.join("greeneye/a").exists(), "{rep:?}");
+        assert_eq!(std::fs::read(lib.join("settings.ini")).unwrap(), b"the player's real settings", "back in the entry it runs from");
+        assert!(!kept_dir(&game, ModKind::Greeneye, "a").join("settings.ini").exists());
+        // the next placement takes them along, nothing is parked
+        let rep = greeneye_place(&dirs, &game, vec![a.clone()]);
+        assert_eq!(rep.placed, ["greeneye:a"], "{rep:?}");
+        assert_eq!(std::fs::read(game.join("greeneye/a/settings.ini")).unwrap(), b"the player's real settings");
+        assert_eq!(crate::hash::dirhash(&lib).unwrap(), a.hash);
+        assert!(files_of(&game.join("kiln")).keys().all(|k| !k.contains(".kept-")), "{:?}", files_of(&game.join("kiln")).keys());
+    }
+
 
     fn files_of(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
         let mut out = std::collections::BTreeMap::new();
