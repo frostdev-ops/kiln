@@ -44,7 +44,7 @@ observations below; neither is a client rendering or player-interaction test.
 | Code hooks | SF: none on KFC4 builds (a legacy profile names six). Kiln: many. | No double hooks. Where SF has hooks, they go through `kiln.hooks` ("Engine hooks through `kiln.hooks`" below), so another DLL's jump on one of them no longer turns SF's native runtime off. |
 | Shared game state | SF writes ECS components, resources and named services (e.g. `ecs::GameSettings`) from its own thread, with claims and readback. Kiln services write some of the same (e.g. `kiln.settings`). | Last writer wins, as with any two mods. SF restores its baselines when a mod switches off. Documented for players. The lab shows SF's guarded write confirmed next to Kiln's services. |
 | Tick | SF: its own 16 ms thread. Kiln: the server-world tick. | Kept separate. SF's timing stays exactly as in ShroudForge, so its mods behave the same. |
-| UI / input | SF's windows are separate processes (`shroudforge.exe`). Its keybinds use its hotkeys module. | Client only. kiln-shroudforge starts the Modloader and World Editor windows like SF does, and they respect SF's module switches. No in-process overlay conflict. |
+| UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Its keybinds use its hotkeys module. | Client only. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
 | Native DLL mods | Both read `<game>/dinput8-chain.ini`. | The same file loads once (same canonical path, `LoadLibrary` reference count). SF reports an issue for a DirectInput provider without its `dinput8.dll` host. |
 | Updates | SF's updater replaces its managed paths, **`dinput8.dll` included**, and its repair check requires them to exist. | In hosted mode kiln-shroudforge runs neither the startup update check nor the pending install, so SF never overwrites Kiln. In self-hosted mode an SF update can replace Kiln's `dinput8.dll`. The launcher must then put Kiln's proxy back (detect: classify at launch). The repair check only tests that the file exists, so Kiln's `dinput8.dll` satisfies it. |
 | Wine / Proton | SF needs `dbghelp=n,b;winmm=n,b`. | Not in hosted mode. kiln-shroudforge loads `shroudforge-runtime.dll` (not a system DLL name) by full path. The lab ran with Kiln's default `mshtml=;dinput8=n,b` only. This fixes the Steam Deck case. |
@@ -152,10 +152,34 @@ needs no Kiln hook. A failed preparation is reported; the adapter does not attem
 options; it splices only the value with `jsonc::set_value`, so the file stays byte-identical otherwise),
 `settings_schema` (JSON Schema for the launcher's SchemaForm with `x-kiln-control`, `x-kiln-group`, `x-kiln-restart`,
 `x-kiln-enum-labels`, `x-kiln-enabled-when`), `settings_values`, `apply_switches` (a legacy bulk-switch helper, **not**
-called by profile activation), `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Five unit
-tests.
+called by profile activation), `status`, `effects` (SF's per-mod `runtime.report_effect` states from its `state.json`). Unit
+tests and shared managed/Rust package fixtures cover parsing and byte-preserving edits. Runtime reports require a fresh
+heartbeat and active runtime; a confirmed memory write is not proof of the gameplay effect.
 
-### 5.3 `mods/tests/sf-probe` (lab probe, MIT)
+### 5.3 In-game settings (`managed/services/Kiln.Ui/ShroudForge*.cs`, MIT)
+
+The existing Mods details panel reads SF's package metadata, enabled switch, settings, groups, conditional controls
+and public group actions. It edits SF's own files with a JSONC span writer, not a parallel Kiln config. Shared fixtures
+in `schema/fixtures/shroudforge/cases.json` exercise the Rust launcher and managed implementation, including comments,
+CRLF, typed numeric/bool/list options, chained/cyclic conditions, canonical SDL shortcut text, live/restart rules,
+refused edits and exact written bytes. No SF fork change or second UI executable is required.
+
+The native adapter reports `menu: helper|kiln|off|server|unavailable` and `menuKey` (`SDL:66`, F9, by default).
+Only without a running hosted helper does it hold `Local\\ShroudForge.ModMenu.Open.<game-pid>`; the managed worker
+waits on that auto-reset event. This is SF's real `shroudforge.ui.toggle_modloader()` contract. It never competes
+with the installed helper for events. The fallback key is remappable in Kiln's Keys tab; unsupported/mouse-only/Meta
+or empty configured bindings do not silently become F9. Helper exit hands ownership to Kiln; stopped runtime removes
+the fallback binding. SF module-off and self-hosted behavior stay intact.
+
+Windowless native Wine tests exercise absent/installed/exited/disabled/self-hosted helpers and repeated auto-reset
+signals. Managed tests exercise settings, writer coalescing/failure recovery, state freshness and shortcut ownership.
+A headless software preview renders the shared-fixture SF panel at 1280×800 and its main-menu page at 1920×1080.
+In an isolated server lab, the actual managed UI writer queue changed `sf-probe` live: setting on confirmed a guarded
+write, setting off restored the baseline, and the enabled switch deactivated/reactivated its runtime without errors.
+Neither proof is rendered game-client or Steam Deck interaction. Text-based keybind/color editing, combos in place
+of radio/segmented layouts, action execution, gamepad focus and gamescope presentation still need client checks.
+
+### 5.4 `mods/tests/sf-probe` (lab probe, MIT)
 
 An SF mod that uses only SF's public API: `runtime.services.get("ecs::GameSettings")` +
 `runtime.overrides.service(...,"enableDurability")` with the setting `disableDurability`. It proves a guarded write, SF's
@@ -222,15 +246,15 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | `mod.json` (id, name, version, authors, deps, capabilities) | plugin (SF reads it); kiln-manage `read_mod` | `kiln.mod.json` | done; unit |
 | `extended.mod.json` `enabled` | plugin; `set_enabled`, `apply_switches` | profile entry `enabled` | done; unit, lab (enabled survival + probe) |
 | `targets` client/server | plugin (SF skips a mod outside its targets) | `side` in kiln.mod.json | done; lab (server) |
-| settings `value` + label/description/control/min/max/step/options/enabledWhen/applyAt | plugin; `settings_schema` → SchemaForm; `set_setting` | `[Config]` classes + SchemaForm | done (backend); unit; launcher UI pending |
+| settings `value` + label/description/control/min/max/step/options/enabledWhen/applyAt | plugin; launcher SchemaForm and in-game Mods panel edit the same file | `[Config]` classes + SchemaForm | shared Rust/managed fixtures; rendered SF panel still a client check |
 | live settings (`shroudforge.settings.get` in callbacks) | plugin | `Config` reload events | done; **lab**: survival all off → "Runtime settings applied live", effect `no-change: All Survival settings are off`; probe off → restore |
-| groups | plugin; `x-kiln-group` | config sections | done (backend) |
+| groups | launcher `x-kiln-group`; in-game labels, descriptions, settings and action buttons | config sections | managed package/action tests; execution client check |
 | keybind settings (`control: keybind`) | plugin (SF's hotkeys) | `Kiln.Ui.KeyBindings` | plugin; client |
 | locales `locales/*.json`, `shroudforge.i18n.get`, `shroudforge.locale()` | plugin | Kiln mod localisation | plugin; — |
 | dependencies (SemVer, optional) | plugin (SF's load order) | resolver | plugin; — |
 | `patch` capability (startup asset changes, game-file backup) | plugin (`shroudforge_prepare_startup` in `on_ready`) | `kiln.assets` | mixed-server lab: 89 resources committed, item count +2; second boot reused identical patched archive hashes |
 | DLL Manager (native DLL mods, `runtime-register-dll`) | plugin | Kiln native mods (`native.json`) | plugin; — (DirectInput providers need SF's dinput8: not supported) |
-| Modloader window, World Editor window | plugin starts `shroudforge.exe` like SF does | Kiln launcher, Kiln build tools | plugin; client |
+| Modloader window, World Editor window | starts installed `shroudforge.exe` only; bundled runtime has no helper windows | in-game Mods → ShroudForge handles switches/settings, not the World Editor | helper lifecycle windowless tests; rendering client check |
 | Debug Console window | not started (kiln.log has SF's log as `[sf]`) | Kiln console | by design |
 | SF self-update / repair | not run when hosted | Kiln launcher (pending: SF update source) | by design |
 | notifications feed (`shroudforge.notifications.publish`) | plugin (SF's local feed file) | Kiln.Ui notices | plugin; — |
@@ -241,7 +265,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | Function | Under Kiln | Kiln C# equivalent | Status |
 |---|---|---|---|
 | `shroudforge.settings.get(key, fallback)` | plugin | `Mod.Config<T>()` | lab |
-| `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | plugin (SF's Modloader window) | `Kiln.Ui` screens | client |
+| `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | public action request files; toggle event opens installed helper, or Kiln's SF page when hosted without it | `Kiln.Ui` screens | action-file managed tests, event native Wine tests; actual action execution/rendering client check |
 | `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
 | `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
 | `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin | `Kiln.Ui.KeyBindings` | client |

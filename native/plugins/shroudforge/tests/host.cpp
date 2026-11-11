@@ -84,8 +84,35 @@ static const void* service(KilnStr name, uint32_t min) {
     fake.revoke = f_revoke;
     return &fake;
 }
-static uint32_t side() { return KILN_SIDE_SERVER; }
+static uint32_t side() { return GetEnvironmentVariableW(L"KILN_SF_CLIENT", nullptr, 0) ? KILN_SIDE_CLIENT : KILN_SIDE_SERVER; }
+// A windowless stand-in for the installed helper: owns/consumes precisely SF's public auto-reset toggle event.
+static int helper(int argc, char** argv) {
+    if (std::string(argv[1]) != "--module-ui") return 0;
+    std::wstring pid, stop;
+    for (int i = 2; i + 1 < argc; ++i) {
+        if (std::string(argv[i]) == "--game-pid") pid.assign(argv[i + 1], argv[i + 1] + std::strlen(argv[i + 1]));
+        if (std::string(argv[i]) == "--stop-event") stop.assign(argv[i + 1], argv[i + 1] + std::strlen(argv[i + 1]));
+    }
+    auto event = CreateEventW(nullptr, FALSE, FALSE, (L"Local\\ShroudForge.ModMenu.Open." + pid).c_str());
+    auto end = OpenEventW(SYNCHRONIZE, FALSE, stop.c_str());
+    HANDLE handles[] = {end, event};
+    if (!end || !event) return 10;
+    while (true) {
+        const auto wait = WaitForMultipleObjects(2, handles, FALSE, 100);
+        if (wait == WAIT_OBJECT_0) break;
+        if (wait == WAIT_OBJECT_0 + 1) {
+            if (auto ack = OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\Kiln.SfTest.Ack." + pid).c_str())) {
+                SetEvent(ack);
+                CloseHandle(ack);
+            }
+        }
+        if (GetEnvironmentVariableW(L"KILN_SF_HELPER_EXIT", nullptr, 0)) break;
+    }
+    CloseHandle(end); CloseHandle(event);
+    return 0;
+}
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]).starts_with("--")) return helper(argc, argv);
     if (argc < 3) return 2;
     game = std::filesystem::absolute(argv[1]);
     if (GetEnvironmentVariableW(L"KILN_SF_BUSY_LOCK", nullptr, 0)) {
@@ -96,6 +123,7 @@ int main(int argc, char** argv) {
                                                        0, MAXDWORD, MAXDWORD, &overlapped)) return 7;
         // Deliberately retained while the adapter tries a different handle, simulating another process's lock.
     }
+    if (GetEnvironmentVariableW(L"KILN_SF_SELF_HOSTED", nullptr, 0)) LoadLibraryW((game / L"bootstrap.dll").c_str());
     auto dll = std::filesystem::absolute(argv[2]);
     if (argc > 3 && std::string(argv[3]) == "early") LoadLibraryW((game / L"kiln/plugins/kiln-eml.dll").c_str());
     HMODULE h = LoadLibraryW(dll.c_str()); if (!h) return 3;
@@ -107,6 +135,38 @@ int main(int argc, char** argv) {
     if (fn(&api, 1, &info) != KILN_OK) return 5;
     if (info.on_ready) info.on_ready(info.user);
     Sleep(120);
+    if (GetEnvironmentVariableW(L"KILN_SF_CLIENT", nullptr, 0)) {
+        const auto suffix = std::to_wstring(GetCurrentProcessId());
+        HANDLE event = nullptr;
+        const bool self = GetEnvironmentVariableW(L"KILN_SF_SELF_HOSTED", nullptr, 0) != 0;
+        const bool off = GetEnvironmentVariableW(L"KILN_SF_MENU_OFF", nullptr, 0) != 0;
+        if (self || off) {
+            event = OpenEventW(SYNCHRONIZE, FALSE, (L"Local\\ShroudForge.ModMenu.Open." + suffix).c_str());
+            if (event) return 11;  // Kiln must not claim a self-hosted/disabled helper's event
+        } else {
+            HANDLE ack = CreateEventW(nullptr, FALSE, FALSE, (L"Local\\Kiln.SfTest.Ack." + suffix).c_str());
+            for (int i = 0; i < 100 && !event; ++i) {
+                event = OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, (L"Local\\ShroudForge.ModMenu.Open." + suffix).c_str());
+                if (!event) Sleep(20);
+            }
+            if (!event) return 12;
+            const bool installed = std::filesystem::exists(game / L"shroudforge/shroudforge.exe");
+            const bool exits = GetEnvironmentVariableW(L"KILN_SF_HELPER_EXIT", nullptr, 0) != 0;
+            if (exits) Sleep(2300);  // worker notices a dead helper and publishes the Kiln handoff
+            for (int i = 0; i < 3; ++i) {
+                SetEvent(event);
+                if (installed && !exits) {
+                    if (WaitForSingleObject(ack, 2000) != WAIT_OBJECT_0) return 13;
+                    if (WaitForSingleObject(event, 0) != WAIT_TIMEOUT) return 14;
+                } else {
+                    if (WaitForSingleObject(event, 2000) != WAIT_OBJECT_0) return 15;
+                    if (WaitForSingleObject(event, 0) != WAIT_TIMEOUT) return 16;
+                }
+            }
+            CloseHandle(event); CloseHandle(ack);
+            std::printf("menu: three auto-reset toggles received by %s\n", installed && !exits ? "helper" : "Kiln bridge");
+        }
+    }
     // What the game would do: run each hook with registers of its own (r15 0x15, rbp 0xbb, rcx 0xc7, r14 0x14, r13 0x13).
     for (const Link& l : links) {
         KilnRegisters regs{};

@@ -883,17 +883,20 @@ internal static class ModCatalog
     private static void ShroudForge(Builder b, JsonElement? boot)
     {
         var f = ReadState(b.Src, "shroudforge.json");
-        string? mode = null, reason = null, modsDir = null;
+        string? mode = null, reason = null, modsDir = null, menu = null;
         if (f.Doc is { } d && f.Current)
         {
             mode = Str(d, "mode");
             reason = Str(d, "reason");
             modsDir = Str(d, "modsDir");
+            menu = Str(d, "menu");
         }
         var (health, note, state) = mode switch
         {
-            "hosted" => (EngineHealth.Ok, "ShroudForge: runtime hosted by Kiln.", ModRunState.Loaded),
-            "self-hosted" => (EngineHealth.Idle, "ShroudForge: its own loader runs the mods; Kiln stepped aside.", ModRunState.Loaded),
+            "hosted" => (EngineHealth.Ok, menu == "kiln"
+                ? "ShroudForge: runtime hosted by Kiln. Pick a mod to switch it and change its settings here (ShroudForge's own Modloader window is not running)."
+                : "ShroudForge: runtime hosted by Kiln. Pick a mod to switch it and change its settings.", ModRunState.Loaded),
+            "self-hosted" => (EngineHealth.Idle, "ShroudForge: its own loader runs the mods; Kiln stepped aside. Pick a mod to switch it and change its settings.", ModRunState.Loaded),
             "not-installed" => (EngineHealth.Problem, "ShroudForge is not installed, so its mods cannot run.", ModRunState.Failed),
             "off" => (EngineHealth.Idle, reason is null ? "ShroudForge is off this start." : $"ShroudForge is off: {reason}.", ModRunState.NotLoaded),
             "failed" => (EngineHealth.Problem, $"ShroudForge failed: {reason ?? "see kiln.log"}.", ModRunState.Failed),
@@ -903,7 +906,7 @@ internal static class ModCatalog
         };
         var why = mode switch
         {
-            "hosted" or "self-hosted" => "ShroudForge runs it. ShroudForge reports no result per mod; its own log has the details.",
+            "hosted" or "self-hosted" => "ShroudForge runs it.",
             null => note,
             _ => note,
         };
@@ -915,27 +918,113 @@ internal static class ModCatalog
             seen.Add(LeafName(e.Path));
             seen.Add(id);
         }
+        var start = b.Mods.TryGetValue("shroudforge", out var before) ? before.Count : 0;
         b.ProfileRest("shroudforge", _ => false, why ?? "", state, help);
         // mods the player put into ShroudForge's folder by hand (ShroudForge reads the whole folder)
-        var dir = modsDir ?? Path.Combine(b.Src.GameDir, "mods");
+        var dir = modsDir ?? ShroudForgePackages.Folder(b.Src.GameDir, "mods");
         foreach (var sub in SubDirs(dir))
         {
             var name = LeafName(sub);
             if (seen.Contains(name)) continue;
-            var manifest = Path.Combine(sub, "extended.mod.json");
-            JsonElement? m;
-            try { m = File.Exists(manifest) ? ReadJson(manifest, out _) : null; }
-            catch (Exception) { m = null; }
-            if (m is not { ValueKind: JsonValueKind.Object } md) continue;
-            var on = Bool(md, "enabled") != false;
+            var facts = SfFacts(sub);
+            if (facts is null) continue;
+            var (sid, sname, sversion, on) = facts.Value;
             b.Add(new CatalogMod
             {
-                Engine = "shroudforge", Id = Str(md, "id") ?? name, Name = Str(md, "name") ?? name, Version = Str(md, "version") ?? "",
+                Engine = "shroudforge", Id = sid ?? name, Name = sname ?? name, Version = sversion ?? "",
                 Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? mode ?? "" : "disabled",
                 Reason = on ? why : "Switched off in ShroudForge's settings.", Help = on ? help : null,
             });
         }
+        // what ShroudForge's runtime says per mod (its state.json, this process), and its own switch in the mod's files
+        if (mode is "hosted" or "self-hosted" && b.Mods.TryGetValue("shroudforge", out var list))
+        {
+            var runtime = SfRuntime(b.Src);
+            for (var i = start; i < list.Count; i++) list[i] = SfRefine(list[i], runtime, b.Src.Side);
+        }
         b.Engine("shroudforge", mode, health, note, f.Current);
+    }
+
+    /// <summary>mod.json's id, name and version (else extended.mod.json's), and ShroudForge's switch (extended.mod.json
+    /// <c>enabled</c>, off when missing); null when the folder has no extended.mod.json.</summary>
+    internal static (string? Id, string? Name, string? Version, bool On)? SfFacts(string folder)
+    {
+        JsonElement? ext, mod;
+        try
+        {
+            var extPath = Path.Combine(folder, "extended.mod.json");
+            ext = File.Exists(extPath) ? ReadJson(extPath, out _) : null;
+            var modPath = Path.Combine(folder, "mod.json");
+            mod = File.Exists(modPath) ? ReadJson(modPath, out _) : null;
+        }
+        catch (Exception) { return null; }
+        if (ext is not { ValueKind: JsonValueKind.Object } e) return null;
+        var m = mod is { ValueKind: JsonValueKind.Object } mm ? mm : default;
+        return (Str(m, "id") ?? Str(e, "id"), Str(m, "name") ?? Str(e, "name"), Str(m, "version") ?? Str(e, "version"), Bool(e, "enabled") == true);
+    }
+
+    /// <summary>ShroudForge's runtime section of its state.json when this process wrote it: the mods it runs, the errors
+    /// it holds per mod, and whether each mod has a runtime part.</summary>
+    internal sealed record SfRuntimeState(HashSet<string> Active, Dictionary<string, string> Errors, Dictionary<string, (string State, string Detail)> Effects);
+
+    private static SfRuntimeState? SfRuntime(CatalogSources src)
+    {
+        var path = Path.Combine(ShroudForgePackages.Folder(src.GameDir, "state"), "state.json");
+        if (ReadJson(path, out _) is not { ValueKind: JsonValueKind.Object } d || !d.TryGetProperty("runtime", out var r) ||
+            r.ValueKind != JsonValueKind.Object) return null;
+        if (!r.TryGetProperty("pid", out var pid) || pid.ValueKind != JsonValueKind.Number || !pid.TryGetInt32(out var p) || p != src.Pid ||
+            Bool(r, "running") != true || !r.TryGetProperty("updatedAt", out var at) || at.ValueKind != JsonValueKind.Number || !at.TryGetInt64(out var seconds) ||
+            Math.Abs((double)DateTimeOffset.UtcNow.ToUnixTimeSeconds() - seconds) > 30) return null;
+        var active = new HashSet<string>(StringComparer.Ordinal);
+        if (r.TryGetProperty("active", out var a) && a.ValueKind == JsonValueKind.Array)
+            foreach (var x in a.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.String && x.GetString() is { } id) active.Add(id);
+        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (r.TryGetProperty("errors", out var e) && e.ValueKind == JsonValueKind.Object)
+            foreach (var x in e.EnumerateObject())
+                if (x.Value.ValueKind == JsonValueKind.String && x.Value.GetString() is { Length: > 0 } t) errors[x.Name] = t;
+        var effects = new Dictionary<string, (string, string)>(StringComparer.Ordinal);
+        if (r.TryGetProperty("effects", out var ef) && ef.ValueKind == JsonValueKind.Object)
+            foreach (var x in ef.EnumerateObject())
+                if (x.Value.ValueKind == JsonValueKind.Object && Str(x.Value, "state") is { } state)
+                    effects[x.Name] = (state, Str(x.Value, "detail") ?? "");
+        return new SfRuntimeState(active, errors, effects);
+    }
+
+    private static CatalogMod SfRefine(CatalogMod m, SfRuntimeState? runtime, string side)
+    {
+        if (m.Missing || m.Folder is not { } folder) return m;
+        SfPackage p;
+        try { p = ShroudForgePackages.Read(folder); }
+        catch (Exception) { return m with { State = m.State == ModRunState.Disabled ? m.State : ModRunState.Waiting, Word = "unconfirmed", Reason = "Its package settings cannot be read; ShroudForge's per-mod activation is not confirmed." }; }
+        if (!p.Enabled)
+            return m with
+            {
+                State = ModRunState.Disabled, Word = "disabled", Reason = "Switched off in ShroudForge's settings (the mod's extended.mod.json).",
+                Help = "Switch it on below.",
+            };
+        if (side.Length > 0 && p.Targets.Count > 0 && !p.Targets.Contains(side))
+            return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = $"It runs on the {string.Join(" and ", p.Targets)} only.", Help = null };
+        if (runtime is null) return m with { State = ModRunState.Waiting, Word = "unconfirmed", Reason = "Its switch is on, but ShroudForge has no current per-mod runtime report. This is not proof the mod is active.", Help = null };
+        if (runtime.Errors.TryGetValue(p.Id, out var err))
+        {
+            var waits = err.StartsWith("restart-required", StringComparison.Ordinal) || err.StartsWith("dependency-blocked", StringComparison.Ordinal);
+            return m with
+            {
+                State = waits ? ModRunState.NotLoaded : ModRunState.Failed, Word = waits ? "waiting" : "failed", Reason = "ShroudForge: " + err,
+                Help = waits ? "Start the game again." : "Read the reason above. Update the mod, then start the game again. ShroudForge's log has the details.",
+            };
+        }
+        var hasRuntime = p.Capabilities.Any(c => c is "runtime" or "runtime-register-dll");
+        if (!hasRuntime) return m with { State = ModRunState.Waiting, Word = "startup", Reason = "Enabled for startup game-data changes; ShroudForge does not confirm individual startup patches here.", Help = null };
+        if (!runtime.Active.Contains(p.Id))
+            return m with { State = ModRunState.NotLoaded, Word = "inactive", Reason = "ShroudForge does not run it right now; a change of its switch takes a second or two, or it starts with the next game start.", Help = null };
+        if (runtime.Effects.TryGetValue(p.Id, out var effect))
+        {
+            var effectState = effect.State switch { "error" => ModRunState.Failed, "no-target" or "unsupported" => ModRunState.Waiting, _ => ModRunState.Loaded };
+            return m with { State = effectState, Word = effect.State, Reason = $"ShroudForge Lua is active; reported effect: {effect.State}. {effect.Detail}", Help = null };
+        }
+        return m with { State = ModRunState.Loaded, Word = "active", Reason = "ShroudForge runs its Lua; the mod reports no effect result.", Help = null };
     }
 
     // ---- Enshwick: the profile and <game>/mods for the list, enshwick.json for the loader and copy notes ----

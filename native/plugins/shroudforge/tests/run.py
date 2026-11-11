@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1',
                WAYLAND_DISPLAY='kiln-no-display', WINEDLLOVERRIDES='winedbg.exe=d')
     env.pop('DISPLAY', None)
-    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None):
+    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=None):
         game = root / name
         if linked_layout:
             layout = root / (name + '-steam-library')
@@ -35,6 +35,16 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         (game / 'kiln/kiln.json').write_text(json.dumps({'shroudforge': {'useInstalled': name != 'bundled-corrupt'}}))
         if early:
             shutil.copyfile(build / 'eml.dll', game / 'kiln/plugins/kiln-eml.dll')
+        if helper:
+            shutil.copyfile(build / 'sfhost.exe', game / 'shroudforge/shroudforge.exe')
+        if menu_off or menu_key is not None:
+            (game / 'shroudforge/config').mkdir()
+            menu_config = {'enabled': not menu_off}
+            if menu_key is not None:
+                menu_config['toggleKey'] = menu_key
+            (game / 'shroudforge/config/modloader-config.json').write_text(json.dumps({'modules': {'modloaderUi': menu_config}}))
+        if self_hosted:
+            shutil.copyfile(build / 'bootstrap.dll', game / 'bootstrap.dll')
         log = game / 'calls.txt'
         call_env = dict(env, KILN_SF_TEST_LOG='Z:' + str(log).replace('/', '\\'))
         if fault:
@@ -55,6 +65,11 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         if result.returncode:
             raise RuntimeError(f'{name}: host exit {result.returncode}\n{result.stdout.decode(errors="replace")}')
         status = json.loads((game / 'kiln/state/shroudforge.json').read_text())
+        if self_hosted:
+            assert status['mode'] == 'self-hosted' and not log.exists(), (name, status)
+            assert status.get('menu') != 'kiln', status
+            print('PASS', name)
+            return
         if reservation:
             calls = log.read_text().splitlines() if log.exists() else []
             assert status['mode'] == 'failed', (name, status)
@@ -62,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             print('PASS', name)
             return
         calls = log.read_text().splitlines()
-        assert status['source'] == ('installed' if name == 'bundled-corrupt' else 'bundled'), (name, status)
+        assert status['source'] == ('installed' if installed == 'good' or name == 'bundled-corrupt' else 'bundled'), (name, status)
         assert calls.count('prepare') == calls.count('create') == calls.count('destroy') == calls.count('shutdown') == 1, (name, calls)
         assert calls.index('prepare') < calls.index('create') < calls.index('update') < calls.index('destroy') < calls.index('shutdown'), calls
         if early:
@@ -116,6 +131,22 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         assert status['engineHooks'] == 'self' and 'set-host-refused' in calls and 'find' not in ' '.join(calls), (status, calls)
         assert 'hooks the game itself: kfc-runtime.dll refused the host interface' in out, out
     case('engine-hooks-refused', installed='corrupt', extra_env=dict(hook_env, KILN_SF_REFUSE_HOST='1'), verify=refused)
+
+    # ---- dev.24: no separately installed UI is needed; do not race the installed/self-hosted helper ----
+    def menu_is(who, key='SDL:66'):
+        def verify(status, calls, out):
+            assert status['menu'] == who and status['menuKey'] == key, (status, out)
+            if who in ('helper', 'kiln'):
+                assert 'menu: three auto-reset toggles received by ' in out, out
+        return verify
+    client = {'KILN_SF_CLIENT': '1'}
+    case('menu-bundled-no-exe', installed='corrupt', extra_env=client, verify=menu_is('kiln'))
+    case('menu-custom-key', extra_env=client, menu_key='Ctrl+SDL:14', verify=menu_is('kiln', 'Ctrl+SDL:14'))
+    case('menu-empty-key', extra_env=client, menu_key='', verify=menu_is('kiln', ''))
+    case('menu-installed-helper', extra_env=client, helper=True, verify=menu_is('helper'))
+    case('menu-helper-exited', extra_env=dict(client, KILN_SF_HELPER_EXIT='1'), helper=True, verify=menu_is('kiln'))
+    case('menu-disabled', extra_env=dict(client, KILN_SF_MENU_OFF='1'), menu_off=True, verify=menu_is('off'))
+    case('menu-self-hosted', extra_env=dict(client, KILN_SF_SELF_HOSTED='1'), self_hosted=True)
 
     # ---- dev.22: drop-ins for ShroudForge with an active profile that lists no ShroudForge mods ----
     def profile_case(name, dropins, package):

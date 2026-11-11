@@ -246,6 +246,8 @@ internal static class Scenes
         new("typical-emf", Typical) { Filter = new EngineFilter("emf"), Selected = "emf/fishing-plus" },
         new("typical-search", Typical) { Search = "map", OnlyAt = "1920x1080" },
         new("typical-config", Typical) { Selected = "kiln/frost-edge", OnlyAt = "1920x1080" },
+        new("shroudforge-settings", SfSettings) { Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/sf-crafting-essentials", Summary = true },
+        new("game-page-shroudforge", SfSettings) { Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/sf-crafting-essentials", GamePage = true },
         new("typical-keys", Typical) { Keys = [(516 /* ImGuiKey_DownArrow */, 3)], OnlyAt = "1920x1080" },
         new("problems", Problems) { Filter = EngineFilter.Attention, Summary = true },
         new("problems-ember", Problems) { Filter = new EngineFilter("ember"), OnlyAt = "1920x1080" },
@@ -265,6 +267,23 @@ internal static class Scenes
             profile = new { mode = "active", id = "ember-run", name = "Ember run", file = profileFile, missing = Array.Empty<object>() },
             chain = Array.Empty<object>(), plugins,
         });
+
+    private static string SfFixture([System.Runtime.CompilerServices.CallerFilePath] string source = "") =>
+        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "..", "..", "..", "schema", "fixtures", "shroudforge", "cases.json"));
+
+    private static IReadOnlyList<KilnModInput> SfSettings(string root)
+    {
+        var kiln = Folder(root, "kiln");
+        var folder = Folder(root, "mods", "crafting");
+        var fixtures = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(SfFixture()))!;
+        var fixture = fixtures["cases"]!.AsArray().Single(c => c!["name"]!.GetValue<string>() == "patch-mod")!;
+        File.WriteAllText(Path.Combine(folder, "mod.json"), fixture["mod"]!.ToJsonString());
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), fixture["extended"]!.GetValue<string>());
+        ShroudForgeUi.Load(folder);
+        Write(Path.Combine(kiln, "state", "shroudforge.json"), new { pid = Pid, mode = "hosted", menu = "kiln", menuKey = "SDL:66", runtime = "running" });
+        Write(Path.Combine(root, "shroudforge", "state.json"), new { runtime = new { pid = Pid, running = true, updatedAt = Now / 1000, active = new[] { "sf-crafting-essentials" }, errors = new { } } });
+        return [];
+    }
 
     // About 25 mods over five engines: Kiln, EMF, EML, SET, ShroudForge; one failed, one switched off.
     private static IReadOnlyList<KilnModInput> Typical(string root)

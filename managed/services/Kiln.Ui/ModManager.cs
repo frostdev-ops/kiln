@@ -218,6 +218,12 @@ internal sealed class ModManagerPage
     }
 
     internal IReadOnlyList<ModRow> Rows => _rows;
+
+    private string? _request;
+
+    /// <summary>Shows the Mods section on <paramref name="f"/> at the next frame (any thread: a key binding, ShroudForge's
+    /// menu request).</summary>
+    public void Request(EngineFilter f) => Volatile.Write(ref _request, f.Kind);
     internal IReadOnlyList<EngineRow> EngineRows => _engines;
 
     /// <summary>Draws the page into <paramref name="r"/> (screen pixels) at UI scale <paramref name="s"/>. Call inside a
@@ -225,6 +231,12 @@ internal sealed class ModManagerPage
     public void Draw(UiDraw ui, PageRect r, float s)
     {
         _k = s / (ui.Scale > 0 ? ui.Scale : 1);
+        if (Interlocked.Exchange(ref _request, null) is { } wanted)
+        {
+            Section = ModManagerSection.Mods;
+            Filter = new EngineFilter(wanted);
+            Search = "";
+        }
         var kilnSettings = ConfigScreens.HasConfigs("kiln");
         Update(Source(), kilnSettings);
         if (ui.FrameNumber != _lastFrame + 1) _framesShown = 0;  // opened again (or the first time)
@@ -606,6 +618,7 @@ internal sealed class ModManagerPage
             using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                 ui.TextWrapped(folder);
         }
+        if (m.Engine == "shroudforge") ShroudForgeUi.Draw(ui, m, s, _k, Label);
         if (m.Engine == "kiln")
         {
             IReadOnlyList<ModStatus> status;

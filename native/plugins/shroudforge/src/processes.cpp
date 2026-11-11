@@ -36,6 +36,8 @@ Helper g_helpers[] = {
     {"modloaderUi", L"--module-ui", L"Local\\ShroudForge.ModloaderUI.", "Modloader window"},
     {"worldEditor", L"--world-editor-ui", L"Local\\ShroudForge.WorldEditorUI.", "World Editor window"},
 };
+HANDLE g_menu = nullptr;
+bool g_menu_enabled = false, g_server = true;
 
 }  // namespace
 
@@ -60,12 +62,44 @@ std::filesystem::path sf_directory(const std::filesystem::path& root, const char
     return root / to_wide(fallback);
 }
 
+// Same auto-reset event as SF's public shroudforge.ui.toggle_modloader(). Only Kiln.Ui waits on it, and only
+// after we know no helper is running. In self-hosted mode start_helper_processes is never called.
+const char* helper_menu() {
+    if (g_server) return "server";
+    if (!g_menu_enabled) return "off";
+    auto& h = g_helpers[0];
+    if (h.process && WaitForSingleObject(h.process, 0) == WAIT_OBJECT_0) {
+        CloseHandle(h.process);
+        h.process = nullptr;
+        if (h.stop) CloseHandle(h.stop), h.stop = nullptr;
+        logf(KILN_LOG_INFO, "ShroudForge's Modloader window exited; its shortcut now opens Kiln's ShroudForge page");
+    }
+    if (h.process) return "helper";
+    if (!g_menu) {
+        const auto name = L"Local\\ShroudForge.ModMenu.Open." + std::to_wstring(GetCurrentProcessId());
+        g_menu = CreateEventW(nullptr, FALSE, FALSE, name.c_str());
+        if (!g_menu) {
+            logf(KILN_LOG_WARN, "ShroudForge menu event could not be created (error %lu); use Kiln's Mods entry", GetLastError());
+            return "unavailable";
+        }
+    }
+    return "kiln";
+}
+
+std::string helper_menu_key(const std::filesystem::path& root) {
+    try { return read_config(root).at("modules").at("modloaderUi").value("toggleKey", std::string("SDL:66")); }
+    catch (...) { return "SDL:66"; }
+}
+
 void start_helper_processes(const std::filesystem::path& root, bool server) {
+    g_server = server;
+    g_menu_enabled = !server && sf_module_enabled(root, "modloaderUi");
     if (server) return;  // ShroudForge shows no windows in the dedicated server process
     const auto exe = root / L"shroudforge" / L"shroudforge.exe";
     std::error_code ec;
     if (!std::filesystem::is_regular_file(exe, ec)) {
-        logf(KILN_LOG_INFO, "shroudforge.exe is not installed: no Modloader or World Editor window");
+        logf(KILN_LOG_INFO, "shroudforge.exe is not installed: use Kiln's Mods > ShroudForge for switches and settings (no World Editor window)");
+        helper_menu();
         return;
     }
     const DWORD pid = GetCurrentProcessId();
@@ -94,9 +128,12 @@ void start_helper_processes(const std::filesystem::path& root, bool server) {
         h.process = pi.hProcess;
         logf(KILN_LOG_INFO, "%s started (pid %lu); ShroudForge's shortcut toggles it", h.what, pi.dwProcessId);
     }
+    helper_menu();
 }
 
 void stop_helper_processes() {
+    g_menu_enabled = false;
+    if (g_menu) CloseHandle(g_menu), g_menu = nullptr;
     for (auto& h : g_helpers) {
         if (h.stop) SetEvent(h.stop);
         if (h.process) {

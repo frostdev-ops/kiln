@@ -21,9 +21,12 @@ std::wstring to_wide(const std::string& s);
 bool sf_module_enabled(const std::filesystem::path& root, const char* name);
 std::filesystem::path sf_directory(const std::filesystem::path& root, const char* name, const char* fallback);
 
-// ShroudForge's helper windows (client only), ported from its windows-bootstrap/module_processes.cpp (MIT,
-// bonsaibauer/shroudforge): the in-game Modloader window, the World Editor window and the Debug Console.
+// ShroudForge's installed helper windows (client only), originally ported from windows-bootstrap/module_processes.cpp
+// (MIT, bonsaibauer/shroudforge). Without the Modloader helper, retain its public Lua toggle event for Kiln.Ui.
+// Never create/consume that event while the real helper owns it (or when self-hosted).
 void start_helper_processes(const std::filesystem::path& root, bool server);
+const char* helper_menu();  // helper | kiln | off | server | unavailable; also notices an exited helper
+std::string helper_menu_key(const std::filesystem::path& root);
 void stop_helper_processes();
 
 // Engine hooks through kiln.hooks (host_hooks.cpp, kfc_host.h): the table kfc-runtime.dll accepts through

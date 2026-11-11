@@ -262,16 +262,54 @@ public sealed class ModCatalogTests : IDisposable
         File.WriteAllText(Path.Combine(Dir("mods", "hand"), "extended.mod.json"), """{"id":"hand","name":"Hand Made","version":"0.1","enabled":false}""");
         Write("shroudforge.json", new { format = 1, mode = "hosted", reason = "", updated = StartMs / 1000 + 10, modsDir = mods });
         var s = Read();
-        Assert.Equal(ModRunState.Loaded, Mod(s, "shroudforge", "pack").State);
+        Assert.Equal(ModRunState.Waiting, Mod(s, "shroudforge", "pack").State); // host running is not per-mod proof
         Assert.Equal(ModRunState.Disabled, Mod(s, "shroudforge", "off").State);
         var hand = Mod(s, "shroudforge", "hand");
         Assert.Equal(("Hand Made", ModRunState.Disabled, "folder"), (hand.Name, hand.State, hand.Source));
-        Assert.Equal("ShroudForge: runtime hosted by Kiln.", s.Engines.Single(e => e.Kind == "shroudforge").Note);
+        Assert.Equal("ShroudForge: runtime hosted by Kiln. Pick a mod to switch it and change its settings.", s.Engines.Single(e => e.Kind == "shroudforge").Note);
 
         Write("shroudforge.json", new { format = 1, mode = "not-installed", reason = "", updated = StartMs / 1000 + 10 });
         s = Read();
         Assert.Equal(ModRunState.Failed, Mod(s, "shroudforge", "pack").State);
         Assert.Equal(EngineHealth.Problem, s.Engines.Single(e => e.Kind == "shroudforge").Health);
+    }
+
+    [Fact]
+    public void Shroudforge_reports_real_activation_errors_side_and_switches_not_just_the_host()
+    {
+        Profile([]);
+        foreach (var id in new[] { "active", "failed", "blocked", "disabled", "server", "inactive", "patch" })
+        {
+            var folder = Dir("mods", id);
+            File.WriteAllText(Path.Combine(folder, "mod.json"), JsonSerializer.Serialize(new { id, name = "Name " + id, version = "1", capabilities = new[] { id == "patch" ? "patch" : "runtime" } }));
+            File.WriteAllText(Path.Combine(folder, "extended.mod.json"), JsonSerializer.Serialize(new { enabled = id != "disabled", targets = new[] { id == "server" ? "server" : "client" } }));
+        }
+        Write("shroudforge.json", new { pid = Pid, mode = "hosted", menu = "kiln", runtime = "running", modsDir = Path.Combine(_root, "mods") });
+        var state = Path.Combine(Dir("shroudforge"), "state.json");
+        void Runtime(int pid, bool running, long updatedAt, string effect = "write-confirmed") => File.WriteAllText(state, JsonSerializer.Serialize(new { runtime = new { pid, running, updatedAt, active = new[] { "active", "disabled", "server" }, errors = new Dictionary<string, string> { ["failed"] = "init.lua: broken", ["blocked"] = "dependency-blocked: other" }, effects = new Dictionary<string, object> { ["active"] = new { state = effect, detail = "effect diagnostic" } } } }));
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Runtime(Pid, true, now);
+        var s = Read();
+        Assert.Equal(("Name active", ModRunState.Loaded), (Mod(s, "shroudforge", "active").Name, Mod(s, "shroudforge", "active").State));
+        Assert.Equal(ModRunState.Failed, Mod(s, "shroudforge", "failed").State);
+        Assert.Contains("init.lua: broken", Mod(s, "shroudforge", "failed").Reason);
+        Assert.Equal(ModRunState.NotLoaded, Mod(s, "shroudforge", "blocked").State);
+        Assert.Equal(ModRunState.Disabled, Mod(s, "shroudforge", "disabled").State);
+        Assert.Equal("other side", Mod(s, "shroudforge", "server").Word);
+        Assert.Equal("inactive", Mod(s, "shroudforge", "inactive").Word);
+        Assert.Equal("startup", Mod(s, "shroudforge", "patch").Word);
+        foreach (var effect in new[] { "no-target", "unsupported", "error" })
+        {
+            Runtime(Pid, true, now, effect);
+            var m = Mod(Read(), "shroudforge", "active");
+            Assert.Equal(effect == "error" ? ModRunState.Failed : ModRunState.Waiting, m.State);
+            Assert.Contains("effect diagnostic", m.Reason);
+        }
+        foreach (var stale in new[] { (Pid + 1, true, now), (Pid, false, now), (Pid, true, now - 60) })
+        {
+            Runtime(stale.Item1, stale.Item2, stale.Item3);
+            Assert.Equal(ModRunState.Waiting, Mod(Read(), "shroudforge", "active").State);
+        }
     }
 
     [Fact]

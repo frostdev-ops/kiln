@@ -250,6 +250,13 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     about it, the engine, the folder; for Kiln mods also the load order, what it needs, its status lines
     (`StatusLines`) and its settings inline: the page generated from its config schema (`ConfigScreens.cs`; server
     configs are read-only while connected) and the pages it registered with `Ui.AddConfigPage(modId, ui => …)`.
+    ShroudForge mods have an enabled switch and settings from `extended.mod.json`, grouped and conditionally enabled,
+    with live/restart hints, typed options, text lengths and declared action buttons. Slider writes settle for 350 ms;
+    text saves when the field loses focus. Choices use combos (including radio/segmented), colors use text, and SF
+    keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged.
+    Reads/writes are off the render thread, bounded to 2 MiB per package file, and refuse linked package files.
+    Comments and formatting survive value edits. A profile-controlled switch is marked because profile activation
+    reapplies it at launch. See [shroudforge.md](shroudforge.md) for SF shortcut/helper ownership and remaining client checks.
   The selection follows the gamepad / keyboard focus and is kept while the game runs.
 - **Network**: Kiln.Network's status, the server's Kiln version, warnings and mods, and clients and channels when hosting.
 - **Keys**: every binding, with remap and reset.
@@ -258,14 +265,20 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
 Where the list comes from (`ModCatalog.cs`, internal; usable on a dedicated server, which has no menu):
 `Mods.All` for Kiln mods; `<game>/kiln/state/` for the rest: `boot.json` (chain DLLs, Kiln plugins, the profile in use),
 `native.json`, and each engine plugin's file (`emf.json`, `eml.json`, `set.json`, `greeneye.json`, `flame.json`,
-`shroudtopia.json`, `shroudlink.json`, `ember.json`; contracts.md 5.9). ShroudForge and Enshwick report no per-mod result:
-their mods come from the profile and their mods folder, their state from `shroudforge.json` / `enshwick.json`. A mod the
+`shroudtopia.json`, `shroudlink.json`, `ember.json`; contracts.md 5.9). ShroudForge's packages come from the profile and
+its configured mods folder; its host state comes from `shroudforge.json`, with actual per-mod activation/errors and
+reported effect state/detail from SF's own `state.json` runtime section (matching PID, running, heartbeat no older
+than 30 s). `no-target` and `unsupported` show Waiting; `error` shows Failed. A running adapter alone is not proof a
+Lua mod is active, reported readback is not gameplay proof, and individual startup patch application is not confirmed here. Enshwick's mods
+come from the profile and mods folder, with loader state from `enshwick.json`. A mod the
 profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not
 loaded, with the reason. A file from an earlier start (another `pid`, or written before this process started) does not
 count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.
 
-Cost: nothing while the menu is closed. While it is open the list is read on a worker at most every 2 seconds; the render
-thread only draws the last list (no file access, no waiting); rows are made when the list, the filter or the search change.
+Cost: no catalog refresh while the menu is closed. While it is open the list is read on a worker at most every 2 seconds;
+the selected SF package refreshes at most once per second. The render thread draws snapshots (no file access or waiting);
+rows are made when the list, filter or search change. SF's fallback shortcut worker watches host state at low frequency,
+then waits on its named toggle event with a two-second lifecycle check; it exits when SF stops or owns its own helper.
 
 ### Two hosts
 The page draws into a rectangle at a scale (`ModManagerPage.Draw(ui, rect, scale)`). Two hosts give it that rectangle;
