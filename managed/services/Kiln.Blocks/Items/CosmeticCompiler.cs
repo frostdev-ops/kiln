@@ -232,9 +232,9 @@ internal static partial class Compiler
         }
         if (look.Icon is { } icon)
         {
-            d.Icon = icon;
             worn["icon"] = icon;
             if (icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) ctx.Need(ClientsLevel.Mod, $"{path}.icon", "a PNG icon has to be on every player's game: nothing can send it (an item's icon, \"item:<name>\", asks no more than kiln)");
+            d.Icon = BlockIcons.ItemIcon(ctx, icon, $"{path}.icon", owner);
         }
         d.Low.Json["worn"] = worn;
     }

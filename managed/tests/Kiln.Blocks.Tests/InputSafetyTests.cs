@@ -21,6 +21,24 @@ public sealed class InputSafetyTests : IDisposable
     public void File_paths_are_mod_relative_on_every_platform(string path) =>
         Assert.Equal("icon", Assert.Throws<BlockError>(() => BlockIcons.CheckPng(Ctx(), path, "icon", _dir)).Field);
 
+    [Theory]
+    [InlineData(".. ")]
+    [InlineData(".. .")]
+    [InlineData("icons.")]
+    [InlineData("icons ")]
+    public void Windows_aliased_directory_names_are_refused_on_every_platform(string part)
+    {
+        // Unix can store these spellings literally; Win32 trims them, including aliases of the parent directory.
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(Path.Combine(_dir, part));
+            File.WriteAllBytes(Path.Combine(_dir, part, "a.png"), Png);
+        }
+        var error = Assert.Throws<BlockError>(() => BlockFiles.InMod(Ctx(), part + "/a.png", "icon", _dir));
+        Assert.Equal("icon", error.Field);
+        Assert.Contains("relative path", error.Problem);
+    }
+
     [Fact]
     public void File_and_directory_links_cannot_escape_the_mod()
     {

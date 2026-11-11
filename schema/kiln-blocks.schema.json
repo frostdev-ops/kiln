@@ -236,6 +236,7 @@
       }
     },
     "surfacePng": { "type": "string", "pattern": "^[^/\\\\].*\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "description": "A PNG in the mod's folder, a power of two on both sides, 4 to 4096." },
+    "iconPng": { "type": "string", "pattern": "^(?![\\s\\S]*(^|[\\\\/])\\.\\.([\\\\/]|$))(?![\\\\/])(?![A-Za-z]:)[\\s\\S]*\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png", "x-kiln-message": "a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "A PNG icon in the mod's folder. Portable data files and lint require a relative path with no '..'. Item icons also accept a full path inside the owning mod's folder at runtime; status and perk PNGs require relative paths. A missing or refused optional PNG leaves the block defined with its base icon and an error." },
     "surfaceColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "#rrggbb, sRGB." },
     "surfaceValue": { "description": "A PNG (its red channel) or a value 0 to 1.", "oneOf": [ { "$ref": "#/$defs/surfacePng" }, { "type": "number", "minimum": 0, "maximum": 1 } ] },
     "surfacePart": { "enum": ["side", "top", "bottom", "edge", "edgeTop", "noise"] },
@@ -276,7 +277,7 @@
         "strength": { "$ref": "#/$defs/strengthRef" },
         "roof": { "type": "boolean", "description": "A roof material: the roof pieces list it, not the walls." },
         "surface": { "$ref": "#/$defs/buildingSurfaceRef", "description": "How it looks. Without one, like the game's Rough Stone." },
-        "icon": { "type": "string", "minLength": 1, "description": "The block item's picture: a PNG in the mod's folder, or item:<name>. Without one, each client draws a block of its surface." },
+        "icon": { "type": "string", "minLength": 1, "anyOf": [ { "$ref": "#/$defs/iconPng" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "x-kiln-message": "item:<name>, or a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "The block item's picture: a PNG in the mod's folder, or item:<name>. Without one, each client draws a block of its surface." },
         "recipe": { "$ref": "#/$defs/recipe" },
         "was": { "type": "string", "description": "The block's old name, after a rename: the material's id comes from it, so its walls stay in every world." }
       }
@@ -296,7 +297,7 @@
         "flatten": { "type": "boolean", "description": "The game's flatten tool works on it. Default: like's." },
         "sliding": { "type": "boolean", "description": "Feet slide on it, as on ice. Default: like's." },
         "placeable": { "type": "boolean", "description": "It has an item the game's terrain shapes place, and digging gives it back. Default false: only found and dug, as the game's ores." },
-        "icon": { "type": "string", "minLength": 1, "description": "The item's picture: a PNG in the mod's folder, or item:<name>. Default: the game's stone's." },
+        "icon": { "type": "string", "minLength": 1, "anyOf": [ { "$ref": "#/$defs/iconPng" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "x-kiln-message": "item:<name>, or a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "The item's picture: a PNG in the mod's folder, or item:<name>. Default: the game's stone's." },
         "recipe": { "$ref": "#/$defs/recipe", "description": "How its item is made; needs placeable." },
         "was": { "type": "string", "description": "The block's old name, after a rename: the material's id comes from it, so its cells stay in every world." }
       }
@@ -446,7 +447,7 @@
         "while": { "$ref": "#/$defs/state", "description": "A player has it for as long as they are in this state." },
         "kind": { "enum": ["debuff", "buff"] },
         "look": { "enum": ["frost", "poison", "fire"], "description": "Its icon and body effect. Default: a timer's icon for a debuff, a blessing's for a buff, and no body effect." },
-        "icon": { "type": "string", "anyOf": [ { "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$" }, { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" } ], "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients \"mod\")." },
+        "icon": { "type": "string", "anyOf": [ { "pattern": "^(0x[0-9a-fA-F]{8}|buff_[0-9a-fA-F]{8})$" }, { "$ref": "#/$defs/iconPng" } ], "x-kiln-message": "a game status's id (0x<8 hex digits> or buff_<8 hex digits>), or a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "The icon, when it is not the look's: a game status by its id, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients \"mod\")." },
         "refreshes": { "type": "boolean", "description": "Applied again while it runs: the timer starts over (true, the default), or the new one replaces the old." },
         "modifies": {
           "type": "object",
@@ -546,7 +547,7 @@
           "pattern": "^\\s*-?[0-9]+(\\.[0-9]+)?\\s*(%|s)?\\s*$",
           "description": "The number the tooltip shows in front of the name: \"5%\", \"12\", \"2.5\", \"8s\". Default: what one modifies entry or one on-hit effect's chance says."
         },
-        "icon": { "type": "string", "minLength": 1, "anyOf": [ { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "description": "A game perk, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients \"mod\")." },
+        "icon": { "type": "string", "minLength": 1, "anyOf": [ { "$ref": "#/$defs/iconPng" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "x-kiln-message": "a game perk, or a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "A game perk, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients \"mod\")." },
         "modifies": { "$ref": "#/$defs/status/properties/modifies" },
         "onHit": { "$ref": "#/$defs/hits", "description": "What every hit they land does to what was hit." },
         "onKill": { "$ref": "#/$defs/hits", "description": "What a hit that kills does to what it killed." },
@@ -727,7 +728,7 @@
       "properties": {
         "like": { "$ref": "#/$defs/itemRef", "description": "An item whose whole look this takes: held or worn model, dropped model, collection model and icon." },
         "model": { "type": "string", "description": "The model alone: item:<name>, or the GUID of a model your assets/assets.json serves (then clients \"mod\")." },
-        "icon": { "type": "string", "description": "The icon alone: item:<name>, or a PNG in the mod's folder (then clients \"mod\")." },
+        "icon": { "type": "string", "anyOf": [ { "$ref": "#/$defs/iconPng" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "x-kiln-message": "item:<name>, an item's GUID, or a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "The icon alone: item:<name>, or a PNG in the mod's folder (then clients \"mod\")." },
         "dropped": { "$ref": "#/$defs/itemRef", "description": "An item whose model this shows lying on the ground." },
         "tint": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The colour of the parts the game lets you tint." },
         "vfx": { "$ref": "#/$defs/vfx", "description": "A VFX on the thing itself while it is there: in the hand while held (right hand, at the grip, by default), or on what stands there for a placed thing." }
@@ -1254,7 +1255,8 @@
         },
         "icon": {
           "type": "string",
-          "anyOf": [ { "pattern": "\\.[pP][nN][gG]$", "x-kiln-file": "mod", "x-kiln-file-kind": "png" }, { "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] } ],
+          "anyOf": [ { "$ref": "#/$defs/iconPng" }, { "pattern": "^item:", "x-kiln-ref": "items", "x-kiln-ref-forms": ["item:"] } ],
+          "x-kiln-message": "item:<name>, or a PNG in the mod's folder by a path relative to it (no full path, no '..')",
           "description": "A PNG in the mod's folder, or item:<name>. Default: the game draws the model."
         }
       },
