@@ -421,7 +421,8 @@ int main(int argc, char** argv) {
     {  // The runtime's "overlay open" (Keys off, onOverlayOpen) means SET tools that have the input, not any SET window:
        // the crash notice that opened by itself draws while the game keeps its input.
         g_running = true;
-        KilnUiFrame frame{sizeof frame};
+        KilnUiFrame frame{};
+        frame.size = sizeof frame;
         setui::windowOpen = true; setui::windowInput = false;
         on_frame(&frame, nullptr);
         check(rt::overlayOpen == 0, "a SET window without input is not the overlay open");
