@@ -6,8 +6,14 @@ fn call(b: &mut Bridge, v: Value, now: u64) -> Result<Value, Error> {
         .map(|v| serde_json::from_slice(&v).unwrap())
         .map_err(|e| e.0)
 }
+// Test randomness only; the addon uses BCryptGenRandom.
+fn secret() -> Option<u128> {
+    use std::hash::{BuildHasher, RandomState};
+    let s = RandomState::new();
+    Some(u128::from(s.hash_one(1u8)) << 64 | u128::from(s.hash_one(2u8)))
+}
 fn fixture() -> Bridge {
-    let mut b = Bridge::new("module-a".into());
+    let mut b = Bridge::new("module-a".into(), secret);
     b.begin_session();
     b.welcome(2);
     b.world(true);
@@ -55,7 +61,7 @@ fn actual_state_and_all_ten_nodes() {
 }
 #[test]
 fn no_fabricated_menu_from_welcome() {
-    let mut b = Bridge::new("m".into());
+    let mut b = Bridge::new("m".into(), secret);
     b.begin_session();
     b.welcome(2);
     b.world(true);
@@ -230,6 +236,33 @@ fn client_change_starts_a_new_session() {
     assert_ne!(r["session"], s["session"]);
     assert_eq!(r["entries"], json!([]));
 }
+#[test]
+fn lease_token_cannot_be_derived_from_what_read_returns() {
+    let mut b = fixture();
+    let s = acquire(&mut b, "kiln", 100);
+    let token = s["lease"].as_str().unwrap().to_owned();
+    let r = read(&mut b, 100);
+    let (module, session) = (r["module"].as_str().unwrap(), r["session"].as_str().unwrap());
+    assert!(r["lease"].is_null());
+    assert!(!token.contains(module) && !token.contains(&format!(":{session}:")));
+    // Another in-process reader guessing from module, session and a counter frees nothing.
+    for serial in 0..16 {
+        let guess = format!("{module}:{session}:{serial}");
+        let release = json!({"op":"release","module":module,"session":session,"lease":guess});
+        assert_eq!(call(&mut b, release, 100), Err(Error::Stale));
+    }
+    assert_eq!(read(&mut b, 100)["leased"], true);
+    // A new acquisition gets a new token, not the next one in a sequence.
+    call(
+        &mut b,
+        json!({"op":"release","module":module,"session":session,"lease":token}),
+        100,
+    )
+    .unwrap();
+    let next = acquire(&mut b, "kiln", 100)["lease"].as_str().unwrap().to_owned();
+    assert_ne!(next, token);
+    assert!(!next.contains(module));
+}
 fn open(owner: &str, id: &str, content: Value) -> ToClient {
     serde_json::from_value(json!({"op":"open","owner":owner,"window":{"id":id,"title":"t","content":content}})).unwrap()
 }
@@ -239,7 +272,7 @@ fn entries(owner: &str, n: usize) -> ToClient {
 }
 // Each limit once at its bound (kept) and once past it (the session faults: no actionable state is left).
 fn holds(messages: &[ToClient]) -> bool {
-    let mut b = Bridge::new("m".into());
+    let mut b = Bridge::new("m".into(), secret);
     b.begin_session();
     b.welcome(2);
     b.world(true);
@@ -281,7 +314,7 @@ fn aggregate_observe_limits() {
 }
 #[test]
 fn requires_beacon_protocol_world_and_actual_tick() {
-    let mut b = Bridge::new("m".into());
+    let mut b = Bridge::new("m".into(), secret);
     b.welcome(2);
     b.world(true);
     b.tick(100, 1);

@@ -27,6 +27,11 @@ fn now() -> u64 {
 fn with<R>(f: impl FnOnce(&mut Bridge) -> R) -> Option<R> {
     CORE.lock().ok()?.as_mut().map(f)
 }
+fn secret() -> Option<u128> {
+    let mut bytes = [0u8; 16];
+    (unsafe { BCryptGenRandom(std::ptr::null_mut(), bytes.as_mut_ptr(), 16, 2) } == 0)
+        .then(|| u128::from_le_bytes(bytes))
+}
 pub fn start() {
     let mut epoch = [0u8; 16];
     if unsafe { BCryptGenRandom(std::ptr::null_mut(), epoch.as_mut_ptr(), 16, 2) } != 0 {
@@ -34,6 +39,7 @@ pub fn start() {
     }
     *CORE.lock().unwrap() = Some(Bridge::new(
         epoch.iter().map(|b| format!("{b:02x}")).collect(),
+        secret,
     ));
 }
 pub fn stop() {

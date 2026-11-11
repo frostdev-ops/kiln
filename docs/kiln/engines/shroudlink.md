@@ -124,7 +124,10 @@ The operations are:
 - `{"op":"read"}`: opaque module/session epochs, revision, readiness, actual owner-addressed Entries/windows;
   read does not disclose another presentation's lease token.
 - `{"op":"acquire","module":"...","session":"...","client":"..."}`: obtain/renew a two-second exclusive
-  presentation lease. The reply includes its token and current state. Native menu-window presentation is suppressed
+  presentation lease. The reply includes its token and current state. The token is a fresh 128-bit random value that
+  no other reply contains, so it cannot be derived from module, session or a counter. The lease coordinates
+  cooperating presenters; it is not a guard against other code in the game process, which can call the addon or
+  change its memory however it likes. Native menu-window presentation is suppressed
   only while a live lease is held. The addon's window procedure then forwards input unchanged down its saved chain
   instead of recording native text, hotkeys or wheel actions as well. Outside the lease, inventory/input features
   and the stock tab-recognition code remain unchanged.

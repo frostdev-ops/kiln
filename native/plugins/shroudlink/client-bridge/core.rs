@@ -63,7 +63,9 @@ pub struct Bridge {
     module: String,
     generation: u64,
     revision: u64,
-    serial: u64,
+    // Lease tokens are fresh random values that no reply but the acquiring one contains:
+    // another in-process reader cannot derive one from module, session or a counter.
+    secret: fn() -> Option<u128>,
     active: bool,
     welcomed: bool,
     fault: bool,
@@ -82,12 +84,12 @@ fn text(s: &str) -> bool {
     s.len() <= 4096 && !s.contains('\0')
 }
 impl Bridge {
-    pub fn new(module: String) -> Self {
+    pub fn new(module: String, secret: fn() -> Option<u128>) -> Self {
         Self {
             module,
             generation: 0,
             revision: 0,
-            serial: 0,
+            secret,
             active: true,
             welcomed: false,
             fault: false,
@@ -309,10 +311,10 @@ impl Bridge {
                     return Err(Error::Busy);
                 }
                 if self.lease.is_none() {
-                    self.serial = self.serial.checked_add(1).ok_or(Error::Inactive)?;
+                    let token = (self.secret)().ok_or(Error::Unavailable)?;
                     self.lease = Some(Lease {
                         client,
-                        token: format!("{}:{}:{}", self.module, self.generation, self.serial),
+                        token: format!("{token:032x}"),
                         until: now.saturating_add(TTL),
                     });
                 } else {
