@@ -52,6 +52,7 @@ add_library(kiln-core SHARED
     core/src/common.cpp
     core/src/config.cpp
     core/src/crash.cpp
+    core/src/foreign_scan.cpp
     core/src/guard.cpp
     core/src/image.cpp
     core/src/log.cpp

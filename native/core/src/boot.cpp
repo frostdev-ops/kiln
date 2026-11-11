@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln_boot: called by the dinput8 proxy on the main thread, at the game's entry point, before any game code ran.
-//   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", sigdb, hooks,
+//   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", other loaders'
+//   byte scans (foreign_scan.h), sigdb, hooks,
 //   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
 //   chain.ini [late], state/boot.json, state/hooks.json.
 #include <cstring>
@@ -14,6 +15,7 @@
 #include "log.h"
 #include "native_mods.h"
 #include "early_plugins.h"
+#include "foreign_scan.h"
 #include "nlohmann/json.hpp"
 #include "profile.h"
 #include "sigdb.h"
@@ -228,6 +230,11 @@ void write_boot_json(const BootFacts& f) {
         {"clr", {{"started", f.clr_started}, {"error", f.clr_tried && !f.clr_started ? json(f.clr_error) : json(nullptr)}}},
         {"errors", f.errors},
     };
+    // other loaders Kiln waited for before it hooked (foreign_scan.h)
+    json waits = json::array();
+    for (const auto& w : foreign::waits())
+        waits.push_back({{"module", w.module}, {"end", foreign::wait_end_name(w.end)}, {"ms", w.ms}, {"line", null_if_empty(w.line)}});
+    doc["waitedFor"] = waits;
     for (uint32_t k = 0; k < KILN_PROFILE_KINDS; ++k)
         if (profile::dropins(k)) doc["profile"]["dropins"].push_back(profile::kind_name(k));
     for (uint32_t i = 0; i < profile::kEngineKindCount; ++i)  // other engines' lists, when the profile has them
@@ -269,6 +276,9 @@ void boot() {
     compat::apply_early();  // rules that switch a listed mod off: before anything reads the profile
     native_mods::discover(verified);
     native_mods::run_early();
+    // Another loader that looks for game functions by their bytes on its own thread (shroudlink's client addon) gets to
+    // finish looking before Kiln hooks anything: a Kiln hook over a prologue would hide that function from it.
+    if (verified || config().policy_any) foreign::wait_for_scanners();
     // kiln.hooks for early plugins that hook game code (kiln-shroudforge's native runtime does it while it initialises);
     // taken away again below when this start is safe idle.
     const bool early_hooks = (verified || config().policy_any) && hooks::serve_early();

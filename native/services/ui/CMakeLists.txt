@@ -9,3 +9,13 @@ target_compile_options(kiln-imgui PRIVATE -w)
 
 kiln_service(ui ui.cpp vk.cpp input.cpp game.cpp menu_page.cpp style.cpp render.cpp wheel.cpp)
 target_link_libraries(kiln-ui PRIVATE kiln-imgui user32 imm32 dwmapi gdi32)
+
+# Opt-in build target, never packaged: real third-party addon against Kiln's production input and startup gate.
+add_executable(ui-addon-harness EXCLUDE_FROM_ALL tests/addon_harness/harness.cpp input.cpp
+    ${CMAKE_SOURCE_DIR}/core/src/foreign_scan.cpp)
+target_include_directories(ui-addon-harness PRIVATE . ${CMAKE_SOURCE_DIR}/core/src ${CMAKE_SOURCE_DIR}/core/abi
+    ${KILN_GENERATED_DIR})
+target_link_libraries(ui-addon-harness PRIVATE kiln-safetyhook kiln-imgui user32 imm32 dwmapi gdi32)
+add_library(ui-addon-inert SHARED EXCLUDE_FROM_ALL tests/addon_harness/fixture.cpp)
+add_library(ui-addon-forwarded SHARED EXCLUDE_FROM_ALL tests/addon_harness/fixture.cpp)
+target_compile_definitions(ui-addon-forwarded PRIVATE FORWARDED_SHUTDOWN)
