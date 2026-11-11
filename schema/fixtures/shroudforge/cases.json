@@ -1841,6 +1841,30 @@
       "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"options\":{\"1\":\"One\",\" 2\":\"Two\"}}}}\n"
     },
     {
+      "name": "typed-lists-cannot-lose-their-element-type",
+      "about": "ShroudForge types options by the first list member (an empty list uses text). Clearing a numeric or boolean list would turn its choices into strings on the next read, so refuse that edit; a text list may be cleared.",
+      "mod": {"id": "typed-lists", "name": "Typed lists", "version": "1.0.0", "capabilities": ["runtime"]},
+      "extended": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[\"wood\"],\"options\":{\"wood\":\"Wood\"}}}}\n",
+      "read": {
+        "enabled": true,
+        "switchLive": true,
+        "settings": [
+          {"key": "fractions", "type": "array", "label": "fractions", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": 0.5, "label": "Half"}, {"value": 2.5, "label": "More"}]},
+          {"key": "integers", "type": "array", "label": "integers", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": 1, "label": "One"}, {"value": 2, "label": "Two"}]},
+          {"key": "flags", "type": "array", "label": "flags", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": true, "label": "On"}, {"value": false, "label": "Off"}]},
+          {"key": "words", "type": "array", "label": "words", "control": "multiselect", "applyAt": "restart", "live": true, "options": [{"value": "wood", "label": "Wood"}]}
+        ],
+        "enabledNow": ["fractions", "integers", "flags", "words"]
+      },
+      "edits": [
+        {"setting": "fractions", "value": [], "ok": false},
+        {"setting": "integers", "value": [], "ok": false},
+        {"setting": "flags", "value": [], "ok": false},
+        {"setting": "words", "value": [], "ok": true}
+      ],
+      "expect": "{\"schemaVersion\":1,\"enabled\":true,\"settings\":{\"fractions\":{\"value\":[0.5],\"options\":{\"0.5\":\"Half\",\"2.5\":\"More\"}},\"integers\":{\"value\":[1],\"options\":{\"1\":\"One\",\"2\":\"Two\"}},\"flags\":{\"value\":[true],\"options\":{\"true\":\"On\",\"false\":\"Off\"}},\"words\":{\"value\":[],\"options\":{\"wood\":\"Wood\"}}}}\n"
+    },
+    {
       "name": "invalid-utf8-is-refused",
       "about": "a Latin-1 byte (not UTF-8): ShroudForge's serde_json refuses the file, and a lossy read would write U+FFFD back",
       "mod": {

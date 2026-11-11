@@ -94,6 +94,8 @@ Things to know:
   read as the fractional setting and repaired by the next change. The in-game panel uses checkboxes, sliders,
   numeric/text/multiline fields and choice lists; radio/segmented use a combo, colors use text. Keybind settings use
   editable canonical SDL strings, not press-to-capture (for example `Ctrl+SDL:66|Mouse:4`, empty to disable).
+  Numeric and yes/no choice lists must keep at least one selection: ShroudForge infers the option type from the first
+  member, so clearing one would turn its choices into text. Text choice lists may be empty.
   SF's SDL backend additionally checks keyboard availability. Group action buttons write SF's public UI action requests;
   the mod must be active and register `shroudforge.ui.on_action` to handle them. The panel does not promise execution.
 - To write a Kiln (C#) mod instead, see the coverage table in [shroudforge-compat.md](shroudforge-compat.md#8-api-coverage)

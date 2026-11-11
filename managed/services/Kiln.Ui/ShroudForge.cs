@@ -444,6 +444,10 @@ internal static class ShroudForgePackages
             return s.Type == "integer" && kind == "number"
                 ? $"{s.Label} takes a whole number"
                 : $"{s.Label} takes a {Kind(s.Type)}, not a {Kind(kind)}";
+        // Without a first member ShroudForge retypes every option as text. Keep numeric/boolean lists typed, rather
+        // than silently turning the next selection into strings (an already textual list may be cleared).
+        if (value is JsonArray { Count: 0 } && ElementType(s.Type, s.Value) != "string")
+            return $"{s.Label} must keep at least one choice so ShroudForge keeps its option type";
         // JSON has no NaN or infinity (the writer would put null there, and the file would no longer load)
         foreach (var n in value is JsonArray items ? items.ToArray() : new[] { value })
             if (n is JsonValue nv && nv.GetValueKind() == JsonValueKind.Number && NumberOf(nv) is { } f && !double.IsFinite(f))

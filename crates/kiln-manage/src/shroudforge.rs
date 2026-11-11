@@ -648,6 +648,11 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
     if !same_kind {
         return Err(Error::invalid(format!("setting {} holds a {}, not a {}", s.key, kind(&s.value), kind(value))));
     }
+    // Without a first member ShroudForge retypes every option as text. Keep numeric/boolean lists typed, rather than
+    // silently turning the next selection into strings (an already textual list may be cleared).
+    if value.as_array().is_some_and(|a| a.is_empty()) && option_type(s) != "string" {
+        return Err(Error::invalid(format!("setting {} must keep at least one choice so ShroudForge keeps its option type", s.key)));
+    }
     // (a number is always finite here: serde_json holds no NaN or infinity, `Value::from(f64::NAN)` is null)
     // ShroudForge types a list by its first member: a choice without a value (null) there would make it read the list as
     // text and refuse the mod
