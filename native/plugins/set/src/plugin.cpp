@@ -8,7 +8,6 @@
 // Console: each <game>/kiln/control/set/*.lua file's lines run as Lua at the next tick, then the file is deleted (the
 // overlay console's job in SET; kiln/control/*.cmd belongs to Kiln.Host).
 #include <windows.h>
-#include <tlhelp32.h>
 
 #include <algorithm>
 #include <chrono>

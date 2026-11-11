@@ -30,7 +30,10 @@ The inventory is read in the game's own memory, under ntdll's own locking, not f
 Wine/Proton a snapshot of the own process is read through a handle to its own pid, one wineserver request per entry,
 and fails every time once the process cannot be read that way (a process DACL without `PROCESS_VM_READ`, or wineserver
 unable to read the process). A client under Proton showed such a failure: every snapshot by kiln-set and kiln.types
-failed for 42 s from the loading screen on. A module inventory that cannot be read is not SET. A look that fails names the
+failed for 42 s from the loading screen on, after the startup look had worked. The kernel log of that machine has one
+line per failed read at those times, `ptrace attach of "...enshrouded.exe" was attempted by ".../wineserver"`: the
+kernel's ptrace restriction (Yama, `ptrace_scope` 1) refused wineserver, which reads another process with
+`process_vm_readv` or ptrace, both under that check. What ended wineserver's permission after startup is not known. A module inventory that cannot be read is not SET. A look that fails names the
 call and its error code, in `kiln.log` and in `state/set.json`'s reason. kiln-set and kiln.types then keep running and
 look again one second later. They step aside only when a SET or power proxy is actually seen, or when **five** looks
 in a row fail (about four seconds): two SET runtimes in one process corrupt the game's state, so "cannot tell" for that
