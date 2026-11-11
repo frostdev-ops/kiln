@@ -38,7 +38,7 @@ static void invalid(const json& doc, std::string_view expected) {
 }
 
 int main(int argc, char** argv) try {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
     kiln::g_test_root = argv[1];
     std::filesystem::create_directories(kiln::g_test_root);
     for (const char* kind : kEngineKinds) {
@@ -94,7 +94,34 @@ int main(int argc, char** argv) try {
     read_profile(file, KILN_PROFILE_ACTIVE);
     assert(g_state.mode == KILN_PROFILE_INVALID && g_state.error.find("hash") != std::string::npos);
     assert(g_state.dropins == 0 && g_state.mods[0].empty() && g_state.engine_mods[0].empty());
+    // Only an EML fixed game/mods folder may use the launcher's Copy-mode sibling spelling.
+    for (const char* path : {"../mods/auto-loot-plus", "..\\mods\\XHL-Auto-Loot"}) {
+        p = profile(); p["mods"]["eml"] = {{{"id", "safe"}, {"path", path}}};
+        g_state = State{}; parse(p.dump());
+    }
+    for (const char* path : {"../../mods/safe", "../mods/../outside", "../mods/safe/child", "../mods/.hidden",
+                             "../mods/safe.", "../mods/safe ", "../mods/con", "../mods/CON.txt", "../mods/safe:stream"}) {
+        p = profile(); p["mods"]["eml"] = {{{"id", "safe"}, {"path", path}}};
+        invalid(p, "path");
+    }
+    p = profile(); p["mods"]["native"] = {{{"id", "safe"}, {"path", "../mods/safe"}}}; invalid(p, "path");
+    p = profile(); p["configDir"] = "../mods/safe"; invalid(p, "configDir");
+    // XHL companion metadata must never be interpreted as an executable ABI kind, even if it looks like code.
+    p = profile(); p["mods"]["xhl"] = {{{"id", "safe"}, {"path", "plain.dll"}}};
+    g_state = State{}; parse(p.dump());
+    for (const auto& entries : g_state.mods) assert(entries.empty());
+    for (const auto& entries : g_state.engine_mods) assert(entries.empty());
+    p["dropins"] = {"xhl"}; invalid(p, "unknown kind");
+    if (argc == 3) {
+        // The actual profile emitted by kiln-manage's Copy-mode fixture, not a hand-retyped approximation.
+        read_profile(argv[2], KILN_PROFILE_ACTIVE);
+        if (g_state.mode != KILN_PROFILE_ACTIVE) throw std::runtime_error(g_state.error);
+        const auto generated = json::parse(g_state.text);
+        assert(generated["mods"]["eml"][0]["path"] == "../mods/auto-loot-plus");
+    }
     std::puts("profile parser checks passed");
+} catch (const Invalid& e) {
+    std::fprintf(stderr, "%s\n", e.what.c_str()); return 1;
 } catch (const std::exception& e) {
     std::fprintf(stderr, "%s\n", e.what()); return 1;
 }

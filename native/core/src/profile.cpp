@@ -70,13 +70,29 @@ std::string str(const json& o, const char* key, const std::string& where, bool r
     return o[key].get<std::string>();
 }
 
-std::string game_path(const json& o, const char* key, const std::string& where, bool required) {
+// Copy-mode EML/native companions have exactly one physical game/mods copy shared with the native DLL.
+// Permit only that direct sibling, never arbitrary traversal or a Win32 alias/device name.
+bool placed_eml_path(std::string p) {
+    std::replace(p.begin(), p.end(), '\\', '/');
+    if (!p.starts_with("../mods/")) return false;
+    const std::string name = p.substr(8);
+    if (name.empty() || name.size() > 512 || name.front() == '.' || name.back() == '.' || name.back() == ' ' ||
+        name.find_first_of("/\\:*?\"<>|") != std::string::npos ||
+        std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32; })) return false;
+    std::string stem = name.substr(0, name.find('.'));
+    for (char& c : stem) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+    return stem != "con" && stem != "prn" && stem != "aux" && stem != "nul" && stem != "enshwick" &&
+        !(stem.size() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) && stem[3] >= '0' && stem[3] <= '9');
+}
+
+std::string game_path(const json& o, const char* key, const std::string& where, bool required, bool eml_folder = false) {
     const std::string p = str(o, key, where, required);
     if (!required && p.empty() && (!o.contains(key) || o[key].is_null())) return {};
     if (p.empty()) bad(where + "\"" + key + "\" must not be empty");
     if (p.size() > 32767 || std::any_of(p.begin(), p.end(), [](unsigned char c) { return c < 32; }))
         bad(where + "\"" + key + "\" must be a Windows path without control characters (at most 32767 bytes)");
-    if (has_dotdot(p)) bad(where + "\"" + key + "\" must not contain '..' (" + p + ")");
+    if (has_dotdot(p) && !(eml_folder && placed_eml_path(p)))
+        bad(where + "\"" + key + "\" must not contain '..' (" + p + ")");
     return p;
 }
 
@@ -161,7 +177,7 @@ void parse(const std::string& text) {
                     !std::regex_match(hash, kind == KILN_PROFILE_KIND_PLUGIN ? kSha : kHash))
                     bad(where + "\"hash\" must be " + (kind == KILN_PROFILE_KIND_PLUGIN ? "a lowercase SHA-256" : "kdh1:<lowercase SHA-256>"));
             }
-            e.path = game_path(m, "path", where, true);
+            e.path = game_path(m, "path", where, true, kind_name == "eml");
             if (m.contains("enabled")) {
                 if (!m["enabled"].is_boolean()) bad(where + "\"enabled\" must be true or false");
                 e.enabled = m["enabled"].get<bool>();

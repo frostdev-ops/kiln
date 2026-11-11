@@ -10,20 +10,22 @@ export const DROPIN_KINDS: ModKind[] = ["kiln", "native", "plugin", "emf", "eml"
 
 /** Engine kinds whose plugin, before dev.22, read its folder whenever the profile listed no mod of that engine. */
 const READ_WHEN_UNLISTED: ModKind[] = ["greeneye", "flame", "shroudtopia", "shroudlink", "ember"];
+// XHL-Core is external: Kiln's drop-in switches cannot control its manual companions.
+const PROFILE_DROPIN_KINDS = MOD_KINDS.filter((k) => k !== "xhl");
 
 /** What the switches show: the kinds whose folder this profile switches on. A profile from before dev.22 shows what
  *  it loaded then: every kind with all four Kiln kinds on; else its list, Enshwick's folder, and the folders of
  *  READ_WHEN_UNLISTED while the profile has no mod of that engine. */
 export function dropinKinds(p: Pick<Profile, "dropins" | "dropinsEngines" | "mods">): ModKind[] {
-  if (p.dropinsEngines) return MOD_KINDS.filter((k) => p.dropins.includes(k));
-  if (CORE_KINDS.every((k) => p.dropins.includes(k))) return [...MOD_KINDS];
-  return MOD_KINDS.filter((k) => p.dropins.includes(k) || k === "enshwick"
+  if (p.dropinsEngines) return PROFILE_DROPIN_KINDS.filter((k) => p.dropins.includes(k));
+  if (CORE_KINDS.every((k) => p.dropins.includes(k))) return [...PROFILE_DROPIN_KINDS];
+  return PROFILE_DROPIN_KINDS.filter((k) => p.dropins.includes(k) || k === "enshwick"
     || (READ_WHEN_UNLISTED.includes(k) && (p.mods[k] ?? []).length === 0));
 }
 
 /** Writes `kinds` into the profile (as the dialog and "Load the game-folder mods" save it). */
 export function setDropins(p: Profile, kinds: ModKind[]): void {
-  p.dropins = MOD_KINDS.filter((k) => kinds.includes(k));
+  p.dropins = PROFILE_DROPIN_KINDS.filter((k) => kinds.includes(k));
   p.dropinsEngines = true;
 }
 

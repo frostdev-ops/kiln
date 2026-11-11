@@ -172,7 +172,7 @@ fn roots(game: &Path) -> Vec<Root> {
         Root { rel: String::new(), abs: game.join(crate::paths::game::DROPIN_PLUGIN), kinds: vec![K::Plugin], files: Files { dll: true, zip: false }, folders: false },
         Root { rel: String::new(), abs: game.join(crate::paths::game::DROPIN_EMF), kinds: vec![K::Emf], files: Files { dll: true, zip: false }, folders: true },
         Root { rel: String::new(), abs: game.join("kiln/eml/mods"), kinds: vec![K::Eml], files: Files { dll: false, zip: true }, folders: true },
-        Root { rel: String::new(), abs: game.join("mods"), kinds: vec![K::Eml, K::Flame, K::Shroudtopia, K::Enshwick],
+        Root { rel: String::new(), abs: game.join("mods"), kinds: vec![K::Eml, K::Xhl, K::Flame, K::Shroudtopia, K::Enshwick],
             files: Files { dll: true, zip: true }, folders: true },
         Root { rel: String::new(), abs: game.join(crate::engine_mods::SET_MODS), kinds: vec![K::Set], files: none, folders: true },
         Root { rel: String::new(), abs: game.join("greeneye"), kinds: vec![K::Greeneye], files: none, folders: true },
@@ -201,6 +201,7 @@ fn folders_of(kind: ModKind) -> &'static str {
         ModKind::Plugin => "kiln/plugins",
         ModKind::Emf => "emf/mods",
         ModKind::Eml => "mods and kiln/eml/mods",
+        ModKind::Xhl => "mods (only the separately installed XHL-Core reads these companions)",
         ModKind::ShroudForge => "ShroudForge's mods folder",
         ModKind::Set => "shrouded_engine_tweaks/mods",
         ModKind::Greeneye => "greeneye",
@@ -311,7 +312,7 @@ pub fn with_dropin(p: &Profile, kind: ModKind) -> Profile {
     if !kinds.contains(&kind) {
         kinds.push(kind);
     }
-    q.dropins = ModKind::ALL.into_iter().filter(|k| kinds.contains(k)).collect();
+    q.dropins = ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl && kinds.contains(k)).collect();
     q.dropins_engines = true;
     q
 }
@@ -408,6 +409,15 @@ fn entry(cx: &Ctx, root: &Root, abs: &Path, file_name: &str, is_zip: bool) -> Fo
     if !root.kinds.contains(&kind) {
         m.reason = format!("Nothing loads {} mods from {}: Kiln looks for them in {}.", short(kind), root.rel, folders_of(kind));
         m.fix = Some(FoundFix::Add);
+        return m;
+    }
+    if kind == ModKind::Xhl {
+        let host = crate::engine_mods::xhl_host(cx.game);
+        m.reason = format!("{} This is a manually installed companion: XHL-Core may run it independently of profile and drop-in switches; Kiln does not execute it.", host.text);
+        if host.available {
+            m.state = FoundState::Loads;
+            m.via = Some(FoundVia::OwnLoader);
+        }
         return m;
     }
     if let Some(pm) = profile_entry(cx.dirs, cx.profile, kind, d.id.as_deref(), abs) {

@@ -68,14 +68,14 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
 
 function EngineRow({ s }: { s: EngineStatus }) {
   const word = headline(s.state);
-  const reason = s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
+  const reason = s.prerequisite?.text ?? s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
   const mods = modLines(s.state);
   return (
     <div className="k-list-item" data-engine={s.kind} style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 2 }} title={s.file}>
       <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
       <span className="k-mono k-muted">{s.plugin}</span>
       <span className="k-spacer" />
-      {s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">Not run yet</span> : (
+      {s.prerequisite ? <span className={`k-word-sm k-tone-${s.prerequisite.available ? "info" : "warn"}`}>{s.prerequisite.available ? "Host recognized (not verified)" : "Requires XHL-Core"}</span> : s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null ? <span className="k-hint">Not run yet</span> : (
         <>
           {word && <span className={`k-word-sm k-tone-${toneOf(word)}`}>{word}</span>}
           {mods.length > 0 && <span className="k-hint">{mods.length} mod{mods.length === 1 ? "" : "s"}</span>}

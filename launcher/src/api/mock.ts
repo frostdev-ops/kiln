@@ -138,6 +138,7 @@ const seedMods: Record<ModKind, MockManifest[]> = {
   ],
   plugin: [{ id: "my-plugin", name: "my-plugin.dll", version: "1.0.0", side: "client" }],
   // other engines' mods (engine_mods::import_engine_mod): one per imported kind
+  xhl: [],
   eml: [{ id: "loot-tables-x", name: "Loot Tables X", version: "1.2.0", side: "both", clients: "mod" }],
   shroudforge: [{ id: "better-chests", name: "Better Chests", version: "0.4.1", side: "both", clients: "mod" }],
   set: [{ id: "fov-tweak", name: "FOV Tweak", version: "1.0.0", side: "both", clients: "none" }],
@@ -187,7 +188,7 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
       native: [pm("native", "fps-unlock"), pm("native", "creative-mode"), pm("native", "hud-tweaks"), pm("native", "free-cam", false)],
       plugin: [],
       emf: [pm("emf", "beastmaster")],
-      eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
+      xhl: [], eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
       flame: [], shroudtopia: [pm("shroudtopia", "fly-mode")], enshwick: [], shroudlink: [], ember: [],
     },
     // made by a dev.22 launcher: the list names every kind that is on (none). "Vanilla plus" is from before dev.22.

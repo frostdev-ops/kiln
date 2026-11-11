@@ -72,6 +72,8 @@ pub enum DetectKind {
     // through a loader registered for it (engines::register_loader); without one it is skipped with its reason.
     /// An EML mod (`mod.json` + `src/mod.lua`).
     Eml,
+    /// A native-plugin.ini companion for the separately installed XHL-Core, never executed by Kiln.
+    Xhl,
     /// A ShroudForge package (SF-specific extension or schema; capabilities are shared with EML).
     #[serde(rename = "shroudforge")]
     ShroudForge,
@@ -349,7 +351,7 @@ fn is_docs_file(name: &str) -> bool {
 }
 
 /// The manifest files that make a folder a mod of some engine.
-const MOD_MANIFESTS: [&str; 7] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "pack.toml", "init.lua", "extended.mod.json"];
+const MOD_MANIFESTS: [&str; 8] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "pack.toml", "init.lua", "extended.mod.json", "native-plugin.ini"];
 
 /// Is one of `dir`'s folders a mod on its own?
 fn has_mod_subfolder(dir: &Path) -> bool {
@@ -504,7 +506,12 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own
     if dir.join(crate::engine_mods::XHL_PLUGIN_INI).is_file() {
-        return mk(DetectKind::Unknown, None, None, None, xhl_plugin_reason(&file_name(dir)));
+        let name = top_name.filter(|_| depth == 0).map(str::to_string).unwrap_or_else(|| file_name(dir));
+        if !crate::engine_mods::is_game_folder_name(&name) {
+            return mk(DetectKind::Unknown, None, None, None, "XHL-Core's plugin folder is not a safe Windows folder name".into());
+        }
+        return mk(DetectKind::Xhl, Some(name.clone()), Some("0.0.0".into()), Some(name),
+            "requires XHL-Core: Kiln preserves and places this native-plugin.ini companion in the game's mods folder; Kiln never loads this plugin DLL itself".into());
     }
     // `mods/<name>/` with nothing but settings files: the settings of a DLL that reads them in the game folder
     // (Auto Loot Plus Lite: dinput8.dll + mods/auto-loot-plus/config.txt)
@@ -560,13 +567,12 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
         return d;
     }
     // nothing usable: an item with its own reason says it better than the package's generic one
-    if let Some(i) = items.iter().find(|i| i.reason.contains(XHL_PLUGIN_WORDS) || i.reason.contains(SETTINGS_WORDS)) {
+    if let Some(i) = items.iter().find(|i| i.reason.contains(SETTINGS_WORDS)) {
         return mk(DetectKind::Unknown, None, None, None, i.reason.clone());
     }
     mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir))
 }
 
-const XHL_PLUGIN_WORDS: &str = "is a plugin of XHL-Core";
 const SETTINGS_WORDS: &str = "holds only settings";
 
 /// A folder with files and nothing but settings files (`.txt`, `.ini`, `.cfg`, `.json`, `.toml`, `.yaml`) in it.
@@ -575,6 +581,7 @@ fn only_settings(dir: &Path) -> bool {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let low = e.file_name().to_string_lossy().to_ascii_lowercase();
         if low.starts_with('.') { continue; }
+        if MOD_MANIFESTS.contains(&low.as_str()) { return false; }
         let ext = low.rsplit_once('.').map(|(_, x)| x).unwrap_or("");
         if !e.path().is_file() || !matches!(ext, "txt" | "ini" | "cfg" | "json" | "toml" | "yaml" | "yml") { return false; }
         any = true;
@@ -592,13 +599,6 @@ pub(crate) fn native_settings_dirs(dir: &Path) -> Vec<PathBuf> {
         .collect();
     out.sort();
     out
-}
-
-/// Why an XHL-Core plugin without an EML part is not imported, and what the player does instead.
-fn xhl_plugin_reason(folder: &str) -> String {
-    format!("{folder} {XHL_PLUGIN_WORDS} (native-plugin.ini without an EML mod): XHL-Core loads it from the game's mods folder, \
-        which Kiln does not fill for plain plugins yet. Add XHL-Core to Kiln and copy the folder {folder} into the mods folder of the \
-        Enshrouded folder yourself")
 }
 
 fn children(dir: &Path, depth: usize) -> Vec<Detected> {

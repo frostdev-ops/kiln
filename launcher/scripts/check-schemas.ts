@@ -22,6 +22,7 @@ for (const f of readdirSync(schemaDir).filter((f) => f.endsWith(".schema.json"))
 
 const exampleSchema = (name: string): string => {
   if (name.startsWith("profile")) return "profile.schema.json";
+  if (name.startsWith("state-eml-")) return "state-eml.schema.json";
   if (name.startsWith("config-schema")) return "config-schema.schema.json";
   if (name === "native-state.json") return "native-state.schema.json";
   if (name.startsWith("native")) return "native.schema.json";

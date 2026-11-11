@@ -38,7 +38,7 @@ pub const EMBER_MODS: &str = "ember/mods";
 pub const ENSHWICK_LOADER_FOLDER: &str = "enshwick";
 
 /// The kinds with a Library importer: every engine kind (EMF's mods are Kiln's own `emf` kind).
-pub const IMPORTED: [ModKind; 9] = [ModKind::Eml, ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye, ModKind::Flame,
+pub const IMPORTED: [ModKind; 10] = [ModKind::Eml, ModKind::Xhl, ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye, ModKind::Flame,
     ModKind::Shroudtopia, ModKind::Enshwick, ModKind::Shroudlink, ModKind::Ember];
 
 /// Kinds whose mods Kiln holds but cannot run yet (Ember: no published mod ABI). The launcher says so.
@@ -77,7 +77,7 @@ pub fn default_side(kind: ModKind) -> (Side, Clients) {
     match kind {
         // data patches and new content: both sides must have the same data. Enshwick: a mod's side is "both" unless it
         // says "server" (pack.toml; a DLL's is compiled in), and its join check refuses players without a "both" mod.
-        ModKind::Eml | ModKind::ShroudForge | ModKind::Flame | ModKind::Enshwick => (Side::Both, Clients::Mod),
+        ModKind::Eml | ModKind::Xhl | ModKind::ShroudForge | ModKind::Flame | ModKind::Enshwick => (Side::Both, Clients::Mod),
         ModKind::Greeneye => (Side::Client, Clients::None),
         // server frameworks: shroudlink's mods run in its server core (players use its client addon), Ember is for
         // dedicated servers only
@@ -271,6 +271,10 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             return skip(ctx.report, "its pack.toml is invalid or uses metadata Kiln can't read".into());
         }
     }
+    if kind == ModKind::Xhl && (!src.is_dir() || !is_game_folder_name(&manifest_id)) {
+        return skip(ctx.report, "add the original XHL-Core plugin folder with its native-plugin.ini, using a safe Windows folder name".into());
+    }
+    let xhl_folder = (kind == ModKind::Xhl).then(|| manifest_id.clone());
     let id = library_id_for(ctx.dirs, kind, &manifest_id);
     let manifest_id = (manifest_id != id).then_some(manifest_id);
     let version = if let Ok(parsed) = crate::semver::SemVersion::parse(&version) {
@@ -303,11 +307,13 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
+            ModKind::Xhl => work.join(XHL_PLUGIN_INI).is_file() && !work.join("mod.json").exists(),
             _ => true,
         };
         if !found {
             let why = match kind {
                 ModKind::Ember => "an Ember mod folder holds exactly one library (.dll), and no other engine's mod DLL",
+                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package",
                 ModKind::Enshwick => "invalid, unsupported or changed pack.toml, or no Enshwick mod DLL",
                 _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
             };
@@ -336,7 +342,9 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     };
     let hash = crate::hash::dirhash(&work)?;
     let (side, clients) = side_of(kind, &work);
-    let game_folder = if kind == ModKind::Eml && src.is_dir() { eml_game_folder(src) } else { None };
+    let game_folder = if let Some(folder) = xhl_folder {
+        Some((folder, "requires XHL-Core: only that separately installed host runs it; Kiln never loads this plugin DLL itself".into()))
+    } else if kind == ModKind::Eml && src.is_dir() { eml_game_folder(src) } else { None };
     if let Some((folder, why)) = &game_folder {
         let shown = name.clone().unwrap_or_else(|| folder.clone());
         ctx.report.note(&d.path, format!("{shown}: {why}, so Kiln copies it into the game's mods\\{folder} folder while a profile with it is active"));
@@ -808,7 +816,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             }
         }
     }
-    for kind in crate::own_loaders::PLACED_FOR_LOADER.into_iter().chain([ModKind::Native]) {
+    for kind in crate::own_loaders::PLACED_FOR_LOADER.into_iter().chain([ModKind::Native, ModKind::Xhl]) {
         let loader = crate::own_loaders::of_kind(loaders, kind).filter(|l| l.delivery == crate::own_loaders::Delivery::Placed);
         let root = loader.map(|l| l.root(game_dir));
         let list = profile.mods.list(kind);
@@ -944,9 +952,9 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
 /// The folder those EML mods are placed in, relative to the game.
 pub const EML_GAME_MODS: &str = "mods";
 
-/// The `<game>/mods/` folder name of a profile's mod when a native DLL reads it there (EML only), from its import record.
+/// The original `<game>/mods/` folder name of a native-related EML mod or external XHL companion, from its import record.
 pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod) -> Option<String> {
-    if kind != ModKind::Eml { return None; }
+    if !matches!(kind, ModKind::Eml | ModKind::Xhl) { return None; }
     let r = crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
     crate::library::record(dirs, &r).ok()?.game_folder.filter(|f| is_game_folder_name(f))
 }
@@ -1320,7 +1328,50 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
 
 // ---- status ----
 
-/// One engine plugin's state file.
+/// A filesystem prerequisite, not evidence that the host or a mod ran successfully.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostPrerequisite {
+    pub available: bool,
+    pub text: String,
+}
+
+/// Recognize XHL-Core only on configured load paths, never from a plugin DLL or a generic chain-loader marker.
+/// On Unix only Wine's Z: absolute mapping is reversible here; unknown drive mappings remain unverified.
+pub fn xhl_host(game_dir: &Path) -> HostPrerequisite {
+    let mut paths: Vec<PathBuf> = crate::engines::scan_proxies(game_dir).into_iter()
+        .map(|p| game_dir.join(p.name)).collect();
+    if let Ok(ini) = crate::chain::read(game_dir) {
+        for e in ini.chain.iter().chain(&ini.profile).chain(&ini.late)
+            .filter(|e| e.status == crate::chain::EntryStatus::Ok)
+        {
+            let rel = e.path.replace('\\', "/");
+            let path = if e.relative {
+                if Path::new(&rel).components().any(|c| !matches!(c, std::path::Component::Normal(_))) { continue; }
+                game_dir.join("kiln").join(rel)
+            } else if cfg!(windows) { PathBuf::from(&e.path) }
+            else if rel.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("z:/")) {
+                PathBuf::from(&rel[2..])
+            } else { continue; };
+            paths.push(path);
+        }
+    }
+    let available = paths.into_iter().any(|p| {
+        let Ok(m) = std::fs::symlink_metadata(&p) else { return false };
+        if !m.is_file() || m.len() > 128 * 1024 * 1024 { return false; }
+        let Ok(b) = std::fs::read(&p) else { return false };
+        crate::pe::is_pe64_dll(&b) && crate::pe::parse(&b).is_ok_and(|p| p.exports.iter().any(|s| s == "DirectInput8Create"))
+            && [b"XHL-Native-Plugin-Host.log".as_slice(), b"native-plugin.ini".as_slice()].iter()
+                .all(|s| b.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
+    });
+    HostPrerequisite { available, text: if available {
+        "XHL-Core is recognized on an active proxy/chain path. Only that external host loads XHL companions; placement does not verify gameplay. On Wine/Proton, proxy loading also needs its DLL override."
+    } else {
+        "Requires XHL-Core: no recognized host was found on this game's active proxy/chain paths. Import XHL-Core separately as a Native mod and enable it, or install it using its author's instructions. Kiln never loads companion plugin DLLs itself; unknown Wine drive mappings cannot be verified here."
+    }.into() }
+}
+
+/// One engine plugin's state file, or an external host's prerequisite report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineStatus {
@@ -1337,6 +1388,8 @@ pub struct EngineStatus {
     /// of the kind (`text`: one sentence for the launcher). None: no own loader of this engine is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own_loader: Option<crate::own_loaders::OwnLoaderNote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerequisite: Option<HostPrerequisite>,
 }
 
 /// The state file name of a kind's plugin.
@@ -1364,6 +1417,10 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
     ModKind::ALL
         .into_iter()
         .filter_map(|k| {
+            if k == ModKind::Xhl {
+                return Some(EngineStatus { kind: k, plugin: String::new(), state: None, error: None,
+                    file: String::new(), own_loader: None, prerequisite: Some(xhl_host(game_dir)) });
+            }
             let f = game_dir.join("kiln").join("state").join(state_file(k)?);
             let (state, error) = match read_json_checked(game_dir, &f) {
                 Ok(state) => (state, None),
@@ -1376,6 +1433,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 error,
                 file: f.display().to_string(),
                 own_loader: notes.iter().find(|n| n.loader.kind == k).cloned(),
+                prerequisite: None,
             })
         })
         .collect()
@@ -1500,10 +1558,14 @@ mod tests {
     }
 
     #[test]
-    fn every_imported_kind_has_a_plugin_and_state_file() {
+    fn every_imported_kind_has_an_explicit_execution_or_companion_contract() {
         for k in IMPORTED {
-            assert!(plugin_of(k).is_some(), "{k:?}");
-            assert!(state_file(k).is_some(), "{k:?}");
+            if k == ModKind::Xhl {
+                assert!(plugin_of(k).is_none() && state_file(k).is_none() && k.engine().is_none());
+            } else {
+                assert!(plugin_of(k).is_some(), "{k:?}");
+                assert!(state_file(k).is_some(), "{k:?}");
+            }
             assert!(k.is_engine());
             assert!(default_side(k) == (Side::Server, Clients::None) || runs_yet(k), "{k:?}");
         }
