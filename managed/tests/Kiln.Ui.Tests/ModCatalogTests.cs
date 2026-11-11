@@ -467,6 +467,28 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("Switched off in the profile.", Mod(s, "enshwick", "wick-off").Reason);
     }
 
+    /// <summary>Settings an earlier Kiln wrote without their fraction: ShroudForge refuses the whole mod until a save puts
+    /// the fraction back, so the row says so (and what repairs it) instead of reading as healthy.</summary>
+    [Fact]
+    public void A_shroudforge_mod_whose_settings_need_repair_says_shroudforge_refuses_it()
+    {
+        var mods = TwoShroudForgeMods();
+        File.WriteAllText(Path.Combine(mods, "pack", "extended.mod.json"),
+            """{"enabled":true,"targets":["client"],"settings":{"speed":{"value":2,"label":"Speed","options":{"1.5":"Slow","2.0":"Fast"}}}}""");
+        File.WriteAllText(Path.Combine(mods, "off", "extended.mod.json"),
+            """{"enabled":false,"targets":["client"],"settings":{"speed":{"value":2,"label":"Speed","options":{"1.5":"Slow","2.0":"Fast"}}}}""");
+        Assert.Equal(["speed"], ShroudForgePackages.Read(Path.Combine(mods, "pack")).Repair);
+        var s = Read();
+        var pack = Mod(s, "shroudforge", "pack");
+        Assert.Equal((ModRunState.Failed, "needs repair", true), (pack.State, pack.Word, pack.NeedsAttention));
+        Assert.Contains("ShroudForge refuses this mod until its settings are saved once", pack.Reason);
+        Assert.Contains("Speed", pack.Reason);
+        Assert.Contains("repairs it", pack.Help);
+        var off = Mod(s, "shroudforge", "off");
+        Assert.Equal(ModRunState.Disabled, off.State);
+        Assert.Contains("until its settings are saved once", off.Reason);
+    }
+
     [Fact]
     public void Enshwick_lists_the_profile_and_its_copy_notes()
     {

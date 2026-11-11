@@ -1062,11 +1062,19 @@ internal static class ModCatalog
         SfPackage p;
         try { p = ShroudForgePackages.Read(folder); }
         catch (Exception) { return m with { State = m.State == ModRunState.Disabled ? m.State : ModRunState.Waiting, Word = "unconfirmed", Reason = "Its package settings cannot be read; ShroudForge's per-mod activation is not confirmed." }; }
+        var repair = ShroudForgeUi.RepairNote(p);
         if (!p.Enabled)
             return m with
             {
-                State = ModRunState.Disabled, Word = "disabled", Reason = "Switched off in ShroudForge's settings (the mod's extended.mod.json).",
+                State = ModRunState.Disabled, Word = "disabled",
+                Reason = "Switched off in ShroudForge's settings (the mod's extended.mod.json)." + (repair is null ? "" : " " + repair),
                 Help = "Switch it on below.",
+            };
+        if (repair is not null)
+            return m with
+            {
+                State = ModRunState.Failed, Word = "needs repair", Reason = repair,
+                Help = "Change any of its settings, or switch it off and on, in Kiln's menu once: that repairs it.",
             };
         if (side.Length > 0 && p.Targets.Count > 0 && !p.Targets.Contains(side))
             return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = $"It runs on the {string.Join(" and ", p.Targets)} only.", Help = null };

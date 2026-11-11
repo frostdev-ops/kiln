@@ -262,7 +262,9 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     text saves when the field loses focus (Tab and LB / RB do not switch sections while a field has the keyboard, and
     text typed into a field that goes away before it is left is dropped, never shown as the value); a field holds the whole value, and one too long to edit (64 KiB on one line,
     1 MiB in a text area) is shown, not edited. Choices use combos (including radio/segmented), colors use text, and SF
-    keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged.
+    keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged. A mod whose settings an earlier Kiln wrote without
+    their fraction (ShroudForge refuses such a mod) shows Failed, "needs repair", with a line on its page: changing any
+    setting or its switch once repairs it.
     Reads/writes are off the render thread, bounded to 2 MiB per package file, and refuse linked package files.
     Comments and formatting survive value edits. A profile-controlled switch is marked because profile activation
     reapplies it at launch. See [shroudforge.md](shroudforge.md) for SF shortcut/helper ownership and remaining client checks.

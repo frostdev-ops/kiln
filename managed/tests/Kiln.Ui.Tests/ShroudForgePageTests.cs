@@ -409,4 +409,14 @@ public sealed class ShroudForgePageTests : IDisposable
         Assert.True(watch.ElapsedMilliseconds < 3000, $"reading and drawing a 10,000-step chain took {watch.ElapsedMilliseconds} ms");
         Assert.True(bytes < 256 * 1024, $"the first frame allocated {bytes} bytes");
     }
+    /// <summary>The page of a mod whose settings an earlier Kiln damaged says that ShroudForge refuses it until a save.</summary>
+    [Fact]
+    public void A_mod_whose_settings_need_repair_says_so_on_its_page()
+    {
+        var folder = Package("""{ "speed": { "value": 2, "label": "Speed", "options": { "1.5": "Slow", "2.0": "Fast" } } }""");
+        ShroudForgeUi.Draw(_ui, Mod(folder), 1, 1, (_, _, _) => { });
+        lock (FakeUiTable.Texts)
+            Assert.Contains(FakeUiTable.Texts, t => t.StartsWith("ShroudForge refuses this mod until its settings are saved once", StringComparison.Ordinal) &&
+                                                    t.Contains("Changing any setting or its switch here repairs it", StringComparison.Ordinal));
+    }
 }

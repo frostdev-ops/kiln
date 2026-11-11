@@ -338,6 +338,16 @@ internal static class ShroudForgeUi
 
     // ------------------------------------------------------------------------------------- drawing ----
 
+    /// <summary>What the data layer's <see cref="SfPackage.Repair"/> means for the player, or null when nothing needs it.</summary>
+    internal static string? RepairNote(SfPackage p)
+    {
+        if (p.Repair.Count == 0) return null;
+        var names = p.Repair.Take(3).Select(key => Clip(p.Settings.FirstOrDefault(x => x.Key == key)?.Label ?? key, 80)).ToList();
+        var more = p.Repair.Count > 3 ? $" and {p.Repair.Count - 3} more" : "";
+        return $"ShroudForge refuses this mod until its settings are saved once: an earlier Kiln wrote {string.Join(", ", names)}{more} " +
+               "without its fraction.";
+    }
+
     /// <summary>The most settings the page draws of one package; a line says how many more it has.</summary>
     internal const int DrawnSettings = 300;
 
@@ -569,6 +579,10 @@ internal static class ShroudForgeUi
                 ui.TextWrapped("Your Kiln profile lists this mod: the Kiln launcher sets this switch from the profile when it starts the game. To keep a change, make it in the profile too.");
         }
         Result(ui, folder, k);
+        if (RepairNote(p) is { } repair)
+            using (ui.FontSize(14 * k))
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Warning))
+                ui.TextWrapped(repair + " Changing any setting or its switch here repairs it.");
 
         if (view.Empty)
         {
