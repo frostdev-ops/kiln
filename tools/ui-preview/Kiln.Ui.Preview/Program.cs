@@ -152,7 +152,22 @@ internal static unsafe class Program
         tools.Dispose();
         Console.WriteLine($"front before the click: {before}");
         Console.WriteLine($"front after the click:  {after}");
-        return after.StartsWith("Shrouded Engine Tweaks", StringComparison.Ordinal) ? 0 : 1;
+        var ok = after.StartsWith("Shrouded Engine Tweaks", StringComparison.Ordinal);
+
+        // a mod's full-screen screen open first (managed-ui R6): the menu opened over it must be in front of it, or it is open
+        // but cannot be seen (and Escape closes the unseen menu first)
+        for (var i = 0; i < 3; i++) _frame(0);  // the menu closed
+        var screen = Ui.Screen("A mod's screen", ui => ui.Text("a full-screen mod screen"), new UiScreenOptions { FullScreen = true });
+        screen.Open();
+        for (var i = 0; i < 3; i++) _frame(0);
+        var under = Front();
+        for (var i = 0; i < 3; i++) _frame(1);  // the menu key
+        var menu = Front();
+        screen.Dispose();
+        Console.WriteLine($"front with a full-screen screen open: {under}");
+        Console.WriteLine($"front after the menu opened over it:  {menu}");
+        ok &= menu.Contains("###kiln.menu.main", StringComparison.Ordinal);
+        return ok ? 0 : 1;
     }
 
     // A ShroudForge text setting typed into with the real ImGui (managed-ui R1): ImGui makes its own copy of an active
