@@ -186,7 +186,7 @@ internal static unsafe class Program
         Directory.CreateDirectory(Path.Combine(kiln, "state"));
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"notes","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
-        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{ "enabled": true, "settings": { "note": { "value": "old", "label": "Note", "control": "{{control}}" } } }""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{ "schemaVersion": 1, "enabled": true, "settings": { "note": { "value": "old", "label": "Note", "control": "{{control}}" } } }""");
         File.WriteAllText(Path.Combine(kiln, "state", "shroudforge.json"), JsonSerializer.Serialize(new { pid = Environment.ProcessId, mode = "hosted", menu = "kiln", modsDir = Path.Combine(root, "mods") }));
         ShroudForgeUi.ResetForTests();
         ShroudForgeUi.Load(folder);
@@ -495,7 +495,12 @@ internal static class Scenes
         });
         Write(Path.Combine(kiln, "state", "shroudforge.json"), new { format = 1, side = "client", mode = "hosted", reason = "", updated = Now / 1000, modsDir = Path.Combine(root, "mods") });
         foreach (var (id, name) in new[] { ("sfpkg-core", "SF Pack Core"), ("shroud-timer", "Shroud Timer"), ("builders-grid", "Builder's Grid") })
-            Write(Path.Combine(root, "library", "shroudforge", id, id == "sfpkg-core" ? "1.0.0" : id == "shroud-timer" ? "0.8.0" : "1.3.1", "extended.mod.json"), new { id, name, enabled = true });
+        {
+            var version = id == "sfpkg-core" ? "1.0.0" : id == "shroud-timer" ? "0.8.0" : "1.3.1";
+            var folder = Path.Combine(root, "library", "shroudforge", id, version);
+            Write(Path.Combine(folder, "mod.json"), new { id, name, version });
+            Write(Path.Combine(folder, "extended.mod.json"), new { schemaVersion = 1, id, name, enabled = true });
+        }
         return kilnMods;
     }
 
