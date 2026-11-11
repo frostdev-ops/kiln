@@ -109,7 +109,15 @@ internal static unsafe class FakeUiTable
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte FalseStr(NativeStr s) { _lastWasField = false; return 0; }
+    private static byte FalseStr(NativeStr s)
+    {
+        _lastWasField = false;
+        var label = s.ToString();
+        lock (Texts) Texts.Add(label);
+        if (Click is null || !label.StartsWith(Click, StringComparison.Ordinal)) return 0;
+        Click = null;
+        return 1;
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static byte Checkbox(NativeStr s, byte* v) { _lastWasField = false; return 0; }

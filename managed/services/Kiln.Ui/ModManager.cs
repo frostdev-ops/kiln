@@ -311,8 +311,9 @@ internal sealed class ModManagerPage
             if (chosen) ui.DrawRect(UiLayer.Window, it.MinX + 10 * s, it.MaxY - 3 * s, it.MaxX - 10 * s, it.MaxY, GameColors.Gold);
             x += w + 6 * s;
         }
-        // Server-advertised menus need not have a corresponding local catalog row.
-        if (ShroudlinkMenu.Available)
+        // Server-advertised menus need not have a corresponding local catalog row. An open shroudlink page keeps its way
+        // back when the bridge stops answering.
+        if (ShroudlinkMenu.Available || ShroudlinkMenu.Open)
         {
             ui.SetCursor(x - ui.Cursor.WindowX, r.Y + 8 * s - ui.Cursor.WindowY);
             if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus"))

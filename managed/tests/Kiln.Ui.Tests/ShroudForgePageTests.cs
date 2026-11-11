@@ -322,4 +322,21 @@ public sealed class ShroudForgePageTests : IDisposable
         }
         finally { ModCatalog.Sources = ModCatalog.DefaultSources; }
     }
+    /// <summary>The shroudlink page keeps its way back when the bridge goes away while it is open.</summary>
+    [Fact]
+    public void The_shroudlink_page_keeps_its_back_button_when_the_bridge_is_gone()
+    {
+        var page = Page(Mod(Package("{}")));
+        ShroudlinkMenu.Open = true;  // opened while the bridge answered; it does not any more (off Windows it never does)
+        try
+        {
+            Frame(page);
+            lock (FakeUiTable.Texts) Assert.Contains("Back to mods", FakeUiTable.Texts);
+            FakeUiTable.Click = "Back to mods";
+            Frame(page);
+            Assert.False(ShroudlinkMenu.Open);
+            Assert.Equal(ModManagerSection.Mods, page.Section);
+        }
+        finally { ShroudlinkMenu.Open = false; }
+    }
 }

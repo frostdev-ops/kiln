@@ -650,7 +650,7 @@ internal static unsafe class UiEngine
 
     private static void ModsTab(UiDraw ui)
     {
-        if (ShroudlinkMenu.Available)
+        if (ShroudlinkMenu.Available || ShroudlinkMenu.Open)  // an open page keeps its way back when the bridge goes
         {
             if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus")) ShroudlinkMenu.Open = !ShroudlinkMenu.Open;
             if (ShroudlinkMenu.Open) { ShroudlinkMenu.Draw(ui); return; }
