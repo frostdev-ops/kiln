@@ -1,8 +1,9 @@
 // /profiles/:id/engines: mods made for other engines (EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick,
-// shroudlink, Ember), each run by its Kiln engine plugin (docs/kiln/engines.md). One card per engine whose mods are in
-// the library or the profile, with the same flame switch, versions and add-from-library as Kiln mods; Settings for
-// ShroudForge and Shroudtopia mods. Ember's card says its mods don't run yet (no published Ember ABI). EML's "Restore
-// vanilla game data" offer on top; "In the game folder" (GameFolder.tsx) at the end, for these kinds.
+// shroudlink, Ember), each run by its Kiln engine plugin (docs/kiln/engines.md), and XHL companions, which only
+// XHL-Core (installed separately) loads. One card per kind whose mods are in the library or the profile, with the same
+// flame switch, versions and add-from-library as Kiln mods; Settings for ShroudForge and Shroudtopia mods. Ember's card
+// says its mods don't run yet (no published Ember ABI); the XHL card says whether XHL-Core was recognized. Read-only
+// shared archive backup guidance on top; "In the game folder" (GameFolder.tsx) at the end, for these kinds.
 import { useQuery } from "@tanstack/react-query";
 import { engineStatus } from "../../api/commands";
 import { useState } from "react";
@@ -47,7 +48,7 @@ export default function ProfileEnginesPage() {
       {lib.isLoading && <Skeleton lines={3} />}
       {lib.error && <EmptyState title="The library is not readable" hint={errorText(lib.error)} />}
       {kinds.length === 0 ? (
-        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an XHL companion, EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink or Ember mod on the Library page. Kiln runs supported mods with their engine plugins; Ember mods are stored but don't run yet." />
+        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an XHL companion, EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink or Ember mod on the Library page. Kiln runs the other engines' mods with its engine plugins; XHL companions run only through XHL-Core, installed separately; Ember mods are stored but don't run yet." />
       ) : kinds.map((k) => (
         <section key={k} className="k-card" data-kind={k}>
           <header className="k-card-head">

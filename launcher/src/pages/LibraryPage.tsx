@@ -22,6 +22,8 @@ type KindFilter = "all" | "engines" | ModKind;
 const importable = (d: Detected): boolean =>
   ["kiln", "native", "plugin", "emf", "bare-dll", "modpack", ...IMPORTED_KINDS].includes(d.kind) || (d.kind === "unknown" && d.items.some(importable));
 const kindMatch = (f: KindFilter, k: ModKind) => f === "all" || f === k || (f === "engines" && isEngineKind(k) && k !== "emf");
+// Kiln places an XHL companion in the game's mods folder and never runs it (engine_mods: no plugin for the kind)
+const XHL_NOTE = "XHL companion: only XHL-Core, installed separately, loads it. Kiln places it in the game's mods folder and never runs it.";
 
 export default function LibraryPage() {
   const qc = useQueryClient();
@@ -89,7 +91,7 @@ export default function LibraryPage() {
     { key: "kind", header: "Kind", width: engineKinds.some((k) => !runsYet(k)) ? "150px" : engineKinds.length ? "96px" : "56px", sort: (a, b) => a.kind.localeCompare(b.kind),
       render: (e) => (
         <span className="k-row" style={{ gap: 4 }} data-not-running={runsYet(e.kind) ? undefined : true}>
-          <Badge tone={KIND_TONE[e.kind]} title={!runsYet(e.kind) ? NOT_RUNNING_NOTE[e.kind] : isEngineKind(e.kind) && e.kind !== "emf" ? `${KIND_NAME[e.kind]} mod, run by Kiln` : undefined}>{KIND_SHORT[e.kind]}</Badge>
+          <Badge tone={KIND_TONE[e.kind]} title={!runsYet(e.kind) ? NOT_RUNNING_NOTE[e.kind] : e.kind === "xhl" ? XHL_NOTE : isEngineKind(e.kind) && e.kind !== "emf" ? `${KIND_NAME[e.kind]} mod, run by Kiln` : undefined}>{KIND_SHORT[e.kind]}</Badge>
           {!runsYet(e.kind) && <Badge tone="warn" title={NOT_RUNNING_NOTE[e.kind]}>not yet</Badge>}
         </span>
       ) },

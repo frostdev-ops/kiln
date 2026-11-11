@@ -138,7 +138,8 @@ const seedMods: Record<ModKind, MockManifest[]> = {
   ],
   plugin: [{ id: "my-plugin", name: "my-plugin.dll", version: "1.0.0", side: "client" }],
   // other engines' mods (engine_mods::import_engine_mod): one per imported kind
-  xhl: [],
+  // an XHL companion: Library id from its original folder name, which stays its own id (engine_mods::import_engine_mod)
+  xhl: [{ id: "xhl-vein-mining", name: "XHL-Vein-Mining", version: "0.0.0", side: "both", clients: "mod" }],
   eml: [{ id: "loot-tables-x", name: "Loot Tables X", version: "1.2.0", side: "both", clients: "mod" }],
   shroudforge: [{ id: "better-chests", name: "Better Chests", version: "0.4.1", side: "both", clients: "mod" }],
   set: [{ id: "fov-tweak", name: "FOV Tweak", version: "1.0.0", side: "both", clients: "none" }],
@@ -161,7 +162,7 @@ function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: strin
       version: m.version, hash, folder: `library/${kind}/${m.id}/${m.version}+${hash.slice(5, 13)}`, imported,
       side: m.side, clients: m.clients ?? (m.side === "server" ? "none" : "mod"), size: 40_000 + m.id.length * 3_100,
       source: { type: kind === "plugin" ? "file" : "folder", from: from ?? `${m.id}-${m.version}.zip` },
-      manifestId: null,
+      manifestId: kind === "xhl" && m.name !== m.id ? m.name : null,
       manifest: { ...m } as unknown as Json,
     }],
   };
@@ -331,6 +332,8 @@ const sfSettings: Record<string, { schema: Json; values: Record<string, Json> }>
 const shroudtopiaFiles = new Map<string, Record<string, Record<string, Json>>>();
 /** EML patched enshrouded.kfc (its `.kfc.bak` is the vanilla file). */
 let emlPatched = true;
+/** engine_mods::xhl_host's sentence when no XHL-Core is on the game's proxy/chain paths (the fake game has none). */
+const XHL_NO_HOST = "Requires XHL-Core: no recognized host was found on this game's active proxy/chain paths. Import XHL-Core separately as a Native mod and enable it, or install it using its author's instructions. Kiln never loads companion plugin DLLs itself; unknown Wine drive mappings cannot be verified here.";
 
 function schemaFromValues(v: Json): Json {
   if (v && typeof v === "object" && !Array.isArray(v)) return { type: "object", properties: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, schemaFromValues(x)])) };
@@ -924,7 +927,13 @@ const handlers: Record<string, Handler> = {
       st("eml", "eml.json", emlPatched
         ? { phase: "done", patched: 3, ms: 1263, mods: [{ id: "loot-tables-x", name: "Loot Tables X", state: "disabled", reason: "disabled in the profile" }] }
         : { phase: "idle", mods: [] }),
-      st("shroudforge", "shroudforge.json", { mode: "hosted", reason: null, version: "0.9.2", side: "client" }),
+      // XHL-Core is external: only whether it is on the game's proxy/chain paths (engine_mods::xhl_host)
+      { kind: "xhl", plugin: "", state: null, file: "", prerequisite: { available: false, text: XHL_NO_HOST } },
+      // ShroudForge's own runtime report (shroudforge::effects): current while the fake game runs, stopped after
+      { ...st("shroudforge", "shroudforge.json", { mode: "hosted", reason: null, version: "0.9.2", side: "client" }), effects: running[g.id]
+        ? { file: `${g.path}/shroudforge/state.json`, state: "current", updatedAt: Math.floor(Date.now() / 1000), reason: null,
+          mods: [{ id: "better-chests", state: "no-change", detail: "autoSort is off" }] }
+        : { file: `${g.path}/shroudforge/state.json`, state: "stopped", updatedAt: 1793793660, reason: "ShroudForge runtime is stopped; previous mod effects are not current", mods: [] } },
       st("set", "set.json", null),
       st("greeneye", "greeneye.json", { mods: [{ id: "zoom-out", status: "started", generation: 1, hooks: 2 }] }),
       { ...st("flame", "flame.json", null), ownLoader: { kind: "flame", engine: "flame", file: "kiln/chain/flame-dinput8.dll", via: "chain", folder: "mods",

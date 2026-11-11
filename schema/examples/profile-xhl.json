@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "id": "xhl-run",
+  "name": "XHL run",
+  "generation": 3,
+  "writer": "kiln-manage 0.2.0-dev",
+  "pathMode": "copy",
+  "configDir": "profiles/xhl-run/config",
+  "dataDir": null,
+  "dropins": false,
+  "server": null,
+  "mods": {
+    "native": [
+      { "id": "xhl-core", "version": "0.0.0", "path": "profiles/xhl-run/native/xhl-core", "hash": "kdh1:0c0ffee0112233445566778899aabbccddeeff00112233445566778899aabbcc", "enabled": true }
+    ],
+    "eml": [
+      { "id": "auto-loot-plus", "version": "1.2.0", "path": "../mods/auto-loot-plus", "hash": "kdh1:a110a110112233445566778899aabbccddeeff00112233445566778899aabbcc", "enabled": true }
+    ],
+    "xhl": [
+      { "id": "xhl-vein-mining", "version": "0.0.0", "path": "../mods/XHL-Vein-Mining", "hash": "kdh1:5e1a5e1a112233445566778899aabbccddeeff00112233445566778899aabbcc", "enabled": true },
+      { "id": "xhl-quick-stack", "version": "0.0.0", "path": "../mods/XHL-Quick-Stack", "hash": "kdh1:9b1c9b1c112233445566778899aabbccddeeff00112233445566778899aabbcc", "enabled": false }
+    ]
+  }
+}

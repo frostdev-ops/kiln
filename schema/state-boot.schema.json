@@ -335,6 +335,46 @@
         "type": "string"
       },
       "description": "Boot errors worth showing to the player."
+    },
+    "waitedFor": {
+      "type": "array",
+      "description": "Other loaders' modules Kiln waited for before it hooked, in order (foreign_scan.h: the shroudlink client addon's live-code scans; one 10-second budget for the whole boot). Empty when there was none to wait for; older cores do not write it.",
+      "items": {
+        "type": "object",
+        "required": [
+          "module",
+          "end",
+          "ms",
+          "line"
+        ],
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "The module's file name."
+          },
+          "end": {
+            "enum": [
+              "ready",
+              "hooked",
+              "switched-off",
+              "timeout"
+            ],
+            "description": "ready: its log reported a complete, current startup; hooked: its UI hook reaches into that module; switched-off: its log says its UI is off; timeout: the wait budget ran out."
+          },
+          "ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How long Kiln waited for it."
+          },
+          "line": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The module's log line that ended the wait; null without one."
+          }
+        }
+      }
     }
   },
   "additionalProperties": true

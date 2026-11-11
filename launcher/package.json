@@ -13,6 +13,8 @@
     "tauri": "tauri",
     "tokens": "bun scripts/gen-tokens.ts",
     "check:schemas": "bun scripts/check-schemas.ts",
+    "test": "bun test ./unit ./unit-tests ./scripts",
+    "test:schema": "node ../schema/tests/profile_review.mjs && node ../schema/tests/closed_dll_schemas.mjs && node ../schema/tests/ui-blocks-review.mjs",
     "test:smoke": "playwright test",
     "build:web": "vite build"
   },

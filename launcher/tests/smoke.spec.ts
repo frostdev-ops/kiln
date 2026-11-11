@@ -641,3 +641,16 @@ test("screenshots of the main pages", async ({ page }) => {
   await page.waitForTimeout(600);
   await page.screenshot({ path: join(SHOTS, "mock-confirm-danger.png") });
 });
+
+test("the uninstall confirmation says what leaves the game folder and what stays", async ({ page }) => {
+  // install::uninstall_report: Kiln's unchanged files go and the originals come back; engine_mods::unplace removes the
+  // unchanged mod copies placed outside kiln/ and keeps changed ones; archives EML patched are not restored
+  await open(page, "/runtime");
+  await page.getByRole("button", { name: "Uninstall" }).click();
+  const dialog = page.getByRole("dialog", { name: "Uninstall Kiln?" });
+  await expect(dialog).toContainText("original dinput8.dll");
+  await expect(dialog).toContainText("Unchanged mod copies it placed outside kiln/ go too; changed ones stay and are listed.");
+  await expect(dialog).toContainText("kiln/ (configs, data, logs) stays");
+  await expect(dialog).toContainText("Game archives EML patched stay patched");
+  await expect(dialog).toContainText("switch the EML mods off and start the game once through Kiln");
+});
