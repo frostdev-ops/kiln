@@ -53,7 +53,11 @@ fn read_view(m: &SfMod) -> Value {
     let values = shroudforge::settings_values(m);
     let enabled_now: Vec<&str> =
         m.settings.iter().filter(|s| shroudforge::setting_enabled(&s.key, &m.settings, &values)).map(|s| s.key.as_str()).collect();
-    json!({"enabled": m.enabled, "switchLive": m.switch_live, "settings": settings, "enabledNow": enabled_now})
+    let mut view = json!({"enabled": m.enabled, "switchLive": m.switch_live, "settings": settings, "enabledNow": enabled_now});
+    if !m.repair.is_empty() {
+        view["repair"] = json!(m.repair);
+    }
+    view
 }
 
 /// The bytes of a case's extended.mod.json: `extended` as UTF-8, or `extendedLatin1` one byte per character (a file
@@ -116,6 +120,8 @@ fn run_case(root: &Path, c: &Value) {
             assert_eq!(Some(bytes), original, "{name}: a refused package was written");
         } else {
             assert_eq!(String::from_utf8(bytes).unwrap(), c["expect"].as_str().unwrap(), "{name}: the file");
+            // a write repairs every setting an earlier Kiln damaged
+            assert_eq!(shroudforge::read_mod(&dir).unwrap().repair, Vec::<String>::new(), "{name}: left to repair");
         }
         if let Some(after) = c.get("enabledAfter") {
             let m = shroudforge::read_mod(&dir).unwrap();

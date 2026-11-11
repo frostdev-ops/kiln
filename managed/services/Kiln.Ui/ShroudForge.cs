@@ -94,6 +94,10 @@ internal sealed record SfPackage
     public IReadOnlyList<string> Targets { get; init; } = [];
     public IReadOnlyList<SfSettingDef> Settings { get; init; } = [];
     public IReadOnlyList<SfGroup> Groups { get; init; } = [];
+    /// <summary>Settings whose whole numbers an earlier Kiln wrote without their fraction: ShroudForge refuses the mod
+    /// until the next change (of the switch or any setting) puts the fraction back. Read as the fractional settings they
+    /// were (kiln-manage <c>SfMod::repair</c>).</summary>
+    public IReadOnlyList<string> Repair { get; init; } = [];
 
     /// <summary>The settings' values by key.</summary>
     public IReadOnlyDictionary<string, JsonNode?> Values => Settings.ToDictionary(s => s.Key, s => s.Value, StringComparer.Ordinal);
@@ -290,7 +294,7 @@ internal static class ShroudForgePackages
         return i == t.Length ? double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture) : null;
     }
 
-    private static SfSettingDef ParseSetting(string key, JsonNode? entry, bool runtime, bool patch)
+    private static SfSettingDef ParseSetting(string key, JsonNode? entry, bool runtime, bool patch, List<string> repair)
     {
         var meta = entry as JsonObject;
         var shorthand = meta is null || !meta.ContainsKey("value");
@@ -305,11 +309,15 @@ internal static class ShroudForgePackages
             fo.All(kv => RustFloat(kv.Key) is { } f && double.IsFinite(f)) && fo.Any(kv => RustInteger(kv.Key) is null))
         {
             if (value is JsonArray va && va.All(x => NumberOf(x) is not null))
+            {
                 value = new JsonArray(va.Select(x => (JsonNode?)JsonValue.Create(NumberOf(x)!.Value)).ToArray());
+                repair.Add(key);
+            }
             else if (value is JsonValue)
             {
                 value = JsonValue.Create(NumberOf(value)!.Value);
                 type = "number";
+                repair.Add(key);
             }
         }
         var options = new List<SfOption>();
@@ -363,10 +371,11 @@ internal static class ShroudForgePackages
         if (ext["targets"] is not JsonArray)
             targets = launcher == "EML" || !extended ? ["client", "server"] : ["client"];
         var settings = new List<SfSettingDef>();
+        var repair = new List<string>();
         if (ext["settings"] is JsonObject so)
         {
-            // duplicate keys: the last one counts (JsonNode refuses duplicates, so a file with them fails to read above)
-            foreach (var (k, v) in so) settings.Add(ParseSetting(k, v, runtime, patch));
+            // a repeated key was read as ShroudForge reads it (Parse): its first place, its last value
+            foreach (var (k, v) in so) settings.Add(ParseSetting(k, v, runtime, patch, repair));
         }
         var groups = new List<SfGroup>();
         if (ext["groups"] is JsonArray ga)
@@ -383,7 +392,7 @@ internal static class ShroudForgePackages
         {
             Folder = folder, Id = id, Name = Str(mod, "name") ?? id, Version = Str(mod, "version") ?? "", Description = Str(mod, "description") ?? "",
             Enabled = Flag(ext, "enabled") ?? Flag(mod, "enabled") ?? false, Extended = extended, SwitchLive = runtime && !patch,
-            Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups,
+            Capabilities = caps, Targets = targets, Settings = new SfSettingList(settings), Groups = groups, Repair = repair,
         };
     }
 

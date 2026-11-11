@@ -187,6 +187,10 @@ pub struct SfMod {
     pub launcher: Option<String>,
     /// extended.mod.json exists
     pub extended: bool,
+    /// Settings whose whole numbers an earlier Kiln wrote without their fraction: ShroudForge refuses the mod until the
+    /// next change (of the switch or any setting) puts the fraction back. Read as the fractional settings they were.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repair: Vec<String>,
 }
 
 /// The largest package file Kiln reads or writes (the in-game page's bound too: ShroudForge.cs `MaxFileBytes`).
@@ -410,8 +414,11 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     let capabilities: Vec<String> =
         m.get("capabilities").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
     let (runtime, patch) = runtime_parts(&capabilities);
+    let mut repair = Vec::new();
     for s in &mut settings {
-        recover_fraction(s);
+        if recover_fraction(s) {
+            repair.push(s.key.clone());
+        }
         let raw = &ext["settings"][&s.key];
         if s.value.is_null() || s.value.is_object() ||
             !matches!(s.apply_at.as_deref(), Some("live" | "restart")) ||
@@ -442,6 +449,7 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         groups: ext.get("groups").and_then(|a| a.as_array()).cloned().unwrap_or_default(),
         launcher,
         extended,
+        repair,
     })
 }
 
@@ -538,14 +546,15 @@ fn write_extension(m: &SfMod, text: &str) -> Result<()> {
 /// A whole number written without its fraction by an earlier Kiln (`[2, 1.5]` for a fractional list, `2` for a
 /// fractional select): ShroudForge then types the setting as an integer and refuses its fractional option keys, so the mod
 /// no longer loads. When every option key is a finite number and one of them is not whole, the setting can only have been
-/// the fractional one: it is read as that, and [`repair_fractions`] puts the fraction back on the next write.
-fn recover_fraction(s: &mut SfSetting) {
-    let Some(opts) = s.options.as_ref().filter(|o| !o.is_empty()) else { return };
+/// the fractional one: it is read as that, and [`repair_fractions`] puts the fraction back on the next write. True when
+/// the setting was read so.
+fn recover_fraction(s: &mut SfSetting) -> bool {
+    let Some(opts) = s.options.as_ref().filter(|o| !o.is_empty()) else { return false };
     if option_type(s) != "integer"
         || !opts.keys().all(|k| k.parse::<f64>().is_ok_and(f64::is_finite))
         || opts.keys().all(|k| k.parse::<i64>().is_ok())
     {
-        return;
+        return false;
     }
     let fractional = |v: &mut serde_json::Value| {
         if let Some(n) = v.as_f64().and_then(serde_json::Number::from_f64) {
@@ -555,8 +564,9 @@ fn recover_fraction(s: &mut SfSetting) {
     match &mut s.value {
         serde_json::Value::Array(items) if items.iter().all(|v| v.is_number()) => items.iter_mut().for_each(fractional),
         v @ serde_json::Value::Number(_) => fractional(v),
-        _ => {}
+        _ => return false,
     }
+    true
 }
 
 /// A number token ShroudForge's serde_json reads as an integer (`as_i64`): `2`, not `2.0`, `-0` or `1e2`.

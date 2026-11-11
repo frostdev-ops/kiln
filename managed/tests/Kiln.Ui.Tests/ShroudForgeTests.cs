@@ -95,6 +95,7 @@ public sealed class ShroudForgeTests : IDisposable
             Assert.Equal(read["switchLive"]!.GetValue<bool>(), p.SwitchLive);
             Same(read["settings"], new JsonArray(p.Settings.Select(View).ToArray()), name + ": settings");
             Same(read["enabledNow"], EnabledNow(p), name + ": enabledWhen");
+            Same(read["repair"] ?? new JsonArray(), new JsonArray(p.Repair.Select(k => (JsonNode)k).ToArray()), name + ": settings to repair");
         }
 
         var file = Path.Combine(dir, "extended.mod.json");
@@ -113,7 +114,12 @@ public sealed class ShroudForgeTests : IDisposable
         }
         // the bytes, not File.ReadAllText: that would drop a byte order mark the writer left (GetString keeps it as U+FEFF)
         if (refused) Assert.Equal(original, File.ReadAllBytes(file));
-        else Assert.Equal(c["expect"]!.GetValue<string>(), new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(file)));
+        else
+        {
+            Assert.Equal(c["expect"]!.GetValue<string>(), new System.Text.UTF8Encoding(false, true).GetString(File.ReadAllBytes(file)));
+            // a write repairs every setting an earlier Kiln damaged
+            if (File.Exists(file)) Assert.Empty(ShroudForgePackages.Read(dir).Repair);
+        }
         // the writer's temporary file (extended.mod.json.kiln-<id>.tmp) is gone
         Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
         if (c["enabledAfter"] is { } after) Same(after, EnabledNow(ShroudForgePackages.Read(dir)), name + ": enabledWhen after the edits");

@@ -814,7 +814,7 @@
     },
     {
       "name": "damaged-fractional-values-are-repaired",
-      "about": "what an earlier Kiln wrote for a fractional setting (a whole value without its fraction): ShroudForge refuses it (an integer first member, fractional option keys); it is read as the fractional setting it was and repaired by the next write. An integer setting with whole option keys stays an integer setting",
+      "about": "what an earlier Kiln wrote for a fractional setting (a whole first member or value without its fraction): ShroudForge refuses the mod (\"invalid option\": an integer first member, fractional option keys). It is read as the fractional setting it was, listed under \"repair\", and the next write (here the switch) puts the fraction back. A later whole member ([2.5, 1]) is what ShroudForge accepts and stays as it is; an integer setting with whole option keys stays an integer setting",
       "mod": {
         "id": "damaged",
         "name": "damaged",
@@ -823,7 +823,7 @@
           "runtime"
         ]
       },
-      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
+      "extended": "{\n  \"enabled\": true,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"coarse\": {\"value\": [1, 2.5], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"later\": {\"value\": [2.5, 1], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 2, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"level\": {\"value\": 2, \"options\": {\"1.0\": \"One\", \"2.0\": \"Two\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -851,6 +851,42 @@
             ]
           },
           {
+            "key": "coarse",
+            "type": "array",
+            "label": "coarse",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.0,
+                "label": "1x"
+              },
+              {
+                "value": 2.5,
+                "label": "2.5x"
+              }
+            ]
+          },
+          {
+            "key": "later",
+            "type": "array",
+            "label": "later",
+            "control": "multiselect",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.0,
+                "label": "1x"
+              },
+              {
+                "value": 2.5,
+                "label": "2.5x"
+              }
+            ]
+          },
+          {
             "key": "gain",
             "type": "number",
             "label": "gain",
@@ -865,6 +901,24 @@
               {
                 "value": 2.0,
                 "label": "High"
+              }
+            ]
+          },
+          {
+            "key": "level",
+            "type": "number",
+            "label": "level",
+            "control": "select",
+            "applyAt": "restart",
+            "live": true,
+            "options": [
+              {
+                "value": 1.0,
+                "label": "One"
+              },
+              {
+                "value": 2.0,
+                "label": "Two"
               }
             ]
           },
@@ -889,8 +943,17 @@
         ],
         "enabledNow": [
           "multipliers",
+          "coarse",
+          "later",
           "gain",
+          "level",
           "count"
+        ],
+        "repair": [
+          "multipliers",
+          "coarse",
+          "gain",
+          "level"
         ]
       },
       "edits": [
@@ -909,10 +972,13 @@
           "ok": false
         }
       ],
-      "expect": "{\n  \"enabled\": false,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 1.5, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
+      "expect": "{\n  \"enabled\": false,\n  \"settings\": {\n    \"multipliers\": {\"value\": [2.0, 1.5], \"options\": {\"1.5\": \"1.5x\", \"2\": \"2x\", \"2.5\": \"2.5x\"}},\n    \"coarse\": {\"value\": [1.0, 2.5], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"later\": {\"value\": [2.5, 1], \"options\": {\"1.0\": \"1x\", \"2.5\": \"2.5x\"}},\n    \"gain\": {\"value\": 1.5, \"options\": {\"1.5\": \"Low\", \"2\": \"High\"}},\n    \"level\": {\"value\": 2.0, \"options\": {\"1.0\": \"One\", \"2.0\": \"Two\"}},\n    \"count\": {\"value\": 2, \"options\": {\"1\": \"One\", \"2\": \"Two\"}}\n  }\n}\n",
       "enabledAfter": [
         "multipliers",
+        "coarse",
+        "later",
         "gain",
+        "level",
         "count"
       ]
     },
@@ -1036,8 +1102,36 @@
       "expect": "{\"enabled\":true,\"settings\":{\"count\":{\"value\":3,\"options\":{}}}}\n"
     },
     {
+      "name": "empty-options-on-a-list-are-refused",
+      "about": "the same for a list (ShroudForge: minProperties 1, and a list must declare options)",
+      "mod": {
+        "id": "empty-list-options",
+        "name": "empty-list-options",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "extended": "{\"enabled\":true,\"settings\":{\"kinds\":{\"value\":[\"wood\"],\"options\":{}}}}\n",
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "kinds",
+          "value": [
+            "wood"
+          ],
+          "ok": false
+        }
+      ],
+      "expect": "{\"enabled\":true,\"settings\":{\"kinds\":{\"value\":[\"wood\"],\"options\":{}}}}\n"
+    },
+    {
       "name": "negative-zero-is-fractional",
-      "about": "ShroudForge's serde_json reads -0 as a float: a number setting",
+      "about": "ShroudForge's serde_json reads -0 as a float: a fractional setting, whose option keys are read as fractions (0 is 0.0) and whose whole values keep a fraction",
       "mod": {
         "id": "negative-zero",
         "name": "negative-zero",
@@ -1046,7 +1140,7 @@
           "runtime"
         ]
       },
-      "extended": "{\"enabled\":true,\"settings\":{\"offset\":{\"value\":-0}}}\n",
+      "extended": "{\"enabled\":true,\"settings\":{\"offset\":{\"value\":-0,\"options\":{\"-0.5\":\"Left\",\"0\":\"Middle\",\"0.5\":\"Right\"}}}}\n",
       "read": {
         "enabled": true,
         "switchLive": true,
@@ -1055,9 +1149,23 @@
             "key": "offset",
             "type": "number",
             "label": "offset",
-            "control": null,
+            "control": "select",
             "applyAt": "restart",
-            "live": true
+            "live": true,
+            "options": [
+              {
+                "value": -0.5,
+                "label": "Left"
+              },
+              {
+                "value": 0.0,
+                "label": "Middle"
+              },
+              {
+                "value": 0.5,
+                "label": "Right"
+              }
+            ]
           }
         ],
         "enabledNow": [
@@ -1067,11 +1175,21 @@
       "edits": [
         {
           "setting": "offset",
-          "value": 5,
+          "value": 0.5,
+          "ok": true
+        },
+        {
+          "setting": "offset",
+          "value": 1,
+          "ok": false
+        },
+        {
+          "setting": "offset",
+          "value": 0,
           "ok": true
         }
       ],
-      "expect": "{\"enabled\":true,\"settings\":{\"offset\":{\"value\":5.0}}}\n"
+      "expect": "{\"enabled\":true,\"settings\":{\"offset\":{\"value\":0.0,\"options\":{\"-0.5\":\"Left\",\"0\":\"Middle\",\"0.5\":\"Right\"}}}}\n"
     },
     {
       "name": "numbers-are-written-as-shroudforge-writes-them",
