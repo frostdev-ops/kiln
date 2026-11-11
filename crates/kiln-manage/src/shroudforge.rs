@@ -80,16 +80,20 @@ pub fn mods_dir(game_dir: &Path) -> PathBuf {
 /// failed with "Read-only file system". Such a path is found again through the game folder: the two name the same
 /// folders from the point where the Windows path enters the game's path.
 fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
+    resolve_game_folder(game_dir, p).unwrap_or_else(|| game_dir.join("mods"))
+}
+
+fn resolve_game_folder(game_dir: &Path, p: &str) -> Option<PathBuf> {
     let host = PathBuf::from(p);
     if host.is_absolute() && host.is_dir() && (cfg!(windows) || !p.starts_with("//")) {
-        return host;
+        return Some(host);
     }
     let plain = crate::winpath::strip_verbatim(&p.replace('/', "\\")).into_owned();
     if !crate::winpath::is_absolute_game_path(&plain) {
-        return game_dir.join(p.replace('\\', "/"));
+        return Some(game_dir.join(p.replace('\\', "/")));
     }
     if let Some(z) = crate::winpath::z_to_unix(&plain).filter(|h| h.is_dir()) {
-        return z;
+        return Some(z);
     }
     // another drive of the prefix (or a Windows path read on another system): the part inside the game folder
     let win: Vec<&str> = plain.split('\\').filter(|c| !c.is_empty()).skip(1).collect(); // without the drive
@@ -99,11 +103,11 @@ fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
     }).collect();
     for k in (1..=win.len().min(game.len())).rev() {
         if win[..k].iter().zip(&game[game.len() - k..]).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
-            return win[k..].iter().fold(game_dir.to_path_buf(), |dir, c| dir.join(c));
+            return Some(win[k..].iter().fold(game_dir.to_path_buf(), |dir, c| dir.join(c)));
         }
     }
-    // a folder outside the game that this system cannot name: ShroudForge's default, never a path made of a drive letter
-    game_dir.join("mods")
+    // A Windows folder this system cannot name must not turn into a relative path containing a drive letter.
+    None
 }
 
 /// One setting of a ShroudForge mod (extended.mod.json `settings.<key>`).
@@ -568,22 +572,117 @@ pub fn status(game_dir: &Path) -> Result<Option<serde_json::Value>> {
     crate::util::read_json(&game_dir.join(STATUS_FILE))
 }
 
-/// ShroudForge's own per-mod effect reports (`runtime.report_effect`) from its state file: id -> {state, detail}.
-pub fn effects(game_dir: &Path) -> serde_json::Value {
-    let state_dir = std::fs::read(game_dir.join(CONFIG_FILE))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.pointer("/paths/state").and_then(|s| s.as_str()).map(str::to_owned))
-        .filter(|s| !s.trim().is_empty());
-    let file = match state_dir {
-        Some(d) => game_dir.join(d.replace('\\', "/")).join("state.json"),
-        None => game_dir.join("shroudforge/state.json"),
+/// An observation from SF, not independent verification of a gameplay effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfEffect {
+    pub id: String,
+    pub state: String,
+    pub detail: String,
+}
+
+/// SF's runtime report, separate from the adapter's "hosted" state. Only a current report has mod rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfEffects {
+    pub file: String,
+    /// current | stale | stopped | unavailable | invalid
+    pub state: String,
+    pub updated_at: Option<u64>,
+    pub reason: Option<String>,
+    pub mods: Vec<SfEffect>,
+}
+
+fn read_effect_json(game_dir: &Path, file: &Path) -> std::result::Result<Option<serde_json::Value>, String> {
+    use std::io::Read;
+    crate::engine_mods::refuse_symlink_path(game_dir, file).map_err(|e| e.message)?;
+    match std::fs::metadata(file) {
+        Ok(meta) if !meta.is_file() => return Err("ShroudForge report must be a regular file".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Cannot inspect ShroudForge report: {e}")),
+        _ => {}
+    }
+    let input = match std::fs::File::open(file) {
+        Ok(input) => input,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Cannot read ShroudForge report: {e}")),
     };
-    std::fs::read(file)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.pointer("/runtime/effects").cloned())
-        .unwrap_or_else(|| serde_json::json!({}))
+    const LIMIT: u64 = 2 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    input.take(LIMIT + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > LIMIT { return Err("ShroudForge report exceeds 2 MiB".into()); }
+    serde_json::from_slice(&bytes).map(Some).map_err(|_| "ShroudForge report or configuration is not valid JSON".into())
+}
+
+/// Read SF's own per-mod effects and errors. An unchanged effect remains valid while the runtime heartbeat is fresh;
+/// old successes must not be shown as current merely because the adapter started. No game process is started here.
+pub fn effects(game_dir: &Path) -> SfEffects {
+    let mut report = SfEffects {
+        file: game_dir.join("shroudforge/state.json").display().to_string(), state: "invalid".into(),
+        updated_at: None, reason: None, mods: Vec::new(),
+    };
+    let load = || -> std::result::Result<PathBuf, String> {
+        let config = read_effect_json(game_dir, &game_dir.join(CONFIG_FILE))?;
+        match config.as_ref().and_then(|v| v.pointer("/paths/state")) {
+            None | Some(serde_json::Value::Null) => Ok(game_dir.join("shroudforge/state.json")),
+            Some(serde_json::Value::String(p)) if p.trim().is_empty() => Ok(game_dir.join("shroudforge/state.json")),
+            Some(serde_json::Value::String(p)) => resolve_game_folder(game_dir, p.trim())
+                .map(|p| p.join("state.json")).ok_or_else(|| "Configured ShroudForge state path is not accessible on this system".into()),
+            _ => Err("ShroudForge paths.state must be a folder path".into()),
+        }
+    };
+    let file = match load() {
+        Ok(file) => file,
+        Err(reason) => { report.reason = Some(reason); return report; }
+    };
+    report.file = file.display().to_string();
+    let doc = match read_effect_json(game_dir, &file) {
+        Ok(Some(doc)) => doc,
+        Ok(None) => {
+            report.state = "unavailable".into();
+            report.reason = Some("No ShroudForge runtime report yet".into());
+            return report;
+        }
+        Err(reason) => { report.reason = Some(reason); return report; }
+    };
+    let parse = || -> Option<(bool, u64, Vec<SfEffect>)> {
+        let runtime = doc.get("runtime")?.as_object()?;
+        let running = runtime.get("running")?.as_bool()?;
+        let updated = runtime.get("updatedAt")?.as_u64()?;
+        let active: Option<Vec<_>> = runtime.get("active")?.as_array()?.iter().map(|id| id.as_str()).collect();
+        let active = active?;
+        let mut mods = std::collections::BTreeMap::new();
+        if let Some(effects) = runtime.get("effects") {
+            for (id, value) in effects.as_object()? {
+                if !active.contains(&id.as_str()) { continue; }
+                mods.insert(id.clone(), SfEffect { id: id.clone(), state: value.get("state")?.as_str()?.into(),
+                    detail: value.get("detail").map(|v| v.as_str()).unwrap_or(Some(""))?.into() });
+            }
+        }
+        if let Some(errors) = runtime.get("errors") {
+            for (id, detail) in errors.as_object()? {
+                mods.insert(id.clone(), SfEffect { id: id.clone(), state: "error".into(), detail: detail.as_str()?.into() });
+            }
+        }
+        Some((running, updated, mods.into_values().collect()))
+    };
+    let Some((running, updated, mods)) = parse() else {
+        report.reason = Some("ShroudForge runtime report has invalid or missing fields".into());
+        return report;
+    };
+    report.updated_at = Some(updated);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    if !running {
+        report.state = "stopped".into();
+        report.reason = Some("ShroudForge runtime is stopped; previous mod effects are not current".into());
+    } else if updated == 0 || now.saturating_sub(updated) > 30 || updated.saturating_sub(now) > 5 {
+        report.state = "stale".into();
+        report.reason = Some("ShroudForge runtime report is stale; current mod effects are unknown".into());
+    } else {
+        report.state = "current".into();
+        report.mods = mods;
+    }
+    report
 }
 
 #[cfg(test)]

@@ -1083,6 +1083,9 @@ pub struct EngineStatus {
     /// of the kind (`text`: one sentence for the launcher). None: no own loader of this engine is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own_loader: Option<crate::own_loaders::OwnLoaderNote>,
+    /// SF's own runtime heartbeat, per-mod observations and errors (not implied by the adapter being hosted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effects: Option<crate::shroudforge::SfEffects>,
 }
 
 /// The state file name of a kind's plugin.
@@ -1115,6 +1118,16 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 Ok(state) => (state, None),
                 Err(e) => (None, Some(e.message)),
             };
+            let effects = (k == ModKind::ShroudForge).then(|| {
+                let mut effects = crate::shroudforge::effects(game_dir);
+                if effects.state == "current" && state.as_ref().is_some_and(|s|
+                    s["runtime"].as_str() == Some("stopped") || matches!(s["mode"].as_str(), Some("off" | "failed" | "not-installed"))) {
+                    effects.state = "stopped".into();
+                    effects.reason = Some("ShroudForge adapter is not running; previous mod effects are not current".into());
+                    effects.mods.clear();
+                }
+                effects
+            });
             Some(EngineStatus {
                 kind: k,
                 plugin: plugin_of(k).unwrap_or_default().to_string(),
@@ -1122,6 +1135,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 error,
                 file: f.display().to_string(),
                 own_loader: notes.iter().find(|n| n.loader.kind == k).cloned(),
+                effects,
             })
         })
         .collect()

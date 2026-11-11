@@ -360,6 +360,138 @@ fn placement_never_trusts_payload_markers_or_switches_player_packages() {
 }
 
 #[test]
+fn sf_flight_switches_remain_independent_through_archive_activation_and_update() {
+    use std::io::Write;
+    let t = tmp("sf-flight-settings");
+    let dirs = DataDirs::at(t.0.join("data"));
+    // Synthetic package, not a copy of a third-party mod. The two controls must not be conflated.
+    let import = |version: &str| {
+        let archive = t.0.join(format!("flight-{version}.zip"));
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+        for (path, text) in [
+            ("mod.json", format!(r#"{{"id":"flight-fixture","name":"Flight fixture","version":"{version}","capabilities":["runtime"]}}"#)),
+            ("extended.mod.json", r#"{"launcher":"SF","enabled":false,"targets":["client","server"],"settings":{"unlimitedFlying":{"value":true},"unlimitedGliderStamina":{"value":true}}}"#.into()),
+            ("src/mod.lua", "return {}".into()),
+        ] {
+            zip.start_file(format!("bundle/flight/{path}"), zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        refs(&library::import(&dirs, &[archive], &mut NoProgress).unwrap(), ModKind::ShroudForge, "flight-fixture")
+    };
+    let first = import("1.0.0");
+    let source = library::path_of(&dirs, &first).unwrap();
+    let original = std::fs::read(source.join("extended.mod.json")).unwrap();
+    let mut p = profile::create(&dirs, "Flight settings", None).unwrap();
+    p.mods.shroudforge.push(pm(&first, true));
+    p = profile::save(&dirs, &p).unwrap();
+    let game = game_with_z(&t.0);
+    put(&game.path, kiln_manage::shroudforge::CONFIG_FILE, br#"{"paths":{"mods":"custom\\mods"}}"#);
+    let dst = game.path.join("custom/mods/flight-fixture");
+    let cfg = dirs.profile(&p.id).join("config");
+    let values = || engine_mods::settings(ModKind::ShroudForge, "flight-fixture", Some(&game.path), &cfg, Some(&source)).unwrap().values;
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(values(), serde_json::json!({"unlimitedFlying":true,"unlimitedGliderStamina":true}));
+    assert!(kiln_manage::shroudforge::read_mod(&dst).unwrap().enabled);
+    engine_mods::set_setting(ModKind::ShroudForge, "flight-fixture", "unlimitedFlying", &false.into(), Some(&game.path), &cfg, None).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(values(), serde_json::json!({"unlimitedFlying":false,"unlimitedGliderStamina":true}));
+    p.mods.shroudforge[0] = pm(&import("2.0.0"), true);
+    profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().version, "2.0.0");
+    assert_eq!(values(), serde_json::json!({"unlimitedFlying":false,"unlimitedGliderStamina":true}));
+    engine_mods::set_setting(ModKind::ShroudForge, "flight-fixture", "unlimitedFlying", &true.into(), Some(&game.path), &cfg, None).unwrap();
+    engine_mods::set_setting(ModKind::ShroudForge, "flight-fixture", "unlimitedGliderStamina", &false.into(), Some(&game.path), &cfg, None).unwrap();
+    assert_eq!(values(), serde_json::json!({"unlimitedFlying":true,"unlimitedGliderStamina":false}));
+    assert_eq!(std::fs::read(source.join("extended.mod.json")).unwrap(), original, "settings writes must target the placed copy, not the Library");
+}
+
+#[test]
+fn sf_effects_reach_engine_status_without_presenting_old_or_invalid_reports_as_current() {
+    let t = tmp("sf-effects");
+    let game = &t.0;
+    let read = || engine_mods::status(game).into_iter().find(|s| s.kind == ModKind::ShroudForge).unwrap().effects.unwrap();
+    assert_eq!(read().state, "unavailable");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let state = |running: bool, updated: u64| serde_json::json!({"runtime": {
+        "running":running,"updatedAt":updated,"active":["flight-fixture"],
+        "effects":{"flight-fixture":{"state":"no-target","detail":"No live player entity is available","updatedAt":1}}
+    }});
+    let write = |doc: serde_json::Value| put(game, "shroudforge/state.json", &serde_json::to_vec(&doc).unwrap());
+    write(state(true, now));
+    let fresh = read();
+    assert_eq!(fresh.state, "current");
+    assert_eq!(fresh.mods.len(), 1);
+    assert_eq!(fresh.mods[0].id, "flight-fixture");
+    assert_eq!(fresh.mods[0].state, "no-target");
+    assert_eq!(fresh.mods[0].detail, "No live player entity is available");
+    let mut unsupported = state(true, now);
+    unsupported["runtime"]["effects"]["flight-fixture"]["state"] = "waiting".into();
+    unsupported["runtime"]["effects"]["flight-fixture"]["detail"] = "Upward tilt requires pitch-speed input controls. Target-angle controls are not supported".into();
+    write(unsupported);
+    assert_eq!(read().mods[0].state, "waiting");
+    assert!(read().mods[0].detail.contains("Target-angle"));
+    // An unchanged effect is still valid when the runtime heartbeat is current.
+    for (running, updated, expected) in [(true, now - 120, "stale"), (false, now, "stopped"), (true, now + 120, "stale")] {
+        write(state(running, updated));
+        let old = read();
+        assert_eq!(old.state, expected);
+        assert!(old.mods.is_empty());
+        assert!(old.reason.is_some());
+    }
+    put(game, "shroudforge/state.json", b"not JSON");
+    assert_eq!(read().state, "invalid");
+    write(serde_json::json!({"runtime":{"running":true,"effects":{}}}));
+    assert_eq!(read().state, "invalid", "a missing heartbeat cannot prove a live mod effect");
+    let mut bad = state(true, now);
+    bad["runtime"]["effects"]["flight-fixture"]["detail"] = 7.into();
+    write(bad);
+    assert_eq!(read().state, "invalid");
+    let mut failed = state(true, now);
+    failed["runtime"]["effects"]["flight-fixture"]["state"] = "write-failed".into();
+    write(failed);
+    assert_eq!(read().mods[0].state, "write-failed");
+    let mut disabled = state(true, now);
+    disabled["runtime"]["active"] = serde_json::json!([]);
+    disabled["runtime"]["effects"]["flight-fixture"]["state"] = "write-confirmed".into();
+    write(disabled);
+    assert!(read().mods.is_empty(), "an inactive mod's old write must not look current");
+    let mut error = state(true, now);
+    error["runtime"]["errors"] = serde_json::json!({"flight-fixture":"Lua callback failed"});
+    write(error);
+    assert_eq!(read().mods[0].state, "error");
+    assert_eq!(read().mods[0].detail, "Lua callback failed");
+    put(game, "kiln/state/shroudforge.json", br#"{"mode":"hosted","runtime":"stopped"}"#);
+    assert_eq!(read().state, "stopped", "an adapter that just stopped invalidates even a recent SF heartbeat");
+    std::fs::remove_file(game.join("kiln/state/shroudforge.json")).unwrap();
+    let wire = serde_json::to_value(engine_mods::status(game)).unwrap();
+    let sf = wire.as_array().unwrap().iter().find(|s| s["kind"] == "shroudforge").unwrap();
+    assert_eq!(sf["effects"]["updatedAt"], now);
+    assert_eq!(sf["effects"]["mods"][0]["detail"], "Lua callback failed");
+    put(game, kiln_manage::shroudforge::CONFIG_FILE, br#"{"paths":{"state":"custom\\state"}}"#);
+    put(game, "custom/state/state.json", &serde_json::to_vec(&state(true, now)).unwrap());
+    assert_eq!(read().state, "current");
+    assert!(read().file.ends_with("custom/state/state.json"));
+    let win_state = format!("Z:{}", game.join("custom/state").display()).replace('/', "\\");
+    put(game, kiln_manage::shroudforge::CONFIG_FILE, &serde_json::to_vec(&serde_json::json!({"paths":{"state":win_state}})).unwrap());
+    assert_eq!(read().state, "current", "configured Windows state paths must resolve under Proton too");
+    // Do not read through arbitrary links or reinterpret a malformed config as the default path.
+    std::fs::remove_file(game.join("custom/state/state.json")).unwrap();
+    std::os::unix::fs::symlink(game.join("shroudforge/state.json"), game.join("custom/state/state.json")).unwrap();
+    assert_eq!(read().state, "invalid");
+    put(game, kiln_manage::shroudforge::CONFIG_FILE, b"not JSON");
+    assert_eq!(read().state, "invalid");
+    std::fs::remove_file(game.join(kiln_manage::shroudforge::CONFIG_FILE)).unwrap();
+    std::fs::remove_file(game.join("shroudforge/state.json")).unwrap();
+    std::fs::create_dir(game.join("shroudforge/state.json")).unwrap();
+    assert_eq!(read().state, "invalid", "do not read non-regular state files");
+    std::fs::remove_dir(game.join("shroudforge/state.json")).unwrap();
+    put(game, "shroudforge/state.json", &vec![b' '; 2 * 1024 * 1024 + 1]);
+    assert!(read().reason.unwrap().contains("2 MiB"));
+}
+
+#[test]
 fn placement_preserves_settings_across_versions_and_stages_before_replacing() {
     let t = tmp("version-settings");
     let dirs = DataDirs::at(t.0.join("data"));
