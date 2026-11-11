@@ -135,10 +135,16 @@ impl Bridge {
         self.active = false;
     }
     pub fn world(&mut self, present: bool) {
-        if self.world && !present {
-            self.begin_session();
+        // Outside a world (screen 0): not ready and no ownership while it lasts. What this session received
+        // stays; a new beacon, a client change or shutdown starts a new session.
+        if !present {
+            self.end_lease();
         }
         self.world = present;
+    }
+    fn end_lease(&mut self) {
+        self.lease = None;
+        self.queue.clear();
     }
     pub fn tick(&mut self, now: u64, client: usize) {
         self.expire(now);
@@ -158,14 +164,14 @@ impl Bridge {
             && self.tick.is_some_and(|t| now >= t && now - t <= TTL)
     }
     fn expire(&mut self, now: u64) {
-        // A stale tick invalidates the session, not merely the lease: a world with
-        // a reused client address must not revive old ownership on a later tick.
-        if self.tick.is_some_and(|t| now < t || now - t > TTL) {
-            self.begin_session();
-        }
-        if self.lease.as_ref().is_some_and(|l| now >= l.until) {
-            self.lease = None;
-            self.queue.clear();
+        // A stale tick (a loading stall, a title-bar drag) means not ready while it lasts
+        // (ready() checks its age) and ends ownership: the lease and its queue never come
+        // back. Received state stays for the same session and client pointer; upstream
+        // treats the same threshold as a live value that recovers.
+        if self.tick.is_some_and(|t| now < t || now - t > TTL)
+            || self.lease.as_ref().is_some_and(|l| now >= l.until)
+        {
+            self.end_lease();
         }
     }
     pub fn presenting(&mut self, now: u64) -> bool {

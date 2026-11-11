@@ -139,8 +139,13 @@ The operations are:
 
 Readiness requires an accepted real beacon, UI-protocol-2 welcome, recognized world through the existing native UI
 hook, and a recent actual client update. A wholly failed native UI installation therefore cannot use this bridge;
-a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. World departure, stale
-updates, client-pointer change, session/module replacement and shutdown invalidate ownership. Kiln releases its
+a replacement copy also needs a fresh real beacon/rejoin, not restored environment state. A UI frame outside the
+world (screen 0) or more than two seconds without a client update (a loading stall, a title-bar drag) means not
+ready while it lasts and ends the lease and its queued events; what the session received stays and shows again
+once the world and the updates are back, as upstream treats the same two-second threshold as a live value. A new
+beacon, a client-pointer change, module replacement and shutdown start a new session and drop everything received.
+Like the addon's own menu, the bridge keeps the last host's entries if a later world has no shroudlink host and the
+game reuses the same client object; events then go out as the native menu's would. Kiln releases its
 lease when the menu closes, another section is selected, or its menu frame fails; expiry handles stopped rendering.
 Discovery only examines already-loaded modules, holds a module reference, and rejects non-owned/non-executable
 exports. There are no transport taps, unknown game layouts, receive-injection API or test TCP listener.
