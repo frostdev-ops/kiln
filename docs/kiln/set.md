@@ -227,7 +227,9 @@ lifecycle. `tests/inspector_cases.inl` exercises nearest selection across 5,000 
 ids, bounded copies, exact compare-before-write, range/NaN refusal, selection changes during reads, world/session
 changes and thread guards. Managed `SetToolsTests` checks the private service table and UTF-8 mod-folder bridge.
 `bash native/plugins/set/test-wine.sh` checks the real Windows loader-notification/fingerprint coexistence path
-headlessly. These checks do not verify client rendering.
+headlessly, and the production stack check and guarded copy behind rule field writes (`tests/wine_rules_test.cpp`,
+built with the plugin's `/EHa`: this thread's stack only, read-only/no-access/guard/reserved pages refused without a
+crash, protection never lifted). These checks do not verify client rendering.
 
 ## Lab tests
 The disposable headless `d24-set` lab, on server build 1793791038 with the merged current-main sources, reported

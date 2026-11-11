@@ -14,6 +14,9 @@ link=(-fuse-ld=lld-link /link /libpath:"$xwin/crt/lib/x86_64" /libpath:"$xwin/sd
 "${compile[@]}" "$here/tests/wine_watch_test.cpp" /Fo"$out/wine_watch_test.obj" /Fe"$out/wine_watch_test.exe" "${link[@]}" >/dev/null
 "${compile[@]}" /LD /DKSET_WATCH_DLL "$here/tests/wine_watch_test.cpp" /Fo"$out/watch-fixture.obj" /Fe"$out/watch-fixture.dll" "${link[@]}" >/dev/null
 "${compile[@]}" /LD /DKSET_SILENT_DLL "$here/tests/wine_watch_test.cpp" /Fo"$out/silent-loader.obj" /Fe"$out/silent-loader.dll" "${link[@]}" >/dev/null
+# The rule field write guard and stack check (hooks.cpp), with the plugin's /EHa (native/CMakeLists.txt says why).
+"${compile[@]}" /EHa /I"$here/src" /I"$here/../../core/abi" "$here/tests/wine_rules_test.cpp" "$here/src/rules.cpp" \
+  /Fo"$out/" /Fe"$out/wine_rules_test.exe" "${link[@]}" >/dev/null
 ge=$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-11-x86_64/files/bin/wine
 wine=${KILN_WINE:-$([[ -x $ge ]] && echo "$ge" || command -v wine)}
 export WINEPREFIX=$out/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d"
@@ -21,3 +24,4 @@ export WINEPREFIX=$out/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=;win
 unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 mkdir -p "$WINEPREFIX"
 "$wine" "$out/wine_watch_test.exe" 2>"$out/wine.err" | tr -d '\r'
+"$wine" "$out/wine_rules_test.exe" 2>"$out/wine-rules.err" | tr -d '\r'
