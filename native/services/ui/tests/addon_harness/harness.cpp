@@ -59,6 +59,20 @@ void logf(int, const char* fmt, ...) {
 }
 uint64_t now_ms() { return GetTickCount64(); }
 bool dispatch_key(const KilnUiKey&) { return false; }  // no Kiln key bindings here
+// subscribe_window_input's registry (input.cpp); nothing subscribes here
+thread_local CallbackLifetime* t_callback = nullptr;
+void set_error(const char* fmt, ...) {
+    char b[256];
+    va_list a;
+    va_start(a, fmt);
+    std::vsnprintf(b, sizeof b, fmt, a);
+    va_end(a);
+    std::printf("KILN: error: %s\n", b);
+}
+KilnHandle next_handle() {
+    static std::atomic<KilnHandle> h{1};
+    return h++;
+}
 }  // namespace kui
 
 // Only paths/clock/logging and the synthetic image backing sigdb are adapters. Production foreign_scan.cpp and
