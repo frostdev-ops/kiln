@@ -8,6 +8,9 @@
  setui::bind(&toolsUi,1);
  assert(toolsMenu&&toolsKey);
  assert(setui::service()->open({"one",3})==KILN_OK&&toolsDemand==1&&toolsCapture==1);
+ {const std::string longest(257,'m');                                       // a mod name has at most 256 bytes
+  assert(setui::service()->open({longest.data(),257})==KILN_ERR_UNAVAILABLE&&setui::service()->open({longest.data(),256})==KILN_OK);
+  assert(setui::service()->open({"one",3})==KILN_OK);}
  toolsInputs={{"God mode","false"},{"regen","7.125"},{"count","4"},{"mode","1"},{"name","xy"}};
  const int top=lua_gettop(L);
  setui::draw();setui::draw();assert(toolsInputs.empty()&&toolsWindows==0&&toolsIds==0&&lua_gettop(L)==top);assert(logged("[SET UI] Opened tools"));
@@ -79,6 +82,13 @@
  toolsEnter="Lua";setui::draw();assert(takeQueue()==std::vector<std::string>{"return 123"});
  setui::draw();setui::draw();assert(takeQueue().empty()&&toolsInputs.empty());
  toolsInputs={{"Lua","return 7"}};toolsClick="Run";setui::draw();assert(takeQueue()==std::vector<std::string>{"return 7"});toolsInputs.clear();
+ // The console history keeps the last 2,000 lines, each at most 4,096 bytes.
+ toolsClick="Clear";setui::draw();
+ for(int i=0;i<2001;++i)setui::line(("history "+std::to_string(i)).c_str());
+ setui::line(std::string(5000,'L').c_str());
+ toolsRows.clear();setui::draw();
+ assert(toolsRows.size()==2000&&toolsRows.front()=="history 2"&&toolsRows.back()==std::string(4096,'L'));
+ toolsClick="Clear";setui::draw();toolsRows.clear();setui::draw();assert(toolsRows.empty());
  assert(std::none_of(toolsRows.begin(),toolsRows.end(),[](const auto& row){return row.find("[SET UI]")!=std::string::npos;}));
  // Escape cancels a remap without closing tools, and modifier-only keys never become bindings.
  must(L,one,"Keys.hotkey('tools','Tools remap test',function()end)");rt::setBinding("one.tools",0,0x77);

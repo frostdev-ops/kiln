@@ -225,8 +225,10 @@ file. `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
 `tests/overlay_cases.inl` drives the production SET tools through a mocked drawing table: all five setting types,
 large-int/double precision, next-tick/coalesced callbacks, reload revisions, exact feature reasons, sandboxed/redacted
 reports, current/previous log payloads, crash notice/dismissal/clean markers, console queuing and remap/Escape/capture
-lifecycle. `tests/inspector_cases.inl` exercises nearest selection across 5,000 matches, scalar watch snapshots and gone
-ids, bounded copies, exact compare-before-write, range/NaN refusal, selection changes during reads, world/session
+lifecycle, the 2,000-line/4,096-byte console history and the 256-byte mod name. `tests/inspector_cases.inl` exercises
+nearest selection across 5,000 matches, scalar watch snapshots and gone ids, each documented bound (65,536 candidates
+and the note, 512 fields, depth 6, 32 array elements, 64 pins, 32 queued edits, 256-byte values, the 500 ms refresh)
+with a case that fails without it, exact compare-before-write, range/NaN refusal, selection changes during reads, world/session
 changes and thread guards. Managed `SetToolsTests` checks the private service table and UTF-8 mod-folder bridge.
 `bash native/plugins/set/test-wine.sh` checks the real Windows loader-notification/fingerprint coexistence path
 headlessly, and the production stack check and guarded copy behind rule field writes (`tests/wine_rules_test.cpp`,
