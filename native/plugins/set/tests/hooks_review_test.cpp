@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Exercise the real hook adapter with guarded fake game memory and a fake kiln.hooks table.
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include "../src/hooks.cpp"
 #include "../src/coexist.h"
@@ -81,7 +84,9 @@ int main() {
         std::istringstream dll(std::string(65530, 'x') + marker + "tail");
         assert(kset::set_marker(dll));
     }
-    {  // SET 0.2.0's own powrprof.dll: its version resource (UTF-16) and its start line (ASCII) still carry the name
+    {  // The shapes the name has in SET's own powrprof.dll: its version resource (UTF-16) and its start line (ASCII).
+       // Checked on SET 0.1.1's release file (SHA-256 de2249b9db93f4f3...; `strings`), not on 0.2.0's: that 0.2.0
+       // still carries them is assumed. These inputs are built from the name, so they test the scan, not the file.
         std::string resource(4096, '\0');
         for (const char* text : {"FileDescription", "Shrouded Engine Tweaks: Lua mods and an in-game overlay", "ProductVersion", "0.2.0"}) {
             for (const char* c = text; *c; ++c) { resource += *c; resource += '\0'; }
@@ -91,6 +96,12 @@ int main() {
         assert(kset::set_marker(v020));
         std::istringstream line(std::string(100, '\x01') + "Shrouded Engine Tweaks %s (%04u-%02u-%02u)");
         assert(kset::set_marker(line));
+    }
+    // A real SET powrprof.dll, when one is given (third-party files are never in the repo): KILN_SET_POWRPROF=<file>.
+    if (const char* real = std::getenv("KILN_SET_POWRPROF"); real && *real) {
+        std::ifstream file(real, std::ios::binary);
+        assert(file && kset::set_marker(file));
+        std::printf("hooks/coexist review: %s carries SET's name\n", real);
     }
     std::istringstream system_dll("Windows power API");
     assert(!kset::set_marker(system_dll));

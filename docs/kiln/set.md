@@ -13,7 +13,8 @@ Unlike SET, mods also run on a **dedicated server**.
    `[set] Mod Loaded: myheal`, `[set] Mods: 2 loaded, 0 failed` (SET 0.2.0's wording; 0.1.1 wrote `Mod loaded:`). Everything a mod prints goes there too.
 
 kiln-set steps aside when it finds a non-system `powrprof.dll` anywhere in the loaded-module inventory, or a renamed
-module containing SET's branding. This is deliberately conservative: an unrelated non-system power proxy also
+module containing SET's branding (its name in ASCII or UTF-16; found in SET 0.1.1's release DLL, assumed for 0.2.0's,
+which has not been checked). This is deliberately conservative: an unrelated non-system power proxy also
 suppresses kiln-set. Windows' own System32 power DLL does not. The check runs before initialization and before Lua
 tick/menu work; a module loaded later stops the runtime and releases its Lua owners. Kiln uses `dinput8.dll`, so
 installation does not replace SET's file.
@@ -218,7 +219,8 @@ small host shim and tests sandbox escapes, script limits, isolation, reflection 
 game. `bash native/plugins/set/test-review.sh` tests the real hook capture adapter with ASan/UBSan, the plugin's
 startup/late-load coexistence checks (a failed module inventory included), mocked ImGui nesting/recovery, and SET
 0.2.0's rules: the rule engine, the catalog checks, and rules through the real hook adapter on a fake kiln.hooks
-(`tests/rules_review_test.cpp`). `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
+(`tests/rules_review_test.cpp`); `KILN_SET_POWRPROF=<a SET powrprof.dll>` also checks the branding scan on a real
+file. `tests/set020_cases.inl` runs `Features()`, key names, `Settings.define`,
 `Hooks.rule` and the write log through the Lua bridge, including malformed-array and nonfinite-value rejection.
 `tests/overlay_cases.inl` drives the production SET tools through a mocked drawing table: all five setting types,
 large-int/double precision, next-tick/coalesced callbacks, reload revisions, exact feature reasons, sandboxed/redacted
