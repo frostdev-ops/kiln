@@ -519,21 +519,42 @@ fn package_chain(dir: &Path, primary: &str, report: &mut ImportReport, label: &s
     }
     let text = crate::chain::decode(&bytes);
     for line in crate::chain::lines(&text) {
-        let crate::chain::IniLine::Text(section, value) = line else { continue };
+        let crate::chain::IniLine::Text(section, text) = line else { continue };
         if section.is_some_and(|s| s != "chain" && s != "emf") { continue; }
+        // the proxy's own rules (dinput8.cpp read_dll_list, chain::dll_sections): "key = value" counts by its value,
+        // and a line that names no DLL is no entry
+        let value = text.split_once('=').map_or(text, |(_, v)| v.trim_matches([' ', '\t']));
+        if !value.to_ascii_lowercase().ends_with(".dll") { continue; }
         let rel = value.replace('\\', "/");
-        if crate::bundle::safe_rel_path(&rel).is_err() || !rel.to_ascii_lowercase().ends_with(".dll") {
+        if crate::bundle::safe_rel_path(&rel).is_err() {
             report.skipped.push(Skipped { path: label.into(), reason: format!("dinput8-chain.ini: unsafe DLL path {value:?} was not imported") });
             continue;
         }
+        // Windows finds the file whatever the case of its name: the path as it is spelled in the package
         // A redundant bundled EML proxy is deliberately not present in this native folder: kiln-eml runs those mods.
-        if !dir.join(&rel).is_file() {
+        let Some(rel) = rel_ignoring_case(dir, &rel) else {
             report.note(label, format!("dinput8-chain.ini: {value} is not in the native package (a bundled loader or a missing file); not chained"));
             continue;
-        }
+        };
         if !dlls.iter().any(|p| p.eq_ignore_ascii_case(&rel)) { dlls.push(rel); }
     }
     dlls
+}
+
+/// `rel` ('/'-separated, already checked to be safe) below `dir` as the files are spelled there, ASCII case ignored;
+/// None when no such file exists. An exact match wins over another spelling.
+fn rel_ignoring_case(dir: &Path, rel: &str) -> Option<String> {
+    let mut at = dir.to_path_buf();
+    let mut out = Vec::new();
+    for part in rel.split('/').filter(|p| !p.is_empty()) {
+        let name = if at.join(part).symlink_metadata().is_ok() { part.to_string() } else {
+            std::fs::read_dir(&at).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+                .find(|n| n.eq_ignore_ascii_case(part))?
+        };
+        at.push(&name);
+        out.push(name);
+    }
+    at.is_file().then(|| out.join("/"))
 }
 
 /// `top_name`: what the package is called when `dir` is an unpacked archive (its file name without the extension).

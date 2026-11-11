@@ -982,6 +982,26 @@ fn a_game_folders_own_steam_api_dll_is_not_a_packages_dll() {
     assert!(only_record(&dirs, ModKind::Eml).get("gameFolder").is_none());
 }
 
+/// manage-import F4: the package's dinput8-chain.ini is read the way Kiln's proxy reads one: "key = value" lines by
+/// their value, lines that name no DLL ignored, file names matched without regard to case (Windows).
+#[test]
+fn a_packages_chain_file_is_read_like_the_proxy_reads_it() {
+    let t = tmp("chain-dialect");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game_with_z(&t.0);
+    let pkg = t.0.join("Chain dialect");
+    put(&pkg, "dinput8.dll", &alp_dinput8());
+    put(&pkg, "extra/other.dll", &build_test_dll(&["Other"], b"chain target"));
+    put(&pkg, "extra/helper.dll", &build_test_dll(&["Helper"], b"chain helper"));
+    put(&pkg, "dinput8-chain.ini", b"[Chain]\nDelay=5\n1 = extra/other.dll\nExtra\\Helper.DLL\n");
+    let r = kiln_manage::quick::add_with(&dirs, &g, &[pkg], false, &mut NoProgress).unwrap();
+    assert!(r.import.skipped.is_empty(), "{:?}", r.import.skipped);
+    let lib = library::list(&dirs, Some(ModKind::Native)).unwrap();
+    let man = kiln_manage::manifest::read_native(&lib[0].versions[0].folder).unwrap();
+    assert_eq!(man.dlls, ["dinput8.dll", "extra/other.dll", "extra/helper.dll"]);
+    assert!(!summary(&r.import).contains("not chained"), "{}", summary(&r.import));
+}
+
 /// manage-import F7: an archive with a DirectInput8 proxy mod and a second proxy-named DLL at its root is named after
 /// the archive, not after the temporary unpack folder, and dropping it again adds nothing.
 #[test]
