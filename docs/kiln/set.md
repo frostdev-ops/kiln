@@ -12,8 +12,8 @@ Unlike SET, mods also run on a **dedicated server**.
 3. Start the server or the game. `kiln/logs/kiln.log` shows each mod as SET does, under `[set]`:
    `[set] Mod Loaded: myheal`, `[set] Mods: 2 loaded, 0 failed` (SET 0.2.0's wording; 0.1.1 wrote `Mod loaded:`). Everything a mod prints goes there too.
 
-kiln-set steps aside when it finds a non-system `powrprof.dll` anywhere in the loaded-module inventory, or a renamed
-module containing SET's branding (its name in ASCII or UTF-16; found in SET 0.1.1's release DLL, assumed for 0.2.0's,
+kiln-set steps aside when it finds a non-system `powrprof.dll` anywhere in the loaded-module inventory (the game
+process's own loader list, as ntdll's `LdrEnumerateLoadedModules` walks it), or a renamed module containing SET's branding (its name in ASCII or UTF-16; found in SET 0.1.1's release DLL, assumed for 0.2.0's,
 which has not been checked). This is deliberately conservative: an unrelated non-system power proxy also
 suppresses kiln-set. Windows' own System32 power DLL does not. The check runs before initialization and before Lua
 tick/menu work; a module loaded later stops the runtime and releases its Lua owners. Kiln uses `dinput8.dll`, so
@@ -26,15 +26,24 @@ profile note. Its Library files and saved selection are unchanged. Remove that n
 the actual SET mod folders instead. A deliberate installation of SET's own loader next to the game is still respected:
 kiln-set steps aside rather than running a second copy of its mods.
 
-A module inventory that cannot be read is not SET. It fails now and then for a moment, for example while a thread
-of the game ends. kiln-set and kiln.types then keep running and look again one second later. They step aside only
-when a SET or power proxy is actually seen, or when **five** looks in a row fail (about four seconds). One clean
-look resets the count. At startup the five looks happen at once, 20 ms apart. Five, because one failed look says
-nothing, a lasting fault shows in a few seconds, and each look is costly under Wine. Stepping aside while the game
-runs undoes the mods' resource changes: at once on a world's thread, otherwise (stepping aside in the main menu) at
-the next step of a world you host.
+The inventory is read in the game's own memory, under ntdll's own locking, not from a Toolhelp module snapshot. Under
+Wine/Proton a snapshot of the own process is read through a handle to its own pid, one wineserver request per entry,
+and fails every time once the process cannot be read that way (a process DACL without `PROCESS_VM_READ`, or wineserver
+unable to read the process). A client under Proton showed such a failure: every snapshot by kiln-set and kiln.types
+failed for 42 s from the loading screen on. A module inventory that cannot be read is not SET. A look that fails names the
+call and its error code, in `kiln.log` and in `state/set.json`'s reason. kiln-set and kiln.types then keep running and
+look again one second later. They step aside only when a SET or power proxy is actually seen, or when **five** looks
+in a row fail (about four seconds): two SET runtimes in one process corrupt the game's state, so "cannot tell" for that
+long counts as a possible SET. One clean look resets the count. At startup the five looks happen at once, 20 ms apart.
+Stepping aside while the game runs undoes the mods' resource changes: at once on a world's thread, otherwise (stepping
+aside in the main menu) at the next step of a world you host. kiln-set's mods then stay off until the game restarts.
+Each check also logs, when it changes, whether the process can be read through a handle to its own pid
+(`kiln-set: diagnostic: ...`): what a Toolhelp snapshot would need, not part of the decision.
 The types service uses the same detector for its runner hook, avoiding competing system controls. If SET loads
-after Kiln installed that hook, the adapter restores all switches and remains passive until process exit.
+after Kiln installed that hook, the adapter restores all switches and remains passive until process exit. If it went
+passive only because five looks failed, it keeps looking every 5 s and turns the runner back on at the first clean look
+(switch and hook requests made before that must be made again); a SET or power proxy seen meanwhile keeps it passive
+until exit.
 
 ## When mods run
 | | Dedicated server | Game, main menu | Game, a world you host |

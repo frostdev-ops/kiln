@@ -24,6 +24,30 @@ inline PEB_LDR_DATA peb_ldr;
 inline PEB peb{&peb_ldr};
 inline TEB teb{&peb};
 }
+inline int32_t loader_test::enumerate_loaded(void* reserved, void (*fn)(LDR_DATA_TABLE_ENTRY*, void*, BOOLEAN*), void* context) {
+    ++walks;
+    if (on_walk) on_walk();
+    if (reserved || !fn) return static_cast<int32_t>(0xC000000D);  // STATUS_INVALID_PARAMETER
+    if (walk_failures) { --walk_failures; return walk_status; }
+    std::lock_guard lock(loader_lock);
+    static wchar_t self_name[] = L"C:\\game\\kiln\\plugins\\kiln-set.dll";
+    std::vector<LDR_DATA_TABLE_ENTRY> list(modules.size() + 1, LDR_DATA_TABLE_ENTRY{});
+    list[0].DllBase = reinterpret_cast<void*>(1);
+    // UNICODE_STRING lengths are in bytes; this host's wchar_t is wider than Windows' two bytes.
+    list[0].FullDllName = {static_cast<uint16_t>((std::size(self_name) - 1) * sizeof(wchar_t)), static_cast<uint16_t>(sizeof self_name), self_name};
+    for (size_t i = 0; i < modules.size(); ++i) {
+        auto& name = peb_names.try_emplace(modules[i], modules[i]).first->second;
+        list[i + 1].DllBase = reinterpret_cast<void*>(i + 2);  // the HMODULE GetModuleFileNameW's shim resolves
+        const auto bytes = static_cast<uint16_t>(name.size() * sizeof(wchar_t));
+        list[i + 1].FullDllName = {bytes, bytes, name.data()};
+    }
+    BOOLEAN stop = 0;
+    for (auto& e : list) {
+        fn(&e, context, &stop);
+        if (stop) break;
+    }
+    return 0;
+}
 inline TEB* NtCurrentTeb() {
     using namespace loader_test;
     ++peb_walks;
