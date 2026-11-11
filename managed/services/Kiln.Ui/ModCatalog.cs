@@ -1327,10 +1327,11 @@ internal static class ModCatalog
     /// <summary>A refresh is running or none has landed yet.</summary>
     public static bool Loading => _cache is null;
 
-    /// <summary>Waits for the running refresh (tests, the preview).</summary>
+    /// <summary>Waits for the running refresh (tests, the preview); starts one only when no snapshot has landed (setting
+    /// <see cref="Sources"/> drops it). A second read after one that already landed would be a read nobody asked for.</summary>
     internal static CatalogSnapshot WaitForSnapshot()
     {
-        Snapshot(TimeSpan.Zero);
+        if (_cache is null) Snapshot(TimeSpan.Zero);
         _refresh?.Wait();
         return _cache ?? CatalogSnapshot.Empty;
     }

@@ -705,6 +705,29 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("Play once without mods: no mod loads this start.", s.Profile);
     }
 
+    /// <summary>WaitForSnapshot waits for the refresh that runs; once one has landed it reads nothing more. It used to
+    /// start a second refresh then, which made the test below count two reads when the first refresh was quick.</summary>
+    [Fact]
+    public void Waiting_for_a_snapshot_that_already_landed_reads_nothing_more()
+    {
+        Profile([]);
+        var reads = 0;
+        ModCatalog.Sources = () => { Interlocked.Increment(ref reads); return new CatalogSources { KilnRoot = Kiln, Pid = Pid, ProcessStartUtc = Start }; };
+        try
+        {
+            ModCatalog.Snapshot(TimeSpan.FromMinutes(1));
+            var until = Environment.TickCount64 + 10_000;
+            while (ModCatalog.Loading && Environment.TickCount64 < until) Thread.Sleep(5);
+            Assert.False(ModCatalog.Loading);
+            ModCatalog.WaitForSnapshot();
+            Assert.Equal(1, reads);
+        }
+        finally
+        {
+            ModCatalog.Sources = ModCatalog.DefaultSources;
+        }
+    }
+
     [Fact]
     public void Snapshot_answers_at_once_and_refreshes_on_a_worker()
     {
