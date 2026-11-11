@@ -189,10 +189,25 @@ pub struct SfMod {
     pub extended: bool,
 }
 
+/// The largest package file Kiln reads or writes (the in-game page's bound too: ShroudForge.cs `MaxFileBytes`).
+pub const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+
+/// A package file (mod.json, extended.mod.json) as ShroudForge's serde_json takes it: UTF-8 (a byte order mark is
+/// dropped); and at most [`MAX_FILE_BYTES`]. Comments and trailing commas are accepted as everywhere in Kiln. Returns
+/// the text (without the mark) and its tree.
+fn read_text(p: &Path) -> Result<(String, Node)> {
+    use std::io::Read;
+    let f = std::fs::File::open(p).map_err(crate::util::io_at(p, "reading"))?;
+    let mut bytes = Vec::new();
+    f.take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(crate::util::io_at(p, "reading"))?;
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(Error::invalid(format!("{} is larger than 2 MiB", p.display())));
+    }
+    Ok(crate::jsonc::parse_tree_bytes(&bytes)?)
+}
+
 fn read_json_file(p: &Path) -> Result<serde_json::Value> {
-    let bytes = std::fs::read(p).map_err(crate::util::io_at(p, "reading"))?;
-    let text = String::from_utf8_lossy(&bytes);
-    crate::jsonc::parse(text.trim_start_matches('\u{feff}'))
+    Ok(read_text(p)?.1.to_value())
 }
 
 /// Does `folder` look like a ShroudForge (or EML) Lua package rather than an EMF mod (which also has a mod.json)?
@@ -315,7 +330,8 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
     let id = str_of(&m, "id").ok_or_else(|| Error::invalid(format!("{}/mod.json has no \"id\"", folder.display())))?;
     let ext_path = folder.join("extended.mod.json");
     let extended = ext_path.is_file();
-    let ext = if extended { read_json_file(&ext_path)? } else { serde_json::json!({}) };
+    let tree = if extended { Some(read_text(&ext_path)?.1) } else { None };
+    let ext = tree.as_ref().map(Node::to_value).unwrap_or_else(|| serde_json::json!({}));
     let launcher = str_of(&ext, "launcher").or_else(|| (!extended).then(|| "EML".to_owned()));
     let targets = match ext.get("targets").and_then(|t| t.as_array()) {
         Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
@@ -329,21 +345,18 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         .map(|o| o.iter().map(|(k, v)| parse_setting(k, v)).collect())
         .unwrap_or_default();
     // the order the mod declares them in (ShroudForge's own editor shows that order)
-    if extended && let Ok(bytes) = std::fs::read(&ext_path) {
-        let text = String::from_utf8_lossy(&bytes);
-        if let Ok(tree) = crate::jsonc::parse_tree(text.trim_start_matches('\u{feff}')) {
-            // each key's place, indexed once (a package may declare many settings)
-            let order: std::collections::HashMap<&str, usize> =
-                tree.get("settings").map(|n| n.members().iter().enumerate().map(|(i, m)| (m.key.as_str(), i)).collect()).unwrap_or_default();
-            settings.sort_by_cached_key(|s| order.get(s.key.as_str()).copied().unwrap_or(usize::MAX));
-            // and each setting's options (the launcher's form lists them in that order, as the in-game page does)
-            let last: std::collections::HashMap<&str, &Node> =
-                tree.get("settings").map(|n| n.members().iter().map(|m| (m.key.as_str(), &m.value)).collect()).unwrap_or_default();
-            for s in &mut settings {
-                let options = last.get(s.key.as_str()).filter(|_| !s.shorthand).and_then(|n| n.get("options"));
-                let mut seen = std::collections::HashSet::new();
-                s.option_order = options.map(|o| o.members().iter().filter(|m| seen.insert(m.key.as_str())).map(|m| m.key.clone()).collect()).unwrap_or_default();
-            }
+    if let Some(tree) = &tree {
+        // each key's place, indexed once (a package may declare many settings)
+        let order: std::collections::HashMap<&str, usize> =
+            tree.get("settings").map(|n| n.members().iter().enumerate().map(|(i, m)| (m.key.as_str(), i)).collect()).unwrap_or_default();
+        settings.sort_by_cached_key(|s| order.get(s.key.as_str()).copied().unwrap_or(usize::MAX));
+        // and each setting's options (the launcher's form lists them in that order, as the in-game page does)
+        let last: std::collections::HashMap<&str, &Node> =
+            tree.get("settings").map(|n| n.members().iter().map(|m| (m.key.as_str(), &m.value)).collect()).unwrap_or_default();
+        for s in &mut settings {
+            let options = last.get(s.key.as_str()).filter(|_| !s.shorthand).and_then(|n| n.get("options"));
+            let mut seen = std::collections::HashSet::new();
+            s.option_order = options.map(|o| o.members().iter().filter(|m| seen.insert(m.key.as_str())).map(|m| m.key.clone()).collect()).unwrap_or_default();
         }
     }
     let capabilities: Vec<String> =
@@ -450,8 +463,7 @@ pub fn skip_reason(folder: &Path) -> String {
 fn extension_text(m: &SfMod) -> Result<String> {
     let p = m.folder.join("extended.mod.json");
     if p.is_file() {
-        let bytes = std::fs::read(&p).map_err(crate::util::io_at(&p, "reading"))?;
-        return Ok(String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string());
+        return Ok(read_text(&p)?.0);
     }
     let v = serde_json::json!({
         "$schema": "https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json",
@@ -466,6 +478,9 @@ fn extension_text(m: &SfMod) -> Result<String> {
 
 fn write_extension(m: &SfMod, text: &str) -> Result<()> {
     crate::jsonc::parse(text)?; // never write a broken file
+    if text.len() > MAX_FILE_BYTES {
+        return Err(Error::invalid("the settings file would be larger than 2 MiB"));
+    }
     crate::util::write_atomic(&m.folder.join("extended.mod.json"), text.as_bytes())
 }
 

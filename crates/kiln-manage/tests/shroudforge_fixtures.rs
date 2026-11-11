@@ -56,6 +56,15 @@ fn read_view(m: &SfMod) -> Value {
     json!({"enabled": m.enabled, "switchLive": m.switch_live, "settings": settings, "enabledNow": enabled_now})
 }
 
+/// The bytes of a case's extended.mod.json: `extended` as UTF-8, or `extendedLatin1` one byte per character (a file
+/// that is not UTF-8).
+fn extended_bytes(c: &Value) -> Option<Vec<u8>> {
+    if let Some(text) = c["extendedLatin1"].as_str() {
+        return Some(text.chars().map(|ch| u8::try_from(u32::from(ch)).expect("a Latin-1 character")).collect());
+    }
+    c["extended"].as_str().map(|t| t.as_bytes().to_vec())
+}
+
 #[test]
 fn shroudforge_packages_read_and_write_like_the_in_game_page() {
     let root = std::env::temp_dir().join(format!("kiln-sf-fixtures-{}", std::process::id()));
@@ -78,11 +87,18 @@ fn run_case(root: &Path, c: &Value) {
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("mod.json"), serde_json::to_string(&c["mod"]).unwrap()).unwrap();
         std::fs::write(dir.join("src/mod.lua"), "return {}").unwrap();
-        if let Some(text) = c["extended"].as_str() {
-            std::fs::write(dir.join("extended.mod.json"), text).unwrap();
+        let original = extended_bytes(c);
+        if let Some(bytes) = &original {
+            std::fs::write(dir.join("extended.mod.json"), bytes).unwrap();
         }
-        let m = shroudforge::read_mod(&dir).unwrap_or_else(|e| panic!("{name}: read: {e:?}"));
-        assert_eq!(read_view(&m), c["read"], "{name}: read");
+        let refused = c["refused"].as_bool() == Some(true);
+        if refused {
+            // ShroudForge refuses the package: so does the launcher, and nothing is written
+            assert!(shroudforge::read_mod(&dir).is_err(), "{name}: read should be refused");
+        } else {
+            let m = shroudforge::read_mod(&dir).unwrap_or_else(|e| panic!("{name}: read: {e:?}"));
+            assert_eq!(read_view(&m), c["read"], "{name}: read");
+        }
         for e in c["edits"].as_array().unwrap() {
             let before = std::fs::read(dir.join("extended.mod.json")).ok();
             let result = if let Some(on) = e.get("enabled") {
@@ -95,8 +111,12 @@ fn run_case(root: &Path, c: &Value) {
                 assert_eq!(std::fs::read(dir.join("extended.mod.json")).ok(), before, "{name}: a refused edit wrote");
             }
         }
-        let text = std::fs::read_to_string(dir.join("extended.mod.json")).unwrap();
-        assert_eq!(text, c["expect"].as_str().unwrap(), "{name}: the file");
+        let bytes = std::fs::read(dir.join("extended.mod.json")).unwrap();
+        if refused {
+            assert_eq!(Some(bytes), original, "{name}: a refused package was written");
+        } else {
+            assert_eq!(String::from_utf8(bytes).unwrap(), c["expect"].as_str().unwrap(), "{name}: the file");
+        }
         if let Some(after) = c.get("enabledAfter") {
             let m = shroudforge::read_mod(&dir).unwrap();
             let values = shroudforge::settings_values(&m);
@@ -105,6 +125,28 @@ fn run_case(root: &Path, c: &Value) {
             assert_eq!(json!(now), *after, "{name}: enabledWhen after the edits");
         }
     }
+}
+
+/// `limits.fileBytes`: a larger extended.mod.json is refused by both readers (the in-game page reads it on the game's
+/// process); one of exactly that size is read.
+#[test]
+fn the_settings_file_size_is_bounded_like_the_in_game_page() {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/fixtures/shroudforge/cases.json");
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let limit = doc["limits"]["fileBytes"].as_u64().unwrap() as usize;
+    let root = std::env::temp_dir().join(format!("kiln-sf-limit-{}", std::process::id()));
+    let _t = Tmp(root.clone());
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("mod.json"), r#"{"id":"big","name":"Big","version":"1.0.0","capabilities":["runtime"]}"#).unwrap();
+    std::fs::write(root.join("src/mod.lua"), "return {}").unwrap();
+    let body = r#"{"enabled":true,"settings":{"a":{"value":1}}}"#;
+    let padded = |n: usize| format!("{body}{}", " ".repeat(n - body.len()));
+    std::fs::write(root.join("extended.mod.json"), padded(limit)).unwrap();
+    assert!(shroudforge::read_mod(&root).is_ok(), "a file of exactly the limit is read");
+    std::fs::write(root.join("extended.mod.json"), padded(limit + 1)).unwrap();
+    assert!(shroudforge::read_mod(&root).is_err(), "a file over the limit is refused");
+    assert!(shroudforge::set_enabled(&root, false).is_err());
+    assert_eq!(std::fs::read(root.join("extended.mod.json")).unwrap().len(), limit + 1, "nothing was written");
 }
 
 /// A package may declare many settings: reading it and building the launcher's form take time in proportion to them, not

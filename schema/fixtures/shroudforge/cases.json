@@ -831,6 +831,35 @@
         }
       ],
       "expect": "{\r  \"enabled\": true, // switch\r  \"settings\": {\r    \"x\": {\"value\": 2} // one\r  }\r}\r"
+    },
+    {
+      "name": "invalid-utf8-is-refused",
+      "about": "a Latin-1 byte (not UTF-8): ShroudForge's serde_json refuses the file, and a lossy read would write U+FFFD back",
+      "mod": {
+        "id": "invalid-utf8-is-refused",
+        "name": "invalid-utf8-is-refused",
+        "version": "1.0.0",
+        "capabilities": [
+          "runtime"
+        ]
+      },
+      "refused": true,
+      "extendedLatin1": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"label\":\"Größe\"}}}\n",
+      "edits": [
+        {
+          "enabled": false,
+          "ok": false
+        },
+        {
+          "setting": "a",
+          "value": 2,
+          "ok": false
+        }
+      ],
+      "expect": "{\"enabled\":true,\"settings\":{\"a\":{\"value\":1,\"label\":\"Größe\"}}}\n"
     }
-  ]
+  ],
+  "limits": {
+    "fileBytes": 2097152
+  }
 }

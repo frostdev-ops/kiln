@@ -133,7 +133,9 @@ internal static class ShroudForgePackages
         var bytes = new byte[(int)f.Length + 1];
         var n = f.ReadAtLeast(bytes, bytes.Length, throwOnEndOfStream: false);
         if (n == bytes.Length) throw new SfEditException("the settings file changed while reading; try again");
-        var text = new UTF8Encoding(false, true).GetString(bytes, 0, n);
+        string text;
+        try { text = new UTF8Encoding(false, true).GetString(bytes, 0, n); }
+        catch (DecoderFallbackException) { throw new SfEditException("the settings file is not UTF-8 text"); }
         return text.Length > 0 && text[0] == '﻿' ? text[1..] : text;
     }
 
