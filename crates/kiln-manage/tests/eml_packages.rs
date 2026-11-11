@@ -621,7 +621,7 @@ fn copies_activation_has_to_keep_are_reported_as_retained_by_every_activation_pa
     let a = profile::refresh_active(&d.dirs, &d.g).unwrap().expect("re-applied");
     assert!(retains(&a, &copy), "re-apply: {}", serde_json::to_string(&a).unwrap());
 
-    // updated: the changed old copy keeps running instead of the new version
+    // updated: the changed old copy stays instead of the new version
     let d = drop_on_launcher("xhl-plugin", "XHL plugin");
     let copy = d.g.path.join("mods/XHL-Vein-Mining");
     put(&copy, "XHL-Vein-Mining.dll", b"the player's own build");
@@ -654,21 +654,25 @@ fn reason_for(a: &profile::Activation, copy: &Path) -> String {
     retained_of(a).into_iter().find(|(p, _)| p == copy).map(|(_, r)| r).unwrap_or_else(|| panic!("{} not retained: {a:?}", copy.display()))
 }
 
-/// Each kept copy says what still runs: an enabled mod's changed copy is what runs (nothing to move), an update leaves
-/// the old version running, a switched-off mod may still be loaded from there.
+/// Each kept copy says what may still run, without promising it does (the copy's own files decide that): an enabled
+/// mod's changed copy stays and its loader may use it, an update names the copy that stayed instead of the requested
+/// one, a switched-off mod may still be loaded from there.
 #[test]
 fn retained_copies_say_what_still_runs() {
     let d = drop_on_launcher("xhl-plugin", "XHL plugin");
     let copy = d.g.path.join("mods/XHL-Vein-Mining");
     put(&copy, "native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\nVerbose=1\n");
     let a = profile::activate(&d.dirs, "my-mods", &d.g).unwrap();
-    assert!(reason_for(&a, &copy).contains("It is on in the profile, and this changed copy is what runs"), "{a:?}");
+    assert!(reason_for(&a, &copy).contains("It is on in the profile; this changed copy stays as it is, and its loader may still use it"), "{a:?}");
+    assert!(!reason_for(&a, &copy).contains("is what runs"), "no promise that it runs: {a:?}");
     let update = d._t.0.join("update");
     layout(&update, "xhl-plugin");
     put(&update, "mods/XHL-Vein-Mining/new-data.bin", b"new data");
     let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[update], false, &mut NoProgress).unwrap();
     let a = r.activation.expect("applied");
-    assert!(reason_for(&a, &copy).contains("keeps running instead of"), "{a:?}");
+    let reason = reason_for(&a, &copy);
+    assert!(reason.contains("not the requested version") || reason.contains("not the profile's build of version"), "{a:?}");
+    assert!(reason.contains("its loader may still use it") && !reason.contains("keeps running"), "{a:?}");
     let mut p = my_mods(&d);
     p.mods.xhl[0].enabled = false;
     let p = profile::save(&d.dirs, &p).unwrap();

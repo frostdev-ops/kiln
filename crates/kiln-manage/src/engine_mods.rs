@@ -1318,12 +1318,19 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
                             retain_runs(&mut rep, tag(&m.id), &dst, format!("its ShroudForge settings cannot be read, so its switch was left as it is: {}", e.message), still_runs(kind, m.enabled, Some(&want), Some(&want)));
                             continue;
                         }
-                        Ok(sf) if sf.enabled != m.enabled => {
+                        // also a copy that already has the wanted switch but waits for its fractions to be put back
+                        // (an earlier Kiln's write): ShroudForge refuses the whole mod until the file is written again,
+                        // and writing the switch does that (shroudforge::set_enabled)
+                        Ok(sf) if sf.enabled != m.enabled || !sf.repair.is_empty() => {
                             if let Err(e) = switch_copy(game_dir, &mut receipts, &dst, m.enabled) {
                                 retain_runs(&mut rep, tag(&m.id), &dst, e.message, still_runs(kind, m.enabled, Some(&want), Some(&want)));
                                 continue;
                             }
-                            rep.switched.push(tag(&m.id));
+                            if sf.enabled != m.enabled { rep.switched.push(tag(&m.id)); }
+                            if !sf.repair.is_empty() {
+                                rep.warnings.push(format!("{}: repaired its settings file (an earlier Kiln wrote {} without the fraction, and ShroudForge refused the mod until now); your values are unchanged",
+                                    tag(&m.id), sf.repair.join(", ")));
+                            }
                         }
                         Ok(_) => {}
                     }

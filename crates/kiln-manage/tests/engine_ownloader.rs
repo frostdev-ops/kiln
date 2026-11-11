@@ -126,7 +126,7 @@ fn cleanup_reports_changed_eml_copies_as_potentially_still_running() {
         assert_eq!(report.retained.len(), 1);
         assert_eq!(report.retained[0].path, game.join("mods/changed"));
         assert!(report.retained[0].may_run, "foreign EML can still discover this folder");
-        assert!(report.warning().unwrap().contains("standalone loader"));
+        assert!(report.warning().unwrap().contains("may still run through Kiln or another loader"));
         assert_eq!(std::fs::read(game.join("mods/changed").join(rel)).unwrap(), b"player-owned edit");
         assert!(game.join("dbghelp.dll").is_file(), "the player's loader is not a profile placement");
     }

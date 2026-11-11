@@ -1312,3 +1312,41 @@ fn a_native_mod_that_is_sets_loader_is_named_in_the_profile_plan() {
     p.mods.native[0].enabled = false;
     assert!(profile::resolve_preview(&dirs, &p, kiln_manage::manifest::RunSide::Client).unwrap().warnings.is_empty());
 }
+
+/// A placed ShroudForge copy whose fractional setting an earlier Kiln wrote without its fraction: ShroudForge refuses the
+/// whole mod until the file is written again. The copy already has the switch the profile wants, so no switch is due;
+/// the next activation repairs it all the same, and says so.
+#[test]
+fn a_placed_shroudforge_copy_that_needs_repair_is_repaired_when_its_switch_is_already_right() {
+    let t = tmp("sf-repair-same-switch");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/ratio");
+    put(&src, "mod.json", br#"{"id":"ratio","name":"Ratio","version":"1.0.0"}"#);
+    put(&src, "extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":true,"targets":["client","server"],
+        "settings":{"speed":{"label":"Speed","value":1.5,"options":{"1.5":"Slow","2.0":"Fast"}}}}"#);
+    put(&src, "src/mod.lua", b"return {}");
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let sf = refs(&r, ModKind::ShroudForge, "ratio");
+    let mut p = profile::create(&dirs, "repair", None).unwrap();
+    p.mods.shroudforge = vec![pm(&sf, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    let game = game_with_z(&t.0);
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let copy = kiln_manage::shroudforge::mods_dir(&game.path).join("ratio");
+    assert!(kiln_manage::shroudforge::read_mod(&copy).unwrap().enabled, "placed switched on");
+    // what an earlier Kiln left after the player chose "Fast": the whole number without its fraction
+    let damaged = std::fs::read_to_string(copy.join("extended.mod.json")).unwrap().replace("\"value\":1.5", "\"value\":2");
+    assert!(damaged.contains("\"value\":2,"), "{damaged}");
+    std::fs::write(copy.join("extended.mod.json"), &damaged).unwrap();
+    assert_eq!(kiln_manage::shroudforge::read_mod(&copy).unwrap().repair, ["speed"], "recognised as waiting for repair");
+    // the same profile again (what Play does): nothing to switch, but the copy is repaired
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    let after = kiln_manage::shroudforge::read_mod(&copy).unwrap();
+    assert!(after.repair.is_empty(), "still waiting for repair: {}", std::fs::read_to_string(copy.join("extended.mod.json")).unwrap());
+    assert!(after.enabled, "the switch is unchanged");
+    assert!(std::fs::read_to_string(copy.join("extended.mod.json")).unwrap().contains("\"value\":2.0"), "the player's choice is kept, with its fraction");
+    assert!(a.warnings.iter().any(|w| w.contains("shroudforge:ratio") && w.contains("repaired")), "{a:?}");
+    // and it is said once: the next activation has nothing to repair
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(!a.warnings.iter().any(|w| w.contains("repaired")), "{a:?}");
+}
