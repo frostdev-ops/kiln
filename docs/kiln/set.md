@@ -103,7 +103,9 @@ matching Kiln C# API and how each was tested, is in
   `setFlameLevel` (kiln.knowledge), `settings` / `changeSettings` (kiln.settings, checked against its ranges). They
   act on the host player in a hosted game and on the first player on a dedicated server.
 - **Texts**: `Res.text` resolves shipped item/template names. Other English localisation tags need the locally
-  generated client text catalog (`Texts` in `Kiln.Content`); a server without that catalog returns nil.
+  generated client text catalog (`Texts` in `Kiln.Content`); a server without that catalog returns nil. The first
+  such lookup reads the catalog (about 0.1 s for the client's 16,740 texts, once); that time does not count against
+  the calling callback's 50 ms, so the rest of the callback still runs.
 - **Tools**: `Kiln.DevTools` supplies Bindings, Resources, Hooks, Game Log, Status and Console windows, as well as
   Systems and Types. They are Kiln windows, with view-model tests; their drawing and input still need a client.
   Those generic Bindings/Hooks windows list Kiln's registries; the SET tools above expose SET's own bindings,
