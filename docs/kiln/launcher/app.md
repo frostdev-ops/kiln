@@ -150,6 +150,8 @@ bun run dev                         # browser mock on http://localhost:1420
 bun x tauri dev                     # the desktop app (debug), same dev server
 bun x tsc --noEmit && bun run build # typecheck + production web build (tsc covers every page)
 bun run check:schemas
+bun run test                        # unit tests (unit/, unit-tests/, scripts/*.test.ts*), no dev server
+bun run test:schema                 # schema/tests/*.mjs (profile, closed-DLL and UI block schemas)
 bun run test:smoke                  # Playwright, mock mode; screenshots to .out/launcher/shots/ (KILN_DEV_PORT: another port)
 bun x playwright test tests/catalog.spec.ts   # the catalog, desktop and Deck (?nexus=free|premium|nokey)
 CARGO_TARGET_DIR=.out/launcher/cargo cargo test -p kiln-launcher

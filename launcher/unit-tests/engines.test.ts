@@ -5,31 +5,42 @@ import type { EngineStatus, ReplacedFile } from "../src/api/commands";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EngineRow } from "../src/components/EngineStatus";
+import { MOD_KINDS } from "../src/api/kinds";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const commands = source("../src/api/commands.ts").replace(/\/\/[^\n]*/g, "");
 const values = (name: string) => [...commands.match(new RegExp(`export type ${name} =([\\s\\S]*?);`))![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 
-function rustNames(path: string, name: string, kebab: boolean) {
+/** [variant, serde name] of each variant of a Rust enum, in declaration order. */
+function rustVariants(path: string, name: string, kebab: boolean): [string, string][] {
   const body = source(path).split(`pub enum ${name} {`)[1].split("\n}")[0];
   let explicit: string | undefined;
-  const names: string[] = [];
+  const names: [string, string][] = [];
   for (const line of body.split("\n")) {
     const rename = line.match(/#\[serde\(rename = "([^"]+)"\)\]/);
     if (rename) explicit = rename[1];
     const variant = line.match(/^    (\w+),$/)?.[1];
     if (variant) {
-      names.push(explicit ?? (kebab ? variant.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase() : variant.toLowerCase()));
+      names.push([variant, explicit ?? (kebab ? variant.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase() : variant.toLowerCase())]);
       explicit = undefined;
     }
   }
-  return names.sort();
+  return names;
 }
+const rustNames = (path: string, name: string, kebab: boolean) => rustVariants(path, name, kebab).map(([, n]) => n).sort();
 
 test("launcher unions match every Rust serde engine and detection name", () => {
   expect(values("ProxyKind").sort()).toEqual(rustNames("../../crates/kiln-manage/src/pe.rs", "ProxyKind", false));
   expect(values("DetectKind").sort()).toEqual(rustNames("../../crates/kiln-manage/src/library.rs", "DetectKind", true));
   expect(values("EngineId").sort()).toEqual(rustNames("../../crates/kiln-manage/src/engines.rs", "Engine", true));
+});
+
+test("ModKind and MOD_KINDS match Rust's ModKind and ModKind::ALL, in order", () => {
+  const manifest = "../../crates/kiln-manage/src/manifest.rs";
+  expect(values("ModKind").sort()).toEqual(rustNames(manifest, "ModKind", false));
+  const serde = new Map(rustVariants(manifest, "ModKind", false));
+  const all = source(manifest).split("pub const ALL: [ModKind; ")[1].split("];")[0];
+  expect(MOD_KINDS).toEqual([...all.matchAll(/ModKind::(\w+)/g)].map((m) => serde.get(m[1])));
 });
 
 const sfRow = (): EngineStatus => ({

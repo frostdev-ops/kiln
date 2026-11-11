@@ -2,6 +2,9 @@
 // (switch, add, ShroudForge settings), the engine status on Logs, EML's "Restore vanilla game data", the Deck's Mods.
 // Browser mock only (src/api/mock.ts seeds one mod per imported kind; the "Ember run" profile holds four of them).
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import type { EngineStatus } from "../src/api/commands";
+import { MOD_KINDS } from "../src/api/kinds";
 
 async function desktop(page: Page, route = "/") {
   await page.goto(`/#${route}`);
@@ -249,6 +252,8 @@ test("settings stop while the game runs and cannot edit another profile's Shroud
 test("Enshwick, shroudlink and Ember mods: library labels, Engines cards, and Ember says its mods don't run yet", async ({ page }) => {
   await desktop(page, "/library");
   const table = page.getByRole("table", { name: "Library" }).or(page.locator('[aria-label="Library"]')).first();
+  // the other engines' rows only: the whole library is longer than the rows the virtual table draws at this size
+  await page.getByRole("radio", { name: "Other engines" }).or(page.getByRole("button", { name: "Other engines" })).or(page.getByRole("tab", { name: "Other engines" })).first().click();
   for (const [name, badge] of [["Lanterns", "Enshwick"], ["chestsort.dll", "shroudlink"], ["private-chests", "Ember"]] as const) {
     // badges are styled in title case
     await expect(table.locator('[role="row"], tr').filter({ hasText: name })).toContainText(new RegExp(badge, "i"));
@@ -364,4 +369,49 @@ test("the Library's XHL badge says XHL-Core loads the companion, not Kiln", asyn
   const badge = row.locator(".k-badge", { hasText: /^XHL$/ });
   await expect(badge).toHaveAttribute("title", /XHL-Core/);
   await expect(badge).not.toHaveAttribute("title", /run by Kiln/);
+});
+
+test("an XHL companion in the library gets its Engines card with the Requires XHL-Core banner", async ({ page }) => {
+  await desktop(page, "/profiles/ember-run/engines");
+  const card = page.locator('[data-kind="xhl"]');
+  await expect(card).toContainText("XHL (requires XHL-Core)");
+  await expect(card).toContainText("Kiln never loads their DLLs");
+  const banner = card.getByRole("status").filter({ hasText: "Requires XHL-Core" });
+  // engine_status's xhl row: kiln-manage's own sentence when no host is on the game's proxy/chain paths
+  await expect(banner).toContainText("no recognized host was found on this game's active proxy/chain paths");
+  await expect(banner).toContainText("Host detection applies to the active game configuration");
+  await card.getByRole("button", { name: "Add from the library" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add from the library" });
+  await dialog.getByText("XHL-Vein-Mining", { exact: true }).first().click();
+  await dialog.getByRole("button", { name: /^Add 1/ }).click();
+  await expect(card).toContainText("XHL-Vein-Mining");
+  await expect.poll(async () => (await api<{ mods: Record<string, { id: string }[]>; dropins: string[] }>(page, "profileGet", "ember-run")).mods.xhl.map((m) => m.id))
+    .toEqual(["xhl-vein-mining"]);
+  // with a companion in the active profile, Logs > Engines shows the host check, never a run state
+  await page.goto("/#/logs");
+  await page.getByRole("tab", { name: "Engines" }).click();
+  const row = page.getByLabel("Engine plugins").locator('[data-engine="xhl"]');
+  await expect(row).toContainText("Requires XHL-Core");
+  await expect(row).toContainText("Kiln never loads companion plugin DLLs itself");
+  await expect(row).not.toContainText("Not run yet");
+});
+
+test("the mock's engine_status rows have the shape kiln-manage sends: the XHL host row and ShroudForge effects", async ({ page }) => {
+  await desktop(page, "/logs");
+  const rows = await api<EngineStatus[]>(page, "engineStatus", "client-steam");
+  // engine_mods::status: ModKind::ALL order, every kind with a state file, and XHL's host row
+  expect(rows.map((r) => r.kind)).toEqual(MOD_KINDS.filter((k) => !["kiln", "native", "plugin"].includes(k)));
+  const rust = readFileSync(new URL("../../crates/kiln-manage/src/engine_mods.rs", import.meta.url), "utf8");
+  const xhl = rows.find((r) => r.kind === "xhl")!;
+  expect(Object.keys(xhl).sort()).toEqual(["file", "kind", "plugin", "prerequisite", "state"]);
+  expect(xhl).toMatchObject({ plugin: "", state: null, file: "", prerequisite: { available: false } });
+  expect(rust).toContain(`"${xhl.prerequisite!.text}"`);
+  const sf = rows.find((r) => r.kind === "shroudforge")!;
+  expect(Object.keys(sf.effects ?? {}).sort()).toEqual(["file", "mods", "reason", "state", "updatedAt"]);
+  expect(["current", "stale", "stopped", "unavailable", "invalid"]).toContain(sf.effects!.state);
+  if (sf.effects!.reason) expect(rust.includes(`"${sf.effects!.reason}"`) || readFileSync(new URL("../../crates/kiln-manage/src/shroudforge.rs", import.meta.url), "utf8").includes(`"${sf.effects!.reason}"`)).toBe(true);
+  for (const r of rows) {
+    expect(`${r.kind} effects ${"effects" in r}`).toBe(`${r.kind} effects ${r.kind === "shroudforge"}`);
+    expect(`${r.kind} prerequisite ${"prerequisite" in r}`).toBe(`${r.kind} prerequisite ${r.kind === "xhl"}`);
+  }
 });
