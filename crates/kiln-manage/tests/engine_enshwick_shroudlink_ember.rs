@@ -497,3 +497,20 @@ fn shroudlinks_client_addon_is_kept_as_a_mod() {
     assert!(r.notes.iter().any(|n| n.text.contains("shroudlink's own loader")), "the core is a note: {r:#?}");
     assert!(r.skipped.is_empty(), "{r:#?}");
 }
+
+/// A single mod's release zip (`shroudlink_mods/<name>.dll`) gets the id the same DLL has in the bundle of all mods
+/// and when it is imported alone: `<name>`, not `<name>.dll`.
+#[test]
+fn a_single_shroudlink_mod_zip_is_named_like_the_same_dll_elsewhere() {
+    let t = tmp("sl-single");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let pkg = t.0.join("chestsort-0.7.4");
+    put(&pkg, "shroudlink_mods/chestsort.dll", &build_test_dll(&["shroudlink_mod_v2"], b""));
+    let r = library::import(&dirs, &[pkg], &mut NoProgress).unwrap();
+    let got: Vec<(ModKind, &str)> = r.imported.iter().map(|m| (m.kind, m.id.as_str())).collect();
+    assert_eq!(got, [(ModKind::Shroudlink, "chestsort")], "{r:#?}");
+    let bare = t.0.join("bare");
+    put(&bare, "chestsort.dll", &build_test_dll(&["shroudlink_mod_v2"], b""));
+    let again = library::import(&dirs, &[bare.join("chestsort.dll")], &mut NoProgress).unwrap();
+    assert!(again.imported.iter().chain(again.existing.iter()).all(|m| m.id == "chestsort"), "one Library id for the same mod: {again:#?}");
+}

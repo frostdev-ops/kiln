@@ -687,12 +687,14 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
             }
             let m = read_json(&dir.join("mod.json"));
             let mut found = folder_detected(d.kind, engine, dir, m.as_ref(), &format!("this {} mod", engine.name()));
-            // a release zip's shroudlink_mods/ folder holding one mod: the mod is named after its DLL
+            // a release zip's shroudlink_mods/ folder holding one mod: the mod is named after its DLL, without the
+            // extension, as the same DLL is when it is imported alone or from a bundle of several
             if engine == Engine::Shroudlink && m.is_none()
                 && shroudlink_dir
             {
-                found.id = d.id;
-                found.name = d.name;
+                let stem = dll.file_stem().map(|s| s.to_string_lossy().into_owned());
+                found.id = stem.as_deref().map(crate::library::id_from_name).or(d.id);
+                found.name = stem.or(d.name);
             }
             return Some(found);
         }
