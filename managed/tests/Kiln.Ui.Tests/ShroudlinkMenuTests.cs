@@ -187,19 +187,19 @@ public sealed class BridgeTests
         Assert.False(ShroudlinkRpc.OwnedExecutable(0x1000, 0x2000, 0x1100, 0x2000, 0x1000, protection));
         Assert.False(ShroudlinkRpc.OwnedExecutable(0x1000, 0x2000, 0x1100, 0x1000, 0, protection));
     }
-    private static byte[] ExportFixture()
+    private static byte[] ExportFixture(string name = "shroudlink_client_bridge_v1")
     {
         var image = new byte[4096];
         void U16(int at, ushort v) => System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(at), v);
         void U32(int at, uint v) => System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(at), v);
-        U16(0, 0x5a4d); U32(60, 128); U32(128, 0x4550); U16(132, 0x8664); U16(148, 240); U16(152, 0x20b);
+        U16(0, 0x5a4d); U32(60, 128); U32(128, 0x4550); U16(132, 0x8664); U16(148, 240); U16(152, 0x20b); U32(208, 4096);
         U32(260, 1); U32(264, 0x300); U32(268, 0x100);
         U32(0x314, 1); U32(0x318, 1); U32(0x31c, 0x340); U32(0x320, 0x344); U32(0x324, 0x348);
         U32(0x340, 0x800); U32(0x344, 0x360); U16(0x348, 0);
-        Encoding.ASCII.GetBytes("shroudlink_client_bridge_v1\0").CopyTo(image, 0x360); return image;
+        Encoding.ASCII.GetBytes(name + "\0").CopyTo(image, 0x360); return image;
     }
     [Theory] [InlineData("valid", 0x800U)] [InlineData("forwarded", 0U)] [InlineData("ordinal", 0U)]
-    [InlineData("overflow", 0U)] [InlineData("name", 0U)] [InlineData("unreadable", 0U)]
+    [InlineData("overflow", 0U)] [InlineData("name", 0U)] [InlineData("unreadable", 0U)] [InlineData("size", 0U)]
     public void ExportLookupRejectsForwardersWithoutInvokingAnyResolver(string problem, uint expected)
     {
         var image = ExportFixture();
@@ -208,13 +208,15 @@ public sealed class BridgeTests
         if (problem == "ordinal") image[0x348] = 1;
         if (problem == "overflow") { U32(0x318, 2); U32(0x320, uint.MaxValue - 1); }
         if (problem == "name") image[0x360] = (byte)'x';
+        if (problem == "size") U32(208, 0x300); // the header's SizeOfImage ends before the export directory
         var reads = 0;
-        var actual = ShroudlinkRpc.ExportRva((uint)image.Length, (at, n) =>
+        var actual = ShroudlinkRpc.ExportRva((at, n) =>
         {
             reads++; Assert.InRange(n, 0, 144); Assert.True((ulong)at + (uint)n <= (uint)image.Length);
             return problem == "unreadable" && at >= 0x300 ? null : image.AsSpan((int)at, n).ToArray();
-        });
+        }, out var size);
         Assert.Equal(expected, actual); Assert.InRange(reads, 2, 10);
+        Assert.Equal(expected == 0 ? 0U : 4096U, size);
     }
     [Fact] public void ActualAddonExportTableWhenSupplied()
     {
@@ -226,8 +228,8 @@ public sealed class BridgeTests
         file.AsSpan(0, h.SizeOfHeaders).CopyTo(image);
         foreach (var section in pe.PEHeaders.SectionHeaders)
             file.AsSpan(section.PointerToRawData, section.SizeOfRawData).CopyTo(image.AsSpan(section.VirtualAddress));
-        var rva = ShroudlinkRpc.ExportRva((uint)image.Length, (at, n) => image.AsSpan((int)at, n).ToArray());
-        Assert.NotEqual(0U, rva);
+        var rva = ShroudlinkRpc.ExportRva((at, n) => image.AsSpan((int)at, n).ToArray(), out var size);
+        Assert.NotEqual(0U, rva); Assert.Equal((uint)image.Length, size);
         Assert.Contains(pe.PEHeaders.SectionHeaders, section => rva >= section.VirtualAddress && rva - section.VirtualAddress < section.VirtualSize &&
             (section.SectionCharacteristics & System.Reflection.PortableExecutable.SectionCharacteristics.MemExecute) != 0);
     }
@@ -240,6 +242,77 @@ public sealed class BridgeTests
         var widgets = new Widgets(); var events = new List<object>();
         new ShroudlinkNodes().Draw(widgets, Assert.Single(state.Windows).Content, "actual", (_, e) => events.Add(e));
         Assert.Equal(8, events.Count); Assert.Contains("Item 42 × 3", widgets.Labels);
+    }
+    // A process seen through kernel-checked reads: counts reads, module-list calls and references (Open).
+    private sealed class Space : IModuleSpace
+    {
+        public readonly Dictionary<nint, byte[]> Images = [];
+        public readonly List<nint> Order = [], Opened = [];
+        public int Reads;
+        public Func<nint, IShroudlinkRpc?> Answer = _ => null;
+        public nint[]? Modules() => Order.ToArray();
+        public byte[]? Read(nint at, int n)
+        {
+            Reads++;
+            foreach (var (b, image) in Images)
+                if (at >= b && at - b + n <= image.Length) return image.AsSpan((int)(at - b), n).ToArray();
+            return null;
+        }
+        public IShroudlinkRpc? Open(nint module, uint rva) { Assert.Equal(0x800U, rva); Opened.Add(module); return Answer(module); }
+        public nint Load(string export) { var b = (nint)((Order.Count + 1) * 0x10000); Images[b] = ExportFixture(export); Order.Add(b); return b; }
+    }
+    [Fact] public void FinderTakesNoReferenceWithoutAMatchAndRereadsOnlyAChangedModuleList()
+    {
+        var space = new Space(); var finder = new ShroudlinkFinder(space);
+        for (var i = 0; i < 300; i++) space.Load($"some_other_export_{i:000}");
+        Assert.Null(finder.Find());
+        Assert.Empty(space.Opened);
+        Assert.InRange(space.Reads, 300 * 3, 300 * 6); // header, directory and one name each; no per-module list walk
+        var reads = space.Reads;
+        for (var i = 0; i < 10; i++) Assert.Null(finder.Find());
+        Assert.Equal(reads, space.Reads); Assert.Empty(space.Opened);
+        // The cooperating copy loads: one more scan, and a reference for that module only.
+        using var rpc = new Rpc(); var bridge = space.Load("shroudlink_client_bridge_v1"); space.Answer = m => m == bridge ? rpc : null;
+        Assert.Same(rpc, finder.Find());
+        Assert.Equal([bridge], space.Opened);
+    }
+    [Fact] public void FinderAsksADecliningCopyAgainWithoutReadingTheOthers()
+    {
+        var space = new Space(); var finder = new ShroudlinkFinder(space);
+        for (var i = 0; i < 50; i++) space.Load($"some_other_export_{i:000}");
+        var bridge = space.Load("shroudlink_client_bridge_v1");
+        Assert.Null(finder.Find()); Assert.Equal([bridge], space.Opened); // not started yet, replaced or busy
+        var reads = space.Reads;
+        Assert.Null(finder.Find()); Assert.Equal([bridge, bridge], space.Opened); Assert.Equal(reads, space.Reads);
+        using var rpc = new Rpc(); space.Answer = _ => rpc;
+        Assert.Same(rpc, finder.Find()); Assert.Equal(reads, space.Reads);
+        space.Order.RemoveAt(0); space.Answer = _ => null; // a module unloads: the list changed
+        Assert.Null(finder.Find()); Assert.True(space.Reads > reads);
+    }
+    [Fact] public void DiscoveryNeverScansOnTheCallingThreadAndRestsASecondAfterEachScan()
+    {
+        using var gate = new ManualResetEventSlim(); using var rpc = new Rpc();
+        var calls = 0; var thread = Environment.CurrentManagedThreadId; var scanThread = thread;
+        var discovery = new ShroudlinkDiscovery(() =>
+        {
+            scanThread = Environment.CurrentManagedThreadId;
+            var call = Interlocked.Increment(ref calls);
+            gate.Wait(TimeSpan.FromSeconds(5));
+            return call >= 2 ? rpc : null;
+        });
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Null(discovery.Poll(0));
+        Assert.True(watch.ElapsedMilliseconds < 1000, "the calling (render) thread waited for the scan");
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref calls) == 1, 5000));
+        Assert.NotEqual(thread, scanThread);
+        Assert.Null(discovery.Poll(10)); Assert.Equal(1, Volatile.Read(ref calls)); // one scan at a time
+        gate.Set();
+        Assert.True(SpinWait.SpinUntil(() => discovery.Poll(20) is null && !discovery.Scanning, 5000)); // the miss is picked up
+        Assert.Null(discovery.Poll(1019)); Assert.False(discovery.Scanning); Assert.Equal(1, calls);
+        Assert.Null(discovery.Poll(1020)); Assert.True(discovery.Scanning);
+        IShroudlinkRpc? found = null;
+        Assert.True(SpinWait.SpinUntil(() => (found = discovery.Poll(1030)) is not null, 5000));
+        Assert.Same(rpc, found); Assert.Equal(2, calls);
     }
     [Fact] public void NoWindowsExportSearchOnLinux()
     { if (!OperatingSystem.IsWindows()) Assert.Null(ShroudlinkRpc.Find()); }

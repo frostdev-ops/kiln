@@ -13,6 +13,60 @@ internal interface IShroudlinkRpc : IDisposable
     int Call(byte[] request, byte[] reply, out int written);
 }
 
+// Where the bridge scan looks: this process (ShroudlinkRpc), or a test fake.
+internal interface IModuleSpace
+{
+    nint[]? Modules();                            // loaded module bases in load order; null when unknown
+    byte[]? Read(nint at, int n);                 // a kernel-checked copy; null when unreadable
+    IShroudlinkRpc? Open(nint module, uint rva);  // only for a module whose export table matched
+}
+
+// Cheap and rare: export tables are read without a module reference, and a reference is taken only for a match.
+// After a scan, an unchanged module list is not read again; only its matching copies are asked again (one that
+// has not started yet, was replaced or was busy). A load-order list changes whenever a module loads or unloads.
+internal sealed class ShroudlinkFinder(IModuleSpace space)
+{
+    private nint[]? _scanned;
+    private readonly List<(nint Module, uint Rva)> _matches = [];
+    public IShroudlinkRpc? Find()
+    {
+        var modules = space.Modules();
+        if (modules is null) return null;
+        if (_scanned is null || !modules.AsSpan().SequenceEqual(_scanned))
+        {
+            _matches.Clear();
+            foreach (var module in modules)
+                if (ShroudlinkRpc.ExportRva((at, n) => space.Read(module + (nint)at, n), out _) is var rva and not 0) _matches.Add((module, rva));
+            _scanned = modules;
+        }
+        foreach (var (module, rva) in _matches)
+            if (space.Open(module, rva) is { } rpc) return rpc;
+        return null;
+    }
+}
+
+// The render thread never scans: it starts at most one worker scan at a time, a second after the last one ended,
+// and picks the result up on a later frame.
+internal sealed class ShroudlinkDiscovery(Func<IShroudlinkRpc?> find)
+{
+    private Task<IShroudlinkRpc?>? _scan;
+    private long _next;
+    internal bool Scanning => _scan is not null;
+    public IShroudlinkRpc? Poll(long now)
+    {
+        if (_scan is { IsCompleted: true } done)
+        {
+            _scan = null;
+            _next = now + 1000;
+            return done.IsCompletedSuccessfully ? done.Result : null;
+        }
+        if (_scan is null && now >= _next)
+            _scan = Task.Run<IShroudlinkRpc?>(() => { try { return find(); } catch (Exception) { return null; } });
+        return null;
+    }
+    public void Soon() => _next = 0;
+}
+
 internal sealed unsafe class ShroudlinkRpc : IShroudlinkRpc
 {
     private nint _module;
@@ -23,22 +77,21 @@ internal sealed unsafe class ShroudlinkRpc : IShroudlinkRpc
     [DllImport("kernel32.dll")]
     private static extern bool FreeLibrary(nint module);
     [StructLayout(LayoutKind.Sequential)]
-    private struct ModuleInfo { public nint Base; public uint Size; public nint Entry; }
-    [StructLayout(LayoutKind.Sequential)]
     private struct MemoryInfo { public nint Base, AllocationBase; public uint AllocationProtect; public ushort Partition; public nuint Size; public uint State, Protect, Type; }
     [DllImport("kernel32.dll")]
     private static extern bool K32EnumProcessModules(nint process, [Out] nint[] modules, uint bytes, out uint needed);
-    [DllImport("kernel32.dll")]
-    private static extern bool K32GetModuleInformation(nint process, nint module, out ModuleInfo info, uint bytes);
     [DllImport("kernel32.dll")]
     private static extern nuint VirtualQuery(nint address, out MemoryInfo info, nuint bytes);
     [DllImport("kernel32.dll")]
     private static extern bool ReadProcessMemory(nint process, nint address, [Out] byte[] buffer, nuint length, out nuint read);
     // Do not use GetProcAddress/TryGetExport here: resolving a forwarded export can
-    // load its target DLL before ownership can be checked. Parse only the held PE's
+    // load its target DLL before ownership can be checked. Parse only the PE's
     // bounded export table, using kernel-checked reads rather than raw dereferences.
-    internal static uint ExportRva(uint size, Func<uint, int, byte[]?> source)
+    // The image size bounding the reads is the optional header's SizeOfImage, not a
+    // module-information call (Wine walks the whole loader list for each of those).
+    internal static uint ExportRva(Func<uint, int, byte[]?> source, out uint image)
     {
+        var size = uint.MaxValue; image = 0;
         byte[] Read(uint at, int n) => at <= size && n >= 0 && (uint)n <= size - at && source(at, n) is { } b && b.Length == n ? b : throw new FormatException("PE bound");
         static uint U32(byte[] b, int at) => BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(at, 4));
         static ushort U16(byte[] b, int at) => BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(at, 2));
@@ -50,6 +103,7 @@ internal sealed unsafe class ShroudlinkRpc : IShroudlinkRpc
                 var peAt = U32(dos, 60); if (peAt < 64 || peAt > 1024 * 1024) return 0;
                 var pe = Read(peAt, 144);
                 if (U32(pe, 0) != 0x4550 || U16(pe, 4) != 0x8664 || U16(pe, 20) < 120 || U16(pe, 24) != 0x20b || U32(pe, 132) == 0) return 0;
+                size = U32(pe, 80); if (size < peAt + 144) return 0;
                 var directory = U32(pe, 136); var length = U32(pe, 140);
                 if (length < 40 || directory > size || length > size - directory) return 0;
                 var exports = Read(directory, 40); var functions = U32(exports, 20); var names = U32(exports, 24);
@@ -67,7 +121,9 @@ internal sealed unsafe class ShroudlinkRpc : IShroudlinkRpc
                     var ordinal = U16(Read(U32(exports, 36) + mid * 2, 2), 0); if (ordinal >= functions) return 0;
                     var fn = U32(Read(U32(exports, 28) + ordinal * 4U, 4), 0);
                     // Export-directory RVAs are forwarder strings, never call targets.
-                    return fn > 0 && fn < size && !(fn >= directory && fn - directory < length) ? fn : 0;
+                    if (fn == 0 || fn >= size || (fn >= directory && fn - directory < length)) return 0;
+                    image = size;
+                    return fn;
                 }
             }
         }
@@ -77,41 +133,45 @@ internal sealed unsafe class ShroudlinkRpc : IShroudlinkRpc
     internal static bool OwnedExecutable(nuint module, uint size, nuint fn, nuint allocation, uint state, uint protect) =>
         module != 0 && fn >= module && fn - module < size && allocation == module && state == 0x1000 &&
         (protect & 0x100) == 0 && (protect & 0xff) is 0x10 or 0x20 or 0x40 or 0x80;
-    public static IShroudlinkRpc? Find()
+    // This process. Reads are copies the kernel checks, so a module that unloads during a scan fails a read instead
+    // of faulting. Only Open takes a module reference, and only for a matching export table.
+    private sealed class Process : IModuleSpace
     {
-        if (!OperatingSystem.IsWindows()) return null;
-        var modules = new nint[4096];
-        if (!K32EnumProcessModules(-1, modules, (uint)(modules.Length * sizeof(nint)), out var needed) || needed > modules.Length * sizeof(nint)) return null;
-        foreach (var module in modules.Take((int)needed / sizeof(nint)))
+        private readonly nint[] _modules = new nint[4096];
+        public nint[]? Modules() =>
+            K32EnumProcessModules(-1, _modules, (uint)(_modules.Length * sizeof(nint)), out var needed) && needed <= _modules.Length * sizeof(nint)
+                ? _modules[..(int)(needed / sizeof(nint))] : null;
+        public byte[]? Read(nint at, int n)
         {
-            // Hold before looking up any export; forwarded/foreign exports rejected.
-            if (!Hold(4, module, out var held)) continue;
+            var bytes = new byte[n];
+            return ReadProcessMemory(-1, at, bytes, (nuint)n, out var read) && read == (nuint)n ? bytes : null;
+        }
+        public IShroudlinkRpc? Open(nint module, uint rva)
+        {
+            if (!Hold(4, module, out var held)) return null;
             var keep = false;
             try
             {
-                if (held != module || !K32GetModuleInformation(-1, held, out var info, (uint)sizeof(ModuleInfo))) continue;
-                var rva = ExportRva(info.Size, (at, n) =>
-                {
-                    var bytes = new byte[n];
-                    return ReadProcessMemory(-1, held + (nint)at, bytes, (nuint)n, out var read) && read == (nuint)n ? bytes : null;
-                });
-                if (rva == 0) continue;
+                // Check again under the reference: the address may have been unloaded and reused since the scan.
+                if (held != module || ExportRva((at, n) => Read(held + (nint)at, n), out var size) != rva) return null;
                 var fn = held + (nint)rva;
                 if (VirtualQuery(fn, out var memory, (nuint)sizeof(MemoryInfo)) == 0 ||
-                    !OwnedExecutable((nuint)held, info.Size, (nuint)fn, (nuint)memory.AllocationBase, memory.State, memory.Protect)) continue;
+                    !OwnedExecutable((nuint)held, size, (nuint)fn, (nuint)memory.AllocationBase, memory.State, memory.Protect)) return null;
                 // Replaced copies stay mapped. Only accept a live ABI response.
                 var candidate = new ShroudlinkRpc(held, fn);
                 var response = new byte[BridgeSnapshot.MaxBytes];
-                if (candidate.Call("{\"op\":\"read\"}"u8.ToArray(), response, out var n) != 0) continue;
+                if (candidate.Call("{\"op\":\"read\"}"u8.ToArray(), response, out var n) != 0) return null;
                 BridgeSnapshot.Parse(response.AsSpan(0, n));
                 keep = true;
                 return candidate;
             }
-            catch (Exception) { /* unrecognised or stale cooperative copy, not a game target */ }
+            catch (Exception) { return null; /* unrecognised or stale cooperative copy, not a game target */ }
             finally { if (!keep) FreeLibrary(held); }
         }
-        return null;
     }
+    private static readonly ShroudlinkFinder Scan = new(new Process());
+    // One scan at a time, on ShroudlinkDiscovery's worker; never on the render thread.
+    public static IShroudlinkRpc? Find() => OperatingSystem.IsWindows() ? Scan.Find() : null;
     public int Call(byte[] request, byte[] reply, out int written)
     {
         written = 0;
@@ -358,17 +418,15 @@ internal static class ShroudlinkMenu
 {
     private static ShroudlinkClient? _client;
     private static readonly ShroudlinkNodes Nodes = new();
-    private static long _nextFind, _nextRead;
+    private static readonly ShroudlinkDiscovery Discovery = new(ShroudlinkRpc.Find);
+    private static long _nextRead;
     private static readonly ShroudlinkPresentation Presentation = new(() => _client?.Release());
     public static bool Open;
     public static bool Available
     {
         get
         {
-            if (_client != null) return true;
-            if (Environment.TickCount64 < _nextFind) return false;
-            _nextFind = Environment.TickCount64 + 1000;
-            try { if (ShroudlinkRpc.Find() is { } rpc) _client = new(rpc); } catch (Exception) { }
+            if (_client == null && Discovery.Poll(Environment.TickCount64) is { } rpc) _client = new(rpc);
             return _client != null;
         }
     }
@@ -382,7 +440,7 @@ internal static class ShroudlinkMenu
         Presentation.Shown();
         if (!Available) { ui.TextWrapped("This requires a cooperating shroudlink client addon with bridge ABI v1. The stock addon is unchanged."); return; }
         if (Environment.TickCount64 >= _nextRead) { _client!.Refresh(); _nextRead = Environment.TickCount64 + 100; }
-        if (_client!.LastError == 3) { _client.Dispose(); _client = null; _nextFind = 0; return; }
+        if (_client!.LastError == 3) { _client.Dispose(); _client = null; Discovery.Soon(); return; }
         if (_client.State is not { Ready: true, Lease: not null } state)
         { ui.TextWrapped("Waiting for a live shroudlink host, UI protocol 2, recognized world, and presentation lease."); return; }
         Nodes.Reset(ShroudlinkNodes.Key(state.Module, state.Session));
