@@ -12,6 +12,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -42,6 +43,19 @@ internal static class ShroudForgeUi
 
     /// <summary>Slider and other quick edits are written once the value rests this long.</summary>
     internal const int SettleMs = 350;
+
+    // the largest values a one-line and a multi-line field edit (UiDraw.InputText / InputMultiline clamp to these)
+    private const int MaxLineBytes = 1 << 16, MaxAreaBytes = 1 << 20;
+    // the most of one text (a label, a description, a value shown as text) the page draws per frame
+    internal const int MaxDrawnText = 2000;
+
+    /// <summary><paramref name="s"/>, or its first <paramref name="max"/> characters and "..." (never half a character).</summary>
+    internal static string Clip(string s, int max)
+    {
+        if (s.Length <= max) return s;
+        var n = char.IsHighSurrogate(s[max - 1]) ? max - 1 : max;
+        return string.Concat(s.AsSpan(0, n), "...");
+    }
 
     // ------------------------------------------------------------------------------------- reading ----
 
@@ -396,9 +410,20 @@ internal static class ShroudForgeUi
         var shown = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
         string text;
         lock (Lock) text = Typing.TryGetValue((folder, d.Key), out var t) ? t : shown;
-        ui.NextItemWidth(width);
-        var max = (int)Math.Clamp((long)(d.MaxLength ?? 256) * 4 + 1, 16, 8192);
         var multi = d.Control == "textarea";
+        // the field holds the declared length and the whole value with room to type: it never shows a value cut to fit
+        // (and the cut text is never saved); a value too long for any field is shown, not edited
+        var need = Math.Max(Encoding.UTF8.GetByteCount(text), Encoding.UTF8.GetByteCount(shown));
+        var cap = multi ? MaxAreaBytes : MaxLineBytes;
+        if (need > cap || text.Contains('\0') || shown.Contains('\0'))
+        {
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(Clip(shown, MaxDrawnText));
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
+                ui.TextWrapped($"Too long to edit here ({shown.Length} characters): change it in the mod's extended.mod.json.");
+            return;
+        }
+        ui.NextItemWidth(width);
+        var max = (int)Math.Clamp(Math.Max((long)(d.MaxLength ?? 256) * 4, need + 1024L) + 1, 16, cap);
         var changed = multi ? ui.InputMultiline("##v", ref text, max, width, 90 * ui.Scale) : ui.InputText("##v", ref text, max);
         var it = ui.LastItem;
         lock (Lock)

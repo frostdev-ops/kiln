@@ -132,7 +132,9 @@ w.Toggle();   // Show / Hide / Open = true; the X button closes it too
 - `UiDraw` exposes:
   - text: `Text`, `Text(color, …)`, `TextWrapped`, `TextDisabled`, `Separator(text)`, `Tooltip`;
   - widgets: `Button`, `SmallButton`, `Checkbox`, `Slider` (float/int), `InputText`, `Selectable`, `Progress`;
-    `ItemClicked(UiMouseButton.Right)` right after any widget answers a right click on it (`Button` answers the left one);
+    `ItemClicked(UiMouseButton.Right)` right after any widget answers a right click on it (`Button` answers the left one).
+    `InputText` / `InputMultiline` edit the whole value when its UTF-8 fits `maxBytes`; a value that does not fit (or
+    holds a NUL) is shown cut and is never changed (`InputText` shows it read-only);
   - layout: `CollapsingHeader`, `TreeNode`/`TreePop`, `SameLine`, `Spacing`, `Id(...)` scopes, tables
     (`BeginTable`, `Row`, `NextRow`/`NextColumn`), tabs (`BeginTabBar`/`BeginTab`), `BeginChild`;
   - free drawing: `DrawText`, `DrawRect`, `MeasureText`;
@@ -254,7 +256,8 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     configs are read-only while connected) and the pages it registered with `Ui.AddConfigPage(modId, ui => …)`.
     ShroudForge mods have an enabled switch and settings from `extended.mod.json`, grouped and conditionally enabled,
     with live/restart hints, typed options, text lengths and declared action buttons. Slider writes settle for 350 ms;
-    text saves when the field loses focus. Choices use combos (including radio/segmented), colors use text, and SF
+    text saves when the field loses focus; a field holds the whole value, and one too long to edit (64 KiB on one line,
+    1 MiB in a text area) is shown, not edited. Choices use combos (including radio/segmented), colors use text, and SF
     keybinds use editable canonical SDL strings rather than press-to-capture. Invalid edits leave the file unchanged.
     Reads/writes are off the render thread, bounded to 2 MiB per package file, and refuse linked package files.
     Comments and formatting survive value edits. A profile-controlled switch is marked because profile activation
