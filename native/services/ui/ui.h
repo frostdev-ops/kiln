@@ -26,6 +26,9 @@ struct CallbackLifetime {
     }
 };
 
+// The kiln.ui callback running on this thread (null outside one): unsubscribe does not wait from inside a callback.
+extern thread_local CallbackLifetime* t_callback;
+
 extern const KilnApi* g_api;
 extern KilnOwner g_owner;
 void logf(int level, const char* fmt, ...);
@@ -68,6 +71,9 @@ uint32_t input_take_pressed(uint32_t* mods);
 void key_name(uint32_t vk, char* out, size_t cap);
 bool dispatch_key(const KilnUiKey& key);  // runs the menu key, the wheel and key subscribers; true = consumed
 bool input_key_held(uint32_t vk);         // the key is down now, as far as the window's messages have told (any thread)
+// subscribe_window_input (kiln_ui.h v5): the window's input records for native subscribers. Any thread.
+KilnResult input_feed_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
+KilnResult input_feed_unsubscribe(KilnHandle h);  // KILN_ERR_NOT_FOUND: not a window-input subscription
 
 // ---- ui.cpp ----
 // Builds one ImGui frame (NewFrame, frame callbacks, the fallback menu, Render). Render thread. False = nothing drawn.
