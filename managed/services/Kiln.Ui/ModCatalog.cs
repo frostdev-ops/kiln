@@ -39,7 +39,7 @@ internal enum EngineHealth
 /// <summary>One mod.</summary>
 internal sealed record CatalogMod
 {
-    /// <summary>The engine kind: kiln, native, plugin, chain, emf, eml, shroudforge, set, greeneye, flame, shroudtopia,
+    /// <summary>The engine kind: kiln, native, plugin, chain, emf, eml, xhl, shroudforge, set, greeneye, flame, shroudtopia,
     /// enshwick, shroudlink, ember.</summary>
     public required string Engine { get; init; }
     public required string Id { get; init; }
@@ -131,13 +131,13 @@ internal static class ModCatalog
 {
     /// <summary>Engines in the order the screen lists them (the launcher's MOD_KINDS, with chain DLLs after plugins).</summary>
     public static readonly string[] EngineOrder =
-        ["kiln", "native", "plugin", "chain", "emf", "eml", "shroudforge", "set", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"];
+        ["kiln", "native", "plugin", "chain", "emf", "eml", "xhl", "shroudforge", "set", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"];
 
     /// <summary>The names players see (the launcher's KIND_SHORT, plain words for Kiln's own kinds).</summary>
     public static string EngineName(string kind) => kind switch
     {
         "kiln" => "Kiln", "native" => "Native DLL mods", "plugin" => "Kiln plugins", "chain" => "Chain DLLs", "emf" => "EMF",
-        "eml" => "EML", "shroudforge" => "ShroudForge", "set" => "SET", "greeneye" => "Greeneye", "flame" => "Flame",
+        "eml" => "EML", "xhl" => "XHL", "shroudforge" => "ShroudForge", "set" => "SET", "greeneye" => "Greeneye", "flame" => "Flame",
         "shroudtopia" => "Shroudtopia", "enshwick" => "Enshwick", "shroudlink" => "shroudlink", "ember" => "Ember", _ => kind,
     };
 
@@ -150,6 +150,7 @@ internal static class ModCatalog
         "chain" => "Other DLLs Kiln starts next to the game.",
         "emf" => "Enshrouded Mod Framework mods, run by Kiln.",
         "eml" => "Enshrouded Mod Loader mods: they change the game's data before it starts.",
+        "xhl" => "XHL-Core plugins, placed in the game's mods folder. Only XHL-Core, installed separately, loads them; Kiln does not.",
         "shroudforge" => "ShroudForge mods, run by the ShroudForge runtime.",
         "set" => "Shrouded Engine Tweaks Lua mods, run by Kiln.",
         "greeneye" => "Greeneye Loader mods, run by Kiln.",
@@ -568,6 +569,7 @@ internal static class ModCatalog
         Guard("chain", () => ChainMods(b, bootDoc));
         foreach (var kind in new[] { "emf", "eml", "set", "greeneye", "flame", "shroudtopia", "shroudlink", "ember" })
             Guard(kind, () => EngineMods(b, kind, bootDoc));
+        Guard("xhl", () => Xhl(b));
         Guard("shroudforge", () => ShroudForge(b, bootDoc));
         Guard("enshwick", () => Enshwick(b, bootDoc));
 
@@ -1080,12 +1082,15 @@ internal static class ModCatalog
         var start = b.Mods.TryGetValue("enshwick", out var before) ? before.Count : 0;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in b.Profile.Of("enshwick")) seen.Add(e.Id ?? LeafName(e.Path));
+        // the game's mods folder also holds what Kiln places there for other hosts (XHL companions, EML mods a DLL reads
+        // there): those are listed under their own kind, never as Enshwick's
+        var taken = TakenFolders(b, "enshwick");
         b.ProfileRest("enshwick", _ => false, why, state, help);
         if (b.Profile.ReadsFolder("enshwick"))
             foreach (var sub in SubDirs(Path.Combine(b.Src.GameDir, "mods")))
             {
                 var name = LeafName(sub);
-                if (seen.Contains(name) || !LooksLikeEnshwick(sub)) continue;
+                if (seen.Contains(name) || taken.Contains(NormPath(sub)) || !LooksLikeEnshwick(sub)) continue;
                 b.Add(new CatalogMod
                 {
                     Engine = "enshwick", Id = name, Name = name, Folder = sub, Source = "folder", State = state, Word = word ?? "",
@@ -1102,10 +1107,76 @@ internal static class ModCatalog
         try
         {
             if (File.Exists(Path.Combine(dir, "extended.mod.json"))) return false;  // ShroudForge's
+            // an XHL-Core plugin, an EML (or ShroudForge) package, a copy Kiln placed for another kind
+            if (File.Exists(Path.Combine(dir, XhlPluginIni)) || File.Exists(Path.Combine(dir, "mod.json"))) return false;
+            if (PlacedKind(dir) is { } kind && !kind.Equals("enshwick", StringComparison.OrdinalIgnoreCase)) return false;
             if (File.Exists(Path.Combine(dir, "pack.toml"))) return true;
             return Directory.EnumerateFiles(dir, "*.dll").Take(1).Any();
         }
         catch (Exception) { return false; }
+    }
+
+    /// <summary>The kind in Kiln's placement marker of a folder (kiln-manage <c>engine_mods::MARKER</c>), or null.</summary>
+    private static string? PlacedKind(string dir)
+    {
+        var path = Path.Combine(dir, ".kiln-library.json");
+        try
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length > 64 << 10) return null;
+        }
+        catch (Exception) { return null; }
+        return ReadJson(path, out _) is { ValueKind: JsonValueKind.Object } d ? Str(d, "kind") : null;
+    }
+
+    /// <summary>The folders (as <see cref="NormPath"/>) the profile's entries of every kind but <paramref name="except"/>
+    /// name, and those other engines' rows already list.</summary>
+    private static HashSet<string> TakenFolders(Builder b, string except)
+    {
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (kind, entries) in b.Profile.Mods)
+            if (!kind.Equals(except, StringComparison.OrdinalIgnoreCase))
+                foreach (var e in entries) taken.Add(NormPath(e.Path));
+        foreach (var (kind, rows) in b.Mods)
+            if (!kind.Equals(except, StringComparison.OrdinalIgnoreCase))
+                foreach (var m in rows)
+                    if (m.Folder is { } f) taken.Add(NormPath(f));
+        return taken;
+    }
+
+    // ---- XHL companions: placed in <game>/mods/<name>/ for XHL-Core, a separately installed host. Kiln never loads them
+    // and nothing reports whether XHL-Core did, so no row says Loaded (kiln-manage engine_mods: xhl_host) ----
+    private const string XhlPluginIni = "native-plugin.ini";
+
+    internal const string XhlPrerequisite = "Requires XHL-Core: only that separately installed host loads it. Import XHL-Core in the Kiln launcher " +
+                                            "as a Native mod and turn it on, or install it as its author says, then start the game again.";
+
+    private static void Xhl(Builder b)
+    {
+        var start = b.Mods.TryGetValue("xhl", out var before) ? before.Count : 0;
+        b.ProfileRest("xhl", _ => false, "Placed in the game's mods folder for XHL-Core. Kiln does not load it, and Kiln cannot tell whether XHL-Core runs it.",
+            ModRunState.NotLoaded, XhlPrerequisite);
+        if (b.Mods.TryGetValue("xhl", out var placed))
+            for (var i = start; i < placed.Count; i++)
+                if (placed[i].Word == "not reported") placed[i] = placed[i] with { Word = "placed" };
+        // XHL-Core plugins put into the game's mods folder by hand
+        var taken = TakenFolders(b, "xhl");
+        var listed = new HashSet<string>(b.Profile.Of("xhl").Select(e => NormPath(e.Path)), StringComparer.OrdinalIgnoreCase);
+        foreach (var sub in SubDirs(Path.Combine(b.Src.GameDir, "mods")))
+        {
+            bool plugin;
+            try { plugin = File.Exists(Path.Combine(sub, XhlPluginIni)); }
+            catch (Exception) { plugin = false; }
+            if (!plugin || listed.Contains(NormPath(sub)) || taken.Contains(NormPath(sub))) continue;
+            var name = LeafName(sub);
+            b.Add(new CatalogMod
+            {
+                Engine = "xhl", Id = name, Name = name, Folder = sub, Source = "folder", State = ModRunState.NotLoaded, Word = "found",
+                Reason = "An XHL-Core plugin in the game's mods folder. Kiln does not load it, and Kiln cannot tell whether XHL-Core runs it.",
+                Help = XhlPrerequisite,
+            });
+        }
+        if (b.Mods.ContainsKey("xhl") || b.Profile.Of("xhl").Count > 0)
+            b.Engine("xhl", null, EngineHealth.Idle, "XHL: placed for XHL-Core, a separate host. Kiln never loads these plugin DLLs and does not check here whether XHL-Core is installed.", true);
     }
 
     private static IEnumerable<string> SubDirs(string dir)

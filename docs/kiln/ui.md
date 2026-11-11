@@ -239,7 +239,7 @@ pause menu's **Mods** entry; Escape (gamepad B) or the **Back** hint goes back. 
 of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad move; Enter or A chooses; Ctrl+F jumps to the search box.
 - **Mods**: three columns.
   - Left: **All mods**, **Needs attention** (only when a mod failed or its folder is missing), then one row per engine
-    that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, ShroudForge, SET, Greeneye, Flame,
+    that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, XHL, ShroudForge, SET, Greeneye, Flame,
     Shroudtopia, Enshwick, shroudlink, Ember) with its count and a mark (green fine, grey idle, red a problem), and
     **Kiln settings** (Kiln's own configs) when there are any.
   - Middle: the mods of that row (name, version, a state chip: Loaded, Waiting, Off, Failed, Not loaded, Missing; the
@@ -272,7 +272,11 @@ than 30 s). The runtime's effect states are `waiting`, `no-target`, `no-change`,
 they get the launcher's tones: `write-failed` (any state naming a failure, an error or a block) shows Failed and counts
 under Needs attention, `waiting` and `no-target` show Waiting, `no-change` and `write-confirmed` show Loaded. A running adapter alone is not proof a
 Lua mod is active, reported readback is not gameplay proof, and individual startup patch application is not confirmed here. Enshwick's mods
-come from the profile and mods folder, with loader state from `enshwick.json`. A mod the
+come from the profile and mods folder, with loader state from `enshwick.json`; a folder there that another kind owns
+(a profile entry of another kind, a `native-plugin.ini`, a `mod.json`, or Kiln's placement marker of another kind) is
+not listed as Enshwick's. XHL companions (the profile's `mods.xhl`, and folders with XHL-Core's `native-plugin.ini` in
+`<game>/mods/`) are their own group: "placed for XHL-Core; Kiln does not load it", with the XHL-Core prerequisite, never
+Loaded, since Kiln never runs them and nothing reports whether XHL-Core did. A mod the
 profile lists that no report names shows as off (switched off in the profile), missing (its folder is gone) or not
 loaded, with the reason. A file from an earlier start (another `pid`, or written before this process started) does not
 count. The state words are read as the launcher reads them (`EngineStatus.tsx`), so both say the same.

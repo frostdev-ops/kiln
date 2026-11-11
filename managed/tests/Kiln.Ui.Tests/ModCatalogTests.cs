@@ -325,6 +325,47 @@ public sealed class ModCatalogTests : IDisposable
         }
     }
 
+    /// <summary>Folders Kiln places in <c>&lt;game&gt;/mods/</c> for other hosts (an XHL-Core companion, an EML mod a DLL
+    /// reads there) are not Enshwick mods, even while Enshwick runs: XHL entries are their own group, never Loaded.</summary>
+    [Fact]
+    public void Xhl_companions_and_dll_carrying_eml_folders_are_not_enshwick_mods()
+    {
+        void Put(string folder, string file, string text) => File.WriteAllText(Path.Combine(Dir("mods", folder), file), text);
+        Put("XHL-Vein-Mining", "native-plugin.ini", "[Plugin]\nDll=XHL-Vein-Mining.dll\n");
+        Put("XHL-Vein-Mining", "XHL-Vein-Mining.dll", "MZ");
+        Put("XHL-Vein-Mining", ".kiln-library.json", """{"format":1,"kind":"xhl","id":"xhl-vein-mining","version":"2.0.0","hash":"h"}""");
+        Put("auto-loot-plus", "mod.json", """{"id":"auto-loot-plus","name":"Auto Loot Plus","version":"1.0.0"}""");
+        Put("auto-loot-plus", "loot.dll", "MZ");
+        Put("Hand-XHL", "native-plugin.ini", "[Plugin]\nDll=Hand-XHL.dll\n");
+        Put("Hand-XHL", "Hand-XHL.dll", "MZ");
+        Put("settings-only", "helper.dll", "MZ");
+        Put("settings-only", ".kiln-library.json", """{"format":1,"kind":"native","id":"pack","version":"1","hash":"h"}""");
+        Put("author.pack", "pack.toml", "id = \"author.pack\"");
+        Put("author.dllmod", "dllmod.dll", "MZ");
+        Profile(new()
+        {
+            ["xhl"] = [new { id = "xhl-vein-mining", version = "2.0.0", path = Path.Combine(_root, "mods", "XHL-Vein-Mining") },
+                       new { id = "xhl-gone", version = "1.0.0", path = Path.Combine(_root, "mods", "XHL-Gone") }],
+            ["eml"] = [new { id = "auto-loot-plus", version = "1.0.0", path = Path.Combine(_root, "mods", "auto-loot-plus") }],
+        });
+        Write("enshwick.json", new { format = 1, status = "started", updatedUnixMs = StartMs + 1, mods = Array.Empty<object>() });
+        var s = Read();
+
+        Assert.Equal(["author.dllmod", "author.pack"], s.Mods.Where(m => m.Engine == "enshwick").Select(m => m.Id).Order().ToArray());
+        var xhl = Mod(s, "xhl", "xhl-vein-mining");
+        Assert.Equal((ModRunState.NotLoaded, "placed", false), (xhl.State, xhl.Word, xhl.Missing));
+        Assert.Contains("Kiln does not load it", xhl.Reason);
+        Assert.Contains("Requires XHL-Core", xhl.Help);
+        Assert.True(Mod(s, "xhl", "xhl-gone").Missing);
+        var hand = Mod(s, "xhl", "Hand-XHL");
+        Assert.Equal((ModRunState.NotLoaded, "folder"), (hand.State, hand.Source));
+        Assert.DoesNotContain(s.Mods, m => m.State == ModRunState.Loaded && m.Folder is { } f && f.Contains("XHL", StringComparison.Ordinal));
+        var engine = s.Engines.Single(e => e.Kind == "xhl");
+        Assert.Equal(("XHL", EngineHealth.Problem), (engine.Name, engine.Health));  // the missing entry
+        Assert.Contains("Kiln never loads", engine.Note);
+        Assert.Equal(ModCatalog.EngineOrder.ToList().IndexOf("eml") + 1, ModCatalog.EngineOrder.ToList().IndexOf("xhl"));
+    }
+
     [Fact]
     public void Enshwick_lists_the_profile_and_its_copy_notes()
     {
