@@ -1595,7 +1595,7 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
     let kinds = || crate::own_loaders::PLACED_FOR_LOADER.into_iter().chain([ModKind::Native, ModKind::Xhl]);
     for (placing, kind) in [false, true].into_iter().flat_map(|placing| kinds().map(move |k| (placing, k))) {
         if run_folder(kind).is_some() {
-            if placing { place_run_folder(dirs, profile, game_dir, roots, kind, &mut receipts, &mut rep); }
+            place_run_folder(dirs, profile, game_dir, roots, kind, placing, &mut receipts, &mut rep);
             continue;
         }
         let loader = crate::own_loaders::of_kind(loaders, kind).filter(|l| l.delivery == crate::own_loaders::Delivery::Placed);
@@ -1835,7 +1835,8 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
 /// either. Copies of mods switched off or gone from the profile are removed, the files the mod wrote kept in
 /// [`kept_dir`]. A player's folder under the mod's name stays theirs ([`PlaceReport::own`]); for Flame, a folder there
 /// that only holds files a mod wrote (no manifest, no code: [`written_files_only`]) takes Kiln's copy and keeps them.
-fn place_run_folder(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, roots: Roots, kind: ModKind,
+#[allow(clippy::too_many_arguments)]
+fn place_run_folder(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, roots: Roots, kind: ModKind, placing: bool,
                     receipts: &mut Vec<Placement>, rep: &mut PlaceReport) {
     let root = game_dir.join(run_folder(kind).expect("a kind with a run folder"));
     let list = profile.mods.list(kind);
@@ -1850,25 +1851,25 @@ fn place_run_folder(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir
     };
     if let Err(e) = refuse_symlink_path(game_dir, &root) {
         // nothing is read or written through a linked folder
-        for m in list.iter().filter(|m| m.enabled) {
+        for m in list.iter().filter(|m| placing && m.enabled) {
             rep.warnings.push(format!("{}: not placed in {}: {}; it runs from the Library", tag(&m.id), root.display(), e.message));
         }
         return;
     }
-    let mut wanted: Vec<PathBuf> = Vec::new();
-    for m in list.iter().filter(|m| m.enabled) {
+    // Join the shared removal pass before any engine takes a folder another engine is releasing.
+    let wanted: Vec<PathBuf> = list.iter().filter(|m| m.enabled && is_game_folder_name(&m.id)).map(|m| root.join(&m.id)).collect();
+    for m in list.iter().filter(|m| placing && m.enabled) {
         if !is_game_folder_name(&m.id) {
             rep.warnings.push(format!("{}: not placed: the id is no folder name Windows can hold; it runs from the Library", tag(&m.id)));
             continue;
         }
         let dst = root.join(&m.id);
-        wanted.push(dst.clone());
         if let Err(e) = place_run_folder_one(dirs, game_dir, roots, kind, receipts, rep, m, &root, &dst) {
             kept(rep, &m.id, &dst, &e.message);
         }
     }
     let stale: Vec<Placement> = receipts.iter()
-        .filter(|r| r.marker.kind == kind && !r.game_folder && !wanted.contains(&r.path)).cloned().collect();
+        .filter(|r| !placing && r.marker.kind == kind && !r.game_folder && !wanted.contains(&r.path)).cloned().collect();
     for receipt in stale {
         if let Err(e) = remove_run_folder_copy(game_dir, receipts, rep, &receipt) {
             kept(rep, &receipt.marker.id, &receipt.path, &e.message);
@@ -1878,7 +1879,7 @@ fn place_run_folder(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir
 
 /// Top-level files that make a folder in the game's `mods` a mod of some engine (EML, ShroudForge, Flame, Shroudtopia,
 /// Enshwick, XHL-Core) or Kiln's copy: a folder with one is never taken for files a mod only wrote.
-const MOD_MANIFESTS: [&str; 7] = ["mod.json", "flame.json", "shroudtopia.json", "pack.toml", "extended.mod.json", XHL_PLUGIN_INI, MARKER];
+const MOD_MANIFESTS: [&str; 9] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "shroudtopia.json", "pack.toml", "extended.mod.json", XHL_PLUGIN_INI, MARKER];
 
 /// The files of `dst`, a folder at a Flame mod's place in `<game>/mods/` that no receipt names, when it holds no mod:
 /// only files a mod wrote there. Creative Mode makes `<game>\mods\creative\` and writes `logs\` and `notice.txt` into it

@@ -523,6 +523,31 @@ public sealed class ModCatalogTests : IDisposable
         Assert.DoesNotContain("Turn it on in the Kiln launcher (Profiles)", off.Help ?? "");
     }
 
+    [Fact]
+    public void A_failed_shroudforge_preparation_does_not_leave_eml_rows_loaded()
+    {
+        var folder = Dir("mods", "broken");
+        Profile(new() { ["eml"] = [new { id = "broken", version = "1.0.0", path = folder }] });
+        Write("eml.json", new
+        {
+            pid = Pid, phase = "aside", aside = "ShroudForge owns startup asset patching",
+            mods = new[] { new { id = "broken", path = folder, state = "own-loader", reason = "runs under ShroudForge (hosted by Kiln)" } },
+        });
+        Write("shroudforge.json", new { pid = Pid, mode = "failed", modsDir = Path.Combine(_root, "mods"), reason = "ShroudForge's startup preparation failed" });
+        var m = Mod(Read(), "eml", "broken");
+        Assert.Equal((ModRunState.Failed, "failed"), (m.State, m.Word));
+        Assert.Contains("startup preparation failed", m.Reason);
+        Assert.DoesNotContain("runs under", m.Reason);
+        Assert.Equal(EngineHealth.Problem, Read().Engines.Single(e => e.Kind == "eml").Health);
+        // A failed ShroudForge cannot discredit the independently installed EML loader.
+        Write("eml.json", new
+        {
+            pid = Pid, phase = "aside", aside = "EML's own loader",
+            mods = new[] { new { id = "broken", path = folder, state = "own-loader", reason = "runs under EML's own loader" } },
+        });
+        Assert.Equal(ModRunState.Loaded, Mod(Read(), "eml", "broken").State);
+    }
+
     /// <summary>Folders Kiln places in <c>&lt;game&gt;/mods/</c> for other hosts (an XHL-Core companion, an EML mod a DLL
     /// reads there) are not Enshwick mods, even while Enshwick runs: XHL entries are their own group, never Loaded.</summary>
     [Fact]

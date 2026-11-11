@@ -70,6 +70,21 @@ public sealed class ShroudForgeTests : IDisposable
         : c["extended"] is JsonValue e ? System.Text.Encoding.UTF8.GetBytes(e.GetValue<string>()) : null;
 
     [Theory]
+    [InlineData("\"launcher\":null")]
+    [InlineData("\"launcher\":\"eml\"")]
+    [InlineData("\"targets\":\"server\"")]
+    [InlineData("\"targets\":[]")]
+    [InlineData("\"targets\":[\"client\",42]")]
+    [InlineData("\"targets\":[\"client\",\"client\"]")]
+    public void Refused_launcher_and_targets_never_claim_to_run(string fields)
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "mod.json"), "{\"id\":\"a\",\"version\":\"1.0.0\"}");
+        File.WriteAllText(Path.Combine(_root, "extended.mod.json"), "{\"schemaVersion\":1,\"enabled\":true," + fields + "}");
+        Assert.Throws<SfEditException>(() => ShroudForgePackages.Read(_root));
+    }
+
+    [Theory]
     [MemberData(nameof(Names))]
     public void Reads_and_writes_like_the_launcher(string name)
     {

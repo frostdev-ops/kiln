@@ -228,6 +228,56 @@ fn a_creative_mode_folder_the_player_put_in_mods_stays_theirs() {
     }
 }
 
+/// A data-only package still belongs to the player, even without a DLL or Lua file.
+#[test]
+fn a_folder_with_another_engines_manifest_is_never_adopted_as_flame_output() {
+    for name in ["kiln.mod.json", "native.json", "KILN.MOD.JSON", "NATIVE.JSON"] {
+        let t = tmp("foreign-manifest");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Z);
+        let own = g.path.join("mods/creative");
+        put(&own, name, br#"{"id":"players-package","version":"1.0.0"}"#);
+        put(&own, "data/items.json", b"player data");
+        let before = hash::dirhash(&own).unwrap();
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]);
+        assert!(engine_mods::marker(&own).is_none(), "{name}: a player's package must not become Kiln's copy");
+        assert_eq!(hash::dirhash(&own).unwrap(), before, "{name}: the folder stays untouched");
+        activate_with(&dirs, &g, &pid, vec![]);
+        assert_eq!(hash::dirhash(&own).unwrap(), before, "{name}: switching off leaves it in place");
+    }
+}
+
+#[test]
+fn switching_engines_releases_a_flame_folder_before_the_other_engine_places_its_copy() {
+    let t = tmp("engine-swap");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, PathMode::Z);
+    put(&g.path, "dbghelp.dll", &build_test_dll(&[], b"EML_LOG_FILE_PATH"));
+    let flame = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+    let eml_src = t.0.join("eml/creative");
+    put(&eml_src, "mod.json", br#"{"id":"creative","name":"Creative EML","version":"1.0.0"}"#);
+    put(&eml_src, "src/mod.lua", b"return {}");
+    let imported = library::import(&dirs, &[eml_src], &mut NoProgress).unwrap();
+    let eml = imported.imported.iter().find(|m| m.kind == ModKind::Eml).unwrap();
+    let mut p = profile::create(&dirs, "Swap", None).unwrap();
+    p.mods.flame = vec![pm(&flame, true)];
+    engine_mods::place(&dirs, &p, &g.path).unwrap();
+    the_mod_writes(&g.path.join("mods/creative"));
+    p.mods.flame[0].enabled = false;
+    p.mods.eml = vec![pm(eml, true)];
+    let rep = engine_mods::place(&dirs, &p, &g.path).unwrap();
+    assert!(rep.placed.contains(&"eml:creative".into()), "the earlier engine must leave before placement: {rep:?}");
+    assert_eq!(engine_mods::marker(&g.path.join("mods/creative")).unwrap().kind, ModKind::Eml);
+    assert!(g.path.join("kiln/kept-mod-files/flame/creative/notice.txt").is_file());
+    p.mods.eml[0].enabled = false;
+    p.mods.flame[0].enabled = true;
+    let rep = engine_mods::place(&dirs, &p, &g.path).unwrap();
+    assert!(rep.placed.contains(&"flame:creative".into()), "{rep:?}");
+    assert!(g.path.join("mods/creative/notice.txt").is_file());
+}
+
 fn walk(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -273,6 +323,67 @@ fn copy_mode_names_the_copy_only_for_a_runtime_that_reads_it() {
         .expect("bash runs native/core/tests/test-profile.sh (a C++20 compiler, c++ or $CXX, builds the parser)");
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert!(out.status.success() && text.contains("launcher profile ok"), "the native parser refused it:\n{text}");
+}
+
+#[test]
+fn upgrading_the_reader_does_not_delete_files_in_the_old_fallback_copy() {
+    for name in ["notice.txt", ".settings", "items.json", "linked-settings"] {
+        let t = tmp("fallback-written");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Copy);
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        runtime_in_game(&dirs, &g, Some(2), "a633659");
+        activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]);
+        let fallback = g.path.join("kiln/profiles").join(&pid).join("flame/creative");
+        if name == "linked-settings" {
+            put(&t.0, "outside", b"player's old notice");
+            std::os::unix::fs::symlink(t.0.join("outside"), fallback.join(name)).unwrap();
+        } else {
+            put(&fallback, name, b"player's old notice");
+        }
+        runtime_in_game(&dirs, &g, Some(3), "b8f1e20");
+        let a = profile::activate(&dirs, &pid, &g).unwrap();
+        assert_eq!(std::fs::read(fallback.join(name)).unwrap(), b"player's old notice", "{name}");
+        assert!(a.warnings.iter().any(|w| w.contains("kept the unused profile copy") && w.contains(&fallback.display().to_string())), "{a:?}");
+        assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().mods.flame[0].path, "../mods/creative");
+    }
+}
+
+#[test]
+fn updating_a_still_used_fallback_keeps_its_changed_files_and_runs_the_new_version() {
+    for name in ["notice.txt", ".settings", "items.json", "linked-settings"] {
+        let t = tmp("fallback-update");
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0, PathMode::Copy);
+        let v320 = import_into(&dirs, &creative(&t.0, "creative", "3.2.0"));
+        let pid = profile::create(&dirs, "Creative", None).unwrap().id;
+        runtime_in_game(&dirs, &g, Some(2), "a633659");
+        let old = activate_with(&dirs, &g, &pid, vec![pm(&v320, true)]).mods.flame[0].path.clone();
+        let fallback = g.path.join("kiln").join(&old);
+        if name == "linked-settings" {
+            put(&t.0, "outside", b"player's old notice");
+            std::os::unix::fs::symlink(t.0.join("outside"), fallback.join(name)).unwrap();
+        } else {
+            put(&fallback, name, b"player's old notice");
+        }
+        let v321 = import_into(&dirs, &creative(&t.0, "creative", "3.2.1"));
+        let mut p = profile::get(&dirs, &pid).unwrap();
+        p.mods.flame = vec![pm(&v321, true)];
+        profile::save(&dirs, &p).unwrap();
+        let a = profile::activate(&dirs, &pid, &g).unwrap();
+        assert_eq!(std::fs::read(fallback.join(name)).unwrap(), b"player's old notice", "{name}");
+        assert!(a.warnings.iter().any(|w| w.contains("kept the unused profile copy") && w.contains(&fallback.display().to_string())), "{a:?}");
+        let file = profile::read_game_profile(&g.path).unwrap().unwrap();
+        assert_ne!(file.mods.flame[0].path, old);
+        let running = g.path.join("kiln").join(&file.mods.flame[0].path);
+        assert!(std::fs::read_to_string(running.join("mod.json")).unwrap().contains("3.2.1"));
+        assert_eq!(profile::activate(&dirs, &pid, &g).unwrap().copied, 0, "the new copy is reused");
+        assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().mods.flame[0].path, file.mods.flame[0].path);
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native/core/tests/test-profile.sh");
+        let out = std::process::Command::new("bash").arg(script).arg(g.path.join("kiln/profile.json")).env("TMPDIR", &t.0).output().unwrap();
+        assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    }
 }
 
 #[test]

@@ -1003,6 +1003,20 @@ internal static class ModCatalog
                 Reason = on ? why : "Switched off in ShroudForge's settings.", Help = on ? help : null,
             });
         }
+        // kiln-eml reported its handoff before ShroudForge prepared. A later failure supersedes that prediction.
+        if (mode == "failed")
+        {
+            var affected = false;
+            for (var i = 0; i < emlRows.Count; i++)
+                if (emlRows[i].Word == "own-loader" && emlRows[i].Reason?.Contains("ShroudForge", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    emlRows[i] = emlRows[i] with { State = ModRunState.Failed, Word = "failed", Reason = note,
+                        Help = "Fix ShroudForge first (see kiln.log), then start the game again. Kiln EML stood aside and did not apply this mod." };
+                    affected = true;
+                }
+            if (affected && b.Engines.TryGetValue("eml", out var eml))
+                b.Engines["eml"] = (eml.Word, EngineHealth.Problem, "Kiln EML stood aside for ShroudForge, but " + note, eml.Reported);
+        }
         // what ShroudForge's runtime says per mod (its state.json, this process), and its own switch in the mod's files
         if (runs)
         {
