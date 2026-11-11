@@ -190,6 +190,79 @@ public sealed unsafe class ItemIconPathTests : IDisposable
         Assert.Equal(Full("icons/gem.png"), IconSent($"{Id}.full"));
     }
 
+    [Fact]
+    public void Mod_code_resolves_relative_PNGs_at_all_six_compile_sites()
+    {
+        var context = HostAccess.CreateContext(new ModInfo(Id, Id, "1.0.0", _dir), 7, _dir);
+        var mod = NewMod();
+        WorldTablesNative.TestDefine = d => new JsonObject { ["blocks"] = new JsonArray(new JsonObject
+            { ["name"] = d.Contains("\"brick\"") ? "brick" : "loam", ["status"] = "registered", ["id"] = 40 }) }.ToJsonString();
+        try
+        {
+            HostAccess.Current = context;
+            (string Name, IBlock Block, string File)[] cases =
+            [
+                ("gem", new ItemBlock { Name = "Gem", Visual = new VisualBlock { Icon = "icons/gem.png" } }, "gem"),
+                ("hood", new CosmeticBlock { Name = "Hood", Slot = CosmeticSlot.Head, Look = new WornLook { Like = "Vanity_TX_Hunter_Helmet", Icon = "icons/hood.png" } }, "hood"),
+                ("crop", new HairBlock { Name = "Crop", Look = new WornLook { Like = "VC_Hair_04_02_frenchcrop", Icon = "icons/crop.png" } }, "crop"),
+                ("trim", new BeardBlock { Name = "Trim", Look = new WornLook { Like = "VC_Beard12_stubble", Icon = "icons/trim.png" } }, "trim"),
+                ("stool", new PropBlock { Name = "Stool", Visual = new VisualBlock { Model = "item:Prop_Decoration_Comfort1_T0_Table_Medium", Icon = "icons/stool.png" } }, "stool"),
+                ("brick", new BuildingMaterialBlock { Name = "Brick", Icon = "icons/brick.png" }, "brick"),
+                ("loam", new TerrainMaterialBlock { Name = "Loam", Placeable = true, Icon = "icons/loam.png" }, "loam"),
+            ];
+            foreach (var (name, block, file) in cases)
+            {
+                var low = Compiler.Lower(mod, name, block).Low.Json;
+                Assert.Equal(Full($"icons/{file}.png"), (string?)low["itemParts"]?["icon"]);
+            }
+            Assert.Empty(mod.Errors);
+        }
+        finally
+        {
+            HostAccess.Current = null;
+            context.Retire();
+        }
+    }
+
+    [Theory]
+    [InlineData(@"\\server\share\outside.png")]
+    [InlineData("//server/share/outside.png")]
+    [InlineData(@"\\?\C:\outside.png")]
+    [InlineData("C:/outside.png")]
+    [InlineData("C:outside.png")]
+    [InlineData("icons/gem.png:stream.png")]
+    [InlineData(@"\icons\gem.png")]
+    [InlineData("icons/../icons/gem.png")]
+    [InlineData("icons/stream:part.png")]
+    public void Rooted_drive_stream_and_mixed_separator_paths_refuse_only_the_icon(string icon)
+    {
+        var json = new JsonObject { ["format"] = 1, ["items"] = new JsonObject { ["gem"] = new JsonObject
+            { ["name"] = "Gem", ["visual"] = new JsonObject { ["icon"] = icon } } } }.ToJsonString();
+        var mod = Load(json);
+        Assert.Single(Sent);
+        Assert.Null(IconSent($"{Id}.gem"));
+        Assert.True(mod.Handles.ContainsKey("gem"));
+        var error = Assert.Single(mod.Errors);
+        Assert.Contains(", visual.icon:", error);
+        Assert.Contains("the base icon stays", error);
+    }
+
+    [Fact]
+    public void A_very_long_path_refuses_only_the_icon()
+    {
+        var icon = "icons/" + new string('a', 5000) + ".png";
+        var json = new JsonObject { ["format"] = 1, ["items"] = new JsonObject { ["gem"] = new JsonObject
+            { ["name"] = "Gem", ["visual"] = new JsonObject { ["icon"] = icon } } } }.ToJsonString();
+        var mod = Load(json);
+        Assert.Single(Sent);
+        Assert.Null(IconSent($"{Id}.gem"));
+        Assert.True(mod.Handles.ContainsKey("gem"));
+        var error = Assert.Single(mod.Errors);
+        Assert.Contains(", visual.icon:", error);
+        Assert.Contains(icon, error);
+        Assert.Contains("the base icon stays", error);
+    }
+
     [Theory]
     [InlineData("icons/missing.png")]
     [InlineData("../../outside.png")]
