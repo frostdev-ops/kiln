@@ -3,7 +3,7 @@
 // was_keybind_pressed). ShroudForge's runtime reads it from a hidden helper, <game>/shroudforge/shroudforge.exe
 // --keyboard-input, which Kiln's bundled component does not ship. A runtime built from Kiln's fork has seven optional
 // exports instead (the fork's kiln/abi/input_host.h, "host key feed" v1): Kiln passes them the game window's own key,
-// button and focus records from kiln.ui (subscribe_window_input, kiln_ui.h v5). docs/kiln/shroudforge-compat.md 5.5.
+// button and focus records from kiln.ui (subscribe_window_input, kiln_ui.h v5). docs/kiln/shroudforge-compat.md 5.6.
 //
 // Order (input_host.h): subscribe with forwarding still shut, begin before shroudforge_create (a 0 means
 // ShroudForge's own input already runs: unsubscribe, feed nothing), forward, and at teardown unsubscribe (kiln.ui waits

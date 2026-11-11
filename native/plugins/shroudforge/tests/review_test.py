@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,16 @@ import unittest
 sys.dont_write_bytecode = True
 
 REPO = Path(__file__).resolve().parents[4]
+# The host key feed of shroudforge-runtime.dll (the fork's kiln/abi/input_host.h): name, Rust arguments, Rust result.
+FEED_EXPORTS = [
+    ('shroudforge_input_host_version', '', 'u32'),
+    ('shroudforge_input_host_begin', '', 'u32'),
+    ('shroudforge_input_host_raw_key', 'make_code: u32, flags: u32, vkey: u32', None),
+    ('shroudforge_input_host_window_key', 'wparam: usize, lparam: isize', None),
+    ('shroudforge_input_host_mouse_button', 'button: u32, down: u32', None),
+    ('shroudforge_input_host_reset', '', None),
+    ('shroudforge_input_host_end', '', None),
+]
 FORK_LAYER = Path(os.environ.get('KILN_SF_REVIEW_LAYER', str(REPO.parent / 'shroudforge-kiln')))
 
 def run(*args, **kw):
@@ -234,6 +245,18 @@ class ForkBuildTests(unittest.TestCase):
             script = root / 'kiln/check-contract.py'
             script.parent.mkdir()
             shutil.copyfile(FORK_LAYER / 'kiln/check-contract.py', script)
+            # The host key feed (since the 112d939 pin): its Rust definitions must match the header kiln-shroudforge
+            # reads. A fork layer from before the feed checks the bootstrap only.
+            header_file = FORK_LAYER / 'kiln/abi/input_host.h'
+            host_input = root / 'modules/hotkeys/host_input.rs'
+            if header_file.exists():
+                header = header_file.read_text()
+                write(root / 'kiln/abi/input_host.h', header)
+                version = re.search(r'#define SHROUDFORGE_INPUT_HOST_VERSION (\d+)u', header).group(1)
+                rust = f'const INPUT_HOST_VERSION: u32 = {version};\n' + '\n'.join(
+                    '#[unsafe(no_mangle)]\npub extern "C" fn ' + name + '(' + args + ')' + (' -> ' + result if result else '') + ' {}'
+                    for name, args, result in FEED_EXPORTS)
+                write(host_input, rust)
             declarations = [
                 'shroudforge_prepare_startup(game: *const u16) -> bool',
                 'shroudforge_create(game: *const u16) -> *mut RuntimeHandle',
@@ -248,6 +271,30 @@ class ForkBuildTests(unittest.TestCase):
             self.assertNotEqual(run('python3', str(script)).returncode, 0)
             write(target, source.replace('#[unsafe(no_mangle)]', '', 1))
             self.assertNotEqual(run('python3', str(script)).returncode, 0)
+            write(target, source)
+            if not header_file.exists():
+                return
+            write(host_input, rust.replace('lparam: isize', 'lparam: i32'))
+            self.assertNotEqual(run('python3', str(script)).returncode, 0)
+            write(host_input, rust.replace(f'u32 = {version};', f'u32 = {int(version) + 1};'))
+            self.assertNotEqual(run('python3', str(script)).returncode, 0)
+            write(host_input, rust)
+            self.assertEqual(run('python3', str(script)).returncode, 0)
+            write(root / 'kiln/abi/input_host.h', header.replace('void shroudforge_input_host_reset(void);', ''))
+            self.assertNotEqual(run('python3', str(script)).returncode, 0)
+
+    @unittest.skipUnless((FORK_LAYER / 'kiln/abi/input_host.h').exists(), 'a fork layer without the host key feed')
+    def test_adapter_looks_up_the_feed_the_fork_declares(self):
+        # kiln-shroudforge finds the seven exports by name and knows one version (src/key_feed.cpp): both must be what
+        # the pinned fork's kiln/abi/input_host.h declares, or the feed silently never starts.
+        header = (FORK_LAYER / 'kiln/abi/input_host.h').read_text()
+        adapter = (REPO / 'native/plugins/shroudforge/src/key_feed.cpp').read_text()
+        declared = re.findall(r'\b(shroudforge_input_host_\w+)\(', header)
+        looked_up = re.findall(r'GetProcAddress\(runtime, "(shroudforge_input_host_\w+)"\)', adapter)
+        self.assertEqual(sorted(declared), sorted(looked_up))
+        self.assertEqual(sorted(declared), sorted(name for name, _, _ in FEED_EXPORTS))
+        version = re.search(r'#define SHROUDFORGE_INPUT_HOST_VERSION (\d+)u', header).group(1)
+        self.assertIn(f'constexpr uint32_t kFeedVersion = {version};', adapter)
 
     def test_export_build_stale_ui_last_nonmod_and_failed_build_preserves_output(self):
         with tempfile.TemporaryDirectory(prefix='kiln-fork-build-test-') as tmp:
@@ -269,6 +316,12 @@ class ForkBuildTests(unittest.TestCase):
 mkdir -p "$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release"
 printf runtime > "$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/shroudforge_modloader.dll"
 ''', True)
+            # the export table check of build.sh (since the 112d939 pin); SF_TEST_FAIL=export drops one export
+            exports = ['shroudforge_prepare_startup', 'shroudforge_create', 'shroudforge_update', 'shroudforge_destroy'] + \
+                [name for name, _, _ in FEED_EXPORTS]
+            write(bins / 'llvm-readobj', '#!/bin/sh\n' + ''.join(
+                f'[ "${{SF_TEST_FAIL:-}}" = export ] && [ {name} = shroudforge_input_host_end ] || printf "  Name: {name}\\n"\n'
+                for name in exports), True)
             write(bins / 'cmake', '''#!/bin/sh
 [ "$1" = --build ] || exit 0
 mkdir -p "$2/bin" "$2/_deps/zydis-src/dependencies/zycore"
@@ -286,6 +339,12 @@ printf MIT > "$2/_deps/zydis-src/dependencies/zycore/LICENSE"
             env['SF_TEST_FAIL'] = 'cargo'
             self.assertNotEqual(run('bash', str(fork / 'kiln/build.sh'), str(out), env=env).returncode, 0)
             self.assertEqual((out / 'shroudforge/shroudforge-runtime.dll').read_bytes(), before)
+            if 'llvm-readobj' in (fork / 'kiln/build.sh').read_text():
+                env['SF_TEST_FAIL'] = 'export'
+                failed = run('bash', str(fork / 'kiln/build.sh'), str(out), env=env)
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertIn(b'does not export shroudforge_input_host_end', failed.stderr)
+                self.assertEqual((out / 'shroudforge/shroudforge-runtime.dll').read_bytes(), before)
 
 if __name__ == '__main__':
     unittest.main()
