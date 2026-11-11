@@ -137,7 +137,7 @@ internal static partial class Compiler
         // its main input is what digging it gives back, unless its strength says
         if (m.Recipe is { Needs.Count: > 0 } r)
             block["recipe"] = new JsonObject { ["makes"] = r.Makes, ["needs"] = new JsonObject(r.Needs.Select(n => KeyValuePair.Create(n.Key.Value, (JsonNode?)n.Value))) };
-        // checked before kiln.worldtables hears of it: a block that is wrong registers nothing
+        // The optional icon is checked separately: a refused picture must not remove a saved material.
         var icon = m.Icon is { } i ? BlockIcons.ItemIcon(ctx, i, "icon") : null;
         var (status, id) = AskTables(ctx, low, "buildingMaterials", name, block);
         low.Json["material"] = guid.ToString();

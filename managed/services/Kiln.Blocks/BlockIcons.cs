@@ -35,14 +35,28 @@ internal static class BlockIcons
     /// <paramref name="owner"/> (the block's by default), as its full path: kiln.content makes a relative path full only while that mod's code runs, a data file's
     /// blocks compile on a tick of Kiln's own, and kiln.assets reads a relative path against &lt;game&gt;/kiln. A full path, as a mod's code may give one, is taken
     /// when it names a file in that folder. Anything else (<c>item:&lt;name&gt;</c>, a GUID) is as written.</summary>
-    public static string ItemIcon(BlockContext ctx, string icon, string path, string? owner = null)
+    public static string? ItemIcon(BlockContext ctx, string icon, string path, string? owner = null)
     {
         if (!icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return icon;
         var dir = BlocksBridge.ModDirectory(owner ?? ctx.Mod.Id);
-        if (dir.Length > 0 && Path.IsPathRooted(icon) && Path.GetRelativePath(dir, icon) is var inside && !Path.IsPathRooted(inside)
-            && !inside.Replace('\\', '/').Split('/').Contains(".."))
-            icon = inside;
-        return BlockFiles.InMod(ctx, icon, path, dir);
+        var file = Path.Combine(dir, icon.Replace('\\', '/'));
+        try
+        {
+            file = Path.GetFullPath(file);
+            if (dir.Length > 0 && Path.IsPathRooted(icon) && Path.GetRelativePath(dir, icon) is var inside && !Path.IsPathRooted(inside)
+                && !inside.Replace('\\', '/').Split('/').Contains(".."))
+                icon = inside;
+            return BlockFiles.InMod(ctx, icon, path, dir);
+        }
+        catch (Exception e) when (e is BlockError or IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // An icon is optional. In particular, never turn items already in a player's save into placeholders for a bad picture.
+            var text = $"block {ctx.Block}, {path}: {file}: {(e is BlockError b ? b.Problem : e.Message)}; the base icon stays";
+            lock (ctx.Mod.Errors) ctx.Mod.Errors.Add(text);
+            ctx.Mod.ReportDirty = true;
+            BlocksBridge.Log(LogLevel.Error, $"blocks: {ctx.Mod.Id}: {text}");
+            return null;
+        }
     }
 
     /// <summary>A bounded, complete PNG (including the compressed scanlines), or null. The native decoder still makes the pixels.</summary>

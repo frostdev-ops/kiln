@@ -24,7 +24,7 @@ internal static class BlockFiles
                 throw new BlockError(ctx.Block, field, $"\"{name}\" is not in the mod's folder ({file}). The build copies the mod's folders (KilnModFolders)");
             return file;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        catch (Exception e) when (e is not BlockError && e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             throw new BlockError(ctx.Block, field, $"\"{name}\": cannot read a file in the mod's folder ({e.Message})");
         }

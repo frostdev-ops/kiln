@@ -133,12 +133,15 @@ public sealed unsafe class ItemIconPathTests : IDisposable
         Assert.Equal(Full("icons/brick.png"), (string?)brick["itemParts"]?["icon"]);
         var loam = Compiler.Lower(mod, "loam", BlockJson.Parse<TerrainMaterialBlock>("""{ "name": "Loam", "placeable": true, "icon": "icons/loam.png" }""")).Low.Json;
         Assert.Equal(Full("icons/loam.png"), (string?)loam["itemParts"]?["icon"]);
-        // a wrong icon is refused before kiln.worldtables hears of the material
+        // A wrong optional picture is refused, not the material or its block item.
         var asked = 0;
         WorldTablesNative.TestDefine = d => { asked++; return Registered("clay", 41); };
-        Assert.Equal("icon", Assert.Throws<BlockError>(() => Compiler.Lower(mod, "clay", BlockJson.Parse<BuildingMaterialBlock>("""{ "name": "Clay", "icon": "../clay.png" }"""))).Field);
-        Assert.Equal("icon", Assert.Throws<BlockError>(() => Compiler.Lower(mod, "clay", BlockJson.Parse<TerrainMaterialBlock>("""{ "name": "Clay", "placeable": true, "icon": "icons/clay.png" }"""))).Field);
-        Assert.Equal(0, asked);
+        var building = Compiler.Lower(mod, "clay", BlockJson.Parse<BuildingMaterialBlock>("""{ "name": "Clay", "icon": "../clay.png" }""")).Low.Json;
+        var terrain = Compiler.Lower(mod, "clay", BlockJson.Parse<TerrainMaterialBlock>("""{ "name": "Clay", "placeable": true, "icon": "icons/clay.png" }""")).Low.Json;
+        Assert.Null(building["itemParts"]?["icon"]);
+        Assert.Null(terrain["itemParts"]?["icon"]);
+        Assert.Equal(2, asked);
+        Assert.Equal(2, mod.Errors.Count);
     }
 
     [Fact]
@@ -172,6 +175,44 @@ public sealed unsafe class ItemIconPathTests : IDisposable
         Assert.Equal(Full("icons/gem.png"), IconSent($"{Id}.full"));
     }
 
+    [Theory]
+    [InlineData("icons/missing.png")]
+    [InlineData("../../outside.png")]
+    public void An_unusable_optional_icon_keeps_every_item_and_material_defined(string icon)
+    {
+        var json = $$"""
+            { "format": 1,
+              "items": { "gem": { "name": "Gem", "visual": { "icon": "{{icon}}" } } },
+              "cosmetics": { "hood": { "name": "Hood", "slot": "head", "look": { "like": "Vanity_TX_Hunter_Helmet", "icon": "{{icon}}" } } },
+              "hair": { "crop": { "name": "Crop", "look": { "like": "VC_Hair_04_02_frenchcrop", "icon": "{{icon}}" } } },
+              "beards": { "trim": { "name": "Trim", "look": { "like": "VC_Beard12_stubble", "icon": "{{icon}}" } } },
+              "buildingMaterials": { "brick": { "name": "Brick", "icon": "{{icon}}" } },
+              "terrainMaterials": { "loam": { "name": "Loam", "placeable": true, "icon": "{{icon}}" } } }
+            """;
+        WorldTablesNative.TestDefine = d => new JsonObject { ["blocks"] = new JsonArray(new JsonObject
+            { ["name"] = d.Contains("\"brick\"") ? "brick" : "loam", ["status"] = "registered", ["id"] = 40 }) }.ToJsonString();
+        var mod = Load(json);
+        foreach (var name in new[] { "gem", "hood", "crop", "trim", "brick", "loam" })
+        {
+            Assert.True(mod.Handles.ContainsKey(name), $"{name} disappeared: {string.Join("; ", mod.Errors)}");
+            Assert.Null(IconSent($"{Id}.{name}"));
+            var error = Assert.Single(mod.Errors, e => e.Contains($" {name}, ", StringComparison.Ordinal));
+            Assert.Contains(name is "brick" or "loam" ? ", icon:" : name is "gem" or "stool" ? ", visual.icon:" : ", look.icon:", error);
+            Assert.Contains(Full(icon), error);
+            Assert.Contains("the base icon stays", error);
+        }
+        Assert.Equal(6, Sent.Count);
+        // A prop also needs kiln.gamedata to commit its placed template, which this harness does not fake.
+        var prop = Compiler.Lower(mod, "stool", BlockJson.Parse<PropBlock>($$"""{ "name": "Stool", "visual": { "model": "item:Prop_Decoration_Comfort1_T0_Table_Medium", "icon": "{{icon}}" } }"""));
+        Assert.Equal($"{Id}.stool", (string?)prop.Low.Json["items"]?[0]?["name"]);
+        Assert.Null(prop.Low.Json["itemParts"]?["icon"]);
+        var propError = Assert.Single(mod.Errors, e => e.Contains(" stool, ", StringComparison.Ordinal));
+        Assert.Contains(", visual.icon:", propError);
+        Assert.Contains(Full(icon), propError);
+        Assert.Contains("the base icon stays", propError);
+        Assert.Equal(7, mod.Errors.Count);
+    }
+
     [Fact]
     public void A_path_that_leaves_the_mods_folder_or_names_no_file_is_refused_with_the_field()
     {
@@ -186,14 +227,18 @@ public sealed unsafe class ItemIconPathTests : IDisposable
                 "missing": { "name": "Missing", "visual": { "icon": "icons/missing.png" } } },
               "cosmetics": { "worn-up": { "name": "Worn", "slot": "head", "look": { "like": "Vanity_TX_Hunter_Helmet", "icon": "../../outside.png" } } } }
             """);
-        Assert.Empty(Sent);
+        Assert.Equal(5, Sent.Count);
+        Assert.All(Sent, item => Assert.Null(item["icon"]));
+        Assert.Equal(5, mod.Handles.Count);
         string Error(string block) => Assert.Single(mod.Errors, e => e.Contains($" {block}, ", StringComparison.Ordinal));
-        Assert.Contains("visual.icon: \"../../outside.png\": a file in the mod's folder, with a relative path", Error("up"));
+        Assert.Contains("\"../../outside.png\": a file in the mod's folder, with a relative path", Error("up"));
         Assert.Contains("visual.icon:", Error("rooted"));
         Assert.Contains("a file in the mod's folder", Error("rooted"));
         Assert.Contains("links cannot leave it", Error("linked"));
         Assert.Contains($"\"icons/missing.png\" is not in the mod's folder ({Full("icons/missing.png")})", Error("missing"));
-        Assert.Contains("look.icon: \"../../outside.png\": a file in the mod's folder", Error("worn-up"));
+        Assert.Contains("look.icon:", Error("worn-up"));
+        Assert.Contains("\"../../outside.png\": a file in the mod's folder", Error("worn-up"));
+        Assert.All(mod.Errors, error => Assert.Contains("the base icon stays", error));
         Assert.Equal(5, mod.Errors.Count);
     }
 }

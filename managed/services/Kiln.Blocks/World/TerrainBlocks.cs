@@ -77,7 +77,7 @@ internal static partial class Compiler
         if (m.Sliding is { } sliding) block["sliding"] = sliding;
         if (m.Placeable) block["placeable"] = true;
         if (m.Was != null) block["was"] = m.Was;
-        // checked before kiln.worldtables hears of it: a block that is wrong registers nothing
+        // The optional icon is checked separately: a refused picture must not remove a saved material.
         var icon = m.Placeable && m.Icon is { } i ? BlockIcons.ItemIcon(ctx, i, "icon") : null;
         var (status, id) = AskTables(ctx, low, "terrainMaterials", name, block);
         low.Json["material"] = guid.ToString();
