@@ -93,8 +93,10 @@ Escape or the window's close button releases their input capture. No real-client
   no SET (play once without mods, an invalid profile, SET's own runtime) clears the marker. The marker alone opens
   nothing: Kiln's core does not run a plugin's unload at a normal game exit, so the marker is not cleared then. The
   match is by times only: the notice does not say what caused the crash. The notice shows the report's
-  reason and does not blame a mod. It only draws and never takes the game's mouse or keyboard; Escape hides it. Its
-  copy, report and **Dismiss** buttons are in SET tools opened from the game's menu. No report or clipboard write
+  reason and does not blame a mod. It only draws: mouse, keyboard and controller stay the game's, and SET mods' keys
+  keep working. Escape hides it (that one press does not reach the game); a controller's B does not, so with a
+  controller open SET tools from the game's menu and close them. Its copy, report and **Dismiss** buttons are in SET
+  tools opened from the game's menu. No report or clipboard write
   happens until chosen.
 
 ## What works
@@ -159,8 +161,9 @@ matching Kiln C# API and how each was tested, is in
   at once on a reload. Kiln's core does not run a plugin's unload when the game exits, so nothing extra is saved then
   and `onShutdown` does not run at game exit: a change made in the last second before quitting can be lost. Unknown
   keys in the file are kept. A wrong type falls back to the default with a yellow line. A broken file becomes
-  `settings.json.bad` (`settings.json.bad.2` and so on while an earlier one is still there; none is replaced). Edit
-  in the SET tools page, or edit the file by hand while the game is closed.
+  `settings.json.bad` (`settings.json.bad.2` and so on, up to `.bad.100`, while earlier ones are still there). Past
+  that, or if the rename fails, the broken file stays where it is and the next save replaces it; the yellow line says
+  so. Edit in the SET tools page, or edit the file by hand while the game is closed.
 - **`settings.json` belongs to `Settings.define`**: `io.open("settings.json", "w")` returns nil and a message. Reading
   works.
 - **Key names**: Space, Enter, Tab, arrows, numpad, and punctuation by its US name (`Semicolon`, `Equals`, ...).
