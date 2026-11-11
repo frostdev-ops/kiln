@@ -123,6 +123,63 @@ fn linked_set_recovery_does_not_block_switching_profiles_or_play() {
 }
 
 #[test]
+fn play_does_not_open_steam_when_the_refreshed_profile_cannot_be_written() {
+    use kiln_manage::launch::{self, LaunchMode, LaunchRequest};
+    let t = tmp("play-write-fails");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let game = game_with_z(&t.0);
+    let mut p = profile::create(&dirs, "Before play", None).unwrap();
+    p.mods.set.push(pm(&refs(&r, ModKind::Set, "flymode"), true));
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let before = std::fs::read(game.path.join("kiln/profile.json")).unwrap();
+    p.mods.set.clear();
+    profile::save(&dirs, &p).unwrap();
+    // Staging the refreshed JSON fails after placement, without touching the current file.
+    std::fs::create_dir(game.path.join("kiln/profile.json.tmp")).unwrap();
+    let opened = std::cell::Cell::new(false);
+    let request = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+    let e = launch::play_with(&dirs, &game, &request, Some(&[]), &|_| { opened.set(true); Ok(()) }).unwrap_err();
+    assert!(!opened.get(), "a failed refresh must never start Steam");
+    assert!(e.message.contains("cannot be applied") && e.message.contains("profile.json.tmp"), "{e:?}");
+    assert_eq!(std::fs::read(game.path.join("kiln/profile.json")).unwrap(), before);
+}
+
+#[test]
+fn failed_play_returns_the_refresh_activation_and_the_original_error_detail() {
+    use kiln_manage::launch::{self, LaunchMode, LaunchRequest};
+    for detail in [serde_json::json!({"step":"opener"}), serde_json::json!("opener detail")] {
+        let t = tmp(if detail.is_object() { "play-error-object" } else { "play-error-value" });
+        let dirs = DataDirs::at(t.0.join("data"));
+        let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+        let game = game_with_z(&t.0);
+        let mut p = profile::create(&dirs, "Before play", None).unwrap();
+        p.mods.set.push(pm(&refs(&r, ModKind::Set, "flymode"), true));
+        let mut p = profile::save(&dirs, &p).unwrap();
+        let first = profile::activate(&dirs, &p.id, &game).unwrap();
+        put(&game.path, "shrouded_engine_tweaks/mods/flymode/init.lua", b"player code");
+        p.mods.set.clear();
+        profile::save(&dirs, &p).unwrap();
+        let opened = std::cell::Cell::new(false);
+        let request = LaunchRequest { mode: LaunchMode::Profile, profile_id: None, skip_backup: true };
+        let e = launch::play_with(&dirs, &game, &request, Some(&[]), &|_| {
+            opened.set(true);
+            Err(kiln_manage::Error::invalid("injected opener failure").with_detail(detail.clone()))
+        }).unwrap_err();
+        assert!(opened.get());
+        assert_eq!(e.message, "injected opener failure");
+        let value = e.detail.unwrap();
+        if detail.is_object() { assert_eq!(value["step"], "opener"); } else { assert_eq!(value["detail"], detail); }
+        let a: profile::Activation = serde_json::from_value(value["activation"].clone()).unwrap();
+        assert!(a.generation > first.generation);
+        assert_eq!(a.generation, profile::read_game_profile(&game.path).unwrap().unwrap().generation);
+        assert!(a.retained.iter().any(|r| r.path == game.path.join("shrouded_engine_tweaks/mods/flymode") && r.may_run));
+        assert_eq!(std::fs::read(game.path.join("shrouded_engine_tweaks/mods/flymode/init.lua")).unwrap(), b"player code");
+    }
+}
+
+#[test]
 fn every_engine_kind_is_imported_profiled_placed_and_rendered() {
     let t = tmp("flow");
     let dirs = DataDirs::at(t.0.join("data"));
