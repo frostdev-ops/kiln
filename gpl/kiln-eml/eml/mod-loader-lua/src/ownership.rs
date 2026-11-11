@@ -308,7 +308,7 @@ pub(crate) fn prepare(root: &Path, stem: &str, files: &[PathBuf]) -> io::Result<
     // Even identical final bytes pass through the vanilla-header barrier and rewrite the live pair.
     handoff_locked(root, stem, true, changed, &guard)?;
     super::transaction::atomic_write(&path, &serde_json::to_vec(&receipt)?)?;
-    Ok(Some(guard))
+    Ok(guard)
 }
 
 fn is_uuid(text: &str) -> bool { text.len() == 36 && uuid::Uuid::try_parse(text).is_ok() }
@@ -562,7 +562,7 @@ pub(crate) fn before_restore(root: &Path, stem: &str) -> io::Result<Option<SfGua
             break;
         }
     }
-    Ok(Some(guard))
+    Ok(guard)
 }
 
 /// SF's write lock, held from ownership checking until the last archive write/removal is done. Every SF state write (the
@@ -607,29 +607,34 @@ fn sf_publication_pending(root: &Path, stem: &str) -> io::Result<()> {
 // Keep the exact original bytes and replacement in a recovery journal. Do not restore a now-false "applied" claim.
 // Recognition follows SF's own rules (asset-preparation.schema.json, update_loader_state.rs); any other shape refuses.
 // `publishing`: the archives are about to get EML's output (not vanilla data back): SF's asset mods drop out of them.
-fn sf_lock(root: &Path) -> io::Result<SfGuard> {
+fn sf_lock(root: &Path) -> io::Result<Option<SfGuard>> {
     #[cfg(test)]
     BEFORE_SF_LOCK.with(|check| { if let Some(check) = check.take() { check(root); } });
     // Same installation lock as ShroudForge's document writer. Acquire before reading ownership proof, not just
     // before writing: a complete SF preparation between proof and locking would make that proof stale.
-    let config_dir = root.join("shroudforge/config");
+    let sf = root.join("shroudforge");
+    checked_path(root, &sf)?;
+    if !sf.try_exists()? { return Ok(None); }
+    let config_dir = sf.join("config");
     checked_path(root, &config_dir)?;
     fs::create_dir_all(&config_dir)?;
     let lock_path = config_dir.join(".shroudforge-write.lock");
     checked_path(root, &lock_path)?;
     let lock = fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&lock_path)?;
     lock.try_lock().map_err(|e| invalid(&format!("ShroudForge state is in use: {e}")))?;
-    Ok(SfGuard { _write: lock })
+    Ok(Some(SfGuard { _write: lock }))
 }
 
 fn handoff(root: &Path, stem: &str, publishing: bool, changed: bool) -> io::Result<Option<SfGuard>> {
     let guard = sf_lock(root)?;
     handoff_locked(root, stem, publishing, changed, &guard)?;
-    Ok(Some(guard))
+    Ok(guard)
 }
 
 // The caller retains this guard through its proof checks, state handoff and every archive write/removal.
-fn handoff_locked(root: &Path, stem: &str, publishing: bool, changed: bool, _guard: &SfGuard) -> io::Result<()> {
+fn handoff_locked(root: &Path, stem: &str, publishing: bool, changed: bool, guard: &Option<SfGuard>) -> io::Result<()> {
+    // No helper can start from an absent SF installation. Do not invent another loader's folder or state.
+    if guard.is_none() { return sf_publication_pending(root, stem); }
     let config_path = root.join("shroudforge/config/modloader-config.json");
     checked_path(root, &config_path)?;
     let config = sf_config(root, &config_path)?;
@@ -703,6 +708,10 @@ pub(crate) mod tests {
         fs::write(root.join("g.kfc_resources.bak"), "original resources").unwrap();
         (root, files)
     }
+    fn install_sf(root: &Path) {
+        fs::create_dir_all(root.join("shroudforge/config")).unwrap();
+        fs::File::create(root.join("shroudforge/config/.shroudforge-write.lock")).unwrap();
+    }
     fn sf(root: &Path, custom: bool) -> (PathBuf, Vec<u8>) {
         fs::create_dir_all(root.join("shroudforge/config")).unwrap();
         let dir = if custom { root.join("custom-state") } else { root.join("shroudforge") };
@@ -774,8 +783,25 @@ pub(crate) mod tests {
         (root, header, resources)
     }
     #[test]
+    fn no_sf_folder_is_created_by_publication_restore_or_baseline_refresh() {
+        let (root, _, _) = real_published();
+        assert!(!root.join("shroudforge").exists(), "publication or baseline capture invented an SF installation");
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        assert!(crate::restore(path, "g"));
+        assert!(!root.join("shroudforge").exists(), "restore invented an SF installation");
+        let mut header = fs::read(root.join("g.kfc")).unwrap();
+        let at = header.windows(7).position(|w| w == b"fixture").unwrap();
+        header[at..at + 7].copy_from_slice(b"updated");
+        fs::write(root.join("g.kfc"), &header).unwrap();
+        crate::load::create_backup(path.join("g.kfc")).unwrap();
+        assert_eq!(fs::read(root.join("g.kfc.bak")).unwrap(), header);
+        assert!(!root.join("shroudforge").exists(), "baseline refresh invented an SF installation");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn publication_checks_ownership_after_the_sf_lock_not_before_it() {
         let (root, files) = fixture();
+        install_sf(&root);
         prepare(&root, "g", &files).unwrap();
         publish(&root, &files);
         let receipt = fs::read(root.join("kiln/eml/ownership/g.json")).unwrap();
@@ -795,6 +821,7 @@ pub(crate) mod tests {
     #[test]
     fn restore_rechecks_ownership_under_the_sf_lock_after_the_runners_earlier_proof() {
         let (root, _, _) = real_published();
+        install_sf(&root);
         assert!(owns_output(&root, "g").unwrap(), "the runner's initial authorization");
         // SF completes after that authorization and before restore obtains the shared lock. The old baseline is
         // still valid for this game build, but it must not authorize replacing SF's new output.
@@ -813,6 +840,7 @@ pub(crate) mod tests {
     fn baseline_refresh_cannot_replace_shared_backups_while_sf_is_busy_or_preparing() {
         for busy in [true, false] {
             let (root, _, _) = real_published();
+            install_sf(&root);
             let header = root.join("g.kfc");
             let mut updated = fs::read(&header).unwrap();
             let version = updated.windows(7).position(|w| w == b"fixture").unwrap();
@@ -1044,6 +1072,7 @@ pub(crate) mod tests {
     #[test]
     fn sf_lock_covers_restore_without_existing_state() {
         let (root, _, _) = real_published();
+        install_sf(&root);
         crate::transaction::DURING_RESTORE.with(|check| check.set(Some(|game| {
             assert!(crate::transaction::tests::sf_write_lock_busy(game), "SF lock missing during first-state restore");
         })));

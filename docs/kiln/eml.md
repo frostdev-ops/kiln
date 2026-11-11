@@ -252,7 +252,8 @@ It fails soft:
   kiln-eml invalidates only a recognized ShroudForge prepared-asset cache under ShroudForge's installation lock.
   Settings and unrelated state survive; exact original/replacement state bytes remain in recovery journals. The same
   lock and state checks protect shared backup capture and resealing, before publication; checking or refreshing a
-  baseline alone does not invalidate SF's applied state. Publication checks existing-container proof under that lock;
+  baseline alone does not invalidate SF's applied state. If the `shroudforge/` folder is absent, no standalone SF helper
+  can run from it: no SF lock is taken and no SF folder or state is created. Publication checks existing-container proof under that lock;
   restoration rechecks whole-output and backup proof under it, and retains it through removal of owned extras. A
   completed SF write between the runner's earlier check and lock acquisition therefore cannot reuse stale proof.
   Unknown schemas, busy locks and unsafe paths refuse the work. This does not automatically repair pre-existing stale SF state.

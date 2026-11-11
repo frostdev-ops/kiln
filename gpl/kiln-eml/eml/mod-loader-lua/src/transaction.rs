@@ -273,6 +273,7 @@ pub(crate) mod tests {
             }
             fs::write(game.join("g.kfc.bak"), "vanilla").unwrap();
             fs::write(stage.join(VANILLA_HEADER), "vanilla").unwrap();
+            fs::create_dir_all(game.join("shroudforge")).unwrap();
             if unchanged { sf_applied(&game, "g"); }
             let state = game.join("shroudforge/state.json");
             let original = fs::read(&state).ok();
