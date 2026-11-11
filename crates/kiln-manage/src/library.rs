@@ -326,11 +326,21 @@ pub(crate) fn strip_copy_suffix(name: &str) -> &str {
 
 /// What a package is called without its version and download decorations: the words before the trailing run of
 /// words that are numbers or versions (`AutoLootPlus 1.1.8 170 1.1.8 2026-10-23T21-27Z 2FzbANfp1` -> `AutoLootPlus`,
-/// Nexus' `Auto-Loot-Plus-170-1-1-8-1731234567` -> `Auto-Loot-Plus`), after a copy suffix. A number followed by a word
+/// Nexus' `Auto-Loot-Plus-170-1-1-8-1731234567-AbC123` -> `Auto-Loot-Plus`), after a copy suffix. A number followed by a word
 /// is part of the name (`Enshrouded 60 FPS`, `Enshrouded 2x Stamina 1.0` -> `Enshrouded 2x Stamina`); a name that is
 /// all numbers stays as it is.
 pub(crate) fn package_stem(name: &str) -> &str {
-    let name = strip_copy_suffix(name);
+    let mut name = strip_copy_suffix(name);
+    // A random download token need not begin with a digit. Recognize it only directly after a Unix upload timestamp,
+    // not after an ordinary number in a title such as "Enshrouded 60 FPS".
+    if let Some((before, token)) = name.rsplit_once([' ', '-', '_']) {
+        let stamp = before.rsplit([' ', '-', '_']).next().unwrap_or_default();
+        if stamp.len() == 10 && stamp.bytes().all(|b| b.is_ascii_digit())
+            && token.len() >= 4 && token.bytes().all(|b| b.is_ascii_alphanumeric())
+        {
+            name = before;
+        }
+    }
     let numeric = |w: &str| {
         let digit = |s: &str| s.bytes().next().is_some_and(|b| b.is_ascii_digit());
         digit(w) || (w.starts_with(['v', 'V']) && digit(&w[1..]))

@@ -1410,6 +1410,23 @@ fn unrelated_packages_never_silently_share_one_native_entry() {
     assert!(r.notices.is_empty(), "{:?}", r.notices);
 }
 
+/// Nexus names may end in an upload timestamp and an alphanumeric download token, then a browser copy suffix.
+#[test]
+fn nexus_download_tokens_do_not_create_a_second_proxy_when_a_mod_updates() {
+    let (t, dirs, g) = fresh("nexus-download-token");
+    for (index, names) in [
+        ["60 FPS Boost-170-1-1-8-1762454321", "60 FPS Boost-170-1-1-9-1762540721-r4Nd0m (1)"],
+        ["自动拾取-171-v1-0-1762454321-AbC123", "自动拾取-171-v1-1-1762540721-XyZ789 (2)"],
+    ].into_iter().enumerate() {
+        for name in names {
+            add(&dirs, &g, &proxy_package(&t, name, &proxy_dll(name), &[]));
+            assert_eq!(enabled_natives(&g).len(), index + 1,
+                "a Nexus download suffix must not become part of the mod's identity: {name}: {:?}", native_entries(&g));
+        }
+    }
+    assert!(enabled_natives(&g).iter().any(|id| id == "60-fps-boost"));
+}
+
 /// Ambiguous inferred ids in one drop are reduced before merge, but the losing package must still be reported.
 #[test]
 fn competing_packages_in_one_drop_report_which_selection_won() {
