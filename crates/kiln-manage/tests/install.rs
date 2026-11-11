@@ -98,6 +98,32 @@ fn outside_kiln(dir: &Path) -> Vec<(String, String)> {
     v
 }
 
+/// A later bundle can bring the same bytes as a pre-Kiln original. Uninstall must not delete that original after
+/// accepting it in place as its only surviving recovery source.
+#[test]
+fn uninstall_keeps_an_original_already_in_place_when_backups_are_gone() {
+    let t = tmp("original-in-place");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "kiln/kiln-core.dll", b"core b");
+    let inst = client(&game);
+    let a = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &inst, &a, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let b = bundle::create(&stage(&t.0, "b", false), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let r = install::install(&dirs, &inst, &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).unwrap(), b"core b");
+    assert!(r.replaced.iter().any(|r| r.path == "kiln/kiln-core.dll" && r.sha256 == hash::sha256_hex(b"core b")));
+    std::fs::remove_dir_all(game.join("kiln/backups")).unwrap();
+    std::fs::remove_dir_all(dirs.backups().join("install").join(&r.install_id)).unwrap();
+    let report = install::uninstall_report(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).ok().as_deref(), Some(b"core b".as_slice()),
+        "an original accepted in place must remain: {report:?}");
+    assert!(report.warnings.is_empty(), "no missing ShroudForge helper: {report:?}");
+    assert!(!game.join("dinput8.dll").exists());
+    assert!(!game.join("kiln/.install.json").exists());
+}
+
 #[test]
 fn every_compatibility_component_is_default_on_both_sides() {
     use kiln_manage::manifest::RunSide;
