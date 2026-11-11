@@ -79,7 +79,9 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   else copy; an untranslatable path also means copy); copy mode syncs verified copies into
   `<game>/kiln/profiles/<pid>/<kind>/<id>/` (unchanged copies stay, stale ones go) and copies the game-side config
   back first; XHL companions and EML mods a native DLL reads are placed in `<game>/mods/<original folder>/`, and
-  their profile.json entries name that copy (`../mods/<original folder>` in copy mode; contracts.md 5.1); writes
+  their profile.json entries name that copy (in copy mode `../mods/<original folder>`, and `../greeneye/<id>` for a
+  placed Greeneye mod, only for a runtime that declares `profileReader` 2 and under the folder name rule, else the
+  `kiln/profiles` copy; contracts.md 5.1 and 6); writes
   `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs; `[chain]`
   byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
   `profile.once.json`, records `<data>/installs/<id>.active.json`.

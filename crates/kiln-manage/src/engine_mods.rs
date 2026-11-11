@@ -402,7 +402,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
 pub const XHL_PLUGIN_INI: &str = "native-plugin.ini";
 
 /// A folder name Kiln may create under `<game>/mods/`: one plain component a Windows game folder can hold. The same rule
-/// as the native core's `../mods/<folder>` check (native/core/src/profile.cpp placed_eml_path) and the profile schema's
+/// as the native core's `../mods/<folder>` check (native/core/src/profile.cpp placed_game_path) and the profile schema's
 /// pattern; schema/fixtures/profile/game-folder-names.json holds the names all three are tested with. The part before
 /// the first dot is the name Windows (a device) and Enshwick's loader folder are compared with.
 pub fn is_game_folder_name(name: &str) -> bool {
@@ -422,10 +422,15 @@ pub fn is_game_folder_name(name: &str) -> bool {
 /// ([`place`]), and kiln-eml runs that copy, so the DLL and the Lua read the same files.
 ///
 /// The folder is named as the package names it, without a browser's or an unpacker's copy suffix ("XHL-Auto-Loot (1)"
-/// dropped on its own); a mod at an archive's root (no folder name of its own) takes its manifest's id.
+/// dropped on its own); a mod at an archive's root (no folder name of its own) takes its manifest's id. A folder the
+/// package names under a name Kiln cannot create there (`Enshwick.Tweaks`) is not a game folder: placing it under
+/// another name would not be the folder its DLL reads.
 pub fn eml_game_folder(src: &Path) -> Option<(String, String)> {
-    let named = crate::library::strip_copy_suffix(src.file_name()?.to_str()?).to_string();
-    let folder = if is_game_folder_name(&named) { named } else { manifest_id_raw(src).filter(|id| is_game_folder_name(id))? };
+    let own = src.file_name()?.to_str()?;
+    let named = crate::library::strip_copy_suffix(own).to_string();
+    let folder = if is_game_folder_name(&named) { named }
+        else if own.starts_with(".kiln-unpack-") { manifest_id_raw(src).filter(|id| is_game_folder_name(id))? }
+        else { return None };
     let files: Vec<PathBuf> = std::fs::read_dir(src).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
     if files.iter().any(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(XHL_PLUGIN_INI))) {
         return Some((folder, "it is also an XHL-Core plugin (native-plugin.ini), which XHL-Core loads from the game's mods folder".into()));
@@ -1115,14 +1120,13 @@ fn manifest_id_raw(dir: &Path) -> Option<String> {
 }
 
 /// A folder in `root` other than `dst` that holds the same mod (the same manifest id, case ignored) and is not one of
-/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id. A folder whose
-/// name the game cannot be pointed at (hidden, a trailing dot or space, a character Windows has no name with) is no
-/// installation the game loads: Kiln places its own copy, and the profile never names that folder.
+/// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id, so Kiln places
+/// no second copy beside it, whatever its folder is called; Copy mode names it only under the core's folder name rule
+/// (profile::render falls back to the copy under kiln/profiles/).
 fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
     let id = manifest_id_raw(src)?;
     std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
         .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(is_game_folder_name))
         .find(|p| manifest_id_raw(p).is_some_and(|other| other.eq_ignore_ascii_case(&id)))
 }
 
@@ -1599,8 +1603,8 @@ pub fn game_folder_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::Profil
 }
 
 /// The actual folder the profile runs: a pre-existing hand installation of the same mod wins over creating a duplicate.
-/// Its name always passes [`is_game_folder_name`] (the record's folder, or a hand installation [`same_mod_elsewhere`]
-/// accepts), so Copy mode's `../mods/<folder>` is one the native core reads.
+/// A hand installation's name need not pass [`is_game_folder_name`]: Copy mode then keeps the kiln/profiles copy
+/// (profile::render checks the name before it writes `../mods/<folder>`).
 /// Greeneye: Kiln's copy in `<game>/greeneye/<id>/` once [`place`] has made it for this version (its receipt and marker
 /// name it), else None (the Library entry: a folder the player put there, a play-once version, a switched-off mod).
 pub fn game_path_of(dirs: &DataDirs, kind: ModKind, m: &crate::profile::ProfileMod, game: &Path) -> Option<PathBuf> {

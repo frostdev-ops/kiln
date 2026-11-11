@@ -324,26 +324,54 @@ pub(crate) fn strip_copy_suffix(name: &str) -> &str {
     t
 }
 
-/// What a package is called without its version and download decorations: the words before the first one that is a
-/// number or a version (`AutoLootPlus 1.1.8 170 1.1.8 2026-10-23T21-27Z 2FzbANfp1` -> `AutoLootPlus`, Nexus'
-/// `Auto-Loot-Plus-170-1-1-8-1731234567` -> `Auto-Loot-Plus`), after a copy suffix; the name itself when it starts with one.
-fn package_stem(name: &str) -> &str {
+/// What a package is called without its version and download decorations: the words before the trailing run of
+/// words that are numbers or versions (`AutoLootPlus 1.1.8 170 1.1.8 2026-10-23T21-27Z 2FzbANfp1` -> `AutoLootPlus`,
+/// Nexus' `Auto-Loot-Plus-170-1-1-8-1731234567` -> `Auto-Loot-Plus`), after a copy suffix. A number followed by a word
+/// is part of the name (`Enshrouded 60 FPS`, `Enshrouded 2x Stamina 1.0` -> `Enshrouded 2x Stamina`); a name that is
+/// all numbers stays as it is.
+pub(crate) fn package_stem(name: &str) -> &str {
     let name = strip_copy_suffix(name);
+    let numeric = |w: &str| {
+        let digit = |s: &str| s.bytes().next().is_some_and(|b| b.is_ascii_digit());
+        digit(w) || (w.starts_with(['v', 'V']) && digit(&w[1..]))
+    };
+    let mut cut = None;
     let mut start = 0;
-    for (i, c) in name.char_indices() {
-        if i == start {
-            let rest = &name[i..];
-            let digit = |s: &str| s.bytes().next().is_some_and(|b| b.is_ascii_digit());
-            if digit(rest) || (rest.starts_with(['v', 'V']) && digit(&rest[1..])) {
-                let stem = name[..i].trim_end_matches([' ', '-', '_', '.']);
-                return if stem.is_empty() { name } else { stem };
-            }
-        }
+    for (i, c) in name.char_indices().chain(std::iter::once((name.len(), ' '))) {
         if matches!(c, ' ' | '-' | '_') {
+            if i > start {
+                if numeric(&name[start..i]) { cut.get_or_insert(start); } else { cut = None; }
+            }
             start = i + c.len_utf8();
         }
     }
-    name
+    match cut.map(|i| name[..i].trim_end_matches([' ', '-', '_', '.'])) {
+        Some(stem) if !stem.is_empty() => stem,
+        _ => name,
+    }
+}
+
+/// A mod id for a name, kept apart from every other name: `id_from_name` keeps only ASCII letters and digits, so a
+/// name with other letters (`自动拾取`, `Ümlaut`) or none gets a few characters of the name's hash, and `fallback` (a
+/// DLL's file stem) when nothing of it is left.
+fn distinct_id(name: &str, fallback: &str) -> String {
+    let lossy = name.chars().any(|c| !c.is_ascii() && c.is_alphanumeric()) || !name.chars().any(|c| c.is_ascii_alphanumeric());
+    if !lossy {
+        return id_from_name(name);
+    }
+    let base = if name.chars().any(|c| c.is_ascii_alphanumeric()) { id_from_name(name) } else { id_from_name(fallback) };
+    let base: String = base.chars().take(55).collect();
+    format!("{}-{}", base.trim_end_matches(['-', '.', '_']), &crate::hash::sha256_hex(name.as_bytes())[..8])
+}
+
+/// The file version in a DLL's VS_VERSION_INFO resource (`a.b.c`; the fourth number is left out), when it has one.
+pub(crate) fn dll_file_version(bytes: &[u8]) -> Option<String> {
+    let key: Vec<u8> = "VS_VERSION_INFO\0".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let at = bytes.windows(key.len()).position(|w| w == key.as_slice())? + key.len();
+    let sig = (0..4).map(|pad| at + pad).find(|&i| bytes.get(i..i + 4) == Some(&0xFEEF_04BDu32.to_le_bytes()[..]))?;
+    let word = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let (ms, ls) = (word(sig + 8)?, word(sig + 12)?);
+    (ms != 0 || ls != 0).then(|| format!("{}.{}.{}", ms >> 16, ms & 0xFFFF, ls >> 16))
 }
 
 /// XHL-Core's DLL, by the markers engine_mods::xhl_host recognises it with on the game's load paths.
@@ -353,7 +381,7 @@ fn is_xhl_core(bytes: &[u8]) -> bool {
             .all(|s| bytes.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
 }
 
-const XHL_CORE_ID: &str = "xhl-core";
+pub(crate) const XHL_CORE_ID: &str = "xhl-core";
 
 /// The id and name of a package's own DLL under a proxy name (Auto Loot Plus's dinput8.dll, an XHL-Core bundled with an
 /// XHL mod): what stays the same across versions and downloads, so that a new version or a second copy replaces the
@@ -371,17 +399,14 @@ fn package_dll_identity(dll: &Path, package: &Path, package_name: &str) -> (Stri
         .filter(|p| p.is_dir() && !p.is_symlink() && crate::engine_mods::is_game_folder_name(&file_name(p)))
         .collect();
     folders.sort();
+    let dll_stem = dll.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     if folders.is_empty() {
-        return (id_from_name(package_stem(package_name)), package_name.to_string());
+        return (distinct_id(package_stem(package_name), &dll_stem), package_name.to_string());
     }
     let names: Vec<String> = folders.iter().map(|p| file_name(p)).collect();
-    let shown = match folders.as_slice() {
-        [one] => crate::manifest::read_text(&one.join(EMF_MANIFEST)).ok().and_then(|t| crate::jsonc::parse(&t).ok())
-            .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string))
-            .unwrap_or_else(|| names[0].clone()),
-        _ => names.join(", "),
-    };
-    (id_from_name(&names.join("-")), format!("{shown} ({})", file_name(dll)))
+    // named after the package (without its version), so two packages that carry the same mods/<folder> show apart
+    // and quick::merge can say which one replaced which; the same for every download of one version
+    (distinct_id(&names.join("-"), &dll_stem), format!("{} ({})", package_stem(package_name), file_name(dll)))
 }
 
 fn emf_manifest(dir: &Path) -> Option<(serde_json::Value, String)> {
@@ -430,7 +455,12 @@ const MOD_MANIFESTS: [&str; 8] = ["mod.json", "kiln.mod.json", "native.json", "f
 /// Is one of `dir`'s folders a mod on its own?
 fn has_mod_subfolder(dir: &Path) -> bool {
     std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
-        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && MOD_MANIFESTS.iter().any(|m| p.join(m).is_file()))
+        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && has_mod_manifest(&p))
+}
+
+/// Does `dir` hold one of [`MOD_MANIFESTS`]? XHL-Core's native-plugin.ini in any case, as detection finds it.
+fn has_mod_manifest(dir: &Path) -> bool {
+    MOD_MANIFESTS.iter().any(|m| dir.join(m).is_file()) || crate::engine_mods::has_xhl_plugin_ini(dir)
 }
 
 /// What the DLLs directly in a folder are: the ones that are no known loader or engine mod (plain DLL mods), every
@@ -498,7 +528,7 @@ fn native_companion(path: &Path, proxy: &Path) -> bool {
     if path.is_dir() {
         return !name.eq_ignore_ascii_case("mods") && !name.eq_ignore_ascii_case(crate::engine_mods::SHROUDLINK_MODS)
             && !crate::engines::is_container(path) && !has_mod_subfolder(path)
-            && !MOD_MANIFESTS.iter().any(|m| path.join(m).is_file())
+            && !has_mod_manifest(path)
             && !crate::engines::dlls_in(path).iter().any(|dll| detect_dll(dll).kind != DetectKind::BareDll);
     }
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("dll")) {
@@ -601,7 +631,13 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own
     if crate::engine_mods::has_xhl_plugin_ini(dir) {
-        let name = top_name.filter(|_| depth == 0).map(str::to_string).unwrap_or_else(|| file_name(dir));
+        // XHL-Core loads every folder that holds the ini: a copy suffix, or a version in an archive's name, would make
+        // a second companion beside the first
+        let name = match top_name.filter(|_| depth == 0) {
+            Some(n) if n != file_name(dir) => package_stem(n).to_string(),
+            Some(n) => strip_copy_suffix(n).to_string(),
+            None => strip_copy_suffix(&file_name(dir)).to_string(),
+        };
         if !crate::engine_mods::is_game_folder_name(&name) {
             return mk(DetectKind::Unknown, None, None, None, "XHL-Core's plugin folder is not a safe Windows folder name".into());
         }
@@ -1125,8 +1161,10 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 report.note(&d.path, format!("{name} is a DLL mod with files: Kiln loads {file} from its own folder, with those files beside it"));
             }
             let dlls = package_chain(&work, &file, report, &d.path);
+            // the DLL's own file version when it carries one, so the Library and quick::merge can tell builds apart
+            let version = std::fs::read(work.join(&file)).ok().and_then(|b| dll_file_version(&b)).unwrap_or_else(|| "0.0.0".into());
             let manifest = serde_json::json!({
-                "format": 1, "id": id, "name": name, "version": "0.0.0",
+                "format": 1, "id": id, "name": name, "version": version,
                 "description": format!("Generated by Kiln from {file} and the files next to it{}", if proxy { " (a dinput8 proxy, chain-loaded in DllMain)" } else { "" }),
                 "side": "client", "dlls": dlls, "phase": if proxy { "dllmain" } else { "early" },
             });
@@ -1135,7 +1173,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             size += body.len() as u64;
             std::fs::write(work.join(crate::manifest::NATIVE_MANIFEST), body).map_err(io(&work, "writing"))?;
             let hash = crate::hash::dirhash(&work)?;
-            let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version: "0.0.0".into(), hash, imported: now, source: Some(from.clone()), size,
+            let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version, hash, imported: now, source: Some(from.clone()), size,
                 name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None, game_folder: None };
             commit(dirs, &work, rec, report)
         }
@@ -1187,6 +1225,9 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let id = d.id.clone().unwrap_or_else(|| id_from_name(&file));
             // the file name, or the package's name for a package's own proxy DLL (detect_folder_at)
             let shown = d.name.clone().unwrap_or_else(|| file.clone());
+            let version = if d.kind == DetectKind::Emf { "0.0.0".to_string() } else {
+                std::fs::read(work.join(&file)).ok().and_then(|b| dll_file_version(&b)).unwrap_or_else(|| "0.0.0".into())
+            };
             let (kind, manifest_name, text) = if d.kind == DetectKind::Emf {
                 (ModKind::Emf, EMF_MANIFEST, serde_json::json!({
                     "id": id, "name": file, "version": "0.0.0", "emf": 21, "dll": file,
@@ -1199,7 +1240,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                     report.note(&d.path, format!("{shown}: native companion files stay beside {file}; DLLs from the package's dinput8-chain.ini are loaded by Kiln, without changing the game's chain file"));
                 }
                 (ModKind::Native, crate::manifest::NATIVE_MANIFEST, serde_json::json!({
-                    "format": 1, "id": id, "name": shown, "version": "0.0.0",
+                    "format": 1, "id": id, "name": shown, "version": version,
                     "description": format!("Generated by Kiln from {file}{}", if proxy { " (a dinput8 proxy, chain-loaded in DllMain)" } else { "" }),
                     "side": "client", "dlls": dlls, "phase": if proxy { "dllmain" } else { "early" },
                 }))
@@ -1209,7 +1250,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             size += body.len() as u64;
             std::fs::write(work.join(manifest_name), body).map_err(io(&work, "writing"))?;
             let hash = crate::hash::dirhash(&work)?;
-            let rec = ImportRecord { format: 1, kind, id, version: "0.0.0".into(), hash, imported: now, source: Some(from.clone()), size,
+            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size,
                 name: Some(if kind == ModKind::Native { shown } else { file }), side: Some(Side::Client), clients: Some(Clients::Mod), file: None,
                 manifest_id: None, game_folder: None };
             commit(dirs, &work, rec, report)
