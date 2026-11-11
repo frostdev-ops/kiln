@@ -55,7 +55,7 @@ pub fn observe(op: &ToClient) {
     with(|b| b.observe(op));
 }
 pub fn world(present: bool) {
-    with(|b| b.world(present));
+    with(|b| b.world(present, now()));
 }
 pub fn presenting() -> bool {
     with(|b| b.presenting(now())).unwrap_or(false)
