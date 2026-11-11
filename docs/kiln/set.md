@@ -118,7 +118,11 @@ matching Kiln C# API and how each was tested, is in
   - Arguments: written back into the registers or the caller's stack slots by the kiln.hooks entry hook.
   - Fields: written with a plain guarded copy. A field marked "on the stack" is only changed when it is on the
     calling thread's stack. A read or write that fails turns that rule off until restart; the call stays unchanged.
-  - `block`: the entry hook returns to the game's caller (the documented kiln.hooks early return).
+  - `block`: the entry hook returns to the game's caller (the documented kiln.hooks early return). Any value other
+    than nil blocks, `block = false` too (as in SET): leave the key out for a rule that doesn't block.
+  - `"player"` in a condition is the first entity with `PlayerInput` in the server world, as in SET (your player in a
+    game you host). On a dedicated server that is one of the connected players, not a chosen one; outside a world it
+    never matches.
   - `after`: needs code after the original. Kiln has a typed kiln.hooks raw link for `combat_xp`, the only catalog
     target that allows it. It is installed with the first such rule and stays.
 - **Catalog targets `combat_xp` and `hit`**: SET's signatures and field declarations, checked at startup (build,
@@ -144,8 +148,10 @@ matching Kiln C# API and how each was tested, is in
   | `hooks` (Kiln only) | kiln.hooks is running |
   | `admin_send` (Kiln only) | never: use the Admin helpers |
   | `mod_settings_page` (Kiln only) | available with the client overlay; unavailable on a dedicated server |
-- **`Settings.define{...}`**: values are typed, clamped, and saved to the mod's `settings.json` within a second, at
-  once on a reload or when the game closes. Unknown keys in the file are kept. A wrong type falls back to the default
+- **`Settings.define{...}`**: values are typed, clamped, and saved to the mod's `settings.json` within a second, and
+  at once on a reload. Kiln's core does not run a plugin's unload when the game exits, so nothing extra is saved then
+  and `onShutdown` does not run at game exit: a change made in the last second before quitting can be lost. Unknown
+  keys in the file are kept. A wrong type falls back to the default
   with a yellow line. A broken file becomes `settings.json.bad`. Edit in the SET tools page, or edit the file by hand
   while the game is closed.
 - **`settings.json` belongs to `Settings.define`**: `io.open("settings.json", "w")` returns nil and a message. Reading
