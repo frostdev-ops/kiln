@@ -181,6 +181,11 @@ It fails soft:
   is dropped so the next start re-runs. Restore failures remain failures. An install-lock failure stops startup.
 - **No EML mods (left):** kiln-eml restores only its own unchanged published output, using the matching baseline.
   A shared `.kfc.bak` or a change cache that merely exists never authorizes restoration. Other loaders' patches are kept.
+  The restore copies back the header and the resource file, then removes the container files the output added (EML
+  appends `<exe>_NNN.dat` after the game's own and pads their count to a power of two with empty files: on a client
+  `_055` with the content and `_056` to `_063` empty): only those the receipt lists, each only while it is exactly the
+  listed file, and never one the vanilla header references. A player's own file is never touched. A publication with
+  fewer containers than the output it replaces removes the old ones the new header no longer references the same way.
 - **Output of dev.20 to dev.23 (before receipts):** once, when there is no receipt, kiln-eml checks the change cache that
   release left (`kiln/eml/cache/files.json`, written only after a completed publication or a start that changed
   nothing). It is proof only when it is the record of a patch run of this stem, names the live `<exe>.kfc` and

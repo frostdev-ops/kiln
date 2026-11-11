@@ -81,10 +81,14 @@ fn published(tag: &str, lua: &str) -> Game {
 #[test]
 fn output_of_a_release_without_receipts_is_restored_when_eml_mods_are_switched_off() {
     let g = published("legacy", CONTENT);
+    let added = g.game().join("enshrouded_001.dat");
+    assert!(added.metadata().unwrap().len() > 0, "the run added a content container");
     g.as_released_before_receipts();
     let out = g.without_mods();
     assert_eq!((out.phase, out.restored, out.reason.as_deref()), (Phase::Idle, true, None), "{out:?}");
     assert_eq!(g.archives(), g.vanilla);
+    assert!(!added.exists(), "the container that release added, proven by its cache, goes too");
+    assert!(g.game().join("enshrouded_000.dat").exists());
 }
 
 // F1: the adoption needs exact proof. A cache naming other bytes (here: the live header changed after it was saved)

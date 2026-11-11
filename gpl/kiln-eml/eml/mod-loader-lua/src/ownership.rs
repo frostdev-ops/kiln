@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Digest { size: u64, sha256: String }
+pub(crate) struct Digest { size: u64, sha256: String }
 
 fn digest(root: &Path, path: &Path) -> io::Result<Digest> {
     checked_path(root, path)?;
@@ -327,17 +327,81 @@ pub fn adopt(root: &Path, stem: &str, cache_dir: &Path) -> io::Result<Adoption> 
         return unproven("the game folder's path is not valid UTF-8");
     };
     if !crate::load::validate_backup(header, backup) { return unproven("the vanilla backup does not pass its seal"); }
+    // the containers that run added (beyond the vanilla header's), where the cache names them by content: listed, so
+    // that a restore can remove them too. One the cache does not prove is left out (and so never removed).
+    let vanilla = containers(root, &backups[0]).unwrap_or(usize::MAX);
+    for entry in fs::read_dir(root)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if container_index(stem, &name).is_none_or(|i| i < vanilla) { continue; }
+        let path = root.join(&name);
+        if !cache.saved(&path).is_some_and(|(len, content)| content && live.size(&name).ok().flatten() == Some(len)) { continue; }
+        let (digest, crc) = digest_and_crc(root, &path)?;
+        if cache.describes(&path, (digest.size, crc), &mut volume).is_ok() { files.insert(name, digest); }
+    }
     let receipt = Receipt { format: 1, stem: stem.into(), files, backups: sealed, previous: None };
     super::transaction::atomic_write(&directory(root)?.join(format!("{stem}.json")), &serde_json::to_vec(&receipt)?)?;
     tracing::info!("Adopted the {stem} game data an earlier kiln-eml published (its change cache names exactly these files and backups): it now has an ownership receipt");
     Ok(Adoption::Adopted)
 }
 
-/// The publication's patched header is live: the previous generation is no longer what the game runs.
+/// The publication's patched header is live: the previous generation is no longer what the game runs. Containers it
+/// added that the new set does not replace and the new header does not reference are removed (`remove_unreferenced`).
 pub(crate) fn committed(root: &Path, stem: &str) -> io::Result<()> {
     let Some(mut receipt) = read_receipt(root, stem)? else { return Ok(()) };
-    if receipt.previous.take().is_none() { return Ok(()); }
-    super::transaction::atomic_write(&receipt_path(root, stem)?, &serde_json::to_vec(&receipt)?)
+    let Some(previous) = receipt.previous.take() else { return Ok(()) };
+    super::transaction::atomic_write(&receipt_path(root, stem)?, &serde_json::to_vec(&receipt)?)?;
+    let dropped: BTreeMap<String, Digest> = previous.into_iter().filter(|(n, _)| !receipt.files.contains_key(n)).collect();
+    remove_unreferenced(root, stem, &dropped)
+}
+
+/// `<stem>_NNN.dat`: the container's index.
+fn container_index(stem: &str, name: &str) -> Option<usize> {
+    if !valid_name(stem, name) { return None; }
+    name.strip_prefix(&format!("{stem}_"))?.strip_suffix(".dat")?.parse().ok()
+}
+
+/// How many containers the header at `name` lists (container `i` is `<stem>_{i:03}.dat`).
+fn containers(root: &Path, name: &str) -> Option<usize> {
+    let path = root.join(name);
+    checked_path(root, &path).ok()?;
+    super::transaction::regular(&path).ok()?;
+    Some(kfc::container::KFCFile::from_path(&path, false).ok()?.containers().len())
+}
+
+/// The containers (`<stem>_NNN.dat`) of the owned output that is live now, as its receipt lists them: what a restore
+/// leaves behind unless it removes them. Read before the vanilla header goes back. None: no live generation is listed.
+pub(crate) fn live_containers(root: &Path, stem: &str) -> io::Result<Option<BTreeMap<String, Digest>>> {
+    let Some(receipt) = read_receipt(root, stem)? else { return Ok(None) };
+    let header = format!("{stem}.kfc");
+    let mut live = Live::new(root);
+    let now = live.digest(&header)?;
+    let generation = [Some(&receipt.files), receipt.previous.as_ref()].into_iter().flatten()
+        .find(|g| now.is_some() && g.get(&header) == now.as_ref());
+    Ok(generation.map(|g| g.iter().filter(|(n, _)| container_index(stem, n).is_some()).map(|(n, d)| (n.clone(), d.clone())).collect()))
+}
+
+/// Removes the containers in `files` that the live header does not reference, each only when it is still exactly the
+/// listed file (size, then SHA-256). Never a container the live header lists (the game's own included), never a file
+/// the list does not name. EML adds containers after the vanilla ones and pads their count to a power of two (an
+/// empty file each), so a restore otherwise leaves the content and the padding behind.
+pub(crate) fn remove_unreferenced(root: &Path, stem: &str, files: &BTreeMap<String, Digest>) -> io::Result<()> {
+    if files.is_empty() { return Ok(()); }
+    let Some(referenced) = containers(root, &format!("{stem}.kfc")) else { return Err(invalid("the live header cannot be read")) };
+    let mut live = Live::new(root);
+    let mut removed = Vec::new();
+    for (name, expected) in files {
+        if container_index(stem, name).is_none_or(|i| i < referenced) { continue; }
+        if live.size(name)? != Some(expected.size) || live.digest(name)?.as_ref() != Some(expected) {
+            if live.size(name)?.is_some() { tracing::info!(file = %name, "kept: not the container EML wrote"); }
+            continue;
+        }
+        fs::remove_file(root.join(name))?;
+        removed.push(name.as_str());
+    }
+    if !removed.is_empty() {
+        tracing::info!("Removed {} container file(s) EML had added and the game no longer references: {}", removed.len(), removed.join(", "));
+    }
+    Ok(())
 }
 
 /// Hands the archives over from SF before a restore; the returned guard is held until the restore copies are done.
@@ -510,10 +574,9 @@ mod tests {
             assert_eq!(fs::metadata(root.join(format!("g_{index:03}.dat"))).unwrap().len(), container.size,
                 "every container the restored header lists has the size it lists (the game refuses to start otherwise)");
         }
-        // the container EML wrote stays on disk, outside the restored header's list (the game never opens it; the next
-        // patch run truncates or reuses it)
+        // the container EML wrote, outside the restored header's list, is removed with it (its receipt lists it)
         let written = restored.containers().len();
-        assert!(fs::metadata(root.join(format!("g_{written:03}.dat"))).unwrap().len() > 0);
+        assert!(!root.join(format!("g_{written:03}.dat")).exists());
         assert!(!owns_output(&root, "g").unwrap());
         fs::remove_dir_all(root).unwrap();
     }
@@ -538,6 +601,85 @@ mod tests {
         patch.finalize().unwrap();
         assert!(owns_output(&root, "g").unwrap());
         (root, header, resources)
+    }
+    /// A real publication over a vanilla pair of `vanilla` containers (one content each), with `content` new blobs.
+    /// The writer pads the container count to a power of two with empty files, as on a real client (55 + 1 -> 64).
+    fn real_patch(vanilla: usize, content: &[&[u8]]) -> PathBuf {
+        use std::rc::Rc;
+        use kfc::{container::{KFCFile, KFCWriteOptions, KFCWriter}, guid::ContentHash, reflection::TypeRegistry};
+        let root = std::env::temp_dir().join(format!("kiln-real-containers-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        fs::File::create(root.join("g.kfc")).unwrap();
+        fs::File::create(root.join("g.kfc_resources")).unwrap();
+        let types = Rc::new(TypeRegistry::default());
+        let mut original: crate::transaction::Writer = KFCWriter::new_with_options(&root, "g", types.clone(), "fixture",
+            KFCWriteOptions { max_container_size: 1, ..Default::default() }).unwrap();
+        for i in 0..vanilla { let blob = format!("vanilla {i}"); original.write_content(&ContentHash::from_data(blob.as_bytes()), blob.as_bytes()).unwrap(); }
+        original.finalize().unwrap();
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        crate::load::create_backup(path.join("g.kfc")).unwrap();
+        republish(&root, content);
+        root
+    }
+    fn republish(root: &Path, content: &[&[u8]]) {
+        use std::rc::Rc;
+        use kfc::{container::KFCFile, guid::ContentHash, reflection::TypeRegistry};
+        let path = camino::Utf8Path::from_path(root).unwrap();
+        let types = Rc::new(TypeRegistry::default());
+        let base = Rc::new(KFCFile::from_path(root.join("g.kfc.bak"), false).unwrap());
+        let mut patch = crate::load::create_writer(path, "g", &types, &base).unwrap();
+        for blob in content { patch.write_content(&ContentHash::from_data(blob), blob).unwrap(); }
+        patch.finalize().unwrap();
+        assert!(owns_output(root, "g").unwrap());
+    }
+    fn dats(root: &Path) -> Vec<(String, u64)> {
+        let mut out: Vec<_> = fs::read_dir(root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("g_")).map(|n| { let len = fs::metadata(root.join(&n)).unwrap().len(); (n, len) }).collect();
+        out.sort();
+        out
+    }
+    // A restore puts back the header and the resource file. The containers EML added (content and the empty padding to
+    // a power of two) are no longer referenced: exactly those the receipt lists are removed, nothing else.
+    #[test]
+    fn a_restore_removes_exactly_the_containers_eml_added() {
+        let root = real_patch(2, &[b"new content"]);
+        let vanilla_dats: Vec<_> = dats(&root).into_iter().filter(|(n, _)| n == "g_000.dat" || n == "g_001.dat").collect();
+        assert_eq!(dats(&root).iter().map(|(n, l)| (n.as_str(), *l > 0)).collect::<Vec<_>>(),
+            [("g_000.dat", true), ("g_001.dat", true), ("g_002.dat", true), ("g_003.dat", false)], "content and padding");
+        // a player's own files with similar names, which no receipt lists
+        fs::write(root.join("g_007.dat"), "player's").unwrap();
+        fs::write(root.join("g_002.dat.keep"), "player's").unwrap();
+        assert!(crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"));
+        let mut expected = vanilla_dats.clone();
+        expected.push(("g_007.dat".into(), 8));
+        assert_eq!(dats(&root).into_iter().filter(|(n, _)| n != "g_002.dat.keep").collect::<Vec<_>>(), expected);
+        assert_eq!(fs::read(root.join("g_002.dat.keep")).unwrap(), b"player's");
+        fs::remove_dir_all(root).unwrap();
+    }
+    // Even a receipt that lists a container the vanilla header references never removes it.
+    #[test]
+    fn a_restore_never_removes_a_container_the_vanilla_header_references() {
+        let root = real_patch(2, &[b"new content"]);
+        let receipt_path = root.join("kiln/eml/ownership/g.json");
+        let mut receipt: serde_json::Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+        receipt["files"]["g_000.dat"] = serde_json::to_value(digest(&root, &root.join("g_000.dat")).unwrap()).unwrap();
+        fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        assert!(owns_output(&root, "g").unwrap());
+        let vanilla = fs::read(root.join("g_000.dat")).unwrap();
+        assert!(crate::restore(camino::Utf8Path::from_path(&root).unwrap(), "g"));
+        assert_eq!(fs::read(root.join("g_000.dat")).unwrap(), vanilla);
+        assert!(!root.join("g_002.dat").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+    // A publication with fewer containers than the one it replaces: the old ones the new header does not reference go.
+    #[test]
+    fn a_publication_removes_the_previous_containers_the_new_header_does_not_reference() {
+        let root = real_patch(1, &[b"one"]);
+        assert_eq!(dats(&root).len(), 2, "1 vanilla + 1 content (already a power of two)");
+        fs::write(root.join("g_009.dat"), "player's").unwrap();
+        republish(&root, &[]);
+        assert_eq!(dats(&root).iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["g_000.dat", "g_009.dat"]);
+        fs::remove_dir_all(root).unwrap();
     }
     // The restore side of the handoff: a recognised SF claim is invalidated (journalled) before the vanilla data goes
     // back; a busy SF, an SF preparation in progress or a state Kiln does not know refuses, and nothing is copied.
