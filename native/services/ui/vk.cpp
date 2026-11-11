@@ -93,6 +93,9 @@ struct Device {
     DeviceFns fn;
     std::map<VkQueue, uint32_t> queue_family;
     uint32_t graphics_family = 0;
+    // Kiln did not see this device being created and took it over at its swapchain (adopt_device): only the queues
+    // it saw handed out are drawn with, never a guessed family.
+    bool adopted = false;
     VkCommandPool pool = VK_NULL_HANDLE;
     uint32_t pool_family = UINT32_MAX;
     bool imgui_vk = false;      // ImGui_ImplVulkan_Init done for this device
@@ -124,6 +127,8 @@ struct Swap {
 std::mutex g_mu;  // device/swapchain maps (creation threads vs. the render thread)
 VkInstance g_instance = VK_NULL_HANDLE;
 uint32_t g_instance_api = VK_API_VERSION_1_0;
+// Queues handed out (vkGetDeviceQueue) on devices Kiln did not see being created, with their families: adopt_device.
+std::map<VkDevice, std::map<VkQueue, uint32_t>> g_unseen_queues;
 std::map<VkDevice, Device*> g_devices;  // every live device the game created
 Device* g_dev = nullptr;  // the device ImGui's backend is set up for (the drawable swapchain's)
 std::map<VkSwapchainKHR, Swap> g_swaps;
@@ -369,6 +374,15 @@ bool draw(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* out_wait, ui
     auto dit = g_devices.find(s->device);
     if (dit == g_devices.end() || !device_fns_ok(*dit->second)) return false;
     Device& d = *dit->second;
+    if (d.adopted && d.queue_family.find(queue) == d.queue_family.end()) {
+        static bool said = false;
+        if (!said) {
+            said = true;
+            logf(KILN_LOG_WARN, "ui: the game presents with a queue Kiln did not see handed out on the device it took over: "
+                 "its family is not known, so the overlay does not draw (Kiln's menus stay empty)");
+        }
+        return false;
+    }
     if (g_dev && g_dev != &d && g_dev->imgui_vk) {
         // the game draws with another device now: move ImGui's backend over
         g_dev->fn.vkDeviceWaitIdle(g_dev->device);
@@ -526,6 +540,7 @@ bool run_pre_overlay(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* w
     auto dit = g_devices.find(s->device);
     if (dit == g_devices.end() || !dit->second->fn.vkGetSwapchainImagesKHR) return false;
     Device& d = *dit->second;
+    if (d.adopted && d.queue_family.find(queue) == d.queue_family.end()) return false;
     if (s->listed.empty()) {
         uint32_t n = 0;
         if (d.fn.vkGetSwapchainImagesKHR(d.device, s->swapchain, &n, nullptr) != VK_SUCCESS || n == 0) return false;
@@ -616,6 +631,7 @@ VkResult VKAPI_CALL hk_create_device(VkPhysicalDevice phys, const VkDeviceCreate
     d->gdpa = R.gdpa;
     if (ci && ci->queueCreateInfoCount > 0) d->graphics_family = ci->pQueueCreateInfos[0].queueFamilyIndex;
     load_device_fns(*d);
+    g_unseen_queues.erase(*out);  // of an older device that had this handle
     g_devices[*out] = d;
     g_has_device = true;
     logf(KILN_LOG_INFO, "ui: game Vulkan device %p (%u queue families requested, functions %s; %zu live)", reinterpret_cast<void*>(*out),
@@ -626,6 +642,7 @@ VkResult VKAPI_CALL hk_create_device(VkPhysicalDevice phys, const VkDeviceCreate
 void VKAPI_CALL hk_destroy_device(VkDevice dev, const VkAllocationCallbacks* a) {
     {
         std::lock_guard<std::mutex> lk(g_mu);
+        g_unseen_queues.erase(dev);
         auto dit = g_devices.find(dev);
         if (dit != g_devices.end()) {
             Device& d = *dit->second;
@@ -662,6 +679,7 @@ void remember_queue(VkDevice dev, uint32_t family, VkQueue q) {
     if (!q) return;
     std::lock_guard<std::mutex> lk(g_mu);
     if (auto it = g_devices.find(dev); it != g_devices.end()) it->second->queue_family[q] = family;
+    else if (g_unseen_queues.size() < 8 || g_unseen_queues.count(dev)) g_unseen_queues[dev][q] = family;  // adopt_device
 }
 
 void VKAPI_CALL hk_get_queue(VkDevice dev, uint32_t family, uint32_t index, VkQueue* out) {
@@ -687,6 +705,71 @@ VkResult VKAPI_CALL hk_create_surface(VkInstance inst, const VkWin32SurfaceCreat
     return r;
 }
 
+void describe_patch(const void* target, char* out, size_t cap);
+
+// The game made a swapchain on a device Kiln never saw being created: another module patched vkCreateDevice after
+// Kiln and does not pass the call on (seen on a Steam Deck with ReShade and ShroudForge's own loader next to Kiln:
+// Kiln's hooks on the surface, the swapchain and the present still ran, the ones on the instance and the device did
+// not, and every Kiln menu stayed empty). What the overlay needs can still be had without guessing:
+//  - the device: from this call;
+//  - the instance: from the window surface's creation (hk_create_surface);
+//  - the queues' families: from vkGetDeviceQueue, kept for unknown devices too (g_unseen_queues);
+//  - the physical device: only when the instance has exactly one. A device cannot be asked which GPU it belongs to,
+//    and memory types differ between GPUs, so with several the overlay stays off.
+// g_mu held.
+void adopt_device(VkDevice dev) {
+    static VkDevice said_for = VK_NULL_HANDLE;  // one line per device: swapchains are made again on every resize
+    const bool say = said_for != dev;
+    said_for = dev;
+    char who[MAX_PATH + 48] = "another module";
+    if (const uintptr_t t = h_create_device.target.load()) describe_patch(reinterpret_cast<const void*>(t), who, sizeof(who));
+    const char* why = nullptr;
+    VkPhysicalDevice phys = VK_NULL_HANDLE;
+    const auto gipa = R.gipa.load();
+    const auto queues = g_unseen_queues.find(dev);
+    if (!g_instance || !gipa) {
+        why = "its Vulkan instance is not known either";
+    } else if (queues == g_unseen_queues.end() || queues->second.empty()) {
+        why = "none of its queues was seen handed out";
+    } else {
+        const auto enumerate = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(gipa(g_instance, "vkEnumeratePhysicalDevices"));
+        uint32_t n = 0;
+        if (!enumerate || enumerate(g_instance, &n, nullptr) != VK_SUCCESS) {
+            why = "the graphics devices could not be listed";
+        } else if (n != 1) {
+            why = "this PC has more than one graphics device and a Vulkan device does not say which one it uses";
+        } else if (enumerate(g_instance, &n, &phys) != VK_SUCCESS || n != 1 || !phys) {
+            why = "the graphics device could not be read";
+        }
+    }
+    if (!why) {
+        auto* d = new Device();
+        d->instance = g_instance;
+        d->physical = phys;
+        d->device = dev;
+        d->gdpa = R.gdpa;
+        d->adopted = true;
+        d->queue_family = queues->second;
+        d->graphics_family = d->queue_family.begin()->second;
+        load_device_fns(*d);
+        if (device_fns_ok(*d)) {
+            g_unseen_queues.erase(queues);
+            g_devices[dev] = d;
+            g_has_device = true;
+            logf(KILN_LOG_WARN, "ui: game Vulkan device %p taken over at its swapchain: Kiln did not see it being created "
+                 "(vkCreateDevice is patched by %s). %zu queue(s) known; %zu live", reinterpret_cast<void*>(dev), who,
+                 d->queue_family.size(), g_devices.size());
+            return;
+        }
+        delete d;
+        why = "its functions could not be loaded";
+    }
+    if (say)
+        logf(KILN_LOG_WARN, "ui: the game draws with a Vulkan device Kiln did not see being created (vkCreateDevice is patched by %s), "
+             "and Kiln cannot take it over: %s. Kiln's overlay does not draw: its menus and the in-game Mods page stay empty. "
+             "The mod list is in the Kiln Launcher too", who, why);
+}
+
 VkResult VKAPI_CALL hk_create_swapchain(VkDevice dev, const VkSwapchainCreateInfoKHR* ci, const VkAllocationCallbacks* a,
                                         VkSwapchainKHR* out) {
     if (!ci || !out) return R.create_swapchain.load()(dev, ci, a, out);
@@ -703,6 +786,7 @@ VkResult VKAPI_CALL hk_create_swapchain(VkDevice dev, const VkSwapchainCreateInf
     if (r != VK_SUCCESS) return r;
     g_swapchain_count.fetch_add(1);
     std::lock_guard<std::mutex> lk(g_mu);
+    if (g_devices.find(dev) == g_devices.end()) adopt_device(dev);
     if (ci->oldSwapchain) {
         auto it = g_swaps.find(ci->oldSwapchain);
         auto dit = g_devices.find(dev);
@@ -894,6 +978,62 @@ bool read_code(const void* at, uint8_t* out, size_t size) {
     }
 }
 
+// The file name of the module `at` lies in ("" when it is in none).
+void module_name_of(const void* at, char* out, size_t cap) {
+    out[0] = 0;
+    HMODULE m = nullptr;
+    wchar_t path[MAX_PATH] = {};
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(at), &m) || !m || !GetModuleFileNameW(m, path, MAX_PATH))
+        return;
+    const wchar_t* name = path;
+    for (const wchar_t* c = path; *c; ++c)
+        if (*c == L'\\' || *c == L'/') name = c + 1;
+    WideCharToMultiByte(CP_UTF8, 0, name, -1, out, static_cast<int>(cap) - 1, nullptr, nullptr);
+    out[cap - 1] = 0;
+}
+
+// Who patched a function, for the log: its first instruction is followed through up to four jumps (jmp rel32, jmp
+// rel8, jmp [rip+x], mov rax/r11,imm64 + jmp) until one lands in a module other than the function's own. "<file>",
+// "memory outside any module" for a trampoline that leads nowhere readable, or "an unknown patch".
+void describe_patch(const void* target, char* out, size_t cap) {
+    char own[MAX_PATH] = {};
+    module_name_of(target, own, sizeof(own));
+    const uint8_t* p = static_cast<const uint8_t*>(target);
+    bool jumped = false;
+    for (int hop = 0; hop < 4 && p; ++hop) {
+        uint8_t b[16] = {};
+        if (!read_code(p, b, sizeof(b))) break;
+        const uint8_t* next = nullptr;
+        int32_t rel = 0;
+        if (b[0] == 0xE9) {
+            std::memcpy(&rel, b + 1, 4);
+            next = p + 5 + rel;
+        } else if (b[0] == 0xEB) {
+            next = p + 2 + static_cast<int8_t>(b[1]);
+        } else if (b[0] == 0xFF && b[1] == 0x25) {
+            std::memcpy(&rel, b + 2, 4);
+            uint64_t abs = 0;
+            if (read_code(p + 6 + rel, reinterpret_cast<uint8_t*>(&abs), sizeof(abs))) next = reinterpret_cast<const uint8_t*>(abs);
+        } else if ((b[0] == 0x48 && b[1] == 0xB8 && b[10] == 0xFF && b[11] == 0xE0) ||
+                   (b[0] == 0x49 && b[1] == 0xBB && b[10] == 0x41 && b[11] == 0xFF && b[12] == 0xE3)) {
+            uint64_t abs = 0;
+            std::memcpy(&abs, b + 2, 8);
+            next = reinterpret_cast<const uint8_t*>(abs);
+        }
+        if (!next) break;
+        jumped = true;
+        p = next;
+        char name[MAX_PATH] = {};
+        module_name_of(p, name, sizeof(name));
+        if (name[0] && _stricmp(name, own) != 0) {
+            snprintf(out, cap, "%s", name);
+            return;
+        }
+    }
+    snprintf(out, cap, "%s", jumped ? "memory outside any module" : "an unknown patch");
+}
+
 const char* canary_name(vk_hooks::Canary c) {
     using enum vk_hooks::Canary;
     switch (c) {
@@ -994,7 +1134,10 @@ bool hook(HookState& state, void* target, void* detour, std::atomic<T>& original
     if (!vk_hooks::may_hook(c)) {
         if (!state.told_skip) {
             state.told_skip = true;
-            logf(KILN_LOG_WARN, "ui: %s at %p is %s: not re-hooked (an existing hook may be underneath)", what, target, canary_name(c));
+            char who[MAX_PATH + 48] = "";
+            if (readable) describe_patch(target, who, sizeof(who));
+            logf(KILN_LOG_WARN, "ui: %s at %p is %s%s%s: not re-hooked (an existing hook may be underneath)", what, target, canary_name(c),
+                 who[0] ? ", it now leads into " : "", who);
         }
         return false;
     }
