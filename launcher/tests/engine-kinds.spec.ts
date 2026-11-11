@@ -347,4 +347,21 @@ test("the empty Engines page says Ember mods are stored without running", async 
   await page.goto(`/?mock=empty#/profiles/${profile.id}/engines`);
   await expect(page.getByText("No other engines' mods.", { exact: true })).toBeVisible();
   await expect(page.getByText(/Ember mods are stored but don't run yet/)).toBeVisible();
+  await expect(page.getByText(/XHL companions run only through XHL-Core, installed separately/)).toBeVisible();
+});
+
+test("the Library's XHL badge says XHL-Core loads the companion, not Kiln", async ({ page }) => {
+  // an imported companion as kiln-manage lists it: Library id from the folder name, the folder name as its own id
+  await page.addInitScript(() => {
+    const entry = { kind: "xhl", id: "xhl-vein-mining", name: "XHL-Vein-Mining", versions: [{ version: "0.0.0", hash: `kdh1:${"b".repeat(64)}`,
+      folder: "library/xhl/xhl-vein-mining/0.0.0+bbbbbbbb", imported: "2026-11-05T09:00:00Z", side: "both", clients: "mod", size: 52_000,
+      source: { type: "folder", from: "XHL-Vein-Mining.zip" }, manifestId: "XHL-Vein-Mining", manifest: {} }] };
+    (window as unknown as { __kilnMockPlans: unknown }).__kilnMockPlans = { library_list: Array.from({ length: 40 }, () => ({ result: [entry] })) };
+  });
+  await desktop(page, "/library");
+  const row = page.getByRole("table", { name: "Library" }).or(page.locator('[aria-label="Library"]')).first()
+    .locator('[role="row"], tr').filter({ hasText: "XHL-Vein-Mining" });
+  const badge = row.locator(".k-badge", { hasText: /^XHL$/ });
+  await expect(badge).toHaveAttribute("title", /XHL-Core/);
+  await expect(badge).not.toHaveAttribute("title", /run by Kiln/);
 });

@@ -47,7 +47,7 @@ export default function ProfileEnginesPage() {
       {lib.isLoading && <Skeleton lines={3} />}
       {lib.error && <EmptyState title="The library is not readable" hint={errorText(lib.error)} />}
       {kinds.length === 0 ? (
-        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an XHL companion, EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink or Ember mod on the Library page. Kiln runs supported mods with their engine plugins; Ember mods are stored but don't run yet." />
+        !lib.isLoading && !lib.error && <EmptyState title="No other engines' mods." hint="Drop an XHL companion, EML, ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink or Ember mod on the Library page. Kiln runs the other engines' mods with its engine plugins; XHL companions run only through XHL-Core, installed separately; Ember mods are stored but don't run yet." />
       ) : kinds.map((k) => (
         <section key={k} className="k-card" data-kind={k}>
           <header className="k-card-head">
