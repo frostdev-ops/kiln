@@ -114,19 +114,29 @@ static int helper(int argc, char** argv) {
     CloseHandle(end); CloseHandle(event);
     return 0;
 }
-// Delay only this fake process's adapter heartbeat rename, not any runtime ABI call.
-// No production test switch or game-memory patch is needed to reproduce slow I/O.
+// Slow file I/O for this fake process's adapter only, not for any runtime ABI call: every rename it makes (heartbeat,
+// shroudforge.json) and each open of ShroudForge's log for the [sf] mirror take 350 ms, and each prints
+// "slow-io <begin> <end> <thread> <file>". No production test switch or game-memory patch is needed.
 using MoveFileFn = BOOL (WINAPI*)(LPCWSTR, LPCWSTR, DWORD);
+using CreateFileFn = HANDLE (WINAPI*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 static MoveFileFn original_move;
+static CreateFileFn original_create;
+static void slow_io(LPCWSTR file) {
+    const auto begin = GetTickCount64();
+    Sleep(350);
+    std::printf("slow-io %llu %llu %lu %ls\n", begin, GetTickCount64(), GetCurrentThreadId(),
+                std::filesystem::path(file).filename().c_str());
+}
 static BOOL WINAPI slow_move(LPCWSTR from, LPCWSTR to, DWORD flags) {
-    if (to && std::filesystem::path(to).filename() == L"heartbeat.json") {
-        const auto begin = GetTickCount64();
-        Sleep(350);
-        std::printf("slow-heartbeat %llu %llu %lu\n", begin, GetTickCount64(), GetCurrentThreadId());
-    }
+    if (to) slow_io(to);
     return original_move(from, to, flags);
 }
-static bool slow_heartbeat(HMODULE module) {
+static HANDLE WINAPI slow_create(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags,
+                                 HANDLE tmpl) {
+    if (name && std::filesystem::path(name).filename() == L"shroudforge-server.log") slow_io(name);
+    return original_create(name, access, share, sa, how, flags, tmpl);
+}
+static bool patch_import(HMODULE module, const char* function, void* with, void** original) {
     auto* image = reinterpret_cast<unsigned char*>(module);
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(image + dos->e_lfanew);
@@ -139,15 +149,19 @@ static bool slow_heartbeat(HMODULE module) {
         for (unsigned i = 0; names[i].u1.AddressOfData; ++i) {
             if (IMAGE_SNAP_BY_ORDINAL64(names[i].u1.Ordinal)) continue;
             const auto* named = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(image + names[i].u1.AddressOfData);
-            if (std::strcmp(reinterpret_cast<const char*>(named->Name), "MoveFileExW")) continue;
+            if (std::strcmp(reinterpret_cast<const char*>(named->Name), function)) continue;
             DWORD protection{}, ignored{};
             if (!VirtualProtect(&slots[i].u1.Function, sizeof(ULONGLONG), PAGE_READWRITE, &protection)) return false;
-            original_move = reinterpret_cast<MoveFileFn>(slots[i].u1.Function);
-            slots[i].u1.Function = reinterpret_cast<ULONGLONG>(&slow_move);
+            *original = reinterpret_cast<void*>(slots[i].u1.Function);
+            slots[i].u1.Function = reinterpret_cast<ULONGLONG>(with);
             return VirtualProtect(&slots[i].u1.Function, sizeof(ULONGLONG), protection, &ignored) != FALSE;
         }
     }
     return false;
+}
+static bool slow_heartbeat(HMODULE module) {
+    return patch_import(module, "MoveFileExW", reinterpret_cast<void*>(&slow_move), reinterpret_cast<void**>(&original_move)) &&
+           patch_import(module, "CreateFileW", reinterpret_cast<void*>(&slow_create), reinterpret_cast<void**>(&original_create));
 }
 int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]).starts_with("--")) return helper(argc, argv);
@@ -177,7 +191,7 @@ int main(int argc, char** argv) {
     KilnPluginInfo info{}; info.size = sizeof info;
     if (fn(&api, 1, &info) != KILN_OK) return 5;
     if (info.on_ready) info.on_ready(info.user);
-    Sleep(stalled ? 2900 : stop_during_write ? 60 : delayed ? 650 : 120);
+    Sleep(stalled ? 2900 : stop_during_write ? 60 : delayed ? 1300 : 120);  // delayed: one writer turn (3 x 350 ms) in the loop
     if (GetEnvironmentVariableW(L"KILN_SF_CLIENT", nullptr, 0)) {
         const auto suffix = std::to_wstring(GetCurrentProcessId());
         HANDLE event = nullptr;
@@ -230,6 +244,6 @@ int main(int argc, char** argv) {
         if (info.on_ready) info.on_ready(info.user);
     }
     if (info.on_unload) info.on_unload(info.user);
-    Sleep(stop_during_write || stalled ? 650 : 150); // allow signalled, serial worker cleanup before the fake host exits
+    Sleep(delayed ? 2500 : 150); // allow signalled, serial worker cleanup (slow writer join + final status) before exit
     return 0;
 }

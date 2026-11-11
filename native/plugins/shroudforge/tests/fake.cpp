@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include "services/kiln_eml.h"
 static void mark(const char* what) {
     wchar_t file[32768]{};
@@ -19,7 +20,20 @@ static void timing(const char* operation, double dt = 0) {
 extern "C" __declspec(dllexport) void ShroudforgeStop() {}
 #elif TEST_runtime
 extern "C" __declspec(dllexport) bool shroudforge_prepare_startup(const wchar_t* root) { mark(root && *root ? "prepare" : "bad-root"); return root && *root; }
-extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t*) { mark("create"); return reinterpret_cast<void*>(1); }
+extern "C" __declspec(dllexport) void* shroudforge_create(const wchar_t* root) {
+    mark("create");
+    // A new line in ShroudForge's log after the adapter's start, so its [sf] mirror has something to read in the loop.
+    if (root && GetEnvironmentVariableW(L"KILN_SF_SLOW_HEARTBEAT", nullptr, 0)) {
+        const std::wstring logs = std::wstring(root) + L"\\shroudforge\\logs";
+        CreateDirectoryW((std::wstring(root) + L"\\shroudforge").c_str(), nullptr);
+        CreateDirectoryW(logs.c_str(), nullptr);
+        if (FILE* f = _wfopen((logs + L"\\shroudforge-server.log").c_str(), L"ab")) {
+            std::fprintf(f, "[I] fake runtime created\n");
+            std::fclose(f);
+        }
+    }
+    return reinterpret_cast<void*>(1);
+}
 extern "C" __declspec(dllexport) bool shroudforge_update(void* h, double dt) {
     timing("update", dt);
     mark("update");

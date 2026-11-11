@@ -99,14 +99,17 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('closed-reservation', installed='corrupt', early=True, reservation='DENY_RESERVATION')
     case('short-eml-table', installed='corrupt', early=True, reservation='SHORT_EML_TABLE')
 
-    # The real adapter loop must keep ticking while heartbeat filesystem I/O is slow.
-    # The fake host delays only the adapter's heartbeat rename, with no production seam.
+    # The real adapter loop must keep ticking while its filesystem I/O is slow. The fake host delays every rename the
+    # adapter makes (heartbeat.json, shroudforge.json) and each open of ShroudForge's log, with no production seam.
+    def slow_io(out):
+        rows = [line.split(maxsplit=4)[1:] for line in out.splitlines() if line.startswith('slow-io ')]
+        return [(int(b), int(e), int(t), name.strip()) for b, e, t, name in rows]
     def heartbeat_timing(stopping=False, fault=False):
         def verify(status, calls, out):
-            intervals = [tuple(map(int, line.split()[1:])) for line in out.splitlines()
-                         if line.startswith('slow-heartbeat ')]
+            io = slow_io(out)
+            intervals = [entry for entry in io if entry[3] == 'heartbeat.json']
             assert len(intervals) == 1, (intervals, out)
-            begin, end, writer = intervals[0]
+            begin, end, writer, _ = intervals[0]
             assert end - begin >= 300, intervals
             timed = []
             for line in calls[calls.index('create') + 1:]:
@@ -117,6 +120,12 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             assert updates and all(entry[3] > 0 for entry in updates), timed
             runtime_thread = updates[0][2]
             assert writer != runtime_thread, 'heartbeat I/O still runs on the native/Lua update thread'
+            # No slow file operation of the adapter on the native/Lua update thread while that loop runs (its own
+            # last status write after the loop ended is fine).
+            in_loop = [entry for entry in io if entry[2] == runtime_thread and entry[1] >= updates[0][1] and entry[0] < updates[-1][1]]
+            assert not in_loop, ('file I/O on the native/Lua update thread during the loop', in_loop, updates[0][1], updates[-1][1])
+            for name in ('shroudforge.json', 'shroudforge-server.log'):
+                assert any(entry[3] == name and entry[2] == writer for entry in io), (name, 'not written/read by the writer', io)
             assert all(entry[2] == runtime_thread for entry in timed), 'runtime ABI calls moved off their serial worker'
             for index, entry in enumerate(timed):
                 if entry[0] == 'update':
@@ -125,6 +134,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             shutdown = next(entry for entry in timed if entry[0] == 'shutdown')
             assert destroy[1] >= end and shutdown[1] >= destroy[1], 'runtime destroyed before heartbeat writer joined'
             if not stopping:
+                for b, e, thread, name in io:
+                    if thread == writer and updates[0][1] < b and e < updates[-1][1]:
+                        progressed = sum(b < entry[1] < e for entry in updates)
+                        assert progressed >= 10, ('updates blocked by slow I/O', name, progressed, timed)
                 progressed = sum(begin < entry[1] < end for entry in updates)
                 assert progressed >= 10, ('updates blocked by slow heartbeat I/O', progressed, timed)
                 line = next(line for line in out.splitlines() if line.startswith('heartbeat '))
@@ -145,7 +158,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         # The writer keeps running, but must repeat the loop's last timestamp,
         # not manufacture a fresh heartbeat for a stuck native/Lua update.
         lines = out.splitlines()
-        assert sum(line.startswith('slow-heartbeat ') for line in lines) == 2, out
+        assert sum(entry[3] == 'heartbeat.json' for entry in slow_io(out)) == 2, out
         started = int(next(line.split()[1] for line in lines if line.startswith('heartbeat-start ')))
         observed = int(next(line.split()[1] for line in lines if line.startswith('heartbeat-observed ')))
         heartbeat = json.loads(next(line.removeprefix('heartbeat ') for line in lines if line.startswith('heartbeat ')))
