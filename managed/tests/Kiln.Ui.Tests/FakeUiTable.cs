@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Kiln.Ui.Tests;
+namespace Kiln.FakeUi;
 
 /// <summary>Tests that swap the backend and drive Kiln.Ui's shared state (the ShroudForge settings writer, the Keys tab, the
 /// Kiln menu's page): they run alone, so no other class's writes or backend swap interleave with theirs.</summary>

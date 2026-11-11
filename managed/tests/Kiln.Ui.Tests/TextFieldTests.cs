@@ -3,7 +3,7 @@
 // when its UTF-8 fits the buffer, and a value that does not fit is shown read-only and left as it is. The ShroudForge
 // page sizes its fields from the value, so a long setting is edited whole. No game: a fake kiln.ui table.
 using System.Text.Json.Nodes;
-using Kiln.Ui.Tests;
+using Kiln.FakeUi;
 using Xunit;
 
 namespace Kiln.TextFieldTests;

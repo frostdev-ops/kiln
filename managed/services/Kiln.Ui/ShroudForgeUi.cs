@@ -26,13 +26,16 @@ internal static class ShroudForgeUi
         public volatile string? Error;
         public long ReadAtMs;
         public int Reading;
+        /// <summary>Bumped by each save that publishes the package (under the entry's lock): a read that began before it
+        /// is older than what the save published.</summary>
+        public long Generation;
     }
 
     private static readonly ConcurrentDictionary<string, Entry> Packages = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object Lock = new();
-    // edits waiting for the writer: (folder, key; "" = the switch) -> value and when to write it
-    private static readonly Dictionary<(string Folder, string Key), (JsonNode? Value, long DueMs)> Pending = new();
-    private static readonly Dictionary<(string Folder, string Key), string> Errors = new();
+    // edits waiting for the writer: (folder, key; null = the switch, "" is a setting like any other) -> value and when to write it
+    private static readonly Dictionary<(string Folder, string? Key), (JsonNode? Value, long DueMs)> Pending = new();
+    private static readonly Dictionary<(string Folder, string? Key), string> Errors = new();
     // what the last write of each mod did, in words (shown under the switch)
     private static readonly Dictionary<string, (string Text, bool Ok)> Results = new(StringComparer.OrdinalIgnoreCase);
     private static readonly AutoResetEvent Wake = new(false);
@@ -73,21 +76,61 @@ internal static class ShroudForgeUi
 
     private static void Refresh(string folder, Entry e)
     {
+        var generation = Interlocked.Read(ref e.Generation);
+        SfPackage? package = null;
+        string? error = null;
         try
         {
-            e.Package = ShroudForgePackages.Read(folder);
-            e.Error = null;
+            package = ShroudForgePackages.Read(folder);
         }
         catch (Exception x)
         {
-            e.Package = null;  // never offer stale editable controls for a broken or removed file
-            e.Error = x is SfEditException ? x.Message : $"its files could not be read: {x.Message}";
+            // never offer stale editable controls for a broken or removed file
+            error = x is SfEditException ? x.Message : $"its files could not be read: {x.Message}";
         }
         finally
         {
+            lock (e)
+            {
+                // a save that published while this read ran has newer values than this read may have seen
+                if (e.Generation == generation)
+                {
+                    e.Package = package;
+                    e.Error = error;
+                }
+            }
             Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
             Interlocked.Exchange(ref e.Reading, 0);
         }
+    }
+
+    /// <summary>What a save leaves: the package it read back (or none, with why).</summary>
+    private static void Publish(Entry e, SfPackage? package, string? error)
+    {
+        lock (e)
+        {
+            e.Generation++;
+            e.Package = package;
+            e.Error = error;
+        }
+        Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
+    }
+
+    /// <summary>extended.mod.json's bytes now (empty when there is none), or null when they cannot be read.</summary>
+    private static byte[]? FileBytes(string folder)
+    {
+        try
+        {
+            var path = Path.Combine(folder, "extended.mod.json");
+            var info = new FileInfo(path);
+            if (!info.Exists) return [];
+            if (info.Length > ShroudForgePackages.MaxFileBytes) return null;
+            using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var bytes = new byte[f.Length];
+            f.ReadExactly(bytes);
+            return bytes;
+        }
+        catch (Exception) { return null; }
     }
 
     /// <summary>Reads a package now (the preview, tests).</summary>
@@ -99,8 +142,9 @@ internal static class ShroudForgeUi
 
     // ------------------------------------------------------------------------------------- writing ----
 
-    /// <summary>Queues a change; <paramref name="settleMs"/> later (no newer change to the same value) the writer saves it.</summary>
-    public static void Edit(string folder, string key, JsonNode? value, int settleMs = 0)
+    /// <summary>Queues a change of setting <paramref name="key"/> (null: the mod's switch); <paramref name="settleMs"/> later
+    /// (no newer change to the same value) the writer saves it.</summary>
+    public static void Edit(string folder, string? key, JsonNode? value, int settleMs = 0)
     {
         lock (Lock)
         {
@@ -116,7 +160,7 @@ internal static class ShroudForgeUi
     {
         while (true)
         {
-            List<((string Folder, string Key) Id, JsonNode? Value)> due = [];
+            List<((string Folder, string? Key) Id, JsonNode? Value)> due = [];
             long next = long.MaxValue;
             lock (Lock)
             {
@@ -129,25 +173,35 @@ internal static class ShroudForgeUi
             {
                 string result;
                 var ok = true;
+                var e = Packages.GetOrAdd(id.Folder, _ => new Entry());
+                var before = FileBytes(id.Folder);
                 try
                 {
-                    var p = id.Key.Length == 0
+                    var p = id.Key is null
                         ? ShroudForgePackages.SetEnabled(id.Folder, value is JsonValue v && v.GetValueKind() == JsonValueKind.True)
                         : ShroudForgePackages.SetSetting(id.Folder, id.Key, value);
-                    var e = Packages.GetOrAdd(id.Folder, _ => new Entry());
-                    e.Package = p;
-                    e.Error = null;
-                    Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
+                    Publish(e, p, null);
                     result = Saved(p, id.Key);
-                    UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: {(id.Key.Length == 0 ? "switched " + (p.Enabled ? "on" : "off") : id.Key + " = " + ShroudForgePackages.Render(value))} " +
+                    UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: {(id.Key is null ? "switched " + (p.Enabled ? "on" : "off") : id.Key + " = " + ShroudForgePackages.Render(value))} " +
                                                 $"(extended.mod.json, from the Kiln menu)");
                 }
                 catch (Exception x) // malformed/untrusted metadata must not kill the one settings writer
                 {
                     ok = false;
-                    result = x is SfEditException ? x.Message : "Could not save: " + x.Message;
+                    var what = id.Key is null ? "switch" : id.Key;
+                    if (before is not null && FileBytes(id.Folder) is { } after && !before.AsSpan().SequenceEqual(after))
+                    {
+                        // the file changed but cannot be read back: not "not saved", and no controls of the old package
+                        result = $"extended.mod.json was changed, but it cannot be read back: {x.Message}. ShroudForge may refuse the mod until the file is fixed.";
+                        Publish(e, null, result);
+                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {what} written, but extended.mod.json cannot be read back: {x.Message}");
+                    }
+                    else
+                    {
+                        result = x is SfEditException ? x.Message : "Could not save: " + x.Message;
+                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {what} not saved: {result}");
+                    }
                     lock (Lock) Errors[id] = result;
-                    UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {(id.Key.Length == 0 ? "switch" : id.Key)} not saved: {result}");
                 }
                 lock (Lock)
                 {
@@ -161,9 +215,9 @@ internal static class ShroudForgeUi
         }
     }
 
-    private static string Saved(SfPackage p, string key)
+    private static string Saved(SfPackage p, string? key)
     {
-        if (key.Length == 0)
+        if (key is null)
             return p.SwitchLive ? $"Saved: {p.Name} is requested {(p.Enabled ? "on" : "off")}; a running ShroudForge normally picks this up within a second or two. Check its state above."
                 : $"Saved: {p.Name} is configured {(p.Enabled ? "on" : "off")} for the next game start.";
         var s = p.Settings.FirstOrDefault(x => x.Key == key);
@@ -210,7 +264,8 @@ internal static class ShroudForgeUi
         if (p is null)
         {
             using (ui.PushColor(UiColorSlot.Text, error is null ? GameColors.Muted : GameColors.Warning))
-                ui.TextWrapped(error is null ? "Reading its settings..." : $"Its settings cannot be shown: {error}");
+                ui.TextWrapped(error is null ? "Reading its settings..." : $"Its settings cannot be shown: {Clip(error, MaxDrawnText)}");
+            Result(ui, folder, k, problemsOnly: true);  // what the last save did to the file stays visible
             return;
         }
         using var id = ui.Id("sf." + folder);
@@ -219,9 +274,9 @@ internal static class ShroudForgeUi
 
         // the switch
         bool on;
-        lock (Lock) on = Pending.TryGetValue((folder, ""), out var pend) ? pend.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
+        lock (Lock) on = Pending.TryGetValue((folder, null), out var pend) ? pend.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
         var was = on;
-        if (ui.Checkbox(on ? "On###sf.switch" : "Off###sf.switch", ref on) && on != was) Edit(folder, "", JsonValue.Create(on));
+        if (ui.Checkbox(on ? "On###sf.switch" : "Off###sf.switch", ref on) && on != was) Edit(folder, null, JsonValue.Create(on));
         using (ui.FontSize(14 * k))
         using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
         {
@@ -273,11 +328,11 @@ internal static class ShroudForgeUi
 
     private static bool Running(CatalogMod m) => m.State == ModRunState.Loaded;
 
-    private static void Result(UiDraw ui, string folder, float k)
+    private static void Result(UiDraw ui, string folder, float k, bool problemsOnly = false)
     {
         (string Text, bool Ok) r;
         lock (Lock)
-            if (!Results.TryGetValue(folder, out r)) return;
+            if (!Results.TryGetValue(folder, out r) || (problemsOnly && r.Ok)) return;
         using (ui.FontSize(14 * k))
         using (ui.PushColor(UiColorSlot.Text, r.Ok ? GameColors.Ok : GameColors.Warning))
             ui.TextWrapped(r.Text);

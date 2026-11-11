@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ShroudForge's menu shortcut (F9, shroudforge.ui.toggle_modloader()) when Kiln answers it: the first press of a session
 // opens the Kiln menu on ShroudForge even before the mod list was read, and the next press closes it. No game.
-using Kiln.Ui.Tests;
+using Kiln.FakeUi;
 using Xunit;
 
 namespace Kiln.ShroudForgeMenuTests;

@@ -3,7 +3,7 @@
 // subscriber sees the key, so a rebind armed in the Keys tab must not outlive the menu (or the tab) and take the next key
 // pressed in play. No game: a fake kiln.ui table.
 using System.Reflection;
-using Kiln.Ui.Tests;
+using Kiln.FakeUi;
 using Xunit;
 
 namespace Kiln.KeyRemapTests;
