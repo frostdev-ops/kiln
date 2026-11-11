@@ -107,6 +107,12 @@
  assert(logged("Renamed to settings.json.bad")&&slurp(root/"two"/"settings.json.bad")=="{ nope"&&!std::filesystem::exists(root/"two"/"settings.json"));
  must(L,two,"st.a=6");mset::dropAll(sink);  // what onShutdown / a reload does: saved at once
  assert(slurp(root/"two"/"settings.json")=="{\n  \"a\": 6\n}\n"&&!mset::has("one")&&!mset::has("two"));
+ // A second broken file keeps the first one aside: neither is replaced.
+ std::ofstream(root/"two"/"settings.json")<<"{ second";logs.clear();
+ must(L,two,"st=Settings.define{{key='a',type='int',default=5}};assert(st.a==5)");mset::dropAll(sink);
+ if(slurp(root/"two"/"settings.json.bad")!="{ nope")std::cerr<<"settings: the second broken file replaced settings.json.bad\n";
+ assert(slurp(root/"two"/"settings.json.bad")=="{ nope"&&slurp(root/"two"/"settings.json.bad.2")=="{ second"&&logged("Renamed to settings.json.bad.2"));
+ std::filesystem::remove(root/"two"/"settings.json.bad.2");
  std::filesystem::remove(root/"two"/"settings.json");std::filesystem::remove(root/"two"/"settings.json.bad");
 
  // ---- Hooks.rule on a mod's own pattern ----

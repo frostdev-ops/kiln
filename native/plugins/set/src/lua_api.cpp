@@ -1339,10 +1339,18 @@ void readSettings(lua_State* L, mset::Page& page) {
     }
     if (!why.empty()) {
         lua_settop(L, top);
+        // The first free name: a file set aside earlier is the player's too, and rename would replace it.
         std::error_code ec;
-        std::filesystem::rename(pathOf(page.path) / "settings.json", pathOf(page.path) / "settings.json.bad", ec);
-        gSink((LV_WARN "Settings: " + page.mod + "\\settings.json couldn't be read (" + why +
-               "): Renamed to settings.json.bad, using the defaults").c_str());
+        std::string bad;
+        for (int n = 1; n <= 100 && bad.empty(); ++n) {
+            const std::string name = n == 1 ? "settings.json.bad" : "settings.json.bad." + std::to_string(n);
+            if (!std::filesystem::exists(pathOf(page.path) / name, ec) && !ec) bad = name;
+            ec.clear();
+        }
+        if (!bad.empty()) std::filesystem::rename(pathOf(page.path) / "settings.json", pathOf(page.path) / bad, ec);
+        gSink((LV_WARN "Settings: " + page.mod + "\\settings.json couldn't be read (" + why + "): " +
+               (!bad.empty() && !ec ? "Renamed to " + bad : std::string("Left as it is (the next save replaces it)")) +
+               ", using the defaults").c_str());
         return;
     }
     for (lua_pushnil(L); lua_next(L, -2); lua_pop(L, 1)) {

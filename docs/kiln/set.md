@@ -152,7 +152,8 @@ matching Kiln C# API and how each was tested, is in
   at once on a reload. Kiln's core does not run a plugin's unload when the game exits, so nothing extra is saved then
   and `onShutdown` does not run at game exit: a change made in the last second before quitting can be lost. Unknown
   keys in the file are kept. A wrong type falls back to the default
-  with a yellow line. A broken file becomes `settings.json.bad`. Edit in the SET tools page, or edit the file by hand
+  with a yellow line. A broken file becomes `settings.json.bad` (`settings.json.bad.2` and so on while an earlier one is still
+  there; none is replaced). Edit in the SET tools page, or edit the file by hand
   while the game is closed.
 - **`settings.json` belongs to `Settings.define`**: `io.open("settings.json", "w")` returns nil and a message. Reading
   works.

@@ -15,6 +15,12 @@
 #include "level.h"
 #include "sandbox.h"
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace {
 
 std::mutex gMx;
@@ -66,6 +72,15 @@ bool writeFile(const std::string& dir, const std::string& text) {
     FILE* f = kset::sandbox::open(dir, "settings.json.tmp", "wb");
     if (!f) return false;
     bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
+    // On the disk before the rename swaps it in, so a crash or power cut just after can't leave an empty file.
+    // Best effort: a file system without it still saves.
+    if (ok && fflush(f) == 0) {
+#ifdef _WIN32
+        (void)_commit(_fileno(f));
+#else
+        (void)fsync(fileno(f));
+#endif
+    }
     ok = fclose(f) == 0 && ok;
     if (!ok) return false;
     const std::filesystem::path folder(std::u8string(dir.begin(), dir.end()));
