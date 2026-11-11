@@ -852,6 +852,25 @@ mod tests {
             fs::remove_dir_all(root).unwrap();
         }
     }
+    // ShroudForge (112d939) writes its backup copies to `<backup>.partial` first; one can stay after a killed start.
+    // They are SF's and never a backup to kiln-eml: not read, sealed, restored from, compared or removed.
+    #[test]
+    fn shroudforge_partial_backup_copies_are_never_backups_and_never_removed() {
+        let root = real_patch(2, &[b"content"]);
+        for n in ["g.kfc.bak.partial", "g.kfc_resources.bak.partial"] { fs::write(root.join(n), "half an SF copy").unwrap(); }
+        let seal = fs::read(root.join("g.kfc.bak.integrity")).unwrap();
+        let path = camino::Utf8Path::from_path(&root).unwrap();
+        assert!(owns_output(&root, "g").unwrap());
+        assert!(crate::load::create_backup(path.join("g.kfc")).is_ok());
+        assert_eq!(fs::read(root.join("g.kfc.bak.integrity")).unwrap(), seal, "the seal still describes the real pair");
+        prune(&root, "g");
+        assert!(crate::restore(path, "g"));
+        for n in ["g.kfc.bak.partial", "g.kfc_resources.bak.partial"] {
+            assert_eq!(fs::read(root.join(n)).unwrap(), b"half an SF copy", "{n} is SF's and stays");
+        }
+        assert_ne!(fs::read(root.join("g.kfc")).unwrap(), b"half an SF copy");
+        fs::remove_dir_all(root).unwrap();
+    }
     // A damaged backup at the same game build (same length, other bytes) under its seal is still refused.
     #[test]
     fn a_damaged_backup_under_its_seal_is_still_refused() {

@@ -145,7 +145,10 @@ This is EML's own runner (`mod_loader::lua::run`), on the listed mods:
   and leaves the seal. Either way kiln-eml takes up the new pair by the unsealed rule (the live build, the live
   resource prefix) and seals it; a sealed pair counts as replaced, not damaged, only when the files' lengths differ
   from what the seal recorded, and a same-length mismatch stays refused. The old receipt then lists other backups, so
-  nothing is taken for EML's output and the old build's bytes never go back.
+  nothing is taken for EML's output and the old build's bytes never go back. ShroudForge writes its backup copies to
+  `<exe>.kfc.bak.partial` and `<exe>.kfc_resources.bak.partial` first (fork 112d939), and one can stay after a killed
+  start: kiln-eml looks up backups only by their exact names, so it never reads, seals, compares or restores from a
+  `.partial` file, and its tidy-up never removes one (it is SF's).
 - **Publication:** the writer builds privately in the game filesystem, flushes every output, publishes the vanilla
   header from its validated private snapshot before replacing mod-owned containers/resources, and publishes the
   patched header last. Vanilla containers
