@@ -16,7 +16,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     env = dict(os.environ, WINEPREFIX=str(root / 'wine'), WINEDEBUG='-all', KILN_SHROUDFORGE='1',
                WAYLAND_DISPLAY='kiln-no-display', WINEDLLOVERRIDES='winedbg.exe=d')
     env.pop('DISPLAY', None)
-    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=None):
+    MISSING = object()  # menu_key: no toggleKey in ShroudForge's config (None writes a JSON null)
+    def case(name, installed='good', bundled='good', early=False, fault=False, linked_layout=False, busy=False, reservation=None, extra_env=None, verify=None, helper=False, menu_off=False, self_hosted=False, menu_key=MISSING):
         game = root / name
         if linked_layout:
             layout = root / (name + '-steam-library')
@@ -37,10 +38,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             shutil.copyfile(build / 'eml.dll', game / 'kiln/plugins/kiln-eml.dll')
         if helper:
             shutil.copyfile(build / 'sfhost.exe', game / 'shroudforge/shroudforge.exe')
-        if menu_off or menu_key is not None:
+        if menu_off or menu_key is not MISSING:
             (game / 'shroudforge/config').mkdir()
             menu_config = {'enabled': not menu_off}
-            if menu_key is not None:
+            if menu_key is not MISSING:
                 menu_config['toggleKey'] = menu_key
             (game / 'shroudforge/config/modloader-config.json').write_text(json.dumps({'modules': {'modloaderUi': menu_config}}))
         if self_hosted:
@@ -99,14 +100,17 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     case('closed-reservation', installed='corrupt', early=True, reservation='DENY_RESERVATION')
     case('short-eml-table', installed='corrupt', early=True, reservation='SHORT_EML_TABLE')
 
-    # The real adapter loop must keep ticking while heartbeat filesystem I/O is slow.
-    # The fake host delays only the adapter's heartbeat rename, with no production seam.
+    # The real adapter loop must keep ticking while its filesystem I/O is slow. The fake host delays every rename the
+    # adapter makes (heartbeat.json, shroudforge.json) and each open of ShroudForge's log, with no production seam.
+    def slow_io(out):
+        rows = [line.split(maxsplit=4)[1:] for line in out.splitlines() if line.startswith('slow-io ')]
+        return [(int(b), int(e), int(t), name.strip()) for b, e, t, name in rows]
     def heartbeat_timing(stopping=False, fault=False):
         def verify(status, calls, out):
-            intervals = [tuple(map(int, line.split()[1:])) for line in out.splitlines()
-                         if line.startswith('slow-heartbeat ')]
+            io = slow_io(out)
+            intervals = [entry for entry in io if entry[3] == 'heartbeat.json']
             assert len(intervals) == 1, (intervals, out)
-            begin, end, writer = intervals[0]
+            begin, end, writer, _ = intervals[0]
             assert end - begin >= 300, intervals
             timed = []
             for line in calls[calls.index('create') + 1:]:
@@ -117,6 +121,12 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             assert updates and all(entry[3] > 0 for entry in updates), timed
             runtime_thread = updates[0][2]
             assert writer != runtime_thread, 'heartbeat I/O still runs on the native/Lua update thread'
+            # No slow file operation of the adapter on the native/Lua update thread while that loop runs (its own
+            # last status write after the loop ended is fine).
+            in_loop = [entry for entry in io if entry[2] == runtime_thread and entry[1] >= updates[0][1] and entry[0] < updates[-1][1]]
+            assert not in_loop, ('file I/O on the native/Lua update thread during the loop', in_loop, updates[0][1], updates[-1][1])
+            for name in ('shroudforge.json', 'shroudforge-server.log'):
+                assert any(entry[3] == name and entry[2] == writer for entry in io), (name, 'not written/read by the writer', io)
             assert all(entry[2] == runtime_thread for entry in timed), 'runtime ABI calls moved off their serial worker'
             for index, entry in enumerate(timed):
                 if entry[0] == 'update':
@@ -125,6 +135,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
             shutdown = next(entry for entry in timed if entry[0] == 'shutdown')
             assert destroy[1] >= end and shutdown[1] >= destroy[1], 'runtime destroyed before heartbeat writer joined'
             if not stopping:
+                for b, e, thread, name in io:
+                    if thread == writer and updates[0][1] < b and e < updates[-1][1]:
+                        progressed = sum(b < entry[1] < e for entry in updates)
+                        assert progressed >= 10, ('updates blocked by slow I/O', name, progressed, timed)
                 progressed = sum(begin < entry[1] < end for entry in updates)
                 assert progressed >= 10, ('updates blocked by slow heartbeat I/O', progressed, timed)
                 line = next(line for line in out.splitlines() if line.startswith('heartbeat '))
@@ -145,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         # The writer keeps running, but must repeat the loop's last timestamp,
         # not manufacture a fresh heartbeat for a stuck native/Lua update.
         lines = out.splitlines()
-        assert sum(line.startswith('slow-heartbeat ') for line in lines) == 2, out
+        assert sum(entry[3] == 'heartbeat.json' for entry in slow_io(out)) == 2, out
         started = int(next(line.split()[1] for line in lines if line.startswith('heartbeat-start ')))
         observed = int(next(line.split()[1] for line in lines if line.startswith('heartbeat-observed ')))
         heartbeat = json.loads(next(line.removeprefix('heartbeat ') for line in lines if line.startswith('heartbeat ')))
@@ -192,20 +206,25 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
     def menu_is(who, key='SDL:66'):
         def verify(status, calls, out):
             assert status['menu'] == who and status['menuKey'] == key, (status, out)
-            if who in ('helper', 'kiln'):
-                assert 'menu: three auto-reset toggles received by ' in out, out
+            if who == 'helper':
+                assert 'menu: three auto-reset toggles received by helper' in out, out
+            if who == 'kiln':  # the event only: Kiln.Ui, which waits on it in game, is not part of this test
+                assert "menu: Kiln's auto-reset event is open; three toggles set and taken back by this test" in out, out
         return verify
     client = {'KILN_SF_CLIENT': '1'}
     case('menu-bundled-no-exe', installed='corrupt', extra_env=client, verify=menu_is('kiln'))
     case('menu-custom-key', extra_env=client, menu_key='Ctrl+SDL:14', verify=menu_is('kiln', 'Ctrl+SDL:14'))
     case('menu-empty-key', extra_env=client, menu_key='', verify=menu_is('kiln', ''))
+    # ShroudForge refuses a toggleKey that is not text ("Hotkey must be an SDL binding string"): no key, never F9
+    case('menu-null-key', extra_env=client, menu_key=None, verify=menu_is('kiln', ''))
+    case('menu-number-key', extra_env=client, menu_key=66, verify=menu_is('kiln', ''))
     case('menu-installed-helper', extra_env=client, helper=True, verify=menu_is('helper'))
     case('menu-helper-exited', extra_env=dict(client, KILN_SF_HELPER_EXIT='1'), helper=True, verify=menu_is('kiln'))
     case('menu-disabled', extra_env=dict(client, KILN_SF_MENU_OFF='1'), menu_off=True, verify=menu_is('off'))
     case('menu-self-hosted', extra_env=dict(client, KILN_SF_SELF_HOSTED='1'), self_hosted=True)
 
     # ---- dev.22: drop-ins for ShroudForge with an active profile that lists no ShroudForge mods ----
-    def profile_case(name, dropins, package):
+    def profile_case(name, dropins, package, state=None):
         game = root / name
         (game / 'kiln').mkdir(parents=True)
         for kind in ('shroudforge', 'kiln/plugins/shroudforge'):
@@ -218,6 +237,8 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         if package:
             (game / 'mods/pkg').mkdir(parents=True)
             (game / 'mods/pkg/extended.mod.json').write_text(json.dumps({'enabled': True}))
+        if state:  # ShroudForge's own state file: <game>/shroudforge/state.json (its default paths.state folder)
+            (game / 'shroudforge/state.json').write_text(json.dumps(state))
         profile = {'format': 1, 'id': 'p', 'generation': 1, 'mods': {}}
         if dropins is not None:
             profile['dropins'] = dropins
@@ -235,6 +256,10 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         status, log, out = profile_case(name, dropins, package=True)
         assert status['mode'] != 'off' and log.exists() and 'prepare' in log.read_text().splitlines(), (name, status, out)
         print('PASS', name)
+    # no package left, but ShroudForge's last startup patch is applied: it must run to keep (or undo) that patch
+    status, log, out = profile_case('profile-dropins-applied-state', True, package=False, state={'assets': {'status': 'applied'}})
+    assert status['mode'] != 'off' and log.exists() and 'prepare' in log.read_text().splitlines(), (status, out)
+    print('PASS profile-dropins-applied-state')
     for name, dropins, package in [('profile-no-dropins', None, True), ('profile-dropins-other', ['emf'], True),
                                    ('profile-dropins-empty-folder', True, False)]:
         status, log, out = profile_case(name, dropins, package)

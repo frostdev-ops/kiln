@@ -67,7 +67,7 @@ is described in the linked lab evidence; it did not rerun the entire historical 
 | `GameOptions.machine/user/dump` | none | missing ("game options not found yet") | missing (client only) |
 | `Tick.add`, `onUpdate` | `Context.Tick.Pre/Post` | Kiln Pre tick (server), UI tick (menu) | lab |
 | `registerForEvent` onInit / onWorldEnter | `Mod.OnLoad`, world events | SET code, Kiln ticks | lab |
-| onWorldLeave / onShutdown | world events, `OnUnload` | `KILN_WORLD_STOPPING`, `on_unload` | built |
+| onWorldLeave / onShutdown | world events, `OnUnload` | `KILN_WORLD_STOPPING`; onShutdown from kiln-set's `on_unload`, which kiln-core never calls (`kiln_api.h`) | onWorldLeave built; onShutdown does not run at game exit |
 | onOverlayOpen/Close, `Overlay.isOpen` | `Ui` | kiln.ui frame (`menu_open`) | client |
 | `reload()` | `kiln/control reload <id>` | SET code | built |
 | `Keys.on/hotkey/input` | `KeyBindings.Register` | SET code (key polling, bindings.ini) | client |

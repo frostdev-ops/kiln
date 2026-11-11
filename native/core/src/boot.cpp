@@ -38,10 +38,13 @@ namespace {
 bool g_booted = false;
 KilnBootInfo g_boot_info{};
 
+static_assert(KILN_BOOT_INFO_V2_SIZE == 64 && KILN_BOOT_INFO_V3_SIZE == 72, "KilnBootInfo v2 layout must not move");
+
 // Copies the proxy's KilnBootInfo field by field, as far as its size goes (v1 proxies send 16 bytes).
 void take_boot_info(const KilnBootInfo* info) {
     g_boot_info = KilnBootInfo{};
     g_boot_info.size = sizeof(KilnBootInfo);
+    g_boot_info.addon_log_size = KILN_BOOT_LOG_UNKNOWN;  // an older proxy did not measure it
     if (!info || info->size < KILN_BOOT_INFO_V1_SIZE) return;
     g_boot_info.proxy_module = info->proxy_module;
     if (KILN_BOOT_INFO_HAS(info, play_once)) g_boot_info.play_once = info->play_once;
@@ -51,6 +54,7 @@ void take_boot_info(const KilnBootInfo* info) {
     }
     if (KILN_BOOT_INFO_HAS(info, play_once_nonce)) g_boot_info.play_once_nonce = info->play_once_nonce;
     if (KILN_BOOT_INFO_HAS(info, play_once_profile)) g_boot_info.play_once_profile = info->play_once_profile;
+    if (KILN_BOOT_INFO_HAS(info, addon_log_size)) g_boot_info.addon_log_size = info->addon_log_size;
 }
 
 const char* play_once_name(uint32_t v) {
@@ -278,7 +282,7 @@ void boot() {
     native_mods::run_early();
     // Another loader that looks for game functions by their bytes on its own thread (shroudlink's client addon) gets to
     // finish looking before Kiln hooks anything: a Kiln hook over a prologue would hide that function from it.
-    if (verified || config().policy_any) foreign::wait_for_scanners();
+    if (verified || config().policy_any) foreign::wait_for_scanners(g_boot_info.addon_log_size);
     // kiln.hooks for early plugins that hook game code (kiln-shroudforge's native runtime does it while it initialises);
     // taken away again below when this start is safe idle.
     const bool early_hooks = (verified || config().policy_any) && hooks::serve_early();

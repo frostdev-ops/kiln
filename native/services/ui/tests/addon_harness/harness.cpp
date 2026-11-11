@@ -435,10 +435,18 @@ uint64_t unix_now() { return static_cast<uint64_t>(std::time(nullptr)); }
 
 const uint8_t g_dispatch_file[5] = {0x4C, 0x8B, 0xDC, 0x55, 0x49};  // the stand-in's first bytes, as "the file" has them
 
+// What the proxy measures before it loads the chain (KilnBootInfo.addon_log_size): the addon log's length then.
+uint64_t g_log_from = 0;
+uint64_t log_size() {
+    std::error_code ec;
+    const auto n = std::filesystem::file_size(exe_dir() / kiln::foreign::kAddonLog, ec);
+    return ec ? 0 : n;
+}
+
 // Run the production Windows gate, including module enumeration/ownership checks, bounded reads and shared deadline.
 kiln::foreign::WaitResult kiln_wait() {
     const size_t before = kiln::foreign::waits().size();
-    kiln::foreign::wait_for_scanners();
+    kiln::foreign::wait_for_scanners(g_log_from);
     if (kiln::foreign::waits().size() == before) return {};
     const auto& w = kiln::foreign::waits().back();
     return {w.end, w.ms, w.line};
@@ -587,6 +595,7 @@ HMODULE load_addon(const std::filesystem::path& dll, bool expect_ready) {
 #include "bridge.h"
 
 int run(const std::filesystem::path& dll, const std::string& mode) {
+    g_log_from = log_size();  // before any addon loads, as the proxy does before the chain
     build_fake_game();
     if (mode == "bridge" || mode == "bridge-late" || mode == "bridge-stock") return bridge_checks(dll, mode == "bridge-stock", mode == "bridge-late");
     const uint64_t t0 = unix_now() - 1;
@@ -603,18 +612,22 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
             const std::string marker = "shroudlink client 0.8.0 starting (module 0x";
             char addr[32];
             std::snprintf(addr, sizeof addr, "%llx", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(m)));
-            const std::string log = "[1] " + marker + addr + " inert.dll)\n[2] native UI ready: stale\n[" +
-                std::to_string(unix_now() + 1) + "] " + marker + addr + " inert.dll)\n[" +
+            // The stale part was there before "the chain loaded" (g_log_from), the partial one is this start's.
+            const std::string stale = "[1] " + marker + addr + " inert.dll)\n[2] native UI ready: stale\n";
+            const std::string log = "[" + std::to_string(unix_now() + 1) + "] " + marker + addr + " inert.dll)\n[" +
                 std::to_string(unix_now() + 1) + "] native UI ready: partial";
             FILE* fp = _wfopen((exe_dir() / kiln::foreign::kAddonLog).c_str(), L"wb");
             check(fp != nullptr, "stale/partial log fixture opened");
+            if (fp) { std::fwrite(stale.data(), 1, stale.size(), fp); std::fclose(fp); }
+            g_log_from = log_size();
+            fp = _wfopen((exe_dir() / kiln::foreign::kAddonLog).c_str(), L"ab");
             if (fp) { std::fwrite(log.data(), 1, log.size(), fp); std::fclose(fp); }
             // This is a real hook, but belongs to the harness, not the addon. Arbitrary changed UI bytes are not ready.
             g_item_hook = safetyhook::create_inline(g_game.dispatch, reinterpret_cast<void*>(&hk_item));
             check(static_cast<bool>(g_item_hook), "unrelated UI hook installed");
         }
         const auto at = GetTickCount64();
-        kiln::foreign::wait_for_scanners();
+        kiln::foreign::wait_for_scanners(g_log_from);
         const auto elapsed = GetTickCount64() - at;
         if (mode == "unrelated") {
             check(kiln::foreign::waits().size() == before, "forwarded export is not an addon: no wait");
@@ -642,6 +655,12 @@ int run(const std::filesystem::path& dll, const std::string& mode) {
               "the addon switches its UI off: \"%s\"", r.line.c_str());
         check(log_has("shroudlink client hooks:", t0), "its link to the host is up all the same (\"shroudlink client hooks: ...\")");
         check(std::memcmp(g_game.dispatch, g_dispatch_file, 5) == 0, "no UI hook: no MODS tab, no chest search, no lock rims");
+        // Kiln's gate takes the addon's own word at once, also when its start line has the second this process was
+        // created in (the usual case): switched-off with the addon's reason, not a timeout after the 10 s budget.
+        const auto w = kiln_wait();
+        check(w.end == kiln::foreign::WaitEnd::SwitchedOff && w.waited_ms < 2000 && w.line.find("pattern not found: 89 4C 24 08") != std::string::npos,
+              "Kiln's wait ends switched-off with the addon's reason (%s after %llu ms: \"%s\")", kiln::foreign::wait_end_name(w.end),
+              static_cast<unsigned long long>(w.waited_ms), w.line.c_str());
         return g_fails;
     }
     if (mode == "wait") {

@@ -21,6 +21,18 @@ inline constexpr const char* kAddonLog = "shroudlink_client.log";
 // SIG_UI_DISPATCH in shroudlink 0.8.0 client/src/native.rs. All its scans precede this hook's enable().
 inline constexpr const char* kAddonUiPattern = "4C 8B DC 55 49 8D AB E8 FD FF FF 48 81 EC 10 03 00 00";
 inline constexpr uint64_t kWaitMs = 10000;  // one budget for the whole boot, not per loaded copy
+inline constexpr uint64_t kLogUnknown = UINT64_MAX;  // KILN_BOOT_LOG_UNKNOWN: where this start's lines begin is not known
+inline constexpr uint64_t kLogTail = 64 * 1024;      // never read more of a player's log during boot
+
+// This start's part of the addon's append-only log: from `from`, its length before the proxy loaded any chained DLL
+// (KilnBootInfo.addon_log_size), to `size`, its length now; at most the newest `cap` bytes. `at` is where to read.
+// False: nothing in the file is known to be this start's (the start is unknown, or the file got shorter: replaced).
+// Binding by position, not by a log time, keeps a start line written in the second the process was created.
+inline bool this_start(uint64_t from, uint64_t size, uint64_t cap, uint64_t& at) {
+    if (from == kLogUnknown || size < from) return false;
+    at = size - from > cap ? size - cap : from;
+    return true;
+}
 
 enum class AddonState { Unknown, Ready, UiOff, Off };
 struct AddonLog {
@@ -40,9 +52,10 @@ inline bool number(std::string_view s, unsigned base, uint64_t& out) {
     return true;
 }
 
-// Only complete lines in this process's time range, after the matching copy's start marker. A cut tail, partial
-// append, stale session at the same module address, overflowing number or another copy's result is not readiness.
-inline AddonLog read_addon_log(std::string_view text, uint64_t module, uint64_t not_before) {
+// `text`: this start's part of the log (this_start). Only complete lines after the matching copy's start marker. A cut
+// tail, partial append, overflowing number or another copy's result is not readiness. `not_before` skips lines
+// stamped earlier (a test's own boundary); Kiln's gate passes none and keeps earlier starts out by position.
+inline AddonLog read_addon_log(std::string_view text, uint64_t module, uint64_t not_before = 0) {
     AddonLog out;
     bool ours = false;
     size_t pos = 0;
@@ -130,11 +143,10 @@ inline const char* wait_end_name(WaitEnd e) {
 }
 struct WaitEnv {
     std::function<bool()> ui_hooked;        // verified jump into THIS addon (empty: unknown)
-    std::function<std::string()> log_text;  // bounded log tail (empty/missing: unknown)
+    std::function<std::string()> log_text;  // this start's part of the log, bounded (empty/missing: unknown)
     std::function<uint64_t()> now_ms;       // monotonic clock
     std::function<void(uint32_t)> sleep_ms;
     uint64_t module = 0;
-    uint64_t not_before = 0;  // process creation time, rounded UP to the next Unix second: no previous-run same-second log
 };
 struct WaitResult {
     WaitEnd end = WaitEnd::Timeout;
@@ -145,7 +157,7 @@ inline WaitResult wait_for_addon(const WaitEnv& env, uint64_t timeout_ms, uint32
     const uint64_t t0 = env.now_ms();
     for (;;) {
         const uint64_t waited = env.now_ms() - t0;
-        const AddonLog log = env.log_text ? read_addon_log(env.log_text(), env.module, env.not_before) : AddonLog{};
+        const AddonLog log = env.log_text ? read_addon_log(env.log_text(), env.module) : AddonLog{};
         if (log.state == AddonState::Ready) return {WaitEnd::Ready, waited, log.line};
         if (log.state == AddonState::UiOff || log.state == AddonState::Off) return {WaitEnd::SwitchedOff, waited, log.line};
         if (env.ui_hooked && env.ui_hooked()) return {WaitEnd::Hooked, waited, {}};
@@ -162,7 +174,8 @@ struct Wait {
     uint64_t ms = 0;
     std::string line;
 };
-void wait_for_scanners();
+// log_from: KilnBootInfo.addon_log_size (kLogUnknown from an older proxy: then only the addon's UI hook can end the wait)
+void wait_for_scanners(uint64_t log_from);
 const std::vector<Wait>& waits();  // state/boot.json
 
 }  // namespace kiln::foreign

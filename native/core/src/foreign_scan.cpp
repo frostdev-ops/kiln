@@ -57,36 +57,26 @@ std::string module_name(HMODULE m) {
     return n && n < MAX_PATH ? to_utf8(std::filesystem::path(std::wstring(path, n)).filename().wstring()) : std::string("?");
 }
 
-// At most 64 KiB, shared with the addon's writer; never read an unbounded player log during boot.
-std::string tail(const std::filesystem::path& file) {
+// This start's part of the log (this_start: after `from`, at most 64 KiB), shared with the addon's writer.
+std::string tail(const std::filesystem::path& file, uint64_t from) {
+    if (from == kLogUnknown) return {};
     HANDLE h = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) return {};
     std::string out;
     LARGE_INTEGER size{};
-    if (GetFileSizeEx(h, &size) && size.QuadPart > 0) {
+    uint64_t start = 0;
+    if (GetFileSizeEx(h, &size) && size.QuadPart > 0 && this_start(from, static_cast<uint64_t>(size.QuadPart), kLogTail, start) &&
+        static_cast<uint64_t>(size.QuadPart) > start) {
         LARGE_INTEGER at{};
-        at.QuadPart = std::max<int64_t>(0, size.QuadPart - 64 * 1024);
-        out.resize(static_cast<size_t>(size.QuadPart - at.QuadPart));
+        at.QuadPart = static_cast<int64_t>(start);
+        out.resize(static_cast<size_t>(static_cast<uint64_t>(size.QuadPart) - start));
         DWORD got = 0;
         if (!SetFilePointerEx(h, at, nullptr, FILE_BEGIN) || !ReadFile(h, out.data(), static_cast<DWORD>(out.size()), &got, nullptr)) got = 0;
         out.resize(got);
     }
     CloseHandle(h);
     return out;
-}
-
-uint64_t process_start_unix() {
-    FILETIME created{}, exited{}, kernel{}, user{};
-    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return UINT64_MAX;  // log cannot prove readiness
-    ULARGE_INTEGER t{};
-    t.LowPart = created.dwLowDateTime;
-    t.HighPart = created.dwHighDateTime;
-    constexpr uint64_t kEpoch = 116444736000000000ull;
-    if (t.QuadPart < kEpoch) return UINT64_MAX;
-    // A log timestamp has only second precision. Reject that first, ambiguous second rather than accept a previous
-    // run at the same address. The validated live hook is authoritative even if the current start line is excluded.
-    return (t.QuadPart - kEpoch + 9999999) / 10000000ull;
 }
 
 uintptr_t addon_ui_target() {
@@ -99,22 +89,22 @@ uintptr_t addon_ui_target() {
 
 }  // namespace
 
-void wait_for_scanners() {
+void wait_for_scanners(uint64_t log_from) {
     const auto mods = addon_modules();
     if (mods.empty()) return;
     const auto started = static_cast<uint64_t>(now_ms());
     const uintptr_t ui = addon_ui_target();
-    const uint64_t not_before = process_start_unix();
     const auto log_file = paths().game / kAddonLog;
     for (const auto& m : mods) {
         const std::string name = module_name(m.handle);
-        KLOG_I("foreign: waiting for shroudlink client addon %s to finish its live-code scans before Kiln hooks (10 s boot budget)", name.c_str());
+        KLOG_I("foreign: waiting for shroudlink client addon %s to finish its live-code scans before Kiln hooks (10 s boot budget)%s",
+               name.c_str(), log_from == kLogUnknown ? "; where its lines of this start begin in shroudlink_client.log is not "
+                                                       "known (an older dinput8.dll), so only its UI hook can end the wait" : "");
         WaitEnv env;
         env.module = reinterpret_cast<uintptr_t>(m.handle);
-        env.not_before = not_before;
         env.now_ms = [] { return static_cast<uint64_t>(now_ms()); };
         env.sleep_ms = [](uint32_t ms) { Sleep(ms); };
-        env.log_text = [&] { return tail(log_file); };
+        env.log_text = [&] { return tail(log_file, log_from); };
         if (ui) {
             env.ui_hooked = [&m, ui] {
                 return hook_reaches(ui, reinterpret_cast<uintptr_t>(m.handle), m.size,

@@ -21,8 +21,9 @@
 //        shroudforge_prepare_startup(<game>) (startup asset mods, DLL Manager), then kfc-runtime.dll:
 //        KfcRuntimeInitialize (native game access; a failure leaves metadata-only mode, as in ShroudForge);
 //   a worker thread (ShroudForge's own mods loop, same timing): shroudforge_create(<game>), then every 16 ms
-//     KfcRuntimeTick + shroudforge_update(handle, dt); the heartbeat file ShroudForge's tools read; ShroudForge's log
-//     mirrored into kiln.log ("[sf] ..."); <state>/shroudforge.json for the launcher.
+//     KfcRuntimeTick + shroudforge_update(handle, dt); next to it a writer thread, every 2 s: the heartbeat file
+//     ShroudForge's tools read, ShroudForge's log mirrored into kiln.log ("[sf] ..."), <state>/shroudforge.json for the
+//     launcher (so slow file I/O never holds up the loop).
 // Fail soft: anything missing or failing is logged and written to shroudforge.json; Kiln and its mods run on.
 // Not done here: ShroudForge's startup update check and pending-update install (Kiln owns updates, so ShroudForge's
 // updater never replaces Kiln's dinput8.dll) and its Debug Console window (kiln.log carries ShroudForge's log).
@@ -143,8 +144,14 @@ void set_status(const char* key, nlohmann::json value) {
     g_status[key] = std::move(value);
 }
 
+// The status writer thread (HeartbeatWriter) and finish() on any thread share shroudforge.json.tmp: one write at a
+// time, and each takes its snapshot inside that turn, so the file never goes back to an older state. set_status never
+// waits for this I/O (it holds only g_status_mutex, for the dump).
+std::mutex g_status_file_mutex;
+
 void write_status() {
     if (g_state.empty()) return;
+    std::lock_guard file_lock(g_status_file_mutex);
     std::string text;
     {
         std::lock_guard lock(g_status_mutex);
@@ -218,7 +225,9 @@ bool legacy_wanted(std::string* reason) {
         } catch (...) { return true; } // let SF diagnose its own malformed package
     }
     try {
-        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge/state") / L"state.json"));
+        // ShroudForge's state file: <paths.state>/state.json, by default <game>/shroudforge/state.json (its own default
+        // state folder is its data folder, not shroudforge/state)
+        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge") / L"state.json"));
         if (const auto it = state.find("assets"); it != state.end()) {
             const auto status = it->value("status", std::string{});
             if (status == "applied" || status == "preparing" || status == "failed") return true;
@@ -330,9 +339,11 @@ void write_heartbeat(int64_t updated_at) {
     MoveFileExW(tmp.c_str(), (dir / L"heartbeat.json").c_str(), MOVEFILE_REPLACE_EXISTING);
 }
 
-// Heartbeat filesystem I/O must not hold up native/Lua ticks. The writer never
-// calls either runtime ABI; its timestamp is the update loop's last turn, not
-// its own wall clock, so a stalled loop cannot look alive just because I/O runs.
+// The mods loop's periodic filesystem I/O must not hold up native/Lua ticks: every 2 s this thread writes the
+// heartbeat, mirrors ShroudForge's new log lines into kiln.log and writes shroudforge.json (what the loop last put in
+// it with set_status). It never calls either runtime ABI; the heartbeat's timestamp is the update loop's last turn,
+// not its own wall clock, so a stalled loop cannot look alive just because I/O runs. g_tail is only polled here while
+// this thread runs (the worker polls it again only after stop() joined it).
 class HeartbeatWriter {
     HANDLE stop_ = nullptr;
     std::thread thread_;
@@ -347,6 +358,10 @@ public:
                     while (WaitForSingleObject(stop_, 0) == WAIT_TIMEOUT) {
                         try { write_heartbeat(last_turn_.load(std::memory_order_relaxed)); }
                         catch (...) { logf(KILN_LOG_WARN, "ShroudForge heartbeat write failed"); }
+                        try { g_tail.poll(); }
+                        catch (...) { logf(KILN_LOG_WARN, "ShroudForge log mirror failed"); }
+                        try { write_status(); }
+                        catch (...) { logf(KILN_LOG_WARN, "ShroudForge status write failed"); }
                         if (WaitForSingleObject(stop_, 2000) != WAIT_TIMEOUT) break;
                     }
                 });
@@ -356,9 +371,10 @@ public:
                 stop_ = nullptr;
             }
         }
-        // Do not fall back to blocking the mods loop. Missing heartbeat data is
+        // Do not fall back to blocking the mods loop. Missing heartbeat and status data is
         // safer than stale steering/input while a synchronous write stalls it.
-        logf(KILN_LOG_WARN, "ShroudForge heartbeat writer could not start: tools may report it inactive");
+        logf(KILN_LOG_WARN, "ShroudForge status writer could not start: tools may report it inactive, shroudforge.json "
+                            "and the [sf] lines update only when its runtime stops");
     }
     void turn() { last_turn_.store(static_cast<int64_t>(std::time(nullptr)), std::memory_order_relaxed); }
     void stop() {
@@ -420,8 +436,7 @@ void run_loop() {
         return;
     }
     logf(KILN_LOG_INFO, "ShroudForge runtime ready (%.0f ms): its mods loop runs every 16 ms", create_ms);
-    set_status("runtime", "running");
-    finish("hosted", "");
+    set_status("runtime", "running");  // start_worker wrote mode "hosted"; the writer's first turn writes this
     cleanup.heartbeat.start();
     auto previous = std::chrono::steady_clock::now();
     auto next_status = previous;
@@ -441,9 +456,8 @@ void run_loop() {
             break;
         }
         ++turns;
-        if (now >= next_status) {
+        if (now >= next_status) {  // no file I/O here: the writer thread writes this out
             next_status = now + std::chrono::seconds(2);
-            g_tail.poll();
             const std::string st = kfc_status();
             const std::string state = status_field(st, "state");
             if (state != last_state) {
@@ -453,7 +467,6 @@ void run_loop() {
             set_status("native", st);
             set_status("menu", helper_menu());
             set_status("turns", turns);
-            write_status();
         }
     }
     cleanup.heartbeat.stop();
@@ -803,7 +816,7 @@ void KILN_CALL on_ready(void*) {
 }
 
 void KILN_CALL on_unload(void*) {
-    // The ABI permits this at process exit. Never wait under a possible loader lock. The pinned worker owns
+    // kiln-core never calls this (kiln_api.h); a test host may. Never wait under a possible loader lock. The pinned worker owns
     // destroy/shutdown serially; retain its event, thread handle and modules until process teardown.
     if (g_stop) SetEvent(g_stop);
 }

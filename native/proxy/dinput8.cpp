@@ -25,7 +25,8 @@
 //      Each DLL: resolved, deduplicated by canonical path (GetFinalPathNameByHandleW), checked through a read-only file
 //      mapping (never loaded for that) and refused when it is this proxy, the system dinput8, another Kiln proxy or
 //      ShroudForge's dinput8 (EMF's loader, which also exports ShroudForge's chain-host name, is accepted), then LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH) under an SEH guard. Never FreeLibrary.
-//      The results go to the core in KilnBootInfo.chain (and kiln/logs/proxy.log).
+//      The results go to the core in KilnBootInfo.chain (and kiln/logs/proxy.log). Before the first DLL loads, the length
+//      of <game>\shroudlink_client.log goes to KilnBootInfo.addon_log_size (v3): where that addon's lines of this start begin.
 //      kiln/chain.ini [late] (dev.21): an entry of the lists above whose DLL is also named in [late] passes the same
 //      checks but is not loaded: its entry gets status KILN_CHAIN_LATE and kiln-core loads it after Kiln's services,
 //      plugins and native mods ran (a closed-source DLL that hooks the same functions then hooks over Kiln instead of
@@ -1279,9 +1280,30 @@ bool crash_reporter() {
     return false;
 }
 
+// shroudlink's client addon (a chained dinput8.dll) appends its start-up result to <game>\shroudlink_client.log from a
+// thread its DllMain starts. The log's length now, before any chained DLL loads, is where this start's lines begin:
+// kiln-core's wait for that addon reads only what follows (core/src/foreign_scan.h), never a second-rounded time.
+uint64_t addon_log_size() {
+    wchar_t path[kPath];
+    if (wlen(g_game) + 32 >= kPath) return KILN_BOOT_LOG_UNKNOWN;
+    lstrcpyW(path, g_game);
+    lstrcatW(path, L"\\shroudlink_client.log");
+    HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        const DWORD e = GetLastError();
+        return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? 0 : KILN_BOOT_LOG_UNKNOWN;
+    }
+    LARGE_INTEGER size{};
+    const bool ok = GetFileSizeEx(h, &size) && size.QuadPart >= 0;
+    CloseHandle(h);
+    return ok ? static_cast<uint64_t>(size.QuadPart) : KILN_BOOT_LOG_UNKNOWN;
+}
+
 void attach() {
     g_info.size = sizeof(KilnBootInfo);
     g_info.proxy_module = g_self;
+    g_info.addon_log_size = KILN_BOOT_LOG_UNKNOWN;
     if (crash_reporter()) {
         trace(L"[kiln] proxy: the game's crash reporter: no chain, no Kiln, no log\n");
         return;
@@ -1301,6 +1323,7 @@ void attach() {
         if (g_log != INVALID_HANDLE_VALUE) CloseHandle(g_log), g_log = INVALID_HANDLE_VALUE;
         return;
     }
+    g_info.addon_log_size = addon_log_size();  // before the chain: see addon_log_size()
     load_chain(mode == KILN_PLAY_ONCE_PROFILE, mode == KILN_PLAY_ONCE_NO_MODS);
     if (install_gate()) {
         plog(L"entry gate installed (%u chained DLL(s) handled)", g_count);

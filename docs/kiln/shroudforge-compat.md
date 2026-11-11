@@ -43,7 +43,7 @@ observations below; neither is a client rendering or player-interaction test.
 | Double start | SF's `dbghelp.dll` starts SF on Windows (and under Wine with `dbghelp=n`). | kiln-shroudforge looks for a module exporting `ShroudforgeStop` in the process and **steps aside** ("self-hosted"). |
 | Code hooks | SF: none on KFC4 builds (a legacy profile names six). Kiln: many. | No double hooks. Where SF has hooks, they go through `kiln.hooks` ("Engine hooks through `kiln.hooks`" below), so another DLL's jump on one of them no longer turns SF's native runtime off. |
 | Shared game state | SF writes ECS components, resources and named services (e.g. `ecs::GameSettings`) from its own thread, with claims and readback. Kiln services write some of the same (e.g. `kiln.settings`). | Last writer wins, as with any two mods. SF restores its baselines when a mod switches off. Documented for players. The lab shows SF's guarded write confirmed next to Kiln's services. |
-| Tick | SF: its own 16 ms update loop. Kiln: the server-world tick. | Kept separate. Hosted SF uses a serial native/Lua worker and a separate filesystem-only heartbeat writer, so slow heartbeat writes no longer block its updates. The heartbeat records the last update turn, not writer activity. Other runtime/status work can still delay the loop; this is not a guarantee of gameplay or input parity. |
+| Tick | SF: its own 16 ms update loop. Kiln: the server-world tick. | Kept separate. Hosted SF uses a serial native/Lua worker and a separate filesystem-only writer thread for the heartbeat, `shroudforge.json` and the `[sf]` log mirror, so slow file I/O no longer blocks its updates. The heartbeat records the last update turn, not writer activity. Runtime work in the loop (the native status read every 2 s) can still delay it; this is not a guarantee of gameplay or input parity. |
 | UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Mod keybinds (`shroudforge.input.is_keybind_down`/`was_keybind_pressed`) get their key state from the same exe, started by the runtime as a hidden `--keyboard-input` child that reports keys over a pipe. | Client only. Without an installed SF, mod keybinds never fire under Kiln: SF logs `Keyboard shortcuts unavailable` (section 5.5). With SF installed, the runtime starts that child itself. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
 | Native DLL mods | Both read `<game>/dinput8-chain.ini`. | The same file loads once (same canonical path, `LoadLibrary` reference count). SF reports an issue for a DirectInput provider without its `dinput8.dll` host. |
 | Updates | SF's updater replaces its managed paths, **`dinput8.dll` included**, and its repair check requires them to exist. | In hosted mode kiln-shroudforge runs neither the startup update check nor the pending install, so SF never overwrites Kiln. In self-hosted mode an SF update can replace Kiln's `dinput8.dll`. The launcher must then put Kiln's proxy back (detect: classify at launch). The repair check only tests that the file exists, so Kiln's `dinput8.dll` satisfies it. |
@@ -137,9 +137,9 @@ are validated before preparation. The `kiln.eml` v2 reservation prevents two sta
    EML packages use SF's configured mods folder; Kiln-only EML profile/private-root folders are not forwarded.
 5. Initialize the native runtime. Failed native initialization disables ticking and cleans up the provider. On early
    `on_ready`, start the worker: create, then every 16 ms tick + update, then destroy + shutdown serially on that worker.
-   Foreign export faults and C++ worker exceptions stop SF and report failure. The unload callback and process detach only signal,
+   Foreign export faults and C++ worker exceptions stop SF and report failure. The unload callback (kiln-core never calls it) and process detach only signal,
    with no loader-lock wait; worker handles and runtime modules remain alive until process teardown. Callback code stays mapped for the worker lifetime.
-6. Mirror SF's log and publish heartbeat/status. The adapter skips SF's bootstrap update check/pending-update install
+6. On a writer thread next to the loop, every 2 s: mirror SF's log and publish heartbeat/status. The adapter skips SF's bootstrap update check/pending-update install
    and Debug Console. SF's own exported preparation can still start its config controller.
 
 Startup preparation and SF's loop can run in Kiln safe idle too: the adapter uses SF's own exact-build profiles and
@@ -168,7 +168,8 @@ The native adapter reports `menu: helper|kiln|off|server|unavailable` and `menuK
 Only without a running hosted helper does it hold `Local\\ShroudForge.ModMenu.Open.<game-pid>`; the managed worker
 waits on that auto-reset event. This is SF's real `shroudforge.ui.toggle_modloader()` contract. It never competes
 with the installed helper for events. The fallback key is remappable in Kiln's Keys tab; unsupported/mouse-only/Meta
-or empty configured bindings do not silently become F9. Helper exit hands ownership to Kiln; stopped runtime removes
+or empty configured bindings do not silently become F9, nor does a `toggleKey` that is not text (null, a number:
+ShroudForge refuses those too), which reports `menuKey` "" and a warning in kiln.log. Helper exit hands ownership to Kiln; stopped runtime removes
 the fallback binding. SF module-off and self-hosted behavior stay intact.
 
 Windowless native Wine tests exercise absent/installed/exited/disabled/self-hosted helpers and repeated auto-reset
@@ -191,6 +192,9 @@ The sustained W/S steering report for SF Unlimited Flight (a Windows player, 10 
 standalone SF, not with Kiln) is **not confirmed fixed**. No real game client has been run for it. SF source lines
 below are the fork pin `724a884` (upstream 1.7.9), paths under SF's `modules/` unless they start with `mods/`; the
 mod's `mods/sf-unlimited-flight/src/mod.lua` is the same file from SF 1.7.7 to the 1.8.0 dev line.
+Moving the adapter's periodic file I/O (heartbeat, status file, log mirror) off the mods loop fixes reproduced
+update-loop stalls under slow file I/O. That is not evidence about steering: the loop still reads the native
+status every 2 s, and a `write-confirmed` effect report alone does not show what the game's rotation code saw.
 
 **Where the steering input comes from.** On each of its updates (every 100 ms, `mod.lua:308`) the mod reads
 `keen::ecs::PlayerInput` `fromClient.movementStickInputMode` and `keen::ecs::ActorInput` `desiredLocalMoveInput.z`

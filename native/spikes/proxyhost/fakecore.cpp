@@ -21,6 +21,10 @@ extern "C" __declspec(dllexport) KilnResult KILN_CALL kiln_boot(const KilnBootIn
         return KILN_OK;
     }
     ph_log("core boot size=%u v1=%u", info->size, KILN_BOOT_INFO_V1_SIZE);
+    if (KILN_BOOT_INFO_HAS(info, addon_log_size)) {  // wvsprintf has no 64-bit numbers
+        if (info->addon_log_size == KILN_BOOT_LOG_UNKNOWN) ph_log("core addon_log_size=unknown");
+        else ph_log("core addon_log_size=%lu%s", static_cast<unsigned long>(info->addon_log_size), info->addon_log_size >> 32 ? " (+4G)" : "");
+    }
     if (!KILN_BOOT_INFO_HAS(info, play_once_profile)) return KILN_OK;
     ph_log("core play_once=%u nonce=%s profile=%s chain=%u", info->play_once, str(info->play_once_nonce, a, sizeof a),
            str(info->play_once_profile, b, sizeof b), info->chain_count);

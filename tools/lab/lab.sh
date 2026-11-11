@@ -36,7 +36,12 @@ pid_of() {
   return 0
 }
 
-need() { [[ -n $name && -d $LABS/$name ]] || { echo "no lab '$name' (tools/lab/lab.sh list)" >&2; exit 1; }; }
+# Every command takes only a lab name, never a path: "rm ../lab2" must not reach the base install.
+valid() { [[ $1 =~ ^[a-z0-9-]+$ ]]; }
+need() {
+  valid "$name" || { echo "no lab '$name': a lab name is [a-z0-9-]+ (tools/lab/lab.sh list)" >&2; exit 2; }
+  [[ -d $LABS/$name ]] || { echo "no lab '$name' (tools/lab/lab.sh list)" >&2; exit 1; }
+}
 
 # Wine gives its threads nice values of its own (Windows thread priorities mapped to nice -10..10 when RLIMIT_NICE
 # allows it), whatever niceness the server was started with. Capping RLIMIT_NICE at this shell's niceness keeps every
@@ -51,7 +56,7 @@ keep_priority() {
 case $cmd in
   new)
     port=${3:?usage: lab.sh new <name> <queryPort> [--save dir]}
-    [[ $name =~ ^[a-z0-9-]+$ ]] || { echo "name must be [a-z0-9-]+" >&2; exit 2; }
+    valid "$name" || { echo "name must be [a-z0-9-]+" >&2; exit 2; }
     [[ -e $LABS/$name ]] && { echo "lab $name exists" >&2; exit 1; }
     ss -uln | grep -q ":$port " && { echo "UDP port $port is in use" >&2; exit 1; }
     mkdir -p "$LABS/$name"
@@ -116,7 +121,7 @@ EOF
     ;;
   list)
     mkdir -p "$LABS"
-    for d in "$LABS"/*/; do [[ -d $d && ${d%/} != *.pfx ]] && "$0" status "$(basename "$d")"; done; true
+    for d in "$LABS"/*/; do [[ -d $d ]] && valid "$(basename "$d")" && "$0" status "$(basename "$d")"; done; true
     ;;
   *) sed -n '2,15p' "$0"; exit 2 ;;
 esac

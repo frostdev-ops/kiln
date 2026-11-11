@@ -1433,11 +1433,34 @@ def s_entry_gate_held():
     return g
 
 
+def s_addon_log():
+    """KilnBootInfo v3: the length of shroudlink_client.log before the chain loads (where that addon's lines of this
+    start begin, for kiln-core's wait), not after a chained DLL appended to it; 0 without the file."""
+    g = Game("addon-log")
+    g.dll("addon-log", "kiln/chain/addon-log.dll")
+    g.write("kiln/chain.ini", "[chain]\nchain/addon-log.dll\n")
+    earlier = b"[1794348000] an earlier start\n"  # 30 bytes, written before this start
+    with open(os.path.join(g.dir, "shroudlink_client.log"), "wb") as f:
+        f.write(earlier)
+    g.run()
+    print(f"[addon-log] rc {g.rc}")
+    grown = os.path.getsize(os.path.join(g.dir, "shroudlink_client.log"))
+    check(g, has(g.lines, "dll addon-log appended") and grown > len(earlier), f"the chained DLL wrote to the log ({grown} bytes now)")
+    check(g, has(g.lines, f"core addon_log_size={len(earlier)}"), f"the core gets the length before the chain ({len(earlier)})")
+    check(g, has(g.lines, "core boot size=72"), "KilnBootInfo v3 (72 bytes)")
+    h = Game("addon-log-none")
+    h.dll("chain-a", "kiln/chain/chain-a.dll")
+    h.write("kiln/chain.ini", "[chain]\nchain/chain-a.dll\n")
+    h.run()
+    check(h, has(h.lines, "core addon_log_size=0"), "no log yet: 0")
+    return g
+
+
 SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_profile_rules, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
                                           s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_native_realcore, s_late_policy_realcore,
                                           s_late_requires_realcore, s_late_already_loaded_realcore, s_late_loader_and_entry, s_overlap_refused_realcore,
-                                          s_late_oldproxy, s_entry_gate_held)}
+                                          s_late_oldproxy, s_entry_gate_held, s_addon_log)}
 
 
 def main():
