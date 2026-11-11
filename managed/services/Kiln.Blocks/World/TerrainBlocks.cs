@@ -77,6 +77,8 @@ internal static partial class Compiler
         if (m.Sliding is { } sliding) block["sliding"] = sliding;
         if (m.Placeable) block["placeable"] = true;
         if (m.Was != null) block["was"] = m.Was;
+        // checked before kiln.worldtables hears of it: a block that is wrong registers nothing
+        var icon = m.Placeable && m.Icon is { } i ? BlockIcons.ItemIcon(ctx, i, "icon") : null;
         var (status, id) = AskTables(ctx, low, "terrainMaterials", name, block);
         low.Json["material"] = guid.ToString();
         foreach (var field in new[] { "like", "look", "flatten", "sliding", "placeable" })
@@ -87,7 +89,7 @@ internal static partial class Compiler
             var d = new Draft(ctx, low, key, name, TerrainStarter);
             d.Fields["equipment.voxelData.placeVoxelMaterialId"] = id;
             d.Refs["equipment.voxelData.placeVoxelMaterial"] = guid.ToString();
-            if (m.Icon != null) d.Icon = m.Icon;
+            if (icon != null) d.Icon = icon;
             d.Commit(m.Name, m.Description);
             if (m.Recipe is { } recipe) DefineRecipe(ctx, low, key, game, recipe);
         }

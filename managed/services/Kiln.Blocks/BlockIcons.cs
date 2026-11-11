@@ -31,6 +31,20 @@ internal static class BlockIcons
         return file;
     }
 
+    /// <summary>An item's icon as kiln.content takes it (a look's, a worn look's, a prop's, a material's block item's). A PNG is the file in the folder of the mod
+    /// <paramref name="owner"/> (the block's by default), as its full path: kiln.content makes a relative path full only while that mod's code runs, a data file's
+    /// blocks compile on a tick of Kiln's own, and kiln.assets reads a relative path against &lt;game&gt;/kiln. A full path, as a mod's code may give one, is taken
+    /// when it names a file in that folder. Anything else (<c>item:&lt;name&gt;</c>, a GUID) is as written.</summary>
+    public static string ItemIcon(BlockContext ctx, string icon, string path, string? owner = null)
+    {
+        if (!icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return icon;
+        var dir = BlocksBridge.ModDirectory(owner ?? ctx.Mod.Id);
+        if (dir.Length > 0 && Path.IsPathRooted(icon) && Path.GetRelativePath(dir, icon) is var inside && !Path.IsPathRooted(inside)
+            && !inside.Replace('\\', '/').Split('/').Contains(".."))
+            icon = inside;
+        return BlockFiles.InMod(ctx, icon, path, dir);
+    }
+
     /// <summary>A bounded, complete PNG (including the compressed scanlines), or null. The native decoder still makes the pixels.</summary>
     internal static (int W, int H)? PngSize(string file)
     {

@@ -708,6 +708,12 @@ A line of text on the game's screen. It shows while its condition holds and upda
 | `text` | [uiText](#uitext) | yes | The text, with {game.fps:0} and {config.clock.scale:0.00} for values; {{ and }} are braces. |
 | `when` | [uiWhen](#uiwhen) |  |  |
 
+## iconPng
+
+A PNG icon in the mod's folder, by a path relative to it: no full path, no '..' (Kiln.Blocks refuses either when it loads). A file that must exist.
+
+Type: string
+
 ## interaction
 
 What happens when a player uses a placed thing. A field left out is what its starter does. verb, plays, toggle and the game's lock in requires are the game's own; effects and requires' when, unless are Kiln's, on the server.

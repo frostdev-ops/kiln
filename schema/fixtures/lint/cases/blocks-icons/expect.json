@@ -1,0 +1,62 @@
+{
+  "catalog": true,
+  "description": "PNG icons of blocks: a look's, a worn look's, a material's block item's, a status's. A file in the mod's folder says nothing; one that isn't there is KL501 with the full path looked at; a full path or '..' is refused, as Kiln.Blocks refuses it when it loads.",
+  "diagnostics": [
+    {
+      "code": "KL501",
+      "col": 51,
+      "file": "blocks/icons.json",
+      "line": 5,
+      "message": "icons/missing.png: no such file (<case>/icons/missing.png)",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 46,
+      "file": "blocks/icons.json",
+      "line": 6,
+      "message": "\"../outside.png\": item:<name>, an item's GUID, or a PNG in the mod's folder by a path relative to it (no full path, no '..')",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 50,
+      "file": "blocks/icons.json",
+      "line": 7,
+      "message": "\"/icons/cinderbrand.png\": item:<name>, an item's GUID, or a PNG in the mod's folder by a path relative to it (no full path, no '..')",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 49,
+      "file": "blocks/icons.json",
+      "line": 8,
+      "message": "\"C:\\icons\\cinderbrand.png\": item:<name>, an item's GUID, or a PNG in the mod's folder by a path relative to it (no full path, no '..')",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 107,
+      "file": "blocks/icons.json",
+      "line": 11,
+      "message": "\"icons/../../outside.png\": item:<name>, or a PNG in the mod's folder by a path relative to it (no full path, no '..')",
+      "severity": "error"
+    },
+    {
+      "code": "KL501",
+      "col": 62,
+      "file": "blocks/icons.json",
+      "line": 12,
+      "message": "icons/missing.png: no such file (<case>/icons/missing.png)",
+      "severity": "error"
+    },
+    {
+      "code": "KL106",
+      "col": 81,
+      "file": "blocks/icons.json",
+      "line": 14,
+      "message": "\"../outside.png\": a game status's id (0x<8 hex digits> or buff_<8 hex digits>), or a PNG in the mod's folder by a path relative to it (no full path, no '..')",
+      "severity": "error"
+    }
+  ]
+}
