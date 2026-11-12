@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "items": {
+    "0x2b0cf1d5": {
+      "@name": "Material_T1_Wood_Logs",
+      "maxStackSize": {
+        "mul": 1
+      },
+      "weight": {
+        "mul": 1
+      }
+    }
+  },
+  "templates": {
+    "0713a111-b0ee-5bea-8e13-d75d5e72acd1": {
+      "@name": "m.sword.moving",
+      "ModelResource.model": {
+        "mul": 1
+      },
+      "AnimationGraphResourceComponent2.animationGraph": {
+        "mul": 1
+      },
+      "VfxComponentResource.vfx": {
+        "mul": 1
+      },
+      "SlotAttachment.attachmentSlot": {
+        "mul": 1
+      }
+    },
+    "0x0badcafe": {
+      "@name": "Enemy_Fell_Warrior",
+      "Health.maxHealth": {
+        "mul": 1
+      }
+    }
+  },
+  "buffs": {
+    "0x5f425faf": {
+      "@name": "buff_5f425faf",
+      "color": {
+        "mul": 1
+      }
+    }
+  },
+  "@resets": 8
+}

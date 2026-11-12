@@ -321,6 +321,7 @@ public static unsafe class ContentSync
             Log(LogLevel.Warn, $"content export failed: {ContentNative.Message(rc)}");
             return;
         }
+        json = WithoutMachineLocal(json, MachineLocal(), out _);
         json = WithDefinitions(json, out var defCount);
         json = WithPrograms(json, out var programCount);
         var exportMs = sw.Elapsed.TotalMilliseconds;
@@ -382,6 +383,43 @@ public static unsafe class ContentSync
             $"content state {_export.StateId:x8}: {fields} change(s), {defCount} definition(s), {programCount} program(s) (generation {st.Generation}), {raw.Length / 1024.0:F1} KiB JSON -> " +
             $"{compressed / 1024.0:F1} KiB deflate in {parts.Length} part(s); export {exportMs:F1} ms, total {sw.Elapsed.TotalMilliseconds:F1} ms" +
             (notSynced is null ? "" : $"; NOT SENT: {notSynced}"));
+    }
+
+    // ---- machine-local fields: a clone's fields only the machine that draws reads ----
+
+    private static readonly MachineLocalFields Marked = new();
+
+    /// <summary>Marks one field of a clone as machine-local: only the machine that draws reads it, so each machine keeps its own value. The server leaves it
+    /// out of what it sends, and a client's matchServer does not put its own back; the clone's other fields sync as any. Kiln.Blocks marks the model and
+    /// the graph of a held model with moving parts, which only a machine that cooked has (Items/AnimatedHeld.cs). Nothing else is marked.</summary>
+    internal static void MarkMachineLocal(string section, Guid clone, string path) => Marked.Add(section, clone, path);
+
+    /// <summary>What is marked now (a copy).</summary>
+    internal static MachineLocalFields MachineLocal() => Marked.Copy();
+
+    /// <summary>Server: the exported document without the machine-local fields (an entry left with nothing is left out, and <c>@fields</c> follows).
+    /// With none of them in it, the document is returned as it was, byte for byte. Pure (tests).</summary>
+    internal static string WithoutMachineLocal(string json, MachineLocalFields marks, out int removed)
+    {
+        removed = 0;
+        if (marks.IsEmpty || JsonNode.Parse(json) is not JsonObject doc) return json;
+        foreach (var (section, node) in doc.ToList())
+        {
+            if (node is not JsonObject sec) continue;
+            foreach (var (id, body) in sec.ToList())
+            {
+                if (body is not JsonObject b) continue;
+                foreach (var key in b.Select(x => x.Key).Where(k => !k.StartsWith('@') && marks.Has(section, id, k)).ToList())
+                {
+                    b.Remove(key);
+                    removed++;
+                }
+                if (b.All(x => x.Key.StartsWith('@'))) sec.Remove(id);
+            }
+        }
+        if (removed == 0) return json;
+        if (doc["@fields"] is JsonValue f && f.TryGetValue<int>(out var n)) doc["@fields"] = Math.Max(0, n - removed);
+        return doc.ToJsonString();
     }
 
     // ---- definitions (A5): new items / recipes of mods with "clients": "kiln" (and placeholders) ----
@@ -696,7 +734,7 @@ public static unsafe class ContentSync
             Log(LogLevel.Info, $"content state {stateId:x8}: {defined} new item / recipe definition(s) from the server" +
                                (localDefs > 0 ? $" ({localDefs} defined by this game's own mods)" : ""));
         server.Remove("@definitions");
-        var reset = SyncSettings.Current.MatchServer ? AddResets(server) : 0;
+        var reset = SyncSettings.Current.MatchServer ? AddResets(server, MachineLocal()) : 0;
         var merged = server.ToJsonString();
         var (applied, errors, rc) = ApplyJson(merged, "server sync");
         errors.InsertRange(0, defErrors);
@@ -721,10 +759,17 @@ public static unsafe class ContentSync
     /// <summary>Match the server: what this game changed on its own (local packs and mods; the sync layer must be off)
     /// and the server did not goes back to the game's original ({"mul": 1} = the original value / list) in the
     /// server's document. Returns how many entries were added.</summary>
-    private static int AddResets(JsonObject server)
+    private static int AddResets(JsonObject server, MachineLocalFields? keep = null)
+    {
+        if (ExportJson(Kinds, out _) is not { } localJson || JsonNode.Parse(localJson) is not JsonObject local) return 0;
+        return AddResets(server, local, keep);
+    }
+
+    /// <summary><see cref="AddResets(JsonObject, MachineLocalFields?)"/> on this game's exported document: pure (tests). A machine-local field
+    /// (<paramref name="keep"/>) stays as this game has it.</summary>
+    internal static int AddResets(JsonObject server, JsonObject local, MachineLocalFields? keep = null)
     {
         var reset = 0;
-        if (ExportJson(Kinds, out _) is not { } localJson || JsonNode.Parse(localJson) is not JsonObject local) return 0;
         foreach (var section in ResetSections)
         {
             if (local[section] is not JsonObject ls) continue;
@@ -733,7 +778,7 @@ public static unsafe class ContentSync
                 if (body is not JsonObject lb) continue;
                 foreach (var (key, _) in lb)
                 {
-                    if (key.StartsWith('@')) continue;
+                    if (key.StartsWith('@') || keep?.Has(section, id, key) == true) continue;
                     if (server[section]?[id]?[key] is not null) continue;
                     if (server[section] is not JsonObject ss) server[section] = ss = new JsonObject();
                     if (ss[id] is not JsonObject sb) ss[id] = sb = new JsonObject { ["@name"] = lb["@name"]?.DeepClone() };
@@ -1001,5 +1046,37 @@ public static unsafe class ContentSync
         if (off < expected) return out_.AsSpan(0, off).ToArray();
         if (z.ReadByte() >= 0) throw new InvalidDataException("more data than announced");
         return out_;
+    }
+}
+
+/// <summary>Machine-local fields of clones, by section, clone GUID and path (<see cref="ContentSync.MarkMachineLocal"/>). Any thread.</summary>
+internal sealed class MachineLocalFields
+{
+    private readonly object _gate = new();
+    private readonly HashSet<(string Section, Guid Clone, string Path)> _set = new();
+
+    public void Add(string section, Guid clone, string path)
+    {
+        lock (_gate) _set.Add((section, clone, path));
+    }
+
+    public bool IsEmpty
+    {
+        get { lock (_gate) return _set.Count == 0; }
+    }
+
+    /// <summary>The export's entry key is the clone's GUID (<c>"&lt;guid&gt;#k"</c> for a sub-sequence of it).</summary>
+    public bool Has(string section, string entry, string path)
+    {
+        var hash = entry.IndexOf('#');
+        if (!Guid.TryParse(hash < 0 ? entry : entry[..hash], out var g)) return false;
+        lock (_gate) return _set.Contains((section, g, path));
+    }
+
+    public MachineLocalFields Copy()
+    {
+        var c = new MachineLocalFields();
+        lock (_gate) c._set.UnionWith(_set);
+        return c;
     }
 }
