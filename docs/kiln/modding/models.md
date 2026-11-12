@@ -14,7 +14,8 @@ Status:
   bytes.
 - **In game: an overridden weapon model renders**. Still to check: the handedness marker read
   upright, icons, and a crafted new item.
-- **Skinned models: proven offline and on a dedicated server, not yet seen in a client.** See [Skinned models](#skinned-models). Blend shapes are written (morph targets,
+- **Skinned models: proven offline, on a dedicated server, and drawn in a client as a held model with moving parts**
+  (2026-11-11, Kiln Equipment's Sunspire); a creature's body has not been seen drawn yet. See [Skinned models](#skinned-models). Blend shapes are written (morph targets,
   [cosmetics.md](cosmetics.md)); cloth and chains aren't.
 
 ## The rule: ship sources and a recipe, never game data
@@ -251,7 +252,35 @@ To change a creature's size, scale the glTF, or its `ScaleComponent` per entity.
 - **Proven on a dedicated server** (`mods/tests/skincheck`, 9 checks): the sample figure's own skeleton, clips and graph run in the server's animation engine, and model vertices skinned by the
   engine's joints land within 0.26 mm of the cook's numbers. The states a clone's AI asks for answer. A kill with no player around sets no Dead state, on the game's own Vukah either, so that part
   is left for the client.
-- **Not proven:** anything drawn by a client. See [Manual checks](#manual-checks).
+- **Proven in a client:** a mod's own skinned held model with its own skeleton, clip and graph, drawn in a real client
+  and seen by the owner on 2026-11-11: Kiln Equipment's Sunspire, a skinned model on a 2-joint skeleton with a looping
+  clip and a one-state graph, in a copy of `Visuals_Staff_01_Magic_Basic01`.
+- **Not proven:** a creature's body drawn by a client (on the game's skeleton or its own), its far LOD and its shadow.
+  See [Manual checks](#manual-checks).
+
+### On a dedicated server
+
+A held model with moving parts is a template (a copy of one of the game's staffs) with a skinned model, a skeleton, a
+clip and a graph. What a dedicated server does with it, from lab runs on server svn 1287369 with a mod whose files are
+all its author's (a staff of 2 joints, one looping clip, a one-state graph), held by a `1_Player` with no client behind it:
+
+| What | Does the server need it for a held model? | What happens without it |
+|---|---|---|
+| The template, under its GUID | **Yes.** The server spawns the held entity from it (a child of the player). Clients create that entity by the same GUID (read from `docs/re/content.md` 8.3, not run) | If the server has a different template (a mod that leaves the moving one out where nothing is cooked), every client shows the server's choice. A client that lacks the server's template does not create the held weapon at all ([network.md](../network.md), "A Kiln client that lacks a template"; read from the docs, not run) |
+| The graph, skeleton and clip | **No.** The held entity has the server's graph components, but the server never starts its graph: its handle stays 0 for 15 s, for the game's own staff the same | Nothing for the held entity. kiln.assets warns once per missing file, and kiln.content refuses the template's graph field (`... is not a loaded keen::ObjectReference<keen::anim_graph::tool_graph::AnimationGraph2_0>`), so the copy keeps the base staff's graph |
+| The skinned and rigid `RenderModel`s and blobs | **No.** A server has no `RenderModel`; kiln.content takes a model GUID there without checking it | kiln.assets warns per file, nothing else |
+
+A template spawned by itself (not held) is different: then the server does run its graph. With the cooked files it runs
+the mod's own (the head joint turns about 45 degrees every 10 steps, at 1.4 m as authored). Without them a copy made by
+kiln.content runs the base staff's graph instead, and a template served raw that names a graph nobody serves gets an
+instance that never becomes ready: the game logs `Trying to reset animation graph instance[graph ID = …] … but not
+ready!`, and nothing crashes.
+
+So a server needs no cooked files for a held model with moving parts, but it must define the same template GUIDs as the
+clients. Define the moving template on every machine, cooked or not: where the cooked graph is missing, give it the
+rigid model and leave the graph field out. The server then spawns the moving template, and each client draws it with
+what it cooked. Not seen yet: a joined player's held entity (the runs used a `1_Player` with no client behind it), and
+what a client shows when its cook differs from the server's.
 
 ### Validation
 
@@ -295,7 +324,8 @@ What a tool that generates creature bodies needs:
 
 ### Manual checks
 
-These need your eyes in the game client; nothing has been seen drawn yet. They deploy Kiln into your game folder and run on a local world, so the steps back up your saves first. They are
+These need your eyes in the game client; neither creature has been seen drawn yet (a held model with moving parts has, see
+[Status](#status)). They deploy Kiln into your game folder and run on a local world, so the steps back up your saves first. They are
 checks H3 and H4 of docs/re/npc-internals.md section 8.
 
 ```
