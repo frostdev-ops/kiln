@@ -93,6 +93,10 @@ pub struct Outcome {
     /// it was not compared with it and nothing was claimed or restored.
     #[serde(rename = "staleBackup", skip_serializing_if = "std::ops::Not::not")]
     pub stale_backup: bool,
+    /// kiln-eml: EML loaders (`dbghelp.dll`, `dinput8.dll` and renamed builds) found in this process when it stood aside
+    /// (phase `aside`). More than one: each patches the game files; `reason` says to keep one.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub loaders: Vec<String>,
     pub mods: Vec<Entry>,
     // kiln-eml: only in the state file of a run that is going on (`phase: running`): what it is doing (progress.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,6 +122,7 @@ impl Outcome {
             aside: None,
             reason: None,
             sf_displaced: Vec::new(),
+            loaders: Vec::new(),
             stale_backup: false,
             mods,
             progress: None,

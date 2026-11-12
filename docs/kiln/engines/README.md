@@ -49,7 +49,7 @@ loaded), the plugin says so and loads the mods itself.
 
 | Engine | How Kiln knows its loader runs | Why stepping aside keeps the setup working |
 |---|---|---|
-| EML | a module named `dbghelp.dll`/`dinput8.dll` or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH` (ShroudForge's carries it too) and whose loaded image is that file (not Wine's builtin) | EML patched the game files in its `DllMain`; a second writer would drop its changes ([../eml.md](../eml.md#real-eml-present-kiln-eml-steps-aside)) |
+| EML | a module named `dbghelp.dll`/`dinput8.dll` (or `dbghelp_*.dll`/`dinput8_*.dll`) or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH` (ShroudForge's carries it too) and whose loaded image is that file (not Wine's builtin) | EML patched the game files in its `DllMain`; a second writer would drop its changes ([../eml.md](../eml.md#real-eml-present-kiln-eml-steps-aside)) |
 | ShroudForge | its own `dbghelp.dll` started it (state `self-hosted`) | SF already runs its mods and its startup writer ([../shroudforge.md](../shroudforge.md)) |
 | EMF | `emf_core.dll` is loaded, or EMF's loader is chained (`kiln/chain.ini`, `dinput8-chain.ini`) | EMF loads the EMF mods; one EMF per process ([../emf.md](../emf.md#when-emf-itself-is-installed)) |
 | SET | a module with SET's markers is loaded: a non-system `powrprof.dll` with SET's name or folder name, or a renamed module with SET's name (another tool's `powrprof.dll` is not SET) | SET's own runtime drives its mods ([../set.md](../set.md)) |

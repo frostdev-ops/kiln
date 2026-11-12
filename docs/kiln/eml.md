@@ -453,12 +453,17 @@ Two engines must never write the KFC one after the other: the second write would
 
 When EML's own proxy is **loaded in this process**, kiln-eml stands aside: EML has already patched in its `DllMain`.
 The same holds for ShroudForge's, which carries EML. kiln-eml enumerates the modules named `dbghelp.dll`/`dinput8.dll`
-or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH`, and leaves out Kiln proxies. The
+(or a renamed build, `dbghelp_<name>.dll`/`dinput8_<name>.dll`) or under `kiln\chain\`, outside `\windows\`, whose file holds `EML_LOG_FILE_PATH`, and leaves out Kiln proxies. The
 loaded image's PE header (time stamp, image size, entry point) must be the file's: under Wine without a DLL override
 the process holds Wine's builtin `dbghelp.dll` under the game folder's path, and kiln-eml then runs the mods (lab,
 dev.22; before, it stood aside there and nothing ran them).
 - kiln.log says `kiln-eml: standing aside: <path> is loaded: EML's own loader patched the game files this start`.
-- `state/eml.json` has `phase: "aside"`.
+- `state/eml.json` has `phase: "aside"`, and `loaders`: the EML loader modules found.
+- More than one EML loader in the process (GitHub issue 23: `dinput8_eml.dll` plus a mod's bundled `dbghelp_*.dll`
+  build; EML's own log says `Applied ... patches` once per loader): each one patches the game files at every start,
+  and kiln-eml cannot stop either. kiln.log then warns `kiln-eml: standing aside: two EML loaders in this process
+  (<paths>): ... Keep one and remove the others`, and `state/eml.json`'s `reason` carries that sentence, which the
+  launcher's Engines view shows.
 
 **The profile's EML mods** live in Kiln's Library, which EML's own loader never reads. Since dev.22 the launcher copies
 them into the folder that loader reads while it is installed: `<game>/mods/<library id>/` for EML's own
