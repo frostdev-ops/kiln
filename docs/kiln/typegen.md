@@ -548,7 +548,7 @@ Kiln.Game: Kiln.Game.dll (this game build's SHA-256 is unknown: the newest layou
 
 On a build without its own folder the flat dll's layouts may not be the game's: the layout stamps below still refuse
 a mod whose types changed against that dll, and typed access checks each type against the live `kiln.types` table at
-first use.
+first use (§4.2).
 
 ### 6.3 The stamp file (`kiln.gametypes.json`)
 The SDK task `Kiln.Sdk.KilnGameTypes` (in `Kiln.Sdk.Tasks.dll`, run by `Sdk/Kiln.GameTypes.targets` after
