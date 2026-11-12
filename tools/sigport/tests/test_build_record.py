@@ -208,7 +208,12 @@ class Synthetic(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("extra: stays static", out)
         self.assertIn("extra-test 5/1: FAIL a: b", out)
-        self.assertEqual(json.loads(self.path.read_text())["services"]["extra"]["level"], "static")
+        e = json.loads(self.path.read_text())["services"]["extra"]
+        self.assertEqual(e["level"], "static")
+        self.assertTrue(all(v == "static" for v in e["symbols"].values()))
+        self.assertEqual(e["date"], rec["services"]["extra"]["date"])
+        self.assertTrue(e["evidence"].startswith("resolved offline; not lab: lab mylab"), e["evidence"])
+        self.assertIn("FAIL a: b", e["evidence"])
 
     def test_a_value_the_core_resolved_differently_leaves_the_service_static(self):
         rec = self.new_record()
@@ -268,6 +273,42 @@ class Synthetic(unittest.TestCase):
         rc, out = self.check()
         self.assertEqual(rc, 1)
         self.assertIn("record format 1", out)
+
+
+class Collect(unittest.TestCase):
+    def test_a_boot_folder_becomes_a_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            k = Path(tmp) / "srv" / "kiln"
+            (k / "logs").mkdir(parents=True)
+            (k / "kiln.json").write_text('{"policy": "any"}')
+            (k / "logs" / "sigdb-report.json").write_text(json.dumps({
+                "kiln": "0.0.0-test", "exe_sha256": "ab" * 32,
+                "symbols": {"S": {"ok": True, "rva": "0x10"}, "@S.fields": {"ok": True}, "T": {"ok": False}},
+                "constants": {"c": {"ok": True, "value": "0x8"}}, "features": {"f": True}}))
+            earlier = Path(tmp) / "boot1.log"
+            earlier.write_text("[I 1] [mod:w-test] w-test: PASS one\n[I 2] [mod:w-test] READY stop\n")
+            (k / "logs" / "kiln.log").write_text(
+                "[I 0] [kiln] side: server (pdb enshrouded_server.pdb)\n"
+                "[I 0] [kiln] service kiln.w v1 published by service:kiln-w.dll\n"
+                "[I 0] [kiln] boot complete; handing control to the game\n"
+                "[I 1] [mod:w-test] w-test: PASS two\n"
+                "[I 1] [mod:w-test] w-test: done, 2 passed, 0 failed\n"
+                "[I 1] [mod:x-test] x-test: PASS a\n"
+                "[I 1] [mod:x-test] x-test: FAIL b: wrong\n"
+                "[I 1] [mod:x-test] summary: 1 PASS, 1 FAIL\n")
+            r = br.collect(k.parent, "w", {"w": ["w-test"], "core": ["x-test"], "gone": ["y-test"]}, "mylab",
+                           earlier_logs=[earlier])
+        self.assertEqual(r["values"]["symbols"], {"S": "0x10", "@S.fields": True, "T": False})
+        self.assertTrue(r["boot_complete"])
+        self.assertEqual(r["boots"], 2)
+        w = r["services"]["w"]
+        self.assertTrue(w["loaded"])
+        self.assertEqual((w["tests"]["w-test"]["passed"], w["tests"]["w-test"]["failed"]), (2, 0))
+        self.assertTrue(w["tests"]["w-test"]["finished"])
+        x = r["services"]["core"]["tests"]["x-test"]
+        self.assertEqual((x["passed"], x["failed"], x["fails"]), (1, 1, ["x-test: FAIL b: wrong"]))
+        self.assertFalse(r["services"]["gone"]["loaded"])
+        self.assertFalse(r["services"]["gone"]["tests"]["y-test"]["finished"])
 
 
 class RepositoryRecords(unittest.TestCase):
