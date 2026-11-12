@@ -298,6 +298,14 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         ServiceTick.HostDriven = true;  // Kiln's service tick runs from the host's Pre, not from a mod's
         try
         {
+            Kiln.Capabilities.Start();  // the registry's snapshot, and the identity rows that follow their sources
+        }
+        catch (Exception e)
+        {
+            host.Log(LogLevel.Warn, $"capabilities: not started: {e.Message}");
+        }
+        try
+        {
             PacingNative.Attach();  // kiln.pacing: which waits this build lets mods pace; hooks go in when a mod asks
         }
         catch (Exception e)

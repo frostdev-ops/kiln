@@ -113,7 +113,7 @@ public sealed class CapabilityChangedEvent : KilnEvent
         $"{Name}: {Capabilities.StateName(Previous.State)} -> {Capabilities.StateName(Current.State)} ({Capabilities.CodeName(Current.Reason)})";
 }
 
-/// <summary>Marks a member that needs a capability. The member throws <c>KilnUnavailableException</c> naming
+/// <summary>Marks a member that needs a capability. The member throws <see cref="KilnUnavailableException"/> naming
 /// <see cref="Name"/> when <see cref="Capabilities.Is"/> of it is false, so a caller can check
 /// <c>Capabilities.Is(name)</c> first, or log <see cref="Capabilities.Why"/>. On a type: every member of it needs the
 /// capability. Documentation only: nothing checks it at build or run time.</summary>
@@ -167,6 +167,8 @@ public static unsafe class Capabilities
         public readonly ConcurrentDictionary<string, byte> Found = new(StringComparer.Ordinal);
         public readonly ConcurrentDictionary<(string Name, int Cause), byte> Recorded = new();
         public readonly HashSet<string> ByServices = new(StringComparer.Ordinal);
+        // What RefreshIdentity last reported for identity.entities / identity.players: -1 nothing, 0 pending, 1 available.
+        public int IdentityEntities = -1, IdentityPlayers = -1;
     }
 
     // An immutable snapshot of the rows. Replaced whole, never changed.
@@ -186,6 +188,7 @@ public static unsafe class Capabilities
     /// <summary>Whether <paramref name="name"/> works here: its row is <see cref="CapabilityState.Available"/>. A name
     /// with no row is false. Any thread; a dictionary lookup, no native call.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    [AnyThread]
     public static bool Is(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -197,6 +200,7 @@ public static unsafe class Capabilities
     /// <summary>The row of <paramref name="name"/>. A name with no row gives
     /// <see cref="CapabilityState.Unavailable"/> with <see cref="CapabilityReason.Unknown"/>. Any thread.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    [AnyThread]
     public static Capability Get(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -211,9 +215,11 @@ public static unsafe class Capabilities
     /// reason code and who said so, e.g. <c>items.fuel is unavailable: symbol items/FuelTick: find[0]: 0 matches
     /// (symbol-missing, from sigdb).</c> or <c>items.fuel is available.</c> Any thread.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    [AnyThread]
     public static string Why(string name) => Sentence(Get(name));
 
     /// <summary>Every row, sorted by name (ordinal). A snapshot: it does not change after it was read. Any thread.</summary>
+    [AnyThread]
     public static IReadOnlyList<Capability> All => Current().Sorted;
 
     /// <summary>A managed service's row (Kiln's own assemblies), held by Kiln's managed owner rather than the calling
@@ -244,6 +250,60 @@ public static unsafe class Capabilities
         {
             Volatile.Write(ref _snapshot, null);
             _epochs++;
+        }
+    }
+
+    // ------------------------------------------------------------------------------------- identity rows -------
+
+    private static readonly EntitySourceOrder[] EntityPlaces = Enum.GetValues<EntitySourceOrder>();
+    private static IDisposable? _identityTick;
+
+    /// <summary>The host calls this once at start: binds the registry and keeps the rows <c>identity.entities</c> and
+    /// <c>identity.players</c> (what <see cref="EntityRef"/> and <see cref="PlayerRef"/> throw
+    /// <see cref="KilnUnavailableException"/> with) in step with their sources. The services that supply identity start
+    /// at the first tick, after manifests were checked, so both are session rows: pending until a source is there,
+    /// then available, and pending again when it goes. Checked on the service tick (two reads a step), not in a getter.</summary>
+    internal static void Start()
+    {
+        _ = Current();
+        lock (Gate)
+        {
+            _identityTick?.Dispose();
+            _identityTick = ServiceTick.Add("kiln capabilities", static (in TickInfo _) => RefreshIdentity());
+        }
+        RefreshIdentity();
+    }
+
+    internal static void RefreshIdentity()
+    {
+        var b = Current().Binding;
+        var entities = IdentitySources.Entities is not null;
+        if (!entities)
+            foreach (var place in EntityPlaces)
+                if (IdentitySources.EntitySource(place) is not null)
+                {
+                    entities = true;
+                    break;
+                }
+        ReportIdentity(b, EntityRef.Capability, entities, ref b.IdentityEntities,
+            "no service supplies entity serials yet (the services that do start at the first tick)");
+        ReportIdentity(b, PlayerRef.Capability, IdentitySources.Players is not null, ref b.IdentityPlayers,
+            "no service supplies players yet (the services that do start at the first tick)");
+    }
+
+    private static void ReportIdentity(Binding b, string name, bool there, ref int reported, string waiting)
+    {
+        var now = there ? 1 : 0;
+        if (reported == now) return;
+        reported = now;  // also when the report is refused: once, not every step
+        try
+        {
+            if (there) Report(name, CapabilityState.Available);
+            else Report(name, CapabilityState.Pending, CapabilityReason.Session, waiting);
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            b.Backend.Log(0, LogLevel.Warn, $"capabilities: {name} was not reported: {e.Message}");
         }
     }
 

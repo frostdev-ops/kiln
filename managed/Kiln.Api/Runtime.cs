@@ -99,6 +99,7 @@ public static class Game
     /// <summary>Whether a Kiln capability (e.g. <c>"tick"</c>, <c>"log.mirror"</c>, <c>"items.fuel"</c>) works here:
     /// <see cref="Capabilities.Is"/>, which also knows services (<c>"kiln.items"</c>) and the rows they register.
     /// <see cref="Capabilities.Why"/> says why one is off. Any thread.</summary>
+    [AnyThread]
     public static bool HasFeature(string name) => Capabilities.Is(name);
 
     public static void AssertTickThread()

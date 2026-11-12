@@ -425,6 +425,66 @@ public sealed class CapabilitiesTests : KilnTest
         }
     }
 
+    // ------------------------------------------------------------------------------- identity rows ------------
+
+    private sealed class NoPlayers : IPlayerRefSource
+    {
+        public PlayerRef FromEntity(EntityId player) => PlayerRef.None;
+        public PlayerRef Current(ulong steamId, Guid characterId) => PlayerRef.None;
+    }
+
+    private sealed class NoEntities : IEntitySerialSource
+    {
+        public bool TryGetSerial(EntityId entity, out ulong serial)
+        {
+            serial = 0;
+            return false;
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_identity_rows_follow_their_sources_as_session_rows(bool native)
+    {
+        var (players, entities) = (IdentitySources.Players, IdentitySources.Entities);
+        using var caps = native ? Native() : null;
+        try
+        {
+            IdentitySources.Players = null;
+            IdentitySources.Entities = null;
+            Assert.Equal(CapabilityReason.Unknown, Capabilities.Get("identity.players").Reason);  // nothing before Start
+            Capabilities.Start();
+            var row = Capabilities.Get("identity.players");
+            Assert.Equal(CapabilityState.Pending, row.State);
+            Assert.Equal(CapabilityReason.Session, row.Reason);
+            Assert.True(row.SessionDependent);
+            Assert.Equal(CapabilityState.Pending, Capabilities.Get("identity.entities").State);
+            Assert.False(Capabilities.Is("identity.players"));
+
+            IdentitySources.Players = new NoPlayers();
+            Assert.False(Capabilities.Is("identity.players"));  // followed on the service tick, not in the getter
+            Step();
+            Assert.True(Capabilities.Is("identity.players"));
+            Assert.True(Capabilities.Get("identity.players").SessionDependent);  // a manifest may still not require it
+            Assert.False(Capabilities.Is("identity.entities"));
+
+            IdentitySources.Entities = new NoEntities();
+            Step();
+            Assert.True(Capabilities.Is("identity.entities"));
+
+            IdentitySources.Players = null;
+            Step();
+            Assert.Equal(CapabilityState.Pending, Capabilities.Get("identity.players").State);
+            Assert.True(Capabilities.Is("identity.entities"));
+        }
+        finally
+        {
+            IdentitySources.Players = players;
+            IdentitySources.Entities = entities;
+        }
+    }
+
     // ------------------------------------------------------------------------------- reports ------------------
 
     [Fact]
