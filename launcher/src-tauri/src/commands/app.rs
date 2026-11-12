@@ -74,6 +74,11 @@ pub struct LauncherSettings {
     /// or gamescope). `--deck` / `--desktop` win for one start (docs/kiln/launcher/deck.md).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_mode: Option<String>,
+    /// "Show notes about mod folders" (Settings, Launcher; the Deck's Settings): an activation's notices about folders
+    /// Kiln left as they are, mod files it kept and notes on the mods, each sentence once per game (`notices_unseen`).
+    /// Off: none is raised, except the first notice of a folder that may still run although its mod is off.
+    #[serde(default = "yes")]
+    pub mod_folder_notes: bool,
 }
 
 impl Default for LauncherSettings {
@@ -88,6 +93,7 @@ impl Default for LauncherSettings {
             animated_fire: true,
             add_to_active_profile: true,
             ui_mode: None,
+            mod_folder_notes: true,
         }
     }
 }

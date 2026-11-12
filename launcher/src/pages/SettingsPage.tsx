@@ -69,6 +69,8 @@ function LauncherCard() {
       </Field>
       <Toggle checked={v.addToActiveProfile !== false} onChange={(on) => set({ addToActiveProfile: on })} label="Switch new mods on"
         hint="A dropped mod is on at the next Play. Off: it joins the list switched off." />
+      <Toggle checked={v.modFolderNotes !== false} onChange={(on) => set({ modFolderNotes: on })} label="Show notes about mod folders"
+        hint="Folders Kiln left as they are, mod files it kept, your own folders: each note shows once when it is new. Off: only a folder that may still run a mod you switched off. Notes above your mods has them all." />
       <Toggle checked={v.allowHttpModpacks} onChange={(on) => set({ allowHttpModpacks: on })} label="Allow http modpacks" hint="Off: https only." />
       <TypeToConfirmToggle />
       <Field label="Extra Steam folders" hint="Libraries Kiln does not find on its own.">

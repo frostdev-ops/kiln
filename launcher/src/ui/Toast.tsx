@@ -2,9 +2,10 @@
 // A small-caps title, one line at most, and buttons when there is something to do (`{ actions: [{ label: "Undo",
 // onClick }] }`). They go after 2.6 s (8 s with buttons); errors stay until closed. A button closes its toast.
 // Notices that stay (errors, `ms: 0`): the same one again shows once, as the newest; past eight, the oldest fold into
-// one "N earlier notices" item that keeps all of their text. The newest is scrolled into view.
+// one "N earlier notices" item that keeps all of their text. The newest is scrolled into view. A notice never takes
+// the screen: a long detail shows its first lines and "Show all" (the stack itself is capped too, and scrolls).
 import { X } from "lucide-react";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { toKilnError, type PlacementCleanup } from "../api/commands";
 
@@ -145,6 +146,26 @@ export function notifyPlacementCleanup(report: PlacementCleanup | null | undefin
   toast.info("Some mod folders were kept", `${detail}. These mods may still run through Kiln or another loader. With the game closed, review or move the listed folders to stop them; your settings have not been deleted.`, { ms: 0 });
 }
 
+/** A toast's detail: its first lines (ui.css caps the height), and "Show all" when there is more, which opens all
+ *  of it (scrolling inside the toast when even that is long). */
+function Detail({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [long, setLong] = useState(false);
+  const [open, setOpen] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && !open) setLong(el.scrollHeight > el.clientHeight + 1);
+  }, [children, open]);
+  return (
+    <>
+      <div ref={ref} className="k-toast-detail" data-open={open ? "" : undefined} data-cut={long && !open ? "" : undefined}>{children}</div>
+      {(long || open) && (
+        <button type="button" className="k-link k-toast-more" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Show less" : "Show all"}</button>
+      )}
+    </>
+  );
+}
+
 export function Toaster() {
   const { items, dismiss } = useToasts();
   // the newest is at the bottom: keep it in view when the stack is taller than the window
@@ -159,7 +180,7 @@ export function Toaster() {
         <div key={t.id} className={`k-toast k-toast-${t.kind}`} role={t.kind === "err" ? "alert" : "status"}>
           <div className="k-toast-body">
             <div className="k-toast-title">{t.title}{times(t)}</div>
-            {t.detail && <div className="k-toast-detail">{t.detail}</div>}
+            {t.detail && <Detail>{t.detail}</Detail>}
           </div>
           {!!t.actions?.length && (
             <div className="k-toast-actions">
