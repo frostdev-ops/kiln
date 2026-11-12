@@ -15,7 +15,7 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 
 1. Read the page for what you're using: https://frostdev.io/kiln/wiki. [references/docs-map.md](references/docs-map.md) says
    which one.
-2. The current build is **0.2.0-dev.24**, with mod API 0.2 and the matching dev.24 MDK pack. References marked **dev.20+**,
+2. The current build is **0.2.0-dev.26**, with mod API 0.2.1 and the matching dev.26 MDK pack. References marked **dev.20+**,
    **dev.21+** or **dev.22+** require that runtime and MDK or newer; dev.19 lacks the dev.20 additions. Check the installed build.
    Items marked **dev.26+** are in development, not released: they need a dev.26 build, and none has been seen by a player
    (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`, `InstanceData`, player

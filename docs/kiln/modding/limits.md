@@ -3,7 +3,7 @@
 Read this before you spend a day on something that has no API. Each row says what is missing, what stands in the way
 (in the game or in Kiln), what to do meanwhile if the tree has an honest workaround, and the release it is planned for.
 
-Checked against the full dev.26 development tree on 2026-11-12: 0.2.0-dev.24 plus every dev.26 package (identity,
+Checked against the full dev.26 development tree on 2026-11-12: 0.2.0-dev.25 plus every dev.26 package (identity,
 api-gate, typegen, hygiene, proof, testkit, core, instances, player-anim, weapon-moves, data-folder). dev.26 is not
 released, and **nothing of dev.26 has run in a real client**; rows that name dev.26 work say so. The planned releases are named dev.26, dev.27, dev.28 and dev.29,
 then the API freeze at **1.0.0**. A planned release is a plan, not a promise: rows move when the work shows a cost the
