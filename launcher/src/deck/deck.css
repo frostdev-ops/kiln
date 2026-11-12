@@ -186,7 +186,7 @@
 .deck-toast-title { font-family: var(--k-font-label); font-weight: 600; font-size: 1.5rem; }
 .deck-toast.ok .deck-toast-title { color: var(--k-ok); }
 .deck-toast.err .deck-toast-title { color: var(--k-err); }
-.deck-toast-detail { font-size: 1.125rem; color: var(--k-text-1); text-align: center; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
+.deck-toast-detail { font-size: 1.125rem; color: var(--k-text-1); text-align: center; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- the fire (Fire.tsx: the desktop's shader) and motion */
 .deck-fire-gl { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; display: none; }

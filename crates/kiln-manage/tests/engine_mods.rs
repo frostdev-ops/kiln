@@ -1509,3 +1509,100 @@ fn a_kept_copy_says_whether_its_mod_is_off_in_the_profile() {
     let json = serde_json::to_value(kept).unwrap();
     assert_eq!(json["off"], true);
 }
+
+/// A setting write never destroys a file of the mod folder: a file that happens to be called
+/// `extended.mod.json.tmp` (the player's, or a hard link to one) stays as it is, in Kiln's copy and in the player's own.
+#[test]
+fn a_setting_write_leaves_a_players_tmp_file_alone() {
+    let t = tmp("sf-tmp-name");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/plainpack");
+    sf_package(&src, "plainpack");
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "plainpack");
+    let game = game_with_z(&t.0);
+    let mut p = profile::create(&dirs, "tmp", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let dst = game.path.join("mods/plainpack");
+    let outside = t.0.join("player-notes.txt");
+    std::fs::write(&outside, b"the player's notes").unwrap();
+    std::fs::hard_link(&outside, dst.join("extended.mod.json.tmp")).unwrap();
+    let cfg = t.0.join("config");
+    engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(4), Some(&game.path), &cfg, None).unwrap();
+    assert_eq!(std::fs::read(&outside).unwrap(), b"the player's notes", "the linked file was truncated");
+    assert_eq!(std::fs::read(dst.join("extended.mod.json.tmp")).unwrap(), b"the player's notes");
+    assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().settings[0].value, 4);
+    // no temp file of Kiln's is left behind
+    let left: Vec<_> = std::fs::read_dir(&dst).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.contains("tmp") && n != "extended.mod.json.tmp").collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+/// A profile entry's settings are read from and written to the folder that holds THAT package: a player's folder named
+/// like the entry's Library id that holds another package is not it.
+#[test]
+fn settings_go_to_the_folder_holding_that_package_only() {
+    let t = tmp("sf-right-folder");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let a = t.0.join("src/PackA");
+    sf_package(&a, "PackA");
+    let r = library::import(&dirs, &[a.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "packa");
+    let lib = library::path_of(&dirs, &h).unwrap();
+    let game = game_with_z(&t.0);
+    // the player's own copy of A under another name, and the player's package B in a folder called "packa"
+    let own_a = game.path.join("mods/Pack A");
+    kiln_manage::util::copy_tree(&a, &own_a).unwrap();
+    sf_modloader_save(&own_a, "speed", serde_json::json!(4));
+    let b = game.path.join("mods/packa");
+    sf_package(&b, "PackB");
+    let b_before = std::fs::read(b.join("extended.mod.json")).unwrap();
+    let mut p = profile::create(&dirs, "two", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let cfg = t.0.join("config");
+    let s = engine_mods::settings(ModKind::ShroudForge, &h.id, Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert_eq!(s.file.as_deref(), Some(own_a.join("extended.mod.json").to_str().unwrap()), "{s:?}");
+    assert_eq!(s.values["speed"], 4);
+    engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(6), Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert_eq!(kiln_manage::shroudforge::read_mod(&own_a).unwrap().settings[0].value, 6);
+    assert_eq!(std::fs::read(b.join("extended.mod.json")).unwrap(), b_before, "package B's file was written");
+    // two folders of the player's hold package A: nothing is written, and both are named
+    let twin = game.path.join("mods/Pack A copy");
+    kiln_manage::util::copy_tree(&a, &twin).unwrap();
+    let e = engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(7), Some(&game.path), &cfg, Some(&lib)).unwrap_err();
+    assert!(e.message.contains("Pack A copy") && e.message.contains("mods/Pack A"), "{}", e.message);
+    assert_eq!(kiln_manage::shroudforge::read_mod(&own_a).unwrap().settings[0].value, 6);
+    assert_eq!(kiln_manage::shroudforge::read_mod(&twin).unwrap().settings[0].value, 3);
+    let s = engine_mods::settings(ModKind::ShroudForge, &h.id, Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert_eq!(s.format, "none", "{s:?}");
+    assert!(s.note.as_deref().is_some_and(|n| n.contains("Pack A copy")), "{s:?}");
+}
+
+/// The player's own folder of a mod the profile has OFF may still run (Kiln never switches it): its note is a safety
+/// note, said even with the notes about mod folders switched off.
+#[test]
+fn a_players_own_folder_of_a_mod_that_is_off_is_a_safety_note() {
+    let t = tmp("sf-own-off");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/HoardersHelper");
+    sf_package(&src, "HoardersHelper");
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "hoardershelper");
+    let game = game_with_z(&t.0);
+    kiln_manage::util::copy_tree(&src, &game.path.join("mods/hoardershelper")).unwrap();
+    let mut p = profile::create(&dirs, "own", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let mut p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(a.safety_notes.is_empty(), "on: no safety note {a:?}");
+    p.mods.shroudforge[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(a.safety_notes.len(), 1, "{a:?}");
+    assert!(a.safety_notes[0].contains("stays as it is") && a.warnings.contains(&a.safety_notes[0]), "{a:?}");
+    assert_eq!(serde_json::to_value(&a).unwrap()["safetyNotes"][0], serde_json::json!(a.safety_notes[0]));
+}

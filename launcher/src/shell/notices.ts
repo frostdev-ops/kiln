@@ -6,8 +6,9 @@
 //
 // An activation's notices about mod folders (folders Kiln left as they are, mod files it kept, notes on the mods such as
 // "the game uses your own folder") come with every activation, so each sentence is raised once per game: the backend
-// remembers what was raised (notices_unseen, kept with the data folder). With "Show notes about mod folders" off in
-// Settings none is raised, except the first notice of a folder that may still run although its mod is off. What the
+// remembers what the window really showed (notices_unseen asks, notices_shown reports a toast on screen; kept with the
+// data folder). With "Show notes about mod folders" off in Settings none is raised, except the first notice of a folder
+// that may still run although its mod is off (a kept copy, or the player's own folder of a mod that is off). What the
 // last activation said is always in the notes the main list opens (useFolderNotes, FolderNotes.tsx).
 import type { Activation, AddReport, InstallResult, NoticeLine, RetainedPlacement, UninstallResult } from "../api/commands";
 import * as api from "../api/commands";
@@ -24,13 +25,15 @@ export interface FolderNotes {
   retained: RetainedPlacement[];
   keptFiles: string[];
   warnings: string[];
+  /** The sentences of `warnings` that are safety notes (Activation.safetyNotes). */
+  safetyNotes: string[];
   /** When that activation ran (Activation.activated); "" for none. */
   activated: string;
 }
 /** The notes of the last activation of each game this window saw (the backend's profile_active has them after a restart). */
 export const useFolderNotes = create<{ byGame: Record<string, FolderNotes> }>(() => ({ byGame: {} }));
-export const folderNotesOf = (a: Pick<Activation, "retained" | "keptFiles" | "warnings" | "activated"> | null | undefined): FolderNotes =>
-  ({ retained: a?.retained ?? [], keptFiles: a?.keptFiles ?? [], warnings: a?.warnings ?? [], activated: a?.activated ?? "" });
+export const folderNotesOf = (a: Pick<Activation, "retained" | "keptFiles" | "warnings" | "safetyNotes" | "activated"> | null | undefined): FolderNotes =>
+  ({ retained: a?.retained ?? [], keptFiles: a?.keptFiles ?? [], warnings: a?.warnings ?? [], safetyNotes: a?.safetyNotes ?? [], activated: a?.activated ?? "" });
 export const folderNotesCount = (n: FolderNotes) => n.retained.length + n.keptFiles.length + n.warnings.length;
 /** A kept folder in one line: its path and why it stays. */
 export const retainedLine = (r: RetainedPlacement) => `${r.path}: ${r.reason}`;
@@ -38,10 +41,10 @@ export const retainedLine = (r: RetainedPlacement) => `${r.path}: ${r.reason}`;
 /** Folders an activation left as they are. Each reason ends with what still runs from it (engine_mods::still_runs): an
  *  enabled mod's changed copy is simply what runs, a switched-off one may still be loaded by its own loader or by
  *  Kiln's plugin for that engine (SET's runs every mod in its folder). */
-function notifyKept(retained: RetainedPlacement[]) {
+function notifyKept(retained: RetainedPlacement[], onShown?: () => void) {
   if (!retained.length) return;
   const detail = retained.map(retainedLine).join(" ");
-  toast.info("Some mod folders were kept", `${detail} Kiln left these folders as they are. With the game closed, move a folder out of the game folder to stop a mod that is off; your files have not been deleted.`, { ms: 0 });
+  toast.info("Some mod folders were kept", `${detail} Kiln left these folders as they are. With the game closed, move a folder out of the game folder to stop a mod that is off; your files have not been deleted.`, { ms: 0, onShown });
 }
 
 /** The lines notices_unseen is asked about, one per sentence, by what they are (the same text in two lists is two). */
@@ -49,22 +52,26 @@ function noticeLines(n: FolderNotes): NoticeLine[] {
   return [
     ...n.retained.map((r) => ({ text: `retained:${retainedLine(r)}`, safety: r.mayRun && !!r.off })),
     ...n.keptFiles.map((t) => ({ text: `kept:${t}` })),
-    ...n.warnings.map((t) => ({ text: `note:${t}` })),
+    ...n.warnings.map((t) => ({ text: `note:${t}`, safety: n.safetyNotes.includes(t) })),
   ];
 }
 
-/** Raises the sentences of `a` the backend says are new for its game (all of them when it cannot say: an older backend). */
+/** Raises the sentences of `a` the backend says are new for its game (all of them when it cannot say: an older backend).
+ *  Each toast tells the backend its sentences were shown only once it is on screen (Toast.tsx reportShown): the Deck
+ *  shows one notice at a time, and a launcher closed before the next one came shows it at the next activation. */
 async function raise(gameId: string, n: FolderNotes) {
   const lines = noticeLines(n);
   if (!lines.length) return;
   let show: Set<string>;
   try { show = new Set(await api.noticesUnseen(gameId, lines)); }
   catch { show = new Set(lines.map((l) => l.text)); }
-  notifyKept(n.retained.filter((r) => show.has(`retained:${retainedLine(r)}`)));
+  const shown = (texts: string[]) => () => { api.noticesShown(gameId, texts).catch(() => {}); };
+  const retained = n.retained.filter((r) => show.has(`retained:${retainedLine(r)}`));
+  notifyKept(retained, shown(retained.map((r) => `retained:${retainedLine(r)}`)));
   const kept = n.keptFiles.filter((t) => show.has(`kept:${t}`));
-  if (kept.length) toast.info("Mod settings kept", kept.join(" "), { ms: 0 });
+  if (kept.length) toast.info("Mod settings kept", kept.join(" "), { ms: 0, onShown: shown(kept.map((t) => `kept:${t}`)) });
   const notes = n.warnings.filter((t) => show.has(`note:${t}`));
-  if (notes.length) toast.info("Notes on your mods", notes.join(" "), { ms: 0 });
+  if (notes.length) toast.info("Notes on your mods", notes.join(" "), { ms: 0, onShown: shown(notes.map((t) => `note:${t}`)) });
 }
 
 /** Copies left in the game folder, mod settings kept or put back, and profile notes: kept as the game's notes, and

@@ -267,6 +267,32 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     })
 }
 
+/// [`write_atomic`] into a folder that is not Kiln's alone: a mod folder in the game (the player's own, or Kiln's copy
+/// the mod and the player write into too), or a file two launchers may write. The temp file gets a name no file there
+/// has (`.<name>.<16 hex>.kiln-tmp`) and is created exclusively, so no file of the player's (or a hard link to one) is
+/// ever truncated through it, and a link of that name is never followed. It is removed when the write fails.
+pub fn write_atomic_exclusive(path: &Path, data: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let dir = path.parent().ok_or_else(|| Error::invalid(format!("{}: no parent folder", path.display())))?;
+    std::fs::create_dir_all(dir).map_err(io_at(dir, "creating"))?;
+    let name = path.file_name().ok_or_else(|| Error::invalid(format!("{}: no file name", path.display())))?.to_string_lossy().into_owned();
+    for _ in 0..16 {
+        let hex: String = random_bytes::<8>()?.iter().map(|b| format!("{b:02x}")).collect();
+        let tmp = dir.join(format!(".{name}.{hex}.kiln-tmp"));
+        let mut f = match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(io_at(&tmp, "writing")(e)),
+        };
+        let written = f.write_all(data).map_err(io_at(&tmp, "writing")).and_then(|_| f.sync_all().map_err(io_at(&tmp, "flushing")));
+        drop(f);
+        return written.and_then(|_| rename_replace(&tmp, path)).inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp);
+        });
+    }
+    Err(Error::new(ErrorCode::Io, format!("{}: no free temporary file name", dir.display())))
+}
+
 /// `rename(from, to)` replacing `to` (Windows: MoveFileEx semantics through std, which replaces).
 pub fn rename_replace(from: &Path, to: &Path) -> Result<()> {
     std::fs::rename(from, to).map_err(io_at(to, "renaming to"))
