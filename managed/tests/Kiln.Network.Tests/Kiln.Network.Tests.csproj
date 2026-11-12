@@ -5,7 +5,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;KILNX002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -17,5 +17,9 @@
     <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
     <ProjectReference Include="../../services/Kiln.Client/Kiln.Client.csproj" />
     <ProjectReference Include="../../services/Kiln.Network/Kiln.Network.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The admin commands' tick-thread hop after a guard request (SteamGuardRelayTests drives it on a real scheduler). -->
+    <Compile Include="../../../mods/Kiln.Admin/OpsTick.cs" Link="AdminOpsTick.cs" />
   </ItemGroup>
 </Project>

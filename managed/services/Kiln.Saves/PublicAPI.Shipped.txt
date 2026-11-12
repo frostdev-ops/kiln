@@ -1,0 +1,409 @@
+#nullable enable
+Kiln.BackupInfo
+Kiln.BackupInfo.<Clone>$() -> Kiln.BackupInfo!
+Kiln.BackupInfo.BackupInfo(string! Name, string! Directory, System.DateTimeOffset Created, string! WorldId, uint Revision, uint WorldUnix, Kiln.SaveReason Reason, int Files, long Bytes, int DataBundles) -> void
+Kiln.BackupInfo.Bytes.get -> long
+Kiln.BackupInfo.Bytes.init -> void
+Kiln.BackupInfo.Created.get -> System.DateTimeOffset
+Kiln.BackupInfo.Created.init -> void
+Kiln.BackupInfo.DataBundles.get -> int
+Kiln.BackupInfo.DataBundles.init -> void
+Kiln.BackupInfo.Deconstruct(out string! Name, out string! Directory, out System.DateTimeOffset Created, out string! WorldId, out uint Revision, out uint WorldUnix, out Kiln.SaveReason Reason, out int Files, out long Bytes, out int DataBundles) -> void
+Kiln.BackupInfo.Directory.get -> string!
+Kiln.BackupInfo.Directory.init -> void
+Kiln.BackupInfo.Equals(Kiln.BackupInfo? other) -> bool
+Kiln.BackupInfo.Files.get -> int
+Kiln.BackupInfo.Files.init -> void
+Kiln.BackupInfo.Name.get -> string!
+Kiln.BackupInfo.Name.init -> void
+Kiln.BackupInfo.Reason.get -> Kiln.SaveReason
+Kiln.BackupInfo.Reason.init -> void
+Kiln.BackupInfo.Revision.get -> uint
+Kiln.BackupInfo.Revision.init -> void
+Kiln.BackupInfo.WorldId.get -> string!
+Kiln.BackupInfo.WorldId.init -> void
+Kiln.BackupInfo.WorldUnix.get -> uint
+Kiln.BackupInfo.WorldUnix.init -> void
+Kiln.CharAck
+Kiln.CharAck.<Clone>$() -> Kiln.CharAck!
+Kiln.CharAck.CharAck(System.Guid Character, long Revision) -> void
+Kiln.CharAck.Character.get -> System.Guid
+Kiln.CharAck.Character.init -> void
+Kiln.CharAck.Deconstruct(out System.Guid Character, out long Revision) -> void
+Kiln.CharAck.Equals(Kiln.CharAck? other) -> bool
+Kiln.CharAck.Revision.get -> long
+Kiln.CharAck.Revision.init -> void
+Kiln.CharHello
+Kiln.CharHello.<Clone>$() -> Kiln.CharHello!
+Kiln.CharHello.CharHello(System.Guid Character, string? World, bool Imports, int MaxBytes, long Revision) -> void
+Kiln.CharHello.Character.get -> System.Guid
+Kiln.CharHello.Character.init -> void
+Kiln.CharHello.Deconstruct(out System.Guid Character, out string? World, out bool Imports, out int MaxBytes, out long Revision) -> void
+Kiln.CharHello.Equals(Kiln.CharHello? other) -> bool
+Kiln.CharHello.Imports.get -> bool
+Kiln.CharHello.Imports.init -> void
+Kiln.CharHello.MaxBytes.get -> int
+Kiln.CharHello.MaxBytes.init -> void
+Kiln.CharHello.Revision.get -> long
+Kiln.CharHello.Revision.init -> void
+Kiln.CharHello.World.get -> string?
+Kiln.CharHello.World.init -> void
+Kiln.CharLabJoin
+Kiln.CharLabJoin.<Clone>$() -> Kiln.CharLabJoin!
+Kiln.CharLabJoin.Account.get -> ulong
+Kiln.CharLabJoin.Account.init -> void
+Kiln.CharLabJoin.CharLabJoin(System.Guid Character, ulong Account, bool Local = false) -> void
+Kiln.CharLabJoin.Character.get -> System.Guid
+Kiln.CharLabJoin.Character.init -> void
+Kiln.CharLabJoin.Deconstruct(out System.Guid Character, out ulong Account, out bool Local) -> void
+Kiln.CharLabJoin.Equals(Kiln.CharLabJoin? other) -> bool
+Kiln.CharLabJoin.Local.get -> bool
+Kiln.CharLabJoin.Local.init -> void
+Kiln.CharLabLeave
+Kiln.CharLabLeave.<Clone>$() -> Kiln.CharLabLeave!
+Kiln.CharLabLeave.CharLabLeave(System.Guid Character) -> void
+Kiln.CharLabLeave.Character.get -> System.Guid
+Kiln.CharLabLeave.Character.init -> void
+Kiln.CharLabLeave.Deconstruct(out System.Guid Character) -> void
+Kiln.CharLabLeave.Equals(Kiln.CharLabLeave? other) -> bool
+Kiln.CharOffer
+Kiln.CharOffer.<Clone>$() -> Kiln.CharOffer!
+Kiln.CharOffer.CharOffer(System.Guid Character, long Revision, System.Collections.Generic.Dictionary<string!, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>!>! Mods) -> void
+Kiln.CharOffer.Character.get -> System.Guid
+Kiln.CharOffer.Character.init -> void
+Kiln.CharOffer.Deconstruct(out System.Guid Character, out long Revision, out System.Collections.Generic.Dictionary<string!, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>!>! Mods) -> void
+Kiln.CharOffer.Equals(Kiln.CharOffer? other) -> bool
+Kiln.CharOffer.Mods.get -> System.Collections.Generic.Dictionary<string!, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>!>!
+Kiln.CharOffer.Mods.init -> void
+Kiln.CharOffer.Revision.get -> long
+Kiln.CharOffer.Revision.init -> void
+Kiln.CharResult
+Kiln.CharResult.<Clone>$() -> Kiln.CharResult!
+Kiln.CharResult.Accepted.get -> bool
+Kiln.CharResult.Accepted.init -> void
+Kiln.CharResult.Applied.get -> System.Collections.Generic.List<string!>!
+Kiln.CharResult.Applied.init -> void
+Kiln.CharResult.CharResult(System.Guid Character, bool Accepted, string! Reason, long Revision, System.Collections.Generic.List<string!>! Applied, System.Collections.Generic.List<string!>! Kept, System.Collections.Generic.List<string!>! Dropped) -> void
+Kiln.CharResult.Character.get -> System.Guid
+Kiln.CharResult.Character.init -> void
+Kiln.CharResult.Deconstruct(out System.Guid Character, out bool Accepted, out string! Reason, out long Revision, out System.Collections.Generic.List<string!>! Applied, out System.Collections.Generic.List<string!>! Kept, out System.Collections.Generic.List<string!>! Dropped) -> void
+Kiln.CharResult.Dropped.get -> System.Collections.Generic.List<string!>!
+Kiln.CharResult.Dropped.init -> void
+Kiln.CharResult.Equals(Kiln.CharResult? other) -> bool
+Kiln.CharResult.Kept.get -> System.Collections.Generic.List<string!>!
+Kiln.CharResult.Kept.init -> void
+Kiln.CharResult.Reason.get -> string!
+Kiln.CharResult.Reason.init -> void
+Kiln.CharResult.Revision.get -> long
+Kiln.CharResult.Revision.init -> void
+Kiln.CharUpdate
+Kiln.CharUpdate.<Clone>$() -> Kiln.CharUpdate!
+Kiln.CharUpdate.Changes.get -> System.Collections.Generic.Dictionary<string!, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement?>!>!
+Kiln.CharUpdate.Changes.init -> void
+Kiln.CharUpdate.CharUpdate(System.Guid Character, long Revision, System.Collections.Generic.Dictionary<string!, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement?>!>! Changes, bool Final) -> void
+Kiln.CharUpdate.Character.get -> System.Guid
+Kiln.CharUpdate.Character.init -> void
+Kiln.CharUpdate.Deconstruct(out System.Guid Character, out long Revision, out System.Collections.Generic.Dictionary<string!, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement?>!>! Changes, out bool Final) -> void
+Kiln.CharUpdate.Equals(Kiln.CharUpdate? other) -> bool
+Kiln.CharUpdate.Final.get -> bool
+Kiln.CharUpdate.Final.init -> void
+Kiln.CharUpdate.Revision.get -> long
+Kiln.CharUpdate.Revision.init -> void
+Kiln.CharacterData
+Kiln.CharacterData.Carried
+Kiln.CharacterImportedEvent
+Kiln.CharacterImportedEvent.Applied.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CharacterImportedEvent.Character.get -> Kiln.CharacterKey
+Kiln.CharacterImportedEvent.CharacterImportedEvent(Kiln.CharacterKey character, Kiln.EntityId player, long revision, System.Collections.Generic.IReadOnlyList<string!>! applied, System.Collections.Generic.IReadOnlyList<string!>! kept) -> void
+Kiln.CharacterImportedEvent.Kept.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CharacterImportedEvent.Player.get -> Kiln.EntityId
+Kiln.CharacterImportedEvent.Revision.get -> long
+Kiln.CharacterImportingEvent
+Kiln.CharacterImportingEvent.Character.get -> Kiln.CharacterKey
+Kiln.CharacterImportingEvent.CharacterImportingEvent(Kiln.CharacterKey character, Kiln.EntityId player, long revision, long serverRevision, System.Collections.Generic.IReadOnlyDictionary<string!, System.Collections.Generic.IReadOnlyList<string!>!>! mods) -> void
+Kiln.CharacterImportingEvent.Mods.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Collections.Generic.IReadOnlyList<string!>!>!
+Kiln.CharacterImportingEvent.Player.get -> Kiln.EntityId
+Kiln.CharacterImportingEvent.Reason.get -> string!
+Kiln.CharacterImportingEvent.Reason.set -> void
+Kiln.CharacterImportingEvent.Revision.get -> long
+Kiln.CharacterImportingEvent.ServerRevision.get -> long
+Kiln.CharacterKey
+Kiln.CharacterKey.Account.get -> ulong
+Kiln.CharacterKey.Account.init -> void
+Kiln.CharacterKey.CharacterKey() -> void
+Kiln.CharacterKey.CharacterKey(ulong Account, System.Guid Id) -> void
+Kiln.CharacterKey.Deconstruct(out ulong Account, out System.Guid Id) -> void
+Kiln.CharacterKey.Equals(Kiln.CharacterKey other) -> bool
+Kiln.CharacterKey.Id.get -> System.Guid
+Kiln.CharacterKey.Id.init -> void
+Kiln.CharacterKey.IsAccountOnly.get -> bool
+Kiln.CharacterKey.IsNone.get -> bool
+Kiln.CharacterKey.Text.get -> string!
+Kiln.CharacterSettings
+Kiln.CharacterSettings.<Clone>$() -> Kiln.CharacterSettings!
+Kiln.CharacterSettings.CharacterSettings() -> void
+Kiln.CharacterSettings.Equals(Kiln.CharacterSettings? other) -> bool
+Kiln.CharacterSettings.ImportProgress.get -> bool
+Kiln.CharacterSettings.ImportProgress.init -> void
+Kiln.CharacterSettings.MaxCharactersPerAccount.get -> int
+Kiln.CharacterSettings.MaxCharactersPerAccount.init -> void
+Kiln.CharacterSettings.MaxImportBytes.get -> int
+Kiln.CharacterSettings.MaxImportBytes.init -> void
+Kiln.CharacterSettings.MaxKeys.get -> int
+Kiln.CharacterSettings.MaxKeys.init -> void
+Kiln.CharacterSettings.MaxValueBytes.get -> int
+Kiln.CharacterSettings.MaxValueBytes.init -> void
+Kiln.CharacterSyncStatus
+Kiln.CharacterSyncStatus.<Clone>$() -> Kiln.CharacterSyncStatus!
+Kiln.CharacterSyncStatus.ChannelOpen.get -> bool
+Kiln.CharacterSyncStatus.ChannelOpen.init -> void
+Kiln.CharacterSyncStatus.CharacterSyncStatus(bool Started, bool ChannelOpen, bool ImportsAllowed, int Sessions, long Imports, long Refused, long Kept, long Dropped, long Updates, long UpdateBytes, long SidecarWrites) -> void
+Kiln.CharacterSyncStatus.Deconstruct(out bool Started, out bool ChannelOpen, out bool ImportsAllowed, out int Sessions, out long Imports, out long Refused, out long Kept, out long Dropped, out long Updates, out long UpdateBytes, out long SidecarWrites) -> void
+Kiln.CharacterSyncStatus.Dropped.get -> long
+Kiln.CharacterSyncStatus.Dropped.init -> void
+Kiln.CharacterSyncStatus.Equals(Kiln.CharacterSyncStatus? other) -> bool
+Kiln.CharacterSyncStatus.Imports.get -> long
+Kiln.CharacterSyncStatus.Imports.init -> void
+Kiln.CharacterSyncStatus.ImportsAllowed.get -> bool
+Kiln.CharacterSyncStatus.ImportsAllowed.init -> void
+Kiln.CharacterSyncStatus.Kept.get -> long
+Kiln.CharacterSyncStatus.Kept.init -> void
+Kiln.CharacterSyncStatus.Refused.get -> long
+Kiln.CharacterSyncStatus.Refused.init -> void
+Kiln.CharacterSyncStatus.Sessions.get -> int
+Kiln.CharacterSyncStatus.Sessions.init -> void
+Kiln.CharacterSyncStatus.SidecarWrites.get -> long
+Kiln.CharacterSyncStatus.SidecarWrites.init -> void
+Kiln.CharacterSyncStatus.Started.get -> bool
+Kiln.CharacterSyncStatus.Started.init -> void
+Kiln.CharacterSyncStatus.UpdateBytes.get -> long
+Kiln.CharacterSyncStatus.UpdateBytes.init -> void
+Kiln.CharacterSyncStatus.Updates.get -> long
+Kiln.CharacterSyncStatus.Updates.init -> void
+Kiln.DataMatch
+Kiln.DataMatch.Exact = 1 -> Kiln.DataMatch
+Kiln.DataMatch.None = 0 -> Kiln.DataMatch
+Kiln.DataMatch.Older = 3 -> Kiln.DataMatch
+Kiln.DataMatch.Staged = 2 -> Kiln.DataMatch
+Kiln.EntityData
+Kiln.PlayerData
+Kiln.SaveReason
+Kiln.SaveReason.Autosave = 1 -> Kiln.SaveReason
+Kiln.SaveReason.Backup = 5 -> Kiln.SaveReason
+Kiln.SaveReason.PlayerLeft = 3 -> Kiln.SaveReason
+Kiln.SaveReason.Request = 4 -> Kiln.SaveReason
+Kiln.SaveReason.Shutdown = 2 -> Kiln.SaveReason
+Kiln.SaveReason.Unknown = 0 -> Kiln.SaveReason
+Kiln.SaveResult
+Kiln.SaveResult.<Clone>$() -> Kiln.SaveResult!
+Kiln.SaveResult.Deconstruct(out bool Success, out Kiln.SaveReason Reason, out uint Revision, out System.TimeSpan Duration, out string? Error) -> void
+Kiln.SaveResult.Duration.get -> System.TimeSpan
+Kiln.SaveResult.Duration.init -> void
+Kiln.SaveResult.Equals(Kiln.SaveResult? other) -> bool
+Kiln.SaveResult.Error.get -> string?
+Kiln.SaveResult.Error.init -> void
+Kiln.SaveResult.Reason.get -> Kiln.SaveReason
+Kiln.SaveResult.Reason.init -> void
+Kiln.SaveResult.Revision.get -> uint
+Kiln.SaveResult.Revision.init -> void
+Kiln.SaveResult.SaveResult(bool Success, Kiln.SaveReason Reason, uint Revision, System.TimeSpan Duration, string? Error) -> void
+Kiln.SaveResult.Success.get -> bool
+Kiln.SaveResult.Success.init -> void
+Kiln.SaveStatus
+Kiln.SaveStatus.<Clone>$() -> Kiln.SaveStatus!
+Kiln.SaveStatus.Accepted.get -> long
+Kiln.SaveStatus.Accepted.init -> void
+Kiln.SaveStatus.AutosaveInterval.get -> System.TimeSpan?
+Kiln.SaveStatus.AutosaveInterval.init -> void
+Kiln.SaveStatus.CanObserveWrites.get -> bool
+Kiln.SaveStatus.CanObserveWrites.init -> void
+Kiln.SaveStatus.CanRequest.get -> bool
+Kiln.SaveStatus.CanRequest.init -> void
+Kiln.SaveStatus.DataGeneration.get -> uint
+Kiln.SaveStatus.DataGeneration.init -> void
+Kiln.SaveStatus.DataMatch.get -> Kiln.DataMatch
+Kiln.SaveStatus.DataMatch.init -> void
+Kiln.SaveStatus.Deconstruct(out string! State, out string? WorldId, out System.DateTimeOffset? LastSaved, out uint Revision, out System.TimeSpan? AutosaveInterval, out Kiln.SaveReason LastReason, out System.TimeSpan LastDuration, out long Accepted, out long Written, out long Failed, out long Refused, out bool RequestPending, out int Slot, out uint DataGeneration, out Kiln.DataMatch DataMatch, out bool CanRequest, out bool CanObserveWrites) -> void
+Kiln.SaveStatus.Equals(Kiln.SaveStatus? other) -> bool
+Kiln.SaveStatus.Failed.get -> long
+Kiln.SaveStatus.Failed.init -> void
+Kiln.SaveStatus.LastDuration.get -> System.TimeSpan
+Kiln.SaveStatus.LastDuration.init -> void
+Kiln.SaveStatus.LastReason.get -> Kiln.SaveReason
+Kiln.SaveStatus.LastReason.init -> void
+Kiln.SaveStatus.LastSaved.get -> System.DateTimeOffset?
+Kiln.SaveStatus.LastSaved.init -> void
+Kiln.SaveStatus.Refused.get -> long
+Kiln.SaveStatus.Refused.init -> void
+Kiln.SaveStatus.RequestPending.get -> bool
+Kiln.SaveStatus.RequestPending.init -> void
+Kiln.SaveStatus.Revision.get -> uint
+Kiln.SaveStatus.Revision.init -> void
+Kiln.SaveStatus.SaveStatus(string! State, string? WorldId, System.DateTimeOffset? LastSaved, uint Revision, System.TimeSpan? AutosaveInterval, Kiln.SaveReason LastReason, System.TimeSpan LastDuration, long Accepted, long Written, long Failed, long Refused, bool RequestPending, int Slot, uint DataGeneration, Kiln.DataMatch DataMatch, bool CanRequest, bool CanObserveWrites) -> void
+Kiln.SaveStatus.Slot.get -> int
+Kiln.SaveStatus.Slot.init -> void
+Kiln.SaveStatus.State.get -> string!
+Kiln.SaveStatus.State.init -> void
+Kiln.SaveStatus.WorldId.get -> string?
+Kiln.SaveStatus.WorldId.init -> void
+Kiln.SaveStatus.Written.get -> long
+Kiln.SaveStatus.Written.init -> void
+Kiln.Saves
+Kiln.WorldData
+Kiln.WorldLoadedEvent
+Kiln.WorldLoadedEvent.Data.get -> Kiln.DataMatch
+Kiln.WorldLoadedEvent.NewWorld.get -> bool
+Kiln.WorldLoadedEvent.Revision.get -> uint
+Kiln.WorldLoadedEvent.WorldFile.get -> string?
+Kiln.WorldLoadedEvent.WorldId.get -> string?
+Kiln.WorldSavedEvent
+Kiln.WorldSavedEvent.Duration.get -> System.TimeSpan
+Kiln.WorldSavedEvent.Reason.get -> Kiln.SaveReason
+Kiln.WorldSavedEvent.Result.get -> int
+Kiln.WorldSavedEvent.Revision.get -> uint
+Kiln.WorldSavedEvent.Success.get -> bool
+Kiln.WorldSavedEvent.TimedOut.get -> bool
+Kiln.WorldSavedEvent.WorldFile.get -> string?
+Kiln.WorldSavedEvent.WorldId.get -> string?
+Kiln.WorldSavingEvent
+Kiln.WorldSavingEvent.BeforeSnapshot.get -> bool
+Kiln.WorldSavingEvent.Reason.get -> Kiln.SaveReason
+Kiln.WorldSavingEvent.Revision.get -> uint
+Kiln.WorldSavingEvent.Step.get -> ulong
+Kiln.WorldSavingEvent.WorldFile.get -> string?
+Kiln.WorldSavingEvent.WorldId.get -> string?
+override Kiln.BackupInfo.Equals(object? obj) -> bool
+override Kiln.BackupInfo.GetHashCode() -> int
+override Kiln.BackupInfo.ToString() -> string!
+override Kiln.CharAck.Equals(object? obj) -> bool
+override Kiln.CharAck.GetHashCode() -> int
+override Kiln.CharAck.ToString() -> string!
+override Kiln.CharHello.Equals(object? obj) -> bool
+override Kiln.CharHello.GetHashCode() -> int
+override Kiln.CharHello.ToString() -> string!
+override Kiln.CharLabJoin.Equals(object? obj) -> bool
+override Kiln.CharLabJoin.GetHashCode() -> int
+override Kiln.CharLabJoin.ToString() -> string!
+override Kiln.CharLabLeave.Equals(object? obj) -> bool
+override Kiln.CharLabLeave.GetHashCode() -> int
+override Kiln.CharLabLeave.ToString() -> string!
+override Kiln.CharOffer.Equals(object? obj) -> bool
+override Kiln.CharOffer.GetHashCode() -> int
+override Kiln.CharOffer.ToString() -> string!
+override Kiln.CharResult.Equals(object? obj) -> bool
+override Kiln.CharResult.GetHashCode() -> int
+override Kiln.CharResult.ToString() -> string!
+override Kiln.CharUpdate.Equals(object? obj) -> bool
+override Kiln.CharUpdate.GetHashCode() -> int
+override Kiln.CharUpdate.ToString() -> string!
+override Kiln.CharacterKey.GetHashCode() -> int
+override Kiln.CharacterKey.ToString() -> string!
+override Kiln.CharacterSettings.Equals(object? obj) -> bool
+override Kiln.CharacterSettings.GetHashCode() -> int
+override Kiln.CharacterSettings.ToString() -> string!
+override Kiln.CharacterSyncStatus.Equals(object? obj) -> bool
+override Kiln.CharacterSyncStatus.GetHashCode() -> int
+override Kiln.CharacterSyncStatus.ToString() -> string!
+override Kiln.SaveResult.Equals(object? obj) -> bool
+override Kiln.SaveResult.GetHashCode() -> int
+override Kiln.SaveResult.ToString() -> string!
+override Kiln.SaveStatus.Equals(object? obj) -> bool
+override Kiln.SaveStatus.GetHashCode() -> int
+override Kiln.SaveStatus.ToString() -> string!
+override Kiln.WorldLoadedEvent.ToString() -> string!
+override Kiln.WorldSavedEvent.ToString() -> string!
+override Kiln.WorldSavingEvent.ToString() -> string!
+static Kiln.BackupInfo.operator !=(Kiln.BackupInfo? left, Kiln.BackupInfo? right) -> bool
+static Kiln.BackupInfo.operator ==(Kiln.BackupInfo? left, Kiln.BackupInfo? right) -> bool
+static Kiln.CharAck.operator !=(Kiln.CharAck? left, Kiln.CharAck? right) -> bool
+static Kiln.CharAck.operator ==(Kiln.CharAck? left, Kiln.CharAck? right) -> bool
+static Kiln.CharHello.operator !=(Kiln.CharHello? left, Kiln.CharHello? right) -> bool
+static Kiln.CharHello.operator ==(Kiln.CharHello? left, Kiln.CharHello? right) -> bool
+static Kiln.CharLabJoin.operator !=(Kiln.CharLabJoin? left, Kiln.CharLabJoin? right) -> bool
+static Kiln.CharLabJoin.operator ==(Kiln.CharLabJoin? left, Kiln.CharLabJoin? right) -> bool
+static Kiln.CharLabLeave.operator !=(Kiln.CharLabLeave? left, Kiln.CharLabLeave? right) -> bool
+static Kiln.CharLabLeave.operator ==(Kiln.CharLabLeave? left, Kiln.CharLabLeave? right) -> bool
+static Kiln.CharOffer.operator !=(Kiln.CharOffer? left, Kiln.CharOffer? right) -> bool
+static Kiln.CharOffer.operator ==(Kiln.CharOffer? left, Kiln.CharOffer? right) -> bool
+static Kiln.CharResult.operator !=(Kiln.CharResult? left, Kiln.CharResult? right) -> bool
+static Kiln.CharResult.operator ==(Kiln.CharResult? left, Kiln.CharResult? right) -> bool
+static Kiln.CharUpdate.operator !=(Kiln.CharUpdate? left, Kiln.CharUpdate? right) -> bool
+static Kiln.CharUpdate.operator ==(Kiln.CharUpdate? left, Kiln.CharUpdate? right) -> bool
+static Kiln.CharacterData.Carried.Characters.get -> System.Collections.Generic.IReadOnlyList<Kiln.CharacterKey>!
+static Kiln.CharacterData.Carried.Contains(Kiln.CharacterKey character, string! key) -> bool
+static Kiln.CharacterData.Carried.Get<T>(Kiln.CharacterKey character, string! key) -> T!
+static Kiln.CharacterData.Carried.Get<T>(Kiln.EntityId player, string! key) -> T!
+static Kiln.CharacterData.Carried.Keys(Kiln.CharacterKey character) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.CharacterData.Carried.MigrateFromPlayerData(Kiln.CharacterKey character, string! key, params ulong[]! playerIds) -> bool
+static Kiln.CharacterData.Carried.Remove(Kiln.CharacterKey character, string! key) -> bool
+static Kiln.CharacterData.Carried.Revision(Kiln.CharacterKey character) -> long
+static Kiln.CharacterData.Carried.Set<T>(Kiln.CharacterKey character, string! key, T! value) -> void
+static Kiln.CharacterData.Carried.TryGet<T>(Kiln.CharacterKey character, string! key, out T? value) -> bool
+static Kiln.CharacterData.Characters.get -> System.Collections.Generic.IReadOnlyList<Kiln.CharacterKey>!
+static Kiln.CharacterData.Contains(Kiln.CharacterKey character, string! key) -> bool
+static Kiln.CharacterData.EnsureStarted() -> void
+static Kiln.CharacterData.Get<T>(Kiln.CharacterKey character, string! key) -> T!
+static Kiln.CharacterData.Get<T>(Kiln.EntityId player, string! key) -> T!
+static Kiln.CharacterData.KeyOf(Kiln.EntityId player) -> Kiln.CharacterKey
+static Kiln.CharacterData.Keys(Kiln.CharacterKey character) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.CharacterData.LastOf(ulong playerId) -> Kiln.CharacterKey
+static Kiln.CharacterData.MigrateFromPlayerData(Kiln.CharacterKey character, string! key, params ulong[]! playerIds) -> bool
+static Kiln.CharacterData.Remove(Kiln.CharacterKey character, string! key) -> bool
+static Kiln.CharacterData.Set<T>(Kiln.CharacterKey character, string! key, T! value) -> void
+static Kiln.CharacterData.Status.get -> Kiln.CharacterSyncStatus!
+static Kiln.CharacterData.TryGet<T>(Kiln.CharacterKey character, string! key, out T? value) -> bool
+static Kiln.CharacterKey.None.get -> Kiln.CharacterKey
+static Kiln.CharacterKey.TryParse(string? text, out Kiln.CharacterKey key) -> bool
+static Kiln.CharacterKey.operator !=(Kiln.CharacterKey left, Kiln.CharacterKey right) -> bool
+static Kiln.CharacterKey.operator ==(Kiln.CharacterKey left, Kiln.CharacterKey right) -> bool
+static Kiln.CharacterSettings.operator !=(Kiln.CharacterSettings? left, Kiln.CharacterSettings? right) -> bool
+static Kiln.CharacterSettings.operator ==(Kiln.CharacterSettings? left, Kiln.CharacterSettings? right) -> bool
+static Kiln.CharacterSyncStatus.operator !=(Kiln.CharacterSyncStatus? left, Kiln.CharacterSyncStatus? right) -> bool
+static Kiln.CharacterSyncStatus.operator ==(Kiln.CharacterSyncStatus? left, Kiln.CharacterSyncStatus? right) -> bool
+static Kiln.EntityData.Available.get -> bool
+static Kiln.EntityData.Clear(Kiln.EntityId entity) -> bool
+static Kiln.EntityData.Entities.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.EntityData.Get<T>(Kiln.EntityId entity, string! key) -> T!
+static Kiln.EntityData.Has(Kiln.EntityId entity, string! key) -> bool
+static Kiln.EntityData.IsPersistent(Kiln.EntityId entity) -> bool
+static Kiln.EntityData.Remove(Kiln.EntityId entity, string! key) -> bool
+static Kiln.EntityData.Set<T>(Kiln.EntityId entity, string! key, T! value) -> void
+static Kiln.EntityData.TryGet<T>(Kiln.EntityId entity, string! key, out T? value) -> bool
+static Kiln.EntityData.Waiting.get -> int
+static Kiln.PlayerData.Contains(ulong steamId, string! key) -> bool
+static Kiln.PlayerData.Get<T>(ulong steamId, string! key) -> T!
+static Kiln.PlayerData.Keys(ulong steamId) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.PlayerData.Players.get -> System.Collections.Generic.IReadOnlyList<ulong>!
+static Kiln.PlayerData.Remove(ulong steamId, string! key) -> bool
+static Kiln.PlayerData.Set<T>(ulong steamId, string! key, T! value) -> void
+static Kiln.PlayerData.TryGet<T>(ulong steamId, string! key, out T? value) -> bool
+static Kiln.SaveResult.operator !=(Kiln.SaveResult? left, Kiln.SaveResult? right) -> bool
+static Kiln.SaveResult.operator ==(Kiln.SaveResult? left, Kiln.SaveResult? right) -> bool
+static Kiln.SaveStatus.operator !=(Kiln.SaveStatus? left, Kiln.SaveStatus? right) -> bool
+static Kiln.SaveStatus.operator ==(Kiln.SaveStatus? left, Kiln.SaveStatus? right) -> bool
+static Kiln.Saves.Available.get -> bool
+static Kiln.Saves.Backup(string! name) -> System.Threading.Tasks.Task<Kiln.BackupInfo!>!
+static Kiln.Saves.BackupDirectory.get -> string?
+static Kiln.Saves.Backups.get -> System.Collections.Generic.IReadOnlyList<Kiln.BackupInfo!>!
+static Kiln.Saves.CancelRestore() -> bool
+static Kiln.Saves.DataDirectory.get -> string?
+static Kiln.Saves.LabCloseWorld() -> void
+static Kiln.Saves.LabWorldLoaded(string? worldId, uint revision, uint worldUnix = 0, bool newWorld = false) -> void
+static Kiln.Saves.PendingRestore.get -> string?
+static Kiln.Saves.Request() -> System.Threading.Tasks.Task<Kiln.SaveResult!>!
+static Kiln.Saves.RestoreOnNextStart(string! name) -> Kiln.BackupInfo!
+static Kiln.Saves.SaveDirectory.get -> string?
+static Kiln.Saves.SnapshotStagingAvailable.get -> bool
+static Kiln.Saves.Status.get -> Kiln.SaveStatus?
+static Kiln.Saves.WorldDataReady.get -> bool
+static Kiln.Saves.WorldFile.get -> string?
+static Kiln.Saves.WorldId.get -> string?
+static Kiln.WorldData.Contains(string! key) -> bool
+static Kiln.WorldData.Get<T>(string! key) -> T!
+static Kiln.WorldData.Keys.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.WorldData.Loaded.get -> Kiln.DataMatch
+static Kiln.WorldData.Remove(string! key) -> bool
+static Kiln.WorldData.Set<T>(string! key, T! value) -> void
+static Kiln.WorldData.TryGet<T>(string! key, out T? value) -> bool
+static Kiln.WorldData.WorldId.get -> string?
+~override Kiln.CharacterKey.Equals(object obj) -> bool

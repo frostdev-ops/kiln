@@ -503,6 +503,28 @@ public readonly record struct QuestHolder(string Key, ulong Account, EntityId En
     }
 
     public override string ToString() => Entity.IsNone ? Key : $"{Key} (entity {Entity})";
+
+    /// <summary>This holder as a <see cref="PlayerRef"/>. With an entity: <see cref="PlayerRef.Of"/> of it (the session
+    /// stamped as Kiln.Players stamps it), only when both character ids match, or (a character id is unknown) the
+    /// holder's non-zero account matches the live Steam id. Otherwise gives the offline ref of <see cref="Character"/>'s
+    /// id, never an unchecked occupant of a reused slot. Without an entity: that offline
+    /// ref, read on any thread. <see cref="Account"/> is not copied (it may be an account id rather than a Steam id), so a
+    /// holder without entity and character (the world, a synthetic or account-only holder) gives
+    /// <see cref="PlayerRef.None"/>. <see cref="PlayerRef.Resolve"/> finds the current session.</summary>
+    /// <exception cref="InvalidOperationException">The holder has an entity and this is not the tick thread.</exception>
+    /// <exception cref="KilnUnavailableException">The holder has an entity and kiln.players cannot answer
+    /// (<c>identity.players</c>).</exception>
+    [TickThreadOnly]
+    public static explicit operator PlayerRef(QuestHolder holder)
+    {
+        var offline = new PlayerRef(0, holder.Character.Id, EntityRef.None);
+        if (holder.IsNone || holder.IsWorld || holder.Entity.IsNone) return offline;
+        var live = PlayerRef.Of(holder.Entity);
+        if (live.IsNone) return offline;
+        if (holder.Character.Id != Guid.Empty && live.HasCharacter)
+            return holder.Character.Id == live.CharacterId ? live : offline;
+        return holder.Account != 0 && holder.Account == live.SteamId ? live : offline;
+    }
 }
 
 /// <summary>One holder's standing in one quest.</summary>

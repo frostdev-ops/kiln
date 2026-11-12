@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 # Publishes a release that release.sh built and github-draft.sh drafted. This is the step that reaches users: run it
 # by hand. It asks before each remote change (--yes skips the questions).
-#   tools/release/publish.sh RELEASE_DIR --host SSH_HOST [--repo OWNER/NAME] [--no-dev-channel] [--yes]
+#   tools/release/publish.sh RELEASE_DIR --host SSH_HOST [--repo OWNER/NAME] [--no-dev-channel] [--sdk-site] [--yes]
 # --host: the frostdev.io web server as ssh knows it (or KILN_RELEASE_HOST); the files go to $KILN_RELEASE_DIR there,
 #   default /opt/frostdev-downloads/kiln (the folder the site's nginx serves as /kiln/updates/ and /kiln/downloads/).
 # --nexus: afterwards upload it to the Kiln page on Nexus Mods (tools/release/nexus.py --publish; it asks first).
+# --sdk-site: also upload sdk/feed/ (the SDK as a static NuGet feed) and sdk/api/ (the modding site and API reference).
+#   Without it both stay out of the upload and of the SHA256SUMS that goes up: publishing them is the owner's decision.
 # --no-dev-channel: a stable release normally also becomes the dev channel's newest build; skip that for a hotfix
 #   release when a newer dev build is out.
 # 1. Checks the folder (SHA256SUMS, the updater signatures against the launcher's built-in key in tauri.conf.json).
 # 2. frostdev.io: uploads the folder to <host>:/opt/frostdev-downloads/kiln/downloads/<version>/, then the manifests
 #    (updates/frostdev.io/<channel>/latest.json) to /opt/frostdev-downloads/kiln/updates/<channel>/, each through a
 #    temporary name, so a manifest never points at files that are not there yet. Then reads them back over https.
-#    Never nexus/ (the Nexus Mods build, no self-update: only nexus.py uploads it); the SHA256SUMS that goes up lists
-#    what goes up.
+#    Never nexus/ (the Nexus Mods build, no self-update: only nexus.py uploads it), sdk/feed/ and sdk/api/ only with
+#    --sdk-site; the SHA256SUMS that goes up lists what goes up.
 # 3. GitHub: publishes the draft v<version> (a pre-release for dev builds; "latest" for a stable one) and points the
 #    dev channel at it: the `updates-dev` pre-release holds the dev channel's latest.json (created when missing).
 # The nginx locations for /kiln/updates/ and /kiln/downloads/ must be live on the host first (releasing.md).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$here/../.." && pwd)
-dir="" gh_repo=frostdev-ops/kiln host=${KILN_RELEASE_HOST:-} yes=0 dev_channel=1 nexus=0
+dir="" gh_repo=frostdev-ops/kiln host=${KILN_RELEASE_HOST:-} yes=0 dev_channel=1 nexus=0 sdk_site=0
 while (($#)); do
   case $1 in
     --repo) gh_repo=$2; shift 2 ;;
@@ -27,12 +29,23 @@ while (($#)); do
     --yes) yes=1; shift ;;
     --no-dev-channel) dev_channel=0; shift ;;
     --nexus) nexus=1; shift ;;
+    --sdk-site) sdk_site=1; shift ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) dir=$(realpath "$1"); shift ;;
   esac
 done
-[[ -d $dir && -n $host ]] || { echo "usage: $0 RELEASE_DIR --host SSH_HOST [--repo OWNER/NAME] [--no-dev-channel] [--yes]" >&2; exit 2; }
+[[ -d $dir && -n $host ]] || { echo "usage: $0 RELEASE_DIR --host SSH_HOST [--repo OWNER/NAME] [--no-dev-channel] [--sdk-site] [--yes]" >&2; exit 2; }
 ask() { ((yes)) && return 0; read -r -p "$1 [y/N] " a; [[ $a == y || $a == Y ]]; }
+# what stays out of downloads/<version>/: sums_skip (a grep -E alternative of SHA256SUMS paths) and rsync_skip
+publish_filter() {
+  sums_skip='nexus|updates' rsync_skip=(--exclude updates/ --exclude /nexus/ --exclude /SHA256SUMS)
+  if ((sdk_site)); then
+    echo "sdk/feed/ and sdk/api/ go up too (--sdk-site): the NuGet feed and the API reference become public"
+  else
+    sums_skip+='|sdk/feed|sdk/api' rsync_skip+=(--exclude /sdk/feed/ --exclude /sdk/api/)
+    echo "sdk/feed/ (the NuGet feed) and sdk/api/ (the API reference) stay out; --sdk-site publishes them"
+  fi
+}
 version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$dir/updates/github/latest.json")
 case $version in *-*) channel=dev ;; *) channel=stable ;; esac
 tag=v$version
@@ -52,9 +65,11 @@ gh release view "$tag" --repo "$gh_repo" --json isDraft -q .isDraft | grep -qx t
 echo "== frostdev.io ($host:$remote)"
 if ask "Upload $version to $host:$remote/downloads/$version and switch the $channel manifest?"; then
   ssh "$host" mkdir -p "$remote/downloads" "$remote/updates/stable" "$remote/updates/dev"
-  # The download folder excludes Nexus builds and update manifests (published separately).
-  grep -Ev '^[0-9a-f]+  (nexus|updates)/' "$dir/SHA256SUMS" >"$sums"
-  rsync -a --chmod=D755,F644 --exclude updates/ --exclude /nexus/ --exclude /SHA256SUMS "$dir/" "$host:$remote/downloads/$version/"
+  # The download folder excludes Nexus builds and update manifests (published separately), and without --sdk-site the
+  # NuGet feed and the API reference (publish_filter: the same paths out of the rsync and out of the SHA256SUMS)
+  publish_filter
+  grep -Ev "^[0-9a-f]+  ($sums_skip)/" "$dir/SHA256SUMS" >"$sums"
+  rsync -a --chmod=D755,F644 "${rsync_skip[@]}" "$dir/" "$host:$remote/downloads/$version/"
   rsync -a --chmod=F644 "$sums" "$host:$remote/downloads/$version/SHA256SUMS"
   for f in "$dir"/updates/frostdev.io/*/latest.json; do
     ch=$(basename "$(dirname "$f")")

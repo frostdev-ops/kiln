@@ -1,0 +1,18 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)../../../Directory.Build.targets" />
+  <!-- (A mod built with Kiln.Sdk, such as TkParity, gets its references and kiln.mod.json from the SDK.) -->
+  <ItemGroup Condition="'$(UsingKilnSdk)' != 'true'">
+    <!-- Kiln.Api comes from the host at run time: reference it, never ship it. -->
+    <ProjectReference Include="$(KilnManaged)Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <!-- A mod folder's own files (kiln.mod.json, locales/) go beside the mod's output only: copied after the build, so
+       they do not flow into the test project's output, where every mod would drop its kiln.mod.json on the others'. -->
+  <Target Name="TkModFiles" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/kiln.mod.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(MSBuildProjectDirectory)/kiln.mod.json')" />
+    <ItemGroup>
+      <_TkLocale Include="$(MSBuildProjectDirectory)/locales/*.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_TkLocale)" DestinationFolder="$(OutDir)locales" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

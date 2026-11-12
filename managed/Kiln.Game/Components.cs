@@ -8,6 +8,7 @@ namespace Kiln.GameTypes;
 /// struct's engine field offsets come from the game's own reflection, so <c>Components.Get&lt;NetworkHealth&gt;(e).health</c>
 /// reads the real component memory on this build. Call on the tick thread (game state is single-threaded).
 /// </summary>
+[Obsolete("Use Kiln.Ecs.")]
 public static class Components
 {
     /// <summary>True when kiln.world is available (component reads work on this build).</summary>
@@ -23,7 +24,7 @@ public static class Components
     {
         value = default;
         var name = NameOf<T>();
-        return name is not null && World.TryRead(entity, name, out value);
+        return name is not null && (!World.Available || Checked<T>(name)) && World.TryRead(entity, name, out value);
     }
 
     /// <summary>The component, or null when the entity does not have it.</summary>
@@ -31,9 +32,12 @@ public static class Components
 
     /// <summary>True if the entity has component <typeparamref name="T"/>.</summary>
     public static bool Has<T>(EntityId entity) where T : unmanaged =>
-        NameOf<T>() is { } name && World.Has(entity, name);
+        NameOf<T>() is { } name && (!World.Available || Checked<T>(name)) && World.Has(entity, name);
 
     /// <summary>Every entity carrying component <typeparamref name="T"/>.</summary>
     public static IReadOnlyList<EntityId> All<T>() where T : unmanaged =>
-        NameOf<T>() is { } name ? World.Find(name) : [];
+        NameOf<T>() is { } name && (!World.Available || Checked<T>(name)) ? World.Find(name) : [];
+
+    // The first-use check of Kiln.Ecs (docs/kiln/typegen.md §4), by the type's game name.
+    private static bool Checked<T>(string name) => EcsSupport.Usable(typeof(T), "keen::ecs::" + name, legacy: typeof(T));
 }

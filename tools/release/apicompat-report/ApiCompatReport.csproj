@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Helper of tools/release/apicompat.sh (built on demand into $KILN_OUT, never shipped): reads the findings that
+       Microsoft.DotNet.ApiCompat.Tool writes as a suppression file, drops the ones on [Experimental] API of the baseline,
+       and prints one readable line per finding. Compiles against the Roslyn assemblies inside the ApiCompat tool
+       package (KilnRoslynDir), so it needs no package of its own. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RollForward>Major</RollForward>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.CodeAnalysis" HintPath="$(KilnRoslynDir)/Microsoft.CodeAnalysis.dll" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(KilnRoslynDir)/Microsoft.CodeAnalysis.CSharp.dll" />
+  </ItemGroup>
+  <Target Name="_KilnCheckRoslyn" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(KilnRoslynDir)' == '' or !Exists('$(KilnRoslynDir)/Microsoft.CodeAnalysis.dll')"
+           Text="KilnRoslynDir must point at the codeanalysis folder of Microsoft.DotNet.ApiCompat.Tool (tools/release/apicompat.sh sets it)" />
+  </Target>
+</Project>

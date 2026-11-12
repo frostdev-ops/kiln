@@ -35,6 +35,10 @@ bool constant(std::string_view name, int64_t* out);
 bool feature(std::string_view name);
 std::vector<std::string> features();       // all defined features
 std::vector<std::string> failed_features();
+// Why a core feature is off (kiln.caps' feature rows): the first symbol of its list that did not resolve, in the list's
+// order, else its first constant that did not, with sigdb's own error text ("not defined" for a name no definition
+// has). False when the feature resolved or is not defined. Read-only; call after load_and_resolve.
+bool feature_problem(std::string_view feature, std::string* name, std::string* text, bool* is_constant);
 void write_report(const std::filesystem::path& file);
 double resolve_ms();
 

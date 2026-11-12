@@ -1,0 +1,7 @@
+{
+  "id": "tk-ordered",
+  "name": "tk-ordered",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "server"
+}

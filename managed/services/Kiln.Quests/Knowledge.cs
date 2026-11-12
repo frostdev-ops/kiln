@@ -219,6 +219,8 @@ public static unsafe class Knowledge
     /// <summary>Diagnostics, tick thread, lab only: plays a joining client's record on a free player block (phase 0 the login's
     /// activation, 1 the record's load, 2 takes the block back), for tests of the change events' baseline. False when it
     /// did not work (the block has a player, an unknown build).</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static bool LabRecord(EntityId block, int phase, params (uint Id, uint Value)[] record)
     {
         var t = KnowledgeNative.T;

@@ -1,0 +1,376 @@
+#nullable enable
+Kiln.ConfigSync
+Kiln.ConfigSyncedEvent
+Kiln.ConfigSyncedEvent.Changed.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigSyncedEvent.Config.get -> Kiln.ConfigFile!
+Kiln.ConfigSyncedEvent.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigSyncedEvent.ModId.get -> string!
+Kiln.ConfigSyncedEvent.Restored.get -> bool
+Kiln.DirHash
+Kiln.DirHashException
+Kiln.DirHashException.DirHashException(string! message) -> void
+Kiln.INetMessage<TSelf>
+Kiln.INetMessage<TSelf>.Decode(ref Kiln.NetReader r) -> TSelf
+Kiln.INetMessage<TSelf>.Encode(Kiln.NetWriter! w) -> void
+Kiln.ModSyncPolicy
+Kiln.ModSyncPolicy.Off = 0 -> Kiln.ModSyncPolicy
+Kiln.ModSyncPolicy.Refuse = 2 -> Kiln.ModSyncPolicy
+Kiln.ModSyncPolicy.Warn = 1 -> Kiln.ModSyncPolicy
+Kiln.ModVersionMatch
+Kiln.ModVersionMatch.Any = 2 -> Kiln.ModVersionMatch
+Kiln.ModVersionMatch.Exact = 0 -> Kiln.ModVersionMatch
+Kiln.ModVersionMatch.Major = 1 -> Kiln.ModVersionMatch
+Kiln.NetChannel
+Kiln.NetChannel.BytesIn -> long
+Kiln.NetChannel.BytesOut -> long
+Kiln.NetChannel.DecodeErrors -> long
+Kiln.NetChannel.Dispose() -> void
+Kiln.NetChannel.MaxMessageBytes.get -> int
+Kiln.NetChannel.MessagesIn -> long
+Kiln.NetChannel.MessagesOut -> long
+Kiln.NetChannel.Name.get -> string!
+Kiln.NetChannel.OnRaw(Kiln.NetRawHandler! handler) -> Kiln.NetChannel!
+Kiln.NetChannel.Register<T>(System.Action<T, Kiln.NetContext!>? handler = null, Kiln.NetDirection direction = Kiln.NetDirection.Both) -> Kiln.NetChannel!
+Kiln.NetChannel.Register<T>(ushort id, System.Action<T, Kiln.NetContext!>? handler, Kiln.NetDirection direction = Kiln.NetDirection.Both) -> Kiln.NetChannel!
+Kiln.NetChannel.Register<T>(ushort id, System.Action<T, Kiln.NetWriter!>! encode, Kiln.NetDecoder<T>! decode, System.Action<T, Kiln.NetContext!>? handler = null, Kiln.NetDirection direction = Kiln.NetDirection.Both) -> Kiln.NetChannel!
+Kiln.NetChannel.RegisterJson<T>(System.Action<T, Kiln.NetContext!>? handler = null, Kiln.NetDirection direction = Kiln.NetDirection.Both) -> Kiln.NetChannel!
+Kiln.NetChannel.RegisterJson<T>(System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! typeInfo, System.Action<T, Kiln.NetContext!>? handler = null, Kiln.NetDirection direction = Kiln.NetDirection.Both) -> Kiln.NetChannel!
+Kiln.NetChannel.Required.get -> bool
+Kiln.NetChannel.SendNear<T>(Kiln.WorldPosition position, double radius, T message, Kiln.NetPeer? except = null) -> int
+Kiln.NetChannel.SendRaw(Kiln.NetPeer! peer, ushort messageId, System.ReadOnlySpan<byte> body) -> bool
+Kiln.NetChannel.SendTo<T>(Kiln.EntityId player, T message) -> bool
+Kiln.NetChannel.SendTo<T>(Kiln.NetPeer! peer, T message) -> bool
+Kiln.NetChannel.SendToAll<T>(T message, Kiln.NetPeer? except = null) -> int
+Kiln.NetChannel.SendToServer<T>(T message) -> bool
+Kiln.NetChannel.Version.get -> string!
+Kiln.NetClientHandshakeEvent
+Kiln.NetClientHandshakeEvent.Extra.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.NetClientHandshakeEvent.Missing.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.NetClientHandshakeEvent.Peer.get -> Kiln.NetPeer!
+Kiln.NetClientHandshakeEvent.Reason.get -> string!
+Kiln.NetClientHandshakeEvent.Reason.set -> void
+Kiln.NetClientHandshakeEvent.Refuse.get -> bool
+Kiln.NetClientHandshakeEvent.Refuse.set -> void
+Kiln.NetContext
+Kiln.NetContext.Channel.get -> Kiln.NetChannel!
+Kiln.NetContext.Direction.get -> Kiln.NetDirection
+Kiln.NetContext.Player.get -> Kiln.EntityId
+Kiln.NetContext.Reply<T>(T message) -> bool
+Kiln.NetContext.Sender.get -> Kiln.NetPeer!
+Kiln.NetDecoder<T>
+Kiln.NetDirection
+Kiln.NetDirection.Both = 3 -> Kiln.NetDirection
+Kiln.NetDirection.ToClient = 2 -> Kiln.NetDirection
+Kiln.NetDirection.ToServer = 1 -> Kiln.NetDirection
+Kiln.NetFormatException
+Kiln.NetFormatException.NetFormatException(string! message) -> void
+Kiln.NetModpack
+Kiln.NetModpack.<Clone>$() -> Kiln.NetModpack!
+Kiln.NetModpack.Deconstruct(out string! Url, out string! Sha256, out string? Name, out string? Version, out long? Size) -> void
+Kiln.NetModpack.Equals(Kiln.NetModpack? other) -> bool
+Kiln.NetModpack.Name.get -> string?
+Kiln.NetModpack.Name.init -> void
+Kiln.NetModpack.NetModpack(string! Url, string! Sha256, string? Name = null, string? Version = null, long? Size = null) -> void
+Kiln.NetModpack.Sha256.get -> string!
+Kiln.NetModpack.Sha256.init -> void
+Kiln.NetModpack.Size.get -> long?
+Kiln.NetModpack.Size.init -> void
+Kiln.NetModpack.Url.get -> string!
+Kiln.NetModpack.Url.init -> void
+Kiln.NetModpack.Version.get -> string?
+Kiln.NetModpack.Version.init -> void
+Kiln.NetPeer
+Kiln.NetPeer.AccountId.get -> ulong
+Kiln.NetPeer.BytesIn -> long
+Kiln.NetPeer.BytesOut -> long
+Kiln.NetPeer.ConnectedAt.get -> System.DateTime
+Kiln.NetPeer.Dropped -> long
+Kiln.NetPeer.HasChannel(string! name) -> bool
+Kiln.NetPeer.Id.get -> uint
+Kiln.NetPeer.IsLab.get -> bool
+Kiln.NetPeer.IsServer.get -> bool
+Kiln.NetPeer.KilnVersion.get -> string?
+Kiln.NetPeer.MessagesIn -> long
+Kiln.NetPeer.MessagesOut -> long
+Kiln.NetPeer.Mods.get -> System.Collections.Generic.IReadOnlyList<Kiln.NetRemoteMod!>!
+Kiln.NetPeer.Name.get -> string!
+Kiln.NetPeer.Player.get -> Kiln.EntityId
+Kiln.NetPeer.Properties.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+Kiln.NetPeer.RoundTrip.get -> System.TimeSpan?
+Kiln.NetPeer.State.get -> Kiln.NetPeerState
+Kiln.NetPeer.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.NetPeerLeftEvent
+Kiln.NetPeerLeftEvent.NetPeerLeftEvent(Kiln.NetPeer! peer) -> void
+Kiln.NetPeerLeftEvent.Peer.get -> Kiln.NetPeer!
+Kiln.NetPeerReadyEvent
+Kiln.NetPeerReadyEvent.NetPeerReadyEvent(Kiln.NetPeer! peer) -> void
+Kiln.NetPeerReadyEvent.Peer.get -> Kiln.NetPeer!
+Kiln.NetPeerState
+Kiln.NetPeerState.Closed = 4 -> Kiln.NetPeerState
+Kiln.NetPeerState.Connecting = 0 -> Kiln.NetPeerState
+Kiln.NetPeerState.Ready = 1 -> Kiln.NetPeerState
+Kiln.NetPeerState.Rejected = 3 -> Kiln.NetPeerState
+Kiln.NetPeerState.Vanilla = 2 -> Kiln.NetPeerState
+Kiln.NetRawHandler
+Kiln.NetReader
+Kiln.NetReader.Bool() -> bool
+Kiln.NetReader.Byte() -> byte
+Kiln.NetReader.Bytes(int maxBytes = 16777216) -> byte[]!
+Kiln.NetReader.Double() -> double
+Kiln.NetReader.End.get -> bool
+Kiln.NetReader.Entity() -> Kiln.EntityId
+Kiln.NetReader.Guid() -> System.Guid
+Kiln.NetReader.Int16() -> short
+Kiln.NetReader.Int32() -> int
+Kiln.NetReader.Int64() -> long
+Kiln.NetReader.NetReader() -> void
+Kiln.NetReader.NetReader(System.ReadOnlySpan<byte> data) -> void
+Kiln.NetReader.Position.get -> int
+Kiln.NetReader.Position3() -> Kiln.WorldPosition
+Kiln.NetReader.Raw(int n) -> System.ReadOnlySpan<byte>
+Kiln.NetReader.Remaining.get -> int
+Kiln.NetReader.Rest() -> System.ReadOnlySpan<byte>
+Kiln.NetReader.Single() -> float
+Kiln.NetReader.String(int maxBytes = 1048576) -> string!
+Kiln.NetReader.UInt16() -> ushort
+Kiln.NetReader.UInt32() -> uint
+Kiln.NetReader.UInt64() -> ulong
+Kiln.NetReader.VarInt() -> long
+Kiln.NetReader.VarUInt() -> ulong
+Kiln.NetRemoteMod
+Kiln.NetRemoteMod.<Clone>$() -> Kiln.NetRemoteMod!
+Kiln.NetRemoteMod.Deconstruct(out string! Id, out string! Version, out Kiln.ModSide Side) -> void
+Kiln.NetRemoteMod.Equals(Kiln.NetRemoteMod? other) -> bool
+Kiln.NetRemoteMod.Id.get -> string!
+Kiln.NetRemoteMod.Id.init -> void
+Kiln.NetRemoteMod.NetRemoteMod(string! Id, string! Version, Kiln.ModSide Side) -> void
+Kiln.NetRemoteMod.Side.get -> Kiln.ModSide
+Kiln.NetRemoteMod.Side.init -> void
+Kiln.NetRemoteMod.Version.get -> string!
+Kiln.NetRemoteMod.Version.init -> void
+Kiln.NetRequiredMod
+Kiln.NetRequiredMod.<Clone>$() -> Kiln.NetRequiredMod!
+Kiln.NetRequiredMod.Deconstruct(out string! Id, out string! Version, out string! Hash, out string! Kind, out string? Name) -> void
+Kiln.NetRequiredMod.Equals(Kiln.NetRequiredMod? other) -> bool
+Kiln.NetRequiredMod.Hash.get -> string!
+Kiln.NetRequiredMod.Hash.init -> void
+Kiln.NetRequiredMod.Id.get -> string!
+Kiln.NetRequiredMod.Id.init -> void
+Kiln.NetRequiredMod.Kind.get -> string!
+Kiln.NetRequiredMod.Kind.init -> void
+Kiln.NetRequiredMod.Name.get -> string?
+Kiln.NetRequiredMod.Name.init -> void
+Kiln.NetRequiredMod.NetRequiredMod(string! Id, string! Version, string! Hash, string! Kind = "kiln", string? Name = null) -> void
+Kiln.NetRequiredMod.Version.get -> string!
+Kiln.NetRequiredMod.Version.init -> void
+Kiln.NetServerAdvert
+Kiln.NetServerAdvert.<Clone>$() -> Kiln.NetServerAdvert!
+Kiln.NetServerAdvert.Deconstruct(out string? ServerId, out string? ServerName, out string? Kiln, out Kiln.NetModpack? Modpack, out System.Collections.Generic.IReadOnlyList<Kiln.NetRequiredMod!>! Required, out int RequiredCount, out bool Truncated, out bool Pending) -> void
+Kiln.NetServerAdvert.Equals(Kiln.NetServerAdvert? other) -> bool
+Kiln.NetServerAdvert.Kiln.get -> string?
+Kiln.NetServerAdvert.Kiln.init -> void
+Kiln.NetServerAdvert.Modpack.get -> Kiln.NetModpack?
+Kiln.NetServerAdvert.Modpack.init -> void
+Kiln.NetServerAdvert.NetServerAdvert(string? ServerId, string? ServerName, string? Kiln, Kiln.NetModpack? Modpack, System.Collections.Generic.IReadOnlyList<Kiln.NetRequiredMod!>! Required, int RequiredCount, bool Truncated, bool Pending) -> void
+Kiln.NetServerAdvert.Pending.get -> bool
+Kiln.NetServerAdvert.Pending.init -> void
+Kiln.NetServerAdvert.Present.get -> bool
+Kiln.NetServerAdvert.Required.get -> System.Collections.Generic.IReadOnlyList<Kiln.NetRequiredMod!>!
+Kiln.NetServerAdvert.Required.init -> void
+Kiln.NetServerAdvert.RequiredCount.get -> int
+Kiln.NetServerAdvert.RequiredCount.init -> void
+Kiln.NetServerAdvert.ServerId.get -> string?
+Kiln.NetServerAdvert.ServerId.init -> void
+Kiln.NetServerAdvert.ServerName.get -> string?
+Kiln.NetServerAdvert.ServerName.init -> void
+Kiln.NetServerAdvert.Truncated.get -> bool
+Kiln.NetServerAdvert.Truncated.init -> void
+Kiln.NetVanillaClientEvent
+Kiln.NetVanillaClientEvent.Kick.get -> bool
+Kiln.NetVanillaClientEvent.Kick.set -> void
+Kiln.NetVanillaClientEvent.Peer.get -> Kiln.NetPeer!
+Kiln.NetWriter
+Kiln.NetWriter.Bool(bool v) -> Kiln.NetWriter!
+Kiln.NetWriter.Byte(byte v) -> Kiln.NetWriter!
+Kiln.NetWriter.Bytes(System.ReadOnlySpan<byte> v) -> Kiln.NetWriter!
+Kiln.NetWriter.Clear() -> void
+Kiln.NetWriter.Double(double v) -> Kiln.NetWriter!
+Kiln.NetWriter.Entity(Kiln.EntityId e) -> Kiln.NetWriter!
+Kiln.NetWriter.Guid(System.Guid v) -> Kiln.NetWriter!
+Kiln.NetWriter.Int16(short v) -> Kiln.NetWriter!
+Kiln.NetWriter.Int32(int v) -> Kiln.NetWriter!
+Kiln.NetWriter.Int64(long v) -> Kiln.NetWriter!
+Kiln.NetWriter.Length.get -> int
+Kiln.NetWriter.NetWriter(int capacity = 256) -> void
+Kiln.NetWriter.Position(Kiln.WorldPosition p) -> Kiln.NetWriter!
+Kiln.NetWriter.Raw(System.ReadOnlySpan<byte> v) -> Kiln.NetWriter!
+Kiln.NetWriter.Single(float v) -> Kiln.NetWriter!
+Kiln.NetWriter.String(string? v) -> Kiln.NetWriter!
+Kiln.NetWriter.ToArray() -> byte[]!
+Kiln.NetWriter.UInt16(ushort v) -> Kiln.NetWriter!
+Kiln.NetWriter.UInt32(uint v) -> Kiln.NetWriter!
+Kiln.NetWriter.UInt64(ulong v) -> Kiln.NetWriter!
+Kiln.NetWriter.VarInt(long v) -> Kiln.NetWriter!
+Kiln.NetWriter.VarUInt(ulong v) -> Kiln.NetWriter!
+Kiln.NetWriter.WrittenSpan.get -> System.ReadOnlySpan<byte>
+Kiln.Network
+Kiln.NetworkConfig
+Kiln.NetworkConfig.<Clone>$() -> Kiln.NetworkConfig!
+Kiln.NetworkConfig.Advertise.get -> bool
+Kiln.NetworkConfig.Advertise.init -> void
+Kiln.NetworkConfig.BytesPerSecond.get -> double
+Kiln.NetworkConfig.BytesPerSecond.init -> void
+Kiln.NetworkConfig.DefinitionsWaitSeconds.get -> double
+Kiln.NetworkConfig.DefinitionsWaitSeconds.init -> void
+Kiln.NetworkConfig.Equals(Kiln.NetworkConfig? other) -> bool
+Kiln.NetworkConfig.FloodKickDrops.get -> int
+Kiln.NetworkConfig.FloodKickDrops.init -> void
+Kiln.NetworkConfig.HandshakeTimeoutSeconds.get -> double
+Kiln.NetworkConfig.HandshakeTimeoutSeconds.init -> void
+Kiln.NetworkConfig.KickReason.get -> uint
+Kiln.NetworkConfig.KickReason.init -> void
+Kiln.NetworkConfig.LabPort.get -> int
+Kiln.NetworkConfig.LabPort.init -> void
+Kiln.NetworkConfig.MaxMessageBytes.get -> int
+Kiln.NetworkConfig.MaxMessageBytes.init -> void
+Kiln.NetworkConfig.MessagesPerSecond.get -> double
+Kiln.NetworkConfig.MessagesPerSecond.init -> void
+Kiln.NetworkConfig.ModSync.get -> Kiln.ModSyncPolicy
+Kiln.NetworkConfig.ModSync.init -> void
+Kiln.NetworkConfig.ModSyncStated.get -> bool
+Kiln.NetworkConfig.ModSyncStated.init -> void
+Kiln.NetworkConfig.Modpack.get -> Kiln.NetModpack?
+Kiln.NetworkConfig.Modpack.init -> void
+Kiln.NetworkConfig.NetworkConfig() -> void
+Kiln.NetworkConfig.OptionalMods.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.NetworkConfig.OptionalMods.init -> void
+Kiln.NetworkConfig.RequireKiln.get -> bool
+Kiln.NetworkConfig.RequireKiln.init -> void
+Kiln.NetworkConfig.ServerId.get -> string?
+Kiln.NetworkConfig.ServerId.init -> void
+Kiln.NetworkConfig.ServerName.get -> string?
+Kiln.NetworkConfig.ServerName.init -> void
+Kiln.NetworkConfig.VanillaHoldSeconds.get -> double
+Kiln.NetworkConfig.VanillaHoldSeconds.init -> void
+Kiln.NetworkConfig.VersionMatch.get -> Kiln.ModVersionMatch
+Kiln.NetworkConfig.VersionMatch.init -> void
+Kiln.NetworkConfig.VersionsMatch(string! server, string! client) -> bool
+Kiln.NetworkStatus
+Kiln.NetworkStatus.Available.get -> bool
+Kiln.NetworkStatus.Available.init -> void
+Kiln.NetworkStatus.BytesIn.get -> long
+Kiln.NetworkStatus.BytesIn.init -> void
+Kiln.NetworkStatus.BytesOut.get -> long
+Kiln.NetworkStatus.BytesOut.init -> void
+Kiln.NetworkStatus.Channels.get -> int
+Kiln.NetworkStatus.Channels.init -> void
+Kiln.NetworkStatus.ClientRole.get -> bool
+Kiln.NetworkStatus.ClientRole.init -> void
+Kiln.NetworkStatus.ConfigError.get -> string?
+Kiln.NetworkStatus.ConfigError.init -> void
+Kiln.NetworkStatus.Deconstruct(out bool Available, out bool ServerRole, out bool ClientRole, out bool LabTransport, out int Peers, out int ReadyPeers, out int Channels, out uint MaxFrame, out long FramesIn, out long FramesOut, out long BytesIn, out long BytesOut, out long Dropped, out long SendFailures, out string? ConfigError) -> void
+Kiln.NetworkStatus.Dropped.get -> long
+Kiln.NetworkStatus.Dropped.init -> void
+Kiln.NetworkStatus.Equals(Kiln.NetworkStatus other) -> bool
+Kiln.NetworkStatus.FramesIn.get -> long
+Kiln.NetworkStatus.FramesIn.init -> void
+Kiln.NetworkStatus.FramesOut.get -> long
+Kiln.NetworkStatus.FramesOut.init -> void
+Kiln.NetworkStatus.LabTransport.get -> bool
+Kiln.NetworkStatus.LabTransport.init -> void
+Kiln.NetworkStatus.MaxFrame.get -> uint
+Kiln.NetworkStatus.MaxFrame.init -> void
+Kiln.NetworkStatus.NetworkStatus() -> void
+Kiln.NetworkStatus.NetworkStatus(bool Available, bool ServerRole, bool ClientRole, bool LabTransport, int Peers, int ReadyPeers, int Channels, uint MaxFrame, long FramesIn, long FramesOut, long BytesIn, long BytesOut, long Dropped, long SendFailures, string? ConfigError) -> void
+Kiln.NetworkStatus.Peers.get -> int
+Kiln.NetworkStatus.Peers.init -> void
+Kiln.NetworkStatus.ReadyPeers.get -> int
+Kiln.NetworkStatus.ReadyPeers.init -> void
+Kiln.NetworkStatus.SendFailures.get -> long
+Kiln.NetworkStatus.SendFailures.init -> void
+Kiln.NetworkStatus.ServerRole.get -> bool
+Kiln.NetworkStatus.ServerRole.init -> void
+Kiln.SyncSettings
+Kiln.SyncSettings.AcceptConfigs.get -> bool
+Kiln.SyncSettings.AcceptConfigs.set -> void
+Kiln.SyncSettings.AcceptContent.get -> bool
+Kiln.SyncSettings.AcceptContent.set -> void
+Kiln.SyncSettings.MatchServer.get -> bool
+Kiln.SyncSettings.MatchServer.set -> void
+Kiln.SyncSettings.MaxContentKiB.get -> int
+Kiln.SyncSettings.MaxContentKiB.set -> void
+Kiln.SyncSettings.SendConfigs.get -> bool
+Kiln.SyncSettings.SendConfigs.set -> void
+Kiln.SyncSettings.SendContent.get -> bool
+Kiln.SyncSettings.SendContent.set -> void
+Kiln.SyncSettings.SyncSettings() -> void
+const Kiln.ConfigSync.ChannelName = "kiln:config" -> string!
+const Kiln.ConfigSync.ChannelVersion = "1" -> string!
+const Kiln.DirHash.Empty = "kdh1:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" -> string!
+const Kiln.DirHash.Prefix = "kdh1:" -> string!
+const Kiln.NetReader.MaxString = 1048576 -> int
+override Kiln.NetChannel.ToString() -> string!
+override Kiln.NetModpack.Equals(object? obj) -> bool
+override Kiln.NetModpack.GetHashCode() -> int
+override Kiln.NetModpack.ToString() -> string!
+override Kiln.NetPeer.ToString() -> string!
+override Kiln.NetRemoteMod.Equals(object? obj) -> bool
+override Kiln.NetRemoteMod.GetHashCode() -> int
+override Kiln.NetRemoteMod.ToString() -> string!
+override Kiln.NetRequiredMod.Equals(object? obj) -> bool
+override Kiln.NetRequiredMod.GetHashCode() -> int
+override Kiln.NetRequiredMod.ToString() -> string!
+override Kiln.NetServerAdvert.Equals(object? obj) -> bool
+override Kiln.NetServerAdvert.GetHashCode() -> int
+override Kiln.NetServerAdvert.ToString() -> string!
+override Kiln.NetworkConfig.Equals(object? obj) -> bool
+override Kiln.NetworkConfig.GetHashCode() -> int
+override Kiln.NetworkConfig.ToString() -> string!
+override Kiln.NetworkStatus.GetHashCode() -> int
+static Kiln.ConfigSync.CheckRoundTrip(Kiln.ConfigFile! file) -> string!
+static Kiln.ConfigSync.LastReceived.get -> (uint StateId, int Configs)?
+static Kiln.ConfigSync.ServerConfigs.get -> int
+static Kiln.ConfigSync.Serving.get -> (uint StateId, int Configs)?
+static Kiln.DirHash.Compute(string! root) -> string!
+static Kiln.DirHash.Files(string! root) -> System.Collections.Generic.List<(byte[]! Key, string! Path)>!
+static Kiln.DirHash.Signature(string! root) -> string!
+static Kiln.NetModpack.operator !=(Kiln.NetModpack? left, Kiln.NetModpack? right) -> bool
+static Kiln.NetModpack.operator ==(Kiln.NetModpack? left, Kiln.NetModpack? right) -> bool
+static Kiln.NetRemoteMod.operator !=(Kiln.NetRemoteMod? left, Kiln.NetRemoteMod? right) -> bool
+static Kiln.NetRemoteMod.operator ==(Kiln.NetRemoteMod? left, Kiln.NetRemoteMod? right) -> bool
+static Kiln.NetRequiredMod.operator !=(Kiln.NetRequiredMod? left, Kiln.NetRequiredMod? right) -> bool
+static Kiln.NetRequiredMod.operator ==(Kiln.NetRequiredMod? left, Kiln.NetRequiredMod? right) -> bool
+static Kiln.NetServerAdvert.operator !=(Kiln.NetServerAdvert? left, Kiln.NetServerAdvert? right) -> bool
+static Kiln.NetServerAdvert.operator ==(Kiln.NetServerAdvert? left, Kiln.NetServerAdvert? right) -> bool
+static Kiln.Network.Advertised.get -> Kiln.NetServerAdvert!
+static Kiln.Network.Available.get -> bool
+static Kiln.Network.Channel(string! name, string! version = "1", bool required = true, int maxMessageBytes = 0) -> Kiln.NetChannel!
+static Kiln.Network.Channels.get -> System.Collections.Generic.IReadOnlyList<Kiln.NetChannel!>!
+static Kiln.Network.Config.get -> Kiln.NetworkConfig!
+static Kiln.Network.ConfigError.get -> string?
+static Kiln.Network.Disconnected -> System.Action<Kiln.NetPeer!>?
+static Kiln.Network.PeerOf(Kiln.EntityId player) -> Kiln.NetPeer?
+static Kiln.Network.Peers.get -> System.Collections.Generic.IReadOnlyList<Kiln.NetPeer!>!
+static Kiln.Network.RefreshRequired() -> void
+static Kiln.Network.Rejected -> System.Action<string!, System.Collections.Generic.IReadOnlyList<string!>!>?
+static Kiln.Network.ReloadConfig() -> void
+static Kiln.Network.Server.get -> Kiln.NetPeer?
+static Kiln.Network.ServerAdvert.get -> Kiln.NetServerAdvert?
+static Kiln.Network.ServerHasKiln.get -> bool
+static Kiln.Network.ServerId.get -> string!
+static Kiln.Network.ServerName.get -> string?
+static Kiln.Network.ServerReady -> System.Action<Kiln.NetPeer!>?
+static Kiln.Network.ServerVanilla -> System.Action<Kiln.NetPeer!>?
+static Kiln.Network.SetHandshakeProperty(string! key, System.Func<string!>! provider) -> void
+static Kiln.Network.Status.get -> Kiln.NetworkStatus
+static Kiln.NetworkConfig.FilePath.get -> string?
+static Kiln.NetworkConfig.Load(out string? error) -> Kiln.NetworkConfig!
+static Kiln.NetworkConfig.operator !=(Kiln.NetworkConfig? left, Kiln.NetworkConfig? right) -> bool
+static Kiln.NetworkConfig.operator ==(Kiln.NetworkConfig? left, Kiln.NetworkConfig? right) -> bool
+static Kiln.NetworkStatus.operator !=(Kiln.NetworkStatus left, Kiln.NetworkStatus right) -> bool
+static Kiln.NetworkStatus.operator ==(Kiln.NetworkStatus left, Kiln.NetworkStatus right) -> bool
+static Kiln.SyncSettings.Current.get -> Kiln.SyncSettings!
+virtual Kiln.NetDecoder<T>.Invoke(ref Kiln.NetReader reader) -> T
+virtual Kiln.NetRawHandler.Invoke(Kiln.NetContext! context, ushort messageId, System.ReadOnlySpan<byte> body) -> void
+~override Kiln.NetworkStatus.Equals(object obj) -> bool
+~override Kiln.NetworkStatus.ToString() -> string

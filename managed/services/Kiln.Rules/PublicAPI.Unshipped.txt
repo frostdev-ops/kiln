@@ -1,0 +1,3 @@
+#nullable enable
+*REMOVED*static Kiln.Rules.Simulate(Kiln.EntityId character, bool on = true) -> void
+[KILNX001]static Kiln.Rules.Simulate(Kiln.EntityId character, bool on = true) -> void

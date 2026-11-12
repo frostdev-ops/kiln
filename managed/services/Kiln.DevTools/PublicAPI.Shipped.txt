@@ -1,0 +1,3 @@
+#nullable enable
+Kiln.KilnDevTools
+static Kiln.KilnDevTools.Start() -> void

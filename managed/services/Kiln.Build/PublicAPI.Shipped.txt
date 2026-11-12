@@ -1,0 +1,568 @@
+#nullable enable
+Kiln.Build
+Kiln.BuildCommands
+Kiln.BuildEditEvent
+Kiln.BuildEditEvent.Actor.get -> Kiln.EntityId
+Kiln.BuildEditEvent.Box.get -> Kiln.CellBox
+Kiln.BuildEditEvent.Changed.get -> bool
+Kiln.BuildEditEvent.JournalId.get -> long
+Kiln.BuildEditEvent.Kind.get -> Kiln.BuildEditKind
+Kiln.BuildEditEvent.Label.get -> string?
+Kiln.BuildEditEvent.Origin.get -> string!
+Kiln.BuildEditEvent.PropsPlaced.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+Kiln.BuildEditEvent.PropsRemoved.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+Kiln.BuildEditEvent.Result.get -> Kiln.BuildResult?
+Kiln.BuildEditKind
+Kiln.BuildEditKind.Add = 3 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Dig = 2 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Flatten = 4 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Paint = 6 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Paste = 8 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.PlaceProp = 9 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.RemoveProp = 10 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Replace = 7 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Smooth = 5 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Undo = 11 -> Kiln.BuildEditKind
+Kiln.BuildEditKind.Write = 1 -> Kiln.BuildEditKind
+Kiln.BuildEditingEvent
+Kiln.BuildEditingEvent.Actor.get -> Kiln.EntityId
+Kiln.BuildEditingEvent.Box.get -> Kiln.CellBox
+Kiln.BuildEditingEvent.Kind.get -> Kiln.BuildEditKind
+Kiln.BuildEditingEvent.Label.get -> string?
+Kiln.BuildEditingEvent.Origin.get -> string!
+Kiln.BuildException
+Kiln.BuildException.BuildException(string! message, int code = 0) -> void
+Kiln.BuildException.Code.get -> int
+Kiln.BuildFlags
+Kiln.BuildFlags.AllowAltars = 4 -> Kiln.BuildFlags
+Kiln.BuildFlags.DryRun = 16 -> Kiln.BuildFlags
+Kiln.BuildFlags.InBases = 2 -> Kiln.BuildFlags
+Kiln.BuildFlags.None = 0 -> Kiln.BuildFlags
+Kiln.BuildFlags.RespectZones = 1 -> Kiln.BuildFlags
+Kiln.BuildFlags.Transient = 32 -> Kiln.BuildFlags
+Kiln.BuildFlags.Unloaded = 8 -> Kiln.BuildFlags
+Kiln.BuildOptions
+Kiln.BuildOptions.Actor.get -> Kiln.EntityId
+Kiln.BuildOptions.Actor.init -> void
+Kiln.BuildOptions.BuildOptions() -> void
+Kiln.BuildOptions.Flags.get -> Kiln.BuildFlags
+Kiln.BuildOptions.Flags.init -> void
+Kiln.BuildOptions.Journal.get -> bool
+Kiln.BuildOptions.Journal.init -> void
+Kiln.BuildOptions.Label.get -> string?
+Kiln.BuildOptions.Label.init -> void
+Kiln.BuildOptions.LoadTimeout.get -> System.TimeSpan
+Kiln.BuildOptions.LoadTimeout.init -> void
+Kiln.BuildRefusal
+Kiln.BuildRefusal.Base = 2 -> Kiln.BuildRefusal
+Kiln.BuildRefusal.Canceled = 5 -> Kiln.BuildRefusal
+Kiln.BuildRefusal.DryRun = 4 -> Kiln.BuildRefusal
+Kiln.BuildRefusal.None = 0 -> Kiln.BuildRefusal
+Kiln.BuildRefusal.NotLoaded = 3 -> Kiln.BuildRefusal
+Kiln.BuildRefusal.Zone = 1 -> Kiln.BuildRefusal
+Kiln.BuildResult
+Kiln.BuildResult.<Clone>$() -> Kiln.BuildResult!
+Kiln.BuildResult.BlocksWritten.get -> int
+Kiln.BuildResult.BlocksWritten.init -> void
+Kiln.BuildResult.Box.get -> Kiln.CellBox
+Kiln.BuildResult.Box.init -> void
+Kiln.BuildResult.BuildResult(long CellsChanged, int BlocksWritten, bool Verified, bool Kept, Kiln.CellBox Box, double Milliseconds, Kiln.BuildRefusal Refusal = Kiln.BuildRefusal.None, uint Zone = 0) -> void
+Kiln.BuildResult.CellsChanged.get -> long
+Kiln.BuildResult.CellsChanged.init -> void
+Kiln.BuildResult.Changed.get -> bool
+Kiln.BuildResult.Deconstruct(out long CellsChanged, out int BlocksWritten, out bool Verified, out bool Kept, out Kiln.CellBox Box, out double Milliseconds, out Kiln.BuildRefusal Refusal, out uint Zone) -> void
+Kiln.BuildResult.Equals(Kiln.BuildResult? other) -> bool
+Kiln.BuildResult.Kept.get -> bool
+Kiln.BuildResult.Kept.init -> void
+Kiln.BuildResult.Milliseconds.get -> double
+Kiln.BuildResult.Milliseconds.init -> void
+Kiln.BuildResult.Refusal.get -> Kiln.BuildRefusal
+Kiln.BuildResult.Refusal.init -> void
+Kiln.BuildResult.Refused.get -> bool
+Kiln.BuildResult.Verified.get -> bool
+Kiln.BuildResult.Verified.init -> void
+Kiln.BuildResult.Zone.get -> uint
+Kiln.BuildResult.Zone.init -> void
+Kiln.BuildShape
+Kiln.BuildShape.BuildShape() -> void
+Kiln.BuildShape.BuildShape(Kiln.ShapeKind Kind, Kiln.WorldPosition Center, System.Numerics.Vector3 Half) -> void
+Kiln.BuildShape.Center.get -> Kiln.WorldPosition
+Kiln.BuildShape.Center.init -> void
+Kiln.BuildShape.Deconstruct(out Kiln.ShapeKind Kind, out Kiln.WorldPosition Center, out System.Numerics.Vector3 Half) -> void
+Kiln.BuildShape.Equals(Kiln.BuildShape other) -> bool
+Kiln.BuildShape.Half.get -> System.Numerics.Vector3
+Kiln.BuildShape.Half.init -> void
+Kiln.BuildShape.Kind.get -> Kiln.ShapeKind
+Kiln.BuildShape.Kind.init -> void
+Kiln.BuildStatus
+Kiln.BuildStatus.<Clone>$() -> Kiln.BuildStatus!
+Kiln.BuildStatus.BlocksWritten.get -> ulong
+Kiln.BuildStatus.BlocksWritten.init -> void
+Kiln.BuildStatus.BuildStatus(bool Read, bool Write, bool Props, bool World, bool Persist, ulong Reads, ulong Writes, ulong CellsRead, ulong CellsWritten, ulong BlocksWritten, ulong PropsPlaced, ulong PropsRemoved, ulong Refused, ulong KeptChunks, ulong SavesSeen, string! Detail) -> void
+Kiln.BuildStatus.CellsRead.get -> ulong
+Kiln.BuildStatus.CellsRead.init -> void
+Kiln.BuildStatus.CellsWritten.get -> ulong
+Kiln.BuildStatus.CellsWritten.init -> void
+Kiln.BuildStatus.Deconstruct(out bool Read, out bool Write, out bool Props, out bool World, out bool Persist, out ulong Reads, out ulong Writes, out ulong CellsRead, out ulong CellsWritten, out ulong BlocksWritten, out ulong PropsPlaced, out ulong PropsRemoved, out ulong Refused, out ulong KeptChunks, out ulong SavesSeen, out string! Detail) -> void
+Kiln.BuildStatus.Detail.get -> string!
+Kiln.BuildStatus.Detail.init -> void
+Kiln.BuildStatus.Equals(Kiln.BuildStatus? other) -> bool
+Kiln.BuildStatus.KeptChunks.get -> ulong
+Kiln.BuildStatus.KeptChunks.init -> void
+Kiln.BuildStatus.Persist.get -> bool
+Kiln.BuildStatus.Persist.init -> void
+Kiln.BuildStatus.Props.get -> bool
+Kiln.BuildStatus.Props.init -> void
+Kiln.BuildStatus.PropsPlaced.get -> ulong
+Kiln.BuildStatus.PropsPlaced.init -> void
+Kiln.BuildStatus.PropsRemoved.get -> ulong
+Kiln.BuildStatus.PropsRemoved.init -> void
+Kiln.BuildStatus.Read.get -> bool
+Kiln.BuildStatus.Read.init -> void
+Kiln.BuildStatus.Reads.get -> ulong
+Kiln.BuildStatus.Reads.init -> void
+Kiln.BuildStatus.Refused.get -> ulong
+Kiln.BuildStatus.Refused.init -> void
+Kiln.BuildStatus.SavesSeen.get -> ulong
+Kiln.BuildStatus.SavesSeen.init -> void
+Kiln.BuildStatus.World.get -> bool
+Kiln.BuildStatus.World.init -> void
+Kiln.BuildStatus.Write.get -> bool
+Kiln.BuildStatus.Write.init -> void
+Kiln.BuildStatus.Writes.get -> ulong
+Kiln.BuildStatus.Writes.init -> void
+Kiln.CaptureOptions
+Kiln.CaptureOptions.Anchor.get -> Kiln.CellPos?
+Kiln.CaptureOptions.Anchor.init -> void
+Kiln.CaptureOptions.Author.get -> string?
+Kiln.CaptureOptions.Author.init -> void
+Kiln.CaptureOptions.CaptureOptions() -> void
+Kiln.CaptureOptions.Description.get -> string?
+Kiln.CaptureOptions.Description.init -> void
+Kiln.CaptureOptions.LoadTimeout.get -> System.TimeSpan
+Kiln.CaptureOptions.LoadTimeout.init -> void
+Kiln.CaptureOptions.Name.get -> string?
+Kiln.CaptureOptions.Name.init -> void
+Kiln.CaptureOptions.Props.get -> Kiln.PropFilter
+Kiln.CaptureOptions.Props.init -> void
+Kiln.CellBox
+Kiln.CellBox.CellBox() -> void
+Kiln.CellBox.CellBox(int X, int Y, int Z, int SizeX, int SizeY, int SizeZ) -> void
+Kiln.CellBox.Contains(Kiln.CellPos p) -> bool
+Kiln.CellBox.Count.get -> long
+Kiln.CellBox.Deconstruct(out int X, out int Y, out int Z, out int SizeX, out int SizeY, out int SizeZ) -> void
+Kiln.CellBox.End.get -> Kiln.CellPos
+Kiln.CellBox.Equals(Kiln.CellBox other) -> bool
+Kiln.CellBox.Index(int x, int y, int z) -> int
+Kiln.CellBox.IsEmpty.get -> bool
+Kiln.CellBox.Min.get -> Kiln.CellPos
+Kiln.CellBox.Offset(Kiln.CellPos d) -> Kiln.CellBox
+Kiln.CellBox.SizeX.get -> int
+Kiln.CellBox.SizeX.init -> void
+Kiln.CellBox.SizeY.get -> int
+Kiln.CellBox.SizeY.init -> void
+Kiln.CellBox.SizeZ.get -> int
+Kiln.CellBox.SizeZ.init -> void
+Kiln.CellBox.X.get -> int
+Kiln.CellBox.X.init -> void
+Kiln.CellBox.Y.get -> int
+Kiln.CellBox.Y.init -> void
+Kiln.CellBox.Z.get -> int
+Kiln.CellBox.Z.init -> void
+Kiln.CellPos
+Kiln.CellPos.CellPos() -> void
+Kiln.CellPos.CellPos(int X, int Y, int Z) -> void
+Kiln.CellPos.Deconstruct(out int X, out int Y, out int Z) -> void
+Kiln.CellPos.Equals(Kiln.CellPos other) -> bool
+Kiln.CellPos.X.get -> int
+Kiln.CellPos.X.init -> void
+Kiln.CellPos.Y.get -> int
+Kiln.CellPos.Y.init -> void
+Kiln.CellPos.Z.get -> int
+Kiln.CellPos.Z.init -> void
+Kiln.JournalInfo
+Kiln.JournalInfo.<Clone>$() -> Kiln.JournalInfo!
+Kiln.JournalInfo.At.get -> System.DateTimeOffset
+Kiln.JournalInfo.At.init -> void
+Kiln.JournalInfo.Cells.get -> long
+Kiln.JournalInfo.Cells.init -> void
+Kiln.JournalInfo.Deconstruct(out long Id, out string! Owner, out string! Label, out Kiln.BuildEditKind Kind, out System.DateTimeOffset At, out long Cells, out int PropsPlaced, out int PropsRemoved) -> void
+Kiln.JournalInfo.Equals(Kiln.JournalInfo? other) -> bool
+Kiln.JournalInfo.Id.get -> long
+Kiln.JournalInfo.Id.init -> void
+Kiln.JournalInfo.JournalInfo(long Id, string! Owner, string! Label, Kiln.BuildEditKind Kind, System.DateTimeOffset At, long Cells, int PropsPlaced, int PropsRemoved) -> void
+Kiln.JournalInfo.Kind.get -> Kiln.BuildEditKind
+Kiln.JournalInfo.Kind.init -> void
+Kiln.JournalInfo.Label.get -> string!
+Kiln.JournalInfo.Label.init -> void
+Kiln.JournalInfo.Owner.get -> string!
+Kiln.JournalInfo.Owner.init -> void
+Kiln.JournalInfo.PropsPlaced.get -> int
+Kiln.JournalInfo.PropsPlaced.init -> void
+Kiln.JournalInfo.PropsRemoved.get -> int
+Kiln.JournalInfo.PropsRemoved.init -> void
+Kiln.PasteMode
+Kiln.PasteMode.Merge = 1 -> Kiln.PasteMode
+Kiln.PasteMode.Replace = 0 -> Kiln.PasteMode
+Kiln.PasteOptions
+Kiln.PasteOptions.Actor.get -> Kiln.EntityId
+Kiln.PasteOptions.Actor.init -> void
+Kiln.PasteOptions.ClearProps.get -> bool
+Kiln.PasteOptions.ClearProps.init -> void
+Kiln.PasteOptions.Flags.get -> Kiln.BuildFlags
+Kiln.PasteOptions.Flags.init -> void
+Kiln.PasteOptions.Journal.get -> bool
+Kiln.PasteOptions.Journal.init -> void
+Kiln.PasteOptions.Label.get -> string?
+Kiln.PasteOptions.Label.init -> void
+Kiln.PasteOptions.LoadTimeout.get -> System.TimeSpan
+Kiln.PasteOptions.LoadTimeout.init -> void
+Kiln.PasteOptions.Mode.get -> Kiln.PasteMode
+Kiln.PasteOptions.Mode.init -> void
+Kiln.PasteOptions.Offset.get -> Kiln.CellPos
+Kiln.PasteOptions.Offset.init -> void
+Kiln.PasteOptions.PasteOptions() -> void
+Kiln.PasteOptions.Props.get -> bool
+Kiln.PasteOptions.Props.init -> void
+Kiln.PasteOptions.Rotation.get -> int
+Kiln.PasteOptions.Rotation.init -> void
+Kiln.PasteResult
+Kiln.PasteResult.<Clone>$() -> Kiln.PasteResult!
+Kiln.PasteResult.Box.get -> Kiln.CellBox
+Kiln.PasteResult.Box.init -> void
+Kiln.PasteResult.Cells.get -> Kiln.BuildResult!
+Kiln.PasteResult.Cells.init -> void
+Kiln.PasteResult.Deconstruct(out Kiln.CellBox Box, out Kiln.BuildResult! Cells, out int PropsPlaced, out int PropsFailed, out int PropsCleared, out long JournalId, out System.Collections.Generic.IReadOnlyList<Kiln.EntityId>! Props) -> void
+Kiln.PasteResult.Equals(Kiln.PasteResult? other) -> bool
+Kiln.PasteResult.JournalId.get -> long
+Kiln.PasteResult.JournalId.init -> void
+Kiln.PasteResult.Ok.get -> bool
+Kiln.PasteResult.PasteResult(Kiln.CellBox Box, Kiln.BuildResult! Cells, int PropsPlaced, int PropsFailed, int PropsCleared, long JournalId, System.Collections.Generic.IReadOnlyList<Kiln.EntityId>! Props) -> void
+Kiln.PasteResult.Props.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+Kiln.PasteResult.Props.init -> void
+Kiln.PasteResult.PropsCleared.get -> int
+Kiln.PasteResult.PropsCleared.init -> void
+Kiln.PasteResult.PropsFailed.get -> int
+Kiln.PasteResult.PropsFailed.init -> void
+Kiln.PasteResult.PropsPlaced.get -> int
+Kiln.PasteResult.PropsPlaced.init -> void
+Kiln.PlaceOnceRecord
+Kiln.PlaceOnceRecord.At.get -> double[]!
+Kiln.PlaceOnceRecord.At.set -> void
+Kiln.PlaceOnceRecord.Box.get -> int[]!
+Kiln.PlaceOnceRecord.Box.set -> void
+Kiln.PlaceOnceRecord.Cells.get -> long
+Kiln.PlaceOnceRecord.Cells.set -> void
+Kiln.PlaceOnceRecord.Hash.get -> string!
+Kiln.PlaceOnceRecord.Hash.set -> void
+Kiln.PlaceOnceRecord.Key.get -> string!
+Kiln.PlaceOnceRecord.Key.set -> void
+Kiln.PlaceOnceRecord.KilnVersion.get -> string!
+Kiln.PlaceOnceRecord.KilnVersion.set -> void
+Kiln.PlaceOnceRecord.PlaceOnceRecord() -> void
+Kiln.PlaceOnceRecord.PlacedAt.get -> System.DateTimeOffset
+Kiln.PlaceOnceRecord.PlacedAt.set -> void
+Kiln.PlaceOnceRecord.Props.get -> int
+Kiln.PlaceOnceRecord.Props.set -> void
+Kiln.PlaceOnceRecord.Rotation.get -> int
+Kiln.PlaceOnceRecord.Rotation.set -> void
+Kiln.PlaceOnceRecord.Schematic.get -> string!
+Kiln.PlaceOnceRecord.Schematic.set -> void
+Kiln.PlaceOnceResult
+Kiln.PlaceOnceResult.<Clone>$() -> Kiln.PlaceOnceResult!
+Kiln.PlaceOnceResult.AlreadyPlaced.get -> bool
+Kiln.PlaceOnceResult.AlreadyPlaced.init -> void
+Kiln.PlaceOnceResult.Deconstruct(out bool Placed, out bool AlreadyPlaced, out Kiln.PlaceOnceRecord? Record, out Kiln.PasteResult? Paste, out string? Error) -> void
+Kiln.PlaceOnceResult.Equals(Kiln.PlaceOnceResult? other) -> bool
+Kiln.PlaceOnceResult.Error.get -> string?
+Kiln.PlaceOnceResult.Error.init -> void
+Kiln.PlaceOnceResult.Paste.get -> Kiln.PasteResult?
+Kiln.PlaceOnceResult.Paste.init -> void
+Kiln.PlaceOnceResult.PlaceOnceResult(bool Placed, bool AlreadyPlaced, Kiln.PlaceOnceRecord? Record, Kiln.PasteResult? Paste, string? Error = null) -> void
+Kiln.PlaceOnceResult.Placed.get -> bool
+Kiln.PlaceOnceResult.Placed.init -> void
+Kiln.PlaceOnceResult.Record.get -> Kiln.PlaceOnceRecord?
+Kiln.PlaceOnceResult.Record.init -> void
+Kiln.PlacedProp
+Kiln.PlacedProp.<Clone>$() -> Kiln.PlacedProp!
+Kiln.PlacedProp.Deconstruct(out Kiln.EntityId Entity, out System.Guid Template, out string! TemplateName, out Kiln.WorldPosition Position, out System.Numerics.Quaternion Rotation, out System.Numerics.Vector3 Scale, out uint ItemId, out Kiln.TemplateKind Kind, out Kiln.PropFlags Flags) -> void
+Kiln.PlacedProp.Entity.get -> Kiln.EntityId
+Kiln.PlacedProp.Entity.init -> void
+Kiln.PlacedProp.Equals(Kiln.PlacedProp? other) -> bool
+Kiln.PlacedProp.Flags.get -> Kiln.PropFlags
+Kiln.PlacedProp.Flags.init -> void
+Kiln.PlacedProp.ItemId.get -> uint
+Kiln.PlacedProp.ItemId.init -> void
+Kiln.PlacedProp.Kind.get -> Kiln.TemplateKind
+Kiln.PlacedProp.Kind.init -> void
+Kiln.PlacedProp.PlacedProp(Kiln.EntityId Entity, System.Guid Template, string! TemplateName, Kiln.WorldPosition Position, System.Numerics.Quaternion Rotation, System.Numerics.Vector3 Scale, uint ItemId, Kiln.TemplateKind Kind, Kiln.PropFlags Flags) -> void
+Kiln.PlacedProp.Position.get -> Kiln.WorldPosition
+Kiln.PlacedProp.Position.init -> void
+Kiln.PlacedProp.Rotation.get -> System.Numerics.Quaternion
+Kiln.PlacedProp.Rotation.init -> void
+Kiln.PlacedProp.Scale.get -> System.Numerics.Vector3
+Kiln.PlacedProp.Scale.init -> void
+Kiln.PlacedProp.Template.get -> System.Guid
+Kiln.PlacedProp.Template.init -> void
+Kiln.PlacedProp.TemplateName.get -> string!
+Kiln.PlacedProp.TemplateName.init -> void
+Kiln.PlayerBase
+Kiln.PlayerBase.<Clone>$() -> Kiln.PlayerBase!
+Kiln.PlayerBase.Abandoned.get -> bool
+Kiln.PlayerBase.Abandoned.init -> void
+Kiln.PlayerBase.Altar.get -> Kiln.EntityId
+Kiln.PlayerBase.Altar.init -> void
+Kiln.PlayerBase.Center.get -> Kiln.WorldPosition
+Kiln.PlayerBase.Center.init -> void
+Kiln.PlayerBase.Contains(Kiln.WorldPosition p) -> bool
+Kiln.PlayerBase.Deconstruct(out Kiln.EntityId Altar, out Kiln.WorldPosition Center, out System.Numerics.Vector3 Half, out bool Abandoned) -> void
+Kiln.PlayerBase.Equals(Kiln.PlayerBase? other) -> bool
+Kiln.PlayerBase.Half.get -> System.Numerics.Vector3
+Kiln.PlayerBase.Half.init -> void
+Kiln.PlayerBase.PlayerBase(Kiln.EntityId Altar, Kiln.WorldPosition Center, System.Numerics.Vector3 Half, bool Abandoned) -> void
+Kiln.PropFilter
+Kiln.PropFilter.All = 4 -> Kiln.PropFilter
+Kiln.PropFilter.Placed = 1 -> Kiln.PropFilter
+Kiln.PropFilter.Saved = 2 -> Kiln.PropFilter
+Kiln.PropFilter.Static = 0 -> Kiln.PropFilter
+Kiln.PropFlags
+Kiln.PropFlags.Altar = 2 -> Kiln.PropFlags
+Kiln.PropFlags.None = 0 -> Kiln.PropFlags
+Kiln.PropFlags.Placed = 1 -> Kiln.PropFlags
+Kiln.PropFlags.Saved = 4 -> Kiln.PropFlags
+Kiln.Schematic
+Kiln.Schematic.Anchor.get -> Kiln.CellPos
+Kiln.Schematic.Author.get -> string!
+Kiln.Schematic.Author.init -> void
+Kiln.Schematic.CellSize.get -> double
+Kiln.Schematic.Cells.get -> System.ReadOnlySpan<Kiln.Voxel>
+Kiln.Schematic.CellsEqual(Kiln.Schematic! other) -> bool
+Kiln.Schematic.Count.get -> long
+Kiln.Schematic.Description.get -> string!
+Kiln.Schematic.Description.init -> void
+Kiln.Schematic.Hash.get -> string!
+Kiln.Schematic.Name.get -> string!
+Kiln.Schematic.Name.init -> void
+Kiln.Schematic.Paste(Kiln.WorldPosition at, Kiln.PasteOptions? options = null) -> System.Threading.Tasks.Task<Kiln.PasteResult!>!
+Kiln.Schematic.PasteAt(Kiln.CellPos corner, Kiln.PasteOptions? options = null) -> System.Threading.Tasks.Task<Kiln.PasteResult!>!
+Kiln.Schematic.Props.get -> System.Collections.Generic.IReadOnlyList<Kiln.SchematicProp!>!
+Kiln.Schematic.Rotated(int quarterTurns) -> Kiln.Schematic!
+Kiln.Schematic.Save(string! path) -> void
+Kiln.Schematic.Schematic(int sizeX, int sizeY, int sizeZ, Kiln.Voxel[]! cells, System.Collections.Generic.IReadOnlyList<Kiln.SchematicProp!>? props = null, Kiln.CellPos? anchor = null, double cellSize = 0.5) -> void
+Kiln.Schematic.SizeX.get -> int
+Kiln.Schematic.SizeY.get -> int
+Kiln.Schematic.SizeZ.get -> int
+Kiln.Schematic.SolidCount.get -> long
+Kiln.Schematic.Source.get -> System.Text.Json.Nodes.JsonObject?
+Kiln.Schematic.Source.init -> void
+Kiln.Schematic.TargetBox(Kiln.WorldPosition at, int rotation = 0, Kiln.CellPos offset = default(Kiln.CellPos)) -> Kiln.CellBox
+Kiln.Schematic.ToBytes() -> byte[]!
+Kiln.Schematic.Write(System.IO.Stream! output) -> void
+Kiln.Schematic.this[int x, int y, int z].get -> Kiln.Voxel
+Kiln.SchematicProp
+Kiln.SchematicProp.<Clone>$() -> Kiln.SchematicProp!
+Kiln.SchematicProp.Deconstruct(out System.Guid Template, out string! Name, out System.Numerics.Vector3 Offset, out System.Numerics.Quaternion Rotation, out uint ItemId) -> void
+Kiln.SchematicProp.Equals(Kiln.SchematicProp? other) -> bool
+Kiln.SchematicProp.ItemId.get -> uint
+Kiln.SchematicProp.ItemId.init -> void
+Kiln.SchematicProp.Name.get -> string!
+Kiln.SchematicProp.Name.init -> void
+Kiln.SchematicProp.Offset.get -> System.Numerics.Vector3
+Kiln.SchematicProp.Offset.init -> void
+Kiln.SchematicProp.Rotation.get -> System.Numerics.Quaternion
+Kiln.SchematicProp.Rotation.init -> void
+Kiln.SchematicProp.SchematicProp(System.Guid Template, string! Name, System.Numerics.Vector3 Offset, System.Numerics.Quaternion Rotation, uint ItemId) -> void
+Kiln.SchematicProp.Template.get -> System.Guid
+Kiln.SchematicProp.Template.init -> void
+Kiln.ShapeKind
+Kiln.ShapeKind.Box = 1 -> Kiln.ShapeKind
+Kiln.ShapeKind.Cylinder = 3 -> Kiln.ShapeKind
+Kiln.ShapeKind.Sphere = 2 -> Kiln.ShapeKind
+Kiln.ShapeOp
+Kiln.ShapeOp.Add = 2 -> Kiln.ShapeOp
+Kiln.ShapeOp.Dig = 1 -> Kiln.ShapeOp
+Kiln.ShapeOp.Flatten = 3 -> Kiln.ShapeOp
+Kiln.ShapeOp.Paint = 5 -> Kiln.ShapeOp
+Kiln.ShapeOp.Replace = 6 -> Kiln.ShapeOp
+Kiln.ShapeOp.Smooth = 4 -> Kiln.ShapeOp
+Kiln.UndoResult
+Kiln.UndoResult.<Clone>$() -> Kiln.UndoResult!
+Kiln.UndoResult.CellsKept.get -> long
+Kiln.UndoResult.CellsKept.init -> void
+Kiln.UndoResult.CellsRestored.get -> long
+Kiln.UndoResult.CellsRestored.init -> void
+Kiln.UndoResult.Complete.get -> bool
+Kiln.UndoResult.Complete.init -> void
+Kiln.UndoResult.Deconstruct(out long Id, out string! Label, out long CellsRestored, out long CellsKept, out int PropsRemoved, out int PropsRestored, out bool Complete) -> void
+Kiln.UndoResult.Equals(Kiln.UndoResult? other) -> bool
+Kiln.UndoResult.Id.get -> long
+Kiln.UndoResult.Id.init -> void
+Kiln.UndoResult.Label.get -> string!
+Kiln.UndoResult.Label.init -> void
+Kiln.UndoResult.PropsRemoved.get -> int
+Kiln.UndoResult.PropsRemoved.init -> void
+Kiln.UndoResult.PropsRestored.get -> int
+Kiln.UndoResult.PropsRestored.init -> void
+Kiln.UndoResult.UndoResult(long Id, string! Label, long CellsRestored, long CellsKept, int PropsRemoved, int PropsRestored, bool Complete) -> void
+Kiln.Voxel
+Kiln.Voxel.Deconstruct(out ushort Raw) -> void
+Kiln.Voxel.Equals(Kiln.Voxel other) -> bool
+Kiln.Voxel.Fill.get -> byte
+Kiln.Voxel.IsAir.get -> bool
+Kiln.Voxel.IsBuilding.get -> bool
+Kiln.Voxel.IsSolid.get -> bool
+Kiln.Voxel.Material.get -> byte
+Kiln.Voxel.Raw.get -> ushort
+Kiln.Voxel.Raw.init -> void
+Kiln.Voxel.Voxel() -> void
+Kiln.Voxel.Voxel(ushort Raw) -> void
+Kiln.VoxelGrid
+Kiln.VoxelGrid.<Clone>$() -> Kiln.VoxelGrid!
+Kiln.VoxelGrid.CellSize.get -> double
+Kiln.VoxelGrid.CellSize.init -> void
+Kiln.VoxelGrid.CellsX.get -> int
+Kiln.VoxelGrid.CellsX.init -> void
+Kiln.VoxelGrid.CellsZ.get -> int
+Kiln.VoxelGrid.CellsZ.init -> void
+Kiln.VoxelGrid.Deconstruct(out double CellSize, out Kiln.WorldPosition Origin, out int CellsX, out int CellsZ, out int TileCells, out int Level) -> void
+Kiln.VoxelGrid.Equals(Kiln.VoxelGrid? other) -> bool
+Kiln.VoxelGrid.Level.get -> int
+Kiln.VoxelGrid.Level.init -> void
+Kiln.VoxelGrid.Origin.get -> Kiln.WorldPosition
+Kiln.VoxelGrid.Origin.init -> void
+Kiln.VoxelGrid.SizeX.get -> double
+Kiln.VoxelGrid.SizeZ.get -> double
+Kiln.VoxelGrid.TileCells.get -> int
+Kiln.VoxelGrid.TileCells.init -> void
+Kiln.VoxelGrid.VoxelGrid(double CellSize, Kiln.WorldPosition Origin, int CellsX, int CellsZ, int TileCells, int Level) -> void
+const Kiln.Schematic.FormatVersion = 1 -> int
+override Kiln.BuildResult.Equals(object? obj) -> bool
+override Kiln.BuildResult.GetHashCode() -> int
+override Kiln.BuildResult.ToString() -> string!
+override Kiln.BuildShape.GetHashCode() -> int
+override Kiln.BuildStatus.Equals(object? obj) -> bool
+override Kiln.BuildStatus.GetHashCode() -> int
+override Kiln.BuildStatus.ToString() -> string!
+override Kiln.CellBox.GetHashCode() -> int
+override Kiln.CellBox.ToString() -> string!
+override Kiln.CellPos.GetHashCode() -> int
+override Kiln.CellPos.ToString() -> string!
+override Kiln.JournalInfo.Equals(object? obj) -> bool
+override Kiln.JournalInfo.GetHashCode() -> int
+override Kiln.JournalInfo.ToString() -> string!
+override Kiln.PasteResult.Equals(object? obj) -> bool
+override Kiln.PasteResult.GetHashCode() -> int
+override Kiln.PasteResult.ToString() -> string!
+override Kiln.PlaceOnceResult.Equals(object? obj) -> bool
+override Kiln.PlaceOnceResult.GetHashCode() -> int
+override Kiln.PlaceOnceResult.ToString() -> string!
+override Kiln.PlacedProp.Equals(object? obj) -> bool
+override Kiln.PlacedProp.GetHashCode() -> int
+override Kiln.PlacedProp.ToString() -> string!
+override Kiln.PlayerBase.Equals(object? obj) -> bool
+override Kiln.PlayerBase.GetHashCode() -> int
+override Kiln.PlayerBase.ToString() -> string!
+override Kiln.SchematicProp.Equals(object? obj) -> bool
+override Kiln.SchematicProp.GetHashCode() -> int
+override Kiln.SchematicProp.ToString() -> string!
+override Kiln.UndoResult.Equals(object? obj) -> bool
+override Kiln.UndoResult.GetHashCode() -> int
+override Kiln.UndoResult.ToString() -> string!
+override Kiln.Voxel.GetHashCode() -> int
+override Kiln.Voxel.ToString() -> string!
+override Kiln.VoxelGrid.Equals(object? obj) -> bool
+override Kiln.VoxelGrid.GetHashCode() -> int
+override Kiln.VoxelGrid.ToString() -> string!
+static Kiln.Build.Add(Kiln.BuildShape shape, byte material, Kiln.BuildOptions? options = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.Build.Available.get -> bool
+static Kiln.Build.Bases.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBase!>!
+static Kiln.Build.BoxAround(Kiln.WorldPosition center, double halfX, double halfY, double halfZ) -> Kiln.CellBox
+static Kiln.Build.BoxBetween(Kiln.WorldPosition a, Kiln.WorldPosition b) -> Kiln.CellBox
+static Kiln.Build.CellOf(Kiln.WorldPosition p) -> Kiln.CellPos
+static Kiln.Build.CenterOf(Kiln.CellPos c) -> Kiln.WorldPosition
+static Kiln.Build.CornerOf(Kiln.CellPos c) -> Kiln.WorldPosition
+static Kiln.Build.Dig(Kiln.BuildShape shape, Kiln.BuildOptions? options = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.Build.Flatten(Kiln.BuildShape shape, double levelY, byte material = 0, Kiln.BuildOptions? options = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.Build.ForgetPlaced(string! key) -> bool
+static Kiln.Build.Grid.get -> Kiln.VoxelGrid?
+static Kiln.Build.History(string? owner = null) -> System.Collections.Generic.IReadOnlyList<Kiln.JournalInfo!>!
+static Kiln.Build.IsLoaded(Kiln.CellBox box) -> bool
+static Kiln.Build.JournalOwner(Kiln.BuildOptions? options = null) -> string!
+static Kiln.Build.Keep(Kiln.CellBox box) -> void
+static Kiln.Build.Load(Kiln.CellBox box, System.TimeSpan? timeout = null) -> System.Threading.Tasks.Task<bool>!
+static Kiln.Build.MaterialOf(uint itemId) -> byte
+static Kiln.Build.Paint(Kiln.BuildShape shape, byte material, Kiln.BuildOptions? options = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.Build.PlaceOnce(string! key, Kiln.Schematic! schematic, Kiln.WorldPosition at, Kiln.PasteOptions? options = null) -> System.Threading.Tasks.Task<Kiln.PlaceOnceResult!>!
+static Kiln.Build.PlaceOnce(string! key, System.Func<System.Threading.Tasks.Task<bool>!>! edit) -> System.Threading.Tasks.Task<Kiln.PlaceOnceResult!>!
+static Kiln.Build.PlaceProp(System.Guid template, Kiln.WorldPosition position, System.Numerics.Quaternion? rotation = null, uint itemId = 0, Kiln.BuildOptions? options = null) -> Kiln.EntityId
+static Kiln.Build.PlaceProp(string! template, Kiln.WorldPosition position, System.Numerics.Quaternion? rotation = null, uint itemId = 0, Kiln.BuildOptions? options = null) -> Kiln.EntityId
+static Kiln.Build.PlacedOnce.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlaceOnceRecord!>!
+static Kiln.Build.Prop(Kiln.EntityId entity) -> Kiln.PlacedProp?
+static Kiln.Build.Props(Kiln.CellBox box, Kiln.PropFilter filter = Kiln.PropFilter.Placed) -> System.Collections.Generic.IReadOnlyList<Kiln.PlacedProp!>!
+static Kiln.Build.Props(Kiln.WorldPosition min, Kiln.WorldPosition max, Kiln.PropFilter filter = Kiln.PropFilter.Placed) -> System.Collections.Generic.IReadOnlyList<Kiln.PlacedProp!>!
+static Kiln.Build.Read(Kiln.CellBox box) -> Kiln.Voxel[]!
+static Kiln.Build.ReadAsync(Kiln.CellBox box, System.TimeSpan? timeout = null) -> System.Threading.Tasks.Task<Kiln.Voxel[]!>!
+static Kiln.Build.ReadCell(Kiln.CellPos c) -> Kiln.Voxel
+static Kiln.Build.Release(Kiln.CellBox box) -> long
+static Kiln.Build.RemoveProp(Kiln.EntityId entity, Kiln.BuildOptions? options = null) -> bool
+static Kiln.Build.Replace(Kiln.BuildShape shape, byte from, byte to, Kiln.BuildOptions? options = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.Build.ShapeBox(Kiln.ShapeOp op, Kiln.BuildShape shape, double levelY = NaN) -> Kiln.CellBox
+static Kiln.Build.Smooth(Kiln.BuildShape shape, float strength = 0.5, int passes = 2, Kiln.BuildOptions? options = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.Build.Status.get -> Kiln.BuildStatus?
+static Kiln.Build.TemplateOf(uint itemId) -> System.Guid?
+static Kiln.Build.TryRead(Kiln.CellBox box, out Kiln.Voxel[]! cells) -> bool
+static Kiln.Build.Undo(string? owner = null, System.TimeSpan? timeout = null) -> System.Threading.Tasks.Task<Kiln.UndoResult?>!
+static Kiln.Build.UndoEntry(long id, System.TimeSpan? timeout = null) -> System.Threading.Tasks.Task<Kiln.UndoResult?>!
+static Kiln.Build.WasPlaced(string! key) -> bool
+static Kiln.Build.Write(Kiln.CellBox box, System.ReadOnlySpan<Kiln.Voxel> cells, Kiln.BuildOptions? options = null, System.ReadOnlySpan<bool> mask = default(System.ReadOnlySpan<bool>)) -> Kiln.BuildResult!
+static Kiln.Build.WriteAsync(Kiln.CellBox box, Kiln.Voxel[]! cells, Kiln.BuildOptions? options = null, bool[]? mask = null) -> System.Threading.Tasks.Task<Kiln.BuildResult!>!
+static Kiln.BuildCommands.Register() -> Kiln.CommandRegistration!
+static Kiln.BuildCommands.SchematicDirectory.get -> string!
+static Kiln.BuildCommands.SchematicPath(string! name) -> string!
+static Kiln.BuildOptions.Default.get -> Kiln.BuildOptions!
+static Kiln.BuildResult.operator !=(Kiln.BuildResult? left, Kiln.BuildResult? right) -> bool
+static Kiln.BuildResult.operator ==(Kiln.BuildResult? left, Kiln.BuildResult? right) -> bool
+static Kiln.BuildShape.Box(Kiln.WorldPosition center, double halfX, double halfY, double halfZ) -> Kiln.BuildShape
+static Kiln.BuildShape.Cylinder(Kiln.WorldPosition center, double radius, double halfHeight) -> Kiln.BuildShape
+static Kiln.BuildShape.Sphere(Kiln.WorldPosition center, double radius) -> Kiln.BuildShape
+static Kiln.BuildShape.operator !=(Kiln.BuildShape left, Kiln.BuildShape right) -> bool
+static Kiln.BuildShape.operator ==(Kiln.BuildShape left, Kiln.BuildShape right) -> bool
+static Kiln.BuildStatus.operator !=(Kiln.BuildStatus? left, Kiln.BuildStatus? right) -> bool
+static Kiln.BuildStatus.operator ==(Kiln.BuildStatus? left, Kiln.BuildStatus? right) -> bool
+static Kiln.CellBox.FromCorners(Kiln.CellPos a, Kiln.CellPos b) -> Kiln.CellBox
+static Kiln.CellBox.operator !=(Kiln.CellBox left, Kiln.CellBox right) -> bool
+static Kiln.CellBox.operator ==(Kiln.CellBox left, Kiln.CellBox right) -> bool
+static Kiln.CellPos.operator !=(Kiln.CellPos left, Kiln.CellPos right) -> bool
+static Kiln.CellPos.operator +(Kiln.CellPos a, Kiln.CellPos b) -> Kiln.CellPos
+static Kiln.CellPos.operator -(Kiln.CellPos a, Kiln.CellPos b) -> Kiln.CellPos
+static Kiln.CellPos.operator ==(Kiln.CellPos left, Kiln.CellPos right) -> bool
+static Kiln.JournalInfo.operator !=(Kiln.JournalInfo? left, Kiln.JournalInfo? right) -> bool
+static Kiln.JournalInfo.operator ==(Kiln.JournalInfo? left, Kiln.JournalInfo? right) -> bool
+static Kiln.PasteResult.operator !=(Kiln.PasteResult? left, Kiln.PasteResult? right) -> bool
+static Kiln.PasteResult.operator ==(Kiln.PasteResult? left, Kiln.PasteResult? right) -> bool
+static Kiln.PlaceOnceResult.operator !=(Kiln.PlaceOnceResult? left, Kiln.PlaceOnceResult? right) -> bool
+static Kiln.PlaceOnceResult.operator ==(Kiln.PlaceOnceResult? left, Kiln.PlaceOnceResult? right) -> bool
+static Kiln.PlacedProp.operator !=(Kiln.PlacedProp? left, Kiln.PlacedProp? right) -> bool
+static Kiln.PlacedProp.operator ==(Kiln.PlacedProp? left, Kiln.PlacedProp? right) -> bool
+static Kiln.PlayerBase.operator !=(Kiln.PlayerBase? left, Kiln.PlayerBase? right) -> bool
+static Kiln.PlayerBase.operator ==(Kiln.PlayerBase? left, Kiln.PlayerBase? right) -> bool
+static Kiln.Schematic.Capture(Kiln.CellBox box, Kiln.CaptureOptions? options = null) -> Kiln.Schematic!
+static Kiln.Schematic.CaptureAsync(Kiln.CellBox box, Kiln.CaptureOptions? options = null) -> System.Threading.Tasks.Task<Kiln.Schematic!>!
+static Kiln.Schematic.FromBytes(byte[]! data) -> Kiln.Schematic!
+static Kiln.Schematic.Load(string! path) -> Kiln.Schematic!
+static Kiln.Schematic.Read(System.IO.Stream! input) -> Kiln.Schematic!
+static Kiln.SchematicProp.operator !=(Kiln.SchematicProp? left, Kiln.SchematicProp? right) -> bool
+static Kiln.SchematicProp.operator ==(Kiln.SchematicProp? left, Kiln.SchematicProp? right) -> bool
+static Kiln.UndoResult.operator !=(Kiln.UndoResult? left, Kiln.UndoResult? right) -> bool
+static Kiln.UndoResult.operator ==(Kiln.UndoResult? left, Kiln.UndoResult? right) -> bool
+static Kiln.Voxel.Air.get -> Kiln.Voxel
+static Kiln.Voxel.Of(byte material, byte fill = 255) -> Kiln.Voxel
+static Kiln.Voxel.operator !=(Kiln.Voxel left, Kiln.Voxel right) -> bool
+static Kiln.Voxel.operator ==(Kiln.Voxel left, Kiln.Voxel right) -> bool
+static Kiln.VoxelGrid.operator !=(Kiln.VoxelGrid? left, Kiln.VoxelGrid? right) -> bool
+static Kiln.VoxelGrid.operator ==(Kiln.VoxelGrid? left, Kiln.VoxelGrid? right) -> bool
+~override Kiln.BuildShape.Equals(object obj) -> bool
+~override Kiln.BuildShape.ToString() -> string
+~override Kiln.CellBox.Equals(object obj) -> bool
+~override Kiln.CellPos.Equals(object obj) -> bool
+~override Kiln.Voxel.Equals(object obj) -> bool

@@ -12,5 +12,56 @@
     <Copyright>MIT licence</Copyright>
     <Deterministic>true</Deterministic>
     <DebugType>portable</DebugType>
+    <!-- Warnings Kiln.Sdk/pack.sh leaves out for the packed SDK (KilnPackNoWarn), added to each project's own list. -->
+    <NoWarn Condition="'$(KilnPackNoWarn)' != ''">$(NoWarn);$(KilnPackNoWarn)</NoWarn>
   </PropertyGroup>
+
+  <!-- Public API gate (Microsoft.CodeAnalysis.PublicApiAnalyzers). On for a project exactly when PublicAPI.Shipped.txt
+       sits next to its csproj; projects without one (Kiln.Host, Kiln.Sdk, analyzers, tests, spikes) get no reference.
+       PublicAPI.Shipped.txt is what released builds have shipped; new public API goes into PublicAPI.Unshipped.txt
+       (the RS0016 code fix, run through dotnet format analyzers, writes the lines there). The mod API is additive: never
+       delete a Shipped.txt line; mark the old member [Obsolete] and add the new one next to it. The one version carrier,
+       const Kiln.Mods.ApiVersion, keeps its line: tools/release/api-gate.sh bump-api changes only its value. -->
+
+  <!-- Experimental API. API that is not proven yet, or that exists only for labs and tests, carries
+       [System.Diagnostics.CodeAnalysis.Experimental("KILNX0nn")]; a lab or test member on a public class also carries
+       [EditorBrowsable(EditorBrowsableState.Never)]. Such API may change or go in any release without notice, and both
+       gates leave it out:
+       Gate 1 (PublicApiAnalyzers, every build) still records it, with the id as a prefix:
+         [KILNX001]static Kiln.Time.ResetWeather() -> void
+         To change or remove such a member, put the old line with *REMOVED* in front into PublicAPI.Unshipped.txt (plus
+         the new line for a change):  *REMOVED*[KILNX001]static Kiln.Time.ResetWeather() -> void
+         The same for a shipped member that becomes experimental, or an experimental one that becomes normal:
+         *REMOVED*static Kiln.Time.ResetWeather() -> void   and   [KILNX001]static Kiln.Time.ResetWeather() -> void
+       Gate 2 (tools/release/apicompat.sh, in pack.sh and tools/check.sh) compares with the last release's DLLs and
+       lets a member go or change when the baseline DLL marks it (or its property, event or a type around it)
+       experimental; it reports those as EXPERIMENTAL lines.
+       Ids (a package that takes a new id adds its row here, in the same commit):
+         KILNX001  lab and test members on public classes (with EditorBrowsable Never)
+         KILNX002  API not yet proven in a real client
+       In use today: none. A mod that calls such API has to opt in with NoWarn for the id. -->
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/PublicAPI.Shipped.txt')">
+    <KilnPublicApi>true</KilnPublicApi>
+    <!-- "The record is wrong": public API without a line (RS0016), a line without its API (RS0017), a constructor that
+         makes a sealed-by-default base inheritable (RS0022), a bad or duplicated line (RS0024, RS0025), nullability
+         not recorded or not tracked (RS0036, RS0037), a missing Shipped or Unshipped file (RS0048), a *REMOVED* line
+         whose API still exists (RS0050). -->
+    <KilnPublicApiErrors>RS0016;RS0017;RS0022;RS0024;RS0025;RS0036;RS0037;RS0048;RS0050</KilnPublicApiErrors>
+    <!-- Off, because they judge the shape of API that has shipped and cannot change (additive rule), not the record:
+         RS0026/RS0027 (overloads with optional parameters: Time.Set and others already have them, and a new overload
+         next to an old one would trip them); RS0041 (oblivious reference types: generated code without #nullable,
+         Kiln.Game/Generated.cs, is recorded with a ~ prefix). Missing or stale lines for such API still fail. -->
+    <KilnPublicApiOff>RS0026;RS0027;RS0041</KilnPublicApiOff>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(KilnPublicApi)' == 'true'">
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="[5.6.0]" PrivateAssets="all" />
+  </ItemGroup>
+  <!-- Set at CoreCompile, not at evaluation, so that a global -p:NoWarn=... (pack.sh passes KilnPackNoWarn instead now) cannot
+       replace an evaluation-time NoWarn/WarningsAsErrors. A property set inside a target still applies, so the gate holds there too. -->
+  <Target Name="_KilnPublicApiSeverity" BeforeTargets="CoreCompile" Condition="'$(KilnPublicApi)' == 'true'">
+    <PropertyGroup>
+      <WarningsAsErrors>$(WarningsAsErrors);$(KilnPublicApiErrors)</WarningsAsErrors>
+      <NoWarn>$(NoWarn);$(KilnPublicApiOff)</NoWarn>
+    </PropertyGroup>
+  </Target>
 </Project>

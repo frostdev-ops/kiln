@@ -1,9 +1,10 @@
 {
   "id": "typegen-probe",
-  "name": "Typegen reflection probe",
-  "version": "0.1.0",
-  "apiVersion": "0.1",
+  "name": "Typegen lab check",
+  "version": "0.2.0",
+  "apiVersion": "0.2",
   "entryAssembly": "TypegenProbe.dll",
   "side": "server",
-  "advanced": true
+  "description": "Lab check of the generated game types (docs/kiln/typegen.md section 5): typed reads against raw bytes and the game's reflection on live entities.",
+  "tests": { "autoRun": true, "timeoutSeconds": 900 }
 }

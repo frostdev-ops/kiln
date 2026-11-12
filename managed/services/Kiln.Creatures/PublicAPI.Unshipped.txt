@@ -1,0 +1,72 @@
+#nullable enable
+*REMOVED*Kiln.CreatureRef.ForceReady(bool on = true) -> void
+[KILNX001]Kiln.CreatureRef.ForceReady(bool on = true) -> void
+Kiln.ArsenalRulesStatus
+Kiln.ArsenalRulesStatus.<Clone>$() -> Kiln.ArsenalRulesStatus!
+Kiln.ArsenalRulesStatus.Actions.get -> ulong
+Kiln.ArsenalRulesStatus.Actions.init -> void
+Kiln.ArsenalRulesStatus.ActionsDropped.get -> ulong
+Kiln.ArsenalRulesStatus.ActionsDropped.init -> void
+Kiln.ArsenalRulesStatus.AiOff.get -> int
+Kiln.ArsenalRulesStatus.AiOff.init -> void
+Kiln.ArsenalRulesStatus.AiSwitch.get -> bool
+Kiln.ArsenalRulesStatus.AiSwitch.init -> void
+Kiln.ArsenalRulesStatus.ArsenalRulesStatus(bool Writer, bool Dispatcher, bool Attacks, bool AiSwitch, bool RuleHooks, bool AttackHooks, int Arsenals, int Tracked, int Overrides, int AiOff, int MapCapacity, int MapCount, ulong Constraints, ulong ConstraintsTrue, ulong Actions, ulong ActionsDropped, ulong Selects, ulong SelectsForced, ulong SelectsFiltered, ulong PicksWaiting, ulong FollowupsRefused, ulong Starts, ulong StartsOffOverride, ulong SequencesRefused, ulong PreNs, ulong PreCalls, ulong JobTicks, ulong JobCalls, ulong JobTickHz) -> void
+Kiln.ArsenalRulesStatus.Arsenals.get -> int
+Kiln.ArsenalRulesStatus.Arsenals.init -> void
+Kiln.ArsenalRulesStatus.AttackHooks.get -> bool
+Kiln.ArsenalRulesStatus.AttackHooks.init -> void
+Kiln.ArsenalRulesStatus.Attacks.get -> bool
+Kiln.ArsenalRulesStatus.Attacks.init -> void
+Kiln.ArsenalRulesStatus.Constraints.get -> ulong
+Kiln.ArsenalRulesStatus.Constraints.init -> void
+Kiln.ArsenalRulesStatus.ConstraintsTrue.get -> ulong
+Kiln.ArsenalRulesStatus.ConstraintsTrue.init -> void
+Kiln.ArsenalRulesStatus.Deconstruct(out bool Writer, out bool Dispatcher, out bool Attacks, out bool AiSwitch, out bool RuleHooks, out bool AttackHooks, out int Arsenals, out int Tracked, out int Overrides, out int AiOff, out int MapCapacity, out int MapCount, out ulong Constraints, out ulong ConstraintsTrue, out ulong Actions, out ulong ActionsDropped, out ulong Selects, out ulong SelectsForced, out ulong SelectsFiltered, out ulong PicksWaiting, out ulong FollowupsRefused, out ulong Starts, out ulong StartsOffOverride, out ulong SequencesRefused, out ulong PreNs, out ulong PreCalls, out ulong JobTicks, out ulong JobCalls, out ulong JobTickHz) -> void
+Kiln.ArsenalRulesStatus.Dispatcher.get -> bool
+Kiln.ArsenalRulesStatus.Dispatcher.init -> void
+Kiln.ArsenalRulesStatus.Equals(Kiln.ArsenalRulesStatus? other) -> bool
+Kiln.ArsenalRulesStatus.FollowupsRefused.get -> ulong
+Kiln.ArsenalRulesStatus.FollowupsRefused.init -> void
+Kiln.ArsenalRulesStatus.JobCalls.get -> ulong
+Kiln.ArsenalRulesStatus.JobCalls.init -> void
+Kiln.ArsenalRulesStatus.JobTickHz.get -> ulong
+Kiln.ArsenalRulesStatus.JobTickHz.init -> void
+Kiln.ArsenalRulesStatus.JobTicks.get -> ulong
+Kiln.ArsenalRulesStatus.JobTicks.init -> void
+Kiln.ArsenalRulesStatus.MapCapacity.get -> int
+Kiln.ArsenalRulesStatus.MapCapacity.init -> void
+Kiln.ArsenalRulesStatus.MapCount.get -> int
+Kiln.ArsenalRulesStatus.MapCount.init -> void
+Kiln.ArsenalRulesStatus.Overrides.get -> int
+Kiln.ArsenalRulesStatus.Overrides.init -> void
+Kiln.ArsenalRulesStatus.PicksWaiting.get -> ulong
+Kiln.ArsenalRulesStatus.PicksWaiting.init -> void
+Kiln.ArsenalRulesStatus.PreCalls.get -> ulong
+Kiln.ArsenalRulesStatus.PreCalls.init -> void
+Kiln.ArsenalRulesStatus.PreNs.get -> ulong
+Kiln.ArsenalRulesStatus.PreNs.init -> void
+Kiln.ArsenalRulesStatus.RuleHooks.get -> bool
+Kiln.ArsenalRulesStatus.RuleHooks.init -> void
+Kiln.ArsenalRulesStatus.Selects.get -> ulong
+Kiln.ArsenalRulesStatus.Selects.init -> void
+Kiln.ArsenalRulesStatus.SelectsFiltered.get -> ulong
+Kiln.ArsenalRulesStatus.SelectsFiltered.init -> void
+Kiln.ArsenalRulesStatus.SelectsForced.get -> ulong
+Kiln.ArsenalRulesStatus.SelectsForced.init -> void
+Kiln.ArsenalRulesStatus.SequencesRefused.get -> ulong
+Kiln.ArsenalRulesStatus.SequencesRefused.init -> void
+Kiln.ArsenalRulesStatus.Starts.get -> ulong
+Kiln.ArsenalRulesStatus.Starts.init -> void
+Kiln.ArsenalRulesStatus.StartsOffOverride.get -> ulong
+Kiln.ArsenalRulesStatus.StartsOffOverride.init -> void
+Kiln.ArsenalRulesStatus.Tracked.get -> int
+Kiln.ArsenalRulesStatus.Tracked.init -> void
+Kiln.ArsenalRulesStatus.Writer.get -> bool
+Kiln.ArsenalRulesStatus.Writer.init -> void
+override Kiln.ArsenalRulesStatus.Equals(object? obj) -> bool
+override Kiln.ArsenalRulesStatus.GetHashCode() -> int
+override Kiln.ArsenalRulesStatus.ToString() -> string!
+static Kiln.ArsenalRulesStatus.operator !=(Kiln.ArsenalRulesStatus? left, Kiln.ArsenalRulesStatus? right) -> bool
+static Kiln.ArsenalRulesStatus.operator ==(Kiln.ArsenalRulesStatus? left, Kiln.ArsenalRulesStatus? right) -> bool
+static Kiln.Arsenals.RulesState.get -> Kiln.ArsenalRulesStatus?

@@ -1,0 +1,104 @@
+#nullable enable
+static Kiln.TalentHolder.explicit operator Kiln.PlayerRef(Kiln.TalentHolder holder) -> Kiln.PlayerRef
+*REMOVED*Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimOp.AddRaw = 5 -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimOp.Check = 4 -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimOp.Lock = 3 -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimOp.Strip = 6 -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimOp.Unlock = 1 -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimOp.UnlockForce = 2 -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimResult
+*REMOVED*Kiln.GameTreeSimResult.<Clone>$() -> Kiln.GameTreeSimResult!
+*REMOVED*Kiln.GameTreeSimResult.Connected.get -> bool
+*REMOVED*Kiln.GameTreeSimResult.Connected.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Deconstruct(out Kiln.GameTreeSimOp Op, out uint Node, out bool Ok, out bool Reachable, out bool Rebuild, out bool Connected, out bool LevelsValid, out int Level, out bool Known, out int Spent, out int UnlockedNodes, out int Stripped, out int Index) -> void
+*REMOVED*Kiln.GameTreeSimResult.Equals(Kiln.GameTreeSimResult? other) -> bool
+*REMOVED*Kiln.GameTreeSimResult.GameTreeSimResult(Kiln.GameTreeSimOp Op, uint Node, bool Ok, bool Reachable, bool Rebuild, bool Connected, bool LevelsValid, int Level, bool Known, int Spent, int UnlockedNodes, int Stripped, int Index) -> void
+*REMOVED*Kiln.GameTreeSimResult.Index.get -> int
+*REMOVED*Kiln.GameTreeSimResult.Index.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Known.get -> bool
+*REMOVED*Kiln.GameTreeSimResult.Known.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Level.get -> int
+*REMOVED*Kiln.GameTreeSimResult.Level.init -> void
+*REMOVED*Kiln.GameTreeSimResult.LevelsValid.get -> bool
+*REMOVED*Kiln.GameTreeSimResult.LevelsValid.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Node.get -> uint
+*REMOVED*Kiln.GameTreeSimResult.Node.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Ok.get -> bool
+*REMOVED*Kiln.GameTreeSimResult.Ok.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Op.get -> Kiln.GameTreeSimOp
+*REMOVED*Kiln.GameTreeSimResult.Op.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Reachable.get -> bool
+*REMOVED*Kiln.GameTreeSimResult.Reachable.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Rebuild.get -> bool
+*REMOVED*Kiln.GameTreeSimResult.Rebuild.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Spent.get -> int
+*REMOVED*Kiln.GameTreeSimResult.Spent.init -> void
+*REMOVED*Kiln.GameTreeSimResult.Stripped.get -> int
+*REMOVED*Kiln.GameTreeSimResult.Stripped.init -> void
+*REMOVED*Kiln.GameTreeSimResult.UnlockedNodes.get -> int
+*REMOVED*Kiln.GameTreeSimResult.UnlockedNodes.init -> void
+*REMOVED*override Kiln.GameTreeSimResult.Equals(object? obj) -> bool
+*REMOVED*override Kiln.GameTreeSimResult.GetHashCode() -> int
+*REMOVED*override Kiln.GameTreeSimResult.ToString() -> string!
+*REMOVED*static Kiln.GameTree.LabCarried(Kiln.TalentHolder holder) -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!
+*REMOVED*static Kiln.GameTree.LabLoginGuard(Kiln.EntityId player) -> bool
+*REMOVED*static Kiln.GameTree.LabNativeRequests(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<uint>!
+*REMOVED*static Kiln.GameTree.LabPlayer(Kiln.EntityId player, Kiln.TalentHolder? holder = null, bool forceNative = false) -> void
+*REMOVED*static Kiln.GameTree.LabPutInSave(Kiln.EntityId player, uint node, int level) -> bool
+*REMOVED*static Kiln.GameTree.LabReload(Kiln.EntityId player) -> void
+*REMOVED*static Kiln.GameTree.LabSetCarried(Kiln.TalentHolder holder, System.Collections.Generic.IReadOnlyDictionary<string!, int>! levels) -> void
+*REMOVED*static Kiln.GameTree.Simulate(params (Kiln.GameTreeSimOp Op, uint Node)[]! steps) -> System.Collections.Generic.IReadOnlyList<Kiln.GameTreeSimResult!>!
+*REMOVED*static Kiln.GameTreeSimResult.operator !=(Kiln.GameTreeSimResult? left, Kiln.GameTreeSimResult? right) -> bool
+*REMOVED*static Kiln.GameTreeSimResult.operator ==(Kiln.GameTreeSimResult? left, Kiln.GameTreeSimResult? right) -> bool
+[KILNX001]Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimOp.AddRaw = 5 -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimOp.Check = 4 -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimOp.Lock = 3 -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimOp.Strip = 6 -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimOp.Unlock = 1 -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimOp.UnlockForce = 2 -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimResult
+[KILNX001]Kiln.GameTreeSimResult.<Clone>$() -> Kiln.GameTreeSimResult!
+[KILNX001]Kiln.GameTreeSimResult.Connected.get -> bool
+[KILNX001]Kiln.GameTreeSimResult.Connected.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Deconstruct(out Kiln.GameTreeSimOp Op, out uint Node, out bool Ok, out bool Reachable, out bool Rebuild, out bool Connected, out bool LevelsValid, out int Level, out bool Known, out int Spent, out int UnlockedNodes, out int Stripped, out int Index) -> void
+[KILNX001]Kiln.GameTreeSimResult.Equals(Kiln.GameTreeSimResult? other) -> bool
+[KILNX001]Kiln.GameTreeSimResult.GameTreeSimResult(Kiln.GameTreeSimOp Op, uint Node, bool Ok, bool Reachable, bool Rebuild, bool Connected, bool LevelsValid, int Level, bool Known, int Spent, int UnlockedNodes, int Stripped, int Index) -> void
+[KILNX001]Kiln.GameTreeSimResult.Index.get -> int
+[KILNX001]Kiln.GameTreeSimResult.Index.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Known.get -> bool
+[KILNX001]Kiln.GameTreeSimResult.Known.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Level.get -> int
+[KILNX001]Kiln.GameTreeSimResult.Level.init -> void
+[KILNX001]Kiln.GameTreeSimResult.LevelsValid.get -> bool
+[KILNX001]Kiln.GameTreeSimResult.LevelsValid.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Node.get -> uint
+[KILNX001]Kiln.GameTreeSimResult.Node.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Ok.get -> bool
+[KILNX001]Kiln.GameTreeSimResult.Ok.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Op.get -> Kiln.GameTreeSimOp
+[KILNX001]Kiln.GameTreeSimResult.Op.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Reachable.get -> bool
+[KILNX001]Kiln.GameTreeSimResult.Reachable.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Rebuild.get -> bool
+[KILNX001]Kiln.GameTreeSimResult.Rebuild.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Spent.get -> int
+[KILNX001]Kiln.GameTreeSimResult.Spent.init -> void
+[KILNX001]Kiln.GameTreeSimResult.Stripped.get -> int
+[KILNX001]Kiln.GameTreeSimResult.Stripped.init -> void
+[KILNX001]Kiln.GameTreeSimResult.UnlockedNodes.get -> int
+[KILNX001]Kiln.GameTreeSimResult.UnlockedNodes.init -> void
+[KILNX001]override Kiln.GameTreeSimResult.Equals(object? obj) -> bool
+[KILNX001]override Kiln.GameTreeSimResult.GetHashCode() -> int
+[KILNX001]override Kiln.GameTreeSimResult.ToString() -> string!
+[KILNX001]static Kiln.GameTree.LabCarried(Kiln.TalentHolder holder) -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!
+[KILNX001]static Kiln.GameTree.LabLoginGuard(Kiln.EntityId player) -> bool
+[KILNX001]static Kiln.GameTree.LabNativeRequests(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<uint>!
+[KILNX001]static Kiln.GameTree.LabPlayer(Kiln.EntityId player, Kiln.TalentHolder? holder = null, bool forceNative = false) -> void
+[KILNX001]static Kiln.GameTree.LabPutInSave(Kiln.EntityId player, uint node, int level) -> bool
+[KILNX001]static Kiln.GameTree.LabReload(Kiln.EntityId player) -> void
+[KILNX001]static Kiln.GameTree.LabSetCarried(Kiln.TalentHolder holder, System.Collections.Generic.IReadOnlyDictionary<string!, int>! levels) -> void
+[KILNX001]static Kiln.GameTree.Simulate(params (Kiln.GameTreeSimOp Op, uint Node)[]! steps) -> System.Collections.Generic.IReadOnlyList<Kiln.GameTreeSimResult!>!
+[KILNX001]static Kiln.GameTreeSimResult.operator !=(Kiln.GameTreeSimResult? left, Kiln.GameTreeSimResult? right) -> bool
+[KILNX001]static Kiln.GameTreeSimResult.operator ==(Kiln.GameTreeSimResult? left, Kiln.GameTreeSimResult? right) -> bool

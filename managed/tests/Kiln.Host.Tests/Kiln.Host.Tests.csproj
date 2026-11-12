@@ -13,6 +13,8 @@
     <ProjectReference Include="../../Kiln.Host/Kiln.Host.csproj" />
     <!-- Shared service assemblies live next to Kiln.Host (kiln/host on a server): Hello uses Kiln.Example. -->
     <ProjectReference Include="../../services/Kiln.Example/Kiln.Example.csproj" />
+    <!-- Kiln.Game (the real one, newest server dump) next to Kiln.Host, as in kiln/host: GameTypesTests checks layout stamps against it. -->
+    <ProjectReference Include="../../Kiln.Game/Kiln.Game.csproj" />
     <!-- Sample mods the tests install into a temporary kiln/mods (built, never referenced). -->
     <KilnSample Include="../../../mods/samples/Hello/Hello.csproj" />
     <KilnSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />

@@ -1,0 +1,1253 @@
+#nullable enable
+Kiln.ExperienceSource
+Kiln.ExperienceSource.Combat = 4 -> Kiln.ExperienceSource
+Kiln.ExperienceSource.Exploration = 1 -> Kiln.ExperienceSource
+Kiln.ExperienceSource.ItemSetCompleted = 6 -> Kiln.ExperienceSource
+Kiln.ExperienceSource.Lore = 2 -> Kiln.ExperienceSource
+Kiln.ExperienceSource.Mining = 5 -> Kiln.ExperienceSource
+Kiln.ExperienceSource.None = 0 -> Kiln.ExperienceSource
+Kiln.ExperienceSource.Quest = 3 -> Kiln.ExperienceSource
+Kiln.Player
+Kiln.Player.<Clone>$() -> Kiln.Player!
+Kiln.Player.AccountId.get -> ulong
+Kiln.Player.AccountId.init -> void
+Kiln.Player.Buffs.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
+Kiln.Player.Can(Kiln.PlayerPermissions p) -> bool
+Kiln.Player.CharacterId.get -> System.Guid
+Kiln.Player.Check(Kiln.PlayerStateId state) -> bool?
+Kiln.Player.CurrentAction.get -> Kiln.PlayerAction?
+Kiln.Player.Entity.get -> Kiln.EntityId
+Kiln.Player.Entity.init -> void
+Kiln.Player.Equals(Kiln.Player? other) -> bool
+Kiln.Player.Equipment.get -> Kiln.PlayerEquipment?
+Kiln.Player.Handle.get -> uint
+Kiln.Player.Handle.init -> void
+Kiln.Player.Health.get -> int?
+Kiln.Player.HealthMax.get -> int?
+Kiln.Player.HeldItem.get -> Kiln.PlayerItem
+Kiln.Player.InGame.get -> bool
+Kiln.Player.Is(Kiln.PlayerStateId state) -> bool
+Kiln.Player.IsAdmin.get -> bool
+Kiln.Player.IsAdmin.init -> void
+Kiln.Player.IsAdminKnown.get -> bool
+Kiln.Player.IsAdminKnown.init -> void
+Kiln.Player.IsAirborne.get -> bool
+Kiln.Player.IsAttacking.get -> bool
+Kiln.Player.IsBlocking.get -> bool
+Kiln.Player.IsCasting.get -> bool
+Kiln.Player.IsClimbing.get -> bool
+Kiln.Player.IsCrouching.get -> bool
+Kiln.Player.IsDead.get -> bool
+Kiln.Player.IsDiving.get -> bool
+Kiln.Player.IsDodging.get -> bool
+Kiln.Player.IsFalling.get -> bool
+Kiln.Player.IsGliding.get -> bool
+Kiln.Player.IsGrappling.get -> bool
+Kiln.Player.IsGrounded.get -> bool
+Kiln.Player.IsInBase.get -> bool
+Kiln.Player.IsInCombat.get -> bool
+Kiln.Player.IsInShroud.get -> bool
+Kiln.Player.IsJumping.get -> bool
+Kiln.Player.IsSitting.get -> bool
+Kiln.Player.IsSleeping.get -> bool
+Kiln.Player.IsSprinting.get -> bool
+Kiln.Player.IsSwimming.get -> bool
+Kiln.Player.IsUnderwater.get -> bool
+Kiln.Player.IsUsingItem.get -> bool
+Kiln.Player.JoinedStep.get -> ulong
+Kiln.Player.JoinedStep.init -> void
+Kiln.Player.Mana.get -> int?
+Kiln.Player.ManaMax.get -> int?
+Kiln.Player.Name.get -> string!
+Kiln.Player.Name.init -> void
+Kiln.Player.Permissions.get -> Kiln.PlayerPermissions
+Kiln.Player.Permissions.init -> void
+Kiln.Player.PermissionsKnown.get -> bool
+Kiln.Player.PermissionsKnown.init -> void
+Kiln.Player.Player() -> void
+Kiln.Player.Position.get -> Kiln.WorldPosition?
+Kiln.Player.Position.init -> void
+Kiln.Player.Progression.get -> Kiln.PlayerProgression!
+Kiln.Player.ShroudTimeLeft.get -> System.TimeSpan?
+Kiln.Player.Slot.get -> int
+Kiln.Player.Slot.init -> void
+Kiln.Player.Snapshot() -> Kiln.PlayerSnapshot?
+Kiln.Player.Stamina.get -> int?
+Kiln.Player.StaminaMax.get -> int?
+Kiln.Player.State.get -> Kiln.PlayerState
+Kiln.Player.State.init -> void
+Kiln.Player.SteamId.get -> ulong
+Kiln.Player.SteamId.init -> void
+Kiln.Player.UserGroupId.get -> uint
+Kiln.Player.UserGroupId.init -> void
+Kiln.PlayerAction
+Kiln.PlayerAction.<Clone>$() -> Kiln.PlayerAction!
+Kiln.PlayerAction.Ammunition.get -> Kiln.PlayerItem
+Kiln.PlayerAction.Ammunition.init -> void
+Kiln.PlayerAction.CostItem.get -> Kiln.PlayerItem
+Kiln.PlayerAction.CostItem.init -> void
+Kiln.PlayerAction.Deconstruct(out uint Sequence, out string! SequenceName, out Kiln.PlayerStateId Trigger, out Kiln.PlayerStateId Input, out Kiln.PlayerItem Item, out Kiln.PlayerItem Ammunition, out Kiln.PlayerItem CostItem, out ulong Slot, out Kiln.EntityId Host, out long TriggerTime, out System.TimeSpan Played, out System.TimeSpan Length) -> void
+Kiln.PlayerAction.Equals(Kiln.PlayerAction? other) -> bool
+Kiln.PlayerAction.Host.get -> Kiln.EntityId
+Kiln.PlayerAction.Host.init -> void
+Kiln.PlayerAction.Input.get -> Kiln.PlayerStateId
+Kiln.PlayerAction.Input.init -> void
+Kiln.PlayerAction.Item.get -> Kiln.PlayerItem
+Kiln.PlayerAction.Item.init -> void
+Kiln.PlayerAction.Length.get -> System.TimeSpan
+Kiln.PlayerAction.Length.init -> void
+Kiln.PlayerAction.Played.get -> System.TimeSpan
+Kiln.PlayerAction.Played.init -> void
+Kiln.PlayerAction.PlayerAction(uint Sequence, string! SequenceName, Kiln.PlayerStateId Trigger, Kiln.PlayerStateId Input, Kiln.PlayerItem Item, Kiln.PlayerItem Ammunition, Kiln.PlayerItem CostItem, ulong Slot, Kiln.EntityId Host, long TriggerTime, System.TimeSpan Played, System.TimeSpan Length) -> void
+Kiln.PlayerAction.Sequence.get -> uint
+Kiln.PlayerAction.Sequence.init -> void
+Kiln.PlayerAction.SequenceName.get -> string!
+Kiln.PlayerAction.SequenceName.init -> void
+Kiln.PlayerAction.Slot.get -> ulong
+Kiln.PlayerAction.Slot.init -> void
+Kiln.PlayerAction.SlotIndex.get -> int
+Kiln.PlayerAction.SlotInventory.get -> Kiln.EntityId
+Kiln.PlayerAction.Trigger.get -> Kiln.PlayerStateId
+Kiln.PlayerAction.Trigger.init -> void
+Kiln.PlayerAction.TriggerTime.get -> long
+Kiln.PlayerAction.TriggerTime.init -> void
+Kiln.PlayerActionEndedEvent
+Kiln.PlayerActionEndedEvent.Action.get -> Kiln.PlayerAction!
+Kiln.PlayerActionEndedEvent.Canceled.get -> bool
+Kiln.PlayerActionEndedEvent.Duration.get -> System.TimeSpan
+Kiln.PlayerActionEndedEvent.Player.get -> Kiln.Player!
+Kiln.PlayerActionEvent
+Kiln.PlayerActionEvent.Action.get -> Kiln.PlayerAction!
+Kiln.PlayerActionEvent.CanCancel.get -> bool
+Kiln.PlayerActionEvent.Input.get -> Kiln.PlayerStateId
+Kiln.PlayerActionEvent.Item.get -> Kiln.PlayerItem
+Kiln.PlayerActionEvent.Player.get -> Kiln.Player!
+Kiln.PlayerActionEvent.SequenceName.get -> string!
+Kiln.PlayerActionEvent.Step.get -> ulong
+Kiln.PlayerActionEvent.Trigger.get -> Kiln.PlayerStateId
+Kiln.PlayerBuff
+Kiln.PlayerBuff.<Clone>$() -> Kiln.PlayerBuff!
+Kiln.PlayerBuff.Deconstruct(out uint Id, out string! Slot, out System.TimeSpan? Remaining, out int Level) -> void
+Kiln.PlayerBuff.Equals(Kiln.PlayerBuff? other) -> bool
+Kiln.PlayerBuff.Id.get -> uint
+Kiln.PlayerBuff.Id.init -> void
+Kiln.PlayerBuff.Is(string! idText) -> bool
+Kiln.PlayerBuff.Is(uint id) -> bool
+Kiln.PlayerBuff.Level.get -> int
+Kiln.PlayerBuff.Level.init -> void
+Kiln.PlayerBuff.PlayerBuff(uint Id, string! Slot, System.TimeSpan? Remaining = null, int Level = 0) -> void
+Kiln.PlayerBuff.Remaining.get -> System.TimeSpan?
+Kiln.PlayerBuff.Remaining.init -> void
+Kiln.PlayerBuff.Slot.get -> string!
+Kiln.PlayerBuff.Slot.init -> void
+Kiln.PlayerCharacters
+Kiln.PlayerCharactersStatus
+Kiln.PlayerCharactersStatus.<Clone>$() -> Kiln.PlayerCharactersStatus!
+Kiln.PlayerCharactersStatus.Deconstruct(out bool Resolved, out bool Records, out bool Simulated, out ulong Scans, out int Known, out int RecordOffset) -> void
+Kiln.PlayerCharactersStatus.Equals(Kiln.PlayerCharactersStatus? other) -> bool
+Kiln.PlayerCharactersStatus.Known.get -> int
+Kiln.PlayerCharactersStatus.Known.init -> void
+Kiln.PlayerCharactersStatus.PlayerCharactersStatus(bool Resolved, bool Records, bool Simulated, ulong Scans, int Known, int RecordOffset) -> void
+Kiln.PlayerCharactersStatus.RecordOffset.get -> int
+Kiln.PlayerCharactersStatus.RecordOffset.init -> void
+Kiln.PlayerCharactersStatus.Records.get -> bool
+Kiln.PlayerCharactersStatus.Records.init -> void
+Kiln.PlayerCharactersStatus.Resolved.get -> bool
+Kiln.PlayerCharactersStatus.Resolved.init -> void
+Kiln.PlayerCharactersStatus.Scans.get -> ulong
+Kiln.PlayerCharactersStatus.Scans.init -> void
+Kiln.PlayerCharactersStatus.Simulated.get -> bool
+Kiln.PlayerCharactersStatus.Simulated.init -> void
+Kiln.PlayerClientActionEvent
+Kiln.PlayerClientActionEvent.Action.get -> Kiln.PlayerClientActionInfo!
+Kiln.PlayerClientActionEvent.CanCancel.get -> bool
+Kiln.PlayerClientActionEvent.Name.get -> string!
+Kiln.PlayerClientActionEvent.Payload.get -> byte[]!
+Kiln.PlayerClientActionEvent.Player.get -> Kiln.Player!
+Kiln.PlayerClientActionEvent.Version.get -> uint
+Kiln.PlayerClientActionInfo
+Kiln.PlayerClientActionInfo.<Clone>$() -> Kiln.PlayerClientActionInfo!
+Kiln.PlayerClientActionInfo.Bytes.get -> int
+Kiln.PlayerClientActionInfo.Bytes.init -> void
+Kiln.PlayerClientActionInfo.CanCancel.get -> bool
+Kiln.PlayerClientActionInfo.CanCancel.init -> void
+Kiln.PlayerClientActionInfo.Deconstruct(out int Index, out string! Name, out int Bytes, out bool CanCancel) -> void
+Kiln.PlayerClientActionInfo.Equals(Kiln.PlayerClientActionInfo? other) -> bool
+Kiln.PlayerClientActionInfo.Index.get -> int
+Kiln.PlayerClientActionInfo.Index.init -> void
+Kiln.PlayerClientActionInfo.Name.get -> string!
+Kiln.PlayerClientActionInfo.Name.init -> void
+Kiln.PlayerClientActionInfo.PlayerClientActionInfo(int Index, string! Name, int Bytes, bool CanCancel) -> void
+Kiln.PlayerConsumeEvent
+Kiln.PlayerConsumeEvent.Buffs.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
+Kiln.PlayerConsumeEvent.IsDrink.get -> bool
+Kiln.PlayerConsumeEvent.IsFood.get -> bool
+Kiln.PlayerConsumeEvent.Kind.get -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind.Bandage = 4 -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind.Drink = 2 -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind.Food = 1 -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind.Other = 0 -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind.Potion = 3 -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumeKind.Scroll = 5 -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumedEvent
+Kiln.PlayerConsumedEvent.Buffs.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
+Kiln.PlayerConsumedEvent.Item.get -> Kiln.PlayerItem
+Kiln.PlayerConsumedEvent.Kind.get -> Kiln.PlayerConsumeKind
+Kiln.PlayerConsumedEvent.Left.get -> int
+Kiln.PlayerConsumedEvent.Player.get -> Kiln.Player!
+Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.ArmourArms = 7 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.ArmourFeet = 9 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.ArmourHead = 5 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.ArmourLowerBody = 8 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.ArmourUpperBody = 6 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Arrow = 14 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Backpack = 19 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.FishingBait = 16 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Glider = 18 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.HookShot = 17 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.RangedWeapon = 12 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Ring0 = 10 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Ring1 = 11 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Shield = 13 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.Spell = 15 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.VanityArms = 2 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.VanityFeet = 4 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.VanityHead = 0 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.VanityLowerBody = 3 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipSlot.VanityUpperBody = 1 -> Kiln.PlayerEquipSlot
+Kiln.PlayerEquipment
+Kiln.PlayerEquipment.Held.get -> Kiln.PlayerItem
+Kiln.PlayerEquipment.HotbarIndex.get -> int
+Kiln.PlayerEquipment.this[Kiln.PlayerEquipSlot slot].get -> Kiln.PlayerItem
+Kiln.PlayerEquipmentChangedEvent
+Kiln.PlayerEquipmentChangedEvent.Before.get -> Kiln.PlayerItem
+Kiln.PlayerEquipmentChangedEvent.Equipped.get -> bool
+Kiln.PlayerEquipmentChangedEvent.Now.get -> Kiln.PlayerItem
+Kiln.PlayerEquipmentChangedEvent.Player.get -> Kiln.Player!
+Kiln.PlayerEquipmentChangedEvent.Slot.get -> Kiln.PlayerEquipSlot
+Kiln.PlayerEvent
+Kiln.PlayerEvent.<Clone>$() -> Kiln.PlayerEvent!
+Kiln.PlayerEvent.Deconstruct(out ulong Sequence, out bool Joined, out ulong Step, out Kiln.Player! Player) -> void
+Kiln.PlayerEvent.Equals(Kiln.PlayerEvent? other) -> bool
+Kiln.PlayerEvent.Joined.get -> bool
+Kiln.PlayerEvent.Joined.init -> void
+Kiln.PlayerEvent.Player.get -> Kiln.Player!
+Kiln.PlayerEvent.Player.init -> void
+Kiln.PlayerEvent.PlayerEvent(ulong Sequence, bool Joined, ulong Step, Kiln.Player! Player) -> void
+Kiln.PlayerEvent.Sequence.get -> ulong
+Kiln.PlayerEvent.Sequence.init -> void
+Kiln.PlayerEvent.Step.get -> ulong
+Kiln.PlayerEvent.Step.init -> void
+Kiln.PlayerGlideEvent
+Kiln.PlayerGlideEvent.Duration.get -> System.TimeSpan
+Kiln.PlayerGlideEvent.Ended.get -> bool
+Kiln.PlayerGlideEvent.Glider.get -> Kiln.PlayerItem
+Kiln.PlayerGlideEvent.Player.get -> Kiln.Player!
+Kiln.PlayerGlideEvent.Started.get -> bool
+Kiln.PlayerHotbarChangedEvent
+Kiln.PlayerHotbarChangedEvent.Before.get -> int
+Kiln.PlayerHotbarChangedEvent.Held.get -> Kiln.PlayerItem
+Kiln.PlayerHotbarChangedEvent.HeldBefore.get -> Kiln.PlayerItem
+Kiln.PlayerHotbarChangedEvent.Now.get -> int
+Kiln.PlayerHotbarChangedEvent.Player.get -> Kiln.Player!
+Kiln.PlayerItem
+Kiln.PlayerItem.Category.get -> string!
+Kiln.PlayerItem.Equals(Kiln.PlayerItem other) -> bool
+Kiln.PlayerItem.Id.get -> uint
+Kiln.PlayerItem.IsNone.get -> bool
+Kiln.PlayerItem.Name.get -> string!
+Kiln.PlayerItem.PlayerItem() -> void
+Kiln.PlayerItem.PlayerItem(uint id) -> void
+Kiln.PlayerItem.SlotType.get -> string!
+Kiln.PlayerJoinedEvent
+Kiln.PlayerJoinedEvent.Player.get -> Kiln.Player!
+Kiln.PlayerJoinedEvent.Sequence.get -> ulong
+Kiln.PlayerJoinedEvent.Step.get -> ulong
+Kiln.PlayerJumpEvent
+Kiln.PlayerJumpEvent.Count.get -> int
+Kiln.PlayerJumpEvent.IsDoubleJump.get -> bool
+Kiln.PlayerJumpEvent.Player.get -> Kiln.Player!
+Kiln.PlayerJumpEvent.Type.get -> Kiln.PlayerStateId
+Kiln.PlayerLeftEvent
+Kiln.PlayerLeftEvent.Player.get -> Kiln.Player!
+Kiln.PlayerLeftEvent.Sequence.get -> ulong
+Kiln.PlayerLeftEvent.Step.get -> ulong
+Kiln.PlayerLevelChangedEvent
+Kiln.PlayerLevelChangedEvent.Entity.get -> Kiln.EntityId
+Kiln.PlayerLevelChangedEvent.NewLevel.get -> int
+Kiln.PlayerLevelChangedEvent.OldLevel.get -> int
+Kiln.PlayerLevelChangedEvent.Player.get -> Kiln.Player?
+Kiln.PlayerLevelChangedEvent.Request.get -> ulong
+Kiln.PlayerLevelChangedEvent.Step.get -> ulong
+Kiln.PlayerPermissions
+Kiln.PlayerPermissions.AccessInventories = 2 -> Kiln.PlayerPermissions
+Kiln.PlayerPermissions.EditBase = 4 -> Kiln.PlayerPermissions
+Kiln.PlayerPermissions.EditWorld = 8 -> Kiln.PlayerPermissions
+Kiln.PlayerPermissions.ExtendBase = 16 -> Kiln.PlayerPermissions
+Kiln.PlayerPermissions.KickBan = 1 -> Kiln.PlayerPermissions
+Kiln.PlayerPermissions.None = 0 -> Kiln.PlayerPermissions
+Kiln.PlayerPermissions.ReceiveExp = 32 -> Kiln.PlayerPermissions
+Kiln.PlayerProgression
+Kiln.PlayerProgression.AddExperience(uint amount, Kiln.ExperienceSource source = Kiln.ExperienceSource.None) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.Entity.get -> Kiln.EntityId
+Kiln.PlayerProgression.Experience.get -> uint
+Kiln.PlayerProgression.ExperienceNeeded.get -> uint
+Kiln.PlayerProgression.GiveSkillPoints(int points) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.Level.get -> int
+Kiln.PlayerProgression.Lock(uint node, bool force = false) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.Read() -> Kiln.ProgressionSnapshot?
+Kiln.PlayerProgression.Respec() -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.SetExperience(uint experience) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.SetLevel(int level) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.SkillPoints.get -> int
+Kiln.PlayerProgression.Unlock(uint node, bool force = false) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+Kiln.PlayerProgression.UnlockedNodes.get -> System.Collections.Generic.IReadOnlyList<Kiln.UnlockedSkillNode>!
+Kiln.PlayerSkillsChangedEvent
+Kiln.PlayerSkillsChangedEvent.Entity.get -> Kiln.EntityId
+Kiln.PlayerSkillsChangedEvent.NewPointsSpent.get -> int
+Kiln.PlayerSkillsChangedEvent.OldPointsSpent.get -> int
+Kiln.PlayerSkillsChangedEvent.Player.get -> Kiln.Player?
+Kiln.PlayerSkillsChangedEvent.Request.get -> ulong
+Kiln.PlayerSkillsChangedEvent.Step.get -> ulong
+Kiln.PlayerSlotRaw
+Kiln.PlayerSlotRaw.AccountId.get -> ulong
+Kiln.PlayerSlotRaw.AccountId.init -> void
+Kiln.PlayerSlotRaw.Deconstruct(out uint Handle, out uint Peer, out uint State, out uint UserGroup, out uint Permissions, out uint Entity, out uint NameLength, out ulong AccountId, out uint InfoEntity, out uint InfoHandle, out uint InfoAdminByte, out uint InfoNonZeroBytes) -> void
+Kiln.PlayerSlotRaw.Entity.get -> uint
+Kiln.PlayerSlotRaw.Entity.init -> void
+Kiln.PlayerSlotRaw.Equals(Kiln.PlayerSlotRaw other) -> bool
+Kiln.PlayerSlotRaw.Handle.get -> uint
+Kiln.PlayerSlotRaw.Handle.init -> void
+Kiln.PlayerSlotRaw.InfoAdminByte.get -> uint
+Kiln.PlayerSlotRaw.InfoAdminByte.init -> void
+Kiln.PlayerSlotRaw.InfoEntity.get -> uint
+Kiln.PlayerSlotRaw.InfoEntity.init -> void
+Kiln.PlayerSlotRaw.InfoHandle.get -> uint
+Kiln.PlayerSlotRaw.InfoHandle.init -> void
+Kiln.PlayerSlotRaw.InfoNonZeroBytes.get -> uint
+Kiln.PlayerSlotRaw.InfoNonZeroBytes.init -> void
+Kiln.PlayerSlotRaw.NameLength.get -> uint
+Kiln.PlayerSlotRaw.NameLength.init -> void
+Kiln.PlayerSlotRaw.Peer.get -> uint
+Kiln.PlayerSlotRaw.Peer.init -> void
+Kiln.PlayerSlotRaw.Permissions.get -> uint
+Kiln.PlayerSlotRaw.Permissions.init -> void
+Kiln.PlayerSlotRaw.PlayerSlotRaw() -> void
+Kiln.PlayerSlotRaw.PlayerSlotRaw(uint Handle, uint Peer, uint State, uint UserGroup, uint Permissions, uint Entity, uint NameLength, ulong AccountId, uint InfoEntity, uint InfoHandle, uint InfoAdminByte, uint InfoNonZeroBytes) -> void
+Kiln.PlayerSlotRaw.State.get -> uint
+Kiln.PlayerSlotRaw.State.init -> void
+Kiln.PlayerSlotRaw.UserGroup.get -> uint
+Kiln.PlayerSlotRaw.UserGroup.init -> void
+Kiln.PlayerSnapshot
+Kiln.PlayerSnapshot.Action.get -> Kiln.PlayerAction?
+Kiln.PlayerSnapshot.Active.get -> System.Collections.Generic.IEnumerable<Kiln.PlayerStateId>!
+Kiln.PlayerSnapshot.BodyHeat.get -> int?
+Kiln.PlayerSnapshot.BodyHeatMax.get -> int?
+Kiln.PlayerSnapshot.CanDive.get -> bool?
+Kiln.PlayerSnapshot.CanSwim.get -> bool?
+Kiln.PlayerSnapshot.Check(Kiln.PlayerStateId state) -> bool?
+Kiln.PlayerSnapshot.Comfort.get -> int?
+Kiln.PlayerSnapshot.Entity.get -> Kiln.EntityId
+Kiln.PlayerSnapshot.Health.get -> int?
+Kiln.PlayerSnapshot.HealthMax.get -> int?
+Kiln.PlayerSnapshot.Is(Kiln.PlayerStateId state) -> bool
+Kiln.PlayerSnapshot.JumpCount.get -> int?
+Kiln.PlayerSnapshot.Level.get -> int?
+Kiln.PlayerSnapshot.Mana.get -> int?
+Kiln.PlayerSnapshot.ManaMax.get -> int?
+Kiln.PlayerSnapshot.Origin.get -> Kiln.PlayerStateOrigin
+Kiln.PlayerSnapshot.Oxygen.get -> int?
+Kiln.PlayerSnapshot.OxygenMax.get -> int?
+Kiln.PlayerSnapshot.RawValue(Kiln.PlayerStateSource source) -> ulong?
+Kiln.PlayerSnapshot.ShroudResistance.get -> int?
+Kiln.PlayerSnapshot.ShroudResistanceMax.get -> int?
+Kiln.PlayerSnapshot.ShroudTimeLeft.get -> System.TimeSpan?
+Kiln.PlayerSnapshot.SpecialAbility.get -> int?
+Kiln.PlayerSnapshot.SpecialAbilityMax.get -> int?
+Kiln.PlayerSnapshot.Stamina.get -> int?
+Kiln.PlayerSnapshot.StaminaMax.get -> int?
+Kiln.PlayerSnapshot.WaterDepth.get -> float?
+Kiln.PlayerSource
+Kiln.PlayerSource.GameLog = 2 -> Kiln.PlayerSource
+Kiln.PlayerSource.None = 0 -> Kiln.PlayerSource
+Kiln.PlayerSource.Records = 1 -> Kiln.PlayerSource
+Kiln.PlayerState
+Kiln.PlayerState.InGame = 2 -> Kiln.PlayerState
+Kiln.PlayerState.Joining = 1 -> Kiln.PlayerState
+Kiln.PlayerState.Leaving = 3 -> Kiln.PlayerState
+Kiln.PlayerStateChangedEvent
+Kiln.PlayerStateChangedEvent.Entered.get -> bool
+Kiln.PlayerStateChangedEvent.Left.get -> bool
+Kiln.PlayerStateChangedEvent.Name.get -> string!
+Kiln.PlayerStateChangedEvent.Player.get -> Kiln.Player!
+Kiln.PlayerStateChangedEvent.Snapshot.get -> Kiln.PlayerSnapshot!
+Kiln.PlayerStateChangedEvent.Source.get -> Kiln.PlayerStateSource
+Kiln.PlayerStateChangedEvent.State.get -> Kiln.PlayerStateId
+Kiln.PlayerStateChangedEvent.Step.get -> ulong
+Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanAbortSequenceByDeath = 1555 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanBlock = 1543 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanCancel = 1564 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanChangeBuildingCursor = 1560 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanChangeCombatTargetOrHardLockCandidate = 1557 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanChangeInteractionTarget = 1559 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanChangeVisceralTarget = 1558 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanClimb = 1552 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanEvade = 1542 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanExternallyAbortSequence = 1554 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanInteract = 1547 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanJump = 1545 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanMove = 1562 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanRangedCombatShoot = 1540 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanRecharge = 1561 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanRotate = 1563 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanShowHitReaction = 1556 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanSit = 1551 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanSneak = 1549 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanSprint = 1548 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanStandUp = 1550 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanTriggerGlider = 1546 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanTriggerHeavy = 1537 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanTriggerPrimary = 1536 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanTriggerSecondary = 1538 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanTriggerSpecialAbility = 1539 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanTriggerStunBreak = 1553 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanUseLongerStunParry = 1544 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AbilityCanUseTool = 1541 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionBlock = 2056 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionClimb = 2067 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionDeath = 2073 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionDismantle = 2062 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionDropItem = 2064 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionEvade = 2055 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionExternalAbortAndOverride = 2072 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionExternalTrigger = 2070 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionGlider = 2059 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionHeavy = 2052 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionHitReaction = 2068 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionInteract = 2060 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionInteractHold = 2061 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionInvalid = 2048 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionJump = 2058 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionParried = 2071 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionParriedOverride = 2074 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionParry = 2057 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionPrimary = 2049 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionPrimary_Hold = 2051 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionPrimary_Tap = 2050 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionRespawn = 2069 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionSecondary = 2053 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionSit = 2066 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionSneak = 2065 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionSpecialAbility = 2063 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ActionTool = 2054 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Airborne = 5632 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Attached = 292 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.AttachedToHook = 294 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Attacking = 5633 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.BlockOpportunity = 261 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Blocking = 258 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CanAreaLootHere = 775 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CanHeadDiveHere = 771 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CanPayUsageCosts = 302 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CanTriggerGlider = 774 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CanTriggerHeadDive = 772 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CanTriggerHookShot = 773 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Casting = 5634 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInBlueprintMenu = 1281 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInBuildingDetailRotationMode = 1287 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInBuildingDetailTranslationMode = 1286 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInFirstPerson = 1285 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInFreeCam = 1284 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInLogicScrewdriverMode = 1282 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInLootingMenu = 1283 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsInMultiToolBuildingMenu = 1280 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClientUiIsLockCombatTargetBindingEnabled = 1288 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbClimb = 3074 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbEnter = 3073 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbExit = 3075 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbInvalid = 3072 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbTypeInvalid = 3328 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbTypeLadder = 3330 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbTypeWall = 3329 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Climbing = 290 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbingLadder = 520 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbingTransition = 291 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ClimbingWall = 519 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Cold = 275 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderClimbingWall = 2820 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderDeath = 2821 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderDefault = 2816 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderDivingAlive = 2824 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderDivingDeath = 2825 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderEvading = 2819 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderFlying = 2826 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderInvisible = 2822 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderLying = 2818 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderSitting = 2817 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ColliderSwimming = 2823 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Cooking = 287 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CookingFlagCanCook = 4611 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CookingFlagIsCooking = 4610 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CookingFlagReceivedSpawnCookEvent = 4608 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.CookingFlagReceivedStartCookEvent = 4609 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Dead = 263 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Diving = 522 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Dodging = 259 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.EnemyPrepareAttack = 304 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Exhausted = 262 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Falling = 288 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Fed = 5638 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingAbortPreHooked = 4358 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingAdvancedMinigame = 4374 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingAim = 4355 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingAimAndCharge = 4356 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingCastFloat = 4361 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingConsumeBait = 4372 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingDecideOutbreak = 4380 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingEmergencyExit = 4391 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingFinalHook = 4382 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingFinishReelIn = 4385 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingFishHooked = 4371 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingFishingMinigame = 4354 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingFloatReturned = 4386 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingIdle = 4353 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingInitFightStage = 4379 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingInitMinigame = 4378 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingInvalid = 4352 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingOutbreak = 4381 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingPreGame = 4359 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingPreGame_EnsureFloatInWater = 4364 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingPrepareCastFloat = 4360 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingPreparePullCloser = 4376 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingPullCloser = 4377 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingReadSpawnTable = 4365 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingReelIn = 4384 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingSpawnFish = 4366 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingStartReelIn = 4383 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingVictory = 4387 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitFishSpawned = 4367 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForCastAvailable = 4357 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForDiscardFish = 4390 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForFish = 4368 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForFishAttracted = 4369 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForFishHooked = 4370 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForFloatToLand = 4362 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForLootFish = 4389 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForPlayerInteraction = 4388 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitForValidFloatLocation = 4363 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitHookInput = 4373 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FishingWaitPullCloser = 4375 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FloatingOnWater = 299 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Flying = 295 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FogDangerous = 5122 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FogDeath = 5123 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FogNone = 5120 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FogNoneTemporary = 5121 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.FreezeLeaningDirection = 318 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Freezing = 276 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Gliding = 293 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Grappling = 294 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Grounded = 256 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HandsFree = 311 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HangGliding = 293 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HasAggro = 279 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HasDebuff = 5639 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HasRangedWeaponFeedbackBeenSent = 784 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HeadDiving = 289 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HeavyAttack = 285 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HideFeetArmour = 791 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HideGloves = 792 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HideHelmet = 788 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HideLowerbodyArmour = 790 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HideUpperbodyArmour = 789 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookEnter = 3585 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookExit = 3587 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookInvalid = 3584 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookTypeAuto = 3845 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookTypeNone = 3840 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookTypePullSelf = 3843 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookTypePullTarget = 3842 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookTypePullToggleEntity = 3841 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookTypeSwingSelf = 3844 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.HookUpdate = 3586 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Hungry = 5640 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InBase = 5636 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InBlueprintSnappingMode = 777 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InCombat = 280 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InFog = 269 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InFullScreenUi = 769 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InRangeCombat = 281 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InRangeCombatKeepTarget = 284 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InRangeCombatPreparing = 282 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InRangeCombatShooting = 283 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InSafeZone = 270 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InSaveZone = 270 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InShroud = 269 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InSnappingLerp = 286 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InSneakMode = 277 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InStartSequence = 298 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InStopSequence = 297 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InTargetLockCombatMode = 782 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InTurnSequence = 296 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InVoxelGridSnappingMode = 778 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputAreaLoot = 1800 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputBlock = 1822 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputBuildingBlueprintSnapping = 1833 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputBuildingModeFly = 1831 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputBuildingUndo = 1832 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputBuildingVoxelGridSnapping = 1834 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCancelAction = 1805 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCombatTargetSelect1dLeft = 1836 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCombatTargetSelect1dRight = 1837 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCombatTargetSelect2dDown = 1841 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCombatTargetSelect2dLeft = 1838 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCombatTargetSelect2dRight = 1839 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputCombatTargetSelect2dUp = 1840 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputContextualAction = 1797 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputContextualAction_Hold = 1799 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputContextualAction_Tap = 1798 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputDiveAscend = 1827 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputDiveDescend = 1828 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputDropItem = 1804 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputEvade = 1823 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputGlider = 1829 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputHeadDive = 1825 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputJump = 1824 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputLockCombatTarget = 1835 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputMainhandAction = 1792 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputMainhandAction_Hold = 1794 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputMainhandAction_Release = 1795 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputMainhandAction_Tap = 1793 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse0 = 1806 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse0_Release = 1814 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse1 = 1807 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse1_Release = 1815 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse2 = 1808 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse2_Release = 1816 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse3 = 1809 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse3_Release = 1817 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse4 = 1810 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse4_Release = 1818 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse5 = 1811 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse5_Release = 1819 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse6 = 1812 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse6_Release = 1820 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse7 = 1813 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputQuickUse7_Release = 1821 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputRangedCombatArm = 1842 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputRangedCombatShoot = 1843 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputRangedCombatShoot_Tap = 1844 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputRespawn = 1830 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSecondaryBuildingAction = 1796 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSneak = 1847 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSpecialAbility = 1801 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSpecialAbility_Hold = 1803 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSpecialAbility_Tap = 1802 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSprint = 1845 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputSwimStartDiving = 1826 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.InputWalk = 1846 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Invisible = 303 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsActionOpportunityTriggered = 307 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsAnythingAbove = 305 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsChargingFishingRod = 315 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsFishing = 316 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsHoldingFish = 317 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsInBigDungeon = 786 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsInDeepSubmergeMaterial = 787 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsNearBuildingZone = 310 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsOutsideSafeZone = 785 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsReadyForGameplay = 306 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsSequenceTriggerInputActive = 314 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsSkyDiving = 776 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsSpawned = 768 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsSprinting = 781 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.IsWorking = 312 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpAirwolf = 2321 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpAttack = 2320 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpDefault = 2305 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpDefaultSubmerged = 2310 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpDoubleDefault = 2306 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpDoubleMountain = 2308 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpDoubleSprint = 2307 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpFreeClimbing = 2317 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpGlider = 2312 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpHookSwingDefaultExit = 2314 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpHookSwingEnter = 2313 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpHookSwingSprintExit = 2315 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpInvalid = 2304 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpJumpPad = 2323 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpLadderClimbing = 2316 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpMountain = 2318 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpNpcMovement = 2322 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpSlide = 2319 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpSprint = 2309 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.JumpStruggleSubmerged = 2311 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Jumping = 257 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionBuildingFlying = 523 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionClimbingLadder = 520 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionClimbingWall = 519 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionDiving = 522 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionFalling = 514 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionFlying = 515 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionHangGliding = 516 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionHookPulling = 517 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionHookSwinging = 518 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionSliding = 513 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionSwimming = 521 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.LocomotionWalking = 512 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Mining = 271 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionAirwolfActive = 1029 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionIsUpdraftDepleted = 1030 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionLveRunning = 1024 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionMovingTowardsHole = 1028 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionOffBalance = 1027 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionOnVoxelStairs = 1032 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionSprinting = 1025 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionWadingInWater = 1026 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.MotionWantsToMove = 1031 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.None = 0 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ParryOportunity = 260 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Petting = 313 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.PlayingInstrument = 266 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.QueueFireRangedShot = 783 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.RangedAim = 4097 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.RangedAimAndCharge = 4098 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.RangedFire = 4099 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.RangedFireEaseOut = 4100 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.RangedHolster = 4096 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Rested = 5637 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ReviveGettingRevived = 4866 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ReviveInvalid = 4864 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.ReviveReviving = 4865 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Sheltered = 264 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Sitting = 265 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Sleeping = 267 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Sliding = 513 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Sneaking = 277 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Soaked = 274 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Spawning = 268 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedCombat = 2571 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedCustom = 2574 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedDive = 2566 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedDiveSlow = 2568 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedDiveSprint = 2570 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedFlee = 2573 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedPatrol = 2572 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedRun = 2563 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedSneak = 2561 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedSprint = 2564 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedSwim = 2565 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedSwimSlow = 2567 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedSwimSprint = 2569 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedWalk = 2562 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.SpeedZero = 2560 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Sprinting = 781 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Strafing = 309 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Suffocating = 301 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Swimming = 521 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.TemperatureFreezing = 5377 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.TemperatureNormal = 5376 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.UiCoverRequest = 770 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.UnderWater = 300 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Underwater = 300 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Unhappy = 278 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.UsingItem = 5635 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.WantsToMove = 308 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.WantsToSprint = 779 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.WantsToWalk = 780 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Warm = 272 -> Kiln.PlayerStateId
+Kiln.PlayerStateId.Wet = 273 -> Kiln.PlayerStateId
+Kiln.PlayerStateInfo
+Kiln.PlayerStateInfo.<Clone>$() -> Kiln.PlayerStateInfo!
+Kiln.PlayerStateInfo.Deconstruct(out Kiln.PlayerStateId Id, out Kiln.PlayerStateSource Source, out ulong Raw, out string! GameName, out bool IsFlag, out bool NamedByKiln) -> void
+Kiln.PlayerStateInfo.Equals(Kiln.PlayerStateInfo? other) -> bool
+Kiln.PlayerStateInfo.GameName.get -> string!
+Kiln.PlayerStateInfo.GameName.init -> void
+Kiln.PlayerStateInfo.Id.get -> Kiln.PlayerStateId
+Kiln.PlayerStateInfo.Id.init -> void
+Kiln.PlayerStateInfo.IsFlag.get -> bool
+Kiln.PlayerStateInfo.IsFlag.init -> void
+Kiln.PlayerStateInfo.NamedByKiln.get -> bool
+Kiln.PlayerStateInfo.NamedByKiln.init -> void
+Kiln.PlayerStateInfo.PlayerStateInfo(Kiln.PlayerStateId Id, Kiln.PlayerStateSource Source, ulong Raw, string! GameName, bool IsFlag, bool NamedByKiln) -> void
+Kiln.PlayerStateInfo.Raw.get -> ulong
+Kiln.PlayerStateInfo.Raw.init -> void
+Kiln.PlayerStateInfo.Source.get -> Kiln.PlayerStateSource
+Kiln.PlayerStateInfo.Source.init -> void
+Kiln.PlayerStateOrigin
+Kiln.PlayerStateOrigin.ClientPrediction = 1 -> Kiln.PlayerStateOrigin
+Kiln.PlayerStateOrigin.Replicated = 2 -> Kiln.PlayerStateOrigin
+Kiln.PlayerStateOrigin.Server = 0 -> Kiln.PlayerStateOrigin
+Kiln.PlayerStateServiceStatus
+Kiln.PlayerStateServiceStatus.<Clone>$() -> Kiln.PlayerStateServiceStatus!
+Kiln.PlayerStateServiceStatus.Cancel.get -> bool
+Kiln.PlayerStateServiceStatus.Cancel.init -> void
+Kiln.PlayerStateServiceStatus.ClientActionCancel.get -> bool
+Kiln.PlayerStateServiceStatus.ClientActionCancel.init -> void
+Kiln.PlayerStateServiceStatus.Deconstruct(out bool Reflection, out bool Cancel, out bool SequenceNames, out bool ItemDetails, out int Sources, out ulong Scans, out ulong PlayersRead, out string! Detail) -> void
+Kiln.PlayerStateServiceStatus.Detail.get -> string!
+Kiln.PlayerStateServiceStatus.Detail.init -> void
+Kiln.PlayerStateServiceStatus.Equals(Kiln.PlayerStateServiceStatus? other) -> bool
+Kiln.PlayerStateServiceStatus.ItemDetails.get -> bool
+Kiln.PlayerStateServiceStatus.ItemDetails.init -> void
+Kiln.PlayerStateServiceStatus.PlayerStateServiceStatus(bool Reflection, bool Cancel, bool SequenceNames, bool ItemDetails, int Sources, ulong Scans, ulong PlayersRead, string! Detail) -> void
+Kiln.PlayerStateServiceStatus.PlayersRead.get -> ulong
+Kiln.PlayerStateServiceStatus.PlayersRead.init -> void
+Kiln.PlayerStateServiceStatus.Reflection.get -> bool
+Kiln.PlayerStateServiceStatus.Reflection.init -> void
+Kiln.PlayerStateServiceStatus.Scans.get -> ulong
+Kiln.PlayerStateServiceStatus.Scans.init -> void
+Kiln.PlayerStateServiceStatus.SequenceNames.get -> bool
+Kiln.PlayerStateServiceStatus.SequenceNames.init -> void
+Kiln.PlayerStateServiceStatus.Sources.get -> int
+Kiln.PlayerStateServiceStatus.Sources.init -> void
+Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Ability = 6 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Action = 8 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Actor = 1 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.ClientUi = 5 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Climb = 12 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.ClimbType = 13 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Collider = 11 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.CookingFlag = 18 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Derived = 22 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Fishing = 17 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Fog = 20 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Hook = 14 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.HookType = 15 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Input = 7 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Jump = 9 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Locomotion = 2 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Motion = 4 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.None = 0 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Player = 3 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Ranged = 16 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Revive = 19 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Speed = 10 -> Kiln.PlayerStateSource
+Kiln.PlayerStateSource.Temperature = 21 -> Kiln.PlayerStateSource
+Kiln.PlayerStates
+Kiln.PlayerStates.Diagnostics
+Kiln.Players
+Kiln.Players.Diagnostics
+Kiln.PlayersStatus
+Kiln.PlayersStatus.<Clone>$() -> Kiln.PlayersStatus!
+Kiln.PlayersStatus.AdminBit.get -> bool
+Kiln.PlayersStatus.AdminBit.init -> void
+Kiln.PlayersStatus.BasicPlayerInfosCaptured.get -> bool
+Kiln.PlayersStatus.BasicPlayerInfosCaptured.init -> void
+Kiln.PlayersStatus.Connected.get -> int
+Kiln.PlayersStatus.Connected.init -> void
+Kiln.PlayersStatus.Deconstruct(out Kiln.PlayerSource Source, out bool Records, out bool AdminBit, out bool Positions, out bool GameLog, out bool SingletonMapAgrees, out bool LayoutConsistent, out int Slots, out int InGame, out int Connected, out ulong LastSequence, out ulong Scans, out ulong LogLines, out ulong LogLinesMatched, out bool WorldCaptured, out bool ServerPlayersCaptured, out bool BasicPlayerInfosCaptured, out bool Simulated) -> void
+Kiln.PlayersStatus.Equals(Kiln.PlayersStatus? other) -> bool
+Kiln.PlayersStatus.GameLog.get -> bool
+Kiln.PlayersStatus.GameLog.init -> void
+Kiln.PlayersStatus.InGame.get -> int
+Kiln.PlayersStatus.InGame.init -> void
+Kiln.PlayersStatus.LastSequence.get -> ulong
+Kiln.PlayersStatus.LastSequence.init -> void
+Kiln.PlayersStatus.LayoutConsistent.get -> bool
+Kiln.PlayersStatus.LayoutConsistent.init -> void
+Kiln.PlayersStatus.LogLines.get -> ulong
+Kiln.PlayersStatus.LogLines.init -> void
+Kiln.PlayersStatus.LogLinesMatched.get -> ulong
+Kiln.PlayersStatus.LogLinesMatched.init -> void
+Kiln.PlayersStatus.PlayersStatus(Kiln.PlayerSource Source, bool Records, bool AdminBit, bool Positions, bool GameLog, bool SingletonMapAgrees, bool LayoutConsistent, int Slots, int InGame, int Connected, ulong LastSequence, ulong Scans, ulong LogLines, ulong LogLinesMatched, bool WorldCaptured, bool ServerPlayersCaptured, bool BasicPlayerInfosCaptured, bool Simulated) -> void
+Kiln.PlayersStatus.Positions.get -> bool
+Kiln.PlayersStatus.Positions.init -> void
+Kiln.PlayersStatus.Records.get -> bool
+Kiln.PlayersStatus.Records.init -> void
+Kiln.PlayersStatus.Scans.get -> ulong
+Kiln.PlayersStatus.Scans.init -> void
+Kiln.PlayersStatus.ServerPlayersCaptured.get -> bool
+Kiln.PlayersStatus.ServerPlayersCaptured.init -> void
+Kiln.PlayersStatus.Simulated.get -> bool
+Kiln.PlayersStatus.Simulated.init -> void
+Kiln.PlayersStatus.SingletonMapAgrees.get -> bool
+Kiln.PlayersStatus.SingletonMapAgrees.init -> void
+Kiln.PlayersStatus.Slots.get -> int
+Kiln.PlayersStatus.Slots.init -> void
+Kiln.PlayersStatus.Source.get -> Kiln.PlayerSource
+Kiln.PlayersStatus.Source.init -> void
+Kiln.PlayersStatus.WorldCaptured.get -> bool
+Kiln.PlayersStatus.WorldCaptured.init -> void
+Kiln.Progression
+Kiln.Progression.Diagnostics
+Kiln.Progression.Diagnostics.AttrProbe
+Kiln.Progression.Diagnostics.AttrProbe.AttrProbe() -> void
+Kiln.Progression.Diagnostics.AttrProbe.AttrProbe(uint Root, uint[]! Storage, int[]! Slots) -> void
+Kiln.Progression.Diagnostics.AttrProbe.Deconstruct(out uint Root, out uint[]! Storage, out int[]! Slots) -> void
+Kiln.Progression.Diagnostics.AttrProbe.Equals(Kiln.Progression.Diagnostics.AttrProbe other) -> bool
+Kiln.Progression.Diagnostics.AttrProbe.Root.get -> uint
+Kiln.Progression.Diagnostics.AttrProbe.Root.init -> void
+Kiln.Progression.Diagnostics.AttrProbe.Slots.get -> int[]!
+Kiln.Progression.Diagnostics.AttrProbe.Slots.init -> void
+Kiln.Progression.Diagnostics.AttrProbe.Storage.get -> uint[]!
+Kiln.Progression.Diagnostics.AttrProbe.Storage.init -> void
+Kiln.Progression.Diagnostics.SimOp
+Kiln.Progression.Diagnostics.SimOp.Check = 4 -> Kiln.Progression.Diagnostics.SimOp
+Kiln.Progression.Diagnostics.SimOp.Lock = 2 -> Kiln.Progression.Diagnostics.SimOp
+Kiln.Progression.Diagnostics.SimOp.Respec = 3 -> Kiln.Progression.Diagnostics.SimOp
+Kiln.Progression.Diagnostics.SimOp.Unlock = 1 -> Kiln.Progression.Diagnostics.SimOp
+Kiln.Progression.Diagnostics.SimResult
+Kiln.Progression.Diagnostics.SimResult.Connected.get -> bool
+Kiln.Progression.Diagnostics.SimResult.Connected.init -> void
+Kiln.Progression.Diagnostics.SimResult.Deconstruct(out Kiln.Progression.Diagnostics.SimOp Op, out uint Node, out bool Ok, out bool Reachable, out bool Connected, out int Level, out int Spent, out int Nodes) -> void
+Kiln.Progression.Diagnostics.SimResult.Equals(Kiln.Progression.Diagnostics.SimResult other) -> bool
+Kiln.Progression.Diagnostics.SimResult.Level.get -> int
+Kiln.Progression.Diagnostics.SimResult.Level.init -> void
+Kiln.Progression.Diagnostics.SimResult.Node.get -> uint
+Kiln.Progression.Diagnostics.SimResult.Node.init -> void
+Kiln.Progression.Diagnostics.SimResult.Nodes.get -> int
+Kiln.Progression.Diagnostics.SimResult.Nodes.init -> void
+Kiln.Progression.Diagnostics.SimResult.Ok.get -> bool
+Kiln.Progression.Diagnostics.SimResult.Ok.init -> void
+Kiln.Progression.Diagnostics.SimResult.Op.get -> Kiln.Progression.Diagnostics.SimOp
+Kiln.Progression.Diagnostics.SimResult.Op.init -> void
+Kiln.Progression.Diagnostics.SimResult.Reachable.get -> bool
+Kiln.Progression.Diagnostics.SimResult.Reachable.init -> void
+Kiln.Progression.Diagnostics.SimResult.SimResult() -> void
+Kiln.Progression.Diagnostics.SimResult.SimResult(Kiln.Progression.Diagnostics.SimOp Op, uint Node, bool Ok, bool Reachable, bool Connected, int Level, int Spent, int Nodes) -> void
+Kiln.Progression.Diagnostics.SimResult.Spent.get -> int
+Kiln.Progression.Diagnostics.SimResult.Spent.init -> void
+Kiln.ProgressionOp
+Kiln.ProgressionOp.AddExperience = 2 -> Kiln.ProgressionOp
+Kiln.ProgressionOp.GiveSkillPoints = 4 -> Kiln.ProgressionOp
+Kiln.ProgressionOp.Lock = 6 -> Kiln.ProgressionOp
+Kiln.ProgressionOp.Respec = 7 -> Kiln.ProgressionOp
+Kiln.ProgressionOp.SetExperience = 3 -> Kiln.ProgressionOp
+Kiln.ProgressionOp.SetLevel = 1 -> Kiln.ProgressionOp
+Kiln.ProgressionOp.Unlock = 5 -> Kiln.ProgressionOp
+Kiln.ProgressionResult
+Kiln.ProgressionResult.<Clone>$() -> Kiln.ProgressionResult!
+Kiln.ProgressionResult.After.get -> Kiln.ProgressionSnapshot?
+Kiln.ProgressionResult.After.init -> void
+Kiln.ProgressionResult.Applied.get -> int
+Kiln.ProgressionResult.Applied.init -> void
+Kiln.ProgressionResult.Before.get -> Kiln.ProgressionSnapshot?
+Kiln.ProgressionResult.Before.init -> void
+Kiln.ProgressionResult.Deconstruct(out ulong Request, out Kiln.ProgressionOp Op, out Kiln.EntityId Entity, out bool Ok, out string! Status, out int Applied, out int Steps, out Kiln.ProgressionSnapshot? Before, out Kiln.ProgressionSnapshot? After, out string! Reason) -> void
+Kiln.ProgressionResult.Entity.get -> Kiln.EntityId
+Kiln.ProgressionResult.Entity.init -> void
+Kiln.ProgressionResult.Equals(Kiln.ProgressionResult? other) -> bool
+Kiln.ProgressionResult.Ok.get -> bool
+Kiln.ProgressionResult.Ok.init -> void
+Kiln.ProgressionResult.Op.get -> Kiln.ProgressionOp
+Kiln.ProgressionResult.Op.init -> void
+Kiln.ProgressionResult.ProgressionResult(ulong Request, Kiln.ProgressionOp Op, Kiln.EntityId Entity, bool Ok, string! Status, int Applied, int Steps, Kiln.ProgressionSnapshot? Before, Kiln.ProgressionSnapshot? After, string! Reason) -> void
+Kiln.ProgressionResult.Reason.get -> string!
+Kiln.ProgressionResult.Reason.init -> void
+Kiln.ProgressionResult.Request.get -> ulong
+Kiln.ProgressionResult.Request.init -> void
+Kiln.ProgressionResult.Status.get -> string!
+Kiln.ProgressionResult.Status.init -> void
+Kiln.ProgressionResult.Steps.get -> int
+Kiln.ProgressionResult.Steps.init -> void
+Kiln.ProgressionSnapshot
+Kiln.ProgressionSnapshot.<Clone>$() -> Kiln.ProgressionSnapshot!
+Kiln.ProgressionSnapshot.AtLevelCap.get -> bool
+Kiln.ProgressionSnapshot.AtLevelCap.init -> void
+Kiln.ProgressionSnapshot.Deconstruct(out Kiln.EntityId Entity, out int Level, out int LevelCap, out uint Experience, out uint ExperienceNeeded, out uint ExperiencePending, out int SkillPoints, out int SkillPointsTotal, out int SkillPointsSpent, out int SkillPointsFromLevel, out int SkillPointsFromKnowledge, out int SkillPointsPerLevel, out int UnlockedNodes, out int GivableSkillPoints, out bool HasLevel, out bool HasSkills, out bool HasPoints, out bool HasKnowledge, out bool AtLevelCap, out bool OverBudget, out bool IsSnapshot, out ulong Step) -> void
+Kiln.ProgressionSnapshot.Entity.get -> Kiln.EntityId
+Kiln.ProgressionSnapshot.Entity.init -> void
+Kiln.ProgressionSnapshot.Equals(Kiln.ProgressionSnapshot? other) -> bool
+Kiln.ProgressionSnapshot.Experience.get -> uint
+Kiln.ProgressionSnapshot.Experience.init -> void
+Kiln.ProgressionSnapshot.ExperienceNeeded.get -> uint
+Kiln.ProgressionSnapshot.ExperienceNeeded.init -> void
+Kiln.ProgressionSnapshot.ExperiencePending.get -> uint
+Kiln.ProgressionSnapshot.ExperiencePending.init -> void
+Kiln.ProgressionSnapshot.GivableSkillPoints.get -> int
+Kiln.ProgressionSnapshot.GivableSkillPoints.init -> void
+Kiln.ProgressionSnapshot.HasKnowledge.get -> bool
+Kiln.ProgressionSnapshot.HasKnowledge.init -> void
+Kiln.ProgressionSnapshot.HasLevel.get -> bool
+Kiln.ProgressionSnapshot.HasLevel.init -> void
+Kiln.ProgressionSnapshot.HasPoints.get -> bool
+Kiln.ProgressionSnapshot.HasPoints.init -> void
+Kiln.ProgressionSnapshot.HasSkills.get -> bool
+Kiln.ProgressionSnapshot.HasSkills.init -> void
+Kiln.ProgressionSnapshot.IsSnapshot.get -> bool
+Kiln.ProgressionSnapshot.IsSnapshot.init -> void
+Kiln.ProgressionSnapshot.Level.get -> int
+Kiln.ProgressionSnapshot.Level.init -> void
+Kiln.ProgressionSnapshot.LevelCap.get -> int
+Kiln.ProgressionSnapshot.LevelCap.init -> void
+Kiln.ProgressionSnapshot.OverBudget.get -> bool
+Kiln.ProgressionSnapshot.OverBudget.init -> void
+Kiln.ProgressionSnapshot.ProgressionSnapshot(Kiln.EntityId Entity, int Level, int LevelCap, uint Experience, uint ExperienceNeeded, uint ExperiencePending, int SkillPoints, int SkillPointsTotal, int SkillPointsSpent, int SkillPointsFromLevel, int SkillPointsFromKnowledge, int SkillPointsPerLevel, int UnlockedNodes, int GivableSkillPoints, bool HasLevel, bool HasSkills, bool HasPoints, bool HasKnowledge, bool AtLevelCap, bool OverBudget, bool IsSnapshot, ulong Step) -> void
+Kiln.ProgressionSnapshot.SkillPoints.get -> int
+Kiln.ProgressionSnapshot.SkillPoints.init -> void
+Kiln.ProgressionSnapshot.SkillPointsFromKnowledge.get -> int
+Kiln.ProgressionSnapshot.SkillPointsFromKnowledge.init -> void
+Kiln.ProgressionSnapshot.SkillPointsFromLevel.get -> int
+Kiln.ProgressionSnapshot.SkillPointsFromLevel.init -> void
+Kiln.ProgressionSnapshot.SkillPointsPerLevel.get -> int
+Kiln.ProgressionSnapshot.SkillPointsPerLevel.init -> void
+Kiln.ProgressionSnapshot.SkillPointsSpent.get -> int
+Kiln.ProgressionSnapshot.SkillPointsSpent.init -> void
+Kiln.ProgressionSnapshot.SkillPointsTotal.get -> int
+Kiln.ProgressionSnapshot.SkillPointsTotal.init -> void
+Kiln.ProgressionSnapshot.Step.get -> ulong
+Kiln.ProgressionSnapshot.Step.init -> void
+Kiln.ProgressionSnapshot.UnlockedNodes.get -> int
+Kiln.ProgressionSnapshot.UnlockedNodes.init -> void
+Kiln.ProgressionStatus
+Kiln.ProgressionStatus.<Clone>$() -> Kiln.ProgressionStatus!
+Kiln.ProgressionStatus.Applied.get -> ulong
+Kiln.ProgressionStatus.Applied.init -> void
+Kiln.ProgressionStatus.Deconstruct(out bool Levels, out bool Skills, out bool SkillKnowledge, out bool ExperienceEvents, out bool Program, out bool World, out int TreeNodes, out int KnowledgeEntries, out int KnowledgePlusOne, out int LevelCap, out int SkillPointsPerLevel, out int Pending, out ulong Submitted, out ulong Applied, out ulong Failed, out ulong ProgramUpdates, out string! Reason) -> void
+Kiln.ProgressionStatus.Equals(Kiln.ProgressionStatus? other) -> bool
+Kiln.ProgressionStatus.ExperienceEvents.get -> bool
+Kiln.ProgressionStatus.ExperienceEvents.init -> void
+Kiln.ProgressionStatus.Failed.get -> ulong
+Kiln.ProgressionStatus.Failed.init -> void
+Kiln.ProgressionStatus.KnowledgeEntries.get -> int
+Kiln.ProgressionStatus.KnowledgeEntries.init -> void
+Kiln.ProgressionStatus.KnowledgePlusOne.get -> int
+Kiln.ProgressionStatus.KnowledgePlusOne.init -> void
+Kiln.ProgressionStatus.LevelCap.get -> int
+Kiln.ProgressionStatus.LevelCap.init -> void
+Kiln.ProgressionStatus.Levels.get -> bool
+Kiln.ProgressionStatus.Levels.init -> void
+Kiln.ProgressionStatus.Pending.get -> int
+Kiln.ProgressionStatus.Pending.init -> void
+Kiln.ProgressionStatus.Program.get -> bool
+Kiln.ProgressionStatus.Program.init -> void
+Kiln.ProgressionStatus.ProgramUpdates.get -> ulong
+Kiln.ProgressionStatus.ProgramUpdates.init -> void
+Kiln.ProgressionStatus.ProgressionStatus(bool Levels, bool Skills, bool SkillKnowledge, bool ExperienceEvents, bool Program, bool World, int TreeNodes, int KnowledgeEntries, int KnowledgePlusOne, int LevelCap, int SkillPointsPerLevel, int Pending, ulong Submitted, ulong Applied, ulong Failed, ulong ProgramUpdates, string! Reason) -> void
+Kiln.ProgressionStatus.Reason.get -> string!
+Kiln.ProgressionStatus.Reason.init -> void
+Kiln.ProgressionStatus.SkillKnowledge.get -> bool
+Kiln.ProgressionStatus.SkillKnowledge.init -> void
+Kiln.ProgressionStatus.SkillPointsPerLevel.get -> int
+Kiln.ProgressionStatus.SkillPointsPerLevel.init -> void
+Kiln.ProgressionStatus.Skills.get -> bool
+Kiln.ProgressionStatus.Skills.init -> void
+Kiln.ProgressionStatus.Submitted.get -> ulong
+Kiln.ProgressionStatus.Submitted.init -> void
+Kiln.ProgressionStatus.TreeNodes.get -> int
+Kiln.ProgressionStatus.TreeNodes.init -> void
+Kiln.ProgressionStatus.World.get -> bool
+Kiln.ProgressionStatus.World.init -> void
+Kiln.SkillNode
+Kiln.SkillNode.ActiveSkillItem.get -> uint
+Kiln.SkillNode.ActiveSkillItem.init -> void
+Kiln.SkillNode.ClassAlignment.get -> int
+Kiln.SkillNode.ClassAlignment.init -> void
+Kiln.SkillNode.Cost.get -> int
+Kiln.SkillNode.Cost.init -> void
+Kiln.SkillNode.Deconstruct(out uint Id, out Kiln.SkillNodeType Type, out int Cost, out int MaxLevel, out int LevelIndex, out int ClassAlignment, out uint ActiveSkillItem, out int Incoming, out int Outgoing, out int Index, out float UiX, out float UiY) -> void
+Kiln.SkillNode.Equals(Kiln.SkillNode other) -> bool
+Kiln.SkillNode.Id.get -> uint
+Kiln.SkillNode.Id.init -> void
+Kiln.SkillNode.Incoming.get -> int
+Kiln.SkillNode.Incoming.init -> void
+Kiln.SkillNode.Index.get -> int
+Kiln.SkillNode.Index.init -> void
+Kiln.SkillNode.LevelIndex.get -> int
+Kiln.SkillNode.LevelIndex.init -> void
+Kiln.SkillNode.MaxLevel.get -> int
+Kiln.SkillNode.MaxLevel.init -> void
+Kiln.SkillNode.Outgoing.get -> int
+Kiln.SkillNode.Outgoing.init -> void
+Kiln.SkillNode.SkillNode() -> void
+Kiln.SkillNode.SkillNode(uint Id, Kiln.SkillNodeType Type, int Cost, int MaxLevel, int LevelIndex, int ClassAlignment, uint ActiveSkillItem, int Incoming, int Outgoing, int Index, float UiX, float UiY) -> void
+Kiln.SkillNode.Type.get -> Kiln.SkillNodeType
+Kiln.SkillNode.Type.init -> void
+Kiln.SkillNode.UiX.get -> float
+Kiln.SkillNode.UiX.init -> void
+Kiln.SkillNode.UiY.get -> float
+Kiln.SkillNode.UiY.init -> void
+Kiln.SkillNodeType
+Kiln.SkillNodeType.ActiveSkill = 2 -> Kiln.SkillNodeType
+Kiln.SkillNodeType.Attribute = 1 -> Kiln.SkillNodeType
+Kiln.SkillNodeType.PassiveSkill = 3 -> Kiln.SkillNodeType
+Kiln.SkillNodeType.Root = 0 -> Kiln.SkillNodeType
+Kiln.UnlockedSkillNode
+Kiln.UnlockedSkillNode.Cost.get -> int
+Kiln.UnlockedSkillNode.Cost.init -> void
+Kiln.UnlockedSkillNode.Deconstruct(out uint Id, out int Level, out int MaxLevel, out int Cost) -> void
+Kiln.UnlockedSkillNode.Equals(Kiln.UnlockedSkillNode other) -> bool
+Kiln.UnlockedSkillNode.Id.get -> uint
+Kiln.UnlockedSkillNode.Id.init -> void
+Kiln.UnlockedSkillNode.Level.get -> int
+Kiln.UnlockedSkillNode.Level.init -> void
+Kiln.UnlockedSkillNode.MaxLevel.get -> int
+Kiln.UnlockedSkillNode.MaxLevel.init -> void
+Kiln.UnlockedSkillNode.UnlockedSkillNode() -> void
+Kiln.UnlockedSkillNode.UnlockedSkillNode(uint Id, int Level, int MaxLevel, int Cost) -> void
+const Kiln.Progression.Diagnostics.AttrExperience = 2379078388 -> uint
+const Kiln.Progression.Diagnostics.AttrGranted = 494784770 -> uint
+const Kiln.Progression.Diagnostics.AttrLevel = 1917580648 -> uint
+const Kiln.Progression.Diagnostics.AttrNeeded = 74596194 -> uint
+override Kiln.Player.Equals(object? obj) -> bool
+override Kiln.Player.GetHashCode() -> int
+override Kiln.Player.ToString() -> string!
+override Kiln.PlayerAction.Equals(object? obj) -> bool
+override Kiln.PlayerAction.GetHashCode() -> int
+override Kiln.PlayerAction.ToString() -> string!
+override Kiln.PlayerActionEvent.ToString() -> string!
+override Kiln.PlayerBuff.Equals(object? obj) -> bool
+override Kiln.PlayerBuff.GetHashCode() -> int
+override Kiln.PlayerBuff.ToString() -> string!
+override Kiln.PlayerCharactersStatus.Equals(object? obj) -> bool
+override Kiln.PlayerCharactersStatus.GetHashCode() -> int
+override Kiln.PlayerCharactersStatus.ToString() -> string!
+override Kiln.PlayerClientActionEvent.ToString() -> string!
+override Kiln.PlayerClientActionInfo.Equals(object? obj) -> bool
+override Kiln.PlayerClientActionInfo.GetHashCode() -> int
+override Kiln.PlayerClientActionInfo.ToString() -> string!
+override Kiln.PlayerConsumeEvent.ToString() -> string!
+override Kiln.PlayerEvent.Equals(object? obj) -> bool
+override Kiln.PlayerEvent.GetHashCode() -> int
+override Kiln.PlayerEvent.ToString() -> string!
+override Kiln.PlayerItem.Equals(object? obj) -> bool
+override Kiln.PlayerItem.GetHashCode() -> int
+override Kiln.PlayerItem.ToString() -> string!
+override Kiln.PlayerJoinedEvent.ToString() -> string!
+override Kiln.PlayerLeftEvent.ToString() -> string!
+override Kiln.PlayerLevelChangedEvent.ToString() -> string!
+override Kiln.PlayerProgression.ToString() -> string!
+override Kiln.PlayerSkillsChangedEvent.ToString() -> string!
+override Kiln.PlayerSlotRaw.GetHashCode() -> int
+override Kiln.PlayerStateChangedEvent.ToString() -> string!
+override Kiln.PlayerStateInfo.Equals(object? obj) -> bool
+override Kiln.PlayerStateInfo.GetHashCode() -> int
+override Kiln.PlayerStateInfo.ToString() -> string!
+override Kiln.PlayerStateServiceStatus.Equals(object? obj) -> bool
+override Kiln.PlayerStateServiceStatus.GetHashCode() -> int
+override Kiln.PlayerStateServiceStatus.ToString() -> string!
+override Kiln.PlayersStatus.Equals(object? obj) -> bool
+override Kiln.PlayersStatus.GetHashCode() -> int
+override Kiln.PlayersStatus.ToString() -> string!
+override Kiln.Progression.Diagnostics.AttrProbe.GetHashCode() -> int
+override Kiln.Progression.Diagnostics.SimResult.GetHashCode() -> int
+override Kiln.ProgressionResult.Equals(object? obj) -> bool
+override Kiln.ProgressionResult.GetHashCode() -> int
+override Kiln.ProgressionResult.ToString() -> string!
+override Kiln.ProgressionSnapshot.Equals(object? obj) -> bool
+override Kiln.ProgressionSnapshot.GetHashCode() -> int
+override Kiln.ProgressionSnapshot.ToString() -> string!
+override Kiln.ProgressionStatus.Equals(object? obj) -> bool
+override Kiln.ProgressionStatus.GetHashCode() -> int
+override Kiln.ProgressionStatus.ToString() -> string!
+override Kiln.SkillNode.GetHashCode() -> int
+override Kiln.SkillNode.ToString() -> string!
+override Kiln.UnlockedSkillNode.GetHashCode() -> int
+static Kiln.Player.operator !=(Kiln.Player? left, Kiln.Player? right) -> bool
+static Kiln.Player.operator ==(Kiln.Player? left, Kiln.Player? right) -> bool
+static Kiln.PlayerAction.operator !=(Kiln.PlayerAction? left, Kiln.PlayerAction? right) -> bool
+static Kiln.PlayerAction.operator ==(Kiln.PlayerAction? left, Kiln.PlayerAction? right) -> bool
+static Kiln.PlayerBuff.operator !=(Kiln.PlayerBuff? left, Kiln.PlayerBuff? right) -> bool
+static Kiln.PlayerBuff.operator ==(Kiln.PlayerBuff? left, Kiln.PlayerBuff? right) -> bool
+static Kiln.PlayerCharacters.AccountOf(Kiln.Player! p) -> ulong
+static Kiln.PlayerCharacters.Available.get -> bool
+static Kiln.PlayerCharacters.IdOf(Kiln.Player! p) -> System.Guid
+static Kiln.PlayerCharacters.Simulate(int slot, ulong account, System.Guid? id) -> bool
+static Kiln.PlayerCharacters.Status.get -> Kiln.PlayerCharactersStatus?
+static Kiln.PlayerCharactersStatus.operator !=(Kiln.PlayerCharactersStatus? left, Kiln.PlayerCharactersStatus? right) -> bool
+static Kiln.PlayerCharactersStatus.operator ==(Kiln.PlayerCharactersStatus? left, Kiln.PlayerCharactersStatus? right) -> bool
+static Kiln.PlayerClientActionInfo.operator !=(Kiln.PlayerClientActionInfo? left, Kiln.PlayerClientActionInfo? right) -> bool
+static Kiln.PlayerClientActionInfo.operator ==(Kiln.PlayerClientActionInfo? left, Kiln.PlayerClientActionInfo? right) -> bool
+static Kiln.PlayerEvent.operator !=(Kiln.PlayerEvent? left, Kiln.PlayerEvent? right) -> bool
+static Kiln.PlayerEvent.operator ==(Kiln.PlayerEvent? left, Kiln.PlayerEvent? right) -> bool
+static Kiln.PlayerItem.operator !=(Kiln.PlayerItem a, Kiln.PlayerItem b) -> bool
+static Kiln.PlayerItem.operator !=(Kiln.PlayerItem a, string? name) -> bool
+static Kiln.PlayerItem.operator !=(Kiln.PlayerItem a, uint id) -> bool
+static Kiln.PlayerItem.operator !=(string? name, Kiln.PlayerItem a) -> bool
+static Kiln.PlayerItem.operator !=(uint id, Kiln.PlayerItem a) -> bool
+static Kiln.PlayerItem.operator ==(Kiln.PlayerItem a, Kiln.PlayerItem b) -> bool
+static Kiln.PlayerItem.operator ==(Kiln.PlayerItem a, string? name) -> bool
+static Kiln.PlayerItem.operator ==(Kiln.PlayerItem a, uint id) -> bool
+static Kiln.PlayerItem.operator ==(string? name, Kiln.PlayerItem a) -> bool
+static Kiln.PlayerItem.operator ==(uint id, Kiln.PlayerItem a) -> bool
+static Kiln.PlayerSlotRaw.operator !=(Kiln.PlayerSlotRaw left, Kiln.PlayerSlotRaw right) -> bool
+static Kiln.PlayerSlotRaw.operator ==(Kiln.PlayerSlotRaw left, Kiln.PlayerSlotRaw right) -> bool
+static Kiln.PlayerStateInfo.operator !=(Kiln.PlayerStateInfo? left, Kiln.PlayerStateInfo? right) -> bool
+static Kiln.PlayerStateInfo.operator ==(Kiln.PlayerStateInfo? left, Kiln.PlayerStateInfo? right) -> bool
+static Kiln.PlayerStateServiceStatus.operator !=(Kiln.PlayerStateServiceStatus? left, Kiln.PlayerStateServiceStatus? right) -> bool
+static Kiln.PlayerStateServiceStatus.operator ==(Kiln.PlayerStateServiceStatus? left, Kiln.PlayerStateServiceStatus? right) -> bool
+static Kiln.PlayerStates.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerStateInfo!>!
+static Kiln.PlayerStates.Available.get -> bool
+static Kiln.PlayerStates.BuffsGivenBy(Kiln.PlayerItem item) -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
+static Kiln.PlayerStates.BuffsOf(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
+static Kiln.PlayerStates.Check(Kiln.EntityId player, Kiln.PlayerStateId state) -> bool?
+static Kiln.PlayerStates.ClientActions.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerClientActionInfo!>!
+static Kiln.PlayerStates.Diagnostics.Bench(System.Collections.Generic.IReadOnlyList<Kiln.EntityId>! players, bool motion, bool input, bool extra) -> long
+static Kiln.PlayerStates.Diagnostics.LabUseItem(Kiln.EntityId entity, uint sequence, Kiln.PlayerStateId trigger, ulong slot, uint item) -> bool
+static Kiln.PlayerStates.Diagnostics.LastPumpNanoseconds.get -> long
+static Kiln.PlayerStates.Diagnostics.PumpRuns.get -> long
+static Kiln.PlayerStates.Diagnostics.PumpTotalNanoseconds.get -> long
+static Kiln.PlayerStates.Diagnostics.Watch(Kiln.EntityId entity, bool on = true) -> void
+static Kiln.PlayerStates.EquipmentOf(Kiln.EntityId player) -> Kiln.PlayerEquipment?
+static Kiln.PlayerStates.Find(string! gameName, Kiln.PlayerStateSource source = Kiln.PlayerStateSource.None) -> Kiln.PlayerStateId?
+static Kiln.PlayerStates.InfoOf(Kiln.PlayerStateId state) -> Kiln.PlayerStateInfo?
+static Kiln.PlayerStates.Is(Kiln.EntityId player, Kiln.PlayerStateId state) -> bool
+static Kiln.PlayerStates.NameOf(Kiln.PlayerStateId state) -> string!
+static Kiln.PlayerStates.Raw(Kiln.PlayerStateSource source, int raw) -> Kiln.PlayerStateId
+static Kiln.PlayerStates.Read(Kiln.EntityId player) -> Kiln.PlayerSnapshot?
+static Kiln.PlayerStates.SourceOf(Kiln.PlayerStateId state) -> Kiln.PlayerStateSource
+static Kiln.PlayerStates.Status.get -> Kiln.PlayerStateServiceStatus?
+static Kiln.Players.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.Player!>!
+static Kiln.Players.Available.get -> bool
+static Kiln.Players.Connected.get -> System.Collections.Generic.IReadOnlyList<Kiln.Player!>!
+static Kiln.Players.Count.get -> int
+static Kiln.Players.Diagnostics.ProbePosition(Kiln.EntityId entity) -> Kiln.WorldPosition?
+static Kiln.Players.Diagnostics.RawSlot(int slot) -> Kiln.PlayerSlotRaw?
+static Kiln.Players.Diagnostics.ReplayLog(System.Collections.Generic.IReadOnlyList<string!>! messages) -> (System.Collections.Generic.IReadOnlyList<Kiln.Player!>! Players, System.Collections.Generic.IReadOnlyList<Kiln.PlayerEvent!>! Events)
+static Kiln.Players.Diagnostics.Status.get -> Kiln.PlayersStatus?
+static Kiln.Players.Find(Kiln.EntityId entity) -> Kiln.Player?
+static Kiln.Players.Find(string! name) -> Kiln.Player?
+static Kiln.Players.FindBySteamId(ulong steamId) -> Kiln.Player?
+static Kiln.Players.IsPlayer(Kiln.EntityId entity) -> bool
+static Kiln.Players.Joined -> System.Action<Kiln.Player!>!
+static Kiln.Players.Left -> System.Action<Kiln.Player!>!
+static Kiln.Players.PositionOf(Kiln.EntityId entity) -> Kiln.WorldPosition?
+static Kiln.Players.Source.get -> Kiln.PlayerSource
+static Kiln.PlayersStatus.operator !=(Kiln.PlayersStatus? left, Kiln.PlayersStatus? right) -> bool
+static Kiln.PlayersStatus.operator ==(Kiln.PlayersStatus? left, Kiln.PlayersStatus? right) -> bool
+static Kiln.Progression.AddExperience(Kiln.EntityId entity, uint amount, Kiln.ExperienceSource source = Kiln.ExperienceSource.None, bool sendEvent = true) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.Available.get -> bool
+static Kiln.Progression.Diagnostics.AttrProbe.operator !=(Kiln.Progression.Diagnostics.AttrProbe left, Kiln.Progression.Diagnostics.AttrProbe right) -> bool
+static Kiln.Progression.Diagnostics.AttrProbe.operator ==(Kiln.Progression.Diagnostics.AttrProbe left, Kiln.Progression.Diagnostics.AttrProbe right) -> bool
+static Kiln.Progression.Diagnostics.ExperienceForLevel(int level) -> (uint Needed, int Cap)
+static Kiln.Progression.Diagnostics.LabPlayer(Kiln.EntityId entity) -> void
+static Kiln.Progression.Diagnostics.ProbeAttributes(bool level, uint[]! storage, uint setId = 0, uint setValue = 0) -> Kiln.Progression.Diagnostics.AttrProbe
+static Kiln.Progression.Diagnostics.SimResult.operator !=(Kiln.Progression.Diagnostics.SimResult left, Kiln.Progression.Diagnostics.SimResult right) -> bool
+static Kiln.Progression.Diagnostics.SimResult.operator ==(Kiln.Progression.Diagnostics.SimResult left, Kiln.Progression.Diagnostics.SimResult right) -> bool
+static Kiln.Progression.Diagnostics.Simulate(System.Collections.Generic.IReadOnlyList<(Kiln.Progression.Diagnostics.SimOp Op, uint Node)>! steps) -> System.Collections.Generic.IReadOnlyList<Kiln.Progression.Diagnostics.SimResult>!
+static Kiln.Progression.FindNode(uint id) -> Kiln.SkillNode?
+static Kiln.Progression.Get(Kiln.EntityId entity) -> Kiln.ProgressionSnapshot?
+static Kiln.Progression.GiveSkillPoints(Kiln.EntityId entity, int points) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.Lock(Kiln.EntityId entity, uint node, bool force = false) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.ParseNode(string! text) -> Kiln.SkillNode?
+static Kiln.Progression.Respec(Kiln.EntityId entity) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.SetExperience(Kiln.EntityId entity, uint experience) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.SetLevel(Kiln.EntityId entity, int level) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.Status.get -> Kiln.ProgressionStatus?
+static Kiln.Progression.Tree.get -> System.Collections.Generic.IReadOnlyList<Kiln.SkillNode>!
+static Kiln.Progression.Unlock(Kiln.EntityId entity, uint node, bool force = false) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
+static Kiln.Progression.UnlockedNodes(Kiln.EntityId entity) -> System.Collections.Generic.IReadOnlyList<Kiln.UnlockedSkillNode>!
+static Kiln.ProgressionResult.operator !=(Kiln.ProgressionResult? left, Kiln.ProgressionResult? right) -> bool
+static Kiln.ProgressionResult.operator ==(Kiln.ProgressionResult? left, Kiln.ProgressionResult? right) -> bool
+static Kiln.ProgressionSnapshot.operator !=(Kiln.ProgressionSnapshot? left, Kiln.ProgressionSnapshot? right) -> bool
+static Kiln.ProgressionSnapshot.operator ==(Kiln.ProgressionSnapshot? left, Kiln.ProgressionSnapshot? right) -> bool
+static Kiln.ProgressionStatus.operator !=(Kiln.ProgressionStatus? left, Kiln.ProgressionStatus? right) -> bool
+static Kiln.ProgressionStatus.operator ==(Kiln.ProgressionStatus? left, Kiln.ProgressionStatus? right) -> bool
+static Kiln.SkillNode.operator !=(Kiln.SkillNode left, Kiln.SkillNode right) -> bool
+static Kiln.SkillNode.operator ==(Kiln.SkillNode left, Kiln.SkillNode right) -> bool
+static Kiln.UnlockedSkillNode.operator !=(Kiln.UnlockedSkillNode left, Kiln.UnlockedSkillNode right) -> bool
+static Kiln.UnlockedSkillNode.operator ==(Kiln.UnlockedSkillNode left, Kiln.UnlockedSkillNode right) -> bool
+~override Kiln.PlayerSlotRaw.Equals(object obj) -> bool
+~override Kiln.PlayerSlotRaw.ToString() -> string
+~override Kiln.Progression.Diagnostics.AttrProbe.Equals(object obj) -> bool
+~override Kiln.Progression.Diagnostics.AttrProbe.ToString() -> string
+~override Kiln.Progression.Diagnostics.SimResult.Equals(object obj) -> bool
+~override Kiln.Progression.Diagnostics.SimResult.ToString() -> string
+~override Kiln.SkillNode.Equals(object obj) -> bool
+~override Kiln.UnlockedSkillNode.Equals(object obj) -> bool
+~override Kiln.UnlockedSkillNode.ToString() -> string
