@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # The API compat gate: compares each staged Kiln.*.dll with the DLL of the same name in the last released Kiln.Api package,
 # with Microsoft.DotNet.ApiCompat.Tool (default mode, not strict: removals and changed signatures break, additions don't).
-#   tools/release/apicompat.sh [-v] [--not-built <Kiln.Name>]... <baseline> <stage dir>
+#   tools/release/apicompat.sh [-v] <baseline> <stage dir>
 # <baseline>  KILN_API_BASELINE: the unzipped Kiln.Api.<ver>.nupkg of the last release (each DLL is found by name anywhere
 #             below it: lib/net10.0/Kiln.Api.dll, kiln/lib/Kiln.<Service>.dll), or that .nupkg itself (unzipped under
 #             $KILN_OUT/apicompat-baseline). An empty <baseline> prints the "gate did not run" warning and exits 3.
 # <stage dir> the folder managed/Kiln.Sdk/pack.sh builds into and packs from (its $KILN_OUT/mdk-stage); the same set of
 #             files goes into the package: Kiln.*.dll without Kiln.Host.dll and Kiln.Sdk.Tasks.dll (Kiln.Api.Ref.csproj).
-# --not-built a service pack.sh reported as failed to build: its baseline DLL with no staged DLL is a warning, not a break.
 # -v          list every added member by name (default: a count per assembly).
 # Output, one line each (stdout):
 #   apicompat: BREAK Kiln.Time: member removed or its signature changed: void Kiln.Time.ResetWeather() [CP0002 M:Kiln.Time.ResetWeather]
-#   apicompat: BREAK Kiln.Foo.dll: assembly removed (in the baseline, not staged)
+#   apicompat: BREAK Kiln.Foo.dll: assembly removed (in the baseline, not staged; also when it failed to build)
 #   apicompat: EXPERIMENTAL Kiln.Time: ... [CP0002 <doc id> KILNX001]   allowed: [Experimental] in the baseline
 #   apicompat: NEW Kiln.Bar.dll (no baseline DLL): not compared, passes
 #   apicompat: ADDED Kiln.Api: 3                                       (with -v also: apicompat: ADD Kiln.Api: <member>)
@@ -29,17 +28,16 @@ APICOMPAT_VERSION=10.0.113  # Microsoft.DotNet.ApiCompat.Tool, the version of th
 say() { echo "apicompat: $*"; }
 die() { echo "apicompat: $*" >&2; exit 2; }
 
-verbose=() not_built=()
+verbose=()
 while (($#)); do
   case $1 in
     -v|--verbose) verbose=(--verbose); shift ;;
-    --not-built) [[ $# -ge 2 ]] || die "--not-built needs a name"; not_built+=("${2%.dll}"); shift 2 ;;
     --) shift; break ;;
     -*) die "unknown option $1" ;;
     *) break ;;
   esac
 done
-[[ $# -eq 2 ]] || die "usage: apicompat.sh [-v] [--not-built <Kiln.Name>]... <baseline folder or .nupkg> <stage dir>"
+[[ $# -eq 2 ]] || die "usage: apicompat.sh [-v] <baseline folder or .nupkg> <stage dir>"
 baseline=$1 stage=$2
 
 if [[ -z $baseline ]]; then
@@ -112,12 +110,7 @@ done
 ((game_seen)) && say "Kiln.Game.dll skipped: generated per game build, not compared (typegen's tests guard it)"
 for n in "${!base[@]}"; do
   [[ -f $stage/$n ]] && continue
-  nb=0; for x in "${not_built[@]}"; do [[ $x == "${n%.dll}" ]] && nb=1; done
-  if ((nb)); then
-    echo "apicompat: WARNING: $n is in the baseline but ${n%.dll} failed to build (pack.sh said so): not compared" >&2
-  else
-    say "BREAK $n: assembly removed (in the baseline, not staged)"; breaks=$((breaks + 1))
-  fi
+  say "BREAK $n: assembly removed (in the baseline, not staged)"; breaks=$((breaks + 1))
 done
 ((${#left[@]})) || die "no staged DLL has a baseline DLL to compare with"
 

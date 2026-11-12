@@ -25,14 +25,15 @@ rm -rf "$stage" && mkdir -p "$feed" "$stage"
 build() { dotnet build "$1" -c Release -o "$stage" --artifacts-path "$out/dotnet" -v q -nologo -p:GenerateDocumentationFile=true -p:NoWarn='CS1591%3BCS1573' >/dev/null; }
 build "$repo/managed/Kiln.Api/Kiln.Api.csproj"
 build "$repo/managed/Kiln.Testing/Kiln.Testing.csproj"
-not_built=()
 for proj in "$repo"/managed/services/*/*.csproj; do
-  build "$proj" || { echo "pack: WARNING: $(basename "$proj" .csproj) failed to build; not in Kiln.Api" >&2; not_built+=(--not-built "$(basename "$proj" .csproj)"); }
+  build "$proj" || echo "pack: WARNING: $(basename "$proj" .csproj) failed to build; not in Kiln.Api" >&2
 done
 # The API compat gate (tools/release/apicompat.sh): the staged DLLs against the last release's (KILN_API_BASELINE, a folder
 # or a Kiln.Api .nupkg). A break stops the pack before any package is written; unset, it warns loudly and the pack goes on.
+# A service of the last release that failed to build above (a PublicAPI record error is a build error) is not staged, and
+# the gate counts that as a break: with a baseline, a pack never drops a released assembly.
 if [[ -n ${KILN_API_BASELINE:-} ]]; then
-  "$repo/tools/release/apicompat.sh" "${not_built[@]}" "$KILN_API_BASELINE" "$stage" \
+  "$repo/tools/release/apicompat.sh" "$KILN_API_BASELINE" "$stage" \
     || { echo "pack: the API compat gate failed (above); no package written" >&2; exit 1; }
 else
   "$repo/tools/release/apicompat.sh" "" "$stage" || [[ $? == 3 ]]
