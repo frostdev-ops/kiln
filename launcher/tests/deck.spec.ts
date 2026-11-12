@@ -575,6 +575,72 @@ test.describe("notices", () => {
     await expect.poll(() => focused(page)).toBe("mouth");
   });
 
+  test("an error whose long text is its title opens as a notice too, with the text in the body", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    const long = Array.from({ length: 12 }, (_, i) => `part ${i} of a failure to start the game that names /home/player/.local/share/Steam/steamapps/common/Enshrouded/x/${i}.`).join(" ");
+    // no title given: toast.error puts the message into the title, and only the code into the detail
+    await page.evaluate(async (m) => { (await import("/src/ui/Toast.tsx")).toast.error({ code: "io", message: m }); }, long);
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice.locator(".deck-dialog-title")).toHaveText("Something went wrong");
+    const body = notice.locator("[data-deck-notice]");
+    await expect(body).toContainText("part 0 of a failure");
+    await expect(body).toContainText("part 11");
+    await expect(page.locator(".deck-toast.err")).toHaveCount(0);
+    const box = (await notice.locator(".deck-dialog").boundingBox())!;
+    expect(box.y >= 0 && box.y + box.height <= 800, "the dialog is on the screen").toBe(true);
+    await page.clock.fastForward(7000);
+    await expect(body).toContainText("part 11");
+    await pad(page, "b");
+    await expect(notice).toHaveCount(0);
+  });
+
+  test("a long error folded into the earlier notices stays until the player has closed them", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    const long = Array.from({ length: 12 }, (_, i) => `part ${i} of a long error that names /home/player/.local/share/kiln/library/x/${i}.`).join(" ");
+    await page.evaluate(async (m) => {
+      const { toast } = await import("/src/ui/Toast.tsx");
+      toast.info("Kept folder first", "mods/First: may still run", { ms: 0 });   // a notice is open
+      toast.error({ code: "io", message: m }, "Could not add the mod");           // the long error waits behind it
+    }, long);
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("Kept folder first");
+    await page.waitForTimeout(100);
+    // more notices than stay loose: the oldest, the long error among them, fold into "earlier notices"
+    await page.evaluate(async () => {
+      const { toast } = await import("/src/ui/Toast.tsx");
+      for (let i = 0; i < 9; i++) toast.info(`Kept folder ${i}`, `mods/Mod-${i}: may still run`, { ms: 0 });
+    });
+    await expect(notice).toContainText("earlier notices");
+    await expect(notice).toContainText("part 11");
+    await page.clock.fastForward(7000);
+    await expect(notice).toContainText("part 11");   // a short folded error would be gone by now; this one is not
+    await expect(notice).toContainText("Could not add the mod");
+  });
+
+  test("an error whose text grows after it was shown is measured again", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    await page.evaluate(async () => { (await import("/src/ui/Toast.tsx")).toast.error({ code: "io", message: "A short reason." }, "Could not add the mod"); });
+    const toast = page.locator(".deck-toast.err");
+    await expect(toast).toContainText("A short reason.");
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toHaveCount(0);
+    // the text inside grows without the toast rendering again (what a detail that is a component of its own does)
+    await page.evaluate(() => {
+      const inner = document.querySelector(".deck-toast.err .deck-toast-detail > span")!;
+      inner.textContent = Array.from({ length: 40 }, (_, i) => `line ${i} of the reasons, each one long enough to wrap in the bar.`).join(" ");
+    });
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toContainText("Could not add the mod");
+    await expect(toast).toHaveCount(0);
+    await page.clock.fastForward(7000);
+    await expect(notice).toHaveCount(1);   // it is a notice now: it stays until closed
+    await pad(page, "b");
+    await expect(notice).toHaveCount(0);
+  });
+
   test("a short error stays in the bar with all its text and goes after six seconds", async ({ page }) => {
     await openDeck(page);
     await page.clock.install();

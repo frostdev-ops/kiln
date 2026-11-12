@@ -186,11 +186,15 @@
 .deck-toasts { position: fixed; top: 5.25rem; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; flex-direction: column; gap: .5rem; align-items: center; pointer-events: none; max-height: calc(100dvh - 6.5rem); overflow: hidden; }
 .deck-toast { pointer-events: auto; max-width: 48rem; display: flex; flex-direction: column; align-items: center; gap: .125rem; padding: .875rem 1.75rem; border-radius: .875rem;
   background: var(--k-bg-3); box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 .75rem 2.5rem rgba(0, 0, 0, .6); animation: deck-rise .22s ease-out backwards; }
-.deck-toast-title { font-family: var(--k-font-label); font-weight: 600; font-size: 1.5rem; }
+.deck-toast-title { font-family: var(--k-font-label); font-weight: 600; font-size: 1.5rem; text-align: center; overflow-wrap: anywhere; }
+/* an error in the bar: three lines of title, four of detail. One that needs more is shown as a dialog instead (ui.tsx
+   DeckToaster), so nothing is cut here for longer than a frame; the bar itself never reaches the screen's lower edge */
+.deck-toast.err .deck-toast-title { line-height: 1.25; max-height: calc(3 * 1.25em); overflow: hidden; }
+/* the text itself, inside the capped line: a block, because its size is watched for growing (ui.tsx BarToast) and an
+   inline element reports none */
+.deck-toast-title > span, .deck-toast-detail > span { display: block; }
 .deck-toast.ok .deck-toast-title { color: var(--k-ok); }
 .deck-toast.err .deck-toast-title { color: var(--k-err); }
-/* an error's detail in the bar: four lines. One that needs more is shown as a dialog instead (ui.tsx DeckToaster), so
-   nothing is cut here for longer than a frame; the bar itself never reaches the screen's lower edge */
 .deck-toast-detail { font-size: 1.125rem; line-height: 1.35; max-height: calc(4 * 1.35em); overflow: hidden; color: var(--k-text-1); text-align: center; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- the fire (Fire.tsx: the desktop's shader) and motion */
