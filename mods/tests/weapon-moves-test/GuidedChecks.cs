@@ -120,4 +120,34 @@ public sealed partial class WeaponMovesTestMod
         }
         await c.Verdict();
     }
+
+    [ClientCheck("blocks.held-animated", "A held model with moving parts moves in the hand", Area = "Blocks", Since = Since,
+        Tags = [ClientCheckTags.Visual], Needs = ClientCheckNeeds.Any, Order = 50)]
+    private async Task Held_model_moves_in_the_hand(CheckContext c)
+    {
+        var items = HeldCases.Select(h => G(h.Block)).ToArray();
+        if (!await Scene(c, items)) { await c.Verdict(); return; }
+        foreach (var h in HeldCases)
+            c.Expect(Content.Items.Get(G(h.Block))?.GetRef("equipment.visualEntity") == BlockIds.Derive(Me, "template", $"{h.Block}.moving"), $"{h.Block} holds its moving template");
+        c.Expect(HeldCooked, "this game cooked the test mod's held models (build-assets.py)", HeldCooked ? "assets/cooked is there" : "not cooked: every weapon shows its rigid model");
+        c.Instruct("Take each Held weapon from your bag in hand in turn: the Held Sword, the Held Greataxe, the Held Shield, the Held Daggers and the Held Daggers (left). " +
+                   "Pass if each sits in the hand its class is held in (the sword in the right hand, the greataxe in the left, the shield on the left arm, the daggers one in " +
+                   "each hand), its crystal turns and its tip sways by itself in a loop, the greataxe's glow (the game's lit axe's) sits 0.6 m up the blade and the others have " +
+                   "none, no staff glow shows on any of them, and in the bag and dropped on the ground each shows the rigid blade, not the moving one.");
+        await c.Verdict();
+    }
+
+    [ClientCheck("blocks.held-animated-two-players", "A held model with moving parts, seen by a player who cooked it and one who did not", Area = "Blocks", Since = Since,
+        Tags = [ClientCheckTags.Visual, ClientCheckTags.TwoPlayers], Needs = ClientCheckNeeds.Joined, Order = 60)]
+    private async Task Held_model_two_players(CheckContext c)
+    {
+        if (!await Scene(c, G("held-sword"), G("held-greataxe"))) { await c.Verdict(); return; }
+        c.Expect(!HeldCooked, "the server has not cooked the test mod (it draws nothing and needs no cooked files)", HeldCooked ? "the server cooked it: move assets/cooked away and restart it" : "not cooked");
+        c.Instruct("Two players join a dedicated server that has not cooked weapon-moves-test. Player 1's game has cooked it (build-assets.py; the Kiln line in player 1's " +
+                   "kiln/logs/kiln.log for the mod's assets lists its cooked files and warns of none missing), player 2's has not (player 2's kiln.log warns that the mod's " +
+                   "assets/cooked files are missing, and `kiln blocks weapon-moves-test` shows animatedHeld.cooked false). Both take the Held Sword, then the Held Greataxe, in " +
+                   "hand and look at each other. Pass if player 1 sees the crystal turn in both characters' hands, player 2 sees the rigid blade in the same hand (the sword " +
+                   "right, the greataxe left) with the same glow on the greataxe, and neither ever sees an empty hand.");
+        await c.Verdict();
+    }
 }

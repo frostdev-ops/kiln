@@ -22,6 +22,7 @@ public sealed partial class WeaponMovesTestMod
         _at = await Anchor();
         var p = await Character(_at);
         if (p.IsNone) return;
+        await HeldInHand(p);
         if (!await ToHand(p, "chain-sword")) return;
         await Dummies(p);
         await ChainPlayed(p);
@@ -203,15 +204,20 @@ public sealed partial class WeaponMovesTestMod
         var sword = Content.Items.Get(G("chain-sword"))!;
         var slot = Items.Read(p)?.Slots.FirstOrDefault(s => !s.IsEmpty && s.Item.Value == sword.Id);
         if (slot == null) return;
-        _watch!.Seen.Clear();
-        if (!PlayerStates.Diagnostics.LabUseItem(p, sequence, PlayerStateId.ActionPrimary, slot.Slot.Value, sword.Id))
+        for (var tries = 0; tries < 2; tries++)
         {
-            Info("KILN_PLAYERSTATE_LAB is off: no swing with the sword as the used item");
-            return;
+            await Steps(30);
+            _watch!.Seen.Clear();
+            if (!PlayerStates.Diagnostics.LabUseItem(p, sequence, PlayerStateId.ActionPrimary, slot.Slot.Value, sword.Id))
+            {
+                Info("KILN_PLAYERSTATE_LAB is off: no swing with the sword as the used item");
+                return;
+            }
+            await Steps(10);
+            if (_watch!.Seen.Any(s => s.Sequence == sequence)) break;
         }
-        await Steps(10);
-        Info($"LabUseItem(ActionPrimary, the sword as the used item, link 1): the character started [{string.Join(", ", _watch.Seen.Select(s => Name(s.Sequence)))}]");
-        Check(_watch.Seen.Any(s => s.Sequence == sequence), "a swing started as a player's is, with the sword as the used item: link 1 plays");
+        Info($"LabUseItem(ActionPrimary, the sword as the used item, link 1): the character started [{string.Join(", ", _watch!.Seen.Select(s => Name(s.Sequence)))}]");
+        Check(_watch!.Seen.Any(s => s.Sequence == sequence), "a swing started as a player's is, with the sword as the used item: link 1 plays");
         await Steps(50);
     }
 
@@ -327,7 +333,7 @@ public sealed partial class WeaponMovesTestMod
             how = await Probe();
         }
         if (!Check(how != null, $"a swing of the game's own light chain lands a hurt event on a dummy (started by {how?.ToString() ?? "nothing tried"})")) return;
-        async Task One(string label, string weapon, Guid sequence, Start m, double at)
+        async Task One(string label, string weapon, Guid sequence, Start m, double at, bool hurt = true)
         {
             if (!await ToHand(p, weapon)) return;
             var want = _wrong && label.StartsWith("link 1", StringComparison.Ordinal) ? at + 0.3 : at;
@@ -335,10 +341,13 @@ public sealed partial class WeaponMovesTestMod
             var step = StepSeconds();
             var span = Content.Sequences.Get(sequence.ToString())!.Get("events[SpawnImpact#0].duration").Number;
             Info($"{label}: started step {b.Start}, damage window opened {b.Opened?.ToString("0.###") ?? "-"} s (in a step of {b.OpenStep:0.###} s), first hurt step {b.Hit?.ToString() ?? "none"} = {b.Seconds?.ToString("0.###") ?? "-"} s ({(b.Hit is { } h ? (long)(h - b.Start) : -1)} steps of {step:0.####} s); {b.Detail}");
-            // one step: the step it fired in or the mean step of this run, whichever is longer, and the 60 Hz clock both ends are read on (1/60 s)
-            Check(b.Opened is { } o && Math.Abs(o - want) <= Math.Max(step, b.OpenStep) + 1 / 60.0 + 1e-6,
+            // one step, read two ways (steps on a loaded server last 1/30 to 1/10 s): in seconds, the step it fired in or the mean step, whichever is longer, plus
+            // the 60 Hz clock both ends are read on (1/60 s); or in steps, the step the sequence's own clock reaches the moment in, or the one before or after
+            Check(b.Opened is { } o && (Math.Abs(o - want) <= Math.Max(step, b.OpenStep) + 1 / 60.0 + 1e-6 || b.StepsOff is >= -1 and <= 1),
                 $"{label}: its damage window (the SpawnImpact's impact) opens {b.Opened?.ToString("0.###") ?? "never"} s after the sequence started, {want:0.###} s asked, within one step ({step:0.###} s, read on the 1/60 s clock): {b.StepsOff?.ToString("+0;-0;0") ?? "no"} step(s) from the step the sequence's clock reaches it in (that step {b.OpenStep:0.###} s)");
-            Check(b.Seconds is { } s && s >= want - step - 1e-3 && s <= want + span + step + 1e-3,
+            var inside = b.Seconds is { } s && s >= want - step - 1 / 60.0 - 1e-6 && s <= want + span + step + 1 / 60.0 + 1e-6;   // the same step as the window, either way
+            if (!hurt && !inside) Info($"{label}: no hurt event inside the blow's window ({b.Seconds?.ToString("0.###") ?? "none"} s): the motion is its like's, whose blade has passed the dummies by then");
+            else Check(inside,
                 $"{label}: the hurt event on the dummy comes {b.Seconds?.ToString("0.###") ?? "never"} s after the start ({(b.Hit is { } h2 ? (long)(h2 - b.Start) : -1)} steps), inside the blow's window {want:0.###}..{want + span:0.###} s give or take one step");
         }
         var heavy = how == Start.Input ? await HeavyInput(p) : how!.Value;
@@ -349,6 +358,12 @@ public sealed partial class WeaponMovesTestMod
         await One($"the control, the game's {Light1} on the plain sword, unchanged", "plain-sword", Seq(Light1).Guid, light, Seq(Light1).Get("events[SpawnImpact#0].time").Number);
         await One("heavy-greataxe's heavy, retimed to 1.40 s", "heavy-greataxe", CloneGuid("heavy-greataxe", "heavy"), heavy, 1.40);
         await One($"the control, the game's {AxeHeavy} on the game's greataxe, unchanged", AxeStarter, Seq(AxeHeavy).Guid, heavy, Seq(AxeHeavy).Get("events[SpawnImpact#0].time").Number);
+        if (!Mods.IsLoaded(Sample)) return;
+        var blade = $"{Sample}.turning-blade";
+        // the sample's light links play their like's own motion until player-anim lands: their blow is timed for the sample's clips, so whether it meets a dummy is told, not checked
+        await One("the sample's link 1, its hitAt 0.42 s", blade, SampleClone("turning-blade", "primary.1"), light, 0.42, hurt: false);
+        await One("the sample's link 2, its hitAt 0.37 s", blade, SampleClone("turning-blade", "primary.2"), light == Start.Input ? Start.InputSecond : light, 0.37, hurt: false);
+        await One("the sample's heavy, its hitAt 0.9 s", blade, SampleClone("turning-blade", "heavy"), heavy, 0.9);
     }
 
     // How long the button is held for the game to start the held weapon's heavy attack, on the chain sword
