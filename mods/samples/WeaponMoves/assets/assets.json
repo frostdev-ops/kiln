@@ -1,0 +1,97 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "blob",
+      "file": "cooked/moves_blade_anim.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "c671e127-3264-5349-affc-870ffe4b2678",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/moves_blade_anim.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/moves_blade_anim.blob"
+        }
+      ]
+    },
+    {
+      "kind": "blob",
+      "file": "cooked/moves_blade.blob"
+    },
+    {
+      "kind": "resource",
+      "guid": "cf4dc9c5-be6a-5e8d-a0d0-cd4cb877fb51",
+      "type": "keen::RenderModel",
+      "part": 0,
+      "file": "cooked/moves_blade.bin",
+      "mode": "new",
+      "patch": [
+        {
+          "offset": 272,
+          "blob": "cooked/moves_blade.blob"
+        }
+      ]
+    },
+    {
+      "kind": "resource",
+      "guid": "b809aed6-4166-5250-b553-859486a1a598",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_1.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "e71d0250-5add-5724-8227-7d8b2e2c0ea5",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_cleave.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "792859b5-20aa-5686-8933-ce602c4cecd2",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_guard.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "79d731d4-b058-5ab7-93f3-374b9051a18d",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_2.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "d6ab2aaf-42d2-5936-83f3-d8756101060f",
+      "type": "keen::ModelHierarchyResource",
+      "part": 0,
+      "file": "cooked/moves_blade.skeleton.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "946230d9-cb88-5000-9faf-a98b995c97f5",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_blade_spin.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "01fd59d4-3b62-5c8e-a027-981bf16131ff",
+      "type": "keen::anim_graph::runtime_graph::AnimationGraphResource2_0",
+      "part": 0,
+      "file": "cooked/graph_moves_blade.bin",
+      "mode": "new"
+    }
+  ]
+}
