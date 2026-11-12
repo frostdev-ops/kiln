@@ -12,6 +12,8 @@
     <Copyright>MIT licence</Copyright>
     <Deterministic>true</Deterministic>
     <DebugType>portable</DebugType>
+    <!-- Warnings Kiln.Sdk/pack.sh leaves out for the packed SDK (KilnPackNoWarn), added to each project's own list. -->
+    <NoWarn Condition="'$(KilnPackNoWarn)' != ''">$(NoWarn);$(KilnPackNoWarn)</NoWarn>
   </PropertyGroup>
 
   <!-- Public API gate (Microsoft.CodeAnalysis.PublicApiAnalyzers). On for a project exactly when PublicAPI.Shipped.txt
@@ -54,8 +56,8 @@
   <ItemGroup Condition="'$(KilnPublicApi)' == 'true'">
     <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="[5.6.0]" PrivateAssets="all" />
   </ItemGroup>
-  <!-- Set at CoreCompile, not at evaluation: Kiln.Sdk/pack.sh builds with a global -p:NoWarn=..., which would replace an
-       evaluation-time NoWarn/WarningsAsErrors. A property set inside a target still applies, so the gate holds there too. -->
+  <!-- Set at CoreCompile, not at evaluation, so that a global -p:NoWarn=... (pack.sh passes KilnPackNoWarn instead now) cannot
+       replace an evaluation-time NoWarn/WarningsAsErrors. A property set inside a target still applies, so the gate holds there too. -->
   <Target Name="_KilnPublicApiSeverity" BeforeTargets="CoreCompile" Condition="'$(KilnPublicApi)' == 'true'">
     <PropertyGroup>
       <WarningsAsErrors>$(WarningsAsErrors);$(KilnPublicApiErrors)</WarningsAsErrors>

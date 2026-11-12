@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test mod of Kiln.TestKit.Tests that watches players (see ../Directory.Build.targets). -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Permissions/Kiln.Permissions.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="TkPlayers.kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

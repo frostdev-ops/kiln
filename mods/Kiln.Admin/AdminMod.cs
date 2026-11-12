@@ -31,6 +31,7 @@ public sealed class AdminMod : Mod
         _bridge.Register("ping", _ => new JsonObject { ["pong"] = true, ["clock"] = _step / 24.5, ["kiln"] = Game.KilnVersion });
         _bridge.Register("status", _ => Status());
         Ops.DataDirectory = Context.DataDirectory;
+        Ops.TickScheduler = Context.Scheduler;  // the writes after a guard request hop onto the tick thread (OpsTick.cs)
         Ops.AdminVersion = Context.Info.Version;
         Ops.LoadedAt = Environment.TickCount64;
         Ops.RegisterAll(_bridge, Log);

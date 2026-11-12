@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test mod of Kiln.TestKit.Tests: [KilnTest] methods that block the tick thread, and ones that are only slow. -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>
