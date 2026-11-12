@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Lab probe: walks the game's reflection type registry (content/TypeByHash) through kiln.hooks and writes a
-       type dump to its data dir, for tools/typegen to turn into Kiln.Game. Advanced mod. Not shipped to users. -->
+  <!-- Lab check of the generated game types (docs/kiln/typegen.md section 5): on a server with a loaded world, every
+       generated ECS component that has live entities is read through Kiln.Ecs and compared with the raw component
+       bytes (kiln.world) and, leaf by leaf, with the game's own reflection (Reflected, kiln.types). [KilnTest] methods
+       (tests.autoRun), plus a guided client check for a hosted session. Not shipped to users. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -12,9 +14,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
-    <ProjectReference Include="../../../managed/services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
-    <ProjectReference Include="../../../managed/Kiln.Game/Kiln.Game.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- "game" names the legacy namespace Kiln.GameTypes, which clashes with the class Kiln.GameTypes in Kiln.Api -->
+    <ProjectReference Include="../../../managed/Kiln.Game/Kiln.Game.csproj" Private="false" ExcludeAssets="runtime" Aliases="global,game" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

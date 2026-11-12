@@ -1,0 +1,269 @@
+{
+ "schema": 2,
+ "side": "server",
+ "exe_sha256": "000000000000000000000000000000000000000000000000000000000000000f",
+ "components": [
+  "keen::ecs::Component",
+  "keen::ecs::Glow",
+  "keen::ecs::Torch"
+ ],
+ "events": [],
+ "types": [
+  {
+   "name": "Bitmask8<keen::glimmer::Mode>",
+   "qualifiedName": "keen::Bitmask8<keen::glimmer::Mode>",
+   "hash": "0x90EECDA8",
+   "kind": 13,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::glimmer::Mode"
+  },
+  {
+   "name": "LampCore",
+   "qualifiedName": "keen::LampCore",
+   "hash": "0x48229C5F",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "fields": [
+    {
+     "name": "heat",
+     "offset": 0,
+     "type": "keen::float32"
+    },
+    {
+     "name": "ticks",
+     "offset": 4,
+     "type": "keen::uint32"
+    }
+   ]
+  },
+  {
+   "name": "StaticArray<keen::float32,2>",
+   "qualifiedName": "keen::StaticArray<keen::float32,2>",
+   "hash": "0xFCF073F9",
+   "kind": 19,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::float32"
+  },
+  {
+   "name": "AttributeComponent",
+   "qualifiedName": "keen::ecs::AttributeComponent",
+   "hash": "0x81509358",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "key",
+     "offset": 0,
+     "type": "keen::uint32"
+    },
+    {
+     "name": "count",
+     "offset": 4,
+     "type": "keen::uint16"
+    }
+   ]
+  },
+  {
+   "name": "Component",
+   "qualifiedName": "keen::ecs::Component",
+   "hash": "0xB4B5CB62",
+   "kind": 18,
+   "size": 1,
+   "align": 1,
+   "fields": []
+  },
+  {
+   "name": "Glow",
+   "qualifiedName": "keen::ecs::Glow",
+   "hash": "0xD577E672",
+   "kind": 18,
+   "size": 16,
+   "align": 4,
+   "inner": "keen::ecs::AttributeComponent",
+   "fields": [
+    {
+     "name": "dataStorage",
+     "offset": 8,
+     "type": "keen::StaticArray<keen::float32,2>"
+    }
+   ]
+  },
+  {
+   "name": "Lamp",
+   "qualifiedName": "keen::ecs::Lamp",
+   "hash": "0xE15D4995",
+   "kind": 18,
+   "size": 20,
+   "align": 4,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "glow",
+     "offset": 0,
+     "type": "keen::float32"
+    },
+    {
+     "name": "wick",
+     "offset": 4,
+     "type": "keen::ecs::WickId"
+    },
+    {
+     "name": "mode",
+     "offset": 8,
+     "type": "keen::glimmer::Mode"
+    },
+    {
+     "name": "flags",
+     "offset": 9,
+     "type": "keen::Bitmask8<keen::glimmer::Mode>"
+    },
+    {
+     "name": "spare",
+     "offset": 10,
+     "type": "keen::uint16"
+    },
+    {
+     "name": "core",
+     "offset": 12,
+     "type": "keen::LampCore"
+    }
+   ]
+  },
+  {
+   "name": "Torch",
+   "qualifiedName": "keen::ecs::Torch",
+   "hash": "0x04D36123",
+   "kind": 18,
+   "size": 28,
+   "align": 4,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "fuel",
+     "offset": 0,
+     "type": "keen::float32"
+    },
+    {
+     "name": "hue",
+     "offset": 4,
+     "type": "keen::glimmer::Hue"
+    },
+    {
+     "name": "lamp",
+     "offset": 8,
+     "type": "keen::ecs::Lamp"
+    }
+   ]
+  },
+  {
+   "name": "WickId",
+   "qualifiedName": "keen::ecs::WickId",
+   "hash": "0x18B16DDC",
+   "kind": 18,
+   "size": 4,
+   "align": 4,
+   "fields": [
+    {
+     "name": "id",
+     "offset": 0,
+     "type": "keen::uint32"
+    }
+   ]
+  },
+  {
+   "name": "float32",
+   "qualifiedName": "keen::float32",
+   "hash": "0x71EC172D",
+   "kind": 10,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "float64",
+   "qualifiedName": "keen::float64",
+   "hash": "0x6DDF44EE",
+   "kind": 11,
+   "size": 8,
+   "align": 8
+  },
+  {
+   "name": "Hue",
+   "qualifiedName": "keen::glimmer::Hue",
+   "hash": "0xF3E08991",
+   "kind": 12,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::uint8",
+   "values": [
+    {
+     "name": "Amber",
+     "value": 0
+    },
+    {
+     "name": "Blue",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Mode",
+   "qualifiedName": "keen::glimmer::Mode",
+   "hash": "0xA986418A",
+   "kind": 12,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::uint8",
+   "values": [
+    {
+     "name": "Off",
+     "value": 0
+    },
+    {
+     "name": "Dim",
+     "value": 1
+    },
+    {
+     "name": "Bright",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "name": "sint32",
+   "qualifiedName": "keen::sint32",
+   "hash": "0x58A92141",
+   "kind": 7,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "uint16",
+   "qualifiedName": "keen::uint16",
+   "hash": "0x76D64E45",
+   "kind": 4,
+   "size": 2,
+   "align": 2
+  },
+  {
+   "name": "uint32",
+   "qualifiedName": "keen::uint32",
+   "hash": "0x82D1E3FB",
+   "kind": 6,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "uint8",
+   "qualifiedName": "keen::uint8",
+   "hash": "0xD297A9C6",
+   "kind": 2,
+   "size": 1,
+   "align": 1
+  }
+ ]
+}

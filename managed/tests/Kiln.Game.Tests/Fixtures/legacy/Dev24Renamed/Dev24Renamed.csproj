@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The dev.24 shape with one field renamed (NetworkHealth.healthMax -> healthMaximum): the consumer compiled
+       against Dev24Shape must fail to bind against it, which proves that LegacyBinaryTests can fail. -->
+  <PropertyGroup>
+    <AssemblyName>Kiln.Game</AssemblyName>
+    <RootNamespace>Kiln.GameTypes</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591;CS0435</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <_Dev24Generated Include="../../../../../Kiln.Game/Generated.cs" />
+    <Compile Include="../Components.dev24.cs" Link="Components.cs" />
+    <ProjectReference Include="../../../../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../../../../../services/Kiln.World/Kiln.World.csproj" Private="false" />
+  </ItemGroup>
+  <!-- IntermediateOutputPath is known only after the project body: the path is set in a target. -->
+  <Target Name="_RenamedPath">
+    <PropertyGroup>
+      <_RenamedSource>$(IntermediateOutputPath)Generated.renamed.cs</_RenamedSource>
+    </PropertyGroup>
+  </Target>
+  <Target Name="_RenameOneField" BeforeTargets="CoreCompile" DependsOnTargets="_RenamedPath"
+          Inputs="@(_Dev24Generated);$(MSBuildProjectFullPath)" Outputs="$(_RenamedSource)">
+    <PropertyGroup>
+      <_Text>$([System.IO.File]::ReadAllText('%(_Dev24Generated.FullPath)'))</_Text>
+      <_Text>$(_Text.Replace('public uint healthMax;', 'public uint healthMaximum;'))</_Text>
+    </PropertyGroup>
+    <Error Condition="!$(_Text.Contains('healthMaximum'))" Text="Dev24Renamed: the field to rename is not in Generated.cs" />
+    <WriteLinesToFile File="$(_RenamedSource)" Lines="$([MSBuild]::Escape($(_Text)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+  <Target Name="_AddRenamed" BeforeTargets="CoreCompile" DependsOnTargets="_RenameOneField">
+    <ItemGroup>
+      <Compile Include="$(_RenamedSource)" />
+      <FileWrites Include="$(_RenamedSource)" />
+    </ItemGroup>
+  </Target>
+</Project>
