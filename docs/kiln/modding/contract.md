@@ -1,8 +1,11 @@
 # The API contract: errors, identity, threads
 
-Three rules that every Kiln API follows, or is moving to. The types live in `Kiln.Api`
-(`managed/Kiln.Api/Results.cs`, `Identity.cs`, `ThreadingAttributes.cs`), so every mod has them without listing a
-service. Tests: `managed/tests/Kiln.Api.Tests/IdentityTests.cs`, `ContractTests.cs`, `ItemIdForwardTests.cs`.
+Three rules that every Kiln API follows, or is moving to. The value types live in `Kiln.Api`
+(`managed/Kiln.Api/Results.cs`, `Identity.cs`, `ThreadingAttributes.cs`) and can be used without referencing a service.
+Capturing entity serials and resolving players require initialized supplying services; merely having the types does
+not make those operations available. Services auto-started by the first service tick are available from the first
+tick callback, not in `OnLoad`. Tests: `managed/tests/Kiln.Api.Tests/IdentityTests.cs`, `ContractTests.cs`,
+`ItemIdForwardTests.cs`.
 
 ## 1. The error rule
 
