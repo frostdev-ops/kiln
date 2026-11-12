@@ -17,6 +17,11 @@
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- instance data (DataChecks.cs, task t4) -->
+    <ProjectReference Include="../../../managed/services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- rider/ is a second mod of its own (instances-rider, task t4), built by its own project -->
+    <Compile Remove="rider/**" />
+    <None Remove="rider/**" />
   </ItemGroup>
 </Project>
