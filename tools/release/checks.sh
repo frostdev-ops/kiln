@@ -250,6 +250,12 @@ run_checks() {
     check_disabled_nexus_tests
   check "dotnet new kiln-mod from the packed templates builds against the packed SDK (local feed)" check_template
   check "the vsix lists its files" check_vsix
+  # sdk/api/ only when the export had tools/docs-site/build.sh (release.sh 7.)
+  if [[ -d $out/sdk/api ]]; then
+    check "the API reference is in sdk/api (index.html)" test -s "$out/sdk/api/index.html"
+  fi
+  check "the NuGet feed in sdk/feed: its index.json at $feed_url, each package's versions and files are the nupkgs in sdk/" \
+    python3 -I "$lib/feed.py" check "$out/sdk/feed" --nupkgs "$out/sdk" --base-url "$feed_url"
   if ((signing)); then check "Authenticode signatures verify" check_authenticode; fi
   check "no game data, home paths, keys, passwords or tokens in any file or archive" \
     python3 "$lib/release.py" scan "$out" --tmp "$ck" --secret-file "$key.password" --secret-file "$key" \
