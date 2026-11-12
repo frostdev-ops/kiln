@@ -1,4 +1,18 @@
 #nullable enable
+Kiln.Ecs
+Kiln.Ecs.GameGuid
+Kiln.Ecs.GameGuid.CopyTo(System.Span<byte> destination) -> void
+Kiln.Ecs.GameGuid.Equals(Kiln.Ecs.GameGuid other) -> bool
+Kiln.Ecs.GameGuid.GameGuid() -> void
+Kiln.Ecs.GameGuid.GameGuid(System.ReadOnlySpan<byte> bytes) -> void
+Kiln.Ecs.GameGuid.IsEmpty.get -> bool
+Kiln.Ecs.ObjectReference
+Kiln.Ecs.ObjectReference.CopyTo(System.Span<byte> destination) -> void
+Kiln.Ecs.ObjectReference.Equals(Kiln.Ecs.ObjectReference other) -> bool
+Kiln.Ecs.ObjectReference.IsEmpty.get -> bool
+Kiln.Ecs.ObjectReference.ObjectReference() -> void
+Kiln.Ecs.ObjectReference.ObjectReference(System.ReadOnlySpan<byte> bytes) -> void
+Kiln.GameLayoutStamps
 Kiln.GameTypes.ComponentTypes
 Kiln.GameTypes.Components
 Kiln.GameTypes.CurrentTransform
@@ -62,6 +76,16 @@ Kiln.GameTypes.TeleportCount.lastTeleportTime -> byte*
 Kiln.GameTypes.Velocity
 Kiln.GameTypes.Velocity.Velocity() -> void
 Kiln.GameTypes.Velocity.velocity -> byte*
+Kiln.IGameAttribute<TSelf, TValue>
+Kiln.IGameAttribute<TSelf, TValue>.ValuesOf(ref TSelf self) -> System.Span<TValue>
+Kiln.IGameComponent<TSelf>
+Kiln.IGameEvent<TSelf>
+Kiln.IGameStruct<TSelf>
+Kiln.IGameStruct<TSelf>.Hash.get -> uint
+Kiln.IGameStruct<TSelf>.Layout.get -> ulong
+Kiln.IGameStruct<TSelf>.Name.get -> string!
+Kiln.IGameStruct<TSelf>.QualifiedName.get -> string!
+Kiln.IGameStruct<TSelf>.Size.get -> int
 const Kiln.GameTypes.ComponentTypes.CurrentTransform = 41600356 -> uint
 const Kiln.GameTypes.ComponentTypes.Health = 3692040337 -> uint
 const Kiln.GameTypes.ComponentTypes.LastTransform = 1265286393 -> uint
@@ -80,6 +104,25 @@ const Kiln.GameTypes.NpcCommon.Hash = 120438199 -> uint
 const Kiln.GameTypes.Stamina.Hash = 2453735012 -> uint
 const Kiln.GameTypes.TeleportCount.Hash = 3221107951 -> uint
 const Kiln.GameTypes.Velocity.Hash = 4214432000 -> uint
+override Kiln.Ecs.GameGuid.Equals(object? obj) -> bool
+override Kiln.Ecs.GameGuid.GetHashCode() -> int
+override Kiln.Ecs.GameGuid.ToString() -> string!
+override Kiln.Ecs.ObjectReference.Equals(object? obj) -> bool
+override Kiln.Ecs.ObjectReference.GetHashCode() -> int
+override Kiln.Ecs.ObjectReference.ToString() -> string!
+static Kiln.Ecs.All<T>() -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Ecs.Available.get -> bool
+static Kiln.Ecs.GameGuid.operator !=(Kiln.Ecs.GameGuid left, Kiln.Ecs.GameGuid right) -> bool
+static Kiln.Ecs.GameGuid.operator ==(Kiln.Ecs.GameGuid left, Kiln.Ecs.GameGuid right) -> bool
+static Kiln.Ecs.Get<T>(Kiln.EntityId entity) -> T?
+static Kiln.Ecs.Has<T>(Kiln.EntityId entity) -> bool
+static Kiln.Ecs.ObjectReference.operator !=(Kiln.Ecs.ObjectReference left, Kiln.Ecs.ObjectReference right) -> bool
+static Kiln.Ecs.ObjectReference.operator ==(Kiln.Ecs.ObjectReference left, Kiln.Ecs.ObjectReference right) -> bool
+static Kiln.Ecs.Supports<T>() -> bool
+static Kiln.Ecs.TryGet<T>(Kiln.EntityId entity, out T value) -> bool
+static Kiln.Ecs.WhyNot<T>() -> string?
+static Kiln.GameLayoutStamps.Check(string! stampJson, out string? reason) -> bool
+static Kiln.GameLayoutStamps.Table.get -> string!
 static Kiln.GameTypes.Components.All<T>() -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
 static Kiln.GameTypes.Components.Available.get -> bool
 static Kiln.GameTypes.Components.Get<T>(Kiln.EntityId entity) -> T?

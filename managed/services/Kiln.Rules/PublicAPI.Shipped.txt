@@ -309,6 +309,7 @@ Kiln.WaterRule.Items.get -> System.Collections.Generic.IReadOnlyList<string!>?
 Kiln.WaterRule.Items.init -> void
 Kiln.WaterRule.KeepsFull.get -> bool
 Kiln.WaterRule.WaterRule() -> void
+[KILNX001]static Kiln.Rules.Simulate(Kiln.EntityId character, bool on = true) -> void
 const Kiln.Creative.PermissionNode = "kiln.command.creative" -> string!
 const Kiln.Creative.PresetName = "creative" -> string!
 const Kiln.CreativeTools.MaxGive = 9999 -> int
@@ -390,7 +391,6 @@ static Kiln.Rules.Of(Kiln.EntityId player) -> Kiln.EffectiveRules!
 static Kiln.Rules.Policy.get -> Kiln.RulesPolicy!
 static Kiln.Rules.Preset(string! name) -> Kiln.PlayerRules?
 static Kiln.Rules.Presets.get -> System.Collections.Generic.IReadOnlyList<string!>!
-static Kiln.Rules.Simulate(Kiln.EntityId character, bool on = true) -> void
 static Kiln.Rules.Status() -> Kiln.RulesStatus?
 static Kiln.RulesStatus.operator !=(Kiln.RulesStatus? left, Kiln.RulesStatus? right) -> bool
 static Kiln.RulesStatus.operator ==(Kiln.RulesStatus? left, Kiln.RulesStatus? right) -> bool

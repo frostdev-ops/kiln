@@ -100,7 +100,6 @@ Kiln.ScreenStatus.Transfer.get -> string!
 Kiln.ScreenStatus.Transfer.init -> void
 Kiln.ScreenStatus.Width.get -> int
 Kiln.ScreenStatus.Width.init -> void
-Kiln.ScreenTestSeams
 Kiln.ScreenVignette
 Kiln.ScreenVignette.<Clone>$() -> Kiln.ScreenVignette!
 Kiln.ScreenVignette.Amount.get -> float?
@@ -259,7 +258,16 @@ Kiln.VfxStatus.Thread.init -> void
 Kiln.VfxStatus.Updates.get -> ulong
 Kiln.VfxStatus.Updates.init -> void
 Kiln.VfxStatus.VfxStatus(bool Available, bool Native, bool Guard, bool Controller, bool SystemReady, bool Simulated, uint Registered, uint MapCapacity, int Thread, uint Live, ulong Played, ulong Failed, ulong Refused, ulong Updates, bool Relay, long RelaySent, long RelayReceived) -> void
-Kiln.VfxTestSeams
+[KILNX001]Kiln.ScreenTestSeams
+[KILNX001]Kiln.VfxTestSeams
+[KILNX001]static Kiln.ScreenTestSeams.Native(Kiln.ScreenEffect! effect) -> float[]!
+[KILNX001]static Kiln.ScreenTestSeams.NativeSizes.get -> (int Effect, int Status, int Table)
+[KILNX001]static Kiln.ScreenTestSeams.RoundTrip(Kiln.ScreenEffect! effect) -> float[]!
+[KILNX001]static Kiln.VfxTestSeams.GuardThroughCreateInstance(System.Guid unknown) -> Kiln.VfxHandle
+[KILNX001]static Kiln.VfxTestSeams.GuardThroughFxController(System.Guid unknown, Kiln.WorldPosition at) -> Kiln.VfxHandle
+[KILNX001]static Kiln.VfxTestSeams.LoopbackPlay(System.Guid vfx, Kiln.WorldPosition at, float scale, Kiln.EntityId entity, Kiln.Slot slot, Kiln.Offset offset, long lifetimeNs, Kiln.VfxParams? parameters) -> Kiln.VfxHandle
+[KILNX001]static Kiln.VfxTestSeams.LoopbackStop(Kiln.VfxHandle local) -> void
+[KILNX001]static Kiln.VfxTestSeams.NativeSizes.get -> (int Play, int Info, int Status, int Table)
 override Kiln.Offset.GetHashCode() -> int
 override Kiln.ScreenColor.Equals(object? obj) -> bool
 override Kiln.ScreenColor.GetHashCode() -> int
@@ -305,9 +313,6 @@ static Kiln.ScreenHandle.operator !=(Kiln.ScreenHandle left, Kiln.ScreenHandle r
 static Kiln.ScreenHandle.operator ==(Kiln.ScreenHandle left, Kiln.ScreenHandle right) -> bool
 static Kiln.ScreenStatus.operator !=(Kiln.ScreenStatus? left, Kiln.ScreenStatus? right) -> bool
 static Kiln.ScreenStatus.operator ==(Kiln.ScreenStatus? left, Kiln.ScreenStatus? right) -> bool
-static Kiln.ScreenTestSeams.Native(Kiln.ScreenEffect! effect) -> float[]!
-static Kiln.ScreenTestSeams.NativeSizes.get -> (int Effect, int Status, int Table)
-static Kiln.ScreenTestSeams.RoundTrip(Kiln.ScreenEffect! effect) -> float[]!
 static Kiln.ScreenVignette.implicit operator Kiln.ScreenVignette!(float amount) -> Kiln.ScreenVignette!
 static Kiln.ScreenVignette.operator !=(Kiln.ScreenVignette? left, Kiln.ScreenVignette? right) -> bool
 static Kiln.ScreenVignette.operator ==(Kiln.ScreenVignette? left, Kiln.ScreenVignette? right) -> bool
@@ -341,11 +346,6 @@ static Kiln.VfxInfo.operator !=(Kiln.VfxInfo? left, Kiln.VfxInfo? right) -> bool
 static Kiln.VfxInfo.operator ==(Kiln.VfxInfo? left, Kiln.VfxInfo? right) -> bool
 static Kiln.VfxStatus.operator !=(Kiln.VfxStatus? left, Kiln.VfxStatus? right) -> bool
 static Kiln.VfxStatus.operator ==(Kiln.VfxStatus? left, Kiln.VfxStatus? right) -> bool
-static Kiln.VfxTestSeams.GuardThroughCreateInstance(System.Guid unknown) -> Kiln.VfxHandle
-static Kiln.VfxTestSeams.GuardThroughFxController(System.Guid unknown, Kiln.WorldPosition at) -> Kiln.VfxHandle
-static Kiln.VfxTestSeams.LoopbackPlay(System.Guid vfx, Kiln.WorldPosition at, float scale, Kiln.EntityId entity, Kiln.Slot slot, Kiln.Offset offset, long lifetimeNs, Kiln.VfxParams? parameters) -> Kiln.VfxHandle
-static Kiln.VfxTestSeams.LoopbackStop(Kiln.VfxHandle local) -> void
-static Kiln.VfxTestSeams.NativeSizes.get -> (int Play, int Info, int Status, int Table)
 static readonly Kiln.ScreenHandle.None -> Kiln.ScreenHandle
 static readonly Kiln.Vfx.UntilStopped -> System.TimeSpan
 static readonly Kiln.VfxHandle.None -> Kiln.VfxHandle
