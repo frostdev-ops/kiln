@@ -113,7 +113,7 @@ public sealed class ResolverTests
             new ModCandidate { Directory = "/mods/broken", Error = "kiln.mod.json: id 'Bad' must match" });
         Assert.Equal(["a", "devkiln"], Order(r));
         Assert.Contains("duplicate mod id 'a' (also in folder a)", r.Rejected.Single(x => x.Candidate.Directory == "/mods/copy").Reason);
-        Assert.Equal("needs Kiln API 1.0; this Kiln provides API 0.2.0", Why(r, "api"));
+        Assert.Equal($"needs Kiln API 1.0; this Kiln provides API {Mods.RuntimeApiVersion}", Why(r, "api"));  // the running API, whatever the release
         Assert.Equal("needs feature missing.feature, unavailable on this game build", Why(r, "feat"));
         Assert.Equal("needs Kiln >=0.5; this is Kiln 0.1.0-dev", Why(r, "newkiln"));
         Assert.Equal("kiln.mod.json: id 'Bad' must match", Why(r, "broken"));
