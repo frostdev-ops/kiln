@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_items.h (kiln.items v3; the v2 functions are in TableV2, the v3 ones in TableV3). Blittable only; field order is the ABI (the native
-// side static_asserts the same sizes and offsets).
+// Mirror of native/core/abi/services/kiln_items.h (kiln.items v4; the v2 functions are in TableV2, the v3 ones in TableV3,
+// the v4 ones in TableV4). Blittable only; field order is the ABI (the native side static_asserts the same sizes and offsets).
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -319,6 +319,68 @@ internal static unsafe class ItemsNative
     {
         public TableV3 V3;
         public delegate* unmanaged[Cdecl]<ulong, Result*, int> PeekResult;
+    }
+
+    // ---- v4: item instances (KilnItemsInstance, KilnItemsInstancesStatus) ----
+    public const uint ReadLocation = 0x01;
+    public const uint InstFound = 0x0001, InstPlaced = 0x0002, InstSavedSlot = 0x0004, InstEquipped = 0x0008,
+        InstLevel = 0x0010, InstDurability = 0x0020, InstFuel = 0x0040, InstDye = 0x0080, InstPerks = 0x0100,
+        InstGem = 0x0200, InstGone = 0x0400;
+    public const uint InstancesOn = 0x01, InstancesExhausted = 0x02;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Instance
+    {
+        public uint Entity;
+        public uint Stamp;
+        public uint Flags;
+        public uint Item;
+        public ulong Slot;
+        public uint Holder;
+        public uint FlatSlot;
+        public byte Link;
+        public byte Category;
+        public ushort State;
+        public uint Count;
+        public uint Level;
+        public int Durability;
+        public int DurabilityMax;
+        public int Fuel;
+        public int FuelMax;
+        public uint Dye;
+        public byte PerksAvailable;
+        public byte PerksUnlocked;
+        public byte GemLevel;
+        public byte R0;
+        public uint Gem;
+        public fixed uint Reserved[4];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct InstancesStatus
+    {
+        public uint Size;
+        public uint Flags;
+        public ulong StampsIssued;
+        public ulong Reads;
+        public uint TableSize;
+        public uint Resets;
+        public uint NextEntityId;
+        public uint Mismatches;
+        public uint HolderRebuilds;
+        public uint Reserved;
+        public fixed byte Detail[160];
+    }
+
+    /// <summary>The whole v4 table: v3 (with the result peek) followed by the item-instance functions. Use it only when
+    /// the header's size says the native service has them.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV4
+    {
+        public TableWithResultPeek V3;
+        public delegate* unmanaged[Cdecl]<Instance*, uint, uint, uint, int> ReadInstances;
+        public delegate* unmanaged[Cdecl]<uint, Instance*, uint, uint, uint*, byte*, int> ReadHolder;
+        public delegate* unmanaged[Cdecl]<InstancesStatus*, int> GetInstancesStatus;
     }
 
     public static string Text(byte* p, int max)

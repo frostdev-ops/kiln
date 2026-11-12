@@ -35,6 +35,8 @@ The world save holds **no** per-player progress (`docs/re/quests.md` section 4 s
 | Overflow ("shadow") nodes | `CharacterData.Carried`, "gameShadow" | **yes** |
 | Kiln talent trees | `CharacterData.Carried`, "talents:&lt;tree&gt;" | **yes** |
 | Your mod's data | your choice: `CharacterData` or `CharacterData.Carried` | your choice |
+| Your mod's data on one item in the character's inventory (`InstanceData`, `Persist.World`) | this world's record of the character (`character-instances/<key>/<mod>`) | **no**: the item's data stays with this world |
+| The same with `Persist.Carried` | (would be `CharacterData.Carried`) | not available in this release |
 | `WorldData`, `PlayerData`, `EntityData` | this world | no. `EntityData` on a player entity is `PlayerData`: per Steam id, not per character |
 
 So one character on two worlds has separate quests and the same talents, and two characters on one world have separate everything.
@@ -72,6 +74,31 @@ CharacterData.MigrateFromPlayerData(who, "standing", player.SteamId, player.Acco
 |---|---|---|---|
 | `CharacterImportingEvent {Character, Player, Revision, ServerRevision, Mods, Reason}` | a client offered newer carried data, before anything is applied. Not when the setting refuses | tick | refuses the whole offer; the server keeps its copy, the client keeps its file |
 | `CharacterImportedEvent {Character, Player, Revision, Applied, Kept}` | the data is in place. Check it here | tick | no |
+
+## A character's items
+Data a mod keeps on one item (`sword.Get(Kills)`, [saves.md "Instance data"](saves.md#instance-data-values-that-stay-with-one-item))
+follows the item, and an item in a player's inventory belongs to the character:
+
+- **In this world's record** (`Persist.World`, the default): at each world save the items with data in a player's
+  inventory are written into the scope `character-instances/<character key>/<mod>` of the world's generation, with the
+  inventory's whole list of items (the witness). `CharacterData.Keys` and `CharacterData.Carried.Keys` do not list it.
+- **At a join** the records are matched once the character's inventory is initialized: a character that comes back
+  exactly as it left gets every record back in its own slot, twins included; a character that comes back changed (played
+  elsewhere, its file edited) gets back only what is certain (the one item that fits), and the rest is set aside and
+  reported, never guessed.
+- **At a leave** the item entities are destroyed with the character going back to its client; the records wait with the
+  character at their last slots (`InstanceDataParkedEvent`, `PlayerLeft`), with no limit in sessions while the character
+  stays away. An item trashed while the player is still in game is dropped (`Destroyed`).
+- **In `Carried`** (data that travels to other worlds with the character): not available yet.
+  `InstanceData.Key(name, new() { Persist = Persist.Carried })` throws `KilnUnavailableException("saves.instance_data.carried")`:
+  `Persist.World` keeps the value on this world's save, the item in a player's inventory included.
+- A character without an id on this build (account-only key) keeps its items' data for the session only.
+
+What a real client must still confirm (the guided client checks in `mods/tests/instances-test/ClientChecks.cs`; none
+has run): that a character's inventory comes back at a join with the same flat slots and record fields, and the order
+of the leave save, the items' destruction and the leave event. A lab with simulated players shows only that a
+character's records wait across a leave, a rejoin in another slot and a restart, and attach to nothing (a simulated
+player has no inventory).
 
 ## When the mod list moves a skill node
 Native nodes live in the character's save, shadow nodes in `Carried`. A mod list that moves a node across keeps its unlock and level both ways: [skills.md](skills.md) "When the mod list moves a node". What the join check moved out of the save stays through a client's older carried copy coming in.

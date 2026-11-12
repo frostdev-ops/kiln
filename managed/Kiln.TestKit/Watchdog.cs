@@ -93,6 +93,11 @@ internal sealed partial class Watchdog
         {
             // aborted: the work item ended in the abort, which its caller sees as a stopped harness
         }
+        catch (ThreadInterruptedException) when (_abort.IsCancellationRequested)
+        {
+            // Stop's wake-up (it interrupts while the abort request waits) landed in ControlledExecution's own wait for
+            // the abort, outside the work item: the same stopped harness, not an exception for the tick thread
+        }
         finally
         {
             Interlocked.Exchange(ref _executing, 0);

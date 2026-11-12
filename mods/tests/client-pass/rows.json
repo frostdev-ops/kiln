@@ -52,6 +52,7 @@
     { "section": "Client checklist (dev.21)", "key": "Windows, launcher with Nexus off: nxm:// links point at Vortex again", "checks": ["windows.nxm-vortex"] },
 
     { "section": "New in 0.2.0-dev.25", "key": "The achievement guard drops achievement reports while a cheats check runs", "checks": ["guard.proof"] },
-    { "section": "New in 0.2.0-dev.25", "key": "Kiln unloads cleanly when the game quits", "checks": ["core.unload-quit", "core.unload-windows"] }
+    { "section": "New in 0.2.0-dev.25", "key": "Kiln unloads cleanly when the game quits", "checks": ["core.unload-quit", "core.unload-windows"] },
+    { "section": "New in 0.2.0-dev.25", "key": "Data that stays with one item (a player's inventory)", "checks": ["instances-test/instances.held-moves", "instances-test/instances.twins-swap", "instances-test/instances.equip", "instances-test/instances.held-equipped", "instances-test/instances.trash", "instances-test/instances.craft", "instances-test/instances.tombstone", "instances-test/instances.gift", "instances-test/instances.leave.before", "instances-test/instances.leave.after", "instances-test/instances.move-leave.before", "instances-test/instances.move-leave.after", "instances-test/instances.crash-swap.before", "instances-test/instances.crash-swap.after", "instances-test/instances.shutdown.before", "instances-test/instances.shutdown.after", "instances-test/instances.restart.before", "instances-test/instances.restart.after", "instances-test/instances.elsewhere.before", "instances-test/instances.elsewhere.after", "instances-test/instances.rejoin-ids"] }
   ]
 }

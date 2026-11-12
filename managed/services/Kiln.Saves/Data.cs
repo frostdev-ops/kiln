@@ -213,7 +213,8 @@ public static class EntityData
     }
 
     /// <summary>Whether the entity has a known, saved world template with a position for matching after a restart.
-    /// False for inventory item entities: their data is session-only.</summary>
+    /// False for inventory item entities: their data is session-only. Data that stays with one item across restarts is
+    /// <see cref="InstanceData"/>.</summary>
     public static bool IsPersistent(EntityId entity)
     {
         if (entity.IsPlayer) return true;

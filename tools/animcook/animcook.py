@@ -101,7 +101,7 @@ def _state_line(e):
     return f"player state {e['mod']}/{e['name']}: REFUSED: {e['reason']}"
 
 
-def _check_player_states(a, path, t, k):
+def _check_player_states(a, path, t, k, *, defer_external=False):
     """A player-states.json against the player's graph (or what can be checked without one). -> (report, graph checked)."""
     try:
         m = PS.load(path)
@@ -116,7 +116,20 @@ def _check_player_states(a, path, t, k):
                 e["status"] = "unchecked"
             rep["states"].append(e)
         return rep, False
-    _, rep = PG.merge(raw, t, [m], PG.ClipFacts(t, [Path(path).parent], k))
+    clips = PG.ClipFacts(t, [Path(path).parent], k)
+    for warning in clips.warnings:
+        print(f"player states: warning: {warning}")
+    _, rep = PG.merge(raw, t, [m], clips)
+    if defer_external:
+        states = {s.name: s for s in m.states}
+        for e in rep["states"]:
+            st = states[e["name"]]
+            if (e["status"] == "refused" and f"is not served: no {PG.JOINT_ANIM}" in (e["reason"] or "")
+                    and PS.GUID_RE.fullmatch(st.clip_ref) and st.clip not in clips.one_sided
+                    and (st.clip, clips.hashes[PG.JOINT_ANIM]) not in clips.served
+                    and not clips._game_has(st.clip, clips.hashes[PG.JOINT_ANIM])):
+                e["status"] = "unchecked"
+                e["reason"] = f"warning: clip {st.clip} is not served by this mod or the game; another mod may serve it; checked at boot"
     rep["graphSource"] = src
     return rep, True
 
@@ -127,11 +140,13 @@ def _recipe_player_states(a, doc):
     if not path.exists():
         return 0
     t, k, _ = _types(a)
-    rep, checked = _check_player_states(a, path, t, k)
+    rep, checked = _check_player_states(a, path, t, k, defer_external=True)
     for e in rep["errors"]:
         print(f"player states: {e}")
     for e in rep["states"]:
         print(_state_line(e))
+        if e["status"] == "unchecked" and e["reason"]:
+            print(f"player state {e['mod']}/{e['name']}: {e['reason']}")
     if not checked:
         print("player states: like and clip not checked: no installed game, and the player's graph is the game's (--game DIR)")
     if rep["graph"] == "off":
@@ -208,7 +223,10 @@ def cmd_player_graph(a):
             errors.append(str(e))
     t, k, tinfo = _types(a)
     raw, src = _player_graph_source(a, t, k)
-    data, rep = PG.merge(raw, t, mods, PG.ClipFacts(t, [d / "assets" for d in dirs], k))
+    clips = PG.ClipFacts(t, [d / "assets" for d in dirs], k)
+    for warning in clips.warnings:
+        print(f"player states: warning: {warning}")
+    data, rep = PG.merge(raw, t, mods, clips)
     rep["errors"] = sorted(errors)
     rep["graphSource"], rep["types"] = src, tinfo.get("source")
     for e in rep["errors"]:

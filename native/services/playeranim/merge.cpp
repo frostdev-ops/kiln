@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstring>
 #include <iterator>
@@ -1042,7 +1043,12 @@ bool uuid_text(std::string s, std::string* out) {
 
 // _type_hash: "0x..." a number, a name of the reflection its hash, else FNV-1a of the name.
 uint32_t type_hash_of(const TypeDb& types, const std::string& name) {
-    if (name.size() > 2 && name[0] == '0' && name[1] == 'x') return static_cast<uint32_t>(std::stoull(name.substr(2), nullptr, 16));
+    if (name.starts_with("0x")) {
+        uint32_t value = 0;
+        const auto result = std::from_chars(name.data() + 2, name.data() + name.size(), value, 16);
+        if (result.ec != std::errc{} || result.ptr != name.data() + name.size()) throw std::invalid_argument("invalid 32-bit resource type " + name);
+        return value;
+    }
     const Type* t = types.get(name);
     return t ? t->hash : fnv1a(name);
 }
@@ -1064,12 +1070,12 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
         }
         const Json* entries = doc.t == Json::Obj ? doc.find("entries") : nullptr;
         if (!entries || entries->t != Json::Arr) continue;
-        for (const Json& e : entries->items) {
+        for (size_t index = 0; index < entries->items.size(); ++index) {
+            const Json& e = entries->items[index];
             if (e.t != Json::Obj) continue;
             const Json* kind = e.find("kind");
             if (!kind || kind->t != Json::Str || kind->s != "resource") continue;
             const Json* side = e.find("side");
-            if (side && side->t == Json::Str && side->s == "client") continue;
             if (const Json* part = e.find("part")) {  // int(e.get("part", 0)) != 0
                 const bool zero = (part->t == Json::Int && part->s == "0") || (part->t == Json::Float && part->f > -1.0 && part->f < 1.0) || part->t == Json::False ||
                                   (part->t == Json::Str && part->s == "0");
@@ -1079,8 +1085,20 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
             if (!guid || guid->t != Json::Str || !type || type->t != Json::Str || !file || file->t != Json::Str) continue;
             std::string g;
             if (!uuid_text(guid->s, &g)) continue;
-            const uint32_t th = type_hash_of(types, type->s);
-            if (th == ja_ || th == rm_ || th == sq_) served_[{g, th}].push_back(m.assets_dir + "/" + file->s);
+            uint32_t th;
+            try {
+                th = type_hash_of(types, type->s);
+            } catch (const std::invalid_argument& error) {
+                warnings.push_back(m.assets_dir + "/assets.json: entry " + std::to_string(index) + " (" + g + "): " + error.what());
+                continue;
+            }
+            if (th != ja_ && th != rm_ && th != sq_) continue;
+            if (side && side->t == Json::Str && (side->s == "client" || side->s == "server")) {
+                one_sided_.insert(g);
+                warnings.push_back(m.assets_dir + "/assets.json: one-sided " + side->s + " resource " + g + ": states sampling this GUID are refused on both sides");
+                continue;
+            }
+            served_[{g, th}].push_back(m.assets_dir + "/" + file->s);
         }
     }
 }
@@ -1088,6 +1106,7 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
 std::optional<ClipFacts> ClipFactsProvider::operator()(const std::string& guid_in) {
     std::string guid = guid_in;
     for (char& c : guid) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (one_sided_.contains(guid)) return std::nullopt;  // never fall back to a side-dependent resource_read
     if (const auto it = cache_.find(guid); it != cache_.end()) return it->second;
     Guid g;
     const bool parsed = Guid::parse(guid, &g);

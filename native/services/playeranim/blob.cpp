@@ -556,6 +556,10 @@ Value Decoder::decode(const Type* t, const uint8_t* b, size_t n, uint64_t off, c
 }
 
 Value Decoder::value(const Type* t, const uint8_t* b, size_t n, int64_t o, int depth) const {
+    for (unsigned chain = 0; t && t->kind == K_TYPEDEF && t->inner_t; ++chain) {
+        if (chain == 16) throw PyError("DecodeError", "typedef chain exceeds 16 steps at " + t->name);
+        t = t->inner_t;
+    }
     if (!t) throw PyError("TypeError", kNone);
     if (depth > 64) throw PyError("DecodeError", "nesting too deep");
     const uint32_t k = t->kind;
@@ -577,13 +581,10 @@ Value Decoder::value(const Type* t, const uint8_t* b, size_t n, int64_t o, int d
         }
         case K_F32: return Value::real(static_cast<double>(rd<float>(b, n, o)));
         case K_F64: return Value::real(rd<double>(b, n, o));
-        case K_TYPEDEF: {
-            if (!t->inner_t) {  // b[o:o + size].hex()
-                size_t lo, hi;
-                py_slice(n, o, o + t->size, &lo, &hi);
-                return Value::text(to_hex(b + lo, hi - lo));
-            }
-            return value(t->inner_t, b, n, o, depth);
+        case K_TYPEDEF: {  // unresolved target: b[o:o + size].hex()
+            size_t lo, hi;
+            py_slice(n, o, o + t->size, &lo, &hi);
+            return Value::text(to_hex(b + lo, hi - lo));
         }
         case K_ENUM: {
             const Type* under = t->has_inner && !t->inner.empty() ? db_.resolve(t->inner_t) : nullptr;
@@ -790,6 +791,10 @@ Bytes Encoder::encode(const Type* t, const Value& v, const std::string& type_nam
 }
 
 void Encoder::write(Bytes& b, const Type* t, const Value& v, uint64_t o) const {
+    for (unsigned chain = 0; t && t->kind == K_TYPEDEF; ++chain) {
+        if (chain == 16) throw PyError("EncodeError", "typedef chain exceeds 16 steps at " + t->name);
+        t = t->inner_t;
+    }
     if (!t) throw PyError("TypeError", kNone);
     const uint32_t k = t->kind;
     switch (k) {
@@ -809,7 +814,6 @@ void Encoder::write(Bytes& b, const Type* t, const Value& v, uint64_t o) const {
             return;
         }
         case K_F64: put<double>(b, o, as_float(v)); return;
-        case K_TYPEDEF: write(b, t->inner_t, v, o); return;
         case K_ENUM: {
             uint64_t x;
             if (v.k == VK::Enum && v.name >= 0) {  // a name: m = {e.name: e.value}, the last of a name wins

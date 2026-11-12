@@ -974,14 +974,19 @@ def _scalars(types, type_name, raw, names):
 
 def _type_hash(types, name):
     if isinstance(name, str) and name.startswith("0x"):
-        return int(name, 16)
+        if not name[2:] or any(c not in "0123456789abcdefABCDEF" for c in name[2:]):
+            raise ValueError(f"invalid 32-bit resource type {name}")
+        value = int(name, 16)
+        if value > 0xffffffff:
+            raise ValueError(f"invalid 32-bit resource type {name}")
+        return value
     t = types.get(name)
     return t["hash"] if t else fnv1a32(name.encode())
 
 
 class ClipFacts:
-    """clip_facts(guid) for the merge: a JointAnimation a mod serves (its assets/assets.json "resource" entries, not "side": "client",
-    which a dedicated server skips), else the installed game's. Root motion and sequences: a RootMotionAnimation or an
+    """clip_facts(guid) for the merge: a JointAnimation a mod serves (shared assets/assets.json "resource" entries), else the installed
+    game's. A one-sided clip, root motion or sequences entry refuses that GUID on both sides. Root motion and sequences: a RootMotionAnimation or an
     AnimationSequenceContainer under the GUID served by any of them. Two mods serving the same clip with other facts: None (which one
     the game would get is not a rule of the merge)."""
 
@@ -992,13 +997,15 @@ class ClipFacts:
         self.types, self.kfc = types, kfc
         self.hashes = {n: _type_hash(types, n) for n in (JOINT_ANIM, ROOT_MOTION, SEQUENCES)}
         self.served = {}  # (guid, type hash) -> [file paths]
+        self.one_sided = set()  # do not sample a clip whose resources can differ between server and client
+        self.warnings = []
         for d in mod_asset_dirs:
             p = d / "assets.json"
             if not p.exists():
                 continue
             doc = json.loads(re.sub(r"^\s*//.*$", "", p.read_text(encoding="utf-8"), flags=re.M))
-            for e in doc.get("entries", []):
-                if e.get("kind") != "resource" or e.get("side", "both") == "client" or int(e.get("part", 0)) != 0:
+            for index, e in enumerate(doc.get("entries", [])):
+                if e.get("kind") != "resource" or int(e.get("part", 0)) != 0:
                     continue
                 if not isinstance(e.get("guid"), str) or not isinstance(e.get("type"), str) or not isinstance(e.get("file"), str):
                     continue
@@ -1006,8 +1013,15 @@ class ClipFacts:
                     guid = str(uuid.UUID(e["guid"]))
                 except ValueError:
                     continue
-                th = _type_hash(types, e["type"])
+                try:
+                    th = _type_hash(types, e["type"])
+                except ValueError as error:
+                    self.warnings.append(f"{p}: entry {index} ({guid}): {error}")
+                    continue
                 if th in self.hashes.values():
+                    if e.get("side") in ("client", "server"):
+                        self.one_sided.add(guid)
+                        continue
                     self.served.setdefault((guid, th), []).append(d / e["file"])
         self.cache = {}
 
@@ -1021,6 +1035,8 @@ class ClipFacts:
 
     def __call__(self, guid):
         guid = guid.lower()
+        if guid in self.one_sided:
+            return None
         if guid in self.cache:
             return self.cache[guid]
         ja, rm, sq = self.hashes[JOINT_ANIM], self.hashes[ROOT_MOTION], self.hashes[SEQUENCES]

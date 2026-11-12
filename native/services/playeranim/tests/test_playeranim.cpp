@@ -428,6 +428,30 @@ void clip_facts(Ctx& c, const json& cases) {
         if (got != want && ++bad) std::printf("  clip facts %s: %s, want %s\n", q[0].get<std::string>().c_str(), got ? "facts" : "none", want ? "facts" : "none");
     }
     check("clip facts from mods' assets.json and the game as playergraph.ClipFacts gives them (" + std::to_string(k["results"].size()) + " clips)", bad == 0);
+    for (const char* bad_type : {"0xZZ", "0x100000000", "0x12345678901234567890", "0x1234tail"}) {
+        bool isolated = false;
+        try {
+            const std::string bad_guid = derive("bad", "clip", "x"), good_guid = derive("good", "clip", "x");
+            ClipFactsProvider::Mod badmod{"bad/assets", json{{"entries", {{{"kind", "resource"}, {"guid", bad_guid}, {"type", bad_type}, {"file", "x.bin"}}}}}.dump(), true};
+            ClipFactsProvider::Mod goodmod{"good/assets", json{{"entries", {{{"kind", "resource"}, {"guid", good_guid}, {"type", kJointAnim}, {"file", "x.bin"}}}}}.dump(), true};
+            ClipFactsProvider provider(c.bundled, {badmod, goodmod}, [&](const std::string&, Bytes* out) { out->assign(gb.begin(), gb.end()); return true; }, {});
+            isolated = !provider(bad_guid) && provider(good_guid) && provider.warnings.size() == 1 &&
+                provider.warnings[0].find("bad/assets/assets.json") != std::string::npos && provider.warnings[0].find("entry 0") != std::string::npos;
+        } catch (const std::exception&) { }
+        check(std::string("malformed assets type is isolated and named: ") + bad_type, isolated);
+    }
+    const std::string guid = derive("m", "clip", "one-sided");
+    for (const char* side : {"client", "server"})
+        for (const char* type : {kJointAnim, kRootMotion, kSequences}) {
+            ClipFactsProvider::Mod m{"one-sided", json{{"entries", {{{"kind", "resource"}, {"guid", guid}, {"type", type}, {"file", "x.bin"}, {"side", side}}}}}.dump(), true};
+            auto run = [&](bool served) {
+                ClipFactsProvider::Game g;
+                g.has = [=](const Guid&, uint32_t) { return served; };
+                g.read = [&](const Guid&, uint32_t, Bytes* out) { out->assign(gb.begin(), gb.end()); return true; };
+                return ClipFactsProvider(c.bundled, {m}, [&](const std::string&, Bytes* out) { out->assign(gb.begin(), gb.end()); return true; }, g)(guid);
+            };
+            check(std::string("one-sided ") + side + " " + type + " refused on both sides", !run(false) && !run(true));
+        }
 }
 
 // note 04's lookup on a graph: every state by bare name and by Machine/State
