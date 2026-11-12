@@ -128,7 +128,10 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
 - **Lock files** at the top of a data folder are `quick.lock` and `data-folder.lock`, by their names; inside `nexus/`
   every `*.lock`. Any other `*.lock` at the top is an entry the launcher does not know. Lock files are never copied.
 - **Lock** `data-folder.lock` in the data root (`data_folder::DataLock`): shared by every launcher process from dev.25 on
-  for as long as it runs, exclusive for a move or a switch; taking it never waits. A move also holds `quick.lock`, and
+  for as long as it runs and by `kiln` for its whole command when the root exists, exclusive for a move, a switch or
+  unfinished-copy recovery; taking it never waits. Recovery upgrades the launcher's lock and holds the partial copy's
+  lock exclusively too, before scheduling its task and until it returns (also on Cancel or error). If either lock
+  cannot be taken, nothing is removed and the notice asks the player to close other Kiln processes and restart. A move also holds `quick.lock`, and
   holds the target's `data-folder.lock` exclusively from the moment it writes the target's move marker until it returns,
   so a launcher that starts during the move cannot take the new place either.
 - **The hash cache** `state/file-hashes.json` (`filecache`, keyed by absolute paths) is never copied: the new place builds

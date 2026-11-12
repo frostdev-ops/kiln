@@ -174,6 +174,8 @@ struct StartState {
     undoing: Undoing,
     /// The unfinished copy being removed (the journal's `to`).
     undo_folder: Option<PathBuf>,
+    /// The partial copy cannot acquire a writer while its files are being proved and removed.
+    undo_target_lock: Option<df::DataLock>,
 }
 
 /// The removal of an unfinished move's partial copy at this start.
@@ -186,13 +188,13 @@ enum Undoing {
 }
 
 static START: Mutex<StartState> = Mutex::new(StartState {
-    notice: None, acked: false, cleaning: Cleaning::None, removal: None, undoing: Undoing::None, undo_folder: None,
+    notice: None, acked: false, cleaning: Cleaning::None, removal: None, undoing: Undoing::None, undo_folder: None, undo_target_lock: None,
 });
 
 /// Tests: a new process (what this start found and did is forgotten).
 #[cfg(test)]
 pub(crate) fn forget_start() {
-    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None, undoing: Undoing::None, undo_folder: None };
+    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None, undoing: Undoing::None, undo_folder: None, undo_target_lock: None };
     DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
@@ -342,12 +344,19 @@ pub(crate) fn start_with(f: &Folder) -> Next {
             return Next::Cleanup;
         }
         Ok(Pending::Uncommitted { journal }) => {
-            // held before any watcher, `launcher_log` or import touches the folder
-            f.set_hold(Hold::Undoing);
-            let mut st = start_state();
-            st.undoing = Undoing::Running(None);
-            st.undo_folder = Some(journal.to.clone());
-            return Next::Undo;
+            // Exclude writers in other processes too, before scheduling the task. A shared lock proves nothing
+            // stays unchanged between a comparison and its removal. A busy/unlockable folder is left for next time.
+            match lock_for_undo(f, &journal.to) {
+                Ok(target) => {
+                    f.set_hold(Hold::Undoing);
+                    let mut st = start_state();
+                    st.undoing = Undoing::Running(None);
+                    st.undo_folder = Some(journal.to.clone());
+                    st.undo_target_lock = target;
+                    return Next::Undo;
+                }
+                Err(e) => start_state().notice = Some(notice_of("undone", &journal, None, false, Some(e.message))),
+            }
         }
         Ok(Pending::Unclear { journal, reason }) => {
             let n = match &journal {
@@ -362,6 +371,26 @@ pub(crate) fn start_with(f: &Folder) -> Next {
         _ => {}
     }
     Next::Nothing
+}
+
+/// Keep the source stable and the copy unwritable for the entire scheduled/running recovery.
+fn lock_for_undo(f: &Folder, target: &Path) -> Result<Option<df::DataLock>, Error> {
+    let locked = || busy("Kiln could not lock both data folders exclusively: close other Kiln processes and restart to remove the unfinished copy. Nothing was removed.");
+    let mut own = f.lock();
+    if own.is_none() {
+        *own = Some(df::DataLock::exclusive(&f.located()?.dirs.root)?.ok_or_else(locked)?);
+    } else if !own.as_mut().unwrap().upgrade()? {
+        return Err(locked());
+    }
+    let target_lock = match std::fs::symlink_metadata(target) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::from(e)),
+        Ok(_) => df::DataLock::exclusive(target).and_then(|l| l.map(Some).ok_or_else(locked)),
+    };
+    if target_lock.is_err() {
+        let _ = own.as_mut().unwrap().downgrade();
+    }
+    target_lock
 }
 
 /// The task that removes an unfinished move's partial copy ("Remove the unfinished copy"), with the folder held.
@@ -387,9 +416,14 @@ impl Drop for EndUndo<'_> {
 
 /// The hold ends: the held log lines are written, then the start-up steps that were put off run.
 fn end_undo(f: &Folder) {
-    start_state().undoing = Undoing::Ended;
+    {
+        let mut st = start_state();
+        st.undoing = Undoing::Ended;
+        st.undo_target_lock.take();
+    }
     if f.hold() == Hold::Undoing {
-        f.set_hold(Hold::Free);
+        let shared = f.lock().as_mut().is_some_and(|l| l.downgrade().is_ok());
+        f.set_hold(if shared { Hold::Free } else { Hold::Elsewhere });
     }
     flush_held_log();
     let deferred = DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -1300,6 +1334,7 @@ pub(crate) mod tests {
         let left = c.kept[0].path.clone();
         assert!(left.is_file());
 
+        f.release_lock(); // the previous process exited before this start
         // the next start cannot remove it either (a read-only folder here)
         let dir = left.parent().unwrap().to_path_buf();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
@@ -1320,6 +1355,7 @@ pub(crate) mod tests {
         assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "and the journal stays");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 
+        f2.release_lock(); // a third process, not a concurrent writer
         // the start after that removes the rest
         forget_start();
         let f3 = Arc::new(Folder::open(env.clone()));
@@ -1413,6 +1449,58 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&t);
     }
 
+    #[test]
+    fn recovery_excludes_other_launchers_until_its_task_returns() {
+        struct Probe<'a> { from: &'a Path, to: &'a Path, calls: usize }
+        impl kiln_manage::task::Progress for Probe<'_> {
+            fn report(&mut self, _: Option<f32>, _: &str) {
+                self.calls += 1;
+                assert!(DataLock::shared(self.from).unwrap().is_none(), "the proof folder must stay exclusive");
+                if self.to.exists() {
+                    assert!(DataLock::shared(self.to).unwrap().is_none(), "the partial copy must stay exclusive");
+                }
+            }
+            fn canceled(&self) -> bool { false }
+        }
+        let _g = folder::test_serial();
+        let (t, env, from, to) = unfinished("undo-exclusive");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        assert_eq!(start_with(&f), Next::Undo);
+        assert!(DataLock::shared(&from).unwrap().is_none(), "a second process can write the proof folder while recovery is scheduled");
+        assert!(DataLock::shared(&to).unwrap().is_none(), "a second process can write the partial copy while recovery is scheduled");
+        let second = Folder::open(env);
+        assert_eq!(second.hold(), Hold::Elsewhere);
+        let mut p = Probe { from: &from, to: &to, calls: 0 };
+        assert!(undo_work(&f, &mut p).unwrap().done);
+        assert!(p.calls > 1);
+        assert!(!f.lock().as_ref().unwrap().is_exclusive());
+        assert!(DataLock::shared(&from).unwrap().is_some(), "ordinary use resumes after the task");
+        let _ = std::fs::remove_dir_all(t);
+    }
+
+    #[test]
+    fn recovery_with_another_writer_keeps_the_copy_and_records() {
+        let _g = folder::test_serial();
+        for target_busy in [false, true] {
+            let (t, env, from, to) = unfinished(if target_busy { "undo-target-busy" } else { "undo-source-busy" });
+            let other = DataLock::shared(if target_busy { &to } else { &from }).unwrap().unwrap();
+            let f = Arc::new(Folder::open(env.clone()));
+            folder::replace(f.clone());
+            let before = tree(&to);
+            assert_eq!(start_with(&f), Next::Nothing, "recovery must not run while another writer holds either folder");
+            assert_eq!(f.hold(), Hold::Free);
+            assert_eq!(tree(&to), before);
+            assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }));
+            assert!(folder_out(&f).notice.unwrap().reason.unwrap().contains("lock"));
+            drop(other);
+            forget_start();
+            assert_eq!(start_with(&f), Next::Undo);
+            assert!(undo_work(&f, &mut kiln_manage::task::NoProgress).unwrap().done);
+            let _ = std::fs::remove_dir_all(t);
+        }
+    }
+
     /// A move that "died" after its copy left a marked partial copy; a file the move never made was added to it. The
     /// next start removes nothing synchronously: it holds the folder and leaves the recovery to a task (review F5, and
     /// the verifier's reproduction).
@@ -1431,6 +1519,7 @@ pub(crate) mod tests {
         let added = to.join("backups/added-after-crash.bin");
         std::fs::create_dir_all(added.parent().unwrap()).unwrap();
         std::fs::write(&added, b"not the move's").unwrap();
+        f.release_lock(); // the interrupted process exited
 
         forget_start();
         let f2 = Arc::new(Folder::open(env.clone()));
@@ -1455,6 +1544,7 @@ pub(crate) mod tests {
 
         // the player takes the named file out: the next start finishes and drops the journal
         std::fs::remove_file(&added).unwrap();
+        f2.release_lock();
         forget_start();
         let f3 = Arc::new(Folder::open(env.clone()));
         folder::replace(f3.clone());
@@ -1494,6 +1584,9 @@ pub(crate) mod tests {
         notice_ack_with(&f).unwrap();
         assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "the journal stays");
         assert!(to.exists(), "the rest is still there");
+        assert!(DataLock::shared(&from).unwrap().is_some(), "Cancel releases the exclusive proof lock");
+        assert!(DataLock::shared(&to).unwrap().is_some(), "Cancel releases the copy's lock");
+        f.release_lock();
 
         forget_start();
         let f2 = Arc::new(Folder::open(env.clone()));
