@@ -18,8 +18,11 @@ internal sealed class TickThread
     private bool _closing;
     private volatile string? _abandonReason;
 
-    public TickThread(string name)
+    private readonly TimeSpan _defaultBudget;
+
+    public TickThread(string name, TimeSpan defaultBudget)
     {
+        _defaultBudget = defaultBudget;
         _thread = new Thread(Loop) { IsBackground = true, Name = name };
         _thread.Start();
         _threadId = _thread.ManagedThreadId;
@@ -33,25 +36,25 @@ internal sealed class TickThread
     /// <summary>Why the thread was given up on; null while it serves.</summary>
     public string? AbandonReason => _abandonReason;
 
-    /// <summary>Set while a test runs under the watchdog: calls wait for at most its budget, and their work runs where
-    /// the watchdog can stop it (<see cref="TestKit.Watchdog"/>).</summary>
+    /// <summary>A test or shutdown's watchdog override. Otherwise each call has its own default-budget watchdog.
+    /// The queued item keeps the same watchdog as its caller, so the stop always reaches the right execution.</summary>
     public Watchdog? Watchdog { get; set; }
 
     /// <summary>Runs <paramref name="work"/> on the tick thread and returns its result; its exception comes back with its
     /// original stack.</summary>
-    public T Invoke<T>(Func<T> work)
+    public T Invoke<T>(Func<T> work, string subject = "a harness call")
     {
         if (IsCurrent) return work();
         if (_abandonReason is { } why) throw new HarnessStoppedException(why);
-        var item = new WorkItem<T>(work);
+        var dog = Watchdog ?? new Watchdog { Budget = _defaultBudget, Subject = subject };
+        var item = new WorkItem<T>(work, dog);
         lock (_lock)
         {
             if (_closing) throw new ObjectDisposedException(nameof(KilnHarness), "the harness was disposed");
             _queue.Enqueue(item);
             Monitor.Pulse(_lock);
         }
-        if (Watchdog is { } dog) dog.Await(this, item.Done.WaitHandle, _abandoned.WaitHandle);
-        else WaitHandle.WaitAny([item.Done.WaitHandle, _abandoned.WaitHandle]);
+        dog.Await(this, item.Done.WaitHandle, _abandoned.WaitHandle);
         if (!item.Done.IsSet || _abandonReason is not null) throw new HarnessStoppedException(_abandonReason ?? "the tick thread was given up on");
         return item.Result();
     }
@@ -98,7 +101,7 @@ internal sealed class TickThread
                 // the watchdog's interrupt arrived after the work it was meant for had ended: not for this wait
                 continue;
             }
-            RunOne(item, Watchdog);
+            RunOne(item, item.Dog);
             item = null;  // the last item must not outlive its call: it may reach into a mod's load context
         }
     }
@@ -120,13 +123,14 @@ internal sealed class TickThread
         }
     }
 
-    private abstract class WorkItem
+    private abstract class WorkItem(Watchdog dog)
     {
+        public Watchdog Dog { get; } = dog;
         public readonly ManualResetEventSlim Done = new(false);
         public abstract void Execute();
     }
 
-    private sealed class WorkItem<T>(Func<T> work) : WorkItem
+    private sealed class WorkItem<T>(Func<T> work, Watchdog dog) : WorkItem(dog)
     {
         private Func<T>? _work = work;
         private T? _result;

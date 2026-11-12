@@ -31,6 +31,14 @@ public sealed class KilnHarnessOptions
     /// <summary>The timeout of one mod's <c>[KilnTest]</c> run (kiln.json <c>mods.test_timeout_s</c>).</summary>
     public TimeSpan TestTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>How long an ordinary harness call (including Step, Unload and Reload) may block its tick thread before
+    /// the watchdog stops it and abandons the harness. Default 30 s. A running KilnTest uses its own timeout instead.</summary>
+    public TimeSpan CallTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long Dispose may spend stopping the server before the watchdog stops the blocked callback and
+    /// abandons the harness. Default 30 s, like the game's bounded server stop.</summary>
+    public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
     /// <summary>How long a new harness waits for the one still alive in this process (harnesses run one at a time: Kiln's
     /// state is process-wide). Then the constructor throws.</summary>
     public TimeSpan WaitForOtherHarness { get; init; } = TimeSpan.FromMinutes(2);

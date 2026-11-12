@@ -112,6 +112,10 @@ Kiln.TestKit.KilnHarness.World.get -> Kiln.TestKit.HarnessWorld!
 Kiln.TestKit.KilnHarness.WritePermissions(string! json) -> void
 Kiln.TestKit.KilnHarness.WriteServerConfig(string! json) -> void
 Kiln.TestKit.KilnHarnessOptions
+Kiln.TestKit.KilnHarnessOptions.CallTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnHarnessOptions.CallTimeout.init -> void
+Kiln.TestKit.KilnHarnessOptions.StopTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnHarnessOptions.StopTimeout.init -> void
 Kiln.TestKit.KilnHarnessOptions.CrashReports.get -> bool
 Kiln.TestKit.KilnHarnessOptions.CrashReports.init -> void
 Kiln.TestKit.KilnHarnessOptions.FaultLimit.get -> int

@@ -101,7 +101,7 @@ public sealed partial class KilnHarness : IDisposable
                 e.SetObserved();
             };
             TaskScheduler.UnobservedTaskException += _unobserved;
-            _tick = new TickThread($"kiln-testkit tick {_serial}");
+            _tick = new TickThread($"kiln-testkit tick {_serial}", _options.CallTimeout);
             _tick.Invoke(() =>
             {
                 BootServiceTick();
@@ -167,17 +167,17 @@ public sealed partial class KilnHarness : IDisposable
     private Dictionary<string, int>? _faultsBefore;
 
     /// <summary>Every public call: on the tick thread, with the fault check around the outermost one.</summary>
-    internal T Call<T>(Func<T> work)
+    internal T Call<T>(Func<T> work, [CallerMemberName] string subject = "")
     {
         ThrowIfDisposed();
-        return _tick.Invoke(() => Outer(work));
+        return _tick.Invoke(() => Outer(work), subject);
     }
 
-    internal void Call(Action work) => Call(() =>
+    internal void Call(Action work, [CallerMemberName] string subject = "") => Call(() =>
     {
         work();
         return 0;
-    });
+    }, subject);
 
     private T Outer<T>(Func<T> work)
     {
@@ -368,7 +368,8 @@ public sealed partial class KilnHarness : IDisposable
     /// <summary>Stops the server (<see cref="ServerStoppingEvent"/>, every mod's <c>OnUnload</c> in reverse load order),
     /// logs any mod whose load context outlived the stop, ends the tick thread, and removes the temp folder (unless
     /// <see cref="KilnHarnessOptions.KeepFolder"/> or <c>KILN_TESTKIT_KEEP=1</c>). Leaves Kiln's static state ready for
-    /// the next harness.</summary>
+    /// the next harness. A stop blocked past <see cref="KilnHarnessOptions.StopTimeout"/> is stopped by the watchdog,
+    /// the remaining mods are retired without callbacks, and an exception reports where it blocked.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
@@ -377,6 +378,8 @@ public sealed partial class KilnHarness : IDisposable
         {
             if (_tick.AbandonReason is null)
             {
+                var previousWatchdog = _tick.Watchdog;
+                _tick.Watchdog = new Watchdog { Budget = _options.StopTimeout, Subject = "the server stop" };
                 try
                 {
                     _tick.Invoke(() =>
@@ -385,13 +388,17 @@ public sealed partial class KilnHarness : IDisposable
                         return 0;
                     });
                 }
-                catch (Exception e) when (e is not HarnessStoppedException)
+                catch (Exception e)
                 {
                     failure = e;
                 }
-                _tick.Close(TimeSpan.FromSeconds(10));
+                finally
+                {
+                    _tick.Watchdog = previousWatchdog;
+                }
+                if (_tick.AbandonReason is null) _tick.Close(TimeSpan.FromSeconds(10));
             }
-            else RetireAbandoned();  // the watchdog stopped the tick thread: retire the mods without it (KilnHarness.Tests.cs)
+            if (_tick.AbandonReason is not null) RetireAbandoned();  // the watchdog stopped the tick thread: retire the mods without it (KilnHarness.Tests.cs)
             TaskScheduler.UnobservedTaskException -= _unobserved;
             _mods.Dispose();
             EndFakes();

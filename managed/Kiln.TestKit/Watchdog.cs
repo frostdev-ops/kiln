@@ -46,6 +46,7 @@ internal sealed partial class Watchdog
     private volatile Thread? _target;
     private volatile bool _stopping;
     private string? _stack;
+    private string? _blockedMod;
     private int _executing;
 
     /// <summary>How long one call may take; <see cref="Timeout.InfiniteTimeSpan"/> when nothing is watched.</summary>
@@ -171,7 +172,9 @@ internal sealed partial class Watchdog
                 : "could not be stopped: this runtime has no ControlledExecution, and the thread was not in an interruptible wait; it was given up on and may still run",
         };
         Stopped = new StopReport(Subject, budget, kind, Volatile.Read(ref _stack), ended, text);
-        tick.Abandon($"{Subject} blocked the tick thread for more than {budget.TotalSeconds:0.##} s and was {text}");
+        tick.Abandon($"{Subject} blocked the tick thread for more than {budget.TotalSeconds:0.##} s and was {text}" +
+                     (_blockedMod is null ? "" : $"; mod {_blockedMod}") +
+                     (Stopped.Stack is null ? ". No stack: nothing reached the thread." : "\n" + Stopped.Stack));
     }
 
     // A few samples 10 ms apart: a thread blocked in a wait shows WaitSleepJoin in each, a loop in none.
@@ -214,6 +217,7 @@ internal sealed partial class Watchdog
         if (e.Exception is not (ThreadInterruptedException or ThreadAbortException or OperationCanceledException)) return;
         try
         {
+            _blockedMod ??= HostAccess.Current?.Info.Id;
             Interlocked.CompareExchange(ref _stack, Trim(new StackTrace(1, fNeedFileInfo: true).ToString()), null);
         }
         catch (Exception)
