@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Kiln.Testing: in-game tests for mods (Forge's GameTest). Shared like a service assembly: deployed to kiln/host/,
-       test mods reference it with Private="false" (Kiln.Sdk: <KilnServices>Testing</KilnServices>). The runner is
-       started by Kiln.Host (manifest "tests": {"autoRun": true}, or the control command `test <mod>`). -->
+       test mods reference it with Private="false" (Kiln.Sdk: <KilnServices>Testing</KilnServices>). The [KilnTest]
+       runner is started by Kiln.Host (manifest "tests": {"autoRun": true}, or the control command `test <mod>`); the
+       guided [ClientCheck] runner by the first mod that calls ClientChecks.Register. -->
   <PropertyGroup>
     <RootNamespace>Kiln.Testing</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -9,7 +10,14 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <!-- the guided check runner: the achievement guard and the session (Kiln.Client), the joined channel (Kiln.Network),
+         its screen, HUD line and keys (Kiln.Ui; never touched on a dedicated server) -->
+    <ProjectReference Include="../services/Kiln.Client/Kiln.Client.csproj" Private="false" />
+    <ProjectReference Include="../services/Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <ProjectReference Include="../services/Kiln.Ui/Kiln.Ui.csproj" Private="false" />
     <InternalsVisibleTo Include="Kiln.Host" />
     <InternalsVisibleTo Include="Kiln.Host.Tests" />
+    <InternalsVisibleTo Include="Kiln.Testing.Tests" />
+    <InternalsVisibleTo Include="Kiln.Ui.Preview" />
   </ItemGroup>
 </Project>
