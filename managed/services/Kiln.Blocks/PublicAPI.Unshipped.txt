@@ -1,1 +1,78 @@
 #nullable enable
+Kiln.CastAnimation.Animation.get -> Kiln.MoveAnimation?
+Kiln.CastAnimation.Animation.init -> void
+Kiln.CastAnimation.HitAt.get -> double?
+Kiln.CastAnimation.HitAt.init -> void
+Kiln.MoveAnimation
+Kiln.MoveAnimation.Add(string? name) -> void
+Kiln.MoveAnimation.Count.get -> int
+Kiln.MoveAnimation.GetEnumerator() -> System.Collections.Generic.IEnumerator<string?>!
+Kiln.MoveAnimation.MoveAnimation() -> void
+Kiln.MoveAnimation.MoveAnimation(System.Collections.Generic.IEnumerable<string?>! names) -> void
+Kiln.MoveAnimation.this[int i].get -> string?
+Kiln.MoveBlock
+Kiln.MoveBlock.<Clone>$() -> Kiln.MoveBlock!
+Kiln.MoveBlock.Animation.get -> Kiln.MoveAnimation?
+Kiln.MoveBlock.Animation.init -> void
+Kiln.MoveBlock.Equals(Kiln.MoveBlock? other) -> bool
+Kiln.MoveBlock.HitAt.get -> double?
+Kiln.MoveBlock.HitAt.init -> void
+Kiln.MoveBlock.Length.get -> double?
+Kiln.MoveBlock.Length.init -> void
+Kiln.MoveBlock.Like.get -> string?
+Kiln.MoveBlock.Like.init -> void
+Kiln.MoveBlock.MoveBlock() -> void
+Kiln.MoveChain
+Kiln.MoveChain.Add(Kiln.MoveBlock! move) -> void
+Kiln.MoveChain.Count.get -> int
+Kiln.MoveChain.GetEnumerator() -> System.Collections.Generic.IEnumerator<Kiln.MoveBlock!>!
+Kiln.MoveChain.MoveChain() -> void
+Kiln.MoveChain.MoveChain(System.Collections.Generic.IEnumerable<Kiln.MoveBlock!>! moves) -> void
+Kiln.MoveChain.this[int i].get -> Kiln.MoveBlock!
+Kiln.WandMoves.Animation.get -> Kiln.MoveAnimation?
+Kiln.WandMoves.Animation.init -> void
+Kiln.WandMoves.HitAt.get -> double?
+Kiln.WandMoves.HitAt.init -> void
+Kiln.WeaponBlock.Moves.get -> Kiln.WeaponMoves?
+Kiln.WeaponBlock.Moves.init -> void
+Kiln.WeaponMoves
+Kiln.WeaponMoves.<Clone>$() -> Kiln.WeaponMoves!
+Kiln.WeaponMoves.Block.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.Block.init -> void
+Kiln.WeaponMoves.DodgeAttack.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.DodgeAttack.init -> void
+Kiln.WeaponMoves.Equals(Kiln.WeaponMoves? other) -> bool
+Kiln.WeaponMoves.Execution.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.Execution.init -> void
+Kiln.WeaponMoves.Heavy.get -> Kiln.MoveChain?
+Kiln.WeaponMoves.Heavy.init -> void
+Kiln.WeaponMoves.HeavyAir.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.HeavyAir.init -> void
+Kiln.WeaponMoves.JumpAttack.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.JumpAttack.init -> void
+Kiln.WeaponMoves.Parry.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.Parry.init -> void
+Kiln.WeaponMoves.PlungeAttack.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.PlungeAttack.init -> void
+Kiln.WeaponMoves.Primary.get -> Kiln.MoveChain?
+Kiln.WeaponMoves.Primary.init -> void
+Kiln.WeaponMoves.SneakAttack.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.SneakAttack.init -> void
+Kiln.WeaponMoves.Special.get -> Kiln.MoveBlock?
+Kiln.WeaponMoves.Special.init -> void
+Kiln.WeaponMoves.WeaponMoves() -> void
+override Kiln.MoveAnimation.ToString() -> string!
+override Kiln.MoveBlock.Equals(object? obj) -> bool
+override Kiln.MoveBlock.GetHashCode() -> int
+override Kiln.MoveBlock.ToString() -> string!
+override Kiln.WeaponMoves.Equals(object? obj) -> bool
+override Kiln.WeaponMoves.GetHashCode() -> int
+override Kiln.WeaponMoves.ToString() -> string!
+static Kiln.MoveAnimation.implicit operator Kiln.MoveAnimation!(string! name) -> Kiln.MoveAnimation!
+static Kiln.MoveAnimation.implicit operator Kiln.MoveAnimation!(string?[]! names) -> Kiln.MoveAnimation!
+static Kiln.MoveBlock.operator !=(Kiln.MoveBlock? left, Kiln.MoveBlock? right) -> bool
+static Kiln.MoveBlock.operator ==(Kiln.MoveBlock? left, Kiln.MoveBlock? right) -> bool
+static Kiln.MoveChain.implicit operator Kiln.MoveChain!(Kiln.MoveBlock! move) -> Kiln.MoveChain!
+static Kiln.MoveChain.implicit operator Kiln.MoveChain!(Kiln.MoveBlock![]! moves) -> Kiln.MoveChain!
+static Kiln.WeaponMoves.operator !=(Kiln.WeaponMoves? left, Kiln.WeaponMoves? right) -> bool
+static Kiln.WeaponMoves.operator ==(Kiln.WeaponMoves? left, Kiln.WeaponMoves? right) -> bool
