@@ -1033,7 +1033,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
         g_step_dt_bits.store(bits, std::memory_order_relaxed);
     }
     xfer_set_step(tick->step);
-    instances_pre(g_world.load(), tick->step);  // v4: the id counter check, the occasional prune
+    instances_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v4: the id counter check, prune
     poll_world_program();
     expire();
     deliver();
@@ -1457,7 +1457,10 @@ const char* instances_why() {
 KilnResult instance_env(InstanceEnv* env) {
     if (!instances_on() || !E.read_ok) return KILN_ERR_UNAVAILABLE;
     if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    // The reads need no program: before kiln_items' first update (which records the world) take the core's server
+    // world, so item refs work from the first step the world exists in.
     env->world = g_world.load();
+    if (!env->world) env->world = g_api->server_world();
     if (!env->world) return KILN_ERR_UNAVAILABLE;
     env->attributes = reinterpret_cast<void*>(g_api->singleton(env->world, KilnStr{"impact::AttributeRegistry", 25}));
     env->step = g_step.load();
