@@ -1,4 +1,4 @@
-//! The launcher's data folder as a whole (dev.25, package `data-folder`): what a folder is ([`recognize`]), what the
+//! The launcher's data folder as a whole (dev.26, package `data-folder`): what a folder is ([`recognize`]), what the
 //! data folder holds ([`inventory`]), and whether a folder the player picks can take it ([`check`]: a [`Plan`], or a
 //! [`Refusal`] with a stable code and one plain sentence).
 //!
@@ -8,7 +8,7 @@
 //! the system. Path comparison is done on [`PathParts`] (string rules, case-insensitive for Windows), over canonical
 //! paths where the folder exists.
 //!
-//! Decided for dev.25 (2026-11-11): the whole data folder moves as one; a pointer file [`POINTER`] in the default root
+//! Decided for dev.26 (2026-11-11): the whole data folder moves as one; a pointer file [`POINTER`] in the default root
 //! names it; `$KILN_DATA_DIR` wins over the pointer, the pointer over the default. Writing the pointer, the lock
 //! ([`LOCK`]), the journal ([`JOURNAL`]), the marker ([`MARKER`]) and the move itself are not here (`core-2`).
 
@@ -29,12 +29,12 @@ pub const JOURNAL: &str = "data-folder.move.json";
 /// Every file a move copied (`data_folder_move::FileRecord`), in the default root, written once before the pointer.
 pub const FILE_RECORD: &str = "data-folder.move.files.json";
 /// The file that marks a folder as a Kiln data folder (`{format, created}`): a move writes it into the new place just
-/// before the pointer. Folders made before dev.25 have none and are recognised by their layout.
+/// before the pointer. Folders made before dev.26 have none and are recognised by their layout.
 pub const MARKER: &str = ".kiln-data-folder.json";
 /// The mark of a move in progress (`{format, id}`): in the target from the first moment a move writes there until the
 /// move is acknowledged. A folder with it is never "use this one" and never a target.
 pub const MOVE_MARKER: &str = ".kiln-data-move.json";
-/// The data folder's own lock ([`DataLock`]): shared by every launcher process from dev.25 on, exclusive by a move.
+/// The data folder's own lock ([`DataLock`]): shared by every launcher process from dev.26 on, exclusive by a move.
 pub const LOCK: &str = "data-folder.lock";
 
 /// The top-level entries a launcher data folder has (contracts.md section 3, and the launcher's and the `kiln` CLI's
@@ -236,8 +236,8 @@ pub fn remove_pointer(default_root: &Path) -> Result<()> {
 }
 
 /// The data folder's lock ([`LOCK`] in the data root), held as a value: released when dropped. Every launcher process
-/// from dev.25 on holds it shared for as long as it runs; a move holds it exclusively. Taking it never waits. A
-/// launcher before dev.25 takes no such lock.
+/// from dev.26 on holds it shared for as long as it runs; a move holds it exclusively. Taking it never waits. A
+/// launcher before dev.26 takes no such lock.
 #[derive(Debug)]
 pub struct DataLock {
     file: std::fs::File,
@@ -762,7 +762,7 @@ fn is_known(name: &str, style: PathStyle) -> bool {
 
 /// What the folder at `dir` is, without following a link at `dir` itself (the platform's rules from `env`).
 ///
-/// The rule for a Kiln data folder: it has the [`MARKER`] file, or (folders made before dev.25 have none) one of the
+/// The rule for a Kiln data folder: it has the [`MARKER`] file, or (folders made before dev.26 have none) one of the
 /// structures only the launcher makes: `library/<kind>/` named after a mod kind, `profiles/<pid>/meta.json`,
 /// `installs/<id>.json` or `runtime/kiln-runtime-<version>.zip`. Entries the launcher does not know may sit next to
 /// them. `settings.json`, `logs/` or `state/` alone are not enough: those names are common.
@@ -1523,7 +1523,7 @@ pub enum Target {
 /// mount point) unless it is a Kiln data folder, gets the subfolder `Kiln` (Windows) or `kiln`, which must itself be
 /// missing, empty or a Kiln data folder. So a drive root never becomes a data folder. The default root
 /// (`default_root`) never gets the subfolder: empty, it is the target; a Kiln data folder by its marker or layout, it is
-/// used; anything else (also launcher entries only, as a launcher before dev.25 leaves) is refused. A folder with a move in progress
+/// used; anything else (also launcher entries only, as a launcher before dev.26 leaves) is refused. A folder with a move in progress
 /// is refused. `sub` recognizes the subfolder.
 pub fn target_rule(
     picked: &Path, state: &FolderState, volume_root: bool, default_root: bool, style: PathStyle,

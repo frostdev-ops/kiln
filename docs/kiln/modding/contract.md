@@ -49,7 +49,7 @@ catch (KilnUnavailableException e) when (e.Capability == "identity.entities")
 arguments throw (`managed/services/Kiln.Quests/Knowledge.cs`, the remarks on `Knowledge`, lines 194-197).
 
 `IKilnResult` (`bool Ok`, `string? Reason`) is the common shape of such results. The services' result records
-implement it from dev.26 on; in this release none does yet, and other services may still throw their own exception
+implement it from dev.27 on; in this release none does yet, and other services may still throw their own exception
 types for an unavailable capability.
 
 ## 2. Identity: EntityRef, ItemInstanceRef, PlayerRef, ItemId
@@ -97,7 +97,7 @@ spawned, a chest it watches, an item) holds a number, not an entity. The ref typ
   across sessions (compare Steam ids when both are non-zero, otherwise character ids when both are non-empty,
   otherwise false). This partial-id comparison is not transitive, so it is not a dictionary-key comparer;
   use a known `SteamId` or `CharacterId` as the key for persistent per-player records.
-- **`ItemId`**: an item type (FNV-1a-32 of the item's GUID). It moved from Kiln.Items to Kiln.Api in dev.25.
+- **`ItemId`**: an item type (FNV-1a-32 of the item's GUID). It moved from Kiln.Items to Kiln.Api in dev.26.
   Kiln.Items forwards the type, so a mod built against the old Kiln.Items still loads and sees the same type.
 
 Capabilities: `identity.entities` (entity serials), `identity.players` (players).

@@ -9,7 +9,7 @@ namespace Kiln.Testing;
 /// <see cref="Task"/> or <see cref="ValueTask"/>. Static, or an instance method of the mod's <see cref="Mod"/> class (run
 /// on the live instance), or of another class with a parameterless constructor.</summary>
 /// <example><code>
-/// [ClientCheck("blocks.frost-flash", "Frost flash on hit", Area = "Blocks", Since = "0.2.0-dev.25",
+/// [ClientCheck("blocks.frost-flash", "Frost flash on hit", Area = "Blocks", Since = "0.2.0-dev.26",
 ///              Tags = [ClientCheckTags.Visual], Needs = ClientCheckNeeds.Hosted, Order = 10)]
 /// public async Task Frost_flash(CheckContext c)
 /// {
@@ -42,7 +42,7 @@ public sealed class ClientCheckAttribute : Attribute
     /// <summary>The group the list shows the check under (default: the mod's name).</summary>
     public string? Area { get; init; }
 
-    /// <summary>The Kiln or mod release that added what the check covers, e.g. <c>0.2.0-dev.25</c>.</summary>
+    /// <summary>The Kiln or mod release that added what the check covers, e.g. <c>0.2.0-dev.26</c>.</summary>
     public string? Since { get; init; }
 
     /// <summary>Tags: the names in <see cref="ClientCheckTags"/>, or free ones for grouping. <see cref="ClientCheckTags.Cheats"/>

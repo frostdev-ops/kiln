@@ -4,7 +4,7 @@ While the guard is on, the game client's own call that sends achievement unlocks
 and counted, so a test or an admin command cannot unlock achievements on the player's Steam account. An unlocked Steam
 achievement cannot be taken back, so every doubt reads as "not protecting".
 
-**Status (dev.25):** experimental (`KILNX002`). The service is tested on the host with no game, the relay in unit
+**Status (dev.26):** experimental (`KILNX002`). The service is tested on the host with no game, the relay in unit
 tests; a dedicated lab server skips the service as client-only. **Not run in a real game client yet**. Do not rely on it to protect a Steam account until the release notes say the
 guard-proof client check has passed.
 

@@ -32,10 +32,10 @@ dotnet new kiln-mod -n MyMod --feed <feed> --server <server folder> --tests --se
 installed MDK to confirm availability. These add typed blocks and/or `blocks/*.json`; keep the form you need. `items` and
 `creature` remain the clone-based path when a block has no field for the change. [blocks.md](blocks.md).
 
-**dev.25+ (in development):** `dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj` makes an xunit project on
+**dev.26+ (in development):** `dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj` makes an xunit project on
 the `Kiln.TestKit` package ([testing.md](testing.md)). `Game` in `KilnServices` references `Kiln.Game` (`Kiln.Ecs` typed reads);
 the build then writes `kiln.gametypes.json` beside the mod, which Kiln checks at load. Release packs carry their full version
-(`0.2.0-dev.25`) and an SDK feed folder (`sdk/feed/`). The launcher can move its data folder (Settings, Library, Data
+(`0.2.0-dev.26`) and an SDK feed folder (`sdk/feed/`). The launcher can move its data folder (Settings, Library, Data
 folder); after a move, delete a native mod project's `build` folder once (CMake keeps the old SDK path). Not run in a real
 launcher window yet.
 

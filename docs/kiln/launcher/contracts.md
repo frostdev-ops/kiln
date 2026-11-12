@@ -96,7 +96,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 Profile ids: `^[a-z0-9][a-z0-9-]{0,47}$`, derived from the name (`Server: Ember Isles` -> `server-ember-isles`,
 a `-2` suffix on clashes).
 
-### The data folder's place (dev.25)
+### The data folder's place (dev.26)
 The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::data_folder_move`).
 - **Pointer** `<default root>/data-folder.json` `{format, path, written, writer}` (`data-folder.schema.json`): `path` is
   absolute, a host path, without `\\?\`. No pointer: the default root is the data folder. Written and replaced atomically
@@ -120,7 +120,7 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   it becomes the data folder; a Kiln data folder: used as it is (no merge); anything else, and a volume root or mount
   point, gets the subfolder `Kiln` (Windows) or `kiln`, which must itself be missing, empty or a Kiln data folder. The
   default root never gets the subfolder: with anything else in it (also launcher entries only, such as `settings.json`
-  and `logs/` a launcher before dev.25 left there) it is refused (`default_root_taken`, naming the entries: remove them
+  and `logs/` a launcher before dev.26 left there) it is refused (`default_root_taken`, naming the entries: remove them
   first). What every refusal is (`data_folder::RefusalCode`, `check`): `KILN_DATA_DIR` set, another launcher, the quick
   flow busy, the game or a server running, an unfinished move, the target inside, around or the same as the current
   folder, inside a game or server folder or Kiln's state or settings folder, a link, a file, a network path, not
@@ -128,7 +128,7 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   folder, a target that already holds an entry of a name the move would make there.
 - **Lock files** at the top of a data folder are `quick.lock` and `data-folder.lock`, by their names; inside `nexus/`
   every `*.lock`. Any other `*.lock` at the top is an entry the launcher does not know. Lock files are never copied.
-- **Lock** `data-folder.lock` in the data root (`data_folder::DataLock`): shared by every launcher process from dev.25 on
+- **Lock** `data-folder.lock` in the data root (`data_folder::DataLock`): shared by every launcher process from dev.26 on
   for as long as it runs, by `kiln` for its whole command when the root exists, and by `kilnctl` for every command
   that uses the root (the library, profiles, client and bundle installs, `deploy --bundle`, `backup`, `report`; for
   `update` only its backup step; not the commands on the server folder alone, such as `run`, `start`, `logs` or
@@ -310,13 +310,13 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
 - **Whose profile a game runs** (`profile::game_profile_owner`, for every launcher, also one that never moves anything):
   a game's `kiln/profile.json` is this data folder's profile only when its paths name this data folder (Z and native
   mode: `configDir`), or when it is the one this folder last wrote into the game (`installs/<id>.active.json`: the same
-  id, generation and fingerprint); in copy mode, without such a record, the id alone decides as before dev.25. Another
-  data folder's profile (another launcher, a `KILN_DATA_DIR`, a launcher before dev.25 at the default root after a move)
+  id, generation and fingerprint); in copy mode, without such a record, the id alone decides as before dev.26. Another
+  data folder's profile (another launcher, a `KILN_DATA_DIR`, a launcher before dev.26 at the default root after a move)
   is never written again, taken over or copied back into a profile of the same id here; `GameStatus.otherFolderProfile
   {id, root?}` says so and `activeProfile` is then empty; save backups taken then go to `backups/saves/<gameId>/`; an
   activation of this folder's profile of that id in copy mode keeps that game's config copy in
   `kiln/backups/profile-config-<pid>-<ts>/`.
-- **A launcher before dev.25** does not read the pointer and takes no data-folder lock. Started after a move it runs at
+- **A launcher before dev.26** does not read the pointer and takes no data-folder lock. Started after a move it runs at
   the default root as on a first run. A profile it activates in a game is another data folder's profile for the moved
   folder (above). Running during a move, it can still write the old place: what it changes during the copy is copied
   again; what it changes later stays in the old folder (the removal keeps changed files), and the old copy is not
@@ -1132,7 +1132,7 @@ or emits `kiln://update`; its UI calls none of these commands.
 | data_folder | `data_folder_get` | - | `DataFolder` (answers in every state; with a broken pointer `path` is the default place and `problem` is set; while an unfinished move's partial copy is removed `undoing` is set and `notice` comes after it; `pending`: why a move cannot start now) |
 | data_folder | `data_folder_size` | - | `{bytes, files}` (`data_folder::inventory`: what a move copies) |
 | data_folder | `data_folder_check` | path (the folder the player picked) | `DataFolderPlan` (`data_folder::check_here`; a refusal is `action: "refuse"` with the crate's `reason` and `code`; a task that runs is the refusal `busy`, "Kiln is still working on: <title>.") |
-| data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to` with the process's lock; refused while a task runs, and in a build with Nexus on while another launcher holds `nexus/instance.lock` (one before dev.25 takes no data-folder lock); the file-hash cache stops writing for the move (`filecache::unpersist`) and writes again after a failed or canceled one; the last phase, task message "removing the old copy: <file>", removes the old copy: a cancel there ends the task as done with `cleanup.interrupted`, the rest goes at the next start; when a game's profile could not be written for the new place the removal does not run and `cleanup.reason` names the game; a failed or canceled task left the old place in use, its error names what is left in the target; the restart follows) |
+| data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to` with the process's lock; refused while a task runs, and in a build with Nexus on while another launcher holds `nexus/instance.lock` (one before dev.26 takes no data-folder lock); the file-hash cache stops writing for the move (`filecache::unpersist`) and writes again after a failed or canceled one; the last phase, task message "removing the old copy: <file>", removes the old copy: a cancel there ends the task as done with `cleanup.interrupted`, the rest goes at the next start; when a game's profile could not be written for the new place the removal does not run and `cleanup.reason` names the game; a failed or canceled task left the old place in use, its error names what is left in the target; the restart follows) |
 | data_folder | `data_folder_use` | path (picked) | `DataFolder` of the folder now named (`use_folder`; with a broken pointer `repoint`); the restart follows |
 | data_folder | `data_folder_reset` | - | `DataFolder` at the default place (`reset`; only with a broken pointer); the restart follows |
 | data_folder | `data_folder_notice_ack` | - | null, never fails (the notice is gone for this process; the move's journal is acknowledged only for a finished removal; an unclear record stays until its committed folder is in use again; a removal that stopped or was refused, and an unfinished move's partial copy that could not be removed, keep it for the next start) |

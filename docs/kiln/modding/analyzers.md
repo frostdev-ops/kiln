@@ -365,7 +365,7 @@ once per service per file.
 `[Experimental("KILNX001")]`, hidden from completion, and may change or go without notice. The compiler reports the call as
 an error.
 
-**Since when.** 0.2.0-dev.25. About 120 of these members already existed in dev.24 without the mark, so a lab or test project
+**Since when.** 0.2.0-dev.26. About 120 of these members already existed in dev.24 without the mark, so a lab or test project
 that called one builds no longer until it opts in. Mods built against dev.24 still load and run: the mark only matters when
 you compile.
 

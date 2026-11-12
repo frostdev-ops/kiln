@@ -471,7 +471,7 @@ and saved inventory/character anchors with item checks. Ambiguous or missing anc
 attach to another item. `stats/affixes.rs` serializes rolled `ItemStats` into that store and its own stat engine
 applies the modifier bundles. Ordinary `EntityData` is not a substitute for the inventory anchors.
 
-**dev.25: per-item data exists.** `InstanceData` (Kiln.Saves, `managed/services/Kiln.Saves/InstanceData.cs`) keeps a
+**dev.26: per-item data exists.** `InstanceData` (Kiln.Saves, `managed/services/Kiln.Saves/InstanceData.cs`) keeps a
 typed value on one item with an item entity of its own (gear, tools, cans): in a session the item is its entity plus
 the stamp kiln.items v4 gives it (`ItemInstanceRef`, capability `items.instances`); at each save Kiln writes the
 item's holder, flat slot, item id, the fingerprint of its save record (level, perks, gem, dye; durability and fuel as

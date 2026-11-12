@@ -90,7 +90,7 @@ pub struct GameStatus {
     /// (then `other_folder_profile`).
     pub active_profile: Option<String>,
     /// Another data folder's profile is active in the game (another launcher, a `KILN_DATA_DIR`, a launcher before
-    /// dev.25 after a move: `profile::game_profile_owner`): said, never shown as loaded. Left out when there is none.
+    /// dev.26 after a move: `profile::game_profile_owner`): said, never shown as loaded. Left out when there is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other_folder_profile: Option<OtherFolderProfile>,
     /// kiln/play-once.ini still exists (the proxy has not consumed it).

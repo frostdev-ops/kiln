@@ -312,7 +312,7 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
    - The codec is solved (5,461 of 5,461 clips byte-identical) and `tools/animcook` cooks glTF clips onto any skeleton, the player's included, with
      retargeting from another rig (docs/kiln/modding/animations.md). Replacing one of the player's clips works today (`"guid": "@input"`): every
      state that samples it plays the new one, for every weapon that uses it.
-   - **A weapon's own attacks: built (dev.25)** as states mods add to the player's graph (`21319e83…`: 2,944 nodes, 59 state
+   - **A weapon's own attacks: built (dev.26)** as states mods add to the player's graph (`21319e83…`: 2,944 nodes, 59 state
      machines, 396 states). Reference merge `tools/animcook/anicook/playergraph.py`, its C++ port `native/services/playeranim/merge.cpp`;
      for mod authors docs/kiln/modding/animations.md, "Player states". The graph is one resource for every player, so the
      `assets/player-states.json` of every enabled mod is merged into one override.

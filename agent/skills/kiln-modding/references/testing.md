@@ -87,9 +87,9 @@ public sealed class MyTests
 - Results: kiln.log lines `PASS` / `FAIL` / `SKIP` tagged `[mod:<id>]`, and `kiln/logs/tests/<id>.json`
   (`passed`, `failed`, `skipped`, `results[]` with `outcome`, `message`, `stack`).
 
-## Offline unit tests (Kiln.TestKit, dev.25+, in development)
+## Offline unit tests (Kiln.TestKit, dev.26+, in development)
 Runs a mod under `dotnet test` with no game: Kiln.Host's real loader, a tick thread of its own, console commands, fake
-players and saved data. Needs the dev.25 MDK (package `Kiln.TestKit`, same version as `Kiln.Sdk`). Page:
+players and saved data. Needs the dev.26 MDK (package `Kiln.TestKit`, same version as `Kiln.Sdk`). Page:
 `docs/kiln/modding/unit-tests.md`.
 ```sh
 dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj && dotnet test MyMod.Tests
@@ -114,7 +114,7 @@ var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As:
   One harness per process. A blocked test is stopped by the watchdog (Linux tested, Windows not).
 - Offline green is not a server or client check: run `kiln test` on a test server as well.
 
-## Guided client checks (`[ClientCheck]`, dev.25+, in development)
+## Guided client checks (`[ClientCheck]`, dev.26+, in development)
 For what only a player can judge. Nothing of the runner has run in a real client yet. Page: `docs/kiln/modding/testing.md`.
 ```csharp
 public override void OnLoad() => ClientChecks.Register(this);      // Kiln.Testing
@@ -133,7 +133,7 @@ public async Task Frost_flash(CheckContext c)
 - A `cheats` check (level, xp, skill points, knowledge) starts only while the player's achievement guard protects and a
   `guard-proof` check passed on that build; it asks for a throwaway character every time.
 - Write checks for what you could not see; don't report them as passed until a player ran them.
-- Check sets to copy (dev.25+, none run by a player yet): item data (`mods/tests/instances-test/ClientChecks.cs`, area
+- Check sets to copy (dev.26+, none run by a player yet): item data (`mods/tests/instances-test/ClientChecks.cs`, area
   "Item data"), player states (`mods/samples/PlayerStates`, area "Player animations"), weapon moves and held models
   (`mods/tests/weapon-moves-test`, `blocks.moves-*`, `blocks.held-animated*`).
 - Offline (`Kiln.TestKit`) item data, player states and weapon moves are unavailable: `kiln.items`, `kiln.playeranim` and

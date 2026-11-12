@@ -17,7 +17,7 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
    which one.
 2. The current build is **0.2.0-dev.24**, with mod API 0.2 and the matching dev.24 MDK pack. References marked **dev.20+**,
    **dev.21+** or **dev.22+** require that runtime and MDK or newer; dev.19 lacks the dev.20 additions. Check the installed build.
-   Items marked **dev.25+** are in development, not released: they need a dev.25 build, and none has been seen by a player
+   Items marked **dev.26+** are in development, not released: they need a dev.26 build, and none has been seen by a player
    (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`, `InstanceData`, player
    animation states, weapon moves, the movable data folder).
    Server/offline verification does not establish the pending client rendering, input or multiplayer checks. Many dev.21 to dev.24
@@ -43,7 +43,7 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 4. **Build and deploy** to a local test server: `kiln build && kiln deploy`, then `kiln run`.
 5. **Check the log**: `kiln logs --mod <id>` for `mod <id> <version> loaded in … ms`, or the reason it didn't load.
 6. **Hot reload** after each change: `kiln deploy --reload`.
-7. **Test** in the server with `[KilnTest]` methods: `kiln test`. dev.25+: the same methods offline under `dotnet test`
+7. **Test** in the server with `[KilnTest]` methods: `kiln test`. dev.26+: the same methods offline under `dotnet test`
    (`Kiln.TestKit`), and `[ClientCheck]` for what a player must see. [references/testing.md](references/testing.md).
 8. **Package**: `kiln pack`.
 
@@ -66,12 +66,12 @@ Never deploy to a server players are using. Use a separate local test server.
   sockets, files and static references held by non-mod code. ECS bindings drain callbacks at unload but keep an inert scheduler
   entry until restart; see [references/world-programs.md](references/world-programs.md).
 - **Item state (dev.20+).** Use `Items.Move` for gear transfers, not take + give. Item-entity `EntityData` is session-only.
-  dev.25+: `InstanceData` keeps a value on one item (a player's inventory not yet seen by a player); no affix API.
+  dev.26+: `InstanceData` keeps a value on one item (a player's inventory not yet seen by a player); no affix API.
   [references/api.md](references/api.md#persistent-data).
 - **Changes are layers.** They come off when the mod unloads. Do content changes in `Content.OnReady(...)`.
 - **Fixed ids.** GUIDs of items, recipes, clones, perks, buffs, tree nodes and NPCs, and ids of quests, steps and talents, never
   change after release. Saves keep them. For native quests and dialogue, names and option order feed the ids too.
-- **Fail soft.** Check `X.Available` and degrade: services can be missing on a build Kiln doesn't know. dev.25+:
+- **Fail soft.** Check `X.Available` and degrade: services can be missing on a build Kiln doesn't know. dev.26+:
   `Capabilities.Is(name)` / `Why(name)`; an off capability throws `KilnUnavailableException`.
 - **Never ship Kiln assemblies.** Kiln.Sdk references them with `ExcludeAssets=runtime`.
 - **Never ship game data.** Models, sounds, Impact programs and catalogs are made on the user's machine. Ship your sources and a

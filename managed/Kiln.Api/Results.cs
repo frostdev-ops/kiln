@@ -33,7 +33,7 @@ public sealed class KilnUnavailableException : NotSupportedException
 }
 
 /// <summary>The shape of a result by Kiln's error rule: <see cref="Ok"/> false with a <see cref="Reason"/> when the game
-/// refused. The services' result records implement it from dev.26 on.</summary>
+/// refused. The services' result records implement it from dev.27 on.</summary>
 public interface IKilnResult
 {
     /// <summary>True when the action happened.</summary>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// ItemId lives in Kiln.Api since dev.25; mods built against the old Kiln.Items still find it through this forward.
+// ItemId lives in Kiln.Api since dev.26; mods built against the old Kiln.Items still find it through this forward.
 [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Kiln.ItemId))]
 
 namespace Kiln;

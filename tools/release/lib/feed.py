@@ -18,7 +18,7 @@ folder (every name lower case, versions normalised as NuGet does: no build metad
   registration/<id>/<ver>.json                a registration leaf
   query                                       SearchQueryService: one static answer listing every package (a web
                                               server serves the file whatever the query string)
-What .NET SDK 10.0.1xx asked for (dev.25, a served folder; templates installed, a kiln-mod project restored and built):
+What .NET SDK 10.0.1xx asked for (dev.26, a served folder; templates installed, a kiln-mod project restored and built):
   dotnet new install Kiln.Templates@V: index.json, registration/kiln.templates/index.json, query (refused without a
     search service: "The source does not have a Search service"), flatcontainer/kiln.templates/index.json + nupkg;
     over plain http only with --force (it skips insecure sources, allowInsecureConnections or not)

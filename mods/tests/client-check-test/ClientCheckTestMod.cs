@@ -13,7 +13,7 @@ namespace ClientCheckTest;
 public sealed class ClientCheckTestMod : Mod
 {
     private const string Area = "Check runner";
-    private const string Since = "0.2.0-dev.25";
+    private const string Since = "0.2.0-dev.26";
 
     private static bool _cheatsBodyRan;
 

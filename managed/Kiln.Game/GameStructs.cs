@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Hand-written. The marker interfaces of the generated game types (Kiln.Ecs.*). They name no Kiln.Game type, so they
-// can move to Kiln.Api by type forwarding (planned for dev.26) without breaking a mod built against them here.
+// can move to Kiln.Api by type forwarding (planned for dev.27) without breaking a mod built against them here.
 namespace Kiln;
 
 /// <summary>

@@ -233,7 +233,7 @@ public sealed class TypegenProbeMod : Mod
 
     /// <summary>The same comparison on a world this game client hosts, where Kiln.Game's layouts meet the client exe.</summary>
     [ClientCheck("typegen.typed-reads", "Typed game types read the client's memory correctly", Area = "Typegen",
-                 Since = "0.2.0-dev.25", Needs = ClientCheckNeeds.Hosted)]
+                 Since = "0.2.0-dev.26", Needs = ClientCheckNeeds.Hosted)]
     public async Task Typed_reads_on_a_hosted_world(CheckContext c)
     {
         c.Instruct("Nothing to do in the game: the check reads every generated component with live entities through " +

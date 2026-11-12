@@ -1,5 +1,5 @@
 //! Moving the launcher's data folder, using another one, starting fresh, and finishing or undoing a move at the next
-//! start (dev.25, package `data-folder`, task core-2). What a folder is and the target check are in [`crate::data_folder`].
+//! start (dev.26, package `data-folder`, task core-2). What a folder is and the target check are in [`crate::data_folder`].
 //!
 //! Two rules stand above the rest:
 //! - **Never without a complete data folder in use.** Before the pointer is written the old place is complete and in

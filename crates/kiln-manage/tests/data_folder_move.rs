@@ -1,4 +1,4 @@
-//! Moving the data folder (dev.25 `data-folder`, task core-2): locating through the pointer and every broken pointer,
+//! Moving the data folder (dev.26 `data-folder`, task core-2): locating through the pointer and every broken pointer,
 //! `reset` and `use`, the lock, moves by hard links, by copies and across two volumes, failures and cancels at each
 //! step with the old place intact and in use, a crash at each step and the recovery a new process runs, removal only
 //! with proof, writes through the new place leaving a hard-linked old copy as it was, the records that name the root
@@ -785,7 +785,7 @@ fn the_old_copy_stays_when_the_new_place_is_not_in_use() {
 
 #[test]
 fn the_old_copy_stays_while_a_game_runs_a_profile_from_it() {
-    // a launcher before dev.25 at the default root activated a profile of the old folder
+    // a launcher before dev.26 at the default root activated a profile of the old folder
     let (fx, _to) = committed_copy("proof-game");
     let old = DataDirs::at(&fx.dirs.root);
     let theirs = profile::create(&old, "Theirs", None).unwrap().id;
@@ -995,7 +995,7 @@ fn the_fixture_works_from_the_moved_folder() {
 
 // ------------------------------------------------------------------------------------------------ another data folder's profile
 
-/// After a move, a launcher before dev.25 runs at the default root as on a first run and activates a profile of its own
+/// After a move, a launcher before dev.26 runs at the default root as on a first run and activates a profile of its own
 /// in a game. The moved folder never takes it over and never mixes the two (Z mode and copy mode, another id and the
 /// same id), and says whose it is.
 #[test]
@@ -1008,7 +1008,7 @@ fn another_data_folders_profile_is_left_alone() {
         dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
         dfm::acknowledge(&fx.env).unwrap();
         let new = DataDirs::at(&to);
-        // the launcher before dev.25, at the default root (it does not read the pointer)
+        // the launcher before dev.26, at the default root (it does not read the pointer)
         let old = DataDirs::at(&fx.dirs.root);
         let name = if same_id { "Ember run" } else { "Other" };
         let theirs = profile::create(&old, name, None).unwrap().id;

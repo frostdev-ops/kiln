@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The nine dev.24 types through Kiln.GameTypes.Components. The namespace Kiln.GameTypes can only be named through the
 // extern alias on the Kiln.Game reference (it clashes with the class Kiln.GameTypes in Kiln.Api); the types are
-// [Obsolete] since dev.25, which is what this file checks they still do.
+// [Obsolete] since dev.26, which is what this file checks they still do.
 #pragma warning disable CS0618
 extern alias game;
 using System.Runtime.InteropServices;

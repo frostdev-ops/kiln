@@ -6,7 +6,7 @@ they name (`like`), and serves the result through kiln.assets before the game re
 modder's guide is [modding/animations.md](../modding/animations.md), "Player states"; evidence:
 [docs/re/models.md](../../re/models.md) 7.5.
 
-**Status (dev.25):** works on a test server (a dedicated lab server; a fake client for the join check). Not run in a
+**Status (dev.26):** works on a test server (a dedicated lab server; a fake client for the join check). Not run in a
 real game client.
 
 | Layer | Where |
