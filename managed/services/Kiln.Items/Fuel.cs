@@ -21,20 +21,13 @@ public static unsafe partial class Items
         /// <summary>Units per charge (the game's <c>waterChargeAmount</c>).</summary>
         public const int UnitsPerCharge = 64;
 
-        /// <summary>True when the native service has the water functions and they resolved on this game build.</summary>
-        public static bool Available
-        {
-            get
-            {
-                var t = V2;
-                if (t == null) return false;
-                var s = Status();
-                return s != null && s.Program is not (0 or 4);
-            }
-        }
+        /// <summary>True when the native service has the water functions and they resolved on this game build
+        /// (capability <c>items.fuel</c>), and its program is not off (read live: it can break in a session).</summary>
+        public static bool Available => Can(Caps.Fuel) && Status() is { Program: not (0 or 4) };
 
         /// <summary>The water <paramref name="container"/> holds (an item entity, a barrel, a well), or null when it
         /// holds none.</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static FuelLevel? Read(EntityId container)
         {
             Services.RequireTickThread("Items.Fuel.Read");
@@ -50,29 +43,35 @@ public static unsafe partial class Items
         }
 
         /// <summary>Sets <paramref name="container"/>'s water to <paramref name="units"/> (clamped to 0..max).</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static Task<FuelResult> Set(EntityId container, int units, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelSet, units, ItemId.None, dryRun);
 
         /// <summary>Adds <paramref name="units"/> (negative: takes) to <paramref name="container"/>'s water.</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static Task<FuelResult> Add(EntityId container, int units, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelAdd, units, ItemId.None, dryRun);
 
         /// <summary>Fills <paramref name="container"/> to its max.</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static Task<FuelResult> Fill(EntityId container, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelFill, 0, ItemId.None, dryRun);
 
         /// <summary>Fills every water container in <paramref name="holder"/>'s inventories (a player's backpack, action
         /// bars and equipment, a chest), only those of <paramref name="item"/> when given.</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static Task<FuelResult> FillAll(EntityId holder, ItemId item = default, bool dryRun = false) =>
             Submit(holder, ItemsNative.FuelFill | ItemsNative.FuelInventories, 0, item, dryRun);
 
         /// <summary>Sets every water container in <paramref name="holder"/>'s inventories to <paramref name="units"/>
         /// (each clamped to its max), only those of <paramref name="item"/> when given.</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static Task<FuelResult> SetAll(EntityId holder, int units, ItemId item = default, bool dryRun = false) =>
             Submit(holder, ItemsNative.FuelSet | ItemsNative.FuelInventories, units, item, dryRun);
 
         /// <summary>Fills every water container of the given items in <paramref name="holder"/>'s inventories, one
         /// request per item (an empty list: every container). The result adds up the requests.</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static Task<FuelResult> FillAll(EntityId holder, IEnumerable<ItemId> items, bool dryRun = false) =>
             FuelSequence.FillEach(holder, items.Distinct().ToList(), dryRun);
 
@@ -85,6 +84,7 @@ public static unsafe partial class Items
         /// </summary>
         /// <remarks>It does not end when the entity goes away. A player's entity id is reused by the next player who
         /// joins, so dispose it when the player leaves (Kiln.Rules' <c>Water</c> rule does that for you).</remarks>
+        [RequiresCapability(Caps.Fuel)]
         public static FuelKeep Refill(EntityId entity, FuelRefill policy, ItemId item = default, bool inventories = true)
         {
             ArgumentNullException.ThrowIfNull(policy);
@@ -126,6 +126,7 @@ public static unsafe partial class Items
         }
 
         /// <summary>Keeps water containers full (<see cref="Refill"/> with <see cref="FuelRefill.Full"/>).</summary>
+        [RequiresCapability(Caps.Fuel)]
         public static FuelKeep KeepFull(EntityId entity, ItemId item = default, bool inventories = true) =>
             Refill(entity, FuelRefill.Full, item, inventories);
 

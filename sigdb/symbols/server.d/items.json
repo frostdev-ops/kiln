@@ -201,6 +201,58 @@
       "find": [
         { "pattern": "48 83 EC 38 41 0F 10 01 48 81 C1 ?? ?? ?? ?? 4C 8D 4C 24 20 0F 29 44 24 20 E8 ?? ?? ?? ?? 48 83 C4 38 C3" }
       ]
+    },
+    "@items/CreateEntity.next_id": {
+      "comment": "createEntity called with id 0 takes the next entity id from the entity storage's counter (lock xadd, +1): the stamps of items.instances rely on that counter only growing within a world (docs/kiln/services/items.md, 'Item instances'). Server 26430253 0x6247be",
+      "find": [
+        {
+          "scope": { "symbol": "spawn/CreateEntity", "size": 4096 },
+          "pattern": "B8 01 00 00 00 F0 41 0F C1 84 24 {items/storage.next_id:d32} FF C0"
+        }
+      ]
+    },
+    "@items/QueueSetup.next_id": {
+      "comment": "the entity storage's setup gives every job command queue (stride 0x40) a pointer to that same counter, so the queued creates (createPide's item entities) take their ids from it as well. Server 26430253 0x62d556",
+      "find": [
+        { "pattern": "4C 8D AF {items/storage.next_id:d32} 0F 1F 00 0F B6 47 08 45 33 C9 48 8B 9F ?? ?? ?? ?? BA 00 00 10 00 41 B8 40 00 00 00 C6 44 24 20 00 48 8B CE 4A 89 74 33 08 42 88 44 33 2C 48 8B 06 FF 50 08 4A 89 44 33 10 49 FF C7 4A C7 44 33 18 00 00 10 00 4E 89 6C 33 {items/queue.next_id:d8}" }
+      ]
+    },
+    "@items/QueueCreate.next_id": {
+      "comment": "the queued create (createPide's spawn): an id of 0 is taken from the queue's counter pointer (lock xadd, +1) at queue time. Server 26430253 0x5fb491",
+      "find": [
+        { "pattern": "85 DB 75 0F 48 8B 47 {items/queue.next_id:d8} BB 01 00 00 00 F0 0F C1 18 FF C3 89 5D 0C" }
+      ]
+    },
+    "items/RecordBuild": {
+      "comment": "the save record of one stack (world and character saves): count, slot, item id, durability, fuel, level, dye, perks, gem (docs/kiln/services/items.md, 'Item instances'). items.instances reads the same fields the same way. Server 26430253 0x72a9b0",
+      "find": [
+        { "pattern": "48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 48 8D 6C 24 F1 48 81 EC 00 01 00 00 44 88 4A 04 48 8B DA 41 8B 00 89 42 08" }
+      ]
+    },
+    "@items/RecordBuild.fields": {
+      "comment": "the attribute ids the record builder looks up in the attribute registry: durability current / max, fuel current / max, level (the low byte of its value is saved)",
+      "find": [
+        {
+          "scope": { "symbol": "items/RecordBuild", "size": 1536 },
+          "pattern": "4C 8B C0 48 8D 4C 24 20 BA {items/attr.durability:d32} E8 {items/AttrFind:rel32} 44 0F B6 74 24 20"
+        },
+        {
+          "scope": { "symbol": "items/RecordBuild", "size": 1536 },
+          "pattern": "4C 8B C0 48 8D 4C 24 20 BA {items/attr.durability_max:d32} E8 {items/AttrFind:rel32} 44 0F B6 44 24 20"
+        },
+        {
+          "scope": { "symbol": "items/RecordBuild", "size": 1536 },
+          "pattern": "4C 8B 45 6F 48 8D 4C 24 20 BA {items/attr.fuel:d32} E8 {items/AttrFind:rel32} 44 0F B6 74 24 20"
+        },
+        {
+          "scope": { "symbol": "items/RecordBuild", "size": 1536 },
+          "pattern": "4C 8B 45 6F 48 8D 4C 24 20 BA {items/attr.fuel_max:d32} E8 {items/AttrFind:rel32} 44 0F B6 44 24 20"
+        },
+        {
+          "scope": { "symbol": "items/RecordBuild", "size": 1536 },
+          "pattern": "48 8D 4C 24 48 4D 8B C6 BA {items/attr.level:d32} E8 {items/AttrFind:rel32} 0F B6 44 24 48"
+        }
+      ]
     }
   },
   "constants": {
@@ -229,7 +281,14 @@
     "items/strings.bitmap": { "min_votes": 1 },
     "items/strings.count": { "min_votes": 1 },
     "items/strings.keys": { "min_votes": 1 },
-    "items/strings.values": { "min_votes": 1 }
+    "items/strings.values": { "min_votes": 1 },
+    "items/storage.next_id": { "min_votes": 2 },
+    "items/queue.next_id": { "min_votes": 2 },
+    "items/attr.durability": { "min_votes": 1 },
+    "items/attr.durability_max": { "min_votes": 1 },
+    "items/attr.fuel": { "min_votes": 1 },
+    "items/attr.fuel_max": { "min_votes": 1 },
+    "items/attr.level": { "min_votes": 1 }
   },
   "features": {
     "items.transaction": {
@@ -278,6 +337,12 @@
       "symbols": ["GetComponent", "items/SetString", "@items/SetString.fields"],
       "constants": ["items/strings.capacity", "items/strings.bitmap", "items/strings.count", "items/strings.keys", "items/strings.values",
                     "items/hmap.capacity", "items/hmap.count", "items/hmap.bits", "items/hmap.keys", "items/hmap.values", "world.storage"]
+    },
+    "items.instances": {
+      "symbols": ["GetComponent", "spawn/CreateEntity", "@items/CreateEntity.next_id", "@items/QueueSetup.next_id",
+                  "@items/QueueCreate.next_id", "items/RecordBuild", "@items/RecordBuild.fields", "items/AttrFind"],
+      "constants": ["items/storage.next_id", "items/queue.next_id", "items/attr.durability", "items/attr.durability_max",
+                    "items/attr.fuel", "items/attr.fuel_max", "items/attr.level", "world.storage"]
     }
   }
 }

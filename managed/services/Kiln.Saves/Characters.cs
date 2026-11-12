@@ -27,6 +27,11 @@ public readonly record struct CharacterKey(ulong Account, Guid Id)
 
     public override string ToString() => IsNone ? "(no character)" : Id == Guid.Empty ? $"account {Account:x16}" : Id.ToString();
 
+    /// <summary>The person behind a character, as a <see cref="PlayerRef"/> with the character id only: no Steam id (the
+    /// key's <see cref="Account"/> is the game's account key, not a Steam id) and no session entity. Call
+    /// <see cref="PlayerRef.Resolve"/> for the player in game.</summary>
+    public static explicit operator PlayerRef(CharacterKey k) => new(0, k.Id, EntityRef.None);
+
     /// <summary>Reads <see cref="Text"/> back.</summary>
     public static bool TryParse(string? text, out CharacterKey key)
     {

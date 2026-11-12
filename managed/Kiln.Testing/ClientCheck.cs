@@ -23,6 +23,7 @@ namespace Kiln.Testing;
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class ClientCheckAttribute : Attribute
 {
+    /// <summary>Marks an async method <c>Task M(CheckContext c)</c> as a guided check with this id and title.</summary>
     /// <param name="id">Unique within the mod: lower-case letters, digits, <c>.</c>, <c>_</c> and <c>-</c>, at most 64
     /// characters, by custom <c>area.slug</c>.</param>
     /// <param name="title">What the list shows.</param>
@@ -32,8 +33,10 @@ public sealed class ClientCheckAttribute : Attribute
         Title = title;
     }
 
+    /// <summary>The check's id, unique within the mod (<c>area.slug</c>).</summary>
     public string Id { get; }
 
+    /// <summary>What the check list shows.</summary>
     public string Title { get; }
 
     /// <summary>The group the list shows the check under (default: the mod's name).</summary>
@@ -120,8 +123,11 @@ public enum ClientCheckSession
 /// <summary>The player's verdict on a check.</summary>
 public enum ClientCheckVerdict
 {
+    /// <summary>What the check asked for happened.</summary>
     Pass = 0,
+    /// <summary>It did not; the player adds one line saying what was seen.</summary>
     Fail = 1,
+    /// <summary>Not judged this time (the scene could not be set, or the player passed on it).</summary>
     Skip = 2,
 }
 

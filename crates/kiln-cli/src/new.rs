@@ -25,6 +25,7 @@ const TEMPLATES: &[&str] = &[
     include_str!("../../../templates/kiln-sound/.template.config/template.json"),
     include_str!("../../../templates/kiln-talents/.template.config/template.json"),
     include_str!("../../../templates/kiln-test/.template.config/template.json"),
+    include_str!("../../../templates/kiln-unit-test/.template.config/template.json"),
     include_str!("../../../templates/kiln-service/.template.config/template.json"),
     include_str!("../../../templates/kiln-item-blocks/.template.config/template.json"),
     include_str!("../../../templates/kiln-world-blocks/.template.config/template.json"),

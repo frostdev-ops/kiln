@@ -51,6 +51,13 @@ and a chat command, and XHL-Core. A framework you do not have: skip its check.
 
 **Session 6:** `client-pass` alone, on a new character (see [the cheats group](#the-cheats-group)).
 
+**Item data** (a session of its own, on a dedicated server you join): a lab server with `instances-test`
+(`mods/tests/instances-test`) deployed, and your game with the content profile's `client-pass` loaded. Its 21 checks
+(area "Item data") run on the server; the instruction and the verdict are on your screen. The `.before` / `.after`
+pairs span a leave, a closed game, a server stop and a restart, so the session needs someone who can stop and start
+the lab server (`tools/lab/lab.sh stop|start`). The pair that matters most is `instances.crash-swap`: two identical
+marked swords, swapped by hand, the game closed without the menu, then rejoin.
+
 ## Keys
 
 | Key | Does |

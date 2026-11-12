@@ -85,6 +85,25 @@ __declspec(dllexport) int KILN_CALL kiln_native_init(const KilnNativeContext* ct
 - `api->service(KilnStr{"kiln.profile", 12}, 1)` answers in every phase, safe idle included.
 Sample: `native/samples/native-mod/` (phase boot). Template for tests: `native/samples/native-test/`.
 
+## At exit: `on_unload` (plugins only, not native mods)
+A native mod gets no call at exit. A plugin (`kiln_plugin_main`, `kiln_api.h`) may set `KilnPluginInfo.on_unload`:
+Kiln calls it once when the game process exits normally with code 0, at the process's exit call: after the game saved,
+closed its worlds and returned from main, before Windows ends the other threads and before any `DLL_PROCESS_DETACH`.
+- **Where it is on:** under Wine (Linux servers, Proton, the Steam Deck). On native Windows it is off by default in this
+  release, because it has not been proven there. `"unloadAtExit"` in `kiln/kiln.json` decides: `"auto"` (default, the
+  rule above), `"on"`, `"off"` (everywhere). kiln.log's `unload:` line at boot says which and why.
+- **Proven:** a dedicated server stopped with Ctrl-C, SIGINT or by the launcher (lab). The client's normal quit is
+  expected to call it too, but its exit code is not yet confirmed to be 0: not run in a client.
+- **Order and thread:** every service and plugin that loaded, in reverse load order (plugins before the services they
+  use), each on a thread Kiln starts for it while the exiting thread waits.
+- **Limits:** 3 s per handler, 10 s for all. A handler that has not returned is given up and named in kiln.log; after
+  10 s the rest are not called. A fault is caught (kiln.log and a crash report) and the next handler runs.
+- **Do:** write your own files atomically; stop your own threads and wait for them briefly.
+- **Do not:** touch game memory or call game code, post to or wait for a world thread or the main thread, use
+  LoadLibrary or FreeLibrary, restore patched game code, or end the process.
+- **Not called:** a killed process, a crash (also one the game catches and ends with a non-zero code), any non-zero
+  exit, safe idle, early plugins (`kiln_plugin_early`) and native mods.
+
 ## Status: `<game>/kiln/state/native.json`
 Rewritten after the discovery and after each phase:
 ```json

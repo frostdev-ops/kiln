@@ -60,3 +60,21 @@
 | Reading a `null` from `Texts.Get` as "no such text" | it also means another thread is loading the catalog | check `Texts.Status`; `await Texts.Preload()` first |
 | A native transfer handler that counts or logs every call | dry-run moves call it too (`KILN_TRANSFER_DRY_RUN`) | skip side effects when the flag is set |
 | File or folder names that end in a dot or a space in a mod zip | the launcher refuses the zip: Windows would turn them into other names | rename them |
+
+## dev.25+ additions (in development; not seen by a player)
+
+| Mistake | Result | Use instead |
+|---|---|---|
+| A managed service's capability (`items.moves`) in the manifest's `features` | refused: the service registers its row only after manifests are checked | sigdb features and `kiln.<service>` only; `Capabilities.Is(name)` at run time for the rest |
+| Trusting `[RequiresCapability]` to guard a call | nothing checks it; no member carries it yet | `Capabilities.Is` / `Why` before the call; catch `KilnUnavailableException` |
+| `EntityRef.Of` on a chest, creature or item | `KilnUnavailableException("identity.entities")`: only player entities have a source | keep the `EntityId`; refs for players only |
+| `EntityRef.Of` / `PlayerRef.Of` in `OnLoad` | the identity sources start at the first tick: unavailable | `ServerStartedEvent` or later |
+| `x == EntityRef.None` | false for a none id with a serial (record equality) | `x.IsNone` |
+| Catching only `KilnUnavailableException` | older services still throw their own exception for an off capability | catch `NotSupportedException` too (it derives from it) |
+| `Mods.ApiVersion` to learn the running Kiln's API | it is the value your mod was built with | `Mods.RuntimeApiVersion` |
+| Calling `Rules.Simulate`, `QuestInput`, `GameTree.Lab*` and other lab helpers | `KILNX001` build error; they may change without notice | test kit or a lab mod with `KILNX001` in `NoWarn` |
+| `OriginalCode`, `Keep`, `Arsenals.JobHandler`, `Is.Job`/`Act.Job`, `Abilities.Programs.Register`, `NativeCall.Bytes` without `"advanced": true` | `InvalidOperationException` | `"advanced": true`, or a typed service call |
+| Writing a `Kiln.Ecs` struct you read and expecting the game to change | it is a copy | `World.TryWrite` (raw, not saved) until typed writes (dev.26) |
+| An enum value of `Kiln.Ecs` used only as a constant | folded into a number: a renumbering after a game update is not caught at load | check `Ecs.Supports<T>()` for the type that holds it |
+| A test that passes under `dotnet test` taken as proof for the server | most native services are unavailable offline; cached lookups can hide that | `kiln test` on a test server too |
+| Relying on `SteamGuard` for `/questadmin` or rewards paid at a later join | not covered | a throwaway character; experimental, never run in a real client |

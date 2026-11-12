@@ -127,6 +127,9 @@ struct Engine {
     int64_t hmap_bits = 0, hmap_capacity = 0, hmap_keys = 0, hmap_values = 0, hmap_count = 0;
     int64_t program_count = 0;      // world: u16 registered programs
     int64_t strings_bitmap = 0;     // CustomPlayerStringsSystem: its HashMap's bitmap pointer (the map starts hmap_bits before it)
+    int64_t storage_next_id = 0;    // feature items.instances: entity storage: the u32 counter new entity ids come from
+    // feature items.instances: the attribute ids the save record builder reads (durability, fuel, level)
+    uint32_t attr_durability = 0, attr_durability_max = 0, attr_fuel = 0, attr_fuel_max = 0, attr_level = 0;
 
     bool tx_ok = false;       // give/take symbols and constants
     bool program_ok = false;  // own program registration (fallback when kiln.world is absent)
@@ -137,6 +140,7 @@ struct Engine {
     bool move_ok = false;     // feature items.move: moves by the game's slot transfer, inside the program
     bool transfer_ok = false; // feature items.transfer: the quick-stack / move-all hooks can be installed
     bool names_ok = false;    // feature items.names: container names
+    bool instances_ok = false;  // feature items.instances: stamps, locations, records (v4)
 };
 extern Engine E;
 // After resolve(): blank the game functions a feature that is off must never call. items.move off drops the slot transfer

@@ -72,6 +72,14 @@ internal static unsafe class SpawnLink
     }
 
     public static bool Available => T != null;
+
+    /// <summary>Instance data needs all three identity operations, not a best-effort empty answer.</summary>
+    internal static void RequireIdentity()
+    {
+        var t = T;
+        if (t == null || t->EntityInfo == null || t->Find == null || t->TemplateGet == null)
+            throw new KilnUnavailableException("kiln.spawn", "item holders need entity inspection, template metadata and holder search");
+    }
     public static bool WorldRunning => T != null && T->WorldState() == 2;
 
     internal sealed record Ent(EntityId Entity, Guid? Template, string? Name, WorldPosition Position, float Yaw);
@@ -91,8 +99,9 @@ internal static unsafe class SpawnLink
     }
 
     /// <summary>Tick thread. Entities of the template within radius of the point, nearest first.</summary>
-    public static IReadOnlyList<EntityId> Find(Guid template, WorldPosition near, double radius, int max)
+    public static IReadOnlyList<EntityId> Find(Guid template, WorldPosition near, double radius, int max, bool required = false)
     {
+        if (required) RequireIdentity();
         var t = T;
         if (t == null) return [];
         var buf = new uint[max];
@@ -102,7 +111,11 @@ internal static unsafe class SpawnLink
         fixed (byte* gp = g)
         fixed (uint* o = buf)
             rc = t->Find(gp, default, new Vec3 { X = near.X, Y = near.Y, Z = near.Z }, radius, o, (nuint)max, &count);
-        if (rc != 0) return [];
+        if (rc != 0)
+        {
+            if (required) throw new KilnUnavailableException("kiln.spawn", $"holder search could not answer (rc {rc})");
+            return [];
+        }
         var n = (int)Math.Min((ulong)count, (ulong)max);
         var list = new EntityId[n];
         for (var i = 0; i < n; i++) list[i] = new EntityId(buf[i]);
@@ -110,8 +123,9 @@ internal static unsafe class SpawnLink
     }
 
     /// <summary>Kind, DoNotSave, name, positional persistence, and whether the template flags are known. Any thread.</summary>
-    public static (uint kind, bool neverSaved, string name, bool canPersist, bool known) Template(Guid g)
+    public static (uint kind, bool neverSaved, string name, bool canPersist, bool known) Template(Guid g, bool required = false)
     {
+        if (required) RequireIdentity();
         lock (Templates)
             if (Templates.TryGetValue(g, out var hit)) return hit;
         var t = T;
@@ -120,7 +134,11 @@ internal static unsafe class SpawnLink
         var b = g.ToByteArray();
         int rc;
         fixed (byte* p = b) rc = t->TemplateGet(p, &info);
-        if (rc != 0) return (0, false, "", false, false);
+        if (rc != 0)
+        {
+            if (required) throw new KilnUnavailableException("kiln.spawn", $"holder template metadata could not answer (rc {rc})");
+            return (0, false, "", false, false);
+        }
         var name = Marshal.PtrToStringUTF8((nint)info.Name) ?? "";
         // Positional identity is safe only for a known, saved world template. Item entities have ItemState but no
         // CurrentTransform: Inspect reports the same default position for every sword, which is not an identity.

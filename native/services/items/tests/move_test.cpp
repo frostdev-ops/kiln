@@ -21,6 +21,8 @@
 #include "../moves.cpp"
 #include "../names.cpp"
 #include "../xfer.cpp"
+#include "../stamps.cpp"
+#include "../instances.cpp"
 
 namespace kitems {
 void items_log(int level, const char* fmt, ...) {
@@ -33,6 +35,8 @@ void items_log(int level, const char* fmt, ...) {
 }
 const KilnApi* items_api() { return hooks_shim::api(); }  // the hooks go through the kiln.hooks stand-in
 KilnOwner items_owner() { return 7; }
+uint64_t g_test_step = 1;
+uint64_t current_step() { return g_test_step; }  // v4: an entry's age (instances.cpp)
 // engine.cpp's give path calls these; this test never gives, and pide.cpp has its own test (pide_test.cpp)
 void pide_commit(void* tx, void(KILN_CALL* commit)(void*), uint32_t, uint8_t, uint32_t) { commit(tx); }
 }  // namespace kitems
@@ -729,6 +733,71 @@ void __fastcall fake_tx_init(void*, const void*) { }
 void __fastcall fake_tx_noop(void*) { }
 void __fastcall fake_tx_rollback(void*) { g_comps = g_tx_before; }
 
+// v4: a move's ledger and a handler's read carry the item entity's stamp; it stays with the item entity through the move,
+// and another item entity gets another one. Off (items.instances off): 0 everywhere, as an older service.
+void stamps_mode_test() {
+    E.tx_ctor = &fake_tx_ctor;
+    E.tx_init = &fake_tx_init;
+    E.commit = &fake_tx_noop;
+    E.rollback = &fake_tx_rollback;
+    E.free_arrays = &fake_tx_noop;
+    FakeTx tx;
+    Access access;
+    check(access_from_tx(&tx, &access), "stamps: transaction accessors check out");
+    auto move_gear = [&](uint32_t from, uint64_t slot, uint32_t to, uint32_t flags) {
+        MoveJob job;
+        job.r.size = sizeof(KilnItemsMoveRequest);
+        job.r.kind = KILN_MOVE_STACK;
+        job.r.from = from;
+        job.r.to = to;
+        job.r.slot = slot;
+        job.r.flags = flags;
+        KilnItemsMoveResult res{};
+        unsigned long code = 0;
+        run_move(access, job, reinterpret_cast<uint8_t*>(&tx), &res, &code);
+        return res;
+    };
+    E.instances_ok = false;
+    reset_world();
+    put(A2, 1, SWORD, 1, 3077);
+    KilnItemsMoveResult off = move_gear(A, KILN_SLOT_ID(A2, 1), B, 0);
+    check(off.status == KILN_ITEMS_DONE && off.change_count == 1 && off.changes[0].pide == 3077 && off.changes[0].reserved == 0,
+          "stamps off: a move's ledger carries the item entity and stamp 0 (as an older service)");
+    E.instances_ok = true;
+    stamps().reset();
+    reset_world();
+    put(A2, 1, SWORD, 1, 3077);
+    put(A2, 2, SWORD, 1, 3078);
+    put(A, 0, WOOD, 9);
+    KilnItemsMoveResult r1 = move_gear(A, KILN_SLOT_ID(A2, 1), B, 0);
+    const uint32_t s1 = r1.change_count == 1 ? r1.changes[0].reserved : 0;
+    check(r1.status == KILN_ITEMS_DONE && r1.changes[0].pide == 3077 && s1 != 0 && s1 == stamps().peek(3077),
+          "stamps on: the ledger carries the item entity's stamp, the one the table holds");
+    KilnItemsSlot slots[64];
+    const uint32_t n = read_slots(access, B, slots, 64);
+    uint32_t seen = 0;
+    for (uint32_t i = 0; i < n; ++i) if (slots[i].pide == 3077) seen = slots[i].reserved;
+    check(seen == s1, "a read of the target (a transfer handler's read) gives the same stamp for the same item entity");
+    uint64_t back_slot = 0;
+    for (uint32_t i = 0; i < n; ++i) if (slots[i].pide == 3077) back_slot = slots[i].slot;
+    KilnItemsMoveResult r2 = move_gear(B, back_slot, A, 0);
+    check(r2.status == KILN_ITEMS_DONE && r2.changes[0].pide == 3077 && r2.changes[0].reserved == s1,
+          "moved back: still the same item entity, still the same stamp");
+    KilnItemsMoveResult r3 = move_gear(A, KILN_SLOT_ID(A2, 2), B, KILN_ITEMS_MOVE_DRY_RUN);
+    check(r3.changes[0].pide == 3078 && r3.changes[0].reserved != 0 && r3.changes[0].reserved != s1,
+          "another item entity has another stamp (a dry run names it too)");
+    KilnItemsMoveResult r4 = move_gear(A, KILN_SLOT_ID(A, 0), B, 0);
+    check(r4.status == KILN_ITEMS_DONE && r4.changes[0].pide == 0 && r4.changes[0].reserved == 0,
+          "a plain stack has no item entity and no stamp");
+    stamps().reset();  // the world closed
+    KilnItemsSlot after[64];
+    const uint32_t m = read_slots(access, A, after, 64);
+    uint32_t again = 0;
+    for (uint32_t i = 0; i < m; ++i) if (after[i].pide == 3077) again = after[i].reserved;
+    check(again != 0 && again != s1, "after a world reset the same id gets a new stamp, never the old one");
+    E.instances_ok = false;
+}
+
 void review_tests() {
     FakeTx tx;
     Result12 result[3]{};
@@ -925,6 +994,11 @@ int main(int argc, char** argv) {
     const std::string mode = argc > 1 ? argv[1] : "all";
     if (mode == "review") {
         review_tests();
+        std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
+        return failures ? EXIT_FAILURE : EXIT_SUCCESS;
+    }
+    if (mode == "stamps") {
+        stamps_mode_test();
         std::printf("items move test (%s): %d failure(s)\n", mode.c_str(), failures);
         return failures ? EXIT_FAILURE : EXIT_SUCCESS;
     }

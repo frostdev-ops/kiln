@@ -426,6 +426,7 @@ public sealed class KilnTestSession : IDisposable
     private string? _setupFailure, _restartNote;
     private bool _disposed;
 
+    /// <summary>A session that runs a mod's <c>[KilnTest]</c> methods on harnesses it makes, one after another.</summary>
     /// <param name="setup">On a new harness, before its first step: loads what the tests need and returns the handle of
     /// the mod whose <c>[KilnTest]</c> methods run.</param>
     /// <param name="harnessOptions">The options of each new harness; default <see cref="KilnHarnessOptions"/>'s.</param>

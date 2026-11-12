@@ -26,6 +26,7 @@
 
 #include "engine.h"
 #include "completed_results.h"
+#include "instances.h"
 #include "moves.h"
 #include "names.h"
 #include "pide.h"
@@ -58,6 +59,13 @@ static_assert(sizeof(KilnItemsStatus2) == 216 && offsetof(KilnItemsStatus2, tran
               offsetof(KilnItemsStatus2, detail) == 56);
 static_assert(sizeof(KilnItemsTransferEvent) == 32 && sizeof(KilnItemsTransferRule) == 32 &&
               sizeof(KilnItemsTransferReport) == 48);
+// v4 appends three rows after peek_result; nothing before the v3 end moves.
+static_assert(offsetof(KilnItemsApi, peek_result) == 192 && offsetof(KilnItemsApi, read_instances) == 200 &&
+              sizeof(KilnItemsApi) == 224);
+static_assert(sizeof(KilnItemsInstance) == 88 && offsetof(KilnItemsInstance, slot) == 16 &&
+              offsetof(KilnItemsInstance, holder) == 24 && offsetof(KilnItemsInstance, count) == 36 &&
+              offsetof(KilnItemsInstance, dye) == 60 && offsetof(KilnItemsInstance, gem) == 68);
+static_assert(sizeof(KilnItemsInstancesStatus) == 208 && offsetof(KilnItemsInstancesStatus, detail) == 48);
 
 namespace {
 
@@ -996,6 +1004,7 @@ void drop_world(const char* why) {
     g_world.store(0);
     g_registry.store(nullptr);
     names_world_closed();
+    instances_world_reset();  // v4: entity ids start again in the next world: every stamp is forgotten
     int expected = KILN_ITEMS_PROGRAM_RUNNING;
     if (g_program.compare_exchange_strong(expected, KILN_ITEMS_PROGRAM_ACTIVE))
         set_detail("program registered, not run yet in this world");
@@ -1024,6 +1033,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
         g_step_dt_bits.store(bits, std::memory_order_relaxed);
     }
     xfer_set_step(tick->step);
+    instances_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v4: the id counter check, prune
     poll_world_program();
     expire();
     deliver();
@@ -1418,6 +1428,71 @@ KilnResult KILN_CALL t_peek_result(uint64_t ticket, KilnItemsResult* out) {
     return g_done.peek(ticket, out) ? KILN_OK : KILN_ERR_NOT_FOUND;
 }
 
+// ---- v4: item instances ----
+
+// Every entity with an initialized InventorySetup (the holder map of instances.cpp is built from them).
+bool list_holders(std::vector<KilnEntity>* out) {
+    uint32_t n = 0;
+    out->assign(4096, 0);
+    KilnResult rc = t_find(0, out->data(), static_cast<uint32_t>(out->size()), &n);
+    if (rc == KILN_ERR_BUFFER_TOO_SMALL) {
+        out->assign(n + 1024, 0);
+        rc = t_find(0, out->data(), static_cast<uint32_t>(out->size()), &n);
+    }
+    if (rc != KILN_OK) {
+        out->clear();
+        return false;
+    }
+    out->resize(n);
+    return true;
+}
+
+const char* instances_why() {
+    return !E.read_ok ? "items.read is off on this build"
+           : !E.instances_ok ? "items.instances is off on this build (unknown game build: no offset is guessed)"
+           : stamps().exhausted() ? "every stamp of this process is used up (restart the server)"
+           : "";
+}
+
+KilnResult instance_env(InstanceEnv* env) {
+    if (!instances_on() || !E.read_ok) return KILN_ERR_UNAVAILABLE;
+    if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    // The reads need no program: before kiln_items' first update (which records the world) take the core's server
+    // world, so item refs work from the first step the world exists in.
+    env->world = g_world.load();
+    if (!env->world) env->world = g_api->server_world();
+    if (!env->world) return KILN_ERR_UNAVAILABLE;
+    env->attributes = reinterpret_cast<void*>(g_api->singleton(env->world, KilnStr{"impact::AttributeRegistry", 25}));
+    env->step = g_step.load();
+    env->list = &list_holders;
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_read_instances(KilnItemsInstance* items, uint32_t count, uint32_t item_size, uint32_t flags) {
+    if ((count && !items) || item_size < sizeof(KilnItemsInstance) || (flags & ~KILN_ITEMS_READ_LOCATION))
+        return KILN_ERR_INVALID_ARGUMENT;
+    InstanceEnv env;
+    if (KilnResult rc = instance_env(&env); rc != KILN_OK) return rc;
+    return instances_read(env, items, count, item_size, flags);
+}
+
+KilnResult KILN_CALL t_read_holder(KilnEntity holder, KilnItemsInstance* out, uint32_t capacity, uint32_t item_size,
+                                   uint32_t* out_count, uint8_t* out_initialized) {
+    if (out_count) *out_count = 0;
+    if (out_initialized) *out_initialized = 0;
+    if (holder == 0 || (capacity && !out) || item_size < sizeof(KilnItemsInstance)) return KILN_ERR_INVALID_ARGUMENT;
+    InstanceEnv env;
+    if (KilnResult rc = instance_env(&env); rc != KILN_OK) return rc;
+    return instances_read_holder(env, holder, out, capacity, item_size, out_count, out_initialized);
+}
+
+KilnResult KILN_CALL t_instances_status(KilnItemsInstancesStatus* out) {
+    if (!out || out->size < sizeof(KilnItemsInstancesStatus)) return KILN_ERR_INVALID_ARGUMENT;
+    instances_status(out);
+    std::snprintf(out->detail, sizeof out->detail, "%s", instances_why());
+    return KILN_OK;
+}
+
 const KilnItemsApi kTable = {
     {sizeof(KilnItemsApi), KILN_ITEMS_VERSION},
     &t_give, &t_take, &t_cancel, &t_cancel_owner, &t_read, &t_find,
@@ -1425,6 +1500,7 @@ const KilnItemsApi kTable = {
     &t_fuel, &t_fuel_read, &t_fuel_keep, &t_fuel_keep_end,
     &t_move, &t_container_name, &t_transfer_rule, &t_transfer_listen, &t_transfer_report, &t_transfer_end, &t_status2,
     &t_peek_result,
+    &t_read_instances, &t_read_holder, &t_instances_status,
 };
 
 // ============================================================================================= self-test =======
@@ -1797,17 +1873,36 @@ void resolve() {
     E.fuel_ok = E.tx_ok && feat("items.fuel") && sym("items/WriteOther", &E.write_other) &&
                 sym("items/JobTracker", &E.job_tracker) && sym("items/JobWriteFlag", &E.job_write_flag) &&
                 sym("items/AttrFind", &E.attr_find) && sym("items/AttrChanged", &E.attr_changed);
+    // v4 (docs/kiln/services/items.md "Item instances"): the entity id counter (captured twice: createEntity and the
+    // command queues' setup, which must agree) and the record builder's attribute ids. Any missing: no stamps, no reads.
+    {
+        int64_t next_id = 0, queue_ptr = 0, d = 0, dm = 0, f = 0, fm = 0, l = 0;
+        E.instances_ok = E.read_ok && feat("items.instances") && sym("items/AttrFind", &E.attr_find) &&
+                         cst("items/storage.next_id", &next_id) && cst("items/queue.next_id", &queue_ptr) &&
+                         cst("items/attr.durability", &d) && cst("items/attr.durability_max", &dm) &&
+                         cst("items/attr.fuel", &f) && cst("items/attr.fuel_max", &fm) && cst("items/attr.level", &l) &&
+                         next_id > 0 && next_id < 0x10000 && (next_id & 3) == 0 && queue_ptr > 0 && queue_ptr < 0x100 &&
+                         d && dm && f && fm && l && d != dm && f != fm;
+        if (E.instances_ok) {
+            E.storage_next_id = next_id;
+            E.attr_durability = static_cast<uint32_t>(d);
+            E.attr_durability_max = static_cast<uint32_t>(dm);
+            E.attr_fuel = static_cast<uint32_t>(f);
+            E.attr_fuel_max = static_cast<uint32_t>(fm);
+            E.attr_level = static_cast<uint32_t>(l);
+        }
+    }
     if (E.tx_ok) {
         g_tx = static_cast<uint8_t*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(E.tx_size), MEM_COMMIT | MEM_RESERVE,
                                                   PAGE_READWRITE));
         if (!g_tx) E.tx_ok = false;
     }
     LOGI("resolved: transaction %s (tx %lld bytes), read %s, catalog %s, scan %s, own program registration %s, recipe path %s, "
-         "tracked Fuel writes %s, moves %s, transfer hooks %s, container names %s",
+         "tracked Fuel writes %s, moves %s, transfer hooks %s, container names %s, item instances %s",
          E.tx_ok ? "on" : "OFF", static_cast<long long>(E.tx_size), E.read_ok ? "on" : "OFF",
          E.catalog_ok ? "on" : "OFF", E.scan_ok ? "on" : "OFF", E.program_ok ? "possible" : "OFF",
          E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF", E.move_ok ? "on" : "OFF", E.transfer_ok ? "possible" : "OFF",
-         E.names_ok ? "on" : "OFF");
+         E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF");
     xfer_init();  // after every symbol above: a lab switch may install the hooks right now
 }
 
@@ -1851,6 +1946,7 @@ void items_log(int level, const char* fmt, ...) {
 }
 const KilnApi* items_api() { return g_api; }
 KilnOwner items_owner() { return g_owner; }
+uint64_t current_step() { return g_step.load(std::memory_order_relaxed); }
 }  // namespace kitems
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
@@ -1858,7 +1954,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{kName, std::strlen(kName)};
-    info->version = KilnStr{"3", 1};
+    info->version = KilnStr{"4", 1};
     info->on_ready = &on_ready;
     resolve();
     selftest_init();
