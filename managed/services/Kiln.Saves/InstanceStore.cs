@@ -789,7 +789,7 @@ internal sealed class InstanceStore
         }
         var asMade = LoadOrder.AsMade(h.Bound, h.Key.Kind == HolderKind.World, items.Select(i => (i.Place.FlatSlot, i.Ref.Entity.Id.Value)).ToList(),
             made, loadSlots, out var order);
-        var outcomes = InstanceMatcher.Match(input, h.Witness, now, trusted, asMade);
+        var outcomes = InstanceMatcher.Match(input, h.Witness, now, trusted, asMade, world: h.Key.Kind == HolderKind.World);
         int attached = 0, aside = 0, parked = 0;
         foreach (var o in outcomes)
         {

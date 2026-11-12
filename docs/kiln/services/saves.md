@@ -116,10 +116,11 @@ public sealed class Swords : Mod
 }
 ```
 
-**Status in this release:** the store, the matching and the API are built and proven by unit tests against a fake of
-the game's items (`managed/tests/Kiln.Saves.Tests`); the game's side (kiln.items' item instances: stamps, locations,
-save records, following) is connected in the next step. Until then every call but `Key` throws
-`KilnUnavailableException("saves.instance_data")`. Lab results follow.
+**Status in this release:** the store, the matching and the API are proven by unit tests against a fake of the game's
+items (`managed/tests/Kiln.Saves.Tests`), and read the game through kiln.items' item instances (kiln.items v4:
+stamps, locations, save-record fields, the tracker; `InstanceGame.cs`). On a server whose kiln.items has no v4, or has
+the feature off, every call but `Key` throws `KilnUnavailableException("saves.instance_data")` naming `items.instances`
+in its reason. Lab results follow.
 
 | Capability | Means |
 |---|---|
@@ -145,7 +146,14 @@ mod instance unloaded: `InvalidOperationException` (declare it again).
 
 One record per item: an item that moves from a chest to a player is written in the character's scope at the next save
 and is gone from the chest's; nothing is copied. A holder without a persistent identity (not saved with a position, or
-a player whose character has no id on this build) keeps its items' data for the session only, logged once.
+a player whose character has no id on this build) keeps its items' data for the session only, logged once; so does an
+item entity that sits in no holder's slot at the save.
+
+**Slot numbers.** A record's `slot` is kiln.items' flat slot, kept as an opaque number unique in its holder. 0 to 255
+are the numbers the game's own world and character saves use (Generic links only: 8 per Generic link before this one,
+plus the index). 256 and up are slots the game's save does not number that way (equipment, currency, customization,
+nested links: 256 + the link's position in the holder's link tree x 8 + index). Such a number means the same slot after
+a rejoin only if the player's link tree comes back the same; that is not proven without a player.
 
 ### Bundle format (`format` 1)
 ```json
@@ -172,7 +180,7 @@ the holders and records of that mod; a reader joins records with the same id, sl
 as a bare list (an earlier writer of format 1) reads as not settled.
 
 ### How the matching decides
-The game keeps no id for an item. A saved record is a holder, a flat slot (link x 8 + index, the game's own number), an
+The game keeps no id for an item. A saved record is a holder, a flat slot (see "Slot numbers" above), an
 item id and the fingerprint of the save record: a stable part (item id, level, perks available and unlocked, gem item
 and level, dye) and a volatile part (durability and fuel, compared as ratios within 0.002, because a load rebuilds them
 from ratios). After a load or a join, per holder:
@@ -182,8 +190,10 @@ any save could read its holder, for example an item a player got and left with b
 without it nobody knows whether a look-alike stood beside it.
 
 1. **The holder is as it was saved, and as the loader made it.** Three things must hold, or rule 1 does not apply:
-   - *between the save and the load:* the record was read at the save of the generation the world file vouches for
-     (`Exact` or `Staged`), or the holder's list now equals the record's witness, every slot and every field;
+   - *between the save and the load:* the holder's list now equals the record's witness, every slot and every field;
+     and for a world holder also the record was read at the save of the generation the world file vouches for (`Exact`
+     or `Staged`). Both, because a world file edited offline with its header revision and time kept loads as `Exact`;
+     its changed list shows. For a player the witness alone (a character has no generation of its own);
    - *at the save:* that witness is **settled**: read at the snapshot staging, where no simulation step comes before the
      game's snapshot, or at a shutdown save. The first staging of a save is one step early, and a swap in that step is
      saved by the game but not by Kiln;

@@ -800,6 +800,26 @@ public sealed class InstanceHardeningTests : IDisposable
         Assert.Equal(20, _h.Count(_h.World.At(chest, 5)));
     }
 
+    // ---- phase 2b: a world holder needs the generation and an equal list ----
+
+    [Fact]
+    public void AWorldFileEditedOfflineWithItsHeaderKeptDoesNotSwapTheValues()
+    {
+        var w = _h.World;
+        var a = w.Chest(ChestTemplate, A);
+        _h.Tag(w.Give(a, 3, Rec.Of(Rec.Sword, durability: 50)), 10);
+        _h.Tag(w.Give(a, 5, Rec.Of(Rec.Sword, durability: 90)), 20);
+        _h.Save(1);
+        var file = w.SaveGame();
+        var items = file.World[0].Items;                         // a save editor swaps the two swords, keeping the header
+        file.World[0] = (file.World[0].Holder, [(3, items[1].Fields), (5, items[0].Fields)]);
+        Assert.Equal(DataMatch.Exact, _h.Restart(1, FakeInstanceWorld.Load(file)));
+        var chest = _h.World.HolderAt(ChestTemplate, A);
+        Assert.Null(_h.Count(_h.World.At(chest, 3)));            // never 10 on the sword that was 20
+        Assert.Null(_h.Count(_h.World.At(chest, 5)));
+        Assert.Equal(2, _h.Parked().Count(x => x.State == ParkedState.SetAside));
+    }
+
     [Fact]
     public void AnEarlierWitnessWithoutTheSettledFlagReadsAsUnsettled()
     {
