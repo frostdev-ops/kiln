@@ -6,37 +6,40 @@
 
 namespace Kiln;
 
-/// <summary>The game's ECS programs and what each reads and writes.</summary>
-public static class EcsPrograms
+public static partial class Ecs
 {
-    /// <summary>The game's ECS program <c>lantern_glow</c>.</summary>
-    public static class LanternGlow
+    /// <summary>The game's ECS programs and what each reads and writes.</summary>
+    public static class Programs
     {
-        public static readonly string Name = "lantern_glow";
-        /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>
-        public static readonly ulong Contract = 0x730DFF47F5F9E901ul;
-        public static readonly global::System.Type[] Tpl = [typeof(Ecs.Lantern)];
-        public static readonly global::System.Type[] Read = [typeof(Ecs.Gauges), typeof(Ecs.Comet)];
-        public static readonly global::System.Type[] Write = [typeof(Ecs.Warmth)];
-        public static readonly string[] SysRead = ["light_cache"];
-        public static readonly global::System.Type[] EventsOut = [typeof(Ecs.LanternLit)];
-    }
+        /// <summary>The game's ECS program <c>lantern_glow</c>.</summary>
+        public static class LanternGlow
+        {
+            public static readonly string Name = "lantern_glow";
+            /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>
+            public static readonly ulong Contract = 0x730DFF47F5F9E901ul;
+            public static readonly global::System.Type[] Tpl = [typeof(Ecs.Lantern)];
+            public static readonly global::System.Type[] Read = [typeof(Ecs.Gauges), typeof(Ecs.Comet)];
+            public static readonly global::System.Type[] Write = [typeof(Ecs.Warmth)];
+            public static readonly string[] SysRead = ["light_cache"];
+            public static readonly global::System.Type[] EventsOut = [typeof(Ecs.LanternLit)];
+        }
 
-    /// <summary>The game's ECS program <c>unlit_cleanup</c>.</summary>
-    public static class UnlitCleanup
-    {
-        public static readonly string Name = "unlit_cleanup";
-        /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>
-        public static readonly ulong Contract = 0x9EDE8CFC68A4081Eul;
-        public static readonly global::System.Type[] Tpl = [typeof(Ecs.Unlit)];
-        public static readonly global::System.Type[] Remove = [typeof(Ecs.Lantern)];
-    }
+        /// <summary>The game's ECS program <c>unlit_cleanup</c>.</summary>
+        public static class UnlitCleanup
+        {
+            public static readonly string Name = "unlit_cleanup";
+            /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>
+            public static readonly ulong Contract = 0x9EDE8CFC68A4081Eul;
+            public static readonly global::System.Type[] Tpl = [typeof(Ecs.Unlit)];
+            public static readonly global::System.Type[] Remove = [typeof(Ecs.Lantern)];
+        }
 
-    /// <summary>The game's ECS program <c>7</c>.</summary>
-    public static class Program7
-    {
-        public static readonly string Name = "7";
-        /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>
-        public static readonly ulong Contract = 0xF525EF2F57002508ul;
+        /// <summary>The game's ECS program <c>7</c>.</summary>
+        public static class Program7
+        {
+            public static readonly string Name = "7";
+            /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>
+            public static readonly ulong Contract = 0xF525EF2F57002508ul;
+        }
     }
 }

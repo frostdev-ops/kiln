@@ -12,7 +12,7 @@
        Properties: KilnGameDump (the dump; default below), KilnPython (default python3), KilnGameVariant (a short
        name: the variant gets intermediate and output folders of its own, so several dumps build side by side),
        KilnLocalGameTypes (a file that replaces the legacy part), KilnGamePrograms (a program catalog: adds the program
-       descriptors Kiln.EcsPrograms; a catalog is read from the exe and never committed, so only tests pass a made-up one). -->
+       descriptors Kiln.Ecs.Programs; a catalog is read from the exe and never committed, so only tests pass a made-up one). -->
   <PropertyGroup>
     <RootNamespace>Kiln.GameTypes</RootNamespace>
     <AssemblyName>Kiln.Game</AssemblyName>

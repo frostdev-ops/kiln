@@ -174,7 +174,7 @@ sit in a namespace a mod imports next to `using Kiln;`.
 The generator stops, naming both game types, when two types map to one C# name. It also stops when a type would
 take a name the root class uses for itself: the root's own name, `StaticArray<N>`, and the hand-written or reserved
 members of `Ecs` (`ObjectReference`, `GameGuid`, and for typed access `Get`, `TryGet`, `Has`, `All`, `Available`,
-`NameOf`, `Find`, `Read`, `TryRead`, `Write`, `TryWrite`, `Types`, `Layouts`, `Supports`, `WhyNot`, `RequireWorld`,
+`NameOf`, `Find`, `Read`, `TryRead`, `Write`, `TryWrite`, `Types`, `Layouts`, `Supports`, `WhyNot`, `RequireWorld`, `Programs`,
 and the names the generated code uses unqualified inside the class: `System`, `Kiln`, `Span`, the layout attributes and
 the marker interfaces; `ROOT_RESERVED` in `typegen.py`, to be
 extended with every hand-written member of `Ecs`). A struct field named `Hash`, `Name`, `QualifiedName`, `Size` or
@@ -473,7 +473,7 @@ reads a program catalog, `[{"name": "fuel_setup", "lists": {"0x18": ["FuelSetup"
 keys being offsets in the game's program descriptor (0x18 tpl, 0x28 tpl_opt, 0x38 read, 0x48 read_opt, 0x58 write,
 0x68 write_opt, 0x78 add, 0x88 remove, 0x98 sys_read, 0xB0 sys_write, 0xD0 other_tpl, 0xE0 other_read, 0xF0
 other_write, 0x100 other_write_unser, 0x110 with, 0x120 without, 0x130 any_of, 0x140 all_write, 0x150 all_read, 0x160
-events_in, 0x170 events_out), and writes `Kiln.Game.Programs.g.cs`: a static class `Kiln.EcsPrograms` with one nested
+events_in, 0x170 events_out), and writes `Kiln.Game.Programs.g.cs`: a static class `Ecs.Programs`, nested in the root class (`Kiln.EcsPrograms` is Kiln.Api's world-programs API), with one nested
 class per program (`FuelSetup`; a name that does not start with a letter gets `Program` in front) holding `Name`,
 `Contract` and each list as `Type[]` of generated types (`typeof(Ecs.Fuel)`; event lists name events; the two `sys_`
 lists stay names). A name the dump lacks in the component (or event) list, an unknown key or offset, and two programs

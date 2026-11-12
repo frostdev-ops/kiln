@@ -299,6 +299,14 @@ def test_programs_match_their_expected_output():
     assert f"Contract = 0x{typegen.fnv1a64(contract):016X}ul;" in text
 
 
+def test_the_programs_file_declares_no_type_directly_in_namespace_kiln():
+    text = read(os.path.join(EXPECTED, "Kiln.Game.Programs.g.cs")).decode()
+    body = text[text.index("namespace Kiln;"):]
+    top = [l for l in body.split("\n") if l and not l.startswith((" ", "{", "}", "//", "namespace "))]
+    assert top == ["public static partial class Ecs"], top   # only the root class itself, as a partial
+    assert "    public static class Programs" in text and "class EcsPrograms" not in text
+
+
 def programs_refused(name, catalog, *needles):
     p = os.path.join(WORK, "cat-" + name + ".json")
     with open(p, "w", encoding="utf-8") as f:

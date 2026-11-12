@@ -285,7 +285,8 @@ static class RoundTrip
             if (def?.GetCustomAttribute<InlineArrayAttribute>()?.Length != n) bad.Add($"StaticArray{n}: not an [InlineArray({n})]");
         }
         expectedTypes += lengths.Count;
-        int nested = root.GetNestedTypes(BindingFlags.Public).Length;
+        // Ecs.Programs (program descriptors, only in a build given a catalog) is not one of the dump's types.
+        int nested = root.GetNestedTypes(BindingFlags.Public).Count(t => t.Name != "Programs");
         if (nested != expectedTypes) bad.Add($"{Root} has {nested} public nested types; the dump makes {expectedTypes} (structs, enums, masks, array lengths, 2 hand-written)");
         return bad;
     }

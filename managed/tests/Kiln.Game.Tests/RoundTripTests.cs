@@ -77,7 +77,7 @@ public class RoundTripTests
     public void The_fixture_variant_compiles_the_program_descriptors_of_the_made_up_catalog()
     {
         var asm = Lanterns;
-        var glow = asm.GetType("Kiln.EcsPrograms+LanternGlow")!;
+        var glow = asm.GetType("Kiln.Ecs+Programs+LanternGlow")!;
         object? F(string n) => glow.GetField(n, BindingFlags.Public | BindingFlags.Static)!.GetValue(null);
         Assert.Equal("lantern_glow", F("Name"));
         Assert.Equal(["Kiln.Ecs+Lantern"], ((Type[])F("Tpl")!).Select(t => t.FullName));
@@ -85,8 +85,8 @@ public class RoundTripTests
         Assert.Equal(["Kiln.Ecs+Warmth"], ((Type[])F("Write")!).Select(t => t.FullName));
         Assert.Equal(["light_cache"], (string[])F("SysRead")!);
         Assert.Equal(["Kiln.Ecs+LanternLit"], ((Type[])F("EventsOut")!).Select(t => t.FullName));
-        Assert.NotNull(asm.GetType("Kiln.EcsPrograms+Program7"));
-        Assert.Null(GenRepo.GameAssembly.GetType("Kiln.EcsPrograms"));  // the shipped build has no catalog
+        Assert.NotNull(asm.GetType("Kiln.Ecs+Programs+Program7"));
+        Assert.Null(GenRepo.GameAssembly.GetType("Kiln.Ecs+Programs"));  // the shipped build has no catalog
     }
 
     [Fact]
