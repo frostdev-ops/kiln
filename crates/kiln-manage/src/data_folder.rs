@@ -1184,11 +1184,27 @@ mod sys {
     use std::path::Path;
     use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetVolumePathNameW};
 
+    /// The path as a NUL-terminated wide string. A full path that may pass MAX_PATH gets the `\\?\` prefix (as std does
+    /// for its own file calls): without it these Win32 calls fail for a folder deeper than 259 characters, unless long
+    /// paths are switched on for the PC and the program.
     fn wide(p: &Path) -> Vec<u16> {
-        p.as_os_str().encode_wide().chain(Some(0)).collect()
+        let s = p.as_os_str();
+        let text = s.to_string_lossy();
+        let long = s.encode_wide().count() >= 248;
+        let b = text.as_bytes();
+        let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/');
+        let unc = text.starts_with(r"\\") && !text.starts_with(r"\\?\") && !text.starts_with(r"\\.\");
+        // `C:\…` -> `\\?\C:\…`, `\\server\share\…` -> `\\?\UNC\server\share\…` (a verbatim path takes `\` only)
+        let (prefix, skip) = match (long, drive, unc) {
+            (true, true, _) => (r"\\?\", 0),
+            (true, false, true) => (r"\\?\UNC", 1),
+            _ => ("", 0),
+        };
+        let sep = |c: u16| if !prefix.is_empty() && c == u16::from(b'/') { u16::from(b'\\') } else { c };
+        prefix.encode_utf16().chain(s.encode_wide().skip(skip).map(sep)).chain(Some(0)).collect()
     }
 
-    /// `C:\` for `C:\a\b`, `\\server\share\` for a share, the mount folder for a mounted volume.
+    /// `C:\` for `C:\a\b`, `\\server\share\` for a share, the mount folder for a mounted volume (without `\\?\`).
     fn volume_of(p: &Path) -> Option<String> {
         let w = wide(p);
         let mut buf = vec![0u16; 32_768];
@@ -1197,7 +1213,8 @@ mod sys {
             return None;
         }
         let n = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
-        Some(String::from_utf16_lossy(&buf[..n]))
+        let v = String::from_utf16_lossy(&buf[..n]);
+        Some(crate::steam::strip_verbatim(v.into()).to_string_lossy().into_owned())
     }
 
     pub fn space(dir: &Path) -> Option<Space> {
