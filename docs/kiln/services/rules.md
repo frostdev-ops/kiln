@@ -451,11 +451,18 @@ It never lands, because without collision there is no ground. Water does not end
 - The switch or the rule set going off, or the server's limits changing. If the character is in open space, collision
   simply returns and it falls or stands as the game decides. If it is inside something, Kiln first moves it back to the
   **last free position** (the last place where the cells at its knees, waist and head were empty; at first, where
-  NoClip was turned on) and only then lets collision return; `NoClipState.Restoring` is true meanwhile (normally two
+  NoClip was turned on: collision was on there, so that place counts as free even with matter at knee height beside
+  the character, as on a slope or a step, for as long as its cells stay what they were) and only then lets collision
+  return; `NoClipState.Restoring` is true meanwhile (normally two
   or three steps), and `PlayerNoClipEndedEvent.RestoredTo` says where it was put. Collision never returns while a
-  living character is inside something: a move that fails is tried again every second, and until the character is in
-  open space (by the move, or because the player flew out) it keeps flying without collision, with a warning in
-  kiln.log. After a move back the character is kept safe until it stands on the ground (as after a carried flight),
+  living character is inside something. Having arrived is not enough: the place is asked again, and only open space
+  ends the wait. A move that fails is tried again every second (never two moves at once). A move that lands where
+  something has been built meanwhile is not repeated, and when there is no place to move the character to (NoClip
+  began outside the world's bounds) nothing is moved: in both cases it keeps flying without collision, with a warning
+  in kiln.log, until that place is free again or the player flies out into open space. A death during
+  the wait ends it (the game moves the body), and so does a teleport by the game or a mod (fast travel): the
+  character stays where that put it, the event's `Reason` is `Teleport`, and Kiln never pulls it back.
+  After a move back the character is kept safe until it stands on the ground (as after a carried flight),
   since the free position can be in the air; turning NoClip on again ends that protection. This order
   matters: the game does not push a character out of solid ground. In a lab a character whose rule ended 7 m inside
   rock fell straight through the world, while one whose feet were about 1 m under the surface was lifted out by the

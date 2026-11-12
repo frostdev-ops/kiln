@@ -264,6 +264,17 @@ bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
     return rules_for(ctx, entity, &r) && noclip(r) && flown_recently(*entity, dyn);
 }
 
+void forget_local() { g_local_player.store(0); }
+
+// A world that stops takes its characters with it: ownership (keyed by their objects) goes. A world that starts has no
+// flights yet, and another world may be running with characters in Kiln's flight (a host's server world when its
+// prediction starts): only the cached local identity is dropped then. Dropping ownership at a start orphaned those
+// flights: still flying, and no longer Kiln's to land or to end.
+void world(uint32_t event) {
+    if (event == KILN_WORLD_STOPPING) reset();
+    else if (event == KILN_WORLD_STARTED) forget_local();
+}
+
 void reset() {
     g_local_player.store(0);
     g_flew.store(false);

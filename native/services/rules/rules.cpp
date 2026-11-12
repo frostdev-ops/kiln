@@ -1209,10 +1209,8 @@ void clear_all() {
 void arm_payments();
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
-    if (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING) {
-        kiln_rules_flight::reset();
-        kiln_rules_noclip::reset();
-    }
+    kiln_rules_flight::world(ev->event);  // ownership ends with a world that stops, not with one that starts
+    if (ev->event == KILN_WORLD_STOPPING) kiln_rules_noclip::reset();
     if (ev->kind == KILN_WORLD_CLIENT && ev->event == KILN_WORLD_STOPPING) store(g_local, nullptr);
     if (ev->event == KILN_WORLD_STARTED) arm_payments();
     if (ev->kind == KILN_WORLD_CLIENT && (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING))

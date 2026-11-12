@@ -19,6 +19,8 @@ public class NoClipTrackTests
 
         public WorldPosition? Position => At;
         public NoClipSpace Space(WorldPosition at) => Kind(at);
+        public Func<WorldPosition, ulong>? Shape;  // the cells there; by default they change when the kind of place does
+        public ulong Cells(WorldPosition at) => Shape?.Invoke(at) ?? (ulong)Kind(at);
         public byte? Teleports => Count;
         public bool Dead => IsDead;
         public bool InWorld(WorldPosition at) => at.Y > -500;
@@ -106,7 +108,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = new WorldPosition(100, 70, 100);
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         Assert.False(t.On);
         Assert.False(t.Restoring);
         Assert.Empty(w.Moves);
@@ -121,7 +123,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         Assert.False(t.On);
         Assert.True(t.Restoring);               // the hooks must not hear of the end yet
         Assert.Equal(Surface, Assert.Single(w.Moves).To);
@@ -142,7 +144,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         w.Refuse("the entity is busy");
         var r = t.Step();
         Assert.False(r.Released);
@@ -174,7 +176,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         for (var i = 0; i < 500; i++)
         {
             w.Clock = w.Clock.AddSeconds(0.04);
@@ -192,7 +194,7 @@ public class NoClipTrackTests
         w.At = Deep;
         t.Step();
         w.Throws = true;
-        t.Leaving();
+        t.Leaving(out _);
         Assert.True(t.Restoring);               // could not even start: held all the same
         var r = t.Step();
         Assert.False(r.Released);
@@ -211,7 +213,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         // the service says moved, but the character is far from the target and still in rock
         var (to, done) = w.Moves[^1];
         w.At = new WorldPosition(100, 20, 100);
@@ -228,7 +230,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         w.Refuse("busy");
         t.Step();
         w.At = new WorldPosition(100, 55, 100);  // collision is still off: the player flew up into the open
@@ -243,7 +245,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         w.IsDead = true;
         Assert.True(t.Step().Released);
         Assert.False(t.Restoring);
@@ -256,24 +258,224 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         w.At = null;
         Assert.True(t.Step().Released);
         Assert.False(t.Restoring);
     }
 
     [Fact]
-    public void NoFreePositionToGoToMeansNoMove()
+    public void WithNowhereToGoBackToCollisionWaitsUntilTheCharacterIsFree()
     {
         var w = new FakeWorld { Kind = Rock, At = new WorldPosition(100, -700, 100) };  // it began outside the world
         var t = new NoClipTrack(w);
         t.Entering();
         w.At = new WorldPosition(100, -650, 100);
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
+        Assert.True(t.Restoring);               // inside something: collision does not come back, move or no move
+        Assert.Empty(w.Moves);
+        for (var i = 0; i < 100; i++)
+        {
+            w.Clock = w.Clock.AddSeconds(0.5);
+            Assert.False(t.Step().Released);
+        }
+        Assert.Empty(w.Moves);                  // there is no place Kiln may move it to
+        Assert.Empty(Ended(t));
+        w.At = new WorldPosition(100, 60, 100); // the player flew out
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)null)], Ended(t));
+    }
+
+    [Fact]
+    public void LandingAtTheTargetIsNotEnoughWhenThePlaceIsNoLongerFree()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.Kind = _ => NoClipSpace.Inside;       // someone built over the last free position meanwhile
+        w.Land();
+        var r = t.Step();
+        Assert.False(r.Released);               // at the target, and inside something there
+        Assert.True(t.Restoring);
+        Assert.Contains("inside something there", r.Problem);
+        Assert.Empty(Ended(t));
+        // the same move again would change nothing: it is not repeated, and it is said once
+        for (var i = 0; i < 10; i++)
+        {
+            w.Clock = w.Clock.AddSeconds(NoClipTrack.RetrySeconds + 0.1);
+            var again = t.Step();
+            Assert.False(again.Released);
+            Assert.Null(again.Problem);
+        }
+        Assert.Single(w.Moves);
+        Assert.True(t.Restoring);
+        w.Kind = Rock;                          // what was built there is taken away again
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)Surface)], Ended(t));  // it is where the move put it
+    }
+
+    // A slope: where the character stands there is matter at knee height beside it, so the cells never read as empty
+    // there, and below y 49 is rock. The cells' own number only changes when someone builds.
+    private static (NoClipTrack, FakeWorld) FlyingFromASlope()
+    {
+        var w = new FakeWorld { Kind = p => p.Y < 52 ? NoClipSpace.Inside : NoClipSpace.Free, Shape = _ => 77 };
+        var t = new NoClipTrack(w);
+        t.Entering();
+        return (t, w);
+    }
+
+    [Fact]
+    public void WhereNoClipBeganIsFreeBecauseCollisionWasOnThere()
+    {
+        // on and off again without moving: nothing to move back from, whatever the cells say
+        var (t, w) = FlyingFromASlope();
+        t.Step();
+        Assert.Null(t.Leaving(out _));
         Assert.False(t.Restoring);
         Assert.Empty(w.Moves);
-        Assert.Single(Ended(t));
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)null)], Ended(t));
+    }
+
+    [Fact]
+    public void PutBackWhereNoClipBeganTheCharacterIsReleasedThere()
+    {
+        // seen in a lab: the starting place on sloped ground was the last free position, and its cells are not empty
+        var (t, w) = FlyingFromASlope();
+        w.At = Deep;
+        t.Step();
+        Assert.Equal(Surface, t.LastFree);
+        t.Leaving(out _);
+        Assert.True(t.Restoring);
+        Assert.Equal(Surface, Assert.Single(w.Moves).To);
+        w.Land();
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)Surface)], Ended(t));
+        Assert.Single(w.Moves);
+    }
+
+    [Fact]
+    public void WhereNoClipBeganNoLongerCountsOnceSomethingWasBuiltThere()
+    {
+        var (t, w) = FlyingFromASlope();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.Shape = _ => 78;                      // a block was placed at the starting place meanwhile
+        w.Land();
+        var r = t.Step();
+        Assert.False(r.Released);
+        Assert.True(t.Restoring);
+        Assert.Contains("inside something there", r.Problem);
+        w.At = new WorldPosition(100, 60, 100); // the player flies out
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)null)], Ended(t));
+    }
+
+    [Fact]
+    public void AStepAwayFromWhereNoClipBeganTheCellsDecideAgain()
+    {
+        var (t, w) = FlyingFromASlope();
+        w.At = new WorldPosition(100.5, 50, 100);  // half a metre along the slope, still in matter by the cells
+        t.Step();
+        t.Leaving(out _);
+        Assert.True(t.Restoring);
+        Assert.Equal(Surface, Assert.Single(w.Moves).To);
+    }
+
+    [Fact]
+    public void AnUnknownPlaceIsNotAFreeOne()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.Kind = _ => NoClipSpace.Unknown;      // the voxels at the target are not loaded
+        w.Land();
+        Assert.False(t.Step().Released);
+        Assert.True(t.Restoring);
+    }
+
+    [Fact]
+    public void FlyingOutWhileTheMoveIsStillOutReleasesAtOnce()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.At = new WorldPosition(100, 55, 100); // free, with the move not answered yet
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)null)], Ended(t));
+        // the move lands later, on a character with collision, at a place that was free: nothing ends twice
+        w.Land();
+        Assert.Equal(default, t.Step());
+        Assert.Empty(Ended(t));
+    }
+
+    [Fact]
+    public void AMoveStillOutAfterADeathIsNeitherDoubledNorTakenForATeleport()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.IsDead = true;
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.Death, (WorldPosition?)null)], Ended(t));
+        // respawned, NoClip on again, inside something again, off again: the first move has still not answered
+        w.IsDead = false;
+        w.At = new WorldPosition(500, 60, 500);
+        t.Entering();
+        Assert.Null(t.Step().Trip);
+        w.At = new WorldPosition(500, 40, 500);
+        t.Step();
+        t.Leaving(out _);
+        Assert.True(t.Restoring);
+        Assert.Single(w.Moves);                 // no second move on top of the one that is out
+        // the old move lands (at the old place, far from this hold's): Kiln's own teleport, not the game's
+        w.Land();
+        var r = t.Step();
+        Assert.True(r.Released);                // the old place is free, and free is what counts
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)null)], Ended(t));
+        t.Entering();
+        Assert.Null(t.Step().Trip);
+    }
+
+    [Fact]
+    public void ATeleportByTheGameDuringTheHoldEndsItWhereTheGamePutTheCharacter()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.Refuse("busy");
+        t.Step();                               // waiting for the next try
+        w.Count = 8;                            // fast travel
+        w.At = new WorldPosition(4000, 300, 4000);
+        w.Kind = _ => NoClipSpace.Unknown;      // not loaded there yet
+        Assert.True(t.Step().Released);
+        Assert.False(t.Restoring);
+        Assert.Equal([(NoClipEnd.Teleport, (WorldPosition?)null)], Ended(t));
+        w.Clock = w.Clock.AddSeconds(5);
+        t.Step();
+        Assert.Single(w.Moves);                 // never pulled back
+    }
+
+    [Fact]
+    public void ATeleportWhileNoClipWasAskedAgainDuringAHoldStillEndsIt()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.Refuse("busy");
+        t.Step();
+        t.Entering();                           // on again during the hold
+        w.Count = 8;                            // and then the game teleports the character
+        w.At = new WorldPosition(4000, 300, 4000);
+        t.Step();                               // the hold ends (NoClip is on again) …
+        Assert.Equal(NoClipEnd.Teleport, t.Step().Trip);  // … and the teleport is not swallowed
     }
 
     [Fact]
@@ -284,7 +486,7 @@ public class NoClipTrackTests
         t.Step();
         w.IsDead = true;
         Assert.Equal(NoClipEnd.Death, t.Step().Trip);
-        t.Leaving();  // the runtime used up the requests and resolved
+        t.Leaving(out _);  // the runtime used up the requests and resolved
         Assert.False(t.Restoring);
         Assert.Empty(w.Moves);  // the game moves a dead character itself
         Assert.Equal([(NoClipEnd.Death, (WorldPosition?)null)], Ended(t));
@@ -295,7 +497,7 @@ public class NoClipTrackTests
         w.Count = 8;
         w.At = new WorldPosition(900, 30, 900);  // where the game put it; the voxels there say rock (or are not loaded)
         Assert.Equal(NoClipEnd.Teleport, t.Step().Trip);
-        t.Leaving();
+        t.Leaving(out _);
         Assert.False(t.Restoring);
         Assert.Empty(w.Moves);  // never pulled back to where it came from
         Assert.Equal([(NoClipEnd.Teleport, (WorldPosition?)null)], Ended(t));
@@ -312,10 +514,37 @@ public class NoClipTrackTests
         w.Count = 8;
         w.At = new WorldPosition(4000, 300, 4000);
         w.Kind = _ => NoClipSpace.Unknown;
-        t.Leaving();
+        // the runtime is told, with where the character was before: the area's request is used up like any other
+        Assert.Equal(NoClipEnd.Teleport, t.Leaving(out var before));
+        Assert.Equal(new WorldPosition(100, 60, 100), before);
         Assert.False(t.Restoring);
         Assert.Empty(w.Moves);
         Assert.Equal([(NoClipEnd.Teleport, (WorldPosition?)null)], Ended(t));
+    }
+
+    [Fact]
+    public void ADeathThatTheRulesNoticeFirstIsToldToo()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        w.IsDead = true;
+        Assert.Equal(NoClipEnd.Death, t.Leaving(out _));
+        Assert.False(t.Restoring);
+        Assert.Equal([(NoClipEnd.Death, (WorldPosition?)null)], Ended(t));
+    }
+
+    [Fact]
+    public void WhatTheStepReportedIsNotToldASecondTime()
+    {
+        var (t, w) = Flying();
+        w.Count = 8;
+        Assert.Equal(NoClipEnd.Teleport, t.Step().Trip);
+        Assert.Null(t.Leaving(out _));          // the runtime used the requests up when the step said so
+        (t, w) = Flying();
+        w.At = new WorldPosition(100, 70, 100);
+        t.Step();
+        Assert.Null(t.Leaving(out _));          // a plain end has nothing to use up
     }
 
     [Fact]
@@ -336,7 +565,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         Assert.True(t.Restoring);
         // on again before the move lands
         t.Entering();
@@ -344,7 +573,7 @@ public class NoClipTrackTests
         Assert.Equal(Surface, t.LastFree);       // not replaced by the place in the rock
         Assert.Equal(default, t.Step());         // the move is still in flight
         // off again, still before it lands: no second move, no report yet
-        t.Leaving();
+        t.Leaving(out _);
         Assert.True(t.Restoring);
         Assert.Single(w.Moves);
         Assert.Empty(Ended(t));
@@ -359,7 +588,7 @@ public class NoClipTrackTests
         var (t, w) = Flying();
         w.At = Deep;
         t.Step();
-        t.Leaving();
+        t.Leaving(out _);
         t.Entering();
         w.Land();                                // the move's own teleport bumps the game's counter
         Assert.Equal(default, t.Step());
@@ -377,14 +606,14 @@ public class NoClipTrackTests
     public void ItCanBeUsedAgainAfterItEnded()
     {
         var (t, w) = Flying();
-        t.Leaving();
+        t.Leaving(out _);
         Ended(t);
         w.At = new WorldPosition(10, 60, 10);
         w.Count = 20;
         t.Entering();
         Assert.Equal(w.At, t.LastFree);
         Assert.Null(t.Step().Trip);              // the counter is read anew at each start
-        t.Leaving();
+        t.Leaving(out _);
         Assert.Single(Ended(t));
     }
 
@@ -393,7 +622,7 @@ public class NoClipTrackTests
     {
         var w = new FakeWorld();
         var t = new NoClipTrack(w);
-        t.Leaving();
+        t.Leaving(out _);
         Assert.Equal(default, t.Step());
         Assert.Empty(Ended(t));
         Assert.Empty(w.Moves);

@@ -99,6 +99,18 @@ int main() {
     check(!f::flown_recently(e, other_dyn), "a reused non-player id does not borrow an old object's flight ownership");
     f::reset();
     check(!f::flight_possible() && !f::flown_recently(e, dyn), "world reset forgets flight ownership and restores the fast path");
+    // a world that starts while a flight runs in another one (a host's prediction beside its server world)
+    set_rule(e, &rule); f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STARTED);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn) && f::flight_possible(),
+          "a world that starts leaves the flights of a running world Kiln's");
+    dyn[0x59] = flight_math::kBuildingFlying; c.rax = flight_math::kBuildingFlying; set_rule(e, nullptr);
+    f::state_body(c);
+    check(c.rax == flight_math::kFalling, "and such a flight still ends when its rule goes");
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STOPPING);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn) && !f::flight_possible(), "a world that stops forgets flight ownership");
+    dyn[0x59] = flight_math::kFalling; c.rax = flight_math::kFalling;
 
     KilnApi api{}; api.service = &service; api.feature = &feature;
     KilnClientApi client{}; client.state = &client_state;
@@ -115,7 +127,11 @@ int main() {
     const int host_ticks = kiln_rules_noclip::ticks;
     f::client_pre(nullptr, nullptr);
     check(kiln_rules_noclip::ticks == host_ticks, "a host's client tick does not age it (its server tick does)");
-    session = KILN_SESSION_REMOTE; f::refresh(); f::reset();
+    session = KILN_SESSION_REMOTE; f::refresh();
+    check(f::g_local_player != 0, "a joined client caches its local player");
+    f::world(KILN_WORLD_STARTED);
+    check(f::g_local_player == 0, "a world that starts drops the cached local identity immediately");
+    f::refresh(); f::reset();
     check(f::g_local_player == 0, "world reset drops the cached local identity immediately");
     set_rule(e, &rule);
     kiln_rules_creative::test_idle = true;

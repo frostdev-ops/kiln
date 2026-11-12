@@ -186,6 +186,16 @@ public class NoClipTests
     }
 
     [Fact]
+    public void AnUnknownConnectionIsNeverAnotherPlayer()
+    {
+        Assert.True(RulesRuntime.Replaced(41, 42));   // the entity id went to the next player
+        Assert.False(RulesRuntime.Replaced(41, 41));
+        Assert.False(RulesRuntime.Replaced(0, 42));   // not known when the rules were first applied: the same player, now known
+        Assert.False(RulesRuntime.Replaced(41, 0));   // not readable right now
+        Assert.False(RulesRuntime.Replaced(0, 0));
+    }
+
+    [Fact]
     public void TheResultFollowsTheOneErrorRule()
     {
         IKilnResult ok = new NoClipResult(true, true, null, "NoClip on for someone.");

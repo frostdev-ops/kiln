@@ -30,7 +30,7 @@ public static class NoClip
     private static readonly Dictionary<EntityId, RuleSet> Sets = new();
     // players whose switch is being turned on right now: applying the rule set posts events, and a handler that calls
     // Set for the same player must not make a second set
-    private static readonly HashSet<EntityId> Turning = new();
+    private static readonly Dictionary<EntityId, bool> Turning = new();  // value: an "off" came in meanwhile
 
     /// <summary>True when this build can do it (the capability <see cref="Capability"/>). The server's
     /// <c>rules.json</c> and the player's game still decide for each player (<see cref="Set"/> says why not).</summary>
@@ -61,6 +61,12 @@ public static class NoClip
         }
         if (!on)
         {
+            if (Turning.ContainsKey(player))
+            {
+                // asked from a handler while the switch is being turned on: it is ended when that is done
+                Turning[player] = true;
+                return new(true, false, null, $"NoClip off for {name}.");
+            }
             if (own is null)
             {
                 var still = RulesRuntime.Fresh(player).NoClip;
@@ -90,8 +96,9 @@ public static class NoClip
             });
         if (!RulesRuntime.CanPredictNoClip(player))
             return new(false, false, "client", $"NoClip stays off for {name}: their game has not confirmed the collision hook (an older Kiln, or a game build without it).");
-        if (!Turning.Add(player))
+        if (!Turning.TryAdd(player, false))
             return new(true, RulesRuntime.Fresh(player).NoClip, null, $"NoClip is being turned on for {name}.");
+        var offAsked = false;
         // Kiln's rule set, whoever asked: it outlives the mod or tool that turned it on
         var outer = ModContext.CurrentMod;
         ModContext.CurrentMod = null;
@@ -103,7 +110,14 @@ public static class NoClip
         finally
         {
             ModContext.CurrentMod = outer;
-            Turning.Remove(player);
+            Turning.Remove(player, out offAsked);
+        }
+        if (offAsked)
+        {
+            // a handler of this very change asked for off: it wins, being the later word
+            Sets.Remove(player);
+            own?.Dispose();
+            return new(true, RulesRuntime.Fresh(player).NoClip, null, $"NoClip for {name} was turned off again while it was being turned on.");
         }
         if (!RulesRuntime.Fresh(player).NoClip)
         {
@@ -320,5 +334,14 @@ internal static class NoClipMath
             else if (!v.IsAir) return NoClipSpace.Inside;
         }
         return unknown ? NoClipSpace.Unknown : NoClipSpace.Free;
+    }
+
+    /// <summary>A number for the cells <see cref="Space"/> looks at: each one's material and fill, or that it is not
+    /// loaded. Equal numbers: nothing was built, dug or (un)loaded there in between.</summary>
+    public static ulong Cells(WorldPosition at, Func<WorldPosition, Voxel?> voxel)
+    {
+        ulong all = 0;
+        foreach (var dy in Body) all = all << 17 | (voxel(at with { Y = at.Y + dy }) is { } v ? v.Raw : 0x10000u);
+        return all;
     }
 }
