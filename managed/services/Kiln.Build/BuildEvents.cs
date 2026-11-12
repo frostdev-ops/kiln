@@ -4,7 +4,7 @@ namespace Kiln;
 /// <summary>What a Kiln edit is.</summary>
 public enum BuildEditKind
 {
-    /// <summary>Exact cells (<see cref="Build.Write(CellBox, ReadOnlySpan{Voxel}, BuildOptions?)"/>).</summary>
+    /// <summary>Exact cells (<see cref="Build.Write(CellBox, ReadOnlySpan{Voxel}, BuildOptions?, ReadOnlySpan{bool})"/>).</summary>
     Write = 1,
     Dig,
     Add,
