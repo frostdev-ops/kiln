@@ -3,6 +3,7 @@
 // its body in __try. Layouts: docs/re/items.md (svn 1285601, cross-checked against EMF 0.3.3's notes for 1269579 /
 // 1273043, MIT).
 #include "engine.h"
+#include "instances.h"
 #include "pide.h"
 
 #include <windows.h>
@@ -291,8 +292,10 @@ void run_give(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnItems
         std::snprintf(res->message, sizeof res->message, "note: %u queued vs %u reported", queued, res->done);
     }
     if (commit && gear) {  // the game created each item entity at commit
-        for (uint32_t i = 0; i < res->change_count; ++i)
+        for (uint32_t i = 0; i < res->change_count; ++i) {
             if (const uint8_t* st = stack_at(a, res->changes[i].slot)) res->changes[i].pide = rd<uint32_t>(st, 8);
+            res->changes[i].reserved = stamp_for(res->changes[i].pide, res->changes[i].item);  // v4: its stamp, at the commit
+        }
     }
     if (res->done == 0) {
         res->change_count = 0;
@@ -356,8 +359,10 @@ void run_recipe(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnIte
     }
     res->done = r.count;
     if (!dry)
-        for (uint32_t i = 0; i < res->change_count; ++i)
+        for (uint32_t i = 0; i < res->change_count; ++i) {
             if (const uint8_t* st = stack_at(a, res->changes[i].slot)) res->changes[i].pide = rd<uint32_t>(st, 8);
+            res->changes[i].reserved = stamp_for(res->changes[i].pide, res->changes[i].item);
+        }
     res->status = KILN_ITEMS_DONE;
 }
 
@@ -402,6 +407,10 @@ void run_take(const Access& a, const KilnItemsRequest& r, uint8_t* tx, KilnItems
     if (commit) E.commit(tx);
     else E.rollback(tx);
     E.free_arrays(tx);
+    // v4: the stamps of the item entities the take destroys (tombstones from now on), or would destroy (dry run)
+    for (uint32_t i = 0; i < res->change_count; ++i)
+        res->changes[i].reserved = commit ? stamp_destroyed(res->changes[i].pide, res->changes[i].item)
+                                          : stamp_for(res->changes[i].pide, res->changes[i].item);
     if (out.error) {
         res->change_count = 0;
         return fail(res, KILN_ITEMS_REFUSED, "the game refused it (error 0x%02x)", out.error);
@@ -461,6 +470,7 @@ void read_impl(uintptr_t world, void* registry, KilnEntity e, ReadOut* out) {
                 }
                 if (sl.pide) {
                     sl.flags |= KILN_ITEMS_SLOT_GEAR;
+                    sl.reserved = stamp_for(sl.pide, sl.item);  // v4: its stamp, at this read
                     if (const auto* is = static_cast<const uint8_t*>(component(world, kHashItemState, sl.pide,
                                                                                 kItemStateSize))) {
                         sl.state = rd<uint16_t>(is, 0x0E);
@@ -778,6 +788,7 @@ uint32_t read_slots_impl(const Access& a, KilnEntity e, KilnItemsSlot* out, uint
                 }
                 if (sl.pide) {
                     sl.flags |= KILN_ITEMS_SLOT_GEAR;
+                    sl.reserved = stamp_for(sl.pide, sl.item);  // v4: its stamp, at this read
                     if (const auto* is = static_cast<const uint8_t*>(other_sized(a, A_ITEMSTATE, sl.pide, kItemStateSize))) {
                         sl.state = rd<uint16_t>(is, 0x0E);
                         sl.rarity = is[0x10];
@@ -876,6 +887,7 @@ void fill_changes(KilnItemsMoveResult* res, const std::vector<PageSet>& v) {
         c.item = ch[i].item;
         c.amount = ch[i].amount;
         c.pide = ch[i].pide;
+        c.reserved = stamp_for(c.pide, c.item);  // v4: the item entity moves whole, stamp and all
     }
 }
 
