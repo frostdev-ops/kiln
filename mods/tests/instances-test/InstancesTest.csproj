@@ -19,7 +19,11 @@
     <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
     <!-- instance data (DataChecks.cs, task t4) -->
     <ProjectReference Include="../../../managed/services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- simulated players and the guided client checks (PlayerChecks.cs, ClientChecks.cs, task t3) -->
+    <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="fixtures/**" />
     <!-- rider/ is a second mod of its own (instances-rider, task t4), built by its own project -->
     <Compile Remove="rider/**" />
     <None Remove="rider/**" />
