@@ -71,6 +71,23 @@ public sealed class WatchdogTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ASetupThatBlocksIsStoppedAndFailsTheSession()
+    {
+        using var session = new KilnTestSession(k =>
+        {
+            var mod = k.Load<TkBlockMod>(new ModManifest("tk-block"));
+            k.Run(() => Thread.Sleep(Timeout.Infinite));
+            return mod;
+        }, options: new KilnTestOptions { SetupTimeout = TimeSpan.FromSeconds(1) });
+        var e = Assert.Throws<InvalidOperationException>(() => session.Run("TkBlockMod.Passes_after_the_wait"));
+        output.WriteLine(e.Message);
+        Assert.StartsWith("the suite's setup blocked the tick thread for more than 1 s and was stopped by Thread.Interrupt", e.Message);
+        Assert.Contains("ASetupThatBlocksIsStoppedAndFailsTheSession", e.Message);  // the stack: the test's own lambda
+        Assert.Throws<InvalidOperationException>(() => session.Run("TkBlockMod.Passes_after_the_wait"));
+        Assert.Equal(1, session.HarnessCount);
+    }
+
+    [Fact]
     public void AStoppedHarnessLeavesNoHandlerOrCommandBehind()
     {
         using (var session = Session())

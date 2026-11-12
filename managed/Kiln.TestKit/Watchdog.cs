@@ -35,8 +35,11 @@ internal sealed record StopReport(string Subject, TimeSpan Budget, StopKind Kind
 /// The stack is taken on the tick thread by a first-chance handler when the interrupt or the abort is thrown there, so it
 /// shows the frames of the code that blocked. The harness is abandoned afterwards in every case.
 /// </summary>
-internal sealed class Watchdog
+internal sealed partial class Watchdog
 {
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\s*at Kiln\.TestKit\.(KilnHarness|TickThread|Watchdog)\b", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex KitFrame();
+
     private static int _supported = 1;  // ControlledExecution.Run works on this runtime (until it says otherwise)
 
     private readonly CancellationTokenSource _abort = new();
@@ -194,6 +197,16 @@ internal sealed class Watchdog
         }
     }
 
+    // The frames down to the harness's own (the kit's call plumbing and its tick thread loop say nothing about the test).
+    private static string Trim(string stack)
+    {
+        var lines = stack.Split('\n').Select(l => l.TrimEnd('\r'))
+            .SkipWhile(l => l.Contains("System.Runtime.ExceptionServices.InternalCalls.", StringComparison.Ordinal))  // the throw's own machinery
+            .ToList();
+        var at = lines.FindIndex(l => KitFrame().IsMatch(l));
+        return at <= 0 ? string.Join('\n', lines).TrimEnd() : string.Join('\n', lines.Take(at)) + "\n   (then the test kit's frames: a harness call on its tick thread)";
+    }
+
     // On the stopped thread, at the throw of the interrupt or the abort: the stack where it was blocked.
     private void OnFirstChance(object? sender, FirstChanceExceptionEventArgs e)
     {
@@ -201,8 +214,7 @@ internal sealed class Watchdog
         if (e.Exception is not (ThreadInterruptedException or ThreadAbortException or OperationCanceledException)) return;
         try
         {
-            var frames = new StackTrace(1, fNeedFileInfo: true).ToString();
-            Interlocked.CompareExchange(ref _stack, frames, null);
+            Interlocked.CompareExchange(ref _stack, Trim(new StackTrace(1, fNeedFileInfo: true).ToString()), null);
         }
         catch (Exception)
         {
