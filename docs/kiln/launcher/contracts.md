@@ -246,8 +246,12 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   it aside and removing it) is proved under its original name and removed where it is; one its original name does not
   prove stays as it is, named ("a removal that stopped set it aside under this name, and ..."). Windows: the file is
   opened for its proof so that others may read it but not write or delete it, and it is deleted through that same handle
-  (`FileDispositionInfoEx` with POSIX semantics, the read-only attribute ignored; else the read-only attribute cleared
-  through the handle and `FileDispositionInfo`); no set-aside name is needed there. A file another program has open for
+  (`FileDispositionInfoEx` with POSIX semantics, the read-only attribute ignored, which needs only the right to delete;
+  else the read-only attribute cleared through the handle and `FileDispositionInfo`); no set-aside name is needed there.
+  The handle asks for the right to write the file's attributes too, which that fallback needs, and is opened without it
+  where it is refused (Wine refuses it on a read-only file); then a read-only file only the fallback could delete stays
+  ("it could not be removed: it is read-only and Windows did not let Kiln clear that, so it stays"). A file proved by
+  its identity (a hard link) is opened to read its attributes, not its content. A file another program has open for
   writing, or without letting it be deleted, does not open and stays ("it could not be removed: another program has it
   open, so it stays"). On Linux one case stays open: a program outside Kiln that already has a file of the folder open
   and writes it in the moment between Kiln's last check and the removal loses that write.

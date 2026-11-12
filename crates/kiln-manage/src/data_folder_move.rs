@@ -399,6 +399,9 @@ pub mod guard_reason {
     pub const WRITTEN_AGAIN: &str = "another program wrote a new file under this name while Kiln removed the one it had proved, so it stays";
     /// Windows: another program has the file open for writing, or without letting it be deleted.
     pub const HELD: &str = "it could not be removed: another program has it open, so it stays";
+    /// Windows: a read-only file this Windows deletes only after its read-only attribute is cleared, and Kiln was not
+    /// given the right to clear it.
+    pub const READ_ONLY: &str = "it could not be removed: it is read-only and Windows did not let Kiln clear that, so it stays";
     /// The start of the reason for a file found under its set-aside name that is not proved.
     pub const LEFT_SET_ASIDE: &str = "a removal that stopped set it aside under this name, and ";
 }
@@ -691,6 +694,9 @@ struct Proved {
     again: Again,
     /// It is under its set-aside name already (found after a crash): it is checked again and removed where it is.
     set_aside: bool,
+    /// Windows: the handle may write the file's attributes (the removal's fallback clears the read-only attribute).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    write_attributes: bool,
 }
 
 /// What became of a proved file.
@@ -703,24 +709,12 @@ enum Outcome {
     Stays { at: PathBuf, reason: String },
 }
 
-/// Opens a file to prove it. Unix: never through a link at its own name (`O_NOFOLLOW`; the folders on the way are
-/// checked by rule 2). Windows: others may go on reading it, never write or delete it, for as long as the handle is
-/// open; it carries the right to delete it, which its removal uses.
+/// Opens a file to prove it: never through a link at its own name (`O_NOFOLLOW`; the folders on the way are checked by
+/// rule 2).
 #[cfg(unix)]
 fn open_for_proof(p: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(p)
-}
-
-#[cfg(windows)]
-fn open_for_proof(p: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ, FILE_SHARE_READ, FILE_WRITE_ATTRIBUTES};
-    std::fs::OpenOptions::new()
-        .access_mode(FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES)
-        .share_mode(FILE_SHARE_READ)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(p)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -728,8 +722,38 @@ fn open_for_proof(p: &Path) -> std::io::Result<std::fs::File> {
     std::fs::File::open(p)
 }
 
+/// The handle a file is proved and removed through; `identity`: proved by its identity alone (a hard link, never
+/// read). True with it: the handle may write the file's attributes (Windows).
+#[cfg(not(windows))]
+fn open_to_prove(p: &Path, identity: bool) -> std::io::Result<(std::fs::File, bool)> {
+    Ok((if identity { open_for_identity(p)? } else { open_for_proof(p)? }, false))
+}
+
+/// Windows: others may go on reading the file, never write or delete it, for as long as the handle is open; the
+/// handle carries the right to delete it (`FileDispositionInfoEx` needs only that). It asks for the right to write the
+/// file's attributes too, which the fallback for a Windows without `FileDispositionInfoEx` (or a disk without POSIX
+/// deletes, FAT and exFAT) needs to clear the read-only attribute, and Windows grants on a read-only file; where that
+/// right is refused (Wine refuses it on a read-only file) the file is opened without it, before anything is proved,
+/// and then a read-only file only the fallback could delete stays ([`guard_reason::READ_ONLY`]). A file proved by its
+/// identity is opened to read its attributes, not its content.
+#[cfg(windows)]
+fn open_to_prove(p: &Path, identity: bool) -> std::io::Result<(std::fs::File, bool)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_WRITE_ATTRIBUTES,
+    };
+    let read = if identity { FILE_READ_ATTRIBUTES } else { FILE_GENERIC_READ };
+    let open = |access: u32| std::fs::OpenOptions::new().access_mode(access).share_mode(FILE_SHARE_READ).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT).open(p);
+    match open(read | DELETE | FILE_WRITE_ATTRIBUTES) {
+        Ok(f) => Ok((f, true)),
+        Err(e) if e.raw_os_error() == Some(5) => Ok((open(read | DELETE)?, false)), // ERROR_ACCESS_DENIED
+        Err(e) => Err(e),
+    }
+}
+
 /// Opens a file to prove it by its identity alone (a hard link): Linux without reading rights (`O_PATH`: the file is
 /// never read, a file nobody may read is proved too), elsewhere as [`open_for_proof`].
+#[cfg(not(windows))]
 fn open_for_identity(p: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(target_os = "linux")]
     {
@@ -804,8 +828,7 @@ fn prefix_of(ours: &mut impl std::io::Read, other: &Path) -> std::io::Result<boo
 /// handle's identity, size and modification time are taken before and after the proof; a file that changed meanwhile
 /// is not proved.
 fn prove(path: &Path, expect: Expect, set_aside: bool) -> std::result::Result<Proved, Unproved> {
-    let open = if matches!(expect, Expect::SameFileAs(_)) { open_for_identity } else { open_for_proof };
-    let mut file = open(path).map_err(unproved_open)?;
+    let (mut file, write_attributes) = open_to_prove(path, matches!(expect, Expect::SameFileAs(_))).map_err(unproved_open)?;
     let unreadable = |e: std::io::Error| Unproved::Unreadable(e.to_string());
     if !file.metadata().map_err(unreadable)?.is_file() {
         return Err(Unproved::Differs);
@@ -853,7 +876,7 @@ fn prove(path: &Path, expect: Expect, set_aside: bool) -> std::result::Result<Pr
     if now != start {
         return Err(Unproved::Changed);
     }
-    Ok(Proved { path: path.to_path_buf(), file, stamp: now, again, set_aside })
+    Ok(Proved { path: path.to_path_buf(), file, stamp: now, again, set_aside, write_attributes })
 }
 
 impl Proved {
@@ -869,17 +892,19 @@ impl Proved {
 
 #[cfg(windows)]
 fn remove_proved(p: Proved) -> Outcome {
-    match delete_by_handle(&p.file) {
+    match delete_by_handle(&p.file, p.write_attributes) {
         Ok(()) => Outcome::Removed(p.stamp.len),
-        Err(e) => Outcome::Stays { at: p.path, reason: format!("it could not be removed: {e}") },
+        Err(reason) => Outcome::Stays { at: p.path, reason },
     }
 }
 
-/// Windows: deletes the file behind `f` (opened with `DELETE` and `FILE_WRITE_ATTRIBUTES`): POSIX semantics and the
-/// read-only attribute ignored where Windows has them (`FileDispositionInfoEx`), else the read-only attribute cleared
-/// through the handle and the classic disposition.
+/// Windows: deletes the file behind `f` (opened with `DELETE`; `write_attributes`: and the right to write its
+/// attributes) through that handle, never by its path. First POSIX semantics with the read-only attribute ignored
+/// (`FileDispositionInfoEx`, which needs only `DELETE`). Where Windows or the disk does not have that: the classic
+/// disposition, after the read-only attribute is cleared through the handle; a read-only file whose handle may not
+/// clear it stays. Err: the reason it stays.
 #[cfg(windows)]
-fn delete_by_handle(f: &std::fs::File) -> std::io::Result<()> {
+fn delete_by_handle(f: &std::fs::File, write_attributes: bool) -> std::result::Result<(), String> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
@@ -887,7 +912,9 @@ fn delete_by_handle(f: &std::fs::File) -> std::io::Result<()> {
         GetFileInformationByHandleEx, SetFileInformationByHandle,
     };
     let h = f.as_raw_handle() as _;
-    // SAFETY: a valid handle opened with DELETE and FILE_WRITE_ATTRIBUTES; in- and out-structs of the right type and size.
+    let failed = |e: std::io::Error| format!("it could not be removed: {e}");
+    // SAFETY: a valid handle opened with DELETE (and FILE_READ_ATTRIBUTES; FILE_WRITE_ATTRIBUTES when
+    // `write_attributes`); in- and out-structs of the right type and size.
     unsafe {
         let ex = FILE_DISPOSITION_INFO_EX {
             Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
@@ -896,25 +923,31 @@ fn delete_by_handle(f: &std::fs::File) -> std::io::Result<()> {
             return Ok(());
         }
         let mut basic: FILE_BASIC_INFO = std::mem::zeroed();
-        if GetFileInformationByHandleEx(h, FileBasicInfo, &mut basic as *mut _ as *mut _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) != 0
-            && basic.FileAttributes & FILE_ATTRIBUTE_READONLY != 0
-        {
+        if GetFileInformationByHandleEx(h, FileBasicInfo, &mut basic as *mut _ as *mut _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) == 0 {
+            return Err(failed(std::io::Error::last_os_error()));
+        }
+        if basic.FileAttributes & FILE_ATTRIBUTE_READONLY != 0 {
+            if !write_attributes {
+                return Err(guard_reason::READ_ONLY.into());
+            }
             let rest = basic.FileAttributes & !FILE_ATTRIBUTE_READONLY;
             // zero times leave them as they are
             let clear = FILE_BASIC_INFO { CreationTime: 0, LastAccessTime: 0, LastWriteTime: 0, ChangeTime: 0, FileAttributes: if rest == 0 { FILE_ATTRIBUTE_NORMAL } else { rest } };
-            SetFileInformationByHandle(h, FileBasicInfo, &clear as *const _ as *const _, std::mem::size_of::<FILE_BASIC_INFO>() as u32);
+            if SetFileInformationByHandle(h, FileBasicInfo, &clear as *const _ as *const _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) == 0 {
+                return Err(failed(std::io::Error::last_os_error()));
+            }
         }
         let d = FILE_DISPOSITION_INFO { DeleteFile: true };
         if SetFileInformationByHandle(h, FileDispositionInfo, &d as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32) != 0 {
             return Ok(());
         }
-        Err(std::io::Error::last_os_error())
+        Err(failed(std::io::Error::last_os_error()))
     }
 }
 
 #[cfg(not(windows))]
 fn remove_proved(p: Proved) -> Outcome {
-    let Proved { path, file, stamp, again, set_aside } = p;
+    let Proved { path, file, stamp, again, set_aside, .. } = p;
     let aside = if set_aside {
         path.clone()
     } else {
