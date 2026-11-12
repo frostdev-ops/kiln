@@ -69,6 +69,7 @@ internal static partial class CheckRegistry
         }
         context.Retiring += () => Remove(entry);
         if (!context.Alive) Remove(entry);
+        ChecksService.EnsureStarted();
         Changed?.Invoke();
         return cases.Count;
     }
