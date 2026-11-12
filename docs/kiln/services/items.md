@@ -167,8 +167,8 @@ Reads only: nothing here writes a game component, so a client without Kiln sees 
 
 `Held` and `Equipped` read `SlotSelection` by the game's own field names (`kiln.types`), as kiln.players does; without the
 reflection they throw `items.instances` too. The data calls on an item (`Get`, `Set`, `Has`, ...) are in Kiln.Saves; Kiln.Saves
-also decides which items are followed. Lab-only members (hidden, `[Experimental]`): `Items.LabFollow(item, gone)` (KILNX251),
-`Items.LabMoveUnseen(from, slot, to)` (KILNX252, a move kept from the tracker), `Items.LabInstancesStatus` (KILNX253).
+also decides which items are followed. Lab-only members (hidden, `[Experimental("KILNX001")]`): `Items.LabFollow(item, gone)`,
+`Items.LabMoveUnseen(from, slot, to)` (a move kept from the tracker), `Items.LabInstancesStatus`.
 
 ```csharp
 InventorySlot s = Items.Read(chest)!.Slots.First(x => !x.Ref.IsNone);

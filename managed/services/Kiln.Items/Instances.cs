@@ -166,7 +166,7 @@ public static unsafe partial class Items
     /// <summary>Lab only: follows an item as Kiln.Saves does for an item with data (<see cref="ItemMovedEvent"/>);
     /// <paramref name="gone"/> runs once when it is gone, with its last known location and the step. Dispose to
     /// stop.</summary>
-    [Experimental("KILNX251")]
+    [Experimental("KILNX001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     [ServerOnly]
     [TickThreadOnly]
@@ -196,7 +196,7 @@ public static unsafe partial class Items
 
     /// <summary>Lab only: <see cref="Move"/>, with the result kept away from the item tracker, so only its read of the
     /// followed items once per step can see the move (cause <see cref="ItemMoveCause.Observed"/>).</summary>
-    [Experimental("KILNX252")]
+    [Experimental("KILNX001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     [ServerOnly]
     [TickThreadOnly]
@@ -210,7 +210,7 @@ public static unsafe partial class Items
 
     /// <summary>Lab only: the tracker's last read of all followed items: how many, and how long it took
     /// (microseconds), averaged over the last 64 steps with something followed; and the stamps' state.</summary>
-    [Experimental("KILNX253")]
+    [Experimental("KILNX001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static string LabInstancesStatus => ItemTracker.Describe() + "; " + ItemInstances.DescribeNative();
 }

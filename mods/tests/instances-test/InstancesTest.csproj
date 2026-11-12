@@ -11,7 +11,7 @@
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <!-- the lab members of Kiln.Items (Items.LabFollow, LabMoveUnseen, LabInstancesStatus) -->
-    <NoWarn>$(NoWarn);KILNX251;KILNX252;KILNX253</NoWarn>
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
