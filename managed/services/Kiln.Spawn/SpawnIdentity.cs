@@ -6,7 +6,16 @@ namespace Kiln;
 /// <see cref="EntityRef.IsAlive"/> work for every entity kiln.spawn can inspect.</summary>
 internal static class SpawnStartup
 {
-    static SpawnStartup() => IdentitySources.SetEntitySource(EntitySourceOrder.Spawn, SpawnStampSource.Instance);
+    static SpawnStartup()
+    {
+        // Lab switch (mods/tests/instances-test shows its checks fail without the entity sources).
+        if (Environment.GetEnvironmentVariable("KILN_LAB_NO_ENTITY_SOURCES") == "1")
+        {
+            Backend.Current.Log(0, LogLevel.Warn, "kiln.spawn: KILN_LAB_NO_ENTITY_SOURCES=1: no entity source (lab switch)");
+            return;
+        }
+        IdentitySources.SetEntitySource(EntitySourceOrder.Spawn, SpawnStampSource.Instance);
+    }
 }
 
 /// <summary>kiln.spawn's entity stamps. Every entity <see cref="Spawn.Inspect"/> finds is <c>Alive</c>, nothing is

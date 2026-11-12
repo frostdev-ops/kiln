@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test of the package `instances` (entity refs, item instances, item data): PASS / FAIL lines in kiln.log. Needs
+       a world with containers (a copy of a real save) and no player. Checks are [LabCheck] methods of the partial class
+       InstancesTestMod, one file per task: IdentityChecks.cs and TrackingChecks.cs (t1); later tasks add their own
+       files. How to run: docs/kiln/services/items.md, "Item instances", "Lab test". -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- the lab members of Kiln.Items (Items.LabFollow, LabMoveUnseen, LabInstancesStatus) -->
+    <NoWarn>$(NoWarn);KILNX251;KILNX252;KILNX253</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
