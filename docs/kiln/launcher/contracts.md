@@ -160,9 +160,16 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   the removal, which goes on at the next start). When a game's profile could not be activated again, that game still
   names the old copy: the removal phase is not run at all, `cleanup` says which game and why (the warning stays too),
   and the journal stays for the next start. `servers/<id>.json` `backupDir` is rewritten from the old root to the
-  new one in the copy (its record line holds both hashes). A cancel, an error, a full disk or a file that cannot be read
+  new one in the copy (its record line holds both hashes). A file to hard-link is read first (sha256 and size) and
+  linked only after that read succeeded: a file that cannot be read (Windows: held open without read sharing) fails
+  the move before anything of it is in the target. A cancel, an error, a full disk or a file that cannot be read
   before the commit removes what the move made in the target and the journal, also the file a failed copy step had
-  just made (a link it could not read back, a copy cut off by a full disk); the old place is as it was and in use.
+  just made (a copy cut off by a full disk); the old place is as it was and in use. No removal error of the move's own
+  files is thrown away: a file or folder it made that it cannot remove again stays in its record of what it made, is
+  listed as kept with the OS error (the error's `detail`, the journal's `result`), and the error names it and its
+  folder. Such a clean-up keeps its proof: the target's `.kiln-data-move.json`, its `.kiln-data-folder.json`, its
+  lock file and the journal (`state: failed`) stay, so the folder reads as a move in progress (never "use this one",
+  never a target), and `remove_partial_copy` removes the rest at the next start.
   On Windows files are flushed one by one; folders cannot be flushed there, so a power loss right after the commit is
   covered on Unix only.
 - **Removal** (`data_folder_move::remove_old_copy`, also the move's last phase; `pending`, `remove_partial_copy`, never by
@@ -177,10 +184,15 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   record, or when the folder in use is not `to`; the result then says where the old folder is. Nor while any known
   game's `kiln/profile.json`, `kiln/profile.once.json`, `kiln/chain.ini` or `kiln/chain/once.ini` names a path under
   the old root (`configDir`, `dataDir`, a mod folder, a plugin DLL; Z and native mode), whoever wrote it, or cannot be
-  read: the result names the game and says that activating its profile again lets the old copy go at the next start. A partial copy found by a later start goes only when the target's
-  `.kiln-data-move.json` has the journal's id: the journal's entries, the two markers, the lock file and the target when
-  the move made them; anything else stays. The result (what stayed, why, sizes, paths) is kept in the journal until
-  acknowledged.
+  read: the result names the game and says that activating its profile again lets the old copy go at the next start.
+  A file of the launcher's own it could not remove (lock files, the markers, the hash cache) and an empty folder it
+  could not remove (also the empty old root) are in `kept`, with the OS error; a later call tries again. A partial
+  copy found by a later start goes only when the target's `.kiln-data-move.json` has the journal's id: the journal's
+  entries, then, only when nothing of them was kept, the folder marker, the lock file the move made and the move marker
+  last (one that cannot be removed is kept, and the move marker stays), and the target when the move made it; anything
+  else stays. The result (what stayed, why, sizes, paths) is kept in the journal until acknowledged. `acknowledge` is
+  refused (`refused`) while the partial copy of a move that did not commit still carries the journal's marker: the next
+  start removes it first.
 - **What stays at the default root after a move away**: the pointer (about 150 bytes), the journal and the file record
   until acknowledged, the entries the launcher does not know, and on Windows `state\` (`util::state_dir()`: server console
   captures, the keyring store's lock). The move removes the rest itself before anything else writes there.

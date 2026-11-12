@@ -1101,17 +1101,22 @@ fn repoint_after_a_broken_pointer() {
 
 // ------------------------------------------------------------------------------------------------ core-4
 
-/// A hard link the move made whose read-back fails (the source cannot be read) is removed before the error returns:
-/// the target is as it was (gone: the move made it), and the same move goes through once the file can be read.
+/// A file to hard-link is read first: one that cannot be read fails the move before anything of it is in the target.
+/// No link to it is ever made (its ctime, which a link and the link's removal would both change, stays as it was).
+/// The target is as it was (gone: the move made it), and the same move goes through once the file can be read.
 #[test]
 #[cfg(unix)] // Unix permissions; Windows: a file held open without read sharing, tests/data_folder_windows.rs
-fn a_link_that_cannot_be_read_back_is_removed_and_the_move_can_be_made_again() {
+fn a_file_that_cannot_be_read_is_never_linked() {
     let fx = Fixture::build("unreadable-link");
     let before = tree(&fx.dirs.root);
     let f = lib_dir(&fx.dirs, &fx.mods.native).join("fps.dll");
     std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let ctime = |p: &Path| std::fs::symlink_metadata(p).map(|m| (m.ctime(), m.ctime_nsec())).unwrap();
+    let was = ctime(&f);
+    std::thread::sleep(std::time::Duration::from_millis(30)); // a link made from here on has another ctime
     let to = fx.base.join("target");
     let e = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap_err();
+    assert_eq!(ctime(&f), was, "no link to the unreadable file was made (and removed)");
     std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(e.message.contains(&f.display().to_string()), "{e:?}");
     old_place_intact(&fx, &before, &to);
@@ -1254,4 +1259,189 @@ fn a_play_once_profile_that_names_the_old_copy_holds_it() {
     std::fs::remove_file(fx.game_z.path.join("kiln/profile.once.json")).unwrap();
     let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
     assert!(c.done && c.removed_files > 0, "{c:?}");
+}
+
+// ------------------------------------------------------------------------------------------------ core-5
+
+/// What a failed clean-up leaves keeps its proof: the target's move marker and the journal (with the result) stay, the
+/// folder reads as a move in progress (never a target, never "use this one"), the old place is complete and in use,
+/// and the next start removes the rest once it can; then the same move goes through.
+fn left_with_its_proof(fx: &Fixture, before: &BTreeMap<String, String>, to: &Path, e: &kiln_manage::Error, left: &Path, os: &str) {
+    assert!(e.message.contains(&left.display().to_string()) && e.message.contains(&to.display().to_string()), "the error names what stayed and where: {e:?}");
+    assert!(e.message.contains(os), "with the OS error: {e:?}");
+    assert_eq!(&tree(&fx.dirs.root), before, "the old place is complete");
+    assert_eq!(located(&fx.env).dirs.root, fx.dirs.root, "and in use");
+    assert!(!fx.dirs.root.join(df::POINTER).exists());
+    assert!(to.join(df::MOVE_MARKER).is_file(), "the target keeps the move's marker");
+    assert!(matches!(df::recognize(to, &fx.env).unwrap(), FolderState::Moving { .. }));
+    let Pending::Uncommitted { journal } = dfm::pending(&fx.env).unwrap() else { panic!("the journal stays: {:?}", dfm::pending(&fx.env)) };
+    let kept = journal.result.as_ref().map(|r| r.kept.clone()).unwrap_or_default();
+    assert!(kept.iter().any(|k| k.path == left && k.reason.contains(os)), "the journal's result names it, with the OS error: {kept:?}");
+    // never a target, never "use this one": here a move is pending, and for another launcher the folder is a move in
+    // progress
+    let refusal = |e: kiln_manage::Error| e.detail.as_ref().and_then(|d| d["refusal"].as_str()).map(str::to_string);
+    assert_eq!(refusal(mv(fx, to, &Facts::all_clear(), &MoveOptions::default()).unwrap_err()).as_deref(), Some("move_pending"));
+    let other = Fixture::build(&format!("another-launcher-{}", to.parent().unwrap().file_name().unwrap().to_string_lossy()));
+    let r = df::check_here(&located(&other.env), &other.env, to, false).unwrap().unwrap_err();
+    assert_eq!(r.code, df::RefusalCode::MoveInProgress, "{r:?}");
+    let e = dfm::use_folder(&located(&other.env), &other.env, to, &Facts::all_clear(), None).unwrap_err();
+    assert_eq!(refusal(e).as_deref(), Some("move_in_progress"));
+    // the launcher cannot drop the proof by acknowledging the result
+    let e = dfm::acknowledge(&fx.env).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Refused, "{e:?}");
+    assert!(fx.dirs.root.join(df::JOURNAL).is_file());
+}
+
+fn the_next_start_removes_the_rest(fx: &Fixture, before: &BTreeMap<String, String>, to: &Path, facts: &Facts) {
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(c.done && c.kept.is_empty(), "{c:?}");
+    old_place_intact(fx, before, to);
+    mv(fx, to, facts, &MoveOptions::default()).unwrap();
+    assert_eq!(located(&fx.env).dirs.root, to);
+}
+
+/// Makes a folder of the target read-only when the move reports copying the first file in `when` (`deep`: or below it),
+/// then cancels the move if `cancel`.
+#[cfg(unix)]
+struct ReadOnlyAt {
+    when: String,
+    deep: bool,
+    dir: PathBuf,
+    cancel: bool,
+    done: bool,
+}
+#[cfg(unix)]
+impl Progress for ReadOnlyAt {
+    fn report(&mut self, _: Option<f32>, m: &str) {
+        let here = m.strip_prefix("copying ").and_then(|r| r.strip_prefix(&self.when)).is_some_and(|f| self.deep || !f.contains('/'));
+        if !self.done && here {
+            std::fs::set_permissions(&self.dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            self.done = true;
+        }
+    }
+    fn canceled(&self) -> bool {
+        self.cancel && self.done
+    }
+}
+
+/// A file the move made that cannot be removed again (its folder in the target became read-only after the copy
+/// began), and a folder the move made that cannot be removed (its parent became read-only): the move fails naming it,
+/// keeps its proof, and the next start removes the rest once the folder can be written again.
+#[test]
+#[cfg(unix)] // a read-only folder: Linux cannot deny a delete through a handle
+fn a_clean_up_that_leaves_anything_keeps_its_proof() {
+    for case in ["file", "folder"] {
+        let fx = Fixture::build(&format!("proof-{case}"));
+        let before = tree(&fx.dirs.root);
+        let to = fx.base.join("target");
+        let (when, deep, cancel, left) = if case == "file" {
+            // a library folder with two files or more: after its first file the folder is read-only, the second one
+            // cannot be made there, and the first one cannot be removed again
+            let mut per: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for k in before.keys().filter(|k| k.starts_with("library/")) {
+                let (d, f) = k.rsplit_once('/').unwrap();
+                per.entry(d.to_string()).or_default().push(f.to_string());
+            }
+            let (d, files) = per.into_iter().find(|(_, f)| f.len() >= 2).expect("a library folder with two files");
+            (format!("{d}/"), false, false, to.join(&d).join(&files[0]))
+        } else {
+            // library/native read-only after the first file below it, then a cancel: library/native/fps cannot go
+            ("library/native/".to_string(), true, true, to.join("library/native/fps"))
+        };
+        let dir = to.join(when.trim_end_matches('/'));
+        let mut p = ReadOnlyAt { when, deep, dir: dir.clone(), cancel, done: false };
+        let e = dfm::move_to(&located(&fx.env), &fx.env, &to, &Facts::all_clear(), None, &MoveOptions::default(), &mut p).unwrap_err();
+        assert!(p.done, "{case}: the folder was made read-only");
+        assert!(left.exists(), "{case}: {} stays", left.display());
+        left_with_its_proof(&fx, &before, &to, &e, &left, "ermission denied");
+        // the next start, while the folder is still read-only: nothing more goes, the proof stays
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        assert!(!c.done && !c.kept.is_empty() && to.join(df::MOVE_MARKER).is_file(), "{case}: {c:?}");
+        assert!(fx.dirs.root.join(df::JOURNAL).is_file());
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        the_next_start_removes_the_rest(&fx, &before, &to, &Facts::all_clear());
+    }
+}
+
+/// A file a copy step made, failed in (a full disk) and cannot remove again (another program opened it without delete
+/// sharing; a test hook): it stays known to the move, the error names it and its folder, the clean-up keeps its proof,
+/// and the next start (another process: the file is free) removes it.
+#[test]
+fn a_made_file_that_cannot_be_removed_again_stays_named() {
+    let fx = Fixture::build("held-made");
+    let before = tree(&fx.dirs.root);
+    let to = fx.base.join("target");
+    let e = mv(&fx, &to, &Facts::all_clear(), &inject(Inject::HeldDuring(3))).unwrap_err();
+    assert!(e.message.contains("no space left") && e.message.contains("could not remove it again"), "{e:?}");
+    let c: dfm::Cleanup = serde_json::from_value(e.detail.clone().unwrap()).unwrap();
+    assert_eq!(c.kept.len(), 1, "{c:?}");
+    let left = c.kept[0].path.clone();
+    assert!(left.starts_with(&to) && left.is_file(), "{c:?}");
+    left_with_its_proof(&fx, &before, &to, &e, &left, "holds it open");
+    the_next_start_removes_the_rest(&fx, &before, &to, &Facts::all_clear());
+}
+
+/// The removal of an old copy names every file of the launcher's own that it could not remove (lock files, markers)
+/// and every folder that is empty and could not be removed, with the OS error; a later call takes them.
+#[test]
+#[cfg(unix)] // a read-only folder
+fn the_old_copys_removal_names_what_it_could_not_remove() {
+    let fx = Fixture::build("old-named");
+    let to = fx.base.join("moved");
+    let e = mv(&fx, &to, &linking(), &inject(Inject::StopAfter(Step::Activate))).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal);
+    let old = fx.dirs.root.clone();
+    let locks = [old.join("quick.lock"), old.join(df::LOCK)];
+    assert!(locks.iter().all(|l| l.is_file()), "the move's locks were taken in the old folder");
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress);
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let c = c.unwrap();
+    let why: BTreeMap<PathBuf, String> = c.kept.iter().map(|k| (k.path.clone(), k.reason.clone())).collect();
+    for l in &locks {
+        assert!(why.get(l).is_some_and(|r| r.contains("could not be removed") && r.contains("ermission denied")), "{} is named: {why:#?}", l.display());
+    }
+    assert!(why.get(&old.join("library")).is_some_and(|r| r.contains("empty folder") && r.contains("ermission denied")), "{why:#?}");
+    assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists(), "what could go went");
+    // a later call takes them
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.done && !c.kept.iter().any(|k| locks.contains(&k.path) || k.path == old.join("library")), "{c:?}");
+    assert!(locks.iter().all(|l| !l.exists()) && !old.join("library").exists());
+}
+
+/// A file gone from the source when the copy is checked again: its copy goes too, and when it cannot (its folder in the
+/// target is read-only, as its source folder now is) the move fails naming it and keeps its proof.
+#[test]
+#[cfg(unix)] // a read-only folder
+fn a_copy_of_a_file_gone_from_the_source_that_cannot_be_removed_stays_named() {
+    /// Removes `file` from the source once it is copied and makes its folder read-only (the copy's folder gets that
+    /// mode from it).
+    struct Gone {
+        rel: String,
+        file: PathBuf,
+        done: bool,
+    }
+    impl Progress for Gone {
+        fn report(&mut self, _: Option<f32>, m: &str) {
+            if !self.done && m.strip_prefix("copying ") == Some(self.rel.as_str()) {
+                std::fs::remove_file(&self.file).unwrap();
+                std::fs::set_permissions(self.file.parent().unwrap(), std::fs::Permissions::from_mode(0o555)).unwrap();
+                self.done = true;
+            }
+        }
+    }
+    let fx = Fixture::build("gone-held");
+    let mut want = tree(&fx.dirs.root);
+    let rel = want.keys().find(|k| k.starts_with("My Notes/")).cloned().expect("a file the launcher does not know");
+    want.remove(&rel);
+    let to = fx.base.join("target");
+    let mut p = Gone { rel: rel.clone(), file: fx.dirs.root.join(&rel), done: false };
+    let e = dfm::move_to(&located(&fx.env), &fx.env, &to, &Facts::all_clear(), None, &MoveOptions::default(), &mut p).unwrap_err();
+    assert!(p.done);
+    assert!(e.message.contains("to copy it again"), "{e:?}");
+    left_with_its_proof(&fx, &want, &to, &e, &to.join(&rel), "ermission denied");
+    for d in [fx.dirs.root.join("My Notes"), to.join("My Notes")] {
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    the_next_start_removes_the_rest(&fx, &want, &to, &Facts::all_clear());
 }

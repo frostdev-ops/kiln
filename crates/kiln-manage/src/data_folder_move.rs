@@ -15,7 +15,8 @@
 //! the source checked for changes, the file record ([`FileRecord`]), the [`MARKER`], the pointer, the new place
 //! checked, then the records that name the root written again (install records' `pathMode`, active profiles, server
 //! records' `backupDir`, built modpacks' `file`). Any failure before the commit removes the partial copy and the
-//! journal and leaves the old place as it was and in use.
+//! journal and leaves the old place as it was and in use. What of the partial copy cannot be removed is named, with
+//! the OS error, and keeps its proof: the target's [`MOVE_MARKER`] and the journal stay for the next start.
 //!
 //! At the next start, never by themselves: [`pending`], [`remove_old_copy`] (file by file, by the record),
 //! [`remove_partial_copy`] (only with the target's marker), [`acknowledge`].
@@ -235,6 +236,9 @@ pub enum Inject {
     /// The disk fills up in the middle of the copy after this many files copied for real: the next destination is made
     /// and partly written, then the write fails.
     FullDuring(u64),
+    /// As `FullDuring`, and that file cannot be removed by this process (as when another program opened it without
+    /// delete sharing): every removal of it the move tries fails. A new process (the next start) can remove it.
+    HeldDuring(u64),
     /// A cancel after this many files.
     CancelAfter(u64),
     /// The process "dies" after this step: the function returns at once, nothing is cleaned up.
@@ -541,6 +545,8 @@ struct Copier<'a> {
     /// The folders this move made in the target.
     made_dirs: BTreeSet<String>,
     rewritten: Vec<String>,
+    /// [`Inject::HeldDuring`]: the file this process cannot remove.
+    held: Option<PathBuf>,
 }
 
 fn full_disk(path: &Path) -> Error {
@@ -548,27 +554,25 @@ fn full_disk(path: &Path) -> Error {
         .with_detail(serde_json::json!({ "os": std::io::Error::from(std::io::ErrorKind::StorageFull).to_string() }))
 }
 
-/// Copies `src` to `dst` (a new file), hashing what it reads; keeps the modification time and the permissions. When it
-/// fails after it made `dst`, it removes `dst` (it made it) before it returns. `full`: a full disk injected after the
-/// first bytes are written (a test hook).
-fn copy_hashed(src: &Path, dst: &Path, full: bool) -> Result<(String, u64)> {
+/// A failed write into the target: the error, and whether the call had made `dst` (then the caller removes it:
+/// [`Copier::undo`]).
+type Written<T> = std::result::Result<T, (Error, bool)>;
+
+/// Copies `src` to `dst` (a new file), hashing what it reads; keeps the modification time and the permissions. A
+/// failure after `dst` was made says so (the caller removes it). `full`: a full disk injected after the first bytes are
+/// written (a test hook).
+fn copy_hashed(src: &Path, dst: &Path, full: bool) -> Written<(String, u64)> {
     use std::io::{Read, Write};
-    let mut r = std::fs::File::open(src).map_err(|e| {
-        Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {e} (another program may hold it open)", src.display()))
-            .with_detail(src.display().to_string())
-    })?;
-    let meta = r.metadata().map_err(io_at(src, "reading"))?;
-    let mut w = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(io_at(dst, "writing"))?;
-    // from here `dst` is this call's: it is removed again on any error
+    let mut r = std::fs::File::open(src).map_err(|e| (cannot_read(src, &e.to_string()), false))?;
+    let meta = r.metadata().map_err(|e| (io_at(src, "reading")(e), false))?;
+    let mut w = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(|e| (io_at(dst, "writing")(e), false))?;
+    // from here `dst` is this call's
     let written = (|| -> Result<(String, u64)> {
         let mut h = sha2::Sha256::new();
         let mut buf = vec![0u8; 1 << 16];
         let mut n_total = 0u64;
         loop {
-            let n = r.read(&mut buf).map_err(|e| {
-                Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {e} (another program may hold it open)", src.display()))
-                    .with_detail(src.display().to_string())
-            })?;
+            let n = r.read(&mut buf).map_err(|e| cannot_read(src, &e.to_string()))?;
             if n == 0 {
                 break;
             }
@@ -589,19 +593,17 @@ fn copy_hashed(src: &Path, dst: &Path, full: bool) -> Result<(String, u64)> {
         Ok((crate::hash::hex(h.finalize().as_slice()), n_total))
     })();
     drop(w);
-    let done = written.and_then(|r| std::fs::set_permissions(dst, meta.permissions()).map(|_| r).map_err(io_at(dst, "setting the permissions of")));
-    if done.is_err() {
-        let _ = std::fs::remove_file(dst);
-    }
-    done
+    written
+        .and_then(|r| std::fs::set_permissions(dst, meta.permissions()).map(|_| r).map_err(io_at(dst, "setting the permissions of")))
+        .map_err(|e| (e, true))
 }
 
-/// Writes `data` to `dst` (a new file, never one that is there). When it fails after it made `dst`, it removes `dst`
-/// (it made it) before it returns. No temporary file: the target is verified as a whole before the commit. `full`: a
-/// full disk injected after half the bytes are written (a test hook).
-fn write_new(dst: &Path, data: &[u8], full: bool) -> Result<()> {
+/// Writes `data` to `dst` (a new file, never one that is there). A failure after `dst` was made says so (the caller
+/// removes it). No temporary file: the target is verified as a whole before the commit. `full`: a full disk injected
+/// after half the bytes are written (a test hook).
+fn write_new(dst: &Path, data: &[u8], full: bool) -> Written<()> {
     use std::io::Write;
-    let mut w = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(io_at(dst, "writing"))?;
+    let mut w = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(|e| (io_at(dst, "writing")(e), false))?;
     let done = if full {
         let _ = w.write_all(&data[..data.len() / 2]);
         Err(full_disk(dst))
@@ -609,13 +611,57 @@ fn write_new(dst: &Path, data: &[u8], full: bool) -> Result<()> {
         w.write_all(data).map_err(io_at(dst, "writing")).and_then(|_| w.sync_all().map_err(io_at(dst, "flushing")))
     };
     drop(w);
-    if done.is_err() {
-        let _ = std::fs::remove_file(dst);
-    }
-    done
+    done.map_err(|e| (e, true))
+}
+
+/// `m` as a sentence (a full stop added when it has none), to add another one after it.
+fn sentence(m: &str) -> String {
+    if m.ends_with(['.', '!', '?']) { m.to_string() } else { format!("{m}.") }
+}
+
+fn cannot_read(src: &Path, why: &str) -> Error {
+    Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {why} (another program may hold it open)", src.display())).with_detail(src.display().to_string())
 }
 
 impl Copier<'_> {
+    /// Removes a file this move made in the target (the OS error as it is, also `NotFound`).
+    fn remove_own(&self, p: &Path) -> std::io::Result<()> {
+        if self.held.as_deref() == Some(p) {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "another program holds it open (a test hook)"));
+        }
+        std::fs::remove_file(p)
+    }
+
+    /// A file this call made at `dst` and could not finish: removed again. When that fails it stays known to the move
+    /// (in its record of made files, so the clean-up tries again and names it) and the error names it and its folder.
+    fn undo(&mut self, rel: &str, dst: &Path, e: Error) -> Error {
+        match self.remove_own(dst) {
+            Ok(()) => e,
+            Err(re) if re.kind() == std::io::ErrorKind::NotFound => e,
+            Err(re) => {
+                let size = std::fs::symlink_metadata(dst).map(|m| m.len()).unwrap_or(0);
+                let line = RecordedFile { path: rel.to_string(), size, sha256: String::new(), linked: false, source_sha256: None };
+                self.files.insert(rel.to_string(), Copied { line, key: None });
+                Error {
+                    code: e.code,
+                    message: format!("{} The move made {} and could not remove it again ({re}): it is in {}.", sentence(&e.message), dst.display(), self.to.display()),
+                    detail: e.detail,
+                }
+            }
+        }
+    }
+
+    /// Removes a file this move made before it is copied again; an error names it (it stays in the record).
+    fn remove_again(&self, rel: &str) -> Result<()> {
+        let Some(p) = below(self.to, rel) else { return Ok(()) };
+        match self.remove_own(&p) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Error::new(ErrorCode::Io, format!("The move made {} and cannot remove it to copy it again ({e}): it is in {}.", p.display(), self.to.display()))
+                .with_detail(p.display().to_string())),
+        }
+    }
+
     fn file(&mut self, names: &[String], progress: &mut dyn Progress) -> Result<()> {
         if progress.canceled() || matches!(self.inject, Some(Inject::CancelAfter(n)) if self.done_files >= n) {
             return Err(Error::new(ErrorCode::Canceled, "The move was canceled."));
@@ -629,7 +675,7 @@ impl Copier<'_> {
                 return Err(Error::new(ErrorCode::Conflict, format!("{} is already there and the move did not make it: the move stops rather than replace it.", dst.display()))
                     .with_detail(dst.display().to_string()));
             }
-            std::fs::remove_file(&dst).map_err(io_at(&dst, "replacing"))?;
+            self.remove_again(&rel)?;
         }
         // servers/<id>.json: backupDir names the old root (a Steam server's tarball backups): rewritten in the copy
         let server_record = names.len() == 2 && names[0] == "servers" && names[1].ends_with(".json");
@@ -643,10 +689,24 @@ impl Copier<'_> {
         if real && matches!(self.inject, Some(Inject::FullAfter(n)) if self.real_files >= n) {
             return Err(full_disk(&dst));
         }
-        // whatever is made in the target here is recorded below, or removed again before the error returns
-        let full = matches!(self.inject, Some(Inject::FullDuring(n)) if self.real_files >= n);
+        // whatever is made in the target here is recorded below, or removed again before the error returns (and when
+        // that fails, recorded as made and named in the error: `undo`)
+        let full = matches!(self.inject, Some(Inject::FullDuring(n) | Inject::HeldDuring(n)) if self.real_files >= n);
+        if full && matches!(self.inject, Some(Inject::HeldDuring(_))) {
+            self.held = Some(dst.clone());
+        }
+        // a file to link is read first (its sha256 and size): one that cannot be read fails here, before anything of it
+        // is in the target. The verify reads the link back.
+        let linked = if real {
+            None
+        } else {
+            let (sha256, size) = crate::hash::sha256_file(&src).map_err(|e| cannot_read(&src, &e.message))?;
+            std::fs::hard_link(&src, &dst).is_ok().then_some((sha256, size))
+        };
         let line = if let Some((old_text, new_text)) = rewrite {
-            write_new(&dst, new_text.as_bytes(), full)?;
+            if let Err((e, made)) = write_new(&dst, new_text.as_bytes(), full) {
+                return Err(if made { self.undo(&rel, &dst, e) } else { e });
+            }
             if let Ok(m) = std::fs::metadata(&src) {
                 let _ = std::fs::set_permissions(&dst, m.permissions());
             }
@@ -661,18 +721,13 @@ impl Copier<'_> {
                 linked: false,
                 source_sha256: Some(crate::hash::sha256_hex(old_text.as_bytes())),
             }
-        } else if !real && std::fs::hard_link(&src, &dst).is_ok() {
-            match crate::hash::sha256_file(&dst) {
-                Ok((sha256, size)) => RecordedFile { path: rel.clone(), size, sha256, linked: true, source_sha256: None },
-                Err(e) => {
-                    // the link was made in this call: it goes before the error returns
-                    let _ = std::fs::remove_file(&dst);
-                    return Err(Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {} (another program may hold it open)", src.display(), e.message))
-                        .with_detail(src.display().to_string()));
-                }
-            }
+        } else if let Some((sha256, size)) = linked {
+            RecordedFile { path: rel.clone(), size, sha256, linked: true, source_sha256: None }
         } else {
-            let (sha256, size) = copy_hashed(&src, &dst, full)?;
+            let (sha256, size) = match copy_hashed(&src, &dst, full) {
+                Ok(r) => r,
+                Err((e, made)) => return Err(if made { self.undo(&rel, &dst, e) } else { e }),
+            };
             self.real_files += 1;
             RecordedFile { path: rel.clone(), size, sha256, linked: false, source_sha256: None }
         };
@@ -760,9 +815,7 @@ impl Copier<'_> {
         let seen: BTreeSet<String> = now.iter().filter(|i| !i.dir).map(|i| rel_of(&i.names)).collect();
         let gone: Vec<String> = self.files.keys().filter(|k| !seen.contains(*k)).cloned().collect();
         for g in gone {
-            if let Some(p) = below(self.to, &g) {
-                let _ = std::fs::remove_file(p);
-            }
+            self.remove_again(&g)?;
             self.files.remove(&g);
         }
         let mut redo = Vec::new();
@@ -859,7 +912,11 @@ fn stopped(step: Step) -> Error {
 ///
 /// A cancel, an error, a full disk or a file that cannot be read before the commit: what the move made in the target
 /// is removed (also the file a failed copy step had just made), the journal too, and the old place is as it was and in
-/// use.
+/// use. A file to link is read first (sha256 and size): one that cannot be read fails the move before anything of it
+/// is in the target. A file or folder the move made that cannot be removed again is never left unnamed: it stays in
+/// the move's record of what it made, the error names it and its folder, and the clean-up keeps its proof (the
+/// target's [`MOVE_MARKER`], its [`MARKER`] and lock file, and the journal with the result): the folder reads as a
+/// move in progress, and [`remove_partial_copy`] removes the rest at the next start.
 pub fn move_to(
     located: &Located, env: &DataEnv, picked: &Path, facts: &dyn SystemFacts, own: Option<&mut DataLock>, opts: &MoveOptions,
     progress: &mut dyn Progress,
@@ -937,18 +994,19 @@ pub fn move_to(
     }
     let mut tlock: Option<DataLock> = None;
     // before the marker is there nothing of the move is in the target: the folders and the lock file it made go, then
-    // the journal
+    // the journal (the error names a lock file the move made that could not be removed)
     macro_rules! fail_early {
         ($e:expr) => {{
+            let mut e: Error = $e;
             drop(tlock.take());
-            if created_lock {
-                let _ = remove_if_there(&to.join(df::LOCK));
+            if created_lock && let Err(r) = remove_if_there(&to.join(df::LOCK)) {
+                e.message = format!("{} The move could not remove the lock file it made: {}.", sentence(&e.message), r.message);
             }
             for m in missing.iter().rev() {
                 let _ = std::fs::remove_dir(m);
             }
             let _ = remove_if_there(&journal_path(&default));
-            return Err($e);
+            return Err(e);
         }};
     }
     for m in &missing {
@@ -961,8 +1019,10 @@ pub fn move_to(
         Ok(None) => fail_early!(refuse(RefusalCode::Locked, format!("A Kiln Launcher is using {}: close it first.", to.display()))),
         Err(e) => fail_early!(e),
     }
-    if let Err(e) = crate::util::write_json_atomic(&to.join(MOVE_MARKER), &MoveMark { format: 1, id: journal.id.clone() }) {
-        let _ = remove_if_there(&to.join(format!("{MOVE_MARKER}.tmp")));
+    if let Err(mut e) = crate::util::write_json_atomic(&to.join(MOVE_MARKER), &MoveMark { format: 1, id: journal.id.clone() }) {
+        if let Err(r) = remove_if_there(&to.join(format!("{MOVE_MARKER}.tmp"))) {
+            e.message = format!("{} The move could not remove the file it was writing: {}.", sentence(&e.message), r.message);
+        }
         fail_early!(e);
     }
     if stop(Step::Marker) {
@@ -986,13 +1046,14 @@ pub fn move_to(
         files: BTreeMap::new(),
         made_dirs: BTreeSet::new(),
         rewritten: vec![],
+        held: None,
     };
     // a failure before the commit: what the move made goes, then the markers, the lock, the journal
     macro_rules! fail {
         ($e:expr) => {{
             let e = $e;
             drop(tlock.take());
-            return Err(abort(&default, &journal, e, Some(&c)));
+            return Err(abort(&default, &journal, e, &c));
         }};
     }
     let mut warnings = Vec::new();
@@ -1032,9 +1093,7 @@ pub fn move_to(
                 )));
             }
             for rel in &again {
-                if let Some(p) = below(&to, rel) {
-                    let _ = std::fs::remove_file(p);
-                }
+                c.remove_again(rel)?;
             }
             let mut items: Vec<Item> = redo;
             for rel in &again {
@@ -1260,32 +1319,43 @@ fn sync_dir(dir: &Path) -> Result<()> {
     }
 }
 
-/// Ends a move that failed before (or at) its commit. In the same process (`made`) exactly what the move made goes:
-/// its files, then its folders when empty, the markers, the target's lock file and the target when the move made them.
-/// Without it (a new process after a crash) by [`remove_partial`]'s rule. Then the journal and the file record. The
-/// error says where anything that could not be removed is.
-fn abort(default: &Path, journal: &Journal, e: Error, made: Option<&Copier>) -> Error {
-    let c = match made {
-        Some(m) => remove_made(default, journal, m),
-        None => remove_partial(default, journal),
-    };
-    if c.reason.is_none() && c.kept.is_empty() {
-        e
-    } else {
-        let left = c.reason.clone().unwrap_or_else(|| format!("{} files were left in {}", c.kept.len(), journal.to.display()));
-        Error::new(e.code, format!("{} The partial copy could not be removed: {left}.", e.message)).with_detail(serde_json::to_value(&c).unwrap_or_default())
+/// Ends a move that failed before (or at) its commit: exactly what this process's move made goes ([`remove_made`]).
+/// When anything of it stays, the journal (with that result, `failed`) and the target's [`MOVE_MARKER`] stay too: the
+/// folder reads as a move in progress, and the next start removes the rest ([`remove_partial_copy`]). The error then
+/// names what stayed, why, and where.
+fn abort(default: &Path, journal: &Journal, e: Error, made: &Copier) -> Error {
+    let c = remove_made(default, journal, made);
+    if c.done {
+        return e;
+    }
+    let mut j = journal.clone();
+    save_result(default, &mut j, &c, "failed");
+    let mut left: Vec<String> = c.kept.iter().take(3).map(|k| format!("{} ({})", k.path.display(), k.reason)).collect();
+    if c.kept.len() > 3 {
+        left.push(format!("and {} more", c.kept.len() - 3));
+    }
+    Error {
+        code: e.code,
+        message: format!(
+            "{} What the move made in {} could not all be removed: {}. The folder stays marked as an unfinished move, and the next start removes the rest.",
+            sentence(&e.message),
+            journal.to.display(),
+            left.join(", ")
+        ),
+        detail: Some(serde_json::to_value(&c).unwrap_or_default()),
     }
 }
 
-/// What this process's move made in the target, removed: its files, its folders (deepest first, only when empty), the
-/// markers, the lock file and the target itself when the move made them, the folders above it it made. Anything else in
-/// the target stays. Then the journal and the file record.
+/// What this process's move made in the target, removed: its files, its folders (deepest first), then the proof
+/// ([`remove_proof`]). A file or folder of the move that cannot be removed is kept, with the OS error; then the
+/// markers, the lock file, the target and the records stay (the clean-up keeps its proof). Anything else in the target
+/// stays.
 fn remove_made(default: &Path, journal: &Journal, made: &Copier) -> Cleanup {
     let to = &journal.to;
     let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None };
     for (rel, f) in &made.files {
         let Some(p) = below(to, rel) else { continue };
-        match std::fs::remove_file(&p) {
+        match made.remove_own(&p) {
             Ok(()) => {
                 c.removed_files += 1;
                 c.removed_bytes += f.line.size;
@@ -1295,14 +1365,41 @@ fn remove_made(default: &Path, journal: &Journal, made: &Copier) -> Cleanup {
         }
     }
     for d in made.made_dirs.iter().rev() {
-        if let Some(p) = below(to, d) {
-            let _ = std::fs::remove_dir(p);
+        let Some(p) = below(to, d) else { continue };
+        match std::fs::remove_dir(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            // it holds what is kept already
+            Err(_) if c.kept.iter().any(|k| k.path.starts_with(&p)) => {}
+            Err(e) => c.kept.push(Kept { bytes: dir_bytes(&p), path: p, reason: format!("it could not be removed: {e}") }),
         }
     }
-    let _ = remove_if_there(&to.join(MARKER));
-    let _ = remove_if_there(&to.join(MOVE_MARKER));
-    if journal.created_lock {
-        let _ = remove_if_there(&to.join(df::LOCK));
+    remove_proof(default, journal, &mut c);
+    c
+}
+
+/// The last step of removing a partial copy when nothing of it was kept: the folder marker, the lock file the move made
+/// and last the move marker (the proof goes last: when one cannot be removed, it is kept and the move marker stays),
+/// then the target and the folders above it the move made (when empty), the file record and the journal. With anything
+/// kept (before or here) nothing of the proof is removed and the result says where the folder is.
+fn remove_proof(default: &Path, journal: &Journal, c: &mut Cleanup) {
+    let to = &journal.to;
+    if c.kept.is_empty() {
+        for (name, ours) in [(MARKER, true), (df::LOCK, journal.created_lock), (MOVE_MARKER, true)] {
+            let p = to.join(name);
+            if !ours {
+                continue;
+            }
+            if let Err(e) = remove_if_there(&p) {
+                let bytes = std::fs::symlink_metadata(&p).map(|m| m.len()).unwrap_or(0);
+                c.kept.push(Kept { path: p, bytes, reason: format!("it could not be removed: {}", e.message) });
+                break;
+            }
+        }
+    }
+    if !c.kept.is_empty() {
+        c.reason = Some(format!("Parts of the partial copy in {} could not be removed: the folder stays marked as an unfinished move.", to.display()));
+        return;
     }
     if journal.created_target {
         c.folder_removed = std::fs::remove_dir(to).is_ok();
@@ -1310,14 +1407,9 @@ fn remove_made(default: &Path, journal: &Journal, made: &Copier) -> Cleanup {
     for p in journal.created_parents.iter().rev() {
         let _ = std::fs::remove_dir(p);
     }
-    if c.kept.is_empty() {
-        let _ = remove_if_there(&record_path(default));
-        let _ = remove_if_there(&journal_path(default));
-        c.done = true;
-    } else {
-        c.reason = Some(format!("Parts of the partial copy in {} could not be removed.", to.display()));
-    }
-    c
+    let _ = remove_if_there(&record_path(default));
+    let _ = remove_if_there(&journal_path(default));
+    c.done = true;
 }
 
 // ------------------------------------------------------------------------------------------------ use, reset
@@ -1571,15 +1663,22 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         }
     }
     // what is left of the launcher's own entries: the hash cache (by its exact name, never in a `state` the old root
-    // keeps for itself), lock files (`quick.lock`, `data-folder.lock`, `nexus/*.lock`), the old markers, then empty folders
+    // keeps for itself), lock files (`quick.lock`, `data-folder.lock`, `nexus/*.lock`), the old markers, then empty
+    // folders. One that cannot be removed is kept, with the OS error (the next call tries again).
     let st = PathStyle::of(env);
     let is = |a: &str, b: &str| st.same_name(a, b);
     let file = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file());
+    let remove = |p: &Path, c: &mut Cleanup| {
+        let bytes = std::fs::symlink_metadata(p).map(|m| m.len()).unwrap_or(0);
+        if let Err(e) = remove_if_there(p) {
+            c.kept.push(Kept { path: p.to_path_buf(), bytes, reason: format!("it could not be removed: {}", e.message) });
+        }
+    };
     let old_own = df::own_entries(&from, env);
     if !old_own.iter().any(|o| is(o, df::HASH_CACHE[0])) {
         let cache = from.join(df::HASH_CACHE[0]).join(df::HASH_CACHE[1]);
         if file(&cache) {
-            let _ = std::fs::remove_file(&cache);
+            remove(&cache, &mut c);
         }
     }
     for e in journal.entries.iter().filter(|e| e.known) {
@@ -1587,16 +1686,16 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         if is(&e.name, "nexus") {
             for l in std::fs::read_dir(&p).into_iter().flatten().flatten() {
                 if l.file_name().to_string_lossy().to_lowercase().ends_with(".lock") && file(&l.path()) {
-                    let _ = std::fs::remove_file(l.path());
+                    remove(&l.path(), &mut c);
                 }
             }
         }
-        remove_empty_dirs(&p);
+        remove_empty_dirs(&p, &mut c.kept);
     }
     for name in ["quick.lock", df::LOCK, MARKER, MOVE_MARKER] {
         let p = from.join(name);
         if file(&p) {
-            let _ = std::fs::remove_file(&p);
+            remove(&p, &mut c);
         }
     }
     // entries the target kept for itself were not copied: what is left of them stays (an empty folder goes)
@@ -1605,7 +1704,7 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         if old_own.iter().any(|o| is(o, name)) {
             continue;
         }
-        remove_empty_dirs(&p);
+        remove_empty_dirs(&p, &mut c.kept);
         if let Ok(m) = std::fs::symlink_metadata(&p)
             && !c.kept.iter().any(|k| k.path == p)
         {
@@ -1623,7 +1722,10 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         }
     }
     if !same_folder(&from, &default) && std::fs::read_dir(&from).is_ok_and(|mut d| d.next().is_none()) {
-        c.folder_removed = std::fs::remove_dir(&from).is_ok();
+        match std::fs::remove_dir(&from) {
+            Ok(()) => c.folder_removed = true,
+            Err(e) => c.kept.push(Kept { path: from.clone(), bytes: 0, reason: format!("the empty folder could not be removed: {e}") }),
+        }
     }
     c.done = true;
     save_result(&default, &mut journal, &c, "cleaned");
@@ -1702,16 +1804,22 @@ fn dir_bytes(p: &Path) -> u64 {
     n
 }
 
-/// Removes the folders below and at `p` that hold nothing (bottom up). Never a file.
-fn remove_empty_dirs(p: &Path) {
+/// Removes the folders below and at `p` that hold nothing (bottom up). Never a file. A folder that holds nothing and
+/// cannot be removed goes into `left`, with the OS error (one that holds anything stays without a word: what it holds
+/// is named, or is not the launcher's).
+fn remove_empty_dirs(p: &Path, left: &mut Vec<Kept>) {
     let Ok(m) = std::fs::symlink_metadata(p) else { return };
     if !m.is_dir() {
         return;
     }
     for e in std::fs::read_dir(p).into_iter().flatten().flatten() {
-        remove_empty_dirs(&e.path());
+        remove_empty_dirs(&e.path(), left);
     }
-    let _ = std::fs::remove_dir(p); // fails while it holds anything
+    if let Err(e) = std::fs::remove_dir(p)
+        && std::fs::read_dir(p).is_ok_and(|mut d| d.next().is_none())
+    {
+        left.push(Kept { path: p.to_path_buf(), bytes: 0, reason: format!("the empty folder could not be removed: {e}") });
+    }
 }
 
 /// The partial copy of a move that did not commit: only with the proof of the target's [`MOVE_MARKER`] (this
@@ -1748,23 +1856,7 @@ fn remove_partial(default: &Path, journal: &Journal) -> Cleanup {
             Err(err) => c.kept.push(Kept { path: p, bytes: e.bytes, reason: format!("it could not be removed: {err}") }),
         }
     }
-    if !c.kept.is_empty() {
-        c.reason = Some(format!("Parts of the partial copy in {} could not be removed.", to.display()));
-        return c;
-    }
-    let _ = remove_if_there(&to.join(MARKER));
-    let _ = remove_if_there(&to.join(MOVE_MARKER));
-    if journal.created_lock {
-        let _ = remove_if_there(&to.join(df::LOCK));
-    }
-    if journal.created_target {
-        c.folder_removed = std::fs::remove_dir(to).is_ok();
-    }
-    for p in journal.created_parents.iter().rev() {
-        let _ = std::fs::remove_dir(p);
-    }
-    drop_records();
-    c.done = true;
+    remove_proof(default, journal, &mut c);
     c
 }
 
@@ -1792,13 +1884,25 @@ pub fn remove_partial_copy(env: &DataEnv) -> Result<Cleanup> {
 
 /// The launcher has shown the result: the journal and the file record go, and the new place's [`MOVE_MARKER`] (only
 /// when it carries this journal's id). Nothing of the data is removed; an old copy still there stays where it is.
+/// Refused while the partial copy of a move that did not commit still carries this journal's marker (a clean-up that
+/// left something): the marker and the journal are the proof [`remove_partial_copy`] removes the rest with at the next
+/// start, and without them the folder would stay marked as an unfinished move that nothing can finish.
 pub fn acknowledge(env: &DataEnv) -> Result<()> {
     let default = default_root(env)?;
     if let Ok(Some(j)) = read_journal(env)
         && move_mark_id(&j.to).as_deref() == Some(j.id.as_str())
-        && matches!(pending(env)?, Pending::Committed { .. })
     {
-        remove_if_there(&j.to.join(MOVE_MARKER))?;
+        match pending(env)? {
+            Pending::Committed { .. } => remove_if_there(&j.to.join(MOVE_MARKER))?,
+            Pending::Uncommitted { .. } => {
+                return Err(Error::new(ErrorCode::Refused, format!(
+                    "{} still holds what an unfinished move made there: the next start removes it, and the move's journal stays until then.",
+                    j.to.display()
+                ))
+                .with_detail(j.to.display().to_string()));
+            }
+            _ => {}
+        }
     }
     remove_if_there(&record_path(&default))?;
     remove_if_there(&journal_path(&default))?;
