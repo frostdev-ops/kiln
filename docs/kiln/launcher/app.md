@@ -4,9 +4,9 @@ The desktop app in `launcher/`: React 18 + TypeScript + Vite (bun) in a Tauri 2 
 `kiln-launcher`) on `crates/kiln-manage`. Contracts: [contracts.md](contracts.md) (formats, section 9 commands, section 10
 events). Design system: [design-system.md](design-system.md).
 
-**Official 0.2.0-dev.22 (as in dev.20 and dev.21):** Catalog, Nexus account/settings and `nxm://` handling are disabled while OAuth approval is
-pending. Browser downloads and manual Library import remain available. Nexus routes below describe the enabled
-implementation for a future approved build; no personal API key flow is supported. See [catalog.md](catalog.md).
+**A build with Nexus off** (`KILN_NEXUS_ENABLED=0`, `app_info.nexusEnabled` false): Catalog, Nexus account/settings and
+`nxm://` handling are off. Browser downloads and manual Library import remain available. Nexus routes below describe
+the enabled implementation; no personal API key flow is supported. See [catalog.md](catalog.md).
 
 ## Layout
 | Path | What |
@@ -24,7 +24,9 @@ implementation for a future approved build; no personal API key flow is supporte
 | `src/data/kiln-json.snapshot.json` | schema snapshot of Kiln's own `kiln/kiln.json` (core + Kiln.Host `mods` section) |
 | `src/assets/fonts/` | Grenze Gotisch, Alegreya Sans, Alegreya Sans SC, Inconsolata (woff2 subsets) + OFL licences |
 | `src-tauri/src/commands/` | one file per area; `app.rs` also holds the task runner `spawn_task` |
-| `src-tauri/src/state.rs` | data dirs, settings, game lookup, Steam roots (+ settings' extra folders), game status |
+| `src-tauri/src/state.rs` | data dirs (`dirs()`: the process's data folder, refused while it is held), settings, game lookup, Steam roots (+ settings' extra folders), game status |
+| `src-tauri/src/folder.rs` | the process's data folder: found once, its lock (shared), the hold during a move, the gate in front of every command |
+| `src-tauri/src/commands/data_folder.rs` | the data folder's commands and its part of the start-up |
 | `src-tauri/src/watch.rs` | the watcher thread: `kiln://game`, `kiln://last-server`, `kiln://log` |
 | `src-tauri/src/assets.rs` | the `kiln-asset` protocol (editor game assets from a local folder) |
 | `src-tauri/src/selftest.rs` | `--selftest` |
@@ -249,6 +251,55 @@ controls, no Check now; Settings > Updates and About show "New versions: Nexus M
 row, each opening the Kiln page on Nexus Mods in the browser (`app_open_url`). Browser mock: `?dist=nexus`
 (`tests/nexus.spec.ts`). The update command wrappers also check `app_info` and reject before invoking any `update_*`
 command in a Nexus build (or if `app_info` cannot be read); `useUpdateFeed` itself is distribution-gated.
+
+## The data folder
+Where the launcher keeps its data (the library, runtimes, modpacks, backups, profiles: one folder, moved as one;
+contracts.md section 3 for the pointer, the journal, the markers and the lock).
+
+**Settings, Library card, "Data folder":** the path at once (mono, shortened in the middle), its size when measured
+(`data_folder_size`), Change and Open. With `KILN_DATA_DIR` set, Change is off and says "Set by KILN_DATA_DIR.". Change
+opens the folder dialog, then `data_folder_check`'s plan is one dialog: "Move the data folder?" (to, what moves, the
+free space; a line only for a new folder inside the picked one, games that run in copy mode from there, entries Kiln
+copies and leaves in the old folder with their sizes, and the crate's warnings), "Use this data folder?" (it already
+holds Kiln data), or "Kiln cannot use this folder" with the crate's reason. The move runs as a task ("Move the data
+folder": progress and Cancel, not dismissable); its last phase removes the old copy ("Removing the old copy. Cancel
+leaves the rest for the next start."); a failed or canceled move says "Nothing changed"; done, the launcher restarts
+(`data_folder_restart`), after the crate's warnings or "The data has moved. The rest of the old copy goes at the next
+start." when there are any. Another data folder's profile in the game (`GameStatus.otherFolderProfile`: a launcher
+before dev.25 after a move, `KILN_DATA_DIR`, another launcher) is said on Play's top line, in Settings' Profiles and on
+the Deck's Profile row ("Another data folder's profile is loaded in this game"), never shown as loaded. Deck Settings has the same row and steps in the Deck's dialogs, with `deck_browse` as
+the folder browser. Code: `src/components/DataFolderSettings.tsx`, `src/deck/DataFolder.tsx`, `src/shell/dataFolder.ts`
+(the steps), `src/shell/dataFolderText.ts` (the words).
+
+**The gate (`src/shell/DataFolderGate.tsx`, around both UIs in `main.tsx`):** `data_folder_get` is asked before anything
+else mounts. A pointer to a folder that cannot be used: only "Kiln cannot open its data folder" with the path and the
+reason, Choose folder (`data_folder_use`), Start fresh (`data_folder_reset`) and Quit. Another launcher moving the
+folder (`elsewhere`): only "Kiln is moving its data in another window" and Quit. Neither can be dismissed, and with
+nothing else mounted no page, toast or error boundary comes up. A backend without the command, or no answer in 5 s:
+the launcher as before. At the first start after a move the notice says where the data is now, what Kiln left in the
+old folder on purpose and what it could not remove (each with its size), and whether the removal runs or goes on next
+time, until OK (`data_folder_notice_ack`).
+
+**The process's data folder (`src-tauri/src/folder.rs`):** found once, the first time anything asks, and kept until
+the process ends. `state::dirs()` refuses while it is held: a broken pointer (the crate's `data_folder` error), another
+launcher's exclusive lock (`busy`), a move of this process (`busy`, until it fails or is canceled), or a committed move
+(`busy` until the restart). In front of every Tauri command a gate (lib.rs `gated`) refuses what may not run then
+(contracts.md section 9 lists what answers in each state), and `spawn_task` fails a new task at once while the folder is
+held (except the move and the removal of an old copy). A move is refused while a task runs ("Kiln is still working on:
+<title>."), and waits for the work already using the folder to end: closures in `state::blocking`, and every writer
+outside it and outside a task, which takes `state::writing()` before the folder (the watcher's round, `launcher_log`,
+the self-update's `update.json`, the Nexus inbox reader and start-up cleanup, the shipped runtime's import).
+
+**Start-up, in this order (lib.rs setup), before any watcher:** the folder is located without failing (nothing is
+created for a broken pointer; a missing default or `KILN_DATA_DIR` root is made, as before); the lock is taken shared
+(held exclusively elsewhere: the dialog); a broken pointer or another launcher's move stops here: no watcher, no
+import, no update check, no file written. Then a move the journal records: an unfinished one's partial copy is removed
+now (or left, with its path, when the proof is missing); a committed one not acknowledged yet gets the task "Remove
+the old data folder" two seconds later (what the move's own removal left, or the lock files and the empty old folder
+the moving process still held; in the task tray, can be canceled, goes on at the next start). A removal the crate
+refuses (a game's profile still names the old folder) says its reason in the notice, and the ack keeps the journal;
+an unfinished move whose partial copy could not be removed names what is left, and the next start tries again.
+Then the file-hash cache, the watcher, the shipped runtime, the modpack watcher, Nexus, the self-update.
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

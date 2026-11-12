@@ -63,7 +63,8 @@ fn data_dirs(t: &Path) -> R {
     kiln_manage::util::write_json_atomic(&d.settings(), &s).map_err(e)?;
     let back: crate::commands::app::LauncherSettings = kiln_manage::util::read_json(&d.settings()).map_err(e)?.ok_or("settings vanished")?;
     ensure(back.saves_keep == 7, "settings round trip")?;
-    let real = DataDirs::locate().map(|x| x.root.display().to_string()).unwrap_or_else(|x| format!("({x})"));
+    // the process's data folder as it would be found (no lock taken, nothing created: crate::folder)
+    let real = crate::folder::describe();
     Ok(format!("settings round trip ok; real data dir would be {real}"))
 }
 

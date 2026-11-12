@@ -19,7 +19,9 @@ export type ErrorCode =
   | "not_implemented" | "invalid_argument" | "not_found" | "already_exists" | "io" | "parse" | "schema" | "conflict"
   | "game_running" | "steam_updating" | "permission" | "unsupported" | "network" | "hash_mismatch"
   | "consent_required" | "refused" | "timeout" | "canceled" | "busy" | "auth_failed" | "admin_unavailable"
-  | "op_failed" | "internal";
+  | "op_failed" | "internal"
+  /** The data folder cannot be used: its pointer names a folder that is missing, unreadable or not a Kiln data folder. */
+  | "data_folder";
 
 /** What every command rejects with. */
 export interface KilnError {
@@ -161,6 +163,9 @@ export interface GameStatus {
   launchOptions: LaunchOptionsInfo | null;
   /** Kiln mods of the active profile built against a newer Kiln than the game has: they may not load until Kiln is updated. */
   newerMods?: NewerKilnMod[];
+  /** Another data folder's profile is active in the game (an older launcher after a move, KILN_DATA_DIR, another
+   *  launcher): said, never shown as loaded; `activeProfile` is null then. `root`: the data folder its paths name. */
+  otherFolderProfile?: { id: string; root?: string | null };
 }
 export interface NewerKilnMod {
   id: string;
@@ -1483,6 +1488,110 @@ export const deckGamepad = (on: boolean) => call<GamepadStatus>("deck_gamepad", 
 export const deckFullscreen = (on: boolean) => call<boolean>("deck_fullscreen", { on });
 export const deckQuit = () => call<null>("deck_quit");
 
+// data_folder.rs: where the launcher keeps its data (one folder, moved as one; Settings' "Data folder" row). The
+// data folder in use is fixed for the life of the process: after a move, a "use" or a reset the launcher restarts
+// (data_folder_restart), and that start removes the old copy and reports it (`notice`).
+/** Where the data folder comes from: `env` ($KILN_DATA_DIR; the launcher cannot change it), `pointer` (the file at the
+ *  default place that names a folder the player chose), `default`. */
+export type DataFolderSource = "env" | "pointer" | "default";
+export interface DataFolder {
+  /** The data folder in use (the default place when the pointer is broken). */
+  path: string;
+  /** The default place for this PC. */
+  defaultPath: string;
+  source: DataFolderSource;
+  /** The pointer names a folder that cannot be used: every other command fails (code `data_folder`) until the player
+   *  picks a folder (data_folder_use), starts fresh (data_folder_reset) or quits. `kind`: the crate's ProblemKind. */
+  problem: { path: string; reason: string; kind?: string } | null;
+  /** The start after a move (or one that undid an unfinished move): until data_folder_notice_ack. */
+  notice: DataFolderNotice | null;
+  /** Another launcher holds the folder's lock exclusively (it is moving the data): only Quit. Absent: false. */
+  elsewhere?: boolean;
+}
+/** An entry of the old folder, with its size and where it is. */
+export interface DataFolderEntry {
+  name: string;
+  bytes: number;
+  path: string;
+}
+export interface DataFolderNotice {
+  /** moved: a move finished; undone: a move that did not finish was undone at this start; unclear: the move's record
+   *  matches neither folder, nothing was removed (`reason` says where things are). Absent: moved. */
+  kind?: "moved" | "undone" | "unclear";
+  from: string;
+  to: string;
+  /** Every path still in the old folder (`stayed` and `kept`). */
+  left: string[];
+  /** Entries the launcher does not know: copied, and left in the old folder on purpose (Kiln did not remove them). */
+  stayed?: DataFolderEntry[];
+  /** What could not be removed, and why (a file that changed since the move, a game's profile naming the old folder). */
+  kept?: { path: string; bytes: number; reason: string }[];
+  /** The removal of the old copy runs now (the task "Remove the old data folder"). */
+  removing?: boolean;
+  /** The removal stopped before the end (canceled, or the launcher closed): it goes on at the next start. */
+  unfinished?: boolean;
+  /** The old folder itself is gone. */
+  folderRemoved?: boolean;
+  /** Why nothing was removed, and where the folder is. */
+  reason?: string | null;
+}
+export interface DataFolderSize {
+  bytes: number;
+  files: number;
+}
+/** What data_folder_check found for a folder the player picked. */
+export interface DataFolderPlan {
+  picked: string;
+  /** The folder the data would be in (`<picked>/Kiln` when the picked folder has other files in it). */
+  target: string;
+  /** move: copy the data there; use: it already is a Kiln data folder (no merge); refuse: `reason` says why not. */
+  action: "move" | "use" | "refuse";
+  /** One sentence; set for "refuse" (the crate's). */
+  reason: string | null;
+  /** The refusal's stable code (kiln_manage::data_folder::RefusalCode: "game_running", "too_small", ...). */
+  code?: string | null;
+  /** What moves. */
+  bytes: number;
+  files: number;
+  /** What the target needs free. */
+  needed?: number;
+  /** Free space at the target (null: unknown). */
+  free: number | null;
+  /** On the current folder's volume (null: unknown). */
+  sameVolume: boolean | null;
+  /** Hard links from the current folder work there (a move needs no space then). */
+  hardLinks?: boolean;
+  /** Games (by name) whose mods would be copied into their game folder from there, and are not today. */
+  copyMode: string[];
+  /** Entries the launcher does not know: copied, and also left in the old folder (Kiln does not remove them). */
+  stays: DataFolderEntry[];
+  /** What will not work from there, one sentence each (the crate's). */
+  warnings?: string[];
+}
+/** data_folder_move's task result. */
+export interface DataFolderMoved {
+  from: string;
+  to: string;
+  warnings: string[];
+  /** Entries copied and left in the old folder. */
+  stayed?: DataFolderEntry[];
+  /** The removal of the old copy, the move's last phase: `interrupted` (a cancel then) leaves the rest for the next
+   *  start; the move itself is done. */
+  cleanup?: { done: boolean; interrupted: boolean; folderRemoved: boolean; kept: { path: string; bytes: number; reason: string }[]; reason?: string | null } | null;
+}
+export const dataFolderGet = () => call<DataFolder>("data_folder_get");
+export const dataFolderSize = () => call<DataFolderSize>("data_folder_size");
+export const dataFolderCheck = (path: string) => call<DataFolderPlan>("data_folder_check", { path });
+/** Task result: DataFolderMoved. `path`: the folder the player picked (the backend checks it again). */
+export const dataFolderMove = (path: string) => call<TaskId>("data_folder_move", { path });
+/** Switches to a folder that already is a Kiln data folder (the current one stays where it is). */
+export const dataFolderUse = (path: string) => call<DataFolder>("data_folder_use", { path });
+/** Starts fresh at the default place; only for a broken pointer. */
+export const dataFolderReset = () => call<DataFolder>("data_folder_reset");
+export const dataFolderNoticeAck = () => call<null>("data_folder_notice_ack");
+/** Restarts the launcher; the promise does not resolve (it rejects if the restart could not start). */
+export const dataFolderRestart = () => call<null>("data_folder_restart");
+
 /** Every command name (the Rust side registers the same list; mock.ts answers or rejects each). */
 export const COMMANDS = [
   "app_info", "app_settings_get", "app_settings_set", "app_open_path", "app_open_url", "task_list", "task_get", "task_cancel",
@@ -1515,6 +1624,8 @@ export const COMMANDS = [
   "chain_view", "chain_set_late",
   "found_scan", "found_add",
   "report_save", "report_summary",
+  "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
+  "data_folder_notice_ack", "data_folder_restart",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

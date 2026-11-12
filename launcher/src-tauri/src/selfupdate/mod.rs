@@ -173,6 +173,8 @@ fn load_store() -> Store {
 }
 
 fn save_store(f: impl FnOnce(&mut Store)) {
+    // `update.json` is in the data folder: a writer a move waits for (the path is refused while it holds the folder)
+    let _writing = crate::state::writing();
     let Some(p) = store_path() else { return };
     let mut s = load_store();
     f(&mut s);

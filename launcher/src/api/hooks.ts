@@ -31,6 +31,8 @@ export const qk = {
   saves: (g: GameId) => ["saves_list", g] as const,
   backups: (g: GameId) => ["saves_backups", g] as const,
   pending: (g: GameId) => ["modpack_pending", g] as const,
+  dataFolder: ["data_folder_get"] as const,
+  dataFolderSize: ["data_folder_size"] as const,
 };
 
 // ---------------------------------------------------------------- selected game (persisted)
@@ -55,6 +57,11 @@ export function useNexusEnabled() {
 }
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.appSettingsGet });
 export const useGames = () => useQuery({ queryKey: qk.games, queryFn: api.gameList });
+/** The data folder in use (fixed until the launcher restarts; the start-up gate, shell/DataFolderGate.tsx, fills it). */
+export const useDataFolder = () => useQuery({ queryKey: qk.dataFolder, queryFn: api.dataFolderGet, staleTime: Infinity, retry: false });
+/** Its size, measured on its own (the path shows at once). */
+export const useDataFolderSize = (enabled = true) =>
+  useQuery({ queryKey: qk.dataFolderSize, queryFn: api.dataFolderSize, staleTime: 60_000, retry: false, enabled });
 
 /** The selected client install (falls back to the default game, then the first client). */
 export function useGame(): { game: GameInstall | null; games: GameInstall[]; loading: boolean; error: unknown } {
