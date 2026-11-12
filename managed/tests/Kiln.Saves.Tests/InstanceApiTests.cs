@@ -31,6 +31,7 @@ public sealed class InstanceApiTests : IDisposable
         Assert.Throws<ArgumentException>(() => _h.Declare<Kills>(""));
         Assert.Throws<ArgumentException>(() => _h.Declare<Kills>(new string('k', 201)));
         Assert.Throws<ArgumentException>(() => _h.Declare<Kills>("bad", new InstanceKeyOptions { Persist = (Persist)7 }));
+        Assert.Throws<ArgumentException>(() => _h.Declare<Kills>("none", new InstanceKeyOptions { Items = [] }));
     }
 
     [Fact]

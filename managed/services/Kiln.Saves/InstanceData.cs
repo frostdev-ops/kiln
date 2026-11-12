@@ -88,8 +88,8 @@ public static class InstanceData
     /// <c>OnLoad</c>; the same name again returns the same key.</summary>
     /// <param name="name">Unique within the mod, at most 200 characters.</param>
     /// <param name="options">Where values are kept, and which item types may carry them.</param>
-    /// <exception cref="ArgumentException">An empty or too long name, an unknown <see cref="Kiln.Persist"/>, or a name the mod
-    /// declared before with another type or other options.</exception>
+    /// <exception cref="ArgumentException">An empty or too long name, an unknown <see cref="Kiln.Persist"/>, an empty
+    /// <see cref="InstanceKeyOptions.Items"/>, or a name the mod declared before with another type or other options.</exception>
     /// <exception cref="KilnUnavailableException"><see cref="Kiln.Persist.Carried"/>: not available in this release
     /// (<c>saves.instance_data.carried</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or not from a mod's code.</exception>
@@ -101,6 +101,7 @@ public static class InstanceData
         WorldStore.CheckKey(name);
         options ??= new InstanceKeyOptions();
         if (!Enum.IsDefined(options.Persist)) throw new ArgumentException($"unknown Persist {(int)options.Persist}", nameof(options));
+        if (options.Items is { Count: 0 }) throw new ArgumentException("Items lists no item type; give at least one, or null for any item", nameof(options));
         if (options.Persist == Persist.Carried)
             throw new KilnUnavailableException(CarriedCapability,
                 "instance data that travels with the character is not in this release; use Persist.World (this world's record of the character)");
