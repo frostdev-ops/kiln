@@ -15,6 +15,7 @@
     <!-- Kiln.Testing ships next to Kiln.Host in kiln/host (shared by test mods); the host runs its test runner. -->
     <ProjectReference Include="../Kiln.Testing/Kiln.Testing.csproj" />
     <InternalsVisibleTo Include="Kiln.Host.Tests" />
+    <InternalsVisibleTo Include="Kiln.TestKit" />
   </ItemGroup>
   <ItemGroup>
     <RuntimeHostConfigurationOption Include="System.GC.HeapHardLimit" Value="536870912" />
