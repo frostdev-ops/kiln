@@ -16,4 +16,12 @@
     <KilnGameIds>None</KilnGameIds>
   </PropertyGroup>
   <Import Project="../../../../Kiln.Sdk/Sdk/Sdk.targets" />
+  <!-- In repository mode Kiln.Chat's and Kiln.Network's own project references (Players, Permissions, Items, Time,
+       Spawn, Client) land in the output; kiln/host has them, and the loader takes its own (Kiln.Host/Mods.cs), so the
+       deployed folder leaves every Kiln.* out. -->
+  <Target Name="_TkParitySharedOut" AfterTargets="_KilnModFiles">
+    <ItemGroup>
+      <_KilnModFile Remove="$(OutDir)Kiln.*" />
+    </ItemGroup>
+  </Target>
 </Project>
