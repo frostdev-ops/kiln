@@ -174,6 +174,6 @@ public sealed class FakePlayer
         return p;
     }
 
-    /// <inheritdoc/>
+    /// <summary>The name, the session entity and the Steam id, for a log line.</summary>
     public override string ToString() => $"{Name} (entity {Entity}, steam {SteamId})";
 }

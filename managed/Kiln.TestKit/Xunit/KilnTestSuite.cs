@@ -90,7 +90,7 @@ public sealed class KilnSuiteLifetime : IDisposable
 /// asked to run; other tests of the class come after, in xunit's default order.</summary>
 public sealed class KilnTestOrderer : ITestCaseOrderer
 {
-    /// <inheritdoc/>
+    /// <summary>The suite's <c>[KilnTest]</c> cases in the in-game runner's order, then the class's other cases.</summary>
     public IReadOnlyCollection<TTestCase> OrderTestCases<TTestCase>(IReadOnlyCollection<TTestCase> testCases) where TTestCase : notnull, ITestCase
     {
         var kiln = new List<(int Index, TTestCase Case)>();

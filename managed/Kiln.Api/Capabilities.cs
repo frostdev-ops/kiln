@@ -108,7 +108,7 @@ public sealed class CapabilityChangedEvent : KilnEvent
     /// removed.</summary>
     public Capability Current { get; }
 
-    /// <inheritdoc />
+    /// <summary>The name, the previous and the current state, for a log line.</summary>
     public override string ToString() =>
         $"{Name}: {Capabilities.StateName(Previous.State)} -> {Capabilities.StateName(Current.State)} ({Capabilities.CodeName(Current.Reason)})";
 }
