@@ -268,7 +268,12 @@ public sealed partial class WeaponMovesTestMod
                 var open = w.Seen.Count > 0 && Content.Sequences.Get($"0x{w.Seen[0].Sequence:x8}") is { } first
                     ? Openings(first).Where(o => o.Trigger == "Primary" && o.FollowUp != Guid.Empty).Select(o => o.Time).DefaultIfEmpty(0.6).Min() : 0.6;
                 await Steps((int)Math.Ceiling(open / StepSeconds()) + 1);
-                await Press(p, Mainhand | MainhandTap, 1);
+                // the press can fall outside the opening on a loaded server: again, a few steps apart, until the follow-up starts
+                for (var tries = 0; tries < 4 && w.Seen.Count < 2; tries++)
+                {
+                    await Press(p, Mainhand | MainhandTap, 1);
+                    for (var i = 0; i < 4 && w.Seen.Count < 2; i++) await Steps(1);
+                }
                 break;
             default: await Press(p, Mainhand | MainhandHold, HeavyHold); break;
         }
