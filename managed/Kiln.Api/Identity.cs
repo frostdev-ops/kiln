@@ -126,10 +126,10 @@ public readonly record struct PlayerRef(ulong SteamId, Guid CharacterId, EntityR
     /// <summary>True when the character is known.</summary>
     public bool HasCharacter => CharacterId != Guid.Empty;
 
-    /// <summary>Whether the session entity this ref holds is still alive (<see cref="EntityRef.IsAlive"/>). A ref
-    /// taken in an earlier session says false; <see cref="Resolve"/> gives the current one.</summary>
+    /// <summary>True only when the held session entity has a serial and is still alive (<see cref="EntityRef.IsAlive"/>).
+    /// False without a serial or for an earlier session; <see cref="Resolve"/> gives the current one.</summary>
     [TickThreadOnly]
-    public bool IsOnline => Entity.IsAlive;
+    public bool IsOnline => Entity.HasSerial && Entity.IsAlive;
 
     /// <summary>The player whose session entity this is; <see cref="None"/> when it is not a player in game.</summary>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>

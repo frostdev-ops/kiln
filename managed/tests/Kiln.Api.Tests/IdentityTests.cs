@@ -232,6 +232,23 @@ public sealed class IdentityTests : KilnTest
     // --- PlayerRef ---
 
     [Fact]
+    public void PlayerRef_without_a_session_serial_is_not_online_even_when_the_slot_exists()
+    {
+        var players = new FakePlayers();
+        IdentitySources.Players = players;
+        var character = Guid.NewGuid();
+        _serials.Live[3] = 0;
+        var old = new PlayerRef(7, character, EntityRef.Of(new EntityId(3)));
+        Assert.True(old.Entity.IsAlive);  // entity existence alone cannot identify a player session
+        Assert.False(old.IsOnline);
+
+        _serials.Live[3] = 71;  // the slot now belongs to another session
+        Assert.False(old.IsOnline);
+        players.Online[(7, character)] = new PlayerRef(7, character, EntityRef.Of(new EntityId(3)));
+        Assert.True(old.Resolve().IsOnline);
+    }
+
+    [Fact]
     public void PlayerRef_Of_Resolve_and_IsOnline_through_the_source()
     {
         var players = new FakePlayers();

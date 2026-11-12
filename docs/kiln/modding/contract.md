@@ -73,8 +73,9 @@ ref types carry enough to notice that.
 - **`PlayerRef(ulong SteamId, Guid CharacterId, EntityRef Entity)`**: a person: the Steam id, the character
   (`Guid.Empty` when unknown, see `HasCharacter`) and the session entity (none while offline). `PlayerRef.Of(entity)`
   finds the player of a session entity (`None` when it is not one); `Resolve()` gives the same person with their
-  current session entity. `IsOnline` is true while the held session entity is alive, so a ref from an earlier session
-  says false; call `Resolve()` to find them again. With no player service, `Of` and `Resolve` throw
+  current session entity. `IsOnline` is true only when the held session entity has a serial and is alive; without a
+  serial or for an earlier session it says false. Call `Resolve()` to find the current session. With no player service,
+  `Of` and `Resolve` throw
   `KilnUnavailableException("identity.players")`.
 - **`ItemId`**: an item type (FNV-1a-32 of the item's GUID). It moved from Kiln.Items to Kiln.Api in dev.25.
   Kiln.Items forwards the type, so a mod built against the old Kiln.Items still loads and sees the same type.
