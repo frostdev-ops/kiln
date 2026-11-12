@@ -20,6 +20,10 @@ internal sealed record ViewCurrent(string Mod, string Id, string Title, string A
 internal sealed record RunnerView(string Session, IReadOnlyList<ViewItem> Items, ViewCurrent? Current, string Guard,
     bool Protecting, long Dropped, long Passed, string? Warning, string? Message, int Queued, string? Ledger)
 {
+    /// <summary>Set after a cheats check started in this world: the character must be deleted. Stays until the game
+    /// exits or the world is left; no answer clears it.</summary>
+    public string? Changed { get; init; }
+
     public static readonly RunnerView Empty = new("menu", [], null, "not read yet", false, 0, 0, null, null, 0, null);
 
     public int Passes => Items.Count(i => i.Verdict == "pass");

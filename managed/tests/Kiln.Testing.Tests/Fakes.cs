@@ -28,6 +28,17 @@ internal sealed class FakeEnv : IRunnerEnv
     public FakeLog LogTail { get; } = new();
     public ILogTail Log => LogTail;
     public DateTime Now { get; set; } = new(2026, 11, 12, 1, 2, 3, DateTimeKind.Utc);
+    public string? Character { get; set; } = "KilnCheck runner";
+    public bool CharacterThrows { get; set; }
+    public uint WorldSession { get; set; } = 1;
+
+    public string? CharacterName(EntityId player, out string why)
+    {
+        if (CharacterThrows) throw new InvalidOperationException("no players service");
+        why = "the test says it cannot be read";
+        return Character;
+    }
+
     public List<string> Written { get; } = new();
     public void Write(LogLevel level, string text) => Written.Add($"[{level}] {text}");
 }

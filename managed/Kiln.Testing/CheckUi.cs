@@ -41,6 +41,7 @@ internal static class CheckScreen
         ui.Text($"Guided checks · {SessionLabel(v.Session)}");
         ui.SameLine();
         ui.TextDisabled($"   {v.Passes} passed · {v.Fails} failed · {v.Skips} skipped · {v.NeverRun} never run");
+        if (v.Changed is { } changed) ui.Text(Red, changed);
         ui.Text(v.Protecting ? Green : Dim, "Achievement guard: " + v.Guard);
         if (v.Warning is { } w) ui.Text(Red, "GUARD WARNING: " + w);
         if (v.Ledger is { } l) ui.Text(Red, "Ledger: " + l);
@@ -176,7 +177,7 @@ internal static class CheckScreen
     /// <summary>The HUD line: the current instruction, always, so the player can play the check with the list closed.</summary>
     public static string HudText(RunnerView v, string pass, string fail, string skip, string open)
     {
-        var warning = v.Warning is { } w ? "  |  GUARD WARNING: " + w : "";
+        var warning = (v.Warning is { } w ? "  |  GUARD WARNING: " + w : "") + (v.Changed is { } ch ? "  |  " + ch : "");
         if (v.Current is not { } c) return warning.Length > 0 ? warning.TrimStart(' ', '|') : "";
         var text = c.Phase switch
         {

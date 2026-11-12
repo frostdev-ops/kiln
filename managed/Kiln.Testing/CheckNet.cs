@@ -112,6 +112,7 @@ internal sealed class CheckNet
     private readonly Queue<ViewItem> _all = new();
     private bool _runningAll;
     private NetPeer? _server;
+    private string? _changed;
 
     private CheckNet(CheckRunner runner, IRunnerEnv env, NetChannel channel)
     {
@@ -299,6 +300,7 @@ internal sealed class CheckNet
                     break;
                 default:
                     _current = m.Current;
+                    if (m.Kind == "started" && m.Current is { Cheats: true }) _changed = CheckRunner.ChangedCharacter;
                     break;
             }
         }
@@ -333,7 +335,7 @@ internal sealed class CheckNet
             return local with
             {
                 Session = "joined", Items = items, Current = _current, Message = _message ?? (_catalog is null ? "asking the server for its checks" : null),
-                Queued = _all.Count,
+                Queued = _all.Count, Changed = _changed ?? local.Changed,
             };
         }
     }
@@ -359,6 +361,7 @@ internal sealed class CheckNet
             _all.Clear();
             _runningAll = false;
             _message = null;
+            _changed = null;  // the world was left
         }
     }
 }

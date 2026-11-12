@@ -139,6 +139,30 @@ internal sealed class LiveEnv : IRunnerEnv
 
     public IAchievementGuard? Guard => _guard;
 
+    /// <summary>Not readable yet on any side: the server sees a player's platform name and CharacterId, not the
+    /// character's name (docs/re/characters.md); the name lives in the client's character save. So line 5 of the cheats
+    /// rule refuses everywhere until a reader exists.</summary>
+    public string? CharacterName(EntityId player, out string why)
+    {
+        why = "Kiln has no reader for a character's name yet: the server sees only the platform name and the CharacterId";
+        return null;
+    }
+
+    public uint WorldSession
+    {
+        get
+        {
+            try
+            {
+                return IsClient ? Client.ClientWorldSession : 1;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+    }
+
     public ILogTail Log { get; }
 
     public DateTime Now => DateTime.UtcNow;

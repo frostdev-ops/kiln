@@ -239,6 +239,34 @@ internal static class CheatsRule
         return (s, null);
     }
 
+    /// <summary>A cheats check changes the character for good, so it runs only on a throwaway character: one whose
+    /// name starts with this (ordinal, case-sensitive).</summary>
+    internal const string ThrowawayPrefix = "KilnCheck";
+
+    internal const string Line5 = "line 5";
+
+    /// <summary>Line 5: the character of the player the check changes is a throwaway one, its name read on the server
+    /// side now. A name that cannot be read refuses.</summary>
+    public static Refusal? Character(IRunnerEnv env, EntityId player)
+    {
+        string? name;
+        string why;
+        try
+        {
+            name = env.CharacterName(player, out why);
+        }
+        catch (Exception e)
+        {
+            name = null;
+            why = $"reading it threw {e.GetType().Name}";
+        }
+        if (name is null)
+            return new Refusal(Line5, $"cheats checks run only on a throwaway character whose name starts with {ThrowawayPrefix}, and this character's name cannot be read here ({why})");
+        if (!name.StartsWith(ThrowawayPrefix, StringComparison.Ordinal))
+            return new Refusal(Line5, $"cheats checks run only on a throwaway character whose name starts with {ThrowawayPrefix} (this one is '{name}')");
+        return null;
+    }
+
     /// <summary>A joining client's answer, built on that client for a start request.</summary>
     public static Attestation Attest(string key, IAchievementGuard? guard, Func<LedgerRead> readLedger, GameInfo game, DateTime now)
     {

@@ -27,6 +27,13 @@ internal interface IRunnerEnv
 
     EntityId LocalPlayer { get; }
 
+    /// <summary>The name of the character <paramref name="player"/> plays, read on the server side; null when it cannot
+    /// be read here (<paramref name="why"/> says why).</summary>
+    string? CharacterName(EntityId player, out string why);
+
+    /// <summary>Changes when the world this process runs (or is joined to) changes; 0 with no world.</summary>
+    uint WorldSession { get; }
+
     /// <summary>The achievement guard of this process; null when there is none to ask.</summary>
     IAchievementGuard? Guard { get; }
 
@@ -96,6 +103,8 @@ internal sealed class CheckRunner
     private IDisposable? _hold;
     private bool _holdTried;
     private string? _warning;
+    private string? _changedCharacter;
+    private uint _changedIn;
     private string? _message;
     private GuardStatus? _guard;
     private DateTime _guardRead;
@@ -158,6 +167,7 @@ internal sealed class CheckRunner
         if (_run is { } run) Advance(run);
         if (_run is null) StartNext();
         if (_env.Now - _guardRead > TimeSpan.FromSeconds(1)) ReadGuard();
+        if (_changedCharacter is not null && _env.WorldSession != _changedIn) _dirty = true;
         if (_dirty) Publish();
     }
 
@@ -383,10 +393,12 @@ internal sealed class CheckRunner
         var c = run.Case;
         Refusal? refusal;
         GuardStatus? before = null;
-        if (run.Session == ClientCheckSession.Joined)
-            refusal = CheatsRule.Joined(c, run.Request.Attestation, _env.Now);
-        else
-            refusal = CheatsRule.Hosted(c, run.Request.Origin, _env.Guard, Ledger.ReadFile, _env.Game, out before);
+        var player = run.Request.Origin == CheckOrigin.Remote ? run.Request.Player : run.Session == ClientCheckSession.Hosted ? _env.LocalPlayer : EntityId.None;
+        refusal = run.Session == ClientCheckSession.Joined
+            ? CheatsRule.Joined(c, run.Request.Attestation, _env.Now)
+            : CheatsRule.Hosted(c, run.Request.Origin, _env.Guard, Ledger.ReadFile, _env.Game, out before);
+        // line 5 last: the lines before it say first what is wrong with the session and the guard
+        if (refusal is null && c.Cheats) refusal = CheatsRule.Character(_env, player);
         if (run.Session == ClientCheckSession.Joined && c.Cheats && run.Request.Attestation?.Status is { } s) before = s;
         if (refusal is not null)
         {
@@ -400,11 +412,15 @@ internal sealed class CheckRunner
         run.Instruction = "";
         run.LogMark = SafeMark();
         run.Started = _env.Now;
-        var player = run.Request.Origin == CheckOrigin.Remote ? run.Request.Player : run.Session == ClientCheckSession.Hosted ? _env.LocalPlayer : EntityId.None;
         var context = new CheckContext(run, run.Mod.Context, c.Id, c.Title, run.Session, player, run.Cancellation);
         _env.Write(LogLevel.Info, $"checks: start {c.Key} ({LedgerEntry.SessionName(run.Session)}{(c.Cheats ? ", cheats: guard latched and protecting" : "")})");
         _message = $"running {c.Key}";
         _dirty = true;
+        if (c.Cheats)
+        {
+            _changedCharacter = ChangedCharacter;
+            _changedIn = _env.WorldSession;
+        }
         Emit(Event(RunEventKind.Started, run, afterConfirm ? "started after yes" : "started"));
         run.Body = Invoke(run, context);
     }
@@ -568,6 +584,11 @@ internal sealed class CheckRunner
         if (c.Cheats)
         {
             GuardStatus? after = run.Session == ClientCheckSession.Joined ? run.GuardAtEnd : _env.Guard is { } g ? CheatsRule.ReadStatus(g).Status : null;
+            if (c.GuardProof && ProofOverride(run, after, verdict, note) is { } failed)
+            {
+                verdict = ClientCheckVerdict.Fail;
+                note = failed;
+            }
             var warning = GuardWarning(run.GuardBefore, after);
             if (after is { } a) guard = LedgerGuard.Of(a);
             else guard = new LedgerGuard();
@@ -596,6 +617,26 @@ internal sealed class CheckRunner
             $" ({run.Assertions.Count(a => !a.Ok)} of {run.Assertions.Count} assertion(s) failed)" + (written ? "" : $"; the ledger was not written: {Ledger.WriteError}"));
         Emit(Event(RunEventKind.Finished, run, _message) with { Entry = entry });
     }
+
+    /// <summary>The guard-proof check shows the guard working only when its dropped counter went up while the body ran.
+    /// When it did not, the recorded verdict is fail whatever the player answered (the one verdict the runner
+    /// overrides), and the note says why. Returns that note, or null when the counter went up.</summary>
+    private string? ProofOverride(Run run, GuardStatus? after, ClientCheckVerdict answered, string note)
+    {
+        long? b = run.GuardBefore?.Dropped, a = after?.Dropped;
+        var up = b is { } x && a is { } y && y > x;
+        run.Add(up, "the guard dropped at least one report", $"{b?.ToString() ?? "unread"} before, {a?.ToString() ?? "unread"} after");
+        if (up) return null;
+        _env.Write(LogLevel.Warn, $"checks: {run.Case.Key}: the guard's dropped counter did not go up; recorded as fail (the player answered {LedgerEntry.VerdictName(answered)})");
+        return $"the guard's dropped counter did not go up ({b?.ToString() ?? "unread"} before, {a?.ToString() ?? "unread"} after): " +
+               "the guard did not see an achievement report" +
+               (answered != ClientCheckVerdict.Fail ? $"; the player answered {LedgerEntry.VerdictName(answered)}" : "") +
+               (note.Length > 0 ? "; note: " + note : "");
+    }
+
+    /// <summary>The line that stays after a cheats check started, until the game exits or the world is left.</summary>
+    internal const string ChangedCharacter =
+        "A cheats check changed this character. Delete it before you play on: loaded again without the guard it can unlock Steam achievements.";
 
     /// <summary>When the guard let a report through or stopped protecting while a cheats check ran.</summary>
     internal static string? GuardWarning(GuardStatus? before, GuardStatus? after)
@@ -728,13 +769,17 @@ internal sealed class CheckRunner
     private void Publish()
     {
         _dirty = false;
+        if (_changedCharacter is not null && _env.WorldSession != _changedIn) _changedCharacter = null;  // the world was left
         var (session, problem) = SessionOf(new StartRequest("", "", _env.IsClient ? CheckOrigin.Local : CheckOrigin.Control));
         var items = Items(session, problem);
         var g = _guard;
         var label = _env.IsClient ? (_env.Hosting ? "hosted" : "menu") : "server";
         var view = new RunnerView(label, items, _run is { } r ? CurrentOf(r) : null,
             g is { } s ? s.ToString() : _env.Guard is null ? "not there" : "status did not arrive", g?.Protecting ?? false,
-            g?.Dropped ?? 0, g?.Passed ?? 0, _warning, problem ?? _message, _queue.Count, Ledger.WriteError ?? (Ledger.MovedAside is { } m ? $"an unreadable ledger was moved to {Path.GetFileName(m)}" : null));
+            g?.Dropped ?? 0, g?.Passed ?? 0, _warning, problem ?? _message, _queue.Count, Ledger.WriteError ?? (Ledger.MovedAside is { } m ? $"an unreadable ledger was moved to {Path.GetFileName(m)}" : null))
+        {
+            Changed = _changedCharacter,
+        };
         Volatile.Write(ref _view, view);
     }
 

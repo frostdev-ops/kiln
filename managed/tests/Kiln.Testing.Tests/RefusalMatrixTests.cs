@@ -326,10 +326,14 @@ public sealed class RefusalMatrixTests
 
     // ---- the states that run ----
 
+    private static void DropOneReport(Harness h) => CheckMod.DuringBody = () =>
+        h.Guard!.Value = h.Guard.Value!.Value with { Dropped = h.Guard.Value.Value.Dropped + 1 };
+
     [Fact]
     public void Guard_proof_runs_after_yes_with_the_guard_latched()
     {
         using var h = new Harness();
+        DropOneReport(h);
         h.Start("t.proof");
         Assert.Null(h.Runner.Answer(AnswerKind.Yes));
         h.Pump();
@@ -340,6 +344,7 @@ public sealed class RefusalMatrixTests
         Assert.NotNull(e.Guard);
         Assert.True(e.Guard!.Active && e.Guard.HookInstalled && e.Guard.TargetVerified);
         Assert.Equal("", e.Note);
+        Assert.Contains(e.Assertions, a => a.Ok && a.What == "the guard dropped at least one report" && a.Detail == "0 before, 1 after");
         Assert.Null(h.Runner.View.Warning);
     }
 
@@ -372,6 +377,7 @@ public sealed class RefusalMatrixTests
     public void The_gate_opens_with_a_pass_and_closes_again_with_a_later_fail()
     {
         using var h = new Harness();
+        DropOneReport(h);
         h.Start("t.cheats");
         Assert.Equal("line 4", h.Last(RunEventKind.Refused)!.Refusal!.Line);
         h.Start("t.proof");
@@ -440,6 +446,157 @@ public sealed class RefusalMatrixTests
         using var h = new Harness(x => x.Env.Guard = new NoHoldGuard());
         h.Start("t.pass");
         Assert.Equal("pass", h.Answer(AnswerKind.Pass).Verdict);
+    }
+
+    // ---- line 5: a throwaway character ----
+
+    [Fact]
+    public void A_character_without_the_prefix()
+    {
+        using var h = new Harness(x =>
+        {
+            x.Seed(Harness.ProofEntry("pass"));
+            x.Env.Character = "Ada";
+        });
+        h.Start("t.cheats");
+        Refused(h, "line 5", "(this one is 'Ada')");
+    }
+
+    [Theory]
+    [InlineData("kilncheck lower case")]
+    [InlineData(" KilnCheck leading space")]
+    [InlineData("MyKilnCheck")]
+    public void The_prefix_is_ordinal_and_at_the_start(string name)
+    {
+        using var h = new Harness(x =>
+        {
+            x.Seed(Harness.ProofEntry("pass"));
+            x.Env.Character = name;
+        });
+        h.Start("t.cheats");
+        Refused(h, "line 5", "throwaway character");
+    }
+
+    [Fact]
+    public void A_character_name_that_cannot_be_read()
+    {
+        using var h = new Harness(x =>
+        {
+            x.Seed(Harness.ProofEntry("pass"));
+            x.Env.Character = null;
+        });
+        h.Start("t.cheats");
+        Refused(h, "line 5", "cannot be read here");
+    }
+
+    [Fact]
+    public void A_character_name_read_that_throws()
+    {
+        using var h = new Harness(x =>
+        {
+            x.Seed(Harness.ProofEntry("pass"));
+            x.Env.CharacterThrows = true;
+        });
+        h.Start("t.cheats");
+        Refused(h, "line 5", "threw");
+    }
+
+    [Fact]
+    public void Joined_reads_the_name_on_the_server_too()
+    {
+        using var h = new Harness(x => x.Env.Character = "Bob");
+        h.Start("t.cheats", CheckOrigin.Remote, Good(h.Env.Now), "peer");
+        Refused(h, "line 5", "'Bob'");
+    }
+
+    [Fact]
+    public void The_prefix_lets_it_run()
+    {
+        using var h = new Harness(x =>
+        {
+            x.Seed(Harness.ProofEntry("pass"));
+            x.Env.Character = "KilnCheck 1";
+        });
+        h.Start("t.cheats");
+        Assert.Equal(1, CheckMod.CheatsRan);
+    }
+
+    // ---- guard-proof and the dropped counter ----
+
+    [Fact]
+    public void Guard_proof_with_the_counter_unchanged_is_a_fail_even_after_pass_and_the_gate_stays_closed()
+    {
+        using var h = new Harness();
+        h.Start("t.proof");
+        h.Runner.Answer(AnswerKind.Yes);
+        h.Pump();
+        Assert.Equal(1, CheckMod.ProofRan);
+        var e = h.Answer(AnswerKind.Pass, "looked fine");
+        Assert.Equal("fail", e.Verdict);
+        Assert.StartsWith("the guard's dropped counter did not go up (0 before, 0 after): the guard did not see an achievement report", e.Note);
+        Assert.Contains("the player answered pass", e.Note);
+        Assert.Contains("looked fine", e.Note);
+        Assert.Contains(e.Assertions, a => !a.Ok && a.What == "the guard dropped at least one report");
+        h.Events.Clear();
+        h.Start("t.cheats");
+        Assert.Equal(0, CheckMod.CheatsRan);
+        Assert.Contains("failed", h.Last(RunEventKind.Refused)!.Refusal!.Reason);
+    }
+
+    [Fact]
+    public void Guard_proof_with_the_counter_up_and_pass_opens_the_gate()
+    {
+        using var h = new Harness();
+        DropOneReport(h);
+        h.Start("t.proof");
+        h.Runner.Answer(AnswerKind.Yes);
+        h.Pump();
+        Assert.Equal("pass", h.Answer(AnswerKind.Pass).Verdict);
+        h.Start("t.cheats");
+        Assert.Equal(1, CheckMod.CheatsRan);
+    }
+
+    [Fact]
+    public void Joined_guard_proof_reads_the_clients_counters()
+    {
+        using var h = new Harness();
+        var start = Good(h.Env.Now) with { Proof = "none" };
+        h.Start("t.proof", CheckOrigin.Remote, start, "peer");
+        h.Runner.Answer(AnswerKind.Yes, null, "peer");
+        h.Pump();
+        Assert.Equal(1, CheckMod.ProofRan);
+        Assert.Null(h.Runner.Answer(AnswerKind.Pass, null, "peer", start.Status!.Value with { Dropped = 2 }));
+        h.Pump();
+        var e = h.Last(RunEventKind.Finished)!.Entry!;
+        Assert.Equal("pass", e.Verdict);
+        Assert.Contains(e.Assertions, a => a.Ok && a.Detail == "0 before, 2 after");
+    }
+
+    // ---- the line that stays after a cheats check ----
+
+    [Fact]
+    public void The_delete_the_character_line_comes_after_a_cheats_check_started_and_stays()
+    {
+        using var h = new Harness(x => x.Seed(Harness.ProofEntry("pass")));
+        h.Start("t.pass");
+        Assert.Null(h.Runner.View.Changed);
+        h.Answer(AnswerKind.Pass);
+        Assert.Null(h.Runner.View.Changed);
+        h.Env.Character = "Ada";
+        h.Start("t.cheats");  // refused: never started, so no line
+        Assert.Null(h.Runner.View.Changed);
+        h.Env.Character = "KilnCheck 2";
+        h.Start("t.cheats");
+        Assert.Equal(CheckRunner.ChangedCharacter, h.Runner.View.Changed);
+        Assert.Contains("Delete it before you play on", CheckScreen.HudText(h.Runner.View, "a", "b", "c", "d"));
+        h.Answer(AnswerKind.Skip);
+        h.Start("t.pass");
+        h.Answer(AnswerKind.Pass);
+        Assert.Equal(CheckRunner.ChangedCharacter, h.Runner.View.Changed);  // no answer clears it
+        Assert.Contains("Delete it before you play on", CheckScreen.HudText(h.Runner.View, "a", "b", "c", "d"));
+        h.Env.WorldSession = 2;  // the world was left
+        h.Pump();
+        Assert.Null(h.Runner.View.Changed);
     }
 
     private sealed class NoHoldGuard : IAchievementGuard
