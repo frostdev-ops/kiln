@@ -12,6 +12,14 @@ internal static class HooksGate
 {
     private static readonly ConcurrentDictionary<ModContext, ModHooks> Tracked = new();
 
+    /// <summary>Taken by every hook install and by a context's retire (Hooks.Forget), so neither sees the other half
+    /// done. Never taken on the dispatch path.</summary>
+    internal static readonly object Lifecycle = new();
+
+    /// <summary>The refusal for a context that has unloaded (its code may still run: a handler in flight, a timer).</summary>
+    public static InvalidOperationException Retired(string api, ModContext mod) =>
+        new($"{api}: mod '{mod.Info.Id}' has unloaded; an unloaded mod cannot install hooks");
+
     internal sealed class ModHooks
     {
         public bool SymbolsLoaded;
@@ -69,4 +77,11 @@ internal static class HooksGate
     }
 
     internal static ModHooks Current(ModContext mod) => Tracked.TryGetValue(mod, out var mh) ? mh : Track(mod);
+
+    /// <summary>Drops the tracker of a context that retired while one of its installs ran (its Retiring list was taken
+    /// before Track joined it), so the tracker does not keep the context alive.</summary>
+    internal static void Untrack(ModContext mod)
+    {
+        if (!mod.Alive) Tracked.TryRemove(mod, out _);
+    }
 }

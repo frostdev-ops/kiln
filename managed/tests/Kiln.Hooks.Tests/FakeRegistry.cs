@@ -43,7 +43,11 @@ internal static unsafe class FakeRegistry
         HooksNative.UseForTests(_table);
     }
 
-    public static void Uninstall() => HooksNative.UseForTests(null);
+    public static void Uninstall()
+    {
+        DuringInstall = null;
+        HooksNative.UseForTests(null);
+    }
 
     public static int SlotsUsed { get { lock (Gate) return Slots.Count; } }
     public static List<Link> Live { get { lock (Gate) return Slots.Where(l => l.Live).ToList(); } }
@@ -65,8 +69,12 @@ internal static unsafe class FakeRegistry
         ((delegate* unmanaged[Cdecl]<HooksNative.RegsRaw*, void*, void>)link.Fn)(&regs, (void*)link.User);
     }
 
+    /// <summary>Runs inside the native install, before the link is made (tests use it to race a retire).</summary>
+    public static Action? DuringInstall;
+
     static int Add(byte kind, ulong owner, nuint address, nint fn, nint user, ulong* handle)
     {
+        DuringInstall?.Invoke();
         lock (Gate)
         {
             var link = Slots.FirstOrDefault(l => !l.Live && l.Kind == kind && l.Fn == fn && l.User == user &&

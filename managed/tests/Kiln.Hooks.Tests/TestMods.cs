@@ -43,6 +43,16 @@ internal static class TestMods
 
     public static void As(ModContext? mod, Action f) => As<object?>(mod, () => { f(); return null; });
 
+    static readonly PropertyInfo AliveProperty = typeof(ModContext).GetProperty("Alive", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+    public static bool IsAlive(ModContext mod) => (bool)AliveProperty.GetValue(mod)!;
+
+    static readonly EventInfo RetiringEvent = typeof(ModContext).GetEvent("Retiring", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+    /// <summary>Adds a cleanup to the context's Retiring event, as another service does.</summary>
+    public static void OnRetiring(ModContext mod, Action cleanup) =>
+        RetiringEvent.GetAddMethod(nonPublic: true)!.Invoke(mod, [cleanup]);
+
     /// <summary>The unload path: services drop the mod's state (its Retiring event).</summary>
     public static void Retire(ModContext mod) => RetireMethod.Invoke(mod, null);
 

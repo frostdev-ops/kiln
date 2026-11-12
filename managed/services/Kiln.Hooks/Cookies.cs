@@ -66,6 +66,13 @@ internal static class HookCookies
         return owner != 0 ? owner : mod.Owner;
     }
 
+    /// <summary>Cookies ever made for a key, free or taken (tests).</summary>
+    internal static int MadeCount(string modId, byte kind, nuint address)
+    {
+        var key = new Key(modId, kind, address);
+        lock (Gate) return KeyOf.Values.Count(k => k == key);
+    }
+
     /// <summary>Free cookies of a key (tests).</summary>
     internal static int FreeCount(string modId, byte kind, nuint address)
     {

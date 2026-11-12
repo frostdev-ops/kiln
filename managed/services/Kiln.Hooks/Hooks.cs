@@ -146,23 +146,12 @@ public static unsafe class Hooks
         ArgumentNullException.ThrowIfNull(handler);
         var t = HooksNative.Require("Hooks.Detour");
         var mod = HooksGate.RequireAdvanced("Hooks.Detour");
-        // The cookie is the native link's user pointer. The same mod re-installing on the same address gets a cookie
-        // a revoked link of it already carries, so the registry revives that link instead of taking a new slot.
-        var cookie = HookCookies.Take(mod.Info.Id, HookCookies.Detour, address);
-        var reg = new DetourReg(handler, mod, HooksGate.Current(mod).InFlight, cookie, Interlocked.Increment(ref _nextInstall));
-        Detours[cookie] = reg;
-        ulong native = 0;
-        int rc = t->Detour(HookCookies.Owner(mod), address, priority, &DetourDispatch, (void*)(nint)cookie, &native);
-        if (rc != HooksNative.Ok)
-        {
-            Detours.TryRemove(KeyValuePair.Create(cookie, reg));
-            HookCookies.Return(cookie);  // nothing native carries it
-            throw new InvalidOperationException($"Hooks.Detour({label ?? address.ToString("X")}): {HooksNative.Describe(rc)}");
-        }
-        reg.Native = native;
-        HooksGate.Track(mod);
-        mod.Log.Info($"hooks: detour on {label ?? "0x" + address.ToString("X")} (priority {priority})");
-        return new HookHandle(cookie, native, reg.Install);
+        var where = label ?? "0x" + address.ToString("X");
+        var h = Install("Hooks.Detour", where, mod, HookCookies.Detour, address,
+            (cookie, inFlight, install) => new DetourReg(handler, mod, inFlight, cookie, install),
+            (owner, cookie, native) => t->Detour(owner, address, priority, &DetourDispatch, (void*)(nint)cookie, native));
+        mod.Log.Info($"hooks: detour on {where} (priority {priority})");
+        return h;
     }
 
     // ---- mid hooks ----
@@ -179,21 +168,64 @@ public static unsafe class Hooks
         ArgumentNullException.ThrowIfNull(handler);
         var t = HooksNative.Require("Hooks.Mid");
         var mod = HooksGate.RequireAdvanced("Hooks.Mid");
-        var cookie = HookCookies.Take(mod.Info.Id, HookCookies.Mid, address);  // see Detour
-        var reg = new MidReg(handler, mod, HooksGate.Current(mod).InFlight, cookie, Interlocked.Increment(ref _nextInstall));
-        Mids[cookie] = reg;
-        ulong native = 0;
-        int rc = t->Mid(HookCookies.Owner(mod), address, priority, &MidDispatch, (void*)(nint)cookie, &native);
-        if (rc != HooksNative.Ok)
+        var where = label ?? "0x" + address.ToString("X");
+        var h = Install("Hooks.Mid", where, mod, HookCookies.Mid, address,
+            (cookie, inFlight, install) => new MidReg(handler, mod, inFlight, cookie, install),
+            (owner, cookie, native) => t->Mid(owner, address, priority, &MidDispatch, (void*)(nint)cookie, native));
+        mod.Log.Info($"hooks: mid hook on {where} (priority {priority})");
+        return h;
+    }
+
+    internal delegate int NativeInstall(ulong owner, long cookie, ulong* native);
+
+    // Installs one link for a live context. Runs under HooksGate.Lifecycle, which Forget (the context's retire) takes
+    // too, so a retire either waits for the install and then finds its registration, or ran before it. The context is
+    // checked again after the native install: a retire that began meanwhile may have taken its list of cleanups before
+    // Track joined it (the first hook of a context), and then nothing would revoke this link; it is undone here instead.
+    // A refused install leaves no link, no registration and no taken cookie.
+    private static HookHandle Install(string api, string where, ModContext mod, byte kind, nuint address,
+        Func<long, StrongBox<long>, long, Reg> make, NativeInstall install)
+    {
+        lock (HooksGate.Lifecycle)
         {
-            Mids.TryRemove(KeyValuePair.Create(cookie, reg));
-            HookCookies.Return(cookie);
-            throw new InvalidOperationException($"Hooks.Mid({label ?? address.ToString("X")}): {HooksNative.Describe(rc)}");
+            if (!mod.Alive) throw HooksGate.Retired(api, mod);
+            var inFlight = HooksGate.Current(mod).InFlight;  // joins the context's cleanups (Track)
+            // The cookie is the native link's user pointer. The same mod re-installing on the same address gets a cookie
+            // a revoked link of it already carries, so the registry revives that link instead of taking a new slot.
+            var cookie = HookCookies.Take(mod.Info.Id, kind, address);
+            var reg = make(cookie, inFlight, Interlocked.Increment(ref _nextInstall));
+            Add(reg);
+            ulong native = 0;
+            int rc = install(HookCookies.Owner(mod), cookie, &native);
+            if (rc != HooksNative.Ok)
+            {
+                Drop(reg);
+                HookCookies.Return(cookie);  // nothing native carries it
+                throw new InvalidOperationException($"{api}({where}): {HooksNative.Describe(rc)}");
+            }
+            reg.Native = native;
+            if (!mod.Alive)
+            {
+                Drop(reg);
+                if (HooksNative.T != null) HooksNative.T->Revoke(native);
+                HookCookies.Return(cookie);
+                HooksGate.Untrack(mod);
+                throw HooksGate.Retired(api, mod);
+            }
+            return new HookHandle(cookie, native, reg.Install);
         }
-        reg.Native = native;
-        HooksGate.Track(mod);
-        mod.Log.Info($"hooks: mid hook on {label ?? "0x" + address.ToString("X")} (priority {priority})");
-        return new HookHandle(cookie, native, reg.Install);
+    }
+
+    private static void Add(Reg reg)
+    {
+        if (reg is DetourReg d) Detours[reg.Cookie] = d;
+        else Mids[reg.Cookie] = (MidReg)reg;
+    }
+
+    private static void Drop(Reg reg)
+    {
+        if (reg is DetourReg d) Detours.TryRemove(KeyValuePair.Create(reg.Cookie, d));
+        else Mids.TryRemove(KeyValuePair.Create(reg.Cookie, (MidReg)reg));
     }
 
     // ---- fixed dispatchers (default load context: stable function pointers) ----
@@ -297,6 +329,11 @@ public static unsafe class Hooks
     // their links and frees their cookies for the mod's next load. Patches and anything under the mod's own owner went
     // with RevokeOwner before this.
     internal static void Forget(ModContext mod)
+    {
+        lock (HooksGate.Lifecycle) ForgetLocked(mod);
+    }
+
+    private static void ForgetLocked(ModContext mod)
     {
         var gone = new List<Reg>();
         foreach (var kv in Detours)
