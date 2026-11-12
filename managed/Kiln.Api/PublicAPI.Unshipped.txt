@@ -1,1 +1,93 @@
 #nullable enable
+Kiln.AnyThreadAttribute
+Kiln.AnyThreadAttribute.AnyThreadAttribute() -> void
+Kiln.ClientOnlyAttribute
+Kiln.ClientOnlyAttribute.ClientOnlyAttribute() -> void
+Kiln.EntityRef
+Kiln.EntityRef.Deconstruct(out Kiln.EntityId Id, out ulong Serial) -> void
+Kiln.EntityRef.EntityRef() -> void
+Kiln.EntityRef.EntityRef(Kiln.EntityId Id, ulong Serial) -> void
+Kiln.EntityRef.Equals(Kiln.EntityRef other) -> bool
+Kiln.EntityRef.HasSerial.get -> bool
+Kiln.EntityRef.Id.get -> Kiln.EntityId
+Kiln.EntityRef.Id.init -> void
+Kiln.EntityRef.IsAlive.get -> bool
+Kiln.EntityRef.IsNone.get -> bool
+Kiln.EntityRef.Serial.get -> ulong
+Kiln.EntityRef.Serial.init -> void
+Kiln.IKilnResult
+Kiln.IKilnResult.Ok.get -> bool
+Kiln.IKilnResult.Reason.get -> string?
+Kiln.ItemId
+Kiln.ItemId.Deconstruct(out uint Value) -> void
+Kiln.ItemId.Equals(Kiln.ItemId other) -> bool
+Kiln.ItemId.IsNone.get -> bool
+Kiln.ItemId.ItemId() -> void
+Kiln.ItemId.ItemId(uint Value) -> void
+Kiln.ItemId.Value.get -> uint
+Kiln.ItemId.Value.init -> void
+Kiln.ItemInstanceRef
+Kiln.ItemInstanceRef.Deconstruct(out Kiln.EntityRef Entity, out Kiln.ItemId Item) -> void
+Kiln.ItemInstanceRef.Entity.get -> Kiln.EntityRef
+Kiln.ItemInstanceRef.Entity.init -> void
+Kiln.ItemInstanceRef.Equals(Kiln.ItemInstanceRef other) -> bool
+Kiln.ItemInstanceRef.IsAlive.get -> bool
+Kiln.ItemInstanceRef.IsNone.get -> bool
+Kiln.ItemInstanceRef.Item.get -> Kiln.ItemId
+Kiln.ItemInstanceRef.Item.init -> void
+Kiln.ItemInstanceRef.ItemInstanceRef() -> void
+Kiln.ItemInstanceRef.ItemInstanceRef(Kiln.EntityRef Entity, Kiln.ItemId Item) -> void
+Kiln.KilnUnavailableException
+Kiln.KilnUnavailableException.Capability.get -> string!
+Kiln.KilnUnavailableException.KilnUnavailableException(string! capability, string? reason = null, System.Exception? innerException = null) -> void
+Kiln.KilnUnavailableException.Reason.get -> string?
+Kiln.PlayerRef
+Kiln.PlayerRef.CharacterId.get -> System.Guid
+Kiln.PlayerRef.CharacterId.init -> void
+Kiln.PlayerRef.Deconstruct(out ulong SteamId, out System.Guid CharacterId, out Kiln.EntityRef Entity) -> void
+Kiln.PlayerRef.Entity.get -> Kiln.EntityRef
+Kiln.PlayerRef.Entity.init -> void
+Kiln.PlayerRef.Equals(Kiln.PlayerRef other) -> bool
+Kiln.PlayerRef.HasCharacter.get -> bool
+Kiln.PlayerRef.IsNone.get -> bool
+Kiln.PlayerRef.IsOnline.get -> bool
+Kiln.PlayerRef.IsSamePerson(Kiln.PlayerRef other) -> bool
+Kiln.PlayerRef.PlayerRef() -> void
+Kiln.PlayerRef.PlayerRef(ulong SteamId, System.Guid CharacterId, Kiln.EntityRef Entity) -> void
+Kiln.PlayerRef.Resolve() -> Kiln.PlayerRef
+Kiln.PlayerRef.SteamId.get -> ulong
+Kiln.PlayerRef.SteamId.init -> void
+Kiln.RenderThreadAttribute
+Kiln.RenderThreadAttribute.RenderThreadAttribute() -> void
+Kiln.ServerOnlyAttribute
+Kiln.ServerOnlyAttribute.ServerOnlyAttribute() -> void
+Kiln.WorkerThreadAttribute
+Kiln.WorkerThreadAttribute.WorkerThreadAttribute() -> void
+override Kiln.EntityRef.GetHashCode() -> int
+override Kiln.EntityRef.ToString() -> string!
+override Kiln.ItemId.GetHashCode() -> int
+override Kiln.ItemId.ToString() -> string!
+override Kiln.ItemInstanceRef.GetHashCode() -> int
+override Kiln.ItemInstanceRef.ToString() -> string!
+override Kiln.PlayerRef.GetHashCode() -> int
+override Kiln.PlayerRef.ToString() -> string!
+static Kiln.EntityRef.implicit operator Kiln.EntityId(Kiln.EntityRef r) -> Kiln.EntityId
+static Kiln.EntityRef.Of(Kiln.EntityId entity) -> Kiln.EntityRef
+static Kiln.EntityRef.operator !=(Kiln.EntityRef left, Kiln.EntityRef right) -> bool
+static Kiln.EntityRef.operator ==(Kiln.EntityRef left, Kiln.EntityRef right) -> bool
+static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId
+static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemInstanceRef.operator !=(Kiln.ItemInstanceRef left, Kiln.ItemInstanceRef right) -> bool
+static Kiln.ItemInstanceRef.operator ==(Kiln.ItemInstanceRef left, Kiln.ItemInstanceRef right) -> bool
+static Kiln.PlayerRef.Of(Kiln.EntityId player) -> Kiln.PlayerRef
+static Kiln.PlayerRef.operator !=(Kiln.PlayerRef left, Kiln.PlayerRef right) -> bool
+static Kiln.PlayerRef.operator ==(Kiln.PlayerRef left, Kiln.PlayerRef right) -> bool
+static readonly Kiln.EntityRef.None -> Kiln.EntityRef
+static readonly Kiln.ItemId.None -> Kiln.ItemId
+static readonly Kiln.ItemInstanceRef.None -> Kiln.ItemInstanceRef
+static readonly Kiln.PlayerRef.None -> Kiln.PlayerRef
+~override Kiln.EntityRef.Equals(object obj) -> bool
+~override Kiln.ItemId.Equals(object obj) -> bool
+~override Kiln.ItemInstanceRef.Equals(object obj) -> bool
+~override Kiln.PlayerRef.Equals(object obj) -> bool
