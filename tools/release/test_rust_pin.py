@@ -21,7 +21,12 @@ case "$1" in
   target) for t in $FAKE_TARGETS; do echo "$t"; done;;
 esac
 """
+# rustc without rustup: its version, and where it keeps a target's library ($FAKE_LIBDIR; unset: it knows no such target)
 RUSTC = """#!/usr/bin/env bash
+if [[ $1 == --print ]]; then
+  [[ -n ${FAKE_LIBDIR:-} ]] || { echo "error: could not find specification for target" >&2; exit 1; }
+  echo "$FAKE_LIBDIR"; exit 0
+fi
 echo "rustc $FAKE_RUSTC (0000000 2026-01-01)"
 """
 
@@ -108,16 +113,41 @@ class RustPin(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"RUSTUP_TOOLCHAIN={PINNED}", r.stdout)
 
+    def libdir(self, *files):
+        d = self.dir / "lib" / "rustlib" / TARGET / "lib"
+        d.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            (d / f).write_text("")
+        return str(d)
+
     def test_without_rustup_the_distributions_rustc_must_be_that_version(self):
         self.program("rustc", RUSTC)
-        ok = self.run_pin(FAKE_RUSTC=PINNED)
+        lib = self.libdir("libstd-0123456789abcdef.rlib", "libcore-0123456789abcdef.rlib")
+        ok = self.run_pin(FAKE_RUSTC=PINNED, FAKE_LIBDIR=lib)
         self.assertEqual(ok.returncode, 0, ok.stderr)
         self.assertIn("RUSTUP_TOOLCHAIN=unset", ok.stdout)
-        other = self.run_pin(FAKE_RUSTC="1.0.0")
+        other = self.run_pin(FAKE_RUSTC="1.0.0", FAKE_LIBDIR=lib)
         self.assertNotEqual(other.returncode, 0)
         self.assertIn(f"the release builds with Rust {PINNED}", other.stderr)
-        longer = self.run_pin(FAKE_RUSTC=PINNED + "9")  # 1.99.19 is not 1.99.1
+        longer = self.run_pin(FAKE_RUSTC=PINNED + "9", FAKE_LIBDIR=lib)  # 1.99.19 is not 1.99.1
         self.assertNotEqual(longer.returncode, 0)
+
+    def test_without_rustup_the_windows_target_must_be_installed_too(self):
+        # the right version alone is not enough: the Windows files need that target's standard library
+        self.program("rustc", RUSTC)
+        unknown = self.run_pin(FAKE_RUSTC=PINNED)  # rustc does not know the target at all
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertIn(f"has no {TARGET} library", unknown.stderr)
+        self.assertIn(f"rustup toolchain install {PINNED} --profile minimal --target {TARGET}", unknown.stderr)
+        missing = self.run_pin(FAKE_RUSTC=PINNED, FAKE_LIBDIR=str(self.dir / "not" / "there"))
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn(str(self.dir / "not" / "there"), missing.stderr)
+        empty = self.run_pin(FAKE_RUSTC=PINNED, FAKE_LIBDIR=self.libdir())  # the folder is there, the library is not
+        self.assertNotEqual(empty.returncode, 0)
+        self.assertIn(f"has no {TARGET} library", empty.stderr)
+        self.assertNotIn("RUSTUP_TOOLCHAIN", empty.stdout)  # it stopped before anything went on
+        there = self.run_pin(FAKE_RUSTC=PINNED, FAKE_LIBDIR=self.libdir("libstd-0123456789abcdef.rlib"))
+        self.assertEqual(there.returncode, 0, there.stderr)
 
     def test_no_rust_at_all_stops(self):
         r = self.run_pin()

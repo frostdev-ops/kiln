@@ -285,7 +285,9 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
   The image's `RUST_VERSION` is the release's Rust version: release.sh reads it and builds everything the host builds
   (the Windows files; with `--host-build` the Linux files too) with that same toolchain, by setting
   `RUSTUP_TOOLCHAIN`. It stops before building anything when the host has no such toolchain or it lacks the
-  `x86_64-pc-windows-msvc` target, and prints the `rustup` command that installs it. (rustup's `stable` moved during
+  `x86_64-pc-windows-msvc` target, and prints the `rustup` command that installs it. On a machine without rustup the
+  distribution's `rustc` must be exactly that version and have that target's standard library (release.sh asks
+  `rustc --print target-libdir` and looks for `libstd` there), or it stops the same way. (rustup's `stable` moved during
   0.2.0-dev.26's first build and stopped it halfway; a version number cannot move.) `KILN_RELEASE_RUST=<x.y.z>`
   builds the host's files with another version, for a trial build.
   `tools/release/linux-build/image.sh` prints its tag, `kiln-linux-build:<first 12 hex of the Dockerfile's sha256>`,

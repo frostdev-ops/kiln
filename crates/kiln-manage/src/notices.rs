@@ -207,6 +207,50 @@ mod tests {
         }
     }
 
+    /// The four launchers above could pass by luck of timing. This one cannot: while this process holds the lock, another
+    /// process must find it held, and free once the guard is dropped. It also shows the lock is a real one in this
+    /// folder (a file system that ignores locks would let the first look succeed).
+    #[test]
+    fn another_process_finds_the_lock_held_exactly_while_one_holds_it() {
+        let (d, root) = dirs("held");
+        let path = file(&d, "g").unwrap();
+        let look = |expect: &str| {
+            let marker = root.join(format!("looked-{expect}"));
+            let ok = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["notices::tests::a_launcher_that_looks_at_the_lock", "--exact", "--nocapture", "--test-threads=1"])
+                .env("KM_NOTICES_LOCK_ROOT", &root)
+                .env("KM_NOTICES_LOCK_EXPECT", expect)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            // the marker says the child really looked (a filter that matched no test would also exit with success)
+            ok && marker.is_file()
+        };
+        let guard = lock_across_processes(&path).expect("the lock can be taken in an ordinary folder");
+        assert!(look("held"), "another process did not find the lock held while this one held it");
+        drop(guard);
+        assert!(look("free"), "another process found the lock held after its guard was dropped");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The child of the test above: does nothing unless that test started it. It tries the lock without waiting and
+    /// leaves a marker when what it found is what the parent expects.
+    #[test]
+    fn a_launcher_that_looks_at_the_lock() {
+        let (Ok(root), Ok(expect)) = (std::env::var("KM_NOTICES_LOCK_ROOT"), std::env::var("KM_NOTICES_LOCK_EXPECT")) else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let d = DataDirs::at(root.clone());
+        let lock = file(&d, "g").unwrap().with_extension("lock");
+        let f = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&lock).unwrap();
+        let held = matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock));
+        assert_eq!(held, expect == "held", "the lock is {} for this process", if held { "held by another" } else { "free" });
+        std::fs::write(root.join(format!("looked-{expect}")), b"").unwrap();
+    }
+
     #[test]
     fn a_lock_that_cannot_be_taken_does_not_stop_the_memory() {
         let (d, root) = dirs("nolock");

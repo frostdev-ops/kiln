@@ -232,8 +232,14 @@ pin_rust() {
     rustup target list --toolchain "$want" --installed 2>/dev/null | grep -qx "$target" \
       || die "Rust $want has no $target target here: rustup target add --toolchain $want $target"
     export RUSTUP_TOOLCHAIN=$want
-  elif [[ $(rustc --version 2>/dev/null) != "rustc $want "* ]]; then
-    die "rustc here is '$(rustc --version 2>&1 | head -1)', but the release builds with Rust $want (install rustup, or that version)"
+  else
+    [[ $(rustc --version 2>/dev/null) == "rustc $want "* ]] \
+      || die "rustc here is '$(rustc --version 2>&1 | head -1)', but the release builds with Rust $want (install rustup, or that version)"
+    # Without rustup nothing lists the installed targets: ask rustc where that target's library would be, and look.
+    local lib
+    lib=$(rustc --print target-libdir --target "$target" 2>/dev/null) || lib=
+    [[ -n $lib ]] && compgen -G "$lib/libstd-*.rlib" >/dev/null \
+      || die "rustc $want here has no $target library (looked in '${lib:-nowhere: rustc does not know the target}'): install that target for it, or use rustup (rustup toolchain install $want --profile minimal --target $target)"
   fi
   note "Rust $want for the files built on this machine (the Linux build image has the same)"
 }
