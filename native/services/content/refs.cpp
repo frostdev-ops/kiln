@@ -259,9 +259,20 @@ fs::path folder_of(const std::string& id) {
 // The models an assets.json declares: its "resource" entries of type keen::RenderModel (keen::Model references resolve to it).
 void declared_models(const json& manifest, std::unordered_set<G, GH>* out) {
     if (!manifest.is_object() || !manifest.contains("entries") || !manifest["entries"].is_array()) return;
+    size_t index = 0;
     for (const json& e : manifest["entries"]) {
+        const size_t at = index++;
+        if (!e.is_object()) continue;
+        const char* invalid = nullptr;
+        for (const char* key : {"kind", "type", "guid"})
+            if (e.contains(key) && !e[key].is_string()) { invalid = key; break; }
+        if (invalid) {
+            const std::string name = e.contains("name") && e["name"].is_string() ? e["name"].get<std::string>() : "unnamed";
+            LOGW("item models: assets/assets.json entry %zu (%s): %s must be a string (skipped)", at, name.c_str(), invalid);
+            continue;
+        }
         uint8_t g[16];
-        if (e.is_object() && e.value("kind", "") == "resource" && e.value("type", "") == "keen::RenderModel" && guid_parse(lower(e.value("guid", "")), g))
+        if (e.value("kind", "") == "resource" && e.value("type", "") == "keen::RenderModel" && guid_parse(lower(e.value("guid", "")), g))
             out->insert(gof(g));
     }
 }
