@@ -14,6 +14,11 @@ dump, and the layout table that Kiln.Game embeds. Kiln.Game.csproj runs it at bu
 
     python3 tools/typegen/typegen.py generate --dump sigdb/types/server/<sha>.json --out <dir> [--root Ecs]
                                               [--legacy-obsolete | --no-legacy]
+
+Programs mode: descriptors of the game's ECS programs from a program catalog (read from the exe, so never in the
+tree, and nothing generated from one is committed):
+
+    python3 tools/typegen/typegen.py programs --catalog <catalog.json> --dump <dump> --out <dir> [--root Ecs]
 """
 import json
 import os
@@ -91,6 +96,8 @@ def legacy_text(types, source, side, obsolete_of=None, header=None):
         out.append("")
     # type-hash constants
     out.append("/// <summary>Type-hash constants for every generated ECS component.</summary>")
+    if obsolete_of:
+        out.append('[System.Obsolete("Use Kiln.Ecs.")]')
     out.append("public static class ComponentTypes")
     out.append("{")
     for t in types:
@@ -151,6 +158,11 @@ STRUCT_MEMBERS = {"Hash", "Name", "QualifiedName", "Size", "Layout"}
 # Names the hand-written part of the root class uses or keeps for typed access (task access); a generated type with
 # one of them stops the generator. Extend this set when a hand-written member of the root class is added.
 ROOT_RESERVED = {"ObjectReference", "GameGuid", "Get", "TryGet", "Has", "All", "Available", "NameOf", "Find",
+                 "Supports", "WhyNot", "RequireWorld", "Programs",
+                 # names the generated code uses unqualified inside the root class: a nested type would hide them
+                 "System", "Kiln", "StructLayout", "StructLayoutAttribute", "LayoutKind", "FieldOffset",
+                 "FieldOffsetAttribute", "InlineArray", "InlineArrayAttribute", "IGameStruct", "IGameComponent",
+                 "IGameEvent", "IGameAttribute", "Span",
                  "Read", "TryRead", "Write", "TryWrite", "Types", "Layouts"}
 
 CS_KEYWORDS = set("""abstract as base bool break byte case catch char checked class const continue decimal default
@@ -167,6 +179,12 @@ SHA = re.compile(r"^[0-9a-f]{64}$")
 
 class GenError(Exception):
     pass
+
+
+def qname_tail(qn):
+    """The short name of a qualified name: after the last :: outside a template argument list."""
+    head = qn.split("<", 1)[0]
+    return qn[head.rfind("::") + 2:] if "::" in head else qn
 
 
 def fnv1a32(s):
@@ -235,8 +253,8 @@ def load_dump(path):
         qn = t["qualifiedName"]
         if not isinstance(qn, str) or not QNAME.match(qn):
             bad(f"{at}.qualifiedName", f"{qn!r} is not a type name")
-        if not isinstance(t["name"], str) or not t["name"]:
-            bad(f"{at}.name", "is not a name")
+        if not isinstance(t["name"], str) or not QNAME.match(t["name"]) or t["name"] != qname_tail(qn):
+            bad(f"{at}.name", f"{t['name']!r} is not the last part of the qualified name ({qname_tail(qn)!r})")
         if not isinstance(t["hash"], str) or not HASH.match(t["hash"]):
             bad(f"{at}.hash", "is not 0x%08X")
         if int(t["hash"], 16) != fnv1a32(qn):
@@ -344,7 +362,13 @@ class Model:
         self.raw_reasons = {}  # reason -> count of raw fields
         self.arrays = set()   # inline-array lengths in use
         self.wrappers = 0
+        self.attributes = 0
         self.flattened = 0
+        for q in sorted(self.components):
+            t = self.by[q]
+            if fnv1a32("keen::ecs::" + t["name"]) != int(t["hash"], 16):
+                raise GenError(f"component {q}: kiln.world finds a component by the hash of keen::ecs::{t['name']}, "
+                               f"which is not this type's hash {t['hash']}; typed access by name cannot reach it")
         self._name_all()
         for t in self.d["types"]:
             if t["kind"] == K_STRUCT:
@@ -595,13 +619,52 @@ class Model:
         tbody = "".join(line + "\n" for line in table)
         header = (f"kiln.game.layouts\t1\tside={self.d['side']}\texe_sha256={self.d['exe_sha256']}\troot={r}"
                   f"\ttypes={len(table)}\tset={fnv1a64(tbody):016x}\n")
-        return types_cs, arrays_cs, MARKER + "\n" + header + tbody
+        return types_cs, arrays_cs, MARKER + "\n" + header + tbody, self.types_text()
+
+    def types_text(self):
+        """Kiln.Game.types: every type of the dump, for the first-use check against the live type table (§4)."""
+        lines = []
+        for t in sorted(self.d["types"], key=lambda t: t["qualifiedName"]):
+            parts = [t["qualifiedName"], str(t["kind"]), str(t["size"]), t["hash"], t.get("inner", "-")]
+            if t["kind"] == K_STRUCT:
+                parts += [f"{f['name']}@{f['offset']}:{f['type']}" for f in t["fields"]]
+            elif t["kind"] == K_ENUM:
+                parts += [f"{v['name']}={v['value']}" for v in t["values"]]
+            lines.append("\t".join(parts) + "\n")
+        return (f"{MARKER}\nkiln.game.types\t1\tside={self.d['side']}\texe_sha256={self.d['exe_sha256']}"
+                f"\ttypes={len(lines)}\n" + "".join(lines))
+
+    def attribute_value(self, t):
+        """The C# element type of an attribute component's dataStorage (a component whose base chain runs through
+        keen::ecs::AttributeComponent and that has a dataStorage static array), else None."""
+        qn = t["qualifiedName"]
+        if qn not in self.components:
+            return None
+        x, chain = t, set()
+        while "inner" in x:
+            x = self.by[x["inner"]]
+            chain.add(x["qualifiedName"])
+        if "keen::ecs::AttributeComponent" not in chain:
+            return None
+        for f, _ in self.flat[qn]:
+            if f["name"] != "dataStorage":
+                continue
+            a = self.by[f["type"]]
+            while a["kind"] == K_TYPEDEF:
+                a = self.by[a["inner"]]
+            if a["kind"] != K_ARRAY:
+                return None
+            et, why = self.field_type(a["inner"])
+            return et
+        return None
 
     def _emit_struct(self, t, table):
         qn, r = t["qualifiedName"], self.root
         cs = self.names[qn]
         role = self.role(qn)
         iface = {"component": "IGameComponent", "event": "IGameEvent"}.get(role, "IGameStruct")
+        value = self.attribute_value(t)
+        ifaces = f"IGameAttribute<{cs}, {value}>" if value else f"{iface}<{cs}>"
         fields, members, unsafe = [], [], False
         for f, decl in self.flat[qn]:
             if decl != qn:
@@ -637,14 +700,21 @@ class Model:
                            f"        public static implicit operator {ft}({cs} value) => value.{n};\n"
                            f"        /// <summary>Wraps a value.</summary>\n"
                            f"        public static implicit operator {cs}({ft} value) => new() {{ {n} = value }};\n")
+        attr = ""
+        if value:
+            self.attributes += 1
+            attr = (f"        /// <summary>The attribute's value slots (<c>dataStorage</c>). Which slot is the current, the base or the "
+                    f"maximum value is the game's data, not named here.</summary>\n"
+                    f"        [global::System.Diagnostics.CodeAnalysis.UnscopedRef]\n"
+                    f"        public Span<{value}> Values => dataStorage;\n"
+                    f"        static Span<{value}> IGameAttribute<{cs}, {value}>.ValuesOf(ref {cs} self) => self.dataStorage;\n")
         lay = self.layout(qn)
         base = f" Base <c>{esc(t['inner'])}</c>." if "inner" in t else ""
         what = {"component": "an ECS component", "event": "an ECS event", "struct": "a game struct"}[role]
         table.append("\t".join([f"S", f"Kiln.{r}+{cs}", f"{lay:016x}", qn, str(t["size"]), role] + members))
-        me = f"I{iface[1:]}<{cs}>"
         return (f"    /// <summary><c>{esc(qn)}</c>: {what}, {t['size']} bytes, align {t['align']}.{base}</summary>\n"
                 f"    [StructLayout(LayoutKind.Explicit, Size = {t['size']})]\n"
-                f"    public {'unsafe ' if unsafe else ''}partial struct {cs} : {iface}<{cs}>\n"
+                f"    public {'unsafe ' if unsafe else ''}partial struct {cs} : {ifaces}\n"
                 f"    {{\n"
                 f"        /// <summary>The engine's type hash: FNV-1a-32 of <see cref=\"QualifiedName\"/>.</summary>\n"
                 f"        public static readonly uint Hash = 0x{int(t['hash'], 16):08X}u;\n"
@@ -661,7 +731,7 @@ class Model:
                 f"        static string IGameStruct<{cs}>.QualifiedName => QualifiedName;\n"
                 f"        static int IGameStruct<{cs}>.Size => Size;\n"
                 f"        static ulong IGameStruct<{cs}>.Layout => Layout;\n"
-                + "".join(fields) + wrapper +
+                + "".join(fields) + wrapper + attr +
                 f"    }}\n")
 
     def _emit_enum(self, t, table):
@@ -705,6 +775,7 @@ class Model:
                 f"{kinds[K_TYPEDEF]} typedefs, {kinds[K_ARRAY]} static arrays, {sum(kinds[k] for k in PRIMS)} primitives, "
                 f"{sum(c for k, c in kinds.items() if k >= 20)} leaves; {len(self.components)} components, "
                 f"{len(self.events)} events; {nfields} fields ({self.flattened} from bases), {self.wrappers} wrappers, "
+                f"{self.attributes} attribute views, "
                 f"{len(self.arrays)} inline-array lengths; {raw} raw buffers" + (f" ({reasons})" if raw else ""))
 
 
@@ -729,7 +800,8 @@ def legacy_from_v2(m, obsolete):
     return legacy_text(types, m.d["_path"], m.d["side"], of, header=[MARKER])
 
 
-OUTPUTS = ("Kiln.Game.Ecs.g.cs", "Kiln.Game.Arrays.g.cs", "Kiln.Game.Legacy.g.cs", "Kiln.Game.layouts")
+OUTPUTS = ("Kiln.Game.Ecs.g.cs", "Kiln.Game.Arrays.g.cs", "Kiln.Game.Legacy.g.cs", "Kiln.Game.layouts",
+           "Kiln.Game.types")
 
 
 def generate(argv):
@@ -744,13 +816,14 @@ def generate(argv):
     a = ap.parse_args(argv)
     try:
         m = Model(load_dump(a.dump), a.root)
-        types_cs, arrays_cs, table = m.emit()
+        types_cs, arrays_cs, table, types = m.emit()
         legacy = "" if a.no_legacy else legacy_from_v2(m, a.legacy_obsolete)
     except GenError as e:
         print(f"typegen: error: {e}", file=sys.stderr)
         return 1
     os.makedirs(a.out, exist_ok=True)
-    texts = (types_cs, arrays_cs, legacy if not a.no_legacy else MARKER + "\n// no legacy part (--no-legacy)\n", table)
+    texts = (types_cs, arrays_cs, legacy if not a.no_legacy else MARKER + "\n// no legacy part (--no-legacy)\n", table,
+             types)
     for name, text in zip(OUTPUTS, texts):
         with open(os.path.join(a.out, name), "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
@@ -758,9 +831,132 @@ def generate(argv):
     return 0
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# programs: descriptors of the game's ECS programs from a program catalog (never committed: it is read from the exe)
+# ---------------------------------------------------------------------------------------------------------------------
+
+# A program descriptor's access lists by their offset in the descriptor (the catalog's keys).
+PROGRAM_LISTS = {0x18: "tpl", 0x28: "tpl_opt", 0x38: "read", 0x48: "read_opt", 0x58: "write", 0x68: "write_opt",
+                 0x78: "add", 0x88: "remove", 0x98: "sys_read", 0xB0: "sys_write", 0xD0: "other_tpl",
+                 0xE0: "other_read", 0xF0: "other_write", 0x100: "other_write_unser", 0x110: "with", 0x120: "without",
+                 0x130: "any_of", 0x140: "all_write", 0x150: "all_read", 0x160: "events_in", 0x170: "events_out"}
+SYSTEM_LISTS = {"sys_read", "sys_write"}     # names of systems or resources, not component types
+EVENT_LISTS = {"events_in", "events_out"}
+
+
+def program_ident(name):
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", name) if p]
+    cs = "".join(p[:1].upper() + p[1:] for p in parts)
+    if not cs or not cs[0].isalpha():
+        cs = "Program" + cs
+    return cs
+
+
+def programs(argv):
+    import argparse
+    ap = argparse.ArgumentParser(prog="typegen.py programs", description="ECS program descriptors from a catalog.")
+    ap.add_argument("--catalog", required=True, help="a program catalog (JSON list of {name, lists})")
+    ap.add_argument("--dump", required=True, help="the schema-2 dump the components come from")
+    ap.add_argument("--out", required=True, help="the directory to write into")
+    ap.add_argument("--root", default="Ecs", help="the root class of the generated types (default Ecs)")
+    a = ap.parse_args(argv)
+    try:
+        m = Model(load_dump(a.dump), a.root)
+        text, n = programs_text(m, a.catalog)
+    except GenError as e:
+        print(f"typegen: error: {e}", file=sys.stderr)
+        return 1
+    os.makedirs(a.out, exist_ok=True)
+    with open(os.path.join(a.out, "Kiln.Game.Programs.g.cs"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    print(f"typegen: {os.path.basename(a.catalog)}: {n} program descriptors")
+    return 0
+
+
+def programs_text(m, path):
+    try:
+        with open(path, "rb") as f:
+            cat = json.loads(f.read().decode("utf-8"))
+    except (OSError, ValueError) as e:
+        raise GenError(f"{path}: not a readable JSON catalog: {e}")
+    where = os.path.basename(path)
+    if not isinstance(cat, list):
+        raise GenError(f"{where}: a catalog is a list of programs")
+    out, idents = [], {}
+    for i, p in enumerate(cat):
+        at = f"{where}: [{i}]"
+        if not isinstance(p, dict) or set(p) - {"name", "lists"} or "name" not in p:
+            raise GenError(f"{at}: a program is {{name, lists}}")
+        name = p["name"]
+        if not isinstance(name, str) or not re.match(r"^[A-Za-z0-9_]{1,64}$", name):
+            raise GenError(f"{at}.name: {name!r} is not a program name")
+        cs = program_ident(name)
+        lists = p.get("lists", {})
+        props = {"".join(w[:1].upper() + w[1:] for w in PROGRAM_LISTS[int(k, 16)].split("_"))
+                 for k in (lists if isinstance(lists, dict) else {}) if re.match(r"^0x[0-9A-Fa-f]+$", str(k))
+                 and int(k, 16) in PROGRAM_LISTS}
+        if cs in props | {"Name", "Contract", "Programs", m.root}:
+            cs = "Program" + cs  # a nested class cannot have the name of one of its members
+        if cs in idents:
+            raise GenError(f"name collision: programs {idents[cs]} and {name} would both be {cs}")
+        idents[cs] = name
+        if not isinstance(lists, dict):
+            raise GenError(f"{at}.lists: not an object")
+        got = {}
+        for key, names in lists.items():
+            try:
+                off = int(key, 16)
+            except (TypeError, ValueError):
+                off = None
+            if off not in PROGRAM_LISTS:
+                raise GenError(f"{at}.lists[{key!r}]: not a known access list offset")
+            lst = PROGRAM_LISTS[off]
+            if not isinstance(names, list) or not all(isinstance(x, str) and IDENT.match(x) for x in names):
+                raise GenError(f"{at}.lists[{key!r}]: a list of names")
+            refs = []
+            for x in names:
+                if lst in SYSTEM_LISTS:
+                    refs.append(x)
+                    continue
+                qn = "keen::ecs::" + x
+                pool, what = (m.events, "event") if lst in EVENT_LISTS else (m.components, "component")
+                if qn not in pool:
+                    raise GenError(f"{at} ({name}).{lst}: {x} is not among the {what}s of {os.path.basename(m.d['_path'])}")
+                refs.append(qn)
+            got[off] = (lst, refs)
+        ordered = [got[o] for o in sorted(got)]
+        contract = f"program {name}\n" + "".join(f"{lst} {','.join(sorted(refs))}\n" for lst, refs in ordered if refs)
+        body = [f"    /// <summary>The game's ECS program <c>{name}</c>.</summary>",
+                f"    public static class {cs}",
+                "    {",
+                f'        public static readonly string Name = "{name}";',
+                "        /// <summary>FNV-1a-64 of the program's contract text (docs/kiln/typegen.md §4.5).</summary>",
+                f"        public static readonly ulong Contract = 0x{fnv1a64(contract):016X}ul;"]
+        for lst, refs in ordered:
+            prop = "".join(w[:1].upper() + w[1:] for w in lst.split("_"))
+            if lst in SYSTEM_LISTS:
+                items = ", ".join(f'"{x}"' for x in refs)
+                body.append(f"        public static readonly string[] {prop} = [{items}];")
+            else:
+                items = ", ".join(f"typeof({m.cs_name(q)})" for q in refs)
+                body.append(f"        public static readonly global::System.Type[] {prop} = [{items}];")
+        body.append("    }")
+        out.append("".join("    " + line + "\n" if line else "\n" for line in body))
+    head = (f"{MARKER}\n// SPDX-License-Identifier: MIT\n"
+            f"// <auto-generated> by tools/typegen/typegen.py programs from {where} and "
+            f"{os.path.basename(m.d['_path'])}. Do not edit by hand.\n#nullable enable\n"
+            f"#pragma warning disable RS0016 // generated from a catalog: outside the public API record\n\n"
+            f"namespace Kiln;\n\npublic static partial class {m.root}\n{{\n"
+            f"    /// <summary>The game's ECS programs and what each reads and writes.</summary>\n"
+            f"    public static class Programs\n    {{\n")
+    return head + "\n".join(out) + "    }\n}\n", len(cat)
+
+
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "generate":
         sys.exit(generate(sys.argv[2:]))
+    if len(sys.argv) >= 2 and sys.argv[1] == "programs":
+        sys.exit(programs(sys.argv[2:]))
     if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(2)
