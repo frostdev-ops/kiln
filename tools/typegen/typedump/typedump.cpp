@@ -133,7 +133,7 @@ struct Field {
 };
 struct Value {
     std::string name;
-    uint64_t value;
+    std::string value;  // decimal, as the underlying integer type has it
 };
 struct Type {
     std::string name, qname, inner;
@@ -184,6 +184,18 @@ struct Dumper {
         return q;
     }
 
+    // The integer kind under an enum (or a bitmask's enum), through typedefs and enums. 0 when there is none.
+    uint8_t underlying(uint64_t t) const {
+        for (int depth = 0; depth < 16; ++depth) {
+            t = im.q(t + td::inner);
+            if (!is_type(im, t)) return 0;
+            const uint8_t k = im.b(t + td::kind);
+            if (k >= 2 && k <= 9) return k;
+            if (k != 12 && k != 17) return 0;
+        }
+        return 0;
+    }
+
     void read(uint64_t t) {
         Type& y = by_va[t];
         y.qname = qname_of(t);
@@ -219,13 +231,27 @@ struct Dumper {
         }
         if (y.kind == 12 || (y.kind >= 13 && y.kind <= 16 && count)) {
             y.has_values = true;
+            // Values are stored as u64; written as the underlying type has them: a signed kind (3, 5, 7, 9) is
+            // sign-extended from the enum's own size, an unsigned one masked to it.
+            const uint8_t base = underlying(t);
+            if (!base) fail(at + ": the underlying type is not an integer kind 2 to 9");
+            if (y.size != 1 && y.size != 2 && y.size != 4 && y.size != 8) fail(at + ": an enum of size " + std::to_string(y.size));
+            const bool is_signed = base == 3 || base == 5 || base == 7 || base == 9;
+            const unsigned bits = 8 * y.size;
             for (uint32_t i = 0; i < count; ++i) {
                 const uint64_t e = enum_entry(im, t, i);
                 if (!e) fail(at + ": value " + std::to_string(i) + " fails validation");
                 Value v;
                 v.name = std::string(str_at(im, e));
                 if (!name_ok(v.name, false)) fail(at + ": value " + std::to_string(i) + " has no plain name");
-                v.value = im.q(e + td::enum_value);
+                uint64_t raw = im.q(e + td::enum_value);
+                if (bits < 64) raw &= (uint64_t(1) << bits) - 1;
+                if (is_signed) {
+                    int64_t sv = bits < 64 && (raw >> (bits - 1)) ? int64_t(raw | ~((uint64_t(1) << bits) - 1)) : int64_t(raw);
+                    v.value = std::to_string(sv);
+                } else {
+                    v.value = std::to_string(raw);
+                }
                 y.values.push_back(std::move(v));
             }
         }

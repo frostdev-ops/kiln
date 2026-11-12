@@ -65,6 +65,29 @@
    "inner": "test::Color"
   },
   {
+   "name": "Delta",
+   "qualifiedName": "test::Delta",
+   "hash": "0xFDA8B1D1",
+   "kind": 12,
+   "size": 1,
+   "align": 1,
+   "inner": "test::Offset8",
+   "values": [
+    {
+     "name": "Down",
+     "value": -2
+    },
+    {
+     "name": "Back",
+     "value": -1
+    },
+    {
+     "name": "Up",
+     "value": 1
+    }
+   ]
+  },
+  {
    "name": "Handle",
    "qualifiedName": "test::Handle",
    "hash": "0x46455043",
@@ -72,6 +95,15 @@
    "size": 4,
    "align": 4,
    "inner": "test::uint32"
+  },
+  {
+   "name": "Offset8",
+   "qualifiedName": "test::Offset8",
+   "hash": "0xFB7D5EA6",
+   "kind": 17,
+   "size": 1,
+   "align": 1,
+   "inner": "test::sint8"
   },
   {
    "name": "Ping",
@@ -117,6 +149,11 @@
      "type": "test::ColorMask"
     },
     {
+     "name": "delta",
+     "offset": 6,
+     "type": "test::Delta"
+    },
+    {
      "name": "counts",
      "offset": 8,
      "type": "test::StaticArray<uint32,2>"
@@ -132,6 +169,14 @@
      "type": "test::BlobString"
     }
    ]
+  },
+  {
+   "name": "sint8",
+   "qualifiedName": "test::sint8",
+   "hash": "0xC578A449",
+   "kind": 3,
+   "size": 1,
+   "align": 1
   },
   {
    "name": "uint32",

@@ -61,6 +61,9 @@ $KILN_OUT/typedump/typedump --side server --out sigdb/types "<path to enshrouded
 $KILN_OUT/typedump/typedump --side client --out sigdb/types "<path to enshrouded.exe>"
 ```
 
+The exe path is only ever a quoted argument of the tool; it is never run. On a Linux PC with Wine registered for
+`.exe` files, a shell line that begins with that path starts the game.
+
 **What is dumped:** the inline closure of the two ECS lists. From a type in it the tool follows a struct's base class
 and every field's type, a static array's element, a typedef's target, an enum's underlying integer and a bitmask's
 enum. Kinds 1 to 11 are leaves; so are kinds 20 to 29 (ds and blob containers, object references, guids): they are
@@ -80,7 +83,9 @@ field:  name, offset, type (a qualifiedName in this file)
 value:  name, value (integer)
 ```
 
-Keys are written in this order, indent 1, `\n` line ends, a final newline. `sigdb/types/server/c5c9fe50….json` is
+Keys are written in this order, indent 1, `\n` line ends, a final newline. An enum value is written as its underlying
+integer type has it (found through typedefs): sign-extended from the enum's size for a signed type, masked to that
+size for an unsigned one; an enum over anything but an integer fails the dump. `sigdb/types/server/c5c9fe50….json` is
 the older probe dump (schema 1, nine components) and stays as it is: it is the golden input of the dev.24 generator.
 
 **What is never dumped, and why.** The owner allowed committing these files on one condition: structure only (type
@@ -111,9 +116,10 @@ events, 1,839 types, 4,468 fields, 1,767 enum values. On this build pair the two
    ```
 4. Commit the new `sigdb/types/<side>/<sha256>.json` alone. Never edit a dump by hand.
 
-Without the exe variables `test.sh` runs only its synthetic image: a small registry with a struct and its base class,
-an enum, a bitmask, a static array, a typedef, a blob leaf and default-value bytes, whose dump must equal
-`expected-synthetic.json` and must not contain those bytes.
+Without the exe variables `test.sh` runs only its synthetic image (`synthetic.bin`, mode 644): a small registry with a
+struct and its base class, an enum whose stored values carry high garbage bits, a signed enum with negative values
+behind a typedef, a bitmask, a static array, a typedef, a blob leaf and default-value bytes, whose dump must equal
+`expected-synthetic.json` and must not contain those bytes. A copy whose signed enum sits over a float must fail.
 
 ## 3. Generating (typegen.py)
 ```sh
