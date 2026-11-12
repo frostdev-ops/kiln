@@ -218,6 +218,8 @@ Blocks.Define("big-can", new ItemBlock
 ## Moves
 What a weapon's attack slots play: its own motions, the moment its blow lands, its own chain. A slot left out keeps its class's, and a weapon with no `Moves` is made exactly as before.
 
+Sample: `mods/samples/WeaponMoves`, a sword with a chain of two swings, a heavy and a block on clips of its own (authored, retargeted onto the player, the second swing mirrored from the first), and a held model with moving parts.
+
 ```csharp
 Blocks.Define("cinderbrand", new WeaponBlock
 {

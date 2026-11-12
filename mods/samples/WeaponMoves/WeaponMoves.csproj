@@ -1,0 +1,11 @@
+<Project>
+  <!-- Sample: a weapon's moves and a held model with moving parts (docs/kiln/modding/item-blocks.md, "Moves" and "Parts"). blocks/weapon.json is the
+       same sword in data. The manifest is kiln.mod.json (clients "mod": models and clips are drawn by each player's game); the cook reads its id.
+       The clips and models are cooked on each player's machine: kiln cook (assets/cook.json, sources from make_assets.py). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>weapon-moves</KilnModId>
+    <KilnServices>Blocks</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

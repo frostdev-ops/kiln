@@ -12,7 +12,9 @@
     "dusk-draught": { "name": "Dusk Draught", "heals": 100, "stack": 10, "recipe": { "makes": 2, "needs": { "dusk-shard": 1 } } }
   },
   "weapons": {
-    "dusk-sword": { "name": "Dusk Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "uncommon" }, "recipe": { "needs": { "dusk-shard": 4 } } }
+    "dusk-sword": { "name": "Dusk Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "uncommon" }, "recipe": { "needs": { "dusk-shard": 4 } },
+      // its heavy attack starts from the game's diagonal heavy and lands the blow at 0.8 s (docs/kiln/modding/item-blocks.md, "Moves")
+      "moves": { "heavy": { "like": "Attack_Player_Melee_Heavy_Sword_Diagonal", "hitAt": 0.8 } } }
   },
   "armor": {
     "dusk-helm": { "name": "Dusk Helm", "slot": "head", "set": "warrior", "stats": { "level": 5, "physical": 16, "magical": 8, "rarity": "uncommon" }, "recipe": { "needs": { "dusk-shard": 3 } } }
