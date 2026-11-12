@@ -38,26 +38,28 @@ public sealed class CapabilitiesTests
         Assert.Throws<InvalidOperationException>(() => kiln.Capabilities.Override(name, true));
     }
 
+    // A game feature no managed service reports. items.fuel is Kiln.Items' row too since Kiln.Items reports its
+    // capabilities: once Items starts in this process (kiln.items is not faked) it holds that row off for good.
     [Fact]
     public void AFeatureOverrideShowsInGameHasFeatureAndEndsWithTheHarness()
     {
         using (var kiln = new KilnHarness())
         {
             var mark = KitBackend.Instance.Asked.Mark();
-            Assert.False(Game.HasFeature("items.fuel"));
-            Assert.Contains(KitBackend.Instance.Asked.Since(mark), a => a is { Kind: AskKind.Feature, Name: "items.fuel", ModId: null });
-            kiln.Capabilities.Override("items.fuel", true);
-            Assert.True(Game.HasFeature("items.fuel"));
-            Assert.Equal("items.fuel is available (switched on by the test).", kiln.Capabilities.Why("items.fuel"));
-            kiln.Capabilities.Override("items.fuel", false, "this test plays an old game build");
-            Assert.False(Game.HasFeature("items.fuel"));
-            Assert.Equal("items.fuel is unavailable (policy): this test plays an old game build.", kiln.Capabilities.Why("items.fuel"));
-            kiln.Capabilities.ClearOverride("items.fuel");
-            Assert.Equal(CapReason.Unknown, KitBackend.Instance.Capabilities.Get("items.fuel").Reason);
-            kiln.Capabilities.Override("items.fuel", true);
+            Assert.False(Game.HasFeature("gameplay.craft"));
+            Assert.Contains(KitBackend.Instance.Asked.Since(mark), a => a is { Kind: AskKind.Feature, Name: "gameplay.craft", ModId: null });
+            kiln.Capabilities.Override("gameplay.craft", true);
+            Assert.True(Game.HasFeature("gameplay.craft"));
+            Assert.Equal("gameplay.craft is available (switched on by the test).", kiln.Capabilities.Why("gameplay.craft"));
+            kiln.Capabilities.Override("gameplay.craft", false, "this test plays an old game build");
+            Assert.False(Game.HasFeature("gameplay.craft"));
+            Assert.Equal("gameplay.craft is unavailable (policy): this test plays an old game build.", kiln.Capabilities.Why("gameplay.craft"));
+            kiln.Capabilities.ClearOverride("gameplay.craft");
+            Assert.Equal(CapReason.Unknown, KitBackend.Instance.Capabilities.Get("gameplay.craft").Reason);
+            kiln.Capabilities.Override("gameplay.craft", true);
             Assert.True(kiln.Capabilities.Is("tick"));
         }
-        Assert.False(Game.HasFeature("items.fuel"));
+        Assert.False(Game.HasFeature("gameplay.craft"));
         Assert.False(KitBackend.Instance.Capabilities.Is("tick"));
     }
 
@@ -77,14 +79,14 @@ public sealed class CapabilitiesTests
     {
         using var kiln = new KilnHarness();
         kiln.Step();
-        var e = Assert.Throws<ModLoadException>(() => kiln.Load<TkEventsMod>(new ModManifest("tk-events").Requires("items.fuel")));
+        var e = Assert.Throws<ModLoadException>(() => kiln.Load<TkEventsMod>(new ModManifest("tk-events").Requires("gameplay.craft")));
         Assert.Equal(ModState.Failed, e.State);
-        Assert.Contains("needs feature items.fuel, unavailable on this game build", e.Reason);
-        Assert.Contains("items.fuel is unavailable: no service or feature of this name is known in this process.", e.Reason);
+        Assert.Contains("needs feature gameplay.craft, unavailable on this game build", e.Reason);
+        Assert.Contains("gameplay.craft is unavailable: no service or feature of this name is known in this process.", e.Reason);
         Assert.Equal(ModState.Failed, kiln.Mod("tk-events").State);
-        Assert.Contains("needs feature items.fuel", kiln.Mod("tk-events").Error);
+        Assert.Contains("needs feature gameplay.craft", kiln.Mod("tk-events").Error);
 
-        kiln.Capabilities.Override("items.fuel", true);
+        kiln.Capabilities.Override("gameplay.craft", true);
         var mod = kiln.Reload(kiln.Mod("tk-events"));
         Assert.True(mod.IsLoaded, mod.Error);
     }

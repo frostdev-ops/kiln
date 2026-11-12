@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT
- * kiln.items v3 (v1 + water in containers: fuel, fuel_read, fuel_keep, fuel_keep_end; v3 + item moves that keep item state,
- * container names, inventory-transfer events and rules): put items into and take them out of inventories (players'
+ * kiln.items v4 (v1 + water in containers: fuel, fuel_read, fuel_keep, fuel_keep_end; v3 + item moves that keep item state,
+ * container names, inventory-transfer events and rules; v4 + item instances: a stamp per item entity, its location and
+ * its save record's fields in one read): put items into and take them out of inventories (players'
  * backpacks, chests, villagers), gear with a level and rarity included; read an entity's inventory; the game's item
  * catalog.
  *
@@ -31,7 +32,8 @@ extern "C" {
 #endif
 
 #define KILN_ITEMS_SERVICE "kiln.items"
-#define KILN_ITEMS_VERSION 3u  /* v2 appends the fuel functions, v3 the move, name and transfer functions; check header.size */
+#define KILN_ITEMS_VERSION 4u  /* v2 appends the fuel functions, v3 the move, name and transfer functions, v4 the item
+                                  instances (stamps, locations, records); check header.size */
 
 typedef uint32_t KilnItemId;  /* 0 = none */
 typedef uint64_t KilnSlotId;  /* 0 = none / let the game choose */
@@ -102,7 +104,8 @@ typedef struct KilnItemsChange {
     uint32_t amount;  /* items put into / taken out of this slot */
     KilnEntity pide;  /* gear: the item entity (give: the one the game created at commit, 0 in a dry run; take: the
                          one the game destroys) */
-    uint32_t reserved;
+    uint32_t reserved;  /* v4: the stamp of `pide` (see "item instances"), captured at the commit; 0 = no pide, an
+                           older service, or items.instances off */
 } KilnItemsChange;
 
 #define KILN_ITEMS_MAX_CHANGES 16u
@@ -150,7 +153,8 @@ typedef struct KilnItemsSlot {
                              the outer index) */
     uint8_t category;     /* InventoryCategory of that link: 1 Customization, 2 Equipment, 3 Currency, 4 Generic */
     uint16_t state;       /* gear: raw ItemState.itemState bits */
-    uint32_t reserved;
+    uint32_t reserved;    /* v4: the stamp of `pide` (see "item instances"), captured at the read; 0 = no pide, an older
+                             service, or items.instances off */
 } KilnItemsSlot;
 
 #define KILN_ITEMS_MAX_INVENTORIES 32u
@@ -339,7 +343,8 @@ typedef struct KilnItemsMoveChange {
     KilnItemId item;
     uint32_t amount;
     KilnEntity pide;
-    uint32_t reserved;
+    uint32_t reserved;  /* v4: the stamp of `pide` (see "item instances"), captured at the commit; 0 = no pide, an
+                           older service, or items.instances off */
 } KilnItemsMoveChange;
 
 #define KILN_ITEMS_MAX_MOVE_CHANGES 16u
@@ -493,6 +498,99 @@ typedef struct KilnItemsStatus2 {
     char detail[160];            /* the reason when a part is off; NUL-terminated */
 } KilnItemsStatus2;
 
+/* ---------------------------------------------------------------------------------------------- item instances */
+
+/* v4, feature items.instances (KILN_ERR_UNAVAILABLE without it; an unknown build turns it off, no offset is guessed).
+ *
+ * The stamp. Every item entity (the "pide" of a piece of gear, a tool, a can) has a stamp: a 32-bit sequence number,
+ * never 0, new for every item entity this process sees. It travels where the item entity does: KilnItemsSlot.reserved
+ * (captured at the read), KilnItemsChange.reserved and KilnItemsMoveChange.reserved (captured at the commit). The pair
+ * (entity, stamp) names one item entity; compare both, never the id alone. Why an id can never show the old stamp for
+ * a new item entity: in one server world the engine hands out every non-player entity id from one counter that only
+ * grows (createEntity with id 0 and the queued creates of game programs, which make the item entities, both take it
+ * from the same storage counter), so an id is never given to a second entity while the world runs; the stamps are
+ * forgotten when a server world closes or starts, and whenever that counter is seen to go down. A destroyed item
+ * entity (a take of kiln.items) keeps its stamp as a tombstone: the id is reported as gone. Evidence:
+ * docs/kiln/services/items.md "Item instances". Ids outside the counter's range (1..1023 players, ids with bit 31
+ * set) are never stamped.
+ *
+ * The reads. read_instances reads N item entities in one call: the stamp, where each sits (its holder, slot, link and
+ * the flat slot the game's save record uses) and the fields the game writes into its save record, read the way the
+ * game's record builder reads them. read_holder does the same for every item entity in one holder's inventories.
+ * Reads only: nothing here writes a game component. Tick thread (Pre / Post). */
+
+/* KilnItemsInstance.flags */
+enum {
+    KILN_ITEMS_INSTANCE_FOUND = 0x0001u,      /* the entity is an item entity now (it has ItemState), with this stamp */
+    KILN_ITEMS_INSTANCE_PLACED = 0x0002u,     /* the slot of its ItemState holds it, and that inventory's holder is
+                                                 known: holder, link, category, flat_slot and count are set */
+    KILN_ITEMS_INSTANCE_SAVED_SLOT = 0x0004u, /* flat_slot is the slot number the game's world / character save record
+                                                 uses: a top-level Generic link */
+    KILN_ITEMS_INSTANCE_EQUIPPED = 0x0008u,   /* ItemState IsEquipped */
+    KILN_ITEMS_INSTANCE_LEVEL = 0x0010u,      /* the record has a level (the item entity has a Level with values) */
+    KILN_ITEMS_INSTANCE_DURABILITY = 0x0020u, /* ... durability current / max */
+    KILN_ITEMS_INSTANCE_FUEL = 0x0040u,       /* ... fuel current / max */
+    KILN_ITEMS_INSTANCE_DYE = 0x0080u,        /* ... a dye (ColorPaletteItem) */
+    KILN_ITEMS_INSTANCE_PERKS = 0x0100u,      /* ... perks available / unlocked (PerkContainerNew, or PerkContainer) */
+    KILN_ITEMS_INSTANCE_GEM = 0x0200u,        /* ... a gem slot (WeaponGemSlot; gem 0 = empty) */
+    KILN_ITEMS_INSTANCE_GONE = 0x0400u,       /* not FOUND because kiln.items saw it destroyed (a take's commit) */
+};
+
+typedef struct KilnItemsInstance {
+    KilnEntity entity;        /* in: the item entity */
+    uint32_t stamp;           /* FOUND: its stamp (never 0) */
+    uint32_t flags;           /* KILN_ITEMS_INSTANCE_* */
+    KilnItemId item;          /* FOUND: ItemState.itemId */
+    KilnSlotId slot;          /* FOUND: ItemState.containedInSlotId (KILN_SLOT_ID(inventory, index)) */
+    KilnEntity holder;        /* PLACED: the entity whose InventorySetup links the slot's inventory (a chest's first link
+                                 is the chest itself) */
+    uint32_t flat_slot;       /* PLACED: with SAVED_SLOT the save record's slot: (Generic links before this one) x 8 +
+                                 index, as the game's world and character savers number them; otherwise 256 + (the
+                                 inventory's position in the holder's link tree) x 8 + index, unique in the holder but
+                                 not a number the game saves (equipment, currency, customization, nested links) */
+    uint8_t link;             /* PLACED: the InventorySetup link (0..15; Virtual links: the outer index) */
+    uint8_t category;         /* PLACED: that link's InventoryCategory (1 Customization .. 4 Generic) */
+    uint16_t state;           /* FOUND: ItemState.itemState bits */
+    uint32_t count;           /* PLACED: the stack's count (an item entity's stack is 1) */
+    uint32_t level;           /* LEVEL: the Level attribute's value (the record keeps its low byte) */
+    int32_t durability;       /* DURABILITY: current */
+    int32_t durability_max;   /* DURABILITY: max */
+    int32_t fuel;             /* FUEL: current (units, 64 per charge) */
+    int32_t fuel_max;         /* FUEL: max */
+    KilnItemId dye;           /* DYE: ColorPaletteItem.paletteItemId */
+    uint8_t perks_available;  /* PERKS */
+    uint8_t perks_unlocked;   /* PERKS */
+    uint8_t gem_level;        /* GEM: the gem's own Level (low byte); 0 when the slot is empty */
+    uint8_t reserved0;        /* 0 */
+    KilnItemId gem;           /* GEM: the gem's item id; 0 = an empty gem slot */
+    uint32_t reserved[4];     /* 0 */
+} KilnItemsInstance;
+
+/* read_instances flags */
+enum {
+    KILN_ITEMS_READ_LOCATION = 0x01u, /* stamp, item, slot, state and placement only: no record fields (cheaper) */
+};
+
+/* KilnItemsInstancesStatus.flags */
+enum {
+    KILN_ITEMS_INSTANCES_ON = 0x01u,        /* read_instances, read_holder and the stamps work */
+    KILN_ITEMS_INSTANCES_EXHAUSTED = 0x02u, /* 2^32 - 1 stamps were handed out: no new one until a restart */
+};
+
+typedef struct KilnItemsInstancesStatus {
+    uint32_t size;            /* in: sizeof(KilnItemsInstancesStatus) */
+    uint32_t flags;           /* KILN_ITEMS_INSTANCES_* */
+    uint64_t stamps_issued;   /* stamps handed out since the process started */
+    uint64_t reads;           /* item entities read by read_instances and read_holder */
+    uint32_t table_size;      /* item entities with a stamp (or a tombstone) now */
+    uint32_t resets;          /* times every stamp was forgotten (a world closed or started, the id counter went down) */
+    uint32_t next_entity_id;  /* the engine's entity id counter at the last Pre */
+    uint32_t mismatches;      /* reads where a stamped id held another item id (it got a new stamp) */
+    uint32_t holder_rebuilds; /* times the inventory -> holder map was built */
+    uint32_t reserved;
+    char detail[160];         /* why it is off; NUL-terminated */
+} KilnItemsInstancesStatus;
+
 /* ---------------------------------------------------------------------------------------------- the table ---- */
 
 typedef struct KilnItemsApi {
@@ -596,6 +694,25 @@ typedef struct KilnItemsApi {
      * For save journals: the inventory commit can precede the next Pre callback. Check header.size before calling.
      * out->size must be at least sizeof(KilnItemsResult). */
     KilnResult(KILN_CALL* peek_result)(uint64_t ticket, KilnItemsResult* out);
+
+    /* ---- v4: item instances (check header.size; KILN_ERR_UNAVAILABLE without feature items.instances) ---- */
+
+    /* Reads `count` item entities: items[i].entity in, every other field out (zeroed first). `item_size` =
+     * sizeof(KilnItemsInstance) the caller was built with (at least the v4 size; the array's stride). `flags`:
+     * KILN_ITEMS_READ_* (0 = everything). An entity that is no item entity now, or one kiln.items saw destroyed, comes
+     * back without FOUND. KILN_ERR_UNAVAILABLE: feature items.instances is off, or before the server world's first
+     * step. Tick thread (Pre / Post). */
+    KilnResult(KILN_CALL* read_instances)(KilnItemsInstance* items, uint32_t count, uint32_t item_size, uint32_t flags);
+
+    /* Every item entity in `holder`'s inventories (Virtual links expanded), as read_instances reads it, in flat-slot
+     * order (saved slots first). *out_count = how many there are (more than capacity: the first `capacity` are written
+     * and KILN_ERR_BUFFER_TOO_SMALL is returned); *out_initialized (optional) = InventorySetup.isInitialized.
+     * KILN_ERR_NOT_FOUND: no such entity or no InventorySetup. Tick thread (Pre / Post). */
+    KilnResult(KILN_CALL* read_holder)(KilnEntity holder, KilnItemsInstance* out, uint32_t capacity, uint32_t item_size,
+                                       uint32_t* out_count, uint8_t* out_initialized);
+
+    /* The stamps' state. Any thread. */
+    KilnResult(KILN_CALL* instances_status)(KilnItemsInstancesStatus* out);
 } KilnItemsApi;
 
 #ifdef __cplusplus

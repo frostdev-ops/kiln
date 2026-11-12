@@ -33,12 +33,14 @@ public static unsafe partial class Items
         return t;
     }
 
-    /// <summary>True when moves work on this game build (feature items.move): <see cref="Move"/>,
-    /// <see cref="QuickStack"/> and <see cref="MoveAll"/> are Unavailable otherwise.</summary>
-    public static bool MovesAvailable => V3 != null && Status3()?.Moves == true;
+    /// <summary>True when moves work right now (capability <c>items.move</c>, and the kiln_items program runs in the
+    /// server world): <see cref="Move"/>, <see cref="QuickStack"/> and <see cref="MoveAll"/> are Unavailable otherwise.
+    /// The session part is read live; <c>items.moves</c> carries it in the registry, up to a second late.</summary>
+    public static bool MovesAvailable => Can(Caps.Move) && Status3()?.Moves == true;
 
-    /// <summary>True when <see cref="ContainerName"/> can read names on this game build (feature items.names).</summary>
-    public static bool ContainerNamesAvailable => V3 != null && Status3()?.Names == true;
+    /// <summary>True when <see cref="ContainerName"/> can read names on this game build (capability
+    /// <c>items.names</c>).</summary>
+    public static bool ContainerNamesAvailable => Can(Caps.Names);
 
     /// <summary>The v3 parts' state (moves, names, transfer hooks, counters), or null on an older runtime.</summary>
     public static ItemsV3Status? Status3()
@@ -61,6 +63,7 @@ public static unsafe partial class Items
     /// <see cref="ContainerNamesAvailable"/> is false (an older Kiln, or a game build the string table is unknown on).
     /// </summary>
     /// <example><code>if (Items.ContainerName(chest) == "Ores") { /* deposit ore here */ }</code></example>
+    [RequiresCapability(Caps.Names)]
     public static string? ContainerName(EntityId entity)
     {
         var t = Require3("Items.ContainerName");
@@ -111,6 +114,7 @@ public static unsafe partial class Items
     /// var r = await Items.Move(player, sword.Slot, chest);
     /// if (r.Succeeded) Log.Info($"moved {r.Changes[0].ItemEntity}");   // the same item entity as sword.ItemEntity
     /// </code></example>
+    [RequiresCapability(Caps.Move)]
     public static Task<MoveResult> Move(EntityId from, SlotId slot, EntityId to, int count = 0,
         MoveOptions options = MoveOptions.None, SlotId? toSlot = null)
     {
@@ -129,6 +133,7 @@ public static unsafe partial class Items
     /// moves with its item entity. Transfer rules and events (<see cref="Transfers"/>) see it, flagged
     /// <see cref="InventoryTransferEvent.ByMod"/>, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
+    [RequiresCapability(Caps.Move)]
     public static Task<MoveResult> QuickStack(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.QuickStack, from, to, options), "Items.QuickStack");
 
@@ -137,6 +142,7 @@ public static unsafe partial class Items
     /// player's action bar stays unless <see cref="MoveOptions.ActionBar"/>. Gear moves with its item entity. Transfer
     /// rules and events see it, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
+    [RequiresCapability(Caps.Move)]
     public static Task<MoveResult> MoveAll(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.All, from, to, options), "Items.MoveAll");
 
@@ -164,6 +170,7 @@ public static unsafe partial class Items
         public readonly TaskCompletionSource<MoveResult> Tcs = tcs;
         public readonly ModContext? Mod = mod;
         public ulong Ticket;
+        public bool Unseen;  // a lab move kept away from the item tracker (Items.LabMoveUnseen)
     }
 
     private static readonly object MoveGate = new();
@@ -171,7 +178,7 @@ public static unsafe partial class Items
     private static readonly HashSet<ModContext> MovesWatched = new();
     private static long _nextMove;
 
-    private static Task<MoveResult> SubmitMove(ItemsNative.MoveRequest r, string api)
+    private static Task<MoveResult> SubmitMove(ItemsNative.MoveRequest r, string api, bool unseen = false)
     {
         var t = Require3(api);
         var kind = (MoveKind)r.Kind;
@@ -182,7 +189,7 @@ public static unsafe partial class Items
         var mod = ModContext.CurrentMod;
         if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
         var tcs = new TaskCompletionSource<MoveResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var p = new PendingMove(tcs, mod);
+        var p = new PendingMove(tcs, mod) { Unseen = unseen };
         long key;
         lock (MoveGate)
         {
@@ -238,11 +245,16 @@ public static unsafe partial class Items
             var c = (ItemsNative.MoveChange*)r->Changes;
             for (var i = 0; i < changes.Length; i++)
                 changes[i] = new MoveChange(new SlotId(c[i].FromSlot), new SlotId(c[i].ToSlot), new ItemId(c[i].Item),
-                    (int)c[i].Amount, new EntityId(c[i].Pide));
+                    (int)c[i].Amount, new EntityId(c[i].Pide))
+                {
+                    Ref = ItemRefs.Of(c[i].Pide, c[i].Item, c[i].Reserved),
+                };
             var status = Enum.IsDefined(typeof(ItemsStatus), r->Status) ? (ItemsStatus)r->Status : ItemsStatus.Refused;
-            p.Tcs.TrySetResult(new MoveResult(status, (MoveKind)r->Kind, new EntityId(r->From), new EntityId(r->To),
+            var result = new MoveResult(status, (MoveKind)r->Kind, new EntityId(r->From), new EntityId(r->To),
                 (int)r->Requested, (int)r->Done, (int)r->Stacks, changes, ItemsNative.Text(r->Message, 160),
-                (int)r->GameError, r->Canceled != 0, (int)r->Steps, (r->Flags & ItemsNative.MoveDryRun) != 0));
+                (int)r->GameError, r->Canceled != 0, (int)r->Steps, (r->Flags & ItemsNative.MoveDryRun) != 0);
+            if (!p.Unseen) ItemTracker.OnMove(result, (r->Flags & ItemsNative.MoveSilent) != 0);
+            p.Tcs.TrySetResult(result);
         }
         catch
         {
@@ -272,12 +284,13 @@ public static unsafe partial class Items
     /// </remarks>
     public static class Transfers
     {
-        /// <summary>True when the hooks can be installed on this game build (feature items.transfer).</summary>
-        public static bool Available => V3 != null && Status3()?.TransferHooks == true;
+        /// <summary>True when the hooks can be installed on this game build (capability <c>items.transfer</c>).</summary>
+        public static bool Available => Can(Caps.Transfer);
 
         /// <summary>The stack in <paramref name="slot"/> stays where it is while it lies in the source inventory of a
         /// transfer (a locked slot). Dispose the rule to end it; so does the mod's unload.</summary>
         /// <exception cref="NotSupportedException">The hooks are not available on this build.</exception>
+        [RequiresCapability(Caps.Transfer)]
         public static TransferRule Keep(SlotId slot, TransferKinds kinds = TransferKinds.Any)
         {
             if (slot.IsNone) throw new ArgumentException("no slot", nameof(slot));
@@ -289,6 +302,7 @@ public static unsafe partial class Items
 
         /// <summary>Stacks of <paramref name="item"/> stay in the source inventory of a transfer; with
         /// <paramref name="owner"/> only when that entity's inventory is the source.</summary>
+        [RequiresCapability(Caps.Transfer)]
         public static TransferRule KeepItem(ItemId item, EntityId owner = default, TransferKinds kinds = TransferKinds.Any)
         {
             if (item.IsNone) throw new ArgumentException("no item", nameof(item));
@@ -300,6 +314,7 @@ public static unsafe partial class Items
 
         /// <summary>A transfer into or out of <paramref name="container"/> does not run (the caller is told it moved
         /// nothing).</summary>
+        [RequiresCapability(Caps.Transfer)]
         public static TransferRule Deny(EntityId container, TransferKinds kinds = TransferKinds.Any)
         {
             if (container.IsNone) throw new ArgumentException("no entity", nameof(container));
@@ -465,7 +480,15 @@ public enum MoveOptions
 
 /// <summary>One piece of a move's ledger: <see cref="Amount"/> of <see cref="Item"/> left <see cref="From"/> and arrived
 /// in <see cref="To"/>. Gear carries its <see cref="ItemEntity"/> along (the same one before and after).</summary>
-public readonly record struct MoveChange(SlotId From, SlotId To, ItemId Item, int Amount, EntityId ItemEntity);
+public readonly record struct MoveChange(SlotId From, SlotId To, ItemId Item, int Amount, EntityId ItemEntity)
+{
+    /// <summary>The item entity that moved, as one particular item: it moves whole, stamp and all, so this equals its
+    /// <c>Ref</c> in a read before and after the move. <see cref="ItemInstanceRef.None"/> for a plain stack (no item
+    /// entity) and when the capability <c>items.instances</c> is off (an older Kiln, an unknown game build). Filled by
+    /// Kiln when it builds the value.</summary>
+    [AnyThread]
+    public ItemInstanceRef Ref { get; init; }
+}
 
 /// <summary>What a move did. <see cref="Status"/> is <see cref="ItemsStatus.Done"/> (all moved),
 /// <see cref="ItemsStatus.Partial"/> (only <see cref="Done"/> of <see cref="Requested"/> fit),

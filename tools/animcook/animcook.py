@@ -5,6 +5,12 @@
     animcook.py recipe ASSETS/cook.json [--update-manifest] [--check] [--no-dispatch]
                                           run a mod's cook recipe (the normal way; docs/kiln/modding/animations.md). Steps of
                                           another tool in the same recipe are handed to it unless --no-dispatch.
+    animcook.py player-graph --mod DIR [--mod DIR ...] --out DIR [--graph FILE.bin] [--report-only]
+                                          merge the player states of the mods (DIR/assets/player-states.json) into the player's
+                                          animation graph: OUT/player-graph.bin and OUT/player-graph.report.json (game-derived: not
+                                          inside a git work tree)
+    animcook.py player-states FILE [--graph FILE.bin]
+                                          check one player-states.json against the player's graph; exit 1 when a state is refused
     animcook.py info FILE.glb             what the file holds: skeleton, animations, lengths
     animcook.py clip FILE.bin             one cooked clip: frames, segments, tracks, keys, error-free rebuild
     animcook.py gen-types                 refresh types/anim-types.json from the installed game's exe (maintainers)
@@ -29,7 +35,7 @@ from kfc import anim  # noqa: E402
 from kfc.archive import Kfc  # noqa: E402
 from kfc.refl import TypeDb  # noqa: E402
 
-from anicook import clips as C, graphgen as G, recipe, skeleton as K  # noqa: E402
+from anicook import clips as C, graphgen as G, playergraph as PG, playerstates as PS, recipe, skeleton as K  # noqa: E402
 from anicook.gltfdoc import Doc  # noqa: E402
 
 DEFAULT_GAME = Path.home() / ".local/share/Steam/steamapps/common/Enshrouded"
@@ -77,6 +83,84 @@ def _dispatch(a, doc, extra):
     return rc
 
 
+def _player_graph_source(a, t, k):
+    """-> (graph bytes or a function returning them, or None; where from)."""
+    g = getattr(a, "graph", None)
+    if g:
+        return (lambda: Path(g).expanduser().read_bytes()), str(g)
+    if k is not None:
+        return (lambda: PG.read_game_graph(k, t)), "the installed game"
+    return None, None
+
+
+def _state_line(e):
+    if e["status"] == "live":
+        return f"player state {e['mod']}/{e['name']}: live, {e['kind']} in {e['machine']} (like {e['like']}), id {e['id']}"
+    if e["status"] == "unchecked":
+        return f"player state {e['mod']}/{e['name']}: shape ok, id {e['id']}; like and clip not checked"
+    return f"player state {e['mod']}/{e['name']}: REFUSED: {e['reason']}"
+
+
+def _check_player_states(a, path, t, k, *, defer_external=False):
+    """A player-states.json against the player's graph (or what can be checked without one). -> (report, graph checked)."""
+    try:
+        m = PS.load(path)
+    except PS.DefinitionError as e:
+        return {"graph": "untouched", "reason": None, "states": [], "errors": [str(e)]}, True
+    raw, src = _player_graph_source(a, t, k)
+    if raw is None:
+        rep = {"graph": "untouched", "reason": None, "errors": [], "states": []}
+        for st in sorted(m.states, key=PS.State.key):
+            e = st.entry()
+            if e["status"] is None:
+                e["status"] = "unchecked"
+            rep["states"].append(e)
+        return rep, False
+    clips = PG.ClipFacts(t, [Path(path).parent], k)
+    for warning in clips.warnings:
+        print(f"player states: warning: {warning}")
+    _, rep = PG.merge(raw, t, [m], clips)
+    if defer_external:
+        states = {s.name: s for s in m.states}
+        for e in rep["states"]:
+            st = states[e["name"]]
+            if (e["status"] == "refused" and f"is not served: no {PG.JOINT_ANIM}" in (e["reason"] or "")
+                    and PS.GUID_RE.fullmatch(st.clip_ref) and st.clip not in clips.one_sided
+                    and (st.clip, clips.hashes[PG.JOINT_ANIM]) not in clips.served
+                    and not clips._game_has(st.clip, clips.hashes[PG.JOINT_ANIM])):
+                e["status"] = "unchecked"
+                e["reason"] = f"warning: clip {st.clip} is not served by this mod or the game; another mod may serve it; checked at boot"
+    rep["graphSource"] = src
+    return rep, True
+
+
+def _recipe_player_states(a, doc):
+    """The recipe's check of a player-states.json beside it, after its own steps. -> exit code (0 when there is none)."""
+    path = Path(a.recipe).parent / PS.FILE_NAME
+    if not path.exists():
+        return 0
+    t, k, _ = _types(a)
+    rep, checked = _check_player_states(a, path, t, k, defer_external=True)
+    for e in rep["errors"]:
+        print(f"player states: {e}")
+    for e in rep["states"]:
+        print(_state_line(e))
+        if e["status"] == "unchecked" and e["reason"]:
+            print(f"player state {e['mod']}/{e['name']}: {e['reason']}")
+    if not checked:
+        print("player states: like and clip not checked: no installed game, and the player's graph is the game's (--game DIR)")
+    if rep["graph"] == "off":
+        print(f"player states: the merge is off: {rep['reason']}")
+    mod = rep["states"][0]["mod"] if rep["states"] else None
+    side = {"format": 1, "mod": mod, "states": {e["name"]: {k2: e[k2] for k2 in ("guid", "id", "kind", "machine", "like", "status", "reason")}
+                                              for e in rep["states"]}}
+    out = Path(a.recipe).parent / doc.get("out", "cooked")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / PS.FILE_NAME).write_text(json.dumps(side, indent=1) + "\n")
+    bad = rep["errors"] or rep["graph"] == "off" or any(e["status"] == "refused" for e in rep["states"])
+    return 1 if bad else 0
+
+
 def cmd_recipe(a):
     doc = recipe.load(a.recipe)
     others = [] if a.no_dispatch else recipe.other_tools(doc)
@@ -86,7 +170,8 @@ def cmd_recipe(a):
         print("cook needed" if need else "up to date")
         return 1 if need or rc else 0
     if not recipe.own_steps(doc):
-        return _dispatch(a, doc, ["--update-manifest"] if a.update_manifest else []) if others else 0
+        rc = _dispatch(a, doc, ["--update-manifest"] if a.update_manifest else []) if others else 0
+        return _recipe_player_states(a, doc) or rc
     t, k, tinfo = _types(a)
     r = recipe.Run(a.recipe, t, k).run(update_manifest=a.update_manifest, game_info={"version": k.version} if k else None, types_info=tinfo)
     for s in r["steps"]:
@@ -107,7 +192,81 @@ def cmd_recipe(a):
             print("  " + json.dumps(e))
     print(f"{'ok' if r['ok'] else 'FAILED'}: {len(r['outputs'])} file(s)")
     rc = _dispatch(a, doc, ["--update-manifest"] if a.update_manifest else []) if others else 0
+    rc = _recipe_player_states(a, doc) or rc
     return 0 if r["ok"] and not rc else 1
+
+
+def _in_git_tree(p):
+    """A folder at or above `p` is a git work tree: its .git is a file (a linked worktree) or a folder with a HEAD."""
+    p = Path(p).expanduser().resolve()
+    return any((d / ".git").is_file() or (d / ".git" / "HEAD").is_file() for d in [p, *p.parents])
+
+
+def cmd_player_graph(a):
+    out = Path(a.out).expanduser() if a.out else None
+    if not a.report_only:
+        if out is None:
+            print("animcook: player-graph needs --out DIR (or --report-only)", file=sys.stderr)
+            return 2
+        if _in_git_tree(out):
+            print(f"animcook: {out} is inside a git work tree; the merged graph is made from the game's files: write it elsewhere", file=sys.stderr)
+            return 2
+    dirs = [Path(d).expanduser() for d in a.mod]
+    mods, errors = [], []
+    for d in dirs:
+        f = d / "assets" / PS.FILE_NAME
+        if not f.exists():
+            continue
+        try:
+            mods.append(PS.load(f))
+        except PS.DefinitionError as e:
+            errors.append(str(e))
+    t, k, tinfo = _types(a)
+    raw, src = _player_graph_source(a, t, k)
+    clips = PG.ClipFacts(t, [d / "assets" for d in dirs], k)
+    for warning in clips.warnings:
+        print(f"player states: warning: {warning}")
+    data, rep = PG.merge(raw, t, mods, clips)
+    rep["errors"] = sorted(errors)
+    rep["graphSource"], rep["types"] = src, tinfo.get("source")
+    for e in rep["errors"]:
+        print(f"player states: {e}")
+    for e in rep["states"]:
+        print(_state_line(e))
+    b = rep["bytes"]
+    if rep["graph"] == "merged":
+        print(f"graph merged: {b['after']} B (the game's {b['before']} B), {rep['nodesAdded']} nodes added in {len(rep['machines'])} machine(s), "
+              f"{rep['listEntries']} ids into {rep['lists']} list(s), {rep['selects']} select(s)")
+    elif rep["graph"] == "off":
+        print(f"graph off: {rep['reason']}; nothing is served")
+    else:
+        print("graph untouched: no state to merge; nothing is served")
+    if not a.report_only:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "player-graph.report.json").write_text(json.dumps(rep, indent=1) + "\n")
+        binf = out / "player-graph.bin"
+        if data is not None:
+            binf.write_bytes(data)
+        elif binf.exists():
+            binf.unlink()
+    if rep["graph"] == "off":
+        return 2
+    return 1 if errors or any(e["status"] == "refused" for e in rep["states"]) else 0
+
+
+def cmd_player_states(a):
+    t, k, _ = _types(a)
+    rep, checked = _check_player_states(a, Path(a.file), t, k)
+    for e in rep["errors"]:
+        print(f"player states: {e}")
+    for e in rep["states"]:
+        print(_state_line(e))
+    if not checked:
+        print("not checked: like (the neighbour, its machine and kind) and clip (served, skeleton): no player graph (--graph FILE.bin or --game DIR)")
+    if rep["graph"] == "off":
+        print(f"the merge is off: {rep['reason']}")
+    bad = rep["errors"] or rep["graph"] == "off" or any(e["status"] == "refused" for e in rep["states"])
+    return 1 if bad else 0
 
 
 def cmd_info(a):
@@ -156,6 +315,16 @@ def main(argv=None):
     p.add_argument("--update-manifest", action="store_true")
     p.add_argument("--check", action="store_true")
     p.add_argument("--no-dispatch", action="store_true")
+    p = sub.add_parser("player-graph")
+    p.add_argument("--mod", action="append", required=True)
+    p.add_argument("--out")
+    p.add_argument("--graph")
+    p.add_argument("--game", default=argparse.SUPPRESS)
+    p.add_argument("--report-only", action="store_true")
+    p = sub.add_parser("player-states")
+    p.add_argument("file")
+    p.add_argument("--graph")
+    p.add_argument("--game", default=argparse.SUPPRESS)
     p = sub.add_parser("info")
     p.add_argument("file")
     p = sub.add_parser("clip")
@@ -163,8 +332,9 @@ def main(argv=None):
     sub.add_parser("gen-types")
     a = ap.parse_args(argv)
     try:
-        return {"recipe": cmd_recipe, "info": cmd_info, "clip": cmd_clip, "gen-types": cmd_gen_types}[a.cmd](a)
-    except (recipe.RecipeError, K.SkeletonError, C.ClipError, G.GraphError, GltfError) as e:
+        return {"recipe": cmd_recipe, "info": cmd_info, "clip": cmd_clip, "gen-types": cmd_gen_types, "player-graph": cmd_player_graph,
+                "player-states": cmd_player_states}[a.cmd](a)
+    except (recipe.RecipeError, K.SkeletonError, C.ClipError, G.GraphError, GltfError, PS.DefinitionError) as e:
         print(f"animcook: {e}", file=sys.stderr)
         return 2
 

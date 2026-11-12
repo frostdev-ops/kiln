@@ -52,6 +52,10 @@ pub enum ErrorCode {
     OpFailed,
     /// A bug.
     Internal,
+    /// The launcher's data folder cannot be used: the pointer file (`data-folder.json` in the default root) cannot be
+    /// read, is newer, or names a folder that is missing, unreadable or not a Kiln data folder (detail: `{kind,
+    /// pointer, path}`). Never answered with the default root or an empty folder.
+    DataFolder,
 }
 
 impl ErrorCode {
@@ -80,6 +84,7 @@ impl ErrorCode {
             ErrorCode::AdminUnavailable => "admin_unavailable",
             ErrorCode::OpFailed => "op_failed",
             ErrorCode::Internal => "internal",
+            ErrorCode::DataFolder => "data_folder",
         }
     }
 }

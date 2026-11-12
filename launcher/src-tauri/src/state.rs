@@ -4,23 +4,51 @@
 use kiln_manage::game::GameInstall;
 use kiln_manage::paths::DataDirs;
 use kiln_manage::{Error, ErrorCode};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-static DIRS: OnceLock<DataDirs> = OnceLock::new();
-
-/// The launcher data dirs (`$KILN_DATA_DIR`, else the platform default); the root is created on first use.
+/// The launcher's data folder for this process (`$KILN_DATA_DIR`, else the pointer's folder, else the platform
+/// default; crate::folder): found once and kept until the process ends. Refused while the folder is held (a broken
+/// pointer, a move here or in another launcher, a committed move waiting for the restart): the one choke point for
+/// commands and background threads.
 pub fn dirs() -> Result<DataDirs, Error> {
-    if let Some(d) = DIRS.get() {
-        return Ok(d.clone());
-    }
-    let d = DataDirs::locate()?;
-    std::fs::create_dir_all(&d.root).map_err(|e| Error::from(e).with_detail(d.root.display().to_string()))?;
-    Ok(DIRS.get_or_init(|| d).clone())
+    crate::folder::current().dirs()
 }
+
+/// Closures [`blocking`] runs right now (a move waits for them to end: crate::commands::data_folder).
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn in_flight() -> usize {
+    IN_FLIGHT.load(Ordering::SeqCst)
+}
+
+struct Flight;
+impl Drop for Flight {
+    fn drop(&mut self) {
+        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A writer of the data folder outside [`blocking`] and outside a task (a background thread's round, `launcher_log`, the
+/// self-update's `update.json`): counted with `blocking`'s work while it lives, so a move waits for it to end. Take it
+/// before [`dirs`]: a writer that got the folder before a move's hold is waited for, one that asks after it is refused.
+#[must_use]
+pub fn writing() -> Writing {
+    IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+    Writing(Flight)
+}
+
+/// [`writing`]'s guard.
+pub struct Writing(#[allow(dead_code)] Flight);
 
 /// Runs a blocking closure on the blocking pool (file and process work never runs on the IPC thread).
 pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, Error> + Send + 'static) -> Result<T, Error> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| Error::new(ErrorCode::Internal, format!("worker failed: {e}")))?
+    IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+    let flight = Flight;
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        let _flight = flight;
+        f()
+    });
+    r.await.map_err(|e| Error::new(ErrorCode::Internal, format!("worker failed: {e}")))?
 }
 
 pub fn read_settings() -> Result<crate::commands::app::LauncherSettings, Error> {
@@ -90,9 +118,17 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         .and_then(|l| kiln_manage::steam::app_manifest(l, install.app_id).ok().flatten())
         .is_some_and(|m| m.updating);
     let runtime = install_state(install, false)?;
-    let active_profile = kiln_manage::profile::read_game_profile(&install.path).ok().flatten().map(|p| p.id);
+    // this data folder's profile, or another data folder's (a launcher before dev.25 after a move, KILN_DATA_DIR,
+    // another launcher): that one is said, never shown as loaded
+    let d = dirs()?;
+    use kiln_manage::profile::GameProfileOwner as Owner;
+    let (active_profile, other_folder_profile) = match kiln_manage::profile::game_profile_owner(&d, install) {
+        Ok(Owner::Here { id }) => (Some(id), None),
+        Ok(Owner::Elsewhere { id, root }) => (None, Some(kiln_manage::game::OtherFolderProfile { id, root })),
+        Ok(Owner::None) | Err(_) => (None, None),
+    };
     let boot = kiln_manage::state::read_boot(&install.path).ok().flatten();
-    let newer_mods = kiln_manage::game::newer_mods(&dirs()?, &runtime, active_profile.as_deref());
+    let newer_mods = kiln_manage::game::newer_mods(&d, &runtime, active_profile.as_deref());
     Ok(kiln_manage::game::GameStatus {
         id: install.id.clone(),
         running: proc.is_some(),
@@ -101,6 +137,7 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         steam_updating,
         runtime,
         active_profile,
+        other_folder_profile,
         play_once_pending: install.path.join(kiln_manage::paths::game::PLAY_ONCE).is_file(),
         boot,
         launch_options: launch_options(install, &roots),

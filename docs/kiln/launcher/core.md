@@ -7,12 +7,28 @@ Server, admin and modpack modules: [servers.md](servers.md), [admin-protocol.md]
 
 Features: the default build (kilnctl without features, the launcher's `--selftest`) has everything except zips
 (`zip`: bundle read/create/verify/extract, zip import in the library) and zstd (`saves`: the save editor's
-compression). kilnctl enables `server` + `zip`, the launcher `full`. Builds and tests pass on Linux and
-`x86_64-pc-windows-msvc` (`cargo xwin build --tests`, run under Wine).
+compression). kilnctl enables `server` + `zip`, the launcher `full`. Builds pass on Linux and `x86_64-pc-windows-msvc`;
+for Windows the integration tests build (`cargo xwin test --no-run --target x86_64-pc-windows-msvc --features full
+--test '*'`; the data-folder ones pass under Wine, windows-checklist.md), the library's own unit tests do not
+(`found/tests.rs` and `report_tests.rs` use Unix-only APIs).
 
 ## Data and paths
-- `paths::DataDirs::locate()`: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` / `~/.local/share/kiln`, Windows
-  `%LOCALAPPDATA%\Kiln`. Tests and kilnctl runs set `KILN_DATA_DIR`.
+- `paths::DataDirs::locate()`: `$KILN_DATA_DIR`, else the folder the pointer `<default root>/data-folder.json` names,
+  else the default root `$XDG_DATA_HOME/kiln` / `~/.local/share/kiln`, Windows `%LOCALAPPDATA%\Kiln`. A broken
+  pointer is the error `data_folder`, never the default. The environment is a value: `paths::DataEnv::from_process()`
+  reads it, tests build it by hand; `DataEnv::locate_checked` says what is wrong instead of failing. Tests and kilnctl
+  runs set `KILN_DATA_DIR`.
+- Moving the data folder (contracts.md 3, "The data folder's place"): `data_folder::{recognize, inventory, check}` say
+  what a folder is, what the data folder holds and whether a picked folder can take it (a `Plan` or a `Refusal`);
+  `data_folder_move::move_to` moves it (copy, verify, pointer, records written again, and last the old copy removed:
+  `MoveResult.cleanup`), `use_folder` switches to an existing one, `reset` starts fresh after a broken pointer and
+  `repoint` points at a Kiln data folder the player picks after one; at the next start `pending`, `remove_old_copy` (what
+  an interrupted removal left, file by file, by the move's record) and `remove_partial_copy` (only with the target's
+  marker), then `acknowledge`. A move never writes into, replaces or removes what it did not make in the target. A
+  launcher process holds `data_folder::DataLock::shared` for as long as it runs and passes it to the move; while a move
+  runs `filecache::unpersist` keeps the hash cache out of the old folder. `game::status` says another data folder's
+  profile in a game as `otherFolderProfile` (`profile::game_profile_owner`). Tests: `crates/kiln-manage/tests/data_folder.rs`,
+  `data_folder_move.rs` (fixture: `tests/fixture/mod.rs`).
 - `util`: `write_atomic` / `write_json_atomic` (`<name>.tmp` + rename), `read_json` (None when missing),
   `rfc3339`, `parse_rfc3339`, `ts_compact` (`yyyymmddThhmmssZ`), `uuid_v4`, `random_bytes`, `copy_tree`, plus
   kilnctl's helpers (`expand`, `clean`, `state_dir`, `config_dir`, `human_size`, ...).

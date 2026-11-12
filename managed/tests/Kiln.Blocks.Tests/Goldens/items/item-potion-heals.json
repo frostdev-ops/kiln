@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "guid": "97c82c81-db03-57ed-9c43-b29caf1b39da",
+      "name": "golden-items.item-potion-heals",
+      "base": "Consumable_Potion_Health_T1",
+      "displayName": "Red Potion",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0xbbe4bf53": 80
+  },
+  "recipes": [
+    {
+      "guid": "85f735b2-d59c-52e2-8fe9-be8a3a339296",
+      "name": "golden-items.item-potion-heals.recipe",
+      "station": "hand",
+      "menu": null,
+      "seconds": null,
+      "fields": null,
+      "inputs": [
+        {
+          "item": "Material_T1_Mushroom",
+          "count": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "golden-items.item-potion-heals",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

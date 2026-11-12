@@ -8,7 +8,9 @@
 //! |---|---|
 //! | [`error`] | `Error {code, message, detail}`, [`ErrorCode`] |
 //! | [`task`] | progress reporting for long operations |
-//! | [`paths`] | launcher data dirs, game-side file names |
+//! | [`paths`] | launcher data dirs, game-side file names, the environment as a value (`DataEnv`), locating through the pointer |
+//! | [`data_folder`] | the data folder as a whole: what a folder is, its inventory, the pointer, the lock, the target check of a move |
+//! | [`data_folder_move`] | moving the data folder, using another one, starting fresh, finishing or undoing a move at the next start |
 //! | [`hash`] | kdh1 directory hash, kms1 fingerprint, sha256 |
 //! | [`filecache`] | sha256s and parsed files remembered while the file is unchanged (the launcher keeps the sha256s across starts) |
 //! | [`vdf`] | Valve KeyValues text reader |
@@ -63,6 +65,8 @@ pub mod hash;
 pub mod hostenv;
 pub mod launch;
 pub mod paths;
+pub mod data_folder;
+pub mod data_folder_move;
 pub mod engines;
 pub mod pe;
 pub mod proc;

@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "states": {
+    "cinder-slash-1":  { "clip": "cinder_slash_1", "like": "Attack_Sword_Shield_01" },
+    "cinder-slash-2":  { "clip": "cinder_slash_2", "like": "Attack_Sword_Shield_02", "blendIn": 0.12 },
+    "cinder-uppercut": { "clip": "cinder_uppercut", "like": "SM_Attack_Sword_Shield_FullBody/Attack_Jump_Uppercut", "speed": 1.1 },
+    "cinder-guard":    { "clip": "cinder_guard", "like": "Block_FullBody", "loop": true }
+  }
+}

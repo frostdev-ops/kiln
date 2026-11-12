@@ -15,7 +15,7 @@ internal static unsafe class TestWorld
     public static readonly Dictionary<Guid, Metadata> Templates = [];
     public static bool RegistryReady = true;
     public static int RegistryResult;
-    public static int FindCalls;
+    public static int FindCalls, FindResult, InspectResult;
     private static readonly Table* Native = (Table*)NativeMemory.AllocZeroed((nuint)sizeof(Table));
     private static readonly FieldInfo TableField = typeof(SpawnLink).GetField("_t", BindingFlags.Static | BindingFlags.NonPublic)!;
 
@@ -72,7 +72,7 @@ internal static unsafe class TestWorld
         Templates.Clear();
         ClearMetadataCache();
         RegistryReady = true;
-        RegistryResult = FindCalls = 0;
+        RegistryResult = FindCalls = FindResult = InspectResult = 0;
         Native->Size = (uint)sizeof(Table);
         Native->Version = 1;
         Native->EntityInfo = &EntityInfo;
@@ -91,6 +91,7 @@ internal static unsafe class TestWorld
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int EntityInfo(uint id, Snapshot* snapshot)
     {
+        if (InspectResult != 0) return InspectResult;
         if (!World.TryGetValue(id, out var entity)) return 2;
         *snapshot = new Snapshot { Size = (uint)sizeof(Snapshot), Position = new Vec3 { X = entity.Position.X, Y = entity.Position.Y, Z = entity.Position.Z }, Yaw = entity.Yaw };
         if (entity.Template is { } g)
@@ -116,6 +117,7 @@ internal static unsafe class TestWorld
     private static int Find(byte* guid, Str _, Vec3 position, double radius, uint* output, nuint capacity, nuint* count)
     {
         FindCalls++;
+        if (FindResult != 0) return FindResult;
         var g = new Guid(new ReadOnlySpan<byte>(guid, 16));
         var near = new WorldPosition(position.X, position.Y, position.Z);
         var entities = World.Values.Where(e => e.Template == g && e.Position.DistanceTo(near) <= radius)

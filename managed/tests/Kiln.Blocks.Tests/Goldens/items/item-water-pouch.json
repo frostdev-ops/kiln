@@ -1,0 +1,26 @@
+{
+  "templates": [
+    {
+      "guid": "f2327371-d6dc-5a00-9213-8c4971d99d41",
+      "name": "golden-items.item-water-pouch.water",
+      "base": "Pide_Fuel_Water_Pouch",
+      "fields": {
+        "FuelSetup.maxFuelCharges": 60
+      }
+    }
+  ],
+  "items": [
+    {
+      "guid": "a6bb5263-9ca9-5921-9b76-b52c69239811",
+      "name": "golden-items.item-water-pouch",
+      "base": "Tool_Water_Pouch_Refillable",
+      "displayName": "Big Pouch",
+      "description": "",
+      "fields": {},
+      "refs": {
+        "pidEntity": "f2327371-d6dc-5a00-9213-8c4971d99d41"
+      }
+    }
+  ],
+  "itemRules": {}
+}

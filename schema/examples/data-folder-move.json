@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "id": "3f2a9c1d0badc0de5e6f7a8b9c0d1e2f",
+  "from": "/home/user/.local/share/kiln",
+  "to": "/mnt/games/kiln",
+  "started": "2026-11-12T18:02:40Z",
+  "createdTarget": true,
+  "entries": [
+    { "name": "library", "known": true, "bytes": 2147483648 },
+    { "name": "profiles", "known": true, "bytes": 52428800 },
+    { "name": "servers", "known": true, "bytes": 812 },
+    { "name": "settings.json", "known": true, "bytes": 162 },
+    { "name": "My Notes", "known": false, "bytes": 22 }
+  ],
+  "state": "cleaned",
+  "previousPointer": null,
+  "rewritten": ["servers/isles.json"],
+  "rewrittenAfter": [
+    { "path": "installs/5817bb3c-700c-8ec3-930c-14075de1a3d7.active.json", "sha256": "9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b" }
+  ],
+  "hardLinks": true,
+  "result": {
+    "folder": "/home/user/.local/share/kiln",
+    "done": true,
+    "interrupted": false,
+    "removedFiles": 2814,
+    "removedBytes": 2199912286,
+    "folderRemoved": false,
+    "kept": [
+      { "path": "/home/user/.local/share/kiln/My Notes", "bytes": 22, "reason": "the launcher does not know it, so it does not remove it (it was copied to the new place)" }
+    ]
+  }
+}

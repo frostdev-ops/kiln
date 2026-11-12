@@ -1,0 +1,11 @@
+{
+  "id": "weapon-moves",
+  "name": "Weapon moves (sample)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "WeaponMoves.dll",
+  "side": "both",
+  "clients": "mod",
+  "license": "MIT",
+  "description": "Sample: a sword with moves of its own (a chain of two swings, a heavy and a block, each with its own clip and timing) and a held model with moving parts. The clips are authored on a rig of the sample's own and retargeted onto the player's skeleton at cook time; the second swing is the first one mirrored. Every player needs the mod: models and clips are drawn by each player's game. Cook first: kiln cook (or tools/modelcook/modelcook.py recipe assets/cook.json), which reads the installed game and writes assets/cooked/."
+}

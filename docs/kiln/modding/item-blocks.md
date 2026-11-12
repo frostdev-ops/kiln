@@ -29,7 +29,7 @@ A part is a block of its own. Write it inline, define it once and share the hand
 
 | Part | Fields | Premades |
 |---|---|---|
-| `VisualBlock` | `Like` (an item's whole look), `Model`, `Icon`, `Dropped`, `Tint`, `Vfx` | |
+| `VisualBlock` | `Like` (an item's whole look), `Model`, `Icon`, `Dropped`, `Tint`, `Vfx`, `Animated` (a held model with moving parts) | |
 | `WeaponStats` | `Level`, `Power`, `Rarity`, `Damage`, `Block`, `StaminaCost` | |
 | `ArmorStats` | `Level`, `Rarity`, `Physical`, `Magical`, `Resist`, `Bonus` | |
 | `WeaponClass` | `Visual`, `Stats`, `Perks`; in JSON `like` | `Sword`, `Axe`, `Mace`, `Greatsword`, `Greataxe`, `Hammer`, `Daggers`, `Bow`, `Staff`, `Shield`, `Wand` |
@@ -47,11 +47,26 @@ Blocks.Define("ember-edge", new WeaponBlock { Name = "Ember Edge", Class = blade
 Blocks.Define("glow-sword", new WeaponBlock { Name = "Glow Sword", Class = WeaponClass.Sword, Visual = new VisualBlock { Vfx = new VfxRef("frost_glow") { Offset = new Vector3(0, 0.8f, 0) } } });
 ```
 
+**A held model with moving parts.** `VisualBlock.Animated` (`AnimatedModel`) is a skinned model of the mod's own with the graph that plays its clip, for the hand: a coal that turns in its cage, a bell that rocks. `Model` and `Graph` are each a GUID or the name of the `model` or `graph` step of `assets/cook.json` that makes it (the GUID the cook derives from the mod and that name; skinned models and their skeleton, clips and graph: [models.md](models.md), "Skinned models", and [animations.md](animations.md)).
+```csharp
+Visual = new VisualBlock { Model = emberModel, Animated = new AnimatedModel { Model = "cinderbrand_anim", Graph = "cinderbrand" },
+                           Vfx = new VfxRef("cinder_embers") { Offset = new Vector3(0, 0.52f, 0) } }
+```
+```jsonc
+"visual": { "model": "<guid>", "animated": { "model": "cinderbrand_anim", "graph": "cinderbrand" }, "vfx": { "name": "cinder_embers", "offset": [0, 0.52, 0] } }
+```
+- Kiln makes a template of the item's own, `<mod>.<item>.moving`, from one of the game's staffs (a skinned model with a graph already), with the model, the graph and the look's `Vfx` on the model's root at its `Offset` (no `Vfx`: none, not the staff's), and the item holds it. The look's rigid `Model` is set on the item as for any look (a weapon's `equipment.equipmentEntityModelSetup.model`) and is the stand-in below; the icon and the model lying on the ground are the look's `Icon` and `Dropped` as for any look, and without them the class's own (read back in the lab: `iconModel` stays the starter's). The rigid `.held` template above is not made.
+- The hand is the class's own: when content is ready Kiln reads the slot of the visual template of the item's starter (a sword's right hand, a hammer's or a bow's left, a shield's arm) and puts the template there. A starter held in no hand is reported by block, and the model then stays in the staff's right hand.
+- **Daggers** are a pair: a parent (a copy of the game's dual daggers) with a moving child in each hand, `<mod>.<item>.moving.r` and `.moving.l`. `LeftModel` and `LeftGraph` are the left one's (left out: the left hand holds `Model` too); each child takes the look's `Vfx`. Which child is which hand is read from the starter's pair when content is ready. `LeftModel` on any other class is refused.
+- It is for what a player holds (a weapon, a wand, a tool), and asks `clients: mod`. A prop, a station or a piece of furniture refuses it (`visual.animated`). Refused by field: a model without a graph or a graph without a model, a name that is no GUID and no cook step's name, a left half without the other part, an animated look on something not held.
+- Every machine has the template under the same GUID, cooked or not, and the item always holds it: a server spawns the held entity from it. Where the moving model or its graph is not served on that machine (not cooked there), the template stands in with the look's rigid model (with none, the `Like` item's or the class's own) and no graph of its own, so that player sees the rigid weapon in the same hand with the same VFX: see [models.md](models.md), "On a dedicated server". Each machine keeps its own model and graph for this template, the content sync leaving those two fields out; the rest of it (the hand, the VFX) syncs as any clone's.
+- Not seen in a game yet: that the template moves in the hand, in the class's hand, with its VFX where the offset says, and for daggers one in each hand.
+
 ## Blocks
 | Block | Fields |
 |---|---|
 | `ItemBlock` | `Kind`, `Visual`, `Stack`, `Rarity`, `Level`, `Texts`, `Heals`, `OnUse`, `Feeds`, `Fuel`, `Comfort`, `Tool`, `Ammo`, `Holds`, `Flow`, `Recipe`, `Loot` |
-| `WeaponBlock` | `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot` |
+| `WeaponBlock` | `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot`, `Moves` ([Moves](#moves)) |
 | `WandBlock` | `Primary`, `Heavy`, `Special`, `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot` |
 | `ArmorBlock` | `Slot`, `Set`, `Visual`, `Look`, `Stats`, `Perks`, `OnHitTaken`, `Recipe`, `Loot` |
 | `StationBlock` | `Kind`, `Visual`, `Recipe`, `Loot`, and more: [world-blocks.md](world-blocks.md) |
@@ -200,6 +215,110 @@ Blocks.Define("big-can", new ItemBlock
 
 `Perks` follow the game's rule instead: a perk runs once a player has unlocked its slot.
 
+## Moves
+What a weapon's attack slots play: its own motions, the moment its blow lands, its own chain. A slot left out keeps its class's, and a weapon with no `Moves` is made exactly as before.
+
+Sample: `mods/samples/WeaponMoves`, a sword with a chain of two swings, a heavy and a block on clips of its own (authored, retargeted onto the player, the second swing mirrored from the first), and a held model with moving parts.
+
+```csharp
+Blocks.Define("cinderbrand", new WeaponBlock
+{
+    Name = "Cinderbrand", Class = WeaponClass.Sword,
+    Moves = new WeaponMoves
+    {
+        Primary = [ new MoveBlock { Animation = "cinder-slash-1", Like = "Attack_Player_1H_Single_LightChain1", HitAt = 0.28 },
+                    new MoveBlock { Animation = "cinder-slash-2", Like = "Attack_Player_1H_Single_LightChain2", HitAt = 0.31 } ],
+        Heavy = new MoveBlock { Animation = "cinder-cleave", HitAt = 0.9, Length = 2.2 },
+        Block = new MoveBlock { Animation = "cinder-guard" },
+    },
+});
+```
+```jsonc
+"weapons": { "cinderbrand": { "name": "Cinderbrand", "class": "sword",
+  "moves": {
+    "primary": [ { "animation": "cinder-slash-1", "like": "Attack_Player_1H_Single_LightChain1", "hitAt": 0.28 },
+                 { "animation": "cinder-slash-2", "like": "Attack_Player_1H_Single_LightChain2", "hitAt": 0.31 } ],
+    "heavy":   { "animation": "cinder-cleave", "hitAt": 0.9, "length": 2.2 },
+    "block":   { "animation": "cinder-guard" } } } }
+```
+
+**A move** (`MoveBlock`) has four fields, all optional; a move with none of them changes nothing and is refused.
+- `Animation`: the state its motion plays. See [What `animation` takes](#what-animation-takes).
+- `Like`: the game sequence it starts from, a sub-sequence name or a sequence GUID (the catalog's `sequences`). Left out: what the class has in that slot; for the n-th link of a chain, the class's own chain followed n-1 times (a sword's light chain has two links, so a third link needs a `Like`).
+- `HitAt`: seconds into the move its blow lands.
+- `Length`: seconds the whole move lasts.
+
+`Primary` and `Heavy` take one move or a list, a chain: `Primary = [first, second]`, in JSON a list. One move and a list of one are the same. The other slots take one move.
+
+### Slots
+A slot is an entry of the item's `sequences`, and the same slot sits at another index on every starter, so Kiln never names one by index: each is a selector, and when content is ready Kiln finds it on the made item. Every entry the selector matches is swapped (the daggers list the jump attack twice). An own class (`WeaponClass` with `like`) has its premade's slots.
+
+| Slot (JSON) | Selector: `triggeredBy`, `requirements`, `specialInteractionType` | Classes |
+|---|---|---|
+| `Primary` (`primary`) | `Primary` | sword, axe, mace, greatsword, greataxe, hammer, daggers |
+| `Heavy` (`heavy`) | `Heavy`, `IsGrounded` | the same |
+| `HeavyAir` (`heavyAir`) | `Heavy`, `IsAirborne` | the same. Left out with `Primary` given: it plays `Primary`'s first link, as the game's weapons do |
+| `DodgeAttack` (`dodgeAttack`) | `Primary`, `IsEvading` | the same |
+| `JumpAttack` (`jumpAttack`) | `Primary`, `IsAirborne_Not_Falling` | the same |
+| `PlungeAttack` (`plungeAttack`) | `Heavy`, `IsAboveTarget` + `IsAirborne_Falling` | the same |
+| `Block` (`block`) | `Block` | the same, and shield |
+| `Parry` (`parry`) | `Parry` | the same, and shield |
+| `Special` (`special`) | `SpecialAbility` (greataxe and hammer: `SpecialAbility`, `IsGrounded`) | the melee classes, and bow |
+| `Execution` (`execution`) | `Interact`, `Enemy_Execution` | the melee classes |
+| `SneakAttack` (`sneakAttack`) | `Interact`, `Sneak_Attack` | the melee classes |
+
+A bow's and a staff's primary slot holds only the motion of having no ammo: their attacks are the arrow's and the spell's, so they have no `Primary` (a spell's cast takes `animation` and `hitAt`, below). A move for a slot the class does not have is refused at load, naming the weapon, the slot and the slots it has. A slot the item no longer has (a game update) is reported when content is ready, by block and slot, and the other slots still apply.
+
+### What Kiln does for a move
+1. **Clone.** A move with `Like` is a clone of that sequence, made at load; one without is a clone of the slot's own sequence, made when content is ready. Name `<mod>.<weapon>.<slot>`, in a chain `<mod>.<weapon>.<slot>.<n>` (n from 1); GUID `derive(mod, "sequence", "<key>.<slot>[.<n>]")` with `key` = `Was` or the block's name. A sequence with two sub-sequences (the greataxe special has one for the ground and one for the air) is cloned whole, and the move applies to each sub-sequence.
+2. **State.** The move's states go into the clone's state events in order (below).
+3. **Retime.** When content is ready, from the clone's own events (no game timing is written into a mod or into Kiln): one map over the sequence's clock, with `h0` its first damage event (`SpawnImpact`) and `len0` its length: up to `h0`, `f(t) = t × hitAt / h0`; after it a shift, `f(t) = hitAt + (t − h0)`, or with `Length`, `f(t) = hitAt + (t − h0) × (length − hitAt) / (len0 − h0)`. `Length` alone keeps the blow where it is and scales what follows; a move with no damage event (a block) and a `Length` scales as a whole. Through the map go every event's `time`, the end of every window (`time + duration`; a damage window keeps its own duration), the end of the spans an event carries (`lerpDuration`, `hitStopDuration`), every `SetActionOportunity.followUpTime`, and the length. The map keeps the events' order, and the rules are written so that no event overtakes another on the way (later ones from the last to the first, then earlier ones from the first to the last): kiln.gamedata keeps events sorted and `[Type#k]` counts in the current order ([gamedata.md](../services/gamedata.md), "Event order").
+4. **Chain.** In each clone of a `Primary` chain, every `SetActionOportunity` for `Primary` with a follow-up names the next link (the last the first), and every one for `Heavy` names the first `Heavy` clone when the weapon has a `Heavy` move. In `Heavy` clones, `Heavy` follow-ups name the next heavy link (a single heavy names itself where the game's heavy names itself, and keeps the game's follow-up otherwise), and `Primary` follow-ups the first primary link. An opening with no follow-up (an evade) stays.
+5. **Slots.** The item's matching `sequences[i].sequence` name the clones.
+
+Refused at load: a slot the class lacks, a move with no field, `hitAt` or `length` that is not a number of seconds above 0, `hitAt` at or past `length`, `hitAt` on a block or a parry (they land no blow). Reported when content is ready, by block and slot, the rest still applying: a `hitAt` on a motion with no damage event, or whose blow is at 0 s; a motion with fewer state events than the move names; a slot the item no longer has; a `Like` the game does not have.
+
+What `kiln blocks` shows under the weapon: `moves` (the slots' selectors, the clones with their `like`, the states as written and resolved, the timing asked for, where each clone's follow-ups go), and once content was ready `movesReady` (the indices found, what each clone started from, the rules).
+
+**Events that move, per kind of sequence** (the starters' sequences of each slot). Every event's `time` moves with the map; listed are the kinds of events there, and what else of theirs moves:
+
+| Kind | Events | Also moved |
+|---|---|---|
+| light swing (`primary`, `heavyAir`) | SetStateEvent, SetAnimationEvent, SetAnimationBoolInputEvent, Enable/DisableAbilityEvent (the hand-back), SetActionOportunity, SpawnImpact, LerpMovementFactorEvent, RotationLerpEvent, RootMotionWarpEvent, PreserveVelocity, AvoidHolesEvent, ReplaceHitReactionEvent, ActivateCombatStanceEvent, ClearActionOportunity, Sfx/Vfx/Foley/EnvironmentEffect notifiers, TriggerNoiseEvent | the ends of the input, warp, rotation, velocity and hit-reaction windows; `followUpTime`; not the SpawnImpact's duration |
+| heavy (`heavy`) | as a light swing, with CameraShakeEvent, ClientHitStopListenerEvent, RootMotionScaleModifierEvent, LerpRotationFactorEvent | as above, and `hitStopDuration` |
+| dodge attack | as a heavy, with PayUsageCost, NotifierEvent | as above |
+| jump attack | JumpEvent, ImpulseEvent, ApplyImpulseEvent, KeepAliveEvent, ResetFallDamageEvent, PayUsageCost, and a swing's | as above |
+| plunge attack | three SetAnimationEvents (start, fall, landing), LoopEvent (the fall, held until landing), KeepAliveEvent, Set/ResetGravityEvent, JumpEvent, ScopeEvent, and a swing's | the loop's and the scope's ends |
+| special | the most: LoopEvent, SpawnEntityEvent, ApplyBuffEvent, CleanseBuffEvent, ChangeColliderSetup, AdaptiveTriggerEffectEvent, and a heavy's; the greataxe's has two sub-sequences, each with three SetAnimationEvents | each sub-sequence by its own blow |
+| execution, sneak attack | SyncAttackEvent, LockCameraIdEvent, ChangeColliderSetup, ImpulseEvent, and a swing's (two SpawnImpacts) | the camera lock's and the collider's ends |
+| block | SetAnimationEvent, LoopEvent (held while the button is), LerpMovementFactorEvent, LerpRotationFactorEvent, SetAbortByMovement, SetActionOportunity (`Parried` names the parry), and the daggers' a SpawnImpact | `length` only: no `hitAt` |
+| parry | SetAnimationEvent, Set/ClearStateEvent, SetActionOportunity, RotationLerpEvent | `length` only: no `hitAt` |
+| staff cast | SetAnimationOverlayEvent (the raise), LoopEvent, KeepAliveEvent, SetAnimationEvent (the cast), SpawnEntityEvent (the shot), PayUsageCost, notifiers | the loops' ends |
+| wand attack | SetAnimationOverlayEvent (one or two; the special has a SetAnimationEvent too), SpawnEntityEvents (shots that fire and shots the premade silences), PayUsageCost, notifiers | |
+
+### What `animation` takes
+- **A GUID**, or **`0x` and 8 hex digits** (a state's id, as the catalog's `graphs` section and `player-anim` write it): a state the game has, the advanced form. It is not checked against the graph. An id becomes 16 bytes whose FNV-1a is that id: the engine only hashes the reference.
+- **A state of this mod by name**: GUID `derive(mod, "state", name)`, the state `player-anim` defines in `assets/player-states.json`.
+- **A game state by name**, `"State"` or `"Machine/State"`: the id the game's graph has for it.
+
+Names are looked up when content is ready, through `Kiln.PlayerAnim` (`PlayerAnimStates.Find`, then `FindGameStates`). A mod's states are the ones in its `assets/player-states.json` ([animations.md](animations.md), "Player states"); they are merged into the player's graph when the game or server starts, so a change to them applies only after a restart, and a mod with states needs `"side": "both"` and `"clients": "mod"`. Where the lookup cannot answer (the `kiln.playeranim` service not loaded, the capability `anim.player_states` off, the merge off on this game build) a name is reported when content is ready by block and slot, with that reason, and the motion keeps its own state; a GUID or an id needs no lookup. A mod state that is refused, pending or unavailable is reported with player-anim's reason. A name no machine and no mod has, a name several machines have (the message lists them, write `Machine/State`), a state no id enters (such as `Idle_Block`), and a state with several ids (a jump-attack state has four, one per weapon family: write the one you mean as its `0x` id) are reported the same way.
+
+One name goes to the motion's first state event; a list names each in order, a `null` keeping that one: a plunge is `["start", "fall", "landing"]`, and `"start"` alone changes only its start. Which event: a mod's or a game's state by name says its kind (a full-body state is entered by `SetAnimationEvent.animationName`, an overlay by `SetAnimationOverlayEvent.overlayName`); a GUID or an id says none, and the motion's full-body state is used when it has one, else its overlay (a staff's FixedAnim cast has both, the cast being the full-body one; the wand chains and the bow have only overlays). One move takes one kind. A motion with neither event names no state, and a move's animation on it is reported.
+
+### Block and parry
+A block is entered by the sequence: `Ability_Block`'s `SetAnimationEvent` names `Block_FullBody` (`0xeb2a5b2e`) in `SM_Main`, a layer blend that lays the guard pose over `SM_Block_Locomotion`. That machine's `Idle_Block` and `Move_Block` have no id: the legs while blocking are chosen by a float input (the movement), never by a sequence, so no move can name them. So `"block": { "animation": … }` changes the guard: a state of the mod made like `Block_FullBody` keeps the block's locomotion underneath and plays the mod's clip as the guard. It cannot change the legs' idle or walk while blocking, and the block's hold is the sequence's loop (`length` times it). The parry is the same with `Parry_FullBody` (`0xfeec6023`), named by `Ability_Player_Parry_AllWeapons`. The daggers have a block sequence of their own, so a daggers' block move starts from theirs.
+
+### Wands and staff casts
+A wand attack's `Moves` takes a premade as before, or one changed: `WandMoves.Heavy with { Animation = …, HitAt = 1.1 }`, in JSON `"moves": { "like": "heavy", "animation": …, "hitAt": 1.1 }` (no `like`: the attack's own premade). A spell's `CastBlock.Animation` the same: `CastAnimation.Lob with { Animation = …, HitAt = 1.2 }`, `"animation": { "like": "lob", "animation": …, "hitAt": 1.2 }`. `HitAt` is the release, the same thing as `releaseAt`: give one, or the same number (two numbers are refused). With `releaseAt` alone the shots (and on a staff the cost, the VFX and the sound) move to it as before; with `hitAt` the whole motion is retimed when content is ready, its first firing shot (a wand premade's shots that fire, a staff cast's shot) landing on it. A `like` other than the premades is refused: a wand motion's shots are a mix of the one that fires, the ones the premade silences and the per-element ones, and only the premades say which is which. Supporting any wand sequence would mean reading each shot's template when content is ready and telling a projectile from the rest by its components: about a day, with a lab check per element, and a game update that adds a shot would need the same check again. Where they work: a spell's `CastBlock.Animation` and a wand attack's `Moves`. An ability's cast (`AbilityBlock.Cast`) refuses them, by block and field (`cast.animation.animation`, `cast.animation.hitAt`): not yet on an ability's cast; its premade alone (`"lob"`) is still its motion.
+
+### Limits
+- Checked in a lab (`mods/tests/weapon-moves-test`, a dedicated server, fresh and after a restart): on the game's data the clones exist under their names and GUIDs, start from their `like`, name the state given by GUID or `0x` id, sit in the slots their selectors name (and `heavyAir` plays the first primary link) while every other slot and the game's own weapons keep their sequences; every event, window end, `followUpTime` and the length follow the map, in order; the chain's and the heavy's follow-ups name the clones; a spawned player character pressing the attack button gets link 1, link 2, link 1 from the game itself, and holding it gets the heavy; the damage window of a retimed clone opens within one step of `hitAt`. With player states in the build (`Kiln.PlayerAnim`), a move names a state of its mod or a game state by name: the clones name the state's GUID, and the server's graph enters the mod's states (a two-link chain, a heavy, a guard) and a game state named by name when a player character presses the attack, heavy and block inputs, the plain sword entering the game's own state; a name nobody has, a name several machines have, a state no id enters, a state with several ids and a mod state the service refused are each reported by block and slot, the move keeping its `like`'s state; a wand move on a mod's overlay state names it in its `SetAnimationOverlayEvent` (the lab cannot read which overlay the graph plays). Not checked in a game: that a player sees the motions (guided checks below), that sub-sequence rules reach the second sub-sequence of a clone (`<clone>#1`). A move on an overlay applies: the wand's bolt plays the overlay its move names (kiln.content takes an overlay's GUID as it takes a state's, both only hashed into the graph's id), checked in the lab. The offline tests (`managed/tests/Kiln.Blocks.Tests`: `WeaponMovesTests`, `MoveTimingTests`, `CastMovesTests`) check what the compile and the content-ready planner make, over made-up slots and events, and replay kiln.gamedata's re-sort after every rule.
+- A plunge's and a special's fall loop is retimed as any window: the loop holds until landing, so the map moves its start and end, not how long a fall lasts.
+- The jump attack's follow-up to the plunge, and every other slot's follow-ups, stay the game's: only the primary and heavy chains are linked to each other.
+- A move whose only change could not be made (a name that cannot be looked up) still plays its clone, which is the class's sequence unchanged.
+- A second cast of a mod's wand state started before the first has ended continues its clip rather than restarting it (player-anim's limit, [animations.md](animations.md) "Limits").
+- Capabilities: `blocks.weapon_moves` (moves, and `animation` and `hitAt` on a wand's moves and a spell's cast) needs kiln.gamedata; `blocks.animated_held` (`VisualBlock.Animated`) needs kiln.gamedata and kiln.assets. Item blocks report both rows when the first of them compiles: a row a managed service registers exists only after the service is first used, so a manifest's `features` cannot require it; check `Capabilities.Is` at run time.
+
 ## Mistakes
 A wrong block registers nothing, and the message names the block and the field. The file's other blocks still load.
 ```
@@ -220,3 +339,7 @@ Each block costs about the same to load however many there are: a lab server wit
 `mods/tests/blocks-water-test` checks water containers, with no player: the new cans' templates (1,000, 1,023, a pouch of 60 from `blocks/water.json`), the game's can and template untouched, `Flow` as the items' `Volume`, the recipe's station, what a can holds on the server and what players are sent (a can of 1,000 is 64,000 both ways), and holds 1024 refused. Use a lab made with `--save` from a world with a base: the cans go into one of its chests, and a second start checks that a full can of 1,000 is still full. `Observer/` (mod `blocks-water-observer`) logs what an `unload blocks-water-test` puts back: the recipe off its station, the items registered until the restart, the game's can and template as they were. Lab: fresh 30 PASS, restart 4 PASS.
 
 `mods/tests/blocks-loot-test` checks loot tables, creature drops and recipes of their own, with no player: a creature block spawned and killed with `Combat.SetHealth(0)` drops its table's stacks as pickups (`blocks: blocks-loot-test:ember-scavenger died at (...): drops blocks-loot-test.ember-shard x3, Material_T1_Metal_Scraps x2`), a table written in a creature and a C# twin of the data file do the same, a creature with no `Drops` drops nothing, a table rolls (chance, `Pick`, `Rolls`, a seed) and its stacks are dropped and given into an inventory, a recipe of its own is read back from the game's recipe registry at the workbench (`0x4da88f73`) with its inputs and output, and wrong blocks are refused by block and field. Lab: 36 PASS, 0 FAIL on a fresh world and on a restart. Not proven with a player: that a creature killed near one drops the game's own loot as well, and what the pickups look like in a client. `mods/samples/LootBlocks` is the sample, in C# and as `blocks/twins.json`.
+
+`mods/tests/weapon-moves-test` checks [Moves](#moves) on a dedicated server, with a spawned player character and training dolls round it (the test drives the character the way `mods/tests/creative-test` does: ready for gameplay, standing on the ground). Its weapons are in `blocks/weapons.json` (a sword with a two-link chain, a heavy and a block, a greataxe with one heavy and nothing else, a sword with no moves, a wand with a move on its primary attack), and `chain-sword-cs` is the chain sword in C#: both lower to the same. Until player-anim lands, its moves name game states of other weapon families, by GUID and by `0x` id. What it expects it works out from the game's original values and the formula above, not from what the moves code wrote: the clones' names and GUIDs, the `like` each starts from and the state it plays, the slots (by their selectors, every other slot the starter's), the retime of every event, window end and follow-up time, the chain links, the game's own weapons and sequences unchanged. Then the moves are played: the attack button written into the character's input (`PlayerInput.fromClient.digitalInput`) makes the game pick the held weapon's slot and the chain's follow-ups itself (link 1, link 2, link 1); holding it starts the heavy. `Abilities.PlaySequence` plays the chain too, but starts no damage window on a player character, and `PlayerStates.Diagnostics.LabUseItem` starts link 1 with the sword as the used item, but no blow either: only the input lands blows. The step the damage window opens is measured against `hitAt` (within one step), and the hurt event (`EntityHurtEvent.Step`) must come inside the blow's window; the game's own light chain and the greataxe's heavy are the controls. Start it twice: the second run checks the ids and the slots across the restart. Start it with `KILN_PLAYERSTATE_LAB=1` for the `LabUseItem` line. It logs `weapon-moves-test: PASS` and `FAIL` lines, `weapon-moves-test done: N PASS, M FAIL`, and a file named `fail-once` in its data folder turns one expectation of each group wrong. It also shows that kiln.content still refuses a reference to a template the game does not have while it takes an overlay name no resource has.
+
+Held models with moving parts are in its `blocks/held.json`: a sword, a greataxe (with a game VFX), a shield (with a VFX the staff does not have), daggers with one model for both hands and daggers with a left model of their own. `build-assets.py` writes their sources with the sample's `make_assets.py` and cooks the test's own `assets/cook.json` from the installed game (`assets/cooked/`, never committed). The test checks each `<mod>.<item>.moving` template (a pair's parent and its `.l` and `.r`): its GUID, that it starts from the staff and lacks the staff's VFX parameters, the model and the graph (cooked: the skinned model and its graph; not cooked: the rigid model and the staff's graph), the hand against the slot the class's starter's own visual template has in the running game (sword `HandR`, greataxe `HandL`, shield `ArmL`, daggers `HandL` and `HandR`), the VFX, the item's `equipment.visualEntity`, the machine-local marks in the blocks report, and the held entities a character spawns when it takes the sword or the daggers in hand, still there 60 steps later. Where nothing is cooked (a dedicated server never is), the items still take the look's rigid model, a model their own mod declares in its `assets/assets.json` (kiln.content carries it as the GUID for its clients), while a GUID no mod declares and one only a mod that is not loaded declares stay refused; the held items are given, equipped and switched, dropped as a pickup, stored in a chest and found there after a restart, the server staying up (picking a pickup up again needs a player's input the lab does not drive). Started with the sample `mods/samples/WeaponMoves` beside it (cooked on the same machine), it checks what the sample made: its two swords with no refused block, each of its four state names reported once as not available in this build, the clones made at load and the block's at content ready, the slots, the chain links, each move's `like` animation and the sample's timing, its moving template with the cooked model in the sword's hand, and the moment each of its moves' damage window opens. `syncheld.py --port <labPort>` is a fake Kiln client that reads the content state the server sends: the moving templates' bodies carry no model and no graph, still carry the hand and the shield's VFX, and the templates are in `add` (the definition in `add` still names the model and graph, which a client with its own definition does not take: printed as INFO). States of its own are in `assets/player-states.json` (the sample's motions, cooked by `build-assets.py`; one state, `wm-nowhere`, is refused on purpose, so the cook's check of the file exits 1 and `build-assets.py` accepts that one), named by the weapons of `blocks/states.json`: `own-sword` (the test's states), `game-name-sword` (game states by name), `refused-sword` (the names that cannot be a move's state) and `own-wand` (an overlay state); the test reads the state the server's graph is given (`ServerAnimationGraphInput`, as `mods/tests/player-anim-test` does) while each move plays, and with the sample loaded, that the graph enters its `slash-1`, `slash-2`, `slash-1` and `cleave`, each blow's window opening at the sample's `hitAt` (the backhand's hurt on a doll is told, not required: it meets one or not depending on where the dolls stand). Its six `[ClientCheck]`s (`blocks.moves-chain`, `blocks.moves-hit-timing`, `blocks.moves-heavy-block`, `blocks.moves-vanilla-unchanged`, `blocks.held-animated`, `blocks.held-animated-two-players`) are what only a player can judge; the lab only lists them (`client checks: Register found 6; ...: listed`).

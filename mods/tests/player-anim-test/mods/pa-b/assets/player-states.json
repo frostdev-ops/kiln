@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "states": {
+    "slash": { "clip": "b_slash", "like": "Attack_Sword_Shield_02" },
+    "smash": { "clip": "b_smash", "like": "SM_Attack_Hammer_FullBody/Attack_Heavy_01" }
+  }
+}

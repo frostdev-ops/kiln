@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "guid": "a72e00c0-a500-554e-b0f2-cd9253bc5e27",
+      "name": "golden-items.item-tool-axe",
+      "base": "Tool_T1_Axe_Scrap_Grassland",
+      "displayName": "Big Axe",
+      "description": "",
+      "fields": {
+        "rarity": "Uncommon",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 7,
+        "itemLevelRange.maxLevel": 7,
+        "damageSetup.distribution.woodDamage": 40,
+        "damageSetup.distribution.stoneDamage": 8,
+        "damageSetup.distribution.metalDamage": 4
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0x17147b63": 7,
+    "impactValues.StaminaCost": 3
+  }
+}

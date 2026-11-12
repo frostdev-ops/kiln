@@ -1,0 +1,69 @@
+{
+  "programs": [
+    {
+      "key": "item-ammo.impact",
+      "guid": "67fb8629-4149-5692-a48b-3d46e348384a",
+      "size": 388
+    },
+    {
+      "key": "item-ammo.projectile",
+      "guid": "82dbad3c-c757-50d4-b62a-412b2021720e",
+      "size": 2648
+    }
+  ],
+  "templates": [
+    {
+      "guid": "d8c94649-f911-51ce-85bd-7b98a431b821",
+      "name": "golden-items.item-ammo.impact",
+      "base": "Explosion_Player_Spell_IceBolt_1",
+      "fields": {
+        "Impact.program": "67fb8629-4149-5692-a48b-3d46e348384a"
+      }
+    },
+    {
+      "guid": "dbcefae9-60df-5f2a-b39c-43e46a7224d2",
+      "name": "golden-items.item-ammo.projectile",
+      "base": "Projectile_Player_Staff_IceBolt_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 2.5,
+        "Impact.program": "82dbad3c-c757-50d4-b62a-412b2021720e"
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "d8c94649-f911-51ce-85bd-7b98a431b821"
+  },
+  "items": [
+    {
+      "guid": "23e40403-15e7-53c5-8775-9aaec8375a4f",
+      "name": "golden-items.item-ammo",
+      "base": "Ammo_T1_Arrow_Flint_lvl5",
+      "displayName": "Fire Arrow",
+      "description": "",
+      "fields": {
+        "itemLevelRange.minLevel": 6,
+        "itemLevelRange.maxLevel": 6,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 0.4473684210526316,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0.75,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0.25,
+        "damageSetup.distribution.magicalIceDamage": 0,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0,
+        "equipment.placedEntityLocalSpawnVelocity.z": 60
+      },
+      "refs": {
+        "equipment.placedEntity": "dbcefae9-60df-5f2a-b39c-43e46a7224d2"
+      }
+    }
+  ],
+  "itemRules": {}
+}

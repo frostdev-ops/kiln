@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { kilnDataDir } from "./dataDir";
 
 export interface CatalogEntry {
   name: string;
@@ -28,9 +29,8 @@ export interface CatalogFile {
   sections: Record<string, CatalogEntry[]>;
 }
 
-export function defaultCatalogDir(): string {
-  const data = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
-  return path.join(data, "kiln", "catalog");
+export function defaultCatalogDir(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(kilnDataDir(env), "catalog");  // $KILN_DATA_DIR, a moved data folder's pointer, or the default root
 }
 
 /** The catalog file to read: a file named directly, or <dir>/client.json, else <dir>/server.json. */

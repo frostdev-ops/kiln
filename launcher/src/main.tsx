@@ -6,6 +6,7 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { isTauri, loadMock } from "./api/commands";
 import { UiModeGate } from "./deck/mode";
+import { DataFolderGate } from "./shell/DataFolderGate";
 import "./theme/base.css";
 
 const queryClient = new QueryClient();
@@ -18,9 +19,12 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <HashRouter>
-        <UiModeGate>
-          <App />
-        </UiModeGate>
+        {/* a data folder that cannot be used: only its dialog, before either UI (shell/DataFolderGate.tsx) */}
+        <DataFolderGate>
+          <UiModeGate>
+            <App />
+          </UiModeGate>
+        </DataFolderGate>
       </HashRouter>
     </QueryClientProvider>
   </StrictMode>,

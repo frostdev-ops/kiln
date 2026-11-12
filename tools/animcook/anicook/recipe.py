@@ -21,11 +21,12 @@ import hashlib
 import json
 from pathlib import Path
 
+from kfc import anim
 from kfc.archive import ResourceKey
 from kfc.blob import Decoder
 from kfc.blobwrite import Encoder
 
-from . import blocks as B, clips as C, graphgen as G, retarget as RT, skeleton as K
+from . import blocks as B, clipops as CO, clips as C, graphgen as G, retarget as RT, skeleton as K
 from .gltfdoc import Doc
 
 TOOL = "animcook"
@@ -33,10 +34,10 @@ OPS = ("skeleton", "clips", "graph")
 KNOWN_TOOLS = ("modelcook", "soundcook", "animcook")
 STEP_KEYS = {
     "skeleton": {"tool", "op", "comment", "name", "gltf", "skin", "root", "guid", "mode"},
-    "clips": {"tool", "op", "comment", "skeleton", "gltf", "clips", "tolerance", "retarget"},
+    "clips": {"tool", "op", "comment", "skeleton", "gltf", "clips", "tolerance", "retarget"},  # gltf: needed by clips without "from"
     "graph": {"tool", "op", "comment", "name", "skeleton", "guid", "mode", "slots", "entry", "states", "layers", "raw"},
 }
-CLIP_KEYS = {"animation", "loop", "rootMotion", "events", "guid", "mode", "tolerance", "comment"}
+CLIP_KEYS = {"animation", "loop", "rootMotion", "events", "guid", "mode", "tolerance", "comment"} | CO.KEYS
 HIER = "keen::ModelHierarchyResource"
 JOINT_ANIM = "keen::JointAnimation"
 GRAPH = "keen::anim_graph::runtime_graph::AnimationGraphResource2_0"
@@ -92,14 +93,22 @@ def load(path):
         unknown = set(st) - STEP_KEYS[op]
         if unknown:
             raise RecipeError(f"step {i} ({op}): unknown keys {sorted(unknown)}")
-        for k in {"skeleton": ("name", "gltf"), "clips": ("skeleton", "gltf", "clips"), "graph": ("name", "skeleton")}[op]:
+        for k in {"skeleton": ("name", "gltf"), "clips": ("skeleton", "clips"), "graph": ("name", "skeleton")}[op]:
             if k not in st:
                 raise RecipeError(f"step {i} ({op}): {k} missing")
         if op == "clips":
+            if not isinstance(st["clips"], dict):
+                raise RecipeError(f"step {i} (clips): clips is {{ name: clip }}")
             for nm, c in st["clips"].items():
                 bad = set(c) - CLIP_KEYS
                 if bad:
                     raise RecipeError(f"step {i}, clip {nm}: unknown keys {sorted(bad)}")
+                try:
+                    CO.check(nm, c)
+                except CO.OpError as e:
+                    raise RecipeError(f"step {i}, {e}") from e
+            if "gltf" not in st and any("from" not in c for c in st["clips"].values()):
+                raise RecipeError(f"step {i} (clips): gltf missing (only a step whose clips all have \"from\" needs none)")
         if op == "graph" and not st.get("states") and "raw" not in st:
             raise RecipeError(f"step {i} (graph): states missing")
     return doc
@@ -211,9 +220,10 @@ class Run:
 
     def clips_step(self, st):
         sk = self.skeleton_ref(st["skeleton"])
-        doc = Doc(self.dir / st["gltf"])
-        rt = self.retarget_plan(st, doc, sk) if st.get("retarget") is not None and st.get("retarget") is not False else None
-        if rt is None and sk.source != "game":
+        authored = any("from" not in c for c in st["clips"].values())
+        doc = Doc(self.dir / st["gltf"]) if authored else None
+        rt = self.retarget_plan(st, doc, sk) if doc is not None and st.get("retarget") is not None and st.get("retarget") is not False else None
+        if doc is not None and rt is None and sk.source != "game":
             hint = " (animations of a rig of their own play on it with \"retarget\")"
             try:
                 problems = K.from_gltf(doc, skin=None, root=sk.names[0] if sk.names[0] != K.SYNTHETIC_ROOT else None).compare(sk) if st["gltf"] else []
@@ -221,6 +231,7 @@ class Run:
                 raise RecipeError(f"{st['gltf']} does not fit skeleton {st['skeleton']}: {e}{hint}") from e
             if problems:
                 raise RecipeError(f"{st['gltf']} does not fit skeleton {st['skeleton']}: " + "; ".join(problems[:6]) + hint)
+        sources = self.__dict__.setdefault("clip_sources", {})  # clips this recipe made, as sources of a later "from"
         results = []
         ok = True
         for name, c in st["clips"].items():
@@ -228,17 +239,21 @@ class Run:
             if rm_cfg is True:
                 rm_cfg = {}
             tol = dict(st.get("tolerance") or {}, **(c.get("tolerance") or {}))
+            seqs = None  # SequenceResource values that followed a reworked clip
             try:
-                if rt is None:
+                if "from" in c:
+                    raw, info, rm, lv, seqs = self.reworked_clip(name, c, sk, tol, rm_cfg)
+                elif rt is None:
                     raw, info, rm, lv = C.cook_clip(doc, c.get("animation", name), sk, loop=c.get("loop"), tolerance=tol, root_motion=rm_cfg)
                 else:
                     src_frames, n = C.sample_animation(doc, c.get("animation", name), rt.src)
                     raw, info, rm, lv = C.finish_clip([rt.frame(f) for f in src_frames], n, sk, c.get("animation", name), loop=c.get("loop"),
                                                       tolerance=tol, root_motion=rm_cfg)
-            except (C.ClipError, RT.RetargetError) as e:
+            except (C.ClipError, RT.RetargetError, CO.OpError) as e:
                 raise RecipeError(f"clip {name}: {e}") from e
             ref = c.get("guid")
-            if isinstance(ref, str) and ref.startswith("@"):
+            override = isinstance(ref, str) and ref.startswith("@")
+            if override:
                 guid = self.input_guid(ref, JOINT_ANIM)
                 mode = c.get("mode", "override")
             else:
@@ -250,24 +265,115 @@ class Run:
                 self.emit(f"clip_{name}.lve", "keen::LveAnimation", guid, self.encode("keen::LveAnimation", lv), mode)
                 info["rootMotionEnd"] = rm["positions"][-1]
             events = c.get("events") or []
+            seq_values = []
             if events:
-                sg = G.derive(self.mod, "notify", name)
-                seq = C.event_sequence_value(self.t, self.dec, f"anim_{name}", events, info["duration"])
-                self.emit(f"clip_{name}.events", "keen::SequenceResource", sg, self.encode("keen::SequenceResource", seq))
-                self.emit(f"clip_{name}.notify", "keen::AnimationSequenceContainer", guid, self.encode("keen::AnimationSequenceContainer", {"sequences": [sg]}), mode)
-                info["events"] = len(events)
+                seq_values = [C.event_sequence_value(self.t, self.dec, f"anim_{name}", events, info["duration"])]
+            elif seqs:
+                seq_values = [dict(s, name=f"anim_{name}") for s in seqs]
+            if seq_values:
+                sgs = []
+                for si, seq in enumerate(seq_values):
+                    sg = G.derive(self.mod, "notify", name if si == 0 else f"{name}.{si}")
+                    self.emit(f"clip_{name}.events" + (f".{si}" if si else ""), "keen::SequenceResource", sg, self.encode("keen::SequenceResource", seq))
+                    sgs.append(sg)
+                self.emit(f"clip_{name}.notify", "keen::AnimationSequenceContainer", guid, self.encode("keen::AnimationSequenceContainer", {"sequences": sgs}), mode)
+                info["events"] = sum(len(s["events"]) for s in seq_values)
+            if "from" in c and override:
+                self.neutral_siblings(name, guid, mode, rm is not None, bool(seq_values), info)
             e = info["errors"]
             limit = {"rotationDeg": 2.0, "position": 0.01, "scale": 0.01}
             good = all(e[k] <= limit[k] for k in limit)
             ok = ok and good
+            rot = bool(rm_cfg and rm_cfg.get("rotation")) or (rm is not None and "from" in c and
+                                                                 any(abs(q["y"]) > 1e-4 for q in rm["orientations"]))
             self.clips[name] = {"guid": guid, "duration": info["duration"], "loop": info["loop"], "rootMotion": rm is not None,
-                                "rootRotation": bool(rm_cfg and rm_cfg.get("rotation")), "events": bool(events), "skeleton": sk.guid}
+                                "rootRotation": rot, "events": bool(seq_values), "skeleton": sk.guid}
             self.side["clips"][name] = dict(self.clips[name], frames=info["frames"], bytes=info["bytes"])
+            sources[name] = CO.Source(name, anim.parse(raw), sk, rm=CO.path_of(rm) if rm is not None else None, sequences=seq_values)
             results.append(dict(info, name=name, guid=guid, mode=mode, ok=good))
-        out = {"op": "clips", "gltf": st["gltf"], "skeleton": sk.guid, "clips": results, "ok": ok}
+        out = {"op": "clips", "gltf": st.get("gltf"), "skeleton": sk.guid, "clips": results, "ok": ok}
         if rt is not None:
             out["retarget"] = rt.report()
         return out
+
+    def clip_source(self, ref, sk):
+        """A clip a "from" or a blend's "with" names: "@input" (one of the game's clips, with its root motion and events) or a clip this
+        recipe made earlier."""
+        sources = self.__dict__.setdefault("clip_sources", {})
+        if not isinstance(ref, str) or not ref:
+            raise RecipeError(f"{ref!r}: a clip is \"@input\" or the key of an earlier clip")
+        if not ref.startswith("@"):
+            if ref not in sources:
+                raise RecipeError(f"no clip {ref!r}: name an input \"@...\" of type {JOINT_ANIM} or a clip an earlier entry or step made "
+                                  f"(made so far: {', '.join(sources) or 'none'})")
+            return sources[ref]
+        if ref in sources:
+            return sources[ref]
+        guid = self.input_guid(ref, JOINT_ANIM)
+        k = self.game(f"clip {ref}")
+        ja = self.t.get(JOINT_ANIM)
+        key = ResourceKey(guid, ja["hash"], 0)
+        if not k.has(key):
+            raise RecipeError(f"{ref}: the installed game has no clip {guid}")
+        clip = anim.parse(k.read(key))
+        rm = None
+        rmt = self.t.get("keen::RootMotionAnimation")
+        if k.has(ResourceKey(guid, rmt["hash"], 0)):
+            rm = CO.path_of(self.dec.decode(rmt, k.read(ResourceKey(guid, rmt["hash"], 0))))
+        seqs = []
+        asc, srt = self.t.get("keen::AnimationSequenceContainer"), self.t.get("keen::SequenceResource")
+        if k.has(ResourceKey(guid, asc["hash"], 0)):
+            for sg in self.dec.decode(asc, k.read(ResourceKey(guid, asc["hash"], 0))).get("sequences", []):
+                if k.has(ResourceKey(sg, srt["hash"], 0)):
+                    seqs.append(self.dec.decode(srt, k.read(ResourceKey(sg, srt["hash"], 0))))
+        src = CO.Source(ref, clip, sk, rm=rm, sequences=seqs)
+        sources[ref] = src
+        return src
+
+    def reworked_clip(self, name, c, sk, tol, rm_cfg):
+        """A clip with "from": the source's operations applied (anicook/clipops.py), encoded. -> (raw, info, rm, lve, sequences)."""
+        src = self.clip_source(c["from"], sk)
+        try:
+            slots = [v["name"] for v in self.t.get("keen::AttachmentSlot").get("values", [])]
+        except (KeyError, AttributeError, TypeError):
+            slots = None
+        res = CO.rework(name, c, src, sk, lambda r: self.clip_source(r, sk), slots=slots)
+        warn = list(res.report["warnings"])
+        path = res.rm
+        if rm_cfg is False and path is not None:
+            warn.append(f"clip {name}: \"rootMotion\": false drops the root motion of {c['from']}")
+            path = None
+        if rm_cfg not in (None, False) and path is not None:
+            raise CO.OpError(f"{c['from']} has root motion already, and it follows the operations: \"rootMotion\" would take it out of the "
+                             "pose a second time (leave it out, or false to drop it)")
+        loop = c["loop"] if "loop" in c else (src.loop and "trim" not in c)
+        raw, info, rm, lv = C.finish_clip(res.frames, res.n, sk, name, loop=loop, tolerance=tol,
+                                          root_motion=rm_cfg if rm_cfg not in (None, False) else None)
+        if path is not None:
+            rm, lv = C.root_motion_value(*path), C.lve_value(*path)
+        seqs = res.sequences
+        if "events" in c and seqs:
+            warn.append(f"clip {name}: its own \"events\" replace the {sum(len(s['events']) for s in seqs)} event(s) of {c['from']}")
+            seqs = []
+        info.update({k: v for k, v in res.report.items() if k != "warnings"})
+        info["warnings"] = info["warnings"] + warn
+        return raw, info, rm, lv, seqs
+
+    def neutral_siblings(self, name, guid, mode, has_rm, has_events, info):
+        """A reworked clip that replaces one of the game's: a sibling the game has under that GUID and the result has not would stay and play
+        with the new clip. It is replaced by an empty one."""
+        k, n = self.k, info["frames"]
+        if k is None:
+            return
+        rmt, asc = self.t.get("keen::RootMotionAnimation"), self.t.get("keen::AnimationSequenceContainer")
+        if not has_rm and k.has(ResourceKey(guid, rmt["hash"], 0)):
+            still = ([(0.0, 0.0, 0.0)] * (n + 1), [(0.0, 0.0, 0.0, 1.0)] * (n + 1))
+            self.emit(f"clip_{name}.rootmotion", "keen::RootMotionAnimation", guid, self.encode("keen::RootMotionAnimation", C.root_motion_value(*still)), mode)
+            self.emit(f"clip_{name}.lve", "keen::LveAnimation", guid, self.encode("keen::LveAnimation", C.lve_value(*still)), mode)
+            info["warnings"].append(f"clip {name}: the game's root motion under {guid} is replaced by none (standing still)")
+        if not has_events and k.has(ResourceKey(guid, asc["hash"], 0)):
+            self.emit(f"clip_{name}.notify", "keen::AnimationSequenceContainer", guid, self.encode("keen::AnimationSequenceContainer", {"sequences": []}), mode)
+            info["warnings"].append(f"clip {name}: the game's events under {guid} are replaced by none")
 
     def retarget_plan(self, st, doc, sk):
         """The step's "retarget": the clips' own rig (its armature, as a skeleton step reads one) paired with the target skeleton."""

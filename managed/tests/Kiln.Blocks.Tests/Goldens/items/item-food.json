@@ -1,0 +1,41 @@
+{
+  "sequences": [
+    {
+      "guid": "009052ff-4bd3-5980-b52e-08ab9205934a",
+      "name": "golden-items.item-food.use",
+      "base": "UseItem_Food_Buff",
+      "fields": {}
+    }
+  ],
+  "items": [
+    {
+      "guid": "c9eb70d4-2d8c-5b90-80cd-ab3bb83be03a",
+      "name": "golden-items.item-food",
+      "base": "Food_T1_raw_sweets_Honey",
+      "displayName": "Sweet Bun",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "uiValues": [
+      {
+        "locaId": "0x86a75e07",
+        "valueFormat": "Duration",
+        "value": 300000
+      },
+      {
+        "locaId": "0xf38b388c",
+        "valueFormat": "Normal",
+        "value": 10
+      }
+    ],
+    "impactValues.0xbbe4bf53": 10,
+    "impactValues.0xbee6d4a9": 300,
+    "sequences[0].sequence": "golden-items.item-food.use"
+  },
+  "itemDataRules": {
+    "equipment.appliedBuff": "6cc3320f-787a-528f-a441-c4711680b346"
+  }
+}

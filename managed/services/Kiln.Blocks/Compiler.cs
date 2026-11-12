@@ -260,7 +260,12 @@ internal static partial class Compiler
         var rules = new JsonObject { ["impactValues.ManaCost"] = s.Cast.ManaCost, ["impactValues.0x579b2657"] = animation.ChargeSeconds };
         if (s.Cast.StaminaCost > 0) rules["impactValues.StaminaCost"] = s.Cast.StaminaCost;
         var sequence = animation.Sequence;
-        if (s.Cast.ReleaseAt != null || s.Cast.Vfx != null || s.Cast.Charges == 0)
+        // cast moves (docs/kiln/modding/item-blocks.md, "Moves"): the state the cast plays, and hitAt, the release, which retimes the whole motion when content is ready
+        if (animation.HitAt is { } hit && s.Cast.ReleaseAt is { } release && Math.Abs(hit - release) > 1e-9)
+            throw new BlockError(ctx.Block, "cast.animation.hitAt", $"{hit} s, while cast.releaseAt says {release} s: both are the moment the spell leaves the staff. Give one of them, or the same number");
+        var moved = animation.Animation != null || animation.HitAt != null;
+        var states = moved ? CheckMove(ctx, animation.Animation, null, animation.HitAt, null, "cast.animation") : null;
+        if (s.Cast.ReleaseAt != null || s.Cast.Vfx != null || s.Cast.Charges == 0 || moved)
         {
             var seqGuid = BlockIds.Derive(mod, "sequence", key);
             var seqName = $"{mod}.{name}.cast";
@@ -268,14 +273,16 @@ internal static partial class Compiler
             if (s.Cast.ReleaseAt is { } at)
             {
                 if (at <= 0) throw new BlockError(ctx.Block, "cast.releaseAt", $"{at} must be more than 0");
-                foreach (var ev in new[] { "VfxNotifierEvent#0", "SfxNotifierEvent#0", "SpawnEntityEvent#0", "PayUsageCost#0", "PayUsageCost#1" })
-                    times[$"events[{ev}].time"] = at;
+                if (animation.HitAt == null)
+                    foreach (var ev in new[] { "VfxNotifierEvent#0", "SfxNotifierEvent#0", "SpawnEntityEvent#0", "PayUsageCost#0", "PayUsageCost#1" })
+                        times[$"events[{ev}].time"] = at;
             }
             // The cast's VFX takes the place of the motion's own VFX event, at its time: its hand and its moment are the motion's.
             if (s.Cast.Vfx is { } vfx) Merge(times, VfxData.Notifier(ctx, VfxData.Lower(ctx, vfx, "cast.vfx", Slot.HandR), seqName));
             if (s.Cast.Charges == 0) times["events[PayUsageCost#1].consume"] = false;
             low.Clone("sequences", seqGuid, seqName, sequence, times);
             rules["sequences[0].sequence"] = seqName;
+            if (moved) CastMoves(ctx, low, "cast.animation", seqName, animation.Key, sequence, states, animation.HitAt, e => e.Type == "SpawnEntityEvent");
         }
         else rules["sequences[0].sequence"] = sequence;
         rules["uiValues"] = TooltipRows(s.Cast, em);

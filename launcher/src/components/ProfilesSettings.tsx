@@ -8,6 +8,7 @@ import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import * as api from "../api/commands";
 import type { ProfileSummary } from "../api/commands";
+import { OTHER_FOLDER_PROFILE, otherFolderTitle } from "../shell/dataFolderText";
 import { invalidateGame, qk, showActive, useActiveProfile, useGame, useGameStatus, useProfile, useProfiles } from "../api/hooks";
 import { totalCount } from "../api/kinds";
 import { ProfileSettingsModal } from "../pages/profiles/ProfileLayout";
@@ -49,7 +50,9 @@ export function ProfilesCard() {
 
   return (
     <Card id="profiles" aria-label="Profiles" title="Profiles"
-      sub={cur ? <>A profile is a saved set of mods and their switches. <b>{cur.name}</b> is loaded: the main screen shows it.</> : "A profile is a saved set of mods and their switches."}
+      sub={status.data?.otherFolderProfile
+        ? <span className="k-tone-warn" title={otherFolderTitle(status.data.otherFolderProfile)} data-testid="other-folder-profile">{OTHER_FOLDER_PROFILE}</span>
+        : cur ? <>A profile is a saved set of mods and their switches. <b>{cur.name}</b> is loaded: the main screen shows it.</> : "A profile is a saved set of mods and their switches."}
       actions={<Button size="s" disabled={!cur} title={cur ? undefined : "Load a profile first"} onClick={() => setSaveAs(true)}>Save current as…</Button>}>
       {profiles.isLoading ? <Skeleton lines={3} /> : profiles.error ? <EmptyState title="Profiles are not readable" hint={errorText(profiles.error)} /> : (
         <ul className="k-list k-profiles" aria-label="Saved profiles">

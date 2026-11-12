@@ -18,6 +18,7 @@ import { Glyph, useGlyphStyle } from "./glyphs";
 import { isDir, useDeckInput, usePads, type Press } from "./input";
 import { topLayer, useInertBelowTop, useLayers, type DeckAction } from "./layers";
 import { DeckToaster, Dialog, Row } from "./ui";
+import { DeckDataFolderNotice } from "./DataFolder";
 import { NexusRoute } from "../components/NexusGate";
 import Home from "./screens/Home";
 import Mods from "./screens/Mods";
@@ -207,6 +208,7 @@ export default function DeckApp() {
       <div className="deck-overlays" />
       <DeckNxm />
       <DeckToaster />
+      <DeckDataFolderNotice />
     </div>
   );
 }

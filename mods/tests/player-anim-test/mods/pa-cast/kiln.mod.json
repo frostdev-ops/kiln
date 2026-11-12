@@ -1,0 +1,10 @@
+{
+  "id": "pa-cast",
+  "name": "player-anim lab: overlay states beside a staff cast, a wand cast and a bow reload, playing game clips",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "A fixture of mods/tests/player-anim-test (run.py): overlay states beside a staff cast, a wand cast and a bow reload, playing game clips. Data only. Its clips are made where it is cooked (make_clips.py), never committed."
+}

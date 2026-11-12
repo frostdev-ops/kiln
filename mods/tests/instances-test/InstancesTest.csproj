@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test of the package `instances` (entity refs, item instances, item data): PASS / FAIL lines in kiln.log. Needs
+       a world with containers (a copy of a real save) and no player. Checks are [LabCheck] methods of the partial class
+       InstancesTestMod, one file per task: IdentityChecks.cs and TrackingChecks.cs (t1); later tasks add their own
+       files. How to run: docs/kiln/services/items.md, "Item instances", "Lab test". -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- the lab members of Kiln.Items (Items.LabFollow, LabMoveUnseen, LabInstancesStatus) -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- instance data (DataChecks.cs, task t4) -->
+    <ProjectReference Include="../../../managed/services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- simulated players and the guided client checks (PlayerChecks.cs, ClientChecks.cs, task t3) -->
+    <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="fixtures/**" />
+    <!-- rider/ is a second mod of its own (instances-rider, task t4), built by its own project -->
+    <Compile Remove="rider/**" />
+    <None Remove="rider/**" />
+  </ItemGroup>
+</Project>

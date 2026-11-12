@@ -7,6 +7,7 @@ mod config;
 mod console;
 mod gate;
 mod kiln;
+mod lock;
 mod ops;
 mod preflight;
 mod profiles;
@@ -509,13 +510,78 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<i32> {
     Ok(0)
 }
 
+/// What a command does with the launcher's data root (lock.rs), decided once here. Every command is named: a new one has
+/// to say whether it uses the root. Whole: `kiln_manage` calls that take the data folder (`bundle::data_dirs()`,
+/// `game::inspect`, which locates it for the path mode, and the support report), and `backup`, whose `backup_dir` may
+/// lie inside it. None: the instance files (Kiln's config folder), the server folder, the Wine prefix and Kiln's state
+/// folder (gate results, the exe cache) only; among them the long runs (`run`, `start`, `stop`, `logs --follow`, `port`,
+/// `gate`, `install`, `prefix`), which would otherwise block a launcher's move for hours. Part: `update` runs SteamCMD,
+/// the port, the gate and a start (no root), and a savegame backup (the lock for that step only).
+fn data_use(cmd: &Cmd) -> lock::Use {
+    use lock::Use;
+    match cmd {
+        Cmd::Init { .. } | Cmd::Install { .. } | Cmd::Prefix { .. } | Cmd::Preflight { .. } | Cmd::Run { .. } => Use::None,
+        Cmd::Start { .. } | Cmd::Stop { .. } | Cmd::Status { .. } | Cmd::Logs { .. } | Cmd::Port { .. } | Cmd::Gate { .. } => Use::None,
+        Cmd::List | Cmd::Cmd { .. } => Use::None,
+        Cmd::Deploy { bundle, .. } => if bundle.is_some() { Use::Whole } else { Use::None },
+        Cmd::Update { .. } => Use::Part,
+        Cmd::Backup { .. } | Cmd::Report { .. } | Cmd::Library { .. } | Cmd::Profile { .. } | Cmd::Client { .. } => Use::Whole,
+        Cmd::Bundle { cmd } => match cmd {
+            BundleCmd::Create { .. } | BundleCmd::Verify { .. } => Use::None,
+            BundleCmd::Install { .. } | BundleCmd::Uninstall { .. } => Use::Whole,
+        },
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // the data folder's lock, before the command does anything, for as long as it runs (dropped after dispatch)
+    let _held = match data_use(&cli.cmd) {
+        lock::Use::Whole => match lock::hold() {
+            Ok(h) => Some(h),
+            Err(e) => {
+                eprintln!("kilnctl: error: {e:#}");
+                return ExitCode::from(1);
+            }
+        },
+        lock::Use::None | lock::Use::Part => None,
+    };
     match dispatch(cli.cmd) {
         Ok(code) => ExitCode::from(code.clamp(0, 255) as u8),
         Err(e) => {
             eprintln!("kilnctl: error: {e:#}");
             ExitCode::from(1)
         }
+    }
+}
+
+#[cfg(test)]
+mod data_use_tests {
+    use super::*;
+    use lock::Use;
+
+    fn use_of(args: &[&str]) -> Use {
+        let cli = Cli::try_parse_from(std::iter::once("kilnctl").chain(args.iter().copied())).unwrap();
+        data_use(&cli.cmd)
+    }
+
+    /// The lock for what uses the data root; none for the long runs on the server folder; one step of an update.
+    #[test]
+    fn commands_hold_the_lock_as_long_as_they_use_the_data_root() {
+        for args in [
+            &["profile", "create", "p"][..], &["profile", "show", "p"], &["library", "list"], &["library", "import", "x.zip"],
+            &["client", "status"], &["deploy", "s", "--bundle", "k.zip"], &["bundle", "install", "k.zip", "--dir", "/g"],
+            &["bundle", "uninstall", "--dir", "/g"], &["backup", "s"], &["report"],
+        ] {
+            assert_eq!(use_of(args), Use::Whole, "{args:?}");
+        }
+        for args in [
+            &["run", "s"][..], &["start", "s"], &["stop", "s"], &["logs", "s", "--follow"], &["port", "s"], &["gate", "s"],
+            &["install", "s"], &["prefix", "s"], &["status", "s"], &["list"], &["deploy", "s"], &["bundle", "verify", "k.zip"],
+            &["cmd", "s", "help"],
+        ] {
+            assert_eq!(use_of(args), Use::None, "{args:?}");
+        }
+        assert_eq!(use_of(&["update", "s"]), Use::Part);
     }
 }

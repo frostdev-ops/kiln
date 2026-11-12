@@ -1,0 +1,9 @@
+{
+  "id": "pa-no-clients",
+  "name": "player-anim lab: player states in a mod whose manifest does not state clients",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "advanced": true,
+  "description": "A fixture of mods/tests/player-anim-test (run.py): player states in a mod whose manifest does not state clients. Data only. Its clips are made where it is cooked (make_clips.py), never committed."
+}

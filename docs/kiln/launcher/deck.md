@@ -8,9 +8,9 @@ Code: `launcher/src/deck/` (frontend), `launcher/src-tauri/src/deck/` (detection
 browser), `launcher/src-tauri/src/commands/deck.rs` (commands). Contracts: [contracts.md](contracts.md) section 9
 (`deck_*`, `AppInfo.deck`, `uiMode`), section 10 (`kiln://gamepad`).
 
-**Official 0.2.0-dev.22 (as in dev.20 and dev.21):** the Nexus Catalog, account controls and Mod Manager Download links are disabled on Deck
-and desktop while OAuth approval is pending. Download mod archives in a browser and add them from Downloads.
-The Catalog descriptions below apply only to an enabled, approved future build; personal API keys are not a fallback.
+**A build with Nexus off** (`KILN_NEXUS_ENABLED=0`, `app_info.nexusEnabled` false): the Nexus Catalog, account controls
+and Mod Manager Download links are off on Deck and desktop. Download mod archives in a browser and add them from
+Downloads. The Catalog descriptions below apply to a build with Nexus on; personal API keys are not a fallback.
 
 ## How Deck mode is chosen
 Decided once at the start, before anything renders (`src/deck/mode.tsx`, `UiModeGate`), in this order:
@@ -104,7 +104,7 @@ an in-progress Hold action. A disabled focused control returns focus to the curr
 | Catalog (enabled builds only) | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)), Kiln mods first: a row per mod with its author, version, endorsements and state (Installed, Update, EMF/native/DLL); more rows with More. A mod's page: summary, what it needs, Installed or Update ready | A on a mod: its page; there A on Add (premium: downloads, adds to the active profile) or Update, or Open on Nexus Mods (free accounts download on the site); X what is shown (Kiln mods, All Enshrouded, Installed); Y the order (most endorsed, recently updated, name). After an add: OK, Undo, Get <mod it needs>. A Mod Manager Download link shows the same dialog on any screen. Account sign-in uses OAuth in desktop Settings; this tab is hidden in dev.20 |
 | Kiln | the runtime in the game: version, when, files, runs on | Install, Update to the newest bundle, Hold to uninstall (1.2 s, the Deck's stand-in for the typed word); the running step and the outcome |
 | Help | the Steam launch option for Valve's Proton (state: needed, set, not needed), how to add the launcher to Steam, the controls | D-pad walks the blocks, right stick scrolls |
-| Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Profile (the loaded one; A opens the list: load one, or No profile), Quit; the last line shows the version, what the detection saw and the controller | A |
+| Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Profile (the loaded one; A opens the list: load one, or No profile), Data folder (its path and size; A browses to a folder with `deck_browse`, "Use this folder", then the move or "use this one" in the Deck's dialogs, as on the desktop, [app.md](app.md) "The data folder"), Quit; the last line shows the version, what the detection saw and the controller | A |
 
 Text input is avoided everywhere. Where Steam needs typing (launch options), Help says Steam + X opens the keyboard.
 Notices are a short title and buttons.
@@ -190,6 +190,10 @@ steps instead:
 ## Deck tester checklist
 For a Steam Deck player helping us test. Report each line as OK or what happened (a phone photo helps), plus the last
 line of Deck Settings (it names what the detection saw and your controller).
+
+The dialog for a data folder that cannot be used (and the one while another launcher moves it) comes up before the
+launcher knows which UI to show, so it is the desktop's dialog on the Deck too: its buttons answer a tap and the keyboard
+(Tab, Enter), not the controller through the Deck UI's gamepad reader.
 
 **Setup (Desktop Mode)**
 1. Put the Kiln Launcher AppImage somewhere (e.g. `~/Applications`), make it executable (right-click, Properties,

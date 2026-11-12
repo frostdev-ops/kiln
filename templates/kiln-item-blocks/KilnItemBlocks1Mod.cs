@@ -30,6 +30,8 @@ public sealed class KilnItemBlocks1Mod : Mod
             Name = "Glow Sword", Class = WeaponClass.Sword,
             Stats = new WeaponStats { Level = 5, Power = 30, Rarity = Rarity.Uncommon },
             OnHit = new OnHitBlock { Effects = [new EffectBlock { Damage = Damage.Fire(5), Flinch = Flinch.None }] },
+            // its heavy attack starts from the game's diagonal heavy and lands the blow at 0.8 s (docs/kiln/modding/item-blocks.md, "Moves")
+            Moves = new WeaponMoves { Heavy = new MoveBlock { Like = "Attack_Player_Melee_Heavy_Sword_Diagonal", HitAt = 0.8 } },
             Recipe = new RecipeBlock { Needs = { [shard] = 4 } },
         });
 

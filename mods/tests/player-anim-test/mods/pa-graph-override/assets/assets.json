@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "kind": "resource",
+      "guid": "21319e83-5087-4fff-8795-22997843649e",
+      "type": "keen::anim_graph::runtime_graph::AnimationGraphResource2_0",
+      "part": 0,
+      "file": "graph/player-graph.bin",
+      "mode": "override"
+    }
+  ]
+}

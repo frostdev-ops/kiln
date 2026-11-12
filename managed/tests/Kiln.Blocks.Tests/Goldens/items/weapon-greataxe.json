@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "52ff24b8-4815-56ea-96c8-4b288ec804ca",
+      "name": "golden-items.weapon-greataxe",
+      "base": "Weapon_T1_2H_GreatAxe_01",
+      "displayName": "Greataxe",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

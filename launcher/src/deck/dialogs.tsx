@@ -172,9 +172,10 @@ export function FindGameDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** A folder: in `game` mode its sub-folders and "Use this folder" when enshrouded.exe is there; in `mods` mode the
- *  mods first (the screen draws them), then the sub-folders. */
+ *  mods first (the screen draws them), then the sub-folders; in `folder` mode (the data folder) "Use this folder"
+ *  everywhere. */
 export function FolderView({ f, loading, error, mode, onOpen, onPlace, onUse, busy }: {
-  f: DeckFolder | undefined; loading: boolean; error: unknown; mode: "game" | "mods";
+  f: DeckFolder | undefined; loading: boolean; error: unknown; mode: "game" | "mods" | "folder";
   onOpen: (dir: string) => void; onPlace: (dir: string) => void; onUse?: () => void; busy?: boolean;
 }) {
   if (loading) return <p className="deck-note">Reading…</p>;
@@ -187,12 +188,12 @@ export function FolderView({ f, loading, error, mode, onOpen, onPlace, onUse, bu
         ))}
       </div>
       <p className="deck-path deck-mono" title={f.dir}>{f.dir}</p>
-      {mode === "game" && f.hasGame && (
+      {(mode === "folder" || (mode === "game" && f.hasGame)) && (
         <DeckButton primary autoFocus id="use-folder" disabled={busy} onClick={onUse}>Use this folder</DeckButton>
       )}
       <div className="deck-list">
         {f.folders.map((d) => <Row key={d.path} id={`dir-${d.name}`} path={d.path} icon={<FolderIcon />} title={d.name} a="Open" onClick={() => onOpen(d.path)} />)}
-        {mode === "game" && !f.folders.length && !f.hasGame && <p className="deck-note">No folders here.</p>}
+        {mode !== "mods" && !f.folders.length && !(mode === "game" && f.hasGame) && <p className="deck-note">No folders here.</p>}
       </div>
     </div>
   );

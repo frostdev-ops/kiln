@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "data-folder-move.schema.json",
+  "title": "Data folder move journal (<default root>/data-folder.move.json), format 1",
+  "description": "The record of one move of the launcher's data folder (kiln_manage::data_folder_move::Journal), written atomically into the default root before the move writes anything into the target and kept until the launcher acknowledges the result. Recovery decides by what is on disk (does the folder in use match 'to'), never by 'state' alone. A partial copy of a move that did not commit is removed file by file, only what 'from' proves the move made (a plain file at the same path with the same size and sha256, the same file, or the rewritten server record); everything else stays and is named in result.kept, and the journal stays until nothing is left. Its file record data-folder.move.files.json (every file copied: path, size, sha256, linked, sourceSha256) and the target's .kiln-data-move.json ({format, id}) carry the same id. Contracts: docs/kiln/launcher/contracts.md section 3.",
+  "type": "object",
+  "required": ["format", "id", "from", "to", "started", "createdTarget", "entries", "state", "previousPointer"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Random." },
+    "from": { "type": "string", "minLength": 1, "description": "The data folder before the move." },
+    "to": { "type": "string", "minLength": 1, "description": "The data folder after the move." },
+    "started": { "$ref": "common.schema.json#/$defs/time" },
+    "createdTarget": { "type": "boolean", "description": "The move made 'to': a partial copy's removal removes it when it is empty." },
+    "createdParents": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Folders above 'to' the move made, top first." },
+    "createdLock": { "type": "boolean", "default": false, "description": "The move made 'to'/data-folder.lock: it goes with a partial copy." },
+    "skipped": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Entries of 'from' the move did not copy because the target keeps an entry of its own by that name (Windows: the default root's state\\ folder); they stay in 'from'." },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "known", "bytes"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "known": { "type": "boolean", "description": "One of the launcher's own entries. Unknown entries are copied and never removed from 'from'." },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "state": { "enum": ["copying", "verifying", "committed", "moved", "cleaning", "cleaned", "failed"], "description": "Progress for people and logs; a commit state also conservatively prevents treating the destination as a partial copy, even while it is missing. A precommit state alone never authorizes removal." },
+    "previousPointer": { "type": ["string", "null"], "description": "What the pointer named before the move; null: there was none (the default root was in use)." },
+    "rewritten": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Files the move rewrote in the copy (servers/<id>.json backupDir, from the old root to the new one); their file record line holds both hashes." },
+    "rewrittenAfter": {
+      "type": "array",
+      "default": [],
+      "description": "Files the move itself wrote again in the new place after the commit, recorded where it wrote them: the install records and activation records of the known games and the files under profiles/<pid>/config/ of the profiles it activated, with the sha256 it wrote.",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": { "path": { "type": "string" }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" } }
+      }
+    },
+    "hardLinks": { "type": "boolean", "default": false },
+    "result": {
+      "type": ["object", "null"],
+      "description": "What the removal of the old copy (or of a partial copy) did, kept until acknowledged. For a partial copy that is not removed in full ('done' false: something kept, or 'interrupted' by a cancel) the journal stays and the next start goes on.",
+      "required": ["folder", "done", "interrupted", "removedFiles", "removedBytes", "folderRemoved", "kept"],
+      "properties": {
+        "folder": { "type": "string" },
+        "done": { "type": "boolean" },
+        "interrupted": { "type": "boolean" },
+        "removedFiles": { "type": "integer", "minimum": 0 },
+        "removedBytes": { "type": "integer", "minimum": 0 },
+        "folderRemoved": { "type": "boolean" },
+        "kept": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "bytes", "reason"],
+            "properties": { "path": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "reason": { "type": "string" } }
+          }
+        },
+        "reason": { "type": "string", "description": "Why nothing was removed (no proof), with where the folder is." },
+        "cutOff": { "type": "array", "items": { "type": "string" }, "default": [], "description": "A partial copy's recovery: the file cut off by the interrupted copy that it removed (the beginning of the old folder's file at the same path; at most one per move, kept here across calls so a resumed recovery gets no second one)." }
+      }
+    }
+  },
+  "additionalProperties": true
+}

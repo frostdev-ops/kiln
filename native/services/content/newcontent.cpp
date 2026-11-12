@@ -49,6 +49,14 @@
 #include "kiln_hook.hpp"
 
 namespace kc {
+void set_kitbash_mod(const std::string* mod);  // refs.cpp
+
+struct KitbashModScope {
+    explicit KitbashModScope(const std::string* mod) { set_kitbash_mod(mod); }
+    ~KitbashModScope() { set_kitbash_mod(nullptr); }
+    KitbashModScope(const KitbashModScope&) = delete;
+    KitbashModScope& operator=(const KitbashModScope&) = delete;
+};
 
 using json = nlohmann::ordered_json;
 
@@ -1126,7 +1134,10 @@ uintptr_t build_clone(Def& d, uintptr_t base, WorldState& ws, std::string* why) 
             return resolve_item(ws, sel, &r) ? r.info : 0;
         };
         KitbashOut ko;
-        for (auto& [key, val] : d.kitbash.items()) kitbash(L.item, key, val, find, all, &ko, reinterpret_cast<uintptr_t>(p));
+        {
+            const KitbashModScope mod(d.placeholder || d.orphan ? nullptr : &d.mod);  // a model this mod declares (a server that did not cook)
+            for (auto& [key, val] : d.kitbash.items()) kitbash(L.item, key, val, find, all, &ko, reinterpret_cast<uintptr_t>(p));
+        }
         for (const RefWrite& w : ko.writes) std::memcpy(p + w.f->offset, w.bytes, w.f->bytes);
         for (const BlobWrite& b : ko.blobs)
             if (!b.data) set_blob(p, b.offset, nullptr, 0);
@@ -2233,7 +2244,10 @@ void retry_kitbash(WorldState& ws) {
                 return resolve_item(ws, sel, &r) ? r.info : 0;
             };
             KitbashOut ko;
-            for (auto& [key, val] : d.kitbash.items()) kitbash(L.item, key, val, find, all, &ko, clone);
+            {
+                const KitbashModScope mod(d.placeholder || d.orphan ? nullptr : &d.mod);
+                for (auto& [key, val] : d.kitbash.items()) kitbash(L.item, key, val, find, all, &ko, clone);
+            }
             if (ko.problems.size() >= d.warnings.size()) continue;
             for (const RefWrite& w : ko.writes) std::memcpy(p + w.f->offset, w.bytes, w.f->bytes);
             for (const BlobWrite& b : ko.blobs)

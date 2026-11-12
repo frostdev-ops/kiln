@@ -53,6 +53,8 @@ internal static partial class Compiler
     /// <summary>What every placed thing says, on its item and its template.</summary>
     private static void PlacedParts(Placed p, PropBlock b, bool starterIsLook)
     {
+        if (b.Visual != null && p.Item.Ctx.Part(b.Visual, "visual").Animated != null)
+            throw new BlockError(p.Item.Ctx.Block, "visual.animated", $"{b.Name}: an animated model is for what is held (a weapon, a wand, a tool); a placed thing shows its model as it stands");
         if ((b.Collider != null || b.Colliders != null) && b.GetType() != typeof(PropBlock))
             throw new BlockError(p.Item.Ctx.Block, b.Collider != null ? "collider" : "colliders", "a station or a piece of furniture keeps the collision of the game's it starts from: a box of yours is for a prop with a model of yours");
         PlacedVisual(p, b.Visual, starterIsLook);
