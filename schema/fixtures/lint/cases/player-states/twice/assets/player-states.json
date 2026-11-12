@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "states": {
+    "slash": { "clip": "slash", "like": "Attack_Sword_Shield_02" },
+    "slash": { "clip": "slash_2", "like": "Attack_Sword_Shield_01" }
+  }
+}

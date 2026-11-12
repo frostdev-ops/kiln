@@ -1,0 +1,54 @@
+{
+  "catalog": false,
+  "description": "assets/player-states.json (schema/player-states.schema.json, strict JSON as animcook and kiln.playeranim read it): the format note's example and the sample's file are clean; an unknown key (KL102), a wrong type (KL101), blendIn out of range (KL107), a comment (KL002), a trailing comma (KL003) and a state given twice (KL004, an error: the readers refuse it)",
+  "diagnostics": [
+    {
+      "code": "KL107",
+      "col": 78,
+      "file": "blend-range/assets/player-states.json",
+      "line": 4,
+      "message": "6 is above the maximum 5",
+      "severity": "error"
+    },
+    {
+      "code": "KL002",
+      "col": 3,
+      "file": "comment/assets/player-states.json",
+      "line": 2,
+      "message": "comments are not allowed: animcook and kiln.playeranim read this file as strict JSON (no comments, no trailing commas)",
+      "severity": "error"
+    },
+    {
+      "code": "KL003",
+      "col": 67,
+      "file": "trailing-comma/assets/player-states.json",
+      "line": 4,
+      "message": "trailing comma: animcook and kiln.playeranim read this file as strict JSON (no comments, no trailing commas)",
+      "severity": "error"
+    },
+    {
+      "code": "KL004",
+      "col": 5,
+      "file": "twice/assets/player-states.json",
+      "line": 5,
+      "message": "duplicate key \"slash\": the player-states readers refuse it (at the top level the whole file, else the state it names or is in)",
+      "severity": "error"
+    },
+    {
+      "code": "KL102",
+      "col": 67,
+      "file": "unknown-key/assets/player-states.json",
+      "line": 4,
+      "message": "\"colour\" is not allowed here (allowed: blendIn, clip, like, loop, speed)",
+      "severity": "error"
+    },
+    {
+      "code": "KL101",
+      "col": 75,
+      "file": "wrong-type/assets/player-states.json",
+      "line": 4,
+      "message": "expected true or false, found a string",
+      "severity": "error"
+    }
+  ]
+}
