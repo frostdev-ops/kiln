@@ -35,6 +35,7 @@ fi
 [[ -x $tools/docfx ]] || dotnet tool install docfx --version "$version" --tool-path "$tools" >/dev/null
 rm -rf "$work" && mkdir -p "$work"
 cp "$here"/index.md "$here"/toc.yml "$here"/filterConfig.yml "$work"/
+cp -r "$here/apidoc" "$work/apidoc"                   # overwrite files: text added to an API page (Kiln.Ecs)
 python3 -I "$here/stage-guide.py" "$repo" "$work"    # docfx wants its sources below the config
 cp -r "$stage" "$work/stage"                          # annotate.py rewrites the XML docs of this copy
 # Kiln.TestKit (mod tests) is packed from a stage of its own; its dll and docs join, with Kiln.Host.dll only for docfx to
@@ -73,7 +74,7 @@ docfx metadata docfx.json 2>&1 | tee "$log"
 baseline=${KILN_DOCS_BASELINE:-$here/undocumented-dev24.txt}
 [[ -f $baseline ]] || { echo "no baseline file $baseline" >&2; exit 1; }
 rc=0
-missing=$(python3 -I "$here/undocumented.py" --baseline "$baseline" "$work/api") || rc=$?
+missing=$(python3 -I "$here/undocumented.py" --baseline "$baseline" --xml "$work/stage" "$work/api") || rc=$?
 if ((rc != 0 && rc != 3)); then
   echo "undocumented.py failed (exit $rc): stopping the docs build" >&2
   exit 1

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Lists the public types and members of the API reference that have no summary in their XML docs.
 
-  tools/docs-site/undocumented.py [--baseline <file>] [<api folder>]     (default $KILN_OUT/docs-work/api)
+  tools/docs-site/undocumented.py [--baseline <file>] [--xml <stage>] [<api folder>]     (default $KILN_OUT/docs-work/api)
 
 Reads the metadata `docfx metadata` wrote (ManagedReference YAML, one file per type) and prints one uid per line,
 sorted. DocFX lists public and protected members, so those are what is checked; namespaces have no XML docs and are
@@ -13,6 +13,15 @@ struct counts as one when Equals(T), Equals(object), GetHashCode, == and != all 
 struct with exactly that gap is skipped too); its ToString then counts as the compiler's as well.
 With --baseline it prints only the uids that are not in the file (one uid per line, # comments allowed) and exits 3 if
 there are any. Exit 0 means no new names (or no baseline); other non-zero codes mean the check failed.
+The game types tools/typegen/typegen.py generates into the class Kiln.Ecs at build time are left out too, with
+their members (2,578 names on dev.25, mostly enum values): a type nested in Kiln.Ecs counts as generated when its
+summary has the shape the generator writes ("<c>keen::X</c>: an ECS component|an ECS event|a game struct, N bytes,
+align N.", "Game enum <c>..", "Game bitmask <c>..", "A game <c>StaticArray</c> of N elements", "The game's ECS
+program(s)"). The metadata carries no other marker (no [GeneratedCode]). The hand-written part of Kiln.Ecs (the
+class's own members, ObjectReference, GameGuid, any new type whose summary is written by hand) stays checked, and so
+does a generated-looking type outside Kiln.Ecs or one without a summary.
+With --xml, a member whose XML doc is <inheritdoc/> counts as documented (DocFX cannot fill it in for a BCL override,
+such as Equals or GetHashCode, without the base library's docs).
 Standard library only: the YAML is read line by line, in the shape DocFX writes it.
 """
 import argparse
@@ -20,8 +29,13 @@ import os
 from pathlib import Path
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 KEY = re.compile(r"^  ([A-Za-z][A-Za-z0-9.]*):(.*)$")
+GENERATED_ROOT = "Kiln.Ecs."
+GENERATED = re.compile(r"^(<code>[^<]+</code>: (an ECS component|an ECS event|a game struct), \d+ bytes, align \d+\."
+                       r"|Game (enum|bitmask) <code>|A game <code>StaticArray</code> of \d+ elements"
+                       r"|The game's ECS programs? )")
 RECORD = re.compile(r"\brecord (struct |class )?[A-Za-z_]")
 RECORD_MEMBERS = re.compile(r"\.(Equals\([^,]*\)|GetHashCode|ToString|op_Equality\(.*\)|op_Inequality\(.*\)"
                             r"|Deconstruct\(.*\)|PrintMembers\(System\.Text\.StringBuilder\)|EqualityContract)$")
@@ -40,7 +54,7 @@ def scalar(text):
 
 def items(path):
     """The items of one ManagedReference YAML file: dicts with uid, commentId, type, summary (True/False/None for
-    absent), parent, assemblies, attributes (attribute type names) and arguments (for each attribute, in the same
+    absent), head (the summary's first line), parent, assemblies, attributes (attribute type names) and arguments (for each attribute, in the same
     order, the values of its constructor arguments as written under `arguments:`)."""
     out, cur, key, section = [], None, None, None
     for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -61,6 +75,8 @@ def items(path):
                 cur[key] = scalar(value)
             elif key == "summary":
                 cur["summary"] = value not in ("", "''", '""') or None
+                if value not in ("", ">-", ">", "|-", "|", ">+", "|+"):
+                    cur["head"] = scalar(value)
             continue
         if line.startswith("  - "):
             if key == "assemblies":
@@ -80,8 +96,9 @@ def items(path):
                 cur["content"] = line.startswith("    content:")      # the C# declaration, maybe on several lines
             if cur.get("content") and RECORD.search(line):
                 cur["record"] = True
-        elif key == "summary" and cur["summary"] is None and line.strip():
+        elif key == "summary" and "head" not in cur and line.strip():
             cur["summary"] = True      # a block scalar (summary: >-) whose text starts on the next line
+            cur["head"] = line.strip()
     return out
 
 
@@ -98,8 +115,22 @@ def generated(item, records):
     return item.get("type") == "Constructor" and uid == f"{item['parent']}.#ctor({item['parent']})"
 
 
-def undocumented(api):
+def inherited(xml_dir):
+    """The XML doc member names (commentIds) whose doc is <inheritdoc/>. The compiler takes that as documented; DocFX,
+    reading a dll without the base library's XML, gives such a member of a BCL override no summary."""
+    names = set()
+    for f in sorted(Path(xml_dir).glob("Kiln.*.xml")):
+        for m in ET.parse(f).iter("member"):
+            if m.find("inheritdoc") is not None:
+                names.add(m.get("name"))
+    return names
+
+
+def undocumented(api, xml_dir=None):
     every = [i for f in sorted(Path(api).glob("*.yml")) if f.name != "toc.yml" for i in items(f)]
+    if xml_dir:
+        inherit = inherited(xml_dir)
+        every = [i for i in every if i.get("commentId") not in inherit]
     records = {i["uid"] for i in every if i.get("record")}
     # a record struct reads as a plain struct in the metadata: it is one when it has the whole undocumented set of
     # members the compiler writes for a record
@@ -109,19 +140,28 @@ def undocumented(api):
         if t.get("type") == "Struct" and {f"{u}.Equals({u})", f"{u}.Equals(System.Object)", f"{u}.GetHashCode",
                                           f"{u}.op_Equality({u},{u})", f"{u}.op_Inequality({u},{u})"} <= bare:
             records.add(u)
+    gen = generated_types(every)
     return sorted({i["uid"] for i in every
-                   if i.get("type") not in (None, "Namespace") and not i["summary"] and not generated(i, records)})
+                   if i.get("type") not in (None, "Namespace") and not i["summary"] and not generated(i, records)
+                   and i["uid"] not in gen and i.get("parent") not in gen})
+
+
+def generated_types(every):
+    """The uids of the types typegen.py generated into Kiln.Ecs, by the shape of the summary it writes."""
+    return {i["uid"] for i in every if i["uid"].startswith(GENERATED_ROOT)
+            and i.get("type") in ("Struct", "Enum", "Class") and GENERATED.match(i.get("head") or "")}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("api", nargs="?", help="the api folder docfx metadata wrote (default $KILN_OUT/docs-work/api)")
     ap.add_argument("--baseline", help="uids already known to have no summary")
+    ap.add_argument("--xml", help="the folder of the Kiln.*.xml docs: a member documented as <inheritdoc/> counts as documented")
     a = ap.parse_args()
     api = a.api or (os.environ.get("KILN_OUT") and os.path.join(os.environ["KILN_OUT"], "docs-work", "api"))
     if not api or not Path(api).is_dir():
         sys.exit("no api folder: give one or set KILN_OUT")
-    found = undocumented(api)
+    found = undocumented(api, a.xml)
     if a.baseline:
         known = {ln.strip() for ln in Path(a.baseline).read_text(encoding="utf-8").splitlines()
                  if ln.strip() and not ln.startswith("#")}

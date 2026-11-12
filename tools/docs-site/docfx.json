@@ -45,6 +45,13 @@
         ]
       }
     ],
+    "overwrite": [
+      {
+        "files": [
+          "apidoc/*.md"
+        ]
+      }
+    ],
     "template": [
       "default",
       "modern"
