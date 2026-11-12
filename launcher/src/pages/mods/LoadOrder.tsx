@@ -9,7 +9,7 @@ import { MoreHorizontal } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { ModKind, NativePhase, ResolvePreview, RunSide } from "../../api/commands";
-import { qk, useGame } from "../../api/hooks";
+import { qk, useActiveProfile, useGame } from "../../api/hooks";
 import { KIND_NAME, KIND_PLUGIN, KIND_SHORT, KIND_TONE, MOD_KINDS, NOT_RUNNING_KINDS } from "../../api/kinds";
 import type { ModRow } from "../../shell/mods";
 import { useMods } from "../../shell/useMods";
@@ -53,6 +53,7 @@ export default function LoadOrder() {
   const { game } = useGame();
   const nav = useNavigate();
   const mods = useMods(game);
+  const active = useActiveProfile(game?.id);
   const [side, setSide] = useState<RunSide>("client");
   const act = useActivation();
   const openSettings = useOpenSettings();
@@ -60,6 +61,9 @@ export default function LoadOrder() {
   const preview = useQuery({ queryKey: qk.resolve(pid ?? "", side, game?.id ?? null), queryFn: () => api.profileResolve(pid!, side, game?.id ?? null), enabled: !!pid });
   if (!game) return null;
   if (mods.loading) return <Skeleton lines={6} />;
+  // where the game reads Kiln mods from (profile::render): players look for them in the game folder and find nothing
+  const where = (active.data?.pathMode ?? game.pathMode) === "copy" ? " Kiln copies its own mods into the game's kiln/profiles folder."
+    : " Kiln mods load from Kiln's Library, so they are not copied into the game folder; other loaders' mods are placed where their loader reads them.";
   const { steps: list, notLoading, off } = steps(mods.rows, preview.data ?? null, side);
   const why = (r: ModRow) => {
     const rej = preview.data?.kiln.rejected.find((x) => x.id === r.id && r.kind === "kiln");
@@ -126,7 +130,7 @@ export default function LoadOrder() {
             {loads} mod{loads === 1 ? "" : "s"} load on a {side}.{notLoading.length ? ` ${notLoading.length} on but not loading.` : ""}
           </p>
         )}
-        <p className="k-hint" style={{ fontSize: 16 }}>Mods of every kind, as a start brings them up. Native mods keep their order inside a phase: drag them on Native and DLLs.</p>
+        <p className="k-hint" style={{ fontSize: 16 }}>Mods of every kind, as a start brings them up. Native mods keep their order inside a phase: drag them on Native and DLLs.{where}</p>
         <div className="k-row" style={{ marginTop: "auto", gap: 8 }}>
           {act.button}
           <Button onClick={openSettings}>Folders and notes</Button>

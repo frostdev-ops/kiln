@@ -28,7 +28,11 @@ export function Menu({ label, icon, items, align = "right", variant, size }: { l
     const gone = () => setOpen(false);
     // Only scrolling an ancestor moves the trigger away from this fixed popover. Scrolling the list itself or an
     // unrelated pane (including the toaster's automatic scroll) must not dismiss an action under the pointer.
+    // A scroll that was already under way when the menu opened (a list still coasting from a touchpad, a click that
+    // first scrolled its row into view) is not the player moving away: it does not close the menu.
+    const opened = performance.now();
     const scrolled = (e: Event) => {
+      if (performance.now() - opened < 300) return;
       if (e.target === window || (e.target instanceof Node && ref.current && e.target.contains(ref.current))) gone();
     };
     document.addEventListener("mousedown", close);
