@@ -387,6 +387,8 @@ public static unsafe partial class Abilities
         /// yet waits and is inserted once they are (returns its id, <paramref name="waiting"/> true). Tick thread.
         /// Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
         /// <see cref="InvalidOperationException"/>. Programs shipped as assets (<see cref="Refresh"/>) need no flag.</summary>
+        /// <remarks>Requires the tick thread and its calling mod context (OnLoad or a Kiln callback). An advanced mod
+        /// on an unattributed background thread is also refused; post the registration through Context.Scheduler.</remarks>
         [AdvancedApi]
         public static uint Register(byte[] blob, out bool waiting)
         {
@@ -395,6 +397,8 @@ public static unsafe partial class Abilities
         }
 
         /// <summary>Like <see cref="Register(byte[], out bool)"/>, without the waiting flag. Advanced mods only.</summary>
+        /// <remarks>Requires the tick thread and its calling mod context, as the other overload does. Post work from
+        /// an unattributed background thread through Context.Scheduler, even for an advanced mod.</remarks>
         [AdvancedApi]
         public static uint Register(byte[] blob)
         {

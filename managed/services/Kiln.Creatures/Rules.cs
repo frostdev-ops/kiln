@@ -204,7 +204,8 @@ public static class Is
     /// <summary>A handler on the game's job thread, registered with <see cref="Arsenals.JobHandler"/>. For hot paths: it may read
     /// only what is safe there and call no tick API. <see cref="Custom"/> is what you want unless you measured otherwise.</summary>
     /// <remarks>Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
-    /// <see cref="InvalidOperationException"/>.</remarks>
+    /// <see cref="InvalidOperationException"/>. Construct this rule from OnLoad or a Kiln callback with the calling mod
+    /// context; an advanced mod on an unattributed background thread is refused too.</remarks>
     [AdvancedApi]
     public static RuleCondition Job(uint id, uint arg = 0)
     {
@@ -253,7 +254,8 @@ public static class Act
     /// <summary>A handler on the game's job thread, registered with <see cref="Arsenals.JobHandler"/>. For hot paths: it may read
     /// only what is safe there and call no tick API. <see cref="Custom"/> is what you want unless you measured otherwise.</summary>
     /// <remarks>Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
-    /// <see cref="InvalidOperationException"/>.</remarks>
+    /// <see cref="InvalidOperationException"/>. Construct this rule from OnLoad or a Kiln callback with the calling mod
+    /// context; an advanced mod on an unattributed background thread is refused too.</remarks>
     [AdvancedApi]
     public static RuleAction Job(uint id, uint arg = 0)
     {
@@ -717,6 +719,11 @@ public static unsafe class Arsenals
     /// <c>[UnmanagedCallersOnly]</c> function <c>uint (uint entity, uint id, uint arg, void* user)</c>. It runs on the game's job
     /// threads inside the sim step. Zero removes it; it also goes when the mod unloads. Advanced mods only
     /// (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    /// <remarks>Register on the tick thread with the calling mod context (OnLoad or a Kiln callback). The raw function
+    /// runs directly from native code, without that context or a managed exception boundary. It must catch all its own
+    /// exceptions: an exception escaping UnmanagedCallersOnly terminates the process. In particular, Keep and
+    /// OriginalCode are gated even for advanced mods and refuse this unattributed job thread; cache their pointers,
+    /// bytes or addresses during OnLoad instead of calling them in the handler.</remarks>
     [AdvancedApi]
     [TickThreadOnly]
     public static void JobHandler(uint id, nint function, nint user = 0)
