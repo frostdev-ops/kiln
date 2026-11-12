@@ -437,7 +437,7 @@ internal sealed class InstanceStore
     /// <summary>The item's data in this session, by (entity id, stamp). Null when the ref is stale (the item is gone or the
     /// id belongs to another item now), or when it has none and <paramref name="create"/> is false.</summary>
     /// <exception cref="ArgumentException">A none ref, a ref without a stamp, an item the key does not allow.</exception>
-    internal LiveItem? Lookup(ItemInstanceRef item, InstanceKeyInfo info, bool create)
+    internal LiveItem? Lookup(ItemInstanceRef item, InstanceKeyInfo? info, bool create)
     {
         if (item.IsNone) throw new ArgumentException("no item (ItemInstanceRef.None)", nameof(item));
         if (!item.Entity.HasSerial)
@@ -469,9 +469,9 @@ internal sealed class InstanceStore
         return live;
     }
 
-    private static void CheckAllowed(InstanceKeyInfo info, ItemId actual, ItemInstanceRef item)
+    private static void CheckAllowed(InstanceKeyInfo? info, ItemId actual, ItemInstanceRef item)
     {
-        if (info.Items is { } allowed && !allowed.Contains(actual))
+        if (info?.Items is { } allowed && !allowed.Contains(actual))
             throw new ArgumentException($"instance key '{info.Name}' of {info.ModId} is only for {allowed.Count} item type(s); {item} is {actual}", nameof(item));
     }
 
@@ -515,6 +515,81 @@ internal sealed class InstanceStore
         foreach (var p in _pending)
             if (p.Item.Values.ByMod.TryGetValue(info.ModId, out var keys) && keys.TryGetValue(info.Name, out var s))
                 yield return (null, null, p.Item, s);
+    }
+
+    // ------------------------------------------------------------------------- claim and discard (dev.27) ----
+
+    /// <summary>The saved record with this id, in its holder; null when no holder has it now.</summary>
+    internal (HolderEntry Holder, SavedRecord Record)? FindRecord(string id)
+    {
+        foreach (var h in _holders)
+            foreach (var r in h.Records)
+                if (string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase)) return (h, r);
+        return null;
+    }
+
+    /// <summary>Whether the record still waits in its holder with values of <paramref name="mod"/> (null: any mod).</summary>
+    internal bool IsParked(HolderEntry h, SavedRecord r, string? mod) =>
+        _holders.Contains(h) && h.Records.Contains(r) && (mod is null ? !r.Values.IsEmpty : r.Values.ByMod.TryGetValue(mod, out var k) && k.Count > 0);
+
+    /// <summary>Moves the values of <paramref name="mod"/> (null: every mod) from a parked record onto an item. Nothing moves
+    /// when the item already has a value of one of those keys. The record goes once it holds nothing.</summary>
+    /// <exception cref="ArgumentException">The record is not parked any more, or the item is none, stamp-less, stale or of a
+    /// type <paramref name="info"/> does not allow.</exception>
+    internal InstanceClaimResult ClaimRecord(HolderEntry h, SavedRecord r, string? mod, ItemInstanceRef item, InstanceKeyInfo? info, string by)
+    {
+        if (!IsParked(h, r, mod)) throw new ArgumentException($"record {r.Id} is no longer parked", nameof(item));
+        var existed = item.IsNone ? null : LiveOf(item);
+        var live = Lookup(item, info, create: true)
+                   ?? throw new ArgumentException($"{item} is stale: the item is gone, or its id belongs to another item now", nameof(item));
+        var parts = r.Values.ByMod.Where(kv => kv.Value.Count > 0 && (mod is null || kv.Key == mod)).ToList();
+        var taken = new List<string>();
+        foreach (var (m, keys) in parts)
+            if (live.Values.ByMod.TryGetValue(m, out var have))
+                taken.AddRange(keys.Keys.Where(have.ContainsKey).Select(k => mod is null ? $"{m}:{k}" : k));
+        var names = parts.SelectMany(kv => kv.Value.Keys.Select(k => mod is null ? $"{kv.Key}:{k}" : k)).ToList();
+        if (taken.Count > 0)
+        {
+            if (existed is null && live.Values.IsEmpty)
+            {
+                _live.Remove(live.Ref.Entity.Id.Value);  // made for this claim only
+                Unfollow(live);
+            }
+            return new InstanceClaimResult(live.Ref, r.Id, mod ?? "", taken, false,
+                $"the item already has {string.Join(", ", taken)}: remove {(taken.Count == 1 ? "it" : "them")} first");
+        }
+        foreach (var (m, keys) in parts)
+        {
+            if (!live.Values.ByMod.TryGetValue(m, out var mine))
+                live.Values.ByMod[m] = mine = new SortedDictionary<string, InstanceSlot>(StringComparer.Ordinal);
+            foreach (var (k, slot) in keys) mine[k] = slot;
+            r.Values.ByMod.Remove(m);
+        }
+        if (r.Values.IsEmpty) h.Records.Remove(r);
+        var detail = $"claimed by {by}: record {r.Id} of {h.Describe} slot {r.Slot} ({(r.Aside ? "set aside" : "waiting")})";
+        SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: instance data {string.Join(", ", names)} {detail} onto {live.Ref}");
+        if (Events.HasSubscribers<InstanceDataRestoredEvent>())
+            foreach (var (m, keys) in parts)
+                foreach (var k in keys.Keys)
+                    Events.Post(new InstanceDataRestoredEvent(live.Ref, m, k, InstanceMatch.Claimed, detail));
+        return new InstanceClaimResult(live.Ref, r.Id, mod ?? "", names, true, null);
+    }
+
+    /// <summary>Drops the values of <paramref name="mod"/> (null: every mod) from a parked record; the record goes once it
+    /// holds nothing. What was dropped, per mod; empty when the record is not parked (any more).</summary>
+    internal IReadOnlyList<(string Mod, IReadOnlyList<string> Keys)> DiscardRecord(HolderEntry h, SavedRecord r, string? mod, string by)
+    {
+        if (!IsParked(h, r, mod)) return [];
+        var gone = new InstanceValues();
+        foreach (var (m, keys) in r.Values.ByMod.Where(kv => kv.Value.Count > 0 && (mod is null || kv.Key == mod)).ToList())
+        {
+            gone.ByMod[m] = keys;
+            r.Values.ByMod.Remove(m);
+        }
+        if (r.Values.IsEmpty) h.Records.Remove(r);
+        Lost(gone, r.Fields.Item, ItemInstanceRef.None, InstanceLossReason.Discarded,
+            $"discarded by {by}: record {r.Id} of {h.Describe} slot {r.Slot} ({(r.Aside ? "set aside" : "waiting")})");
+        return gone.Parts.ToList();
     }
 
     private static string NewRecordId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(8));
@@ -1608,7 +1683,7 @@ internal sealed class InstanceStore
                 {
                     if (!r.Values.ByMod.TryGetValue(mod, out var keys) || keys.Count == 0) continue;
                     if (!Wanted(h.Key, h.Bound, EntityId.None)) continue;
-                    section.Add($"  {(r.Aside ? "set aside" : "waiting  ")} {h.Describe}{(h.IsBound ? $" (entity {h.Bound})" : "")} slot {r.Slot} item {r.Fields.Item}: " +
+                    section.Add($"  {(r.Aside ? "set aside" : "waiting  ")} record {r.Id} {h.Describe}{(h.IsBound ? $" (entity {h.Bound})" : "")} slot {r.Slot} item {r.Fields.Item}: " +
                                 $"{(r.Reason.Length > 0 ? r.Reason : "not matched yet")}" +
                                 $"{(h.Missed > 0 ? $"; holder missed {h.Missed} session(s)" : "")}{(r.Missed > 0 ? $"; missed {r.Missed} session(s)" : "")} [{string.Join(", ", keys.Keys)}]");
                 }

@@ -66,8 +66,9 @@ internal static class InstanceCommand
             ModContext.CurrentMod = null;  // Kiln's command, not the calling mod's: it stays when that mod unloads
             try
             {
-                register.Invoke(null, [Name, handler, admin, "[player|entity]",
-                    "instance data: what is attached to items, what waits and what is set aside, per mod", Array.Empty<string>()]);
+                register.Invoke(null, [Name, handler, admin, "[player|entity] | claim <record> <player|holder entity> <flat slot> | discard <record>",
+                    "instance data: what is attached to items, what waits and what is set aside, per mod; put a parked record on an item, or drop it",
+                    Array.Empty<string>()]);
             }
             finally
             {
@@ -111,6 +112,11 @@ internal static class InstanceCommand
     private static void Handle(object context)
     {
         var args = (IReadOnlyList<string>?)_args!.GetValue(context) ?? [];
+        if (args.Count > 0 && args[0] is "claim" or "discard")
+        {
+            foreach (var line in ClaimOrDiscard(args)) _reply!.Invoke(context, [line]);
+            return;
+        }
         EntityId? entity = null;
         CharacterKey? character = null;
         if (args.Count > 0)
@@ -135,6 +141,44 @@ internal static class InstanceCommand
         }
         else lines = SavesRuntime.Store.Instances.Listing(entity: entity);
         foreach (var line in lines) _reply!.Invoke(context, [line]);
+    }
+
+    private static Exception Usage(string text) => (Exception)Activator.CreateInstance(_commandException!, text)!;
+
+    /// <summary>/instances claim &lt;record&gt; &lt;player|holder entity&gt; &lt;flat slot&gt; and /instances discard &lt;record&gt;:
+    /// every mod's values of the record (an admin acts for all of them).</summary>
+    internal static IReadOnlyList<string> ClaimOrDiscard(IReadOnlyList<string> args)
+    {
+        var claim = args[0] == "claim";
+        if (args.Count < (claim ? 4 : 2))
+            throw Usage(claim ? $"usage: /{Name} claim <record> <player|holder entity> <flat slot>" : $"usage: /{Name} discard <record>");
+        if (!SavesRuntime.Ensure()) return ["kiln.saves is not loaded"];
+        var store = SavesRuntime.Store.Instances;
+        if (store.FindRecord(args[1]) is not { } found)
+            throw Usage($"no parked record '{args[1]}' (/{Name} lists them)");
+        var by = "an admin (/instances)";
+        if (!claim)
+        {
+            var gone = store.DiscardRecord(found.Holder, found.Record, null, by);
+            return [$"record {found.Record.Id} discarded: {string.Join("; ", gone.Select(g => $"{g.Mod} [{string.Join(", ", g.Keys)}]"))}"];
+        }
+        var w = store.RequireWorld();
+        EntityId holder;
+        if (uint.TryParse(args[2], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id)) holder = new EntityId(id);
+        else if (Players.Available && Players.Find(args[2]) is { } p) holder = p.Entity;
+        else throw Usage($"no player or entity '{args[2]}'");
+        if (!int.TryParse(args[3], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var slot))
+            throw Usage($"'{args[3]}' is no flat slot (link x 8 + index, as /{Name} lists them)");
+        var item = w.ReadHolder(holder, out _).FirstOrDefault(i => i.Place.FlatSlot == slot);
+        if (item.Ref.IsNone) throw Usage($"entity {holder} has no item with a stamp at flat slot {slot}");
+        try
+        {
+            return [store.ClaimRecord(found.Holder, found.Record, null, item.Ref, null, by).ToString()];
+        }
+        catch (ArgumentException e)
+        {
+            throw Usage(e.Message);
+        }
     }
 
     /// <summary>Tests: forget the registration state (the test registers against a fresh Commands table).</summary>

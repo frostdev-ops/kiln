@@ -151,12 +151,85 @@ public static class InstanceData
             if (h is not null && r is not null)
                 list.Add(new ParkedInstance<T>(h.Describe, h.Key.Kind == HolderKind.Player ? h.Key.Character : default, r.Slot, r.Fields.Item,
                     r.Aside ? ParkedState.SetAside : ParkedState.Waiting, r.Reason.Length > 0 ? r.Reason : "not matched yet",
-                    Math.Max(r.Missed, h.Missed), value));
+                    Math.Max(r.Missed, h.Missed), value) { Entry = h, Record = r, Key = key.Info, RecordId = r.Id });
             else if (pending is not null)
                 list.Add(new ParkedInstance<T>($"character {pending.Holder.Character}", pending.Holder.Character, pending.Place.FlatSlot, pending.Fields.Item,
-                    ParkedState.Waiting, "gone from the player's inventory: destroyed, or the player is leaving (decided within a few seconds)", 0, value));
+                    ParkedState.Waiting, "gone from the player's inventory: destroyed, or the player is leaving (decided within a few seconds)", 0, value)
+                    { Key = key.Info, RecordId = pending.RecordId });
         }
         return list;
+    }
+
+    /// <summary>Puts a parked record of the key's mod on <paramref name="item"/>: every value the mod has in that record (all
+    /// its keys, not only this one) moves to the item, as if the record had been matched to it, and the record no longer
+    /// waits. Meant for records set aside because Kiln could not tell which of two identical items they belong to
+    /// (<see cref="ParkedState.SetAside"/>); a waiting record can be claimed too. Other mods' values in the same record stay
+    /// parked. The item may be of another item type than the record's (the key's <see cref="InstanceKeyOptions.Items"/>
+    /// still applies). Posts <see cref="InstanceDataRestoredEvent"/> (<see cref="InstanceMatch.Claimed"/>) for each key.
+    /// Since 0.2.0-dev.27.</summary>
+    /// <returns><see cref="InstanceClaimResult.Ok"/> false, nothing moved, when the item already has a value of one of those
+    /// keys (remove it first).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="parked"/> is null.</exception>
+    /// <exception cref="ArgumentException">The record is no longer parked (claimed, discarded, matched or dropped since
+    /// <see cref="Parked{T}"/>), it is an item still being decided (a player leaving), or the item is a none, stamp-less or
+    /// stale ref or of a type the key does not allow.</exception>
+    /// <exception cref="KilnUnavailableException"><c>saves.instance_data</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
+    public static InstanceClaimResult Claim<T>(ParkedInstance<T> parked, ItemInstanceRef item) where T : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(parked);
+        var (store, h, r, info) = Resolve(parked, "InstanceData.Claim");
+        return store.ClaimRecord(h, r, info.ModId, item, info, info.ModId);
+    }
+
+    /// <summary>Drops a parked record of the key's mod: every value the mod has in that record goes (other mods' values stay
+    /// parked). Posts <see cref="InstanceDataLostEvent"/> (<see cref="InstanceLossReason.Discarded"/>). Since
+    /// 0.2.0-dev.27.</summary>
+    /// <returns>False when the record is no longer parked (claimed, discarded, matched or dropped since
+    /// <see cref="Parked{T}"/>).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="parked"/> is null.</exception>
+    /// <exception cref="ArgumentException">An item still being decided (a player leaving): it is no saved record yet.</exception>
+    /// <exception cref="KilnUnavailableException"><c>saves.instance_data</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
+    public static bool Discard<T>(ParkedInstance<T> parked) where T : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(parked);
+        if (parked.Key is null) throw new ArgumentException("not a record of InstanceData.Parked", nameof(parked));
+        var store = Use("InstanceData.Discard", parked.Key);
+        if (parked.Record is null || parked.Entry is null)
+            throw new ArgumentException("this item is still being decided (destroyed, or its player is leaving): it is no saved record yet", nameof(parked));
+        return store.DiscardRecord(parked.Entry, parked.Record, parked.Key.ModId, parked.Key.ModId).Count > 0;
+    }
+
+    private static (InstanceStore, HolderEntry, SavedRecord, InstanceKeyInfo) Resolve<T>(ParkedInstance<T> parked, string api) where T : class
+    {
+        if (parked.Key is null) throw new ArgumentException("not a record of InstanceData.Parked", nameof(parked));
+        var store = Use(api, parked.Key);
+        if (parked.Record is null || parked.Entry is null)
+            throw new ArgumentException("this item is still being decided (destroyed, or its player is leaving): it is no saved record yet", nameof(parked));
+        if (!store.IsParked(parked.Entry, parked.Record, parked.Key.ModId))
+            throw new ArgumentException($"record {parked.RecordId} is no longer parked: it was claimed, discarded, matched or dropped", nameof(parked));
+        return (store, parked.Entry, parked.Record, parked.Key);
+    }
+
+    internal static InstanceStore Use(string api, InstanceKeyInfo info)
+    {
+        Services.RequireTickThread(api);
+        if (!SavesRuntime.Ensure()) throw new KilnUnavailableException(Capability, "kiln.saves is not loaded");
+        var store = SavesRuntime.Store.Instances;
+        store.RequireWorld();
+        if (!SavesRuntime.WorldDataReady)
+            throw new KilnUnavailableException(Capability, InstanceCapabilities.WaitingText);
+        if (!store.IsDeclared(info))
+            throw new InvalidOperationException($"instance key {info.ModId}:{info.Name} belongs to a mod instance that has unloaded; declare it again");
+        SavesRuntime.Store.EnsureOpen();
+        return store;
     }
 
     internal static InstanceStore Use<T>(string api, InstanceKey<T> key) where T : class, new()
@@ -175,6 +248,45 @@ public static class InstanceData
     }
 }
 
+/// <summary>The answer to <see cref="InstanceData.Claim{T}"/>: whether the mod's values of a parked record are on the item
+/// now. Since 0.2.0-dev.27.</summary>
+[ServerOnly]
+public sealed record InstanceClaimResult : IKilnResult
+{
+    internal InstanceClaimResult(ItemInstanceRef item, string record, string mod, IReadOnlyList<string> keys, bool ok, string? reason)
+    {
+        Item = item;
+        RecordId = record;
+        Mod = mod;
+        Keys = keys;
+        Ok = ok;
+        Reason = ok ? null : reason;
+    }
+
+    /// <summary>The item the values were to go on.</summary>
+    public ItemInstanceRef Item { get; }
+
+    /// <summary>The record's id.</summary>
+    public string RecordId { get; }
+
+    /// <summary>The mod whose values moved ("" for every mod: <c>/instances claim</c>).</summary>
+    public string Mod { get; }
+
+    /// <summary>The keys that moved (or, when not <see cref="Ok"/>, the keys the item already has).</summary>
+    public IReadOnlyList<string> Keys { get; }
+
+    /// <summary>True when the values are on the item and the record no longer holds them.</summary>
+    public bool Ok { get; }
+
+    /// <summary>Why not; null when <see cref="Ok"/>.</summary>
+    public string? Reason { get; }
+
+    /// <summary>The result in one line, for a log.</summary>
+    public override string ToString() => Ok
+        ? $"claimed record {RecordId} ({string.Join(", ", Keys)}) onto {Item}"
+        : $"record {RecordId} not claimed onto {Item}: {Reason}";
+}
+
 /// <summary>Whether a <see cref="ParkedInstance{T}"/> still waits for its item or is set aside.</summary>
 public enum ParkedState
 {
@@ -189,6 +301,11 @@ public enum ParkedState
 /// <typeparam name="T">The key's type.</typeparam>
 public sealed class ParkedInstance<T> where T : class
 {
+    // what Claim and Discard act on: the saved record and its holder (null for an item still being decided), and the key
+    internal HolderEntry? Entry;
+    internal SavedRecord? Record;
+    internal InstanceKeyInfo? Key;
+
     internal ParkedInstance(string holder, CharacterKey character, int flatSlot, ItemId item, ParkedState state, string reason, int sessionsMissed, T? value)
     {
         Holder = holder;
@@ -224,6 +341,9 @@ public sealed class ParkedInstance<T> where T : class
 
     /// <summary>A copy of the value; null when it does not read as <typeparamref name="T"/>.</summary>
     public T? Value { get; }
+
+    /// <summary>The saved record's id (what <c>/instances</c> lists and <c>/instances claim</c> takes). Since 0.2.0-dev.27.</summary>
+    public string RecordId { get; internal init; } = "";
 
     /// <summary>The record in one line, for a log: state, item type, holder, slot and reason.</summary>
     public override string ToString() => $"{State} {Item} in {Holder} slot {FlatSlot}: {Reason}";
@@ -367,6 +487,10 @@ public enum InstanceMatch
 
     /// <summary>In another slot of the same holder: the one item that fits.</summary>
     Moved = 1,
+
+    /// <summary>A mod or an admin put a parked record on this item (<see cref="InstanceData.Claim{T}"/>, <c>/instances
+    /// claim</c>). Since 0.2.0-dev.27.</summary>
+    Claimed = 2,
 }
 
 /// <summary>Why a record waits.</summary>
@@ -397,6 +521,10 @@ public enum InstanceLossReason
 
     /// <summary>The holder had more than 256 records of the mod: the oldest waiting or set-aside ones were dropped.</summary>
     Capped = 3,
+
+    /// <summary>A mod or an admin dropped a parked record (<see cref="InstanceData.Discard{T}"/>, <c>/instances discard</c>).
+    /// Since 0.2.0-dev.27.</summary>
+    Discarded = 4,
 }
 
 /// <summary>A saved record found its item again after a load or a join: the value is on the item now. One event per key.

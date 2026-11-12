@@ -336,6 +336,8 @@ internal static partial class KilnApis
         "M:Kiln.Gameplay.WatchTeleports(Kiln.EntityId,System.Boolean)", // Gameplay.WatchTeleports(EntityId, bool): Services.RequireTickThread
         "M:Kiln.Gameplay.WorkshopRecipes(System.UInt32)", // Gameplay.WorkshopRecipes(uint): Services.RequireTickThread
         "M:Kiln.InstanceData.All``1(Kiln.InstanceKey{``0})", // InstanceData.All<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
+        "M:Kiln.InstanceData.Claim``1(Kiln.ParkedInstance{``0},Kiln.ItemInstanceRef)", // InstanceData.Claim<T>(ParkedInstance<T>, ItemInstanceRef): via InstanceData.Resolve<T>(ParkedInstance<T>, string)
+        "M:Kiln.InstanceData.Discard``1(Kiln.ParkedInstance{``0})", // InstanceData.Discard<T>(ParkedInstance<T>): via InstanceData.Use(string, InstanceKeyInfo)
         "M:Kiln.InstanceData.Key``1(System.String,Kiln.InstanceKeyOptions)", // InstanceData.Key<T>(string, InstanceKeyOptions?): Services.RequireTickThread
         "M:Kiln.InstanceData.Parked``1(Kiln.InstanceKey{``0})", // InstanceData.Parked<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
         "M:Kiln.ItemInstanceDataExtensions.Get``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0})", // ItemInstanceDataExtensions.Get<T>(ItemInstanceRef, InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)

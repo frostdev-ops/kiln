@@ -21,9 +21,9 @@ Forge equivalents: `LevelEvent.Save` → `WorldSavingEvent`, `LevelEvent.Load` �
 | `WorldSavedEvent` | the world file is complete (or the write failed / a Kiln request timed out) | tick thread, Pre of the next step | no | `Reason`, `Success`, `Revision`, `Duration`, `Result`, `TimedOut`, `WorldId`, `WorldFile` |
 | `WorldLoadedEvent` | the server finished loading the world save | tick thread, Pre | no | `WorldId`, `Revision`, `NewWorld`, `Data` (`DataMatch`), `WorldFile` |
 | `InstanceDataChangedEvent` | `Set` or a successful `Remove` (in-place edits of a `Get` live object are not intercepted; use `Set` to announce them) | tick thread, server only | no | `Item`, `Mod`, `Key`, `Removed` (false: set; true: removed) |
-| `InstanceDataRestoredEvent` | a saved record found its item after a load or a join (one per key) | tick thread | no | `Item`, `Mod`, `Key`, `Match` (`Exact`, `Moved`), `Detail` |
+| `InstanceDataRestoredEvent` | a saved record found its item after a load or a join, or a mod or admin claimed it onto an item (one per key) | tick thread | no | `Item`, `Mod`, `Key`, `Match` (`Exact`, `Moved`, `Claimed` since dev.27), `Detail` |
 | `InstanceDataParkedEvent` | a record waits: its holder was not found this session, the player left with the item, or no item of the holder fits it (one per mod) | tick thread | no | `Holder`, `Character`, `FlatSlot`, `Item`, `Mod`, `Keys`, `Reason` (`HolderAway`, `PlayerLeft`, `NoCandidate`), `Detail` |
-| `InstanceDataLostEvent` | a record no longer goes with an item: destroyed, not found in 3 sessions, over the cap, or set aside because it was not certain (one per mod) | tick thread | no | `Item`, `LastRef`, `Mod`, `Keys`, `Reason` (`Destroyed`, `Unmatched`, `Ambiguous`, `Capped`), `Detail` |
+| `InstanceDataLostEvent` | a record no longer goes with an item: destroyed, not found in 3 sessions, over the cap, or set aside because it was not certain (one per mod) | tick thread | no | `Item`, `LastRef`, `Mod`, `Keys`, `Reason` (`Destroyed`, `Unmatched`, `Ambiguous`, `Capped`, `Discarded` since dev.27), `Detail` |
 
 All fields are read-only. Data written to `WorldData`/`PlayerData`/`EntityData` in a `WorldSavingEvent` handler is part
 of that save's generation. Kiln.Saves starts by itself when a mod subscribes to one of these events or touches any of
@@ -66,7 +66,8 @@ public sealed class Bank : Mod
 | `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); known, saved world templates with a position get it back after a restart. Inventory item entities are session-only here (`IsPersistent` is false for them): for data on one item use `InstanceData`. Player entities map to `PlayerData` (Steam id) |
 | `InstanceData.Key<T>(name, options)` → `InstanceKey<T>` | declares a key of the calling mod, once (a static field of the mod's class, or `OnLoad`); the same name again returns the same key, another type or other options throw `ArgumentException`. `InstanceKeyOptions { Persist = World / Carried / Session, Items }`. Declaring needs no capability. [Instance data](#instance-data-values-that-stay-with-one-item) |
 | `item.Get(key)` / `TryGet(key, out v)` / `Has(key)` / `Set(key, v)` / `Remove(key)` on an `ItemInstanceRef` | the value on that one item; `Get` gives a live object (create with `new T()`), saved with the world. `[ServerOnly]`, `[TickThreadOnly]` |
-| `InstanceData.All(key)` / `Parked(key)` | every item of this session with the key, with its value; the saved records that are not on an item now (`Waiting` or `SetAside`, with the reason; the values are copies) |
+| `InstanceData.All(key)` / `Parked(key)` | every item of this session with the key, with its value; the saved records that are not on an item now (`Waiting` or `SetAside`, with the reason and `RecordId`; the values are copies) |
+| `InstanceData.Claim(parked, item)` / `Discard(parked)` (dev.27) | puts a parked record on an item the mod names, or drops it: every value of the calling mod in that record moves or goes (other mods' values in it stay parked), and the record no longer waits, also not in the next save. `Claim` → `InstanceClaimResult` (`IKilnResult`: `Ok` false when the item already has one of those keys), `InstanceDataRestoredEvent` (`Claimed`); `Discard` → bool (false: no longer parked), `InstanceDataLostEvent` (`Discarded`). A record no longer parked, an item still being decided (a player leaving), a stale item or one the key does not allow throw `ArgumentException`. Admins: `/instances claim <record> <player\|holder entity> <flat slot>`, `/instances discard <record>` (every mod's values) |
 
 Rules: tick thread, from mod code (handlers, `OnLoad`, tasks; in a hosted world, once `Saves.WorldDataReady`: see "In a game client"). Keys belong to the calling mod (`kiln.mod.json` id).
 A stored value that no longer reads as `T` throws `InvalidDataException` and is kept as it was. A mod reload keeps the
@@ -259,7 +260,8 @@ without it nobody knows whether a look-alike stood beside it.
 3. **Not certain** (several candidates, several records, a look-alike gone since the save, no witness, an item that
    already has data of this session): every such record is set aside and reported (`InstanceDataLostEvent`,
    `Ambiguous`). It is kept, listed by `Parked` and `/instances`, and never attached automatically, also not in a later
-   session.
+   session. A mod that knows better puts it on an item with `InstanceData.Claim`, or drops it with `Discard` (an admin:
+   `/instances claim` / `discard`).
 4. **No candidate:** the record waits (`InstanceDataParkedEvent`, `NoCandidate`); after 3 sessions without its item it
    is dropped (`Unmatched`).
 5. **The holder:** a world holder is the one unclaimed entity of its template within 0.5 m (props) or 16 m (creatures,
