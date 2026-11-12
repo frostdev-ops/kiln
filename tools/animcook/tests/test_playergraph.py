@@ -1259,6 +1259,29 @@ class Cli(Base):
         self.assertEqual(r.returncode, 1)
         self.assertIn("player state m/bad: REFUSED: mod m, state bad: speed", r.stdout)
 
+    def test_recipe_defers_only_external_clip_checks(self):
+        import animcook
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        path = self.mod / "assets" / PS.FILE_NAME
+        rec = self.mod / "assets" / "cook.json"
+        args = SimpleNamespace(recipe=str(rec), graph=str(self.graph))
+        external = str(G.derive("another-mod", "clip", "swing"))
+        path.write_text(json.dumps({"format": 1, "states": {"external": {"clip": external, "like": "Parry_FullBody"}}}))
+        output = io.StringIO()
+        with mock.patch.object(animcook, "_types", return_value=(TYPES, None, None)), contextlib.redirect_stdout(output):
+            self.assertEqual(animcook._recipe_player_states(args, {}), 0, output.getvalue())
+        self.assertIn("warning:", output.getvalue())
+        self.assertIn("checked at boot", output.getvalue())
+        # A locally declared but missing cooked clip must still fail, as must an unknown neighbour.
+        for clip, like in (("x", "Parry_FullBody"), (external, "no-such-state")):
+            path.write_text(json.dumps({"format": 1, "states": {"bad": {"clip": clip, "like": like}}}))
+            for cooked in (self.mod / "assets" / "cooked").glob("*.bin"):
+                cooked.unlink()
+            with mock.patch.object(animcook, "_types", return_value=(TYPES, None, None)), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(animcook._recipe_player_states(args, {}), 1)
+
     def test_recipe_with_and_without_player_states(self):
         rec = self.mod / "assets" / "cook.json"
         rec.write_text(json.dumps({"format": 1, "tool": "modelcook", "steps": []}))
