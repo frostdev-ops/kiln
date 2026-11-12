@@ -29,6 +29,9 @@ What the merge does for a new state N whose neighbour (`like`) is L in machine M
 10. node ids: FNV-1a-32 of "kiln.player.<mod>.<state>.<role>", nested machines "kiln.player.nest.<machine>.<group>.<role>".
 11. machines in the order of their nodes in the graph, in a machine the states by mod id, then name, as UTF-8 bytes.
 12. no state accepted: "untouched", no graph.
+Every new node is a copy of a node of the game's graph with named fields changed, so a field the game adds is carried: the clip, layer
+blend, PoseResult and state node are copies of the neighbour's, a condition is a copy of the graph's first node of its type, a nested
+machine a copy of M, its wrapper a copy of the group's first neighbour's state node.
 Then the result is checked (validate()) and any failure turns the whole merge off: no graph, every state reported unavailable.
 """
 import copy
@@ -109,10 +112,9 @@ PARENT_REFS = {("StateMachineState", "parentStateMachineId"), ("StateMachine", "
 HEADER_REFS = ("rootNode", "postProcessRootNode", "bipedFeetIkNodeId", "genericFeetIkNodeId")
 GENDER_GUIDS = ("animationGenderAlternative", "rootMotionAnimationGenderAlternative", "additiveReferenceAnimationGenderAlternative")
 GENDER_HASHES = tuple(f + "Hash" for f in GENDER_GUIDS)
-STATE_FIELDS = ("id", "type", "debugName", "poseResult", "idReference", "parentStateMachineId", "retriggerBlendDuration",
-                "restartOnRetrigger", "syncStartTime", "startAtRandomTime", "restState", "preventFromRest", "alwaysSendEvents")
+STATE_FIELDS = ("id", "type", "debugName", "poseResult", "parentStateMachineId", "retriggerBlendDuration", "restartOnRetrigger")
 MACHINE_FIELDS = ("id", "type", "states", "transitions", "transitionRefInfo", "entryState", "parentStateMachineStateId",
-                  "globalTransitions", "numGlobalTransitions", "globalTransitionNodeId", "debugName", "preventFromRest")
+                  "globalTransitions", "numGlobalTransitions", "globalTransitionNodeId", "debugName")
 GT_FIELDS = ("toState", "duration", "rootMotionMode", "eventMode", "conditionNode", "blendCurve", "blendProfile")
 GT_FROM_LOCAL = ("duration", "rootMotionMode", "eventMode", "blendCurve", "blendProfile")  # rule 4 without a global transition
 # Every field the merge reads or writes, by type: checked against the reflection before anything is merged, so a field the game
@@ -180,15 +182,22 @@ class StateEntry:
     def is_list(self, node):
         return node["type"] == self.multi and node["parameterHash"]["value"] == STATE_INPUT
 
-    def new(self, nid, value):
-        return {"$type": full_type(self.single), "value": {"id": {"value": nid}, "type": self.single, "parameterHash": {"value": STATE_INPUT},
-                                                          "parameterId": {"value": STATE_INPUT}, "value": {"value": value},
-                                                          "ignoreForAnimationSequences": False}}
+    def new(self, template, nid, value):
+        """A condition on `value`: a copy of `template` (the graph's first node of the single type), so a field the game adds is carried.
+        ignoreForAnimationSequences is set false as well: a sequence has to be able to enter the state."""
+        w = copy.deepcopy(template)
+        c = w["value"]
+        c["id"], c["parameterHash"], c["parameterId"], c["value"] = {"value": nid}, {"value": STATE_INPUT}, {"value": STATE_INPUT}, {"value": value}
+        c["ignoreForAnimationSequences"] = False
+        return w
 
-    def new_list(self, nid, values):
-        return {"$type": full_type(self.multi), "value": {"id": {"value": nid}, "type": self.multi, "parameterHash": {"value": STATE_INPUT},
-                                                         "parameterId": {"value": STATE_INPUT}, "values": [{"value": v} for v in values],
-                                                         "ignoreForAnimationSequences": False}}
+    def new_list(self, template, nid, values):
+        w = copy.deepcopy(template)
+        c = w["value"]
+        c["id"], c["parameterHash"], c["parameterId"] = {"value": nid}, {"value": STATE_INPUT}, {"value": STATE_INPUT}
+        c["values"] = [{"value": v} for v in values]
+        c["ignoreForAnimationSequences"] = False
+        return w
 
 
 ENTRIES = {"state": StateEntry()}
@@ -224,6 +233,9 @@ class Graph:
                 raise MergeOff(f"the game's graph has node id {_h(nid)} twice")
             self.by_id[nid], self.pos[nid] = v, i
         self.machines = [v for v in self.nodes if v["type"] == "StateMachine"]
+        self.first = {}  # node kind -> the first node of that kind (wrapped): the template new nodes of the kind are copied from
+        for w in self.wrapped:
+            self.first.setdefault(w["value"]["type"], w)
         self.ids = set(self.by_id) | {m["globalTransitionNodeId"]["value"] for m in self.machines}
         self.transitions = [v for v in self.nodes if v["type"] == "StateMachineTransition"]
         compared = {x["value"] for x in value["usedInputIds"]["parameterIds"]}
@@ -292,6 +304,7 @@ class Neighbour:
         if pose is None or pose["type"] != "PoseResult":
             self.error = "its pose is not a PoseResult"
             return
+        self.pose = pose
         top = g.by_id.get(pose["input"]["value"])
         clip = g.walk(pose["id"]["value"], stop_at_clip=True)
         if clip is None:
@@ -617,6 +630,9 @@ def _accept(g, states, clip_facts, report):
         if nb.error:
             st.refuse(f"like {st.like!r} ({M['debugName']}/{L['debugName']}) cannot be a neighbour: {nb.error}")
             continue
+        if ENTRIES[kind].single not in g.first:
+            st.refuse(f"the game's graph has no {ENTRIES[kind].single} node to copy as its condition")
+            continue
         facts = clip_facts(st.clip)
         if facts is None:
             st.refuse(f"clip {st.clip_ref!r} ({st.clip}) is not served: no {JOINT_ANIM} under that GUID in the mods' assets or the game")
@@ -680,6 +696,11 @@ def _accept(g, states, clip_facts, report):
                     st.refuse(f"machine {M['debugName']} is full: {num} global transitions of its own, {free} left for nested machines of "
                               f"{MAX_GLOBAL} states each, and the states before this one in mod and name order fill them")
                 continue
+            multi = ENTRIES[group[0][1].kind].multi
+            if multi not in g.first:
+                for st, _ in group:
+                    st.refuse(f"machine {M['debugName']} is full and the game's graph has no {multi} node to copy for a nested machine's entry")
+                continue
             nids = [node_id("nest", M["debugName"], gi, r) for r in ("machine", "pose", "wrapper", "list", "global")]
             if len(set(nids)) != len(nids) or any(r in g.ids or r in taken for r in nids):
                 for st, _ in group:
@@ -715,7 +736,14 @@ def _clip_node(st, nb):
     return w
 
 
-def _state_nodes(st, nb, parent, local):
+def _copy_of(kind, node, **fields):
+    """A wrapped copy of a decoded node with the named fields replaced: every other field, including one the game adds later, is kept."""
+    v = copy.deepcopy(node)
+    v.update(fields)
+    return {"$type": full_type(kind), "value": v}
+
+
+def _state_nodes(g, st, nb, parent, local):
     """Rules 1 to 5 for one state. -> (nodes in rule 9's order, its global transition entry, its new transition ids)."""
     entry = ENTRIES[nb.kind]
     nodes = [_clip_node(st, nb)]
@@ -725,14 +753,14 @@ def _state_nodes(st, nb, parent, local):
         lb["id"], lb["layer"] = {"value": st.rids["layer"]}, {"value": st.rids["clip"]}
         nodes.append({"$type": full_type("LayerBlend"), "value": lb})
         top = st.rids["layer"]
-    nodes.append({"$type": full_type("PoseResult"), "value": {"id": {"value": st.rids["pose"]}, "type": "PoseResult", "input": {"value": top}}})
+    nodes.append(_copy_of("PoseResult", nb.pose, id={"value": st.rids["pose"]}, input={"value": top}))
     s = copy.deepcopy(nb.state)
     s["id"], s["debugName"], s["poseResult"] = {"value": st.rids["state"]}, f"{st.mod}.{st.name}", {"value": st.rids["pose"]}
     s["parentStateMachineId"] = {"value": parent}
     if st.blend_in is not None:
         s["retriggerBlendDuration"] = st.blend_in
     nodes.append({"$type": full_type("StateMachineState"), "value": s})
-    nodes.append(entry.new(st.rids["cond"], st.id))
+    nodes.append(entry.new(g.first[entry.single], st.rids["cond"], st.id))
     gt = nb.entry_fields()
     gt["toState"], gt["conditionNode"] = {"value": st.rids["state"]}, {"value": st.rids["cond"]}
     if st.blend_in is not None:
@@ -745,7 +773,7 @@ def _state_nodes(st, nb, parent, local):
             nodes.append({"$type": full_type("StateMachineTransition"), "value": c})
             trans.append(st.rids[f"out.{i}"])
         for i, t in enumerate(nb.ins):
-            nodes.append(entry.new(st.rids[f"in.{i}.cond"], st.id))
+            nodes.append(entry.new(g.first[entry.single], st.rids[f"in.{i}.cond"], st.id))
             c = copy.deepcopy(t)
             c["id"], c["toState"], c["conditionNode"] = {"value": st.rids[f"in.{i}"]}, {"value": st.rids["state"]}, {"value": st.rids[f"in.{i}.cond"]}
             nodes.append({"$type": full_type("StateMachineTransition"), "value": c})
@@ -781,7 +809,7 @@ def _build(g, types, plan, report):
         block, gts, new_states, new_trans = [], [], [], []
         if groups is None:
             for st, nb in items:
-                nodes, gt, trans = _state_nodes(st, nb, mid, local=True)
+                nodes, gt, trans = _state_nodes(g, st, nb, mid, local=True)
                 block += nodes
                 gts.append(gt)
                 new_states.append(st.rids["state"])
@@ -792,29 +820,26 @@ def _build(g, types, plan, report):
                 inner_id, pose_id, wrapper_id, list_id, global_id = nids
                 inner_gts, inner_states = [], []
                 for st, nb in group:
-                    nodes, gt, _ = _state_nodes(st, nb, inner_id, local=False)
+                    nodes, gt, _ = _state_nodes(g, st, nb, inner_id, local=False)
                     block += nodes
                     inner_gts.append(gt)
                     inner_states.append(st.rids["state"])
                     take_ids(st, nb)
                 first_nb = group[0][1]
                 name = f"kiln.nest.{M['debugName']}.{gi}"
-                inner = {"id": {"value": inner_id}, "type": "StateMachine", "states": [{"value": x} for x in inner_states], "transitions": [],
-                         "transitionRefInfo": {"fromState": [], "toState": [], "duration": []}, "entryState": {"value": inner_states[0]},
-                         "parentStateMachineStateId": {"value": wrapper_id},
-                         "globalTransitions": inner_gts + [copy.deepcopy(blank) for _ in range(MAX_GLOBAL - len(inner_gts))],
-                         "numGlobalTransitions": len(inner_gts), "globalTransitionNodeId": {"value": global_id}, "debugName": name,
-                         "preventFromRest": M["preventFromRest"]}
+                ref = copy.deepcopy(M["transitionRefInfo"])
+                ref.update(fromState=[], toState=[], duration=[])
+                inner = _copy_of("StateMachine", M, id={"value": inner_id}, states=[{"value": x} for x in inner_states], transitions=[],
+                                 transitionRefInfo=ref, entryState={"value": inner_states[0]}, parentStateMachineStateId={"value": wrapper_id},
+                                 globalTransitions=inner_gts + [copy.deepcopy(blank) for _ in range(MAX_GLOBAL - len(inner_gts))],
+                                 numGlobalTransitions=len(inner_gts), globalTransitionNodeId={"value": global_id}, debugName=name)
                 wgt = first_nb.entry_fields()
                 wgt["toState"], wgt["conditionNode"] = {"value": wrapper_id}, {"value": list_id}
-                wrapper = {"id": {"value": wrapper_id}, "type": "StateMachineState", "debugName": name, "poseResult": {"value": pose_id},
-                           "idReference": {"value": 0}, "parentStateMachineId": {"value": mid}, "retriggerBlendDuration": wgt["duration"],
-                           "restartOnRetrigger": False, "syncStartTime": False, "startAtRandomTime": False, "restState": False,
-                           "preventFromRest": False, "alwaysSendEvents": False}
-                block += [{"$type": full_type("StateMachine"), "value": inner},
-                          {"$type": full_type("PoseResult"), "value": {"id": {"value": pose_id}, "type": "PoseResult", "input": {"value": inner_id}}},
-                          {"$type": full_type("StateMachineState"), "value": wrapper},
-                          ENTRIES[first_nb.kind].new_list(list_id, [st.id for st, _ in group])]
+                wrapper = _copy_of("StateMachineState", first_nb.state, id={"value": wrapper_id}, debugName=name, poseResult={"value": pose_id},
+                                   parentStateMachineId={"value": mid}, retriggerBlendDuration=wgt["duration"], restartOnRetrigger=False)
+                entry = ENTRIES[first_nb.kind]
+                block += [inner, _copy_of("PoseResult", first_nb.pose, id={"value": pose_id}, input={"value": inner_id}), wrapper,
+                          entry.new_list(g.first[entry.multi], list_id, [st.id for st, _ in group])]
                 gts.append(wgt)
                 new_states.append(wrapper_id)
         num = M["numGlobalTransitions"]

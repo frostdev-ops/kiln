@@ -744,6 +744,46 @@ class Rules(Base):
         self.assertEqual((out, rep["graph"], rep["bytes"]["before"], rep["bytes"]["after"]), (None, "untouched", len(self.raw), None))
 
 
+class NewFields(Base):
+    """A field the game adds to a node type is carried into the new nodes: every new node is a copy of a node of the game's graph."""
+    KINDS = ("PoseResult", "StateMachineState", "StateMachine", "IdParameterEqualsConstant", "IdParameterEqualsConstantList", "SampleAnimationClip",
+             "LayerBlend", "StateMachineTransition")
+
+    def types_with_extra(self):
+        dump = json.loads(json.dumps(TYPES.dump))
+        for t in dump["types"]:
+            if t["name"] in {PG.full_type(k) for k in self.KINDS}:
+                off = (t["size"] + 3) // 4 * 4
+                t["fields"].append({"name": "kilnExtra", "type": "keen::uint32", "offset": off})
+                t["size"] = (off + 4 + t["align"] - 1) // t["align"] * t["align"]
+        return TypeDb(dump)
+
+    def test_a_field_the_code_does_not_name_is_carried(self):
+        types = self.types_with_extra()
+        s = Synth(4)
+        self.facts.update(s.facts)
+        for n in s.value["nodeDefinitions"]:
+            if n["value"]["type"] in self.KINDS:
+                n["value"]["kilnExtra"] = 7
+        raw = Encoder(types).encode(types.get(GRAPH), s.value)
+        states = {f"h{i:02d}": {"clip": "x", "like": "Attack_Hammer_00"} for i in range(30)}
+        states.update(a={"clip": "x", "like": "Dodge_Attack_FullBody"}, b={"clip": "guard", "like": "Block_FullBody"}, d={"clip": "x", "like": "DodgeRoll_FullBody"})
+        out, rep = self.merge(mod(states), raw=raw, types=types)
+        self.assertEqual(rep["graph"], "merged", rep["reason"])
+        v = Decoder(types, max_array=1 << 26).decode(types.get(GRAPH), out)
+        game = {n["value"]["id"]["value"] for n in decode_with(types, raw)["nodeDefinitions"]}
+        new = [n["value"] for n in v["nodeDefinitions"] if n["value"]["id"]["value"] not in game]
+        kinds = {n["type"] for n in new}
+        self.assertEqual(kinds, set(self.KINDS), "every kind of new node is in the test")
+        for n in new:
+            self.assertEqual(n["kilnExtra"], 7, n["type"])
+        self.assertIn(PG.node_id("nest", "SM_Attack_Hammer_FullBody", 0, "wrapper"), {n["id"]["value"] for n in new})
+
+
+def decode_with(types, raw):
+    return Decoder(types, max_array=1 << 26).decode(types.get(GRAPH), raw)
+
+
 class Refusals(Base):
     def test_like(self):
         st = {"unknown": {"clip": "x", "like": "No_Such_State"}, "ambiguous": {"clip": "x", "like": "Attack_Heavy"},

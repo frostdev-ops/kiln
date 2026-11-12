@@ -15,6 +15,7 @@ hammer state nest and leave every game state, its id and its entry as they were;
 clip of another skeleton are refused while the other states of the file load. Exit 1 when a check fails.
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -118,7 +119,11 @@ def main():
     t2 = time.perf_counter()
     facts = PG.ClipFacts(types, [], k) if k else graph_facts(value).get
     work = tempfile.TemporaryDirectory(dir=a.work)
-    counts = {"graph": src, "bytes": len(raw), "decodeSeconds": round(t1 - t0, 3), "encodeSeconds": round(t2 - t1, 3)}
+    counts = {"graph": src, "bytes": len(raw), "decodeSeconds": round(t1 - t0, 3), "encodeSeconds": round(t2 - t1, 3), "sha256": {}}
+
+    def keep(name, out):
+        """The merged graph's SHA-256 per scenario, to compare two versions of the merge."""
+        counts["sha256"][name] = hashlib.sha256(out).hexdigest() if out is not None else None
 
     # 1. no states
     check(back == raw, f"the game's graph decodes and encodes to its own {len(raw)} bytes (decode {t1 - t0:.2f} s, encode {t2 - t1:.2f} s)")
@@ -146,6 +151,7 @@ def main():
     t3 = time.perf_counter()
     out, rep = PG.merge(raw, types, [m_all], facts)
     t4 = time.perf_counter()
+    keep("all", out)
     live = [e for e in rep["states"] if e["status"] == "live"]
     check(rep["graph"] == "merged" and len(live) == len(states),
           f"{len(states)} states, one beside each neighbour: {rep['graph']}, {len(live)} live ({t4 - t3:.2f} s)" + (f": {rep['reason']}" if rep["reason"] else "")
@@ -185,6 +191,7 @@ def main():
     ma, mb = write_mod(work.name, "pa-left", half[0]), write_mod(work.name, "pa-right", half[1])
     o1, r1 = PG.merge(raw, types, [ma, mb], facts)
     o2, r2 = PG.merge(raw, types, [mb, ma], facts)
+    keep("two mods", o1)
     check(o1 is not None and o1 == o2 and r1 == r2, f"two mods ({len(half[0])} and {len(half[1])} states) in both orders: the same {len(o1 or b'')} bytes and report")
 
     # 4. 30 states beside one hammer state: nested; every game state, its id and its entry as before
@@ -192,6 +199,7 @@ def main():
     hn = next(nb for name, _, _, nb in nbs if name == hammer)
     m30 = write_mod(work.name, "pa-thirty", {f"h{i:02d}": {"clip": hn.clip["animation"], "like": hammer} for i in range(30)})
     out, rep = PG.merge(raw, types, [m30], facts)
+    keep("thirty", out)
     ok = rep["graph"] == "merged" and all(e["status"] == "live" for e in rep["states"])
     mrow = next((x for x in rep["machines"] if x["machine"] == "SM_Attack_Hammer_FullBody"), {})
     check(ok and mrow.get("nested") == 1, f"30 states beside {hammer}: {rep['graph']}, nested machines {mrow.get('nested')}, "
@@ -233,6 +241,7 @@ def main():
            "good-1": {"clip": hn.clip["animation"], "like": hammer},
            "good-2": {"clip": hn.clip["animation"], "like": "SM_Main/Parry_FullBody"}}
     out, rep = PG.merge(raw, types, [write_mod(work.name, "pa-bad", bad)], facts)
+    keep("refusals", out)
     by_name = {e["name"]: e for e in rep["states"]}
     for name, word in (("unknown", "no state of the player's graph"), ("ambiguous", "several states have that name"),
                        ("idle-block", "Block_FullBody"), ("skeleton", "another skeleton")):
