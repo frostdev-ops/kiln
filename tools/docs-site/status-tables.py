@@ -207,7 +207,7 @@ def render(server: dict, server_rows: dict, client: dict | None, client_rows: di
       + (f", from Kiln {', '.join(code(v) for v in kv)} on game build {', '.join(f'{side} {code(b)}' for side, b in gb)}" if entries else ""))
     w("")
     w("\"Available\" means available on the server (or client) build these files came from: the symbols resolved and the")
-    w("service loaded. It does not say the feature works in the game. Only a passed client check is a real-client statement.")
+    w("service loaded. It does not say the feature works in the game. A pass is a real-client statement only when a player gave it in the game client.")
     w("")
 
     # capabilities
@@ -276,12 +276,15 @@ def render(server: dict, server_rows: dict, client: dict | None, client_rows: di
         for c in rows:
             e = latest.get((c["mod"], c["id"]))
             title = cell(c["title"])
+            mod = cell(c["mod"])
+            if c["mod"] == "client-check-test":
+                mod += " (lab script, not a player)"
             if e is None:
-                w(f"| {cell(c['mod'])} | {code(str(c['id']))} | {title} | {NEVER} |  |  |  |  |")
+                w(f"| {mod} | {code(str(c['id']))} | {title} | {NEVER} |  |  |  |  |")
             else:
                 g = e["game"]
                 build = f"{cell(g['side'])} {code(sha12(g['sha256']))}"
-                w(f"| {cell(c['mod'])} | {code(str(c['id']))} | {title} | {e['verdict']} | {cell(e['time'][:10])} | "
+                w(f"| {mod} | {code(str(c['id']))} | {title} | {e['verdict']} | {cell(e['time'][:10])} | "
                   f"{cell(e['session'])} | {code(str(e['kiln']))} | {build} |")
         w("")
     return "\n".join(out).rstrip("\n") + "\n"

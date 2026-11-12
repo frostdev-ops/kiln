@@ -15,7 +15,7 @@ from these files:
 - client checks: 85 in the catalogue, 9 verdicts, from Kiln `0.2.0-dev` on game build server `f0d824be7fcd`
 
 "Available" means available on the server (or client) build these files came from: the symbols resolved and the
-service loaded. It does not say the feature works in the game. Only a passed client check is a real-client statement.
+service loaded. It does not say the feature works in the game. A pass is a real-client statement only when a player gave it in the game client.
 
 ## Capabilities
 
@@ -428,17 +428,17 @@ real-client statement only when a player gave it in the game client.
 
 | Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
 |---|---|---|---|---|---|---|---|
-| client-check-test | `cct.assertions` | Passes on its assertions and a verdict | pass | 2026-11-12 | joined | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.fail-note` | Failed with a note | fail | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.skip` | Skipped | skip | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.two-steps` | Waits ticks between two instructions | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.private-log` | Private data in a log line stays out of the ledger | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.cheats-flag` | A cheats check (refused without the guard) | never run |  |  |  |  |
-| client-check-test | `cct.guard-proof` | The guard-proof stand-in (refused without the guard) | never run |  |  |  |  |
-| client-check-test | `cct.flag-unset` | The cheats checks' bodies never ran | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.hosted-only` | Needs a hosted world | never run |  |  |  |  |
-| client-check-test | `cct.cleanup` | Cleans up however it ends | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test | `cct.wait` | Waits for its verdict | never run |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.assertions` | Passes on its assertions and a verdict | pass | 2026-11-12 | joined | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.fail-note` | Failed with a note | fail | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.skip` | Skipped | skip | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.two-steps` | Waits ticks between two instructions | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.private-log` | Private data in a log line stays out of the ledger | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.cheats-flag` | A cheats check (refused without the guard) | never run |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.guard-proof` | The guard-proof stand-in (refused without the guard) | never run |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.flag-unset` | The cheats checks' bodies never ran | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.hosted-only` | Needs a hosted world | never run |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.cleanup` | Cleans up however it ends | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
+| client-check-test (lab script, not a player) | `cct.wait` | Waits for its verdict | never run |  |  |  |  |
 
 ### Core
 

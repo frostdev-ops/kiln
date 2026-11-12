@@ -133,6 +133,19 @@ class NoClientFile(unittest.TestCase):
 
 
 class Checks(unittest.TestCase):
+    def test_runner_self_tests_are_labelled_as_lab_scripts(self):
+        checks = fixture("client-checks.json")
+        for c in checks["checks"]:
+            c["mod"] = "client-check-test"
+        for e in checks["entries"]:
+            e["mod"] = "client-check-test"
+        _, text, _ = Run(checks=checks)()
+        self.assertEqual(row(text, "Items", "demo.first")[0],
+                         "client-check-test (lab script, not a player)")
+        self.assertEqual(row(text, "World", "demo.never")[0],
+                         "client-check-test (lab script, not a player)")
+        self.assertEqual(row(Run()()[1], "Items", "demo.first")[0], "demo")
+
     def test_the_newest_entry_of_a_check_wins(self):
         _, text, _ = Run()()
         r = row(text, "Items", "demo.first")
@@ -185,7 +198,7 @@ class Deterministic(unittest.TestCase):
 
     def test_the_header_says_available_is_not_works_in_the_game(self):
         _, text, _ = Run()()
-        self.assertIn("It does not say the feature works in the game. Only a passed client check is a real-client statement.", text)
+        self.assertIn("It does not say the feature works in the game. A pass is a real-client statement only when a player gave it in the game client.", text)
         self.assertIn("game build `1111111111111111111111111111111111111111111111111111111111111111` (a verified build)", text)
 
 
