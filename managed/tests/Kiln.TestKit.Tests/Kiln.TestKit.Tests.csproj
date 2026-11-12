@@ -27,7 +27,19 @@
     <TkMod Include="mods/TkCommands/TkCommands.csproj" />
     <TkMod Include="mods/TkFaulty/TkFaulty.csproj" />
     <TkMod Include="mods/TkLeaky/TkLeaky.csproj" />
+    <TkMod Include="mods/TkSuite/TkSuite.csproj" />
+    <TkMod Include="mods/TkOrdered/TkOrdered.csproj" />
+    <TkMod Include="mods/TkOffline/TkOffline.csproj" />
+    <TkMod Include="mods/TkBlock/TkBlock.csproj" />
     <ProjectReference Include="@(TkMod)" />
+    <!-- Kiln.Hooks beside the kit, as in kiln/host: TkOffline reads it (a service that remembers a missing table). -->
+    <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
+    <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
+    <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
+    <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
+    <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
+    <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
+    <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <!-- Built mod folders (LoadFolder), never referenced. -->
     <TkFolderMod Include="mods/TkLocale/TkLocale.csproj" />
     <ProjectReference Include="@(TkFolderMod)" ReferenceOutputAssembly="false" />
@@ -41,7 +53,7 @@
   </ItemGroup>
   <!-- mods.txt: the output assembly of each test mod, so a test finds its built folder under any artifacts path. -->
   <Target Name="WriteTkModPaths" AfterTargets="Build">
-    <MSBuild Projects="@(TkMod);@(TkFolderMod)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+    <MSBuild Projects="@(TkMod);@(TkFolderMod);@(TkSample)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
       <Output TaskParameter="TargetOutputs" ItemName="_TkModTarget" />
     </MSBuild>
     <WriteLinesToFile File="$(OutDir)mods.txt" Lines="@(_TkModTarget->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
