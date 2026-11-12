@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the modding site as a folder: the API reference from the assemblies and XML docs of Kiln.Api, Kiln.Testing,
 # Kiln.Game and the services (managed/Kiln.Sdk/pack.sh's stage) and of Kiln.TestKit (its testkit-stage), plus
-# docs/kiln/modding/*.md. It publishes nothing: the release puts the folder into <release>/sdk/api/, putting it online
+# git-tracked docs/kiln/modding/*.md (unshipped link targets point to the public repository). It publishes nothing:
+# the release puts the folder into <release>/sdk/api/, putting it online
 # is the owner's decision. filterConfig.yml leaves out what DocFX cannot take (it says why).
 #   KILN_OUT=<build dir> tools/docs-site/build.sh [<site folder>]   -> <site folder>/index.html
 # The site folder defaults to $KILN_OUT/docs-site; an existing one is replaced only when it holds a site from here.
@@ -34,7 +35,7 @@ fi
 [[ -x $tools/docfx ]] || dotnet tool install docfx --version "$version" --tool-path "$tools" >/dev/null
 rm -rf "$work" && mkdir -p "$work"
 cp "$here"/index.md "$here"/toc.yml "$here"/filterConfig.yml "$work"/
-cp -r "$repo/docs/kiln/modding" "$work/modding"      # docfx wants its sources below the config
+python3 -I "$here/stage-guide.py" "$repo" "$work"    # docfx wants its sources below the config
 cp -r "$stage" "$work/stage"                          # annotate.py rewrites the XML docs of this copy
 # Kiln.TestKit (mod tests) is packed from a stage of its own; its dll and docs join, with Kiln.Host.dll only for docfx to
 # resolve its references (docfx.json leaves Kiln.Host out of the reference)
