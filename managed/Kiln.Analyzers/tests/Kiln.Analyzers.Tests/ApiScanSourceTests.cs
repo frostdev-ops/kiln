@@ -42,14 +42,16 @@ public sealed class ApiScanSourceTests
             File.WriteAllText(Path.Combine(dir, "tests", "Excluded.cs"), "public class ExcludedTestApi { }");
             File.WriteAllText(project, """
                 <Project Sdk="Microsoft.NET.Sdk">
-                  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+                  <PropertyGroup><TargetFramework>net10.0</TargetFramework><NoWarn>$(NoWarn);KILNX002</NoWarn></PropertyGroup>
                   <ItemGroup>
                     <Compile Remove="tests/**/*.cs" />
                     <Compile Include="../../Linked.cs" Condition="'$(Configuration)' == 'Release'" />
                   </ItemGroup>
                 </Project>
                 """);
-            Assert.Equal(new[] { live, linked }.Order(StringComparer.Ordinal), ApiScanProjectSources.Read(project));
+            var (files, noWarn) = ApiScanProjectSources.Read(project);
+            Assert.Equal(new[] { live, linked }.Order(StringComparer.Ordinal), files);
+            Assert.Contains("KILNX002", noWarn);  // the scan compiles with the project's own suppressions
         }
         finally { Directory.Delete(root, recursive: true); }
     }

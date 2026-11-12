@@ -5,7 +5,9 @@
 //                Services.RequireTickThread, Game.AssertTickThread or `if (!<x>.IsTickThread) throw ...`.
 //                A method that branches on IsTickThread any other way is "thread-aware" (it dispatches itself, e.g.
 //                Scheduler.Post when off the tick thread) and does not inherit its callees' requirement.
-//   advanced:    a member that reaches HooksGate.RequireAdvanced (Kiln.Hooks: hooks, symbols, raw memory).
+//   advanced:    a member that reaches an advanced gate: HooksGate.RequireAdvanced (Kiln.Hooks: hooks, symbols, raw
+//                memory), AbilitiesGate.RequireAdvanced/Require/NotAdvanced (Kiln.Abilities: program blobs, raw call
+//                bytes) or CreaturesGate.RequireAdvanced (Kiln.Creatures: job-thread rule handlers).
 // Usage: ApiScan --repo <kiln repo> --stage <dir with the built Kiln dlls> --refs <Microsoft.NETCore.App.Ref ref dir>
 //                --out <KilnApis.g.cs>
 using System.Text;
@@ -55,7 +57,7 @@ var projectFiles = projects.ToDictionary(p => p.Name,
 for (var pass = 0; pass < 2; pass++)
 foreach (var (name, dir) in projects)
 {
-    var files = projectFiles[name];
+    var (files, noWarn) = projectFiles[name];
     var trees = files.Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, f)).ToList();
     trees.Add(CSharpSyntaxTree.ParseText(implicitUsings, parse, "ImplicitUsings.g.cs"));
     var refs = frameworkRefs.Concat(stageDlls
@@ -64,7 +66,8 @@ foreach (var (name, dir) in projects)
         .ToList();
     var comp = CSharpCompilation.Create(name, trees, refs,
         new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
-            nullableContextOptions: NullableContextOptions.Enable));
+            nullableContextOptions: NullableContextOptions.Enable,
+            specificDiagnosticOptions: noWarn.Select(id => KeyValuePair.Create(id, ReportDiagnostic.Suppress))));
     // CS8795: [GeneratedRegex] partials, whose other half a source generator writes (not run here).
     var diags = ApiScanCompilationErrors.Read(comp);
     if (diags.Count > 0 && pass == 0)
@@ -272,10 +275,10 @@ static void Scan(SemanticModel model, SyntaxNode body, Facts f, Compilation comp
                     f.Tick = true;
                     f.TickWhy = full.Substring(5);
                 }
-                else if (full == "Kiln.HooksGate.RequireAdvanced")
+                else if (ApiScanGates.AdvancedGates.Contains(full))
                 {
                     f.Advanced = true;
-                    f.AdvancedWhy = "HooksGate.RequireAdvanced";
+                    f.AdvancedWhy = full.Substring(5);
                 }
                 else AddCall(f, s, comp);
                 break;
@@ -378,4 +381,19 @@ sealed class Facts
     public bool OtherAwait;
     public string TickWhy = "", AdvancedWhy = "";
     public readonly HashSet<IMethodSymbol> Calls = new(SymbolEqualityComparer.Default);
+}
+
+// The advanced gates: each service that has raw entry points keeps its own copy of kiln.hooks' check (a service does
+// not reference Kiln.Hooks). AbilitiesGate.NotAdvanced is the refusal a handler throws when its permission was decided
+// at registration (NativeCall.Bytes); AbilitiesGate.Require is the check behind its RequireAdvanced.
+static class ApiScanGates
+{
+    internal static readonly HashSet<string> AdvancedGates = new(StringComparer.Ordinal)
+    {
+        "Kiln.HooksGate.RequireAdvanced",
+        "Kiln.AbilitiesGate.RequireAdvanced",
+        "Kiln.AbilitiesGate.Require",
+        "Kiln.AbilitiesGate.NotAdvanced",
+        "Kiln.CreaturesGate.RequireAdvanced",
+    };
 }
