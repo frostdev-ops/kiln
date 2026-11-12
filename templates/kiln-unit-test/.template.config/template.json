@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Kiln contributors",
+  "classifications": [
+    "Kiln",
+    "Enshrouded",
+    "Mod",
+    "Test",
+    "xUnit"
+  ],
+  "identity": "Kiln.Templates.UnitTest",
+  "groupIdentity": "Kiln.Templates.UnitTest",
+  "name": "Kiln unit tests",
+  "description": "An xunit test project for one Kiln mod (Kiln.TestKit): the mod under dotnet test with no game, through Kiln's real loader, and its [KilnTest] methods as xunit tests. Docs: docs/kiln/modding/unit-tests.md.",
+  "shortName": "kiln-unit-test",
+  "sourceName": "KilnUnitTest1",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project",
+    "kiln.kind": "test"
+  },
+  "forms": {
+    "modTypeFromProject": {
+      "identifier": "replace",
+      "pattern": "^(?:.*[\\\\/])?([^\\\\/]+?)\\.csproj$",
+      "replacement": "$1.$1Mod"
+    }
+  },
+  "symbols": {
+    "mod": {
+      "type": "parameter",
+      "datatype": "text",
+      "isRequired": true,
+      "replaces": "KILN_MOD_PROJECT",
+      "description": "Path of the mod's project file, relative to the new test project's folder (e.g. ../MyMod/MyMod.csproj)"
+    },
+    "modType": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "Full name of the mod's entry class; default <Name>.<Name>Mod from the project's file name, as dotnet new kiln-mod names it"
+    },
+    "modTypeDefault": {
+      "type": "derived",
+      "valueSource": "mod",
+      "valueTransform": "modTypeFromProject"
+    },
+    "modTypeValue": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "modType",
+        "fallbackVariableName": "modTypeDefault"
+      },
+      "replaces": "KILN_MOD_TYPE"
+    },
+    "kilnSdkVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.2.0",
+      "replaces": "KILN_SDK_VERSION",
+      "description": "Kiln.TestKit version (the MDK this template came with; use the Kiln.Sdk version of the mod)"
+    },
+    "feed": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "replaces": "KILN_FEED",
+      "description": "Local NuGet feed holding Kiln.TestKit/Kiln.Api (writes a nuget.config next to the project)"
+    },
+    "hasFeed": {
+      "type": "computed",
+      "value": "(feed != \"\")"
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(!hasFeed)",
+          "exclude": [
+            "nuget.config"
+          ]
+        }
+      ]
+    }
+  ],
+  "postActions": []
+}

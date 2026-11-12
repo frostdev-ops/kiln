@@ -33,6 +33,8 @@ struct PyError : std::exception {
 // ---- small shared rules ----
 
 uint32_t fnv1a(const void* data, size_t n);
+// SHA-256 of `n` bytes.
+std::array<uint8_t, 32> sha256(const void* data, size_t n);
 inline uint32_t fnv1a(std::string_view s) { return fnv1a(s.data(), s.size()); }
 
 // keen::Guid: 16 bytes in memory order ({u32, u16, u16, u8[8]}, little-endian groups), text lower-case 8-4-4-4-12.
@@ -91,9 +93,13 @@ struct Value {
     std::string s;
     Guid g;
     std::vector<Value> items;
-    // Struct: member names. They point into the TypeDb the value was decoded with, or at string literals: a tree must
-    // not outlive its TypeDb, and set() takes only keys that live as long.
-    std::vector<std::string_view> names;
+
+    // Struct: member names, in the order of `items`. They point into the TypeDb the value was decoded with, or at string
+    // literals: a tree must not outlive its TypeDb, and set() takes only keys that live as long. A decoded struct shares
+    // its type's list; set() of a new key and erase() give it its own.
+    const std::vector<std::string_view>& names() const { return shared_names ? *shared_names : own_names; }
+    const std::vector<std::string_view>* shared_names = nullptr;
+    std::vector<std::string_view> own_names;
 
     static Value none() { return {}; }
     static Value boolean(bool b);

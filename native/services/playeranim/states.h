@@ -72,6 +72,10 @@ ModStates parse(std::string_view text, const std::string& mod, const std::option
 ModStates load_bytes(std::string_view bytes, const std::string& mod, const std::optional<std::string>& side, const std::optional<std::string>& clients,
                      const std::string& file_name = kFileName, const IdHooks* hooks = nullptr);
 
+// re.sub(r"^\s*//.*$", "", text, flags=re.M): a line whose first non-space characters are // goes, with the white space
+// before it (playerstates.read_manifest, playergraph.ClipFacts' assets.json).
+std::string strip_line_comments(std::string_view text);
+
 // kiln.mod.json as playerstates.read_manifest reads it (whole-line // comments and trailing commas removed, then JSON):
 // its "id", "side" and "clients" (nullopt when absent or not a string). Throws DefinitionError("<where>: <why>").
 struct ManifestFields {

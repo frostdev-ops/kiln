@@ -117,6 +117,14 @@ typedef struct KilnPlayerAnimApi {
     /* JSON: state, hash, the states with status and reason, the machines touched, bytes before and after, the merge's
      * time. KILN_ERR_BUFFER_TOO_SMALL sets *out_len to the length needed. */
     KilnResult(KILN_CALL* status_json)(char* json, size_t capacity, size_t* out_len);
+
+    /* The index-th state with that name, in the graph's order (index < the *out_matches game_state gives). name:
+     * "State" or "Machine/State". KILN_ERR_NOT_FOUND: no such state or index past the end; KILN_ERR_UNAVAILABLE: the
+     * game's graph cannot be read on this build. Added v1 (appended); check header.size before calling. */
+    KilnResult(KILN_CALL* game_state_at)(KilnStr name, uint32_t index, KilnPaGameState* out);
+    /* Every id that enters the index-th state with that name (out_count is set even when capacity is too small). Added
+     * v1 (appended); check header.size before calling. */
+    KilnResult(KILN_CALL* game_state_ids_at)(KilnStr name, uint32_t index, uint32_t* out, size_t capacity, size_t* out_count);
 } KilnPlayerAnimApi;
 
 #ifdef __cplusplus

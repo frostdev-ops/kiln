@@ -7,6 +7,7 @@
 #pragma once
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -44,6 +45,7 @@ struct EnumValue {
 };
 
 struct Type {
+    uint64_t va = 0;   // the record's address when read from an image (a later address wins a name, as refl.extract sorts)
     std::string name;  // qualified, "keen::JointAnimation"
     uint32_t hash = 0, size = 0, count = 0, align = 0, kind = 0;
     std::string inner;  // typedef target, enum underlying type, element, base class
@@ -55,17 +57,24 @@ struct Type {
     // Set by TypeDb::finish().
     const Type* inner_t = nullptr;   // get(inner) when inner is written, else null
     std::vector<const Field*> all;   // all_fields(): the base chain's fields first
+    // A decoded struct's member names: all's names, a repeated name once at its first place (a dict assignment keeps
+    // the first place and the last value); slot[i]: where all[i] goes.
+    std::vector<std::string_view> names;
+    std::vector<uint32_t> slot;
 };
 
 // Type records by qualified name and by hash; a later record of the same name (or hash) wins, as in refl.py's TypeDb.
-// Read-only once built: any thread may use it.
+// From the bundled dump: every record, read-only, any thread. From an image: the table is indexed, and a record is
+// built the first time a lookup asks for it, with every record it reaches (its inner and field types): a lookup may add
+// records, so one thread at a time (the service's lock). Records never move once built.
 class TypeDb {
 public:
-    TypeDb() = default;
+    TypeDb();
+    ~TypeDb();
     TypeDb(const TypeDb&) = delete;
     TypeDb& operator=(const TypeDb&) = delete;
-    TypeDb(TypeDb&&) = default;
-    TypeDb& operator=(TypeDb&&) = default;
+    TypeDb(TypeDb&&) noexcept;
+    TypeDb& operator=(TypeDb&&) noexcept;
 
     // By qualified name; "0x..." is a hash, as refl.TypeDb.get takes it.
     const Type* get(std::string_view key) const;
@@ -84,16 +93,27 @@ public:
 
     // anim-types.json, the dump refl.extract writes. false and *why on a malformed dump.
     static bool from_json(std::string_view text, TypeDb* out, std::string* why);
-    // The type table of an image (scan.h's find_type_table), and every record its entries reach: the same records
-    // refl.extract finds for those types. false and *why when the table is not found.
+    // The type table of an image (scan.h's find_type_table), indexed by name and hash; records are built on demand
+    // (see above), each as refl.extract reads it. The image must stay mapped as long as the TypeDb lives. false and *why
+    // when the table is not found.
     static bool from_image(const ktypes::Image& im, TypeDb* out, std::string* why);
+    // The same with the table's entries given (the addresses kiln.types' type_at returns): no scan of the image.
+    static bool from_table(const ktypes::Image& im, const std::vector<uint64_t>& entries, TypeDb* out, std::string* why);
+    // How many records of an image's table are indexed (0 for a dump).
+    size_t indexed() const;
 
 private:
-    std::deque<Type> types_;
-    std::unordered_map<std::string, const Type*> by_name_;
-    std::unordered_map<uint32_t, const Type*> by_hash_;
+    struct Index;
+    const Type* load(uint64_t va) const;  // a record of the image and every record it reaches
+    void finish_one(Type& t) const;
+    const Type* insert(Type t) const;
+
+    mutable std::deque<Type> types_;
+    mutable std::unordered_map<std::string, const Type*> by_name_;
+    mutable std::unordered_map<uint32_t, const Type*> by_hash_;
+    mutable std::unordered_map<uint64_t, const Type*> by_va_;
     std::vector<const Field*> none_;
-    bool finished_ = false;
+    std::unique_ptr<Index> index_;
 };
 
 }  // namespace kpa

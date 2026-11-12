@@ -1,0 +1,7 @@
+{
+  "id": "tk-locale",
+  "name": "Test kit locale mod",
+  "version": "1.2.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "TkLocale.dll"
+}

@@ -317,7 +317,7 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
      for mod authors docs/kiln/modding/animations.md, "Player states". The graph is one resource for every player, so the
      `assets/player-states.json` of every enabled mod is merged into one override.
      - **Where and when.** At boot, in the native service kiln.playeranim (fixed by its header
-       `native/core/abi/services/kiln_playeranim.h`; the service itself lands later in dev.25): in kiln.assets'
+       `native/core/abi/services/kiln_playeranim.h`; `native/services/playeranim/playeranim.cpp`): in kiln.assets'
        `when_resources_ready`, on the game's thread before the game reads the graph, served once with `resource_put` and never
        changed. Why once: an override of the player's graph registered while a player's graph instance is live kills the server
        (`animation::jointStackGetBlockInternalWeight blockIndex (1) is > count (1)`, then a fatal error); registered before any
@@ -367,8 +367,8 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
        Both hands, overlays set by edited copies of the game's casts: staff overlay 0.17 to 0.25 m (control 0.53, the game
        against itself 0.22; the weakest case), wand overlay 0.13 m (0.67, 0.09), bow overlay 0.07 to 0.12 m (0.30 to 0.36,
        0.14), staff full-body 0.035 to 0.042 m (0.37, 0.10); `SM_Staff_Overlay` at its 21: first and last enter; a second wand
-       cast before the first ends continues the clip. Offline, the two merges give the same bytes for the melee, jump, block,
-       parry, dodge, sneak and kick states (312 host checks); the staff, wand and bow states follow. Not seen: anything drawn,
+       cast before the first ends continues the clip. Offline, the two merges give the same bytes for every kind of neighbour
+       (369 host checks). On the lab the service's merge takes 52 to 65 ms of a boot (three boots). Not seen: anything drawn,
        a joined player, root motion moving the body.
 6. **Validation route.** Done for geometry and skin, over every skinned model (section 6); the client test is open.
 

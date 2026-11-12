@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test mod of Kiln.TestKit.Tests: [KilnTest] methods with every outcome (see ../Directory.Build.targets). -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

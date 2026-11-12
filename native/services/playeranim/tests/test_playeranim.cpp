@@ -4,12 +4,14 @@
 //   test_playeranim --time <cases dir> [<game exe>]  the times on the game's graph only (an optimized build)
 // No game process, no Wine: the exe is only ever opened as a file.
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <functional>
 #include <iterator>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 
@@ -52,6 +54,11 @@ std::string to_hex(std::string_view s) {
     std::string out;
     for (unsigned char c : s) out.push_back(d[c >> 4]), out.push_back(d[c & 15]);
     return out;
+}
+double cpu_ms() {  // this thread's CPU time: the merge's own cost, whatever else the machine runs
+    timespec ts{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
 }
 double ms_since(std::chrono::steady_clock::time_point t0) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); }
 
@@ -284,6 +291,14 @@ void merges(Ctx& c, const json& cases) {
         MergeHooks hooks;
         if (k["hook"] == "node_id_pq77") hooks.ids.node_id = node_id_pq77;
         if (k["hook"] == "lossy2") hooks.after_encode = lossy2;
+        if (k["hook"].is_string() && k["hook"].get<std::string>().rfind("drop:", 0) == 0) {
+            const std::string list = k["hook"].get<std::string>().substr(5);
+            for (size_t from = 0; from <= list.size();) {
+                const size_t comma = std::min(list.find(',', from), list.size());
+                hooks.drop_first.push_back(list.substr(from, comma - from));
+                from = comma + 1;
+            }
+        }
         const auto facts = facts_of(k["facts"]);
         try {
             merge_case(c, name, raw, c.types(k["types"]), mods_of(k["mods"]), facts_fn(facts), k["report"], k["bin"], &hooks, k["lazy"].get<bool>(), &k["called"]);
@@ -377,6 +392,63 @@ void joint_animations(Ctx& c, const json& cases) {
         }
         const std::string want = k.contains("error") ? k["error"].get<std::string>() : "facts";
         check("joint animation " + k["name"].get<std::string>(), got == want, got + " | want " + want);
+    }
+}
+
+void clip_facts(Ctx& c, const json& cases) {
+    const json& k = cases["clipfacts"];
+    std::vector<ClipFactsProvider::Mod> mods;
+    for (const json& d : k["mods"]) {
+        ClipFactsProvider::Mod m;
+        m.assets_dir = d.get<std::string>();
+        m.assets_json = slurp(m.assets_dir + "/assets.json");
+        m.has_json = std::ifstream(m.assets_dir + "/assets.json").good();
+        mods.push_back(std::move(m));
+    }
+    const std::string gb = unhex(k["game_bytes"].get<std::string>());
+    std::set<std::pair<std::string, uint32_t>> keys;
+    for (const json& x : k["game"]) keys.insert({x[0].get<std::string>(), x[1].get<uint32_t>()});
+    ClipFactsProvider::Game game;
+    game.has = [&](const Guid& g, uint32_t t) { return keys.count({g.text(), t}) > 0; };
+    game.read = [&](const Guid&, uint32_t, Bytes* out) {
+        out->assign(gb.begin(), gb.end());
+        return true;
+    };
+    ClipFactsProvider f(c.bundled, mods, [](const std::string& path, Bytes* out) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return false;
+        out->assign(std::istreambuf_iterator<char>(in), {});
+        return true;
+    }, game);
+    int bad = 0;
+    for (const json& q : k["results"]) {
+        const std::optional<ClipFacts> got = f(q[0].get<std::string>());
+        const auto want = facts_of(json{{"x", q[1]}})["x"];
+        if (got != want && ++bad) std::printf("  clip facts %s: %s, want %s\n", q[0].get<std::string>().c_str(), got ? "facts" : "none", want ? "facts" : "none");
+    }
+    check("clip facts from mods' assets.json and the game as playergraph.ClipFacts gives them (" + std::to_string(k["results"].size()) + " clips)", bad == 0);
+}
+
+// note 04's lookup on a graph: every state by bare name and by Machine/State
+void lookups(const TypeDb& db, const Bytes& raw, const json& names, const std::string& label) {
+    try {
+        const GameStates gs(db, raw);
+        int bad = 0;
+        for (const json& k : names) {
+            const auto got = gs.find(k["name"].get<std::string>());
+            bool same = got.size() == k["states"].size();
+            for (size_t i = 0; same && i < got.size(); ++i) {
+                const json& w = k["states"][i];
+                std::vector<uint32_t> ids;
+                for (const json& x : w["ids"]) ids.push_back(x.get<uint32_t>());
+                same = got[i]->machine == w["machine"].get<std::string>() && got[i]->name == w["name"].get<std::string>() && got[i]->kind == w["kind"].get<std::string>() &&
+                       got[i]->ids == ids;
+            }
+            if (!same && ++bad <= 5) std::printf("  lookup %s: %zu found, want %zu\n", k["name"].get<std::string>().c_str(), got.size(), k["states"].size());
+        }
+        check("lookup on " + label + ": " + std::to_string(names.size()) + " names give the machine, kind and ids the merge's rules give", bad == 0);
+    } catch (const PyError& e) {
+        check("lookup on " + label, false, e.type + ": " + e.text);
     }
 }
 
@@ -509,29 +581,34 @@ void game(Ctx& c, const json& cases, bool timing_only) {
         return;
     }
     const auto facts = facts_of(gm["facts"]);
+    if (!timing_only) lookups(c.image ? *c.image : c.bundled, raw, gm["lookup"], "the game's graph");
     std::vector<std::pair<std::string, const TypeDb*>> sources = {{"bundled layouts", &c.bundled}};
     if (c.image) sources.push_back({"the exe's layouts", c.image});
     for (const auto& [src, db] : sources) {
         const Type* g = db->get(kGraphType);
-        const auto t0 = std::chrono::steady_clock::now();
+        const double t0 = cpu_ms();
         const Value v = Decoder(*db, kMaxArray).decode(g, raw);
-        const double dms = ms_since(t0);
-        const auto t1 = std::chrono::steady_clock::now();
+        const double dms = cpu_ms() - t0;
+        const double t1 = cpu_ms();
         const Bytes back = Encoder(*db).encode(g, v);
-        const double ems = ms_since(t1);
+        const double ems = cpu_ms() - t1;
         if (!timing_only) check("game graph (" + src + "): decode then encode gives its " + std::to_string(raw.size()) + " bytes", back == raw, back == raw ? "" : first_diff(back, raw));
-        std::printf("TIME game graph (%s): decode %.1f ms, encode %.1f ms\n", src.c_str(), dms, ems);
+        std::printf("TIME game graph (%s): decode %.1f ms CPU, encode %.1f ms CPU\n", src.c_str(), dms, ems);
         for (const json& k : gm["cases"]) {
             const std::string name = "game (" + src + ") " + k["name"].get<std::string>();
             const std::vector<ModStates> mods = mods_of(k["mods"]);
             if (timing_only) {
-                double best = 1e9;
+                double best = 1e9, cpu = 1e9;
+                MergeTimes split;
                 for (int i = 0; i < 5; ++i) {
                     const auto t = std::chrono::steady_clock::now();
+                    const double c0 = cpu_ms();
                     const MergeResult r = merge(GraphSource{&raw, {}}, *db, mods, facts_fn(facts));
-                    best = std::min(best, ms_since(t));
+                    cpu = std::min(cpu, cpu_ms() - c0);
+                    if (ms_since(t) < best) best = ms_since(t), split = r.times;
                 }
-                std::printf("TIME merge, %s (%s): %.1f ms (best of 5)\n", k["name"].get<std::string>().c_str(), src.c_str(), best);
+                std::printf("TIME merge, %s (%s): %.1f ms CPU, %.1f ms wall (best of 5; wall: read %.1f, accept %.1f, build %.1f, validate %.1f, encode %.1f)\n",
+                            k["name"].get<std::string>().c_str(), src.c_str(), cpu, best, split.read, split.accept, split.build, split.validate, split.encode);
                 continue;
             }
             double ms = 0;
@@ -568,10 +645,18 @@ int main(int argc, char** argv) {
         } else if (!map_pe(exe, *mapped)) {
             check("the exe maps", false, exe);
         } else {
-            const auto t0 = std::chrono::steady_clock::now();
+            const double t0 = cpu_ms();
             const bool ok = TypeDb::from_image(mapped->im, &image, &why);
-            std::printf("TIME type table from the exe: %.1f ms, %zu types\n", ms_since(t0), image.size());
+            const double t1 = cpu_ms();
+            std::printf("TIME type table from the exe: found and indexed in %.1f ms CPU, %zu types indexed\n", t1 - t0, image.indexed());
             if (check("types: the exe's type table reads", ok, why)) {
+                // what the merge needs: the graph's type, the clip types, and (by hash, while decoding) the node types
+                const double t2 = cpu_ms();
+                for (const char* n : {kGraphType, kJointAnim, kRootMotion, kSequences}) image.get(n);
+                const Bytes raw = cases["game"].is_null() ? Bytes() : slurp_bytes(cases["game"]["graph"].get<std::string>());
+                if (!raw.empty()) Decoder(image, kMaxArray).decode(image.get(kGraphType), raw);
+                std::printf("TIME types the game's graph and the clips need, built on demand: %zu in %.1f ms CPU (with one decode of the graph)\n", image.size(),
+                            cpu_ms() - t2);
                 c.image = &image;
                 if (!timing) compare_types(c.bundled, image);
             }
@@ -586,6 +671,8 @@ int main(int argc, char** argv) {
         merges(c, cases);
         validations(c, cases);
         joint_animations(c, cases);
+        clip_facts(c, cases);
+        lookups(c.bundled, slurp_bytes(c.dir + "/" + cases["lookup"]["graph"].get<std::string>()), cases["lookup"]["names"], "the synthetic graph");
         fuzz(c, cases);
     }
     game(c, cases, timing);

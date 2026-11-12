@@ -47,14 +47,35 @@ const char* kind_name(uint32_t kind) {
     }
 }
 
+// The table of an image: every entry's record by name and by hash (the last address of a name or hash wins).
+struct TypeDb::Index {
+    const ktypes::Image* im = nullptr;
+    std::unordered_map<std::string_view, uint64_t> by_name;
+    std::unordered_map<uint32_t, uint64_t> by_hash;
+    size_t count = 0;
+};
+
+TypeDb::TypeDb() = default;
+TypeDb::~TypeDb() = default;
+TypeDb::TypeDb(TypeDb&&) noexcept = default;
+TypeDb& TypeDb::operator=(TypeDb&&) noexcept = default;
+
+size_t TypeDb::indexed() const { return index_ ? index_->count : 0; }
+
 const Type* TypeDb::by_name(std::string_view name) const {
     const auto it = by_name_.find(std::string(name));
-    return it == by_name_.end() ? nullptr : it->second;
+    if (it != by_name_.end()) return it->second;
+    if (!index_) return nullptr;
+    const auto at = index_->by_name.find(name);
+    return at == index_->by_name.end() ? nullptr : load(at->second);
 }
 
 const Type* TypeDb::get(uint32_t hash) const {
     const auto it = by_hash_.find(hash);
-    return it == by_hash_.end() ? nullptr : it->second;
+    if (it != by_hash_.end()) return it->second;
+    if (!index_) return nullptr;
+    const auto at = index_->by_hash.find(hash);
+    return at == index_->by_hash.end() ? nullptr : load(at->second);
 }
 
 const Type* TypeDb::get(std::string_view key) const {
@@ -79,30 +100,42 @@ const std::vector<const Field*>& TypeDb::all_fields(const Type* t) const {
     return t && t->kind == K_STRUCT ? t->all : none_;
 }
 
-void TypeDb::add(Type t) {
+const Type* TypeDb::insert(Type t) const {
     types_.push_back(std::move(t));
     const Type* p = &types_.back();
-    by_name_[p->name] = p;
-    by_hash_[p->hash] = p;
+    // a later record of a name or hash wins: the next in the dump, or the higher address in an image
+    auto keep = [&](const Type*& slot) {
+        if (!slot || !p->va || slot->va <= p->va) slot = p;
+    };
+    keep(by_name_[p->name]);
+    keep(by_hash_[p->hash]);
+    if (p->va) by_va_[p->va] = p;
+    return p;
+}
+
+void TypeDb::add(Type t) { insert(std::move(t)); }
+
+// Resolves a record's references and its field list. Its inner and field types are records already (or not types).
+void TypeDb::finish_one(Type& t) const {
+    t.inner_t = t.has_inner && !t.inner.empty() ? get(t.inner) : nullptr;
+    for (Field& f : t.fields) f.t = f.has_type ? get(f.type) : nullptr;
+    if (t.kind != K_STRUCT) return;
+    // all_fields: the chain of struct bases (refl.py follows by_name while the kind is struct). A chain longer than 256 is a
+    // cycle in a broken dump: cut there (refl.py would not return).
+    std::vector<const Type*> chain;
+    for (const Type* cur = &t; cur && cur->kind == K_STRUCT && chain.size() < 256; cur = cur->has_inner && !cur->inner.empty() ? by_name(cur->inner) : nullptr)
+        chain.push_back(cur);
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+        for (const Field& f : (*it)->fields) t.all.push_back(&f);
+    for (const Field* f : t.all) {
+        const auto at = std::find(t.names.begin(), t.names.end(), std::string_view(f->name));
+        t.slot.push_back(static_cast<uint32_t>(at - t.names.begin()));
+        if (at == t.names.end()) t.names.push_back(f->name);
+    }
 }
 
 void TypeDb::finish() {
-    for (Type& t : types_) {
-        t.inner_t = t.has_inner && !t.inner.empty() ? get(t.inner) : nullptr;
-        for (Field& f : t.fields) f.t = f.has_type ? get(f.type) : nullptr;
-    }
-    // all_fields: the chain of struct bases (refl.py follows by_name while the kind is struct). A chain longer than 256 is
-    // a cycle in a broken dump: cut there (refl.py would not return).
-    for (Type& t : types_) {
-        if (t.kind != K_STRUCT) continue;
-        std::vector<const Type*> chain;
-        for (const Type* cur = &t; cur && cur->kind == K_STRUCT && chain.size() < 256;
-             cur = cur->has_inner && !cur->inner.empty() ? by_name(cur->inner) : nullptr)
-            chain.push_back(cur);
-        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
-            for (const Field& f : (*it)->fields) t.all.push_back(&f);
-    }
-    finished_ = true;
+    for (Type& t : types_) finish_one(t);
 }
 
 bool TypeDb::from_json(std::string_view text, TypeDb* out, std::string* why) {
@@ -170,6 +203,68 @@ std::string text_at(const ktypes::Image& im, uint64_t ptr, uint64_t len) {
 
 }  // namespace
 
+namespace {
+
+// A type record of the image as refl.extract reads it; *refs gets the addresses of the records it names.
+Type read_record(const ktypes::Image& im, uint64_t va, std::vector<uint64_t>* refs) {
+    auto ref = [&](uint64_t p, std::string* name) {
+        if (!p || !ktypes::is_type(im, p)) return false;
+        *name = std::string(ktypes::str_at(im, p + ktypes::td::qname));
+        refs->push_back(p);
+        return true;
+    };
+    Type t;
+    t.va = va;
+    t.name = std::string(ktypes::str_at(im, va + ktypes::td::qname));
+    t.hash = im.d(va + kHash);
+    t.size = im.d(va + kSize);
+    t.align = im.w(va + kAlign);
+    t.kind = im.d(va + kKind) & 0xFF;
+    t.count = im.d(va + kCount);
+    t.has_inner = ref(im.q(va + kInner), &t.inner);
+    const uint64_t fp = im.q(va + kFields);
+    if (t.kind == K_STRUCT && fp && t.count < 4096 && im.has(fp, uint64_t{t.count} * kFieldStride)) {
+        t.has_fields = true;
+        for (uint32_t i = 0; i < t.count; ++i) {
+            const uint64_t e = fp + uint64_t{i} * kFieldStride;
+            Field f;
+            f.name = text_at(im, im.q(e), im.q(e + 8));
+            f.has_type = ref(im.q(e + 0x10), &f.type);
+            f.offset = im.q(e + 0x18);
+            t.fields.push_back(std::move(f));
+        }
+    }
+    const uint64_t ep = im.q(va + kEnums);
+    if (t.kind == K_ENUM && ep && t.count < 65536 && im.has(ep, uint64_t{t.count} * kEnumStride)) {
+        t.has_values = true;
+        for (uint32_t i = 0; i < t.count; ++i) {
+            const uint64_t e = ep + uint64_t{i} * kEnumStride;
+            t.values.push_back({text_at(im, im.q(e), im.q(e + 8)), im.q(e + 0x10)});
+        }
+    }
+    return t;
+}
+
+}  // namespace
+
+const Type* TypeDb::load(uint64_t va) const {
+    if (const auto it = by_va_.find(va); it != by_va_.end()) return it->second;
+    // every record this one reaches, then their references and field lists (they name each other)
+    std::vector<uint64_t> todo = {va};
+    std::vector<Type*> fresh;
+    while (!todo.empty()) {
+        const uint64_t at = todo.back();
+        todo.pop_back();
+        if (by_va_.count(at) || !ktypes::is_type(*index_->im, at)) continue;
+        std::vector<uint64_t> refs;
+        fresh.push_back(const_cast<Type*>(insert(read_record(*index_->im, at, &refs))));
+        todo.insert(todo.end(), refs.begin(), refs.end());
+    }
+    for (Type* t : fresh) finish_one(*t);
+    const auto it = by_va_.find(va);
+    return it == by_va_.end() ? nullptr : it->second;
+}
+
 bool TypeDb::from_image(const ktypes::Image& im, TypeDb* out, std::string* why) {
     *out = TypeDb();
     const ktypes::TypeTable tt = ktypes::find_type_table(im);
@@ -177,68 +272,30 @@ bool TypeDb::from_image(const ktypes::Image& im, TypeDb* out, std::string* why) 
         *why = "the game's type table: " + (tt.error.empty() ? std::string("not found") : tt.error);
         return false;
     }
-    // Every entry of the table, and every type record their inner and field types reach (refl.extract names a
-    // referenced record only when it is a type record itself).
-    std::unordered_map<uint64_t, std::string> names;
-    std::vector<uint64_t> todo;
-    auto visit = [&](uint64_t va) {
-        if (va == 0 || names.count(va) || !ktypes::is_type(im, va)) return;
-        names.emplace(va, std::string(ktypes::str_at(im, va + ktypes::td::qname)));
-        todo.push_back(va);
-    };
-    for (uint32_t i = 0; i < tt.count; ++i) visit(im.q(tt.table + 8ull * i));
-    while (!todo.empty()) {
-        const uint64_t va = todo.back();
-        todo.pop_back();
-        visit(im.q(va + kInner));
-        const uint32_t kind = im.d(va + kKind) & 0xFF, count = im.d(va + kCount);
-        const uint64_t fp = im.q(va + kFields);
-        if (kind == K_STRUCT && fp && count < 4096)
-            for (uint32_t i = 0; i < count; ++i) visit(im.q(fp + uint64_t{i} * kFieldStride + 0x10));
+    std::vector<uint64_t> entries(tt.count);
+    for (uint32_t i = 0; i < tt.count; ++i) entries[i] = im.q(tt.table + 8ull * i);
+    return from_table(im, entries, out, why);
+}
+
+bool TypeDb::from_table(const ktypes::Image& im, const std::vector<uint64_t>& entries, TypeDb* out, std::string* why) {
+    *out = TypeDb();
+    if (entries.empty()) {
+        *why = "the game's type table has no entries";
+        return false;
     }
-    // refl.extract sorts the records by name (in address order within a name), so the last of a name wins.
-    std::vector<std::pair<std::string_view, uint64_t>> order;
-    order.reserve(names.size());
-    for (const auto& [va, n] : names) order.emplace_back(n, va);
-    std::sort(order.begin(), order.end());
-    auto ref = [&](uint64_t va, std::string* name) {
-        const auto it = va ? names.find(va) : names.end();
-        if (it == names.end()) return false;
-        *name = it->second;
-        return true;
-    };
-    for (const auto& [name, va] : order) {
-        Type t;
-        t.name = std::string(name);
-        t.hash = im.d(va + kHash);
-        t.size = im.d(va + kSize);
-        t.align = im.w(va + kAlign);
-        t.kind = im.d(va + kKind) & 0xFF;
-        t.count = im.d(va + kCount);
-        t.has_inner = ref(im.q(va + kInner), &t.inner);
-        const uint64_t fp = im.q(va + kFields);
-        if (t.kind == K_STRUCT && fp && t.count < 4096 && im.has(fp, uint64_t{t.count} * kFieldStride)) {
-            t.has_fields = true;
-            for (uint32_t i = 0; i < t.count; ++i) {
-                const uint64_t e = fp + uint64_t{i} * kFieldStride;
-                Field f;
-                f.name = text_at(im, im.q(e), im.q(e + 8));
-                f.has_type = ref(im.q(e + 0x10), &f.type);
-                f.offset = im.q(e + 0x18);
-                t.fields.push_back(std::move(f));
-            }
-        }
-        const uint64_t ep = im.q(va + kEnums);
-        if (t.kind == K_ENUM && ep && t.count < 65536 && im.has(ep, uint64_t{t.count} * kEnumStride)) {
-            t.has_values = true;
-            for (uint32_t i = 0; i < t.count; ++i) {
-                const uint64_t e = ep + uint64_t{i} * kEnumStride;
-                t.values.push_back({text_at(im, im.q(e), im.q(e + 8)), im.q(e + 0x10)});
-            }
-        }
-        out->add(std::move(t));
+    auto ix = std::make_unique<Index>();
+    ix->im = &im;
+    for (const uint64_t va : entries) {
+        if (!ktypes::is_type(im, va)) continue;
+        const std::string_view name = ktypes::str_at(im, va + ktypes::td::qname);
+        auto keep = [&](uint64_t& slot) {
+            if (slot < va) slot = va;
+        };
+        keep(ix->by_name[name]);
+        keep(ix->by_hash[im.d(va + kHash)]);
+        ++ix->count;
     }
-    out->finish();
+    out->index_ = std::move(ix);
     return true;
 }
 

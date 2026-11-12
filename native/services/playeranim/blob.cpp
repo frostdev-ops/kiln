@@ -21,6 +21,48 @@ uint32_t fnv1a(const void* data, size_t n) {
     return h;
 }
 
+std::array<uint8_t, 32> sha256(const void* data, size_t n) {
+    static constexpr uint32_t k[64] = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74,
+        0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d,
+        0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e,
+        0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    const auto* p = static_cast<const uint8_t*>(data);
+    auto ror = [](uint32_t x, int r) { return x >> r | x << (32 - r); };
+    auto block = [&](const uint8_t* b) {
+        uint32_t w[64];
+        for (int t = 0; t < 16; ++t) w[t] = uint32_t{b[4 * t]} << 24 | uint32_t{b[4 * t + 1]} << 16 | uint32_t{b[4 * t + 2]} << 8 | uint32_t{b[4 * t + 3]};
+        for (int t = 16; t < 64; ++t) {
+            const uint32_t s0 = ror(w[t - 15], 7) ^ ror(w[t - 15], 18) ^ (w[t - 15] >> 3), s1 = ror(w[t - 2], 17) ^ ror(w[t - 2], 19) ^ (w[t - 2] >> 10);
+            w[t] = w[t - 16] + s0 + w[t - 7] + s1;
+        }
+        uint32_t a = h[0], bb = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int t = 0; t < 64; ++t) {
+            const uint32_t t1 = hh + (ror(e, 6) ^ ror(e, 11) ^ ror(e, 25)) + ((e & f) ^ (~e & g)) + k[t] + w[t];
+            const uint32_t t2 = (ror(a, 2) ^ ror(a, 13) ^ ror(a, 22)) + ((a & bb) ^ (a & c) ^ (bb & c));
+            hh = g, g = f, f = e, e = d + t1, d = c, c = bb, bb = a, a = t1 + t2;
+        }
+        h[0] += a, h[1] += bb, h[2] += c, h[3] += d, h[4] += e, h[5] += f, h[6] += g, h[7] += hh;
+    };
+    size_t i = 0;
+    for (; i + 64 <= n; i += 64) block(p + i);
+    uint8_t tail[128] = {};
+    const size_t rest = n - i;
+    if (rest) std::memcpy(tail, p + i, rest);
+    tail[rest] = 0x80;
+    const size_t len = rest + 9 <= 64 ? 64 : 128;
+    const uint64_t bits = static_cast<uint64_t>(n) * 8;
+    for (int b = 0; b < 8; ++b) tail[len - 1 - b] = static_cast<uint8_t>(bits >> (8 * b));
+    block(tail);
+    if (len == 128) block(tail + 64);
+    std::array<uint8_t, 32> out{};
+    for (int t = 0; t < 8; ++t)
+        for (int b = 0; b < 4; ++b) out[4 * t + b] = static_cast<uint8_t>(h[t] >> (24 - 8 * b));
+    return out;
+}
+
 bool Guid::zero() const {
     for (uint8_t x : b)
         if (x) return false;
@@ -278,8 +320,9 @@ Value Value::hk(uint64_t x) {
 
 const Value* Value::get(std::string_view key) const {
     if (k != VK::Struct) return nullptr;
-    for (size_t i = 0; i < names.size(); ++i)
-        if (names[i] == key) return &items[i];
+    const std::vector<std::string_view>& n = names();
+    for (size_t i = 0; i < n.size(); ++i)
+        if (n[i] == key) return &items[i];
     return nullptr;
 }
 Value* Value::get(std::string_view key) { return const_cast<Value*>(static_cast<const Value*>(this)->get(key)); }
@@ -298,14 +341,17 @@ void Value::set(std::string_view key, Value v) {
         *m = std::move(v);
         return;
     }
-    names.push_back(key);
+    if (shared_names) own_names = *shared_names, shared_names = nullptr;
+    own_names.push_back(key);
     items.push_back(std::move(v));
 }
 
 bool Value::erase(std::string_view key) {
-    for (size_t i = 0; i < names.size(); ++i)
-        if (names[i] == key) {
-            names.erase(names.begin() + static_cast<ptrdiff_t>(i));
+    const std::vector<std::string_view>& n = names();
+    for (size_t i = 0; i < n.size(); ++i)
+        if (n[i] == key) {
+            if (shared_names) own_names = *shared_names, shared_names = nullptr;
+            own_names.erase(own_names.begin() + static_cast<ptrdiff_t>(i));
             items.erase(items.begin() + static_cast<ptrdiff_t>(i));
             return true;
         }
@@ -405,13 +451,20 @@ bool equal(const Value& a, const Value& b) {
             for (size_t i = 0; i < a.items.size(); ++i)
                 if (!equal(a.items[i], b.items[i])) return false;
             return true;
-        case VK::Struct:
+        case VK::Struct: {
             if (a.items.size() != b.items.size()) return false;
+            if (a.shared_names && a.shared_names == b.shared_names) {  // the same keys in the same order
+                for (size_t i = 0; i < a.items.size(); ++i)
+                    if (!equal(a.items[i], b.items[i])) return false;
+                return true;
+            }
+            const std::vector<std::string_view>&an = a.names(), &bn = b.names();
             for (size_t i = 0; i < a.items.size(); ++i) {
-                const Value* other = i < b.names.size() && b.names[i] == a.names[i] ? &b.items[i] : b.get(a.names[i]);
+                const Value* other = i < bn.size() && bn[i] == an[i] ? &b.items[i] : b.get(an[i]);
                 if (!other || !equal(a.items[i], *other)) return false;
             }
             return true;
+        }
         default: return false;
     }
 }
@@ -561,17 +614,19 @@ Value Decoder::value(const Type* t, const uint8_t* b, size_t n, int64_t o, int d
             v.u = read_uint(b, n, o, t->size);
             return v;
         case K_STRUCT: {
+            // a dict filled field by field: a repeated name keeps its first place and its last value
             v = Value::strukt();
             const auto& fs = db_.all_fields(t);
-            v.names.reserve(fs.size());
-            v.items.reserve(fs.size());
-            for (const Field* f : fs) {
+            v.shared_names = &t->names;
+            v.items.resize(t->names.size());
+            for (size_t i = 0; i < fs.size(); ++i) {
+                const Field* f = fs[i];
                 if (!f->t) {
-                    v.set(f->name, Value::none());
+                    v.items[t->slot[i]] = Value::none();
                     continue;
                 }
                 if (f->offset > static_cast<uint64_t>(INT64_MAX - std::max<int64_t>(o, 0))) throw PyError("error", "a field offset out of range");
-                v.set(f->name, value(f->t, b, n, o + static_cast<int64_t>(f->offset), depth + 1));
+                v.items[t->slot[i]] = value(f->t, b, n, o + static_cast<int64_t>(f->offset), depth + 1);
             }
             return v;
         }

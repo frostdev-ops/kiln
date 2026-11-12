@@ -12,6 +12,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <chrono>
+#include <cstring>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -118,6 +121,8 @@ const std::vector<std::pair<std::string, std::vector<const char*>>>& uses() {
         {KPA_NODE "IdParameterEqualsConstantNodeDefinition", {"id", "type", "parameterHash", "parameterId", "value", "ignoreForAnimationSequences"}},
         {KPA_NODE "IdParameterEqualsConstantListNodeDefinition", {"id", "type", "parameterHash", "parameterId", "values", "ignoreForAnimationSequences"}},
         {KPA_NODE "SelectPoseByParameterIdNodeDefinition", {"id", "type", "parameterHash", "inputPoses", "values"}},
+        {KPA_NODE "IsOverlayActiveNodeDefinition", {"id", "type", "overlay"}},
+        {KPA_NODE "IsOverlayActiveListNodeDefinition", {"id", "type", "overlays"}},
     };
     return u;
 }
@@ -222,79 +227,6 @@ std::string repr_list(std::vector<std::string> v) {
     return out + "]";
 }
 
-// ---- entry kinds (ENTRIES) ----
-
-// Kind "state": a state is entered when the state input holds its id. A second kind (an overlay machine: IsOverlayActive,
-// IsOverlayActiveList) is a second row with the same members.
-class Entry {
-public:
-    virtual ~Entry() = default;
-    const char* kind = "";
-    const char* single = "";
-    const char* multi = "";
-    const char* values = "";
-    bool selects = false;
-    // The ids a condition node compares on this kind's input, or nullopt when it is no such compare.
-    virtual std::optional<std::vector<Id>> ids(const Value* node) const = 0;
-    virtual bool is_list(const Value& node) const = 0;
-    // A condition on `value`, a copy of `tmpl` (the graph's first node of the single kind, wrapped).
-    virtual Value make(const Value& tmpl, Id nid, Id value) const = 0;
-    virtual Value make_list(const Value& tmpl, Id nid, const std::vector<Id>& values) const = 0;
-};
-
-class StateEntry final : public Entry {
-public:
-    StateEntry() {
-        kind = "state";
-        single = "IdParameterEqualsConstant";
-        multi = "IdParameterEqualsConstantList";
-        values = "values";
-        selects = true;
-    }
-    std::optional<std::vector<Id>> ids(const Value* node) const override {
-        if (!node) return std::nullopt;
-        const Value* ph = node->k == VK::Struct ? node->get("parameterHash") : nullptr;  // node.get("parameterHash", {}).get("value")
-        const Value* phv = ph && ph->k == VK::Struct ? ph->get("value") : nullptr;
-        if (!phv || !equal(*phv, Value::integer(kStateInput))) return std::nullopt;
-        if (type_is(*node, single)) return std::vector<Id>{node->at("value").id()};
-        if (type_is(*node, multi)) {
-            std::vector<Id> out;
-            for (const Value& x : list_of(node->at("values")).items) out.push_back(x.id());
-            return out;
-        }
-        return std::nullopt;
-    }
-    bool is_list(const Value& node) const override { return type_is(node, multi) && node.at("parameterHash").id() == kStateInput; }
-    Value make(const Value& tmpl, Id nid, Id value) const override {
-        Value w = tmpl;
-        Value& c = wrapped_value(w);
-        c.set("id", Value::hk(nid));
-        c.set("parameterHash", Value::hk(kStateInput));
-        c.set("parameterId", Value::hk(kStateInput));
-        c.set("value", Value::hk(value));
-        c.set("ignoreForAnimationSequences", Value::boolean(false));  // a sequence has to be able to enter the state
-        return w;
-    }
-    Value make_list(const Value& tmpl, Id nid, const std::vector<Id>& ids_) const override {
-        Value w = tmpl;
-        Value& c = wrapped_value(w);
-        c.set("id", Value::hk(nid));
-        c.set("parameterHash", Value::hk(kStateInput));
-        c.set("parameterId", Value::hk(kStateInput));
-        Value l = Value::list();
-        for (Id v : ids_) l.items.push_back(Value::hk(v));
-        c.set("values", std::move(l));
-        c.set("ignoreForAnimationSequences", Value::boolean(false));
-        return w;
-    }
-};
-
-const Entry& entry_of(const std::string& kind) {
-    static const StateEntry state;
-    if (kind == state.kind) return state;
-    throw PyError("KeyError", py_repr(std::string_view(kind)));
-}
-
 // ---- the graph, indexed ----
 
 struct Graph {
@@ -302,6 +234,7 @@ struct Graph {
     std::vector<Value>* wrapped = nullptr;
     std::vector<Value*> nodes;
     std::unordered_map<Id, size_t> by_id;  // also pos
+    std::vector<std::string_view> kinds;  // nodes[i]'s type name ("" when the Python has a number there)
     std::vector<Value*> machines, transitions;
     std::unordered_map<std::string, const Value*> first;  // node kind -> the first node of that kind (wrapped)
     std::unordered_set<Id> ids, compared;
@@ -313,6 +246,11 @@ struct Graph {
         for (size_t i = 0; i < nodes.size(); ++i) {
             const Id nid = id_of(*nodes[i]);
             if (!by_id.emplace(nid, i).second) off("the game's graph has node id " + hex8(nid) + " twice");
+        }
+        kinds.reserve(nodes.size());
+        for (Value* n : nodes) {  // v["type"] as the Python's tree holds it: a name, or no name (a number)
+            const Value& t = n->at("type");
+            kinds.push_back(t.k == VK::Enum && t.name >= 0 ? t.enum_name() : t.k == VK::Str ? std::string_view(t.s) : std::string_view());
         }
         for (Value* n : nodes)
             if (type_is(*n, "StateMachine")) machines.push_back(n);
@@ -340,6 +278,19 @@ struct Graph {
         }
     }
 
+    // The ids a list node holds, as a set: built once per node (rule 6 asks it for every neighbour; the lists change only
+    // after every neighbour is read).
+    const std::unordered_set<Id>& list_ids(const Value& v, const char* field) const {
+        auto it = list_ids_.find(&v);
+        if (it == list_ids_.end()) {
+            std::unordered_set<Id> have;
+            for (const Value& x : list_of(v.at(field)).items) have.insert(x.id());
+            it = list_ids_.emplace(&v, std::move(have)).first;
+        }
+        return it->second;
+    }
+    mutable std::unordered_map<const Value*, std::unordered_set<Id>> list_ids_;
+
     Value* node(Id nid) const {
         const auto it = by_id.find(nid);
         return it == by_id.end() ? nullptr : nodes[it->second];
@@ -348,8 +299,9 @@ struct Graph {
 
     std::vector<std::pair<Value*, Value*>> states_named(std::string_view name, const std::string* machine) const {
         std::vector<std::pair<Value*, Value*>> out;
-        for (Value* v : nodes) {
-            if (!type_is(*v, "StateMachineState") || !text_is(v->at("debugName"), name)) continue;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            Value* v = nodes[i];
+            if (kinds[i] != "StateMachineState" || !text_is(v->at("debugName"), name)) continue;
             Value* m = machine_of(*v);
             if (!m || !type_is(*m, "StateMachine")) continue;
             if (!machine || text_is(m->at("debugName"), *machine)) out.emplace_back(v, m);
@@ -410,6 +362,151 @@ struct Graph {
     }
 };
 
+// ---- entry kinds (ENTRIES): a table of two rows ----
+
+// Kind "state": a state is entered when the state input holds its id. A second kind (an overlay machine: IsOverlayActive,
+// IsOverlayActiveList) is a second row with the same members.
+class Entry {
+public:
+    virtual ~Entry() = default;
+    const char* kind = "";
+    const char* single = "";
+    const char* multi = "";
+    const char* values = "";
+    bool selects = false;   // rule 7
+    bool used_ids = false;  // the id goes into usedInputIds
+    bool nests = false;     // rule 8: past 34, nested machines
+    // Why a state of a supported machine cannot be a neighbour of this kind, before rules 1 to 7 look at it; nullopt: it
+    // can. `gts`: the indexes of M's global transitions into the state.
+    virtual std::optional<std::string> refusal(const Graph& g, const Value& state, const Value& machine, const std::vector<size_t>& gts) const = 0;
+    // The ids a condition node compares on this kind's input, or nullopt when it is no such compare.
+    virtual std::optional<std::vector<Id>> ids(const Value* node) const = 0;
+    virtual bool is_list(const Value& node) const = 0;
+    // A condition on `value`, a copy of `tmpl` (the graph's first node of the single kind, wrapped).
+    virtual Value make(const Value& tmpl, Id nid, Id value) const = 0;
+    virtual Value make_list(const Value& tmpl, Id nid, const std::vector<Id>& values) const = 0;
+};
+
+class StateEntry final : public Entry {
+public:
+    StateEntry() {
+        kind = "state";
+        single = "IdParameterEqualsConstant";
+        multi = "IdParameterEqualsConstantList";
+        values = "values";
+        selects = true;
+        used_ids = true;
+        nests = true;
+    }
+    std::optional<std::string> refusal(const Graph&, const Value&, const Value&, const std::vector<size_t>&) const override { return std::nullopt; }
+    std::optional<std::vector<Id>> ids(const Value* node) const override {
+        if (!node) return std::nullopt;
+        const Value* ph = node->k == VK::Struct ? node->get("parameterHash") : nullptr;  // node.get("parameterHash", {}).get("value")
+        const Value* phv = ph && ph->k == VK::Struct ? ph->get("value") : nullptr;
+        if (!phv || !equal(*phv, Value::integer(kStateInput))) return std::nullopt;
+        if (type_is(*node, single)) return std::vector<Id>{node->at("value").id()};
+        if (type_is(*node, multi)) {
+            std::vector<Id> out;
+            for (const Value& x : list_of(node->at("values")).items) out.push_back(x.id());
+            return out;
+        }
+        return std::nullopt;
+    }
+    bool is_list(const Value& node) const override { return type_is(node, multi) && node.at("parameterHash").id() == kStateInput; }
+    Value make(const Value& tmpl, Id nid, Id value) const override {
+        Value w = tmpl;
+        Value& c = wrapped_value(w);
+        c.set("id", Value::hk(nid));
+        c.set("parameterHash", Value::hk(kStateInput));
+        c.set("parameterId", Value::hk(kStateInput));
+        c.set("value", Value::hk(value));
+        c.set("ignoreForAnimationSequences", Value::boolean(false));  // a sequence has to be able to enter the state
+        return w;
+    }
+    Value make_list(const Value& tmpl, Id nid, const std::vector<Id>& ids_) const override {
+        Value w = tmpl;
+        Value& c = wrapped_value(w);
+        c.set("id", Value::hk(nid));
+        c.set("parameterHash", Value::hk(kStateInput));
+        c.set("parameterId", Value::hk(kStateInput));
+        Value l = Value::list();
+        for (Id v : ids_) l.items.push_back(Value::hk(v));
+        c.set("values", std::move(l));
+        c.set("ignoreForAnimationSequences", Value::boolean(false));
+        return w;
+    }
+};
+
+// Kind "overlay": a state of an overlay machine is entered when an overlay is active (a sequence's
+// SetAnimationOverlayEvent.overlayName, a GUID whose FNV-1a-32 is the overlay id). Conditions: IsOverlayActive and
+// IsOverlayActiveList. No select picks a pose by an overlay, overlay ids are not in usedInputIds, and an overlay machine
+// does not nest.
+class OverlayEntry final : public Entry {
+public:
+    OverlayEntry() {
+        kind = "overlay";
+        single = "IsOverlayActive";
+        multi = "IsOverlayActiveList";
+        values = "overlays";
+    }
+    std::optional<std::vector<Id>> ids(const Value* node) const override {
+        if (!node) return std::nullopt;
+        if (type_is(*node, single)) return std::vector<Id>{node->at("overlay").id()};
+        if (type_is(*node, multi)) {
+            std::vector<Id> out;
+            for (const Value& x : list_of(node->at("overlays")).items) out.push_back(x.id());
+            return out;
+        }
+        return std::nullopt;
+    }
+    bool is_list(const Value& node) const override { return type_is(node, multi); }
+    std::optional<std::string> refusal(const Graph& g, const Value& state, const Value& machine, const std::vector<size_t>& gts) const override;
+    Value make(const Value& tmpl, Id nid, Id value) const override {
+        Value w = tmpl;
+        Value& c = wrapped_value(w);
+        c.set("id", Value::hk(nid));
+        c.set("overlay", Value::hk(value));
+        return w;
+    }
+    Value make_list(const Value& tmpl, Id nid, const std::vector<Id>& ids_) const override {
+        Value w = tmpl;
+        Value& c = wrapped_value(w);
+        c.set("id", Value::hk(nid));
+        Value l = Value::list();
+        for (Id v : ids_) l.items.push_back(Value::hk(v));
+        c.set("overlays", std::move(l));
+        return w;
+    }
+};
+
+const Entry& entry_of(const std::string& kind) {
+    static const StateEntry state;
+    static const OverlayEntry overlay;
+    if (kind == state.kind) return state;
+    if (kind == overlay.kind) return overlay;
+    throw PyError("KeyError", py_repr(std::string_view(kind)));
+}
+const Entry* const kEntries[] = {&entry_of("state"), &entry_of("overlay")};
+
+std::optional<std::string> OverlayEntry::refusal(const Graph& g, const Value& state, const Value& machine, const std::vector<size_t>& gts) const {
+    const Value* pose = g.node(state.at("poseResult").id());
+    const Value* top = pose && type_is(*pose, "PoseResult") ? g.node(pose->at("input").id()) : nullptr;
+    if (top && type_is(*top, "StateMachine"))
+        return "it holds the nested machine " + py_str(top->at("debugName")) + ": a state can be like one of that machine's states";
+    if (gts.empty()) {
+        if (machine.at("entryState").id() == id_of(state))
+            return "it is the rest state of " + py_str(machine.at("debugName")) + ": no overlay enters it, the overlay states go back to it when they end";
+        return std::string("it has no overlay condition of its own: it is entered only from other states, by local transitions");
+    }
+    const Value& all = list_of(machine.at("globalTransitions"));
+    for (size_t i : gts) {  // (g.by_id.get(e["conditionNode"]["value"]) or {}).get("type") == single
+        const Value* cn = g.node(all.items[i].at("conditionNode").id());
+        const Value* t = cn ? cn->get("type") : nullptr;
+        if (t && text_is(*t, single)) return std::nullopt;
+    }
+    return std::string("it is entered on a list of overlays (IsOverlayActiveList), not on an overlay of its own");
+}
+
 // ---- a neighbour: what rules 1 to 7 take from L in M (read from the game's graph as decoded) ----
 
 struct Neighbour {
@@ -429,6 +526,14 @@ struct Neighbour {
     Neighbour(const Graph& g, Value* st, Value* m, const std::string& kind_) : state(st), machine(m), kind(kind_) {
         const Entry& cond = entry_of(kind);
         const Id sid = id_of(*state);
+        const Value& all_gts = list_of(machine->at("globalTransitions"));
+        const int64_t num = sint_of(machine->at("numGlobalTransitions"));
+        const size_t lim = static_cast<size_t>(std::clamp<int64_t>(num, 0, static_cast<int64_t>(all_gts.items.size())));
+        std::vector<size_t> gts;
+        for (size_t i = 0; i < lim; ++i)
+            if (all_gts.items[i].at("toState").id() == sid) gts.push_back(i);
+        error = cond.refusal(g, *state, *machine, gts);
+        if (error) return;
         // rules 1, 2
         Value* p = g.node(state->at("poseResult").id());
         if (!p || !type_is(*p, "PoseResult")) {
@@ -452,12 +557,6 @@ struct Neighbour {
             layer = top;
         }
         // rule 4
-        const Value& all_gts = list_of(machine->at("globalTransitions"));
-        const int64_t num = sint_of(machine->at("numGlobalTransitions"));
-        const size_t lim = static_cast<size_t>(std::clamp<int64_t>(num, 0, static_cast<int64_t>(all_gts.items.size())));
-        std::vector<size_t> gts;
-        for (size_t i = 0; i < lim; ++i)
-            if (all_gts.items[i].at("toState").id() == sid) gts.push_back(i);
         const std::vector<Value*> trans = g.machine_transitions(*machine);
         std::vector<Id> ids;
         if (!gts.empty()) {
@@ -504,10 +603,10 @@ struct Neighbour {
             if (x && !x->empty() && std::all_of(x->begin(), x->end(), [&](Id i) { return entry_set.count(i) > 0; })) ins.push_back(t);
         }
         // rule 6
-        for (Value* v : g.nodes) {
-            if (!cond.is_list(*v) || own.count(id_of(*v))) continue;
-            std::unordered_set<Id> have;
-            for (const Value& x : list_of(v->at(cond.values)).items) have.insert(x.id());
+        for (size_t i = 0; i < g.nodes.size(); ++i) {
+            Value* v = g.nodes[i];
+            if (g.kinds[i] != cond.multi || !cond.is_list(*v) || own.count(id_of(*v))) continue;
+            const std::unordered_set<Id>& have = g.list_ids(*v, cond.values);
             if (std::all_of(entry_set.begin(), entry_set.end(), [&](Id i) { return have.count(i) > 0; })) lists.push_back(v);
         }
         // rule 7
@@ -515,8 +614,9 @@ struct Neighbour {
             std::vector<Id> mine_order;
             g.walk(id_of(*pose), false, &mine_order);
             const std::unordered_set<Id> mine(mine_order.begin(), mine_order.end());
-            for (Value* v : g.nodes) {
-                if (!type_is(*v, "SelectPoseByParameterId") || v->at("parameterHash").id() != kStateInput || mine.count(id_of(*v))) continue;
+            for (size_t i = 0; i < g.nodes.size(); ++i) {
+                Value* v = g.nodes[i];
+                if (g.kinds[i] != "SelectPoseByParameterId" || v->at("parameterHash").id() != kStateInput || mine.count(id_of(*v))) continue;
                 const Value& vals = list_of(v->at("values"));
                 std::optional<size_t> at;
                 for (size_t i = 0; i < vals.items.size(); ++i)
@@ -613,12 +713,13 @@ std::optional<std::string> support(const Value& state, const Value& machine, std
 
 // ---- checks ----
 
-void check_uses(const TypeDb& types) {
+void check_uses(const TypeDb& types, const std::string& missing_field) {
     for (const auto& [tname, fields] : uses()) {
         const Type* t = types.get(tname);
         if (!t) off("the game's reflection has no " + tname);
         std::unordered_set<std::string_view> have;
-        for (const Field* f : types.all_fields(t)) have.insert(f->name);
+        for (const Field* f : types.all_fields(t))
+            if (f->name != missing_field) have.insert(f->name);
         std::string missing;
         for (const char* f : fields)
             if (!have.count(f)) missing += (missing.empty() ? "" : ", ") + std::string(f);
@@ -631,7 +732,7 @@ bool py_keys(const Value& v, std::vector<std::string>* out) {
     out->clear();
     switch (v.k) {
         case VK::Struct:
-            for (std::string_view n : v.names) out->emplace_back(n);
+            for (std::string_view n : v.names()) out->emplace_back(n);
             return true;
         case VK::Variant: *out = {"$type", "value"}; return true;
         case VK::Unknown: *out = {"$type", "$size"}; return true;
@@ -745,14 +846,18 @@ void validate(const TypeDb& types, const Value& pristine, const Value& merged, c
         const Id nid = id_of(va);
         if (wrapped_type(a) != wrapped_type(b) || nid != id_of(vb)) off("node " + hex8(nid) + " moved or changed its type");
         if (equal(va, vb)) continue;
-        const bool machine = type_is(va, "StateMachine"), lst = type_is(va, "IdParameterEqualsConstantList"), sel = type_is(va, "SelectPoseByParameterId");
+        // lists = {e.multi: (e.values,) for e in ENTRIES}: the list kinds that may take ids, and their field
+        const Entry* lst = nullptr;
+        for (const Entry* e : kEntries)
+            if (type_is(va, e->multi)) lst = e;
+        const bool machine = type_is(va, "StateMachine"), sel = type_is(va, "SelectPoseByParameterId");
         const bool allowed = (touched_machines.count(nid) && machine) || (touched_lists.count(nid) && lst) || (touched_selects.count(nid) && sel);
         if (!allowed) off("the game's " + type_text(va) + " " + hex8(nid) + " changed");
-        std::vector<const char*> grow = machine ? std::vector<const char*>{"states", "transitions"} : lst ? std::vector<const char*>{"values"} : std::vector<const char*>{"values", "inputPoses"};
+        std::vector<const char*> grow = machine ? std::vector<const char*>{"states", "transitions"} : lst ? std::vector<const char*>{lst->values} : std::vector<const char*>{"values", "inputPoses"};
         std::vector<const char*> fields = grow;
         if (machine) fields.insert(fields.end(), {"globalTransitions", "numGlobalTransitions"});
-        for (size_t f = 0; f < va.names.size(); ++f) {
-            const std::string_view name = va.names[f];
+        for (size_t f = 0; f < va.names().size(); ++f) {
+            const std::string_view name = va.names()[f];
             if (std::any_of(fields.begin(), fields.end(), [&](const char* x) { return name == x; })) continue;
             if (!equal(va.items[f], vb.at(name))) off("the game's " + type_text(va) + " " + hex8(nid) + ": " + std::string(name) + " changed");
         }
@@ -772,8 +877,8 @@ void validate(const TypeDb& types, const Value& pristine, const Value& merged, c
             if (!same || sint_of(vb.at("numGlobalTransitions")) < n) off("machine " + py_str(va.at("debugName")) + ": its own global transitions changed");
         }
     }
-    for (size_t f = 0; f < pristine.names.size(); ++f) {
-        const std::string_view name = pristine.names[f];
+    for (size_t f = 0; f < pristine.names().size(); ++f) {
+        const std::string_view name = pristine.names()[f];
         if (name == "nodeDefinitions" || name == "usedInputIds") continue;
         if (!equal(pristine.items[f], merged.at(name))) off("the graph's " + std::string(name) + " changed");
     }
@@ -788,6 +893,14 @@ void validate(const TypeDb& types, const Value& pristine, const Value& merged, c
             check_shape(types, types.get(wrapped_type(w)), v, type_text(v) + " " + hex8(nid));
     }
     check_shape(types, types.get(KPA_NODE "ParameterList"), merged.at("usedInputIds"), "usedInputIds");
+}
+
+std::string graph_hash(const Bytes& merged) {
+    const std::array<uint8_t, 32> h = sha256(merged.data(), merged.size());
+    static const char* d = "0123456789abcdef";
+    std::string out;
+    for (int i = 0; i < 8; ++i) out.push_back(d[h[i] >> 4]), out.push_back(d[h[i] & 15]);
+    return out;
 }
 
 uint32_t node_id(const std::vector<std::string>& parts) {
@@ -805,6 +918,14 @@ const std::vector<SupportRow>& supported() {
         {"SM_Attack_Dual_Daggers_FullBody", "state", true, {}},
         {"SM_Jump_Attack_FullBody", "state", true, {}},
         {"SM_Main", "state", false, {"Block_FullBody", "Parry_FullBody", "DodgeRoll_FullBody", "Dodge_Attack_FullBody", "Sneak_Attack_FullBody", "Attack_Skill_Kick_FullBody"}},
+        {"SM_Attack_Staff_FullBody", "state", true, {}},
+        {"SM_Attack_Wand_FullBody", "state", true, {}},
+        // overlay machines: every state with a global transition on an IsOverlayActive of its own (OverlayEntry::refusal says which are not)
+        {"SM_Staff_Overlay", "overlay", true, {}},
+        {"SM_Wand_Overlay", "overlay", true, {}},
+        {"SM_Ground_Bow_Overlay", "overlay", true, {}},
+        {"SM_Air_Bow_Overlay", "overlay", true, {}},
+        {"SM_Ranged_Attack_Additive", "overlay", true, {}},
     };
     return rows;
 }
@@ -839,6 +960,168 @@ ClipFacts joint_animation_facts(const TypeDb& types, const uint8_t* data, size_t
     c.joint_count = got[3];
     c.loop = (got[4] & 1) != 0;
     return c;
+}
+
+// ---- the lookup ----
+
+GameStates::GameStates(const TypeDb& types, const Bytes& raw) {
+    const Type* gt = types.get(kGraphType);
+    if (!gt) off(std::string("the reflection has no ") + kGraphType);
+    Value value = Decoder(types, kMaxArray).decode(gt, raw.data(), raw.size(), 0, kGraphType);
+    const Graph g(value);
+    for (size_t i = 0; i < g.nodes.size(); ++i) {
+        const Value& st = *g.nodes[i];
+        if (g.kinds[i] != "StateMachineState") continue;
+        const Value* m = g.machine_of(st);
+        if (!m || !type_is(*m, "StateMachine")) continue;
+        GameState out;
+        out.machine = py_str(m->at("debugName"));
+        out.name = py_str(st.at("debugName"));
+        std::vector<std::string> kinds = {"state", "overlay"};
+        for (const SupportRow& row : supported())
+            if (out.machine == row.machine) kinds = {row.kind};
+        const Id sid = id_of(st);
+        const Value& all = list_of(m->at("globalTransitions"));
+        const size_t lim = static_cast<size_t>(std::clamp<int64_t>(sint_of(m->at("numGlobalTransitions")), 0, static_cast<int64_t>(all.items.size())));
+        for (const std::string& kind : kinds) {
+            const Entry& cond = entry_of(kind);
+            std::vector<Id> ids;
+            bool any_gt = false;
+            for (size_t k = 0; k < lim; ++k)
+                if (all.items[k].at("toState").id() == sid) {
+                    any_gt = true;
+                    if (auto x = cond.ids(g.node(all.items[k].at("conditionNode").id()))) ids.insert(ids.end(), x->begin(), x->end());
+                }
+            if (!any_gt)
+                for (const Value* t : g.machine_transitions(*m))
+                    if (t->at("toState").id() == sid)
+                        if (auto x = cond.ids(g.node(t->at("conditionNode").id()))) ids.insert(ids.end(), x->begin(), x->end());
+            out.ids.clear();
+            for (Id x : ids)
+                if (std::find(out.ids.begin(), out.ids.end(), static_cast<uint32_t>(x)) == out.ids.end()) out.ids.push_back(static_cast<uint32_t>(x));
+            out.kind = kind;
+            if (!out.ids.empty()) break;
+        }
+        if (out.ids.empty()) out.kind = kinds[0];
+        all_.push_back(std::move(out));
+    }
+}
+
+std::vector<const GameState*> GameStates::find(std::string_view name) const {
+    std::string_view machine, state = name;
+    const size_t slash = name.find('/');
+    if (slash != std::string_view::npos) machine = name.substr(0, slash), state = name.substr(slash + 1);
+    std::vector<const GameState*> out;
+    for (const GameState& s : all_)
+        if (s.name == state && (slash == std::string_view::npos || s.machine == machine)) out.push_back(&s);
+    return out;
+}
+
+// ---- clip facts (playergraph.ClipFacts) ----
+
+namespace {
+
+// str(uuid.UUID(text)), or false where uuid.UUID raises ValueError: "urn:" and "uuid:" removed, braces stripped at the ends,
+// hyphens removed, 32 hex digits.
+bool uuid_text(std::string s, std::string* out) {
+    for (const char* cut : {"urn:", "uuid:"})
+        for (size_t at; (at = s.find(cut)) != std::string::npos;) s.erase(at, std::strlen(cut));
+    while (!s.empty() && (s.front() == '{' || s.front() == '}')) s.erase(s.begin());
+    while (!s.empty() && (s.back() == '{' || s.back() == '}')) s.pop_back();
+    std::string hex;
+    for (char c : s)
+        if (c != '-') hex.push_back(c);
+    if (hex.size() != 32) return false;
+    for (char& c : hex) {
+        if (!std::isxdigit(static_cast<unsigned char>(c))) return false;
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    *out = hex.substr(0, 8) + "-" + hex.substr(8, 4) + "-" + hex.substr(12, 4) + "-" + hex.substr(16, 4) + "-" + hex.substr(20);
+    return true;
+}
+
+// _type_hash: "0x..." a number, a name of the reflection its hash, else FNV-1a of the name.
+uint32_t type_hash_of(const TypeDb& types, const std::string& name) {
+    if (name.size() > 2 && name[0] == '0' && name[1] == 'x') return static_cast<uint32_t>(std::stoull(name.substr(2), nullptr, 16));
+    const Type* t = types.get(name);
+    return t ? t->hash : fnv1a(name);
+}
+
+}  // namespace
+
+ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>& mods, std::function<bool(const std::string&, Bytes*)> read_file, Game game)
+    : types_(types), read_file_(std::move(read_file)), game_(std::move(game)) {
+    ja_ = type_hash_of(types, kJointAnim), rm_ = type_hash_of(types, kRootMotion), sq_ = type_hash_of(types, kSequences);
+    for (const Mod& m : mods) {
+        if (!m.has_json) continue;
+        // json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M)): whole-line comments, no trailing commas
+        Json doc;
+        try {
+            doc = parse_json(strip_line_comments(m.assets_json), m.assets_dir + "/assets.json", false, "");
+        } catch (const DefinitionError& e) {
+            warnings.push_back(e.what());
+            continue;
+        }
+        const Json* entries = doc.t == Json::Obj ? doc.find("entries") : nullptr;
+        if (!entries || entries->t != Json::Arr) continue;
+        for (const Json& e : entries->items) {
+            if (e.t != Json::Obj) continue;
+            const Json* kind = e.find("kind");
+            if (!kind || kind->t != Json::Str || kind->s != "resource") continue;
+            const Json* side = e.find("side");
+            if (side && side->t == Json::Str && side->s == "client") continue;
+            if (const Json* part = e.find("part")) {  // int(e.get("part", 0)) != 0
+                const bool zero = (part->t == Json::Int && part->s == "0") || (part->t == Json::Float && part->f > -1.0 && part->f < 1.0) || part->t == Json::False ||
+                                  (part->t == Json::Str && part->s == "0");
+                if (!zero) continue;
+            }
+            const Json *guid = e.find("guid"), *type = e.find("type"), *file = e.find("file");
+            if (!guid || guid->t != Json::Str || !type || type->t != Json::Str || !file || file->t != Json::Str) continue;
+            std::string g;
+            if (!uuid_text(guid->s, &g)) continue;
+            const uint32_t th = type_hash_of(types, type->s);
+            if (th == ja_ || th == rm_ || th == sq_) served_[{g, th}].push_back(m.assets_dir + "/" + file->s);
+        }
+    }
+}
+
+std::optional<ClipFacts> ClipFactsProvider::operator()(const std::string& guid_in) {
+    std::string guid = guid_in;
+    for (char& c : guid) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (const auto it = cache_.find(guid); it != cache_.end()) return it->second;
+    Guid g;
+    const bool parsed = Guid::parse(guid, &g);
+    auto game_has = [&](uint32_t th) { return parsed && game_.has && game_.has(g, th); };
+    std::optional<ClipFacts> facts;
+    const auto files = served_.find({guid, ja_});
+    if (files != served_.end() && !files->second.empty()) {
+        std::vector<std::optional<ClipFacts>> heads;
+        for (const std::string& f : files->second) {
+            Bytes b;
+            if (!read_file_(f, &b)) {  // OSError
+                heads.push_back(std::nullopt);
+                continue;
+            }
+            try {
+                heads.push_back(joint_animation_facts(types_, b.data(), b.size()));
+            } catch (const PyError& e) {
+                if (e.type != "MergeOff" && e.type != "error") throw;  // the Python catches OSError, struct.error, MergeOff
+                heads.push_back(std::nullopt);
+            }
+        }
+        if (!heads.empty() && std::all_of(heads.begin(), heads.end(), [&](const auto& h) { return h && *h == *heads[0]; })) facts = heads[0];
+    } else if (game_has(ja_)) {
+        Bytes b;
+        if (!game_.read || !game_.read(g, ja_, &b)) throw PyError("KeyError", "the game's " + std::string(kJointAnim) + " " + guid + " cannot be read");
+        facts = joint_animation_facts(types_, b.data(), b.size());
+    }
+    if (facts) {
+        const auto rm = served_.find({guid, rm_}), sq = served_.find({guid, sq_});
+        facts->root_motion = (rm != served_.end() && !rm->second.empty()) || game_has(rm_);
+        facts->sequences = (sq != served_.end() && !sq->second.empty()) || game_has(sq_);
+    }
+    cache_[guid] = facts;
+    return facts;
 }
 
 // ---- the merge ----
@@ -879,6 +1162,7 @@ ojson new_report() {
     r["format"] = 1;
     r["graph"] = "untouched";
     r["reason"] = nullptr;
+    r["graphHash"] = std::string(16, '0');
     r["states"] = ojson::array();
     r["errors"] = ojson::array();
     r["machines"] = ojson::array();
@@ -898,6 +1182,7 @@ public:
     uint32_t nid(const std::vector<std::string>& parts) const { return hooks_ && hooks_->ids.node_id ? hooks_->ids.node_id(parts) : node_id(parts); }
 
     MergeResult run(const GraphSource& src, const std::vector<ModStates>& mods) {
+        start_ = last_ = std::chrono::steady_clock::now();
         report_ = new_report();
         // the definitions are not changed: they can be merged again
         for (size_t i = 0; i < mods.size(); ++i)
@@ -932,21 +1217,28 @@ public:
         try {
             const Type* gt = types_.get(kGraphType);
             if (!gt) off(std::string("the reflection has no ") + kGraphType);
-            check_uses(types_);
+            check_uses(types_, hooks_ ? hooks_->missing_field : std::string());
             const Decoder dec(types_, kMaxArray);
             const Encoder enc(types_);
             Value value = dec.decode(gt, raw->data(), raw->size(), 0, kGraphType);
             if (encode(enc, gt, value) != *raw) off("the game's graph does not encode back to its own bytes with this reflection");
-            const Value pristine = dec.decode(gt, raw->data(), raw->size(), 0, kGraphType);
+            const Value pristine = value;  // the Python decodes the same bytes again: the same value
+            lap(&times_.read);
             Graph g(value);
+            if (hooks_)
+                for (const std::string& k : hooks_->drop_first) g.first.erase(k);
             std::vector<MachinePlan> plan = accept(g);
+            lap(&times_.accept);
             if (plan.empty()) return finish("untouched", std::nullopt, raw->size());
             std::set<Id> new_ids, tm, tl, ts;
             build(g, plan, &new_ids, &tm, &tl, &ts);
+            lap(&times_.build);
             validate(types_, pristine, value, tm, tl, ts, new_ids);
+            lap(&times_.validate);
             Bytes merged = encode(enc, gt, value);
             const Value back = dec.decode(gt, merged.data(), merged.size(), 0, kGraphType);
             if (!equal(back, value) || encode(enc, gt, back) != merged) off("the merged graph does not decode to itself");
+            lap(&times_.encode);
             return finish("merged", std::nullopt, raw->size(), std::move(merged));
         } catch (const PyError& e) {
             return finish("off", e.type == "MergeOff" ? e.text : e.type + ": " + e.text, raw->size());
@@ -956,6 +1248,12 @@ public:
     }
 
 private:
+    void lap(double* into) {
+        const auto now = std::chrono::steady_clock::now();
+        *into += std::chrono::duration<double, std::milli>(now - last_).count();
+        last_ = now;
+    }
+
     Bytes encode(const Encoder& enc, const Type* gt, const Value& v) {
         Bytes out = enc.encode(gt, v, kGraphType);
         ++encodes_;
@@ -981,10 +1279,13 @@ private:
             }
         report_["graph"] = graph;
         report_["reason"] = reason ? ojson(*reason) : ojson(nullptr);
+        report_["graphHash"] = merged && out ? graph_hash(*out) : std::string(16, '0');
         std::vector<Work*> sorted;
         for (auto& w : work_) sorted.push_back(w.get());
         std::stable_sort(sorted.begin(), sorted.end(), key_less);
         MergeResult r;
+        times_.total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_).count();
+        r.times = times_;
         ojson states = ojson::array();
         for (Work* w : sorted) {
             states.push_back(w->st.entry());
@@ -1136,6 +1437,17 @@ private:
             }
             const int64_t free = static_cast<int64_t>(kMaxGlobal) - num;
             const std::string mname = py_str(M->at("debugName"));
+            if (!entry_of(items[0].nb->kind).nests) {
+                // items[free:] refused (a Python slice: a negative start counts from the end), items[:free] kept when free > 0
+                const int64_t n = static_cast<int64_t>(items.size());
+                const size_t from = static_cast<size_t>(free >= 0 ? std::min(free, n) : std::max<int64_t>(0, n + free));
+                for (size_t i = from; i < items.size(); ++i)
+                    items[i].w->st.refuse("machine " + mname + " has room for " + std::to_string(free) + " new states across all mods (" + std::to_string(kMaxGlobal) +
+                                          " global transitions, " + std::to_string(num) + " its own) and an overlay machine does not nest: the states before this one in "
+                                          "mod and name order take them");
+                if (free > 0) out.push_back({M, mid, std::vector<Item>(items.begin(), items.begin() + static_cast<ptrdiff_t>(std::min(free, n))), std::nullopt});
+                continue;
+            }
             std::vector<Group> kept;
             for (size_t gi = 0; gi * kMaxGlobal < items.size(); ++gi) {
                 Group group{gi, std::vector<Item>(items.begin() + static_cast<ptrdiff_t>(gi * kMaxGlobal),
@@ -1276,7 +1588,7 @@ private:
                 list_of(sel->at("inputPoses")).items.push_back(Value::hk(pose));
                 bump(touched_selects, id_of(*sel));
             }
-            used.items.push_back(Value::hk(w.st.id));
+            if (entry.used_ids) used.items.push_back(Value::hk(w.st.id));
         };
         for (MachinePlan& mp : plan) {  // rule 11: machines in graph order (accept() made them so)
             Value* M = mp.M;
@@ -1402,6 +1714,8 @@ private:
     std::vector<std::unique_ptr<Work>> work_;
     std::unordered_map<Id, std::unique_ptr<Neighbour>> neighbours_;
     int encodes_ = 0;
+    MergeTimes times_;
+    std::chrono::steady_clock::time_point start_, last_;
 };
 
 }  // namespace
