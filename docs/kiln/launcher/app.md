@@ -286,7 +286,9 @@ launcher's exclusive lock (`busy`), a move of this process (`busy`, until it fai
 (`busy` until the restart). In front of every Tauri command a gate (lib.rs `gated`) refuses what may not run then
 (contracts.md section 9 lists what answers in each state), and `spawn_task` fails a new task at once while the folder is
 held (except the move and the removal of an old copy). A move is refused while a task runs ("Kiln is still working on:
-<title>."), and waits for the commands already working with the folder (`state::blocking`) to end.
+<title>."), and waits for the work already using the folder to end: closures in `state::blocking`, and every writer
+outside it and outside a task, which takes `state::writing()` before the folder (the watcher's round, `launcher_log`,
+the self-update's `update.json`, the Nexus inbox reader and start-up cleanup, the shipped runtime's import).
 
 **Start-up, in this order (lib.rs setup), before any watcher:** the folder is located without failing (nothing is
 created for a broken pointer; a missing default or `KILN_DATA_DIR` root is made, as before); the lock is taken shared
@@ -294,7 +296,9 @@ created for a broken pointer; a missing default or `KILN_DATA_DIR` root is made,
 import, no update check, no file written. Then a move the journal records: an unfinished one's partial copy is removed
 now (or left, with its path, when the proof is missing); a committed one not acknowledged yet gets the task "Remove
 the old data folder" two seconds later (what the move's own removal left, or the lock files and the empty old folder
-the moving process still held; in the task tray, can be canceled, goes on at the next start).
+the moving process still held; in the task tray, can be canceled, goes on at the next start). A removal the crate
+refuses (a game's profile still names the old folder) says its reason in the notice, and the ack keeps the journal;
+an unfinished move whose partial copy could not be removed names what is left, and the next start tries again.
 Then the file-hash cache, the watcher, the shipped runtime, the modpack watcher, Nexus, the self-update.
 
 ## `--selftest`
