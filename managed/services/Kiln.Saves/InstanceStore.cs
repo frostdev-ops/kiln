@@ -140,6 +140,7 @@ internal sealed class HolderEntry
     public HolderKey Key;
     public string? Name;
     public EntityId Bound;
+    public ulong BoundVisit; // player slots can be reused, even by the same character
 
     /// <summary>The matcher ran over its records since it was bound (a player's entry is bound by a save before its
     /// join is seen; the next tick matches it).</summary>
@@ -216,6 +217,7 @@ internal sealed class InstanceStore
         public required LiveItem Item;
         public required CharacterKey Character;
         public required EntityId Player;
+        public required ulong Visit;
         public required ulong Deadline;
         public required bool InventoryAlive;
     }
@@ -577,7 +579,9 @@ internal sealed class InstanceStore
         if (!sameHolder) return fresh;
         var oldKnown = old.Kind == HolderKind.World || (old.Kind == HolderKind.Player && !old.Character.IsNone && !old.Character.IsAccountOnly);
         var freshLess = fresh.Kind == HolderKind.None || (fresh.Kind == HolderKind.Player && (fresh.Character.IsNone || fresh.Character.IsAccountOnly));
-        return oldKnown && freshLess ? old : fresh;
+        if (oldKnown && freshLess) return old;
+        return sameHolder && old.Kind == HolderKind.Player && fresh.Kind == HolderKind.Player &&
+            old.Character == fresh.Character && fresh.Visit == 0 ? fresh with { Visit = old.Visit } : fresh;
     }
 
     private void OnGone(ItemInstanceRef item, InstancePlace last, ulong step)
@@ -596,18 +600,21 @@ internal sealed class InstanceStore
             }
             // Destroyed, or the player is leaving: not decided in this step. A live, initialized inventory at the step the
             // item went means it was not the leave's teardown, so that one is never parked as "the player left".
-            var alive = true;
+            var alive = false;
             try
             {
-                _world?.ReadHolder(live.Place.Holder, out alive);
+                if (_world is { } w && HolderOf(w, live.Place.Holder) is { Kind: HolderKind.Player } current &&
+                    current.Character == live.Holder.Character && current.Visit != 0 && current.Visit == live.Holder.Visit)
+                    w.ReadHolder(live.Place.Holder, out alive);
             }
             catch (KilnUnavailableException)
             {
-                alive = true;
+                // No positive evidence that this visit's inventory is still alive.
             }
             _pending.Add(new Pending
             {
-                Item = live, Character = live.Holder.Character, Player = live.Place.Holder, Deadline = step + LeaveWindowSteps, InventoryAlive = alive,
+                Item = live, Character = live.Holder.Character, Player = live.Place.Holder, Visit = live.Holder.Visit,
+                Deadline = step + LeaveWindowSteps, InventoryAlive = alive,
             });
             return;
         }
@@ -651,12 +658,12 @@ internal sealed class InstanceStore
         }
     }
 
-    private void ResolvePending(ulong step, IReadOnlyList<(EntityId Entity, CharacterKey Character)> players)
+    private void ResolvePending(ulong step, IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> players)
     {
         foreach (var p in _pending.ToArray())
         {
-            // this visit of the player: a rejoin is another entity, and the items of the visit that ended have left with it
-            var inGame = players.Any(x => x.Character == p.Character && x.Entity == p.Player);
+            // The slot can already hold another player, or the same character in another visit.
+            var inGame = p.Visit != 0 && players.Any(x => x.Character == p.Character && x.Entity == p.Player && x.Visit == p.Visit);
             if (inGame && step < p.Deadline) continue;
             _pending.Remove(p);
             if (!inGame && !p.InventoryAlive)
@@ -691,13 +698,13 @@ internal sealed class InstanceStore
         Parked(entry, r, InstanceParkReason.PlayerLeft);
     }
 
-    private void CheckBound(IInstanceWorld w, IReadOnlyList<(EntityId Entity, CharacterKey Character)> players)
+    private void CheckBound(IInstanceWorld w, IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> players)
     {
         foreach (var h in _holders.Where(h => h.IsBound).ToArray())
         {
             if (h.Key.Kind == HolderKind.Player)
             {
-                if (!players.Any(p => p.Entity == h.Bound && p.Character == h.Key.Character)) Unbind(h);
+                if (!players.Any(p => p.Entity == h.Bound && p.Character == h.Key.Character && p.Visit == h.BoundVisit)) Unbind(h);
                 continue;
             }
             HolderIdentity id;
@@ -713,26 +720,26 @@ internal sealed class InstanceStore
         }
     }
 
-    private void JoinPlayers(IInstanceWorld w, IReadOnlyList<(EntityId Entity, CharacterKey Character)> players)
+    private void JoinPlayers(IInstanceWorld w, IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> players)
     {
         if (!TrackPlayerInventories) return;
-        foreach (var (entity, character) in players)
+        foreach (var (entity, character, visit) in players)
         {
             if (character.IsNone || character.IsAccountOnly) continue;
             // every join is read, records or not: the inventory as it came is a state the client may bring back again
             var entry = EntryOfCharacter(character, create: true)!;
-            if (entry.Bound == entity && entry.Matched) continue;
-            TryBindPlayer(w, entry, entity);
+            if (entry.Bound == entity && entry.BoundVisit == visit && entry.Matched) continue;
+            TryBindPlayer(w, entry, entity, visit);
         }
     }
 
-    private bool TryBindPlayer(IInstanceWorld w, HolderEntry entry, EntityId entity)
+    private bool TryBindPlayer(IInstanceWorld w, HolderEntry entry, EntityId entity, ulong visit)
     {
         var items = w.ReadHolder(entity, out var initialized);
         if (!initialized) return false;
         if (entry.IsBound) Unbind(entry);
         if (_byEntity.TryGetValue(entity.Value, out var other)) Unbind(other);
-        Bind(entry, entity);
+        Bind(entry, entity, visit);
         var asMade = RunMatch(w, entry, items);
         // The join: the character file the client brought. A later file is this one or a later save's; earlier ones are
         // gone. Settled only when the items are as the loader made them (else the read may not be the file).
@@ -832,7 +839,7 @@ internal sealed class InstanceStore
     private void MatchHolderOf(IInstanceWorld w, in InstanceItem item)
     {
         var holder = item.Place.Holder;
-        if (holder.IsNone || (_byEntity.TryGetValue(holder.Value, out var bound) && (bound.Matched || bound.Key.Kind == HolderKind.World))) return;
+        if (holder.IsNone || (_byEntity.TryGetValue(holder.Value, out var bound) && bound.Key.Kind == HolderKind.World)) return;
         var id = HolderOf(w, holder);
         if (id.Kind == HolderKind.World)
         {
@@ -841,9 +848,10 @@ internal sealed class InstanceStore
                 if (TryResolve(w, h) && _byEntity.ContainsKey(holder.Value)) return;
         }
         else if (id.Kind == HolderKind.Player && !id.Character.IsNone && !id.Character.IsAccountOnly &&
-                 EntryOfCharacter(id.Character, create: false) is { Records.Count: > 0 } entry && !(entry.Bound == holder && entry.Matched))
+                 EntryOfCharacter(id.Character, create: false) is { Records.Count: > 0 } entry &&
+                 !(entry.Bound == holder && entry.BoundVisit == id.Visit && entry.Matched))
         {
-            TryBindPlayer(w, entry, holder);
+            TryBindPlayer(w, entry, holder, id.Visit);
         }
     }
 
@@ -870,9 +878,10 @@ internal sealed class InstanceStore
             SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: instance data: {waiting} world holder(s) not found after the match window (kept, up to {MaxMissedSessions} sessions)");
     }
 
-    private void Bind(HolderEntry h, EntityId entity)
+    private void Bind(HolderEntry h, EntityId entity, ulong visit = 0)
     {
         h.Bound = entity;
+        h.BoundVisit = visit;
         h.Matched = false;
         h.Missed = 0;  // found: its missed sessions start over
         _byEntity[entity.Value] = h;
@@ -1265,7 +1274,7 @@ internal sealed class InstanceStore
                 continue;
             }
             var key = HolderKey.Of(identity);
-            var entry = EntryForWrite(holder, key, identity.Name);
+            var entry = EntryForWrite(holder, key, identity.Name, identity.Visit);
             uint obs = 0;
             var blind = !reads;  // the reads could not answer: this save may have sent a file Kiln could not read
             if (reads && items.Any(i => i.Fresh))
@@ -1319,7 +1328,7 @@ internal sealed class InstanceStore
         // is a state the client may bring back. A key first declared mid-visit has no earlier state to rely on.
         if (w is not null && TrackPlayerInventories)
         {
-            IReadOnlyList<(EntityId Entity, CharacterKey Character)> players;
+            IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> players;
             try
             {
                 players = w.PlayersInGame();
@@ -1328,7 +1337,7 @@ internal sealed class InstanceStore
             {
                 players = [];
             }
-            foreach (var (entity, character) in players)
+            foreach (var (entity, character, visit) in players)
             {
                 if (character.IsNone || character.IsAccountOnly || playersRead.Contains(entity.Value)) continue;
                 var entry = EntryOfCharacter(character, create: true)!;
@@ -1499,11 +1508,12 @@ internal sealed class InstanceStore
 
     /// <summary>The bound entry of a holder entity, or a new one bound to it. A bound entry whose key no longer fits (its id
     /// is another entity now) lets go first.</summary>
-    private HolderEntry EntryForWrite(EntityId holder, HolderKey key, string? name)
+    private HolderEntry EntryForWrite(EntityId holder, HolderKey key, string? name, ulong visit)
     {
         if (_byEntity.TryGetValue(holder.Value, out var h))
         {
-            var fits = key.Kind == h.Key.Kind && (key.Kind == HolderKind.Player ? key.Character == h.Key.Character : key.Template == h.Key.Template);
+            var fits = key.Kind == h.Key.Kind && (key.Kind == HolderKind.Player
+                ? key.Character == h.Key.Character && visit == h.BoundVisit : key.Template == h.Key.Template);
             if (fits)
             {
                 h.Key = key;
@@ -1515,12 +1525,12 @@ internal sealed class InstanceStore
         if (key.Kind == HolderKind.Player && EntryOfCharacter(key.Character, create: false) is { } c)
         {
             if (c.IsBound) Unbind(c);
-            Bind(c, holder);
+            Bind(c, holder, visit);
             return c;
         }
         h = new HolderEntry { Key = key, Name = name };
         _holders.Add(h);
-        Bind(h, holder);
+        Bind(h, holder, visit);
         return h;
     }
 

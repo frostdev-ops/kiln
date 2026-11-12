@@ -36,6 +36,7 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         Dictionary<CharacterKey, List<(int Slot, InstanceFields Fields)>> Characters);
 
     private static ulong _stamps;  // per process, never reused, never 0 (as kiln.items' sequence)
+    private static ulong _visits;
     private uint _nextId;
     public ulong Step { get; set; } = 1000;
     public bool Off { get; set; }
@@ -126,8 +127,8 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
             .OrderBy(h => h.Identity.Position.DistanceTo(near)).Select(h => h.Entity).ToList();
     }
 
-    public IReadOnlyList<(EntityId Entity, CharacterKey Character)> PlayersInGame() =>
-        Holders.Values.Where(h => h.Identity.Kind == HolderKind.Player && h.InGame).Select(h => (h.Entity, h.Identity.Character)).ToList();
+    public IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> PlayersInGame() =>
+        Holders.Values.Where(h => h.Identity.Kind == HolderKind.Player && h.InGame).Select(h => (h.Entity, h.Identity.Character, h.Identity.Visit)).ToList();
 
     private sealed class Handle(FakeInstanceWorld w, ItemInstanceRef item) : IDisposable
     {
@@ -155,10 +156,11 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         return e;
     }
 
-    public EntityId Join(CharacterKey character, string? name = null)
+    public EntityId Join(CharacterKey character, string? name = null, EntityId? reuseId = null)
     {
-        var e = new EntityId(_nextId++);
-        Holders[e.Value] = new FakeHolder { Entity = e, Identity = HolderIdentity.OfPlayer(character, name ?? "Player"), InGame = true };
+        var e = reuseId ?? new EntityId(_nextId++);
+        if (Holders.ContainsKey(e.Value)) throw new InvalidOperationException($"holder {e} exists");
+        Holders[e.Value] = new FakeHolder { Entity = e, Identity = HolderIdentity.OfPlayer(character, name ?? "Player") with { Visit = ++_visits }, InGame = true };
         var ids = FileIdentities.GetValueOrDefault(character);
         foreach (var (slot, f) in CharacterFiles.GetValueOrDefault(character) ?? []) Give(e, slot, f, identity: ids is not null && ids.TryGetValue(slot, out var x) ? x : null);
         return e;

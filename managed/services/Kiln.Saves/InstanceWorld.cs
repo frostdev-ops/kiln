@@ -59,6 +59,9 @@ internal enum HolderKind
 /// <param name="Name">For the log and the admin command.</param>
 internal readonly record struct HolderIdentity(HolderKind Kind, Guid Template, WorldPosition Position, bool Mobile, CharacterKey Character, string? Name = null)
 {
+    /// <summary>A player's session stamp, independent of the reusable entity slot; 0 when not known.</summary>
+    public ulong Visit { get; init; }
+
     public static HolderIdentity None => default;
 
     public static HolderIdentity OfWorld(Guid template, WorldPosition position, bool mobile, string? name = null) =>
@@ -104,5 +107,5 @@ internal interface IInstanceWorld
     IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius);
 
     /// <summary>The players in game now, with their characters (account-only keys included; the store refuses those).</summary>
-    IReadOnlyList<(EntityId Entity, CharacterKey Character)> PlayersInGame();
+    IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> PlayersInGame();
 }

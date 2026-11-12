@@ -57,13 +57,19 @@ internal sealed class InstanceGame : IInstanceWorld
         ItemInstances.Gone += (item, last, step) => _gone?.Invoke(item, PlaceOf(last), step);
     }
 
-    public HolderIdentity Holder(EntityId holder) => IdentityOf(holder, CharacterStore.KeyOf);
+    public HolderIdentity Holder(EntityId holder)
+    {
+        var identity = IdentityOf(holder, CharacterStore.KeyOf);
+        return identity.Kind == HolderKind.Player && Players.Available && Players.Find(holder) is { } player
+            ? identity with { Visit = ((PlayerRef)player).Entity.Serial }
+            : identity;
+    }
 
     public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius) => SpawnLink.Find(template, near, radius, 16, required: true);
 
-    public IReadOnlyList<(EntityId Entity, CharacterKey Character)> PlayersInGame() =>
+    public IReadOnlyList<(EntityId Entity, CharacterKey Character, ulong Visit)> PlayersInGame() =>
         Players.Available
-            ? Players.All.Where(p => p.InGame && !p.Entity.IsNone).Select(p => (p.Entity, CharacterStore.KeyOf(p))).ToList()
+            ? Players.All.Where(p => p.InGame && !p.Entity.IsNone).Select(p => (p.Entity, CharacterStore.KeyOf(p), ((PlayerRef)p).Entity.Serial)).ToList()
             : [];
 
     // ---- the mapping (pure, unit-tested) ----

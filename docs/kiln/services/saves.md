@@ -261,8 +261,10 @@ like nothing happened.
 
 ### Gone items, players, mods
 - **Destroyed** (trash, crafting, taken away) in a world holder: dropped at once (`Destroyed`).
-- **Gone from a player's inventory:** not decided in that step. If the player is still in game 50 steps later, or the
-  inventory was still there when the item went, it was destroyed. If the player left, the record waits with the
+- **Gone from a player's inventory:** not decided in that step. If the same visit of the character is still in game
+  50 steps later, or its inventory was still there when the item went, it was destroyed. Both tests compare the
+  character and its session stamp, not just the reusable player entity slot. Another character using the slot, or the
+  same character rejoining it, is not evidence that the old visit stayed alive. If the player left, the record waits with the
   character (`PlayerLeft`) and comes back at the next join. A save in between keeps such a record, but it may only come
   back to an inventory that is as one of its saved states.
 - **A read that places an item nowhere** (for one step at a leave the item entities outlive the player entity) changes

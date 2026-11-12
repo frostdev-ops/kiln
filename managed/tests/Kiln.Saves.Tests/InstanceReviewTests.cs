@@ -14,6 +14,38 @@ public sealed class InstanceReviewTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    [InlineData(true, true, false)]
+    public void AReusedPlayerSlotDoesNotDestroyThePreviousVisitsData(bool sameCharacter, bool noticeAfterJoin, bool sawLeave)
+    {
+        var w = _h.World;
+        var player = w.Join(Hero);
+        _h.Tag(w.Give(player, 0, Sword), 1);
+        _h.Tick();
+        _h.Save(1);
+        w.SendCharacter(player);
+        w.BeginLeave(player);
+        if (sawLeave) _h.Tick();
+        w.DestroyPlayerEntity(player);
+        if (!noticeAfterJoin) w.TearDown(player);
+        var other = new CharacterKey(0x2233445566778899, Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-000000000002"));
+        w.Join(sameCharacter ? Hero : other, reuseId: player);
+        if (noticeAfterJoin)
+        {
+            _h.Tick(); // the new visit has already been bound before the delayed gone notice
+            w.TearDown(player);
+        }
+        w.Step += InstanceStore.LeaveWindowSteps + 1;
+        _h.Tick();
+        Assert.DoesNotContain(_h.Of<InstanceDataLostEvent>(), e => e.Reason == InstanceLossReason.Destroyed);
+        Assert.Equal(1, TestMods.As(_h.Mod, () => InstanceData.All(_h.Kills).Count) + _h.Parked().Count);
+        if (sameCharacter) Assert.Equal(2u, Store.Instances.Holders.Single(h => h.Key.Character == Hero).Joins);
+    }
+
+    [Theory]
     [InlineData(false, true, false)]
     [InlineData(true, true, false)]
     [InlineData(true, false, false)]
