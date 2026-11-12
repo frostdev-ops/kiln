@@ -13,6 +13,8 @@ public sealed class GateTests
     static readonly ModContext Plain = TestMods.Make("plain-mod", advanced: false);
     static readonly ModContext Advanced = TestMods.Make("advanced-mod", advanced: true);
 
+    public GateTests() => FakeRegistry.Uninstall();
+
     [Fact]
     public void TheGateReadsTheLoadersFlagNotTheManifestFile()
     {

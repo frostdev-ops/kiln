@@ -82,7 +82,10 @@ public sealed class HookHandle : IDisposable
 {
     private long _cookie;
     internal ulong Native;
-    internal HookHandle(long cookie, ulong native) { _cookie = cookie; Native = native; }
+    // Which install of the cookie this handle made: a cookie is reused (see HookCookies), so a stale handle must not
+    // remove a later install that took the same cookie. 0 for patches (no cookie).
+    internal readonly long Install;
+    internal HookHandle(long cookie, ulong native, long install = 0) { _cookie = cookie; Native = native; Install = install; }
 
     /// <summary>Removes this hook/patch. The detour stays installed if other handlers remain on the target; this
     /// owner's handler simply leaves the chain.</summary>
@@ -99,14 +102,31 @@ public sealed class HookHandle : IDisposable
 /// </summary>
 public static unsafe class Hooks
 {
-    internal readonly record struct DetourReg(DetourHandler Handler, ModContext? Mod,
-        System.Runtime.CompilerServices.StrongBox<long>? InFlight);
-    internal readonly record struct MidReg(MidHandler Handler, ModContext? Mod,
-        System.Runtime.CompilerServices.StrongBox<long>? InFlight);
+    // One install of a handler. A class, so a dispatch that is still running the old install of a reused cookie keeps
+    // its own registration (handler, mod, fault count) and a removal can tell two installs of one cookie apart.
+    internal abstract class Reg(ModContext mod, StrongBox<long> inFlight, long cookie, long install)
+    {
+        public readonly ModContext Mod = mod;
+        public readonly StrongBox<long> InFlight = inFlight;
+        public readonly long Cookie = cookie;
+        public readonly long Install = install;
+        public ulong Native;  // the native link handle, once installed
+        public int Faults;    // per install: a handler that takes a reused cookie starts at 0
+    }
+    internal sealed class DetourReg(DetourHandler handler, ModContext mod, StrongBox<long> inFlight, long cookie, long install)
+        : Reg(mod, inFlight, cookie, install)
+    {
+        public readonly DetourHandler Handler = handler;
+    }
+    internal sealed class MidReg(MidHandler handler, ModContext mod, StrongBox<long> inFlight, long cookie, long install)
+        : Reg(mod, inFlight, cookie, install)
+    {
+        public readonly MidHandler Handler = handler;
+    }
 
-    private static readonly ConcurrentDictionary<long, DetourReg> Detours = new();
-    private static readonly ConcurrentDictionary<long, MidReg> Mids = new();
-    private static long _nextCookie;
+    internal static readonly ConcurrentDictionary<long, DetourReg> Detours = new();
+    internal static readonly ConcurrentDictionary<long, MidReg> Mids = new();
+    private static long _nextInstall;
 
     /// <summary>True when kiln.hooks is loaded on this build.</summary>
     public static bool Available => HooksNative.T != null;
@@ -126,18 +146,23 @@ public static unsafe class Hooks
         ArgumentNullException.ThrowIfNull(handler);
         var t = HooksNative.Require("Hooks.Detour");
         var mod = HooksGate.RequireAdvanced("Hooks.Detour");
-        var cookie = Interlocked.Increment(ref _nextCookie);
-        Detours[cookie] = new DetourReg(handler, mod, HooksGate.Current(mod).InFlight);
+        // The cookie is the native link's user pointer. The same mod re-installing on the same address gets a cookie
+        // a revoked link of it already carries, so the registry revives that link instead of taking a new slot.
+        var cookie = HookCookies.Take(mod.Info.Id, HookCookies.Detour, address);
+        var reg = new DetourReg(handler, mod, HooksGate.Current(mod).InFlight, cookie, Interlocked.Increment(ref _nextInstall));
+        Detours[cookie] = reg;
         ulong native = 0;
-        int rc = t->Detour(mod.Owner, address, priority, &DetourDispatch, (void*)(nint)cookie, &native);
+        int rc = t->Detour(HookCookies.Owner(mod), address, priority, &DetourDispatch, (void*)(nint)cookie, &native);
         if (rc != HooksNative.Ok)
         {
-            Detours.TryRemove(cookie, out _);
+            Detours.TryRemove(KeyValuePair.Create(cookie, reg));
+            HookCookies.Return(cookie);  // nothing native carries it
             throw new InvalidOperationException($"Hooks.Detour({label ?? address.ToString("X")}): {HooksNative.Describe(rc)}");
         }
+        reg.Native = native;
         HooksGate.Track(mod);
         mod.Log.Info($"hooks: detour on {label ?? "0x" + address.ToString("X")} (priority {priority})");
-        return new HookHandle(cookie, native);
+        return new HookHandle(cookie, native, reg.Install);
     }
 
     // ---- mid hooks ----
@@ -154,31 +179,34 @@ public static unsafe class Hooks
         ArgumentNullException.ThrowIfNull(handler);
         var t = HooksNative.Require("Hooks.Mid");
         var mod = HooksGate.RequireAdvanced("Hooks.Mid");
-        var cookie = Interlocked.Increment(ref _nextCookie);
-        Mids[cookie] = new MidReg(handler, mod, HooksGate.Current(mod).InFlight);
+        var cookie = HookCookies.Take(mod.Info.Id, HookCookies.Mid, address);  // see Detour
+        var reg = new MidReg(handler, mod, HooksGate.Current(mod).InFlight, cookie, Interlocked.Increment(ref _nextInstall));
+        Mids[cookie] = reg;
         ulong native = 0;
-        int rc = t->Mid(mod.Owner, address, priority, &MidDispatch, (void*)(nint)cookie, &native);
+        int rc = t->Mid(HookCookies.Owner(mod), address, priority, &MidDispatch, (void*)(nint)cookie, &native);
         if (rc != HooksNative.Ok)
         {
-            Mids.TryRemove(cookie, out _);
+            Mids.TryRemove(KeyValuePair.Create(cookie, reg));
+            HookCookies.Return(cookie);
             throw new InvalidOperationException($"Hooks.Mid({label ?? address.ToString("X")}): {HooksNative.Describe(rc)}");
         }
+        reg.Native = native;
         HooksGate.Track(mod);
         mod.Log.Info($"hooks: mid hook on {label ?? "0x" + address.ToString("X")} (priority {priority})");
-        return new HookHandle(cookie, native);
+        return new HookHandle(cookie, native, reg.Install);
     }
 
     // ---- fixed dispatchers (default load context: stable function pointers) ----
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static nuint DetourDispatch(HooksNative.HookCallRaw* call, void* user)
     {
-        var cookie = (long)user;
+        DetourReg? reg = null;
         try
         {
-            if (Detours.TryGetValue(cookie, out var reg))
+            if (Detours.TryGetValue((long)user, out reg))
             {
                 var box = reg.InFlight;
-                if (box is not null) Interlocked.Increment(ref box.Value);
+                Interlocked.Increment(ref box.Value);
                 // Run the handler as its mod: on a game job thread ModContext.CurrentMod (thread-static) is otherwise
                 // null, and every gated call inside the handler (Memory.TryRead, Symbols.Get, ...) would throw into
                 // this dispatcher, which swallows it: the handler silently stopped at its first Memory read.
@@ -188,14 +216,14 @@ public static unsafe class Hooks
                 finally
                 {
                     ModContext.CurrentMod = outer;
-                    if (box is not null) Interlocked.Decrement(ref box.Value);
+                    Interlocked.Decrement(ref box.Value);
                 }
             }
         }
         catch (Exception e)
         {
             // a managed handler must never throw into native code; fall through to the original
-            ReportFault(cookie, "detour", e);
+            ReportFault(reg, "detour", e);
         }
         return HooksNative.T->CallOriginal(call);  // mod gone or faulted: pass through
     }
@@ -203,44 +231,42 @@ public static unsafe class Hooks
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void MidDispatch(HooksNative.RegsRaw* regs, void* user)
     {
-        var cookie = (long)user;
+        MidReg? reg = null;
         try
         {
-            if (Mids.TryGetValue(cookie, out var reg))
+            if (Mids.TryGetValue((long)user, out reg))
             {
                 var box = reg.InFlight;
-                if (box is not null) Interlocked.Increment(ref box.Value);
+                Interlocked.Increment(ref box.Value);
                 var outer = ModContext.CurrentMod;
                 ModContext.CurrentMod = reg.Mod;  // see DetourDispatch
                 try { reg.Handler(ref Unsafe.AsRef<Registers>(regs)); }
                 finally
                 {
                     ModContext.CurrentMod = outer;
-                    if (box is not null) Interlocked.Decrement(ref box.Value);
+                    Interlocked.Decrement(ref box.Value);
                 }
             }
         }
         catch (Exception e)
         {
             // swallow: the game resumes with whatever the handler managed to set
-            ReportFault(cookie, "mid hook", e);
+            ReportFault(reg, "mid hook", e);
         }
     }
 
     // A throwing handler used to vanish without a trace (the dispatcher must swallow it). Log the first few faults of
-    // each handler to its mod's log, from whatever thread the hook runs on (the logger is thread-safe).
-    private static readonly ConcurrentDictionary<long, int> Faults = new();
-
-    private static void ReportFault(long cookie, string kind, Exception e)
+    // each install to its mod's log, from whatever thread the hook runs on (the logger is thread-safe). Counted on the
+    // registration the faulting call ran, so a later install under the same cookie starts at 0.
+    private static void ReportFault(Reg? reg, string kind, Exception e)
     {
         try
         {
-            var n = Faults.AddOrUpdate(cookie, 1, (_, v) => v + 1);
+            if (reg is null) return;
+            var n = Interlocked.Increment(ref reg.Faults);
             if (n > 3) return;
-            var mod = Detours.TryGetValue(cookie, out var d) ? d.Mod : Mids.TryGetValue(cookie, out var m) ? m.Mod : null;
-            var text = $"hooks: {kind} handler threw{(n == 3 ? " (3rd time; further faults are not logged)" : "")}: " +
-                       $"{e.GetType().Name}: {e.Message}";
-            if (mod is not null) mod.Log.Error(text);
+            reg.Mod.Log.Error($"hooks: {kind} handler threw{(n == 3 ? " (3rd time; further faults are not logged)" : "")}: " +
+                              $"{e.GetType().Name}: {e.Message}");
         }
         catch
         {
@@ -254,23 +280,33 @@ public static unsafe class Hooks
         var c = Interlocked.Exchange(ref cookie, 0);
         var native = Interlocked.Exchange(ref handle.Native, 0);
         if (c == 0 && native == 0) return;  // already removed
+        // Only this handle's own install: after its mod retired, the cookie may belong to a newer install.
+        Reg? reg = null;
         if (c != 0)
         {
-            Detours.TryRemove(c, out _);
-            Mids.TryRemove(c, out _);
+            if (Detours.TryGetValue(c, out var d) && d.Install == handle.Install && Detours.TryRemove(KeyValuePair.Create(c, d))) reg = d;
+            else if (Mids.TryGetValue(c, out var m) && m.Install == handle.Install && Mids.TryRemove(KeyValuePair.Create(c, m))) reg = m;
         }
+        // A stale handle's native id is refused by the registry once its link was revived under a new one.
         if (native != 0 && HooksNative.T != null) HooksNative.T->Revoke(native);
+        // Free the cookie only once no live link carries it, so two live links never dispatch to one registration.
+        if (reg is not null) HookCookies.Return(reg.Cookie);
     }
 
-    // Drops every cookie that belongs to a retiring mod, so no further dispatch can reach its (collectible) handlers.
+    // Drops every registration of a retiring mod, so no further dispatch can reach its (collectible) handlers, revokes
+    // their links and frees their cookies for the mod's next load. Patches and anything under the mod's own owner went
+    // with RevokeOwner before this.
     internal static void Forget(ModContext mod)
     {
+        var gone = new List<Reg>();
         foreach (var kv in Detours)
-            if (kv.Value.Mod == mod) Detours.TryRemove(kv.Key, out _);
+            if (kv.Value.Mod == mod && Detours.TryRemove(kv)) gone.Add(kv.Value);
         foreach (var kv in Mids)
-            if (kv.Value.Mod == mod) Mids.TryRemove(kv.Key, out _);
-        foreach (var kv in Faults)
-            if (!Detours.ContainsKey(kv.Key) && !Mids.ContainsKey(kv.Key)) Faults.TryRemove(kv.Key, out _);
+            if (kv.Value.Mod == mod && Mids.TryRemove(kv)) gone.Add(kv.Value);
+        var t = HooksNative.T;
+        foreach (var r in gone)
+            if (t != null && r.Native != 0) t->Revoke(r.Native);
+        foreach (var r in gone) HookCookies.Return(r.Cookie);
     }
 
     /// <summary>Hook/patch counts for diagnostics.</summary>
