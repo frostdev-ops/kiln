@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of one Kiln mod (Kiln.TestKit), with no game:  dotnet test
+       Kiln.TestKit loads the mod through Kiln's real loader into a temporary server folder and drives its ticks by hand.
+       From the package: Kiln.TestKit, Kiln.Host, Kiln.Api and every Kiln service assembly, and the targets that put the
+       mod's kiln.mod.json and files (locales/, blocks/, ...) beside its assembly, where kiln.Load<TMod>() finds them.
+       What is real, faked or unavailable offline: docs/kiln/modding/unit-tests.md. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Kiln.TestKit" Version="KILN_SDK_VERSION" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The mod under test: its assembly, and (Kiln.TestKit's targets) its kiln.mod.json and files. -->
+    <ProjectReference Include="KILN_MOD_PROJECT" />
+  </ItemGroup>
+</Project>
