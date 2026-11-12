@@ -194,6 +194,10 @@ extern std::wstring g_container_path;
 
 constexpr uint32_t kSynthBase = 0x70000000u;
 
+// The player's animation graph, reserved for kiln.playeranim (KILN_ASSET_PUT_PIN in kiln_assets.h): store.cpp refuses every other put.
+constexpr uint32_t kPlayerGraphType = 0xa345050eu;  // keen::anim_graph::runtime_graph::AnimationGraphResource2_0
+bool player_graph_key(const Key& k);
+
 // UI icons (client)
 struct IconSnap {
     uint64_t gen = 0;

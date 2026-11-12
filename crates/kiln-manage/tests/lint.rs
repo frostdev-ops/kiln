@@ -167,6 +167,73 @@ fn python_readers_agree() {
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
+/// assets/player-states.json is a file kiln lint knows, in a mod and on its own: no KL903, checked against its schema.
+#[test]
+fn player_states_files_are_known() {
+    let case = fixtures().join("cases/player-states");
+    for p in [case.join("note/assets/player-states.json"), repo().join("mods/samples/PlayerStates/assets/player-states.json")] {
+        let r = run(&[p.clone()], &opts());
+        assert!(r.checked.iter().any(|c| Path::new(c) == p), "{} not checked:\n{}", p.display(), r.to_text());
+        assert!(r.diagnostics.iter().all(|d| d.code != "KL903" && d.severity < Severity::Warning), "{}", r.to_text());
+    }
+    let dir = tmp("player-states");
+    let r = lint_as(&dir, "assets/player-states.json", "{\"format\": 1, \"states\": {\"a\": {\"clip\": \"x\", \"like\": \"Block_FullBody\", \"speed\": 0}}}");
+    assert!(r.diagnostics.iter().all(|d| d.code != "KL903"), "{}", r.to_text());
+    assert!(r.diagnostics.iter().any(|d| d.code == "KL107" && d.pointer.as_deref() == Some("/states/a/speed")), "{}", r.to_text());
+}
+
+/// The player-states reader (tools/animcook/anicook/playerstates.py; native/services/playeranim/states.cpp ports it) refuses
+/// exactly the player-states files kiln lint refuses: the fixture case's, the repository's, and a few made for the dialect.
+#[test]
+fn player_states_reader_agrees() {
+    if !has_tool("python3", "--version") {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let root = repo();
+    let mut files = Vec::new();
+    json_files(&fixtures().join("cases/player-states"), &mut files);
+    json_files(&root.join("mods"), &mut files);
+    files.retain(|p| p.ends_with("assets/player-states.json"));
+    let dir = tmp("player-states-reader");
+    let state = "\"a\": {\"clip\": \"x\", \"like\": \"Block_FullBody\"}";
+    for (i, t) in [
+        format!("\u{feff}{{\"format\": 1, \"states\": {{{state}}}}}"),
+        format!("{{\"format\": 1, \"states\": {{{state}}}, \"format\": 1}}"),
+        format!("{{\"format\": 2, \"states\": {{{state}}}}}"),
+        "{\"format\": 1, \"states\": {\"a\": {\"clip\": \"x\", \"like\": \"Block_FullBody\", \"speed\": NaN}}}".to_string(),
+        "{\"format\": 1, \"states\": {\"a/b\": {\"clip\": \"x\", \"like\": \"Block_FullBody\"}}}".to_string(),
+        "{\"format\": 1, \"states\": {\"a\": {\"clip\": \"x\", \"like\": \"M/S/T\"}}}".to_string(),
+        format!("{{\"format\": 1, \"states\": {{\"{}\": {{\"clip\": \"x\", \"like\": \"Block_FullBody\"}}}}}}", "n".repeat(65)),
+        format!("{{\"format\": 1, \"states\": {{\"{}\": {{\"clip\": \"x\", \"like\": \"Block_FullBody\", \"blendIn\": 5, \"loop\": false}}}}}}", "n".repeat(64)),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let p = dir.join(format!("case{i}/assets/player-states.json"));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, t).unwrap();
+        files.push(p);
+    }
+    let out = std::process::Command::new("python3").arg(root.join("crates/kiln-manage/tests/lint/py-player-states.py")).arg(&root).args(&files).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let mut bad = Vec::new();
+    let mut n = 0;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let v: Value = serde_json::from_str(line).unwrap();
+        let f = PathBuf::from(v["file"].as_str().unwrap());
+        let text = std::fs::read_to_string(&f).unwrap();
+        let r = lint_as(&dir.join(format!("lint{n}")), "assets/player-states.json", &text);
+        let rust = refuses(&r, &[]);
+        n += 1;
+        if v["ok"].as_bool().unwrap() != rust.is_empty() {
+            bad.push(format!("{}: the reader {} ({}), kiln lint {:?}", f.display(), if v["ok"].as_bool().unwrap() { "accepts" } else { "refuses" }, v["error"], rust));
+        }
+    }
+    assert!(n >= 23, "{n}");
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
 /// kiln lint's schema validator agrees with ajv (draft 2020-12) on every fixture and every mod file of the repo.
 #[test]
 fn ajv_agrees() {

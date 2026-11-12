@@ -160,9 +160,26 @@ public static unsafe class Assets
     }
 
     // ---- resources ----------------------------------------------------------------------------------------------
+    // The player's animation graph: kiln.playeranim merges every mod's assets/player-states.json into it once and pins it, and
+    // kiln.assets refuses any other put of the key (KILN_ASSET_PUT_PIN in native/core/abi/services/kiln_assets.h). The native refusal
+    // would come back as "unavailable on this build/side", which is not the reason: Register and Override say it first.
+    private static readonly Guid PlayerGraphGuid = new("21319e83-5087-4fff-8795-22997843649e");
+    private const uint PlayerGraphType = 0xa345050eu;  // FNV-1a-32 of keen::anim_graph::runtime_graph::AnimationGraphResource2_0
+
+    private static void RefusePlayerGraph(AssetKey key, string op)
+    {
+        if (key.Guid == PlayerGraphGuid && key.Type == PlayerGraphType && key.Part == 0)
+            throw new ArgumentException(
+                $"{op}: {key.Guid} (keen::anim_graph::runtime_graph::AnimationGraphResource2_0, part 0) is the player's animation graph. " +
+                "kiln.playeranim owns it and kiln.assets refuses any other put of it: replacing a running player's graph can end the server. " +
+                "Add player animation states in assets/player-states.json instead.", nameof(key));
+    }
+
     /// <summary>Serve `bytes` for `key`. mode: null = either, true = must be new, false = must override a game resource.</summary>
+    /// <exception cref="ArgumentException">`key` is the player's animation graph (see <see cref="Override"/>).</exception>
     public static void Register(AssetKey key, byte[] bytes, bool? mustBeNew = null)
     {
+        RefusePlayerGraph(key, "Register");
         var t = Require();
         var owner = Owner();
         uint flags = mustBeNew == true ? AssetsNative.PutNew : mustBeNew == false ? AssetsNative.PutOverride : 0;
@@ -192,7 +209,16 @@ public static unsafe class Assets
     }
 
     /// <summary>Override a game resource's bytes for the session.</summary>
-    public static void Override(AssetKey key, byte[] bytes) => Register(key, bytes, mustBeNew: false);
+    /// <remarks>The player's animation graph (GUID 21319e83-5087-4fff-8795-22997843649e,
+    /// type keen::anim_graph::runtime_graph::AnimationGraphResource2_0, part 0) is refused: kiln.playeranim owns that key,
+    /// and replacing a running player's graph can end the server. Add player animation states in assets/player-states.json
+    /// instead.</remarks>
+    /// <exception cref="ArgumentException">`key` is the player's animation graph. Nothing is put.</exception>
+    public static void Override(AssetKey key, byte[] bytes)
+    {
+        RefusePlayerGraph(key, "Override");
+        Register(key, bytes, mustBeNew: false);
+    }
 
     /// <summary>Remove this mod's resource / override for a key.</summary>
     public static void RemoveResource(AssetKey key)

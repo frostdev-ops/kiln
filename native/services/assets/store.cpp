@@ -111,6 +111,9 @@ struct IconItem {
 };
 
 std::vector<ResItem> g_items;
+// Keys put with KILN_ASSET_PUT_PIN, and the owner that pinned each: process-lived. A pinned key's item is the only item of that key (a
+// pin is refused while another owner has one) and stays: no put, no removal and no revert_owner takes it, the pinning owner's included.
+std::unordered_map<Key, KilnOwner, KeyHash> g_pinned;
 std::unordered_map<Key, std::vector<size_t>, KeyHash> g_item_at;  // g_items indices by key
 std::vector<BlobItem> g_blobs;
 std::vector<IconItem> g_iconv;
@@ -280,6 +283,13 @@ KilnResult add_blob_locked(KilnOwner owner, const void* data, size_t len, const 
 
 }  // namespace
 
+// The player's animation graph: 21319e83-5087-4fff-8795-22997843649e (game byte order below), keen::anim_graph::runtime_graph::
+// AnimationGraphResource2_0, part 0. Reserved: only a pinning put takes it (kiln.playeranim's merge, kiln_assets.h).
+bool player_graph_key(const Key& k) {
+    static const uint8_t g[16] = {0x83, 0x9e, 0x31, 0x21, 0x87, 0x50, 0xff, 0x4f, 0x87, 0x95, 0x22, 0x99, 0x78, 0x43, 0x64, 0x9e};
+    return k.part == 0 && k.type == kPlayerGraphType && std::memcmp(k.g, g, 16) == 0;
+}
+
 uint8_t* keep_alloc(size_t n) { return static_cast<uint8_t*>(::operator new(n, std::nothrow)); }
 const uint8_t* keep_copy(const void* data, size_t n) {
     uint8_t* p = keep_alloc(n);
@@ -353,10 +363,29 @@ KilnResult op_resource_put(KilnOwner owner, const KilnAssetKey* key, const void*
     k.type = key->type;
     k.part = key->part;
     std::lock_guard lock(g_mu);
+    // Refusals come before anything is added: a pinned key, or the reserved player graph, never gets a second item.
+    if (const auto p = g_pinned.find(k); p != g_pinned.end()) {
+        LOGW("assets: owner %llu resource %s refused: key pinned for this process by owner %llu",
+             static_cast<unsigned long long>(owner), key_str(k).c_str(), static_cast<unsigned long long>(p->second));
+        return KILN_ERR_UNAVAILABLE;
+    }
+    if (player_graph_key(k) && !(flags & KILN_ASSET_PUT_PIN)) {
+        LOGW("assets: owner %llu resource %s refused: player graph is reserved for kiln.playeranim; use player-states.json",
+             static_cast<unsigned long long>(owner), key_str(k).c_str());
+        return KILN_ERR_UNAVAILABLE;
+    }
     const auto known = g_item_at.find(k);
     const bool fresh = known == g_item_at.end() || known->second.empty();  // no item has this key yet
+    if ((flags & KILN_ASSET_PUT_PIN) && !fresh)  // the later item of a key is served: a pin over another owner's item could lose to it
+        for (size_t i : known->second)
+            if (g_items[i].owner != owner) {
+                LOGW("assets: owner %llu resource %s pin refused: owner %llu has an item of that key",
+                     static_cast<unsigned long long>(owner), key_str(k).c_str(), static_cast<unsigned long long>(g_items[i].owner));
+                return KILN_ERR_UNAVAILABLE;
+            }
     KilnResult r = put_resource_locked(owner, k, data, len, flags);
     if (r != KILN_OK) return r;
+    if (flags & KILN_ASSET_PUT_PIN) g_pinned.emplace(k, owner);
     const uintptr_t S = g_S.load();
     if (fresh) {
         ResItem& it = g_items.back();
@@ -376,6 +405,11 @@ KilnResult op_resource_remove(KilnOwner owner, const KilnAssetKey* key) {
     k.type = key->type;
     k.part = key->part;
     std::lock_guard lock(g_mu);
+    if (const auto p = g_pinned.find(k); p != g_pinned.end()) {
+        LOGW("assets: owner %llu resource %s removal refused: key pinned for this process by owner %llu",
+             static_cast<unsigned long long>(owner), key_str(k).c_str(), static_cast<unsigned long long>(p->second));
+        return KILN_ERR_UNAVAILABLE;
+    }
     const size_t n = g_items.size();
     g_items.erase(std::remove_if(g_items.begin(), g_items.end(),
                                  [&](const ResItem& it) { return it.owner == owner && it.key == k; }),
@@ -578,6 +612,10 @@ KilnResult op_icon_register(KilnOwner owner, const uint8_t guid[16], const Rgba&
     k.type = KILN_ASSET_TYPE_UI_TEXTURE;
     k.part = 0;
     std::lock_guard lock(g_mu);
+    if (g_pinned.count(k)) {
+        LOGW("assets: owner %llu icon %s refused: key pinned for this process", static_cast<unsigned long long>(owner), key_str(k).c_str());
+        return KILN_ERR_UNAVAILABLE;
+    }
     put_resource_locked(owner, k, res, sizeof res, KILN_ASSET_PUT_NEW);
     add_blob_locked(owner, sq.px.data(), sq.px.size(), nullptr, false, nullptr);
     // track the GUID state
@@ -613,9 +651,10 @@ KilnResult op_icon_remove(KilnOwner owner, const uint8_t guid[16]) {
     g_iconv.erase(std::remove_if(g_iconv.begin(), g_iconv.end(),
                                  [&](const IconItem& i) { return i.owner == owner && i.guid == g; }),
                   g_iconv.end());
-    g_items.erase(std::remove_if(g_items.begin(), g_items.end(),
-                                 [&](const ResItem& it) { return it.owner == owner && it.key == k; }),
-                  g_items.end());
+    if (!g_pinned.count(k))  // a pinned UI texture key keeps its item (the icon's UI state goes as above)
+        g_items.erase(std::remove_if(g_items.begin(), g_items.end(),
+                                     [&](const ResItem& it) { return it.owner == owner && it.key == k; }),
+                      g_items.end());
     reindex_locked();
     rebuild_resources_locked();
     return KILN_OK;
@@ -639,7 +678,7 @@ void op_revert_owner(KilnOwner owner) {
         v.erase(std::remove_if(v.begin(), v.end(), pred), v.end());
         flag = v.size() != n;
     };
-    re(g_items, [&](const ResItem& it) { return it.owner == owner; }, res);
+    re(g_items, [&](const ResItem& it) { return it.owner == owner && !g_pinned.count(it.key); }, res);
     re(g_blobs, [&](const BlobItem& b) { return b.owner == owner; }, blob);
     for (auto& i : g_iconv)
         if (i.owner == owner) i.state->store(KILN_ICON_NONE);

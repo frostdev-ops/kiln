@@ -1,0 +1,9 @@
+{
+  "id": "fixture-ps-wrong-type",
+  "name": "Fixture: player states, wrong-type",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "license": "MIT"
+}
