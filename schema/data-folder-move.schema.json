@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "data-folder-move.schema.json",
   "title": "Data folder move journal (<default root>/data-folder.move.json), format 1",
-  "description": "The record of one move of the launcher's data folder (kiln_manage::data_folder_move::Journal), written atomically into the default root before the move writes anything into the target and kept until the launcher acknowledges the result. Recovery decides by what is on disk (does the folder in use match 'to'), never by 'state' alone. Its file record data-folder.move.files.json (every file copied: path, size, sha256, linked, sourceSha256) and the target's .kiln-data-move.json ({format, id}) carry the same id. Contracts: docs/kiln/launcher/contracts.md section 3.",
+  "description": "The record of one move of the launcher's data folder (kiln_manage::data_folder_move::Journal), written atomically into the default root before the move writes anything into the target and kept until the launcher acknowledges the result. Recovery decides by what is on disk (does the folder in use match 'to'), never by 'state' alone. A partial copy of a move that did not commit is removed file by file, only what 'from' proves the move made (a plain file at the same path with the same size and sha256, the same file, or the rewritten server record); everything else stays and is named in result.kept, and the journal stays until nothing is left. Its file record data-folder.move.files.json (every file copied: path, size, sha256, linked, sourceSha256) and the target's .kiln-data-move.json ({format, id}) carry the same id. Contracts: docs/kiln/launcher/contracts.md section 3.",
   "type": "object",
   "required": ["format", "id", "from", "to", "started", "createdTarget", "entries", "state", "previousPointer"],
   "properties": {
@@ -44,7 +44,7 @@
     "hardLinks": { "type": "boolean", "default": false },
     "result": {
       "type": ["object", "null"],
-      "description": "What the removal of the old copy (or of a partial copy) did, kept until acknowledged.",
+      "description": "What the removal of the old copy (or of a partial copy) did, kept until acknowledged. For a partial copy that is not removed in full ('done' false: something kept, or 'interrupted' by a cancel) the journal stays and the next start goes on.",
       "required": ["folder", "done", "interrupted", "removedFiles", "removedBytes", "folderRemoved", "kept"],
       "properties": {
         "folder": { "type": "string" },

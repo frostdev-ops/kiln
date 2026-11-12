@@ -600,51 +600,54 @@ fn a_source_file_that_cannot_be_read_fails_the_move_naming_it() {
     old_place_intact(&fx, &before, &to);
 }
 
-/// The process "dies" after each step; a new process then finds what is pending and finishes or undoes it.
+/// The process "dies" after each step; a new process then finds what is pending and finishes or undoes it. By hard links
+/// and by copies (then each file of the partial copy goes by its sha256 against the old folder's).
 #[test]
 fn a_crash_at_each_step_is_recovered_by_the_next_start() {
-    for step in [Step::Journal, Step::Marker, Step::Copy, Step::Verify, Step::FileRecord, Step::FolderMarker, Step::Commit, Step::Activate] {
-        let fx = Fixture::build(&format!("crash-{step:?}"));
-        let before = tree(&fx.dirs.root);
-        let to = fx.base.join("target");
-        let e = mv(&fx, &to, &linking(), &inject(Inject::StopAfter(step))).unwrap_err();
-        assert_eq!(e.code, ErrorCode::Internal, "{step:?}");
-        let committed = matches!(step, Step::Commit | Step::Activate);
-        match dfm::pending(&fx.env).unwrap() {
-            Pending::Unclear { .. } if step == Step::FolderMarker => {
-                let copied = tree(&to);
-                let c = dfm::remove_partial_copy(&fx.env).unwrap();
-                assert!(!c.done && c.removed_bytes == 0, "a commit marker protects the verified copy: {c:?}");
-                assert_eq!(tree(&to), copied);
-                assert_eq!(tree(&fx.dirs.root), before);
-                assert!(fx.dirs.root.join(df::JOURNAL).is_file() && fx.dirs.root.join(df::FILE_RECORD).is_file());
-            }
-            Pending::Uncommitted { journal } if !committed => {
-                assert_eq!(located(&fx.env).dirs.root, fx.dirs.root, "{step:?}: the old place is in use");
-                assert_eq!(dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap().removed_files, 0, "{step:?}: nothing of the old place goes");
-                let c = dfm::remove_partial_copy(&fx.env).unwrap();
-                assert!(c.done, "{step:?}: {c:?}");
-                assert_eq!(journal.to, to);
-                old_place_intact(&fx, &before, &to);
-            }
-            Pending::Committed { journal } if committed => {
-                assert_eq!(located(&fx.env).dirs.root, to, "{step:?}: the new place is in use");
-                assert_eq!(dfm::remove_partial_copy(&fx.env).unwrap().removed_bytes, 0, "{step:?}: nothing of the new place goes");
-                let new = DataDirs::at(&to);
-                // the start-up pass writes the active profiles again for the new place (refresh_active)
-                for g in [&fx.game_z, &fx.game_copy] {
-                    profile::refresh_active(&new, g).unwrap();
+    for (how, facts) in [("links", linking()), ("copies", Facts::all_clear())] {
+        for step in [Step::Journal, Step::Marker, Step::Copy, Step::Verify, Step::FileRecord, Step::FolderMarker, Step::Commit, Step::Activate] {
+            let fx = Fixture::build(&format!("crash-{how}-{step:?}"));
+            let before = tree(&fx.dirs.root);
+            let to = fx.base.join("target");
+            let e = mv(&fx, &to, &facts, &inject(Inject::StopAfter(step))).unwrap_err();
+            assert_eq!(e.code, ErrorCode::Internal, "{step:?}");
+            let committed = matches!(step, Step::Commit | Step::Activate);
+            match dfm::pending(&fx.env).unwrap() {
+                Pending::Unclear { .. } if step == Step::FolderMarker => {
+                    let copied = tree(&to);
+                    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+                    assert!(!c.done && c.removed_bytes == 0, "a commit marker protects the verified copy: {c:?}");
+                    assert_eq!(tree(&to), copied);
+                    assert_eq!(tree(&fx.dirs.root), before);
+                    assert!(fx.dirs.root.join(df::JOURNAL).is_file() && fx.dirs.root.join(df::FILE_RECORD).is_file());
                 }
-                let f = profile::read_game_profile(&fx.game_z.path).unwrap().unwrap();
-                assert!(f.config_dir.unwrap().contains("target"), "{step:?}: the active profile names the new place");
-                let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
-                assert!(c.done, "{step:?}: {c:?}");
-                assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists());
-                assert_eq!(tree(&to).len(), before.len(), "{step:?}: the new place is complete");
-                assert_eq!(journal.from, fx.dirs.root);
-                dfm::acknowledge(&fx.env).unwrap();
+                Pending::Uncommitted { journal } if !committed => {
+                    assert_eq!(located(&fx.env).dirs.root, fx.dirs.root, "{step:?}: the old place is in use");
+                    assert_eq!(dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap().removed_files, 0, "{step:?}: nothing of the old place goes");
+                    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+                    assert!(c.done, "{step:?}: {c:?}");
+                    assert_eq!(journal.to, to);
+                    old_place_intact(&fx, &before, &to);
+                }
+                Pending::Committed { journal } if committed => {
+                    assert_eq!(located(&fx.env).dirs.root, to, "{step:?}: the new place is in use");
+                    assert_eq!(dfm::remove_partial_copy(&fx.env).unwrap().removed_bytes, 0, "{step:?}: nothing of the new place goes");
+                    let new = DataDirs::at(&to);
+                    // the start-up pass writes the active profiles again for the new place (refresh_active)
+                    for g in [&fx.game_z, &fx.game_copy] {
+                        profile::refresh_active(&new, g).unwrap();
+                    }
+                    let f = profile::read_game_profile(&fx.game_z.path).unwrap().unwrap();
+                    assert!(f.config_dir.unwrap().contains("target"), "{step:?}: the active profile names the new place");
+                    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+                    assert!(c.done, "{step:?}: {c:?}");
+                    assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists());
+                    assert_eq!(tree(&to).len(), before.len(), "{step:?}: the new place is complete");
+                    assert_eq!(journal.from, fx.dirs.root);
+                    dfm::acknowledge(&fx.env).unwrap();
+                }
+                other => panic!("{step:?}: {other:?}"),
             }
-            other => panic!("{step:?}: {other:?}"),
         }
     }
 }
@@ -858,12 +861,19 @@ fn a_partial_copy_is_removed_only_with_its_marker() {
     assert!(!c.done && c.reason.as_deref().unwrap().contains(&to.display().to_string()), "{c:?}");
     assert!(to.join("library").is_dir() && to.join("player.txt").is_file());
     assert!(fx.dirs.root.join(df::JOURNAL).is_file());
-    // with the marker back: only the journal's entries go; what else is there stays (and so does the folder)
+    // with the marker back: what the old folder proves goes; what else is there stays and is named, and so do the
+    // folder, the marker and the journal
     let j = dfm::read_journal(&fx.env).unwrap().unwrap();
     put(&to, df::MOVE_MARKER, serde_json::to_string(&serde_json::json!({"format": 1, "id": j.id})).unwrap().as_bytes());
     let c = dfm::remove_partial_copy(&fx.env).unwrap();
-    assert!(c.done && !c.folder_removed, "{c:?}");
-    assert!(!to.join("library").exists() && to.join("player.txt").is_file());
+    assert!(!c.done && !c.folder_removed, "{c:?}");
+    assert_eq!(c.kept.iter().map(|k| (k.path.clone(), k.reason.as_str())).collect::<Vec<_>>(), [(to.join("player.txt"), dfm::partial_reason::NOT_COPIED)]);
+    assert!(!to.join("library").exists() && to.join("player.txt").is_file() && to.join(df::MOVE_MARKER).is_file());
+    assert!(fx.dirs.root.join(df::JOURNAL).exists());
+    // the player takes their file out: the rest goes
+    std::fs::remove_file(to.join("player.txt")).unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(c.done && c.folder_removed && !to.exists(), "{c:?}");
     assert!(!fx.dirs.root.join(df::JOURNAL).exists());
     // a move into a folder of another move in progress is refused
     put(&fx.base, "busy/.kiln-data-move.json", b"{\"format\":1,\"id\":\"x\"}");
@@ -1609,5 +1619,373 @@ fn a_copy_of_a_file_gone_from_the_source_that_cannot_be_removed_stays_named() {
     for d in [fx.dirs.root.join("My Notes"), to.join("My Notes")] {
         std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
+    // the next start: the copy of the file gone from the old folder has no proof there any more, so it stays, named;
+    // once the player takes it out the rest goes
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(!c.done && c.kept.iter().any(|k| k.path == to.join(&rel) && k.reason == dfm::partial_reason::NO_SUCH_FILE), "{c:?}");
+    std::fs::remove_file(to.join(&rel)).unwrap();
     the_next_start_removes_the_rest(&fx, &want, &to, &Facts::all_clear());
+}
+
+// ------------------------------------------------------------------------------------------------ core-6
+
+/// A move stopped as if the process died after the copy (`Step::Copy`): the old place in use, the partial copy at
+/// `target` with this move's marker. `backups/` is one of the journal's entries.
+fn crashed_after_copy(tag: &str, facts: &Facts) -> (Fixture, BTreeMap<String, String>, PathBuf) {
+    let fx = Fixture::build(tag);
+    put(&fx.dirs.root, "backups/install-20261101T000000Z/note.txt", b"a backup the player made");
+    let before = tree(&fx.dirs.root);
+    let to = fx.base.join("target");
+    let e = mv(&fx, &to, facts, &inject(Inject::StopAfter(Step::Copy))).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal);
+    let Pending::Uncommitted { journal } = dfm::pending(&fx.env).unwrap() else { panic!("{:?}", dfm::pending(&fx.env)) };
+    assert!(journal.entries.iter().any(|e| e.name == "backups"), "{:?}", journal.entries);
+    assert!(to.join(df::MOVE_MARKER).is_file());
+    (fx, before, to)
+}
+
+/// What a recovery kept, by path: the reason.
+fn kept_of(c: &dfm::Cleanup) -> BTreeMap<PathBuf, String> {
+    c.kept.iter().map(|k| (k.path.clone(), k.reason.clone())).collect()
+}
+
+/// A recovery that kept something: the marker and the journal (with the result) stay, the move is still unfinished.
+fn still_unfinished(fx: &Fixture, to: &Path, c: &dfm::Cleanup) {
+    assert!(!c.done && !c.folder_removed, "{c:?}");
+    assert!(to.join(df::MOVE_MARKER).is_file(), "the marker stays");
+    let Pending::Uncommitted { journal } = dfm::pending(&fx.env).unwrap() else { panic!("the journal stays: {:?}", dfm::pending(&fx.env)) };
+    assert_eq!(journal.result.as_ref().map(|r| r.kept.len()), Some(c.kept.len()), "the journal holds the result");
+    assert_eq!(located(&fx.env).dirs.root, fx.dirs.root, "the old place is in use");
+}
+
+/// The next call once the player took the named files out: the rest goes, with the target and the journal.
+fn finished(fx: &Fixture, to: &Path) {
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(c.done && c.kept.is_empty() && c.folder_removed, "{c:?}");
+    assert!(!to.exists(), "{:?}", std::fs::read_dir(to).map(|d| d.flatten().map(|e| e.file_name()).collect::<Vec<_>>()));
+    assert_eq!(dfm::pending(&fx.env).unwrap(), Pending::Nothing);
+}
+
+/// The verifier's case: a file added to the target below a journal entry after the crash is not the move's. Recovery
+/// leaves it as it is and names it, removes what the old folder proves, keeps the marker and the journal; once the file
+/// is taken out, the next call removes everything.
+#[test]
+fn recovery_keeps_a_file_added_to_the_partial_copy_after_a_crash() {
+    let (fx, before, to) = crashed_after_copy("added-after-crash", &linking());
+    let added = to.join("backups/added-after-crash.bin");
+    std::fs::write(&added, b"bytes the move never made").unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(std::fs::read(&added).unwrap(), b"bytes the move never made", "the file is there and unchanged");
+    assert_eq!(kept_of(&c), BTreeMap::from([(added.clone(), dfm::partial_reason::NO_SUCH_FILE.to_string())]), "{c:?}");
+    assert!(c.removed_files > 0 && !to.join("library").exists() && !to.join("backups/install-20261101T000000Z").exists(), "what the old folder proves went: {c:?}");
+    still_unfinished(&fx, &to, &c);
+    assert_eq!(tree(&fx.dirs.root), before);
+    std::fs::remove_file(&added).unwrap();
+    finished(&fx, &to);
+    old_place_intact(&fx, &before, &to);
+}
+
+/// The hash decides, not the size or the time: a target file changed after the crash, a target file replaced by
+/// another of the same size and time, and a target file whose source changed after the crash (same size and time)
+/// each stay, named. By copies (a hard link is one file with the old folder's).
+#[test]
+fn recovery_keeps_what_differs_from_the_old_folder() {
+    use std::io::Write;
+    let (fx, _, to) = crashed_after_copy("differs", &Facts::all_clear());
+    let files: Vec<String> = tree(&fx.dirs.root).keys().filter(|k| k.starts_with("library/")).cloned().collect();
+    let pick: Vec<&String> = files.iter().filter(|k| std::fs::metadata(fx.dirs.root.join(k)).unwrap().len() >= 4).take(3).collect();
+    assert_eq!(pick.len(), 3);
+    let same_size_other = |p: &Path| {
+        let m = std::fs::metadata(p).unwrap();
+        let mut b = std::fs::read(p).unwrap();
+        for x in b.iter_mut() {
+            *x = !*x;
+        }
+        std::fs::write(p, &b).unwrap();
+        std::fs::File::options().write(true).open(p).unwrap().set_modified(m.modified().unwrap()).unwrap();
+        assert_eq!(std::fs::metadata(p).unwrap().len(), m.len());
+    };
+    let changed = to.join(pick[0]);
+    std::fs::OpenOptions::new().append(true).open(&changed).unwrap().write_all(b" and more").unwrap();
+    let replaced = to.join(pick[1]);
+    let tmp = to.join("replacement.tmp-test");
+    std::fs::copy(&replaced, &tmp).unwrap();
+    same_size_other(&tmp);
+    std::fs::rename(&tmp, &replaced).unwrap();
+    let source_changed = to.join(pick[2]);
+    same_size_other(&fx.dirs.root.join(pick[2]));
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    let kept = kept_of(&c);
+    for p in [&changed, &replaced, &source_changed] {
+        assert_eq!(kept.get(p).map(String::as_str), Some(dfm::partial_reason::DIFFERS), "{} stays: {kept:#?}", p.display());
+        assert!(p.is_file());
+    }
+    assert_eq!(kept.len(), 3, "{kept:#?}");
+    still_unfinished(&fx, &to, &c);
+    for p in [&changed, &replaced, &source_changed] {
+        std::fs::remove_file(p).unwrap();
+    }
+    finished(&fx, &to);
+}
+
+/// Links in the partial copy are never followed and never removed, whatever they point to; a source path that is a
+/// link (the file itself, or a folder on the way) is no proof.
+#[test]
+#[cfg(unix)] // symlinks
+fn recovery_never_follows_a_link() {
+    let (fx, _, to) = crashed_after_copy("links", &Facts::all_clear());
+    // links placed in the target, to a file and to a folder outside it
+    let outside = fx.base.join("outside");
+    put(&outside, "dir/inner.txt", b"not the move's");
+    put(&outside, "file.txt", b"not the move's either");
+    let to_file = to.join("library/link-to-file");
+    let to_dir = to.join("library/link-to-folder");
+    symlink(outside.join("file.txt"), &to_file).unwrap();
+    symlink(outside.join("dir"), &to_dir).unwrap();
+    // in the old folder: a file replaced by a link to an identical file, and a folder replaced by a link to an identical
+    // copy of it
+    let files: Vec<String> = tree(&fx.dirs.root).keys().filter(|k| k.starts_with("library/")).cloned().collect();
+    let linked_file = files[0].clone();
+    let real = fx.base.join("elsewhere-file");
+    std::fs::copy(fx.dirs.root.join(&linked_file), &real).unwrap();
+    std::fs::remove_file(fx.dirs.root.join(&linked_file)).unwrap();
+    symlink(&real, fx.dirs.root.join(&linked_file)).unwrap();
+    let in_dir = files.iter().find(|k| !k.starts_with(&format!("{}/", Path::new(&linked_file).parent().unwrap().to_str().unwrap()))).unwrap().clone();
+    let dir_rel = Path::new(&in_dir).parent().unwrap().to_str().unwrap().to_string();
+    let elsewhere = fx.base.join("elsewhere-dir");
+    std::fs::rename(fx.dirs.root.join(&dir_rel), &elsewhere).unwrap();
+    symlink(&elsewhere, fx.dirs.root.join(&dir_rel)).unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    let kept = kept_of(&c);
+    assert_eq!(kept.get(&to_file).map(String::as_str), Some(dfm::partial_reason::LINK), "{kept:#?}");
+    assert_eq!(kept.get(&to_dir).map(String::as_str), Some(dfm::partial_reason::LINK), "{kept:#?}");
+    assert!(std::fs::symlink_metadata(&to_file).unwrap().file_type().is_symlink() && std::fs::symlink_metadata(&to_dir).unwrap().file_type().is_symlink());
+    assert_eq!(std::fs::read(outside.join("dir/inner.txt")).unwrap(), b"not the move's", "what a link points to is untouched");
+    assert_eq!(std::fs::read(outside.join("file.txt")).unwrap(), b"not the move's either");
+    assert_eq!(kept.get(&to.join(&linked_file)).map(String::as_str), Some(dfm::partial_reason::NO_SUCH_FILE), "a link in the old folder proves nothing: {kept:#?}");
+    assert_eq!(kept.get(&to.join(&in_dir)).map(String::as_str), Some(dfm::partial_reason::NO_SUCH_FILE), "nor a folder on the way that is a link: {kept:#?}");
+    assert!(to.join(&linked_file).is_file() && to.join(&in_dir).is_file());
+    still_unfinished(&fx, &to, &c);
+}
+
+/// A top-level entry the journal does not list stays and is named (the target stays); an empty folder the old folder
+/// does not have stays and is named; an empty folder the old folder has goes.
+#[test]
+fn recovery_keeps_entries_the_journal_does_not_list_and_folders_the_old_folder_lacks() {
+    let (fx, _, to) = crashed_after_copy("unlisted", &linking());
+    put(&to, "Player Stuff/keep.txt", b"mine");
+    put(&to, "notes.txt", b"mine too");
+    let empty_new = to.join("library/added-empty");
+    std::fs::create_dir_all(&empty_new).unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    let kept = kept_of(&c);
+    assert_eq!(kept.get(&to.join("Player Stuff")).map(String::as_str), Some(dfm::partial_reason::NOT_COPIED), "{kept:#?}");
+    assert_eq!(kept.get(&to.join("notes.txt")).map(String::as_str), Some(dfm::partial_reason::NOT_COPIED), "{kept:#?}");
+    assert_eq!(kept.get(&empty_new).map(String::as_str), Some(dfm::partial_reason::NO_SUCH_FOLDER), "{kept:#?}");
+    assert_eq!(kept.len(), 3, "{kept:#?}");
+    assert_eq!(c.kept.iter().find(|k| k.path == to.join("Player Stuff")).unwrap().bytes, 4);
+    assert!(to.join("Player Stuff/keep.txt").is_file() && to.join("notes.txt").is_file() && empty_new.is_dir());
+    assert!(!to.join("profiles").exists(), "what the old folder proves went");
+    still_unfinished(&fx, &to, &c);
+    std::fs::remove_dir_all(to.join("Player Stuff")).unwrap();
+    std::fs::remove_file(to.join("notes.txt")).unwrap();
+    std::fs::remove_dir(&empty_new).unwrap();
+    finished(&fx, &to);
+}
+
+/// A clean partial copy goes in full, with the target and the journal: by hard links (the same file is proof without
+/// reading it: here one the owner cannot read), by copies, each with the server record the move rewrote in it.
+#[test]
+fn recovery_removes_a_clean_partial_copy_in_full() {
+    for (tag, facts) in [("clean-links", linking()), ("clean-copies", Facts::all_clear())] {
+        let (fx, before, to) = crashed_after_copy(tag, &facts);
+        let record = "servers/isles.json";
+        assert_ne!(std::fs::read(to.join(record)).unwrap(), std::fs::read(fx.dirs.root.join(record)).unwrap(), "{tag}: the copy's backupDir names the new place");
+        #[cfg(unix)]
+        let unreadable = (tag == "clean-links").then(|| {
+            let f = lib_dir(&fx.dirs, &fx.mods.native).join("fps.dll");
+            assert_eq!(std::fs::metadata(&f).unwrap().ino(), std::fs::metadata(to.join(f.strip_prefix(&fx.dirs.root).unwrap())).unwrap().ino());
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o000)).unwrap();
+            f
+        });
+        let c = dfm::remove_partial_copy(&fx.env);
+        #[cfg(unix)]
+        if let Some(f) = &unreadable {
+            std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let c = c.unwrap();
+        assert!(c.done && c.kept.is_empty() && c.folder_removed && c.removed_files as usize == before.len(), "{tag}: every file the old folder has: {c:?}");
+        old_place_intact(&fx, &before, &to);
+    }
+}
+
+/// Counts the polls of `canceled()` and cancels from the `after`-th on; keeps the reports.
+struct CancelAt {
+    after: u32,
+    polls: std::cell::Cell<u32>,
+    reports: Vec<(Option<f32>, String)>,
+}
+impl Progress for CancelAt {
+    fn report(&mut self, f: Option<f32>, m: &str) {
+        self.reports.push((f, m.to_string()));
+    }
+    fn canceled(&self) -> bool {
+        self.polls.set(self.polls.get() + 1);
+        self.polls.get() > self.after
+    }
+}
+
+/// A cancel halfway: what went is gone, the rest, the marker and the journal stay (`interrupted`); the next call
+/// finishes. The reports carry a fraction and the file checked.
+#[test]
+fn recovery_can_be_canceled_and_goes_on() {
+    let (fx, before, to) = crashed_after_copy("cancel-recovery", &Facts::all_clear());
+    let mut p = CancelAt { after: 10, polls: std::cell::Cell::new(0), reports: vec![] };
+    let c = dfm::remove_partial_copy_with(&fx.env, &mut p).unwrap();
+    assert!(c.interrupted && !c.done && c.removed_files == 10 && c.kept.is_empty(), "{c:?}");
+    assert!(to.join(df::MOVE_MARKER).is_file());
+    let Pending::Uncommitted { journal } = dfm::pending(&fx.env).unwrap() else { panic!() };
+    assert!(journal.result.is_some_and(|r| r.interrupted));
+    assert!(p.reports.iter().any(|(f, m)| f.is_some_and(|f| f > 0.0 && f < 1.0) && m.starts_with("checking ")), "{:?}", p.reports);
+    let c = dfm::remove_partial_copy_with(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.done && !c.interrupted && c.removed_files > 0 && c.folder_removed, "{c:?}");
+    old_place_intact(&fx, &before, &to);
+}
+
+/// Leftovers of the move's own marker writes at the target's top go when their content shows they are this move's
+/// (a move marker with this journal's id, a folder marker created after the move started); any other stays, named.
+#[test]
+fn recovery_removes_marker_leftovers_only_by_their_content() {
+    let (fx, before, to) = crashed_after_copy("marker-tmp", &linking());
+    let j = dfm::read_journal(&fx.env).unwrap().unwrap();
+    let move_tmp = to.join(format!("{}.tmp", df::MOVE_MARKER));
+    let folder_tmp = to.join(format!("{}.tmp", df::MARKER));
+    std::fs::write(&move_tmp, serde_json::to_vec(&serde_json::json!({"format": 1, "id": "another move"})).unwrap()).unwrap();
+    std::fs::write(&folder_tmp, b"{\"format\": 1, \"crea").unwrap(); // cut off
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(
+        kept_of(&c),
+        BTreeMap::from([(move_tmp.clone(), dfm::partial_reason::NOT_THIS_MOVE.to_string()), (folder_tmp.clone(), dfm::partial_reason::NOT_THIS_MOVE.to_string())]),
+        "{c:?}"
+    );
+    still_unfinished(&fx, &to, &c);
+    std::fs::write(&move_tmp, serde_json::to_vec(&serde_json::json!({"format": 1, "id": j.id})).unwrap()).unwrap();
+    std::fs::write(&folder_tmp, serde_json::to_vec(&serde_json::json!({"format": 1, "created": util::now_rfc3339()})).unwrap()).unwrap();
+    finished(&fx, &to);
+    old_place_intact(&fx, &before, &to);
+}
+
+/// After a recovery that kept something, the player cleans up by hand and the next start finishes cleanly: (a) the
+/// kept files taken out: the rest, the marker, the target and the journal go; (b) the whole target deleted: the journal
+/// and the file record go; (c) the target emptied completely, marker included: nothing is left that the launcher
+/// could remove wrongly (also when only the lock file the move made is left), so the folder goes when the move made it
+/// (one that was there before stays) and the records go.
+#[test]
+fn a_target_the_player_cleaned_up_by_hand_finishes_cleanly() {
+    for case in ["kept-taken-out", "target-deleted", "target-emptied", "emptied-but-the-lock", "existing-target-emptied"] {
+        let fx = Fixture::build(&format!("by-hand-{case}"));
+        let before = tree(&fx.dirs.root);
+        let to = fx.base.join("target");
+        if case == "existing-target-emptied" {
+            std::fs::create_dir_all(&to).unwrap(); // the player picked an empty folder
+        }
+        mv(&fx, &to, &linking(), &inject(Inject::StopAfter(Step::Copy))).unwrap_err();
+        let added = to.join("library/added.bin");
+        std::fs::write(&added, b"not the move's").unwrap();
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        still_unfinished(&fx, &to, &c);
+        match case {
+            "kept-taken-out" => std::fs::remove_file(&added).unwrap(),
+            "target-deleted" => std::fs::remove_dir_all(&to).unwrap(),
+            _ => {
+                for e in std::fs::read_dir(&to).unwrap().flatten() {
+                    let p = e.path();
+                    if case == "emptied-but-the-lock" && e.file_name() == df::LOCK {
+                        continue; // the lock file the move made
+                    }
+                    if p.is_dir() {
+                        std::fs::remove_dir_all(&p).unwrap()
+                    } else {
+                        std::fs::remove_file(&p).unwrap()
+                    }
+                }
+            }
+        }
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        assert!(c.done && c.kept.is_empty(), "{case}: {c:?}");
+        assert_eq!(dfm::pending(&fx.env).unwrap(), Pending::Nothing, "{case}: the journal and the file record are gone");
+        assert!(!fx.dirs.root.join(df::JOURNAL).exists() && !fx.dirs.root.join(df::FILE_RECORD).exists());
+        if case == "existing-target-emptied" {
+            assert!(to.is_dir() && std::fs::read_dir(&to).unwrap().next().is_none() && !c.folder_removed, "{case}: the folder that was there before stays");
+        } else {
+            assert!(!to.exists() && c.folder_removed, "{case}: {c:?}");
+        }
+        assert_eq!(tree(&fx.dirs.root), before, "{case}");
+        assert_eq!(located(&fx.env).dirs.root, fx.dirs.root);
+    }
+}
+
+/// `servers/<id>.json`, which the move rewrites: its copy goes while it is exactly what the move writes from the old
+/// folder's file; when the old folder's file changed after the move stopped, the copy no longer is, so it stays, named.
+#[test]
+fn a_server_record_goes_only_while_it_is_the_rewrite_of_the_old_folders() {
+    for changed in [false, true] {
+        let (fx, _, to) = crashed_after_copy(&format!("server-record-{changed}"), &Facts::all_clear());
+        let record = "servers/isles.json";
+        let copy = to.join(record);
+        assert_ne!(std::fs::read(&copy).unwrap(), std::fs::read(fx.dirs.root.join(record)).unwrap(), "the copy's backupDir names the new place");
+        if changed {
+            let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(fx.dirs.root.join(record)).unwrap()).unwrap();
+            v["stopTimeoutS"] = serde_json::json!(121);
+            std::fs::write(fx.dirs.root.join(record), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        }
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        if changed {
+            assert_eq!(kept_of(&c), BTreeMap::from([(copy.clone(), dfm::partial_reason::DIFFERS.to_string())]), "{c:?}");
+            assert!(copy.is_file());
+            still_unfinished(&fx, &to, &c);
+            std::fs::remove_file(&copy).unwrap();
+            finished(&fx, &to);
+        } else {
+            assert!(c.done && c.kept.is_empty() && !to.exists(), "{c:?}");
+        }
+    }
+}
+
+/// A move back to the default root that stopped after the copy: a clean partial copy there goes by proof and leaves
+/// the default root with its pointer; and when the player removed the partial copy by hand, marker included (the
+/// default root keeps its pointer, the journal and the file record), the next start finishes cleanly too.
+#[test]
+fn a_partial_copy_at_the_default_root_finishes_cleanly() {
+    for by_hand in [false, true] {
+        let s = scratch(&format!("partial-default-{by_hand}"));
+        let env = env_at(&s.0);
+        let default = env.default_root().unwrap();
+        put(&default, "library/kiln/a/1.0.0+00000000/M.dll", b"mod");
+        put(&default, "settings.json", b"{}\n");
+        let away = s.0.join("away");
+        dfm::move_to(&env.locate().unwrap(), &env, &away, &Facts::all_clear(), None, &MoveOptions::default(), &mut NoProgress).unwrap();
+        dfm::acknowledge(&env).unwrap();
+        let before = tree(&away);
+        let e = dfm::move_to(&env.locate().unwrap(), &env, &default, &Facts::all_clear(), None, &inject(Inject::StopAfter(Step::Copy)), &mut NoProgress).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Internal);
+        let Pending::Uncommitted { journal } = dfm::pending(&env).unwrap() else { panic!("{:?}", dfm::pending(&env)) };
+        assert!(default.join(df::MOVE_MARKER).is_file() && default.join("library").is_dir());
+        if by_hand {
+            for name in journal.entries.iter().map(|e| e.name.as_str()).chain([df::MOVE_MARKER]) {
+                let p = default.join(name);
+                if p.is_dir() {
+                    std::fs::remove_dir_all(&p).unwrap();
+                } else {
+                    std::fs::remove_file(&p).unwrap();
+                }
+            }
+        }
+        let c = dfm::remove_partial_copy(&env).unwrap();
+        assert!(c.done && c.kept.is_empty() && !c.folder_removed, "by hand {by_hand}: {c:?}");
+        assert_eq!(dfm::pending(&env).unwrap(), Pending::Nothing);
+        assert!(default.join(df::POINTER).is_file() && !default.join("library").exists() && !default.join(df::MOVE_MARKER).exists());
+        assert_eq!(env.locate().unwrap().dirs.root, away);
+        assert_eq!(tree(&away), before, "the folder in use is untouched");
+    }
 }
