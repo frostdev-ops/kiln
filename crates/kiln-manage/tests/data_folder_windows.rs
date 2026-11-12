@@ -1365,11 +1365,17 @@ mod win {
         }
     }
 
-    /// Without POSIX deletes (FAT and exFAT; Wine keeps the name too) a file deleted through Kiln's handle keeps its
-    /// name while another program holds it open with delete sharing. Both removals count it removed and name it as on
-    /// its way out, never as a new file written under its name and never as a file that could not be compared; once the
-    /// other program lets go its name is gone, and a partial copy's recovery finishes at the next call. On `C:` and,
-    /// with `KILN_TEST_VOLUME_B`, on `E:`.
+    /// A file another program holds open with delete sharing (`FILE_SHARE_READ | FILE_SHARE_DELETE`) across its removal,
+    /// on both delete paths, for both removals, on `C:` and, with `KILN_TEST_VOLUME_B`, on `E:`:
+    /// - the first path (`FileDispositionInfoEx`, POSIX semantics): the name goes at once (Wine, NTFS), or, where it
+    ///   stays, it is named as on its way out. Never "written again", never "could not compare"; named with `PENDING`
+    ///   exactly when the name stayed; gone once the holder lets go. A second call runs only when the first was not
+    ///   done; when it was, nothing is pending;
+    /// - the classic path (`with_classic_delete(false)`: what a FAT or exFAT disk and an older Windows get), where the
+    ///   name stays while the other handle is open: the file is counted removed (as many files as on the first path),
+    ///   named with `PENDING` and nothing else; the partial copy's recovery is not done in that call; once the holder
+    ///   lets go the name is gone, the recovery's next call is done, and the old copy's next call removes the folder.
+    ///   Where the name does not stay on this path either, the test says so and asserts what the first path asserts.
     #[test]
     fn a_deleted_file_another_program_holds_is_on_its_way_out() {
         seen();
@@ -1380,52 +1386,80 @@ mod win {
         }
         for (letter, far) in places {
             for old_copy in [false, true] {
-                let case = format!("{letter} old copy {old_copy}");
-                let fx = Fixture::build(&format!("held-delete-{letter}-{old_copy}"));
-                let far_root = far.as_ref().map(|b| b.join(format!("Kiln held delete {} {old_copy}", std::process::id())));
-                if let Some(r) = &far_root {
-                    clean(r);
-                }
-                // the folder the removal works in: the old copy (on E: moved there first) or a target that stopped
-                let (file, made) = if old_copy {
-                    let from = match &far_root {
-                        Some(r) => {
-                            assert!(mv(&fx.env, r, &MoveOptions::default(), &mut NoProgress).unwrap().cleanup.unwrap().done);
-                            dfm::acknowledge(&fx.env).unwrap();
-                            DataDirs::at(r)
-                        }
-                        None => fx.dirs.clone(),
+                // the files the first path removes: the classic path counts the held file removed too, so as many
+                let mut first_removed = None;
+                for classic in [false, true] {
+                    let path = if classic { "classic delete" } else { "first delete path" };
+                    let case = format!("{letter}, {}, {path}", if old_copy { "old copy" } else { "partial copy" });
+                    let fx = Fixture::build(&format!("held-delete-{letter}-{old_copy}-{classic}"));
+                    let far_root = far.as_ref().map(|b| b.join(format!("Kiln held delete {} {old_copy} {classic}", std::process::id())));
+                    if let Some(r) = &far_root {
+                        clean(r);
+                    }
+                    // the folder the removal works in: the old copy (on E: moved there first) or a target that stopped
+                    let file = if old_copy {
+                        let from = match &far_root {
+                            Some(r) => {
+                                assert!(mv(&fx.env, r, &MoveOptions::default(), &mut NoProgress).unwrap().cleanup.unwrap().done);
+                                dfm::acknowledge(&fx.env).unwrap();
+                                DataDirs::at(r)
+                            }
+                            None => fx.dirs.clone(),
+                        };
+                        let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Activate)) };
+                        assert_eq!(mv(&fx.env, &fx.base.join("moved"), &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+                        lib_dir(&from, &fx.mods.kiln).join("M.dll")
+                    } else {
+                        let to = far_root.clone().unwrap_or_else(|| fx.base.join("target"));
+                        let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Copy)) };
+                        assert_eq!(mv(&fx.env, &to, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+                        lib_dir(&DataDirs::at(&to), &fx.mods.kiln).join("M.dll")
                     };
-                    let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Activate)) };
-                    assert_eq!(mv(&fx.env, &fx.base.join("moved"), &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
-                    (lib_dir(&from, &fx.mods.kiln).join("M.dll"), far_root.clone())
-                } else {
-                    let to = far_root.clone().unwrap_or_else(|| fx.base.join("target"));
-                    let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Copy)) };
-                    assert_eq!(mv(&fx.env, &to, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
-                    (lib_dir(&DataDirs::at(&to), &fx.mods.kiln).join("M.dll"), far_root.clone())
-                };
-                let held = std::fs::OpenOptions::new().read(true).share_mode(SHARE_READ_DELETE).open(&file).unwrap();
-                let c = if old_copy { dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&fx.env).unwrap() };
-                // the folder itself may be gone already (the name went at once and the removal took the empty folder)
-                let folder = file.parent().unwrap();
-                let folder_there = folder.is_dir();
-                let name_stayed = std::fs::read_dir(folder).map(|rd| rd.flatten().any(|e| e.file_name() == "M.dll")).unwrap_or(false);
-                let named: Vec<String> = c.kept.iter().filter(|k| k.path == file).map(|k| k.reason.clone()).collect();
-                eprintln!("{case}: the name stayed while held: {name_stayed}; named {named:?}; removed {}; its folder still there: {folder_there}; done {}", c.removed_files, c.done);
-                drop(held);
-                assert!(
-                    named.iter().all(|r| r == dfm::guard_reason::PENDING),
-                    "{case}: never as written again, never as not compared: {named:?}"
-                );
-                assert_eq!(name_stayed, !named.is_empty(), "{case}: named exactly when its name stayed");
-                assert!(!file.exists(), "{case}: gone once the other program let go");
-                if !old_copy {
-                    let c = dfm::remove_partial_copy(&fx.env).unwrap();
-                    assert!(c.done, "{case}: the next call finishes: {c:?}");
-                }
-                if let Some(r) = made {
-                    clean(&r);
+                    let removal = || if old_copy { dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&fx.env).unwrap() };
+                    let run = || if classic { dfm::with_classic_delete(false, removal) } else { removal() };
+                    let held = std::fs::OpenOptions::new().read(true).share_mode(SHARE_READ_DELETE).open(&file).unwrap();
+                    let c = run();
+                    // the folder itself may be gone already (the name went at once and the removal took the empty folder)
+                    let folder = file.parent().unwrap().to_path_buf();
+                    let folder_there = folder.is_dir();
+                    let name_stayed = std::fs::read_dir(&folder).map(|rd| rd.flatten().any(|e| e.file_name() == "M.dll")).unwrap_or(false);
+                    let named: Vec<String> = c.kept.iter().filter(|k| k.path == file).map(|k| k.reason.clone()).collect();
+                    eprintln!(
+                        "{case}: the name stayed while held: {name_stayed}; named {named:?}; removed {}; its folder still there: {folder_there}; done {}",
+                        c.removed_files, c.done
+                    );
+                    if classic && !name_stayed {
+                        eprintln!("{case}: the name did not stay on the classic delete path under this Windows: the held case could not be produced here");
+                    }
+                    drop(held);
+                    // both paths
+                    assert!(named.iter().all(|r| r == dfm::guard_reason::PENDING), "{case}: never as written again, never as not compared: {named:?}");
+                    assert_eq!(name_stayed, !named.is_empty(), "{case}: named exactly when its name stayed");
+                    assert!(named.len() <= 1, "{case}: named once: {named:?}");
+                    assert!(!file.exists(), "{case}: gone once the other program let go");
+                    match (classic, first_removed) {
+                        (false, _) => first_removed = Some(c.removed_files),
+                        (true, Some(n)) => assert_eq!(c.removed_files, n, "{case}: the held file is counted removed, as on the first path"),
+                        (true, None) => unreachable!(),
+                    }
+                    if old_copy {
+                        if name_stayed {
+                            // the next call takes the folder its name kept
+                            let c = run();
+                            assert!(c.done && !c.kept.iter().any(|k| k.path == file), "{case}: the next call: {c:?}");
+                            assert!(!folder.exists(), "{case}: the folder the held name kept goes at the next call");
+                        }
+                    } else if c.done {
+                        assert!(!name_stayed, "{case}: done although a name stayed: {c:?}");
+                        assert_eq!(dfm::pending(&fx.env).unwrap(), Pending::Nothing, "{case}: nothing is pending");
+                    } else {
+                        assert!(name_stayed, "{case}: not done for another reason: {c:?}");
+                        let c = run();
+                        assert!(c.done, "{case}: the next call finishes: {c:?}");
+                    }
+                    if let Some(r) = far_root {
+                        clean(&r);
+                    }
                 }
             }
         }
