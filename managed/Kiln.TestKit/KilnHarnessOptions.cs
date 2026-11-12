@@ -42,6 +42,16 @@ public sealed class KilnHarnessOptions
     /// <summary>Where the temp server folder is made; default the system's temp folder.</summary>
     public string? TempDirectory { get; init; }
 
+    /// <summary>Run in this server folder instead of a new temp one, e.g. the folder of an earlier harness that kept it
+    /// (<see cref="KeepFolder"/>, <see cref="KilnHarness.ServerDirectory"/>): its world, saved mod data and configs are
+    /// read as a restarted server reads them. Its <c>kiln/mods</c> starts empty (load the mods again); the folder is never
+    /// removed by the harness.</summary>
+    public string? ServerDirectory { get; init; }
+
+    /// <summary>The id of the world the server runs (<see cref="KilnHarness.World"/>); default the world the server folder
+    /// ran last, or a new one. Another id in the same folder is another world, with its own saves and mod data.</summary>
+    public Guid? WorldId { get; init; }
+
     /// <summary>Gets every captured log line as it is written (any thread), e.g. to show it in a test's output.</summary>
     public Action<LogLine>? LogSink { get; init; }
 }

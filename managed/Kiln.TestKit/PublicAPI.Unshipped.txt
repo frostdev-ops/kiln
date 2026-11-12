@@ -28,12 +28,28 @@ Kiln.TestKit.CoverageRow.Kind.get -> Kiln.TestKit.CoverageKind
 Kiln.TestKit.CoverageRow.Kind.init -> void
 Kiln.TestKit.CoverageRow.Note.get -> string!
 Kiln.TestKit.CoverageRow.Note.init -> void
+Kiln.TestKit.FakePlayer
+Kiln.TestKit.FakePlayer.Entity.get -> Kiln.EntityId
+Kiln.TestKit.FakePlayer.InGame.get -> bool
+Kiln.TestKit.FakePlayer.IsAdmin.get -> bool
+Kiln.TestKit.FakePlayer.Leave() -> bool
+Kiln.TestKit.FakePlayer.Name.get -> string!
+Kiln.TestKit.FakePlayer.Position.get -> Kiln.WorldPosition?
+Kiln.TestKit.FakePlayer.Position.set -> void
+Kiln.TestKit.FakePlayer.Rights.get -> Kiln.PlayerPermissions
+Kiln.TestKit.FakePlayer.Slot.get -> int
+Kiln.TestKit.FakePlayer.SteamId.get -> ulong
+Kiln.TestKit.FakePlayer.UserGroupId.get -> uint
 Kiln.TestKit.HarnessCapabilities
 Kiln.TestKit.HarnessCapabilities.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.CapabilityRow>!
 Kiln.TestKit.HarnessCapabilities.ClearOverride(string! name) -> void
 Kiln.TestKit.HarnessCapabilities.Is(string! name) -> bool
 Kiln.TestKit.HarnessCapabilities.Override(string! name, bool available, string? reasonText = null) -> void
 Kiln.TestKit.HarnessCapabilities.Why(string! name) -> string!
+Kiln.TestKit.HarnessPlayers
+Kiln.TestKit.HarnessPlayers.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakePlayer!>!
+Kiln.TestKit.HarnessPlayers.Join(string! name, ulong steamId = 0, Kiln.PlayerPermissions rights = Kiln.PlayerPermissions.None, bool isAdmin = false, Kiln.WorldPosition? position = null, uint userGroupId = 0) -> Kiln.TestKit.FakePlayer!
+Kiln.TestKit.HarnessPlayers.Slots.get -> int
 Kiln.TestKit.HarnessState
 Kiln.TestKit.HarnessState.Abandoned = 5 -> Kiln.TestKit.HarnessState
 Kiln.TestKit.HarnessState.Created = 0 -> Kiln.TestKit.HarnessState
@@ -42,6 +58,12 @@ Kiln.TestKit.HarnessState.Running = 2 -> Kiln.TestKit.HarnessState
 Kiln.TestKit.HarnessState.Starting = 1 -> Kiln.TestKit.HarnessState
 Kiln.TestKit.HarnessState.Stopped = 3 -> Kiln.TestKit.HarnessState
 Kiln.TestKit.HarnessStoppedException
+Kiln.TestKit.HarnessWorld
+Kiln.TestKit.HarnessWorld.Directory.get -> string!
+Kiln.TestKit.HarnessWorld.Id.get -> System.Guid
+Kiln.TestKit.HarnessWorld.Loaded.get -> bool
+Kiln.TestKit.HarnessWorld.Revision.get -> uint
+Kiln.TestKit.HarnessWorld.Save(int maxSteps = 100) -> uint
 Kiln.TestKit.KilnHarness
 Kiln.TestKit.KilnHarness.As(Kiln.TestKit.ModHandle! mod, System.Action! action) -> void
 Kiln.TestKit.KilnHarness.As<T>(Kiln.TestKit.ModHandle! mod, System.Func<T>! func) -> T
@@ -56,6 +78,7 @@ Kiln.TestKit.KilnHarness.DumpLogs() -> string!
 Kiln.TestKit.KilnHarness.FindLogs(string! text, string? modId = null) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
 Kiln.TestKit.KilnHarness.GameLog(string! text, Kiln.LogLevel level = Kiln.LogLevel.Info) -> void
 Kiln.TestKit.KilnHarness.HasLog(string! text, string? modId = null) -> bool
+Kiln.TestKit.KilnHarness.Kill() -> void
 Kiln.TestKit.KilnHarness.KilnDirectory.get -> string!
 Kiln.TestKit.KilnHarness.KilnHarness(Kiln.TestKit.KilnHarnessOptions? options = null) -> void
 Kiln.TestKit.KilnHarness.Language.get -> string!
@@ -68,11 +91,13 @@ Kiln.TestKit.KilnHarness.LogsOf(Kiln.TestKit.ModHandle! mod) -> System.Collectio
 Kiln.TestKit.KilnHarness.LogsOf(string! modId) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
 Kiln.TestKit.KilnHarness.Mod(string! id) -> Kiln.TestKit.ModHandle!
 Kiln.TestKit.KilnHarness.ModsDirectory.get -> string!
+Kiln.TestKit.KilnHarness.Players.get -> Kiln.TestKit.HarnessPlayers!
 Kiln.TestKit.KilnHarness.Reload(Kiln.TestKit.ModHandle! mod, bool checkCollected = true) -> Kiln.TestKit.ModHandle!
 Kiln.TestKit.KilnHarness.ReportWorldRunning() -> void
 Kiln.TestKit.KilnHarness.Run(System.Action! action) -> void
 Kiln.TestKit.KilnHarness.Run<T>(System.Func<T>! func) -> T
 Kiln.TestKit.KilnHarness.RunCommand(Kiln.CommandSource! source, string! line) -> Kiln.CommandResult!
+Kiln.TestKit.KilnHarness.RunCommand(Kiln.TestKit.FakePlayer! player, string! line) -> Kiln.CommandResult!
 Kiln.TestKit.KilnHarness.RunCommand(string! line) -> Kiln.CommandResult!
 Kiln.TestKit.KilnHarness.ServerDirectory.get -> string!
 Kiln.TestKit.KilnHarness.State.get -> Kiln.TestKit.HarnessState
@@ -81,6 +106,9 @@ Kiln.TestKit.KilnHarness.Step(int steps = 1) -> void
 Kiln.TestKit.KilnHarness.StepUntil(System.Func<bool>! condition, int maxSteps = 1000, System.TimeSpan pace = default(System.TimeSpan)) -> int
 Kiln.TestKit.KilnHarness.Stop(string! reason = "SIGINT") -> void
 Kiln.TestKit.KilnHarness.Unload(Kiln.TestKit.ModHandle! mod, bool checkCollected = true) -> void
+Kiln.TestKit.KilnHarness.World.get -> Kiln.TestKit.HarnessWorld!
+Kiln.TestKit.KilnHarness.WritePermissions(string! json) -> void
+Kiln.TestKit.KilnHarness.WriteServerConfig(string! json) -> void
 Kiln.TestKit.KilnHarnessOptions
 Kiln.TestKit.KilnHarnessOptions.CrashReports.get -> bool
 Kiln.TestKit.KilnHarnessOptions.CrashReports.init -> void
@@ -93,6 +121,8 @@ Kiln.TestKit.KilnHarnessOptions.KeepFolder.init -> void
 Kiln.TestKit.KilnHarnessOptions.KilnHarnessOptions() -> void
 Kiln.TestKit.KilnHarnessOptions.LogSink.get -> System.Action<Kiln.TestKit.LogLine!>?
 Kiln.TestKit.KilnHarnessOptions.LogSink.init -> void
+Kiln.TestKit.KilnHarnessOptions.ServerDirectory.get -> string?
+Kiln.TestKit.KilnHarnessOptions.ServerDirectory.init -> void
 Kiln.TestKit.KilnHarnessOptions.TempDirectory.get -> string?
 Kiln.TestKit.KilnHarnessOptions.TempDirectory.init -> void
 Kiln.TestKit.KilnHarnessOptions.TestTimeout.get -> System.TimeSpan
@@ -105,6 +135,8 @@ Kiln.TestKit.KilnHarnessOptions.WaitForWorldRunning.get -> bool
 Kiln.TestKit.KilnHarnessOptions.WaitForWorldRunning.init -> void
 Kiln.TestKit.KilnHarnessOptions.WallDeltaMs.get -> double
 Kiln.TestKit.KilnHarnessOptions.WallDeltaMs.init -> void
+Kiln.TestKit.KilnHarnessOptions.WorldId.get -> System.Guid?
+Kiln.TestKit.KilnHarnessOptions.WorldId.init -> void
 Kiln.TestKit.LogLine
 Kiln.TestKit.LogLine.<Clone>$() -> Kiln.TestKit.LogLine!
 Kiln.TestKit.LogLine.Deconstruct(out long Sequence, out ulong Step, out Kiln.LogLevel Level, out string! Source, out string! Text) -> void
@@ -162,6 +194,7 @@ override Kiln.TestKit.CapabilityRow.GetHashCode() -> int
 override Kiln.TestKit.CoverageRow.Equals(object? obj) -> bool
 override Kiln.TestKit.CoverageRow.GetHashCode() -> int
 override Kiln.TestKit.CoverageRow.ToString() -> string!
+override Kiln.TestKit.FakePlayer.ToString() -> string!
 override Kiln.TestKit.LogLine.Equals(object? obj) -> bool
 override Kiln.TestKit.LogLine.GetHashCode() -> int
 override Kiln.TestKit.LogLine.ToString() -> string!
