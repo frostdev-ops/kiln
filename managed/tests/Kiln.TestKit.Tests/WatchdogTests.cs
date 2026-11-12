@@ -34,7 +34,7 @@ public sealed class WatchdogTests(ITestOutputHelper output)
         var wait = r.Named("TkBlockMod.Blocks_in_task_wait");
         Assert.Contains("Blocks_in_task_wait", wait.Stack);  // the test's own async frame
         Assert.Contains("TkBlockMod.WaitFor", wait.Stack);
-        Assert.Contains("Task.Wait", wait.Stack);
+        Assert.Contains("System.Threading.Monitor", wait.Stack);  // where it waited; Task.Wait itself is inlined in a Release build
         Assert.Contains("stopped by Thread.Interrupt", wait.Message);
         Assert.StartsWith("blocked the tick thread: a server step did not return within 1.3 s", wait.Message);
         var locked = r.Named("TkBlockMod.Blocks_on_a_lock");

@@ -107,7 +107,7 @@ public sealed partial class KilnHarness : IDisposable
                 BootServiceTick();
                 return 0;
             });
-            _host.Log(LogLevel.Info, $"testkit: server folder {ServerDirectory}; Kiln {KitBackend.KilnVersion} (mod API {Mods.ApiVersion}), " +
+            _host.Log(LogLevel.Info, $"testkit: server folder {ServerDirectory}; Kiln {KitBackend.KilnVersion} (mod API {Mods.RuntimeApiVersion}), " +
                                      $"no game: {ServiceNames.All.Count(n => !KitBackend.Instance.HasTable(n))} of {ServiceNames.All.Count} services unavailable (offline)");
         }
         catch
@@ -360,7 +360,7 @@ public sealed partial class KilnHarness : IDisposable
     private static void ReloadPermissions() => Permissions.Reload();
 
     private string SystemReport() =>
-        $"Kiln.TestKit (no game): Kiln {KitBackend.KilnVersion}, mod API {Mods.ApiVersion}\n.NET: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}\n" +
+        $"Kiln.TestKit (no game): Kiln {KitBackend.KilnVersion}, mod API {Mods.RuntimeApiVersion}\n.NET: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}\n" +
         $"Process: pid {Environment.ProcessId}, step {CurrentStep}, phase {Lifecycle.Phase}\n";
 
     // ---- dispose ----

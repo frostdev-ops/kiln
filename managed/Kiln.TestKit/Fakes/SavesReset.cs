@@ -20,7 +20,8 @@ internal static class SavesReset
     /// <summary>The fields of <c>SavesRuntime</c> set back to their start values (false, null, 0).</summary>
     internal static readonly string[] RuntimeFields = ["_shutdownAnnounced", "_loadedEventSeen", "_worldFile", "_savingSeq", "_snapshotSeq", "_savingRevision"];
 
-    internal sealed record Members(Type Runtime, FieldInfo Store, FieldInfo Requests, FieldInfo[] Flags, MethodInfo CloseWorld, FieldInfo Closed);
+    internal sealed record Members(Type Runtime, FieldInfo Store, FieldInfo Requests, FieldInfo[] Flags, MethodInfo CloseWorld, FieldInfo Closed,
+        FieldInfo State, FieldInfo Looked);
 
     /// <summary>Every member the reset needs; throws naming the first one that is missing.</summary>
     internal static Members Resolve(Assembly saves)
@@ -33,7 +34,11 @@ internal static class SavesReset
         var close = store.FieldType.GetMethod("CloseWorld", Instance, Type.EmptyTypes) ?? throw Missing("WorldStore.CloseWorld()");
         var closed = store.FieldType.GetField("_closed", Instance) ?? throw Missing("WorldStore._closed");
         if (closed.FieldType != typeof(bool)) throw Missing("WorldStore._closed as a bool");
-        return new Members(runtime, store, requests, flags, close, closed);
+        var state = runtime.GetField("_state", Static) ?? throw Missing("SavesRuntime._state");
+        if (state.FieldType != typeof(int)) throw Missing("SavesRuntime._state as an int");
+        var looked = (saves.GetType("Kiln.SavesNative") ?? throw Missing("type Kiln.SavesNative")).GetField("_looked", Static) ?? throw Missing("SavesNative._looked");
+        if (looked.FieldType != typeof(bool)) throw Missing("SavesNative._looked as a bool");
+        return new Members(runtime, store, requests, flags, close, closed, state, looked);
     }
 
     private static InvalidOperationException Missing(string what) =>
@@ -45,6 +50,14 @@ internal static class SavesReset
         var saves = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == "Kiln.Saves");
         if (saves is null) return;  // never used in this process: nothing to reset
         var m = Resolve(saves);
+        // Kiln.Saves asks for its table once, in its module initializer, and remembers a "no" for good (_state 2). The
+        // runtime runs that initializer when the first method that names a Kiln.Saves member is compiled, which for a
+        // test method can be before the kit's own initializer has published the table. Then it asks again at first use.
+        if (m.State.GetValue(null) is 2 && KitBackend.Instance.HasTable(FakeTables.SavesService))
+        {
+            m.Looked.SetValue(null, false);
+            m.State.SetValue(null, 0);
+        }
         var store = m.Store.GetValue(null) ?? throw Missing("SavesRuntime.Store's value");
         m.CloseWorld.Invoke(store, null);  // drops the old world's data, id and folder; announces "no world" to per-world configs
         m.Closed.SetValue(store, false);   // a dedicated server's world opens at first use, before the game loads it

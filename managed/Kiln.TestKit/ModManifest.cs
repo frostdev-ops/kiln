@@ -33,8 +33,8 @@ public sealed class ModManifest
     /// <summary>The mod's version (semantic versioning); default 1.0.0.</summary>
     public string Version { get; set; } = "1.0.0";
 
-    /// <summary>The Kiln API the mod was built for; default this Kiln's (<see cref="Mods.ApiVersion"/>).</summary>
-    public string ApiVersion { get; set; } = Mods.ApiVersion;
+    /// <summary>The Kiln API the mod was built for; default this Kiln's (<see cref="Mods.RuntimeApiVersion"/>).</summary>
+    public string ApiVersion { get; set; } = Mods.RuntimeApiVersion;
 
     /// <summary>Server (default), client or both. The harness is a dedicated server: a client mod is skipped.</summary>
     public ModSide Side { get; set; } = ModSide.Server;

@@ -37,6 +37,7 @@ public sealed class TkBlockMod : Mod
     public void Passes_after_the_wait() => Assert.True(Game.IsTickThread);
 
     [KilnTest(Order = 3, TimeoutSeconds = 1)]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoOptimization | System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]  // the test asserts this frame; a Release build would make its last call a tail call
     public void Blocks_on_a_lock()
     {
         using var held = new ManualResetEventSlim(false);
@@ -57,6 +58,7 @@ public sealed class TkBlockMod : Mod
     public void Passes_after_the_lock() => Assert.True(Game.IsTickThread);
 
     [KilnTest(Order = 5, TimeoutSeconds = 1)]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoOptimization | System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]  // the test asserts this frame; a Release build would make its last call a tail call
     public void Spins_forever()
     {
         while (true) _spin++;
@@ -78,5 +80,6 @@ public sealed class TkBlockMod : Mod
     public void Blocks_briefly() => Thread.Sleep(800);
 
     [KilnTest(Order = 9, TimeoutSeconds = 1)]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoOptimization | System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]  // the test asserts this frame; a Release build would make its last call a tail call
     public void Sleeps_forever() => Thread.Sleep(Timeout.Infinite);
 }

@@ -32,8 +32,10 @@ public sealed class TkSuiteMod : Mod
     }
 
     [KilnTest]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoOptimization | System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]  // the test asserts this frame; a Release build would make its last call a tail call
     public void Fails_an_assertion() => Check(2);
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]  // its frame is asserted, also in a Release build
     private static void Check(int value) => Assert.Equal(1, value, "the value");
 
     [KilnTest(Skip = "skipped by its attribute")]

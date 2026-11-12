@@ -163,7 +163,9 @@ is reported as a timeout with the stack where it blocked, and the suite goes on 
 load (the next tests' output says so). In a server a test like that cannot be stopped ([testing.md](testing.md)).
 What a stopped test leaves behind: the stopped harness's mods never ran `OnUnload` and never saw
 `ServerStoppingEvent`, and threads the mod started itself keep running. A command or admin check that test code
-registered outside a mod outlives the harness. The watchdog was measured on Linux only.
+registered outside a mod outlives the harness. The watchdog was measured on Linux only. The stack is what the
+runtime has: in a Release build of the mod a method that was inlined, or whose last call became a tail call, is not
+in it (a test whose whole body is `=> Thread.Sleep(...)` shows the sleep, not the test's name).
 
 ## What a test sees of real time
 Steps are virtual: 40.8 ms each, with no sleeping, so `Step(1470)` is a minute of server time however fast it runs. `Environment.TickCount64`, `DateTime.UtcNow`, `Stopwatch` and `Task.Delay` are real time: a mod that measures
