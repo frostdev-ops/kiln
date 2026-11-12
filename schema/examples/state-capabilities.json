@@ -1,0 +1,101 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev",
+  "pid": 4242,
+  "written": "2026-11-12T03:30:00Z",
+  "side": "server",
+  "exe": {
+    "sha256": "f0d824be7fcd",
+    "verified": true
+  },
+  "hooks": true,
+  "safeIdle": null,
+  "generation": 189,
+  "capabilities": [
+    {
+      "name": "gameplay.craft",
+      "state": "unavailable",
+      "reason": "symbol-missing",
+      "reasonText": "symbol gameplay/CraftRecipe: gameplay/CraftRecipe.find[0]: 0 matches",
+      "source": "sigdb"
+    },
+    {
+      "name": "items.fuel",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "",
+      "source": "sigdb"
+    },
+    {
+      "name": "items.moves",
+      "state": "pending",
+      "reason": "session",
+      "reasonText": "no world is loaded yet",
+      "source": "host",
+      "session": true
+    },
+    {
+      "name": "kiln.audio",
+      "state": "unavailable",
+      "reason": "service-missing",
+      "reasonText": "kiln-audio.dll skipped: kiln_plugin_main returned 3 (unavailable); kiln.log says why",
+      "source": "core"
+    },
+    {
+      "name": "kiln.caps",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "v1",
+      "source": "core"
+    },
+    {
+      "name": "kiln.hooks",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "v2",
+      "source": "core"
+    },
+    {
+      "name": "kiln.items",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "v3",
+      "source": "service:kiln-items.dll"
+    },
+    {
+      "name": "kiln.ui",
+      "state": "unavailable",
+      "reason": "service-missing",
+      "reasonText": "kiln-ui.dll skipped: kiln_plugin_main returned 3 (unavailable); kiln.log says why",
+      "source": "core"
+    },
+    {
+      "name": "log.mirror",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "",
+      "source": "sigdb"
+    },
+    {
+      "name": "net.kick",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "",
+      "source": "sigdb"
+    },
+    {
+      "name": "tick",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "",
+      "source": "sigdb"
+    },
+    {
+      "name": "world.lifecycle",
+      "state": "available",
+      "reason": "none",
+      "reasonText": "",
+      "source": "sigdb"
+    }
+  ]
+}
