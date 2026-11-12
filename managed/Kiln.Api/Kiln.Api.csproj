@@ -45,5 +45,6 @@
     <InternalsVisibleTo Include="Kiln.Vfx" />
     <InternalsVisibleTo Include="Kiln.Quests" />
     <InternalsVisibleTo Include="Kiln.Rules" />
+    <InternalsVisibleTo Include="Kiln.PlayerAnim" />
   </ItemGroup>
 </Project>
