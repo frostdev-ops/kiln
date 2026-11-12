@@ -19,6 +19,8 @@ public sealed class NpcAiTestMod : Mod
     private EntityId _watched;
     private static EntityId _refused;
     private bool _relatedInOnLoad;
+    private EntityId _fighter;
+    private readonly List<string> _fighterHits = [];
 
     private void Check(bool ok, string what)
     {
@@ -88,6 +90,12 @@ public sealed class NpcAiTestMod : Mod
         Events.On<CreatureStateEvent>(ev =>
         {
             if (ev.Entity == _watched && _transitions.Count < 40) _transitions.Add($"{ev.From}->{ev.To} ({ev.Condition})");
+        });
+        // the rules fight: every hit on the wary (who, through what, how much), for the log
+        Events.On<EntityDamagedEvent>(ev =>
+        {
+            if (ev.Target == _fighter && _fighterHits.Count < 40)
+                _fighterHits.Add($"{ev.Amount} from {ev.Attacker} via {ev.Source} ({ev.Origin}, {ev.HealthBefore}->{ev.HealthAfter}{(ev.KillingBlow ? ", killing blow" : "")})");
         });
         // the world's table, set in OnLoad as mods do (the CreatureAi sample): it must still hold once the world runs. OnLoad is on the tick thread
         // of a dedicated server.
@@ -368,10 +376,16 @@ public sealed class NpcAiTestMod : Mod
     {
         var w = await _wary!.Spawn(Pos, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
         _mine.Add(w);
+        _fighter = w;
+        _fighterHits.Clear();
         var o = await Creature("Enemy_Scavenger_Melee01", 2, 0);
         var cw = Creatures.Of(w);
         var co = Creatures.Of(o);
         co.Level = 60;
+        // The level-60 Scavenger is the wary's sparring partner: it must outlast the casts and blows, and it must not end
+        // the fight. In some runs it fights back (it is ordered to attack the wary), and its blows (one of 566, or 405 then
+        // 161) kill the wary before the near-death check below. Its blows stay light.
+        co.DamageFactor = 0.02f;
         cw.ForceReady();
         co.ForceReady();
         await Steps(10);
@@ -421,6 +435,10 @@ public sealed class NpcAiTestMod : Mod
         Check(AiStats.Casts - c0 > 0, $"in a fight it casts its ice ({AiStats.Casts - c0} casts)");
         Check(lowestO < oh0, $"its casts and blows land: the Scavenger fell from {oh0} to {lowestO}");
         _mine.AddRange(mine);
+        Info($"hits on the wary in the fight (scavenger {o}, summons {string.Join(",", mine)}): {(_fighterHits.Count == 0 ? "none" : string.Join("; ", _fighterHits))}");
+        _fighter = default;
+        if (cw.Inspect() is not { Health: > 0 })
+            Info($"the wary is dead before the near-death check ({cw.Inspect()?.State}): the immune check below reads a corpse");
 
         // near death: immune
         // near death: immune (the game's CombatFlags.immune, which the game's impacts read; kiln.combat's direct hits do not)

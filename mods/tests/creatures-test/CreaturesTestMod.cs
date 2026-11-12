@@ -706,6 +706,10 @@ public sealed class CreaturesTestMod : Mod
     // ---------------------------------------------------------------------------------------------- despawn ----
     private async Task DespawnCleanup()
     {
+        // The counts below are the service's totals. The creatures an earlier section destroyed (Guarding's, with the lab
+        // switch on) are dropped by a Pre too, and a spawn can finish within the same step: let those Pres run first, so
+        // that only this creature leaves the counts.
+        await Steps(3);
         var e = await SpawnVukah(-6, -6);
         var c = Creatures.Of(e);
         c.Level = 5;
