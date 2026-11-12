@@ -639,7 +639,7 @@ internal sealed class CheckRunner
         {
             Mod = c.Mod, ModVersion = c.ModVersion, Id = c.Id, Title = c.Title, Area = c.Area, Since = c.Since, Tags = c.Tags.ToArray(),
             Kiln = g0.Kiln, Game = new LedgerGame { Side = g0.Side, Sha256 = g0.Sha256, Verified = g0.Verified },
-            Session = LedgerEntry.SessionName(run.Session), Verdict = LedgerEntry.VerdictName(verdict), Note = note,
+            Session = LedgerEntry.SessionName(run.Session), Verdict = LedgerEntry.VerdictName(verdict), Note = Scrubber.Line(note, 600),
             Time = _env.Now.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), Assertions = run.Assertions.Select(a => a with
             {
                 What = Scrubber.Line(a.What, MaxNote), Detail = a.Detail is null ? null : Scrubber.Line(a.Detail, MaxNote),

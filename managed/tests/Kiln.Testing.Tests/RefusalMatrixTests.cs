@@ -662,6 +662,25 @@ public sealed class RefusalMatrixTests
         Assert.Contains(e.Assertions, a => a.Ok && a.Detail == "0 before, 2 after");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Guard_warnings_and_proof_overrides_keep_the_note_within_the_schema(bool proof)
+    {
+        using var h = new Harness(x => x.Seed(Harness.ProofEntry("pass")));
+        h.Start(proof ? "t.proof" : "t.cheats");
+        if (proof)
+        {
+            Assert.Null(h.Runner.Answer(AnswerKind.Yes));
+            h.Pump();
+        }
+        h.Guard!.Value = h.Guard.Value!.Value with { HookInstalled = false, Reason = string.Concat(Enumerable.Repeat("guard failure ", 20)) };
+        var entry = h.Answer(AnswerKind.Pass, string.Concat(Enumerable.Repeat("a long note ", 30)));
+        Assert.True(entry.Note.Length <= 600, $"note length {entry.Note.Length} exceeds schema maxLength 600");
+        Assert.Contains("guard warning", entry.Note);
+        Assert.Equal(entry.Note, h.OnDisk().Last().Note);
+    }
+
     // ---- the line that stays after a cheats check ----
 
     [Fact]
