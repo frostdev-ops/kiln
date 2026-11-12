@@ -16,7 +16,8 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
     /// <summary>No entity.</summary>
     public static readonly EntityRef None = default;
 
-    /// <summary>True when this refers to no entity.</summary>
+    /// <summary>True when this refers to no entity. Test <c>IsNone</c>, not <c>== None</c>: a none id can carry a
+    /// non-zero serial, and record equality also compares that serial.</summary>
     public bool IsNone => Id.IsNone;
 
     /// <summary>True when the ref carries a spawn serial. False: <see cref="IsAlive"/> can only check that the id
@@ -76,7 +77,8 @@ public readonly record struct ItemInstanceRef(EntityRef Entity, ItemId Item)
     /// <summary>No item.</summary>
     public static readonly ItemInstanceRef None = default;
 
-    /// <summary>True when this refers to no item entity.</summary>
+    /// <summary>True when this refers to no item entity. Test <c>IsNone</c>, not <c>== None</c>: a none entity can
+    /// carry a serial or item type, and record equality also compares those fields.</summary>
     public bool IsNone => Entity.IsNone;
 
     /// <summary>Exactly the entity's <see cref="EntityRef.IsAlive"/>, nothing more.</summary>

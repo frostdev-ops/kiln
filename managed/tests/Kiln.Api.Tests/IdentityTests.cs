@@ -91,6 +91,22 @@ public sealed class IdentityTests : KilnTest
     }
 
     [Fact]
+    public void IsNone_does_not_require_record_equality_with_None()
+    {
+        var entity = new EntityRef(EntityId.None, 9);
+        Assert.True(entity.IsNone);
+        Assert.False(entity == EntityRef.None);
+        Assert.True((new EntityRef(new EntityId(3), 9) with { Id = EntityId.None }).IsNone);
+        Assert.Equal(2, new HashSet<EntityRef> { entity, EntityRef.None }.Count);
+
+        var item = new ItemInstanceRef(EntityRef.None, new ItemId(7));
+        Assert.True(item.IsNone);
+        Assert.False(item == ItemInstanceRef.None);
+        Assert.True(new ItemInstanceRef(entity, new ItemId(7)).IsNone);
+        Assert.Equal(2, new HashSet<ItemInstanceRef> { item, ItemInstanceRef.None }.Count);
+    }
+
+    [Fact]
     public void Equality_and_hash_use_every_part()
     {
         var a = new EntityRef(new EntityId(12), 345);

@@ -76,6 +76,9 @@ ref types carry enough to notice that.
   It is not an item type (that is `ItemId`) and not Kiln.Blocks' `ItemRef` (which names an item for a recipe).
   `IsAlive` says nothing more than its entity's `IsAlive` does.
   Where the item is and its data come as extension methods in Kiln.Items.
+- Test **`EntityRef.IsNone`** and **`ItemInstanceRef.IsNone`**, not `== None`: a none entity id can still carry a
+  serial or item type, and record equality compares those fields too. For example, `new EntityRef(EntityId.None, 9)`
+  and `new ItemInstanceRef(EntityRef.None, new ItemId(7))` both have `IsNone == true` but are not equal to `None`.
 - **`PlayerRef(ulong SteamId, Guid CharacterId, EntityRef Entity)`**: a person: the Steam id, the character
   (`Guid.Empty` when unknown, see `HasCharacter`) and the session entity (none while offline). `PlayerRef.Of(entity)`
   finds the player of a session entity (`None` when it is not one); `Resolve()` gives the same person with their
