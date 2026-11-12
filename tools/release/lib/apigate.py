@@ -255,8 +255,13 @@ def removals(old, new):
     # Include records deleted before NEW too: removing a whole newly gated project must not bypass the gate.
     added = git(old.repo, "log", "--format=", "--name-only", "--diff-filter=A", f"{old.rev}..{rev}", "--",
                 f":(glob)managed/**/{SHIPPED}").splitlines()
+    old_files = old.files()
     for p in sorted(set(added) | set(api_files(new, SHIPPED))):
         if not p or p in baselines:
+            continue
+        if not any(f.startswith(project(p) + "/") for f in old_files):
+            # an assembly that did not exist at OLD: nothing of it shipped, so its API may still change before its first release
+            notes.append(f"{project(p)}: new since {old.label}: nothing of it has shipped, not compared")
             continue
         first = git(old.repo, "log", "--diff-filter=A", "--format=%H", "-1", rev, "--", p).strip()
         if first:

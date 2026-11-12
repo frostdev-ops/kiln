@@ -120,7 +120,7 @@ class Removed(Base):
         self.assertIn("first release with the gate", out)
 
     def test_a_newly_gated_project_is_compared_even_when_its_files_are_deleted(self):
-        self.r.commit(self.project(API, ["Kiln.A"]), tag="v1")
+        self.r.commit({**self.project(API, ["Kiln.A"]), f"{GAME}/Kiln.Game.csproj": "<Project/>"}, tag="v1")
         self.r.commit({**self.project(API, ["Kiln.A"]), **self.project(GAME, ["Kiln.Game.X"])})
         code, out = run(self.r, "removed", "v1")
         self.assertEqual(0, code, out)
@@ -130,8 +130,18 @@ class Removed(Base):
         self.assertEqual(1, code, out)
         self.assertIn("removed: Kiln.Game.X", out)
 
+    def test_a_project_new_since_the_tag_may_change_its_api_before_it_ships(self):
+        # Kiln.PlayerAnim in dev.26: a new assembly renamed its types before its first release
+        self.r.commit(self.project(API, ["Kiln.A"]), tag="v1")
+        self.r.commit({**self.project(API, ["Kiln.A"]), **self.project(SVC, ["Kiln.Old", "Kiln.Old.Go() -> void"])})
+        self.r.commit({**self.project(API, ["Kiln.A"]), **self.project(SVC, ["Kiln.New"])})
+        code, out = run(self.r, "removed", "v1")
+        self.assertEqual(0, code, out)
+        self.assertIn(f"{SVC}: new since v1: nothing of it has shipped, not compared", out)
+        self.assertNotIn("removed: Kiln.Old", out)
+
     def test_first_gated_release_refuses_a_line_deleted_from_its_initial_record(self):
-        self.r.commit({"README": "x"}, tag="v0")
+        self.r.commit({"README": "x", f"{API}/Kiln.Api.csproj": "<Project/>"}, tag="v0")
         self.r.commit(self.project(API, ["Kiln.A", "Kiln.A.Go() -> void"]))
         self.r.commit(self.project(API, ["Kiln.A"]))
         code, out = run(self.r, "removed", "v0")
@@ -139,7 +149,7 @@ class Removed(Base):
         self.assertIn("removed: Kiln.A.Go() -> void", out)
 
     def test_first_gated_release_uses_each_projects_own_initial_commit(self):
-        self.r.commit({"README": "x"}, tag="v0")
+        self.r.commit({"README": "x", f"{API}/Kiln.Api.csproj": "<Project/>", f"{SVC}/Kiln.Chat.csproj": "<Project/>"}, tag="v0")
         self.r.commit(self.project(API, ["Kiln.A"]))
         self.r.commit(self.project(SVC, ["Kiln.Chat", "Kiln.Chat.Send() -> void"]))
         self.r.put(self.project(SVC, ["Kiln.Chat"]))
@@ -149,7 +159,7 @@ class Removed(Base):
         self.assertIn("removed: Kiln.Chat.Send() -> void", out)
 
     def test_initial_record_is_selected_from_new_not_a_later_head(self):
-        self.r.commit({"README": "x"}, tag="v0")
+        self.r.commit({"README": "x", f"{API}/Kiln.Api.csproj": "<Project/>"}, tag="v0")
         self.r.commit(self.project(API, ["Kiln.A"]), tag="v1")
         self.r.commit(self.project(API, ["Kiln.A", "Kiln.B"]))
         code, out = run(self.r, "removed", "v0", "v1")
@@ -514,11 +524,19 @@ class Promote(Base):
 class BumpApi(Base):
     THREE = ("managed/Kiln.Api/Mods.cs", "managed/Kiln.Sdk/Sdk/Kiln.Version.props", "crates/kiln-manage/src/profile.rs")
 
+    @staticmethod
+    def real(rel):
+        """The real file as it is, its API version set to 0.2.0 (the value these tests start from, whatever the tree's)."""
+        text = (REPO / rel).read_text(encoding="utf-8")
+        for rx, value in ((ag.CONST_RE, "0.2.0"), (ag.PROPS_RE, "0.2"), (ag.PROFILE_RE, "0.2.0")):
+            text = rx.sub(lambda m, v=value: m.group(1) + v + m.group(3), text, count=1)
+        return text
+
     def setUp(self):
         super().setUp()
         for rel in self.THREE:  # copies of the real files: the edits must fit them as they are
             (self.r.root / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(REPO / rel, self.r.root / rel)
+            (self.r.root / rel).write_bytes(self.real(rel).encode("utf-8"))
         self.r.put({"docs/kiln/modding/manifest.md": "Today's API: `Kiln.Mods.ApiVersion` = 0.2.0.\nSET 0.2.0-dev\n",
                     "docs/kiln/release-notes/x.md": "mod API 0.2.0\n"})
         self.r.commit({})
@@ -548,7 +566,7 @@ class BumpApi(Base):
     def test_bump_keeps_both_gates_sound_for_two_releases(self):
         for carrier in (ag.SHIPPED, ag.UNSHIPPED):
             with self.subTest(carrier=carrier):
-                self.r.put({p: (REPO / p).read_text(encoding="utf-8") for p in self.THREE})
+                self.r.put({p: self.real(p) for p in self.THREE})
                 const = 'const Kiln.Mods.ApiVersion = "0.2.0" -> string!'
                 self.r.commit(self.project(API, ["Kiln.A", const] if carrier == ag.SHIPPED else ["Kiln.A"],
                                            [const] if carrier == ag.UNSHIPPED else []))
