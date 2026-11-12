@@ -81,7 +81,7 @@ that session's first check.
 | 3 | hosted; frameworks profile, first start with its EML mods | add the frameworks' mods; XHL-Core's Load after Kiln and ShroudForge on; drop shroudlink's singleplayer zip | first: `core.unload-quit` part 3; 301-313 (13): EML first start, Remove refused while running, each framework, EMF portraits and chat, XHL loaded late |
 | 4 | hosted; the frameworks profile saved under a second name with XHL-Core's late load off | after session 3: Remove the EML mod and add its archive again; switch the mod with its own files off and on; save the profile under a second name, change the switch, load it | 401-404: Remove after closing, `nothing changed`, kept mod files, the profile's own rules |
 | 5 | hosted; the same profile, ShroudForge's own `dbghelp.dll` in the game folder, no DLL override (Linux) | uninstall Kiln in the launcher and install it again; put the file in | 501-502: the profile after a reinstall, mods running next to the folder's loader (take the file out afterwards) |
-| 6 | hosted; `client-pass` alone; a **new throwaway character** named `KilnCheck…` | read [the cheats group](#the-cheats-group) | 601: `guard.proof` |
+| 6 | hosted; `client-pass` alone; a **new throwaway character** named `KilnCheck…` | read [the cheats group](#the-cheats-group); answer its question yes only if your account has every level achievement up to level 30 | 601: `guard.proof`, level by level until the guard sees a report (at most 30) |
 
 Sessions 1 and 2 host the same world: session 2 asks about the Lantern and the chest you left in session 1. The
 cosmetic sample is kept out of session 1 because hosting a world with it once crashed the game (status page, "Open in
@@ -112,15 +112,20 @@ saved state, so this applies to test saves and local copies too.
 - **Never load that character again in a game without Kiln.** The guard stays on until the game exits. A character
   changed by a `cheats` check, loaded later in a game where the guard is off, can unlock the achievements its saved
   state reaches.
-- **`guard.proof`** raises the character by one level, to one level above its current level, and grants nothing else.
-  Before it runs, it asks you to confirm that your Steam account already has every level achievement up to that level
-  (one level can reach several at once). A new character starts at level 1, so the check goes to level 2. If you play
-  it on another character, use one whose next level the account has passed before with any character (levels up to 30
-  on the account this pack was written for; another account may differ). If you are not sure, answer no.
-- **What to watch.** The game's own log (`enshrouded.log` in the game folder) must get no new line starting with
+- **`guard.proof`** raises the character one level at a time until the guard sees the game report an achievement, at
+  most to level 30, and grants nothing else. The game reports an achievement only once its knowledge is set, and the
+  level achievements sit at certain levels, so most levels report nothing; the check stops at the first level whose
+  report the guard dropped. For an account that already has every level achievement up to level 30 this is harmless:
+  the game asks Steam first and skips what the account already has, while the report still reaches the guard. Before
+  it runs, the check asks you to confirm exactly that. If your account does not have them all, answer no: the guard
+  then stays unproven on this build and the other `cheats` checks stay refused. A character already at level 30 or
+  above is not changed, and the check fails; use a new one.
+- **What to watch.** The check shows the level it has reached ("level 7 of at most 30, no report yet"). Once the guard
+  sees a report: the game's own log (`enshrouded.log` in the game folder) must get no new line starting with
   `[online] Achievement`; kiln.log gets `steamguard: dropped a Steam achievement/stat report`; the guard's dropped
-  counter goes up (the check shows the numbers). The check also watches the game's log itself and asserts that no such
-  line came. The runner records the check as failed if the counter did not go up, whatever you answer.
+  counter goes up (the check shows the numbers and the level reached). The check also watches the game's log itself and
+  asserts that no such line came. If level 30 is reached with no report, the proof is inconclusive: press fail. The
+  runner records the check as failed if the counter did not go up, whatever you answer.
 - **Where the proof lands.** An entry in `kiln/state/client-checks.json` for `guard.proof`, tagged `guard-proof`, with
   verdict `pass`, for that game build (sha256) and Kiln version. Until its newest entry on a build is a pass, the runner
   refuses every other `cheats` check there; a fail or a skip closes that gate again. The pack has no other `cheats`
