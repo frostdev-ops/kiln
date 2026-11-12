@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Adds a visible usage line to the XML docs of every API member that has a thread or side attribute or names a
-capability, for the API reference: "Thread: tick thread only · Side: server only · Capability: world.time".
+"""Adds a visible usage line to the XML docs of every API member that has a thread, side or capability attribute, for
+the API reference: "Thread: tick thread only · Side: server only · Capability: world.time".
 
   tools/docs-site/annotate.py <api folder> <stage folder>
 
-<api folder> is what a first `docfx metadata` wrote from the stage (the attributes of each member are in its YAML);
-the Kiln.*.xml files in <stage folder> (a copy of pack.sh's stage) are rewritten in place, and a second
-`docfx metadata` over that folder puts the line into the reference. DocFX itself shows the attributes only inside the
-C# declaration ("[TickThreadOnly]" above the signature) and drops XML doc tags it does not know, so neither the line
-nor the capability would show without this.
+<api folder> is what a first `docfx metadata` wrote from the stage (the attributes of each member, with their
+constructor arguments, are in its YAML); the Kiln.*.xml files in <stage folder> (a copy of pack.sh's stage) are
+rewritten in place, and a second `docfx metadata` over that folder puts the line into the reference. DocFX itself
+shows the attributes only inside the C# declaration ("[TickThreadOnly]" above the signature), so the line would not
+show without this.
 The line goes at the end of the member's <summary>; a member with no summary gets it in <remarks> instead, so
-undocumented.py still lists it. Attributes are matched by simple name (namespace and "Attribute" left off), from the
-one table below: a new attribute shows up when it is in the table, with no other change.
+undocumented.py still lists it. An attribute on a type gives the line on the type's own page only, not again on each
+member. Attributes are matched by simple name (namespace and "Attribute" left off), from the one table below: a new
+attribute shows up when it is in the table, with no other change. [RequiresCapability("name")] (AllowMultiple) gives
+"Capability: name"; several give "Capability: a, b".
 """
 import importlib.util
 from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 
-# simple attribute name -> (label, text); the line lists labels in this order
+# simple attribute name -> (label, text); text None: the attribute's first constructor argument, as code. The line
+# lists labels in this order.
 USAGE = {
+    "RequiresCapability": ("Capability", None),
     "TickThreadOnly": ("Thread", "tick thread only"),
     "AnyThread": ("Thread", "any thread"),
     "RenderThread": ("Thread", "render thread only"),
@@ -29,26 +33,11 @@ USAGE = {
     "ClientOnly": ("Side", "client only"),
     "AdvancedApi": ("Advanced", "the mod's manifest needs advanced: true"),
 }
-ORDER = ("Thread", "Side", "Advanced")
+ORDER = ("Thread", "Side", "Advanced", "Capability")
 
 spec = importlib.util.spec_from_file_location("undocumented", Path(__file__).resolve().parent / "undocumented.py")
 undocumented = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(undocumented)
-
-
-def capability(member):
-    """The capability a member needs, from its XML docs, or None. The one place that knows the form:
-    <capability>name</capability>, anywhere in the member's doc comment."""
-    for e in member.iter("capability"):
-        if (e.text or "").strip():
-            return e.text.strip()
-    return None
-
-
-def drop_capability(member):
-    for parent in member.iter():
-        for e in [c for c in parent if c.tag == "capability"]:
-            parent.remove(e)
 
 
 def simple(type_name):
@@ -56,23 +45,47 @@ def simple(type_name):
     return n[:-len("Attribute")] if n.endswith("Attribute") else n
 
 
-def usage_para(attributes, cap):
-    """The <para> to add, or None when there is nothing to say."""
+def usage_para(attributes, arguments):
+    """The <para> to add for one member's attributes (type names) and their constructor arguments, or None."""
     rows = {}
-    for a in attributes:
-        if simple(a) in USAGE:
-            label, text = USAGE[simple(a)]
-            rows.setdefault(label, []).append(text)
-    if not rows and not cap:
+    for a, args in zip(attributes, arguments):
+        if simple(a) not in USAGE:
+            continue
+        label, text = USAGE[simple(a)]
+        if text is None:
+            if not args:
+                continue
+            text = args[0]
+        if text not in rows.setdefault(label, []):
+            rows[label].append(text)
+    if not rows:
         return None
     p = ET.Element("para")
-    parts = [f"{label}: {', '.join(rows[label])}" for label in ORDER if label in rows]
-    p.text = " · ".join(parts)
-    if cap:
-        p.text += (" · " if parts else "") + "Capability: "
-        c = ET.SubElement(p, "c")
-        c.text = cap
+    p.text = ""
+    last = p
+    for n, label in enumerate(label for label in ORDER if label in rows):
+        add = (" · " if n else "") + label + ": "
+        if USAGE_CODE[label]:
+            for k, value in enumerate(rows[label]):
+                add += ", " if k else ""
+                if last is p:
+                    p.text += add
+                else:
+                    last.tail = (last.tail or "") + add
+                last = ET.SubElement(p, "c")
+                last.text = value
+                add = ""
+        else:
+            add += ", ".join(rows[label])
+            if last is p:
+                p.text += add
+            else:
+                last.tail = (last.tail or "") + add
     return p
+
+
+# labels whose values are names, shown as code
+USAGE_CODE = {label: any(t is None for l, t in USAGE.values() if l == label) for label, _ in USAGE.values()}
 
 
 def annotate(api, stage):
@@ -91,16 +104,19 @@ def annotate(api, stage):
                 continue
             path, tree, members = docs[asm]
             member = members.get(cid)
-            cap = capability(member) if member is not None else None
-            para = usage_para(item["attributes"], cap)
+            para = usage_para(item["attributes"], item["arguments"])
             if para is None:
                 continue
             if member is None:
                 member = ET.SubElement(tree.find("members"), "member", name=cid)
                 members[cid] = member
-            drop_capability(member)
             summary = member.find("summary")
             if summary is not None and ("".join(summary.itertext()).strip() or len(summary)):
+                last = summary[-1] if len(summary) else None
+                if last is None:
+                    summary.text = (summary.text or "").rstrip() + " "
+                else:
+                    last.tail = (last.tail or "").rstrip() + " "     # a space before it in text-only views
                 summary.append(para)
             else:
                 remarks = member.find("remarks")
@@ -108,8 +124,9 @@ def annotate(api, stage):
                     remarks = ET.SubElement(member, "remarks")
                 remarks.insert(0, para)
                 para.tail, remarks.text = remarks.text, None
-            counts["usage"] += any(simple(a) in USAGE for a in item["attributes"])
-            counts["capability"] += cap is not None
+            names = {simple(a) for a in item["attributes"]}
+            counts["usage"] += any(n in USAGE and USAGE[n][1] is not None for n in names)
+            counts["capability"] += "RequiresCapability" in names
             changed.add(asm)
     for asm in changed:
         path, tree, _ = docs[asm]

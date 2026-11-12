@@ -6,9 +6,10 @@
 # The site folder defaults to $KILN_OUT/docs-site; an existing one is replaced only when it holds a site from here.
 # The tool goes into $KILN_OUT/tools (dotnet tool install, from NuGet). Generated files stay out of the repository: the
 # config is copied to $KILN_OUT/docs-work, where docfx writes api/ and docfx.log.
-# Steps: docfx metadata over the stage; annotate.py adds the thread/side/capability line to a copy of the XML docs;
-# docfx metadata again over the copy (api/); undocumented.py against undocumented-dev24.txt (a warning, an error with
-# KILN_DOCS_STRICT=1); docfx build.
+# Steps: docfx metadata over the stage; annotate.py turns the thread, side and [RequiresCapability] attributes it finds
+# in that metadata into a visible line in a copy of the XML docs; docfx metadata again over the copy (api/);
+# undocumented.py against undocumented-dev24.txt, or the file KILN_DOCS_BASELINE names (a warning; with
+# KILN_DOCS_STRICT=1 an error, before docfx build); docfx build.
 # docfx's runtimeconfig also asks for ASP.NET Core, which only `docfx serve` needs and which an SDK-only machine lacks, so
 # it runs from a private copy that names just Microsoft.NETCore.App.
 set -euo pipefail
@@ -63,14 +64,16 @@ docfx metadata docfx-raw.json >"$work/docfx-raw.log" 2>&1 || { tail -40 "$work/d
 python3 -I "$here/annotate.py" "$work/api-raw" "$work/stage"
 rm -rf "$work/api-raw"
 docfx metadata docfx.json 2>&1 | tee "$log"
-missing=$(python3 -I "$here/undocumented.py" --baseline "$here/undocumented-dev24.txt" "$work/api" || true)
+baseline=${KILN_DOCS_BASELINE:-$here/undocumented-dev24.txt}
+[[ -f $baseline ]] || { echo "no baseline file $baseline" >&2; exit 1; }
+missing=$(python3 -I "$here/undocumented.py" --baseline "$baseline" "$work/api" || true)
 n=$(grep -c . <<<"$missing" || true)
 if ((n)); then
-  printf 'undocumented: %s public types and members have no XML summary and are not in undocumented-dev24.txt:\n%s\n' \
-    "$n" "$missing" >&2
+  printf 'undocumented: %s public types and members have no XML summary and are not in %s:\n%s\n' \
+    "$n" "$(basename "$baseline")" "$missing" >&2
   [[ ${KILN_DOCS_STRICT:-} == 1 ]] && { echo "KILN_DOCS_STRICT=1: failing on them" >&2; exit 1; }
 else
-  echo "undocumented: none beyond undocumented-dev24.txt"
+  echo "undocumented: none beyond $(basename "$baseline")"
 fi
 rm -rf "$site"
 docfx build docfx.json --output "$site" 2>&1 | tee -a "$log"

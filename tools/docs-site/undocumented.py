@@ -39,14 +39,15 @@ def scalar(text):
 
 def items(path):
     """The items of one ManagedReference YAML file: dicts with uid, commentId, type, summary (True/False/None for
-    absent), parent, assemblies, attributes (attribute type names)."""
+    absent), parent, assemblies, attributes (attribute type names) and arguments (for each attribute, in the same
+    order, the values of its constructor arguments as written under `arguments:`)."""
     out, cur, key, section = [], None, None, None
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if line and not line.startswith((" ", "-", "#")):
             section, cur = line.split(":", 1)[0], None        # items: or references:
             continue
         if line.startswith("- uid: ") and section == "items":
-            cur = {"uid": scalar(line[7:]), "summary": None, "assemblies": [], "attributes": []}
+            cur = {"uid": scalar(line[7:]), "summary": None, "assemblies": [], "attributes": [], "arguments": []}
             out.append(cur)
             key = None
             continue
@@ -65,6 +66,14 @@ def items(path):
                 cur["assemblies"].append(scalar(line[4:]))
             elif key == "attributes" and line.startswith("  - type: "):
                 cur["attributes"].append(scalar(line[10:]))
+                cur["arguments"].append([])
+                cur["in_args"] = False
+        elif key == "attributes" and cur["attributes"]:
+            # under one attribute:     arguments:  /    - type: System.String  /      value: name
+            if re.match(r"    [A-Za-z]", line):
+                cur["in_args"] = line.startswith("    arguments:")
+            elif cur.get("in_args") and line.startswith("      value: "):
+                cur["arguments"][-1].append(scalar(line[13:]))
         elif key == "syntax" and cur.get("type") in ("Class", "Struct"):
             if line.startswith("    ") and not line.startswith("     "):
                 cur["content"] = line.startswith("    content:")      # the C# declaration, maybe on several lines
