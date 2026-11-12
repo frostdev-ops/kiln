@@ -203,8 +203,14 @@ public static class Is
 
     /// <summary>A handler on the game's job thread, registered with <see cref="Arsenals.JobHandler"/>. For hot paths: it may read
     /// only what is safe there and call no tick API. <see cref="Custom"/> is what you want unless you measured otherwise.</summary>
+    /// <remarks>Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
+    /// <see cref="InvalidOperationException"/>.</remarks>
     [AdvancedApi]
-    public static RuleCondition Job(uint id, uint arg = 0) => new(new JsonObject { ["kiln"] = "job", ["id"] = id, ["arg"] = arg });
+    public static RuleCondition Job(uint id, uint arg = 0)
+    {
+        CreaturesGate.RequireAdvanced("Is.Job");
+        return new(new JsonObject { ["kiln"] = "job", ["id"] = id, ["arg"] = arg });
+    }
 
     /// <summary>Any of the game's constraint kinds, by type name (<c>"StateConstrain"</c>) and field values as the game's
     /// reflection names them. Enums and flags take names; times take seconds; lists of flags take arrays.</summary>
@@ -246,8 +252,14 @@ public static class Act
 
     /// <summary>A handler on the game's job thread, registered with <see cref="Arsenals.JobHandler"/>. For hot paths: it may read
     /// only what is safe there and call no tick API. <see cref="Custom"/> is what you want unless you measured otherwise.</summary>
+    /// <remarks>Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
+    /// <see cref="InvalidOperationException"/>.</remarks>
     [AdvancedApi]
-    public static RuleAction Job(uint id, uint arg = 0) => new(new JsonObject { ["kiln"] = "job", ["id"] = id, ["arg"] = arg });
+    public static RuleAction Job(uint id, uint arg = 0)
+    {
+        CreaturesGate.RequireAdvanced("Act.Job");
+        return new(new JsonObject { ["kiln"] = "job", ["id"] = id, ["arg"] = arg });
+    }
 
     /// <summary>Any of the game's action kinds, by type name (<c>"SetCombatStateAction"</c>) and field values.</summary>
     public static RuleAction Game(string type, params (string Field, object? Value)[] fields) => new(RuleJson.Game(type, fields));

@@ -44,4 +44,22 @@ public sealed class RawGateTests
         var outside = Assert.Throws<InvalidOperationException>(() => As(null, () => Arsenals.JobHandler(7, 0)));
         Assert.Equal("Arsenals.JobHandler must be called from a mod (on the tick thread or in OnLoad)", outside.Message);
     }
+
+    [Fact]
+    public void JobRuleKindsAreForAdvancedModsOnly()
+    {
+        As(Plain, () =>
+        {
+            AssertGated("Is.Job", "plain-mod", () => Is.Job(7, 1));
+            AssertGated("Act.Job", "plain-mod", () => Act.Job(7));
+        });
+        As(Coremod, () =>
+        {
+            Assert.NotNull(Is.Job(7, 1));
+            Assert.NotNull(Act.Job(7));
+        });
+        Assert.Throws<InvalidOperationException>(() => As(null, () => Is.Job(7)));
+        // the other kinds stay open to every mod
+        As(Plain, () => Assert.NotNull(Is.Named("x")));
+    }
 }
