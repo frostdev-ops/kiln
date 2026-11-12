@@ -227,6 +227,48 @@ class Clips(Base):
         with self.assertRaises(C.ClipError):
             C.cook_clip(doc, "Idle", small)
 
+    def game_shaped(self):
+        """The golem as a game skeleton plays it: joints j<index> with no glTF node, found in the file by the `keen_joint` extra (what
+        `kiln skeleton player` and make_clips.py write), the node names left as they are so only the extra can pair them."""
+        own = K.from_gltf(Doc(self.glb))
+        d = json.loads(self.gltf.read_text())
+        for j, node in enumerate(own.nodes):
+            d["nodes"][node].setdefault("extras", {})["keen_joint"] = j
+        path = self.dir / "golem_game.gltf"
+        path.write_text(json.dumps(d))
+        game = K.Skeleton([f"j{i}" for i in range(len(own))], own.parents, own.rest, source="game")
+        return own, game, Doc(path)
+
+    def test_game_skeleton_pose_matches_own_skeleton(self):
+        """A clip cooked onto a game skeleton is the same clip as on the file's own skeleton: every joint's local transform, every frame. The
+        animations leave some joints alone (Idle turns arm_r only): those stay at their rest pose, they are not pulled up to the model-space
+        transform of the joints above them (the body torn into spikes in the client, dev.26)."""
+        own, game, doc = self.game_shaped()
+        for name in ("Idle", "WalkF", "Slam"):
+            a = anim.parse(C.cook_clip(Doc(self.glb), name, own)[0])
+            b = anim.parse(C.cook_clip(doc, name, game)[0])
+            moved = {own.joint_of_node(n) for n in doc.animations()[name]}
+            for f in range(0, a.frame_count, 9):
+                pa, pb = anim.sample_frame(a, float(f), own.default_pose()), anim.sample_frame(b, float(f), game.default_pose())
+                for j in range(len(own)):
+                    where = f"{name} frame {f} joint {own.names[j]}"
+                    self.assertLess(max(abs(x - y) for x, y in zip(pa[1][j], pb[1][j])), 0.001, where)
+                    self.assertLess(C.qdeg(pa[0][j], pb[0][j]), 0.1, where)
+                    if j not in moved:
+                        self.assertLess(max(abs(x - y) for x, y in zip(pb[1][j], game.rest[j][0])), 0.001, f"{where}: not animated, off its rest")
+                        self.assertLess(C.qdeg(pb[0][j], game.rest[j][1]), 0.1, f"{where}: not animated, off its rest")
+
+    def test_game_skeleton_file_must_have_its_hierarchy(self):
+        """A node is a joint's local transform only under its parent joint's node: a file that moved a joint elsewhere is refused."""
+        own, game, doc = self.game_shaped()
+        d = json.loads(doc.path.read_text())
+        spine, hand, arm = own.nodes[own.index["spine"]], own.nodes[own.index["hand_r"]], own.nodes[own.index["arm_r"]]
+        d["nodes"][arm]["children"].remove(hand)
+        d["nodes"][spine]["children"].append(hand)
+        doc.path.write_text(json.dumps(d))
+        with self.assertRaisesRegex(C.ClipError, "the skeleton has it under j"):
+            C.cook_clip(Doc(doc.path), "Idle", game)
+
     def test_events(self):
         dec = Decoder(TYPES)
         v = C.event_sequence_value(TYPES, dec, "anim_x", [{"at": 0.5, "noise": 8}, {"at": 0.1, "foot": "left"}, {"at": 0.2, "sound": "00000000-0000-0000-0000-000000000001", "slot": "Head"},
