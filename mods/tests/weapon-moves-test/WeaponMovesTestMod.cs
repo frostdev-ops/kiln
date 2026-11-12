@@ -165,6 +165,8 @@ public sealed partial class WeaponMovesTestMod : Mod
             await Part("chain data", () => { ChainData(); return Task.CompletedTask; });
             await Part("wand", () => { Wand(); return Task.CompletedTask; });
             await Part("twin", () => { Twin(); return Task.CompletedTask; });
+            await Part("held models", () => { HeldChecks(); return Task.CompletedTask; });
+            await Part("the sample", () => { SampleLoads(); return Task.CompletedTask; });
             await Part("ids", () => { Ids(); return Task.CompletedTask; });
             await Part("in the world", World_);
         }
@@ -287,7 +289,11 @@ public sealed partial class WeaponMovesTestMod : Mod
         var errors = (mine.Errors ?? []).Distinct().ToList();
         var overlay = errors.Where(e => e.Contains("overlayName", StringComparison.Ordinal)).ToList();
         if (_wrong) overlay.Add("(fail-once)");
-        Check(errors.Count == 0, $"the blocks came through with no word from the services, content ready's moves included: [{string.Join(" | ", errors)}]");
+        // kiln.content's item path (native/services/content/refs.cpp) refuses an item's model field naming a model this machine does not serve: on a
+        // machine that did not cook, the look's rigid model of the mod. A defect outside the moves and the held look, routed to the coordinator; its own line
+        var itemModels = errors.Where(e => e.Contains("is not a keen::Model the game has loaded", StringComparison.Ordinal)).ToList();
+        Check(errors.Except(itemModels).Count() == 0, $"the blocks came through with no word from the services, content ready's moves included: [{string.Join(" | ", errors.Except(itemModels))}]");
+        Check(itemModels.Count == 0, $"kiln.content's item path takes the look's rigid model (a DEFECT of kiln.content, not of the moves or the held look, when this fails: it refuses an item's model field naming a model this machine does not serve, refs.cpp): [{string.Join(" | ", itemModels)}]");
         Check(overlay.Count == 0, $"an overlay named by a wand's move is written (kiln.content takes an OverlayId as it takes a StateId): [{string.Join(" | ", overlay)}]");
         Refusals();
         Info($"warnings: [{string.Join(" | ", Blocks.Warnings(Me))}]");

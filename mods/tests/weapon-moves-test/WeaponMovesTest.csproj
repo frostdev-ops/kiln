@@ -27,5 +27,7 @@
     <ProjectReference Include="../../../managed/services/Kiln.Client/Kiln.Client.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="blocks/**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- the held models: build-assets.py writes assets/src and assets/cooked (never committed); a lab that has not run it has no cooked files -->
+    <None Include="assets/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
