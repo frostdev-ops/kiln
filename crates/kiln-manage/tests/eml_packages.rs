@@ -123,6 +123,24 @@ fn layout(root: &Path, which: &str) {
             put(root, "mods/XHL-Vein-Mining/native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
             put(root, "mods/XHL-Vein-Mining/config.txt", b"x");
         }
+        // XHL-Free-Climbing 2.0.1 and the other XHL mods of 2026-11 ("1.0 Ready"): the plugin, XHL-Core's ini with the
+        // mod's settings, and a mod.json that only names the mod (no EML part: no src/mod.lua)
+        "xhl-2x" => {
+            put(root, "mods/XHL-Free-Climb/XHL-Free-Climb.dll", &xhl_plugin());
+            put(root, "mods/XHL-Free-Climb/mod.json", br#"{
+  "id": "xhl-free-climb",
+  "name": "XHL Free Climbing",
+  "version": "2.0.1",
+  "capabilities": [],
+  "authors": [
+    "XHL"
+  ],
+  "license": "MIT",
+  "description": "Climb walls and uneven rock using the configured keyboard or gamepad button."
+}
+"#);
+            put(root, "mods/XHL-Free-Climb/native-plugin.ini", b"[Plugin]\r\nEnabled=1\r\nDll=XHL-Free-Climb.dll\r\n\r\n[Climbing]\r\nHoldKeyVk=71\r\nHoldGamepadButton=R3\r\n");
+        }
         // XHL-Max-Stack-65535 and the other pure XHL data mods: dbghelp.dll + mods/<Name>/ with config.txt
         "loader-dbghelp" => {
             put(root, "dbghelp.dll", &eml_dbghelp());
@@ -353,6 +371,22 @@ fn xhl_mods_are_placed_where_xhl_core_finds_their_plugin() {
         assert!(d.reasons().contains("XHL-Core plugin (native-plugin.ini)"), "{}", d.reasons());
         assert_eq!(d.natives(), natives, "{which}: XHL-Core in the package is a native mod");
     }
+}
+
+/// XHL's mods since 2026-11 carry a mod.json that names the mod but has no EML part. A player reported "Nothing to add"
+/// for them: the folder was taken for a broken EML package. It is an XHL-Core plugin, placed where XHL-Core loads it,
+/// with every file it came with (its settings are in native-plugin.ini).
+#[test]
+fn xhl_2x_mods_with_a_naming_mod_json_are_xhl_core_plugins() {
+    let d = drop_on_launcher("xhl-2x", "XHL-Free-Climbing (1.0 Ready) 175 2.0.1 2026-11-02T15-32Z KgLa3UeWT");
+    assert_eq!(d.found(), ["xhl/xhl-free-climb"], "{}", d.reasons());
+    assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
+    assert!(d.natives().is_empty() && d.eml_paths().is_empty() && d.chained().is_empty());
+    for f in ["XHL-Free-Climb.dll", "mod.json", "native-plugin.ini"] {
+        assert!(d.g.path.join("mods/XHL-Free-Climb").join(f).is_file(), "{f}: {:?}", tree(&d.g.path));
+    }
+    assert_eq!(std::fs::read(d.g.path.join("mods/XHL-Free-Climb/XHL-Free-Climb.dll")).unwrap(), xhl_plugin());
+    assert!(d.reasons().contains("requires XHL-Core") && d.reasons().contains("never loads this plugin DLL itself"), "{}", d.reasons());
 }
 
 #[test]

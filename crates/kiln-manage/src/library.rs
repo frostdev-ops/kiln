@@ -633,14 +633,12 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     if let Some(d) = crate::engines::detect_folder(dir) {
         return d;
     }
-    // A package with an unknown/broken manifest is one item, never a bag of helper DLLs to execute.
-    if dir.join(EMF_MANIFEST).is_file() || dir.join("src/mod.lua").is_file()
-        || std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")))
-    {
-        return mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir));
-    }
-    // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own
-    if crate::engine_mods::has_xhl_plugin_ini(dir) {
+    let has_lua = dir.join("src/mod.lua").is_file()
+        || std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")));
+    // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own.
+    // XHL's mods since 2026-11 also carry a mod.json that only names the mod (id, name, version, no src/mod.lua): it is
+    // no EML package, and the folder is still XHL-Core's plugin.
+    if crate::engine_mods::has_xhl_plugin_ini(dir) && !has_lua {
         // XHL-Core loads every folder that holds the ini: a copy suffix, or a version in an archive's name, would make
         // a second companion beside the first
         let name = match top_name.filter(|_| depth == 0) {
@@ -653,6 +651,10 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
         }
         return mk(DetectKind::Xhl, Some(name.clone()), Some("0.0.0".into()), Some(name),
             "requires XHL-Core: Kiln preserves and places this native-plugin.ini companion in the game's mods folder; Kiln never loads this plugin DLL itself".into());
+    }
+    // A package with an unknown/broken manifest is one item, never a bag of helper DLLs to execute.
+    if dir.join(EMF_MANIFEST).is_file() || has_lua {
+        return mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir));
     }
     // `mods/<name>/` with nothing but settings files: the settings of a DLL that reads them in the game folder
     // (Auto Loot Plus Lite: dinput8.dll + mods/auto-loot-plus/config.txt)

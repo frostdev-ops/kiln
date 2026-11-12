@@ -352,13 +352,14 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
-            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("mod.json").exists(),
+            // XHL's own mod.json (since 2026-11) only names the mod; an EML part (src/mod.lua) makes it an EML mod
+            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("src").join("mod.lua").exists(),
             _ => true,
         };
         if !found {
             let why = match kind {
                 ModKind::Ember => "an Ember mod folder holds exactly one library (.dll), and no other engine's mod DLL",
-                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package",
+                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package (src/mod.lua)",
                 ModKind::Enshwick => "invalid, unsupported or changed pack.toml, or no Enshwick mod DLL",
                 _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
             };
