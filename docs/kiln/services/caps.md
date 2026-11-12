@@ -86,6 +86,11 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 | `blocks.weapon_moves` | managed, static | Kiln.Blocks, once, when the first item block compiles | a weapon's moves, a wand's and a staff cast's animation and `hitAt`: needs kiln.gamedata |
 | `blocks.animated_held` | managed, static | Kiln.Blocks, with the row above | a look's animated held model: needs kiln.gamedata and kiln.assets |
 
+## Rows added in dev.27
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `rules.noclip` | sigdb feature | core; kiln.rules lowers it at the first world when its hook did not go in: `policy` when character flight's hooks are off (`rules.flight` did not resolve, or the Creative Mode mod runs), `faulted` when the hook could not be installed or the layout is not the expected one | NoClip works on this build and side (`NoClip.Available`, `PlayerRules.NoClip`; [rules.md](rules.md)). Whether one player gets it is still the server's `rules.json` and that player's game: `NoClip.Set` says |
+
 What a manifest's `features` can require of these: the sigdb features (`items.fuel`, `items.move`, `items.names`,
 `items.transfer`, `items.instances`) and `anim.player_states`. The manifests are checked before the managed services
 start, so for a sigdb feature the check sees the sigdb verdict only, not a later lowering by Kiln.Items: ask

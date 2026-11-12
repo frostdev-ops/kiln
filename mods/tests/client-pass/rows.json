@@ -41,7 +41,7 @@
     { "section": "Client checklist (dev.21)", "key": "Kiln's menu opens and draws; camera, render and in-game UI hooks behave as in dev.20", "checks": ["menu.kiln-menu", "hooks.camera-render-ui"] },
     { "section": "Client checklist (dev.21)", "key": "With kiln-emf's client chat bridge on, Kiln chat commands and EMF mods' chat both work", "checks": ["chat.emf-bridge", "chat.emf-bridge-two"] },
     { "section": "Client checklist (dev.21)", "key": "Item moves and quick stack, combat, abilities, audio, quests, flight and creative rules, saves, time, spawns, NPC factions, VFX and world programs with a player",
-      "checks": ["gameplay.items-quick-stack", "gameplay.combat-abilities", "blocks.sound-block", "quests.npc-sample", "rules.flight-creative", "saves.kept", "time.set", "spawns.vukah", "creatures.ai-feud", "vfx.game-by-name", "world.programs"] },
+      "checks": ["gameplay.items-quick-stack", "gameplay.combat-abilities", "blocks.sound-block", "quests.npc-sample", "rules.flight-creative", "rules.noclip", "rules.noclip-teleport", "saves.kept", "time.set", "spawns.vukah", "creatures.ai-feud", "vfx.game-by-name", "world.programs"] },
     { "section": "Client checklist (dev.21)", "key": "Load after Kiln and ShroudForge on XHL-Core", "checks": ["dll.xhl-late"] },
     { "section": "Client checklist (dev.21)", "key": "While Enshrouded starts with an EML mod active, Remove or Clean up of that version is refused", "checks": ["library.guard-running", "library.guard-closed"] },
     { "section": "Client checklist (dev.21)", "key": "Later EML starts log nothing changed", "checks": ["eml.nothing-changed"] },
