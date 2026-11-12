@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test mod of Kiln.TestKit.Tests that keeps saved data (see ../Directory.Build.targets). -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="TkSaves.kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
