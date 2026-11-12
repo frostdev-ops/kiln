@@ -154,7 +154,8 @@ class WiringTests(unittest.TestCase):
             required = ("cmake/bin/plugins/kiln-eml.dll", "host/Kiln.Eml.dll", "cmake/bin/services/kiln-foo.dll",
                         "host/Kiln.Foo.dll", "host/Kiln.Game.dll", "host/Kiln.Api.dll",
                         "mods/kiln-admin/Kiln.Admin.dll", "mods/kiln-admin/kiln.mod.json",
-                        "mods/hello/Hello.dll", "mods/hello/kiln.mod.json", "cmake/bin/kiln-native-hello.dll")
+                        "mods/hello/Hello.dll", "mods/hello/kiln.mod.json", "cmake/bin/kiln-native-hello.dll",
+                        "host/game/server-0123456789ab/Kiln.Game.dll")  # one per verified game build (typegen)
             for name in required:
                 f = root / "out" / name
                 f.parent.mkdir(parents=True, exist_ok=True)
@@ -170,7 +171,9 @@ class WiringTests(unittest.TestCase):
                     f.unlink()
                     r = run()
                     self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-                    self.assertIn(str(f), r.stderr)
+                    # the per-build Kiln.Game check is a glob: its message names the pattern, not the file
+                    want = "host/game/<side>-<sha12>/Kiln.Game.dll" if name.startswith("host/game/") else str(f)
+                    self.assertIn(want, r.stderr)
                     f.write_bytes(b"fixture")
 
     def test_release_requires_enshwick_notice_provenance(self):
