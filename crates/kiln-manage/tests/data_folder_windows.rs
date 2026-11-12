@@ -130,8 +130,8 @@ mod win {
 
     // -------------------------------------------------------------------------------------------- helpers
 
-    /// What the test binary sees of its environment, printed once at the start of every test: no variable of a Linux
-    /// shell may name a real home folder, and `KILN_DATA_DIR` is not set.
+    /// What the test binary sees of its environment, printed once at the start of every test: no variable may name
+    /// a real home folder. The fixtures construct their own DataEnv even when the runner pins a scratch override.
     fn seen() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
@@ -145,8 +145,7 @@ mod win {
             }
             eprintln!("{line}");
         });
-        assert!(std::env::var_os("KILN_DATA_DIR").is_none(), "KILN_DATA_DIR must not be set for these tests");
-        for v in ["LOCALAPPDATA", "APPDATA", "TEMP"] {
+        for v in ["KILN_DATA_DIR", "LOCALAPPDATA", "APPDATA", "TEMP"] {
             let val = std::env::var(v).unwrap_or_default();
             assert!(!val.starts_with('/') && !val.to_lowercase().contains(r"\home\"), "{v}={val}: a Linux home leaks in");
         }
@@ -347,7 +346,8 @@ mod win {
     fn the_environment_this_binary_sees() {
         seen();
         let env = DataEnv::from_process();
-        assert!(env.windows && env.kiln_data_dir.is_none());
+        assert!(env.windows);
+        assert_eq!(env.kiln_data_dir, std::env::var_os("KILN_DATA_DIR"));
         eprintln!("process default root {:?}, state {}, config {}", env.default_root(), env.state_dir().display(), env.config_dir().display());
         assert!(env.default_root().unwrap().starts_with(std::env::var("LOCALAPPDATA").unwrap()));
         assert_eq!(env.state_dir(), env.default_root().unwrap().join("state"), "Windows: the state folder is inside the default root");

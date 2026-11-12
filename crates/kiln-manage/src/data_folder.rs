@@ -130,8 +130,44 @@ pub fn write_pointer(default_root: &Path, path: &Path) -> Result<Pointer> {
         written: crate::util::now_rfc3339(),
         writer: format!("kiln-manage {}", crate::VERSION),
     };
-    crate::util::write_json_atomic(&default_root.join(POINTER), &p)?;
+    let mut bytes = serde_json::to_vec_pretty(&p)?;
+    bytes.push(b'\n');
+    write_pointer_bytes(default_root, &bytes)?;
     Ok(p)
+}
+
+/// Pointer-only atomic replacement. On Windows the rename is write-through before old data may be removed.
+pub(crate) fn write_pointer_bytes(default_root: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(not(windows))]
+    { crate::util::write_atomic(&default_root.join(POINTER), bytes) }
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        std::fs::create_dir_all(default_root).map_err(io_at(default_root, "creating"))?;
+        let tmp = default_root.join(format!("{POINTER}.{}.tmp", crate::hash::hex(&crate::util::random_bytes::<16>()?)));
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp).map_err(io_at(&tmp, "writing"))?;
+        let result = (|| {
+            file.write_all(bytes).map_err(io_at(&tmp, "writing"))?;
+            file.sync_all().map_err(io_at(&tmp, "flushing"))?;
+            drop(file);
+            pointer_rename(&tmp, &default_root.join(POINTER), true)
+        })();
+        if result.is_err() { let _ = std::fs::remove_file(&tmp); }
+        result
+    }
+}
+
+#[cfg(windows)]
+fn pointer_rename(from: &Path, to: &Path, replace: bool) -> Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+    let from = sys::wide(from);
+    let dest = sys::wide(to);
+    let flags = MOVEFILE_WRITE_THROUGH | if replace { MOVEFILE_REPLACE_EXISTING } else { 0 };
+    // SAFETY: both paths are live NUL-terminated UTF-16 buffers; no handles are retained.
+    if unsafe { MoveFileExW(from.as_ptr(), dest.as_ptr(), flags) } == 0 {
+        return Err(io_at(to, "renaming to")(std::io::Error::last_os_error()));
+    }
+    Ok(())
 }
 
 /// The folder a pointer names must be a real folder and a Kiln data folder: it has [`MARKER`] (one stat), else its
@@ -162,6 +198,20 @@ pub fn check_pointed(path: &Path, env: &DataEnv, pointer: &Path) -> std::result:
 /// Removes the pointer in `default_root` (the default root becomes the data folder). Ok when there is none.
 pub fn remove_pointer(default_root: &Path) -> Result<()> {
     let f = default_root.join(POINTER);
+    #[cfg(windows)]
+    {
+        match std::fs::symlink_metadata(&f) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(io_at(&f, "reading")(e)),
+            Ok(_) => {}
+        }
+        let tombstone = default_root.join(format!("{POINTER}.{}.removed", crate::hash::hex(&crate::util::random_bytes::<16>()?)));
+        // Never replace a pre-existing tombstone. The durable rename, not its later deletion, is the commit.
+        pointer_rename(&f, &tombstone, false)?;
+        let _ = std::fs::remove_file(&tombstone);
+        return Ok(());
+    }
+    #[cfg(not(windows))]
     match std::fs::remove_file(&f) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1187,7 +1237,7 @@ mod sys {
     /// The path as a NUL-terminated wide string. A full path that may pass MAX_PATH gets the `\\?\` prefix (as std does
     /// for its own file calls): without it these Win32 calls fail for a folder deeper than 259 characters, unless long
     /// paths are switched on for the PC and the program.
-    fn wide(p: &Path) -> Vec<u16> {
+    pub(super) fn wide(p: &Path) -> Vec<u16> {
         let s = p.as_os_str();
         let text = s.to_string_lossy();
         let long = s.encode_wide().count() >= 248;

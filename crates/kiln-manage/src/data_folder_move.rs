@@ -1527,7 +1527,7 @@ pub fn repoint(env: &DataEnv, picked: &Path, facts: &dyn SystemFacts) -> Result<
         Ok(l) if same_folder(&l.dirs.root, &picked) => Ok(l),
         other => {
             let _ = match &before {
-                Some(b) => crate::util::write_atomic(&pointer, b),
+                Some(b) => df::write_pointer_bytes(&default, b),
                 None => df::remove_pointer(&default),
             };
             Err(match other {

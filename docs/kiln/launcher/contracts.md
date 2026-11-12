@@ -173,8 +173,10 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   folder. Such a clean-up keeps its proof: the target's `.kiln-data-move.json`, its `.kiln-data-folder.json`, its
   lock file and the journal (`state: failed`) stay, so the folder reads as a move in progress (never "use this one",
   never a target), and `remove_partial_copy` removes the rest at the next start.
-  On Windows files are flushed one by one; folders cannot be flushed there, so a power loss right after the commit is
-  covered on Unix only.
+  On Windows files are flushed one by one, and the pointer replacement uses `MoveFileExW` with
+  `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` before removal begins. Moving back to the default uses a
+  write-through rename to a unique tombstone before its best-effort deletion (a tiny tombstone can stay if deletion
+  is refused). This requests Windows durability; Wine does not prove NTFS power-loss ordering or hardware flushes.
 - **Removal** (`data_folder_move::remove_old_copy`, also the move's last phase; `pending`, `remove_partial_copy`, never by
   themselves): the old copy of a committed move goes file by file, only where the old file's sha256 is the record's (for
   a rewritten file, the old one's) and the file in the new place has the record's sha256, or the one the move itself

@@ -123,6 +123,24 @@ fn locate_order_is_env_then_pointer_then_default() {
 }
 
 #[test]
+fn pointer_replacement_and_removal_preserve_unrelated_files() {
+    let s = scratch("pointer-replace");
+    let env = env_at(&s.0);
+    let default = env.default_root().unwrap();
+    put(&default, df::POINTER_OLD, b"the previous recovery pointer");
+    put(&default, "data-folder.json.foreign.removed", b"not made by this move");
+    df::write_pointer(&default, &s.0.join("first")).unwrap();
+    df::write_pointer(&default, &s.0.join("second")).unwrap();
+    assert_eq!(df::read_pointer(&default).unwrap().unwrap().path, s.0.join("second"));
+    df::remove_pointer(&default).unwrap();
+    df::remove_pointer(&default).unwrap();
+    assert!(df::read_pointer(&default).unwrap().is_none());
+    assert_eq!(std::fs::read(default.join(df::POINTER_OLD)).unwrap(), b"the previous recovery pointer");
+    assert_eq!(std::fs::read(default.join("data-folder.json.foreign.removed")).unwrap(), b"not made by this move");
+    assert_eq!(std::fs::read_dir(&default).unwrap().count(), 2, "no temporary pointer or tombstone remains");
+}
+
+#[test]
 fn a_broken_pointer_is_an_error_never_the_default() {
     let s = scratch("broken");
     let env = env_at(&s.0);
