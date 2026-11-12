@@ -290,7 +290,7 @@ Material flags: 2,104 of 3,000 sampled models carry flag bit 6, which reflection
 | Skinning math against an independent evaluator | `tools/modelcook/tests/run_blender_check.py`: a creature authored in Blender (armature object moved, turned and scaled; mesh object with its own transform; smooth weights of 4 influences), exported by Blender, cooked, posed with the client's math: 0.01 mm from Blender's armature modifier at rest, at most 3.05 mm in poses that move 1 m (weights are in 255ths) |
 | Skinning against the glTF | `tools/modelcook/tests/test_skin.py`: the sample figure posed by its cooked clips against the glTF per its specification: 0.6 µm at rest, at most 2.4 mm in a pose |
 | Inverse binds on a running engine | `mods/tests/skincheck`, dedicated server svn 1287369, no player, 9 PASS: the figure's skeleton, clip and graph run in the engine, slots HandR, Head and Pelvis within 0.0005 of the cooked clip's joints, and model vertices skinned by those joints within 0.26 mm of the cook's numbers **[rt]**. The engine's joint and the client's math agree on this; the client's GPU skinning itself wasn't run |
-| **Skinned in game** | **Not proven.** Nothing skinned that was cooked here has been drawn by a client. The manual checks are in `docs/kiln/modding/models.md` |
+| **Skinned in game** | **Held model proven** (client, 2026-11-11): Kiln Equipment's Sunspire, a skinned model on a 2-joint skeleton with a looping clip and a one-state graph in a copy of `Visuals_Staff_01_Magic_Basic01`, seen drawn by the owner. A creature body has not been drawn yet; the manual checks are in `docs/kiln/modding/models.md` |
 | **In game** | **renders** (client). Boot: "modelsample: icons 0, textures 0, resources 3, blobs 2, errors 0" and "content map rebuilt: 101492 game blobs + N Kiln entries". At world load: no `[model_loader]` errors. The held Bronze Sword (override of `9c38c7f0`) draws the cooked cube-blade sword; the screenshot shows the spiral of small cubes and the box grip at the right hand **[rt]**. Not checked yet: the chirality marker read upright (the blade hung down, seen along its axis); whether the icon re-renders from the new model (the hotbar icons looked like thin vanilla blades, but it is not known whether those items were Bronze Swords: open); crafting `Kiln_Sample_TowerSword` (registered with its recipe, model and template per the log; the crafting UI lists "2542 + 7 new" recipes) |
 
 Renders (local, never committed): `export/bronze_sword.lod0.gltf` (vanilla, decoded),
@@ -312,12 +312,64 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
    - The codec is solved (5,461 of 5,461 clips byte-identical) and `tools/animcook` cooks glTF clips onto any skeleton, the player's included, with
      retargeting from another rig (docs/kiln/modding/animations.md). Replacing one of the player's clips works today (`"guid": "@input"`): every
      state that samples it plays the new one, for every weapon that uses it.
-   - **A weapon's own attacks** need new states in the player's graph (`21319e83…`: 2,944 nodes, 59 state machines). The melee attacks sit in
-     `SM_Melee_Attack_FullBody`, which holds one nested machine per weapon family (`SM_Attack_Sword_Shield_FullBody`, `…Hammer…`, `…Greatsword…`,
-     `…Dual_Daggers…`, `…Unarmed…`), each state entered when the id input `1563163402` equals its state hash (the FNV of the GUID a sequence's
-     `SetAnimationEvent.animationName` names). So the work is: decode the player graph, add a nested machine of the mod's states under
-     `SM_Melee_Attack_FullBody` with the same entry rule, re-encode it as an override, and give the weapon's attack sequences those state GUIDs.
-     The graph is one resource, so the edits of every mod have to be merged into one override at cook or boot time. Not built **[inf]**.
+   - **A weapon's own attacks: built (dev.25)** as states mods add to the player's graph (`21319e83…`: 2,944 nodes, 59 state
+     machines, 396 states). Reference merge `tools/animcook/anicook/playergraph.py`, its C++ port `native/services/playeranim/merge.cpp`;
+     for mod authors docs/kiln/modding/animations.md, "Player states". The graph is one resource for every player, so the
+     `assets/player-states.json` of every enabled mod is merged into one override.
+     - **Where and when.** At boot, in the native service kiln.playeranim (fixed by its header
+       `native/core/abi/services/kiln_playeranim.h`; `native/services/playeranim/playeranim.cpp`): in kiln.assets'
+       `when_resources_ready`, on the game's thread before the game reads the graph, served once with `resource_put` and never
+       changed. Why once: an override of the player's graph registered while a player's graph instance is live kills the server
+       (`animation::jointStackGetBlockInternalWeight blockIndex (1) is > count (1)`, then a fatal error); registered before any
+       player exists it is used **[rt]**. The same holds for every clip a served state names. Server and clients merge the same
+       mods to the same bytes; `graph_hash` (the first 8 bytes of SHA-256) is what the join compares.
+     - **How a state is entered** (the state input `1563163402` holds FNV-1a-32 of a `SetAnimationEvent.animationName` GUID) **[data]**:
+       - one id: a global transition on `IdParameterEqualsConstant`: the sword, hammer, greatsword and dagger machines, staff and
+         wand full-body, and in `SM_Main` `Block_FullBody`, `Parry_FullBody`, `DodgeRoll_FullBody`;
+       - an id list, `IdParameterEqualsConstantList`: the three jump-attack states (4 ids each, one per weapon family; the clip
+         is then picked by a `SelectPoseByParameterId` on a second id input), `Dodge_Attack_FullBody` (4), `Sneak_Attack_FullBody`
+         (3), `Attack_Skill_Kick_FullBody` (1), and every state that holds a nested machine;
+       - local transitions only (`StateMachineTransition` on `IdParameterEqualsConstant`, no global transition): the two
+         states of `SM_Attack_Unarmed_FullBody`;
+       - an overlay: `IsOverlayActive` / `IsOverlayActiveList` on FNV-1a-32 of `SetAnimationOverlayEvent.overlayName`: the five
+         overlay machines (38 `IsOverlayActive`, 7 lists, 35 overlay ids);
+       - a float: `SM_Block_Locomotion` (`Idle_Block`, `Move_Block`), the legs while blocking, never by an id.
+     - **Where a state's id is listed** **[data]**: the wrapper list that opens its machine (one per weapon family in
+       `SM_Melee_Attack_FullBody`), a list under `SM_Main`'s transition to `Melee_Attack_FullBody`, the 250-id and 262-id lists
+       that reset `SM_UpperBodyOverride` and `SM_RightArmOverride`, and for some the 107-id list that switches feet IK off. A
+       melee state is in 4 or 5 lists, a jump-attack state in 7, a staff full-body state in 9, an `SM_Main` neighbour in 2 or 3,
+       an overlay state in 0 to 2 overlay lists. A new state's id goes into every list on the same input that holds all of its
+       neighbour's ids, except the neighbour's own entry condition.
+     - **`usedInputIds`** **[data]**: 1,552 entries, 349 distinct, among them all 340 state ids the graph compares; none of the
+       35 overlay ids. A new state's id is appended once; an overlay state's is not.
+     - **Clip nodes, all 1,064** **[data]**: `animationDuration` = `frameCount / fps` of the `JointAnimation` (float32);
+       `rootMotionAnimation` is the clip's GUID exactly when a `RootMotionAnimation` exists under it; `hasSequences` exactly when
+       an `AnimationSequenceContainer` does; `loop` is bit 0 of the clip's `flags`; `additiveType` None and
+       `additiveReferenceAnimation` the clip itself; raw speed multiplier 1; every clip on the player skeleton (102 joints, one
+       hierarchy hash); 266 with a gender alternative. So a definition needs only a clip GUID: the new clip node is a copy of the
+       neighbour's with these fields from the clip's own resources and no gender alternative.
+     - **Shape** **[data]**: every reference points back in `nodeDefinitions` except a state's `parentStateMachineId` and a
+       machine's `parentStateMachineStateId`, so new nodes go just before their machine and nothing else moves. Every condition
+       node and every pose node but a `SaveCachedPose` has one user in the game's graph; the merge gives two kinds a second user
+       (a neighbour's outgoing transition's condition; `Block_FullBody`'s `UseCachedPose`, under two layer blends), and the
+       server takes both **[rt]**. Every new node is a
+       copy of a game node with named fields set, so a field the game adds is carried.
+     - **34 and nesting** **[refl] [data]**: `globalTransitions` is a `StaticArray` of 34; `SM_Main` uses 28. A full-body machine
+       past 34 takes all of its mod states into nested machines of up to 34, each behind a new state entered on an
+       `IdParameterEqualsConstantList` of its states' ids; nested states keep no local transitions (they don't cross machines).
+       An overlay machine does not nest (a nested state could not go back to the machine's rest state): room for 21, 30, 30,
+       28, 29 states across all mods.
+     - **Proof** **[rt]** (lab server svn 1287369, a `1_Player` with no client, the hand slot from the server every 2 steps):
+       a state like `Attack_Sword_Shield_02` with the hammer's `Attack_Heavy_01` clip: control (the game's graph) moves the hand
+       at most 0.22 m, 0.569 m on average from the reference; merged 1.20 m, 0.116 m from the game's own state with that clip
+       (two players, same sequence: 0.05 m). Entered too: `Block_FullBody` (the game's guard clip: 0.019 m from the game's pose,
+       the game against itself 0.015 m), `DodgeRoll_FullBody`, 30 states nested beside a hammer state, `SM_Main` with 7 nested.
+       Both hands, overlays set by edited copies of the game's casts: staff overlay 0.17 to 0.25 m (control 0.53, the game
+       against itself 0.22; the weakest case), wand overlay 0.13 m (0.67, 0.09), bow overlay 0.07 to 0.12 m (0.30 to 0.36,
+       0.14), staff full-body 0.035 to 0.042 m (0.37, 0.10); `SM_Staff_Overlay` at its 21: first and last enter; a second wand
+       cast before the first ends continues the clip. Offline, the two merges give the same bytes for every kind of neighbour
+       (369 host checks). On the lab the service's merge takes 52 to 65 ms of a boot (three boots). Not seen: anything drawn,
+       a joined player, root motion moving the body.
 6. **Validation route.** Done for geometry and skin, over every skinned model (section 6); the client test is open.
 
 ## 8. Open questions

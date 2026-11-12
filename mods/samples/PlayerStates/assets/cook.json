@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "tool": "animcook",
+  "out": "cooked",
+  "comment": "assets/local/riposte.gltf is written by make_clips.py on your machine: it holds the player's skeleton from your installed game, so it is not in the mod. The motions are ours (make_clips.py).",
+  "inputs": {
+    "player_skeleton": { "guid": "87b29df6-6518-43ef-9298-e3f85a6204b9", "type": "keen::ModelHierarchyResource" }
+  },
+  "steps": [
+    { "op": "clips", "skeleton": "@player_skeleton", "gltf": "local/riposte.gltf", "clips": {
+        "riposte_swing": { "animation": "swing" },
+        "riposte_heavy": { "animation": "heavy" },
+        "riposte_guard": { "animation": "guard", "loop": true } } }
+  ]
+}
