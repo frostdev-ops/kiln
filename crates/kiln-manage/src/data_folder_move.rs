@@ -493,6 +493,15 @@ fn separate_folders(a: &Path, b: &Path, style: PathStyle) -> Option<String> {
     {
         return why("they are one folder, reached by two paths".into());
     }
+    // Unix canonicalization preserves spelling even on case-insensitive disks. Distinct root identities do not
+    // prove noncontainment: compare each root with the other path's actual ancestors as well.
+    for (root, other) in [(a, b), (b, a)] {
+        if let Some(id) = file_id(root)
+            && df::canonical(other).ancestors().skip(1).any(|p| file_id(p).is_some_and(|parent| parent.same(&id)))
+        {
+            return why("one is inside the other, reached by another path".into());
+        }
+    }
     None
 }
 
@@ -2561,11 +2570,16 @@ mod tests {
         let base = b.join(format!("spellings-{}", std::process::id()));
         std::fs::create_dir_all(base.join("Kiln Data")).unwrap();
         std::fs::create_dir_all(base.join("Other")).unwrap();
+        std::fs::create_dir_all(base.join("Kiln Data/nested")).unwrap();
         let one = separate_folders(&base.join("Kiln Data"), &base.join("KILN DATA"), PathStyle::Unix);
         let two = separate_folders(&base.join("Kiln Data"), &base.join("Other"), PathStyle::Unix);
+        let inside = separate_folders(&base.join("Kiln Data"), &base.join("KILN DATA/nested"), PathStyle::Unix);
+        let contains = separate_folders(&base.join("KILN DATA/nested"), &base.join("Kiln Data"), PathStyle::Unix);
         let _ = std::fs::remove_dir_all(&base);
         assert!(one.as_deref().is_some_and(|w| w.contains("one folder")), "{one:?}");
         assert_eq!(two, None);
+        assert!(inside.as_deref().is_some_and(|w| w.contains("inside")), "case-aliased nested roots were allowed: {inside:?}");
+        assert!(contains.as_deref().is_some_and(|w| w.contains("inside")), "case-aliased containing roots were allowed: {contains:?}");
     }
 
     #[test]
