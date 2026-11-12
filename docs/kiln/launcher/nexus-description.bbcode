@@ -23,7 +23,7 @@ Mods are written in C#, with JSON for data. Kiln also loads mods made for other 
 [size=2][color=#A1A1AA]Kiln is unofficial and is not affiliated with or endorsed by Keen Games.[/color][/size]
 [line]
 [size=5][b][color=#FF6A1A]Runs mods for other frameworks[/color][/b][/size]
-[size=3][color=#D4D4D8][b]0.2.0-dev.24:[/b] Kiln loads these frameworks' mods next to Kiln mods. You don't need a separate framework install where Kiln supplies its runtime. Drop the mod on the launcher window (zip, 7z, rar, folder or DLL), or put it where its framework puts it: the launcher lists the mods it finds in the game folder and says whether they load. Many changes in this release were checked only under Wine and on lab servers, not on a real client. Server and host checks do not guarantee every mod pairing or player-facing feature; the wiki lists the evidence and remaining game checks.[/color][/size]
+[size=3][color=#D4D4D8][b]0.2.0-dev.25:[/b] Kiln loads these frameworks' mods next to Kiln mods. You don't need a separate framework install where Kiln supplies its runtime. Drop the mod on the launcher window (zip, 7z, rar, folder or DLL), or put it where its framework puts it: the launcher lists the mods it finds in the game folder and says whether they load. Many changes in this release were checked only under Wine and on lab servers, not on a real client. Server and host checks do not guarantee every mod pairing or player-facing feature; the wiki lists the evidence and remaining game checks.[/color][/size]
 [list]
 [*][size=3][color=#D4D4D8][b]EML (Enshrouded Mod Loader):[/b] data mods run with EML's own code before the game starts. No dbghelp.dll and no Wine setting needed. Installed by default. Starts read far less game data: on a lab server under Wine, checking the game files for a start that changed nothing took 64 ms instead of 5.4 s. A first start no longer reads all game files (about 48 GiB on a full install), and a small window shows progress when the step before the game takes longer than two seconds. Kiln restores or replaces only game data it can prove it wrote; files it cannot prove are moved aside (kiln/eml/displaced in the game folder) and named in the launcher, never deleted. [color=#A1A1AA]Untested in game; start speed not measured on a real client.[/color][/color][/size][/*]
 [*][size=3][color=#D4D4D8][b]ShroudForge:[/b] Kiln ships its runtime (1.7.9), with asset publication and recovery fixes; or use your own installed ShroudForge in Settings. Installed by default. Each ShroudForge mod has a page in Kiln's in-game menu and in the launcher with its switch, settings and buttons, and mod shortcuts work without ShroudForge installed. ShroudForge 1.8.0 will be supported when it is released. [color=#A1A1AA]Mixed server startups with EMF Lua and Beastmaster passed; joined gameplay, the in-game page and shortcuts still need game checks.[/color][/color][/size][/*]
@@ -49,7 +49,7 @@ Mods are written in C#, with JSON for data. Kiln also loads mods made for other 
 [/list]
 
 
-[quote][size=3][b][color=#F9C74F]Nexus downloads in 0.2.0-dev.24[/color][/b]
+[quote][size=3][b][color=#F9C74F]Nexus downloads in 0.2.0-dev.25[/color][/b]
 [color=#D4D4D8]The launcher's Nexus Catalog, account sign-in and Mod Manager Download (nxm) links are disabled while OAuth approval is pending. Use Manual Download in your browser, then drop the mod archive on the launcher or use Add mods on the main screen. Personal API keys are not a fallback. If 0.2.0-dev.19 took over nxm links, this build gives them back to your previous handler (Vortex, for example). [color=#A1A1AA]Not yet checked on a Windows PC.[/color] The launcher distributed here on Nexus has no self-updater; download new launcher versions manually.[/color][/size][/quote]
 
 [size=4][b][color=#F9C74F]Add mods[/color][/b][/size]
@@ -112,7 +112,7 @@ Mods are written in C#, with JSON for data. Kiln also loads mods made for other 
 [size=3][color=#D4D4D8]Start with the [url=https://frostdev.io/kiln/wiki/first-mod][color=#F9C74F]first mod guide[/color][/url] in the wiki.[/color][/size]
 [list]
 [*][size=3][color=#D4D4D8][b]C# on .NET 10:[/b] hot reload, events, configs, commands and dependencies between mods[/color][/size][/*]
-[*][size=3][color=#D4D4D8][b]SDK:[/b] packages, 23 project templates and the kiln command line tool; use the matching 0.2.0-dev.24 MDK for this release[/color][/size][/*]
+[*][size=3][color=#D4D4D8][b]SDK:[/b] packages, 23 project templates and the kiln command line tool; use the matching 0.2.0-dev.25 MDK for this release[/color][/size][/*]
 [*][size=3][color=#D4D4D8][b]Checks:[/b] analyzers, a linter for mod files, and a searchable catalog of game data built from your own install[/color][/size][/*]
 [*][size=3][color=#D4D4D8][b]VS Code extension:[/b] completion, hover, build, deploy and a debugger[/color][/size][/*]
 [*][size=3][color=#D4D4D8][b]Tests:[/b] run them inside a live server[/color][/size][/*]
