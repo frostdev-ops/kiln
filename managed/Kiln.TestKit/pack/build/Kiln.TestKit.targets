@@ -19,6 +19,8 @@
        KilnTestKitModFolders=false: copy nothing (then pass a ModManifest, or use LoadFolder on the mod's output).
   -->
   <PropertyGroup>
+    <!-- Match Kiln.Host's runtime; an explicit project setting takes precedence. -->
+    <InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">true</InvariantGlobalization>
     <_KilnTkApiDir Condition="'$(PkgKiln_Api)' != ''">$([MSBuild]::EnsureTrailingSlash('$(PkgKiln_Api)'))</_KilnTkApiDir>
     <_KilnTkApiDir Condition="'$(_KilnTkApiDir)' == '' and '$(NuGetPackageRoot)' != '' and '$(KilnTestKitVersion)' != ''">$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))kiln.api/$(KilnTestKitVersion.ToLowerInvariant())/</_KilnTkApiDir>
   </PropertyGroup>
