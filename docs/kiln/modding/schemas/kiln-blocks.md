@@ -177,6 +177,17 @@ Played over the states: always, or on an overlay.
 | `speed` | number |  |  |
 | `weight` | number |  |  |
 
+## animatedModel
+
+A held model with moving parts: a skinned model of the mod's and the graph that plays its clip, held in the class's hand with the look's vfx on it (then clients "mod"). Each is a GUID or the name of its model or graph step of assets/cook.json.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `graph` | string |  | The graph that plays its clip: a GUID or its graph step's name. min length 1 |
+| `leftGraph` | string |  | Daggers only: the left hand's graph. Default: graph. min length 1 |
+| `leftModel` | string |  | Daggers only: the left hand's model. Default: model. min length 1 |
+| `model` | string |  | The skinned model: a GUID or its model step's name. min length 1 |
+
 ## animation
 
 How a body moves: a glTF of the mod with its clips (cooked when the mod builds), the engine's states and your own. Or a premade: "like".
@@ -1717,6 +1728,7 @@ What an item looks like. Empty: its starter's look.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
+| `animated` | [animatedModel](#animatedmodel) |  |  |
 | `dropped` | [itemRef](#itemref) |  | An item whose model this shows lying on the ground. |
 | `icon` | string |  | The icon alone: item:<name>, or a PNG in the mod's folder (then clients "mod"). |
 | `like` | [itemRef](#itemref) |  | An item whose whole look this takes: held or worn model, dropped model, collection model and icon. |

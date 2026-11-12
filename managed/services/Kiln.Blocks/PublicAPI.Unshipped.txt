@@ -1,4 +1,16 @@
 #nullable enable
+Kiln.AnimatedModel
+Kiln.AnimatedModel.<Clone>$() -> Kiln.AnimatedModel!
+Kiln.AnimatedModel.AnimatedModel() -> void
+Kiln.AnimatedModel.Equals(Kiln.AnimatedModel? other) -> bool
+Kiln.AnimatedModel.Graph.get -> string?
+Kiln.AnimatedModel.Graph.init -> void
+Kiln.AnimatedModel.LeftGraph.get -> string?
+Kiln.AnimatedModel.LeftGraph.init -> void
+Kiln.AnimatedModel.LeftModel.get -> string?
+Kiln.AnimatedModel.LeftModel.init -> void
+Kiln.AnimatedModel.Model.get -> string?
+Kiln.AnimatedModel.Model.init -> void
 Kiln.CastAnimation.Animation.get -> Kiln.MoveAnimation?
 Kiln.CastAnimation.Animation.init -> void
 Kiln.CastAnimation.HitAt.get -> double?
@@ -29,6 +41,8 @@ Kiln.MoveChain.GetEnumerator() -> System.Collections.Generic.IEnumerator<Kiln.Mo
 Kiln.MoveChain.MoveChain() -> void
 Kiln.MoveChain.MoveChain(System.Collections.Generic.IEnumerable<Kiln.MoveBlock!>! moves) -> void
 Kiln.MoveChain.this[int i].get -> Kiln.MoveBlock!
+Kiln.VisualBlock.Animated.get -> Kiln.AnimatedModel?
+Kiln.VisualBlock.Animated.init -> void
 Kiln.WandMoves.Animation.get -> Kiln.MoveAnimation?
 Kiln.WandMoves.Animation.init -> void
 Kiln.WandMoves.HitAt.get -> double?
@@ -61,6 +75,9 @@ Kiln.WeaponMoves.SneakAttack.init -> void
 Kiln.WeaponMoves.Special.get -> Kiln.MoveBlock?
 Kiln.WeaponMoves.Special.init -> void
 Kiln.WeaponMoves.WeaponMoves() -> void
+override Kiln.AnimatedModel.Equals(object? obj) -> bool
+override Kiln.AnimatedModel.GetHashCode() -> int
+override Kiln.AnimatedModel.ToString() -> string!
 override Kiln.MoveAnimation.ToString() -> string!
 override Kiln.MoveBlock.Equals(object? obj) -> bool
 override Kiln.MoveBlock.GetHashCode() -> int
@@ -68,6 +85,8 @@ override Kiln.MoveBlock.ToString() -> string!
 override Kiln.WeaponMoves.Equals(object? obj) -> bool
 override Kiln.WeaponMoves.GetHashCode() -> int
 override Kiln.WeaponMoves.ToString() -> string!
+static Kiln.AnimatedModel.operator !=(Kiln.AnimatedModel? left, Kiln.AnimatedModel? right) -> bool
+static Kiln.AnimatedModel.operator ==(Kiln.AnimatedModel? left, Kiln.AnimatedModel? right) -> bool
 static Kiln.MoveAnimation.implicit operator Kiln.MoveAnimation!(string! name) -> Kiln.MoveAnimation!
 static Kiln.MoveAnimation.implicit operator Kiln.MoveAnimation!(string?[]! names) -> Kiln.MoveAnimation!
 static Kiln.MoveBlock.operator !=(Kiln.MoveBlock? left, Kiln.MoveBlock? right) -> bool
