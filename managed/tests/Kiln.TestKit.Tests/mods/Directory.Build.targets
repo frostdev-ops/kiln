@@ -1,6 +1,7 @@
 <Project>
   <Import Project="$(MSBuildThisFileDirectory)../../../Directory.Build.targets" />
-  <ItemGroup>
+  <!-- (A mod built with Kiln.Sdk, such as TkParity, gets its references and kiln.mod.json from the SDK.) -->
+  <ItemGroup Condition="'$(UsingKilnSdk)' != 'true'">
     <!-- Kiln.Api comes from the host at run time: reference it, never ship it. -->
     <ProjectReference Include="$(KilnManaged)Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
   </ItemGroup>

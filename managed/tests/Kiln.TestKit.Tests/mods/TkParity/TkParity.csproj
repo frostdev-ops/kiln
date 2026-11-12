@@ -1,0 +1,19 @@
+<Project>
+  <!-- tk-parity: [KilnTest] methods that mean the same in a lab server and offline (Kiln.TestKit.Tests' ParityTests pin
+       the offline outcomes): the event bus, commands with permissions, network channels. A plain Kiln mod built with
+       Kiln.Sdk (repository mode), no reference to the test kit, so the same output folder deploys into a server:
+         dotnet build managed/tests/Kiln.TestKit.Tests/mods/TkParity/TkParity.csproj -c Release -t:KilnDeploy -p:KilnModsDir=<kiln/mods>
+       Its tests run when the server has started (tests.autoRun), or: echo "test tk-parity" > kiln/control/t.cmd -->
+  <Import Project="../../../../Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>tk-parity</KilnModId>
+    <KilnModName>Test kit parity tests</KilnModName>
+    <Version>0.1.0</Version>
+    <KilnSide>server</KilnSide>
+    <KilnServices>Chat;Network;Testing</KilnServices>
+    <KilnTestsAutoRun>true</KilnTestsAutoRun>
+    <KilnTestTimeoutSeconds>20</KilnTestTimeoutSeconds>
+    <KilnGameIds>None</KilnGameIds>
+  </PropertyGroup>
+  <Import Project="../../../../Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

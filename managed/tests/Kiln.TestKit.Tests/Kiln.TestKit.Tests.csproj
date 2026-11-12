@@ -42,6 +42,9 @@
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
+    <!-- The parity mod: a Kiln.Sdk mod whose built folder also deploys into a lab server (LoadFolder offline). -->
+    <TkSample Include="mods/TkParity/TkParity.csproj" />
+    <ProjectReference Include="mods/TkParity/TkParity.csproj" />
     <!-- Built mod folders (LoadFolder), never referenced. -->
     <TkFolderMod Include="mods/TkLocale/TkLocale.csproj" />
     <ProjectReference Include="@(TkFolderMod)" ReferenceOutputAssembly="false" />
