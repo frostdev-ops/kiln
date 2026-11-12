@@ -263,7 +263,7 @@ public static unsafe class Capabilities
         CapabilityReason.Offline => "offline",
         CapabilityReason.Session => "session",
         CapabilityReason.Unknown => "unknown",
-        _ => "code-" + ((int)reason).ToString(System.Globalization.CultureInfo.InvariantCulture),
+        _ => "other-" + ((int)reason).ToString(System.Globalization.CultureInfo.InvariantCulture),  // as capabilities.json writes a code it has no name for
     };
 
     /// <summary>The name <c>capabilities.json</c> gives a state.</summary>
@@ -418,7 +418,12 @@ public static unsafe class Capabilities
             var t = s.Binding.Table;
             if (s.Generation != 0 && t->Generation() == s.Generation) return;
             var rows = Walk(t, out var generation);
-            Publish(s, new Snapshot(s.Binding, rows, generation));
+            // A walk calls into the core, and the core delivers a change it notices there (an owner that went, a tick
+            // hook that faulted) on this thread, inside that call: this method ran again under the same lock and may
+            // have published already. Compare with what readers see now, so no row's change is posted twice.
+            var shown = _snapshot;
+            if (shown == null || !ReferenceEquals(shown.Binding, s.Binding)) return;
+            Publish(shown, new Snapshot(s.Binding, rows, generation));
         }
     }
 

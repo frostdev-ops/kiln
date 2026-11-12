@@ -387,6 +387,23 @@ public sealed class CapabilitiesTests : KilnTest
     }
 
     [Fact]
+    public void A_change_the_core_delivers_inside_a_walk_is_posted_once()
+    {
+        // The real core delivers a change it notices during at() or generation() (an owner that went, a tick hook that
+        // faulted) on the calling thread, inside that call: the change callback runs within the walk it interrupts.
+        using var caps = Native();
+        Assert.True(Capabilities.Is("net.kick"));
+        caps.DuringAt = () => caps.Core("world.lifecycle", CapabilityState.Unavailable, CapabilityReason.Faulted, "the hook faulted");
+        caps.Core("tick", CapabilityState.Available);
+        Assert.True(Capabilities.Is("tick"));
+        Assert.False(Capabilities.Is("world.lifecycle"));
+        Step();
+        Assert.Single(_changes, e => e.Name == "world.lifecycle");
+        Assert.Single(_changes, e => e.Name == "tick");
+        Assert.Equal(2, _changes.Count);
+    }
+
+    [Fact]
     public void Callbacks_from_other_threads_at_once_leave_the_last_state()
     {
         using var caps = Native();
@@ -700,7 +717,7 @@ public sealed class CapabilitiesTests : KilnTest
         string[] names = ["none", "symbol-missing", "service-missing", "service-older", "wrong-side", "needs-kiln-client",
             "policy", "faulted", "offline", "session", "unknown"];
         for (var i = 0; i < names.Length; i++) Assert.Equal(names[i], Capabilities.CodeName((CapabilityReason)i));
-        Assert.Equal("code-42", Capabilities.CodeName((CapabilityReason)42));
+        Assert.Equal("other-42", Capabilities.CodeName((CapabilityReason)42));
     }
 
     [Fact]
