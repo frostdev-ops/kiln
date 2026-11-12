@@ -51,7 +51,7 @@ Blocks.Define("glow-sword", new WeaponBlock { Name = "Glow Sword", Class = Weapo
 | Block | Fields |
 |---|---|
 | `ItemBlock` | `Kind`, `Visual`, `Stack`, `Rarity`, `Level`, `Texts`, `Heals`, `OnUse`, `Feeds`, `Fuel`, `Comfort`, `Tool`, `Ammo`, `Holds`, `Flow`, `Recipe`, `Loot` |
-| `WeaponBlock` | `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot` |
+| `WeaponBlock` | `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot`, `Moves` ([Moves](#moves)) |
 | `WandBlock` | `Primary`, `Heavy`, `Special`, `Class`, `Visual`, `Stats`, `Perks`, `OnHit`, `OnKill`, `Recipe`, `Loot` |
 | `ArmorBlock` | `Slot`, `Set`, `Visual`, `Look`, `Stats`, `Perks`, `OnHitTaken`, `Recipe`, `Loot` |
 | `StationBlock` | `Kind`, `Visual`, `Recipe`, `Loot`, and more: [world-blocks.md](world-blocks.md) |
@@ -199,6 +199,106 @@ Blocks.Define("big-can", new ItemBlock
 - `OnHitTaken`: on whoever hit the wearer.
 
 `Perks` follow the game's rule instead: a perk runs once a player has unlocked its slot.
+
+## Moves
+What a weapon's attack slots play: its own motions, the moment its blow lands, its own chain. A slot left out keeps its class's, and a weapon with no `Moves` is made exactly as before.
+
+```csharp
+Blocks.Define("cinderbrand", new WeaponBlock
+{
+    Name = "Cinderbrand", Class = WeaponClass.Sword,
+    Moves = new WeaponMoves
+    {
+        Primary = [ new MoveBlock { Animation = "cinder-slash-1", Like = "Attack_Player_1H_Single_LightChain1", HitAt = 0.28 },
+                    new MoveBlock { Animation = "cinder-slash-2", Like = "Attack_Player_1H_Single_LightChain2", HitAt = 0.31 } ],
+        Heavy = new MoveBlock { Animation = "cinder-cleave", HitAt = 0.9, Length = 2.2 },
+        Block = new MoveBlock { Animation = "cinder-guard" },
+    },
+});
+```
+```jsonc
+"weapons": { "cinderbrand": { "name": "Cinderbrand", "class": "sword",
+  "moves": {
+    "primary": [ { "animation": "cinder-slash-1", "like": "Attack_Player_1H_Single_LightChain1", "hitAt": 0.28 },
+                 { "animation": "cinder-slash-2", "like": "Attack_Player_1H_Single_LightChain2", "hitAt": 0.31 } ],
+    "heavy":   { "animation": "cinder-cleave", "hitAt": 0.9, "length": 2.2 },
+    "block":   { "animation": "cinder-guard" } } } }
+```
+
+**A move** (`MoveBlock`) has four fields, all optional; a move with none of them changes nothing and is refused.
+- `Animation`: the state its motion plays. See [What `animation` takes](#what-animation-takes).
+- `Like`: the game sequence it starts from, a sub-sequence name or a sequence GUID (the catalog's `sequences`). Left out: what the class has in that slot; for the n-th link of a chain, the class's own chain followed n-1 times (a sword's light chain has two links, so a third link needs a `Like`).
+- `HitAt`: seconds into the move its blow lands.
+- `Length`: seconds the whole move lasts.
+
+`Primary` and `Heavy` take one move or a list, a chain: `Primary = [first, second]`, in JSON a list. One move and a list of one are the same. The other slots take one move.
+
+### Slots
+A slot is an entry of the item's `sequences`, and the same slot sits at another index on every starter, so Kiln never names one by index: each is a selector, and when content is ready Kiln finds it on the made item. Every entry the selector matches is swapped (the daggers list the jump attack twice). An own class (`WeaponClass` with `like`) has its premade's slots.
+
+| Slot (JSON) | Selector: `triggeredBy`, `requirements`, `specialInteractionType` | Classes |
+|---|---|---|
+| `Primary` (`primary`) | `Primary` | sword, axe, mace, greatsword, greataxe, hammer, daggers |
+| `Heavy` (`heavy`) | `Heavy`, `IsGrounded` | the same |
+| `HeavyAir` (`heavyAir`) | `Heavy`, `IsAirborne` | the same. Left out with `Primary` given: it plays `Primary`'s first link, as the game's weapons do |
+| `DodgeAttack` (`dodgeAttack`) | `Primary`, `IsEvading` | the same |
+| `JumpAttack` (`jumpAttack`) | `Primary`, `IsAirborne_Not_Falling` | the same |
+| `PlungeAttack` (`plungeAttack`) | `Heavy`, `IsAboveTarget` + `IsAirborne_Falling` | the same |
+| `Block` (`block`) | `Block` | the same, and shield |
+| `Parry` (`parry`) | `Parry` | the same, and shield |
+| `Special` (`special`) | `SpecialAbility` (greataxe and hammer: `SpecialAbility`, `IsGrounded`) | the melee classes, and bow |
+| `Execution` (`execution`) | `Interact`, `Enemy_Execution` | the melee classes |
+| `SneakAttack` (`sneakAttack`) | `Interact`, `Sneak_Attack` | the melee classes |
+
+A bow's and a staff's primary slot holds only the motion of having no ammo: their attacks are the arrow's and the spell's, so they have no `Primary` (a spell's cast takes `animation` and `hitAt`, below). A move for a slot the class does not have is refused at load, naming the weapon, the slot and the slots it has. A slot the item no longer has (a game update) is reported when content is ready, by block and slot, and the other slots still apply.
+
+### What Kiln does for a move
+1. **Clone.** A move with `Like` is a clone of that sequence, made at load; one without is a clone of the slot's own sequence, made when content is ready. Name `<mod>.<weapon>.<slot>`, in a chain `<mod>.<weapon>.<slot>.<n>` (n from 1); GUID `derive(mod, "sequence", "<key>.<slot>[.<n>]")` with `key` = `Was` or the block's name. A sequence with two sub-sequences (the greataxe special has one for the ground and one for the air) is cloned whole, and the move applies to each sub-sequence.
+2. **State.** The move's states go into the clone's state events in order (below).
+3. **Retime.** When content is ready, from the clone's own events (no game timing is written into a mod or into Kiln): one map over the sequence's clock, with `h0` its first damage event (`SpawnImpact`) and `len0` its length: up to `h0`, `f(t) = t × hitAt / h0`; after it a shift, `f(t) = hitAt + (t − h0)`, or with `Length`, `f(t) = hitAt + (t − h0) × (length − hitAt) / (len0 − h0)`. `Length` alone keeps the blow where it is and scales what follows; a move with no damage event (a block) and a `Length` scales as a whole. Through the map go every event's `time`, the end of every window (`time + duration`; a damage window keeps its own duration), the end of the spans an event carries (`lerpDuration`, `hitStopDuration`), every `SetActionOportunity.followUpTime`, and the length. The map keeps the events' order, and the rules are written so that no event overtakes another on the way (later ones from the last to the first, then earlier ones from the first to the last): kiln.gamedata keeps events sorted and `[Type#k]` counts in the current order ([gamedata.md](../services/gamedata.md), "Event order").
+4. **Chain.** In each clone of a `Primary` chain, every `SetActionOportunity` for `Primary` with a follow-up names the next link (the last the first), and every one for `Heavy` names the first `Heavy` clone when the weapon has a `Heavy` move. In `Heavy` clones, `Heavy` follow-ups name the next heavy link (a single heavy names itself where the game's heavy names itself, and keeps the game's follow-up otherwise), and `Primary` follow-ups the first primary link. An opening with no follow-up (an evade) stays.
+5. **Slots.** The item's matching `sequences[i].sequence` name the clones.
+
+Refused at load: a slot the class lacks, a move with no field, `hitAt` or `length` that is not a number of seconds above 0, `hitAt` at or past `length`, `hitAt` on a block or a parry (they land no blow). Reported when content is ready, by block and slot, the rest still applying: a `hitAt` on a motion with no damage event, or whose blow is at 0 s; a motion with fewer state events than the move names; a slot the item no longer has; a `Like` the game does not have.
+
+What `kiln blocks` shows under the weapon: `moves` (the slots' selectors, the clones with their `like`, the states as written and resolved, the timing asked for, where each clone's follow-ups go), and once content was ready `movesReady` (the indices found, what each clone started from, the rules).
+
+**Events that move, per kind of sequence** (the starters' sequences of each slot). Every event's `time` moves with the map; listed are the kinds of events there, and what else of theirs moves:
+
+| Kind | Events | Also moved |
+|---|---|---|
+| light swing (`primary`, `heavyAir`) | SetStateEvent, SetAnimationEvent, SetAnimationBoolInputEvent, Enable/DisableAbilityEvent (the hand-back), SetActionOportunity, SpawnImpact, LerpMovementFactorEvent, RotationLerpEvent, RootMotionWarpEvent, PreserveVelocity, AvoidHolesEvent, ReplaceHitReactionEvent, ActivateCombatStanceEvent, ClearActionOportunity, Sfx/Vfx/Foley/EnvironmentEffect notifiers, TriggerNoiseEvent | the ends of the input, warp, rotation, velocity and hit-reaction windows; `followUpTime`; not the SpawnImpact's duration |
+| heavy (`heavy`) | as a light swing, with CameraShakeEvent, ClientHitStopListenerEvent, RootMotionScaleModifierEvent, LerpRotationFactorEvent | as above, and `hitStopDuration` |
+| dodge attack | as a heavy, with PayUsageCost, NotifierEvent | as above |
+| jump attack | JumpEvent, ImpulseEvent, ApplyImpulseEvent, KeepAliveEvent, ResetFallDamageEvent, PayUsageCost, and a swing's | as above |
+| plunge attack | three SetAnimationEvents (start, fall, landing), LoopEvent (the fall, held until landing), KeepAliveEvent, Set/ResetGravityEvent, JumpEvent, ScopeEvent, and a swing's | the loop's and the scope's ends |
+| special | the most: LoopEvent, SpawnEntityEvent, ApplyBuffEvent, CleanseBuffEvent, ChangeColliderSetup, AdaptiveTriggerEffectEvent, and a heavy's; the greataxe's has two sub-sequences, each with three SetAnimationEvents | each sub-sequence by its own blow |
+| execution, sneak attack | SyncAttackEvent, LockCameraIdEvent, ChangeColliderSetup, ImpulseEvent, and a swing's (two SpawnImpacts) | the camera lock's and the collider's ends |
+| block | SetAnimationEvent, LoopEvent (held while the button is), LerpMovementFactorEvent, LerpRotationFactorEvent, SetAbortByMovement, SetActionOportunity (`Parried` names the parry), and the daggers' a SpawnImpact | `length` only: no `hitAt` |
+| parry | SetAnimationEvent, Set/ClearStateEvent, SetActionOportunity, RotationLerpEvent | `length` only: no `hitAt` |
+| staff cast | SetAnimationOverlayEvent (the raise), LoopEvent, KeepAliveEvent, SetAnimationEvent (the cast), SpawnEntityEvent (the shot), PayUsageCost, notifiers | the loops' ends |
+| wand attack | SetAnimationOverlayEvent (one or two; the special has a SetAnimationEvent too), SpawnEntityEvents (shots that fire and shots the premade silences), PayUsageCost, notifiers | |
+
+### What `animation` takes
+- **A GUID**, or **`0x` and 8 hex digits** (a state's id, as the catalog's `graphs` section and `player-anim` write it): a state the game has, the advanced form. It is not checked against the graph. An id becomes 16 bytes whose FNV-1a is that id: the engine only hashes the reference.
+- **A state of this mod by name**: GUID `derive(mod, "state", name)`, the state `player-anim` defines in `assets/player-states.json`.
+- **A game state by name**, `"State"` or `"Machine/State"`: the id the game's graph has for it.
+
+Names are looked up when content is ready, through player-anim's lookup. **In this build the lookup is not there yet**: a name is reported when content is ready ("player states are not available in this build") by block and slot, and the motion keeps its own state. A mod state that is refused, pending or unavailable is reported with player-anim's reason. A name no machine and no mod has, a name several machines have (the message lists them, write `Machine/State`), a state no id enters (such as `Idle_Block`), and a state with several ids (a jump-attack state has four, one per weapon family: write the one you mean as its `0x` id) are reported the same way.
+
+One name goes to the motion's first state event; a list names each in order, a `null` keeping that one: a plunge is `["start", "fall", "landing"]`, and `"start"` alone changes only its start. Which event: a mod's or a game's state by name says its kind (a full-body state is entered by `SetAnimationEvent.animationName`, an overlay by `SetAnimationOverlayEvent.overlayName`); a GUID or an id says none, and the motion's full-body state is used when it has one, else its overlay (a staff's FixedAnim cast has both, the cast being the full-body one; the wand chains and the bow have only overlays). One move takes one kind. A motion with neither event names no state, and a move's animation on it is reported.
+
+### Block and parry
+A block is entered by the sequence: `Ability_Block`'s `SetAnimationEvent` names `Block_FullBody` (`0xeb2a5b2e`) in `SM_Main`, a layer blend that lays the guard pose over `SM_Block_Locomotion`. That machine's `Idle_Block` and `Move_Block` have no id: the legs while blocking are chosen by a float input (the movement), never by a sequence, so no move can name them. So `"block": { "animation": … }` changes the guard: a state of the mod made like `Block_FullBody` keeps the block's locomotion underneath and plays the mod's clip as the guard. It cannot change the legs' idle or walk while blocking, and the block's hold is the sequence's loop (`length` times it). The parry is the same with `Parry_FullBody` (`0xfeec6023`), named by `Ability_Player_Parry_AllWeapons`. The daggers have a block sequence of their own, so a daggers' block move starts from theirs.
+
+### Wands and staff casts
+A wand attack's `Moves` takes a premade as before, or one changed: `WandMoves.Heavy with { Animation = …, HitAt = 1.1 }`, in JSON `"moves": { "like": "heavy", "animation": …, "hitAt": 1.1 }` (no `like`: the attack's own premade). A spell's `CastBlock.Animation` the same: `CastAnimation.Lob with { Animation = …, HitAt = 1.2 }`, `"animation": { "like": "lob", "animation": …, "hitAt": 1.2 }`. `HitAt` is the release, the same thing as `releaseAt`: give one, or the same number (two numbers are refused). With `releaseAt` alone the shots (and on a staff the cost, the VFX and the sound) move to it as before; with `hitAt` the whole motion is retimed when content is ready, its first firing shot (a wand premade's shots that fire, a staff cast's shot) landing on it. A `like` other than the premades is refused: a wand motion's shots are a mix of the one that fires, the ones the premade silences and the per-element ones, and only the premades say which is which. Supporting any wand sequence would mean reading each shot's template when content is ready and telling a projectile from the rest by its components: about a day, with a lab check per element, and a game update that adds a shot would need the same check again. An ability's cast does not take `animation` or `hitAt` yet.
+
+### Limits
+- Not checked in a game yet (the lab and client checks are another task): that the clones play, that the slots swap on a made item, that the retimed blow lands where `hitAt` says, that the chain runs link 1 then link 2, that a mod state is entered, and that sub-sequence rules reach the second sub-sequence of a clone (`<clone>#1`). The offline tests (`managed/tests/Kiln.Blocks.Tests`: `WeaponMovesTests`, `MoveTimingTests`, `CastMovesTests`) check what the compile and the content-ready planner make, over made-up slots and events, and replay kiln.gamedata's re-sort after every rule.
+- A plunge's and a special's fall loop is retimed as any window: the loop holds until landing, so the map moves its start and end, not how long a fall lasts.
+- The jump attack's follow-up to the plunge, and every other slot's follow-ups, stay the game's: only the primary and heavy chains are linked to each other.
+- A move whose only change could not be made (a name that cannot be looked up) still plays its clone, which is the class's sequence unchanged.
 
 ## Mistakes
 A wrong block registers nothing, and the message names the block and the field. The file's other blocks still load.

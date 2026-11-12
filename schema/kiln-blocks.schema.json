@@ -474,7 +474,13 @@
         "manaCost": { "type": "integer", "minimum": 0 },
         "staminaCost": { "type": "integer", "minimum": 0 },
         "charges": { "type": "integer", "minimum": 0, "description": "How many a cast takes of a spell's stack or an ability's item. 0: none, used for ever. Default 1." },
-        "animation": { "enum": ["fast-bolt", "lob"], "description": "The motion. A spell's default is fast-bolt; an ability's, none." },
+        "animation": {
+          "description": "The motion. A spell's default is fast-bolt; an ability's, none. On a spell an object changes it: like (a premade; default fast-bolt), animation, hitAt (the release, as releaseAt).",
+          "anyOf": [
+            { "enum": ["fast-bolt", "lob"] },
+            { "type": "object", "properties": { "like": { "enum": ["fast-bolt", "lob"] }, "animation": { "$ref": "#/$defs/moveAnimation" }, "hitAt": { "type": "number", "exclusiveMinimum": 0 } }, "additionalProperties": false }
+          ]
+        },
         "releaseAt": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds into the animation the spell leaves the staff." },
         "vfx": { "$ref": "#/$defs/vfx" }
       },
@@ -851,9 +857,46 @@
         "onKill": { "$ref": "#/$defs/hits", "description": "What a hit that kills does to what it killed, while it is in hand." },
         "recipe": { "$ref": "#/$defs/recipe" },
         "loot": { "$ref": "#/$defs/loot" },
-        "was": { "$ref": "#/$defs/name" }
+        "was": { "$ref": "#/$defs/name" },
+        "moves": { "$ref": "#/$defs/weaponMoves" }
       },
       "additionalProperties": false
+    },
+    "weaponMoves": {
+      "type": "object",
+      "description": "What its attack slots play, slot by slot; a slot left out keeps its class's. A slot the class does not have is refused.",
+      "minProperties": 1,
+      "properties": {
+        "primary": { "$ref": "#/$defs/moveChain", "description": "The light attack on the ground: one move, or a chain whose links hand over in turn." },
+        "heavy": { "$ref": "#/$defs/moveChain", "description": "The heavy attack on the ground: one move or a chain." },
+        "heavyAir": { "$ref": "#/$defs/move", "description": "The heavy attack in the air. Default: primary's first link when primary is given." },
+        "dodgeAttack": { "$ref": "#/$defs/move" },
+        "jumpAttack": { "$ref": "#/$defs/move" },
+        "plungeAttack": { "$ref": "#/$defs/move" },
+        "block": { "$ref": "#/$defs/move", "description": "No hitAt: a block lands no blow." },
+        "parry": { "$ref": "#/$defs/move", "description": "No hitAt: a parry lands no blow." },
+        "special": { "$ref": "#/$defs/move" },
+        "execution": { "$ref": "#/$defs/move" },
+        "sneakAttack": { "$ref": "#/$defs/move" }
+      },
+      "additionalProperties": false
+    },
+    "moveChain": { "anyOf": [{ "$ref": "#/$defs/move" }, { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/move" } }] },
+    "move": {
+      "type": "object",
+      "description": "One move. At least one field: a move with none changes nothing.",
+      "minProperties": 1,
+      "properties": {
+        "animation": { "$ref": "#/$defs/moveAnimation" },
+        "like": { "type": "string", "minLength": 1, "description": "The game sequence it starts from: a sub-sequence name or a sequence GUID. Default: the class's in this slot." },
+        "hitAt": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds into the move its blow lands: the first damage event moves here." },
+        "length": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds the whole move lasts." }
+      },
+      "additionalProperties": false
+    },
+    "moveAnimation": {
+      "description": "The state it plays: a state of this mod by name, a game state (\"State\" or \"Machine/State\"), its GUID or its 0x id; or a list, one per state event of the motion (null keeps one).",
+      "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "array", "minItems": 1, "items": { "type": ["string", "null"] } }]
     },
     "wandAttack": {
       "type": "object",
@@ -863,7 +906,13 @@
         "cast": { "$ref": "#/$defs/cast", "description": "The mana it costs and when it leaves the wand. animation is a staff's: a wand's motion is moves." },
         "delivery": { "$ref": "#/$defs/delivery" },
         "onCast": { "$ref": "#/$defs/effects", "description": "On the caster, the moment it leaves the staff." },
-        "moves": { "enum": ["bolt", "heavy", "special"], "description": "The motion. Default: the attack slot's own." }
+        "moves": {
+          "description": "The motion. Default: the attack slot's own. An object changes it: like (a premade; default the slot's own), animation, hitAt (the release, as cast.releaseAt).",
+          "anyOf": [
+            { "enum": ["bolt", "heavy", "special"] },
+            { "type": "object", "properties": { "like": { "enum": ["bolt", "heavy", "special"] }, "animation": { "$ref": "#/$defs/moveAnimation" }, "hitAt": { "type": "number", "exclusiveMinimum": 0 } }, "additionalProperties": false }
+          ]
+        }
       },
       "additionalProperties": false
     },

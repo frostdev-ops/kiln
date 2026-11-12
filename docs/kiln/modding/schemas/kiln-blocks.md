@@ -416,7 +416,7 @@ How a spell or an ability is cast: animation, timing, costs.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `animation` | `"fast-bolt"` \| `"lob"` |  | The motion. A spell's default is fast-bolt; an ability's, none. |
+| `animation` | `"fast-bolt"` \| `"lob"` or object |  | The motion. A spell's default is fast-bolt; an ability's, none. On a spell an object changes it: like (a premade; default fast-bolt), animation, hitAt (the release, as releaseAt). |
 | `charges` | integer |  | How many a cast takes of a spell's stack or an ability's item. 0: none, used for ever. Default 1. min 0 |
 | `manaCost` | integer |  | min 0 |
 | `releaseAt` | number |  | Seconds into the animation the spell leaves the staff. |
@@ -850,6 +850,23 @@ The crafting menu a station opens: an existing station's, which lists the statio
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `like` | `"workbench"` \| `"carpenter"` \| `"kitchen"` \| `"forge"` \| `"oven"` \| `"alchemy"` \| `"drying-rack"` \| `"charcoal-kiln"` \| `"kiln"` \| `"smelter"` \| `"fireplace"` \| `"grinder"` \| `"tannery"` \| `"table-saw"` |  | Default: the station's kind. |
+
+## move
+
+One move. At least one field: a move with none changes nothing.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `animation` | [moveAnimation](#moveanimation) |  |  |
+| `hitAt` | number |  | Seconds into the move its blow lands: the first damage event moves here. |
+| `length` | number |  | Seconds the whole move lasts. |
+| `like` | string |  | The game sequence it starts from: a sub-sequence name or a sequence GUID. Default: the class's in this slot. min length 1 |
+
+## moveAnimation
+
+The state it plays: a state of this mod by name, a game state ("State" or "Machine/State"), its GUID or its 0x id; or a list, one per state event of the motion (null keeps one).
+
+Type: string or array of string \| null
 
 ## name
 
@@ -1742,7 +1759,7 @@ One of a wand's attacks: how it is cast and what it sends.
 |---|---|---|---|
 | `cast` | [cast](#cast) | yes | The mana it costs and when it leaves the wand. animation is a staff's: a wand's motion is moves. |
 | `delivery` | [delivery](#delivery) | yes |  |
-| `moves` | `"bolt"` \| `"heavy"` \| `"special"` |  | The motion. Default: the attack slot's own. |
+| `moves` | `"bolt"` \| `"heavy"` \| `"special"` or object |  | The motion. Default: the attack slot's own. An object changes it: like (a premade; default the slot's own), animation, hitAt (the release, as cast.releaseAt). |
 | `onCast` | [effects](#effects) |  | On the caster, the moment it leaves the staff. |
 
 ## weapon
@@ -1752,6 +1769,7 @@ One of a wand's attacks: how it is cast and what it sends.
 | `class` | [weaponClassRef](#weaponclassref) | yes |  |
 | `description` | string |  |  |
 | `loot` | [loot](#loot) |  |  |
+| `moves` | [weaponMoves](#weaponmoves) |  |  |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  | What every hit the wielder lands does to the target, while it is in hand, with no unlock. |
 | `onKill` | [hits](#hits) |  | What a hit that kills does to what it killed, while it is in hand. |
@@ -1779,6 +1797,24 @@ Your own class of weapon. It brings its look, stats and perks to the weapons of 
 How it is held and swung: a premade, a block of weaponClasses by name, or your own.
 
 Type: `"sword"` \| `"axe"` \| `"mace"` \| `"greatsword"` \| `"greataxe"` \| `"hammer"` \| `"daggers"` \| `"bow"` \| `"staff"` \| `"shield"` \| `"wand"` or [ref](#ref) or [weaponClass](#weaponclass)
+
+## weaponMoves
+
+What its attack slots play, slot by slot; a slot left out keeps its class's. A slot the class does not have is refused.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `block` | [move](#move) |  | No hitAt: a block lands no blow. |
+| `dodgeAttack` | [move](#move) |  |  |
+| `execution` | [move](#move) |  |  |
+| `heavy` | [moveChain](#movechain) |  | The heavy attack on the ground: one move or a chain. |
+| `heavyAir` | [move](#move) |  | The heavy attack in the air. Default: primary's first link when primary is given. |
+| `jumpAttack` | [move](#move) |  |  |
+| `parry` | [move](#move) |  | No hitAt: a parry lands no blow. |
+| `plungeAttack` | [move](#move) |  |  |
+| `primary` | [moveChain](#movechain) |  | The light attack on the ground: one move, or a chain whose links hand over in turn. |
+| `sneakAttack` | [move](#move) |  |  |
+| `special` | [move](#move) |  |  |
 
 ## weaponStats
 
