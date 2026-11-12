@@ -398,7 +398,9 @@ public static unsafe class ContentSync
     internal static MachineLocalFields MachineLocal() => Marked.Copy();
 
     /// <summary>Server: the exported document without the machine-local fields (an entry left with nothing is left out, and <c>@fields</c> follows).
-    /// With none of them in it, the document is returned as it was, byte for byte. Pure (tests).</summary>
+    /// With none of them in it, the document is returned as it was, byte for byte. Pure (tests).
+    /// A clone's definition in a section's <c>add</c> list keeps the fields: a definition only gives a clone its fields while the client has none of its
+    /// own, and stripped it would leave a clone the server defined first with its base's values until the client's mod defines it.</summary>
     internal static string WithoutMachineLocal(string json, MachineLocalFields marks, out int removed)
     {
         removed = 0;
