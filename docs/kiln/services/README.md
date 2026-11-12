@@ -10,6 +10,46 @@ A service is one capability (teleport, items, chat, ...) with three layers. The 
 | Managed | `managed/services/Kiln.<Svc>/` → `kiln/host/Kiln.<Svc>.dll`, shared by all mods | `managed/services/Kiln.Example/` |
 | Test mod | `mods/tests/<svc>-test/` (prints `PASS`/`FAIL` lines) | `mods/samples/Hello/` |
 
+## Service pages
+| Page | What |
+|---|---|
+| [abilities.md](abilities.md) | kiln.abilities: scripted abilities, per-cast tweaks of the game's spells, Kiln natives for Impact programs, action sequences |
+| [assets.md](assets.md) | kiln.assets: mod resources, overrides, icons and retextures |
+| [audio.md](audio.md) | kiln.audio / Kiln.Audio: sounds, music, voice-over and narration |
+| [build.md](build.md) | kiln.build: world edits the game saves and replicates |
+| [caps.md](caps.md) | kiln.caps / Capabilities: what works here, and why not (in-core; every service has a row) |
+| [character-data.md](character-data.md) | Character data: per-character mod data, and what travels with a character |
+| [chat.md](chat.md) | kiln.chat: chat lines and commands |
+| [combat.md](combat.md) | kiln.combat: health, damage, healing, kills, god mode and combat events |
+| [content.md](content.md) | kiln.content: registries and data packs |
+| [creatures.md](creatures.md) | kiln.creatures: one creature's values, variants, AI events, commands and arsenal rules |
+| [gamedata.md](gamedata.md) | kiln.gamedata: spells, abilities, creatures and their attacks as data |
+| [gameplay.md](gameplay.md) | kiln.gameplay: player/world interaction events and protection zones |
+| [hooks.md](hooks.md) | kiln.hooks v2: one registry for every hook |
+| [items.md](items.md) | kiln.items: items in inventories |
+| [knowledge.md](knowledge.md) | kiln.knowledge: the game's knowledge, the vanilla journal, dialogue events, the client veto |
+| [npcs.md](npcs.md) | Friendly NPCs and quests in the game's own UI |
+| [pacing.md](pacing.md) | kiln.pacing: where the game waits, and its task pools |
+| [player-state.md](player-state.md) | Player state and actions |
+| [players.md](players.md) | kiln.players: who is on the server |
+| [progression.md](progression.md) | kiln.progression: levels, experience, skill tree, skill points |
+| [quests.md](quests.md) | Kiln.Quests: the quest engine behind the game's own quest UI |
+| [rules.md](rules.md) | Kiln.Rules: what players may do, and what it costs them |
+| [saves.md](saves.md) | kiln.saves: save events and persistent mod data |
+| [screen.md](screen.md) | kiln.screen / ScreenEffects: full-screen effects |
+| [settings.md](settings.md) | kiln.settings: the server's game settings, live |
+| [skills.md](skills.md) | kiln.skills: the game's skill tree for mods, and Kiln talent trees |
+| [spawn.md](spawn.md) | kiln.spawn: create and destroy entities from templates (creatures, item drops, props) |
+| [steamguard.md](steamguard.md) | kiln.steamguard / SteamGuard: the achievement guard (game client only, experimental) |
+| [surfaces.md](surfaces.md) | kiln.surfaces: building surfaces |
+| [time.md](time.md) | kiln.time: time of day and weather |
+| [types.md](types.md) | kiln.types: the game's types, systems, events and components by name |
+| [vfx-cook.md](vfx-cook.md) | VFX blocks: the builder |
+| [vfx.md](vfx.md) | kiln.vfx / Kiln.Vfx: play any VFX from code |
+| [world-progress.md](world-progress.md) | World progress: the world's flame, difficulty, spires, shrines, bosses, chests and a character's quests |
+| [world.md](world.md) | kiln.world: ECS programs, entity and component access, teleport |
+| [worldtables.md](worldtables.md) | kiln.worldtables: the game's shared building-material tables |
+
 ## Native rules
 - `kiln_plugin_main(api, owner, info)`: check `api->abi_version == KILN_ABI_VERSION`, resolve symbols with
   `api->symbol` / constants with `api->constant` / features with `api->feature`, install hooks through `kiln.hooks`
@@ -25,6 +65,9 @@ A service is one capability (teleport, items, chat, ...) with three layers. The 
   game's call site with `caller()` (use it instead of `_ReturnAddress()`), and lists every hook in
   `state/hooks.json`. See [hooks.md](hooks.md).
 - Other services: look them up in `info->on_ready` (`api->service("kiln.world", 1)`), not in `kiln_plugin_main`.
+- Capabilities: the core gives your service a row (`kiln.<svc>`) and one per sigdb feature. Report what else it can or
+  cannot do through `kiln.caps` (`<svc>.<thing>`; [caps.md](caps.md)), and a session-dependent row as pending before
+  the mods load.
 - Threads: game state only on the tick thread, in Pre (no world jobs running) or Post (after `WaitWorldJobs`), or
   inside an ECS program update with declared access. Calls from managed mods arrive on the tick thread.
 - Tables only grow at the end; bump the version for additions. Strings are UTF-8 `KilnStr`. Entities are

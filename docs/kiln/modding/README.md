@@ -9,7 +9,10 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [manifest.md](manifest.md) | `kiln.mod.json` v2: fields, version ranges, dependencies, load order, exports, sides |
 | [lifecycle.md](lifecycle.md) | Mod and server lifecycle events, the `Mods` API, inter-mod messages, hot reload |
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |
+| [unit-tests.md](unit-tests.md) | Kiln.TestKit: a mod under dotnet test with no game, dotnet new kiln-unit-test, [KilnTest] methods as xunit tests, what is real offline |
 | [faults.md](faults.md) | Fault policy, crash reports, `kiln.json` `mods` settings |
+| [contract.md](contract.md) | The API contract: the one error rule, identity types (`EntityRef`, `PlayerRef`, `ItemId`), thread attributes |
+| [../services/caps.md](../services/caps.md) | Asking what works: `Capabilities.Is/Get/Why/All`, why a capability is off; the manifest's `features` rules (manifest.md, "Asking what works") |
 | [limits.md](limits.md) | What a mod cannot do yet: each gap, what stands in the way, the release it is planned for |
 | [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot and UI; what they compile to, client requirements and errors. Start here to make something |
 | [inventory.md](inventory.md) | Moving items between inventories keeping their state (a stack, quick stack, move all), container names, transfer rules and events (ported from shroudlink), and why gear data lasts only a session |
@@ -36,8 +39,10 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, blocks, catalog, vfx, skeleton |
 | [analyzers.md](analyzers.md) | KILN1xx: compiler warnings about threads, hot reload and the manifest, with code fixes |
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
+| [../typegen.md](../typegen.md) | Typed reads of the game's ECS components: `Kiln.Ecs` (`TryGet`, `Get`, `Has`, `All`, `Supports`), generated per game build; example in §4.3 |
 | [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
 | [player-states.md](player-states.md) | Every state and action a player can be in: `player.Is(...)`, `PlayerStateChangedEvent`, `PlayerActionEvent`, and what is left out |
+| [../services/steamguard.md](../services/steamguard.md) | The achievement guard (experimental, game client only): keep tests and admin commands from unlocking Steam achievements |
 | [debugging.md](debugging.md) | Breakpoints in a running server: `kiln debug` and netcoredbg |
 
 ## Five-minute start
@@ -108,8 +113,9 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
 
-Templates: `kiln new --list` shows all 23 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
+Templates: 24 in Kiln.Templates; `kiln new --list` shows 23 of them with their options (not `kiln-unit-test`: use
+`dotnet new kiln-unit-test`). Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
-`kiln-cosmetic` and `kiln-building-material`. The others: `kiln-mod`, `kiln-test`, `kiln-datapack`, `kiln-items`,
-`kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`, `kiln-native` and
-`kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).
+`kiln-cosmetic` and `kiln-building-material`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`, `kiln-datapack`,
+`kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`, `kiln-native`
+and `kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).
