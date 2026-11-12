@@ -166,6 +166,7 @@ public sealed partial class WeaponMovesTestMod : Mod
             await Part("wand", () => { Wand(); return Task.CompletedTask; });
             await Part("twin", () => { Twin(); return Task.CompletedTask; });
             await Part("held models", () => { HeldChecks(); return Task.CompletedTask; });
+            await Part("item models", ItemModels);
             await Part("the sample", () => { SampleLoads(); return Task.CompletedTask; });
             await Part("ids", () => { Ids(); return Task.CompletedTask; });
             await Part("in the world", World_);

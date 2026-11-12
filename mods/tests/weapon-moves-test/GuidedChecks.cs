@@ -145,7 +145,8 @@ public sealed partial class WeaponMovesTestMod
         c.Expect(!HeldCooked, "the server has not cooked the test mod (it draws nothing and needs no cooked files)", HeldCooked ? "the server cooked it: move assets/cooked away and restart it" : "not cooked");
         c.Instruct("Two players join a dedicated server that has not cooked weapon-moves-test. Player 1's game has cooked it (build-assets.py; the Kiln line in player 1's " +
                    "kiln/logs/kiln.log for the mod's assets lists its cooked files and warns of none missing), player 2's has not (player 2's kiln.log warns that the mod's " +
-                   "assets/cooked files are missing, and `kiln blocks weapon-moves-test` shows animatedHeld.cooked false). Both take the Held Sword, then the Held Greataxe, in " +
+                   "assets/cooked files are missing, and `kiln blocks weapon-moves-test` shows animatedHeld.cooked false). Each player waits until their own game has loaded the mod's blocks (the line \"blocks: weapon-moves-test: ... block(s)\" in " +
+                   "their kiln.log) before judging: a state that arrives before the mod's own definition shows the server's values for a moment. Both take the Held Sword, then the Held Greataxe, in " +
                    "hand and look at each other. Pass if player 1 sees the crystal turn in both characters' hands, player 2 sees the rigid blade in the same hand (the sword " +
                    "right, the greataxe left) with the same glow on the greataxe, and neither ever sees an empty hand.");
         await c.Verdict();
