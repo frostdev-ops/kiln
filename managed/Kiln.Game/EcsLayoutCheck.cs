@@ -120,7 +120,12 @@ internal static class LayoutCheck
     {
         if (memo.TryGetValue(qn, out var known)) return known;
         memo[qn] = null;  // by-value types cannot contain themselves; this only stops a second visit
-        var why = DiffOnce(gen, qn, live, memo);
+        string? why;
+        try { why = DiffOnce(gen, qn, live, memo); }
+        catch (Exception e)
+        {
+            why = $"{qn}: the game's type table could not be read ({e.GetType().Name}: {e.Message})";
+        }
         memo[qn] = why;
         return why;
     }

@@ -47,7 +47,19 @@ public class EcsAccessTests
         public string? Inner { get; set; }
         public List<(string Name, int Offset, string Type)> Fields = [];
         public List<(string Name, long Value)> Values = [];
-        IReadOnlyList<(string Name, int Offset, string Type)> ILiveType.AllFields => Fields;
+        public Exception? FieldsError;
+        IReadOnlyList<(string Name, int Offset, string Type)> ILiveType.AllFields
+        {
+            get
+            {
+                if (FieldsError is { } error)
+                {
+                    FieldsError = null; // the table becomes readable, but the first refusal must stay cached
+                    throw error;
+                }
+                return Fields;
+            }
+        }
         IReadOnlyList<(string Name, long Value)> ILiveType.Values => Values;
     }
 
@@ -65,6 +77,29 @@ public class EcsAccessTests
         Assert.Equal(1, live.Finds["keen::ecs::LampId"]);   // in Lantern (through a typedef) and in LanternLit
         Assert.Equal(1, live.Finds["keen::LanternMode"]);
         Assert.Equal(1, live.Finds["keen::uint32"]);
+    }
+
+    [Theory]
+    [InlineData("keen::ecs::Lantern")]
+    [InlineData("keen::ecs::Spark")]
+    public void A_table_exception_refuses_and_caches_every_type_on_the_comparison_stack(string broken)
+    {
+        var g = Lanterns();
+        var live = new FakeLive(g);
+        live.Types[broken].FieldsError = new NotSupportedException("invalid base class chain");
+        var memo = new Dictionary<string, string?>(StringComparer.Ordinal);
+        string? first = null, second = null;
+        var error = Record.Exception(() => first = LayoutCheck.WhyNot(g, "keen::ecs::Lantern", live, () => null, memo));
+        var finds = live.Finds.Values.Sum();
+        second = LayoutCheck.WhyNot(g, "keen::ecs::Lantern", live, () => null, memo);
+        Assert.Null(error);
+        Assert.NotNull(first);
+        Assert.Contains(broken + ": the game's type table could not be read (NotSupportedException: invalid base class chain)", first, StringComparison.Ordinal);
+        Assert.Equal(first, second);
+        Assert.Equal(finds, live.Finds.Values.Sum());
+        Assert.NotNull(memo[broken]);
+        if (broken != "keen::ecs::Lantern")
+            Assert.NotNull(memo["keen::StaticArray<keen::ecs::Spark,3>"]);
     }
 
     [Fact]
