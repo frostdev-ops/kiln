@@ -204,6 +204,9 @@ Placement ownership requires `.kiln-library.json` plus a matching launcher recei
 file hashes, directory entries, the exact SF extension text last written by Kiln, and `game_folder: true` for a copy in
 `<game>/mods/<folder>` that a DLL reads there: an EML mod with a native part, a native mod's settings folder, an XHL
 companion; cleanup needs that flag to accept such a copy, a copy without it is cleaned like an own-loader copy).
+XHL-Core's copy in `kiln/chain/<library id>/` (XHL-Core under its own name, core.md "Profiles and activation") has an
+entry too, without a marker file: `files` lists exactly the files Kiln wrote there, and Kiln replaces or removes one
+only while it still holds those bytes; what XHL-Core writes next to it (its log) stays.
 The marker alone is advisory: marker-only older copies and player-modified folders are left untouched. The
 upgrade inventory excludes only ShroudForge's mutable enabled switch and setting values. Deactivate/uninstall cleanup
 additionally requires the exact extension text to match; old receipts without it conservatively retain SF copies.

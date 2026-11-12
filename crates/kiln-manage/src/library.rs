@@ -385,7 +385,7 @@ pub(crate) fn dll_file_version(bytes: &[u8]) -> Option<String> {
 }
 
 /// XHL-Core's DLL, by the markers engine_mods::xhl_host recognises it with on the game's load paths.
-fn is_xhl_core(bytes: &[u8]) -> bool {
+pub(crate) fn is_xhl_core(bytes: &[u8]) -> bool {
     crate::pe::is_pe64_dll(bytes) && crate::pe::parse(bytes).is_ok_and(|p| p.exports.iter().any(|s| s == crate::pe::DINPUT8_EXPORT))
         && ["XHL-Native-Plugin-Host.log", "native-plugin.ini"].iter().all(|s| crate::pe::contains_text(bytes, s))
 }

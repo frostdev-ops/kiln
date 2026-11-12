@@ -99,12 +99,17 @@ pub fn dirhash_records(records: impl IntoIterator<Item = Record>) -> Result<Stri
 
 /// kdh1 of a folder on disk.
 pub fn dirhash(root: &Path) -> Result<String> {
+    dirhash_records(dir_records(root)?)
+}
+
+/// The files kdh1 counts in a folder on disk (dot entries skipped), with their sizes and hashes.
+pub(crate) fn dir_records(root: &Path) -> Result<Vec<Record>> {
     if !fs::metadata(root)?.is_dir() {
         return Err(Error::invalid(format!("{}: not a folder", root.display())));
     }
     let mut records = Vec::new();
     walk(root, "", &mut records)?;
-    dirhash_records(records)
+    Ok(records)
 }
 
 fn walk(dir: &Path, prefix: &str, out: &mut Vec<Record>) -> Result<()> {
