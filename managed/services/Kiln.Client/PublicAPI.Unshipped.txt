@@ -1,1 +1,33 @@
 #nullable enable
+[KILNX002]const Kiln.SteamGuard.Capability = "steam.achievement_guard" -> string!
+[KILNX002]const Kiln.SteamGuard.ProtectingCapability = "steamguard.protecting" -> string!
+[KILNX002]Kiln.SteamGuard
+[KILNX002]Kiln.SteamGuardStatus
+[KILNX002]Kiln.SteamGuardStatus.Active.get -> bool
+[KILNX002]Kiln.SteamGuardStatus.Active.init -> void
+[KILNX002]Kiln.SteamGuardStatus.Available.get -> bool
+[KILNX002]Kiln.SteamGuardStatus.Available.init -> void
+[KILNX002]Kiln.SteamGuardStatus.Deconstruct(out bool Available, out bool HookInstalled, out bool TargetVerified, out bool Active, out long Dropped, out long Passed, out string! Reason) -> void
+[KILNX002]Kiln.SteamGuardStatus.Dropped.get -> long
+[KILNX002]Kiln.SteamGuardStatus.Dropped.init -> void
+[KILNX002]Kiln.SteamGuardStatus.Equals(Kiln.SteamGuardStatus other) -> bool
+[KILNX002]Kiln.SteamGuardStatus.HookInstalled.get -> bool
+[KILNX002]Kiln.SteamGuardStatus.HookInstalled.init -> void
+[KILNX002]Kiln.SteamGuardStatus.Passed.get -> long
+[KILNX002]Kiln.SteamGuardStatus.Passed.init -> void
+[KILNX002]Kiln.SteamGuardStatus.Reason.get -> string!
+[KILNX002]Kiln.SteamGuardStatus.Reason.init -> void
+[KILNX002]Kiln.SteamGuardStatus.SteamGuardStatus() -> void
+[KILNX002]Kiln.SteamGuardStatus.SteamGuardStatus(bool Available, bool HookInstalled, bool TargetVerified, bool Active, long Dropped, long Passed, string! Reason) -> void
+[KILNX002]Kiln.SteamGuardStatus.TargetVerified.get -> bool
+[KILNX002]Kiln.SteamGuardStatus.TargetVerified.init -> void
+[KILNX002]override Kiln.SteamGuardStatus.GetHashCode() -> int
+[KILNX002]static Kiln.SteamGuard.Hold(string! reason) -> System.IDisposable!
+[KILNX002]static Kiln.SteamGuard.Latch(string! reason) -> bool
+[KILNX002]static Kiln.SteamGuard.Protecting.get -> bool
+[KILNX002]static Kiln.SteamGuard.Status.get -> Kiln.SteamGuardStatus
+[KILNX002]static Kiln.SteamGuard.TryHold(string! reason, out System.IDisposable? hold) -> bool
+[KILNX002]static Kiln.SteamGuardStatus.operator !=(Kiln.SteamGuardStatus left, Kiln.SteamGuardStatus right) -> bool
+[KILNX002]static Kiln.SteamGuardStatus.operator ==(Kiln.SteamGuardStatus left, Kiln.SteamGuardStatus right) -> bool
+~[KILNX002]override Kiln.SteamGuardStatus.Equals(object obj) -> bool
+~[KILNX002]override Kiln.SteamGuardStatus.ToString() -> string
