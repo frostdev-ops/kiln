@@ -10,6 +10,7 @@
     <InternalsVisibleTo Include="Kiln.Host" />
     <InternalsVisibleTo Include="Kiln.Host.Tests" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+    <InternalsVisibleTo Include="Kiln.TestKit" />
     <!-- Kiln's own service assemblies (managed/services/*) use the native service access in Services/. -->
     <InternalsVisibleTo Include="Kiln.World" />
     <InternalsVisibleTo Include="Kiln.Players" />
