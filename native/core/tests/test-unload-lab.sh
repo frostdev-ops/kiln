@@ -21,8 +21,10 @@
 #   5 once    every marker file holds exactly one call, also with -5-reexit's second exit call during the sequence
 #             (kiln.log names it, and the handlers after it still ran)
 #   6 clean   plain run: kiln.log ends with the unload lines; no crash line, no "Unhandled" and no core dump of the
-#             server's pid; with a baseline: SIGINT to exit within the baseline's + 2 s, and no line in the tails of
-#             the game log and the wine log that the baseline's tails do not have
+#             server's pid; the process was gone within 1 s of kiln.log's "the process is exiting" (what the change
+#             adds to the stop); with a baseline: SIGINT to exit within the baseline's + 10 s (only a gross regression:
+#             the game's own shutdown took 5 to 39 s on a busy machine) and no error line in the game log and the wine
+#             log that the baseline's do not have
 #   7 save    restart: the game finds world0.ksd, Kiln.Saves loads the same world at a newer revision than the faults
 #             run started from, and the stop runs the unload sequence again
 # Usage (the lab must exist: tools/lab/lab.sh new <lab> <port>; one lab server at a time, so hold the lab lock):
@@ -32,6 +34,7 @@
 #      KILN_UNLOAD_BASELINE_CORE   kiln-core.dll without the change, for check 6's comparison
 #      KILN_UNLOAD_RUN_S           seconds each run lets the world step before the stop (default 15)
 #      KILN_UNLOAD_BREAK_SAVE=1    empty world0.ksd before the restart run (and put it back after): check 7 must fail
+#      KILN_UNLOAD_CHECK_ONLY=<dir>  no lab run: evaluate the checks on an earlier run's folder (<KILN_OUT>/unload-lab)
 #      KILN_LABS                   where the labs are (as tools/lab/lab.sh)
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -42,14 +45,29 @@ labs=${KILN_LABS:-${KILN_LAB_ROOT:-$HOME/srv/enshrouded}/labs}
 dir=$labs/$lab
 start_cmd=${KILN_LABSTART:-$repo/tools/lab/lab.sh start}
 run_s=${KILN_UNLOAD_RUN_S:-15}
-out=$KILN_OUT/unload-lab
-[[ -f $dir/enshrouded_server.exe ]] || { echo "no lab $lab ($dir)" >&2; exit 2; }
+out=${KILN_UNLOAD_CHECK_ONLY:-$KILN_OUT/unload-lab}
 cd "$repo"
-rm -rf "$out" && mkdir -p "$out"
 fails=0
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 stop_lab() { tools/lab/lab.sh stop "$lab" >/dev/null 2>&1 || true; }
+
+has_line() { grep -q -- "$2" "$1" 2>/dev/null; }
+calls_in() { if [[ -f $1 ]]; then awk '/ call=/ {n++} END {print n + 0}' "$1"; else echo 0; fi; }
+order_of() { awk '{print $1}' "$1" 2>/dev/null | sed 's/^unload-test-//' | tr '\n' ' ' | sed 's/ $//'; }
+le() { awk "BEGIN{exit !($1 <= $2)}"; }
+# seconds from kiln.log's "the process is exiting" line to the process's end (run dir); empty when either is missing
+exit_after_start() {
+  local start end
+  start=$(grep -o -E '^\[. [0-9:.]+\] \[kiln\] unload: the process is exiting' "$1/kiln.log" | head -1 | cut -d' ' -f2 | tr -d ']')
+  [[ -n $start && -s $1/exit-time ]] || return 0
+  end=$(date -d "@$(cat "$1/exit-time")" +%H:%M:%S.%N)
+  awk -v a="$start" -v b="$end" 'BEGIN { split(a, x, ":"); split(b, y, ":"); d = (y[1] * 3600 + y[2] * 60 + y[3]) - (x[1] * 3600 + x[2] * 60 + x[3]); if (d < 0) d += 86400; printf "%.2f\n", d }'
+}
+
+if [[ -z ${KILN_UNLOAD_CHECK_ONLY:-} ]]; then
+[[ -f $dir/enshrouded_server.exe ]] || { echo "no lab $lab ($dir)" >&2; exit 2; }
+rm -rf "$out" && mkdir -p "$out"
 trap stop_lab EXIT
 
 # ---- build ----
@@ -100,19 +118,6 @@ run() {
   echo "  run $name: pid $pid, SIGINT to exit $(cat "$r/sigint-to-exit") s"
 }
 
-has_line() { grep -q -- "$2" "$1" 2>/dev/null; }
-calls_in() { if [[ -f $1 ]]; then awk '/ call=/ {n++} END {print n + 0}' "$1"; else echo 0; fi; }
-order_of() { awk '{print $1}' "$1" 2>/dev/null | sed 's/^unload-test-//' | tr '\n' ' ' | sed 's/ $//'; }
-le() { awk "BEGIN{exit !($1 <= $2)}"; }
-# seconds from kiln.log's "the process is exiting" line to the process's end (run dir); empty when either is missing
-exit_after_start() {
-  local start end
-  start=$(grep -o -E '^\[. [0-9:.]+\] \[kiln\] unload: the process is exiting' "$1/kiln.log" | head -1 | cut -d' ' -f2 | tr -d ']')
-  [[ -n $start && -s $1/exit-time ]] || return 0
-  end=$(date -d "@$(cat "$1/exit-time")" +%H:%M:%S.%N)
-  awk -v a="$start" -v b="$end" 'BEGIN { split(a, x, ":"); split(b, y, ":"); d = (y[1] * 3600 + y[2] * 60 + y[3]) - (x[1] * 3600 + x[2] * 60 + x[3]); if (d < 0) d += 86400; printf "%.2f\n", d }'
-}
-
 # The save from an earlier start, so every measured run starts the same way (the first start of a lab makes a world).
 [[ -f $dir/savegame/world0.ksd ]] || run warmup
 
@@ -123,18 +128,19 @@ if [[ -n ${KILN_UNLOAD_BASELINE_CORE:-} ]]; then
 fi
 run plain
 run markers unload-test-0-nohandler unload-test-1-marker unload-test-2-marker
-first_rev=$(grep -o 'saves: hooks request.*rev [0-9]*' "$out/markers/kiln.log" | grep -o '[0-9]*$')
 run faults unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-3-fault unload-test-4-block \
   unload-test-5-reexit
-faults_rev=$(grep -o 'saves: hooks request.*rev [0-9]*' "$out/faults/kiln.log" | grep -o '[0-9]*$')
 if [[ ${KILN_UNLOAD_BREAK_SAVE:-} == 1 ]]; then  # a check of the check: a broken save must fail check 7
   rm -rf "$out/save-backup" && cp -a "$dir/savegame" "$out/save-backup" && : >"$dir/savegame/world0.ksd"
 fi
 run restart
 if [[ ${KILN_UNLOAD_BREAK_SAVE:-} == 1 ]]; then rm -rf "$dir/savegame" && cp -a "$out/save-backup" "$dir/savegame"; fi
 trap - EXIT
+fi  # KILN_UNLOAD_CHECK_ONLY
 
 M=$out/markers F=$out/faults P=$out/plain R=$out/restart
+first_rev=$(grep -o 'saves: hooks request.*rev [0-9]*' "$M/kiln.log" | grep -o '[0-9]*$')
+faults_rev=$(grep -o 'saves: hooks request.*rev [0-9]*' "$F/kiln.log" | grep -o '[0-9]*$')
 echo "== checks ($out)"
 # 1 marker
 if ! grep -q '^unload-' "$M/logs-before-stop.txt" && [[ -f $M/unload-test-1-marker.txt && -f $M/unload-test-2-marker.txt ]] &&
@@ -185,19 +191,22 @@ else
 fi
 # 6 clean
 tp=$(cat "$P/sigint-to-exit")
-clean_lines() { grep -i -E 'unhandled|exception|crash|fault|segfault|err:' "$1" 2>/dev/null | sed -E 's/^\[[^]]*\] //; s/0x[0-9a-f]+/0x?/g; s/[0-9]+/N/g' | sort -u; }
+# error-like lines of a run's game log and wine log, numbers masked ("Default" is not a fault)
+clean_lines() {
+  cat "$1/game.log" "$1/wine.log" 2>/dev/null | grep -i -E '\b(unhandled|exception|crash|fault|segfault)\b|err:' |
+    sed -E 's/^\[[^]]*\] //; s/0x[0-9a-f]+/0x?/g; s/[0-9]+/N/g' | sort -u
+}
 new_lines=""
-if [[ -d $out/baseline ]]; then
-  new_lines=$(comm -13 <(clean_lines "$out/baseline/game.log"; clean_lines "$out/baseline/wine.log") \
-                        <(clean_lines "$P/game.log"; clean_lines "$P/wine.log"))
-fi
+[[ -d $out/baseline ]] && new_lines=$(comm -13 <(clean_lines "$out/baseline") <(clean_lines "$P"))
+pg=$(exit_after_start "$P")
 tail_ok=0
 tail -n 3 "$P/kiln.log" | grep -q 'unload: done in .* the process exits' && tail_ok=1
-if ((tail_ok)) && [[ ! -s $P/coredumps.txt && -z $new_lines ]] && ! grep -q -s 'Unhandled' "$P/wine.log" &&
-   [[ ! -d $P/crash-reports ]] && { [[ ! -d $out/baseline ]] || le "$tp" "$(awk "BEGIN{print $(cat "$out/baseline/sigint-to-exit") + 2}")"; }; then
-  pass "6 clean: kiln.log ends with the unload lines, no crash line, no core dump; SIGINT to exit $tp s$([[ -d $out/baseline ]] && echo ", baseline $(cat "$out/baseline/sigint-to-exit") s, no new log line" || echo " (no baseline given)")"
+if ((tail_ok)) && [[ ! -s $P/coredumps.txt && -z $new_lines && -n $pg ]] && ! grep -q -s 'Unhandled' "$P/wine.log" &&
+   [[ ! -d $P/crash-reports ]] && le "$pg" 1 &&
+   { [[ ! -d $out/baseline ]] || le "$tp" "$(awk "BEGIN{print $(cat "$out/baseline/sigint-to-exit") + 10}")"; }; then
+  pass "6 clean: kiln.log ends with the unload lines, no crash line, no core dump; gone $pg s after the sequence began; SIGINT to exit $tp s$([[ -d $out/baseline ]] && echo ", baseline $(cat "$out/baseline/sigint-to-exit") s, no new error line" || echo " (no baseline given)")"
 else
-  fail "6 clean: kiln.log tail $tail_ok, core dumps '$(cat "$P/coredumps.txt")', new lines '$new_lines', SIGINT to exit $tp s$([[ -d $out/baseline ]] && echo " (baseline $(cat "$out/baseline/sigint-to-exit") s)")"
+  fail "6 clean: kiln.log tail $tail_ok, core dumps '$(cat "$P/coredumps.txt")', new lines '$new_lines', gone '$pg' s after the sequence began, SIGINT to exit $tp s$([[ -d $out/baseline ]] && echo " (baseline $(cat "$out/baseline/sigint-to-exit") s)")"
 fi
 # 7 save
 world=$(grep -o -E 'saves: hooks request.*world [0-9a-f-]+ rev' "$F/kiln.log" | grep -o -E '[0-9a-f]{8}-[0-9a-f-]+')
