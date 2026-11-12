@@ -64,6 +64,7 @@ def sort_key(version):
     """SemVer 2 precedence of a normalised version."""
     core, _, pre = version.partition("-")
     nums = tuple(int(p) for p in core.split("."))
+    nums += (0,) * (4 - len(nums))  # NuGet also accepts a revision; compare it before the pre-release identifiers.
     if not pre:
         return nums + ((1,),)
     ids = tuple((0, int(x), "") if x.isdigit() else (1, 0, x) for x in pre.split("."))

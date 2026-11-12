@@ -101,6 +101,17 @@ class Build(Base):
         self.assertTrue((self.out / "flatcontainer/kiln.api/1.0.0/kiln.api.1.0.0.nupkg").is_file())
         self.assertTrue((self.out / "flatcontainer/kiln.api/0.2.0-dev.11/kiln.api.0.2.0-dev.11.nupkg").is_file())
 
+    def test_three_and_four_part_nuget_versions_sort_together(self):
+        for v in ("0.2.0.2", "0.2.0.1", "0.2.0", "0.2.0.1-dev.1"):
+            nupkg(self.sdk, "Kiln.Api", v)
+        self.build()
+        expected = ["0.2.0-dev.9925", "0.2.0", "0.2.0.1-dev.1", "0.2.0.1", "0.2.0.2"]
+        self.assertEqual(expected, self.json("flatcontainer/kiln.api/index.json")["versions"])
+        page = self.json("registration/kiln.api/index.json")["items"][0]
+        self.assertEqual((expected[0], expected[-1]), (page["lower"], page["upper"]))
+        self.assertEqual(expected, [e["catalogEntry"]["version"] for e in page["items"]])
+        self.assertEqual(0, run("check", str(self.out), "--nupkgs", str(self.sdk))[0])
+
     def test_registration_pages_name_every_version_and_its_dependencies(self):
         self.build()
         reg = self.json("registration/kiln.sdk/index.json")
