@@ -743,6 +743,8 @@ public static unsafe class PlayerStates
 
         /// <summary>Test labs only (<c>KILN_PLAYERSTATE_LAB=1</c>): starts a sequence with a used item in the trigger
         /// context, as the game does for a real item use. Tick thread. False when off.</summary>
+        [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public static bool LabUseItem(EntityId entity, uint sequence, PlayerStateId trigger, ulong slot, uint item)
         {
             var t = T;

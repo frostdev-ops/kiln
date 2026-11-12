@@ -76,7 +76,7 @@ internal static class QuestActions
 
     private static int LevelOf(QuestHolder h)
     {
-        if (QuestInput.IsSynthetic(h)) return QuestInput.LevelOf(h);
+        if (SyntheticInput.IsSynthetic(h)) return SyntheticInput.LevelOf(h);
         if (h.Entity.IsNone || !Progression.Available) return 0;
         return Progression.Get(h.Entity)?.Level ?? 0;
     }
@@ -191,11 +191,11 @@ internal static class QuestActions
             }
             case QuestActionKind.Take:
             {
-                if (QuestInput.IsSynthetic(h))
+                if (SyntheticInput.IsSynthetic(h))
                 {
-                    var have = QuestInput.ItemCount(h, a.Name!);
+                    var have = SyntheticInput.ItemCount(h, a.Name!);
                     if (have < a.Count) return $"not enough {a.Name}: {have} of {a.Count}";
-                    QuestInput.SetItemCount(h, a.Name!, have - a.Count);
+                    SyntheticInput.SetItemCount(h, a.Name!, have - a.Count);
                     return null;
                 }
                 if (h.Entity.IsNone) return "a player in game is needed";
@@ -285,7 +285,7 @@ internal static class QuestActions
                 if (!Spawn.Available) return "kiln.spawn is unavailable";
                 if (Where(a, h) is not { } wanted) return "no position for the spawn (no at, no player for the offset)";
                 // on real ground, outside every base: the game pacifies enemies in a base and may remove them
-                var at = a.Exact || QuestInput.IsSynthetic(h) ? wanted : await QuestPlaces.Settle(wanted, $"{label}: spawn {a.Name}").OnTick() ?? wanted;
+                var at = a.Exact || SyntheticInput.IsSynthetic(h) ? wanted : await QuestPlaces.Settle(wanted, $"{label}: spawn {a.Name}").OnTick() ?? wanted;
                 for (var i = 0; i < Math.Max(1, a.Count); i++)
                 {
                     var p = i == 0 ? at : new WorldPosition(at.X + 2 * Math.Cos(i), at.Y, at.Z + 2 * Math.Sin(i));

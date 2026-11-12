@@ -73,6 +73,8 @@ public static unsafe class Rules
     /// <summary>Treats a player character that is not a joined player (a <c>1_Player</c> a lab test spawned) as a player:
     /// rule sets for it apply as they would to a player (vitals, water, flight, the native hooks). For tests without a
     /// client; never needed for real players. Up to 16 at once for the native hooks.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static void Simulate(EntityId character, bool on = true)
     {
         Game.AssertTickThread();

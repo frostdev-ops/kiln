@@ -63,7 +63,7 @@ public sealed class NpcRulesTestMod : Mod
             var sw = Stopwatch.StartNew();
             while (!Spawn.WorldRunning && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(100);
-            var st = Arsenals.Status;
+            var st = Arsenals.RulesState;
             Check(st != null, "kiln.creatures answers");
             if (st == null) return;
             Info($"resolved: writer {st.Writer}, dispatcher {st.Dispatcher}, attacks {st.Attacks}, AI switch {st.AiSwitch}, hooks now {st.RuleHooks}/{st.AttackHooks}, map {st.MapCount}/{st.MapCapacity}");
@@ -73,7 +73,7 @@ public sealed class NpcRulesTestMod : Mod
             {
                 await Mods.UnloadAsync(Companion);
                 await Steps(5);
-                st = Arsenals.Status!;
+                st = Arsenals.RulesState!;
             }
             Check(!st.RuleHooks && !st.AttackHooks, "no hook is installed while no mod asks for one");
             if (!st.Writer || !st.Dispatcher || !st.Attacks)
@@ -156,7 +156,7 @@ public sealed class NpcRulesTestMod : Mod
     {
         var cx = Creatures.Of(x);
         var cy = Creatures.Of(y);
-        var s0 = Arsenals.Status!;
+        var s0 = Arsenals.RulesState!;
         var lowest = 1.0;
         var seen = new Dictionary<uint, int>();
         for (var i = 0; i < steps; i++)
@@ -178,7 +178,7 @@ public sealed class NpcRulesTestMod : Mod
                 if (Creatures.Of(e).Inspect() is { HealthMax: > 0 } hp) lowest = Math.Min(lowest, (double)hp.Health / hp.HealthMax);
             }
         }
-        var s1 = Arsenals.Status!;
+        var s1 = Arsenals.RulesState!;
         return new Fought(seen, s1.Selects - s0.Selects, s1.Starts - s0.Starts, s1.StartsOffOverride - s0.StartsOffOverride, lowest);
     }
 
@@ -200,7 +200,7 @@ public sealed class NpcRulesTestMod : Mod
     }
 
     // ---------------------------------------------------------------------------------------------- what didn't resolve ----
-    private async Task Unresolved(RulesStatus st)
+    private async Task Unresolved(ArsenalRulesStatus st)
     {
         Info("some targets did not resolve here: checking that everything stays calm");
         if (!st.Writer || !st.Dispatcher)
@@ -246,7 +246,7 @@ public sealed class NpcRulesTestMod : Mod
         await Steps(20);
         Check(!Creatures.Of(e2).AiEnabled, "the AI switch needs no hook and still works");
         Creatures.Of(e2).AiEnabled = true;
-        Info($"status: writer {st.Writer}, dispatcher {st.Dispatcher}, attacks {st.Attacks}, hooks {Arsenals.Status!.RuleHooks}/{Arsenals.Status!.AttackHooks}");
+        Info($"status: writer {st.Writer}, dispatcher {st.Dispatcher}, attacks {st.Attacks}, hooks {Arsenals.RulesState!.RuleHooks}/{Arsenals.RulesState!.AttackHooks}");
     }
 
     // ---------------------------------------------------------------------------------------------- the writer ----
@@ -302,11 +302,11 @@ public sealed class NpcRulesTestMod : Mod
             $"past the limit: refused with \"{string.Join("; ", over.Problems)}\", the arsenal is its base ({over.Rules.Count} rules)");
         tooMany.Dispose();
         await Steps(2);
-        var map0 = Arsenals.Status!.MapCount;
+        var map0 = Arsenals.RulesState!.MapCount;
         h.Dispose();
         _handles.Remove(h);
         await Steps(2);
-        Check(Arsenals.Info(h.Id) == null && Arsenals.Status!.MapCount == map0 - 1, $"disposing a new arsenal takes its map entry out ({map0} -> {Arsenals.Status!.MapCount}), and the map still finds the others: {Arsenals.Info(from) != null}");
+        Check(Arsenals.Info(h.Id) == null && Arsenals.RulesState!.MapCount == map0 - 1, $"disposing a new arsenal takes its map entry out ({map0} -> {Arsenals.RulesState!.MapCount}), and the map still finds the others: {Arsenals.Info(from) != null}");
     }
 
     // ---------------------------------------------------------------------------------------------- rules fire ----
@@ -379,7 +379,7 @@ public sealed class NpcRulesTestMod : Mod
         await Steps(60);
         Check(ca.Phase == RuleIds.Fnv(RuleIds.Phase("second")) && phaseRuns > 0, $"a rule set the phase on a body the game has no phases for ({ca.Phase:x8}), and a rule on that phase ran {phaseRuns}");
         Check(offThread == 0, "every condition and action of the mod ran on the tick thread");
-        var st = Arsenals.Status!;
+        var st = Arsenals.RulesState!;
         Info($"so far: constraints {st.Constraints} ({st.ConstraintsTrue} true), actions {st.Actions}, dropped {st.ActionsDropped}, table {st.Tracked} creature(s)");
         Check(st.ActionsDropped == 0, "no action was dropped");
         Gone(a);
@@ -567,16 +567,16 @@ public sealed class NpcRulesTestMod : Mod
 
         // 4. An allow mask: the game's own choice, among these.
         (x, y) = await Pair(Vukah, (cx, cy) => { cx.Attacks.Allow(0, 1); cy.Attacks.Allow(0, 1); });
-        var s0 = Arsenals.Status!;
+        var s0 = Arsenals.RulesState!;
         var m = await Fight(x, y);
-        var s1 = Arsenals.Status!;
+        var s1 = Arsenals.RulesState!;
         Info($"allow 0,1: selects {m.Selects}, refused {s1.SelectsFiltered - s0.SelectsFiltered}; {Started(attacks, x, y)}");
         Check(StartCount(A2, x, y) == 0 && (StartCount(A0, x, y) + StartCount(A1, x, y)) > 0, "an allow mask keeps the game choosing among the attacks it names");
         // Clearing brings the game's choice back.
         Creatures.Of(x).Attacks.Clear();
         Creatures.Of(y).Attacks.Clear();
         await Steps(2);
-        Check(Arsenals.Status!.Overrides == 0, $"clearing an override: {Arsenals.Status!.Overrides} left");
+        Check(Arsenals.RulesState!.Overrides == 0, $"clearing an override: {Arsenals.RulesState!.Overrides} left");
         Gone(x, y);
         await Steps(10);
     }
@@ -598,10 +598,10 @@ public sealed class NpcRulesTestMod : Mod
         Gone(x, y);
         await Steps(10);
 
-        var s0 = Arsenals.Status!;
+        var s0 = Arsenals.RulesState!;
         (x, y) = await Pair(Melee, (cx, cy) => { cx.Attacks.Force(1); cy.Attacks.Force(1); }, Apart);
         var f = await Fight(x, y, 600);
-        var s1 = Arsenals.Status!;
+        var s1 = Arsenals.RulesState!;
         Info($"scavenger, forced 1: selects {f.Selects}, starts {f.Starts}, follow-ups refused {s1.FollowupsRefused - s0.FollowupsRefused}, off {f.Off}; {Started(all, x, y)}");
         Check(StartCount(A1, x, y) > 0, $"forced: the forced attack played ({StartCount(A1, x, y)} starts)");
         Check(StartCount(A0, x, y) == 0 && StartCount(A2, x, y) == 0 && StartCount(A3, x, y) == 0, "forced: its combo did not continue, and nothing else started");
@@ -611,10 +611,10 @@ public sealed class NpcRulesTestMod : Mod
         await Steps(10);
 
         // An allow mask stops the combo the same way, and lets the rest be.
-        s0 = Arsenals.Status!;
+        s0 = Arsenals.RulesState!;
         (x, y) = await Pair(Melee, (cx, cy) => { cx.Attacks.Allow(1, 3); cy.Attacks.Allow(1, 3); }, Apart);
         var m = await Fight(x, y, 400);
-        s1 = Arsenals.Status!;
+        s1 = Arsenals.RulesState!;
         Info($"scavenger, allow 1,3: follow-ups refused {s1.FollowupsRefused - s0.FollowupsRefused}; {Started(all, x, y)}");
         Check(StartCount(A0, x, y) == 0 && StartCount(A2, x, y) == 0 && StartCount(A1, x, y) + StartCount(A3, x, y) > 0, "allow: only the named attacks started");
         Gone(x, y);
@@ -675,10 +675,10 @@ public sealed class NpcRulesTestMod : Mod
         });
         _handles.Add(h);
         await Steps(2);
-        var s0 = Arsenals.Status!;
+        var s0 = Arsenals.RulesState!;
         var (x, y) = await Pair(Vukah, (cx, cy) => { cx.Arsenal = h.Id; cy.Arsenal = h.Id; });
         var f = await Fight(x, y);
-        var s1 = Arsenals.Status!;
+        var s1 = Arsenals.RulesState!;
         Info($"PickAttack: asked {asked} times, first selections waited {s1.PicksWaiting - s0.PicksWaiting}; {Started([hash, A0], x, y)}");
         Check(StartCount(hash, x, y) > 0 && StartCount(A0, x, y) == 0, "PickAttack: every attack is the picked one, the first included");
         Check(offThread == 0 && asked > 0, "PickAttack ran on the tick thread");
@@ -781,10 +781,10 @@ public sealed class NpcRulesTestMod : Mod
         await Steps(10);
         var q = Abilities.SequenceOf(x);
         Check(playing && q is { Sequence: 0x947bf0f6 }, $"AI off: a sequence still plays ({playing}, now {q?.Sequence:x8})");
-        Check(Arsenals.Status!.AiOff == 1, "the service counts it");
+        Check(Arsenals.RulesState!.AiOff == 1, "the service counts it");
         c.AiEnabled = true;
         await Steps(50);
-        Check(c.AiEnabled && Arsenals.Status!.AiOff == 0, $"AI on again: {c.State}");
+        Check(c.AiEnabled && Arsenals.RulesState!.AiOff == 0, $"AI on again: {c.State}");
         Gone(x, y);
         await Steps(3);
     }
@@ -915,21 +915,21 @@ public sealed class NpcRulesTestMod : Mod
             await Steps(30);
             Mods.Send(id, "own", $"{a.Value} {b.Value}");
             await Steps(60);
-            var s0 = Arsenals.Status!;
+            var s0 = Arsenals.RulesState!;
             var infoLoaded = Arsenals.Info(from)!;
             Check(infoLoaded.IsKiln && s0.Overrides >= 1 && s0.AiOff == 1 && s0.RuleHooks && s0.AttackHooks && !Creatures.Of(b).AiEnabled,
                 $"round {round}: the companion holds an arsenal, an override, an AI switch and the hooks ({s0.Overrides} override, {s0.AiOff} off, constraints {s0.Constraints})");
             var status = await Mods.UnloadAsync(id);
             Info($"round {round}: unload: {status}");
             await Steps(5);
-            var s1 = Arsenals.Status!;
+            var s1 = Arsenals.RulesState!;
             var info = Arsenals.Info(from)!;
             Check(!info.IsKiln && s1.Arsenals == 0 && s1.Overrides == 0 && s1.AiOff == 0, $"round {round}: after the unload: the game's arsenal, {s1.Arsenals} Kiln arsenals, {s1.Overrides} overrides, {s1.AiOff} AI switches");
             Check(Creatures.Of(b).AiEnabled, $"round {round}: the creature's AI is on again");
             Check(!s1.RuleHooks && !s1.AttackHooks, $"round {round}: no hook left (rule hooks {s1.RuleHooks}, attack hooks {s1.AttackHooks})");
             var c0 = s1.Constraints;
             await Steps(60);
-            var s2 = Arsenals.Status!;
+            var s2 = Arsenals.RulesState!;
             Check(s2.Constraints == c0 && s2.Actions == s1.Actions && World.Exists(a), $"round {round}: nothing of it runs any more; creatures live on ({Creatures.Of(a).State})");
             Gone(a, b);
             await Steps(10);
@@ -1017,11 +1017,11 @@ public sealed class NpcRulesTestMod : Mod
         }
         await Steps(100);
         Arsenals.Timing = true;
-        var s0 = Arsenals.Status!;
+        var s0 = Arsenals.RulesState!;
         var p0 = Arsenals.PumpCost;
         var hooks = await Measure(400);
         var steps = samples;
-        var s1 = Arsenals.Status!;
+        var s1 = Arsenals.RulesState!;
         var p1 = Arsenals.PumpCost;
         Arsenals.Timing = false;
         var alive = pairs.Sum(p => (World.Exists(p.Item1) ? 1 : 0) + (World.Exists(p.Item2) ? 1 : 0));
@@ -1039,7 +1039,7 @@ public sealed class NpcRulesTestMod : Mod
         }
         await Steps(5);
         var noHooks1 = await Measure(400);
-        Info($"100 creatures, hooks out again: {noHooks1:F2} ms per step over {samples} steps ({Arsenals.Status!.RuleHooks}/{Arsenals.Status!.AttackHooks})");
+        Info($"100 creatures, hooks out again: {noHooks1:F2} ms per step over {samples} steps ({Arsenals.RulesState!.RuleHooks}/{Arsenals.RulesState!.AttackHooks})");
         Check(hooks < Math.Max(noHooks0, noHooks1) * 1.25 + 1, $"the rules cost about {hooks - (noHooks0 + noHooks1) / 2:F2} ms per step against {(noHooks0 + noHooks1) / 2:F2} ms without them");
         Context.Tick.Pre -= pre;
         Context.Tick.Post -= post;

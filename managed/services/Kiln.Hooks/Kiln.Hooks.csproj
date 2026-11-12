@@ -12,6 +12,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Hooks.Tests" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
   </ItemGroup>
 </Project>

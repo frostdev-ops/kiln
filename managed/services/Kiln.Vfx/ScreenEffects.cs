@@ -187,6 +187,8 @@ public static unsafe class ScreenEffects
 }
 
 /// <summary>Test seams, for mods/tests/screen-test. Not for mods.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public static class ScreenTestSeams
 {
     /// <summary>The mirror's sizes, which must equal the C header's: 100, 192, 56.</summary>

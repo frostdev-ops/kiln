@@ -15,7 +15,7 @@ public enum VillagerState : byte
     Eating, WaitingCloseToPlayer, AvoidBuildingCursor, AvoidWater, InsideWater, FinishTask,
 }
 
-/// <summary>A villager's state machine changed (<see cref="DynamicState"/>). Polled about four times a second for villagers
+/// <summary>A villager's state machine changed (<see cref="Villager.State"/>, the game's <c>DynamicActiveNpcState</c>). Polled about four times a second for villagers
 /// Kiln commands or <see cref="Villagers.Watch"/>es, and once a second for every villager while someone subscribes. Tick
 /// thread. Observe only.</summary>
 public sealed class VillagerStateEvent : KilnEvent
