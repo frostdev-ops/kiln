@@ -455,16 +455,17 @@ public sealed class InstanceStoreTests : IDisposable
         _h.Tag(s1, 1);
         _h.Tag(s2, 2);
         _h.Save(1);                                             // the player's witness
-        w.Swap(s1, s2);                                         // seen: the records follow
-        w.Leave(p);
+        w.Move(s1, p, 14);                                      // seen: the record follows
+        _h.Save(2);                                             // the leave save (a menu leave always has one)
+        w.Leave(p);                                             // its file goes to the client; the entities go
         _h.Tick();
         var parked = _h.Of<InstanceDataParkedEvent>();
         Assert.Equal(2, parked.Count);
         Assert.All(parked, e => Assert.Equal((InstanceParkReason.PlayerLeft, Hero), (e.Reason, e.Character)));
         var back = w.Join(Hero);
         _h.Tick();
-        Assert.Equal(2, _h.Count(w.At(back, 10)));
-        Assert.Equal(1, _h.Count(w.At(back, 11)));
+        Assert.Equal(1, _h.Count(w.At(back, 14)));
+        Assert.Equal(2, _h.Count(w.At(back, 11)));
     }
 
     [Fact]

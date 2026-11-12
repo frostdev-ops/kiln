@@ -76,10 +76,14 @@ internal sealed class LiveItem
     public InstanceFields Fields;
     public HolderIdentity Holder;
 
-    /// <summary>The observation its place was last written with (0: never fresh).</summary>
+    /// <summary>Its newest observation: the save that read it in <see cref="SeenEntry"/>'s holder (0: none), and its slot
+    /// in that same read. A record is always written with a slot and a seen from one read, in one holder.</summary>
     public uint Seen;
 
-    public bool Fresh;  // read fresh in the save being staged
+    public int SeenSlot = -1;
+    public HolderEntry? SeenEntry;
+
+    public bool Fresh;  // read fresh, placed, in the save being staged
 }
 
 /// <summary>A saved record that waits for its item, or is set aside.</summary>
@@ -95,8 +99,17 @@ internal sealed class SavedRecord
     public uint Since;
     public bool OnlyTrusted;
     public int MissSession = -1;
+
+    /// <summary>A player's record: its slot (-1: not there) at every other state the client may bring back.</summary>
+    public List<(uint Seen, int Slot)> Alt = [];
+
     public readonly InstanceValues Values = new();
 }
+
+/// <summary>A player's inventory as one state the client may bring back as its character file: the join of the current
+/// visit, or a save after it. Item entity -> flat slot; null for a save that could not read the inventory (blind: a record
+/// with such a state is never attached by its slot). Session memory: entity ids belong to this visit.</summary>
+internal sealed record InventoryState(uint Id, EntityId Entity, Dictionary<uint, int>? SlotOf);
 
 /// <summary>Who a holder is across sessions: a world holder's template and position, or a player's character.</summary>
 internal readonly record struct HolderKey(HolderKind Kind, Guid Template, WorldPosition Position, bool Mobile, CharacterKey Character)
@@ -137,6 +150,13 @@ internal sealed class HolderEntry
     public string? Aside;
     public bool Crowded;
     public uint LastWitness;
+
+    /// <summary>A player: joins counted, for the ids of join states (<see cref="InstanceStore.JoinIdBase"/>).</summary>
+    public uint Joins;
+
+    /// <summary>A player: the states of the current visit the client may bring back, oldest first (session memory).</summary>
+    public readonly List<InventoryState> States = [];
+
     public readonly Dictionary<uint, Witness> Witness = new();
     public readonly List<SavedRecord> Records = [];
 
@@ -158,6 +178,14 @@ internal sealed class InstanceStore
 
     /// <summary>A player's item that is gone: destroyed if the player is still in game this many steps later.</summary>
     internal const ulong LeaveWindowSteps = 50;
+
+    /// <summary>Witness ids of a player's join states have this bit set (save witnesses are generation numbers).</summary>
+    internal const uint JoinIdBase = 0x80000000;
+
+    /// <summary>A player's states kept as possible character files: the join and the saves after it, the newest this many.
+    /// A client brings back the file of the last save it received; the server times out a dead connection well within
+    /// this many autosaves.</summary>
+    internal const int PlayerStatesKept = 5;
 
     /// <summary>World holders not found yet are looked for all session, this many per tick (about a second), in turn: one
     /// kiln.spawn find each, and one read of the holder's items when exactly one entity fits.</summary>
@@ -182,6 +210,7 @@ internal sealed class InstanceStore
     {
         public required LiveItem Item;
         public required CharacterKey Character;
+        public required EntityId Player;
         public required ulong Deadline;
         public required bool InventoryAlive;
     }
@@ -511,9 +540,22 @@ internal sealed class InstanceStore
     private void OnMoved(ItemInstanceRef item, InstancePlace from, InstancePlace to)
     {
         if (LiveOf(item) is not { } live || _world is not { } w) return;
+        // "Exists, placed nowhere" (its holder's teardown, maybe a drag): changes nothing the store knows of its place.
+        if (to.Holder.IsNone) return;
+        var same = to.Holder == live.Place.Holder;
         live.Place = to;
-        var h = HolderOf(w, to.Holder);
-        if (h.Kind != HolderKind.None || from.Holder != to.Holder) live.Holder = h;
+        live.Holder = Kept(live.Holder, same, HolderOf(w, to.Holder));
+    }
+
+    /// <summary>A holder identity read again. While the item stays in the same holder entity (ids are never used twice in a
+    /// world), a known identity is never replaced by a lesser one: none, or a player without a full character (a leaving
+    /// player whose record was reset, a lookup that could not answer).</summary>
+    internal static HolderIdentity Kept(in HolderIdentity old, bool sameHolder, in HolderIdentity fresh)
+    {
+        if (!sameHolder) return fresh;
+        var oldKnown = old.Kind == HolderKind.World || (old.Kind == HolderKind.Player && !old.Character.IsNone && !old.Character.IsAccountOnly);
+        var freshLess = fresh.Kind == HolderKind.None || (fresh.Kind == HolderKind.Player && (fresh.Character.IsNone || fresh.Character.IsAccountOnly));
+        return oldKnown && freshLess ? old : fresh;
     }
 
     private void OnGone(ItemInstanceRef item, InstancePlace last, ulong step)
@@ -521,7 +563,7 @@ internal sealed class InstanceStore
         if (LiveOf(item) is not { } live) return;
         _live.Remove(item.Entity.Id.Value);
         Unfollow(live);
-        live.Place = last;
+        if (!last.Holder.IsNone) live.Place = last;  // an unplaced last read keeps the last placed location
         if (live.Holder.Kind == HolderKind.Player)
         {
             if (live.Holder.Character.IsNone || live.Holder.Character.IsAccountOnly)
@@ -535,16 +577,19 @@ internal sealed class InstanceStore
             var alive = true;
             try
             {
-                _world?.ReadHolder(last.Holder, out alive);
+                _world?.ReadHolder(live.Place.Holder, out alive);
             }
             catch (KilnUnavailableException)
             {
                 alive = true;
             }
-            _pending.Add(new Pending { Item = live, Character = live.Holder.Character, Deadline = step + LeaveWindowSteps, InventoryAlive = alive });
+            _pending.Add(new Pending
+            {
+                Item = live, Character = live.Holder.Character, Player = live.Place.Holder, Deadline = step + LeaveWindowSteps, InventoryAlive = alive,
+            });
             return;
         }
-        Lost(live.Values, live.Fields.Item, live.Ref, InstanceLossReason.Destroyed, $"the item is gone (last in {live.Holder.Name ?? live.Place.Holder.ToString()} slot {last.FlatSlot})");
+        Lost(live.Values, live.Fields.Item, live.Ref, InstanceLossReason.Destroyed, $"the item is gone (last in {live.Holder.Name ?? live.Place.Holder.ToString()} slot {live.Place.FlatSlot})");
     }
 
     // ------------------------------------------------------------------------------------------- the tick ----
@@ -587,7 +632,8 @@ internal sealed class InstanceStore
     {
         foreach (var p in _pending.ToArray())
         {
-            var inGame = players.Any(x => x.Character == p.Character);
+            // this visit of the player: a rejoin is another entity, and the items of the visit that ended have left with it
+            var inGame = players.Any(x => x.Character == p.Character && x.Entity == p.Player);
             if (inGame && step < p.Deadline) continue;
             _pending.Remove(p);
             if (!inGame && !p.InventoryAlive)
@@ -604,13 +650,17 @@ internal sealed class InstanceStore
     private void ParkLeft(Pending p)
     {
         var entry = EntryOfCharacter(p.Character, create: true)!;
+        var (seen, slot, alt) = Observe(p.Item, entry);
         var r = new SavedRecord
         {
             Id = p.Item.RecordId,
-            Slot = p.Item.Place.FlatSlot,
+            Slot = slot,
             Fields = p.Item.Fields,
-            Seen = entry.LastWitness,
-            Reason = "the player left with it",
+            Seen = seen,
+            Alt = alt,
+            Reason = seen == 0 && alt.All(a => a.Slot < 0)
+                ? "the player left with it before any save or join read it in the inventory: it cannot be told from a look-alike"
+                : "the player left with it",
             Since = _owner.Generation,
         };
         r.Values.Take(p.Item.Values);
@@ -645,7 +695,8 @@ internal sealed class InstanceStore
         foreach (var (entity, character) in players)
         {
             if (character.IsNone || character.IsAccountOnly) continue;
-            if (EntryOfCharacter(character, create: false) is not { } entry || entry.Records.Count == 0) continue;
+            // every join is read, records or not: the inventory as it came is a state the client may bring back again
+            var entry = EntryOfCharacter(character, create: true)!;
             if (entry.Bound == entity && entry.Matched) continue;
             TryBindPlayer(w, entry, entity);
         }
@@ -658,8 +709,53 @@ internal sealed class InstanceStore
         if (entry.IsBound) Unbind(entry);
         if (_byEntity.TryGetValue(entity.Value, out var other)) Unbind(other);
         Bind(entry, entity);
-        RunMatch(w, entry, items);
+        var asMade = RunMatch(w, entry, items);
+        // The join: the character file the client brought. A later file is this one or a later save's; earlier ones are
+        // gone. Settled only when the items are as the loader made them (else the read may not be the file).
+        var id = JoinIdBase | (++entry.Joins & ~JoinIdBase);
+        entry.Witness[id] = new Witness(items.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList(), asMade);
+        entry.States.RemoveAll(st => st.Entity != entity || st.Id == id || st.SlotOf is null);
+        entry.States.Insert(0, new InventoryState(id, entity, items.ToDictionary(i => i.Ref.Entity.Id.Value, i => i.Place.FlatSlot)));
+        Trim(entry);
+        foreach (var i in items)
+            if (LiveOf(i.Ref) is { } live)
+            {
+                live.Seen = id;
+                live.SeenSlot = i.Place.FlatSlot;
+                live.SeenEntry = entry;
+            }
         return true;
+    }
+
+    private static void Trim(HolderEntry e)
+    {
+        while (e.States.Count > PlayerStatesKept) e.States.RemoveAt(0);
+    }
+
+    /// <summary>A save read a player's inventory (or could not: <paramref name="items"/> null): one more state the client
+    /// may bring back.</summary>
+    private static void AddState(HolderEntry e, uint id, EntityId entity, IReadOnlyList<InstanceItem>? items)
+    {
+        // the second staging of a save replaces the first; a blind second staging keeps a first that read
+        if (items is null && e.States.Any(st => st.Id == id && st.SlotOf is not null)) return;
+        e.States.RemoveAll(st => st.Id == id);
+        e.States.Add(new InventoryState(id, entity, items?.ToDictionary(i => i.Ref.Entity.Id.Value, i => i.Place.FlatSlot)));
+        Trim(e);
+    }
+
+    /// <summary>What a record of this item in this holder is written with: its newest observation in this holder (slot and
+    /// seen from one read; none when no save read it here), and for a player its slot at every other state of the visit
+    /// the client may bring back.</summary>
+    private static (uint Seen, int Slot, List<(uint Seen, int Slot)> Alt) Observe(LiveItem live, HolderEntry e)
+    {
+        var seen = ReferenceEquals(live.SeenEntry, e) ? live.Seen : 0;
+        var slot = seen != 0 ? live.SeenSlot : live.Place.FlatSlot;
+        var alt = new List<(uint, int)>();
+        if (e.Key.Kind == HolderKind.Player)
+            foreach (var st in e.States)
+                if (st.Entity == live.Place.Holder && st.Id != seen)
+                    alt.Add((st.Id, st.SlotOf is null ? -2 : st.SlotOf.TryGetValue(live.Ref.Entity.Id.Value, out var at) ? at : -1));
+        return (seen, slot, alt);
     }
 
     /// <summary>Up to <see cref="ResolvePerTick"/> unbound world holders, in turn, so a holder that streams in late is
@@ -770,11 +866,11 @@ internal sealed class InstanceStore
     }
 
     /// <summary>Runs the matcher over a holder that was just found and acts on its decisions.</summary>
-    private void RunMatch(IInstanceWorld w, HolderEntry h, IReadOnlyList<InstanceItem> items)
+    private bool RunMatch(IInstanceWorld w, HolderEntry h, IReadOnlyList<InstanceItem> items)
     {
         h.Matched = true;
         var recs = h.Records.ToArray();
-        var input = recs.Select(r => new MatchRecord(r.Slot, r.Fields.Stable, r.Seen, r.Aside, r.OnlyTrusted)).ToArray();
+        var input = recs.Select(r => new MatchRecord(r.Slot, r.Fields.Stable, r.Seen, r.Aside, r.OnlyTrusted, r.Alt.Count > 0 ? r.Alt : null)).ToArray();
         var now = items.Select(i => new MatchItem(i.Place.FlatSlot, i.Fields, LiveOf(i.Ref) is not null)).ToArray();
         uint? trusted = h.Key.Kind == HolderKind.World && _loadedMatch is DataMatch.Exact or DataMatch.Staged ? _loadedGeneration : null;
         // Rule 1 also needs the holder's items as the loader made them in this session (nothing swapped or brought in
@@ -832,6 +928,7 @@ internal sealed class InstanceStore
         SavesRuntime.Log(aside > 0 ? LogLevel.Warn : LogLevel.Debug,
             $"Kiln.Saves: instance data of {h.Describe} (entity {h.Bound}): {attached} attached, {parked} waiting, {aside} set aside" +
             $"{(trusted is not null ? $" (generation {trusted} is the world file's own)" : "")}{(asMade ? "" : $"; not as loaded: {order}")}");
+        return asMade;
     }
 
     private void Attach(IInstanceWorld w, SavedRecord r, in InstanceItem item, InstanceMatch match, string reason)
@@ -844,7 +941,9 @@ internal sealed class InstanceStore
             Fields = item.Fields,
             Holder = HolderOf(w, item.Place.Holder),
             Seen = r.Seen,
+            SeenSlot = r.Slot,
         };
+        if (r.Seen != 0) live.SeenEntry = _byEntity.GetValueOrDefault(item.Place.Holder.Value);
         live.Values.Take(r.Values);
         live.Follow = w.Follow(item.Ref);
         _live[item.Ref.Entity.Id.Value] = live;
@@ -937,6 +1036,7 @@ internal sealed class InstanceStore
         h.Crowded |= o["crowded"]?.GetValue<bool>() ?? false;
         h.Aside ??= o["aside"]?.GetValue<string>();
         h.LastWitness = Math.Max(h.LastWitness, o["last"]?.GetValue<uint>() ?? 0);
+        h.Joins = Math.Max(h.Joins, o["joins"]?.GetValue<uint>() ?? 0);
         if (o["witness"] is JsonObject ws)
             foreach (var (obs, node) in ws)
             {
@@ -968,6 +1068,9 @@ internal sealed class InstanceStore
             r.Missed = Math.Max(r.Missed, ro["missed"]?.GetValue<int>() ?? 0);
             r.Since = Math.Max(r.Since, ro["since"]?.GetValue<uint>() ?? 0);
             r.OnlyTrusted |= ro["gone"]?.GetValue<bool>() ?? false;
+            if (r.Alt.Count == 0 && ro["alt"] is JsonArray alts)
+                r.Alt = alts.Select(a => a as JsonArray ?? throw new FormatException("alt entry"))
+                    .Select(a => (a[0]!.GetValue<uint>(), a[1]!.GetValue<int>())).ToList();
             if (ro["keys"] is JsonObject ks)
             {
                 if (!r.Values.ByMod.TryGetValue(mod, out var keys))
@@ -1015,7 +1118,7 @@ internal sealed class InstanceStore
     // ----------------------------------------------------------------------------------------------- stage ----
 
     private sealed record WriteRec(string Id, int Slot, InstanceFields Fields, uint Seen, string State, string Reason, int Missed, uint Since,
-        bool OnlyTrusted, InstanceValues Values);
+        bool OnlyTrusted, InstanceValues Values, IReadOnlyList<(uint Seen, int Slot)> Alt);
 
     /// <summary>Both stagings of generation <paramref name="gen"/>: the place and fingerprint of every item with data are
     /// read fresh, and every holder's records are written with the witness of this save (PLAN D6 rule 6, D7).</summary>
@@ -1066,11 +1169,13 @@ internal sealed class InstanceStore
                     OnGone(live.Ref, live.Place, w!.Step);
                     continue;
                 }
-                if (now is { } n)
+                // "exists, placed nowhere" (its holder's teardown): it keeps its last placed location and its old observation
+                if (now is { } n && !n.Place.Holder.IsNone)
                 {
+                    var same = n.Place.Holder == live.Place.Holder;
                     live.Place = n.Place;
                     live.Fields = n.Fields;
-                    live.Holder = HolderOf(w!, n.Place.Holder);
+                    live.Holder = Kept(live.Holder, same, HolderOf(w!, n.Place.Holder));
                     live.Fresh = true;
                 }
             }
@@ -1079,6 +1184,7 @@ internal sealed class InstanceStore
         }
 
         // 2. Per holder: its key, the witness of this save, and its live items as records.
+        var playersRead = new HashSet<uint>();
         foreach (var (holderId, items) in byHolder)
         {
             var identity = items.FirstOrDefault(i => i.Fresh)?.Holder ?? items[0].Holder;
@@ -1094,7 +1200,8 @@ internal sealed class InstanceStore
             var key = HolderKey.Of(identity);
             var entry = EntryForWrite(holder, key, identity.Name);
             uint obs = 0;
-            if (reads && items.All(i => i.Fresh))
+            var blind = !reads;  // the reads could not answer: this save may have sent a file Kiln could not read
+            if (reads && items.Any(i => i.Fresh))
             {
                 try
                 {
@@ -1103,7 +1210,12 @@ internal sealed class InstanceStore
                     {
                         entry.Witness[gen] = new Witness(list.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList(), settled);
                         obs = gen;
-                        if (key.Kind == HolderKind.Player) entry.LastWitness = gen;
+                        if (key.Kind == HolderKind.Player)
+                        {
+                            entry.LastWitness = gen;
+                            AddState(entry, gen, holder, list);
+                            playersRead.Add(holderId);
+                        }
                     }
                     if (key.Kind == HolderKind.World)
                         entry.Crowded = w.FindHolders(key.Template, key.Position, key.Radius).Any(e => e != holder);
@@ -1111,12 +1223,70 @@ internal sealed class InstanceStore
                 catch (KilnUnavailableException)
                 {
                     obs = 0;
+                    blind = true;
                 }
+            }
+            // A player whose inventory could not be read: this save may send a file Kiln never saw. (Not when the entity
+            // is gone: nothing is sent to a client whose player entity was destroyed.)
+            if (key.Kind == HolderKind.Player && obs == 0 && blind)
+            {
+                AddState(entry, gen, holder, null);
+                playersRead.Add(holderId);
             }
             foreach (var live in items.OrderBy(i => i.Place.FlatSlot))
             {
-                if (obs != 0) live.Seen = obs;
-                Of(entry).Add(new WriteRec(live.RecordId, live.Place.FlatSlot, live.Fields, live.Seen, "live", "", 0, 0, false, live.Values));
+                // A new observation only from a fresh, placed read in this save's list of this holder; otherwise the item keeps
+                // its newest observation in this holder (slot and seen from that one read), or has none here.
+                if (obs != 0 && live.Fresh)
+                {
+                    live.Seen = obs;
+                    live.SeenSlot = live.Place.FlatSlot;
+                    live.SeenEntry = entry;
+                }
+                var (seen, slot, alt) = Observe(live, entry);
+                Of(entry).Add(new WriteRec(live.RecordId, slot, live.Fields, seen, "live",
+                    seen == 0 ? "no save has read it in this holder yet" : "", 0, 0, false, live.Values, alt));
+            }
+        }
+
+        // 2b. Every player in game, with data or not: the inventory as this save sends it back to the client is a state it
+        // may bring back as its file, and an item that gets data later in the visit needs its slot in that state.
+        if (w is not null)
+        {
+            IReadOnlyList<(EntityId Entity, CharacterKey Character)> players;
+            try
+            {
+                players = w.PlayersInGame();
+            }
+            catch (KilnUnavailableException)
+            {
+                players = [];
+            }
+            foreach (var (entity, character) in players)
+            {
+                if (character.IsNone || character.IsAccountOnly || playersRead.Contains(entity.Value)) continue;
+                var entry = EntryOfCharacter(character, create: true)!;
+                IReadOnlyList<InstanceItem>? list = null;
+                if (reads)
+                {
+                    try
+                    {
+                        // not initialized yet: the file this save sends is the one the client joined with; the join read
+                        // drops this blind state, as nothing can move before the inventory is there
+                        list = w.ReadHolder(entity, out var initialized);
+                        if (!initialized) list = null;
+                    }
+                    catch (KilnUnavailableException)
+                    {
+                        list = null;
+                    }
+                }
+                if (list is not null)
+                {
+                    entry.Witness[gen] = new Witness(list.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList(), settled);
+                    entry.LastWitness = gen;
+                }
+                AddState(entry, gen, entity, list);
             }
         }
 
@@ -1126,8 +1296,9 @@ internal sealed class InstanceStore
         {
             if (!p.Item.Values.HasPersistent) continue;
             var entry = EntryOfCharacter(p.Character, create: true)!;
-            Of(entry).Add(new WriteRec(p.Item.RecordId, p.Item.Place.FlatSlot, p.Item.Fields, entry.LastWitness, "waiting",
-                "gone from the player's inventory at the save (the player leaving, or destroyed)", 0, gen, true, p.Item.Values));
+            var (seen, slot, alt) = Observe(p.Item, entry);
+            Of(entry).Add(new WriteRec(p.Item.RecordId, slot, p.Item.Fields, seen, "waiting",
+                "gone from the player's inventory at the save (the player leaving, or destroyed)", 0, gen, true, p.Item.Values, alt));
         }
 
         // 4. Waiting and set-aside records, wherever their holder is.
@@ -1135,16 +1306,17 @@ internal sealed class InstanceStore
         {
             ApplyCap(h, written.GetValueOrDefault(h));
             foreach (var r in h.Records)
-                Of(h).Add(new WriteRec(r.Id, r.Slot, r.Fields, r.Seen, r.Aside ? "aside" : "waiting", r.Reason, r.Missed, r.Since, r.OnlyTrusted, r.Values));
+                Of(h).Add(new WriteRec(r.Id, r.Slot, r.Fields, r.Seen, r.Aside ? "aside" : "waiting", r.Reason, r.Missed, r.Since, r.OnlyTrusted, r.Values, r.Alt));
         }
 
         // 5. Witnesses no record needs any more go.
         foreach (var h in _holders)
         {
-            var keep = new HashSet<uint>(written.GetValueOrDefault(h)?.Select(r => r.Seen) ?? []) { h.LastWitness };
+            var keep = new HashSet<uint>((written.GetValueOrDefault(h) ?? []).SelectMany(r => r.Alt.Select(a => a.Seen).Append(r.Seen))) { h.LastWitness };
+            keep.UnionWith(h.States.Select(st => st.Id));
             foreach (var g in h.Witness.Keys.Where(g => !keep.Contains(g)).ToArray()) h.Witness.Remove(g);
         }
-        _holders.RemoveAll(h => !h.IsBound && h.Records.Count == 0 && !written.ContainsKey(h));
+        _holders.RemoveAll(h => !h.IsBound && h.Records.Count == 0 && h.States.Count == 0 && !written.ContainsKey(h));
 
         // 6. One bundle per mod (world holders) and per character and mod.
         var bundles = new SortedDictionary<string, List<(HolderEntry h, List<(WriteRec r, SortedDictionary<string, InstanceSlot> keys)> recs)>>(StringComparer.Ordinal);
@@ -1203,8 +1375,9 @@ internal sealed class InstanceStore
         if (h.Crowded) o["crowded"] = true;
         if (h.Aside is not null) o["aside"] = h.Aside;
         if (h.LastWitness != 0) o["last"] = h.LastWitness;
+        if (h.Joins != 0) o["joins"] = h.Joins;
         var ws = new JsonObject();
-        foreach (var g in recs.Select(x => x.r.Seen).Append(h.LastWitness).Where(g => g != 0).Distinct().Order())
+        foreach (var g in recs.SelectMany(x => x.r.Alt.Select(a => a.Seen).Append(x.r.Seen)).Append(h.LastWitness).Where(g => g != 0).Distinct().Order())
             if (h.Witness.TryGetValue(g, out var wit))
                 ws[g.ToString(System.Globalization.CultureInfo.InvariantCulture)] = new JsonObject
                 {
@@ -1236,6 +1409,8 @@ internal sealed class InstanceStore
             if (r.Missed > 0) ro["missed"] = r.Missed;
             if (r.Since > 0) ro["since"] = r.Since;
             if (r.OnlyTrusted) ro["gone"] = true;
+            if (r.Alt.Count > 0)
+                ro["alt"] = new JsonArray(r.Alt.Select(a => (JsonNode?)new JsonArray(JsonValue.Create(a.Seen), JsonValue.Create(a.Slot))).ToArray());
             ro["keys"] = ko;
             ra.Add(ro);
         }
