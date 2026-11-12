@@ -382,7 +382,7 @@ def rework(name, spec, src, skel, resolve, slots=None):
         u = k / n
         return b - span * u if rev else a + span * u
 
-    mirror = Mirror(skel, spec["mirror"]) if spec.get("mirror") else None
+    mirror = Mirror(skel, spec["mirror"]) if "mirror" in spec and spec["mirror"] is not False else None
     blend = wsrc = weights = None
     if "blend" in spec:
         blend = spec["blend"]
