@@ -106,22 +106,21 @@ test.describe("choosing the UI", () => {
 test.describe("controls", () => {
   test("focus moves predictably with the D-pad and stops at the edges", async ({ page }) => {
     await openDeck(page);
+    // Home has no control left of the mouth now (no profile switch in the main flow): focus stays at the edge
     await page.keyboard.press("ArrowLeft");
-    expect(await focused(page)).toBe("switch-profile");
-    await page.keyboard.press("ArrowLeft");
-    expect(await focused(page)).toBe("switch-profile");
+    expect(await focused(page)).toBe("mouth");
     await page.keyboard.press("ArrowUp");
-    expect(await focused(page)).toBe("switch-profile");
+    expect(await focused(page)).toBe("mouth");
     await page.keyboard.press("ArrowRight");
     expect(await focused(page)).toBe("mouth");
-    // a list moves row by row, both ways, with the pad's D-pad too
+    // a list moves row by row, both ways, with the pad's D-pad too (every kind, by name)
     await pad(page, "rb");
-    await expect.poll(() => focused(page)).toBe("mod-kiln-new-items");
+    await expect.poll(() => focused(page)).toBe("mod-emf-beastmaster");
     const order: (string | null)[] = [];
     for (let i = 0; i < 4; i++) { await pad(page, "down"); order.push(await focused(page)); }
-    expect(order).toEqual(["mod-kiln-big-stacks", "mod-kiln-more-hotbars", "mod-kiln-night-sky", "mod-kiln-weather-plus"]);
+    expect(order).toEqual(["mod-shroudforge-better-chests", "mod-kiln-big-stacks", "mod-shroudlink-chestsort", "mod-flame-creative-build"]);
     await pad(page, "up");
-    expect(await focused(page)).toBe("mod-kiln-night-sky");
+    expect(await focused(page)).toBe("mod-shroudlink-chestsort");
     // the focused row is scrolled into view at the bottom of a long list
     for (let i = 0; i < 12; i++) await pad(page, "down");
     const last = await focused(page);
@@ -197,7 +196,7 @@ test.describe("controls", () => {
     await page.waitForTimeout(700);
     await page.evaluate(() => { (window as unknown as { __pad: { axes: number[] } }).__pad.axes[1] = 0; });
     const at = await focused(page);
-    expect(["mod-kiln-more-hotbars", "mod-kiln-night-sky", "mod-kiln-weather-plus"]).toContain(at);
+    expect(["mod-kiln-big-stacks", "mod-shroudlink-chestsort", "mod-flame-creative-build"]).toContain(at);
     await hold(1); // B
     await expect.poll(() => screen(page)).toBe("home");
   });
@@ -222,7 +221,9 @@ test.describe("controls", () => {
 test.describe("what a player does", () => {
   test("Play starts the game", async ({ page }) => {
     await openDeck(page);
-    await expect(page.getByTestId("deck-last-boot")).toContainText("loaded");
+    await expect(page.getByTestId("deck-last-boot")).toContainText("Booted");
+    // the count covers every kind
+    await expect(page.getByTestId("deck-mods")).toContainText("12 mods on, 15 off");
     await pad(page, "a");
     await expect(page.getByTestId("deck-state")).toHaveText(/Starting|Running/);
     await expect(page.locator(".deck-toast")).toContainText("Starting");
@@ -230,7 +231,7 @@ test.describe("what a player does", () => {
     await page.evaluate(() => (window as unknown as { __kilnMock: { stopGame: () => void } }).__kilnMock.stopGame());
   });
 
-  test("add a mod from Downloads with A; it lands in the active profile", async ({ page }) => {
+  test("add a mod from Downloads with A; it is on in the Mods list", async ({ page }) => {
     await openDeck(page);
     await pad(page, "rb");
     await pad(page, "rb");
@@ -241,7 +242,7 @@ test.describe("what a player does", () => {
     await expect(page.locator('[data-deck-id="file-holiday-photos.zip"]')).toHaveCount(0);
     await pad(page, "a");
     await expect(page.locator(".deck-toast")).toContainText("Added Lantern Glow");
-    await expect(page.locator('[data-deck-id="file-lantern-glow-1.2.0.zip"]')).toContainText("In profile");
+    await expect(page.locator('[data-deck-id="file-lantern-glow-1.2.0.zip"]')).toContainText("On");
     await pad(page, "lb");
     await expect.poll(() => screen(page)).toBe("mods");
     await expect(page.locator('[data-deck-id="mod-kiln-lantern-glow"]')).toContainText("On");
@@ -281,10 +282,13 @@ test.describe("what a player does", () => {
     expect(await focused(page)).toBe("file-server-ember-isles-modpack.zip");
   });
 
-  test("Mods: A turns a mod off, X removes it after a confirm, Y switches profile", async ({ page }) => {
+  test("Mods: A turns a mod off, X removes it after a confirm; the profile is switched in Settings", async ({ page }) => {
     await openDeck(page);
     await pad(page, "rb");
-    await expect.poll(() => focused(page)).toBe("mod-kiln-new-items");
+    await expect.poll(() => focused(page)).toBe("mod-emf-beastmaster");
+    // no profile switch on the Mods screen
+    await expect(page.locator('.deck-hint[data-hint="y"]')).toHaveCount(0);
+    await page.locator('[data-deck-id="mod-kiln-new-items"]').focus();
     const row = page.locator('[data-deck-id="mod-kiln-new-items"]');
     await expect(row).toContainText("On");
     await pad(page, "a");
@@ -292,12 +296,22 @@ test.describe("what a player does", () => {
     await expect(page.locator('.deck-hint[data-hint="a"]')).toContainText("Turn on");
     await pad(page, "x");
     await expect(page.locator('[data-deck-dialog="remove"]')).toBeVisible();
-    // under a dialog L1/R1 do nothing; focus starts on its primary button
+    // under a dialog L1/R1 do nothing
     await pad(page, "rb");
     expect(await screen(page)).toBe("mods");
+    // once the check of what else uses it is done, focus is on its primary button (Remove), so A removes
+    const remove = page.locator('[data-deck-dialog="remove"]').getByRole("button", { name: "Remove", exact: true });
+    await expect(remove).toBeEnabled();
+    await expect(remove).toBeFocused();
     await pad(page, "a");
     await expect(row).toHaveCount(0);
-    await pad(page, "y");
+    // removed: out of the profile and out of the library
+    await expect.poll(() => page.evaluate(async () => (await (await import("/src/api/commands.ts")).libraryList()).some((e) => e.id === "new-items"))).toBe(false);
+    // Settings has the profiles: A opens them, B closes
+    await page.goto("/?deck=steamdeck#/deck/settings");
+    await page.locator('[data-deck-id="set-profile"]').focus();
+    await expect(page.locator('[data-deck-id="set-profile"]')).toContainText("Ember run");
+    await pad(page, "a");
     await expect(page.locator('[data-deck-dialog="profiles"]')).toBeVisible();
     await pad(page, "b");
     await expect(page.locator('[data-deck-dialog="profiles"]')).toHaveCount(0);
@@ -385,8 +399,10 @@ test("screenshots of every Deck screen (KILN_DECK_SHOTS)", async ({ page }) => {
   const shot = async (name: string) => { await page.waitForTimeout(450); await page.screenshot({ path: `${dir}/${name}.png` }); };
   await openDeck(page);
   await shot("01-home");
-  await pad(page, "y");
-  await shot("02-home-profile");
+  await page.goto("/?deck=steamdeck#/deck/settings");
+  await page.locator('[data-deck-id="set-profile"]').focus();
+  await pad(page, "a");
+  await shot("02-settings-profile");
   await pad(page, "b");
   for (const [n, file] of [["mods", "03-mods"], ["add", "04-add-mods"], ["kiln", "06-kiln"], ["help", "07-help"], ["settings", "08-settings"]] as const) {
     await page.goto(`/?deck=steamdeck#/deck/${n}`);
@@ -444,7 +460,7 @@ test.describe("notices", () => {
     await page.evaluate((n) => (window as unknown as { __kilnMock: { planAddNotices: (l: string[]) => void } }).__kilnMock.planAddNotices([n]), line);
     await pad(page, "a");
     const notice = page.locator('[data-deck-dialog="notice"]');
-    await expect(notice).toContainText("Changes in the profile");
+    await expect(notice).toContainText("Changes in your mod list");
     await expect(notice).toContainText(line);
     await pad(page, "a");
     await expect(notice).toHaveCount(0);
@@ -453,8 +469,7 @@ test.describe("notices", () => {
   test("a long notice scrolls with the right stick, shows how often it came, and focus goes back after several", async ({ page }) => {
     await openDeck(page);
     const many = Array.from({ length: 12 }, (_, i) => ({ path: `/home/player/.local/share/Steam/steamapps/common/Enshrouded/mods/Mod-${i}`, reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }));
-    await page.keyboard.press("ArrowLeft");
-    expect(await focused(page)).toBe("switch-profile");
+    expect(await focused(page)).toBe("mouth");
     await page.evaluate(async (retained) => {
       const { notifyActivation } = await import("/src/shell/notices.ts");
       const a = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", retained };
@@ -473,10 +488,10 @@ test.describe("notices", () => {
     await send(0);
     await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
     await pad(page, "a");
-    await expect(notice).toContainText("Profile notes");
+    await expect(notice).toContainText("Notes on your mods");
     await pad(page, "a");
     await expect(notice).toHaveCount(0);
-    await expect.poll(() => focused(page)).toBe("switch-profile");
+    await expect.poll(() => focused(page)).toBe("mouth");
   });
 
   test("an error folded into the earlier notices goes after six seconds; the folded notices stay", async ({ page }) => {
@@ -500,8 +515,10 @@ test.describe("notices", () => {
       retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }],
       keptFiles: ["xhl:xhl-vein-mining: kept runtime settings (config.txt) in kiln/state/placed-settings/xhl/xhl-vein-mining"],
     }));
-    await page.keyboard.press("ArrowLeft");
-    expect(await focused(page)).toBe("switch-profile");
+    // profiles are in Settings
+    await page.goto("/?deck=steamdeck#/deck/settings");
+    await page.locator('[data-deck-id="set-profile"]').focus();
+    expect(await focused(page)).toBe("set-profile");
     await pad(page, "a");
     await expect(page.locator('[data-deck-dialog="profiles"]')).toBeVisible();
     await page.locator('[data-deck-id="profile-vanilla-plus"]').click();

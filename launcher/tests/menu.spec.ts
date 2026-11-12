@@ -2,7 +2,8 @@
 import { expect, test } from "@playwright/test";
 
 test("a profile menu survives status refetches and scrolling recovery notices", async ({ page }) => {
-  await page.goto("/#/profiles");
+  // Settings, Profiles: the profile rows' menus
+  await page.goto("/#/settings");
   await page.locator(".k-splash").waitFor({ state: "detached" });
   await page.getByLabel("More for Vanilla plus").click();
   const menu = page.getByRole("menu");
@@ -29,8 +30,12 @@ test("a profile menu survives status refetches and scrolling recovery notices", 
   await expect(page.getByRole("dialog")).toContainText("Delete Vanilla plus refreshed?");
   await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByLabel("More for Vanilla plus refreshed").click();
+  // a scroll already under way as the menu opens (a list coasting, a click that scrolled its row into view) leaves it open
+  await page.locator(".k-sheet .k-page").first().dispatchEvent("scroll");
+  await expect(menu).toBeVisible();
+  await page.waitForTimeout(350);
   await menu.dispatchEvent("scroll");
   await expect(menu).toBeVisible();
-  await page.locator(".k-table-scroll").dispatchEvent("scroll");
-  await expect(menu).toHaveCount(0); // scrolling the trigger's own container still closes the fixed menu
+  await page.locator(".k-sheet .k-page").first().dispatchEvent("scroll");
+  await expect(menu).toHaveCount(0); // scrolling the trigger's own container later still closes the fixed menu
 });

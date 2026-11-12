@@ -1,83 +1,120 @@
-// Deck Mods: the active profile's mods, each one row: A turns it on or off, X takes it out of the profile (the library
-// keeps it), Y switches profile. Saves right away; the game's profile.json follows (applies at the next start while
-// the game runs).
-import { useState } from "react";
+// Deck Mods: every mod of every kind (the desktop's main list, shell/mods.ts), one row each: A switches it on or off
+// (one the profile lacks goes in, on), X removes it (out of the list, its files out of the Library), and a mod found in
+// the game folder says its state, A doing its one fix. The count covers every kind. Saves right away; the game's
+// profile.json follows (applies at the next start while the game runs). Profiles are in the desktop UI's Settings.
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { ModKind, ProfileMod } from "../../api/commands";
-import { useActiveProfile, useGame, useGameStatus, useLibrary, useProfiles } from "../../api/hooks";
-import { useProfileEdit } from "../../pages/profiles/useProfileEdit";
-import { ProfileDialog } from "../dialogs";
+import * as api from "../../api/commands";
+import type { AddReport } from "../../api/commands";
+import { qk, useGame, useGameStatus } from "../../api/hooks";
+import { KIND_SHORT } from "../../api/kinds";
+import { useEnsureProfile } from "../../shell/firstRun";
+import type { ModRow } from "../../shell/mods";
+import { notifyAdd } from "../../shell/notices";
+import { removeMod, useRemoveCheck, type RemoveTarget } from "../../shell/removeMod";
+import { useMods } from "../../shell/useMods";
+import { withDropin } from "../../pages/profiles/dropins";
+import { runTask, toast } from "../../ui";
 import { DeckButton, Dialog, Row, Screen, Word } from "../ui";
 import { KIND_WORD } from "../status";
 import type { DeckAction } from "../layers";
-import { ENGINE_KINDS } from "../../api/kinds";
-
-// Kiln's own kinds first, then other engines' mods (each row says its engine: "ShroudForge mod")
-const KINDS: ModKind[] = ["kiln", "native", "emf", "plugin", ...ENGINE_KINDS];
 
 export default function Mods() {
+  const qc = useQueryClient();
   const nav = useNavigate();
   const { game } = useGame();
   const status = useGameStatus(game?.id);
-  const active = useActiveProfile(game?.id);
-  const profiles = useProfiles();
-  const pid = active.data?.profileId ?? "";
-  const edit = useProfileEdit(pid);
-  const lib = useLibrary(null);
-  const [focus, setFocus] = useState<{ kind: ModKind; mod: ProfileMod } | null>(null);
-  const [removing, setRemoving] = useState<{ kind: ModKind; mod: ProfileMod } | null>(null);
-  const [picking, setPicking] = useState(false);
+  const mods = useMods(game);
+  useEnsureProfile(game);
+  const [focus, setFocus] = useState<ModRow | null>(null);
+  const [removing, setRemoving] = useState<RemoveTarget | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const check = useRemoveCheck(removing, mods.profileId);
   const running = !!status.data?.running;
+  // the confirm's Remove waits for the check of what else uses the mod; once it can be pressed, it has the focus (A)
+  const checked = check.ready && !check.users.isFetching;
+  useEffect(() => {
+    if (removing && checked) document.querySelector<HTMLElement>('[data-deck-dialog="remove"] [data-deck-id="remove-confirm"]')?.focus();
+  }, [removing, checked]);
   const installed = !!status.data?.runtime.installed;
-  const p = pid ? edit.profile : null;
-  const nameOf = (kind: ModKind, id: string) => lib.data?.find((l) => l.kind === kind && l.id === id)?.name ?? id;
-  const rows = p ? KINDS.flatMap((kind) => (p.mods[kind] ?? []).map((mod) => ({ kind, mod }))) : [];
-  const on = rows.filter((r) => r.mod.enabled).length;
-  const hasProfiles = (profiles.data?.length ?? 0) > 0;
+  const loaded = !!mods.profile;
+
+  const fix = async (r: ModRow) => {
+    const f = r.found;
+    if (!f || !game || !mods.profileId || busy) return;
+    if (f.fix === "dropins" && f.kind) { const k = f.kind; mods.edit.update((p) => withDropin(p, k, true)); return; }
+    if (f.fix !== "add") return;
+    setBusy(r.key);
+    try {
+      const rep = await runTask<AddReport>(() => api.foundAdd(game.id, mods.profileId!, f.path), { quiet: true });
+      notifyAdd(rep);
+      if (rep.added.length || rep.already.length) toast.ok(`${f.name} is on`);
+      else toast.error({ code: "refused", message: rep.import.skipped[0]?.reason ?? "not taken" }, `The Library did not take ${f.name}`);
+    } catch (e) { toast.error(e, `Could not add ${f.name}`); }
+    finally {
+      setBusy(null);
+      void qc.invalidateQueries({ queryKey: ["found_scan"] });
+      void qc.invalidateQueries({ queryKey: qk.profile(mods.profileId) });
+      void qc.invalidateQueries({ queryKey: ["library_list"] });
+    }
+  };
 
   const actions: DeckAction[] = [];
-  if (focus && p) actions.push({ button: "x", label: "Remove", run: () => setRemoving(focus) });
-  if (game && installed && hasProfiles) actions.push({ button: "y", label: "Profile", run: () => setPicking(true), disabled: running });
+  if (focus && !focus.found && loaded) actions.push({ button: "x", label: "Remove", run: () => setRemoving({ row: focus, version: null }), disabled: running });
 
   let say: string;
   if (!game) say = "No game yet.";
   else if (status.data && !installed) say = "Kiln is not in the game yet.";
-  else if (!pid) say = hasProfiles ? "No profile is active." : "No mods yet.";
-  else if (!p) say = "Reading the profile.";
-  else say = `${on} of ${rows.length} on${running ? " · applies at the next start" : ""}`;
+  else if (!mods.profileId) say = "No profile is loaded: the mods in the game folder load as they are.";
+  else if (mods.error) say = `Your mods are not readable: ${api.toKilnError(mods.error).message}`;
+  else if (mods.loading) say = "Reading your mods.";
+  else say = `${mods.count.on} mod${mods.count.on === 1 ? "" : "s"} on${mods.count.off ? `, ${mods.count.off} off` : ""}${running ? " · applies at the next start" : ""}`;
+
+  const word = (r: ModRow) => {
+    if (r.found) return busy === r.key ? <Word tone="ember">Adding</Word> : <Word tone={r.found.state === "loads" ? "ok" : r.found.state === "off" ? "warn" : "idle"}>{r.note?.text ?? ""}</Word>;
+    return <Word tone={r.on ? "ember" : "idle"}>{r.on ? "On" : "Off"}</Word>;
+  };
+  const sub = (r: ModRow) => [r.found ? "Game folder" : r.kind ? KIND_WORD[r.kind] : "", r.version, !r.found && r.note ? r.note.text : ""].filter(Boolean).join(" · ");
 
   return (
-    <Screen name="mods" title={p?.name ?? "Mods"} say={say} actions={actions}>
+    <Screen name="mods" title="Mods" say={say} actions={actions}>
       {!game ? (
         <DeckButton id="go-home" onClick={() => nav("/deck")}>Home</DeckButton>
       ) : status.data && !installed ? (
         <DeckButton id="go-kiln" primary onClick={() => nav("/deck/kiln")}>Install Kiln</DeckButton>
-      ) : !pid ? (
-        <div className="deck-row-buttons">
-          {hasProfiles && <DeckButton id="pick" primary disabled={running} onClick={() => setPicking(true)}>Choose a profile</DeckButton>}
-          <DeckButton id="go-add" onClick={() => nav("/deck/add")}>Add mods</DeckButton>
-        </div>
-      ) : p && !rows.length ? (
+      ) : mods.error ? null : !mods.rows.length && !mods.loading ? (
         <DeckButton id="go-add" primary onClick={() => nav("/deck/add")}>Add mods</DeckButton>
       ) : (
         <div className="deck-list deck-scroll" role="list" aria-label="Mods">
-          {rows.map(({ kind, mod }) => (
-            <Row key={`${kind}:${mod.id}`} id={`mod-${kind}-${mod.id}`} lit={mod.enabled} a={mod.enabled ? "Turn off" : "Turn on"}
-              title={nameOf(kind, mod.id)} sub={`${KIND_WORD[kind]} · ${mod.version}`}
-              end={<Word tone={mod.enabled ? "ember" : "idle"}>{mod.enabled ? "On" : "Off"}</Word>}
-              onFocus={() => setFocus({ kind, mod })}
-              onClick={() => edit.toggle(kind, mod.id, !mod.enabled)} aria-label={`${nameOf(kind, mod.id)}: ${mod.enabled ? "on" : "off"}`} />
+          {mods.rows.map((r) => r.found ? (
+            <Row key={r.key} id={`found-${r.found.path}`} title={r.name} sub={sub(r)} end={word(r)} dim={r.found.state !== "loads"}
+              a={r.found.fix === "dropins" && r.found.kind ? `Load ${KIND_SHORT[r.found.kind]} mods` : r.found.fix === "add" ? "Add" : "-"}
+              disabled={!r.found.fix || !loaded || !!busy} onFocus={() => setFocus(r)} onClick={() => void fix(r)}
+              aria-label={`${r.name}: in the game folder, ${r.note?.text ?? ""}`} />
+          ) : (
+            <Row key={r.key} id={`mod-${r.kind}-${r.id}`} lit={r.on} a={r.on ? "Turn off" : "Turn on"} title={r.name} sub={sub(r)} end={word(r)}
+              disabled={!loaded} onFocus={() => setFocus(r)} onClick={() => mods.toggle(r, !r.on)} aria-label={`${r.name}: ${r.on ? "on" : "off"}`} />
           ))}
         </div>
       )}
       {removing && (
-        <Dialog name="remove" title={`Remove ${nameOf(removing.kind, removing.mod.id)}?`} onClose={() => setRemoving(null)}
+        <Dialog name="remove" title={`Remove ${removing.row.name}?`} onClose={() => setRemoving(null)}
           buttons={<>
             <DeckButton onClick={() => setRemoving(null)}>Cancel</DeckButton>
-            <DeckButton primary onClick={() => { edit.remove(removing.kind, removing.mod.id); setRemoving(null); setFocus(null); }}>Remove</DeckButton>
-          </>} />
+            <DeckButton id="remove-confirm" primary disabled={!checked} onClick={async () => {
+              const t = removing;
+              setRemoving(null);
+              setFocus(null);
+              try {
+                await removeMod(qc, t, check.users.data, async () => { mods.drop(t.row); return mods.edit.flush(); });
+                toast.ok(`Removed ${t.row.name}`);
+              } catch (e) { toast.error(e); }
+            }}>Remove</DeckButton>
+          </>}>
+          <p className="deck-note">{check.message}</p>
+        </Dialog>
       )}
-      {picking && game && <ProfileDialog game={game} onClose={() => setPicking(false)} />}
     </Screen>
   );
 }

@@ -28,6 +28,6 @@ export { SchemaForm, parseDuration, getPath, checkValue } from "./SchemaForm";
 export type { SchemaFormProps } from "./SchemaForm";
 export { Mark, Lockup, Splash, Sparkline, TickChart } from "./Brand";
 export { SortableList } from "./SortableList";
-export { Menu } from "./Menu";
+export { Menu, useRowContextMenu } from "./Menu";
 export type { MenuItem } from "./Menu";
 export { fmtBytes, fmtAgo, fmtTime, shortHash, errorText, installNote } from "./format";

@@ -225,7 +225,7 @@ function SyncDialog({ id, open, onClose, mods }: { id: string; open: boolean; on
     <Modal open={open} onClose={onClose} locked={busy} title="Sync from the library" width={600}
       footer={<><Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" disabled={!dirty} loading={busy} onClick={sync}>Sync</Button></>}>
       <p className="k-hint">The server gets exactly the checked versions. Mods put there by hand stay.</p>
-      {library.length === 0 && <span className="k-empty-title">The library is empty: import mods on the Library page.</span>}
+      {library.length === 0 && <span className="k-empty-title">The library is empty: drop mods on the launcher window; they show in the list on Play.</span>}
       <div className="k-list" style={{ maxHeight: "48vh", overflow: "auto" }}>
         {library.map((e) => {
           const k = `${e.kind}:${e.id}`;

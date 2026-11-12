@@ -1,19 +1,21 @@
-// Deck Home: the active profile's name, the big Play button (the kiln's mouth), Kiln's state with its one next step
-// (Install, Update, Find game), and the last boot in one line.
+// Deck Home: the game's name, how many mods are on (every kind counts), the big Play button (the kiln's mouth), Kiln's
+// state with its one next step (Install, Update, Find game), and the last boot in one line. Only a profile other than
+// the default is named; profiles are switched in Settings (the desktop UI's, or the Deck's).
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../../api/hooks";
+import { useGame, useGameStatus, useLaunchState, useRuntimeChanges } from "../../api/hooks";
 import { errorText } from "../../ui";
 import { clock, usePlayControl } from "../../shell/play";
-import { detectGames, useDetect, useKilnInstall } from "../../shell/firstRun";
-import { FindGameDialog, InstallDialog, PlayOnceDialog, ProfileDialog } from "../dialogs";
+import { detectGames, useDetect, useEnsureProfile, useKilnInstall } from "../../shell/firstRun";
+import { isDefaultProfile, useMods } from "../../shell/useMods";
+import { FindGameDialog, InstallDialog, PlayOnceDialog } from "../dialogs";
 import { DeckButton, Screen, Word } from "../ui";
 import { bootLine, kilnLabel } from "../status";
 import { deckFire } from "../Fire";
 import type { DeckAction } from "../layers";
 
-type Open = null | "profiles" | "install" | "update" | "once" | "find";
+type Open = null | "install" | "update" | "once" | "find";
 
 export default function Home() {
   const qc = useQueryClient();
@@ -25,7 +27,8 @@ export default function Home() {
   const kiln = useKilnInstall(game);
   const status = useGameStatus(game?.id);
   const launch = useLaunchState(game?.id);
-  const profiles = useProfiles();
+  const mods = useMods(game);
+  useEnsureProfile(game);
   const change = useRuntimeChanges((s) => (game ? s.last[game.id] : undefined));
   const [open, setOpen] = useState<Open>(null);
   const s = status.data;
@@ -48,7 +51,9 @@ export default function Home() {
   // the fire: the mouth stands on Home, at this heat (Fire.tsx)
   deckFire.heat = heat as typeof deckFire.heat;
   useEffect(() => { deckFire.play = true; return () => { deckFire.play = false; deckFire.hot = false; }; }, []);
-  const name = !game ? "Enshrouded" : ctl.profileName ?? (rt?.installed ? "Drop-in mods" : "Vanilla");
+  const other = rt?.installed && mods.summary && !isDefaultProfile(mods.summary) ? mods.summary.name : null;
+  const count = !rt?.installed || !mods.profileId || mods.loading ? null
+    : `${mods.count.on} mod${mods.count.on === 1 ? "" : "s"} on${mods.count.off ? `, ${mods.count.off} off` : ""}`;
   const boot = bootLine(launch.data);
   const kilnVer = rt?.receipt?.runtime.version ?? null;
   // Kiln's state and its next step
@@ -60,17 +65,16 @@ export default function Home() {
   else if (rt.upgradeAvailable) kilnWord = { text: `Kiln ${kilnLabel(kilnVer ?? "")} · update ready`, tone: "warn" };
   else kilnWord = { text: `Kiln ${kilnLabel(kilnVer ?? "")}`, tone: "ok" };
   const advice = rt?.installed && s?.launchOptions?.advice && (ctl.stuck || !s.launchOptions.hasDllOverride);
-  const canSwitch = !!game && !!rt?.installed && (profiles.data?.length ?? 0) > 0;
 
   const actions: DeckAction[] = [];
-  if (canSwitch) actions.push({ button: "y", label: "Profile", run: () => setOpen("profiles"), disabled: !ctl.canPlay || kiln.installing });
   if (game && rt?.installed) actions.push({ button: "x", label: "Play once", run: () => setOpen("once"), disabled: !ctl.canPlay || kiln.installing });
 
   return (
     <Screen name="home" className="deck-home" actions={actions}>
       <div className="deck-home-text">
         <div className="deck-kicker">Enshrouded{game?.buildId ? ` · build ${game.buildId}` : ""}</div>
-        <h1 className="deck-name" data-testid="deck-profile">{name}</h1>
+        <h1 className="deck-name">Enshrouded</h1>
+        {count && <p className="deck-line" data-testid="deck-mods"><span className="deck-label">Mods</span> {count}{other && <span data-testid="deck-profile"> · Profile: {other}</span>}</p>}
         <p className="deck-line" data-testid="deck-kiln-state"><Word tone={kilnWord.tone}>{kilnWord.text}</Word></p>
         {game && <p className="deck-line" data-testid="deck-last-boot"><span className="deck-label">Last boot</span> <Word tone={boot.tone}>{boot.text}</Word></p>}
         <div className="deck-home-actions">
@@ -79,7 +83,6 @@ export default function Home() {
             <DeckButton id="install" onClick={() => setOpen("install")}>Install Kiln</DeckButton>
           )}
           {game && rt?.installed && rt.upgradeAvailable && <DeckButton id="update" disabled={!ctl.canPlay || kiln.installing} onClick={() => setOpen("update")}>Update Kiln</DeckButton>}
-          {canSwitch && <DeckButton id="switch-profile" disabled={!ctl.canPlay || kiln.installing} onClick={() => setOpen("profiles")}>Switch profile</DeckButton>}
           {(advice || (ctl.stuck && rt?.installed)) && <DeckButton id="steam-setting" a="How" onClick={() => nav("/deck/help")}>{ctl.stuck ? "Kiln is not loading" : "One Steam setting"}</DeckButton>}
           {change?.state === "failed" && <DeckButton id="kiln-failed" onClick={() => nav("/deck/kiln")}>Kiln</DeckButton>}
         </div>
@@ -96,7 +99,6 @@ export default function Home() {
           {sub && <span className="deck-mouth-sub">{sub}</span>}
         </span>
       </button>
-      {open === "profiles" && game && <ProfileDialog game={game} onClose={() => setOpen(null)} />}
       {(open === "install" || open === "update") && game && <InstallDialog game={game} update={open === "update"} onClose={() => setOpen(null)} />}
       {open === "once" && <PlayOnceDialog onClose={() => setOpen(null)} onPlay={(m) => ctl.play(m)} />}
       {open === "find" && <FindGameDialog onClose={() => setOpen(null)} />}
