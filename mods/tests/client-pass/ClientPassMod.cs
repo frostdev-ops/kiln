@@ -27,6 +27,7 @@ public sealed partial class ClientPassMod : Mod
     private const string Dev22 = "0.2.0-dev.22";
     private const string Dev24 = "0.2.0-dev.24";
     private const string Dev26 = "0.2.0-dev.26";
+    private const string Dev27 = "0.2.0-dev.27";
 
     // The sample and test mods the pass uses (their ids).
     private const string RenderSample = "rendersample";

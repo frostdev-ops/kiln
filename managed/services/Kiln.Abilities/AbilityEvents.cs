@@ -190,3 +190,27 @@ public sealed class AbilityCastedEvent : KilnEvent
     public AbilityCast Cast { get; }
     public AbilityCost Paid { get; }
 }
+
+/// <summary>A buff was taken off an entity through <see cref="Abilities.RemoveBuff(EntityId, Guid)"/>: the game's
+/// removeBuff said it removed it. Posted on the tick thread when the removal's result is known, before the caller's task
+/// completes, only while the event has subscribers. Not posted for buffs that run out or that the game's own programs
+/// remove. Observe only (it already happened).</summary>
+[ServerOnly]
+public sealed class BuffRemovedEvent : KilnEvent
+{
+    internal BuffRemovedEvent(EntityId target, uint buff, string? mod)
+    {
+        Target = target;
+        Buff = buff;
+        Mod = mod;
+    }
+
+    /// <summary>The entity the buff was on.</summary>
+    public EntityId Target { get; }
+
+    /// <summary>The buff's id (FNV-1a of its GUID).</summary>
+    public uint Buff { get; }
+
+    /// <summary>The id of the mod that removed it; null when Kiln did, outside any mod.</summary>
+    public string? Mod { get; }
+}

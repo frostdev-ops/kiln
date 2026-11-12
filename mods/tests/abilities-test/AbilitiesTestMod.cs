@@ -270,6 +270,7 @@ public sealed class AbilitiesTestMod : Mod
             await TestVerifier();
             await TestAttributes(casterA);
             await TestBuff(casterB);
+            await TestRemoveBuff(casterB, At(0, 44));
             await TestAbilities(casterA, casterB);
             await TestSequence(casterA);
             await TestPlayerSequences(At(0, 40));
@@ -584,6 +585,100 @@ public sealed class AbilitiesTestMod : Mod
         var after = Combat.GetHealth(vukah)?.Current ?? -1;
         Info($"health of the Vukah over 4 s of the heal-over-time buff: {before} -> {after} (the potion's buff may heal players only)");
         Check(!Spawn.Exists(e), $"the buff applier {e} destroyed itself (DSELF)");
+    }
+
+    // ---- RemoveBuff and BuffsOf (dev.27): the game's removeBuff on a creature and on a player-template entity ----
+    private readonly List<BuffRemovedEvent> _removed = new();
+    [Subscribe] private void OnBuffRemoved(BuffRemovedEvent e) => _removed.Add(e);
+
+    private static int BuffEntities(uint id) =>
+        World.Find("BuffNetworkData").Count(x => World.ReadBytes(x, "BuffNetworkData") is { Length: >= 24 } b && BitConverter.ToUInt32(b, 0x10) == id);
+
+    private async Task TestRemoveBuff(EntityId vukah, WorldPosition playerAt)
+    {
+        var hot = new Guid("be0e7626-e95f-4a14-844a-2af52501698e");
+        var hotId = Abilities.IdOf(hot);
+        Check(Capabilities.Is("abilities.buffs") && Capabilities.Is("abilities.buff_list"),
+            $"capability rows: {Capabilities.Why("abilities.buffs")} / {Capabilities.Why("abilities.buff_list")}");
+        await StepsUntil(() => !Abilities.BuffsOf(vukah).Any(b => b.Is(hot)), 240);  // TestBuff's 6 s buff runs out first
+        var before = Abilities.BuffsOf(vukah);
+        Info($"Vukah {vukah} buffs before: [{string.Join(", ", before.Select(b => $"0x{b.Id:x8} {b.Slot} {b.Remaining}"))}]");
+        _spawned.Add(await Abilities.ApplyBuff(vukah, hot, TimeSpan.FromSeconds(60)));
+        await Steps(6);
+        var one = Abilities.BuffsOf(vukah).Count(b => b.Is(hot));
+        var ents1 = BuffEntities(hotId);
+        Check(one == 1, $"BuffsOf lists the buff on a creature: {one} x 0x{hotId:x8} ({string.Join(", ", Abilities.BuffsOf(vukah).Select(b => $"0x{b.Id:x8} {b.Slot} {b.Remaining} level {b.Level}"))}), {ents1} buff entity");
+        // a second application of the same buff: a second stack, or a renewal of the first?
+        _spawned.Add(await Abilities.ApplyBuff(vukah, hot, TimeSpan.FromSeconds(60)));
+        await Steps(6);
+        var two = Abilities.BuffsOf(vukah).Count(b => b.Is(hot));
+        var ents2 = BuffEntities(hotId);
+        Info($"after a second ApplyBuff of the same buff: {two} entr(ies) in the buff slots, {ents2} buff entit(ies)");
+        _removed.Clear();
+        var t0 = AbilitiesStep();
+        var r1 = await Abilities.RemoveBuff(vukah, hot);
+        var atAnswer = Abilities.BuffsOf(vukah).Count(b => b.Is(hot));
+        Check(r1.Ok && r1.Reason is null && r1.Target == vukah && r1.Buff == hotId,
+            $"RemoveBuff: the game's removeBuff says removed: {r1} ({AbilitiesStep() - t0} steps)");
+        // the game clears the slot and destroys the buff entity after removeBuff returned: count the steps
+        var gone = await StepsUntil(() => !Abilities.BuffsOf(vukah).Any(b => b.Is(hot)) && BuffEntities(hotId) == 0, 20);
+        var after1 = Abilities.BuffsOf(vukah).Count(b => b.Is(hot));
+        var ents3 = BuffEntities(hotId);
+        Info($"at the answer the slot still held {atAnswer}; slot and buff entity gone {gone} step(s) later; one RemoveBuff took off {two - after1} of {two} entr(ies) (buff entities {ents2} -> {ents3})");
+        Check(gone >= 0 && after1 == 0 && ents3 == 0, $"the buff is gone from the slots ({two} -> {after1}) and its entity with it ({ents2} -> {ents3})");
+        Check(_removed.Count == 1 && _removed[0].Target == vukah && _removed[0].Buff == hotId && _removed[0].Mod == "abilities-test",
+            $"BuffRemovedEvent: {string.Join(", ", _removed.Select(e => $"{e.Target} 0x{e.Buff:x8} by {e.Mod}"))}");
+        var rest = after1;
+        for (var i = 0; i < 4 && rest > 0; i++)
+        {
+            var more = await Abilities.RemoveBuff(vukah, hot);
+            rest = Abilities.BuffsOf(vukah).Count(b => b.Is(hot));
+            Info($"another RemoveBuff: {more}; {rest} left");
+        }
+        _removed.Clear();
+        var r2 = await Abilities.RemoveBuff(vukah, hot);
+        Check(!r2.Ok && r2.Reason is { Length: > 0 } && _removed.Count == 0,
+            $"RemoveBuff of a buff the entity does not have: the game answers not removed: {r2}; no event");
+        // by id (a GameBuffs.Ids constant or a listed EntityBuff.Id): 16 bytes with that hash
+        _spawned.Add(await Abilities.ApplyBuff(vukah, hot, TimeSpan.FromSeconds(60)));
+        await Steps(6);
+        var r3 = await Abilities.RemoveBuff(vukah, hotId);
+        var gone3 = await StepsUntil(() => !Abilities.BuffsOf(vukah).Any(b => b.Id == hotId), 20);
+        Check(r3.Ok && gone3 >= 0, $"RemoveBuff by id 0x{hotId:x8}: {r3}; gone {gone3} step(s) later");
+        // a player-template entity: a player's own buff container
+        EntityId player;
+        try { player = await Make("1_Player", playerAt); }
+        catch (Exception e) { Info($"no player-template entity in this world ({e.Message}): player buff checks skipped"); return; }
+        await Steps(10);
+        _spawned.Add(await Abilities.ApplyBuff(player, hot, TimeSpan.FromSeconds(60)));
+        await Steps(6);
+        var listed = Abilities.BuffsOf(player).Where(b => b.Is(hot)).ToList();
+        var onPlayer = listed.Count;
+        Info($"on the player entity after ApplyBuff(60 s): [{string.Join(", ", listed.Select(b => $"{b.Slot} {b.Remaining} level {b.Level}"))}]");
+        var r4 = await Abilities.RemoveBuff(player, hot);
+        await StepsUntil(() => !Abilities.BuffsOf(player).Any(b => b.Is(hot)), 20);
+        var leftOnPlayer = Abilities.BuffsOf(player).Count(b => b.Is(hot));
+        Check(onPlayer == 1 && r4.Ok && leftOnPlayer == 0 && PlayerStates.BuffsOf(player).All(b => b.Id != hotId),
+            $"on a 1_Player entity: listed {onPlayer}, {r4}, {leftOnPlayer} left (PlayerStates.BuffsOf agrees)");
+        // bad arguments throw at once
+        try { _ = Abilities.RemoveBuff(EntityId.None, hot); Fail("RemoveBuff(None) did not throw"); }
+        catch (ArgumentException e) { Pass($"RemoveBuff(None) throws ArgumentException: {e.Message}"); }
+        try { _ = Abilities.RemoveBuff(vukah, 0u); Fail("RemoveBuff(id 0) did not throw"); }
+        catch (ArgumentException e) { Pass($"RemoveBuff(id 0) throws ArgumentException: {e.Message}"); }
+        Check(Abilities.BuffsOf(EntityId.None).Count == 0, "BuffsOf(None) is empty");
+    }
+
+    private static ulong AbilitiesStep() => Abilities.Status?.Step ?? 0;
+
+    // Steps until the condition holds (0 = at once), or -1 after max steps.
+    private async Task<int> StepsUntil(Func<bool> condition, int max)
+    {
+        for (var i = 0; i <= max; i++)
+        {
+            if (condition()) return i;
+            await Steps(1);
+        }
+        return -1;
     }
 
     private async Task TestAbilities(EntityId caster, EntityId enemy)

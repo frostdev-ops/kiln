@@ -12,6 +12,8 @@ namespace FireNova;
 ///  2. A per-cast tweak of the game's Fireball: at night, every Fireball explosion a player causes starts with its
 ///     AttackMod doubled (ImpactStartingEvent, before the explosion's first run). Vanilla clients see the bigger
 ///     numbers; their tooltips stay vanilla.
+///  3. Fire Nova also burns the caster's debuffs away (Abilities.BuffsOf lists them, Abilities.RemoveBuff takes each off
+///     through the game's own removeBuff: the icons go on every client).
 /// </summary>
 public sealed class FireNovaMod : Mod
 {
@@ -43,6 +45,15 @@ public sealed class FireNovaMod : Mod
 
     private static async Task CastNova(AbilityCast cast)
     {
+        try
+        {
+            foreach (var debuff in Abilities.BuffsOf(cast.Caster).Where(b => b.Slot == "Debuff"))
+                _ = Abilities.RemoveBuff(cast.Caster, debuff.Id);  // the result says whether the game removed it
+        }
+        catch (KilnUnavailableException)
+        {
+            // abilities.buffs or abilities.buff_list is off on this build: the nova still goes off
+        }
         var c = cast.CasterPosition;
         await cast.Impact(Explosion, c, NovaConfigs);
         for (var ring = 0; ring < 6; ring++)

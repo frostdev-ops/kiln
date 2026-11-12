@@ -11,7 +11,7 @@ registration of new Impact programs, and playing the game's action sequences on 
 | Native | `native/services/abilities/` → `kiln/services/kiln-abilities.dll` |
 | Symbols | `sigdb/symbols/server.d/abilities.json` (features `abilities.natives`, `.programs`, `.instances`, `.attributes`, `.sequences`); resolves unchanged on the client (no `client.d` overlay needed) |
 | Managed | `managed/services/Kiln.Abilities/` → `kiln/host/Kiln.Abilities.dll` (static class `Kiln.Abilities` + events) |
-| Test | `mods/tests/abilities-test/` (73 PASS, player-free; on a client, or with `kiln/data/abilities-test/session-only`, it only registers the `/abt` session commands) |
+| Test | `mods/tests/abilities-test/` (83 PASS and one known FAIL, the bow shot, which `PlaySequence` refuses because its event consumes the used item; player-free; on a client, or with `kiln/data/abilities-test/session-only`, it only registers the `/abt` session commands) |
 | Sample | `mods/samples/FireNova/` (side both: a keybind ability + a per-cast tweak of the game's Fireball) |
 
 ## What the game does (one paragraph)
@@ -195,6 +195,24 @@ destroyed before the first run). Keys: a variable alias or debug name of the pro
   buff (`ApplyBuffEvent.buffTypeOverride`, BuffType configs); the collection itself lists only ids. Lab: `ApplyBuff ran
   the game's applyBuff ... result 1` and `the buff's own program (e34f34e4, 0x97faba7b) started on buff entity 2558
   (root 2543)`; that buff did not heal a Vukah (it probably heals players only: client checklist).
+- `RemoveBuff(target, buffGuid)` and `RemoveBuff(target, buffId)` (dev.27): `Task<BuffRemoveResult>` through the game's
+  own removeBuff native, run by a second Kiln program (`6b696c6e-6275-4666-8000-000000000002`: one step's wait,
+  removeBuff(WasRemoved, Buff, Target), kiln.Signal(WasRemoved, tag), DSELF). The step's wait lets Kiln's listener ask
+  for the signal before removeBuff runs; the answer arrives about two steps after the call. `Ok` is the game's own
+  `wasRemoved`: false, with a reason, when the entity did not have the buff (or, after 120 steps, when the program never
+  answered). On success `BuffRemovedEvent(Target, Buff, Mod)` is posted first. The id overload passes 16 bytes with
+  that id's FNV-1a (the game hashes buff references and reads nothing else), so a `GameBuffs.Ids` constant or a listed
+  `EntityBuff.Id` works. The game answers at once, but clears the BuffContainer slot and destroys the buff entity one
+  step after the answer: read `BuffsOf` a step later to see it gone. ApplyBuff of a buff the entity already has keeps
+  one entry and one buff entity (it renews it; a 6 s buff renewed by a 60 s ApplyBuff showed 5.7 s left, so the
+  renewal does not take the new duration), so there is never a second stack to remove: one removeBuff takes the buff
+  off. Server, tick thread; a none or absent target throws `ArgumentException`, capability `abilities.buffs` off throws
+  `KilnUnavailableException`. Lab (abilities-test): `RemoveBuff: the game's removeBuff says removed ... (2 steps)`,
+  `at the answer the slot still held 1; slot and buff entity gone 1 step(s) later`, `RemoveBuff of a buff the entity
+  does not have: the game answers not removed`, `on a 1_Player entity: listed 1, removed buff 0x339519bd ...`.
+- `BuffsOf(entity)` (dev.27): every buff on a player, creature or NPC (`EntityBuff(Id, Slot, Remaining, Level)`), read
+  from the entity's BuffContainer by kiln.players (the same read as `PlayerStates.BuffsOf`, which stays). Server only:
+  a joined client has no BuffContainer and gets an empty list. Capability `abilities.buff_list`.
 - `SequenceOf(actor)` (current sequence id/time/call), `SequenceStartedEvent` / `SequenceEndedEvent` (polled every
   step over the actors kiln.world finds, list refreshed every 50 steps; only while subscribed).
 - `Attributes.Get/Max/Add(entity, Health|Mana|Stamina|SpecialAbility)`: the attribute slots through the game's

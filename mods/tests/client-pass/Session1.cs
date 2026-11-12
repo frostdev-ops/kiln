@@ -478,6 +478,28 @@ public sealed partial class ClientPassMod
         await c.Verdict();
     }
 
+    [ClientCheck("abilities.remove-buff", "A buff taken off by a mod", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 139)]
+    public async Task AbilitiesRemoveBuff(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        // the heal-over-time potion's buff: an icon in the buff row while it lasts
+        var hot = new Guid("be0e7626-e95f-4a14-844a-2af52501698e");
+        c.Expect(Capabilities.Is("abilities.buffs"), "abilities.buffs is available", Capabilities.Why("abilities.buffs"));
+        await Abilities.ApplyBuff(c.Player, hot, TimeSpan.FromSeconds(120), c.Player);
+        c.OnEnd(() => { if (Capabilities.Is("abilities.buffs")) _ = Abilities.RemoveBuff(c.Player, hot); });
+        await c.Until(() => Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is on the player");
+        c.Instruct("The check gave you the healing potion's buff for 2 minutes: its icon is in the buff row of your HUD. Look " +
+                   "at it now. The check takes the buff off in 10 seconds through Abilities.RemoveBuff; watch the icon.");
+        await c.Ticks(240);
+        var r = await Abilities.RemoveBuff(c.Player, hot);
+        c.Expect(r.Ok, "RemoveBuff says the game removed it", r.ToString());
+        c.Expect(!Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), "the buff is no longer in the player's buff slots");
+        c.Instruct("Did the buff's icon appear in your HUD, and did it go away when the check took the buff off (about 10 " +
+                   "seconds later), with no other buff touched?");
+        await c.Verdict();
+    }
+
     [ClientCheck("world.programs", "A world program with a player in the world", Area = "Gameplay", Since = Dev21,
         Needs = ClientCheckNeeds.Hosted, Order = 138)]
     public async Task WorldProgramsCheck(CheckContext c)

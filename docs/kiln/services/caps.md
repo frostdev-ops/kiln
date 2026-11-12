@@ -93,6 +93,14 @@ start, so for a sigdb feature the check sees the sigdb verdict only, not a later
 after the first item block compiled), and `items.moves` and `saves.instance_data` depend on the session: a manifest
 naming one of them is refused, with the advice to check `Capabilities.Is` at run time.
 
+## Rows added in dev.27
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `abilities.buffs` | managed, static | Kiln.Abilities, once, at its start (the first use of an abilities event or call) | buffs removed (and applied) through the game's natives (`Abilities.RemoveBuff`, `Abilities.ApplyBuff`): needs kiln.abilities with its natives, programs and instance hooks (`abilities.natives`, `abilities.programs`, `abilities.instances`) and kiln.spawn |
+| `abilities.buff_list` | managed, static | Kiln.Abilities, with the row above | an entity's buffs read (`Abilities.BuffsOf`): needs kiln.players and `players.reflection` |
+
+Both exist only once Kiln.Abilities has started, after the manifests were checked: check `Capabilities.Is` at run time.
+
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats
   pending, pending beats available. So a service can say a feature is off although its symbols resolved (its hook

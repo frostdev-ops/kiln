@@ -23,6 +23,8 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.Programs.Refresh", // Abilities.Programs.Refresh(): Game.AssertTickThread
         "M:Kiln.Abilities.Programs.Register(System.Byte[])", // Abilities.Programs.Register(byte[]): via Abilities.Programs.RegisterCore(byte[], out bool)
         "M:Kiln.Abilities.Programs.Register(System.Byte[],System.Boolean@)", // Abilities.Programs.Register(byte[], out bool): via Abilities.Programs.RegisterCore(byte[], out bool)
+        "M:Kiln.Abilities.RemoveBuff(Kiln.EntityId,System.Guid)", // Abilities.RemoveBuff(EntityId, Guid): via Abilities.Remove(EntityId, Guid, uint)
+        "M:Kiln.Abilities.RemoveBuff(Kiln.EntityId,System.UInt32)", // Abilities.RemoveBuff(EntityId, uint): via Abilities.Remove(EntityId, Guid, uint)
         "M:Kiln.Abilities.RunImpact(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunImpact(Guid, WorldPosition, ImpactOptions?): Game.AssertTickThread
         "M:Kiln.Abilities.RunImpact(System.String,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunImpact(string, WorldPosition, ImpactOptions?): via Abilities.RunImpact(Guid, WorldPosition, ImpactOptions?)
         "M:Kiln.Abilities.RunProgram(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunProgram(Guid, WorldPosition, ImpactOptions?): Game.AssertTickThread

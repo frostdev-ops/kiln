@@ -3,13 +3,71 @@ using System.Text;
 
 namespace Kiln;
 
+/// <summary>A buff on an entity: a player, a creature or an NPC (the game keeps them in the entity's BuffContainer, on
+/// the server).</summary>
+/// <param name="Id">The game's BuffTypeId: FNV-1a of the buff's GUID (<c>GameBuffs.Ids.X</c>, <see cref="Abilities.IdOf"/>).</param>
+/// <param name="Slot">The game's BuffSlotType name: "Food", "Buff", "Debuff", "Rested", "TerrainDebuff".</param>
+/// <param name="Remaining">Time left, when known.</param>
+/// <param name="Level">Its level, when known.</param>
+public sealed record EntityBuff(uint Id, string Slot, TimeSpan? Remaining = null, int Level = 0)
+{
+    /// <summary>True for this buff id.</summary>
+    public bool Is(uint id) => Id == id;
+
+    /// <summary>True for this buff's GUID (its id is FNV-1a of the GUID).</summary>
+    public bool Is(Guid buff) => Id == Abilities.IdOf(buff);
+}
+
+/// <summary>The answer to <see cref="Abilities.RemoveBuff(EntityId, Guid)"/>: whether the game's removeBuff took the
+/// buff off. <see cref="Ok"/> is false with a <see cref="Reason"/> when the entity did not have it (the game's own
+/// answer) or when the removal did not run.</summary>
+[ServerOnly]
+public sealed record BuffRemoveResult : IKilnResult
+{
+    internal BuffRemoveResult(EntityId target, uint buff, bool ok, string? reason)
+    {
+        Target = target;
+        Buff = buff;
+        Ok = ok;
+        Reason = ok ? null : reason;
+    }
+
+    /// <summary>The entity the buff was taken from.</summary>
+    public EntityId Target { get; }
+
+    /// <summary>The buff's id (FNV-1a of its GUID).</summary>
+    public uint Buff { get; }
+
+    /// <summary>True when the game removed the buff.</summary>
+    public bool Ok { get; }
+
+    /// <summary>Why nothing was removed; null when <see cref="Ok"/>.</summary>
+    public string? Reason { get; }
+
+    /// <summary>"removed 0x… from …", or the reason.</summary>
+    public override string ToString() => Ok ? $"removed buff 0x{Buff:x8} from {Target}" : $"buff 0x{Buff:x8} not removed from {Target}: {Reason}";
+}
+
 public static partial class Abilities
 {
     /// <summary>The program behind <see cref="ApplyBuff"/>: applyBuff(Buff, Target, -, -, Duration), then DSELF. Built
     /// here (a keen::ImpactProgram blob) and registered at first use.</summary>
     internal static readonly Guid BuffProgram = new("6b696c6e-6275-4666-8000-000000000001");
 
-    private static bool _buffProgramReady;
+    /// <summary>The program behind <see cref="RemoveBuff(EntityId, Guid)"/>: one step's wait, removeBuff(WasRemoved,
+    /// Buff, Target), kiln.Signal(WasRemoved, <see cref="RemoveSignalTag"/>), DSELF.</summary>
+    internal static readonly Guid RemoveBuffProgram = new("6b696c6e-6275-4666-8000-000000000002");
+
+    /// <summary>The tag of the remove program's kiln.Signal: Kiln's listener takes these and posts no
+    /// <see cref="ImpactSignalEvent"/> for them.</summary>
+    internal const uint RemoveSignalTag = 0x6b696c52;
+
+    /// <summary>Steps a removal waits for its program's answer before it gives up (about 5 s on a dedicated server).</summary>
+    internal const ulong RemoveTimeoutSteps = 120;
+
+    internal const string NotRemovedText = "the entity has no such buff (the game's removeBuff removed nothing)";
+
+    private static bool _buffProgramReady, _removeProgramReady;
 
     /// <summary>Applies a buff or debuff to an entity through the game's own applyBuff native (the path the game's
     /// programs use: the buff entity, its program, BuffNetworkData for clients). <paramref name="buff"/> is the
@@ -61,6 +119,193 @@ public static partial class Abilities
         (string Name, uint Type, int Size)[] vars = [("Buff::value", 0x305916d9, 16), ("Target::value", 0x737c8f86, 4),
             ("Duration::value", 0xdfe4e404, 8)];
         return ProgramBlob.Build(BuffProgram, code, [30], vars);
+    }
+
+    // ---------------------------------------------------------------------------------------------- remove ---------
+
+    private sealed class Removal
+    {
+        public required EntityId Impact;
+        public required EntityId Target;
+        public required uint Buff;
+        public required ulong Since;
+        public required ModContext? Mod;
+        public required TaskCompletionSource<BuffRemoveResult> Done;
+    }
+
+    // impact entity -> removal waiting for its program's signal (tick thread only)
+    private static readonly Dictionary<uint, Removal> Removals = new();
+    private static readonly Dictionary<uint, Guid> GuidsById = new();
+
+    /// <summary>True while a removal waits for its program: Kiln's listener then asks the native side for signals.</summary>
+    internal static bool RemovalsPending => Removals.Count > 0;
+
+    /// <summary>Takes a buff off an entity (a player, a creature, an NPC) through the game's own removeBuff native, the
+    /// call the game's programs use: the buff entity goes, and with it the buff's effect and its icon on the clients.
+    /// <paramref name="buff"/> is the BuffType's GUID (its id is FNV-1a of it). The removal runs in a small program Kiln
+    /// builds and registers at first use; it waits one step, so the result comes about two steps later. The result is
+    /// the game's own answer: <see cref="BuffRemoveResult.Ok"/> false when the entity did not have the buff. On success
+    /// <see cref="BuffRemovedEvent"/> is posted. Tick thread, server.</summary>
+    /// <exception cref="ArgumentException"><paramref name="target"/> is none or not in the world.</exception>
+    /// <exception cref="KilnUnavailableException"><c>abilities.buffs</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or the game's ImpactRegistry is not loaded yet.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(AbilitiesCaps.Buffs)]
+    public static Task<BuffRemoveResult> RemoveBuff(EntityId target, Guid buff) => Remove(target, buff, IdOf(buff));
+
+    /// <summary>Takes a buff off an entity by its id (<c>GameBuffs.Ids.X</c>, <see cref="EntityBuff.Id"/>): the game's
+    /// removeBuff only hashes the GUID, so Kiln passes 16 bytes with this id's hash. Otherwise as
+    /// <see cref="RemoveBuff(EntityId, Guid)"/>.</summary>
+    /// <exception cref="ArgumentException"><paramref name="target"/> is none or not in the world, or
+    /// <paramref name="buffId"/> is 0.</exception>
+    /// <exception cref="KilnUnavailableException"><c>abilities.buffs</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or the game's ImpactRegistry is not loaded yet.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(AbilitiesCaps.Buffs)]
+    public static Task<BuffRemoveResult> RemoveBuff(EntityId target, uint buffId)
+    {
+        if (buffId == 0) throw new ArgumentException("buff id 0 names no buff", nameof(buffId));
+        Guid g;
+        lock (GuidsById)
+            if (!GuidsById.TryGetValue(buffId, out g))
+                GuidsById[buffId] = g = GuidWithId(buffId);
+        return Remove(target, g, buffId);
+    }
+
+    /// <summary>Every buff on an entity (a player, a creature, an NPC), from the game's buff slots. The game keeps them
+    /// on the server only: on a joined client the list is empty. Tick thread.</summary>
+    /// <exception cref="KilnUnavailableException"><c>abilities.buff_list</c> is off.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(AbilitiesCaps.BuffList)]
+    public static IReadOnlyList<EntityBuff> BuffsOf(EntityId entity)
+    {
+        AbilitiesCaps.Require(AbilitiesCaps.BuffList);
+        if (entity.IsNone) return [];
+        var list = PlayerStates.BuffsOf(entity);  // kiln.players reads any entity's BuffContainer
+        var r = new EntityBuff[list.Count];
+        for (var i = 0; i < r.Length; i++) r[i] = new EntityBuff(list[i].Id, list[i].Slot, list[i].Remaining, list[i].Level);
+        return r;
+    }
+
+    private static Task<BuffRemoveResult> Remove(EntityId target, Guid buff, uint id)
+    {
+        Game.AssertTickThread();
+        if (target.IsNone) throw new ArgumentException("no target", nameof(target));
+        AbilitiesCaps.Require(AbilitiesCaps.Buffs);
+        var at = World.Position(target) ?? throw new ArgumentException($"entity {target} is not in the world (no position)", nameof(target));
+        AbilitiesDispatch.Ensure();
+        EnsureRemoveProgram();
+        var e = RunProgram(RemoveBuffProgram, at, new ImpactOptions
+        {
+            Root = target,
+            Configs = new ImpactConfigs { ["Buff"] = buff, ["Target"] = target },
+            Tag = "abilities-unbuff",
+        }).GetAwaiter().GetResult();
+        var r = new Removal
+        {
+            Impact = e, Target = target, Buff = id, Since = AbilitiesDispatch.Step, Mod = ModContext.CurrentMod,
+            Done = new TaskCompletionSource<BuffRemoveResult>(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        Removals[e.Value] = r;
+        return r.Done.Task;
+    }
+
+    /// <summary>The remove program's kiln.Signal arrived (Kiln's listener, tick thread). False: not one of Kiln's.</summary>
+    internal static bool CompleteRemoval(uint impactEntity, bool removed)
+    {
+        if (!Removals.Remove(impactEntity, out var r)) return false;
+        Finish(r, removed, removed ? null : NotRemovedText);
+        return true;
+    }
+
+    /// <summary>Removals whose program never answered (it was canceled, faulted or its entity went away).</summary>
+    internal static void ExpireRemovals(ulong step)
+    {
+        if (Removals.Count == 0) return;
+        List<Removal>? late = null;
+        foreach (var r in Removals.Values)
+            if (step - r.Since > RemoveTimeoutSteps) (late ??= []).Add(r);
+        if (late is null) return;
+        foreach (var r in late)
+        {
+            Removals.Remove(r.Impact.Value);
+            Finish(r, false, $"the removal program did not answer within {RemoveTimeoutSteps} steps (canceled or faulted)");
+        }
+    }
+
+    private static void Finish(Removal r, bool removed, string? reason)
+    {
+        if (removed && Events.HasSubscribers<BuffRemovedEvent>())
+        {
+            try
+            {
+                Events.Post(new BuffRemovedEvent(r.Target, r.Buff, r.Mod?.Info.Id));
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error($"abilities: BuffRemovedEvent: {ex.Message}");
+            }
+        }
+        r.Done.TrySetResult(new BuffRemoveResult(r.Target, r.Buff, removed, reason));
+    }
+
+    private static void EnsureRemoveProgram()
+    {
+        if (_removeProgramReady && Programs.Info(Programs.IdOf(RemoveBuffProgram)) is not null) return;
+        if (Programs.Info(Programs.IdOf(RemoveBuffProgram)) is null)
+        {
+            Programs.RegisterCore(BuildRemoveProgram(), out var waiting);  // Kiln's program: not the gated mod call
+            if (waiting) throw new InvalidOperationException("RemoveBuff: the game's ImpactRegistry is not loaded yet");
+        }
+        _removeProgramReady = true;
+    }
+
+    internal static byte[] BuildRemoveProgram()
+    {
+        const uint hBuff = 0xFFFF0000, hTarget = 0xFFFF0001, hWas = 0xFFFF0002;
+        uint[] code =
+        [
+            28,                                          // RVM: one step, so Kiln's listener asks for the signal below
+            11, hTarget, 11, hBuff, 11, hWas,            // args[2] entity, [1] buffType, [0] wasRemoved (out)
+            19, 0x6b696c02, 0xca687904,                  // ECALL removeBuff
+            27,                                          // POP
+            11, RemoveSignalTag, 11, hWas,               // args[1] tag, [0] value
+            19, 0x6b696c03, 0x38b05baf,                  // ECALL kiln.Signal
+            27, 29, 30,                                  // POP, DSELF, HALT
+        ];
+        // keen types: BuffTypeReference 0x305916d9 (16 B), ecs EntityId 0x737c8f86 (4 B), bool 0xc894953d (1 B)
+        (string Name, uint Type, int Size)[] vars = [("Buff::value", 0x305916d9, 16), ("Target::value", 0x737c8f86, 4),
+            ("WasRemoved::value", 0xc894953d, 1)];
+        return ProgramBlob.Build(RemoveBuffProgram, code, [30], vars);
+    }
+
+    /// <summary>16 bytes whose FNV-1a is <paramref name="id"/> (the engine only hashes a buff reference). Each byte step
+    /// of FNV-1a can be undone, so the last four bytes are found by meeting in the middle.</summary>
+    internal static Guid GuidWithId(uint id)
+    {
+        const uint Prime = 0x01000193, Inverse = 0x359c449b;
+        for (byte salt = 0; salt < 255; salt++)
+        {
+            var bytes = new byte[16];
+            for (var i = 0; i < 12; i++) bytes[i] = (byte)(0x4b + i * 7 + salt);
+            var a = 0x811c9dc5u;
+            for (var i = 0; i < 12; i++) a = (a ^ bytes[i]) * Prime;
+            var forward = new Dictionary<uint, ushort>(65536);
+            for (var x = 0; x < 65536; x++)
+                forward[(((a ^ (uint)(x & 0xff)) * Prime) ^ (uint)(x >> 8)) * Prime] = (ushort)x;
+            for (var y = 0; y < 65536; y++)
+            {
+                var back = ((id * Inverse) ^ (uint)(y >> 8)) * Inverse ^ (uint)(y & 0xff);
+                if (!forward.TryGetValue(back, out var x)) continue;
+                bytes[12] = (byte)x; bytes[13] = (byte)(x >> 8); bytes[14] = (byte)y; bytes[15] = (byte)(y >> 8);
+                var guid = new Guid(bytes);
+                if (IdOf(guid) == id) return guid;
+            }
+        }
+        throw new InvalidOperationException($"no 16 bytes with the hash 0x{id:x8}");
     }
 }
 
