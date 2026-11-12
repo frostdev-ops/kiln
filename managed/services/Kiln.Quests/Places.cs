@@ -340,7 +340,7 @@ internal static class QuestPlaces
         var what = $"{q.FullId} step {s.Id}";
         var spec = SpecOf(s);
         // a synthetic holder of a lab test, at a fixed place: nobody stands there, nothing to look up
-        if (spec is { At: { } raw, MinDistance: 0, MaxDistance: 0 } && (spec.Exact || (QuestInput.IsSynthetic(h) && s.Site is null && s.Spawns.Count == 0))) return raw;
+        if (spec is { At: { } raw, MinDistance: 0, MaxDistance: 0 } && (spec.Exact || (SyntheticInput.IsSynthetic(h) && s.Site is null && s.Spawns.Count == 0))) return raw;
         if (spec is not null)
         {
             // nothing to search around right now (no player in game, the NPC not placed yet): the place it has, or wait
@@ -352,7 +352,7 @@ internal static class QuestPlaces
             if (o.Kind == QuestObjectiveKind.Reach && o.Offset is { } off && rec.StepOrigin is { } from)
             {
                 var wanted = new WorldPosition(from[0] + off.X, from[1] + off.Y, from[2] + off.Z);
-                return QuestInput.IsSynthetic(h) ? wanted : await Settle(wanted, what).OnTick();
+                return SyntheticInput.IsSynthetic(h) ? wanted : await Settle(wanted, what).OnTick();
             }
         return null;
     }
@@ -561,7 +561,7 @@ internal static class QuestPlaces
             End(e, "the step moved on");
             return;
         }
-        if (!e.Holder.IsWorld && !QuestInput.IsSynthetic(e.Holder) && e.Holder.Entity.IsNone) return;  // offline: what is owed comes when they do
+        if (!e.Holder.IsWorld && !SyntheticInput.IsSynthetic(e.Holder) && e.Holder.Entity.IsNone) return;  // offline: what is owed comes when they do
         var removed = new List<EntityId>();
         var died = 0;
         foreach (var id in e.Alive.ToArray())
