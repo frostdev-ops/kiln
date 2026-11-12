@@ -1,0 +1,84 @@
+{
+  "programs": [
+    {
+      "key": "spell-self.delivery",
+      "guid": "bb570685-6140-5fd6-acae-2999c11eed63",
+      "size": 644
+    }
+  ],
+  "templates": [
+    {
+      "guid": "b4fd233a-bf3e-50be-ae5b-8d4a5366d21d",
+      "name": "golden-items.spell-self.delivery",
+      "base": "Base_Impact_Zone",
+      "fields": {
+        "Impact.program": "bb570685-6140-5fd6-acae-2999c11eed63"
+      }
+    }
+  ],
+  "items": [
+    {
+      "guid": "10af1da6-38c4-5257-9648-d51976915d0f",
+      "name": "golden-items.spell-self",
+      "base": "Ammo_T1_Spell_Ice_Bolt_lvl5",
+      "displayName": "Mend",
+      "description": "",
+      "fields": {
+        "maxStackSize": 500,
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "equipment.placedEntityLocalSpawnVelocity.z": 0,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 0.045454545454545456,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0,
+        "damageSetup.distribution.magicalIceDamage": 0,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {
+        "equipment.placedEntity": "b4fd233a-bf3e-50be-ae5b-8d4a5366d21d",
+        "equipment.visualEntity": "item:Ammo_T1_Spell_Ice_Bolt_lvl5"
+      }
+    }
+  ],
+  "sequences": [
+    {
+      "guid": "4c879dcb-c6b7-5958-895b-cd7fe743900c",
+      "name": "golden-items.spell-self.cast",
+      "base": "Attack_Player_Staff_FixedAnim_Fireball_fast",
+      "fields": {
+        "events[VfxNotifierEvent#0].time": 0.8,
+        "events[SfxNotifierEvent#0].time": 0.8,
+        "events[SpawnEntityEvent#0].time": 0.8,
+        "events[PayUsageCost#0].time": 0.8,
+        "events[PayUsageCost#1].time": 0.8,
+        "events[PayUsageCost#1].consume": false
+      }
+    }
+  ],
+  "itemRules": {
+    "impactValues.ManaCost": 15,
+    "impactValues.0x579b2657": 2.5,
+    "sequences[0].sequence": "golden-items.spell-self.cast",
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 15
+      },
+      {
+        "locaId": "0x5c76837c",
+        "valueFormat": "Duration",
+        "value": 2500
+      }
+    ]
+  }
+}
