@@ -85,6 +85,7 @@ FOLLOWS = 0.12       # the pose follows the authored clip
 NOISE = 0.25         # the same game sequence on two boots of the game's own graph: 0.15 to 0.16 over a whole play (baseline against off);
                      # a different motion is 0.5 m and more
 APART = 0.30         # far from it: what a control has to show
+IDLE = 0.45          # how far a hand drifts with no state playing (the 1_Player's own idle: 0.20 to 0.33 m over 4 s); every game attack moves it 1.2 m and more
 
 
 def derive(mod, kind, name):
@@ -549,7 +550,7 @@ def scenarios(lab, c, a):
             if p is None:
                 continue
             sid = f"{fnv(derive(m, 'state', n)):08x}"
-            c(f"baseline.control.{m}/{n}", sid in states_seen(p) and moved(p) < APART,
+            c(f"baseline.control.{m}/{n}", sid in states_seen(p) and moved(p) < IDLE,
               f"the id {sid} reaches the graph {sid in states_seen(p)}, HandR moves {moved(p):.3f} m (the game's graph has no such state)")
         c("baseline.server-up", alive)
 
@@ -564,7 +565,7 @@ def scenarios(lab, c, a):
         p = got.get("unknown")
         sid = f"{fnv(guid):08x}"
         c("unknown-id.reaches-the-graph", p is not None and sid in states_seen(p), f"state ids {states_seen(p) if p else None}")
-        c("unknown-id.pose-stays", p is not None and moved(p) < APART, f"HandR moves {moved(p):.3f} m over the attack's length" if p else "")
+        c("unknown-id.pose-stays", p is not None and moved(p) < IDLE, f"HandR moves {moved(p):.3f} m over the attack's length" if p else "")
         new = [l for l in game_errors(gtext) if l not in base.get("_errors", [])]
         c("unknown-id.game-log-quiet", not new, str(new[:3]))
         c("unknown-id.server-up", alive and "pat: up 60 s" in text)
