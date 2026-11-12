@@ -272,8 +272,18 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             k.part = e.value("part", 0);
             const std::string mode = e.value("mode", "any");
             uint32_t flags = mode == "override" ? KILN_ASSET_PUT_OVERRIDE : mode == "new" ? KILN_ASSET_PUT_NEW : 0;
-            if (op_resource_put(owner, &k, bytes.data(), bytes.size(), flags) == KILN_OK) ++res;
-            else fail("resource " + file + ": put failed");
+            if (op_resource_put(owner, &k, bytes.data(), bytes.size(), flags) == KILN_OK) {
+                ++res;
+            } else {
+                Key kk;
+                std::memcpy(kk.g, k.guid, 16);
+                kk.type = k.type;
+                kk.part = k.part;
+                fail(player_graph_key(kk) ? "resource " + file + ": refused: " + key_str(kk) +
+                                                " is the player's animation graph, reserved for kiln.playeranim (add player animation states in"
+                                                " assets/player-states.json instead)"
+                                          : "resource " + file + ": put failed");
+            }
         } else {
             fail("unknown kind '" + kind + "'");
         }

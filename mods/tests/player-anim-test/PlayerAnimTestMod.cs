@@ -3,8 +3,9 @@
 // start reads plan.json from this mod's folder (run.py writes it), defines the sequence copies it names, spawns a 1_Player (the game's player
 // character, no client behind it) and plays sequences on it, sampling what the server's animation engine made of them: the state id the graph
 // was given (ServerAnimationGraphInput+0x22c) and the model-space position of the slots HandR, HandL, FootL and FootR every 2 steps. It also
-// logs what kiln.playeranim says (PlayerAnimStates) and the player's graph as kiln.assets serves it. Lines start with "pat: "; the last is
-// "pat: done <scenario>".
+// logs what kiln.playeranim says (PlayerAnimStates) and the player's graph as kiln.assets serves it. With "graphAttempts" in the plan it
+// tries to replace the player's graph from code, at load and while the 1_Player exists, and logs what each attempt got (scenario
+// graph-override). Lines start with "pat: "; the last is "pat: done <scenario>".
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,6 +18,7 @@ public sealed class PlayerAnimTestMod : Mod
 {
     private static readonly Guid PlayerGraph = Guid.Parse("21319e83-5087-4fff-8795-22997843649e");
     private const string GraphType = "keen::anim_graph::runtime_graph::AnimationGraphResource2_0";
+    private static readonly AssetKey GraphKey = new(PlayerGraph, GraphType);
     private static readonly WorldPosition Pos = new(3865.8, 833.0, 1433.8);
     private static readonly int[] Slots = [8, 9, 4, 5];   // HandR, HandL, FootL, FootR (animcook graphgen.SLOTS)
 
@@ -40,6 +42,7 @@ public sealed class PlayerAnimTestMod : Mod
         Directory.CreateDirectory(Path.GetFullPath(Path.Combine(Context.DataDirectory, "..", "skills")));
         File.WriteAllText(Path.GetFullPath(Path.Combine(Context.DataDirectory, "..", "skills", "lab-ops")), "");
         Report("load");
+        if ((bool?)_plan["graphAttempts"] == true) GraphAttempts("at-load");
         if ((bool?)_plan["define"] == true)
         {
             // a definition from code: the service of this build does not take them yet (define_json answers unavailable)
@@ -90,6 +93,54 @@ public sealed class PlayerAnimTestMod : Mod
             var g = PlayerAnimStates.FindGameStates((string)n!);
             Info($"{when}: game state {n}: {string.Join("; ", g.Select(x => $"{x.Machine}/{x.Name} {x.Kind} [{string.Join(",", x.Ids.Select(i => $"0x{i:x8}"))}]"))}");
         }
+    }
+
+    private void Served(string prefix)
+    {
+        var g = Assets.ReadResource(GraphKey);
+        Info($"{prefix}player graph as kiln.assets reads it: {(g is null ? "none" : $"{g.Length} B, sha256 {Sha(g)}")}");
+    }
+
+    /// <summary>The capability row anim.player_states as kiln/state/capabilities.json has it now.</summary>
+    private void Capability(string when)
+    {
+        var file = Path.GetFullPath(Path.Combine(Context.DataDirectory, "..", "..", "state", "capabilities.json"));
+        try
+        {
+            var doc = JsonNode.Parse(File.ReadAllText(file))!;
+            var row = (doc["capabilities"] as JsonArray)?.FirstOrDefault(r => (string?)r!["name"] == "anim.player_states");
+            Info($"{when}: capability anim.player_states: {(row is null ? "none" : $"{row["state"]} | {row["reasonText"]}")}");
+        }
+        catch (Exception e) { Info($"{when}: capability anim.player_states: {file} unreadable: {e.Message}"); }
+    }
+
+    /// <summary>Every way a mod's code has to replace the player's graph: Assets.Override and Assets.Register (refused in Kiln.Assets),
+    /// a field override through ReflectedResource (around that check: Kiln.Api puts the whole resource natively, as kiln.overrides), and
+    /// Assets.RemoveResource. The bytes put are the ones served at that moment: a put that got through with the player there would not change them.</summary>
+    private void GraphAttempts(string when)
+    {
+        var bytes = Assets.ReadResource(GraphKey) ?? [];
+        Attempt($"{when}: Assets.Override", () => Assets.Override(GraphKey, bytes));
+        Attempt($"{when}: Assets.Register", () => Assets.Register(GraphKey, bytes));
+        try
+        {
+            var r = Assets.Reflect(GraphKey);
+            if (r is null) Info($"{when}: reflected set: no reflected resource");
+            else
+            {
+                var v = r["numGenericFeetIKCount"];
+                var res = r.Set("numGenericFeetIKCount", v);
+                Info($"{when}: reflected set numGenericFeetIKCount = {v}: ok {res.Ok}, status {res.Status}, message {res.Message}");
+            }
+        }
+        catch (Exception e) { Info($"{when}: reflected set: threw {e.GetType().Name}: {e.Message}"); }
+        Attempt($"{when}: Assets.RemoveResource", () => Assets.RemoveResource(GraphKey));
+    }
+
+    private void Attempt(string what, Action a)
+    {
+        try { a(); Info($"{what}: returned"); }
+        catch (Exception e) { Info($"{what}: threw {e.GetType().Name}: {e.Message}"); }
     }
 
     private static string Sha(byte[] b) => Convert.ToHexString(SHA256.HashData(b))[..16].ToLowerInvariant();
@@ -167,10 +218,22 @@ public sealed class PlayerAnimTestMod : Mod
             while (!Spawn.WorldRunning && (DateTime.UtcNow - t0).TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(60);
             Report("running");
-            var g = Assets.ReadResource(new AssetKey(PlayerGraph, GraphType));
-            Info($"player graph as kiln.assets reads it: {(g is null ? "none" : $"{g.Length} B, sha256 {Sha(g)}")}");
+            Served("");
+            if ((bool?)_plan["noPlayer"] == true) { Info("no player in this run"); return; }
             var p = await Player(0);
             foreach (var c in (_plan["plays"] as JsonArray) ?? []) await Play(p, "p1", c!);
+            if ((bool?)_plan["graphAttempts"] == true)
+            {
+                // the 1_Player's graph is live now: a replacement of it would end the server (kiln.assets refuses it)
+                Capability("before");
+                GraphAttempts("with-player");
+                var t3 = DateTime.UtcNow;
+                while ((DateTime.UtcNow - t3).TotalSeconds < 3) await Steps(10);  // capabilities.json is written at most once a second
+                Report("after-attempts");
+                Served("after-attempts: ");
+                Capability("after");
+                foreach (var c in (_plan["playsAfterAttempts"] as JsonArray) ?? []) await Play(p, "p1", c!);
+            }
             if ((string?)_plan["pause"] is { } pause)
             {
                 // run.py does something to the running server now (a mod's unload or reload through kiln/control) and then writes go-<pause>

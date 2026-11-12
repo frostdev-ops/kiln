@@ -1,0 +1,9 @@
+{
+  "id": "fixture-ps-blend-range",
+  "name": "Fixture: player states, blend-range",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "license": "MIT"
+}

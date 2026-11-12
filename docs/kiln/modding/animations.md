@@ -489,11 +489,17 @@ server does not run ([models.md](models.md#on-a-dedicated-server)). Player state
 
 ### Limits
 
-- **Never override the player graph yourself.** The key is GUID `21319e83-5087-4fff-8795-22997843649e`, type
-  `keen::anim_graph::runtime_graph::AnimationGraphResource2_0`, part 0. Do not put it through `Assets.Override`,
-  `Assets.LoadManifest` or `assets.json`: only kiln.playeranim may serve the merged graph. Replacing it after boot
-  invalidates the reported graph hash, and replacing it while a player exists can end the server. This also applies
-  to mods without player-state definitions. Define states in `assets/player-states.json` instead.
+- **You cannot override the player graph: Kiln refuses it.** The key is GUID `21319e83-5087-4fff-8795-22997843649e`,
+  type `keen::anim_graph::runtime_graph::AnimationGraphResource2_0`, part 0. Only kiln.playeranim serves it: it merges
+  every mod's `assets/player-states.json` into the game's graph once at boot and pins the result for the session.
+  `Assets.Override` and `Assets.Register` with that key throw `ArgumentException` and put nothing. A `resource` entry
+  for it in `assets.json` (or through `Assets.LoadManifest`) is refused at boot, and kiln.log names the key and your
+  mod's folder: `assets: <mod folder>: resource <file>: refused: 21319e83-5087-4fff-8795-22997843649e:keen::anim_graph::runtime_graph::AnimationGraphResource2_0:0
+  is the player's animation graph, reserved for kiln.playeranim (...)`. A field change through `ReflectedResource.Set`
+  comes back not `Ok`, and `Assets.RemoveResource` leaves the graph as it is. This holds for every mod, with player
+  states or without, and also when kiln.playeranim is off or has nothing to merge (the game's own graph stays then).
+  The reason: replacing the graph after boot would make the graph hash Kiln reports wrong, and replacing it while a
+  player exists can end the server. Define states in `assets/player-states.json` instead.
 - **No hot reload.** A change (to the file, to the set of enabled mods) applies from the next start of the game
   or server: a player graph served while a player's graph runs ends the server, so the graph, and every clip a served state
   plays, stays as it was at boot. A mod with player states that is unloaded or reloaded while the game runs keeps its states

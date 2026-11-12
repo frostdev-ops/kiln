@@ -289,6 +289,7 @@ const EMBEDDED: &[(&str, &str)] = &[
     ("content-pack.schema.json", include_str!("../../../../schema/content-pack.schema.json")),
     ("assets.schema.json", include_str!("../../../../schema/assets.schema.json")),
     ("cook.schema.json", include_str!("../../../../schema/cook.schema.json")),
+    ("player-states.schema.json", include_str!("../../../../schema/player-states.schema.json")),
     ("impact-natives.schema.json", include_str!("../../../../schema/impact-natives.schema.json")),
     ("kschem-header.schema.json", include_str!("../../../../schema/kschem-header.schema.json")),
     ("skills.schema.json", include_str!("../../../../schema/skills.schema.json")),
@@ -663,7 +664,7 @@ impl<'o> Linter<'o> {
             v.sort();
             want.extend(v.into_iter().map(|p| (p, "blocks".to_string())));
         }
-        for (rel, kind) in [("assets/assets.json", "assets"), ("assets/cook.json", "cook"), ("impact/cook.json", "cook"), ("impact/natives.json", "natives"), ("kiln-modpack.json", "modpack")] {
+        for (rel, kind) in [("assets/assets.json", "assets"), ("assets/cook.json", "cook"), ("assets/player-states.json", "playerstates"), ("impact/cook.json", "cook"), ("impact/natives.json", "natives"), ("kiln-modpack.json", "modpack")] {
             if root.join(rel).is_file() {
                 want.push((root.join(rel), kind.into()));
             }
@@ -724,6 +725,11 @@ impl<'o> Linter<'o> {
         let syntax_ok = parsed.root.is_some();
         for mut x in parsed.diagnostics {
             if e.kind == "programs" && x.code == codes::DUPLICATE_KEY { x.severity = Severity::Error; }
+            if e.kind == "playerstates" && x.code == codes::DUPLICATE_KEY {
+                // animcook's and kiln.playeranim's readers refuse a key given twice: the whole file at the top, else the state it is in
+                x.severity = Severity::Error;
+                x.message = x.message.replace("the later value is the one Kiln reads", "the player-states readers refuse it (at the top level the whole file, else the state it names or is in)");
+            }
             x.docs = e.docs.clone();
             if !e.dialect.comments && x.code == codes::COMMENT {
                 x.message = format!("comments are not allowed: {}", reader_note(e));
@@ -881,6 +887,7 @@ fn generated_manifest(d: &Path) -> Option<PathBuf> {
 fn reader_note(e: &SchemaEntry) -> String {
     match e.kind.as_str() {
         "cook" | "natives" => "the cook tools read this file with Python's json module (plain JSON)".into(),
+        "playerstates" => "animcook and kiln.playeranim read this file as strict JSON (no comments, no trailing commas)".into(),
         "modpack" => "the launcher reads this file as plain JSON".into(),
         "schematic" => "the schematic header is plain JSON".into(),
         "content" | "assets" => "kiln.content / kiln.assets read this file with nlohmann::json, which allows comments but not trailing commas".into(),

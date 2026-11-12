@@ -51,6 +51,7 @@ static const Named kTypes[] = {
     {"keen::UiTextureResource", 0xf9e86997u},   {"keen::ItemInfo", 0xb5ce8765u},
     {"keen::RenderTextureResource", fnv1a("keen::RenderTextureResource", 27)},
     {"keen::RenderModel", 0x34e30853u},          {"keen::ecs::TemplateResource", 0x39768775u},
+    {"keen::anim_graph::runtime_graph::AnimationGraphResource2_0", kPlayerGraphType},
 };
 
 uint32_t type_hash(const std::string& s, bool* ok) {
