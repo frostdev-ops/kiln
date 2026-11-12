@@ -42,10 +42,16 @@ public readonly record struct SteamGuardStatus(bool Available, bool HookInstalle
 /// player's own client, and a client without Kiln cannot be protected at all. See native/services/steamguard/README.md
 /// for what was read from the game's code and what is inferred.</para>
 /// </remarks>
+[ClientOnly]
+[AnyThread]
 public static unsafe class SteamGuard
 {
     /// <summary>Capability and sigdb feature name.</summary>
     public const string Capability = "steam.achievement_guard";
+
+    /// <summary>The capability row that says whether the guard protects in this session: pending until the first
+    /// latch or hold, available while protecting.</summary>
+    public const string ProtectingCapability = "steamguard.protecting";
 
     private const uint FlagTargetVerified = 1u << 0;
     private const uint FlagHookInstalled = 1u << 1;
@@ -162,7 +168,7 @@ public static unsafe class SteamGuard
                 t->Release(token);
                 return false;
             }
-            hold = new Hold(token);
+            hold = new HoldToken(token);
             return true;
         }
         catch
@@ -194,9 +200,24 @@ public static unsafe class SteamGuard
         }
     }
 
+    /// <summary>Turns the guard on while the returned hold is not disposed, like <see cref="TryHold"/>, and throws
+    /// when it cannot protect. Any thread.</summary>
+    /// <param name="reason">What needs the guard, for the log (not empty).</param>
+    /// <returns>Dispose it to end this hold (other holds and a latch stay on).</returns>
+    /// <exception cref="ArgumentException"><paramref name="reason"/> is null or empty.</exception>
+    /// <exception cref="KilnUnavailableException">The guard cannot protect: <see cref="Capability"/> when the service
+    /// is not there or its target is not verified, else <see cref="ProtectingCapability"/> (the hook did not go in, or
+    /// another hook is on the game's call). Nothing is held.</exception>
+    public static IDisposable Hold(string reason)
+    {
+        if (TryHold(reason, out var hold) && hold is not null) return hold;
+        var s = Status;
+        throw new KilnUnavailableException(s is { Available: true, TargetVerified: true } ? ProtectingCapability : Capability, s.Reason);
+    }
+
     private static long Clamp(ulong v) => v > long.MaxValue ? long.MaxValue : (long)v;
 
-    private sealed class Hold(ulong token) : IDisposable
+    private sealed class HoldToken(ulong token) : IDisposable
     {
         private ulong _token = token;
 
