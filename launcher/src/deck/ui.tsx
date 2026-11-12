@@ -1,8 +1,9 @@
 // Deck UI pieces: big focusable buttons and rows, the screen frame, dialogs (a layer each), hold-to-confirm, and the
 // toasts (top centre, a short title only; a notice that stays until closed is a dialog). Every control is a real <button>: A clicks it, a tap clicks it.
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useToasts } from "../ui";
+import type { ToastItem } from "../ui/Toast";
 import { candidates, focusEl, focusFirst, focusable } from "./focus";
 import { useLayer, type DeckAction } from "./layers";
 
@@ -250,16 +251,28 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
  *  fold of older ones) is a dialog instead, one at a time with all its text: the right stick scrolls it, A on OK or B
  *  closes it, so a pad alone can read and dismiss it. One dialog stays open while notices follow each other, so focus
  *  goes back where it was when the first came. An error folded into the earlier notices goes after 6 s on its own.
- *  A notice counts as seen (its `onClosed`) only when the player closes it: A on OK, or B. */
+ *  A notice counts as seen (its `onClosed`) only when the player closes it: A on OK, or B.
+ *  An error whose text does not fit the bar's four lines is such a dialog too: in the bar it ran off the screen's
+ *  lower edge, with nothing to scroll it and six seconds to read it. As a dialog it stays until closed. */
 export function DeckToaster() {
   const { items, dismiss, close } = useToasts();
+  // errors too long for the bar, by toast id (BarToast measures; an id is never used twice)
+  const [long, setLong] = useState<ReadonlySet<number>>(() => new Set());
+  const tooLong = (id: number) => setLong((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   useEffect(() => {
-    const errs = items.flatMap((t) => (t.folded ? t.folded.filter((f) => f.kind === "err") : t.kind === "err" ? [t] : []));
+    // forget the ones that are gone
+    setLong((prev) => {
+      const here = new Set([...prev].filter((id) => items.some((t) => t.id === id)));
+      return here.size === prev.size ? prev : here;
+    });
+  }, [items]);
+  useEffect(() => {
+    const errs = items.flatMap((t) => (t.folded ? t.folded.filter((f) => f.kind === "err") : t.kind === "err" && !long.has(t.id) ? [t] : []));
     if (!errs.length) return;
     const t = setTimeout(() => errs.forEach((e) => dismiss(e.id)), 6000);
     return () => clearTimeout(t);
-  }, [items, dismiss]);
-  const lasting = (t: (typeof items)[number]) => !!t.folded || (!!t.persistent && t.kind !== "err");
+  }, [items, dismiss, long]);
+  const lasting = (t: (typeof items)[number]) => !!t.folded || (!!t.persistent && t.kind !== "err") || long.has(t.id);
   const notice = items.find(lasting);
   const bar = items.filter((t) => !lasting(t));
   const times = notice && (notice.count ?? 1) > 1 ? ` (${notice.count} times)` : "";
@@ -267,22 +280,33 @@ export function DeckToaster() {
     <>
       {bar.length > 0 && (
         <div className="deck-toasts" aria-live="polite">
-          {bar.slice(-2).map((t) => (
-            <div key={t.id} className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={() => close(t.id)}>
-              <span className="deck-toast-title">{t.title}</span>
-              {t.kind === "err" && t.detail && <span className="deck-toast-detail">{t.detail}</span>}
-            </div>
-          ))}
+          {bar.slice(-2).map((t) => <BarToast key={t.id} t={t} onTooLong={tooLong} onClick={() => close(t.id)} />)}
         </div>
       )}
       {notice && (
         <Dialog name="notice" title={typeof notice.title === "string" ? notice.title + times : <>{notice.title}{times}</>}
           onClose={() => close(notice.id)} backLabel="Close"
           buttons={<DeckButton primary onClick={() => close(notice.id)}>OK</DeckButton>}>
-          {notice.detail && <div className="deck-scroll" data-deck-notice="" style={{ overflowWrap: "anywhere" }}>{notice.detail}</div>}
+          {notice.detail && <div className="deck-scroll" data-deck-notice="" data-kind={notice.kind} style={{ overflowWrap: "anywhere" }}>{notice.detail}</div>}
         </Dialog>
       )}
     </>
+  );
+}
+
+/** One toast of the bar. An error's detail gets four lines (deck.css); when the text needs more, the toaster is told
+ *  before the frame is painted and shows the error as a dialog instead. */
+function BarToast({ t, onTooLong, onClick }: { t: ToastItem; onTooLong: (id: number) => void; onClick: () => void }) {
+  const detail = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = detail.current;
+    if (el && el.scrollHeight > el.clientHeight + 1) onTooLong(t.id);
+  });
+  return (
+    <div className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={onClick}>
+      <span className="deck-toast-title">{t.title}</span>
+      {t.kind === "err" && t.detail && <span ref={detail} className="deck-toast-detail">{t.detail}</span>}
+    </div>
   );
 }
 

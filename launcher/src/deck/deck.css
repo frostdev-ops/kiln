@@ -169,7 +169,10 @@
 
 /* ---------------------------------------------------------------- dialogs, toasts */
 .deck-overlays { position: relative; z-index: 40; }
-.deck-veil { position: fixed; inset: 0 0 4rem; z-index: 40; display: grid; place-items: center; background: radial-gradient(60% 70% at 50% 50%, rgba(26, 12, 6, .7), rgba(8, 5, 4, .9));
+/* one row as tall as the veil: a dialog's max-height (a percentage) is then measured against the screen, and a
+   dialog with more text than fits scrolls inside itself. With an automatic row the row grew with the dialog, and
+   a tall one ran off the screen's lower edge */
+.deck-veil { position: fixed; inset: 0 0 4rem; z-index: 40; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); place-items: center; background: radial-gradient(60% 70% at 50% 50%, rgba(26, 12, 6, .7), rgba(8, 5, 4, .9));
   animation: deck-fade .16s ease-out backwards; }
 @keyframes deck-fade { from { opacity: 0; } }
 .deck-dialog { width: 40rem; max-height: calc(100% - 3rem); display: flex; flex-direction: column; gap: 1.25rem; padding: 2rem 2.5rem; border-radius: 1.25rem;
@@ -180,13 +183,15 @@
 .deck-dialog-title { margin: 0; overflow-wrap: anywhere; font-family: var(--k-font-display); font-weight: 600; font-size: 2.75rem; line-height: 1.05; flex: none; }
 .deck-dialog-body { display: flex; flex-direction: column; gap: .75rem; min-height: 0; overflow-y: auto; padding: .75rem; margin: -.75rem; font-size: 1.375rem; }
 .deck-dialog-buttons { display: flex; justify-content: flex-end; gap: 1rem; flex: none; }
-.deck-toasts { position: fixed; top: 5.25rem; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; flex-direction: column; gap: .5rem; align-items: center; pointer-events: none; }
+.deck-toasts { position: fixed; top: 5.25rem; left: 50%; z-index: 60; transform: translateX(-50%); display: flex; flex-direction: column; gap: .5rem; align-items: center; pointer-events: none; max-height: calc(100dvh - 6.5rem); overflow: hidden; }
 .deck-toast { pointer-events: auto; max-width: 48rem; display: flex; flex-direction: column; align-items: center; gap: .125rem; padding: .875rem 1.75rem; border-radius: .875rem;
   background: var(--k-bg-3); box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 .75rem 2.5rem rgba(0, 0, 0, .6); animation: deck-rise .22s ease-out backwards; }
 .deck-toast-title { font-family: var(--k-font-label); font-weight: 600; font-size: 1.5rem; }
 .deck-toast.ok .deck-toast-title { color: var(--k-ok); }
 .deck-toast.err .deck-toast-title { color: var(--k-err); }
-.deck-toast-detail { font-size: 1.125rem; color: var(--k-text-1); text-align: center; overflow-wrap: anywhere; }
+/* an error's detail in the bar: four lines. One that needs more is shown as a dialog instead (ui.tsx DeckToaster), so
+   nothing is cut here for longer than a frame; the bar itself never reaches the screen's lower edge */
+.deck-toast-detail { font-size: 1.125rem; line-height: 1.35; max-height: calc(4 * 1.35em); overflow: hidden; color: var(--k-text-1); text-align: center; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- the fire (Fire.tsx: the desktop's shader) and motion */
 .deck-fire-gl { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; display: none; }

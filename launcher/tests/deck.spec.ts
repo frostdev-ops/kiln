@@ -542,14 +542,77 @@ test.describe("notices", () => {
     await expect(notice).toHaveCount(0);
   });
 
-  test("an error's whole text is in the bar, not cut", async ({ page }) => {
+  test("a long error opens as a notice: all its text, on the screen, scrolled and closed with the pad", async ({ page }) => {
     await openDeck(page);
     await page.clock.install();
     const long = Array.from({ length: 12 }, (_, i) => `part ${i} of a long error from the backend that names /home/player/.local/share/kiln/library/x/${i}.`).join(" ");
     await page.evaluate(async (m) => { (await import("/src/ui/Toast.tsx")).toast.error({ code: "io", message: m }, "Could not add the mod"); }, long);
-    const detail = page.locator(".deck-toast.err .deck-toast-detail");
-    await expect(detail).toContainText("part 11");
-    expect(await detail.evaluate((el) => el.scrollHeight <= el.clientHeight + 1), "the error's detail is clipped").toBe(true);
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("Could not add the mod");
+    const body = notice.locator("[data-deck-notice]");
+    await expect(body).toContainText("part 0 of a long error");
+    await expect(body).toContainText("part 11");
+    // not in the bar any more, and nothing of the dialog is outside the 1280x800 screen
+    await expect(page.locator(".deck-toast.err")).toHaveCount(0);
+    const box = (await notice.locator(".deck-dialog").boundingBox())!;
+    expect(box.y, "the dialog's top is on the screen").toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, "the dialog's bottom is on the screen").toBeLessThanOrEqual(800);
+    expect(box.x >= 0 && box.x + box.width <= 1280, "the dialog's sides are on the screen").toBe(true);
+    // it does not go after six seconds: the player closes it
+    await page.clock.fastForward(7000);
+    await expect(notice).toContainText("part 11");
+    // what does not fit scrolls with the right stick
+    const fits = await body.evaluate((el) => el.scrollHeight <= el.clientHeight);
+    if (!fits) {
+      const send = (value: number) => page.evaluate((v) => (window as unknown as { __kilnMock: { emit: (n: string, v: unknown) => void } }).__kilnMock
+        .emit("kiln://gamepad", { kind: "axis", axis: "ry", value: v, device: "event9" }), value);
+      for (let i = 0; i < 20; i++) await send(1);
+      await send(0);
+      await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    }
+    await pad(page, "b");
+    await expect(notice).toHaveCount(0);
+    await expect.poll(() => focused(page)).toBe("mouth");
+  });
+
+  test("a short error stays in the bar with all its text and goes after six seconds", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    await page.evaluate(async () => { (await import("/src/ui/Toast.tsx")).toast.error({ code: "io", message: "The archive is not a mod Kiln knows." }, "Could not add the mod"); });
+    const toast = page.locator(".deck-toast.err");
+    const detail = toast.locator(".deck-toast-detail");
+    await expect(detail).toContainText("The archive is not a mod Kiln knows.");
+    expect(await detail.evaluate((el) => el.scrollHeight <= el.clientHeight + 1), "a short error's detail is cut").toBe(true);
+    await expect(page.locator('[data-deck-dialog="notice"]')).toHaveCount(0);
+    const box = (await toast.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(800);
+    await page.clock.fastForward(7000);
+    await expect(toast).toHaveCount(0);
+  });
+
+  test("an error of four lines still fits the bar; one line more makes it a notice", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    const push = (m: string) => page.evaluate(async (text) => { (await import("/src/ui/Toast.tsx")).toast.error({ code: "io", message: text }, "Could not add the mod"); }, m);
+    // grow the text until the bar no longer holds it: the last text that fit was never cut, the first that did not is a dialog
+    let text = "word";
+    let fitted = 0;
+    for (let i = 0; i < 400; i++) {
+      await push(text);
+      await page.waitForTimeout(30);
+      if (await page.locator('[data-deck-dialog="notice"]').count()) break;
+      const detail = page.locator(".deck-toast.err .deck-toast-detail").last();
+      expect(await detail.evaluate((el) => el.scrollHeight <= el.clientHeight + 1), `cut in the bar at ${text.length} characters`).toBe(true);
+      fitted = text.length;
+      await page.clock.fastForward(7000);
+      text += " another word of the error";
+    }
+    expect(fitted, "some error fits the bar").toBeGreaterThan(100);
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toHaveCount(1);
+    await expect(notice.locator("[data-deck-notice]")).toContainText(text);
+    await pad(page, "a");
+    await expect(notice).toHaveCount(0);
   });
 
   test("Settings reads the notes about mod folders again and turns them off", async ({ page }) => {
