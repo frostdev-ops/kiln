@@ -1201,6 +1201,7 @@ internal sealed class InstanceStore
         // 1. Every item with data, read now in one native call.
         var byHolder = new SortedDictionary<uint, List<LiveItem>>();
         foreach (var live in _live.Values) live.Fresh = false;
+        foreach (var pending in _pending) pending.Item.Fresh = false;
         var persistent = _live.Values.Where(live => live.Values.HasPersistent).ToArray();
         IReadOnlyList<InstanceItem?>? current = null;
         if (reads && persistent.Length != 0)
@@ -1249,6 +1250,8 @@ internal sealed class InstanceStore
 
         // 2. Per holder: its key, the witness of this save, and its live items as records.
         var playersRead = new HashSet<uint>();
+        var witnessed = new HashSet<HolderEntry>();
+        var liveWrites = new List<(LiveItem Item, HolderEntry Entry)>();
         foreach (var (holderId, items) in byHolder)
         {
             var identity = items.FirstOrDefault(i => i.Fresh)?.Holder ?? items[0].Holder;
@@ -1273,6 +1276,7 @@ internal sealed class InstanceStore
                     if (initialized)
                     {
                         entry.Witness[gen] = new Witness(list.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList(), settled);
+                        witnessed.Add(entry);
                         obs = gen;
                         if (key.Kind == HolderKind.Player)
                         {
@@ -1307,9 +1311,7 @@ internal sealed class InstanceStore
                     live.SeenSlot = live.Place.FlatSlot;
                     live.SeenEntry = entry;
                 }
-                var (seen, slot, alt) = Observe(live, entry);
-                Of(entry).Add(new WriteRec(live.RecordId, slot, live.Fields, seen, "live",
-                    seen == 0 ? "no save has read it in this holder yet" : "", 0, 0, false, live.Values, alt));
+                liveWrites.Add((live, entry));
             }
         }
 
@@ -1348,10 +1350,23 @@ internal sealed class InstanceStore
                 if (list is not null)
                 {
                     entry.Witness[gen] = new Witness(list.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList(), settled);
+                    witnessed.Add(entry);
                     entry.LastWitness = gen;
                 }
                 AddState(entry, gen, entity, list);
             }
+        }
+
+        // A snapshot witness replaces the first staging's list. It cannot vouch for an observation from that first
+        // read when this read did not place the item. Include players re-read only by 2b, and pending leave notices.
+        foreach (var live in _live.Values.Concat(_pending.Select(p => p.Item)))
+            if (!live.Fresh && live.Seen == gen && live.SeenEntry is { } entry && witnessed.Contains(entry))
+                live.Seen = 0;
+        foreach (var (live, entry) in liveWrites)
+        {
+            var (seen, slot, alt) = Observe(live, entry);
+            Of(entry).Add(new WriteRec(live.RecordId, slot, live.Fields, seen, "live",
+                seen == 0 ? "no save has read it in this holder yet" : "", 0, 0, false, live.Values, alt));
         }
 
         // 3. Items gone from a player's inventory in a way that may be the leave: the generation keeps them, waiting, but

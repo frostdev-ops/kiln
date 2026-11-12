@@ -14,6 +14,40 @@ public sealed class InstanceReviewTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void AReplacedWitnessNeverVouchesForAnItemNotPlacedInItsRead(bool playerHolder, bool freshMate, bool pending)
+    {
+        var w = _h.World;
+        var holder = playerHolder ? w.Join(Hero) : w.Chest(ChestTemplate, A);
+        var a = w.Give(holder, 0, Sword);
+        _h.Tag(a, 1);
+        var ring = w.Give(holder, 1, Ring);
+        if (freshMate) _h.Tag(ring, 2); // otherwise only step 2b re-witnesses the player
+        _h.Tick();
+        Store.Stage(1, SaveReason.Request, late: false);
+        if (pending)
+        {
+            w.Holders[holder.Value].Initialized = false;
+            w.Destroy(a); // a pending notice must not retain Fresh from the first staging either
+            w.Holders[holder.Value].Initialized = true;
+        }
+        else w.Move(a, EntityId.None, -1, seen: false);
+        w.Give(holder, 0, Sword); // another, untagged twin takes the slot
+        Store.Stage(1, SaveReason.Request, late: false, snapshot: true);
+        Store.Commit(1, 1001, SaveReason.Request);
+        _h.Restart(1, FakeInstanceWorld.Load(w.SaveGame()));
+        holder = playerHolder ? _h.World.Join(Hero) : _h.World.HolderAt(ChestTemplate, A);
+        _h.Tick();
+        Assert.Null(_h.Count(_h.World.At(holder, 0)));
+        Assert.Equal(freshMate ? 2 : (int?)null, _h.Count(_h.World.At(holder, 1)));
+        Assert.Single(_h.Parked(), p => p.State == ParkedState.SetAside);
+        Assert.DoesNotContain(_h.Of<InstanceDataLostEvent>(), e => e.Reason == InstanceLossReason.Destroyed);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void StagingBatchesItemsAndResolvesEachHolderOnceEvenDuringMoveNotices(bool notices)

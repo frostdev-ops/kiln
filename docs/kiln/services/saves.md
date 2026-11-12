@@ -194,7 +194,9 @@ a rejoin only if the player's link tree comes back the same; that is not proven 
 ```
 A witness is the holder's whole list of item entities at that save (also those without data). Each mod's bundle carries
 the holders and records of that mod; a reader joins records with the same id, slot, fields and `seen`. A witness written
-as a bare list (an earlier writer of format 1) reads as not settled.
+as a bare list (an earlier writer of format 1) reads as not settled. When the snapshot staging replaces a witness,
+an item not re-read as placed loses its observation for that generation; the new list never vouches for the first
+staging's old slot. This also applies to a player's inventory read without fresh tagged items and to pending leave records.
 
 ### How the matching decides
 The game keeps no id for an item. A saved record is a holder, a flat slot (see "Slot numbers" above), an
