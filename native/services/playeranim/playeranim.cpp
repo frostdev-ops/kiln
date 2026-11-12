@@ -507,7 +507,7 @@ void merge_locked() {
     g_states = std::move(res.states);
     if (res.graph) {
         const KilnAssetKey k = key_of(player_graph_guid(), fnv1a(kGraphType));
-        const KilnResult rc = g_assets->resource_put(g_self, &k, res.graph->data(), res.graph->size(), KILN_ASSET_PUT_OVERRIDE);
+        const KilnResult rc = g_assets->resource_put(g_self, &k, res.graph->data(), res.graph->size(), KILN_ASSET_PUT_OVERRIDE | KILN_ASSET_PUT_PIN);
         if (rc != KILN_OK) take_back("kiln.assets refused the merged graph (resource_put " + std::to_string(rc) + ")");
     }
     g_times.put = ms_between(t2, Clock::now());
