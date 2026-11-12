@@ -246,12 +246,12 @@ public sealed record GameNodeInfo(Guid Guid, uint Id, string Name, string Owner,
     int LevelIndex, string? Error);
 
 /// <summary>One step of <see cref="GameTree.Simulate"/>.</summary>
-[System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public enum GameTreeSimOp : uint { Unlock = 1, UnlockForce = 2, Lock = 3, Check = 4, AddRaw = 5, Strip = 6 }
 
 /// <summary>The game's own skill functions' answer after one simulated step.</summary>
-[System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public sealed record GameTreeSimResult(GameTreeSimOp Op, uint Node, bool Ok, bool Reachable, bool Rebuild, bool Connected,
     bool LevelsValid, int Level, bool Known, int Spent, int UnlockedNodes, int Stripped, int Index)
@@ -394,7 +394,7 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Runs steps with the game's own skill functions on a scratch node list (no player). Tick thread.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static IReadOnlyList<GameTreeSimResult> Simulate(params (GameTreeSimOp Op, uint Node)[] steps)
     {

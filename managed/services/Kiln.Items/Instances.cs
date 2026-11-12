@@ -208,7 +208,7 @@ public static unsafe partial class Items
     /// <summary>Lab only: follows an item as Kiln.Saves does for an item with data (<see cref="ItemMovedEvent"/>);
     /// <paramref name="gone"/> runs once when it is gone, with its last known location and the step. Dispose to
     /// stop.</summary>
-    [Experimental("KILNX001")]
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     [ServerOnly]
     [TickThreadOnly]
@@ -238,7 +238,7 @@ public static unsafe partial class Items
 
     /// <summary>Lab only: <see cref="Move"/>, with the result kept away from the item tracker, so only its read of the
     /// followed items once per step can see the move (cause <see cref="ItemMoveCause.Observed"/>).</summary>
-    [Experimental("KILNX001")]
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     [ServerOnly]
     [TickThreadOnly]
@@ -252,7 +252,7 @@ public static unsafe partial class Items
 
     /// <summary>Lab only: the per-step read's rotation size (default 64; 0: every followed item every step, as without a
     /// budget). Setting it starts a new cost window for <see cref="LabInstancesStatus"/>.</summary>
-    [Experimental("KILNX001")]
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static int LabTrackerReadsPerStep
     {
@@ -266,7 +266,7 @@ public static unsafe partial class Items
 
     /// <summary>Lab only: the tracker's per-step read (followed, budget, rotation, rechecks, the items read and the time
     /// per step, average and worst of the last 64 steps with something followed) and the stamps' state.</summary>
-    [Experimental("KILNX001")]
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static string LabInstancesStatus => ItemTracker.Describe() + "; " + ItemInstances.DescribeNative();
 }

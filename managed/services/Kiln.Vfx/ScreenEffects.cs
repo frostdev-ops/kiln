@@ -187,7 +187,7 @@ public static unsafe class ScreenEffects
 }
 
 /// <summary>Test seams, for mods/tests/screen-test. Not for mods.</summary>
-[System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public static class ScreenTestSeams
 {

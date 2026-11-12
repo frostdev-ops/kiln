@@ -15,7 +15,7 @@ namespace Kiln;
 
 /// <summary>What <see cref="SteamGuardRelay.LatchFor"/> could arrange for a player's Steam account.</summary>
 /// <remarks>Experimental (KILNX002): the underlying guard has not yet been proven in a real game client.</remarks>
-[System.Diagnostics.CodeAnalysis.Experimental("KILNX002")]
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX002", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx002")]
 [AnyThread]
 public enum GuardOutcome
 {
@@ -41,7 +41,7 @@ public enum GuardOutcome
 /// to protect a Steam account until the guard-proof check has passed; callers opt in with NoWarn for KILNX002.
 /// Start latch requests on the server tick thread, including the host of a local game, never on the render thread.
 /// </remarks>
-[System.Diagnostics.CodeAnalysis.Experimental("KILNX002")]
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX002", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx002")]
 [ServerOnly]
 public static class SteamGuardRelay
 {

@@ -641,34 +641,34 @@ public static unsafe partial class GameTree
     /// <summary>Lab: this entity (a player template, no client of its own) is treated as a player in game by the shadow table's
     /// client sync, whichever Kiln peer has it as its player. With a holder (<see cref="Skills.HolderOf(CharacterKey, ulong)"/>) its
     /// table also loads and saves through that holder's data, as a real player's. <see cref="EntityId.None"/> ends it.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static void LabPlayer(EntityId player, TalentHolder? holder = null, bool forceNative = false) => GameShadow.LabPlayer(player, holder, forceNative);
 
     /// <summary>Lab: a holder's carried shadow levels ("0x&lt;node id&gt;" -> level), as a test reads them.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static IReadOnlyDictionary<string, int> LabCarried(TalentHolder holder) => new Dictionary<string, int>(Skills.DataOf<GameShadowState>(holder, GameShadow.DataKey).Levels);
 
     /// <summary>Lab: replaces a holder's carried shadow levels, as a client's copy coming in does.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static void LabSetCarried(TalentHolder holder, IReadOnlyDictionary<string, int> levels) =>
         Skills.DataOf<GameShadowState>(holder, GameShadow.DataKey).Levels = new Dictionary<string, int>(levels, StringComparer.Ordinal);
 
     /// <summary>Lab: what a character's carried copy coming in does: the table loads again from the holder's data.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static void LabReload(EntityId player) => GameShadow.Reload(player);
 
     /// <summary>Lab: the unlock requests of a player's latest move of carried entries into the game's own list (nodes that are native
     /// nodes in this tree), one per level, in the order they were asked.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static IReadOnlyList<uint> LabNativeRequests(EntityId player) => GameShadow.RequestsOf(player);
 
     /// <summary>Lab: writes a node into a player entity's UnlockedSkillNodes as a character's save holds it. False unless <c>&lt;kiln&gt;/data/skills/lab-ops</c> exists.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static bool LabPutInSave(EntityId player, uint node, int level)
     {
@@ -678,7 +678,7 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Lab: does to that list what the login guard does with the shadow ids it finds at a join. False unless <c>&lt;kiln&gt;/data/skills/lab-ops</c> exists.</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static bool LabLoginGuard(EntityId player)
     {

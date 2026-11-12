@@ -246,7 +246,7 @@ public readonly unsafe struct CreatureRef
 
     /// <summary>Lab only (needs <c>kiln/data/kiln.creatures/force-ready</c>): keeps the creature "ready for gameplay"
     /// so its AI leaves Spawning without a player near. It still cannot walk (no path grid without a player).</summary>
-    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public void ForceReady(bool on = true)
     {

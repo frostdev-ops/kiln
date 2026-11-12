@@ -490,7 +490,7 @@ internal static class QuestObjectives
 /// <summary>Feeds the engine the same way real events do, without a player: for lab tests, tools and mods with their own
 /// sources. Tick thread. A holder from <see cref="QuestHolder.Synthetic"/> has a position, an inventory and a level only
 /// through these calls. Lab and test API (KILNX001): it may change or go in any release.</summary>
-[System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public static class QuestInput
 {

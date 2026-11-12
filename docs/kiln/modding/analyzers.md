@@ -358,6 +358,34 @@ once per service per file.
 
 **Fix.** Add the service: `<KilnServices>Chat;Players</KilnServices>`.
 
+<a id="kilnx001"></a>
+## KILNX001: lab and test member
+**What.** The code calls a member Kiln keeps for its own lab and test mods: `Rules.Simulate`, `QuestInput`,
+`Knowledge.LabRecord`, `GameTree.Simulate`, the `Lab*` members, `CreatureRef.ForceReady` and others. They are
+`[Experimental("KILNX001")]`, hidden from completion, and may change or go without notice. The compiler reports the call as
+an error.
+
+**Since when.** 0.2.0-dev.25. About 120 of these members already existed in dev.24 without the mark, so a lab or test project
+that called one builds no longer until it opts in. Mods built against dev.24 still load and run: the mark only matters when
+you compile.
+
+**Fix.** In a lab or test project, opt in once in the project file:
+
+```xml
+<PropertyGroup>
+  <NoWarn>$(NoWarn);KILNX001</NoWarn>
+</PropertyGroup>
+```
+
+In a mod players install, use the documented API instead; `limits.md` lists what has none yet.
+
+<a id="kilnx002"></a>
+## KILNX002: not yet proven in the game client
+**What.** The member works in Kiln's labs, but no player has confirmed it in the real game client yet (the guided client
+pass settles it). `[Experimental("KILNX002")]`; today the achievement guard (`SteamGuard`, `SteamGuardRelay`).
+
+**Fix.** Opt in the same way with `KILNX002` when you accept that; the mark goes once the client pass confirms it.
+
 ---
 
 <a id="kiln194"></a>
