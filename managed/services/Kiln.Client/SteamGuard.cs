@@ -17,6 +17,9 @@ namespace Kiln;
 /// <param name="Passed">Achievement reports passed on to Steam while installed and not active, since the game
 /// started.</param>
 /// <param name="Reason">Why the guard is not protecting, or what keeps it on. Never null.</param>
+/// <remarks>Experimental (<c>KILNX002</c>): the achievement guard has not yet run in a real game client. Do not rely on
+/// it to protect a player's Steam account until the release notes say the guard-proof check has passed.</remarks>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX002")]
 public readonly record struct SteamGuardStatus(bool Available, bool HookInstalled, bool TargetVerified,
                                                bool Active, long Dropped, long Passed, string Reason);
 
@@ -26,6 +29,9 @@ public readonly record struct SteamGuardStatus(bool Available, bool HookInstalle
 /// account. An unlocked achievement cannot be taken back.
 /// </summary>
 /// <remarks>
+/// <para>Experimental (<c>KILNX002</c>): the guard has not yet run in a real game client. Do not rely on it to protect
+/// a player's Steam account until the release notes say the guard-proof check has passed. A project that calls it
+/// opts in with <c>NoWarn</c> for <c>KILNX002</c>.</para>
 /// <para>Game client only. On a dedicated server there is no Steam user and the guard is never available.</para>
 /// <para>Treat the guard as protecting only when <see cref="Latch"/> or <see cref="TryHold"/> returned true and
 /// <see cref="Protecting"/> is true. Every doubt (no service, an older table, a target that failed its checks, a hook
@@ -42,6 +48,7 @@ public readonly record struct SteamGuardStatus(bool Available, bool HookInstalle
 /// player's own client, and a client without Kiln cannot be protected at all. See native/services/steamguard/README.md
 /// for what was read from the game's code and what is inferred.</para>
 /// </remarks>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX002")]
 [ClientOnly]
 [AnyThread]
 public static unsafe class SteamGuard

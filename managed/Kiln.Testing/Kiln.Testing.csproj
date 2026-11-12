@@ -7,6 +7,8 @@
     <RootNamespace>Kiln.Testing</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- the runner calls Kiln.SteamGuard, which is experimental until it has run in a real client -->
+    <NoWarn>$(NoWarn);KILNX002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" Private="false" />
