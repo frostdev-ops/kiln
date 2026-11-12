@@ -245,6 +245,10 @@ without it nobody knows whether a look-alike stood beside it.
      id + 1, ascending with the flat slot across links; items given in another order before the restart failed the
      check, as they should. Not measured: an NPC or animal that holds item entities, and a player's inventory (for a
      player the run has no anchor; a guided check logs the ids). Where the check fails, rule 1 does not apply.
+     A player is checked link by link: the character loader makes the worn gear before the backpack (seen on a real
+     client's join in dev.26), so the ids ascend within each link, the links' runs do not overlap, and together they
+     form one run. A look-alike that sits in two links (a sword worn and its twin in the backpack) turns rule 1 off for
+     that join, since a swap between two one-item links leaves no trace in the ids.
 
    Then a record goes to the item in its own slot if item id and stable fingerprint agree, twins included. Otherwise it
    waits.
@@ -304,6 +308,11 @@ each item was. A record carries its slot in each. At the next join the inventory
 states it equals must agree on the item's slot (then it attaches there, also from an older state), or all lack it (then
 it waits). States that disagree, which happens when look-alikes were moved within those two minutes, set the record
 aside. A save that could not read a player's inventory counts as a state nobody knows: a record with it is set aside.
+When the inventory is as the loader made it and the loaded generation is the newest, the look-alike doubt looks only at
+the states the client's file can be (those equal to the inventory now, and states read too early to settle); a
+look-alike that left the inventory before the leave no longer sets the record aside. A leave from the menu is read once,
+one step before the game writes the file, so two identical items still in the inventory at such a leave are set aside,
+never swapped (a shutdown save is read last and is not affected).
 What this rests on: the client's file is one of the newest 5 states (a connection dead for longer is timed out by the
 server), and the client's file changes only when the server sends the character back, which it does at its world saves.
 - **A mod that is not loaded:** its records are kept as JSON, unread, matched and moved with their item like any other,
