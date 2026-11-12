@@ -164,11 +164,16 @@ pub struct Cleanup {
     /// Why nothing was removed (no proof), for the player: where the folder is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// A partial copy's recovery: the file "cut off by the interrupted copy" that it removed (the beginning of the old
+    /// folder's file at the same path; at most one per move, kept in the journal's result across calls). Left out when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut_off: Vec<PathBuf>,
 }
 
 impl Cleanup {
     fn refused(folder: &Path, reason: String) -> Cleanup {
-        Cleanup { folder: folder.to_path_buf(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: Some(reason) }
+        Cleanup { folder: folder.to_path_buf(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: Some(reason), cut_off: vec![] }
     }
 }
 
@@ -239,6 +244,9 @@ pub enum Inject {
     /// As `FullDuring`, and that file cannot be removed by this process (as when another program opened it without
     /// delete sharing): every removal of it the move tries fails. A new process (the next start) can remove it.
     HeldDuring(u64),
+    /// The process "dies" in the middle of the first file copied for real that is larger than this many bytes: its first
+    /// part is written, then the move returns at once and nothing is cleaned up (as `StopAfter`).
+    DieInside(u64),
     /// A cancel after this many files.
     CancelAfter(u64),
     /// The process "dies" after this step: the function returns at once, nothing is cleaned up.
@@ -359,15 +367,138 @@ fn sha256_of(p: &Path) -> Option<String> {
     crate::hash::sha256_file(p).ok().map(|(h, _)| h)
 }
 
-#[cfg(unix)]
-fn same_inode(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    a.dev() == b.dev() && a.ino() == b.ino()
+// ------------------------------------------------------------------------------------------------ the removal guard
+
+/// Why a removal stops or keeps a file because the two places are not really two (both removals: the old copy's and a
+/// partial copy's). The reasons a player reads.
+pub mod guard_reason {
+    /// A file reached by two paths that lead to one file (a link or a mount above it, a bind mount).
+    pub const ONE_FILE: &str = "it is the very file the other folder holds, reached by two paths (a link or a mount), so removing it would remove that one";
+    /// A folder reached by two paths that lead to one folder.
+    pub const ONE_FOLDER: &str = "it is the very folder the other folder holds, reached by two paths (a mount), so nothing in it is removed";
+    /// Kiln cannot read the identity of one of the two files.
+    pub const UNKNOWN: &str = "Kiln could not tell whether it is a file of its own or the very file the other folder holds, so it stays";
+    /// A folder on the way, in either folder, is a link (or a junction).
+    pub const LINK_ON_THE_WAY: &str = "a folder on its way, here or in the other folder, is a link, which Kiln never follows, so it stays";
 }
 
-#[cfg(not(unix))]
-fn same_inode(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
-    false
+/// Who a file or folder is: its device (Windows: volume serial number) and inode (file index), and how many names
+/// it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileId {
+    dev: u64,
+    ino: u64,
+    links: u64,
+}
+
+impl FileId {
+    fn same(&self, other: &FileId) -> bool {
+        self.dev == other.dev && self.ino == other.ino
+    }
+}
+
+/// The identity of `p` itself (never followed when it is a link). None when it cannot be read.
+#[cfg(unix)]
+fn file_id(p: &Path) -> Option<FileId> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::symlink_metadata(p).ok()?;
+    Some(FileId { dev: m.dev(), ino: m.ino(), links: m.nlink() })
+}
+
+/// The identity of `p` itself (a reparse point is opened, not followed): `GetFileInformationByHandle`, through a handle
+/// that asks only to read attributes and shares everything (a file held open by another program still answers).
+#[cfg(windows)]
+fn file_id(p: &Path) -> Option<FileId> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+    };
+    let f = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(p)
+        .ok()?;
+    // SAFETY: a valid open handle and a zeroed out-struct of the right type.
+    unsafe {
+        let mut i: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+        if GetFileInformationByHandle(f.as_raw_handle() as _, &mut i) == 0 {
+            return None;
+        }
+        Some(FileId { dev: u64::from(i.dwVolumeSerialNumber), ino: u64::from(i.nFileIndexHigh) << 32 | u64::from(i.nFileIndexLow), links: u64::from(i.nNumberOfLinks) })
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_id(_: &Path) -> Option<FileId> {
+    None
+}
+
+/// What two paths, one in each folder, are to each other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Identity {
+    /// Two files.
+    Different,
+    /// One file with two names in two folders (a hard link the move made): removing one name leaves the other.
+    HardLink,
+    /// One file reached twice by one name (a link or a mount above it): it is never removed.
+    OneFile,
+    /// The identity of one of them cannot be read: it is never removed.
+    Unknown,
+}
+
+/// The decision from the identities of two files and of the two folders holding them. The same file is a hard link
+/// only with two names or more and in two different folders; one name (a link count of one), or one folder reached
+/// twice (a bind mount over a folder of hard links), is the same single file.
+fn judge(a: Option<FileId>, b: Option<FileId>, folder_a: Option<FileId>, folder_b: Option<FileId>) -> Identity {
+    let (Some(a), Some(b)) = (a, b) else { return Identity::Unknown };
+    if !a.same(&b) {
+        return Identity::Different;
+    }
+    let (Some(fa), Some(fb)) = (folder_a, folder_b) else { return Identity::Unknown };
+    if a.links < 2 || fa.same(&fb) { Identity::OneFile } else { Identity::HardLink }
+}
+
+/// [`judge`] for two paths.
+fn identity(a: &Path, b: &Path) -> Identity {
+    judge(file_id(a), file_id(b), a.parent().and_then(file_id), b.parent().and_then(file_id))
+}
+
+/// Rule 1 of both removals: `a` and `b` are two separate real folders. Neither is a link or a reparse point (one that
+/// is not there is no folder to remove from), their canonical paths are not one and neither is inside the other (by
+/// the platform's rules), and they are not one folder by identity (device and inode, volume and file index: a bind
+/// mount, two spellings on a disk that does not tell case). Otherwise the one sentence a player reads, naming both.
+fn separate_folders(a: &Path, b: &Path, style: PathStyle) -> Option<String> {
+    let why = |what: String| Some(format!("{} and {} are not two separate folders ({what}), so Kiln removed nothing from either.", a.display(), b.display()));
+    for p in [a, b] {
+        match std::fs::symlink_metadata(p) {
+            Ok(m) if is_link_meta(&m) => return why(format!("{} is a link", p.display())),
+            Ok(m) if !m.is_dir() => return why(format!("{} is not a folder", p.display())),
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return why(format!("{} cannot be inspected: {e}", p.display())),
+        }
+    }
+    let (pa, pb) = (PathParts::of(&df::canonical(a), style), PathParts::of(&df::canonical(b), style));
+    if pa.same(&pb) {
+        return why("they are one folder".into());
+    }
+    if pa.within(&pb) || pb.within(&pa) {
+        return why("one is inside the other".into());
+    }
+    if let (Some(ia), Some(ib)) = (file_id(a), file_id(b))
+        && ia.same(&ib)
+    {
+        return why("they are one folder, reached by two paths".into());
+    }
+    None
+}
+
+/// Rule 2 of both removals: every folder from `root` down to `path` is a real folder (no link, no reparse point).
+fn no_link_on_the_way(root: &Path, path: &Path) -> bool {
+    crate::engine_mods::refuse_symlink_path(root, path).is_ok()
 }
 
 /// `value` (a path text) when it starts with `old`, as the same path below `new`, by the rules of `style` (Windows:
@@ -553,6 +684,8 @@ struct Copier<'a> {
     rewritten: Vec<String>,
     /// [`Inject::HeldDuring`]: the file this process cannot remove.
     held: Option<PathBuf>,
+    /// [`Inject::DieInside`]: the process "died" in the middle of a file.
+    died: bool,
 }
 
 fn full_disk(path: &Path) -> Error {
@@ -730,8 +863,14 @@ impl Copier<'_> {
         } else if let Some((sha256, size)) = linked {
             RecordedFile { path: rel.clone(), size, sha256, linked: true, source_sha256: None }
         } else {
-            let (sha256, size) = match copy_hashed(&src, &dst, full) {
+            let die = matches!(self.inject, Some(Inject::DieInside(n)) if std::fs::symlink_metadata(&src).is_ok_and(|m| m.len() > n));
+            let (sha256, size) = match copy_hashed(&src, &dst, full || die) {
                 Ok(r) => r,
+                Err((e, _)) if die => {
+                    // the process "died" here: what is written stays as it is
+                    self.died = true;
+                    return Err(e);
+                }
                 Err((e, made)) => return Err(if made { self.undo(&rel, &dst, e) } else { e }),
             };
             self.real_files += 1;
@@ -1053,6 +1192,7 @@ pub fn move_to(
         made_dirs: BTreeSet::new(),
         rewritten: vec![],
         held: None,
+        died: false,
     };
     // a failure before the commit: what the move made goes, then the markers, the lock, the journal
     macro_rules! fail {
@@ -1071,6 +1211,9 @@ pub fn move_to(
         Ok(())
     })();
     if let Err(e) = copied {
+        if c.died {
+            return Err(stopped(Step::Copy));
+        }
         fail!(e);
     }
     if stop(Step::Copy) {
@@ -1370,7 +1513,7 @@ fn abort(default: &Path, journal: &Journal, e: Error, made: &Copier) -> Error {
 /// stays.
 fn remove_made(default: &Path, journal: &Journal, made: &Copier) -> Cleanup {
     let to = &journal.to;
-    let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None };
+    let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None, cut_off: vec![] };
     for (rel, f) in &made.files {
         let Some(p) = below(to, rel) else { continue };
         match made.remove_own(&p) {
@@ -1552,13 +1695,18 @@ pub fn repoint(env: &DataEnv, picked: &Path, facts: &dyn SystemFacts) -> Result<
 
 // ------------------------------------------------------------------------------------------------ recovery
 
-/// Where a move stands, from what is on disk: the journal against the folder in use.
+/// Where a move stands, from what is on disk: the journal against the folder in use. `Unclear` when the move's two
+/// places are not two separate real folders (one is a link, a mount of the other, inside it): then no removal runs.
 pub fn pending(env: &DataEnv) -> Result<Pending> {
     let journal = match read_journal(env) {
         Ok(None) => return Ok(Pending::Nothing),
         Ok(Some(j)) => j,
         Err(e) => return Ok(Pending::Unclear { journal: None, reason: format!("The move's journal cannot be read: {}", e.message) }),
     };
+    // two paths of one folder (a link, a mount) are neither a finished move nor an unfinished one: no removal may run
+    if let Some(reason) = separate_folders(&journal.from, &journal.to, PathStyle::of(env)) {
+        return Ok(Pending::Unclear { journal: Some(journal), reason });
+    }
     match env.locate_checked() {
         Ok(l) if same_folder(&l.dirs.root, &journal.to) => Ok(Pending::Committed { journal }),
         Ok(l) if same_folder(&l.dirs.root, &journal.from) && !may_have_committed(&journal) => Ok(Pending::Uncommitted { journal }),
@@ -1624,6 +1772,11 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
     if let Some(why) = game_names_old_root(&DataDirs::at(&journal.to), &from) {
         return Ok(no(why));
     }
+    // the two places must be two folders: a file is never removed because "the identical file" is itself
+    if let Some(why) = separate_folders(&from, &journal.to, PathStyle::of(env)) {
+        return Ok(Cleanup::refused(&from, why));
+    }
+    let to_root = journal.to.clone();
     let unknown: BTreeSet<&str> = journal.entries.iter().filter(|e| !e.known).map(|e| e.name.as_str()).collect();
     let after: BTreeMap<&str, &str> = journal.rewritten_after.iter().map(|r| (r.path.as_str(), r.sha256.as_str())).collect();
     let mut c = journal.result.clone().filter(|r| r.folder == from).unwrap_or(Cleanup {
@@ -1635,6 +1788,7 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         folder_removed: false,
         kept: vec![],
         reason: None,
+        cut_off: vec![],
     });
     c.interrupted = false;
     c.done = false;
@@ -1658,13 +1812,31 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         };
         let Ok(om) = std::fs::symlink_metadata(&old) else { continue }; // already removed
         let keep = |reason: &str, c: &mut Cleanup| c.kept.push(Kept { path: old.clone(), bytes: om.len(), reason: reason.into() });
+        // nothing is reached through a link, in either folder
+        if !no_link_on_the_way(&from, &old) || !no_link_on_the_way(&to_root, &new) {
+            keep(guard_reason::LINK_ON_THE_WAY, &mut c);
+            continue;
+        }
         if !om.is_file() {
             keep("it is no longer a plain file", &mut c);
             continue;
         }
-        let nm = std::fs::symlink_metadata(&new).ok();
-        let new_sha = nm.as_ref().filter(|m| m.is_file()).and_then(|_| sha256_of(&new));
-        let old_sha = if nm.as_ref().is_some_and(|m| same_inode(&om, m)) { new_sha.clone() } else { sha256_of(&old) };
+        // the same single file reached twice is never removed; a hard link (two names) needs no reading
+        let new_file = std::fs::symlink_metadata(&new).is_ok_and(|m| m.is_file());
+        let same = if new_file { identity(&old, &new) } else { Identity::Different };
+        match same {
+            Identity::OneFile => {
+                keep(guard_reason::ONE_FILE, &mut c);
+                continue;
+            }
+            Identity::Unknown => {
+                keep(guard_reason::UNKNOWN, &mut c);
+                continue;
+            }
+            Identity::Different | Identity::HardLink => {}
+        }
+        let new_sha = if new_file { sha256_of(&new) } else { None };
+        let old_sha = if same == Identity::HardLink { new_sha.clone() } else { sha256_of(&old) };
         let old_ok = old_sha.as_deref() == Some(f.source_sha256.as_deref().unwrap_or(&f.sha256));
         // the new file is the one copied, or the one the move itself wrote after the commit
         let new_ok = new_sha.as_deref() == Some(f.sha256.as_str()) || (new_sha.is_some() && new_sha.as_deref() == after.get(f.path.as_str()).copied());
@@ -1693,7 +1865,13 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
     let file = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file());
     let remove = |p: &Path, c: &mut Cleanup| {
         let bytes = std::fs::symlink_metadata(p).map(|m| m.len()).unwrap_or(0);
-        if let Err(e) = remove_if_there(p) {
+        // the same guard as for the record's files: no link on the way, not the new place's file by another path
+        let other = p.strip_prefix(&from).ok().map(|r| to_root.join(r));
+        if !no_link_on_the_way(&from, p) {
+            c.kept.push(Kept { path: p.to_path_buf(), bytes, reason: guard_reason::LINK_ON_THE_WAY.into() });
+        } else if other.is_some_and(|o| file_id(p).zip(file_id(&o)).is_some_and(|(a, b)| a.same(&b))) {
+            c.kept.push(Kept { path: p.to_path_buf(), bytes, reason: guard_reason::ONE_FILE.into() });
+        } else if let Err(e) = remove_if_there(p) {
             c.kept.push(Kept { path: p.to_path_buf(), bytes, reason: format!("it could not be removed: {}", e.message) });
         }
     };
@@ -1707,14 +1885,14 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
     let recorded: BTreeSet<PathBuf> = record.files.iter().filter_map(|f| below(&from, &f.path)).collect();
     for e in journal.entries.iter().filter(|e| e.known) {
         let p = from.join(&e.name);
-        if is(&e.name, "nexus") {
+        if is(&e.name, "nexus") && no_link_on_the_way(&from, &p) {
             for l in std::fs::read_dir(&p).into_iter().flatten().flatten() {
                 if l.file_name().to_string_lossy().to_lowercase().ends_with(".lock") && file(&l.path()) {
                     remove(&l.path(), &mut c);
                 }
             }
         }
-        remove_empty_dirs(&p, &mut c.kept);
+        remove_empty_dirs(&p, &to_root.join(&e.name), &mut c.kept);
         report_unrecorded(&p, &recorded, &mut c.kept);
     }
     for name in ["quick.lock", df::LOCK, MARKER, MOVE_MARKER] {
@@ -1729,7 +1907,7 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         if old_own.iter().any(|o| is(o, name)) {
             continue;
         }
-        remove_empty_dirs(&p, &mut c.kept);
+        remove_empty_dirs(&p, &to_root.join(name), &mut c.kept);
         if let Ok(m) = std::fs::symlink_metadata(&p)
             && !c.kept.iter().any(|k| k.path == p)
         {
@@ -1854,16 +2032,20 @@ fn report_unrecorded(p: &Path, recorded: &BTreeSet<PathBuf>, kept: &mut Vec<Kept
     }
 }
 
-/// Removes the folders below and at `p` that hold nothing (bottom up). Never a file. A folder that holds nothing and
-/// cannot be removed goes into `left`, with the OS error (one that holds anything stays without a word: what it holds
-/// is named, or is not the launcher's).
-fn remove_empty_dirs(p: &Path, left: &mut Vec<Kept>) {
+/// Removes the folders below and at `p` that hold nothing (bottom up). Never a file, never through a link, and never
+/// a folder that is `other` (the same folder in the other place) reached by another path (a mount). A folder that
+/// holds nothing and cannot be removed goes into `left`, with the OS error (one that holds anything stays without a
+/// word: what it holds is named, or is not the launcher's).
+fn remove_empty_dirs(p: &Path, other: &Path, left: &mut Vec<Kept>) {
     let Ok(m) = std::fs::symlink_metadata(p) else { return };
-    if !m.is_dir() {
+    if !m.is_dir() || is_link_meta(&m) {
+        return;
+    }
+    if file_id(p).zip(file_id(other)).is_some_and(|(a, b)| a.same(&b)) {
         return;
     }
     for e in std::fs::read_dir(p).into_iter().flatten().flatten() {
-        remove_empty_dirs(&e.path(), left);
+        remove_empty_dirs(&e.path(), &other.join(e.file_name()), left);
     }
     if let Err(e) = std::fs::remove_dir(p)
         && std::fs::read_dir(p).is_ok_and(|mut d| d.next().is_none())
@@ -1892,6 +2074,10 @@ pub mod partial_reason {
     pub const NO_SUCH_FOLDER: &str = "the old folder has no such folder, so Kiln cannot tell that the move made it";
     /// A leftover of the move's own marker writes whose content does not prove it is this move's.
     pub const NOT_THIS_MOVE: &str = "its content does not show that this move wrote it";
+    /// The beginning of the old folder's file, after the one file an interrupted copy can cut off was removed.
+    pub const CUT_OFF_AGAIN: &str = "it is the beginning of the file in the old folder, but an interrupted copy cuts off only one file and that one was removed already, so Kiln cannot tell that the move made this one";
+    /// What [`Cleanup::cut_off`] lists, in the player's words.
+    pub const CUT_OFF: &str = "cut off by the interrupted copy";
 }
 
 /// A symlink, or on Windows any reparse point (a junction too): never followed.
@@ -1910,6 +2096,11 @@ fn is_link_meta(m: &std::fs::Metadata) -> bool {
 struct Recovery<'a> {
     from: &'a Path,
     to: &'a Path,
+    /// The default root and the journal: where the one cut-off file is remembered before it goes.
+    default: &'a Path,
+    journal: Journal,
+    /// The one file an interrupted copy can cut off was removed (in this call or, by the journal's result, before).
+    cut_off_used: bool,
     /// The old root as the move wrote it into a rewritten server record (as given, and canonical).
     olds: Vec<PathBuf>,
     style: PathStyle,
@@ -1921,6 +2112,38 @@ struct Recovery<'a> {
 
 /// A cancel between two files.
 struct Canceled;
+
+/// What the old folder proves about a file of the partial copy.
+enum Proof {
+    /// The move made it: the same content, the same file (a hard link), or the server record it rewrote.
+    Copied,
+    /// The beginning of the old folder's file (every byte equals the old file's at that offset; an empty file too):
+    /// the file an interrupted copy cut off, if no other one was.
+    CutOff,
+    /// It stays, for this reason.
+    Stays(String),
+}
+
+/// The first `n` bytes of `t` (all of them) equal the first `n` bytes of `s`.
+fn is_prefix(t: &Path, s: &Path, n: u64) -> std::io::Result<bool> {
+    use std::io::Read;
+    if n == 0 {
+        return Ok(true);
+    }
+    let (mut a, mut b) = (std::fs::File::open(t)?, std::fs::File::open(s)?);
+    let (mut x, mut y) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
+    let mut left = n;
+    while left > 0 {
+        let k = (left as usize).min(x.len());
+        a.read_exact(&mut x[..k])?;
+        b.read_exact(&mut y[..k])?;
+        if x[..k] != y[..k] {
+            return Ok(false);
+        }
+        left -= k as u64;
+    }
+    Ok(true)
+}
 
 impl Recovery<'_> {
     fn keep(&mut self, path: PathBuf, bytes: u64, reason: impl Into<String>) {
@@ -1944,6 +2167,12 @@ impl Recovery<'_> {
         } else if m.is_dir() {
             let s = names.iter().fold(self.from.to_path_buf(), |p, n| p.join(n));
             let s_dir = src_dir && std::fs::symlink_metadata(&s).is_ok_and(|sm| sm.is_dir() && !is_link_meta(&sm));
+            // the old folder's own folder reached by another path (a mount): nothing in it is the copy's
+            if s_dir && file_id(&t).zip(file_id(&s)).is_some_and(|(a, b)| a.same(&b)) {
+                let bytes = dir_bytes(&t);
+                self.keep(t, bytes, guard_reason::ONE_FOLDER);
+                return Ok(());
+            }
             let mut kids: Vec<String> = match std::fs::read_dir(&t) {
                 Ok(rd) => rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect(),
                 Err(e) => {
@@ -1979,15 +2208,23 @@ impl Recovery<'_> {
                 progress.report(Some((self.seen as f32 / self.total.max(1) as f32).min(1.0)), &format!("checking {rel}"));
             }
             match self.proof(names, &t, &m, src_dir) {
-                Ok(()) => match std::fs::remove_file(&t) {
-                    Ok(()) => {
-                        self.c.removed_files += 1;
-                        self.c.removed_bytes += m.len();
+                Proof::Copied => {
+                    if let Err(e) = self.remove(&t, m.len()) {
+                        self.keep(t, m.len(), format!("it could not be removed: {e}"));
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => self.keep(t, m.len(), format!("it could not be removed: {e}")),
-                },
-                Err(why) => self.keep(t, m.len(), why),
+                }
+                Proof::CutOff if !self.cut_off_used => {
+                    // remembered in the journal before it goes: after a crash right here the next call gets no second one
+                    self.cut_off_used = true;
+                    self.c.cut_off.push(t.clone());
+                    save_result(self.default, &mut self.journal, &self.c, "failed");
+                    if let Err(e) = self.remove(&t, m.len()) {
+                        self.c.cut_off.pop();
+                        self.keep(t, m.len(), format!("it could not be removed: {e}"));
+                    }
+                }
+                Proof::CutOff => self.keep(t, m.len(), partial_reason::CUT_OFF_AGAIN),
+                Proof::Stays(why) => self.keep(t, m.len(), why),
             }
         } else {
             self.keep(t, m.len(), partial_reason::SPECIAL);
@@ -1995,44 +2232,77 @@ impl Recovery<'_> {
         Ok(())
     }
 
-    /// Ok when the old folder proves the move made the file at `t`: a plain file at the same path (no link on the way)
-    /// with the same size and sha256, the same file (a hard link), or for `servers/<id>.json` what the move writes
-    /// from the old folder's file. Err: why it stays.
-    fn proof(&self, names: &[String], t: &Path, tm: &std::fs::Metadata, src_dir: bool) -> std::result::Result<(), String> {
+    /// Removes a file of the copy the old folder proved, and counts it.
+    fn remove(&mut self, t: &Path, len: u64) -> std::io::Result<()> {
+        match std::fs::remove_file(t) {
+            Ok(()) => {
+                self.c.removed_files += 1;
+                self.c.removed_bytes += len;
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// What the old folder proves about the file at `t`: a plain file at the same path (no link on the way) with the
+    /// same size and sha256, the same file under two names (a hard link; one file reached twice stays), for
+    /// `servers/<id>.json` what the move writes from the old folder's file; or the beginning of the old folder's file
+    /// (a file the interrupted copy cut off; never a server record, which is written whole).
+    fn proof(&self, names: &[String], t: &Path, tm: &std::fs::Metadata, src_dir: bool) -> Proof {
+        let stays = |why: &str| Proof::Stays(why.into());
         let never = (names.len() == 2 && self.style.same_name(&names[0], "nexus") && names[1].to_lowercase().ends_with(".lock"))
             || (names.len() == 2 && self.style.same_name(&names[0], df::HASH_CACHE[0]) && self.style.same_name(&names[1], df::HASH_CACHE[1]));
         if never {
-            return Err(partial_reason::NEVER_COPIED.into());
+            return stays(partial_reason::NEVER_COPIED);
         }
         if !src_dir {
-            return Err(partial_reason::NO_SUCH_FILE.into());
+            return stays(partial_reason::NO_SUCH_FILE);
         }
         let s = names.iter().fold(self.from.to_path_buf(), |p, n| p.join(n));
         let sm = match std::fs::symlink_metadata(&s) {
             Ok(sm) if sm.is_file() && !is_link_meta(&sm) => sm,
-            _ => return Err(partial_reason::NO_SUCH_FILE.into()),
+            _ => return stays(partial_reason::NO_SUCH_FILE),
         };
-        // the same file under two names (a hard link the move made): proof without reading it
-        if same_inode(tm, &sm) {
-            return Ok(());
+        // the same file under two names (a hard link the move made) is proof without reading it; one file reached
+        // twice is the old folder's own file
+        match identity(t, &s) {
+            Identity::HardLink => return Proof::Copied,
+            Identity::OneFile => return stays(guard_reason::ONE_FILE),
+            Identity::Unknown => return stays(guard_reason::UNKNOWN),
+            Identity::Different => {}
         }
-        let compare = |e: std::io::Error| format!("Kiln could not compare it with the old folder's file: {e}");
+        let compare = |e: &dyn std::fmt::Display| Proof::Stays(format!("Kiln could not compare it with the old folder's file: {e}"));
         // servers/<id>.json: the move wrote it with backupDir rewritten from the old root to the new one
-        if names.len() == 2 && names[0] == "servers" && names[1].ends_with(".json")
+        let server_record = names.len() == 2 && names[0] == "servers" && names[1].ends_with(".json");
+        if server_record
             && let Ok(text) = std::fs::read_to_string(&s)
             && let Some(written) = rewrite_root_field(&text, "backupDir", &self.olds, self.to)
         {
             if tm.len() != written.len() as u64 {
-                return Err(partial_reason::DIFFERS.into());
+                return stays(partial_reason::DIFFERS);
             }
-            let here = std::fs::read(t).map_err(compare)?;
-            return if here == written.as_bytes() { Ok(()) } else { Err(partial_reason::DIFFERS.into()) };
+            return match std::fs::read(t) {
+                Ok(here) if here == written.as_bytes() => Proof::Copied,
+                Ok(_) => stays(partial_reason::DIFFERS),
+                Err(e) => compare(&e),
+            };
+        }
+        if tm.len() < sm.len() && !server_record {
+            return match is_prefix(t, &s, tm.len()) {
+                Ok(true) => Proof::CutOff,
+                Ok(false) => stays(partial_reason::DIFFERS),
+                Err(e) => compare(&e),
+            };
         }
         if tm.len() != sm.len() {
-            return Err(partial_reason::DIFFERS.into());
+            return stays(partial_reason::DIFFERS);
         }
-        let hash = |p: &Path| crate::hash::sha256_file(p).map(|(h, _)| h).map_err(|e| format!("Kiln could not compare it with the old folder's file: {}", e.message));
-        if hash(t)? == hash(&s)? { Ok(()) } else { Err(partial_reason::DIFFERS.into()) }
+        match (crate::hash::sha256_file(t), crate::hash::sha256_file(&s)) {
+            (Ok((a, _)), Ok((b, _))) if a == b => Proof::Copied,
+            (Ok(_), Ok(_)) => stays(partial_reason::DIFFERS),
+            (Err(e), _) | (_, Err(e)) => compare(&e.message),
+        }
     }
 }
 
@@ -2049,22 +2319,25 @@ fn own_marker_tmp(p: &Path, name: &str, journal: &Journal, style: PathStyle) -> 
     None
 }
 
-/// The partial copy of a move that did not commit, by proof: only with the target's [`MOVE_MARKER`] (this journal's
-/// id), and only what the old folder (`from`, still in use and complete) proves the move made: a plain file below one
-/// of the journal's entries goes when the old folder has a plain file at the same path with the same size and sha256,
-/// or the same file (a hard link), or for `servers/<id>.json` exactly what the move writes from the old folder's
-/// file. A folder goes when it is empty after that and the old folder has it. Nothing is read through a link, here or
+/// The partial copy of a move that did not commit, by proof: only when the two places are two separate real folders
+/// ([`separate_folders`]), only with the target's [`MOVE_MARKER`] (this journal's id), and only what the old folder
+/// (`from`, still in use and complete) proves the move made: a plain file below one of the journal's entries goes
+/// when the old folder has a plain file at the same path with the same size and sha256, or the same file under two
+/// names (a hard link; one file reached twice stays), or for `servers/<id>.json` exactly what the move writes from the
+/// old folder's file; and one file an interrupted copy cut off (the beginning of the old folder's file, at most one
+/// per move, remembered in the journal before it goes: [`Cleanup::cut_off`]). A folder goes when it is empty after that and the old folder has it. Nothing is read through a link, here or
 /// in the old folder. Everything else stays and is named in `kept` ([`partial_reason`]): a file the old folder does
 /// not have or that differs, a link, a special file, an empty folder the old folder does not have, a top-level entry
 /// the journal does not list. The launcher's own files at the top (lock files, the pointer and the journal at a
 /// default root, the entry holding Kiln's state) are not the copy's and stay without a word. Then, only when nothing
 /// was kept, the proof ([`remove_proof`]). A cancel (between two files) stops it with the marker and the journal kept:
-/// the next call goes on. A target that is gone, or that the player emptied by hand (no marker, nothing in it but the
+/// the next call goes on. The journal's entries are visited smallest first (by the journal's bytes, then by name), the
+/// target's other top-level names after them. A target that is gone, or that the player emptied by hand (no marker, nothing in it but the
 /// launcher's own files: the lock file the move made, at a default root the pointer and the journal), ends the move
 /// cleanly: the folder goes when the move made it and is empty, the records go.
 fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &mut dyn Progress) -> Cleanup {
     let to = &journal.to;
-    let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None };
+    let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None, cut_off: vec![] };
     if may_have_committed(journal) {
         c.reason = Some(format!("{} may hold a committed data folder: nothing was removed, and the move's journal stays.", to.display()));
         return c;
@@ -2088,6 +2361,11 @@ fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &m
         Ok(_) => {}
     }
     let style = PathStyle::of(env);
+    // the two places must be two folders: the old folder's files are never "proof" of themselves
+    if let Some(why) = separate_folders(&journal.from, to, style) {
+        c.reason = Some(why);
+        return c;
+    }
     let own = df::own_entries(to, env);
     // the launcher's own files and entries at the top (lock files; at a default root the pointer, the journal and the
     // file record, the entry holding Kiln's state): never the copy's
@@ -2122,8 +2400,11 @@ fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &m
     }
     let names: Vec<String> = match std::fs::read_dir(to) {
         Ok(rd) => {
+            // the journal's entries smallest first (its bytes, then the name): the small files a launcher running on the
+            // old folder keeps rewriting are checked and gone long before the large entries a player would cancel in
+            let bytes = |n: &str| journal.entries.iter().find(|e| style.same_name(&e.name, n)).map(|e| e.bytes);
             let mut v: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-            v.sort();
+            v.sort_by(|a, b| (bytes(a).is_none(), bytes(a), a).cmp(&(bytes(b).is_none(), bytes(b), b)));
             v
         }
         Err(e) => {
@@ -2133,7 +2414,11 @@ fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &m
     };
     let mut olds = vec![journal.from.clone(), df::canonical(&journal.from)];
     olds.dedup();
-    let mut r = Recovery { from: &journal.from, to, olds, style, total: journal.entries.iter().map(|e| e.bytes).sum(), seen: 0, files: 0, c };
+    // the one cut-off file removed by an earlier call of this recovery stays used, and named
+    c.cut_off = journal.result.as_ref().map(|r| r.cut_off.clone()).unwrap_or_default();
+    let cut_off_used = !c.cut_off.is_empty();
+    let total = journal.entries.iter().map(|e| e.bytes).sum();
+    let mut r = Recovery { from: &journal.from, to, default, journal: journal.clone(), cut_off_used, olds, style, total, seen: 0, files: 0, c };
     progress.report(Some(0.0), &format!("removing the partial copy at {}", to.display()));
     for name in names {
         let p = to.join(&name);
@@ -2241,6 +2526,39 @@ pub fn acknowledge(env: &DataEnv) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The decision of rule 3 from crafted identities (what a bind mount gives, which needs root to make outside a
+    /// user namespace; also the Windows file index and link count).
+    #[test]
+    fn one_file_reached_twice_is_never_a_hard_link() {
+        let id = |dev, ino, links| Some(FileId { dev, ino, links });
+        let (dir_a, dir_b) = (id(1, 100, 2), id(1, 200, 2));
+        assert_eq!(judge(id(1, 7, 1), id(1, 8, 1), dir_a, dir_b), Identity::Different);
+        assert_eq!(judge(id(1, 7, 1), id(2, 7, 1), dir_a, dir_b), Identity::Different, "another device");
+        assert_eq!(judge(id(1, 7, 2), id(1, 7, 2), dir_a, dir_b), Identity::HardLink, "two names in two folders");
+        assert_eq!(judge(id(1, 7, 1), id(1, 7, 1), dir_a, dir_b), Identity::OneFile, "one name: one file reached twice");
+        assert_eq!(judge(id(1, 7, 2), id(1, 7, 2), dir_a, dir_a), Identity::OneFile, "two names, but one folder reached twice (a bind mount over hard links)");
+        assert_eq!(judge(id(1, 7, 2), None, dir_a, dir_b), Identity::Unknown);
+        assert_eq!(judge(id(1, 7, 2), id(1, 7, 2), None, dir_b), Identity::Unknown, "the folders cannot be told apart");
+    }
+
+    /// Rule 1: two spellings of one folder on a disk that does not tell case (the exFAT volume B, when it is mounted)
+    /// are one folder by identity; two folders there are two.
+    #[test]
+    fn two_spellings_of_one_folder_are_one_folder() {
+        let Some(b) = std::env::var_os("KILN_TEST_VOLUME_B").map(PathBuf::from).filter(|b| b.is_dir()) else {
+            eprintln!("SKIPPED two_spellings_of_one_folder_are_one_folder: KILN_TEST_VOLUME_B is not mounted");
+            return;
+        };
+        let base = b.join(format!("spellings-{}", std::process::id()));
+        std::fs::create_dir_all(base.join("Kiln Data")).unwrap();
+        std::fs::create_dir_all(base.join("Other")).unwrap();
+        let one = separate_folders(&base.join("Kiln Data"), &base.join("KILN DATA"), PathStyle::Unix);
+        let two = separate_folders(&base.join("Kiln Data"), &base.join("Other"), PathStyle::Unix);
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(one.as_deref().is_some_and(|w| w.contains("one folder")), "{one:?}");
+        assert_eq!(two, None);
+    }
 
     #[test]
     fn root_fields_are_rewritten_only_below_the_old_root() {

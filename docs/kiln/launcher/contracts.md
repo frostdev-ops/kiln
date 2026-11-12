@@ -200,34 +200,59 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   read: the result names the game and says that activating its profile again lets the old copy go at the next start.
   A file of the launcher's own it could not remove (lock files, the markers, the hash cache) and an empty folder it
   could not remove (also the empty old root) are in `kept`, with the OS error; a later call tries again.
+- **The guard of both removals** (the old copy's and a partial copy's; each removes a file because the identical file
+  is in the other place, so the two places must really be two): (1) the move's two folders are two separate real
+  folders: neither is a link or a reparse point, their canonical paths are not one and neither is inside the other,
+  and they are not one folder by identity (device and inode; on Windows volume serial number and file index from
+  `GetFileInformationByHandle`), which also catches a bind mount and two spellings on a disk that does not tell case.
+  If not, `pending` is `Unclear` with one sentence that names both folders ("<a> and <b> are not two separate folders
+  (<a> is a link), so Kiln removed nothing from either."), nothing is removed and the journal stays. (2) No path below
+  either root is reached through a link (`engine_mods::refuse_symlink_path`, junctions included), also for the
+  launcher's own files the old copy's removal takes (lock files, the hash cache) and its sweep of empty folders,
+  which never enters a folder that is the other place's by another path. (3) The same single file is never removed:
+  when the two paths give one identity, it is a hard link (proof without reading) only with two names or more and in
+  two different folders; one name, or one folder reached twice (a bind mount over hard links), is one file reached
+  twice. What fails (2) or (3), or whose identity cannot be read, stays, named: "a folder on its way, here or in the
+  other folder, is a link, which Kiln never follows, so it stays", "it is the very file the other folder holds,
+  reached by two paths (a link or a mount), so removing it would remove that one", "it is the very folder the other
+  folder holds, reached by two paths (a mount), so nothing in it is removed", "Kiln could not tell whether it is a
+  file of its own or the very file the other folder holds, so it stays" (`data_folder_move::guard_reason`).
 - **A partial copy** found by a later start (`remove_partial_copy`, or `remove_partial_copy_with` with progress and
   cancel) is removed only when the target's `.kiln-data-move.json` has the journal's id, and then only what the old
   folder (still the folder in use, and complete) proves the move made. A plain file below one of the journal's entries
-  goes when the old folder has a plain file at the same path with the same size and sha256, or when it is the same
-  file (a hard link: same device and inode, not read), or, for `servers/<id>.json`, when it is byte for byte what the
-  move writes from the old folder's file (`backupDir` rewritten). A folder goes when it is empty after that and the
-  old folder has it. Nothing is read through a link, in the target or in the old folder (a link on the way in the old
-  folder proves nothing). Everything else stays and is named in `kept` with its size and a reason
+  goes when the old folder has a plain file at the same path with the same size and sha256, or when it is the same file
+  (a hard link: two names of one file, not read), or, for `servers/<id>.json`, when it is byte for byte what the move
+  writes from the old folder's file (`backupDir` rewritten). One file cut off by the interrupted copy goes too: a file
+  shorter than the old folder's file at the same path whose every byte equals the old file's at that offset (an empty
+  one too), never `servers/<id>.json` (written whole), at most one per move: it is remembered in the journal's result
+  before it goes, so a cancelled and resumed recovery, or one after a crash, gets no second one, and a second such file
+  stays, named ("it is the beginning of the file in the old folder, but an interrupted copy cuts off only one file and
+  that one was removed already, so Kiln cannot tell that the move made this one"). The result lists it in `cutOff` ("cut
+  off by the interrupted copy"). A target `logs/launcher.log` whose old file has grown since (a launcher ran on the old
+  folder after the move stopped) is such a beginning too and takes that one removal. The journal's entries are visited
+  smallest first (by the journal's bytes, then by name), so the small files a running launcher keeps writing in the old
+  folder are checked and gone long before the large entries a player would cancel during. A folder goes when it is empty
+  after that and the old folder has it. Nothing is read through a link, in the target or in the old folder (a link on
+  the way in the old folder proves nothing). Everything else stays and is named in `kept` with its size and a reason
   (`data_folder_move::partial_reason`): "the old folder has no such file, so Kiln cannot tell that the move made it",
   "it differs from the file in the old folder (added, changed or replaced after the move stopped, or the old folder's
   file changed since)", "it is a link, which Kiln never follows or removes", "it is not a plain file or folder", "the
-  move copied nothing by this name" (a top-level entry the journal does not list), "the old folder has no such
-  folder, so Kiln cannot tell that the move made it" (an empty folder), "the move never copies this file"
-  (`nexus/*.lock`, the hash cache). The launcher's own files at the target's top (lock files; at a default root the
-  pointer, the journal and the file record, and the entry holding Kiln's state) are not the copy's and stay without a
-  word. Leftovers of the move's marker writes (`.kiln-data-move.json.tmp`, `.kiln-data-folder.json.tmp`) go only when
-  their content shows they are this move's (the journal's id; a folder marker created at or after the move started);
-  any other stays, named ("its content does not show that this move wrote it"). Only when nothing was kept do the
-  folder marker, the lock file the move made and the move marker (last), the target and the folders above it that
-  the move made, and the journal and file record go. With anything kept they stay, `pending` stays `Uncommitted`, and
-  the next call tries again: once the player has taken the named files out, the rest goes. A target that is gone, or
-  that the player emptied by hand (no marker, nothing in it but the launcher's own files above: the lock file the move
-  made, at a default root the pointer and the journal), ends the move cleanly: the folder goes when the move made it,
-  and the journal and file record go. It reports a fraction and
-  the file it checks; a cancel between two files returns `interrupted` with the marker and the journal kept, and the
-  next call goes on. The result (what stayed, why, sizes, paths) is kept in the journal until acknowledged.
-  `acknowledge` is refused (`refused`) while the partial copy of a move that did not commit still carries the
-  journal's marker: the next start removes it first.
+  move copied nothing by this name" (a top-level entry the journal does not list), "the old folder has no such folder,
+  so Kiln cannot tell that the move made it" (an empty folder), "the move never copies this file" (`nexus/*.lock`, the
+  hash cache). The launcher's own files at the target's top (lock files; at a default root the pointer, the journal and
+  the file record, and the entry holding Kiln's state) are not the copy's and stay without a word. Leftovers of the
+  move's marker writes (`.kiln-data-move.json.tmp`, `.kiln-data-folder.json.tmp`) go only when their content shows they
+  are this move's (the journal's id; a folder marker created at or after the move started); any other stays, named ("its
+  content does not show that this move wrote it"). Only when nothing was kept do the folder marker, the lock file the
+  move made and the move marker (last), the target and the folders above it that the move made, and the journal and file
+  record go. With anything kept they stay, `pending` stays `Uncommitted`, and the next call tries again: once the player
+  has taken the named files out, the rest goes. A target that is gone, or that the player emptied by hand (no marker,
+  nothing in it but the launcher's own files above: the lock file the move made, at a default root the pointer and the
+  journal), ends the move cleanly: the folder goes when the move made it, and the journal and file record go. It reports
+  a fraction and the file it checks; a cancel between two files returns `interrupted` with the marker and the journal
+  kept, and the next call goes on. The result (what stayed, why, sizes, paths) is kept in the journal until
+  acknowledged. `acknowledge` is refused (`refused`) while the partial copy of a move that did not commit still carries
+  the journal's marker: the next start removes it first.
 - **What stays at the default root after a move away**: the pointer (about 150 bytes), the journal and the file record
   until acknowledged, the entries the launcher does not know, and on Windows `state\` (`util::state_dir()`: server console
   captures, the keyring store's lock). The move removes the rest itself before anything else writes there.

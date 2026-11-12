@@ -1023,4 +1023,45 @@ mod win {
         let r = mv(&fx.env, &to, &MoveOptions::default(), &mut NoProgress).unwrap();
         assert!(r.cleanup.unwrap().done);
     }
+
+    /// The old copy is never removed through a junction between the two places: a committed move whose removal is
+    /// pending (the process "died" after the activation), then the old root replaced by a junction to the new place
+    /// (nothing at all is removed, the result says why: `pending` is unclear), or the old folder's `library` alone
+    /// replaced by a junction to the new place's (what is reached through it stays, named). The data folder in use is
+    /// as it was and the journal stays. Kiln is taken out of the games first: a game naming a folder holds the removal
+    /// back on its own.
+    #[test]
+    fn the_old_copy_is_never_removed_through_a_junction() {
+        seen();
+        for case in ["old-root", "one-level-down"] {
+            let fx = Fixture::build(&format!("junction-old-{case}"));
+            let (a, b) = (fx.base.join("a"), fx.base.join("b"));
+            assert!(mv(&fx.env, &a, &MoveOptions::default(), &mut NoProgress).unwrap().cleanup.unwrap().done);
+            dfm::acknowledge(&fx.env).unwrap();
+            let stop = MoveOptions { force_copy: false, inject: Some(Inject::StopAfter(dfm::Step::Activate)) };
+            assert_eq!(mv(&fx.env, &b, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+            for g in [&fx.game_z, &fx.game_copy] {
+                let _ = std::fs::remove_dir_all(g.path.join("kiln"));
+            }
+            if case == "old-root" {
+                std::fs::rename(&a, fx.base.join("a-was")).unwrap();
+                assert!(junction(&a, &b));
+            } else {
+                std::fs::rename(a.join("library"), fx.base.join("a-library-was")).unwrap();
+                assert!(junction(&a.join("library"), &b.join("library")));
+            }
+            let before = tree(&b);
+            assert!(before.keys().any(|k| k.starts_with("library/")));
+            let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+            eprintln!("{case}: removed {}, reason {:?}, kept {:?}", c.removed_files, c.reason, c.kept.iter().map(|k| (k.path.display().to_string(), k.reason.clone())).collect::<Vec<_>>());
+            assert_eq!(tree(&b), before, "{case}: the data folder in use is as it was");
+            if case == "old-root" {
+                assert!(c.removed_files == 0 && c.reason.as_deref().is_some_and(|r| r.contains("link")), "{case}: {c:?}");
+            } else {
+                let through: Vec<&dfm::Kept> = c.kept.iter().filter(|k| k.reason == dfm::guard_reason::LINK_ON_THE_WAY).collect();
+                assert!(!through.is_empty() && through.iter().all(|k| k.path.starts_with(a.join("library"))), "{case}: {c:?}");
+            }
+            assert!(dfm::read_journal(&fx.env).unwrap().is_some(), "{case}: the journal stays");
+        }
+    }
 }

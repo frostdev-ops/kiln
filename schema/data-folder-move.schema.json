@@ -61,7 +61,8 @@
             "properties": { "path": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "reason": { "type": "string" } }
           }
         },
-        "reason": { "type": "string", "description": "Why nothing was removed (no proof), with where the folder is." }
+        "reason": { "type": "string", "description": "Why nothing was removed (no proof), with where the folder is." },
+        "cutOff": { "type": "array", "items": { "type": "string" }, "default": [], "description": "A partial copy's recovery: the file cut off by the interrupted copy that it removed (the beginning of the old folder's file at the same path; at most one per move, kept here across calls so a resumed recovery gets no second one)." }
       }
     }
   },

@@ -1733,7 +1733,7 @@ fn recovery_keeps_what_differs_from_the_old_folder() {
 #[test]
 #[cfg(unix)] // symlinks
 fn recovery_never_follows_a_link() {
-    let (fx, _, to) = crashed_after_copy("links", &Facts::all_clear());
+    let (fx, _, to) = crashed_after_copy("never-follows-links", &Facts::all_clear());
     // links placed in the target, to a file and to a folder outside it
     let outside = fx.base.join("outside");
     put(&outside, "dir/inner.txt", b"not the move's");
@@ -1988,4 +1988,391 @@ fn a_partial_copy_at_the_default_root_finishes_cleanly() {
         assert_eq!(env.locate().unwrap().dirs.root, away);
         assert_eq!(tree(&away), before, "the folder in use is untouched");
     }
+}
+
+// ------------------------------------------------------------------------------------------------ core-7
+
+/// The fixture's data moved to `a` (finished, acknowledged), then from `a` to `b`: committed, the old copy's removal
+/// not run yet (the process "died" after the activation). The old folder `a` is not the default root. Kiln is taken
+/// out of the Z game (its profile and plugin chain name the data folder), so no game naming a folder holds the removal
+/// back: what is tested is the removal itself.
+#[cfg(unix)] // its tests need symlinks, link counts or mounts
+fn removal_pending(tag: &str, facts: &Facts) -> (Fixture, PathBuf, PathBuf) {
+    let fx = Fixture::build(tag);
+    let a = fx.base.join("a");
+    let r = mv(&fx, &a, facts, &MoveOptions::default()).unwrap();
+    assert!(r.cleanup.unwrap().done);
+    dfm::acknowledge(&fx.env).unwrap();
+    let b = fx.base.join("b");
+    let e = mv(&fx, &b, facts, &inject(Inject::StopAfter(Step::Activate))).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal);
+    assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Committed { .. }));
+    std::fs::remove_dir_all(fx.game_z.path.join("kiln")).unwrap();
+    (fx, a, b)
+}
+
+/// The old copy is never removed through a link that makes the two places one: the old root replaced by a link to
+/// the new place; the reverse, the new place's path replaced by a link to the old folder (the player put the new
+/// place's files back by hand, its marker with them: a pointer that names a link is a broken one, so this one stops
+/// already at `pending`); `library` alone linked one level down, from the old folder into the new place and the
+/// reverse. The data folder in use is byte for byte as before and the journal stays; with the roots linked nothing at
+/// all is removed and the result says why, naming both folders; one level down what is reached through the link
+/// stays, named, and the old copy's own files elsewhere go.
+#[test]
+#[cfg(unix)] // symlinks; Windows: a junction, tests/data_folder_windows.rs
+fn the_old_copy_is_never_removed_through_a_link_between_the_two_places() {
+    let mut failed = Vec::new();
+    for case in ["old-root", "new-root", "one-level-down", "new-one-level-down"] {
+        let (fx, a, b) = removal_pending(&format!("alias-{case}"), &linking());
+        match case {
+            "old-root" => {
+                std::fs::rename(&a, fx.base.join("a-was")).unwrap();
+                symlink(&b, &a).unwrap();
+            }
+            "new-root" => {
+                std::fs::copy(b.join(df::MOVE_MARKER), a.join(df::MOVE_MARKER)).unwrap();
+                std::fs::rename(&b, fx.base.join("b-was")).unwrap();
+                symlink(&a, &b).unwrap();
+            }
+            "one-level-down" => {
+                std::fs::rename(a.join("library"), fx.base.join("a-library-was")).unwrap();
+                symlink(b.join("library"), a.join("library")).unwrap();
+            }
+            _ => {
+                std::fs::rename(b.join("library"), fx.base.join("b-library-was")).unwrap();
+                symlink(a.join("library"), b.join("library")).unwrap();
+            }
+        }
+        // the real folders that hold the data in use (`tree` follows no link). With the new place's path a link the
+        // pointer is a broken one (locate refuses a link): the data is in `a`.
+        let in_use: Vec<PathBuf> = match case {
+            "new-root" => vec![a.clone()],
+            "new-one-level-down" => vec![b.clone(), a.join("library")],
+            _ => vec![b.clone()],
+        };
+        let trees = || -> BTreeMap<String, String> {
+            in_use.iter().flat_map(|r| tree(r).into_iter().map(move |(k, v)| (format!("{}/{k}", r.display()), v))).collect()
+        };
+        let before = trees();
+        assert!(before.keys().any(|k| k.contains("library/")), "{case}: {before:?}");
+        let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+        let after = trees();
+        // the roots linked: nothing at all is removed, and the reason says the two are one; one level down: the old
+        // copy's own files elsewhere go, what is reached through the link stays, named
+        let root_case = case.ends_with("root");
+        let through_link: Vec<&dfm::Kept> = c.kept.iter().filter(|k| k.reason == dfm::guard_reason::LINK_ON_THE_WAY).collect();
+        if after != before || (root_case && c.removed_files != 0) {
+            let gone: Vec<&String> = before.keys().filter(|k| !after.contains_key(*k)).collect();
+            failed.push(format!("{case}: {} files removed, {} of them from the data folder in use: {gone:?}", c.removed_files, gone.len()));
+        } else if root_case && !c.reason.as_deref().is_some_and(|r| r.contains("link") && r.contains(&a.display().to_string()) && r.contains(&b.display().to_string())) {
+            failed.push(format!("{case}: the result does not say why, naming both folders: {c:?}"));
+        } else if !root_case && (through_link.is_empty() || !through_link.iter().all(|k| k.path.starts_with(a.join("library")))) {
+            failed.push(format!("{case}: what is reached through the link is not named: {c:?}"));
+        } else if !fx.dirs.root.join(df::JOURNAL).is_file() {
+            failed.push(format!("{case}: the journal is gone"));
+        }
+    }
+    assert!(failed.is_empty(), "{failed:#?}");
+}
+
+/// Runs the test `child` of this binary (an ignored one) in a new user and mount namespace (`unshare -rm`: no root is
+/// needed where unprivileged user namespaces are allowed) after `mount --bind src dst` there: the bind mount exists only
+/// for that process and goes with it. The child reads its task from `KILN_TEST_CHILD` and prints one line
+/// `CHILD-RESULT <json>`. None (and SKIPPED) when this system cannot make such a namespace.
+#[cfg(target_os = "linux")]
+fn in_mount_namespace(src: &Path, dst: &Path, child: &str, task: &serde_json::Value) -> Option<serde_json::Value> {
+    let probe = std::process::Command::new("unshare").args(["--user", "--map-root-user", "--mount", "true"]).output();
+    if !probe.as_ref().is_ok_and(|o| o.status.success()) {
+        eprintln!("SKIPPED {child}: no user and mount namespace here: {probe:?}");
+        return None;
+    }
+    let exe = std::env::current_exe().unwrap();
+    let out = std::process::Command::new("unshare")
+        .args(["--user", "--map-root-user", "--mount", "sh", "-c", r#"mount --bind "$1" "$2" && exec "$3" --ignored --exact "$4" --nocapture"#, "sh"])
+        .arg(src)
+        .arg(dst)
+        .arg(&exe)
+        .arg(child)
+        .env("KILN_TEST_CHILD", task.to_string())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout.lines().find_map(|l| l.strip_prefix("CHILD-RESULT ")).map(str::to_string);
+    let Some(line) = line else { panic!("the child gave no result ({}):\n{stdout}\n{}", out.status, String::from_utf8_lossy(&out.stderr)) };
+    Some(serde_json::from_str(&line).unwrap())
+}
+
+/// Run only by [`in_mount_namespace`], inside the namespace with its bind mount: one removal, its result printed.
+#[test]
+#[ignore = "run by in_mount_namespace inside a mount namespace"]
+#[cfg(target_os = "linux")]
+fn mount_namespace_child() {
+    let Ok(task) = std::env::var("KILN_TEST_CHILD") else { return };
+    let t: serde_json::Value = serde_json::from_str(&task).unwrap();
+    let env = env_at(Path::new(t["base"].as_str().unwrap()));
+    let c = match t["op"].as_str().unwrap() {
+        "remove_old_copy" => dfm::remove_old_copy(&env, &mut NoProgress).unwrap(),
+        _ => dfm::remove_partial_copy(&env).unwrap(),
+    };
+    println!("CHILD-RESULT {}", serde_json::to_string(&c).unwrap());
+}
+
+/// The same single file reached twice without any link: the new place's `library` bind-mounted at the old folder's
+/// `library`. By copies each file there has one name; by hard links two (the old copy's own file is under the mount),
+/// but both paths lead through one folder. Either way it stays, named, and the data folder in use is as before.
+#[test]
+#[cfg(target_os = "linux")] // a bind mount in a user namespace
+fn the_old_copy_is_never_removed_through_a_mount_between_the_two_places() {
+    for (how, facts) in [("copies", Facts::all_clear()), ("links", linking())] {
+        let (fx, a, b) = removal_pending(&format!("bind-old-{how}"), &facts);
+        let before = tree(&b);
+        let task = serde_json::json!({"base": fx.base, "op": "remove_old_copy"});
+        let Some(c) = in_mount_namespace(&b.join("library"), &a.join("library"), "mount_namespace_child", &task) else { return };
+        let c: dfm::Cleanup = serde_json::from_value(c).unwrap();
+        assert_eq!(tree(&b), before, "{how}: the data folder in use is byte for byte as before: {c:?}");
+        let one: Vec<&dfm::Kept> = c.kept.iter().filter(|k| k.reason == dfm::guard_reason::ONE_FILE).collect();
+        assert!(!one.is_empty() && one.iter().all(|k| k.path.starts_with(a.join("library"))), "{how}: named as one file: {c:?}");
+        assert!(fx.dirs.root.join(df::JOURNAL).is_file());
+    }
+}
+
+/// The partial-copy mirror of the same hole: the old folder mounted at the target's path (two paths of one folder,
+/// no link), with this move's marker in it so the marker does not stop it: recovery removes nothing and says why.
+#[test]
+#[cfg(target_os = "linux")] // a bind mount in a user namespace
+fn recovery_removes_nothing_when_the_target_is_the_old_folder_by_another_path() {
+    let (fx, before, to) = crashed_after_copy("bind-partial", &Facts::all_clear());
+    let j = dfm::read_journal(&fx.env).unwrap().unwrap();
+    std::fs::remove_dir_all(&to).unwrap();
+    std::fs::create_dir(&to).unwrap();
+    let marker = fx.dirs.root.join(df::MOVE_MARKER);
+    std::fs::write(&marker, serde_json::to_vec(&serde_json::json!({"format": 1, "id": j.id})).unwrap()).unwrap();
+    let task = serde_json::json!({"base": fx.base, "op": "remove_partial_copy"});
+    let r = in_mount_namespace(&fx.dirs.root, &to, "mount_namespace_child", &task);
+    std::fs::remove_file(&marker).unwrap();
+    let Some(c) = r else { return };
+    let c: dfm::Cleanup = serde_json::from_value(c).unwrap();
+    assert_eq!(tree(&fx.dirs.root), before, "nothing of the old folder is removed: {c:?}");
+    assert!(c.removed_files == 0 && !c.done && c.reason.as_deref().is_some_and(|r| r.contains("not two separate folders")), "{c:?}");
+}
+
+/// The partial-copy mirror with links: the target replaced by a link to the old folder (this move's marker put into
+/// the old folder, so only the guard stops it), and one folder below the target a link into the old folder. Nothing
+/// of the old folder is removed.
+#[test]
+#[cfg(unix)] // symlinks
+fn recovery_never_removes_the_old_folders_files_through_a_link() {
+    for case in ["target-is-a-link", "folder-below-is-a-link"] {
+        let (fx, before, to) = crashed_after_copy(&format!("partial-alias-{case}"), &Facts::all_clear());
+        let j = dfm::read_journal(&fx.env).unwrap().unwrap();
+        let marker = fx.dirs.root.join(df::MOVE_MARKER);
+        if case == "target-is-a-link" {
+            std::fs::rename(&to, fx.base.join("target-was")).unwrap();
+            symlink(&fx.dirs.root, &to).unwrap();
+            std::fs::write(&marker, serde_json::to_vec(&serde_json::json!({"format": 1, "id": j.id})).unwrap()).unwrap();
+        } else {
+            std::fs::rename(to.join("library"), fx.base.join("target-library-was")).unwrap();
+            symlink(fx.dirs.root.join("library"), to.join("library")).unwrap();
+        }
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        let _ = std::fs::remove_file(&marker);
+        assert_eq!(tree(&fx.dirs.root), before, "{case}: nothing of the old folder is removed: {c:?}");
+        if case == "target-is-a-link" {
+            assert!(c.removed_files == 0 && c.reason.as_deref().is_some_and(|r| r.contains("is a link") && r.contains(&to.display().to_string())), "{c:?}");
+        } else {
+            assert_eq!(kept_of(&c).get(&to.join("library")).map(String::as_str), Some(dfm::partial_reason::LINK), "{c:?}");
+        }
+    }
+}
+
+/// Hard links still go: after a move by hard links each old file is one of two names (link count two); the removal of
+/// the old copy takes the old name and leaves the new one, read nowhere twice.
+#[test]
+#[cfg(unix)] // link counts
+fn the_old_copy_made_of_hard_links_still_goes() {
+    let (fx, a, b) = removal_pending("hard-links-go", &linking());
+    let rel = lib_dir(&DataDirs::at(&a), &fx.mods.native).join("fps.dll").strip_prefix(&a).unwrap().to_path_buf();
+    assert_eq!(std::fs::metadata(b.join(&rel)).unwrap().nlink(), 2);
+    let before = tree(&b);
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.done && c.removed_files > 0 && !c.kept.iter().any(|k| k.reason.contains("link") || k.reason.contains("very file")), "{c:?}");
+    assert!(!a.join(&rel).exists() && std::fs::metadata(b.join(&rel)).unwrap().nlink() == 1);
+    assert_eq!(tree(&b), before);
+}
+
+// ------------------------------------------------------------------------------------------------ the cut-off file
+
+/// A move by copies whose process died in the middle of `backups/big.bin` (300 kB; its first 64 kB written).
+fn crashed_inside_a_file(tag: &str) -> (Fixture, BTreeMap<String, String>, PathBuf) {
+    let fx = Fixture::build(tag);
+    let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+    put(&fx.dirs.root, "backups/big.bin", &big);
+    let before = tree(&fx.dirs.root);
+    let to = fx.base.join("target");
+    let e = mv(&fx, &to, &Facts::all_clear(), &inject(Inject::DieInside(200_000))).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal);
+    let n = std::fs::metadata(to.join("backups/big.bin")).unwrap().len();
+    assert!(n > 0 && n < 300_000, "{n}");
+    assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Uncommitted { .. }));
+    (fx, before, to)
+}
+
+/// The file a crash cut off (the beginning of the old folder's file) goes, and the recovery finishes cleanly; the
+/// result names it.
+#[test]
+fn recovery_removes_the_one_file_a_crash_cut_off() {
+    let (fx, before, to) = crashed_inside_a_file("cut-off");
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(c.done && c.kept.is_empty() && c.folder_removed, "{c:?}");
+    assert_eq!(c.cut_off, [to.join("backups/big.bin")]);
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["cutOff"][0].as_str(), Some(to.join("backups/big.bin").to_str().unwrap()));
+    old_place_intact(&fx, &before, &to);
+}
+
+/// The beginning of another file of the old folder in the same target: an interrupted copy cuts off one file, so the
+/// second one stays, named; once it is taken out the rest goes and the result still names the one cut off.
+#[test]
+fn recovery_keeps_a_second_cut_off_file() {
+    let (fx, before, to) = crashed_inside_a_file("cut-off-twice");
+    let other = before.keys().find(|k| k.starts_with("library/") && std::fs::metadata(fx.dirs.root.join(k)).unwrap().len() >= 4).unwrap().clone();
+    let content = std::fs::read(fx.dirs.root.join(&other)).unwrap();
+    put(&to, &other, &content[..content.len() / 2]);
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    let kept = kept_of(&c);
+    let (big, second) = (to.join("backups/big.bin"), to.join(&other));
+    assert_eq!(c.cut_off.len(), 1, "{c:?}");
+    let left = if c.cut_off[0] == big { &second } else { &big };
+    assert_eq!(kept.get(left).map(String::as_str), Some(dfm::partial_reason::CUT_OFF_AGAIN), "{c:?}");
+    assert_eq!(kept.len(), 1, "{kept:#?}");
+    still_unfinished(&fx, &to, &c);
+    std::fs::remove_file(left).unwrap();
+    let c2 = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(c2.done && c2.kept.is_empty() && c2.cut_off == c.cut_off, "{c2:?}");
+    old_place_intact(&fx, &before, &to);
+}
+
+/// A cancel right after the cut-off file went, then a second call: the journal remembers it, so a second cut-off file
+/// gets no second removal.
+#[test]
+fn a_resumed_recovery_gets_no_second_cut_off_file() {
+    let fx = Fixture::build("cut-off-resumed");
+    let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+    put(&fx.dirs.root, "backups/big.bin", &big);
+    put(&fx.dirs.root, "backups/zz-second.bin", &big);
+    let to = fx.base.join("target");
+    mv(&fx, &to, &Facts::all_clear(), &inject(Inject::DieInside(200_000))).unwrap_err();
+    put(&to, "backups/zz-second.bin", &big[..1000]);
+    struct CancelWhenGone(PathBuf);
+    impl Progress for CancelWhenGone {
+        fn report(&mut self, _: Option<f32>, _: &str) {}
+        fn canceled(&self) -> bool {
+            !self.0.exists()
+        }
+    }
+    let c = dfm::remove_partial_copy_with(&fx.env, &mut CancelWhenGone(to.join("backups/big.bin"))).unwrap();
+    assert!(c.interrupted && c.cut_off == [to.join("backups/big.bin")], "{c:?}");
+    let Pending::Uncommitted { journal } = dfm::pending(&fx.env).unwrap() else { panic!() };
+    assert_eq!(journal.result.map(|r| r.cut_off), Some(vec![to.join("backups/big.bin")]), "the journal remembers it");
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(kept_of(&c).get(&to.join("backups/zz-second.bin")).map(String::as_str), Some(dfm::partial_reason::CUT_OFF_AGAIN), "{c:?}");
+    assert_eq!(c.cut_off, [to.join("backups/big.bin")]);
+}
+
+/// Not a cut-off file: one of the same length whose last byte differs, one longer than the old folder's, a shorter one
+/// whose first byte differs, and a server record cut off (it is written whole, never cut off by a copy). Each stays,
+/// named; nothing is listed as cut off.
+#[test]
+fn recovery_takes_only_a_true_beginning_for_a_cut_off_file() {
+    let (fx, _, to) = crashed_after_copy("not-cut-off", &Facts::all_clear());
+    let files: Vec<String> = tree(&fx.dirs.root).keys().filter(|k| k.starts_with("library/") && std::fs::metadata(fx.dirs.root.join(k)).unwrap().len() >= 4).cloned().collect();
+    let (last_byte, longer, shorter) = (to.join(&files[0]), to.join(&files[1]), to.join(&files[2]));
+    let mut b = std::fs::read(&last_byte).unwrap();
+    *b.last_mut().unwrap() ^= 0xff;
+    std::fs::write(&last_byte, &b).unwrap();
+    let mut b = std::fs::read(&longer).unwrap();
+    b.extend_from_slice(b"more");
+    std::fs::write(&longer, &b).unwrap();
+    let mut b = std::fs::read(&shorter).unwrap();
+    b.truncate(b.len() / 2);
+    b[0] ^= 0xff;
+    std::fs::write(&shorter, &b).unwrap();
+    let record = to.join("servers/isles.json");
+    let start = std::fs::read(fx.dirs.root.join("servers/isles.json")).unwrap()[..5].to_vec();
+    assert_eq!(std::fs::read(&record).unwrap()[..5], start[..], "the record's beginning is the old folder's too");
+    std::fs::write(&record, &start).unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    let kept = kept_of(&c);
+    for p in [&last_byte, &longer, &shorter, &record] {
+        assert_eq!(kept.get(p).map(String::as_str), Some(dfm::partial_reason::DIFFERS), "{}: {kept:#?}", p.display());
+    }
+    assert!(c.cut_off.is_empty(), "{c:?}");
+}
+
+/// The beginning of a file of the old folder that is reached through a link there (the file itself, or a folder on
+/// the way) is not a cut-off file: it stays, named.
+#[test]
+#[cfg(unix)] // symlinks
+fn a_cut_off_file_proven_only_through_a_link_stays() {
+    let (fx, _, to) = crashed_after_copy("cut-off-link", &Facts::all_clear());
+    let files: Vec<String> = tree(&fx.dirs.root).keys().filter(|k| k.starts_with("library/") && std::fs::metadata(fx.dirs.root.join(k)).unwrap().len() >= 4).cloned().collect();
+    // the file itself a link in the old folder
+    let leaf = files[0].clone();
+    let real = fx.base.join("elsewhere-file");
+    std::fs::rename(fx.dirs.root.join(&leaf), &real).unwrap();
+    symlink(&real, fx.dirs.root.join(&leaf)).unwrap();
+    let content = std::fs::read(&real).unwrap();
+    std::fs::write(to.join(&leaf), &content[..content.len() / 2]).unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(kept_of(&c).get(&to.join(&leaf)).map(String::as_str), Some(dfm::partial_reason::NO_SUCH_FILE), "{c:?}");
+    assert!(c.cut_off.is_empty() && to.join(&leaf).is_file(), "{c:?}");
+}
+
+/// A server record the move copied as it is (its `backupDir` is not below the old folder) and that is cut off is not
+/// a cut-off file either: server records are written whole, so it stays, named.
+#[test]
+fn a_cut_off_server_record_stays() {
+    let fx = Fixture::build("cut-off-record");
+    put(&fx.dirs.root, "servers/plain.json", b"{\n  \"id\": \"plain\",\n  \"backupDir\": \"/elsewhere/backups\"\n}\n");
+    let to = fx.base.join("target");
+    mv(&fx, &to, &Facts::all_clear(), &inject(Inject::StopAfter(Step::Copy))).unwrap_err();
+    let copy = to.join("servers/plain.json");
+    assert_eq!(std::fs::read(&copy).unwrap(), std::fs::read(fx.dirs.root.join("servers/plain.json")).unwrap(), "copied as it is");
+    std::fs::write(&copy, b"{\n  \"id\"").unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(kept_of(&c).get(&copy).map(String::as_str), Some(dfm::partial_reason::DIFFERS), "{c:?}");
+    assert!(c.cut_off.is_empty(), "{c:?}");
+}
+
+/// Recovery visits the journal's entries smallest first: a cancel after the files of every smaller entry leaves the
+/// largest entry whole and nothing of the smaller ones (the small files a launcher running on the old folder rewrites
+/// are gone before a player cancels in the large ones).
+#[test]
+fn recovery_removes_the_small_entries_first() {
+    let fx = Fixture::build("smallest-first");
+    let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+    put(&fx.dirs.root, "backups/big.bin", &big);
+    put(&fx.dirs.root, "backups/install-20261101T000000Z/big.bin", &big);
+    let to = fx.base.join("target");
+    mv(&fx, &to, &Facts::all_clear(), &inject(Inject::StopAfter(Step::Copy))).unwrap_err();
+    let j = dfm::read_journal(&fx.env).unwrap().unwrap();
+    let largest = j.entries.iter().max_by_key(|e| e.bytes).unwrap().name.clone();
+    assert_eq!(largest, "backups");
+    fn files(p: &Path) -> usize {
+        match std::fs::symlink_metadata(p) {
+            Ok(m) if m.is_dir() => std::fs::read_dir(p).unwrap().flatten().map(|e| files(&e.path())).sum(),
+            Ok(m) if m.is_file() => 1,
+            _ => 0,
+        }
+    }
+    let smaller: Vec<String> = j.entries.iter().filter(|e| e.name != largest).map(|e| e.name.clone()).collect();
+    let in_smaller: usize = smaller.iter().map(|n| files(&to.join(n))).sum();
+    let in_largest = files(&to.join(&largest));
+    assert!(in_smaller > 3 && in_largest > 1, "{in_smaller} {in_largest}");
+    let mut p = CancelAt { after: in_smaller as u32, polls: std::cell::Cell::new(0), reports: vec![] };
+    let c = dfm::remove_partial_copy_with(&fx.env, &mut p).unwrap();
+    assert!(c.interrupted && c.removed_files as usize == in_smaller, "{c:?}");
+    let left: Vec<(String, usize)> = smaller.iter().map(|n| (n.clone(), files(&to.join(n)))).filter(|(_, n)| *n > 0).collect();
+    assert!(left.is_empty(), "nothing of the smaller entries is left: {left:?}");
+    assert_eq!(files(&to.join(&largest)), in_largest, "the largest entry is whole");
 }
