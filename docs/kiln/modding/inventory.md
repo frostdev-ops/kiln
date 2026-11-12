@@ -133,27 +133,119 @@ and reports with a flag. Removing shroudlink's mods never touches Kiln's hooks.
 
 Lab switch: `KILN_ITEMS_HOOKS=early` installs Kiln's hooks at load, before kiln-shroudlink starts, to try the other order.
 
-## Per-item instance data and affixes
+## Data on one item (`InstanceData`)
 
-dev.20 does not add these. What the research found, so the next step starts there:
+A mod can keep a value on one particular item (this sword, not "a sword", and not its slot), and the value stays with
+that item when it moves, when the world saves, and after a restart. The API is in Kiln.Saves
+([services/saves.md](../services/saves.md), "Instance data"); the items come from Kiln.Items' item instances
+([services/items.md](../services/items.md), "Item instances (v4)"). Sample: `mods/samples/ItemData` (`/notch` on the
+weapon in your hand).
 
-- **No free-form payload was found in the inspected item components.** A piece of gear is a "pide" entity with fixed components: `Level`,
-  `PerkContainerNew`, `ItemState`, `Durability`, `OwnerRelationship`, `WeaponGemSlot`, `Fuel`. A plain stack is `{item, count}`
-  in an `Inventory` component. There is no spare field to put a mod's value in.
-- **Enshwick (MIT) keeps it beside the game.** At the
-  [alpha.13 commit](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/item_data.rs),
-  its `item_data_*` is a table keyed by the item entity within a session and by
-  its *place* (the placed container and the slot, or the character and the slot) on a save. Its affixes are rolled
-  modifier bundles stored as that item data and applied by Enshwick's own stat engine
-  ([source](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/stats/affixes.rs)).
-  Ambiguous or missing anchors are kept aside and cannot attach to a later item.
-- **`EntityData` is session-only on item entities.** A value keyed to the item entity follows `Items.Move` within a
-  session. It cannot use Kiln.Saves' template-and-world-position identity: swords have no `CurrentTransform`, and two
-  identical swords have the same default position. The restart test exposed tags merging and binding to the wrong
-  sword. Kiln now reports `EntityData.IsPersistent(itemEntity) == false`, omits these attachments from new saves, and
-  refuses to bind old positional item records. Saved world entities such as chests keep their normal persistence.
-- **Deferred stretch:** a persistent item-data API needs an inventory/character-and-slot anchor, item checks and
-  ambiguity handling. Affixes also need a modifier engine. Neither is supplied by this work package.
+```csharp
+public sealed class Notches { public int Count { get; set; } }
+
+private InstanceKey<Notches> _notches = null!;
+public override void OnLoad() => _notches = InstanceData.Key<Notches>("notches");   // one typed key per kind of value
+
+// an ItemInstanceRef: Items.Held(player), Items.Equipped(player, slot), Items.Read(holder).Slots[i].Ref, a give, take or move result
+void Notch(ItemInstanceRef sword) => sword.Get(_notches).Count++;   // the live object; saved with the world
+```
+`Get`, `TryGet`, `Has`, `Set`, `Remove` on the item; `InstanceData.All(key)` lists the items that carry it in this
+session, `InstanceData.Parked(key)` the records waiting for their item or set aside, with the reason. Three events
+report what happens to stored data: `InstanceDataRestoredEvent` (back on its item after a load or a join: `Exact` or
+`Moved`), `InstanceDataParkedEvent` (waiting: the holder is not loaded, or the player left) and `InstanceDataLostEvent`
+(`Destroyed`, `Unmatched`, `Ambiguous`). Admins list everything with `/instances [player|entity]`.
+
+### Which API
+| The thing | API |
+|---|---|
+| an item with an item entity of its own: gear, tools, a watering can, wherever it is (a chest, a backpack, the action bar, worn, a tombstone) | `InstanceData` |
+| a plain stack (wood, arrows): it has no item entity, so there is nothing to keep data on | none |
+| a placed object (a chest itself, a station, a prop) or a creature | `EntityData` |
+| a player | `PlayerData`, or `CharacterData` per character |
+
+`EntityData.IsPersistent(itemEntity)` stays false: an item entity has no position, and `EntityData`'s
+template-and-position identity once bound a tag to the wrong sword after a restart (dev.20). Use `InstanceData` for
+items.
+
+`Persist` says where a value is kept. `Persist.World` (the default) keeps the value on this world's save, the item in a
+player's inventory included. `Persist.Session` keeps it until the server stops. **`Persist.Carried` is not in this
+release:** data that travels with a character between worlds is not available yet, and declaring such a key throws
+`KilnUnavailableException("saves.instance_data.carried")` saying so.
+
+### How a value finds its item again
+The game keeps no id for an item: every load and every join makes new item entities from compact save records. Kiln
+writes, at each save, where each item with data is (its holder and slot), the fields of its save record (item id,
+level, perks, gem, dye) and the holder's whole list of items. After a load or a join, per holder:
+- the holder is exactly as it was saved and as the loader made it: each record goes to the item in its own slot, two
+  identical items included;
+- otherwise a record goes to an item only if that item is the one item of the holder with those fields, wanted by no
+  other record (`Exact` in its slot, `Moved` elsewhere);
+- when that is not certain (two identical items in a holder that changed, a holder found twice within its radius, a
+  record without the holder's list), every record concerned is **set aside**: reported (`Ambiguous`), listed by
+  `Parked` and `/instances`, kept, and never attached by itself, not in a later session either;
+- a record whose item is not there waits, and is dropped after 3 sessions (`Unmatched`). A player's records wait for
+  the character's next join.
+
+**The one case nobody can detect:** two items with equal save records swapped while no Kiln was watching (in another
+world without Kiln, or edited offline), with nothing else in the holder changed; or an item taken away while no Kiln
+was watching and a look-alike put in its place. Both look exactly as if nothing had happened.
+
+Caps: 256 records per holder per mod (on an item, waiting and set aside together; the oldest waiting or set-aside go
+first) and 64 KB per value as JSON (`Set` throws `ArgumentException` above it). A destroyed item (trash, crafting, taken
+away) drops its data at once with `Destroyed`.
+
+**When a player leaves** (the order in the game, server 26430253): from the menu, the game saves first (Kiln writes the
+character's records in that save), kiln.players reports the leave, and only then are the player's item entities
+destroyed, so the records wait with the character for the next join. After a crash or a lost connection there is no
+leave save: the client keeps the character file of the last world save it received, and Kiln compares the inventory
+that comes back with every state the client may have kept. A server shutdown takes everyone at once.
+
+### What is proven where
+**Items in chests and other world holders are proven on a test server; items in a player's inventory wait for the
+guided client pass.** On a lab server with a copy of a real world and no player (dev.25, `mods/tests/instances-test`):
+two identical swords and their look-alikes, each with its own value, moved within a chest, between chests, swapped,
+moved by the game's move all and by a move no hook sees, kept their own values after a stop, after `kill -9` between
+saves and right after one, and after a restored backup; 1,000 tagged identical swords in 42 chests came back on their own
+items after a restart; a mod that was not loaded for one boot found its values on its swords after they had moved;
+whenever a holder had changed in a way Kiln could not follow, the records concerned were set aside. No item got another
+item's value in any run. A lab cannot make a real player: a simulated player has no inventory, so the lab shows only that
+a character's records wait across its leave, a rejoin in another slot and a restart, are listed, and attach to nothing.
+Everything about items in a backpack, on the action bar or worn is in the checks below, which have not been run yet.
+
+### Affixes
+An item's perks are not stored on the item: an instance holds only how many perks it has and how many are unlocked,
+and which perks those are comes from its item type, so two instances of one item can never have different perks. Rolled
+affixes therefore need item data plus a modifier engine that applies them (planned, large); a fixed set of perks can
+already be its own item variant.
+
+Enshwick (MIT) built the same idea first: at its
+[alpha.13 commit](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/item_data.rs)
+item data is keyed by the item entity in a session and by its place (container and slot, or character and slot) on a
+save, with ambiguous anchors kept aside; its affixes are rolled modifier bundles stored as that data and applied by its
+own stat engine ([source](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/stats/affixes.rs)).
+
+### Client checklist for item data (guided checks, `mods/tests/instances-test/ClientChecks.cs`)
+Join a server that runs `instances-test`, open the check list (Ctrl+Shift+F5) and run them (area "Item data"). The
+`.before` / `.after` pairs span a leave, a crash or a restart. None of them has run yet.
+
+| Check | You do | The server asserts |
+|---|---|---|
+| `instances.held-moves` | drag a new sword to the action bar, take it in hand, into a chest, back | `Items.Held` named it; every drag an `ItemMovedEvent` (`Observed`), one to the chest; the value stayed |
+| `instances.twins-swap` | swap two identical swords by hand, both into a chest and back | each keeps its own value through every move |
+| `instances.equip` | put on a piece of armour, take it off | `Items.Equipped` named it; equip and unequip as `Observed` moves; the value stayed |
+| `instances.held-equipped` | hold a weapon, wear armour | lists `Items.Held` and every `Items.Equipped` slot: you compare |
+| `instances.trash` | trash a marked sword | `Destroyed`, nothing parked |
+| `instances.craft` | craft with a marked gear item as an ingredient (skip if no recipe takes one) | `Destroyed`, nothing parked |
+| `instances.tombstone` | with the tombstone mode that drops everything, die and loot the sword back | moves to the tombstone and back as `Observed`; the value stayed |
+| `instances.gift` (two players) | gift a marked sword to the other player | an `Observed` move to the other player; the value went with it |
+| `instances.leave.before` / `.after` | leave through the menu, rejoin | each value in its slot; the leave save came before `Players.Left`, then each item parked (`PlayerLeft`) |
+| `instances.move-leave.before` / `.after` | move a sword and leave within a second, rejoin | the value in the new slot |
+| `instances.crash-swap.before` / `.after` | swap two identical marked swords by hand, close the game without the menu, rejoin | no leave save; each sword has its own value as the client's file has it, or both are set aside; never the other's |
+| `instances.shutdown.before` / `.after` | stay in game while the server stops; rejoin after the start | each value in its slot |
+| `instances.restart.before` / `.after` | leave, the server restarts, rejoin | each value in its slot |
+| `instances.elsewhere.before` / `.after` | play the character in a world without Kiln, move one sword, swap the identical two, come back | the moved one found (`Moved`); the identical two set aside; never another's value |
+| `instances.rejoin-ids` | run it right after a rejoin | nothing: logs each item entity id beside its flat slot (does a player's inventory load in slot order, as a chest's does?) |
 
 ## What was checked, and how
 
