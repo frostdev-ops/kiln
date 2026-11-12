@@ -5,6 +5,9 @@
 //   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
 //   chain.ini [late], state/boot.json, state/hooks.json.
 #include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "api.h"
 #include "chain_status.h"
@@ -284,13 +287,86 @@ void exit_call(uint32_t code) {
     reinterpret_cast<void (*)(uint32_t)>(g_exit_next)(code);
 }
 
+// ---- on_unload: is the exit link armed? ----
+// Proven under Wine only (Linux servers, Proton clients, the Steam Deck). On native Windows it is off by default in
+// this release: a link misplaced there would show as a crash at exit for every player, and dev.24 called no handler
+// there either. kiln.json "unloadAtExit": "auto" (the default: on under Wine, off on native Windows), "on" or "off"
+// (case does not matter); any other value counts as "auto" and is warned about. The block between the markers is pure
+// (no Windows, no Kiln calls): native/core/tests/test-unload.sh cuts it out of this file and runs its decision table.
+// unload-policy:begin
+struct UnloadPolicy {
+    bool armed = false;
+    bool warn = false;  // the setting is not auto, on or off: it counts as auto, and the boot log says so
+    std::string says;   // the boot line after "unload: ", e.g. "on (Wine 11.0; kiln.json \"unloadAtExit\": auto)"
+};
+
+// wine: the Wine version, "" on native Windows. setting: kiln.json's "unloadAtExit" (a string's value, else the JSON
+// text of the value), nullptr when the key is not there.
+inline UnloadPolicy unload_policy(std::string_view wine, const std::string* setting) {
+    std::string v = setting ? *setting : std::string("auto");
+    for (char& c : v)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    UnloadPolicy p;
+    p.warn = v != "auto" && v != "on" && v != "off";
+    const std::string key = !setting ? "kiln.json \"unloadAtExit\" not set: auto"
+                            : p.warn ? "kiln.json \"unloadAtExit\": \"" + *setting + "\", counted as auto"
+                                     : "kiln.json \"unloadAtExit\": " + (v == "auto" ? v : "\"" + v + "\"");
+    if (v == "off") {
+        p.says = "off (" + key + ")";
+    } else if (v == "on") {
+        p.armed = true;
+        p.says = wine.empty() ? "on on native Windows (" + key + "; proven under Wine only)"
+                              : "on (Wine " + std::string(wine) + "; " + key + ")";
+    } else if (!wine.empty()) {
+        p.armed = true;
+        p.says = "on (Wine " + std::string(wine) + "; " + key + ")";
+    } else {
+        p.says = "off on native Windows by default (not yet proven there; " + key +
+                 "); kiln.json \"unloadAtExit\": \"on\" turns it on";
+    }
+    return p;
+}
+// unload-policy:end
+
+// ntdll!wine_get_version (as Kiln.Host's Entry.WineVersion): the Wine version, "" on native Windows.
+std::string wine_version() {
+    using Fn = const char*(__cdecl*)();
+    const HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    const auto fn =
+        nt ? reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(nt, "wine_get_version"))) : nullptr;
+    if (!fn) return {};
+    const char* v = fn();
+    return v && *v ? std::string(v) : std::string("?");
+}
+
+// kiln.json's top-level "unloadAtExit" (config.cpp keeps no such key): a string's value, else the JSON text of the
+// value; nothing when there is no kiln.json, it does not parse, or the key is not there.
+std::optional<std::string> unload_setting() {
+    std::string text;
+    if (!read_file(paths().kiln / L"kiln.json", &text)) return std::nullopt;
+    const auto doc = nlohmann::json::parse(jsonc_to_json(text), nullptr, false);
+    if (!doc.is_object() || !doc.contains("unloadAtExit")) return std::nullopt;
+    const auto& v = doc["unloadAtExit"];
+    return v.is_string() ? v.get<std::string>() : v.dump();
+}
+
 // After every module ran kiln_plugin_main and on_ready, only with hooks on (no plugin is loaded in safe idle), and only
-// when a loaded module has an on_unload.
+// when a loaded module has an on_unload. One line says whether the link is armed and why.
 void arm_unload() {
     const size_t n = unload_prepare();
     if (!n) return;
+    const std::optional<std::string> setting = unload_setting();
+    const UnloadPolicy policy = unload_policy(wine_version(), setting ? &*setting : nullptr);
+    if (policy.warn)
+        KLOG_W("unload: kiln.json \"unloadAtExit\": %s is not \"auto\", \"on\" or \"off\"; it counts as \"auto\"",
+               setting->c_str());
+    if (!policy.armed) {
+        KLOG_I("unload: %s; %zu on_unload handler(s) will not be called at exit", policy.says.c_str(), n);
+        return;  // no link
+    }
     if (!hooks::ensure_ready()) {
-        KLOG_W("unload: kiln.hooks is not ready; %zu on_unload handler(s) will not be called", n);
+        KLOG_W("unload: %s, but kiln.hooks is not ready; %zu on_unload handler(s) will not be called",
+               policy.says.c_str(), n);
         return;
     }
     const struct {
@@ -308,14 +384,15 @@ void arm_unload() {
         KilnHandle h = 0;
         g_exit_via = a.via;
         if (hooks::chain::install_raw(0, target, o, reinterpret_cast<void*>(&exit_call), &g_exit_next, &h) == KILN_OK) {
-            KLOG_I("unload: %zu on_unload handler(s) will be called when the process exits with code 0 (link on %s; "
-                   "up to %lu ms each, %lu ms in all)",
-                   n, a.via, unload_handler_ms(), unload_total_ms());
+            KLOG_I("unload: %s: %zu on_unload handler(s) will be called when the process exits with code 0 (link on "
+                   "%s; up to %lu ms each, %lu ms in all)",
+                   policy.says.c_str(), n, a.via, unload_handler_ms(), unload_total_ms());
             return;
         }
         KLOG_W("unload: no link on %s", a.via);
     }
-    KLOG_W("unload: the process exit cannot be watched; %zu on_unload handler(s) will not be called", n);
+    KLOG_W("unload: %s, but the process exit cannot be watched; %zu on_unload handler(s) will not be called",
+           policy.says.c_str(), n);
 }
 
 void boot() {

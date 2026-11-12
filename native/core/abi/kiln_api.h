@@ -266,6 +266,9 @@ typedef struct KilnPluginInfo {
      * for a world thread or the main thread, LoadLibrary or FreeLibrary, restore patched game code, end the process.
      * Not called: a killed process (TerminateProcess, kill -9, a forced quit), a crash (also one the game catches and
      * ends with a non-zero exit code), safe idle, kiln_plugin_early (early plugins) and native mods (kiln_native.h).
+     * Where: under Wine (Linux servers, Proton clients, the Steam Deck) it is on. On native Windows it is off by
+     * default in this release (not yet proven there): kiln.json "unloadAtExit": "on" turns it on, "off" turns it off
+     * everywhere, "auto" (the default) is the rule above. kiln.log's "unload:" line at boot says which and why.
      * Test hosts may call it at any time. */
     void(KILN_CALL* on_unload)(void* user);
     void* user;
