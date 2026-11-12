@@ -134,6 +134,25 @@ rm -f "$work"/source/*.tar.gz
 tar --sort=name --owner=0 --group=0 --numeric-owner --mode='u=rwX,go=rX' --mtime="@$SOURCE_DATE_EPOCH" -C "$work" \
   --transform "s|^src|kiln-$version|" -czf "$work/source/kiln-$version-src.tar.gz" src
 [[ $(sed 's/[-+].*//' "$src/VERSION") == "${version%%-*}" ]] || die "VERSION in the export is $(cat "$src/VERSION"), not for $version"
+# The API gate (tools/release/api-gate.sh), before any build: no line of a PublicAPI.Shipped.txt removed since the
+# previous v* release, and new API only with a raised API version (Kiln.Mods.ApiVersion), so a mod can ask for it.
+if ((worktree)); then
+  gate_new=(--worktree)
+  prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+else
+  # GitHub makes the v* tags when a release is published: fetch them, or the gate and the notes start too early
+  git -C "$repo" fetch -q --tags origin 2>/dev/null || note "release: could not fetch tags; the API gate and the notes may start too early"
+  gate_new=("$full")
+  prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$full^" 2>/dev/null || true)
+fi
+if [[ -z $prev ]]; then
+  note "WARNING: no previous v* tag: the API gate has nothing to compare with (removed API and the API version are not checked)"
+else
+  step "API gate: the public API since $prev"
+  "$here/api-gate.sh" removed "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "shipped API was removed since $prev (above): the mod API is additive"
+  "$here/api-gate.sh" version-rule "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "new API needs a higher API version (above)"
+fi
+[[ -d ${KILN_API_BASELINE:-} ]] || note "WARNING: KILN_API_BASELINE is not a folder: pack.sh cannot compare the SDK's assemblies with the last released ones"
 # ShroudForge's runtime (submodule third_party/shroudforge, a GPL-3 component): git archive leaves submodules out, so
 # export the fork at the pinned commit with its own submodules, ship that as its corresponding source, and build from it
 sfpin=$(git -C "$repo" ls-tree "${full:-HEAD}" third_party/shroudforge | awk '$2 == "commit" {print $3}')
@@ -422,9 +441,7 @@ if [[ -n $notes ]]; then cp "$notes" "$out/RELEASE-NOTES.md"; else
     echo "# Kiln $version"
     echo
     if ((worktree)); then echo "Test build of the working tree at $KILN_GIT."; else
-      # GitHub makes the v* tags when a release is published: fetch them, or every release lists the whole history
-      git -C "$repo" fetch -q --tags origin 2>/dev/null || echo "release: could not fetch tags; the notes may start too early" >&2
-      prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$full^" 2>/dev/null || true)
+      # $prev: the previous v* tag, found (after fetching the tags) for the API gate in 1.
       echo "Changes since ${prev:-the start of the project}:"
       echo
       git -C "$repo" log --no-merges --format='- %s' ${prev:+"$prev.."}"$full" | head -60
@@ -525,6 +542,23 @@ if ((checks)); then
   printf '%s\n' "${results[@]}" | tee -a "$log"
 fi
 
+# The API record: what this release added is shipped now, so its Unshipped.txt lines move into Shipped.txt in the
+# repository's working tree (not committed: the closing text says so). Only after a release whose checks all ran and
+# passed, never for a test build, and only while the working tree's API files are the released commit's.
+api_moved=0
+if ((worktree)); then
+  note "API record: a test build of the working tree; the Unshipped.txt lines stay"
+elif ((!checks)) || printf '%s\n' "${results[@]}" | grep -q '^FAIL'; then
+  note "API record: not promoted (the checks failed or did not run); after a good release run tools/release/api-gate.sh promote"
+else
+  step "API record: Unshipped.txt lines into Shipped.txt"
+  if "$here/api-gate.sh" promote --if-same-as "$full" 2>&1 | tee -a "$log"; then
+    api_moved=$(git -C "$repo" status --porcelain -- ':(glob)managed/**/PublicAPI.*.txt' | wc -l)
+  else
+    note "API record: not promoted (above); the release itself is fine"
+  fi
+fi
+
 # Nexus Mods: what would go up (GET calls only); the upload itself is publish.sh --nexus or nexus.py --publish
 if ((nexus)) && [[ -f $HOME/.config/kiln-release/nexus.env ]]; then
   step "Nexus Mods (dry run)"
@@ -542,4 +576,10 @@ Next (by hand, see docs/kiln/launcher/releasing.md):
   tools/release/publish.sh $out             publish: the GitHub release, the dev channel pointer, frostdev.io
   python3 -I tools/release/nexus.py $out    Nexus Mods (dry run; --publish uploads): the nexus/ build, no self-update
 EOF
+if ((api_moved)); then
+  cat <<EOF | tee -a "$log"
+  The API record: $api_moved PublicAPI file(s) changed in $repo (this release's API moved from Unshipped.txt into
+  Shipped.txt). Commit them: git -C "$repo" commit -m "api: ship the API of $version" -- ':(glob)managed/**/PublicAPI.*.txt'
+EOF
+fi
 if printf '%s\n' "${results[@]}" | grep -q '^FAIL'; then exit 1; fi
