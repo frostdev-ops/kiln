@@ -101,7 +101,7 @@ Details per area: `docs/kiln/modding/` (loader, MDK, testing), `docs/kiln/{event
 |---|---|---|
 | Mixins, coremods, access transformers | `Hooks.Detour/Mid` (callable original, priority chains), `Memory.Patch` (auto-restore), `advanced` mods only | done |
 | Mappings (MCP/official/Parchment) | sigdb symbols verified per build + mod-shipped `sigdb/<side>.json` + `Kiln.Game` typegen from the game's reflection | done |
-| Reflection helpers | `Symbols.Get/Find/Hole`, `Constants.Get`, typed component reads (`Kiln.GameTypes.Components`) | done |
+| Reflection helpers | `Symbols.Get/Find/Hole`, `Constants.Get`, typed component reads (`Kiln.Ecs`, generated per game build; `Kiln.GameTypes.Components` is obsolete) | done |
 
 Known limit: under Wine, hot-reloading one of two mods that detour the same very hot function can stall the unload;
 one mod per hot function (docs/kiln/hooks.md).
@@ -164,7 +164,7 @@ one mod per hot function (docs/kiln/hooks.md).
 | Villager or NPC interaction events | `DialogueLineEvent`, `DialogueKnowledgeEvent` | manual test |
 | Server-side validation of client actions | `vetoClientKnowledge`, `checkDialogue`, `KnowledgeRequestEvent` | manual test |
 | Debugger attach to a running server | `kiln debug --dap` (netcoredbg) | dedicated servers on Linux/Wine; Windows and client not covered |
-| MDK templates | Kiln.Templates: 23 kinds, including native and a Kiln service | lab |
+| MDK templates | Kiln.Templates: 24 kinds, including native, a Kiln service and unit tests (`kiln-unit-test`) | lab |
 | Native mod SDK | Kiln.Sdk `native/`, `kiln_plugin` | built from the package with no repo |
 | Compile-time mod checks | Kiln.Analyzers KILN101-108, KILN110-112 (blocks), KILN190-198 (Kiln.GameIds: catalog, field paths) + code fixes | done |
 | Game ids as constants | Kiln.GameIds + `kiln catalog` | done |
