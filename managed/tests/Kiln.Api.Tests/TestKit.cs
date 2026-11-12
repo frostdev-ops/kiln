@@ -1,54 +1,15 @@
 // SPDX-License-Identifier: MIT
+// The fake-table registration lives in Kiln.TestKit, shared with the kit's own tests.
+global using FakeServiceRegistration = Kiln.TestKit.FakeServiceRegistration;
 using Xunit;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 namespace Kiln.Api.Tests;
 
-/// <summary>A fake table is published only for its allocation's lifetime; a replacement belongs to its own scope.</summary>
-internal sealed class FakeServiceRegistration : IDisposable
-{
-    private readonly Dictionary<string, nint> _tables;
-    private readonly string _name;
-    private readonly nint _table;
-
-    internal FakeServiceRegistration(Dictionary<string, nint> tables, string name, nint table)
-    {
-        _tables = tables;
-        _name = name;
-        _table = table;
-        tables[name] = table;
-    }
-
-    public void Dispose()
-    {
-        if (_tables.TryGetValue(_name, out var current) && current == _table) _tables.Remove(_name);
-    }
-}
-
-/// <summary>A backend that records log lines and lets a test say whether it is on the tick thread.</summary>
-internal sealed class FakeBackend : IKilnBackend
-{
-    public readonly List<string> Lines = [];
-    public bool TickThread = true;
-    public string Version => "test";
-    public bool IsTickThread => TickThread;
-    public bool HasFeature(string name) => false;
-    /// <summary>Native service tables a test provides (the fake kiln.types and kiln.assets).</summary>
-    public readonly Dictionary<string, nint> Tables = [];
-    public nint Service(string name, uint minVersion) => Tables.GetValueOrDefault(name);
-    public ulong OwnerCreate(string id) => 777;
-
-    public void Log(ulong owner, LogLevel level, string text)
-    {
-        lock (Lines) Lines.Add($"{level}: {text}");
-    }
-
-    public bool Logged(string part)
-    {
-        lock (Lines) return Lines.Any(l => l.Contains(part, StringComparison.Ordinal));
-    }
-}
+/// <summary>A backend that records log lines and lets a test say whether it is on the tick thread (Kiln.TestKit's
+/// <see cref="Kiln.TestKit.RecordingBackend"/>: lines, tables, the tick-thread switch).</summary>
+internal sealed class FakeBackend : Kiln.TestKit.RecordingBackend;
 
 /// <summary>Fresh Kiln state per test: a temp kiln folder, empty bus, configs, commands and permissions.</summary>
 public abstract class KilnTest : IDisposable

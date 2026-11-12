@@ -24,5 +24,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.TestKit.Tests" />
+    <!-- Kiln's own unit tests build their KilnTest fixture on the shared fakes (Shared/UnitTestFakes.cs). -->
+    <InternalsVisibleTo Include="Kiln.Api.Tests" />
   </ItemGroup>
 </Project>
