@@ -170,7 +170,7 @@ test("a start that fails after the profile was written again still shows what th
   await expectActivationNotices(page);
 });
 
-test("a modpack from a server's offer, and its Launch, show what the activation kept", async ({ page }) => {
+test("a modpack from a server's offer, and its Launch, show what the activation kept, each sentence once", async ({ page }) => {
   await page.clock.install();
   await page.goto("/#/");
   await page.locator(".k-splash").waitFor({ state: "detached" });
@@ -182,9 +182,15 @@ test("a modpack from a server's offer, and its Launch, show what the activation 
   await expect(page.getByRole("dialog", { name: "Modpack installed" })).toBeVisible({ timeout: 8000 });
   await page.clock.fastForward(3000);
   await expectActivationNotices(page);
-  await planActivation(page);
+  // Launch writes the profile again and says the same: shown once already, so not again (shell/notices.ts); a new
+  // sentence still comes, alone
+  await page.evaluate((r) => (window as unknown as Mock).__kilnMock.planActivation(r),
+    { ...REPORT, warnings: [...REPORT.warnings, "shroudforge:other: a note the first activation did not have"] });
   await page.getByRole("dialog", { name: "Modpack installed" }).getByRole("button", { name: "Launch" }).click();
-  await expectActivationNotices(page);
+  const notes = page.locator(".k-toast", { hasText: "Notes on your mods" });
+  await expect(notes).toContainText("a note the first activation did not have");
+  await expect(notes).not.toContainText("the setting speed was 7");
+  await expect(page.locator(".k-toast", { hasText: /Some mod folders were kept|Mod settings kept/ })).toHaveCount(0);
 });
 
 test("a server deploy's warnings stay until closed", async ({ page }) => {

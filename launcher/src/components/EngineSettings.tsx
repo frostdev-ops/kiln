@@ -130,6 +130,7 @@ export function EngineSettingsForm({ kind, id, profileId, gameId }: { kind: ModK
   return (
     <div className="k-stack" style={{ gap: 14 }} data-engine-settings={`${kind}/${id}`}>
       {blocked && groups.length > 0 && <Banner tone="info" title={blocked} />}
+      {s.ownFolder && <span className="k-hint" data-own-folder="">This is your own folder, not a copy Kiln placed: Kiln changes only the setting you change here.</span>}
       {s.file && <span className="k-hint k-mono k-ellipsis" title={s.file}>{s.format}: {s.file}</span>}
       {!groups.length ? <EmptyState title={s.note ? s.note.charAt(0).toUpperCase() + s.note.slice(1) + "." : "No settings."} /> : groups.map((g) => (
         <div key={g.title ?? "_"} className="k-stack" style={{ gap: 6 }}>

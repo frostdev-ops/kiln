@@ -268,3 +268,60 @@ test("a mod with several Library versions: its menu picks one and removes anothe
   await expect.poll(async () => (await api<{ id: string; versions: { version: string }[] }[]>(page, "libraryList")).find((e) => e.id === "more-hotbars")?.versions.map((v) => v.version)).toEqual(["2.1.0"]);
   await expect(r.getByRole("switch", { name: "More Hotbars" })).toHaveAttribute("aria-checked", "true");
 });
+
+// The player's report (dev.25): every mod switch raised the same "your own folder" notes again, a wall of text. Each
+// sentence is raised once per game now; Notes above the list reads them again; Settings can turn them off.
+test("switching mods raises a folder note once, Notes reads it again, and the setting turns the notes off", async ({ page }) => {
+  type Mock = { __kilnMock: { planActivation: (r: unknown) => void } };
+  const plan = (r: unknown) => page.evaluate((r) => (window as unknown as Mock).__kilnMock.planActivation(r), r);
+  const OWN = "shroudforge:better-chests: the game uses your own folder /games/Enshrouded/mods/BetterChests for this mod; Kiln leaves it as it is and places no copy of its own.";
+  const NEW = "shroudforge:better-chests: a note the earlier activations did not have.";
+  await desktop(page);
+  const sw = () => row(page, "Better Chests").getByRole("switch", { name: "Better Chests" });
+  await expect(sw()).toHaveAttribute("aria-checked", "true", { timeout: 10_000 });
+  const notes = page.locator(".k-toast", { hasText: "Notes on your mods" });
+  await plan({ warnings: [OWN] });
+  await sw().click();
+  await expect(notes).toContainText(OWN);
+  await notes.getByRole("button", { name: "Dismiss", exact: true }).click();
+  // the next switch says the same and one new sentence: only the new one comes
+  await plan({ warnings: [OWN, NEW] });
+  await sw().click();
+  await expect(notes).toContainText(NEW);
+  await expect(notes).not.toContainText(OWN);
+  await notes.getByRole("button", { name: "Dismiss", exact: true }).click();
+  // both are in Notes above the list
+  await page.locator(".k-hero").getByRole("button", { name: "Notes (2)" }).click();
+  const dialog = page.getByRole("dialog", { name: "Notes about your mod folders" });
+  await expect(dialog).toContainText(OWN);
+  await expect(dialog).toContainText(NEW);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  // off in Settings: a new note is not raised, the first notice of a folder that may still run a mod that is off is
+  await page.evaluate(() => { location.hash = "#/settings"; });
+  await page.getByText("Show notes about mod folders", { exact: true }).click();
+  await expect(page.getByRole("switch", { name: /^Show notes about mod folders/ })).not.toBeChecked();
+  await expect.poll(() => page.evaluate(async () => (await (await import("/src/api/commands.ts")).appSettingsGet()).modFolderNotes)).toBe(false);
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect(sw()).toBeVisible({ timeout: 10_000 });
+  await plan({ warnings: [OWN, NEW, "shroudforge:better-chests: a third note."], retained: [{ path: "mods/edited", reason: "files Kiln placed were changed. It is off in the profile, but ShroudForge may still load it.", mayRun: true, off: true }] });
+  await sw().click();
+  await expect(page.locator(".k-toast", { hasText: "Some mod folders were kept" })).toContainText("mods/edited");
+  await expect(notes).toHaveCount(0);
+  await expect(page.locator(".k-hero").getByRole("button", { name: "Notes (4)" })).toBeVisible();
+});
+
+// A ShroudForge mod the player's own folder serves: its settings are editable, and the dialog says that Kiln changes
+// only that setting there (engine_mods::set_setting).
+test("ShroudForge settings in the player's own folder can be edited and say whose folder it is", async ({ page }) => {
+  await desktop(page);
+  await page.evaluate(() => (window as unknown as { __kilnMock: { setSfOwnFolder: (id: string) => void } }).__kilnMock.setSfOwnFolder("better-chests"));
+  await expect(row(page, "Better Chests")).toBeVisible({ timeout: 10_000 });
+  await row(page, "Better Chests").getByLabel("More for Better Chests").click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Better Chests settings" });
+  await expect(dialog.locator("[data-own-folder]")).toHaveText("This is your own folder, not a copy Kiln placed: Kiln changes only the setting you change here.");
+  const sort = dialog.getByRole("switch", { name: "autoSort" });
+  await expect(sort).toBeEnabled();
+  await sort.dispatchEvent("click");
+  await expect(sort).toBeChecked();
+});

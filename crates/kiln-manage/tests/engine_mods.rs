@@ -1352,3 +1352,160 @@ fn a_placed_shroudforge_copy_that_needs_repair_is_repaired_when_its_switch_is_al
     let a = profile::activate(&dirs, &p.id, &game).unwrap();
     assert!(!a.warnings.iter().any(|w| w.contains("repaired")), "{a:?}");
 }
+
+/// What ShroudForge's own Modloader writes when the player saves a setting (or flips the switch) in its in-game menu
+/// (kiln-shroudforge modules/modloader update_mod_configuration.rs): the new value, and `targets` with ShroudForge's
+/// default right after `enabled` when the file has none (["client"], or ["client", "server"] for launcher EML), as
+/// pretty JSON.
+fn sf_modloader_save(dir: &Path, key: &str, value: serde_json::Value) {
+    let file = dir.join("extended.mod.json");
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let obj = doc.as_object().unwrap();
+    let eml = obj.get("launcher").and_then(|l| l.as_str()) == Some("EML");
+    let mut out = serde_json::Map::new();
+    for (k, v) in obj {
+        out.insert(k.clone(), v.clone());
+        if k == "enabled" && !obj.contains_key("targets") {
+            out.insert("targets".into(), if eml { serde_json::json!(["client", "server"]) } else { serde_json::json!(["client"]) });
+        }
+    }
+    let s = out.get_mut("settings").unwrap().get_mut(key).unwrap();
+    if s.is_object() { s["value"] = value; } else { *s = value; }
+    std::fs::write(&file, serde_json::to_vec_pretty(&serde_json::Value::Object(out)).unwrap()).unwrap();
+}
+
+/// A player with only Kiln's own copies changes a setting in ShroudForge's in-game menu: ShroudForge writes the file
+/// with its default `targets` added. The copy is still the one Kiln placed: the next activation keeps it as Kiln's
+/// (no "Some mod folders were kept" notice), and the launcher can still edit its settings and switch it.
+#[test]
+fn shroudforges_own_menu_writing_a_kiln_copy_leaves_it_kilns() {
+    let t = tmp("sf-own-menu");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/plainpack");
+    sf_package(&src, "plainpack"); // as most packages ship: no `targets`
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "plainpack");
+    let game = game_with_z(&t.0);
+    let mut p = profile::create(&dirs, "menu", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let mut p = profile::save(&dirs, &p).unwrap();
+    let first = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(first.retained.is_empty(), "{first:?}");
+    let dst = game.path.join("mods/plainpack");
+    sf_modloader_save(&dst, "speed", serde_json::json!(5));
+    assert!(std::fs::read_to_string(dst.join("extended.mod.json")).unwrap().contains("\"targets\""));
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(a.retained.is_empty(), "ShroudForge's own write made Kiln's copy look like the player's: {:?}", a.retained);
+    assert_eq!(a.warnings, first.warnings);
+    let cfg = t.0.join("config");
+    let s = engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(7), Some(&game.path), &cfg, None).unwrap();
+    assert_eq!(s.values["speed"], 7);
+    assert!(!s.own_folder);
+    p.mods.shroudforge[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(a.retained.is_empty(), "{:?}", a.retained);
+    let m = kiln_manage::shroudforge::read_mod(&dst).unwrap();
+    assert!(!m.enabled, "switched off in the profile, so off in ShroudForge's file");
+    assert_eq!(m.settings[0].value, 7, "the value stays");
+}
+
+/// The player's own ShroudForge folder (extracted before Kiln, then "Add it" in the launcher): Kiln never switches,
+/// replaces or removes it, but a setting the player changes in the launcher is written there, that value only.
+#[test]
+fn a_players_own_shroudforge_folder_takes_a_launcher_setting_and_nothing_else() {
+    let t = tmp("sf-own-setting");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/HoardersHelper");
+    sf_package(&src, "HoardersHelper");
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "hoardershelper");
+    let lib = library::path_of(&dirs, &h).unwrap();
+    let game = game_with_z(&t.0);
+    let own = game.path.join("mods/hoardershelper");
+    kiln_manage::util::copy_tree(&src, &own).unwrap();
+    let mut p = profile::create(&dirs, "own", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let mut p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(a.retained.is_empty(), "{a:?}");
+    assert!(a.warnings.iter().any(|w| w.contains("your own folder")), "{a:?}");
+    let ext = own.join("extended.mod.json");
+    let before = std::fs::read_to_string(&ext).unwrap();
+    let cfg = t.0.join("config");
+    let s = engine_mods::settings(ModKind::ShroudForge, &h.id, Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert!(s.own_folder, "{s:?}");
+    assert_eq!(s.values["speed"], 3);
+    let s = engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(9), Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert_eq!(s.values["speed"], 9);
+    assert!(s.own_folder);
+    let after = std::fs::read_to_string(&ext).unwrap();
+    assert_eq!(after, before.replace("\"value\":3", "\"value\":9"), "only that value changed");
+    assert!(!own.join(engine_mods::MARKER).exists(), "Kiln did not take the folder over");
+    // what ShroudForge refuses is refused here too, and the file stays
+    assert!(engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(99), Some(&game.path), &cfg, Some(&lib)).is_err());
+    assert!(engine_mods::set_setting(ModKind::ShroudForge, &h.id, "nope", &serde_json::json!(1), Some(&game.path), &cfg, Some(&lib)).is_err());
+    assert_eq!(std::fs::read_to_string(&ext).unwrap(), after);
+    // switching it off in the profile still leaves the folder as it is
+    p.mods.shroudforge[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(std::fs::read_to_string(&ext).unwrap(), after);
+    assert!(!kiln_manage::shroudforge::read_mod(&own).unwrap().enabled, "never switched");
+}
+
+/// The player's own copy under another folder name (ShroudForge finds packages by id): the launcher reads and writes
+/// the settings of that folder, not the Library's defaults.
+#[test]
+fn a_players_own_shroudforge_folder_under_another_name_shows_its_own_settings() {
+    let t = tmp("sf-own-elsewhere");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = t.0.join("src/HoardersHelper");
+    sf_package(&src, "HoardersHelper");
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "hoardershelper");
+    let lib = library::path_of(&dirs, &h).unwrap();
+    let game = game_with_z(&t.0);
+    let own = game.path.join("mods/Hoarders Helper");
+    kiln_manage::util::copy_tree(&src, &own).unwrap();
+    sf_modloader_save(&own, "speed", serde_json::json!(4));
+    let mut p = profile::create(&dirs, "own", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let cfg = t.0.join("config");
+    let s = engine_mods::settings(ModKind::ShroudForge, &h.id, Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert_eq!(s.values["speed"], 4, "the player's folder's value, not the Library's: {s:?}");
+    assert!(s.own_folder);
+    assert_eq!(s.file.as_deref(), Some(own.join("extended.mod.json").to_str().unwrap()));
+    engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(6), Some(&game.path), &cfg, Some(&lib)).unwrap();
+    assert_eq!(kiln_manage::shroudforge::read_mod(&own).unwrap().settings[0].value, 6);
+    assert!(!game.path.join("mods/hoardershelper").exists());
+}
+
+/// A kept copy says whether the profile has its mod off (`off`): the launcher's one notice that shows even with the
+/// notes about mod folders switched off is a folder that may still run although the mod is off.
+#[test]
+fn a_kept_copy_says_whether_its_mod_is_off_in_the_profile() {
+    let t = tmp("retained-off");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &sources(&t.0), &mut NoProgress).unwrap();
+    let sf = refs(&r, ModKind::ShroudForge, "sfpack");
+    let game = game_with_z(&t.0);
+    let mut p = profile::create(&dirs, "SF", None).unwrap();
+    p.mods.shroudforge.push(pm(&sf, true));
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let dst = game.path.join("mods/sfpack");
+    put(&dst, "src/mod.lua", b"player code");
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    let kept = a.retained.iter().find(|r| r.path == dst).unwrap();
+    assert!(kept.may_run && !kept.off, "{kept:?}");
+    p.mods.shroudforge[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    let kept = a.retained.iter().find(|r| r.path == dst).unwrap();
+    assert!(kept.may_run && kept.off, "{kept:?}");
+    let json = serde_json::to_value(kept).unwrap();
+    assert_eq!(json["off"], true);
+}

@@ -447,9 +447,11 @@ test.describe("notices", () => {
     await pad(page, "a");
     const install = page.locator('[data-deck-dialog="modpack"]').getByRole("button", { name: "Install", exact: true });
     await expect(install).toBeEnabled();
-    await plan(page);
+    // the same folder again is not raised again (each sentence once per game: shell/notices.ts); another one is
+    await plan(page, { retained: [{ ...KEPT.retained[0], path: "mods/XHL-Auto-Loot" }, ...KEPT.retained] });
     await install.click();
-    await expect(notice).toContainText("mods/XHL-Vein-Mining", { timeout: 8000 });
+    await expect(notice).toContainText("mods/XHL-Auto-Loot", { timeout: 8000 });
+    await expect(notice).not.toContainText("mods/XHL-Vein-Mining");
   });
 
   test("adding a mod from Downloads says what else it changed in the profile", async ({ page }) => {
@@ -466,19 +468,21 @@ test.describe("notices", () => {
     await expect(notice).toHaveCount(0);
   });
 
-  test("a long notice scrolls with the right stick, shows how often it came, and focus goes back after several", async ({ page }) => {
+  test("a long notice scrolls with the right stick, comes once, and focus goes back after several", async ({ page }) => {
     await openDeck(page);
     const many = Array.from({ length: 12 }, (_, i) => ({ path: `/home/player/.local/share/Steam/steamapps/common/Enshrouded/mods/Mod-${i}`, reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }));
     expect(await focused(page)).toBe("mouth");
     await page.evaluate(async (retained) => {
       const { notifyActivation } = await import("/src/shell/notices.ts");
       const a = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", retained };
-      notifyActivation(a as never);
-      notifyActivation(a as never);
-      notifyActivation({ ...a, retained: [], warnings: ["a second notice"] } as never);
+      await notifyActivation(a as never);
+      // the next activation says the same: not raised again
+      await notifyActivation(a as never);
+      await notifyActivation({ ...a, retained: [], warnings: ["a second notice"] } as never);
     }, many);
     const notice = page.locator('[data-deck-dialog="notice"]');
-    await expect(notice).toContainText("Some mod folders were kept (2 times)");
+    await expect(notice).toContainText("Some mod folders were kept");
+    await expect(notice).not.toContainText("(2 times)");
     const body = notice.locator("[data-deck-notice]");
     const fits = await body.evaluate((el) => el.scrollHeight <= el.clientHeight);
     expect(fits, "a dozen folders do not fit at 1280x800").toBe(false);
@@ -507,6 +511,43 @@ test.describe("notices", () => {
     await page.clock.fastForward(7000);
     await expect(notice).toContainText("Kept folder 0");
     await expect(notice).not.toContainText("an old error");
+  });
+
+  test("Settings reads the notes about mod folders again and turns them off", async ({ page }) => {
+    await openDeck(page);
+    const OWN = "shroudforge:better-chests: the game uses your own folder /games/Enshrouded/mods/BetterChests for this mod; Kiln leaves it as it is and places no copy of its own.";
+    await page.evaluate(async (own) => {
+      const { notifyActivation } = await import("/src/shell/notices.ts");
+      await notifyActivation({ gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00",
+        activated: "2099-01-01T00:00:00Z", warnings: [own] } as never);
+    }, OWN);
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText(OWN);
+    await pad(page, "a");
+    await expect(notice).toHaveCount(0);
+    await page.evaluate(() => { location.hash = "#/deck/settings"; });
+    const read = page.locator('[data-deck-id="set-notes"]');
+    await expect(read).toContainText("1");
+    const sw = page.locator('[data-deck-id="set-notes-switch"]');
+    await expect(sw).toContainText("On");
+    await sw.focus();
+    await pad(page, "a");
+    await expect(sw).toContainText("Off");
+    await expect.poll(() => page.evaluate(async () => (await (await import("/src/api/commands.ts")).appSettingsGet()).modFolderNotes)).toBe(false);
+    await page.evaluate(async (own) => {
+      const { notifyActivation } = await import("/src/shell/notices.ts");
+      await notifyActivation({ gameId: "client-steam", profileId: "ember-run", generation: 10, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00",
+        activated: "2099-01-01T00:00:01Z", warnings: [own, "shroudforge:x: another note"] } as never);
+    }, OWN);
+    await expect(read).toContainText("2");
+    await expect(notice).toHaveCount(0);
+    await read.focus();
+    await pad(page, "a");
+    const dialog = page.locator('[data-deck-dialog="folder-notes"]');
+    await expect(dialog).toContainText(OWN);
+    await expect(dialog).toContainText("another note");
+    await pad(page, "b");
+    await expect(dialog).toHaveCount(0);
   });
 
   test("the retained-folder warning shows its paths and reasons and a pad closes it", async ({ page }) => {

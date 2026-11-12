@@ -233,7 +233,7 @@ are not presented as complete upstream overlay parity.
 - The launcher inventories the Library-owned files in each placed copy separately from runtime/player files.
   Added files and changed SET `settings.json` survive reapply and updates. On disable/removal they are retained under
   `kiln/kept-mod-files/set/<id>/` and restored when that mod is placed again; activation returns a `keptFiles` result
-  and the launcher shows a **Mod settings kept** note when files are retained or restored. Server sync reports the
+  and the launcher shows a **Mod settings kept** note when files are retained or restored (once per sentence and game; Notes above the mod list has it again). Server sync reports the
   same result through its progress messages. Conflicting earlier retained data is parked as `.kept-N`, not deleted.
   If a new version ships a non-settings file under a previously generated file's name, the shipped file wins in the
   active copy and the generated file is kept aside. A copy whose originally Library-owned code/data changed or went

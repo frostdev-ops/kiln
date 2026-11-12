@@ -338,3 +338,29 @@ fn dropins_with_engine_switches_round_trip() {
     p = with_dropin(&p, *all.last().unwrap());
     assert!(p.dropins_file().is_all() && p.dropins_engines);
 }
+
+/// "Add it" on a ShroudForge package the player extracted into ShroudForge's mods folder before Kiln: the Library
+/// gets a copy and the profile the entry, but the player's folder stays theirs (Kiln never takes over a folder it did
+/// not place). ShroudForge runs packages by id, so Kiln places no second copy: every activation says that the player's
+/// own folder serves the mod (the launcher shows that note once).
+#[test]
+fn an_added_shroudforge_folder_stays_the_players_own_at_every_activation() {
+    let t = tmp("sf-add-own");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let g = game(&t.0, true);
+    put(&g.path, "mods/HoardersHelper/mod.json", br#"{"id":"HoardersHelper","name":"Hoarder's Helper","version":"1.0.0"}"#);
+    put(&g.path, "mods/HoardersHelper/extended.mod.json", br#"{"schemaVersion":1,"launcher":"SF","enabled":true,"settings":{"speed":{"value":3,"min":1,"max":10}}}"#);
+    put(&g.path, "mods/HoardersHelper/src/mod.lua", b"return {}");
+    let p = crate::profile::create(&dirs, "Side", None).unwrap();
+    let r = add(&dirs, &g, &p.id, "mods/HoardersHelper", &mut crate::task::NoProgress).unwrap();
+    assert_eq!(r.added.iter().map(|a| (a.kind, a.id.as_str())).collect::<Vec<_>>(), [(ModKind::ShroudForge, "hoardershelper")], "{r:?}");
+    for _ in 0..2 {
+        let a = crate::profile::activate(&dirs, &p.id, &g).unwrap();
+        assert!(a.retained.is_empty(), "{a:?}");
+        let notes: Vec<_> = a.warnings.iter().filter(|w| w.contains("your own folder")).collect();
+        assert_eq!(notes.len(), 1, "{a:?}");
+        assert!(notes[0].starts_with("shroudforge:hoardershelper: ") && notes[0].contains("HoardersHelper"), "{notes:?}");
+        assert!(!g.path.join("mods/hoardershelper").exists(), "no second package of the same id");
+        assert!(!g.path.join("mods/HoardersHelper").join(crate::engine_mods::MARKER).exists(), "never adopted");
+    }
+}

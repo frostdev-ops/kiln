@@ -1,7 +1,8 @@
 // The main screen's list of every mod (shell/mods.ts): a switch, the name, the kind, the version, one short note when
 // there is something to say, and a menu with what the profile tabs and the Library page offered for the mod (settings,
 // configs, the version, its folder, remove). A mod found in the game folder is a row with its state and its fix, no
-// switch. Above the list: the filter (with many mods), Load order, Engines and Add mods. It scrolls inside the page.
+// switch. Above the list: the filter (with many mods), Notes (what the last activation said about mod folders, when it
+// said something), Load order, Engines and Add mods. It scrolls inside the page.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
@@ -11,6 +12,7 @@ import type { AddReport, GameInstall, ModKind } from "../../api/commands";
 import { qk, useNexusEnabled } from "../../api/hooks";
 import { KIND_NAME, KIND_SHORT, KIND_TONE, SETTINGS_KINDS } from "../../api/kinds";
 import { EngineSettingsModal } from "../../components/EngineSettings";
+import { FolderNotesButton } from "../../components/FolderNotes";
 import { ConfigEditor } from "../../components/ConfigEditor";
 import { useAddMods } from "../../shell/drop";
 import { filterRows, kindsOf, type ModRow } from "../../shell/mods";
@@ -112,6 +114,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
           </>
         )}
         <span className="k-spacer" />
+        <FolderNotesButton gameId={game.id} />
         <Link className="k-link" to="/mods/order">Load order</Link>
         <Link className="k-link" to="/mods/engines">Engines</Link>
         {nexus && <Link className="k-link" to="/catalog">Catalog</Link>}

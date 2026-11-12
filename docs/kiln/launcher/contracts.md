@@ -83,6 +83,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | `profiles/<pid>/data/` | per-mod data when the profile chooses `dataDir: profile` |
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
 | `installs/<installId>.json` | the launcher's record of a game install: the `GameInstall` + a copy of its receipt |
+| `installs/<installId>.notices-seen.json` | (dev.26) which activation notices the launcher has raised for that game: `{format: 1, seen: [sha256 hex of each sentence]}`, oldest first, at most 512 (`kiln_manage::notices`, `notices_unseen`) |
 | `runtime/kiln-runtime-<version>.zip` | runtime bundles (import, rollback) |
 | `schema-cache/<modid>/<version>+<hash8>/<file>.json` | config schema snapshots cached per mod version |
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |
@@ -439,7 +440,10 @@ The marker alone is advisory: marker-only older copies and player-modified folde
 upgrade inventory excludes only ShroudForge's mutable enabled switch and setting values. Deactivate/uninstall cleanup
 additionally requires the exact extension text to match; old receipts without it conservatively retain SF copies.
 Only Kiln's own switch of an unchanged extension advances that exact receipt, never player settings carried through
-an upgrade. Retained folders are returned as `{path, reason, mayRun}`: by deactivate and uninstall (`PlacementCleanup`)
+an upgrade. ShroudForge's own Modloader adds `targets` with its default (`["client"]`, `["client", "server"]` for
+launcher EML) when its in-game menu writes a file without one; that default is what ShroudForge reads from a file
+without it, so such a file still matches the receipt (dev.26). Retained folders are returned as `{path, reason, mayRun,
+off?}` (`off`, dev.26: the profile has the mod off or no longer lists it): by deactivate and uninstall (`PlacementCleanup`)
 and by every activation (`Activation.retained`: a copy the profile switched off, removed or wants in another version,
 that activation leaves because its code changed or Kiln cannot inspect or carry what is in it; one such copy never fails
 the activation of the others). The launcher displays paths/reasons until dismissed and warns they may still run through
@@ -856,7 +860,8 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
    player: `retained` (`{path, reason, mayRun}`, as above), `keptFiles` (one sentence per mod whose files went to or came
    back from `kiln/kept-mod-files/` or `kiln/state/placed-settings/`), `warnings` (notes such as a ShroudForge setting
    value a new version refuses, a profile entry the player's own folder serves), `ownLoaders`. Each `retained` reason
-   ends with what still runs from that folder. The launcher shows the first three until dismissed wherever a command
+   ends with what still runs from that folder. The launcher shows the first three until dismissed, each sentence once
+   per game (`notices_unseen`; [app.md](app.md) "Notices about mod folders"), wherever a command
    returns an `Activation` or carries one (`AddReport.activation`, `ModpackInstallResult.activation`,
    `LaunchResult.activation`, an install result's `activation`, an error's `detail.activation`: `shell/notices.ts`).
    A re-apply without `profile_activate` (a profile save, a change outside the launcher, the watcher's start-up pass,
@@ -1007,6 +1012,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
 | profile | `profile_active` | gameId | `Activation \| null` (null also when another data folder's profile is active in the game) |
 | profile | `activation_notices` | - | `Activation[]`: the re-applies' activations the window has not shown yet, oldest first; each is returned once (`kiln://activation`) |
+| profile | `notices_unseen` | gameId, lines: `{text: string, safety?: boolean}[]` | `string[]` (dev.26): the `text`s to raise now: those not raised before for this game, which from now on count as raised (`installs/<id>.notices-seen.json`, section 3); with `LauncherSettings.modFolderNotes` off only `safety` lines (a retained folder with `mayRun` and `off`) are considered. Refused while the data folder is held, like every command not listed open (`src-tauri/src/folder.rs`) |
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |
@@ -1119,8 +1125,8 @@ or emits `kiln://update`; its UI calls none of these commands.
 | nexus | `nexus_link_dismiss` | linkId | null |
 | nexus | `nexus_handler_status` | - | `HandlerStatus {supported, registered, active (the system's handler is Kiln now), previous: string \| null (its name)}` |
 | nexus | `nexus_handler_set` | on: boolean | `HandlerStatus` (on: remember the current nxm handler, register the launcher; off: give it back; only on the user's click) |
-| engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?}` (valid mod id listed in the profile required; ShroudForge reads the selected game's placed copy only when this profile is active, otherwise library defaults; Shroudtopia reads the profile's effective config, using the game copy for active copy mode; other engine kinds `format: "none"` with a note) |
-| engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one declared top-level key with schema validation; profile membership required; `game_running` while a game reading these files runs; ShroudForge requires the profile active in the selected game and a Kiln-owned placed copy; `unsupported` for kinds without settings) |
+| engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?, ownFolder?}` (valid mod id listed in the profile required; ShroudForge reads the folder ShroudForge reads in the selected game only when this profile is active (Kiln's copy, or the player's own folder that serves the entry, also one under another name holding the same package id: then `ownFolder: true`, dev.26), otherwise library defaults; Shroudtopia reads the profile's effective config, using the game copy for active copy mode; other engine kinds `format: "none"` with a note) |
+| engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one declared top-level key with schema validation; profile membership required; `game_running` while a game reading these files runs; ShroudForge requires the profile active in the selected game and either Kiln's unchanged placed copy or (dev.26) the player's own folder that serves the entry: there only that value is written, in that folder's `extended.mod.json`, and Kiln never switches, replaces or removes the folder; a copy of Kiln's whose library files changed stays `refused`; `unsupported` for kinds without settings) |
 | engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?, ownLoader?, effects?, prerequisite?}`, in `ModKind::ALL` order (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`). `ownLoader`: `OwnLoaderNote {kind, engine, file, via, folder, delivery, enabled, copied, notCopied, off?, text}` when the engine's own loader is installed in the game, and what that means for the active profile's mods of the kind (`off`, EML under ShroudForge only, when not empty: ids of `copied` whose copy ShroudForge has switched off, so it does not run them). `effects` (the `shroudforge` row only, always): `SfEffects {file, state: "current"\|"stale"\|"stopped"\|"unavailable"\|"invalid", updatedAt, reason, mods: {id, state, detail}[]}`, ShroudForge's own runtime report (`mods` only while it is current; each `state` is the word ShroudForge or the mod reported, never proof of a gameplay effect). The `xhl` row has `plugin` and `file` empty, `state` null and `prerequisite: {available, text}`: whether XHL-Core was recognized on the game's active proxy or chain paths, a file check, not a runtime report |
 | engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ; read/hash errors and symlinks are refused) |
 | engines | `eml_restore` | gameId | Legacy `string[]` signature; always `refused` for direct restoration (`game_running` takes precedence while running). Disable EML mods and launch updated Kiln for ownership-aware archive-writer restoration; shared backups alone prove no ownership. |
@@ -1153,7 +1159,9 @@ KILN_LAUNCHER_NO_WEBGL=1 for this start, or the launcher draws without the GPU; 
 allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default true), updateChannel?: "stable"|"dev"
 (absent: the running build's channel), animatedFire: boolean (default true), addToActiveProfile: boolean (default true;
 a dropped mod goes through `library_add`; off: `library_import` only), uiMode?: "auto"|"deck"|"desktop" (the UI to start
-in; absent or auto: the Deck UI when `AppInfo.deck.detected`; [deck.md](deck.md))}` (`checkUpdates`, never used, is gone;
+in; absent or auto: the Deck UI when `AppInfo.deck.detected`; [deck.md](deck.md)), modFolderNotes: boolean (dev.26,
+default true: "Show notes about mod folders"; off: an activation raises none of its notices except the first of a folder
+that may still run although its mod is off; [app.md](app.md) "Notices about mod folders")}` (`checkUpdates`, never used, is gone;
 readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md); `distribution`
 "direct", or in the Nexus build "nexus" with `phase: "disabled"`, `commands/update.rs`),
 `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,

@@ -1,5 +1,6 @@
 // Deck Settings: the desktop UI (now, and which UI to start in), button glyphs, launcher updates, fullscreen, the loaded
-// profile (a background feature: the Mods screen shows its switches), the data folder (../DataFolder.tsx), Quit.
+// profile (a background feature: the Mods screen shows its switches), the notes about mod folders (the switch, and
+// the last activation's notes to read again: components/FolderNotes.tsx), the data folder (../DataFolder.tsx), Quit.
 // The last line names what the Deck detection saw (for testers' reports).
 // The Nexus Mods build (api/distribution.ts) has no launcher updates: its row is "New versions: Nexus Mods" (A opens
 // the Kiln page there in the browser), and no update command is called.
@@ -19,7 +20,9 @@ import { ProfileDialog, QuitDialog } from "../dialogs";
 import { useGlyphPref, type GlyphPref } from "../glyphs";
 import { usePads } from "../input";
 import { saveSettings, saveUiMode, switchUi } from "../mode";
-import { Row, Screen, Word } from "../ui";
+import { DeckButton, Dialog, Row, Screen, Word } from "../ui";
+import { FolderNotesList, useGameFolderNotes } from "../../components/FolderNotes";
+import { folderNotesCount } from "../../shell/notices";
 
 const MODES: { id: UiMode; word: string }[] = [{ id: "auto", word: "Auto" }, { id: "deck", word: "Deck mode" }, { id: "desktop", word: "Desktop" }];
 const GLYPHS: { id: GlyphPref; word: string }[] = [{ id: "auto", word: "Auto" }, { id: "deck", word: "Steam Deck" }, { id: "xbox", word: "Xbox" }];
@@ -39,6 +42,9 @@ export default function Settings() {
   const active = useActiveProfile(game?.id);
   const list = useProfiles();
   const loadedName = list.data?.find((p) => p.id === active.data?.profileId)?.name ?? (active.isSuccess ? "No profile" : "");
+  const notes = useGameFolderNotes(game?.id);
+  const noteCount = folderNotesCount(notes);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [full, setFull] = useState<boolean | null>(null);
   const [upBusy, setUpBusy] = useState(false);
   const [nexusBusy, setNexusBusy] = useState(false);
@@ -129,6 +135,14 @@ export default function Settings() {
             sub={gameStatus.data?.otherFolderProfile ? OTHER_FOLDER_PROFILE : "A saved set of mods and their switches; Mods shows the loaded one"}
             end={gameStatus.data?.otherFolderProfile ? <Word tone="warn">Other folder</Word> : <Word tone="ember">{loadedName}</Word>} onClick={() => setProfiles(true)} />
         )}
+        <Row id="set-notes-switch" title="Notes about mod folders" a="Change" disabled={!settings.data}
+          sub="Each note shows once when it is new. Off: only a folder that may still run a mod you switched off"
+          end={<Word tone="ember">{settings.data?.modFolderNotes !== false ? "On" : "Off"}</Word>}
+          onClick={() => void saveSettings(qc, (cur) => ({ modFolderNotes: cur.modFolderNotes === false }))} />
+        {game && (
+          <Row id="set-notes" title="Mod notes" a="Read" disabled={!noteCount} sub="What Kiln last said about your mod folders"
+            end={<Word tone={noteCount ? "info" : "idle"}>{String(noteCount)}</Word>} onClick={() => setNotesOpen(true)} />
+        )}
         <DeckDataFolderRow />
         <Row id="set-quit" title="Quit" a="Quit" onClick={() => setQuit(true)} />
       </div>
@@ -139,6 +153,12 @@ export default function Settings() {
       </p>
       {quit && <QuitDialog onClose={() => setQuit(false)} />}
       {profiles && game && <ProfileDialog game={game} onClose={() => setProfiles(false)} />}
+      {notesOpen && (
+        <Dialog name="folder-notes" title="Notes about your mod folders" wide onClose={() => setNotesOpen(false)} backLabel="Close"
+          buttons={<DeckButton primary onClick={() => setNotesOpen(false)}>OK</DeckButton>}>
+          <div className="deck-scroll" style={{ overflowWrap: "anywhere" }}><FolderNotesList notes={notes} /></div>
+        </Dialog>
+      )}
     </Screen>
   );
 }

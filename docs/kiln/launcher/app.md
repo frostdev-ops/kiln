@@ -94,8 +94,8 @@ text is about Kiln's own kind it says "Kiln mods".
   (off unless turned on) adds the typed name. Uninstalling Kiln, deleting a profile, a server or saves keep their own
   typed confirmations. Refused while the game runs.
 - **Above the list**: Filter (words in the name or id) and Kind (when more than one kind is present), shown with more
-  than six rows; Load order, Engines, Catalog (Nexus builds), Add mods (the file dialog; the drop anywhere and the
-  Catalog stay). With no mod at all the list says how to add one. The list scrolls inside the page.
+  than six rows; Notes (N) when the last activation said something about mod folders (below); Load order, Engines,
+  Catalog (Nexus builds), Add mods (the file dialog; the drop anywhere and the Catalog stay). With no mod at all the list says how to add one. The list scrolls inside the page.
 - **Profiles are a background feature**: one profile is always loaded per game. `useEnsureProfile` calls
   `profile_ensure_default` once per start for a game with Kiln and no loaded profile: "My mods" when there is none at
   all, or the one the launcher remembers for the game (a reinstall of Kiln); a player who chose "No profile" in
@@ -104,6 +104,33 @@ text is about Kiln's own kind it says "Kiln mods".
 - **Layout**: the Play column takes the room left of the kiln (`--kiln` in base.css: 40% of the width, 62.5% of the
   height, at most 800 px; `shell/Stage.tsx` draws the mouth at the same size), up to 920 px; the title and the sentence
   shrink with the window, more so under 700 px of height.
+
+## Notices about mod folders
+Every activation (a mod switched, Play, a profile loaded, an add, a modpack, an update) says which folders Kiln left as
+they are (`Activation.retained`), which mod files it kept or put back (`keptFiles`) and its notes on the mods
+(`warnings`: a player's own folder that serves a mod, a ShroudForge value a new version refuses). It says them every
+time, so the launcher raises each sentence once per game (`shell/notices.ts`):
+- **Once.** `notices_unseen` answers which sentences are new for the game and remembers them in the data folder
+  (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so the memory survives a
+  restart and moves with the data folder. A new or changed sentence still comes. What does come stays until closed
+  ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"). A backend
+  that cannot answer (an older one) gets the old behaviour: all of them.
+- **Notes (N)** above the main list (`components/FolderNotes.tsx`) opens what the last activation said, in three
+  parts: Left in the game folder, Mod files kept, Notes on your mods. It reads the newer of the last activation this
+  window showed and `profile_active` (the backend's record, also after a restart). The Deck has the same list in
+  Settings ("Mod notes", A: Read).
+- **Settings, Launcher, "Show notes about mod folders"** (`LauncherSettings.modFolderNotes`, on by default; the Deck's
+  Settings "Notes about mod folders"). Off: none of these is raised, except the first notice of a folder that may still
+  run although its mod is off (`retained` with `mayRun` and `off`). Notes (N) still lists everything.
+- **A notice never takes the screen** (`ui/Toast.tsx`): a detail shows four lines, then "Show all" (an opened one scrolls
+  inside its toast past 40% of the window); the stack is at most 60% of the window and scrolls. The Deck shows a notice
+  that stays as a dialog (it scrolls), and an error's line in the bar is cut at three lines.
+
+Where a player's own folder comes from: a mod already in ShroudForge's (or EML's) mods folder before Kiln, added with
+"Add it" in the list, is served by that folder from then on (Kiln never takes over a folder it did not place; it
+places no second copy, since ShroudForge drops a package whose id it finds twice). Its ShroudForge settings are
+editable in the launcher all the same (engines.md "Settings"); the settings dialog says "This is your own folder, not
+a copy Kiln placed: Kiln changes only the setting you change here."
 
 ## The first run and dropping a mod
 For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the

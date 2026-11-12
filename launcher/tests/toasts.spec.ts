@@ -58,3 +58,32 @@ test("a new error is in view however many notices came before it", async ({ page
   });
   await expect(page.locator(".k-toast", { hasText: "Clean up failed for Edited Addon" })).toBeInViewport();
 });
+
+// The player's report: a notice took the left half of the screen. A long detail shows its first lines; "Show all"
+// opens the rest, which scrolls inside the toast; the stack never takes more than 60% of the window.
+test("a long notice shows its first lines and opens the rest on request", async ({ page }) => {
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.evaluate(async () => {
+    const { toast } = await import("/src/ui/Toast.tsx");
+    const lines = Array.from({ length: 14 }, (_, i) => `shroudforge:mod-${i}: the game uses your own folder /home/player/.local/share/Steam/steamapps/common/Enshrouded/mods/Mod-${i} for this mod; Kiln leaves it as it is.`);
+    toast.info("Notes on your mods", lines.join(" "), { ms: 0 });
+  });
+  const t = page.locator(".k-toast", { hasText: "Notes on your mods" });
+  const detail = t.locator(".k-toast-detail");
+  const collapsed = (await detail.boundingBox())!.height;
+  expect(collapsed).toBeLessThan(100);
+  await expect(detail).toContainText("Mod-13"); // all of the text is there, only cut
+  await t.getByRole("button", { name: "Show all" }).click();
+  const open = (await detail.boundingBox())!.height;
+  expect(open).toBeGreaterThan(collapsed);
+  expect(open).toBeLessThanOrEqual(860 * 0.4 + 1);
+  await t.getByRole("button", { name: "Show less" }).click();
+  expect((await detail.boundingBox())!.height).toBeLessThan(100);
+  // many of them: the stack stays within 60% of the window
+  await page.evaluate(async () => {
+    const { toast } = await import("/src/ui/Toast.tsx");
+    for (let i = 0; i < 8; i++) toast.info(`Kept ${i}`, "mods/a: changed. ".repeat(40), { ms: 0 });
+  });
+  expect((await page.locator(".k-toasts").boundingBox())!.height).toBeLessThanOrEqual(860 * 0.6 + 1);
+});

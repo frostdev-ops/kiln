@@ -123,6 +123,10 @@ export interface LauncherSettings {
   addToActiveProfile?: boolean;
   /** The UI to start in; "auto" or absent: the Deck UI on a Steam Deck, SteamOS or gamescope (docs/kiln/launcher/deck.md). */
   uiMode?: UiMode | null;
+  /** "Show notes about mod folders" (default on; absent from an older backend: on). Off: an activation raises none of its
+   *  notices about kept folders, kept files and notes on mods, except the first one about a folder that may still run
+   *  although its mod is off (shell/notices.ts). */
+  modFolderNotes?: boolean;
 }
 export type TaskState = "queued" | "running" | "done" | "failed" | "canceled";
 export interface Task<R = unknown> {
@@ -1090,6 +1094,8 @@ export interface RetainedPlacement {
   path: string;
   reason: string;
   mayRun: boolean;
+  /** The profile has the mod off, or no longer has it (absent: on, or an older backend). */
+  off?: boolean;
 }
 export interface PlacementCleanup {
   removed: string[];
@@ -1126,6 +1132,14 @@ export const profileActive = (gameId: GameId) => call<Activation | null>("profil
 /** The activations of re-applies the window has not shown yet (after a profile edit, a change outside the launcher, the
  *  watcher's start-up pass); each is returned once. Taken when `kiln://activation` arrives and once at start. */
 export const activationNotices = () => call<Activation[]>("activation_notices");
+/** One sentence of an activation's notices; `safety`: a folder that may still run although its mod is off. */
+export interface NoticeLine {
+  text: string;
+  safety?: boolean;
+}
+/** The lines to raise now for this game: each once per game (remembered with the data folder,
+ *  installs/<id>.notices-seen.json), and with "Show notes about mod folders" off only the `safety` ones. */
+export const noticesUnseen = (gameId: GameId, lines: NoticeLine[]) => call<string[]>("notices_unseen", { gameId, lines });
 /** Undoes a library_add (its changes); the game's profile.json follows where the profile is active. */
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
 /** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
@@ -1144,6 +1158,9 @@ export interface EngineSettings {
   schema: Json;
   values: Json;
   note?: string | null;
+  /** ShroudForge: `file` is in the player's own folder (one Kiln did not place). Kiln writes only a setting changed
+   *  here into it, and never switches, replaces or removes it. Absent: Kiln's copy or the Library's defaults. */
+  ownFolder?: boolean;
 }
 /** SF's own runtime report, not the adapter's hosted state. Only current reports have mod observations. */
 export interface SfEffects {
@@ -1622,7 +1639,7 @@ export const COMMANDS = [
   "game_list", "game_detect", "game_add", "game_remove", "game_status",
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
-  "profile_deactivate", "profile_active", "activation_notices",
+  "profile_deactivate", "profile_active", "activation_notices", "notices_unseen",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state", "launch_prestart",

@@ -99,6 +99,34 @@ pub async fn activation_notices() -> Result<Vec<Activation>, Error> {
     Ok(take_notices())
 }
 
+/// One sentence of an activation's notices (`notices_unseen`). `safety`: the first notice of a folder that may still
+/// run although its mod is off (RetainedPlacement `mayRun` and `off`): shown even with the notes switched off.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeLine {
+    pub text: String,
+    #[serde(default)]
+    pub safety: bool,
+}
+
+/// The lines of `lines` to raise now: the setting "Show notes about mod folders" (off: only `safety` lines), then
+/// the ones not raised before for this game (kiln_manage::notices::take_unseen, which remembers them).
+fn unseen_lines(d: &kiln_manage::paths::DataDirs, game_id: &str, notes_on: bool, lines: Vec<NoticeLine>) -> Result<Vec<String>, Error> {
+    let lines: Vec<String> = lines.into_iter().filter(|l| notes_on || l.safety).map(|l| l.text).collect();
+    kiln_manage::notices::take_unseen(d, game_id, &lines)
+}
+
+/// `notices_unseen`: which sentences of an activation the window raises for `game_id` (each once per game, kept with
+/// the data folder in `installs/<id>.notices-seen.json`); the rest are in the notes the main list opens.
+#[tauri::command]
+pub async fn notices_unseen(game_id: String, lines: Vec<NoticeLine>) -> Result<Vec<String>, Error> {
+    blocking(move || {
+        let d = dirs()?;
+        let on = crate::state::read_settings().map(|s| s.mod_folder_notes).unwrap_or(true);
+        unseen_lines(&d, &game_id, on, lines)
+    }).await
+}
+
 /// `profile::refresh_active` for one game that is not running, logged to launcher.log. Includes reports without a write.
 pub(crate) fn reapply(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> Option<Activation> {
     reapply_checked(d, g).map(|(a, _)| a)
@@ -279,5 +307,20 @@ mod tests {
         assert!(push_notice(&activation(40, true)));
         assert_eq!(take_notices().iter().map(|a| a.generation).collect::<Vec<_>>(), [40]);
         assert!(take_notices().is_empty(), "a second window cannot take either batch again");
+    }
+
+    /// The setting "Show notes about mod folders" off: only the first notice of a folder that may still run although
+    /// its mod is off comes; on: every line, each once per game.
+    #[test]
+    fn notices_unseen_follow_the_setting_and_come_once() {
+        let root = std::env::temp_dir().join(format!("kl-notices-unseen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let d = kiln_manage::paths::DataDirs::at(root.clone());
+        let line = |t: &str, safety: bool| NoticeLine { text: t.into(), safety };
+        let lines = || vec![line("retained:/g/mods/a: may still run", true), line("note:own folder", false)];
+        assert_eq!(unseen_lines(&d, "g", false, lines()).unwrap(), ["retained:/g/mods/a: may still run"]);
+        assert_eq!(unseen_lines(&d, "g", true, lines()).unwrap(), ["note:own folder"]);
+        assert!(unseen_lines(&d, "g", true, lines()).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(root);
     }
 }

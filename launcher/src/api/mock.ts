@@ -341,6 +341,9 @@ const sfSettings: Record<string, { schema: Json; values: Record<string, Json> }>
     values: { stackMultiplier: 2, autoSort: false, layout: "compact" },
   },
 };
+/** ShroudForge mods the player's own folder serves (engine_mods::sf_folder): their settings say `ownFolder`. Tests:
+ *  `__kilnMock.setSfOwnFolder`. */
+const sfOwn = new Set<string>();
 /** `<profile configDir>/shroudtopia/shroudtopia.json` `mods`, by profile. */
 const shroudtopiaFiles = new Map<string, Record<string, Record<string, Json>>>();
 /** EML patched enshrouded.kfc (its `.kfc.bak` is the vanilla file). */
@@ -366,7 +369,8 @@ function engineSettings(kind: ModKind, id: string, pid: string) {
   if (kind === "shroudforge") {
     const sf = sfSettings[id];
     if (!sf) return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: { type: "object", properties: {} }, values: {}, note: "this mod declares no settings" };
-    return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: sf.schema, values: clone(sf.values), note: null };
+    return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: sf.schema, values: clone(sf.values), note: null,
+      ...(sfOwn.has(id) ? { ownFolder: true } : {}) };
   }
   if (kind === "shroudtopia") {
     const values = shroudtopiaFiles.get(pid)?.[id] ?? { active: true, flySpeed: 1.5, hotkey: "F6" };
@@ -651,7 +655,7 @@ const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", cr
 
 const assets = { root: "/home/player/.local/share/kiln", editor: { present: true, bytes: 0 }, admin: { map: false, catalog: false, bytes: 0 } };
 let settings: LauncherSettings = { steamRoots: [], defaultGameId: FRESH ? null : "client-steam", allowHttpModpacks: false, savesKeep: 10, updateCheck: true, animatedFire: true,
-  addToActiveProfile: true };
+  addToActiveProfile: true, modFolderNotes: true };
 // how the (Linux) launcher draws its window; `?render=software` as after the fallback
 let render: RenderInfo = typeof location !== "undefined" && new URLSearchParams(location.search).get("render") === "software"
   ? { mode: "software", why: "restart", marker: true, markerWhy: "The launcher turned this on by itself: the page did not start within 15 s of the window with the GPU (2026-11-11T21:04:10Z)" }
@@ -826,6 +830,15 @@ const handlers: Record<string, Handler> = {
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
   profile_active: (a) => (otherFolder[S(a.gameId)] ? null : activations[S(a.gameId)] ?? null),
   activation_notices: () => notices.splice(0),
+  // notices.rs take_unseen: each sentence once per game (the backend keeps the memory in the data folder; the mock
+  // for the page's life), and only the safety lines with the setting off
+  notices_unseen: (a) => {
+    const seen = (noticesSeen[S(a.gameId)] ??= new Set());
+    const lines = ((a.lines as { text: string; safety?: boolean }[]) ?? []).filter((l) => settings.modFolderNotes !== false || l.safety).map((l) => l.text);
+    const fresh = [...new Set(lines.filter((t) => !seen.has(t)))];
+    lines.forEach((t) => seen.add(t));
+    return fresh;
+  },
   profile_revert: (a) => {
     const id = S(a.profileId);
     const p = clone(profiles.get(id) ?? reject("not_found", `No profile '${id}'.`));
@@ -1204,6 +1217,9 @@ function makeDefault(): Profile {
   return p;
 }
 
+/** notices_unseen's memory, by game. */
+const noticesSeen: Record<string, Set<string>> = {};
+
 /** Re-applies' activations the window has not taken (activation_notices), as the backend keeps them; tests put some
  *  there before the page loads with `window.__kilnMockNotices` (a re-apply before the window listened). */
 const notices: Activation[] = typeof window === "undefined" ? [] :
@@ -1483,6 +1499,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
+  setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },

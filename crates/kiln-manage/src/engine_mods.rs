@@ -684,6 +684,24 @@ fn extension_hash(root: &Path, path: &Path, kind: ModKind) -> Result<String> {
     Ok(crate::hash::sha256_hex(&serde_json::to_vec(&doc)?))
 }
 
+/// [`extension_hash`] of a copy's `extended.mod.json` as it was before ShroudForge's own Modloader wrote it. Its in-game
+/// menu (a setting saved, the switch flipped) adds `targets` with ShroudForge's default when the file has none:
+/// ["client"], or ["client", "server"] for launcher EML (kiln-shroudforge modloader update_mod_configuration.rs,
+/// `prepare_existing_extension`). That default is what ShroudForge reads from a file without `targets`, so the file
+/// still says what Kiln placed. None: the file holds no `targets` equal to that default (or is no JSON object).
+fn extension_hash_untargeted(root: &Path, path: &Path, kind: ModKind) -> Option<String> {
+    if !matches!(kind, ModKind::ShroudForge | ModKind::Eml) { return None; }
+    let mut doc = read_json_checked(root, path).ok().flatten()?;
+    let obj = doc.as_object_mut()?;
+    let eml = obj.get("launcher").and_then(|l| l.as_str()) == Some("EML");
+    let default = if eml { serde_json::json!(["client", "server"]) } else { serde_json::json!(["client"]) };
+    if obj.get("targets") != Some(&default) { return None; }
+    obj.remove("targets");
+    obj.remove("enabled");
+    obj.remove("settings");
+    Some(crate::hash::sha256_hex(&serde_json::to_vec(&doc).ok()?))
+}
+
 /// An EML copy's receipt as [`placement_files`] lists it now. Before ShroudForge's switch was part of Kiln's EML copies
 /// (0.2.0-dev.24), a receipt listed a shipped `extended.mod.json` by the file's own hash; while the file is still the one
 /// Kiln placed, that entry means the same, and Kiln's bytes are its proof ([`Placement::extension`]).
@@ -820,8 +838,8 @@ fn keep_sf_values(dirs: &DataDirs, game: &Path, receipts: &mut Vec<Placement>, r
         Ok(_) => "Kiln switched it off in ShroudForge's settings".to_string(),
         Err(e) => format!("Kiln could not switch it off in ShroudForge's settings ({}), so ShroudForge may still run it", reason_at(dst, e.message)),
     };
-    retain(rep, tag, dst, format!("its ShroudForge settings (extended.mod.json) were changed since Kiln placed it (values set in the game, or an edit), so Kiln keeps the folder and {off}. \
-        Switch the mod on in the profile to use them again, or remove the folder by hand to drop them"));
+    retain_off(rep, tag, dst, format!("its ShroudForge settings (extended.mod.json) were changed since Kiln placed it (values set in the game, or an edit), so Kiln keeps the folder and {off}. \
+        Switch the mod on in the profile to use them again, or remove the folder by hand to drop them"), true);
     Some(())
 }
 
@@ -840,7 +858,16 @@ pub(crate) fn player_entries_of(now: std::collections::BTreeMap<String, String>,
 }
 
 fn player_entries(dst: &Path, kind: ModKind, receipt: &Placement) -> Result<Option<Vec<String>>> {
-    Ok(player_entries_of(placement_files(dst, kind)?, &receipt.files, kind))
+    const EXT: &str = "extended.mod.json";
+    let mut now = placement_files(dst, kind)?;
+    // ShroudForge's own menu wrote the file and added its default `targets`: still the file Kiln placed
+    if let (Some(listed), Some(hash)) = (receipt.files.get(EXT), now.get(EXT))
+        && listed != hash
+        && extension_hash_untargeted(dst, &dst.join(EXT), kind).as_ref() == Some(listed)
+    {
+        now.insert(EXT.into(), listed.clone());
+    }
+    Ok(player_entries_of(now, &receipt.files, kind))
 }
 
 /// A copy [`place`] made, as its receipt says, with what the mod wrote into it since ([`player_entries`]).
@@ -1230,6 +1257,10 @@ pub struct RetainedPlacement {
     pub path: PathBuf,
     pub reason: String,
     pub may_run: bool,
+    /// The profile has this mod off (or no longer has it) while the folder stays: what may run from it is a mod the
+    /// player switched off. The launcher shows this one even with its notes about mod folders switched off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub off: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1289,7 +1320,7 @@ pub fn unplace(dirs: &DataDirs, game_dir: &Path) -> Result<PlacementCleanup> {
             match remove_xhl_core_copy(game_dir, &mut receipts, &receipt) {
                 Ok(changed) if changed.is_empty() => report.removed.push(dst.clone()),
                 Ok(changed) => report.retained.push(xhl_core_kept(dst, &changed)),
-                Err(e) => report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: false }),
+                Err(e) => report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: false, off: false }),
             }
             continue;
         }
@@ -1323,7 +1354,7 @@ pub fn unplace(dirs: &DataDirs, game_dir: &Path) -> Result<PlacementCleanup> {
         let player = match check {
             Ok(player) => player,
             Err(e) => {
-                report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
+                report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true, off: true });
                 continue;
             }
         };
@@ -1331,7 +1362,7 @@ pub fn unplace(dirs: &DataDirs, game_dir: &Path) -> Result<PlacementCleanup> {
             match keep_player_files(game_dir, dst, kind, &receipt.marker.id, &player) {
                 Ok(said) => said,
                 Err(e) => {
-                    report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true });
+                    report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: true, off: true });
                     continue;
                 }
             }
@@ -1421,8 +1452,13 @@ pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
 /// A copy activation leaves as it is: named in [`PlaceReport::changed`] and, with its path and the reason, in
 /// [`PlaceReport::retained`]. Its own loader may still run it; the other mods of the profile go on.
 fn retain(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Into<String>) {
+    retain_off(rep, tag, path, reason, false);
+}
+
+/// [`retain`]; `off`: the profile has the mod off ([`RetainedPlacement::off`]).
+fn retain_off(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Into<String>, off: bool) {
     rep.changed.push(tag);
-    rep.retained.push(RetainedPlacement { path: path.to_path_buf(), reason: reason_at(path, reason.into()), may_run: true });
+    rep.retained.push(RetainedPlacement { path: path.to_path_buf(), reason: reason_at(path, reason.into()), may_run: true, off });
 }
 
 /// A profile entry the player's own folder serves (`own`): Kiln leaves the folder alone and places nothing. Said once
@@ -1465,8 +1501,12 @@ fn sf_settings(dst: &Path) -> Vec<(String, serde_json::Value)> {
 /// [`retain`], with what still runs from that copy ([`still_runs`]) after the reason.
 fn retain_runs(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Into<String>, runs: String) {
     let reason = reason_at(path, reason.into());
-    retain(rep, tag, path, format!("{}. {runs}", reason.trim_end_matches('.')));
+    let off = runs.starts_with(OFF_IN_PROFILE);
+    retain_off(rep, tag, path, format!("{}. {runs}", reason.trim_end_matches('.')), off);
 }
+
+/// How [`still_runs`] starts for a mod the profile has off.
+const OFF_IN_PROFILE: &str = "It is off in the profile";
 
 /// What may still run from a copy activation leaves as it is. `on`: the profile has the mod on; `have` and `want`:
 /// the copy's marker and the profile's entry. The profile's switch is not proof that the retained copy loads (its own
@@ -1474,9 +1514,9 @@ fn retain_runs(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Int
 fn still_runs(kind: ModKind, on: bool, have: Option<&Marker>, want: Option<&Marker>) -> String {
     if !on {
         return match kind {
-            ModKind::Set => "It is off in the profile, but Kiln's SET plugin runs every mod in that folder.".into(),
-            ModKind::ShroudForge => "It is off in the profile, but ShroudForge may still load it.".into(),
-            _ => "It is off in the profile, but its own loader may still load it from there.".into(),
+            ModKind::Set => format!("{OFF_IN_PROFILE}, but Kiln's SET plugin runs every mod in that folder."),
+            ModKind::ShroudForge => format!("{OFF_IN_PROFILE}, but ShroudForge may still load it."),
+            _ => format!("{OFF_IN_PROFILE}, but its own loader may still load it from there."),
         };
     }
     match (have, want) {
@@ -2073,7 +2113,7 @@ fn remove_run_folder_copy(game_dir: &Path, receipts: &mut Vec<Placement>, rep: &
         Ok(Some(h)) => h,
         Ok(None) => return Err(Error::new(ErrorCode::Refused, "placement ownership could not be verified")),
         Err(e) if e.code == ErrorCode::Refused => {
-            retain(rep, tag, dst, e.message);
+            retain_off(rep, tag, dst, e.message, true);
             return Ok(());
         }
         Err(e) => return Err(e),
@@ -2422,6 +2462,10 @@ pub struct EngineSettings {
     /// Why there is nothing to edit, for the launcher.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// ShroudForge: `file` is in the player's own folder, one Kiln did not place. Kiln writes only a setting the player
+    /// changes in the launcher there, and never switches, replaces or removes the folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own_folder: bool,
 }
 
 /// `<configDir>/shroudtopia/shroudtopia.json`, as kiln-shroudtopia reads it.
@@ -2509,12 +2553,14 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
     let none = |note: &str| EngineSettings {
         kind, id: id.to_string(), format: "none".into(), file: None,
         schema: serde_json::json!({ "type": "object", "properties": {} }), values: serde_json::json!({}), note: Some(note.into()),
+        own_folder: false,
     };
     match kind {
         ModKind::ShroudForge => {
-            // The managed root of the folder: the game folder for a placed copy, else the data dir of the Library entry.
-            let placed = game_dir.and_then(|g| placed_folder(kind, g, id).map(|p| (g, p))).filter(|(_, p)| p.is_dir());
-            let Some((root, dir)) = placed.or_else(|| folder.map(|f| (library_root(f), f.to_path_buf()))) else {
+            // The managed root of the folder: the game folder for the folder ShroudForge reads (Kiln's copy or the
+            // player's own), else the data dir of the Library entry.
+            let placed = match game_dir { Some(g) => sf_folder(g, id, folder, false)?.map(|(p, own)| (g, p, own)), None => None };
+            let Some((root, dir, own_folder)) = placed.or_else(|| folder.map(|f| (library_root(f), f.to_path_buf(), false))) else {
                 return Ok(none("activate the profile once: ShroudForge's settings live in its mods folder"));
             };
             refuse_symlink_path(root, &dir.join("mod.json"))?;
@@ -2525,6 +2571,7 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
                 file: Some(dir.join("extended.mod.json").display().to_string()),
                 schema: crate::shroudforge::settings_schema(&m), values: crate::shroudforge::settings_values(&m),
                 note: (m.settings.is_empty()).then(|| "this mod declares no settings".into()),
+                own_folder,
             })
         }
         ModKind::Shroudtopia => {
@@ -2543,7 +2590,7 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
             if !values.is_object() { return Err(Error::invalid("Shroudtopia mod settings must be an object")); }
             Ok(EngineSettings {
                 kind, id: key, format: "shroudtopia.json".into(), file: Some(file.display().to_string()),
-                schema: schema_from_values(&values), values, note: None,
+                schema: schema_from_values(&values), values, note: None, own_folder: false,
             })
         }
         ModKind::Emf => Ok(none("EMF settings: use the EMF ini editor")),
@@ -2551,6 +2598,26 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
         ModKind::Ember => Ok(none("Ember mods don't run yet: Ember has not published its mod ABI")),
         _ => Ok(none("this engine's mods declare no settings")),
     }
+}
+
+/// The folder ShroudForge reads the settings of the profile entry `id` from in `game`, and whether it is the player's
+/// own: Kiln's copy `<mods>/<id>` (a changed copy is refused, as [`owned`] says), the player's folder of that name
+/// (no receipt of Kiln's), or another folder of ShroudForge's that holds the same package id
+/// ([`crate::shroudforge::other_holder`], found through `library`, the entry's Library folder). None: none of them.
+/// `writing`: a changed copy of Kiln's is an error (reading shows it, as Kiln's).
+fn sf_folder(game: &Path, id: &str, library: Option<&Path>, writing: bool) -> Result<Option<(PathBuf, bool)>> {
+    let root = crate::shroudforge::mods_dir(game);
+    let dst = root.join(id);
+    if dst.is_dir() {
+        let receipts = placements(game)?;
+        let own = match owned(game, &receipts, &dst, ModKind::ShroudForge, id) {
+            Ok(o) => o.is_none(),
+            Err(e) if writing => return Err(e),
+            Err(_) => false,
+        };
+        return Ok(Some((dst, own)));
+    }
+    Ok(library.and_then(|src| crate::shroudforge::other_holder(&root, src, &dst)).map(|p| (p, true)))
 }
 
 /// Saves one declared setting with type validation. The command caller refuses writes while the game runs.
@@ -2565,13 +2632,15 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
     };
     match kind {
         ModKind::ShroudForge => {
-            let dir = game_dir.and_then(|g| placed_folder(kind, g, id)).filter(|p| p.is_dir())
-                .ok_or_else(|| Error::not_found(format!("ShroudForge mod {id} is not in ShroudForge's mods folder: activate the profile first")))?;
-            let game = game_dir.expect("placed game");
-            let receipts = placements(game)?;
-            if owned(game, &receipts, &dir, kind, id)?.is_none() {
-                return Err(Error::new(ErrorCode::Refused, "ShroudForge settings belong to a player-owned folder"));
-            }
+            // Kiln's copy, or the player's own folder that serves the entry: the player changing a setting here is the
+            // player's own request, so that value (and only it) is written in their folder too. A copy Kiln placed whose
+            // library files changed stays refused ([`owned`]); switching, replacing and removing a player's folder
+            // stay [`place`]'s refusals.
+            let not_there = || Error::not_found(format!("ShroudForge mod {id} is not in ShroudForge's mods folder: activate the profile first"));
+            let game = game_dir.ok_or_else(not_there)?;
+            let (dir, _own) = sf_folder(game, id, folder, true)?.ok_or_else(not_there)?;
+            refuse_symlink_path(game, &dir.join("mod.json"))?;
+            refuse_symlink_path(game, &dir.join("extended.mod.json"))?;
             refuse_symlink_path(game, &dir.join("extended.mod.json.tmp"))?;
             crate::shroudforge::set_setting(&dir, key, value)?;
         }
@@ -2794,7 +2863,7 @@ fn remove_xhl_core_copy(game: &Path, receipts: &mut Vec<Placement>, r: &Placemen
 /// Why an XHL-Core copy stays (its files `changed` since Kiln placed them). Nothing loads it while chain.ini does not
 /// name it.
 fn xhl_core_kept(path: &Path, changed: &[String]) -> RetainedPlacement {
-    RetainedPlacement { path: path.to_path_buf(), may_run: false, reason: format!(
+    RetainedPlacement { path: path.to_path_buf(), may_run: false, off: false, reason: format!(
         "files of Kiln's XHL-Core copy were changed since Kiln placed them ({}); Kiln neither updates nor removes it", some_names(changed)) }
 }
 
@@ -2834,7 +2903,7 @@ fn place_xhl_core_copies(dirs: &DataDirs, profile: &crate::profile::Profile, gam
             Ok(changed) => { rep.changed.push(tag); rep.retained.push(xhl_core_kept(&r.path, &changed)); }
             Err(e) => {
                 rep.changed.push(tag);
-                rep.retained.push(RetainedPlacement { path: r.path.clone(), reason: reason_at(&r.path, e.message), may_run: false });
+                rep.retained.push(RetainedPlacement { path: r.path.clone(), reason: reason_at(&r.path, e.message), may_run: false, off: false });
             }
         }
     }
