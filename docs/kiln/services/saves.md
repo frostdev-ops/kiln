@@ -120,7 +120,18 @@ public sealed class Swords : Mod
 items (`managed/tests/Kiln.Saves.Tests`), and read the game through kiln.items' item instances (kiln.items v4:
 stamps, locations, save-record fields, the tracker; `InstanceGame.cs`). On a server whose kiln.items has no v4, or has
 the feature off, every call but `Key` throws `KilnUnavailableException("saves.instance_data")` naming `items.instances`
-in its reason. Lab results follow.
+in its reason.
+
+**What is proven where.** Items in chests and other world holders are proven on a lab server (a copy of a real world,
+no player, server 26430253; `mods/tests/instances-test`, run twice, the second time on the final code): two identical
+swords with different values, moved within a chest, swapped, moved between chests, by the game's move all and by a
+move no hook sees, each had its own value after a stop, after `kill -9` between saves and right after one, and after
+a restored backup (`Exact` every time); 1,000 tagged identical swords in 42 chests came back on their own items; a mod
+not loaded for one boot found its values on its items; where a holder had changed in a way Kiln could not follow
+(twins swapped in the first step after a load, an older generation, two chests of one template 0.3 m apart) the
+records were set aside. No item got another item's value in any run. Items in a player's inventory are not proven: a
+lab has no real player, so that half rests on unit tests against the fake and on the guided client checks
+(`mods/tests/instances-test/ClientChecks.cs`, [modding/inventory.md](../modding/inventory.md)), which have not run.
 
 | Capability | Means |
 |---|---|
@@ -204,8 +215,11 @@ without it nobody knows whether a look-alike stood beside it.
      from one counter that only grows, and the loader makes a holder's items in one go, so the ids must ascend in
      flat-slot order (no two items changed places), form one run right after the holder's own id (nothing made later or
      brought in from elsewhere), and, when the generation's witness tells the loader's slots, fill exactly those slots
-     (nothing moved or taken out). Whether the loader really works this way is measured in the lab; until then this check
-     stands as written, and if it does not hold there, rule 1 stays off.
+     (nothing moved or taken out). Measured in the lab (server 26430253, 17 holders with item entities: 14 storage
+     chests and 3 stations, two restarts): every holder's item entities were one run of ids starting at the holder's own
+     id + 1, ascending with the flat slot across links; items given in another order before the restart failed the
+     check, as they should. Not measured: an NPC or animal that holds item entities, and a player's inventory (for a
+     player the run has no anchor; a guided check logs the ids). Where the check fails, rule 1 does not apply.
 
    Then a record goes to the item in its own slot if item id and stable fingerprint agree, twins included. Otherwise it
    waits.

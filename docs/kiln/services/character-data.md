@@ -94,9 +94,11 @@ follows the item, and an item in a player's inventory belongs to the character:
   `Persist.World` keeps the value on this world's save, the item in a player's inventory included.
 - A character without an id on this build (account-only key) keeps its items' data for the session only.
 
-What a real client must still confirm (guided client checks; lab results follow): that a character's inventory comes
-back at a join with the same flat slots and record fields, and the order of the leave save, the items' destruction and
-the leave event.
+What a real client must still confirm (the guided client checks in `mods/tests/instances-test/ClientChecks.cs`; none
+has run): that a character's inventory comes back at a join with the same flat slots and record fields, and the order
+of the leave save, the items' destruction and the leave event. A lab with simulated players shows only that a
+character's records wait across a leave, a rejoin in another slot and a restart, and attach to nothing (a simulated
+player has no inventory).
 
 ## When the mod list moves a skill node
 Native nodes live in the character's save, shadow nodes in `Carried`. A mod list that moves a node across keeps its unlock and level both ways: [skills.md](skills.md) "When the mod list moves a node". What the join check moved out of the save stays through a client's older carried copy coming in.
