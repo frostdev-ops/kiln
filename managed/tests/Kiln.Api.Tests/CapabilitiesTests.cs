@@ -34,6 +34,9 @@ internal sealed unsafe class FakeCaps : IDisposable
     /// <summary>Runs once inside the next at() (a change on another thread whose callback has not come yet).</summary>
     public Action? DuringAt;
 
+    /// <summary>Runs once after the next report was stored, before report() returns (a reentrant subscriber).</summary>
+    public Action? AfterReport;
+
     /// <summary>Keep change callbacks until <see cref="Deliver"/> (a core that calls back from its own thread, later).</summary>
     public bool Defer;
     private readonly List<(Capabilities.CapRow Row, uint Change)> _deferred = [];
@@ -224,6 +227,7 @@ internal sealed unsafe class FakeCaps : IDisposable
         lock (f._mu)
             if (state == 2 && f._coreNames.Contains(n)) return 1;
         f.Set(owner, n, state, reason, text.ToString(), owner == 777 ? Capabilities.OwnerId : $"owner:{owner}", true);
+        Interlocked.Exchange(ref f.AfterReport, null)?.Invoke();
         return 0;
     }
 
@@ -734,6 +738,25 @@ public sealed class CapabilitiesTests : KilnTest
         Assert.Equal("core", Capabilities.Get("kiln.ui").Source);  // the report was taken back
         Assert.True(Services.Get<Big>("kiln.ui", 1) == null);
         Assert.True(Capabilities.Is("kiln.ui"));                    // and never lowered again
+    }
+
+    [Fact]
+    public unsafe void A_base_table_found_during_a_failed_probes_report_does_not_leave_the_row_poisoned()
+    {
+        using var caps = Native();
+        caps.Core("kiln.ui", CapabilityState.Available, text: "v4", source: "core");
+        using var table = new FakeTable(Backend, "kiln.ui", (uint)sizeof(Small), 4);
+        Assert.True(Capabilities.Is("kiln.ui"));
+        var found = false;
+        // A native change subscriber may reenter a service wrapper before the failed probe's report returns.
+        caps.AfterReport = () => found = Services.Get<Small>("kiln.ui", 1) != null;
+        Assert.True(Services.Get<Big>("kiln.ui", 1) == null);
+        Assert.True(found);
+        Assert.True(Capabilities.Is("kiln.ui"));
+        Assert.Equal("core", Capabilities.Get("kiln.ui").Source);
+        Assert.True(Services.Get<Small>("kiln.ui", 1) != null);
+        Assert.True(Services.Get<Big>("kiln.ui", 1) == null);
+        Assert.True(Capabilities.Is("kiln.ui"));
     }
 
     [Fact]

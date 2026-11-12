@@ -362,8 +362,22 @@ public static unsafe class Capabilities
     internal static void ReportService(string name, CapabilityReason reason, string text)
     {
         var s = Current();
-        Write(s, name, CapabilityState.Unavailable, reason, text);
-        lock (Gate) s.Binding.ByServices.Add(name);
+        lock (Gate)
+        {
+            if (s.Binding.Found.ContainsKey(name)) return;
+            // A report can synchronously call subscribers that find the base table. Mark ours before writing it,
+            // so their successful lookup can take it back; serialize a concurrent success with the same lock.
+            s.Binding.ByServices.Add(name);
+            try
+            {
+                Write(s, name, CapabilityState.Unavailable, reason, text);
+            }
+            catch
+            {
+                s.Binding.ByServices.Remove(name);
+                throw;
+            }
+        }
     }
 
     /// <summary>Services.Get&lt;T&gt; found <paramref name="name"/>'s table: takes back the report it made (native: an
