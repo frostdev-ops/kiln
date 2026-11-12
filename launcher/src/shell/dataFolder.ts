@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import * as api from "../api/commands";
 import type { DataFolderMoved, DataFolderPlan, TaskId } from "../api/commands";
 import { errorText, pickPaths, toast, waitTask } from "../ui";
+import { doneLines } from "./dataFolderText";
 
 export type ChangeStep =
   | { at: "idle" }
@@ -92,8 +93,8 @@ export function useDataFolderChange() {
       put({ at: "stopped", how: k.code === "canceled" ? "canceled" : "failed", error: k.code === "canceled" ? null : k.message });
       return;
     }
-    // warnings first (the player reads them, then Restart); else the restart at once
-    if (moved?.warnings?.length) put({ at: "done", moved, error: null });
+    // warnings, or a removal of the old copy that was stopped: said first (then Restart); else the restart at once
+    if (doneLines(moved)) put({ at: "done", moved, error: null });
     else await restart(moved ?? null);
   };
 

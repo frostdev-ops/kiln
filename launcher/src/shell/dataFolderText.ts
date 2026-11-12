@@ -1,7 +1,7 @@
 // The words of the data folder's row and dialogs (Settings, Deck Settings, the broken-pointer dialog, the notice after a
 // move), apart from React so the unit tests read them (unit/data-folder.test.ts). The owner's rule: a title and
 // buttons, and one line only where it changes the player's decision.
-import type { DataFolder, DataFolderEntry, DataFolderNotice, DataFolderPlan, DataFolderSize } from "../api/commands";
+import type { DataFolder, DataFolderEntry, DataFolderMoved, DataFolderNotice, DataFolderPlan, DataFolderSize } from "../api/commands";
 import { fmtBytes } from "../ui/format";
 
 /** `p` relative to `base` when it is inside it ("tools/kiln"), else as it is. */
@@ -100,6 +100,20 @@ export function planView(p: DataFolderPlan): PlanView {
 /** "old-mods (1.2 GB)" */
 export const sized = (e: Pick<DataFolderEntry, "name" | "bytes">) => `${e.name} (${fmtBytes(e.bytes)})`;
 
+/** The move's last phase (the crate's task message "removing the old copy: <file>"): the data is in the new place,
+ *  and Cancel now only stops the removal. Null in the phases before. */
+export function movingLine(message: string | null | undefined): string | null {
+  return message?.startsWith("removing the old copy") ? "Removing the old copy. Cancel leaves the rest for the next start." : null;
+}
+
+/** A move that ended as done: the lines before the restart (null: restart at once). */
+export function doneLines(m: Pick<DataFolderMoved, "warnings" | "cleanup"> | null | undefined): string[] | null {
+  if (!m) return null;
+  const lines = [...(m.warnings ?? [])];
+  if (m.cleanup?.interrupted) lines.push("The data has moved. The rest of the old copy goes at the next start.");
+  return lines.length ? lines : null;
+}
+
 /** A move that did not finish: the old folder is in use as it was. */
 export function stoppedView(how: "failed" | "canceled", error: string | null): { title: string; lines: string[] } {
   return {
@@ -161,5 +175,13 @@ export function noticeView(n: DataFolderNotice): NoticeView {
 
 /** The dialog when another launcher holds the data folder (it is moving it). */
 export const ELSEWHERE_TITLE = "Kiln is moving its data in another window";
+
+/** The line where the loaded profile is shown (Play, Settings' Profiles, Deck Settings) when the game's profile is
+ *  another data folder's. */
+export const OTHER_FOLDER_PROFILE = "Another data folder's profile is loaded in this game";
+
+/** Its title: the data folder that profile's paths name, when known. */
+export const otherFolderTitle = (o: { id: string; root?: string | null }) =>
+  o.root ? `Profile "${o.id}" of the data folder ${o.root}. Loading a profile here replaces it.` : `Profile "${o.id}" of another data folder. Loading a profile here replaces it.`;
 
 export const BROKEN_TITLE = "Kiln cannot open its data folder";

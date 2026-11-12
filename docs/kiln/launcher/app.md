@@ -4,9 +4,9 @@ The desktop app in `launcher/`: React 18 + TypeScript + Vite (bun) in a Tauri 2 
 `kiln-launcher`) on `crates/kiln-manage`. Contracts: [contracts.md](contracts.md) (formats, section 9 commands, section 10
 events). Design system: [design-system.md](design-system.md).
 
-**Official builds so far (0.2.0-dev.20 to dev.24):** Catalog, Nexus account/settings and `nxm://` handling are disabled while OAuth approval is
-pending. Browser downloads and manual Library import remain available. Nexus routes below describe the enabled
-implementation for a future approved build; no personal API key flow is supported. See [catalog.md](catalog.md).
+**A build with Nexus off** (`KILN_NEXUS_ENABLED=0`, `app_info.nexusEnabled` false): Catalog, Nexus account/settings and
+`nxm://` handling are off. Browser downloads and manual Library import remain available. Nexus routes below describe
+the enabled implementation; no personal API key flow is supported. See [catalog.md](catalog.md).
 
 ## Layout
 | Path | What |
@@ -262,8 +262,12 @@ opens the folder dialog, then `data_folder_check`'s plan is one dialog: "Move th
 free space; a line only for a new folder inside the picked one, games that run in copy mode from there, entries Kiln
 copies and leaves in the old folder with their sizes, and the crate's warnings), "Use this data folder?" (it already
 holds Kiln data), or "Kiln cannot use this folder" with the crate's reason. The move runs as a task ("Move the data
-folder": progress and Cancel, not dismissable); a failed or canceled move says "Nothing changed"; done, the launcher
-restarts (`data_folder_restart`). Deck Settings has the same row and steps in the Deck's dialogs, with `deck_browse` as
+folder": progress and Cancel, not dismissable); its last phase removes the old copy ("Removing the old copy. Cancel
+leaves the rest for the next start."); a failed or canceled move says "Nothing changed"; done, the launcher restarts
+(`data_folder_restart`), after the crate's warnings or "The data has moved. The rest of the old copy goes at the next
+start." when there are any. Another data folder's profile in the game (`GameStatus.otherFolderProfile`: a launcher
+before dev.25 after a move, `KILN_DATA_DIR`, another launcher) is said on Play's top line, in Settings' Profiles and on
+the Deck's Profile row ("Another data folder's profile is loaded in this game"), never shown as loaded. Deck Settings has the same row and steps in the Deck's dialogs, with `deck_browse` as
 the folder browser. Code: `src/components/DataFolderSettings.tsx`, `src/deck/DataFolder.tsx`, `src/shell/dataFolder.ts`
 (the steps), `src/shell/dataFolderText.ts` (the words).
 
@@ -288,8 +292,9 @@ held (except the move and the removal of an old copy). A move is refused while a
 created for a broken pointer; a missing default or `KILN_DATA_DIR` root is made, as before); the lock is taken shared
 (held exclusively elsewhere: the dialog); a broken pointer or another launcher's move stops here: no watcher, no
 import, no update check, no file written. Then a move the journal records: an unfinished one's partial copy is removed
-now (or left, with its path, when the proof is missing); a committed one whose old copy is not removed yet gets the
-task "Remove the old data folder" two seconds later (in the task tray, can be canceled, goes on at the next start).
+now (or left, with its path, when the proof is missing); a committed one not acknowledged yet gets the task "Remove
+the old data folder" two seconds later (what the move's own removal left, or the lock files and the empty old folder
+the moving process still held; in the task tray, can be canceled, goes on at the next start).
 Then the file-hash cache, the watcher, the shipped runtime, the modpack watcher, Nexus, the self-update.
 
 ## `--selftest`

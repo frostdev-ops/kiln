@@ -8,9 +8,9 @@ Code: `launcher/src/deck/` (frontend), `launcher/src-tauri/src/deck/` (detection
 browser), `launcher/src-tauri/src/commands/deck.rs` (commands). Contracts: [contracts.md](contracts.md) section 9
 (`deck_*`, `AppInfo.deck`, `uiMode`), section 10 (`kiln://gamepad`).
 
-**Official builds so far (0.2.0-dev.20 to dev.24):** the Nexus Catalog, account controls and Mod Manager Download links are disabled on Deck
-and desktop while OAuth approval is pending. Download mod archives in a browser and add them from Downloads.
-The Catalog descriptions below apply only to an enabled, approved future build; personal API keys are not a fallback.
+**A build with Nexus off** (`KILN_NEXUS_ENABLED=0`, `app_info.nexusEnabled` false): the Nexus Catalog, account controls
+and Mod Manager Download links are off on Deck and desktop. Download mod archives in a browser and add them from
+Downloads. The Catalog descriptions below apply to a build with Nexus on; personal API keys are not a fallback.
 
 ## How Deck mode is chosen
 Decided once at the start, before anything renders (`src/deck/mode.tsx`, `UiModeGate`), in this order:

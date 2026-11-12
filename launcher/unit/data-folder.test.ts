@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { DataFolder, DataFolderPlan } from "../src/api/commands";
-import { ENV_WHY, listWords, noticeView, planView, relativeTo, rowView, sizeView, stoppedView } from "../src/shell/dataFolderText";
+import { ENV_WHY, doneLines, listWords, movingLine, noticeView, planView, relativeTo, rowView, sizeView, stoppedView } from "../src/shell/dataFolderText";
 import { splitPath } from "../src/ui/format";
 
 const folder = (o: Partial<DataFolder> = {}): DataFolder => ({
@@ -157,4 +157,19 @@ test("listWords", () => {
   expect(listWords([])).toBe("");
   expect(listWords(["A"])).toBe("A");
   expect(listWords(["A", "B"])).toBe("A and B");
+});
+
+test("the move's last phase: removing the old copy, where Cancel only stops the removal", () => {
+  expect(movingLine("copying library/kiln/x/1.0.0/kiln.mod.json")).toBeNull();
+  expect(movingLine("switching to the new place")).toBeNull();
+  expect(movingLine("removing the old copy: library/kiln/x")).toBe("Removing the old copy. Cancel leaves the rest for the next start.");
+  expect(movingLine(null)).toBeNull();
+});
+
+test("a done move: the restart at once, unless there are warnings or a stopped removal to read", () => {
+  expect(doneLines({ warnings: [], cleanup: { done: true, interrupted: false, folderRemoved: true, kept: [] } })).toBeNull();
+  expect(doneLines({ warnings: [], cleanup: null })).toBeNull();
+  expect(doneLines({ warnings: ["A game could not be activated again."], cleanup: null })).toEqual(["A game could not be activated again."]);
+  expect(doneLines({ warnings: [], cleanup: { done: false, interrupted: true, folderRemoved: false, kept: [] } }))
+    .toEqual(["The data has moved. The rest of the old copy goes at the next start."]);
 });

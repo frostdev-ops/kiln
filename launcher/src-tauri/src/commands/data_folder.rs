@@ -158,6 +158,12 @@ struct StartState {
 
 static START: Mutex<StartState> = Mutex::new(StartState { notice: None, acked: false, cleaning: Cleaning::None });
 
+/// Tests: a new process (what this start found and did is forgotten).
+#[cfg(test)]
+pub(crate) fn forget_start() {
+    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None };
+}
+
 fn start_state() -> std::sync::MutexGuard<'static, StartState> {
     START.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -250,7 +256,9 @@ fn start_with(f: &Folder) -> bool {
         return false;
     }
     match dfm::pending(&f.env) {
-        Ok(Pending::Committed { journal }) if needs_cleanup(&journal) => {
+        // not acknowledged yet: the removal goes on (or, with nothing left, removes the lock files and the empty old
+        // folder the moving process still held)
+        Ok(Pending::Committed { .. }) => {
             start_state().cleaning = Cleaning::Running(None);
             return true;
         }
@@ -282,9 +290,7 @@ fn start_with(f: &Folder) -> bool {
 fn spawn_cleanup(app: &AppHandle) {
     let id = spawn_task(app, "data_folder_cleanup", "Remove the old data folder".into(), move |p| {
         let f = folder::current();
-        let r = cleanup_work(&f, p);
-        start_state().cleaning = Cleaning::Ended;
-        to_value(r?)
+        to_value(cleanup_work(&f, p)?)
     });
     let mut st = start_state();
     if st.cleaning == Cleaning::Running(None) {
@@ -294,7 +300,9 @@ fn spawn_cleanup(app: &AppHandle) {
 
 /// The removal itself (the task's work; tests call it).
 fn cleanup_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> Result<Cleanup, Error> {
-    let c = dfm::remove_old_copy(&f.env, p)?;
+    let r = dfm::remove_old_copy(&f.env, p);
+    start_state().cleaning = Cleaning::Ended;
+    let c = r?;
     launcher_log("data folder", &format!(
         "old copy {}: {} files removed, {} kept, done {}, interrupted {}",
         c.folder.display(), c.removed_files, c.kept.len(), c.done, c.interrupted
@@ -470,12 +478,77 @@ pub fn after_commit(f: &Folder) {
     drop_held_log();
 }
 
+// ---------------------------------------------------------------- the move
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupOut {
+    pub done: bool,
+    pub interrupted: bool,
+    pub folder_removed: bool,
+    pub kept: Vec<KeptOut>,
+    pub reason: Option<String>,
+}
+
+/// `data_folder_move`'s task result.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovedOut {
+    pub from: String,
+    pub to: String,
+    pub bytes: u64,
+    pub files: u64,
+    pub warnings: Vec<String>,
+    /// Entries the launcher does not know: copied, and left in the old folder.
+    pub stayed: Vec<EntryOut>,
+    /// The removal of the old copy, the move's last phase (None: it did not run).
+    pub cleanup: Option<CleanupOut>,
+}
+
+fn cleanup_out(c: &Cleanup) -> CleanupOut {
+    CleanupOut { done: c.done, interrupted: c.interrupted, folder_removed: c.folder_removed, kept: kept_of(Some(c)), reason: c.reason.clone() }
+}
+
+/// The move itself, with the folder held (`hold_for_move`): the file-hash cache stops writing, `move_to` runs with
+/// this process's lock; done (the pointer names the new place): nothing runs again until the restart; failed or
+/// canceled (the old place is in use as it was): everything runs again.
+pub(crate) fn move_with(f: &Folder, l: &Located, picked: &Path, p: &mut dyn kiln_manage::task::Progress) -> Result<MovedOut, Error> {
+    kiln_manage::filecache::unpersist();
+    let r = {
+        let mut g = f.lock();
+        dfm::move_to(l, &f.env, picked, &RealFacts { dirs: &l.dirs }, g.as_mut(), &dfm::MoveOptions::default(), p)
+    };
+    match r {
+        Ok(m) => {
+            after_commit(f);
+            eprintln!("data folder moved from {} to {}", m.from.display(), m.to.display());
+            Ok(MovedOut {
+                from: text(&m.from),
+                to: text(&m.to),
+                bytes: m.bytes,
+                files: m.files,
+                warnings: m.warnings.clone(),
+                stayed: m.stayed.iter().map(|s| EntryOut { name: s.name.clone(), bytes: s.bytes, path: text(&s.path) }).collect(),
+                cleanup: m.cleanup.as_ref().map(cleanup_out),
+            })
+        }
+        Err(e) => {
+            release_after_failure(f);
+            kiln_manage::filecache::persist_at(&crate::state::file_hashes(&l.dirs));
+            Err(e)
+        }
+    }
+}
+
 // ---------------------------------------------------------------- use, reset
 
 fn use_with(f: &Folder, picked: &Path) -> Result<DataFolderOut, Error> {
     if f.problem().is_some() {
-        // a broken pointer: the crate's repoint (core-3)
-        return Err(Error::new(ErrorCode::NotImplemented, "Choosing the data folder after a broken pointer comes with the crate's repoint."));
+        // a broken pointer: there is no folder in use; the pointer is written (nothing else), then the restart
+        let default = kiln_manage::paths::DataDirs::at(f.env.default_root()?);
+        let now = dfm::repoint(&f.env, picked, &RealFacts { dirs: &default })?;
+        f.set_hold(Hold::Moved);
+        return Ok(located_out(&now, f));
     }
     let l = f.located()?.clone();
     hold_for_move(f)?;
@@ -537,11 +610,17 @@ pub async fn data_folder_check(path: String) -> Result<PlanOut, Error> {
     .await
 }
 
-/// Task result: the move's result. Written with the crate's `core-3` (the removal of the old copy as its last phase).
+/// Task result: [`MovedOut`]. The folder is held first (refused while a task runs); the task copies, verifies,
+/// switches and removes the old copy (`data_folder_move::move_to`); then the restart (the front end calls it).
 #[tauri::command]
-pub async fn data_folder_move(path: String) -> Result<super::TaskId, Error> {
-    let _ = path;
-    Err(Error::new(ErrorCode::NotImplemented, "The move comes with the crate's core-3."))
+pub async fn data_folder_move(app: AppHandle, path: String) -> Result<super::TaskId, Error> {
+    let f = folder::current();
+    off_thread(move || {
+        let l = f.located()?.clone();
+        hold_for_move(&f)?;
+        Ok(spawn_task(&app, "data_folder_move", "Move the data folder".into(), move |p| to_value(move_with(&f, &l, Path::new(&path), p)?)))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -769,6 +848,206 @@ pub(crate) mod tests {
         let p = check_with(&f, &inside, &[]).unwrap();
         assert_eq!((p.action, p.code.as_deref()), ("refuse", Some("inside_current")));
         assert!(p.reason.as_deref().unwrap().contains("is inside the current data folder"), "{p:?}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// A Progress that tries a writing command while the move copies, and cancels the removal of the old copy after
+    /// `cancel_after` of its files.
+    struct Watch {
+        tried: bool,
+        removing: u32,
+        cancel_after: Option<u32>,
+        messages: Vec<String>,
+    }
+
+    impl kiln_manage::task::Progress for Watch {
+        fn report(&mut self, _f: Option<f32>, m: &str) {
+            if m.starts_with("copying") && !self.tried {
+                self.tried = true;
+                let s = crate::commands::app::LauncherSettings { saves_keep: 9, ..Default::default() };
+                let e = tauri::async_runtime::block_on(crate::commands::app::app_settings_set(s)).unwrap_err();
+                assert_eq!(e.code, ErrorCode::Busy, "a writing command during the move is refused");
+                assert!(crate::state::dirs().is_err() && crate::commands::app::begin_alone(|_| folder::current().held_error()).is_some());
+            }
+            if m.starts_with("removing the old copy") {
+                self.removing += 1;
+            }
+            self.messages.push(m.to_string());
+        }
+        fn canceled(&self) -> bool {
+            self.cancel_after.is_some_and(|n| self.removing >= n)
+        }
+    }
+
+    /// The default root as a data folder with `n` backup files, and a target on the same disk.
+    fn moving(name: &str, n: usize) -> (PathBuf, DataEnv, PathBuf, PathBuf) {
+        let (t, env) = scratch(name);
+        let from = env.default_root().unwrap();
+        data_folder(&from);
+        for i in 0..n {
+            let p = from.join(format!("backups/old/file-{i:03}.bin"));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, format!("backup {i}").repeat(50)).unwrap();
+        }
+        let to = t.join("disk/Kiln");
+        (t, env, from, to)
+    }
+
+    #[test]
+    fn a_move_through_the_command_layer_then_the_notice_after_the_restart_until_the_ack() {
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env, from, to) = moving("move", 5);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        let plan = check_with(&f, &to, &[]).unwrap();
+        assert_eq!(plan.action, "move", "{plan:?}");
+        hold_for_move(&f).unwrap();
+        let mut w = Watch { tried: false, removing: 0, cancel_after: None, messages: vec![] };
+        let m = move_with(&f, &l, &to, &mut w).unwrap();
+        assert!(w.tried, "the move copied: {:?}", w.messages);
+        assert_eq!(m.to, text(&to));
+        assert!(m.cleanup.as_ref().is_some_and(|c| c.done), "{m:?}");
+        // committed: nothing of this process runs again
+        assert_eq!(f.hold(), Hold::Moved);
+        assert_eq!(crate::state::dirs().unwrap_err().message, folder::MOVED);
+        assert!(f.command_refusal("library_import").is_some() && f.command_refusal("data_folder_restart").is_none());
+
+        // the restart: a new process over the same folders
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        assert_eq!(f2.located().unwrap().dirs.root, to);
+        assert!(start_with(&f2), "a committed move not acknowledged: the removal task");
+        let n = notice(&f2).expect("the notice");
+        assert_eq!((n.kind, n.from.as_str(), n.to.as_str(), n.removing), ("moved", text(&from).as_str(), text(&to).as_str(), true));
+        cleanup_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
+        let n = folder_out(&f2).notice.expect("the notice after the removal");
+        assert!(!n.removing && !n.unfinished, "{n:?}");
+        notice_ack_with(&f2).unwrap();
+        assert_eq!(folder_out(&f2).notice, None);
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing), "the journal is acknowledged");
+        // and the next start has nothing to say
+        forget_start();
+        let f3 = Arc::new(Folder::open(env.clone()));
+        assert!(!start_with(&f3));
+        assert_eq!(folder_out(&f3).notice, None);
+        assert!(!from.join("backups/old/file-000.bin").exists(), "the old copy is gone");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_removal_canceled_halfway_goes_on_at_the_next_start() {
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env, from, to) = moving("halfway", 200);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        // the crate reports the removal every 64 files: a cancel after its first report stops it near the start
+        let mut w = Watch { tried: true, removing: 0, cancel_after: Some(1), messages: vec![] };
+        let m = move_with(&f, &l, &to, &mut w).unwrap();
+        let c = m.cleanup.clone().expect("the removal ran");
+        assert!(c.interrupted && !c.done, "a cancel there interrupts the removal only: {c:?}");
+        assert_eq!(f.hold(), Hold::Moved, "the move itself is done");
+        let left = |d: &Path| std::fs::read_dir(d.join("backups/old")).map(|r| r.count()).unwrap_or(0);
+        let before = left(&from);
+        assert!(before > 0 && before < 200, "halfway: {before} files left");
+
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        let n = notice(&f2).expect("the notice");
+        assert!(n.unfinished, "before the next removal it says the rest is still there: {n:?}");
+        // the ack while unfinished keeps the journal: the next start goes on
+        notice_ack_with(&f2).unwrap();
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Committed { .. }));
+        forget_start();
+        let f3 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f3.clone());
+        assert!(start_with(&f3));
+        let c = cleanup_work(&f3, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(c.done, "{c:?}");
+        assert_eq!(left(&from), 0);
+        assert_eq!(std::fs::read_dir(to.join("backups/old")).unwrap().count(), 200, "the new place has all of them");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_failed_move_leaves_everything_running_and_the_cache_persisting() {
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env, from, _to) = moving("fail", 2);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        // a folder the crate refuses: the move fails before anything is copied
+        let e = move_with(&f, &l, &from.join("library"), &mut kiln_manage::task::NoProgress).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused, "{e:?}");
+        assert_eq!(f.hold(), Hold::Free);
+        assert!(crate::state::dirs().is_ok());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn choose_folder_after_a_broken_pointer_writes_only_the_pointer() {
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env) = scratch("repoint");
+        let default = env.default_root().unwrap();
+        std::fs::create_dir_all(&default).unwrap();
+        df::write_pointer(&default, &t.join("gone/Kiln")).unwrap();
+        let mine = t.join("disk/Kiln");
+        data_folder(&mine);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let before: BTreeSet<String> = tree(&default);
+        let out = use_with(&f, &mine).unwrap();
+        assert_eq!(out.path, text(&mine));
+        assert_eq!(tree(&default), before, "only the pointer changed (the same file names)");
+        assert_eq!(Folder::open(env.clone()).located().unwrap().dirs.root, mine);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// A launcher before dev.25 (or another data folder) activated its profile in the game: game_status says so and
+    /// does not call it loaded; profile_active gives none.
+    #[test]
+    #[cfg(unix)]
+    fn another_data_folders_profile_in_the_game_is_said_not_loaded() {
+        use kiln_manage::game::{GameInstall, GameKind, PathMode, Platform};
+        use kiln_manage::{paths::DataDirs, profile};
+        let _g = folder::test_serial();
+        let (t, env) = scratch("other-profile");
+        let here = env.default_root().unwrap();
+        data_folder(&here);
+        // the other data folder (the default root a dev.24 launcher used after a move) and its profile in the game
+        let theirs = DataDirs::at(t.join("old-default/kiln"));
+        data_folder(&theirs.root);
+        let p = profile::create(&theirs, "Old launcher", None).unwrap();
+        let path = t.join("game");
+        std::fs::create_dir_all(path.join("kiln")).unwrap();
+        std::fs::write(path.join("enshrouded.exe"), b"fixture").unwrap();
+        let prefix = t.join("pfx");
+        std::fs::create_dir_all(prefix.join("dosdevices")).unwrap();
+        std::os::unix::fs::symlink("/", prefix.join("dosdevices/z:")).unwrap();
+        let g = GameInstall { id: "other-profile".into(), kind: GameKind::Client, path, exe: "enshrouded.exe".into(),
+            app_id: kiln_manage::CLIENT_APP_ID, library: None, platform: Platform::Proton, prefix: Some(prefix),
+            build_id: None, exe_sha256: None, steam_flavor: None, path_mode: PathMode::Z, source: "manual".into() };
+        profile::activate(&theirs, &p.id, &g).unwrap();
+        kiln_manage::game::write_record(&DataDirs::at(&here), &g, None).unwrap();
+        folder::replace(Arc::new(Folder::open(env.clone())));
+        let st = crate::state::game_status(&g).unwrap();
+        assert_eq!(st.active_profile, None);
+        let o = st.other_folder_profile.clone().expect("another data folder's profile");
+        assert_eq!(o.id, p.id);
+        assert_eq!(o.root.as_deref().map(df::canonical), Some(df::canonical(&theirs.root)));
+        let json = serde_json::to_value(&st).unwrap();
+        assert_eq!(json["otherFolderProfile"]["id"], p.id.as_str());
+        let active = tauri::async_runtime::block_on(crate::commands::profile::profile_active(g.id.clone())).unwrap();
+        assert!(active.is_none(), "never shown as loaded here: {active:?}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }

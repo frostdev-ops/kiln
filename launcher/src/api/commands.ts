@@ -163,6 +163,9 @@ export interface GameStatus {
   launchOptions: LaunchOptionsInfo | null;
   /** Kiln mods of the active profile built against a newer Kiln than the game has: they may not load until Kiln is updated. */
   newerMods?: NewerKilnMod[];
+  /** Another data folder's profile is active in the game (an older launcher after a move, KILN_DATA_DIR, another
+   *  launcher): said, never shown as loaded; `activeProfile` is null then. `root`: the data folder its paths name. */
+  otherFolderProfile?: { id: string; root?: string | null };
 }
 export interface NewerKilnMod {
   id: string;

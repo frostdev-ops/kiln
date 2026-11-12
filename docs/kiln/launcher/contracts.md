@@ -856,7 +856,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | game | `game_detect` | - | `GameInstall[]` (scans Steam, adds new ones) |
 | game | `game_add` | path: string | `GameInstall` |
 | game | `game_remove` | gameId | null |
-| game | `game_status` | gameId | `GameStatus` (+ `started`: RFC 3339 start of the running game's process, null when stopped) |
+| game | `game_status` | gameId | `GameStatus` (+ `started`: RFC 3339 start of the running game's process, null when stopped; + `otherFolderProfile {id, root?}` when another data folder's profile is active in the game, `activeProfile` null then: `profile::game_profile_owner`) |
 | runtime | `runtime_list` | - | `RuntimeBundle[]` |
 | runtime | `runtime_import` | path: string | `RuntimeBundle` |
 | runtime | `runtime_status` | gameId | `InstallState` |
@@ -872,7 +872,7 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | profile | `profile_resolve` | profileId, side: RunSide, gameId?: the game whose kiln.json `mods.hosted` applies (absent: on) | `ResolvePreview` (`withWorld`: a client's Kiln mods that start with the player's own world) |
 | profile | `profile_activate` | profileId, gameId | `Activation` |
 | profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
-| profile | `profile_active` | gameId | `Activation \| null` |
+| profile | `profile_active` | gameId | `Activation \| null` (null also when another data folder's profile is active in the game) |
 | profile | `activation_notices` | - | `Activation[]`: the re-applies' activations the window has not shown yet, oldest first; each is returned once (`kiln://activation`) |
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
@@ -999,7 +999,7 @@ or emits `kiln://update`; its UI calls none of these commands.
 | data_folder | `data_folder_get` | - | `DataFolder` (answers in every state; with a broken pointer `path` is the default place and `problem` is set) |
 | data_folder | `data_folder_size` | - | `{bytes, files}` (`data_folder::inventory`: what a move copies) |
 | data_folder | `data_folder_check` | path (the folder the player picked) | `DataFolderPlan` (`data_folder::check_here`; a refusal is `action: "refuse"` with the crate's `reason` and `code`; a task that runs is the refusal `busy`, "Kiln is still working on: <title>.") |
-| data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to`; refused while a task runs; the restart follows) |
+| data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to` with the process's lock; refused while a task runs; the file-hash cache stops writing for the move (`filecache::unpersist`) and writes again after a failed or canceled one; the last phase, task message "removing the old copy: <file>", removes the old copy: a cancel there ends the task as done with `cleanup.interrupted`, the rest goes at the next start; a failed or canceled task left the old place in use; the restart follows) |
 | data_folder | `data_folder_use` | path (picked) | `DataFolder` of the folder now named (`use_folder`; with a broken pointer `repoint`); the restart follows |
 | data_folder | `data_folder_reset` | - | `DataFolder` at the default place (`reset`; only with a broken pointer); the restart follows |
 | data_folder | `data_folder_notice_ack` | - | null (the notice was seen: the move's journal is acknowledged when its removal is finished, else it stays for the next start) |
@@ -1034,7 +1034,8 @@ reason, code (RefusalCode, snake_case), bytes, files, needed, free, sameVolume, 
 name that would run in copy mode from there and do not now), stays: DataFolderEntry[] (entries the launcher does not
 know: copied, and left in the old folder), warnings: string[]}`, `DataFolderNotice {kind: "moved"|"undone"|"unclear",
 from, to, left: string[], stayed: DataFolderEntry[], kept: {path, bytes, reason}[], removing, unfinished,
-folderRemoved, reason}`. While the pointer is broken only `app_info`, `data_folder_get`, `_use`, `_reset`, `_restart`
+folderRemoved, reason}`, `DataFolderMoved {from, to, bytes, files, warnings, stayed: DataFolderEntry[], cleanup: {done,
+interrupted, folderRemoved, kept, reason}|null}`. While the pointer is broken only `app_info`, `data_folder_get`, `_use`, `_reset`, `_restart`
 and `deck_quit` answer, every other command rejects with `data_folder`; while another launcher moves the folder only
 `app_info`, `data_folder_get`, `_restart` and `deck_quit` (the others: `busy`); while this one moves it or has moved it,
 only `app_info`, `task_*`, `data_folder_get`, `_restart`, `deck_quit`, `deck_fullscreen`, `deck_gamepad`,

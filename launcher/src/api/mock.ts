@@ -91,6 +91,9 @@ let failNextInstall: string | null = null;
 let noProxy = false;
 /** What `launch_prestart` answers while the fake game runs (tests: `__kilnMock.setPreStart`); null: nothing before boot. */
 let preStart: PreStart | null = null;
+/** GameStatus.otherFolderProfile per game (tests: `__kilnMock.setOtherFolderProfile`): another data folder's profile is
+ *  in the game; activeProfile is null then, as the backend says it. */
+const otherFolder: Record<string, { id: string; root?: string | null } | null> = {};
 /** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
 const newerMods: Record<string, NewerKilnMod[]> = {};
 
@@ -432,7 +435,8 @@ function status(gameId: string): GameStatus {
   const r = running[gameId];
   return {
     id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: withMissing(runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null }, g.kind),
-    activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && (noProxy || Date.now() - r.at < 2500),
+    activeProfile: otherFolder[gameId] ? null : activations[gameId]?.profileId ?? null,
+    ...(otherFolder[gameId] ? { otherFolderProfile: otherFolder[gameId]! } : {}), playOncePending: !!r && r.mode !== "profile" && (noProxy || Date.now() - r.at < 2500),
     boot: bootFor(gameId), launchOptions: noProxy ? { value: null, hasDllOverride: false, advice: 'WINEDLLOVERRIDES="dinput8=n,b" %command%' }
       : { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
     newerMods: newerMods[gameId] ?? [],
@@ -811,7 +815,7 @@ const handlers: Record<string, Handler> = {
     return r;
   },
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
-  profile_active: (a) => activations[S(a.gameId)] ?? null,
+  profile_active: (a) => (otherFolder[S(a.gameId)] ? null : activations[S(a.gameId)] ?? null),
   activation_notices: () => notices.splice(0),
   profile_revert: (a) => {
     const id = S(a.profileId);
@@ -1476,6 +1480,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
   setPreStart: (p: PreStart | null) => { preStart = p; },
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
+  setOtherFolderProfile: (o: { id: string; root?: string | null } | null, gameId = "client-steam") => { otherFolder[gameId] = o; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   /** A hand edit of the game's kiln.json (a key the launcher's Settings do not list, such as `mods.hosted`). */
   setKilnJson: (path: string, value: Json, gameId = "client-steam") => {

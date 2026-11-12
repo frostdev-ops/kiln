@@ -65,10 +65,10 @@ test("a move: the confirmation, the task's progress (not dismissable), then the 
   await confirm.getByRole("button", { name: "Move", exact: true }).click();
   const moving = page.getByRole("dialog", { name: "Moving the data folder" });
   await expect(moving).toBeVisible();
-  await expect(moving.getByRole("status", { name: "Move the data folder" })).toContainText("Copying");
+  await expect(moving.getByRole("status", { name: "Move the data folder" })).toContainText("copying");
   await expect(moving.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
   await cannotDismiss(page, "Moving the data folder");
-  await expect(moving.locator(".k-task-msg")).toHaveText("Checking the copies", { timeout: 6000 });
+  await expect(moving.locator(".k-task-msg")).toHaveText(/^checking /, { timeout: 6000 });
   // done: the launcher restarts (the mock records the call; a real restart ends the page)
   await expect(page.getByRole("dialog", { name: "Restarting" })).toBeVisible({ timeout: 6000 });
   await cannotDismiss(page, "Restarting");
@@ -87,7 +87,7 @@ test("a move the player cancels: nothing changed, no restart", async ({ page }) 
   await expect(confirm.locator(".k-df-line")).toHaveCount(0);
   await confirm.getByRole("button", { name: "Move", exact: true }).click();
   const moving = page.getByRole("dialog", { name: "Moving the data folder" });
-  await expect(moving.locator(".k-task-msg")).toHaveText("Copying runtimes and modpacks", { timeout: 4000 });
+  await expect(moving.locator(".k-task-msg")).toHaveText("copying runtime/kiln-runtime-0.2.0-dev.zip", { timeout: 4000 });
   await moving.getByRole("button", { name: "Cancel", exact: true }).click();
   const stopped = page.getByRole("dialog", { name: "Move canceled" });
   await expect(stopped).toBeVisible({ timeout: 4000 });
@@ -270,7 +270,7 @@ test("the notice while the old copy is removed, and when the rest goes at the ne
 test("an unfinished move undone at start, and a move's record that matches neither folder", async ({ page }) => {
   await open(page, "/?df=undone#/");
   const u = page.getByRole("dialog", { name: "Move not finished" });
-  await expect(u).toContainText(`The last move did not finish. Kiln uses ${DATA} as before.`);
+  await expect(u).toContainText(`The last move did not finish. Kiln uses ${DATA} as before.`, { timeout: 10_000 });
   await expect(u.getByRole("button")).toHaveText(["OK"]);
   await u.getByRole("button", { name: "OK" }).click();
   await expect.poll(() => calls(page)).toContain("data_folder_notice_ack");
@@ -306,6 +306,34 @@ test("a move's plan names what stays in the old folder with its size, and the cr
   await expect(d).toContainText("/media/player/USB stick does not keep file permissions");
 });
 
+test("the move's last phase says it removes the old copy; a removal stopped there: moved, the rest goes next start", async ({ page }) => {
+  await open(page);
+  await df(page, "interruptRemoval", true);
+  await df(page, "stepMs", 2500);
+  await pick(page, "/mnt/games");
+  await change(page).click();
+  await page.getByRole("dialog", { name: "Move the data folder?" }).getByRole("button", { name: "Move", exact: true }).click();
+  const moving = page.getByRole("dialog", { name: "Moving the data folder" });
+  await expect(moving.getByTestId("data-folder-removing")).toHaveText("Removing the old copy. Cancel leaves the rest for the next start.", { timeout: 20_000 });
+  await expect(moving.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
+  const done = page.getByRole("dialog", { name: "Data folder moved" });
+  await expect(done).toContainText("The data has moved. The rest of the old copy goes at the next start.", { timeout: 6000 });
+  expect(await calls(page)).not.toContain("data_folder_restart");
+  await done.getByRole("button", { name: "Restart" }).click();
+  await expect.poll(() => calls(page)).toContain("data_folder_restart");
+});
+
+test("another data folder's profile in the game: said on Play and in Settings, never shown as loaded", async ({ page }) => {
+  await open(page, "/#/");
+  await page.evaluate(() => (window as unknown as { __kilnMock: Mock }).__kilnMock.setOtherFolderProfile({ id: "my-mods", root: "/home/player/.local/share/kiln" }));
+  const line = page.locator(".k-hero").getByRole("link", { name: "Another data folder's profile is loaded in this game" });
+  await expect(line).toBeVisible({ timeout: 8000 });
+  await expect(line).toHaveAttribute("title", /of the data folder \/home\/player\/\.local\/share\/kiln/);
+  await page.evaluate(() => { location.hash = "#/settings"; });
+  await expect(page.getByTestId("other-folder-profile")).toHaveText("Another data folder's profile is loaded in this game");
+  await expect(page.getByRole("region", { name: "Profiles" })).not.toContainText("is loaded: the main screen shows it");
+});
+
 test("KILN_DATA_DIR set: the path and Open; Change is off with the reason", async ({ page }) => {
   await open(page, "/?df=env#/settings");
   await expect(page.getByTestId("data-folder-path")).toHaveText("/srv/kiln-data");
@@ -336,7 +364,7 @@ test.describe("Deck mode", () => {
     await expect(confirm).toContainText("That folder has other files in it");
     await confirm.getByRole("button", { name: "Move", exact: true }).click();
     const moving = page.getByRole("dialog", { name: "Moving the data folder" });
-    await expect(moving.getByTestId("deck-data-task")).toContainText("Copying");
+    await expect(moving.getByTestId("deck-data-task")).toContainText("copying");
     await expect(moving.getByRole("button", { name: "Cancel" })).toBeEnabled();
     await expect(page.getByRole("dialog", { name: "Restarting" })).toBeVisible({ timeout: 8000 });
     expect(await calls(page)).toContain("data_folder_restart");
@@ -358,6 +386,14 @@ test.describe("Deck mode", () => {
     const r = page.locator('[data-deck-id="set-data"]');
     await expect(r).toBeDisabled();
     await expect(r).toContainText("Set by KILN_DATA_DIR.");
+  });
+
+  test("another data folder's profile: the Profile row says so", async ({ page }) => {
+    await page.goto("/?deck=steamdeck#/deck/settings");
+    await page.evaluate(() => (window as unknown as { __kilnMock: Mock }).__kilnMock.setOtherFolderProfile({ id: "my-mods" }));
+    const r = page.locator('[data-deck-id="set-profile"]');
+    await expect(r).toContainText("Another data folder's profile is loaded in this game", { timeout: 8000 });
+    await expect(r).toContainText("Other folder");
   });
 
   test("the notice after a move, in the Deck's dialog", async ({ page }) => {

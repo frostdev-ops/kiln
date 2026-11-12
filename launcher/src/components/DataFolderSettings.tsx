@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import * as api from "../api/commands";
 import { useAppInfo, useDataFolder, useDataFolderSize } from "../api/hooks";
 import { pickFolder, useDataFolderChange, type DataFolderChange } from "../shell/dataFolder";
-import { planView, rowView, sizeView, stoppedView } from "../shell/dataFolderText";
-import { Button, KeyValue, Modal, PathText, TaskProgress, toast } from "../ui";
+import { doneLines, movingLine, planView, rowView, sizeView, stoppedView } from "../shell/dataFolderText";
+import { Button, KeyValue, Modal, PathText, TaskProgress, toast, useTasks } from "../ui";
 
 const parent = (p: string) => p.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]*$/, "") || undefined;
 
@@ -63,6 +63,7 @@ export function ChangeDialogs({ flow, current, again }: { flow: DataFolderChange
         footer={<Button onClick={flow.cancel} disabled={s.canceling} loading={s.canceling}>Cancel</Button>}>
         <Facts facts={[{ label: "To", value: s.plan.target, path: true }]} />
         <TaskProgress taskId={s.taskId} cancel={false} />
+        <MovingLine taskId={s.taskId} />
       </Modal>
     );
   }
@@ -82,10 +83,16 @@ export function ChangeDialogs({ flow, current, again }: { flow: DataFolderChange
     <Modal open locked onClose={() => {}} title={s.moved ? "Data folder moved" : "Restart Kiln"} width={560}
       footer={<Button variant="primary" onClick={flow.restart}>Restart</Button>}>
       {s.moved && <Facts facts={[{ label: "Now in", value: s.moved.to, path: true }]} />}
-      {s.moved?.warnings.map((w) => <p key={w} className="k-df-line">{w}</p>)}
+      {(doneLines(s.moved) ?? []).map((w) => <p key={w} className="k-df-line">{w}</p>)}
       {s.error && <p className="k-df-line" role="alert">{s.error}</p>}
     </Modal>
   );
+}
+
+/** The move's last phase, from the task's message. */
+function MovingLine({ taskId }: { taskId: string }) {
+  const line = movingLine(useTasks((x) => x.tasks[taskId]?.message));
+  return line ? <p className="k-df-line" data-testid="data-folder-removing">{line}</p> : null;
 }
 
 function Facts({ facts }: { facts: { label: string; value: string; path?: boolean }[] }) {

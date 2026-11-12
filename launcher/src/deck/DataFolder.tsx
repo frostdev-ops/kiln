@@ -7,7 +7,7 @@ import * as api from "../api/commands";
 import type { DataFolder } from "../api/commands";
 import { qk, useAppInfo, useDataFolder, useDataFolderSize } from "../api/hooks";
 import { useDataFolderChange } from "../shell/dataFolder";
-import { noticeView, planView, rowView, sizeView, stoppedView } from "../shell/dataFolderText";
+import { doneLines, movingLine, noticeView, planView, rowView, sizeView, stoppedView } from "../shell/dataFolderText";
 import { PathText, toast, useTasks } from "../ui";
 import { FolderView, useBrowse } from "./dialogs";
 import { useLayer } from "./layers";
@@ -60,7 +60,7 @@ export function DeckDataFolderRow() {
       {s.at === "done" && (
         <Dialog name="data-done" title={s.moved ? "Data folder moved" : "Restart Kiln"} onClose={() => {}} locked
           buttons={<DeckButton primary onClick={flow.restart}>Restart</DeckButton>}>
-          {s.moved?.warnings.map((w) => <p key={w} className="deck-note">{w}</p>)}
+          {(doneLines(s.moved) ?? []).map((w) => <p key={w} className="deck-note">{w}</p>)}
           {s.error && <p className="deck-note" role="alert">{s.error}</p>}
         </Dialog>
       )}
@@ -98,6 +98,7 @@ function MovingDialog({ taskId, canceling, onCancel }: { taskId: api.TaskId; can
         <span className="deck-dim">{t?.message ?? "Starting"}</span>
         {t?.progress != null && <span className="deck-bar" aria-hidden><i style={{ width: `${Math.round(t.progress * 100)}%` }} /></span>}
       </p>
+      {movingLine(t?.message) && <p className="deck-note" data-testid="deck-data-removing">{movingLine(t?.message)}</p>}
     </Dialog>
   );
 }

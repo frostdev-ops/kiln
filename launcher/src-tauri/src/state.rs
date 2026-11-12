@@ -106,9 +106,17 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         .and_then(|l| kiln_manage::steam::app_manifest(l, install.app_id).ok().flatten())
         .is_some_and(|m| m.updating);
     let runtime = install_state(install, false)?;
-    let active_profile = kiln_manage::profile::read_game_profile(&install.path).ok().flatten().map(|p| p.id);
+    // this data folder's profile, or another data folder's (a launcher before dev.25 after a move, KILN_DATA_DIR,
+    // another launcher): that one is said, never shown as loaded
+    let d = dirs()?;
+    use kiln_manage::profile::GameProfileOwner as Owner;
+    let (active_profile, other_folder_profile) = match kiln_manage::profile::game_profile_owner(&d, install) {
+        Ok(Owner::Here { id }) => (Some(id), None),
+        Ok(Owner::Elsewhere { id, root }) => (None, Some(kiln_manage::game::OtherFolderProfile { id, root })),
+        Ok(Owner::None) | Err(_) => (None, None),
+    };
     let boot = kiln_manage::state::read_boot(&install.path).ok().flatten();
-    let newer_mods = kiln_manage::game::newer_mods(&dirs()?, &runtime, active_profile.as_deref());
+    let newer_mods = kiln_manage::game::newer_mods(&d, &runtime, active_profile.as_deref());
     Ok(kiln_manage::game::GameStatus {
         id: install.id.clone(),
         running: proc.is_some(),
@@ -117,6 +125,7 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         steam_updating,
         runtime,
         active_profile,
+        other_folder_profile,
         play_once_pending: install.path.join(kiln_manage::paths::game::PLAY_ONCE).is_file(),
         boot,
         launch_options: launch_options(install, &roots),

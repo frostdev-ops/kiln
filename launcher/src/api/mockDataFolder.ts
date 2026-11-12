@@ -22,7 +22,8 @@
 //   /mnt/old-kiln, /mnt/usb/Kiln   use (already a Kiln data folder)
 //   the paths in REFUSALS      refuse, with that sentence; `busy(kind)` refuses every folder (game, server, launcher)
 //   anything else              move, used as it is
-// Also: `failNext(message)`, `sizeDelay(ms)`, `refusals()`, `state()`.
+// Also: `failNext(message)`, `sizeDelay(ms)`, `stepMs(ms)` (each step of the move task), `refusals()`, `state()`, `interruptRemoval(on)` (the move's last phase,
+// the removal of the old copy, is stopped: the task still ends as done, as the backend's does after a cancel there).
 import type { DataFolder, DataFolderMoved, DataFolderPlan, DataFolderSize, KilnError } from "./commands";
 
 type Args = Record<string, unknown>;
@@ -91,6 +92,8 @@ const picks: (string | null)[] = [];
 let failNext: string | null = FAIL_URL ? "Could not copy library/kiln/new-items: the disk reported an input/output error." : null;
 let busy: string | null = null;
 let sizeDelay = 900;
+let interrupt = false;
+let stepMs = 600;
 
 /** The browser's stand-in for the folder dialog (ui: shell/dataFolder.ts pickFolder). */
 export function mockPickFolder(): string | null {
@@ -133,6 +136,8 @@ export function dataFolderMockHandlers(startTask: StartTask): Record<string, (a:
     failNext: (message: string | null) => { failNext = message; },
     busy: (kind: string | null) => { busy = kind; },
     sizeDelay: (ms: number) => { sizeDelay = ms; },
+    interruptRemoval: (on: boolean) => { interrupt = on; },
+    stepMs: (ms: number) => { stepMs = ms; },
     refusals: () => REFUSALS,
     state: () => structuredClone(folder),
   };
@@ -149,13 +154,14 @@ export function dataFolderMockHandlers(startTask: StartTask): Record<string, (a:
       const fail = failNext;
       failNext = FAIL_URL ? fail : null;
       return startTask("data_folder_move", "Move the data folder",
-        ["Copying the library", "Copying runtimes and modpacks", "Copying the rest", "Checking the copies", "Switching to the new folder"],
+        ["copying library/kiln/new-items/1.0.0/kiln.mod.json", "copying runtime/kiln-runtime-0.2.0-dev.zip", "checking library/kiln/new-items/1.0.0/kiln.mod.json",
+          "switching to the new place", "removing the old copy: library/kiln/new-items/1.0.0/kiln.mod.json"],
         (): DataFolderMoved => {
           if (fail) rejectWith("io", fail);
           // the running launcher keeps the old folder until it restarts (data_folder_restart)
           return { from, to: p.target, warnings: [], stayed: p.stays,
-            cleanup: { done: true, interrupted: false, folderRemoved: !p.stays.length, kept: [], reason: null } };
-        }, 600);
+            cleanup: { done: !interrupt, interrupted: interrupt, folderRemoved: !p.stays.length && !interrupt, kept: [], reason: null } };
+        }, stepMs);
     },
     data_folder_use: (a) => {
       const p = String(a.path ?? "").replace(/(?<=.)[\\/]+$/, "");
