@@ -10,7 +10,8 @@ namespace Kiln;
 
 /// <summary>Finds and reads the running executable's code as it is in the exe file, before any hook. A pattern that
 /// another mod's detour hid at runtime still matches here, and <see cref="Read"/> returns the bytes a hook replaced.
-/// The file is read once (its .text section, with the image's base relocations applied).</summary>
+/// The file is read once (its .text section, with the image's base relocations applied). <see cref="FindUnique"/>,
+/// <see cref="TryFindUnique"/> and <see cref="Read"/> are for advanced mods only, like the rest of kiln.hooks.</summary>
 public static class OriginalCode
 {
     static readonly Lazy<(PeCode? Code, ulong Base, string Error)> Image = new(Load);
@@ -66,14 +67,36 @@ public static class OriginalCode
     /// <summary>True when the exe file could be read and parsed.</summary>
     public static bool Available => Image.Value.Code is not null;
 
+    internal const string Why = "This raw entry point is powerful and build-specific";
+
     /// <summary>The single address whose original bytes match <paramref name="pattern"/> ("48 8B ?? 05": hex bytes,
-    /// <c>?</c> or <c>??</c> for any byte). Throws when there is not exactly one match in .text.</summary>
+    /// <c>?</c> or <c>??</c> for any byte). Throws when there is not exactly one match in .text. Advanced mods only
+    /// (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    /// <remarks>Call from OnLoad or a Kiln callback that sets the calling mod context, not an unattributed background
+    /// thread or a raw native job handler. Even an advanced mod is refused when that thread has no current mod.
+    /// Cache the result during OnLoad for those threads. An UnmanagedCallersOnly callback must catch its own exceptions;
+    /// never let this gate's InvalidOperationException escape into native code.</remarks>
+    [AdvancedApi]
     public static nuint FindUnique(string pattern)
-        => TryFindUnique(pattern, out var a, out var why) ? a : throw new KeyNotFoundException($"pattern '{pattern}': {why}");
+    {
+        HooksGate.RequireAdvanced("OriginalCode.FindUnique", Why);
+        return TryFindUniqueCore(pattern, out var a, out var why) ? a : throw new KeyNotFoundException($"pattern '{pattern}': {why}");
+    }
 
     /// <summary>Like <see cref="FindUnique"/>, without throwing; <paramref name="why"/> says "no match",
-    /// "N+ matches", or why the pattern or executable could not be read.</summary>
+    /// "N+ matches", or why the pattern or executable could not be read. Advanced mods only (the gate throws).</summary>
+    /// <remarks>Requires the calling mod context on this thread, as <see cref="FindUnique"/> does. An advanced mod on an
+    /// unattributed background thread or in a raw native job handler is also refused: cache the result during OnLoad.
+    /// The gate throws even though a failed search returns false. An UnmanagedCallersOnly callback must catch its own
+    /// exceptions; never let the gate's InvalidOperationException escape into native code.</remarks>
+    [AdvancedApi]
     public static bool TryFindUnique(string pattern, out nuint address, out string why)
+    {
+        HooksGate.RequireAdvanced("OriginalCode.TryFindUnique", Why);
+        return TryFindUniqueCore(pattern, out address, out why);
+    }
+
+    static bool TryFindUniqueCore(string pattern, out nuint address, out string why)
     {
         address = 0;
         var (code, b, error) = Image.Value;
@@ -88,9 +111,16 @@ public static class OriginalCode
         return true;
     }
 
-    /// <summary>The bytes at <paramref name="address"/> as they are in the exe file. Throws outside .text.</summary>
+    /// <summary>The bytes at <paramref name="address"/> as they are in the exe file. Throws outside .text. Advanced mods
+    /// only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    /// <remarks>Call from OnLoad or a Kiln callback that sets the calling mod context, not an unattributed background
+    /// thread or a raw native job handler. Even an advanced mod is refused when that thread has no current mod.
+    /// Cache the bytes during OnLoad for those threads. An UnmanagedCallersOnly callback must catch its own exceptions;
+    /// never let this gate's InvalidOperationException escape into native code.</remarks>
+    [AdvancedApi]
     public static byte[] Read(nuint address, int count)
     {
+        HooksGate.RequireAdvanced("OriginalCode.Read", Why);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         var (code, b) = Require();
         if (count > code.Text.Length) throw new ArgumentOutOfRangeException(nameof(count), "larger than the executable's .text section");
@@ -310,7 +340,7 @@ public sealed class PeCode
 
 /// <summary>Zeroed native memory that outlives a mod's reload: the same block for the same key for the life of the
 /// process (the first call with a key decides the size). For state a hot-reloaded mod must find again, as Greeneye
-/// Loader's <c>host->keep</c> gives its mods.</summary>
+/// Loader's <c>host->keep</c> gives its mods. Raw native memory: advanced mods only.</summary>
 public static unsafe class Keep
 {
     static readonly object Gate = new();
@@ -333,12 +363,28 @@ public static unsafe class Keep
         }
     }
 
-    /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use.</summary>
-    public static nint Block(string key, int size) => GetBlock(key, size).Ptr;
+    /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use. Advanced mods
+    /// only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    /// <remarks>Call from OnLoad or a Kiln callback that sets the calling mod context, not an unattributed background
+    /// thread or a raw native job handler. Even an advanced mod is refused when that thread has no current mod.
+    /// Cache the pointer during OnLoad for those threads. An UnmanagedCallersOnly callback must catch its own exceptions;
+    /// never let this gate's InvalidOperationException escape into native code.</remarks>
+    [AdvancedApi]
+    public static nint Block(string key, int size)
+    {
+        HooksGate.RequireAdvanced("Keep.Block", OriginalCode.Why);
+        return GetBlock(key, size).Ptr;
+    }
 
-    /// <summary>The block as a span of <typeparamref name="T"/> (its first-use size, in whole T).</summary>
+    /// <summary>The block as a span of <typeparamref name="T"/> (its first-use size, in whole T). Advanced mods only.</summary>
+    /// <remarks>Requires the calling mod context on this thread, as <see cref="Block"/> does. An advanced mod on an
+    /// unattributed background thread or in a raw native job handler is also refused. Cache the pointer from
+    /// <see cref="Block"/> during OnLoad and construct a span over it on those threads instead. An UnmanagedCallersOnly
+    /// callback must catch its own exceptions; never let the gate's InvalidOperationException escape into native code.</remarks>
+    [AdvancedApi]
     public static Span<T> Span<T>(string key, int count) where T : unmanaged
     {
+        HooksGate.RequireAdvanced("Keep.Span", OriginalCode.Why);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         var block = GetBlock(key, checked(count * sizeof(T)));
         return new Span<T>((void*)block.Ptr, block.Size / sizeof(T));

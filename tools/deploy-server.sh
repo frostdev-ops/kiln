@@ -4,7 +4,8 @@
 #   <server>/kiln/kiln-core.dll     native core
 #   <server>/kiln/sigdb/            symbol definitions + verified build records
 #   <server>/kiln/dotnet/           private .NET runtime (win-x64)
-#   <server>/kiln/host/             Kiln.Host + Kiln.Api
+#   <server>/kiln/host/             Kiln.Host + Kiln.Api (+ the services, Kiln.Game, and game/<side>-<sha12>/Kiln.Game.dll
+#                                   per verified game build: tools/typegen/build-game.sh)
 #   <server>/kiln/mods/<id>/        managed mods (--samples: hello; --loader-samples: mods/samples/build.sh set;
 #                                   plus every folder with a kiln.mod.json under $KILN_OUT/mods)
 #   <server>/kiln/plugins/          native plugins (--samples: kiln-native-hello)
@@ -64,8 +65,16 @@ if ((build)); then
         || warn "managed service $(basename "$proj" .csproj) failed to build; skipped"
     fi
   done
-  dotnet build "$repo/managed/Kiln.Game/Kiln.Game.csproj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null 2>&1 \
-    || warn "Kiln.Game failed to build; skipped"  # generated game types (tools/typegen), shared like the services
+  # generated game types (tools/typegen), shared like the services; the build needs python3. A missing Kiln.Game would
+  # leave every mod that uses it unloadable, so a failed build stops the deploy, with its error lines.
+  game_log=$out/deploy-kiln-game.log
+  if ! dotnet build "$repo/managed/Kiln.Game/Kiln.Game.csproj" -c Release -o "$out/host" --artifacts-path "$out/dotnet" -v q -nologo >"$game_log" 2>&1; then
+    { grep -E '(^|: )error' "$game_log" | sort -u || tail -25 "$game_log"; } >&2
+    echo "deploy: Kiln.Game failed to build (log: $game_log)" >&2
+    exit 1
+  fi
+  # one Kiln.Game per verified game build: host/game/<side>-<sha12>/ (Kiln.Host picks the running exe's)
+  "$repo/tools/typegen/build-game.sh" "$out/host" >/dev/null || { echo "deploy: tools/typegen/build-game.sh failed" >&2; exit 1; }
   dotnet build "$repo/mods/samples/Hello/Hello.csproj" -c Release -o "$out/mods/hello" --artifacts-path "$out/dotnet" -v q -nologo >/dev/null \
     || warn "Hello sample failed to build"
   if ((loader_samples)); then "$repo/mods/samples/build.sh" >/dev/null || warn "loader samples failed to build"; fi
@@ -107,7 +116,7 @@ rm -rf "$k/sigdb/server.d" && mkdir -p "$k/sigdb/server.d"
 cp "$repo"/sigdb/symbols/server.d/*.json "$k/sigdb/server.d/" 2>/dev/null || true
 cp "$repo"/sigdb/builds/server/*.json "$k/sigdb/builds/server/" 2>/dev/null || true
 rsync -a --delete "$repo/.cache/dotnet-win-x64/root/" "$k/dotnet/"
-rsync -a --delete --include='Kiln.*' --exclude='*' "$out/host/" "$k/host/"
+rsync -a --delete --include='Kiln.*' --include='game/***' --exclude='*' "$out/host/" "$k/host/"
 if ((samples)); then
   hello=$out/mods/hello
   mkdir -p "$k/mods/hello"

@@ -308,6 +308,23 @@ class Record(Base):
         self.assertIn("allowed (made experimental ([KILNX004])): *REMOVED*Kiln.B", out)
         self.assertIn("allowed (lab member removed", out)
 
+    def test_an_oblivious_member_made_experimental_passes(self):
+        # PublicApiAnalyzers writes the oblivious marker first: `~[KILNX001]override ...`, removed `*REMOVED*~override ...`
+        self.r.commit(self.project(API, ["Kiln.A", "~override Kiln.S.ToString() -> string", "~[KILNX001]Kiln.Lab"],
+                                   ["*REMOVED*~override Kiln.S.ToString() -> string",
+                                    "~[KILNX001]override Kiln.S.ToString() -> string", "*REMOVED*~[KILNX001]Kiln.Lab"]))
+        code, out = run(self.r, "record")
+        self.assertEqual(0, code, out)
+        self.assertIn("allowed (made experimental ([KILNX001])): *REMOVED*~override Kiln.S.ToString() -> string", out)
+        self.assertIn("allowed (lab member removed", out)
+
+    def test_an_oblivious_line_is_not_excused_by_another_members_experimental_line(self):
+        self.r.commit(self.project(API, ["Kiln.A", "~override Kiln.S.ToString() -> string"],
+                                   ["*REMOVED*~override Kiln.S.ToString() -> string",
+                                    "~[KILNX001]override Kiln.T.ToString() -> string"]))
+        code, out = run(self.r, "record")
+        self.assertEqual(1, code, out)
+
     def test_the_pair_must_be_in_the_same_file(self):
         # an experimental line for the symbol in another project's Unshipped.txt does not cover the removal
         self.r.commit({**self.project(API, ["Kiln.A", "Kiln.B"], ["*REMOVED*Kiln.B"]),

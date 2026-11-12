@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- kiln.playeranim: the managed face of native/services/playeranim (mods' states in the player's animation graph,
+       merged at boot). Deployed to kiln/host/ and shared by every mod (mods reference it with Private="false"
+       ExcludeAssets="runtime"). Nothing autostarts it: it holds no state of its own, every answer comes from the table. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.PlayerAnim.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Game as dev.24 shipped it: the frozen managed/Kiln.Game/Generated.cs and a frozen copy of that day's
+       Components.cs. The legacy consumer is compiled against this shape (LegacyBinaryTests). -->
+  <PropertyGroup>
+    <AssemblyName>Kiln.Game</AssemblyName>
+    <RootNamespace>Kiln.GameTypes</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591;CS0435</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../../../Kiln.Game/Generated.cs" Link="Generated.cs" />
+    <Compile Include="../Components.dev24.cs" Link="Components.cs" />
+    <ProjectReference Include="../../../../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../../../../../services/Kiln.World/Kiln.World.csproj" Private="false" />
+  </ItemGroup>
+</Project>

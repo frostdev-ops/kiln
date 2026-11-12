@@ -1,0 +1,23 @@
+{
+ "comment": "Made-up legacy fixture.",
+ "side": "server",
+ "types": [
+  {
+   "name": "Widget",
+   "qualifiedName": "demo::Widget",
+   "hash": "0x94B53BB6",
+   "size": 8,
+   "kind": 18,
+   "fields": [
+    {
+     "name": "count",
+     "offset": 4,
+     "type": "demo::uint32",
+     "size": 4,
+     "kind": 6,
+     "defaultValue": 7
+    }
+   ]
+  }
+ ]
+}

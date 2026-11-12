@@ -46,7 +46,7 @@ internal static partial class Ops
         var tcp = Tcp;
         return new JsonObject
         {
-            ["admin"] = AdminVersion, ["kiln"] = Game.KilnVersion, ["api"] = Mods.ApiVersion, ["protocol"] = TcpAdmin.Protocol,
+            ["admin"] = AdminVersion, ["kiln"] = Game.KilnVersion, ["api"] = Mods.RuntimeApiVersion, ["protocol"] = TcpAdmin.Protocol,
             ["transports"] = tcp is null ? new JsonArray((JsonNode)"file") : new JsonArray((JsonNode)"file", (JsonNode)"tcp"),
             ["endpoint"] = tcp is null ? null : new JsonObject { ["host"] = "127.0.0.1", ["port"] = tcp.Port },
             ["server"] = new JsonObject { ["id"] = id, ["name"] = name },

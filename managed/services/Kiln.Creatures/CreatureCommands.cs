@@ -114,7 +114,7 @@ public static class CreatureAdminCommands
     private static void RulesCmd(CommandContext c)
     {
         Require();
-        var s = Arsenals.Status ?? throw new CommandException("kiln.creatures is not available on this server");
+        var s = Arsenals.RulesState ?? throw new CommandException("kiln.creatures is not available on this server");
         if (c.Has("entity"))
         {
             var cr = Of(c.Get<EntityId>("entity"));
@@ -419,7 +419,9 @@ public static class CreatureAdminCommands
         var e = c.Get<EntityId>("entity");
         try
         {
+#pragma warning disable KILNX001 // the lab-only "ready" command
             Of(e).ForceReady(c.Get<bool>("on"));
+#pragma warning restore KILNX001
         }
         catch (NotSupportedException)
         {

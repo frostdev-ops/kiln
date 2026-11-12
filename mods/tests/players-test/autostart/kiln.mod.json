@@ -1,0 +1,8 @@
+{
+  "id": "players-autostart-test",
+  "name": "identity.players autostart test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "PlayersAutostartTest.dll",
+  "side": "server"
+}

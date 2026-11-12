@@ -1,0 +1,85 @@
+{
+ "comment": "The nine dev.24 types of Kiln.Game, from managed/Kiln.Game/Generated.cs and Components.cs at 16fbaab8.",
+ "structs": [
+  {"name": "NetworkHealth", "size": 8, "hash": "0x216EB5F9", "component": "NetworkHealth", "fields": [
+   {"name": "health", "offset": 0, "type": "uint"},
+   {"name": "healthMax", "offset": 4, "type": "uint"}
+  ]},
+  {"name": "Health", "size": 40, "hash": "0xDC101091", "component": "Health", "fields": [
+   {"name": "dataStorage", "offset": 8, "type": "fixed byte[32]"}
+  ]},
+  {"name": "Mana", "size": 40, "hash": "0x4D7229A8", "component": "Mana", "fields": [
+   {"name": "dataStorage", "offset": 8, "type": "fixed byte[32]"}
+  ]},
+  {"name": "Stamina", "size": 40, "hash": "0x92410664", "component": "Stamina", "fields": [
+   {"name": "dataStorage", "offset": 8, "type": "fixed byte[32]"}
+  ]},
+  {"name": "CurrentTransform", "size": 56, "hash": "0x027AC564", "component": "CurrentTransform", "fields": [
+   {"name": "transform", "offset": 0, "type": "fixed byte[56]"}
+  ]},
+  {"name": "LastTransform", "size": 72, "hash": "0x4B6ABCF9", "component": "LastTransform", "fields": [
+   {"name": "transform", "offset": 0, "type": "fixed byte[56]"},
+   {"name": "velocity", "offset": 56, "type": "fixed byte[12]"}
+  ]},
+  {"name": "Velocity", "size": 12, "hash": "0xFB332100", "component": "Velocity", "fields": [
+   {"name": "velocity", "offset": 0, "type": "fixed byte[12]"}
+  ]},
+  {"name": "TeleportCount", "size": 16, "hash": "0xBFFE34EF", "component": "TeleportCount", "fields": [
+   {"name": "counter", "offset": 0, "type": "byte"},
+   {"name": "lastTeleportTime", "offset": 8, "type": "fixed byte[8]"}
+  ]},
+  {"name": "NpcCommon", "size": 1688, "hash": "0x072DBDB7", "component": "NpcCommon", "fields": [
+   {"name": "interactionStates", "offset": 0, "type": "byte"},
+   {"name": "targetSearchStates", "offset": 1, "type": "byte"},
+   {"name": "movementMode", "offset": 2, "type": "byte"},
+   {"name": "lastStateChange", "offset": 8, "type": "fixed byte[8]"},
+   {"name": "stateTimer", "offset": 16, "type": "fixed byte[8]"},
+   {"name": "currentStateDuration", "offset": 24, "type": "fixed byte[8]"},
+   {"name": "stuckTime", "offset": 32, "type": "fixed byte[8]"},
+   {"name": "stuckTimeOut", "offset": 40, "type": "fixed byte[8]"},
+   {"name": "resumeUpdateTimeOffset", "offset": 48, "type": "fixed byte[8]"},
+   {"name": "queryId", "offset": 56, "type": "fixed byte[4]"},
+   {"name": "closestPlayerId", "offset": 60, "type": "fixed byte[4]"},
+   {"name": "currentTargetId", "offset": 64, "type": "fixed byte[4]"},
+   {"name": "closestBuildingCursorId", "offset": 68, "type": "fixed byte[4]"},
+   {"name": "bedId", "offset": 72, "type": "fixed byte[4]"},
+   {"name": "previousTargetId", "offset": 76, "type": "fixed byte[4]"},
+   {"name": "sleepTime", "offset": 80, "type": "float"},
+   {"name": "wakeUpTime", "offset": 84, "type": "float"},
+   {"name": "closestPlayerDistance", "offset": 88, "type": "float"},
+   {"name": "squaredDistanceToTarget", "offset": 92, "type": "float"},
+   {"name": "yDistanceToTarget", "offset": 96, "type": "float"},
+   {"name": "currentTargetPosition", "offset": 100, "type": "fixed byte[12]"},
+   {"name": "closestPlayerPosition", "offset": 112, "type": "fixed byte[24]"},
+   {"name": "interactionTarget", "offset": 136, "type": "fixed byte[64]"},
+   {"name": "avoidWaterData", "offset": 200, "type": "fixed byte[16]"},
+   {"name": "history", "offset": 216, "type": "fixed byte[1440]"},
+   {"name": "historyIndex", "offset": 1656, "type": "byte"},
+   {"name": "currentSequenceId", "offset": 1660, "type": "fixed byte[16]"},
+   {"name": "useReducedRoamingSpace", "offset": 1676, "type": "byte"},
+   {"name": "shouldBeMoving", "offset": 1677, "type": "byte"},
+   {"name": "taskFailures", "offset": 1678, "type": "byte"},
+   {"name": "unstuckTries", "offset": 1679, "type": "byte"},
+   {"name": "goToTargetTries", "offset": 1680, "type": "byte"}
+  ]}
+ ],
+ "componentTypes": [
+  {"name": "NetworkHealth", "value": "0x216EB5F9"},
+  {"name": "Health", "value": "0xDC101091"},
+  {"name": "Mana", "value": "0x4D7229A8"},
+  {"name": "Stamina", "value": "0x92410664"},
+  {"name": "CurrentTransform", "value": "0x027AC564"},
+  {"name": "LastTransform", "value": "0x4B6ABCF9"},
+  {"name": "Velocity", "value": "0xFB332100"},
+  {"name": "TeleportCount", "value": "0xBFFE34EF"},
+  {"name": "NpcCommon", "value": "0x072DBDB7"}
+ ],
+ "components": [
+  "static System.Boolean get_Available()",
+  "static System.String NameOf<T>() where T : unmanaged",
+  "static System.Boolean TryGet<T>(Kiln.EntityId entity, out T value) where T : unmanaged",
+  "static System.Nullable<T> Get<T>(Kiln.EntityId entity) where T : unmanaged",
+  "static System.Boolean Has<T>(Kiln.EntityId entity) where T : unmanaged",
+  "static System.Collections.Generic.IReadOnlyList<Kiln.EntityId> All<T>() where T : unmanaged"
+ ]
+}

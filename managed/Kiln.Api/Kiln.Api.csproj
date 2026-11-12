@@ -9,6 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Host" />
     <InternalsVisibleTo Include="Kiln.Host.Tests" />
+    <InternalsVisibleTo Include="Kiln.Network.Tests" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <!-- Kiln's own service assemblies (managed/services/*) use the native service access in Services/. -->
     <InternalsVisibleTo Include="Kiln.World" />
@@ -44,5 +45,6 @@
     <InternalsVisibleTo Include="Kiln.Vfx" />
     <InternalsVisibleTo Include="Kiln.Quests" />
     <InternalsVisibleTo Include="Kiln.Rules" />
+    <InternalsVisibleTo Include="Kiln.PlayerAnim" />
   </ItemGroup>
 </Project>

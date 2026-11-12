@@ -42,7 +42,7 @@ public static partial class Abilities
         if (_buffProgramReady && Programs.Info(Programs.IdOf(BuffProgram)) is not null) return;
         if (Programs.Info(Programs.IdOf(BuffProgram)) is null)
         {
-            Programs.Register(BuildBuffProgram(), out var waiting);
+            Programs.RegisterCore(BuildBuffProgram(), out var waiting);  // Kiln's program: not the gated mod call
             if (waiting) throw new InvalidOperationException("ApplyBuff: the game's ImpactRegistry is not loaded yet");
         }
         _buffProgramReady = true;

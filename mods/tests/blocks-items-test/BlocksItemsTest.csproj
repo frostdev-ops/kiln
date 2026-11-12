@@ -7,6 +7,8 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- Calls Kiln's lab and test members ([Experimental("KILNX001")]). -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />

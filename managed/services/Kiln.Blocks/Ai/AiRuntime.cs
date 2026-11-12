@@ -52,7 +52,7 @@ internal static class AiRuntime
     /// <summary>A creature block compiled: what of its AI needs the runtime. Nothing when it has no relations, filter or flee of its own.</summary>
     internal static void Attach(NpcCreature info, AIBlock ai)
     {
-        Watch(info.Mod);
+        Watch(info.Mod, info.Owner.Mod?.Info);
         var filter = ai.SenseFilter ?? (ai.SenseFilterName is { } n ? FindFilter(info.Mod, n) : null);
         byte[]? row = null;
         if (ai.Relations is { Count: > 0 } rel)
@@ -81,9 +81,15 @@ internal static class AiRuntime
         if (c != null && NpcServerSide.Now) Track(c, e);
     }
 
-    internal static void Watch(string mod)
+    /// <summary>Follows one instance of a mod: when it is gone (unloaded, or replaced by a reload), what it set goes (<see cref="CheckMods"/>).
+    /// <paramref name="instance"/> is the instance the caller acts for; by default the calling mod's own context, and only then the mod list. The
+    /// mod list cannot name an instance while its OnLoad runs: Kiln.Host publishes the loaded instance after OnLoad returns, so until then
+    /// <see cref="Mods.Get"/> gives the entry from before the load (Pending at boot, the old instance at a reload; another ModInfo object either
+    /// way) or none, and the first tick would take the change for a reload and drop everything the mod registered in OnLoad (its creature blocks'
+    /// relations and filters, its named filters, its faction table).</summary>
+    internal static void Watch(string mod, ModInfo? instance = null)
     {
-        var instance = Mods.Get(mod)?.Info;
+        instance ??= Creatures.OwnerKey.Caller.Mod is { Info: var caller } && caller.Id == mod ? caller : Mods.Get(mod)?.Info;
         lock (Gate)
         {
             if (Watched.Contains(mod) && !ReferenceEquals(Instances.GetValueOrDefault(mod), instance)) Retire(mod);

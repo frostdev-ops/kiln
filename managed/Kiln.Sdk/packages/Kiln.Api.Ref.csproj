@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- The Kiln.Api NuGet package mods compile against: lib/net10.0/Kiln.Api.dll (+ XML docs) and, not referenced by
-       default, kiln/lib/Kiln.<Service>.dll + Kiln.Testing.dll (Kiln.Sdk references the ones a mod lists in
-       KilnServices). Packed by managed/Kiln.Sdk/pack.sh from the assemblies it stages in $(KilnStage). -->
+       default, kiln/lib/Kiln.<Service>.dll + Kiln.Testing.dll + Kiln.Game.dll (Kiln.Sdk references the ones a mod
+       lists in KilnServices; Game is the generated game types, built from the newest dump, the compile reference of
+       every game build: docs/kiln/typegen.md, "Shipping and staying loadable"). Packed by managed/Kiln.Sdk/pack.sh
+       from the assemblies it stages in $(KilnStage). -->
   <Import Project="../Sdk/Kiln.Version.props" />
   <PropertyGroup>
     <PackageId>Kiln.Api</PackageId>
@@ -20,9 +22,11 @@
     <None Include="$(KilnStage)/Kiln.*.xml" Exclude="$(KilnStage)/Kiln.Api.xml" Pack="true" PackagePath="kiln/lib/" />
   </ItemGroup>
   <!-- kiln/lib/Kiln.Services.props: which service assemblies each service compiles against (its ProjectReferences),
-       so Kiln.Sdk references the whole closure of a mod's KilnServices (Content needs Items, ...). -->
+       so Kiln.Sdk references the whole closure of a mod's KilnServices (Content needs Items, ...). Kiln.Game is listed
+       like a service (KilnServices "Game"): it compiles against Kiln.World, so a mod naming Game gets Kiln.World too. -->
   <ItemGroup>
     <_KilnSvcProj Include="$(MSBuildThisFileDirectory)../../services/*/*.csproj" />
+    <_KilnSvcProj Include="$(MSBuildThisFileDirectory)../../Kiln.Game/Kiln.Game.csproj" />
     <None Include="$(IntermediateOutputPath)Kiln.Services.props" Pack="true" PackagePath="kiln/lib/" />
   </ItemGroup>
   <Target Name="KilnServiceDeps" BeforeTargets="_GetPackageFiles;GenerateNuspec">
