@@ -165,6 +165,7 @@ a rejoin only if the player's link tree comes back the same; that is not proven 
     "crowded": true,          // another entity of its template stood within the radius at the save (omitted: false)
     "aside": "<reason>",      // the holder itself was not certain: all its records are set aside
     "last": 3011,             // a player: the newest witness taken while in game
+    "joins": 1,               // a player: joins counted (a join's witness id is 2147483648 + this count)
     "witness": { "3011": { "settled": true,   // read at the snapshot staging or a shutdown save (see below)
                            "items": [ [flat slot, item, count, level, dur, durMax, fuel, fuelMax, dye, perksAvail, perksUnlocked, gem, gemLevel], ... ] } },
     "records": [ {
@@ -173,6 +174,7 @@ a rejoin only if the player's link tree comes back the same; that is not proven 
       "seen": 3011,           // the save whose fresh read placed it (the key of its witness)
       "state": "live",        // live (on its item at the save), waiting, aside
       "why": "<reason>", "missed": 0, "since": 3011, "gone": true,
+      "alt": [ [2147483649, 10], [3010, 11] ],   // a player's: its slot at the other states the client may come back as (-1 not there, -2 not read)
       "keys": { "<key>": <the value as JSON> } } ] } ] }
 ```
 A witness is the holder's whole list of item entities at that save (also those without data). Each mod's bundle carries
@@ -193,7 +195,8 @@ without it nobody knows whether a look-alike stood beside it.
    - *between the save and the load:* the holder's list now equals the record's witness, every slot and every field;
      and for a world holder also the record was read at the save of the generation the world file vouches for (`Exact`
      or `Staged`). Both, because a world file edited offline with its header revision and time kept loads as `Exact`;
-     its changed list shows. For a player the witness alone (a character has no generation of its own);
+     its changed list shows. For a player the witness alone (a character has no generation of its own), and see
+     "Players" below: every state the character may come back as is compared;
    - *at the save:* that witness is **settled**: read at the snapshot staging, where no simulation step comes before the
      game's snapshot, or at a shutdown save. The first staging of a save is one step early, and a swap in that step is
      saved by the game but not by Kiln;
@@ -239,8 +242,26 @@ like nothing happened.
 - **Destroyed** (trash, crafting, taken away) in a world holder: dropped at once (`Destroyed`).
 - **Gone from a player's inventory:** not decided in that step. If the player is still in game 50 steps later, or the
   inventory was still there when the item went, it was destroyed. If the player left, the record waits with the
-  character at its last slot (`PlayerLeft`) and comes back at the next join. A save in between keeps such a record, but
-  it may only come back to an inventory that is as it was.
+  character (`PlayerLeft`) and comes back at the next join. A save in between keeps such a record, but it may only come
+  back to an inventory that is as one of its saved states.
+- **A read that places an item nowhere** (for one step at a leave the item entities outlive the player entity) changes
+  nothing: the item keeps its last place, its holder and its newest observation.
+- **A leaving player** keeps its character: while an item stays in the same holder entity, a later lookup that finds no
+  character (a record already reset) never replaces the one known.
+
+### Players: which file comes back
+A player leaves in one of three ways (`out/instances/t3/leave-order.md` of the dev.25 wave): from the menu (a leave save
+while the player still counts as in game, its file sent and acknowledged, then the entities go), by a crash or a lost
+connection (no leave save: the client keeps the file of the last save it received, up to 30 s old, or older if sends
+failed), or with the server's shutdown. So a character may come back as any state the client got: the inventory it
+joined with, or the inventory at a later save. Kiln reads every player's inventory at its join and at every save (with
+data or not) and keeps, for the newest 5 of these states of the visit (the join and about two minutes of autosaves), where
+each item was. A record carries its slot in each. At the next join the inventory is compared with all of them: the
+states it equals must agree on the item's slot (then it attaches there, also from an older state), or all lack it (then
+it waits). States that disagree, which happens when look-alikes were moved within those two minutes, set the record
+aside. A save that could not read a player's inventory counts as a state nobody knows: a record with it is set aside.
+What this rests on: the client's file is one of the newest 5 states (a connection dead for longer is timed out by the
+server), and the client's file changes only when the server sends the character back, which it does at its world saves.
 - **A mod that is not loaded:** its records are kept as JSON, unread, matched and moved with their item like any other,
   and dropped only with the item.
 - **A mod's unload:** its live objects are written out as JSON and every reference to its types goes (keys included);

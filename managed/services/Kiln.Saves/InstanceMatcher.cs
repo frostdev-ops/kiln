@@ -22,7 +22,28 @@ internal sealed record Witness(IReadOnlyList<WitnessEntry> Entries, bool Settled
 /// <param name="Aside">Set aside in an earlier session: never attached again.</param>
 /// <param name="OnlyTrusted">May attach only through a trusted holder state, never by rule 2 (a record of an item that
 /// was gone from a player's inventory at the save: destroyed, or the player leaving, not known yet).</param>
-internal readonly record struct MatchRecord(int Slot, StableFingerprint Stable, uint Seen, bool Aside = false, bool OnlyTrusted = false);
+/// <param name="Alt">A player's record: its slot (-1: not in the inventory then) at every other state the client may bring
+/// back as its character file (the join of that visit and the saves after it). A client brings back the file of the last
+/// save it received, which need not be the last save Kiln read.</param>
+internal readonly record struct MatchRecord(int Slot, StableFingerprint Stable, uint Seen, bool Aside = false, bool OnlyTrusted = false,
+    IReadOnlyList<(uint Seen, int Slot)>? Alt = null)
+{
+    /// <summary>Every observation: the main one (when it has one) and the alternates.</summary>
+    public IEnumerable<(uint Seen, int Slot)> Observations => (Seen != 0 ? [(Seen, Slot)] : Array.Empty<(uint, int)>()).Concat(Alt ?? []);
+}
+
+/// <summary>What a record's states say about the holder now.</summary>
+internal enum Vouch
+{
+    /// <summary>Not vouched for: the holder changed since (rule 2 decides).</summary>
+    No,
+    /// <summary>The holder is as one of its states, and those agree on the item's slot.</summary>
+    Slot,
+    /// <summary>The holder is as states in which the item was not there: it is not in the holder.</summary>
+    Absent,
+    /// <summary>The holder is as several states that put the item in different places: not certain.</summary>
+    Ambiguous,
+}
 
 /// <summary>An item entity of the holder now.</summary>
 /// <param name="Slot">Its flat slot.</param>
@@ -169,11 +190,38 @@ internal static class InstanceMatcher
     /// observation is the generation the world file vouches for (<paramref name="trustedGeneration"/>: given only when the
     /// loaded generation is Exact or Staged), so an edit of the world file that keeps its header shows as a changed list.
     /// Rule 1 also needs the holder's items as the loader made them.</summary>
-    /// <param name="world">A world holder (a chest, an NPC); false for a player, whose state is vouched for by the witness alone.</param>
+    /// <remarks><c>world</c>: a world holder (a chest, an NPC); false for a player, whose state is vouched for by its
+    /// witnesses alone.</remarks>
     public static bool Trusted(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses, IReadOnlyList<MatchItem> items, uint? trustedGeneration,
-        bool world) =>
-        r.Seen != 0 && witnesses.TryGetValue(r.Seen, out var w) && w.Settled && SameAsWitness(w.Entries, items) &&
-        (!world || (trustedGeneration is { } g && r.Seen == g));
+        bool world) => Vouched(r, witnesses, items, trustedGeneration, world).Kind == Vouch.Slot;
+
+    /// <summary>What the record's states say about the holder now. A world holder: its one observation, the world file's own
+    /// generation, settled, with an equal list. A player: every state the client may have brought back as its file whose
+    /// list equals the inventory now; all settled; they must agree on the item's slot (or all lack it).</summary>
+    public static (Vouch Kind, int Slot, string Why) Vouched(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses, IReadOnlyList<MatchItem> items,
+        uint? trustedGeneration, bool world)
+    {
+        if (world)
+            return r.Seen != 0 && witnesses.TryGetValue(r.Seen, out var w) && w.Settled && SameAsWitness(w.Entries, items) &&
+                   trustedGeneration is { } g && r.Seen == g
+                ? (Vouch.Slot, r.Slot, $"the holder is as it was saved: the item in its own slot {r.Slot}")
+                : (Vouch.No, -1, "");
+        var obs = r.Observations.ToList();
+        if (obs.Count == 0 || obs.Any(o => !witnesses.ContainsKey(o.Seen))) return (Vouch.No, -1, "");
+        // a state read one step early may differ from the file the client got by a swap nobody saw
+        if (obs.Any(o => !witnesses[o.Seen].Settled)) return (Vouch.No, -1, "");
+        var same = obs.Where(o => SameAsWitness(witnesses[o.Seen].Entries, items)).ToList();
+        if (same.Count == 0) return (Vouch.No, -1, "");
+        var slots = same.Select(o => o.Slot).Distinct().ToList();
+        if (slots.Count > 1)
+            return (Vouch.Ambiguous, -1, $"the inventory is as it was at {same.Count} saved states that put the item in different places " +
+                                         $"(slots {string.Join(", ", slots.Select(x => x < 0 ? "none" : x.ToString()))}); which one the character came back as is not known");
+        return slots[0] < 0
+            ? (Vouch.Absent, -1, "the inventory is as it was when the item was not in it")
+            : (Vouch.Slot, slots[0], slots[0] == r.Slot
+                ? $"the inventory is as it was saved: the item in its own slot {r.Slot}"
+                : $"the inventory is as the character's file of an earlier save had it: the item in slot {slots[0]}");
+    }
 
     /// <summary>Decides every record of one holder. Pure: nothing is read or changed.</summary>
     /// <param name="records">The holder's saved records (waiting and set aside alike).</param>
@@ -206,21 +254,33 @@ internal static class InstanceMatcher
                 continue;
             }
             // No witness: nobody knows whether a look-alike stood beside it at the save, nor whether the holder is as saved.
-            if (rec.Seen == 0 || !witnesses.ContainsKey(rec.Seen))
+            if (!rec.Observations.Any() || rec.Observations.Any(o => !witnesses.ContainsKey(o.Seen)))
             {
-                outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1,
-                    "it was saved without the holder's list of items, so whether a look-alike stood beside it is not known");
+                outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1, rec.Seen == 0 || !witnesses.ContainsKey(rec.Seen)
+                    ? "it was saved without the holder's list of items, so whether a look-alike stood beside it is not known"
+                    : "one of the states the character may come back as was not read (a save that could not read the inventory)");
                 continue;
             }
-            if (asMade && Trusted(rec, witnesses, items, trustedGeneration, world))
+            var v = Vouched(rec, witnesses, items, trustedGeneration, world);
+            if (v.Kind == Vouch.Ambiguous)
             {
-                // Rule 1: nothing moved unseen, so the record's own slot is the item, twins included.
-                if (bySlot.TryGetValue(rec.Slot, out var it) && items[it].Fields.Stable == rec.Stable)
-                    proposal[r] = (it, MatchKind.AttachExact, $"the holder is as it was saved: the item in its own slot {rec.Slot}");
+                outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1, v.Why);
+                continue;
+            }
+            if (v.Kind == Vouch.Absent)
+            {
+                outcome[r] = new MatchOutcome(r, MatchKind.Parked, -1, v.Why);
+                continue;
+            }
+            if (asMade && v.Kind == Vouch.Slot)
+            {
+                // Rule 1: nothing moved unseen, so the slot the holder's state gives is the item, twins included.
+                if (bySlot.TryGetValue(v.Slot, out var it) && items[it].Fields.Stable == rec.Stable)
+                    proposal[r] = (it, MatchKind.AttachExact, v.Why);
                 else
-                    outcome[r] = new MatchOutcome(r, MatchKind.Parked, -1, bySlot.TryGetValue(rec.Slot, out var other)
-                        ? $"the holder is as it was saved, but slot {rec.Slot} holds {items[other].Fields.Stable}, not {rec.Stable}"
-                        : $"the holder is as it was saved, but slot {rec.Slot} is empty");
+                    outcome[r] = new MatchOutcome(r, MatchKind.Parked, -1, bySlot.TryGetValue(v.Slot, out var other)
+                        ? $"the holder is as it was saved, but slot {v.Slot} holds {items[other].Fields.Stable}, not {rec.Stable}"
+                        : $"the holder is as it was saved, but slot {v.Slot} is empty");
                 continue;
             }
             if (rec.OnlyTrusted)
@@ -250,11 +310,15 @@ internal static class InstanceMatcher
             {
                 var r = group.Single();
                 var it = candidates[0];
-                // At the save the holder had a look-alike of this item too, and one of the two is gone: which one is not known.
-                if (witnesses[records[r].Seen].Entries.Count(e => e.Fields.Stable == fp) is var twins and > 1)
+                // At a save the holder had a look-alike of this item too, and one of the two is gone: which one is not known.
+                // (A state in which the item was not there but a look-alike was: the look-alike may be what came back.)
+                var doubt = records[r].Observations.Select(o => (o.Slot, Twins: witnesses[o.Seen].Entries.Count(e => e.Fields.Stable == fp)))
+                    .FirstOrDefault(o => o.Slot >= 0 ? o.Twins > 1 : o.Twins > 0);
+                if (doubt.Twins > 0)
                 {
-                    outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1,
-                        $"at the save the holder had {twins} items {fp}; now it has one, and which one is gone is not known");
+                    outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1, doubt.Slot >= 0
+                        ? $"at a save the holder had {doubt.Twins} items {fp}; now it has one, and which one is gone is not known"
+                        : $"at a saved state without this item the holder had a look-alike {fp}; the one now may be that one");
                     continue;
                 }
                 proposal[r] = items[it].Slot == records[r].Slot

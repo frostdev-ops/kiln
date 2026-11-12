@@ -14,6 +14,12 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         public EntityId Holder;
         public int Slot;
         public InstanceFields Fields;
+
+        /// <summary>Ground truth for tests: which item this is, through character files and rejoins.</summary>
+        public int Identity;
+
+        /// <summary>The holder whose teardown left it placed nowhere.</summary>
+        public EntityId FormerHolder;
     }
 
     internal sealed class FakeHolder
@@ -33,6 +39,12 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     private uint _nextId;
     public ulong Step { get; set; } = 1000;
     public bool Off { get; set; }
+
+    /// <summary>A leaving player's entity answers without its character (a lookup after its record was reset).</summary>
+    public bool ForgetLeavingCharacter { get; set; }
+
+    /// <summary>Ground truth of the character files: slot -> identity of the item there.</summary>
+    public readonly Dictionary<CharacterKey, Dictionary<int, int>> FileIdentities = new();
     public int ReadCalls { get; private set; }
     public int FindCalls { get; set; }
     public readonly Dictionary<uint, FakeItem> Items = new();
@@ -61,7 +73,8 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     public IReadOnlyList<InstanceItem> ReadHolder(EntityId holder, out bool initialized)
     {
         Require();
-        initialized = Holders.TryGetValue(holder.Value, out var h) && h.Initialized && (h.Identity.Kind != HolderKind.Player || h.InGame);
+        // a leaving player's inventory reads as long as its entity exists
+        initialized = Holders.TryGetValue(holder.Value, out var h) && h.Initialized;
         return initialized ? Items.Values.Where(i => i.Holder == holder).OrderBy(i => i.Slot).Select(Info).ToList() : [];
     }
 
@@ -72,7 +85,9 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         return new Handle(this, item);
     }
 
-    public HolderIdentity Holder(EntityId holder) => Holders.TryGetValue(holder.Value, out var h) ? h.Identity : HolderIdentity.None;
+    public HolderIdentity Holder(EntityId holder) => !Holders.TryGetValue(holder.Value, out var h) ? HolderIdentity.None
+        : h.Identity.Kind == HolderKind.Player && !h.InGame && ForgetLeavingCharacter ? HolderIdentity.OfPlayer(default, h.Identity.Name)
+        : h.Identity;
 
     public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius)
     {
@@ -114,17 +129,59 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     {
         var e = new EntityId(_nextId++);
         Holders[e.Value] = new FakeHolder { Entity = e, Identity = HolderIdentity.OfPlayer(character, name ?? "Player"), InGame = true };
-        foreach (var (slot, f) in CharacterFiles.GetValueOrDefault(character) ?? []) Give(e, slot, f);
+        var ids = FileIdentities.GetValueOrDefault(character);
+        foreach (var (slot, f) in CharacterFiles.GetValueOrDefault(character) ?? []) Give(e, slot, f, identity: ids is not null && ids.TryGetValue(slot, out var x) ? x : null);
         return e;
     }
 
-    public ItemInstanceRef Give(EntityId holder, int slot, InstanceFields fields, uint? reuseId = null)
+    /// <summary>The game sends the character back (a world save while the player is in game, or its final save): the
+    /// client's file is now the inventory as it is.</summary>
+    public void SendCharacter(EntityId player)
+    {
+        var c = Holders[player.Value].Identity.Character;
+        var placed = Items.Values.Where(i => i.Holder == player).OrderBy(i => i.Slot).ToList();
+        CharacterFiles[c] = placed.Select(i => (i.Slot, i.Fields)).ToList();
+        FileIdentities[c] = placed.ToDictionary(i => i.Slot, i => i.Identity);
+    }
+
+    /// <summary>Leave from the menu, first part: the record is Leaving; the player is out of the in-game list, its entity and
+    /// inventory remain until the final save is acknowledged.</summary>
+    public void BeginLeave(EntityId player) => Holders[player.Value].InGame = false;
+
+    /// <summary>The player entity (with its inventory setup) is destroyed; its item entities live on for one step, placed
+    /// nowhere (docs: leave-order.md section 3).</summary>
+    public void DestroyPlayerEntity(EntityId player)
+    {
+        Holders.Remove(player.Value);
+        foreach (var i in Items.Values.Where(i => i.Holder == player))
+        {
+            i.FormerHolder = player;
+            i.Holder = EntityId.None;
+            i.Slot = -1;
+        }
+    }
+
+    /// <summary>The next step: the item entities left by a holder's teardown go (Gone, from a place nowhere).</summary>
+    public void TearDown(EntityId player)
+    {
+        foreach (var i in Items.Values.Where(i => i.FormerHolder == player && i.Holder.IsNone).ToList()) Destroy(i.Ref);
+    }
+
+    /// <summary>A crash or a lost connection: the record is reset and the entity destroyed in one call, no leave save;
+    /// the client keeps the file of the last save it received.</summary>
+    public void Crash(EntityId player)
+    {
+        DestroyPlayerEntity(player);
+        TearDown(player);
+    }
+
+    public ItemInstanceRef Give(EntityId holder, int slot, InstanceFields fields, uint? reuseId = null, int? identity = null)
     {
         if (Items.Values.Any(i => i.Holder == holder && i.Slot == slot)) throw new InvalidOperationException($"slot {slot} of {holder} is taken");
         var id = reuseId ?? _nextId++;
         if (Items.ContainsKey(id)) throw new InvalidOperationException($"entity {id} exists");
         var r = new ItemInstanceRef(new EntityRef(new EntityId(id), (1UL << 60) | ++_stamps), fields.Item);
-        Items[id] = new FakeItem { Ref = r, Holder = holder, Slot = slot, Fields = fields };
+        Items[id] = new FakeItem { Ref = r, Holder = holder, Slot = slot, Fields = fields, Identity = identity ?? (int)id };
         return r;
     }
 
