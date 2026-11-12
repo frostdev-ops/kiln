@@ -27,7 +27,8 @@ fn tree(root: &Path) -> BTreeMap<String, String> {
             let name = e.file_name().to_string_lossy().into_owned();
             let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             let m = std::fs::symlink_metadata(e.path()).unwrap();
-            if (rel.is_empty() && df::is_own_file(&name, df::PathStyle::Unix)) || name.ends_with(".lock") {
+            let top = rel.is_empty() && (df::is_own_file(&name, df::PathStyle::Unix) || df::is_top_lock(&name, df::PathStyle::Unix));
+            if top || (rel == "nexus" && name.ends_with(".lock")) {
                 continue;
             }
             if m.is_dir() {
@@ -225,14 +226,41 @@ fn the_lock_is_shared_by_launchers_and_exclusive_for_a_move() {
 
 // ------------------------------------------------------------------------------------------------ moves
 
-/// A move by hard links within one volume, then what the launcher writes in normal use, through the new place: the
-/// old copy stays byte for byte as it was. Then the old copy is removed by the record and the move acknowledged.
+/// A Progress that cancels once the switch is under way (the move's own removal of the old copy is then interrupted),
+/// and notes whether a launcher could take the new place's lock while the move writes the games' profiles.
+struct AfterSwitch {
+    to: PathBuf,
+    switched: bool,
+    lock_free_during: Option<bool>,
+}
+impl Progress for AfterSwitch {
+    fn report(&mut self, _: Option<f32>, m: &str) {
+        if m.starts_with("switching") {
+            self.switched = true;
+        }
+        if m.starts_with("writing the games' profiles") {
+            self.lock_free_during = Some(DataLock::shared(&self.to).unwrap().is_some());
+        }
+    }
+    fn canceled(&self) -> bool {
+        self.switched
+    }
+}
+
+/// A move by hard links within one volume whose own removal of the old copy is interrupted (a cancel after the switch),
+/// then what the launcher writes in normal use, through the new place: the old copy stays byte for byte as it was.
+/// Then the old copy is removed by the record at the next start and the move acknowledged.
 #[test]
 fn a_move_by_hard_links_leaves_the_old_copy_untouched_by_later_writes() {
     let fx = Fixture::build("links");
     let before = tree(&fx.dirs.root);
     let to = fx.base.join("moved");
-    let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
+    let mut p = AfterSwitch { to: to.clone(), switched: false, lock_free_during: None };
+    let r = dfm::move_to(&located(&fx.env), &fx.env, &to, &linking(), None, &MoveOptions::default(), &mut p).unwrap();
+    let c = r.cleanup.clone().unwrap();
+    assert!(c.interrupted && c.removed_files == 0, "a cancel after the switch interrupts only the removal: {c:?}");
+    assert_eq!(p.lock_free_during, Some(false), "a launcher starting meanwhile cannot take the new place");
+    assert!(DataLock::shared(&to).unwrap().is_some(), "after the move it can");
     assert_eq!((r.from.clone(), r.to.clone()), (fx.dirs.root.clone(), to.clone()));
     assert!(r.linked > 0 && r.copied > 0, "{r:?}");
     assert_eq!(r.files as usize, before.len());
@@ -266,6 +294,8 @@ fn a_move_by_hard_links_leaves_the_old_copy_untouched_by_later_writes() {
     // the old copy goes by the record; what changed in the new place since keeps its old copy
     let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
     assert!(c.done && !c.interrupted, "{c:?}");
+    let again = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(again.done && again.removed_files == c.removed_files, "a call again with nothing left: {again:?}");
     let kept: BTreeSet<PathBuf> = c.kept.iter().map(|k| k.path.clone()).collect();
     assert!(kept.contains(&fx.dirs.root.join("My Notes")), "an unknown entry stays: {kept:?}");
     assert!(kept.contains(&fx.dirs.root.join("settings.json")), "changed in the new place since: the old one stays");
@@ -290,13 +320,14 @@ fn a_move_by_copies_keeps_times_and_permissions() {
     let to = fx.base.join("copied");
     let old_handler = fx.dirs.root.join("nexus/handler.json");
     let mtime = std::fs::metadata(&old_handler).unwrap().modified().unwrap();
+    let (old_ino, nexus_mode) = (ino(&old_handler), std::fs::metadata(fx.dirs.root.join("nexus")).unwrap().permissions().mode() & 0o777);
     let r = mv(&fx, &to, &linking(), &MoveOptions { force_copy: true, inject: None }).unwrap();
     assert_eq!(r.linked, 0);
     let h = to.join("nexus/handler.json");
-    assert_ne!(ino(&h), ino(&old_handler));
+    assert_ne!(ino(&h), old_ino);
     assert_eq!(std::fs::metadata(&h).unwrap().permissions().mode() & 0o777, 0o600);
     assert_eq!(std::fs::metadata(&h).unwrap().modified().unwrap(), mtime);
-    assert_eq!(std::fs::metadata(to.join("nexus")).unwrap().permissions().mode() & 0o777, std::fs::metadata(fx.dirs.root.join("nexus")).unwrap().permissions().mode() & 0o777);
+    assert_eq!(std::fs::metadata(to.join("nexus")).unwrap().permissions().mode() & 0o777, nexus_mode);
     assert_eq!(located(&fx.env).dirs.root, to);
 }
 
@@ -360,9 +391,10 @@ fn moving_back_to_the_default_root() {
     put(&default, "settings.json", b"{}\n");
     let before = tree(&default);
     let away = s.0.join("away");
-    dfm::move_to(&env.locate().unwrap(), &env, &away, &linking(), None, &MoveOptions::default(), &mut NoProgress).unwrap();
-    let c = dfm::remove_old_copy(&env, &mut NoProgress).unwrap();
+    let r = dfm::move_to(&env.locate().unwrap(), &env, &away, &linking(), None, &MoveOptions::default(), &mut NoProgress).unwrap();
+    let c = r.cleanup.unwrap();
     assert!(c.done && c.kept.is_empty(), "{c:?}");
+    assert!(dfm::remove_old_copy(&env, &mut NoProgress).unwrap().done);
     dfm::acknowledge(&env).unwrap();
     assert_eq!(df::recognize(&default, &env).unwrap(), FolderState::Empty, "only the pointer is left");
     let r = dfm::move_to(&env.locate().unwrap(), &env, &default, &linking(), None, &MoveOptions::default(), &mut NoProgress).unwrap();
@@ -454,7 +486,7 @@ fn what_changes_in_the_source_during_the_copy_is_copied_again() {
     let to = fx.base.join("target");
     let mut w = Writer { root: fx.dirs.root.clone(), n: 0, at: Some(3) };
     dfm::move_to(&located(&fx.env), &fx.env, &to, &linking(), None, &MoveOptions::default(), &mut w).unwrap();
-    assert_eq!(std::fs::read(to.join("settings.json")).unwrap(), std::fs::read(fx.dirs.root.join("settings.json")).unwrap(), "the changed file");
+    assert_eq!(std::fs::read(to.join("settings.json")).unwrap(), b"{\"changed\": 3}\n", "the changed file");
     assert!(to.join("installs/added-3.json").is_file(), "the added file");
     // a source that keeps changing: the move gives up after its rounds, the old place stays in use
     let fx = Fixture::build("changes-forever");
@@ -522,10 +554,13 @@ fn a_crash_at_each_step_is_recovered_by_the_next_start() {
 
 // ------------------------------------------------------------------------------------------------ removal needs proof
 
+/// A committed move whose own removal of the old copy did not run (the process "died" after the activation).
 fn committed_copy(tag: &str) -> (Fixture, PathBuf) {
     let fx = Fixture::build(tag);
     let to = fx.base.join("moved");
-    mv(&fx, &to, &linking(), &MoveOptions { force_copy: true, inject: None }).unwrap();
+    let e = mv(&fx, &to, &linking(), &MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(Step::Activate)) }).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal);
+    assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Committed { .. }));
     (fx, to)
 }
 
@@ -717,10 +752,11 @@ fn after_a_move_nothing_names_the_old_root() {
 fn the_fixture_works_from_the_moved_folder() {
     let fx = Fixture::build("works-after");
     let to = fx.base.join("moved place");
-    mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
+    let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
     let j = dfm::read_journal(&fx.env).unwrap().unwrap();
     assert!(j.rewritten_after.iter().any(|r| r.path.ends_with(".active.json")), "the move's own writes after the switch: {:?}", j.rewritten_after);
-    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    let c = r.cleanup.unwrap();
+    assert!(c.done && !c.interrupted, "the move removed the old copy itself: {c:?}");
     assert_eq!(c.kept.iter().map(|k| k.path.clone()).collect::<Vec<_>>(), [fx.dirs.root.join("My Notes")], "only the unknown entry stays: {c:?}");
     assert!(fx.dirs.root.join("My Notes/readme.txt").is_file(), "an unknown entry is never removed");
     assert_eq!(std::fs::read_dir(&fx.dirs.root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect::<BTreeSet<_>>(),
@@ -809,4 +845,214 @@ fn a_launcher_that_never_moved_keeps_its_own_profiles() {
         profile::refresh_active(&fx.dirs, g).unwrap();
         assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().generation, generation, "current: not written again");
     }
+}
+
+// ------------------------------------------------------------------------------------------------ core-3
+
+/// A move into a default root that keeps a folder of its own under an entry's name. On Windows that is `state\`
+/// (`util::state_dir()`, server console captures); with Linux rules, `XDG_STATE_HOME` set to the default root makes its
+/// `kiln/` that folder. The entry is not copied, and the target's folder is untouched, whether the move completes, fails
+/// after the copy or is canceled.
+#[test]
+fn a_target_keeps_its_own_folder_whatever_the_move_does() {
+    for case in ["done", "fail", "cancel"] {
+        let s = scratch(&format!("own-{case}"));
+        let mut env = env_at(&s.0);
+        let default = env.default_root().unwrap();
+        env.xdg_state_home = Some(default.clone().into());
+        assert_eq!(env.state_dir(), default.join("kiln"));
+        put(&default, "kiln/server.run.log", b"console of a running server");
+        let away = s.0.join("away");
+        put(&away, "library/kiln/a/1.0.0+00000000/M.dll", b"mod");
+        put(&away, "kiln/notes.txt", b"an entry of the same name");
+        df::write_pointer(&default, &away).unwrap();
+        assert_eq!(df::own_entries(&default, &env), ["kiln"]);
+        assert_eq!(df::recognize(&default, &env).unwrap(), FolderState::Empty);
+        let opts = if case == "fail" { inject(Inject::FailAfterCopy) } else { MoveOptions::default() };
+        let mut cancel = CancelAfter(std::cell::Cell::new(0));
+        let mut none = NoProgress;
+        let p: &mut dyn Progress = if case == "cancel" { &mut cancel } else { &mut none };
+        let r = dfm::move_to(&env.locate().unwrap(), &env, &default, &linking(), None, &opts, p);
+        assert_eq!(std::fs::read(default.join("kiln/server.run.log")).unwrap(), b"console of a running server", "{case}");
+        assert_eq!(std::fs::read_dir(default.join("kiln")).unwrap().count(), 1, "{case}: nothing was copied into it");
+        if case == "done" {
+            let r = r.unwrap();
+            assert!(r.stayed.iter().any(|s| s.name == "kiln" && s.path == away.join("kiln")), "{r:?}");
+            assert!(away.join("kiln/notes.txt").is_file(), "the entry stays in the old folder");
+            assert!(default.join("library/kiln/a/1.0.0+00000000/M.dll").is_file());
+            assert!(r.cleanup.unwrap().kept.iter().any(|k| k.path == away.join("kiln")));
+        } else {
+            assert!(r.is_err(), "{case}");
+            assert_eq!(env.locate().unwrap().dirs.root, away, "{case}: the old place is in use");
+            assert!(!default.join("library").exists() && !default.join(df::MOVE_MARKER).exists(), "{case}: what the move made is gone");
+        }
+    }
+}
+
+/// A file that appears in the target while the move copies is not the move's: the move stops (`conflict`, naming it),
+/// removes what it made, and leaves that file where it is.
+#[test]
+fn a_move_never_replaces_or_removes_what_it_did_not_make() {
+    struct Intruder {
+        at: PathBuf,
+        put: bool,
+    }
+    impl Progress for Intruder {
+        fn report(&mut self, _: Option<f32>, m: &str) {
+            if !self.put && m.starts_with("copying") {
+                put(self.at.parent().unwrap(), "settings.json", b"someone else's");
+                self.put = true;
+            }
+        }
+    }
+    let fx = Fixture::build("intruder");
+    let before = tree(&fx.dirs.root);
+    let to = fx.base.join("target");
+    let mut p = Intruder { at: to.join("settings.json"), put: false };
+    let e = dfm::move_to(&located(&fx.env), &fx.env, &to, &linking(), None, &MoveOptions::default(), &mut p).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
+    assert!(e.message.contains("settings.json"), "{e:?}");
+    assert_eq!(std::fs::read(to.join("settings.json")).unwrap(), b"someone else's");
+    let left: Vec<String> = std::fs::read_dir(&to).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(left, ["settings.json"], "only what the move did not make is left");
+    assert_eq!(tree(&fx.dirs.root), before);
+    assert_eq!(located(&fx.env).dirs.root, fx.dirs.root);
+    assert!(!fx.dirs.root.join(df::JOURNAL).exists());
+}
+
+/// `rewrittenAfter` holds only what the move writes (install and activation records, the activated profiles'
+/// configs): a file another writer changed after the switch is not in it, and its old copy stays.
+#[test]
+fn only_what_the_move_writes_after_the_switch_is_rewritten_after() {
+    struct Other {
+        to: PathBuf,
+    }
+    impl Progress for Other {
+        fn report(&mut self, _: Option<f32>, m: &str) {
+            if m.starts_with("writing the games' profiles") {
+                std::fs::write(self.to.join("settings.json"), b"{\"written\": \"by someone else\"}\n").unwrap();
+            }
+        }
+    }
+    let fx = Fixture::build("rewritten-after");
+    let to = fx.base.join("moved");
+    let r = dfm::move_to(&located(&fx.env), &fx.env, &to, &linking(), None, &MoveOptions::default(), &mut Other { to: to.clone() }).unwrap();
+    let j = dfm::read_journal(&fx.env).unwrap().unwrap();
+    let paths: BTreeSet<&str> = j.rewritten_after.iter().map(|r| r.path.as_str()).collect();
+    assert!(!paths.contains("settings.json"), "{paths:?}");
+    assert!(paths.iter().all(|p| p.starts_with("installs/") || p.contains("/config/")), "{paths:?}");
+    assert!(paths.contains(format!("installs/{}.active.json", fx.game_z.id).as_str()), "{paths:?}");
+    let c = r.cleanup.unwrap();
+    assert!(c.kept.iter().any(|k| k.path == fx.dirs.root.join("settings.json")), "{c:?}");
+    assert!(fx.dirs.root.join("settings.json").is_file());
+}
+
+/// The games to activate again are decided with the old root, before the copy: a profile an older launcher activated
+/// (no activation record) is written again for the new place, and the old copy goes.
+#[test]
+fn a_profile_without_an_activation_record_is_activated_again() {
+    let fx = Fixture::build("no-record");
+    std::fs::remove_file(fx.dirs.installs().join(format!("{}.active.json", fx.game_z.id))).unwrap();
+    let to = fx.base.join("moved");
+    let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
+    assert!(r.activated.contains(&fx.game_z.id), "{r:?}");
+    let f = profile::read_game_profile(&fx.game_z.path).unwrap().unwrap();
+    assert!(f.config_dir.unwrap().contains("moved"), "the game's profile names the new place");
+    let c = r.cleanup.unwrap();
+    assert!(c.done && c.reason.is_none(), "{c:?}");
+    assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists(), "the old copy went");
+}
+
+/// At the top of a data folder only `quick.lock` and `data-folder.lock` are lock files: another `*.lock` is an entry
+/// the launcher does not know (copied, kept).
+#[test]
+fn only_the_two_lock_files_are_locks_at_the_top() {
+    let fx = Fixture::build("locks");
+    put(&fx.dirs.root, "notes.lock", b"the player's");
+    let to = fx.base.join("moved");
+    let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
+    assert_eq!(std::fs::read(to.join("notes.lock")).unwrap(), b"the player's", "copied");
+    assert_eq!(std::fs::read(fx.dirs.root.join("notes.lock")).unwrap(), b"the player's", "kept in the old folder");
+    assert!(r.stayed.iter().any(|s| s.name == "notes.lock"));
+    assert!(!to.join("quick.lock").exists(), "a lock file is never copied");
+    assert!(!fx.dirs.root.join("quick.lock").exists(), "and goes with the old copy");
+}
+
+/// Another data folder's profile in a game is said in the game's status, not shown as loaded, and a save backup taken
+/// then is not filed under this folder's profile of the same id.
+#[test]
+fn another_folders_profile_is_said_in_the_status_and_its_saves_are_not_filed_here() {
+    use kiln_manage::game::{self, OtherFolderProfile};
+    let fx = Fixture::build("status-other");
+    let st = game::status_with(&fx.dirs, &fx.game_z, &[]).unwrap();
+    assert_eq!((st.active_profile.clone(), st.other_folder_profile.clone()), (Some(fx.active.clone()), None));
+    assert!(serde_json::to_value(&st).unwrap().get("otherFolderProfile").is_none(), "left out when there is none");
+    let other = DataDirs::at(fx.base.join("other data"));
+    let theirs = profile::create(&other, "Ember run", None).unwrap().id;
+    assert_eq!(theirs, fx.active, "the same id");
+    profile::activate(&other, &theirs, &fx.game_z).unwrap();
+    let st = game::status_with(&fx.dirs, &fx.game_z, &[]).unwrap();
+    assert_eq!(st.active_profile, None);
+    assert_eq!(st.other_folder_profile, Some(OtherFolderProfile { id: theirs.clone(), root: Some(other.root.clone()) }));
+    assert_eq!(serde_json::to_value(&st).unwrap()["otherFolderProfile"]["id"], theirs.as_str());
+    let saves_dir = fx.game_z.prefix.as_ref().unwrap().join("drive_c/users/steamuser/Saved Games/Enshrouded");
+    let dir = kiln_manage::saves::SaveDir { label: "local".into(), path: saves_dir, steam_id: None, recursive: true };
+    let b = kiln_manage::saves::backup_from(&fx.dirs, &fx.game_z, &[dir], kiln_manage::saves::BackupReason::Manual, None, None).unwrap();
+    assert!(fx.dirs.backups().join("saves").join(&fx.game_z.id).join(&b.id).join("backup.json").is_file());
+    assert!(!fx.dirs.profile(&fx.active).join("save-backups").join(&b.id).exists());
+}
+
+/// Choosing a Kiln data folder after a broken pointer: only then, only a Kiln data folder by its layout, with the place
+/// refusals that need no folder in use; the pointer is the only thing it writes in the default root.
+#[test]
+fn repoint_after_a_broken_pointer() {
+    let fx = Fixture::build("repoint");
+    let default = fx.dirs.root.clone();
+    let all = Facts::all_clear();
+    let mine = fx.base.join("my kiln");
+    put(&mine, "profiles/elsewhere/meta.json", b"{}");
+    df::write_pointer(&default, &mine).unwrap();
+    assert_eq!(dfm::repoint(&fx.env, &mine, &all).unwrap_err().code, ErrorCode::Refused, "the pointer works");
+    let with_env = DataEnv { kiln_data_dir: Some(fx.base.join("env").into()), ..fx.env.clone() };
+    assert_eq!(dfm::repoint(&with_env, &mine, &all).unwrap_err().code, ErrorCode::Refused, "KILN_DATA_DIR is set");
+    // the folder went to another disk: the pointer is broken
+    let found = fx.base.join("found again");
+    std::fs::rename(&mine, &found).unwrap();
+    assert!(fx.env.locate().is_err());
+    let names = |d: &Path| -> BTreeSet<String> {
+        std::fs::read_dir(d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n != df::POINTER).collect()
+    };
+    let entries = names(&default);
+    let pointer = std::fs::read(default.join(df::POINTER)).unwrap();
+    let refusal = |p: &Path, facts: &Facts| {
+        let e = dfm::repoint(&fx.env, p, facts).unwrap_err();
+        assert_eq!(std::fs::read(default.join(df::POINTER)).unwrap(), pointer, "{p:?}: the pointer is as it was");
+        e.detail.and_then(|d| d["refusal"].as_str().map(str::to_string)).unwrap_or_else(|| format!("{:?}", e.code))
+    };
+    assert_eq!(refusal(Path::new("relative/kiln"), &all), "not_absolute");
+    assert_eq!(refusal(&fx.base.join("a/../found again"), &all), "parent_traversal");
+    put(&fx.base, "a-file", b"x");
+    assert_eq!(refusal(&fx.base.join("a-file"), &all), "not_a_folder");
+    symlink(&found, fx.base.join("a link")).unwrap();
+    assert_eq!(refusal(&fx.base.join("a link"), &all), "link");
+    std::fs::create_dir_all(fx.base.join("empty")).unwrap();
+    assert_eq!(refusal(&fx.base.join("empty"), &all), "not_a_kiln_folder");
+    put(&fx.base, "moving/.kiln-data-move.json", b"{\"format\":1,\"id\":\"x\"}");
+    assert_eq!(refusal(&fx.base.join("moving"), &all), "move_in_progress");
+    put(&fx.game_z.path, "kiln-data/installs/x.json", b"{}");
+    assert_eq!(refusal(&fx.game_z.path.join("kiln-data"), &all), "inside_game");
+    put(&fx.env.state_dir(), "kiln-data/installs/x.json", b"{}");
+    assert_eq!(refusal(&fx.env.state_dir().join("kiln-data"), &all), "inside_kiln_state");
+    assert_eq!(refusal(&found, &Facts { writable: false, ..Facts::all_clear() }), "not_writable");
+    assert_eq!(names(&default), entries);
+    // repaired to the folder where it is now
+    let l = dfm::repoint(&fx.env, &found, &all).unwrap();
+    assert_eq!((l.dirs.root.clone(), l.source), (found.clone(), RootSource::Pointer));
+    assert_eq!(names(&default), entries, "nothing but the pointer changed in the default root");
+    // and to the default root
+    df::write_pointer(&default, &fx.base.join("gone")).unwrap();
+    let l = dfm::repoint(&fx.env, &default, &all).unwrap();
+    assert_eq!((l.dirs.root.clone(), l.source), (default.clone(), RootSource::Default));
+    assert!(!default.join(df::POINTER).exists());
+    assert_eq!(names(&default), entries, "no lock file, no journal");
 }

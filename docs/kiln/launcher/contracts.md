@@ -103,65 +103,96 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   `format`, names a relative path, or names a folder that is missing, a file, a link, unreadable or not a Kiln data
   folder is the error `data_folder` (section 11; `detail: {kind, pointer, path}`), never the default root and never an
   empty folder. `DataEnv::locate_checked` gives the same answer as a value for the launcher's dialog. Reading costs the
-  pointer and one look at the folder's marker (its entries only without one). `data_folder_move::reset` (only for a
-  broken pointer) renames it to `data-folder.json.old`: the default root is used.
+  pointer and one look at the folder's marker (its entries only without one). After a broken pointer:
+  `data_folder_move::reset` renames it to `data-folder.json.old` (the default root is used), or `data_folder_move::repoint`
+  points at a Kiln data folder the player picks (refused unless the pointer is broken; the folder must be a Kiln data
+  folder, not a move in progress, not a link or a file, not inside a game folder or Kiln's state or settings folder; only
+  the pointer is written, and the previous one is put back byte for byte if the folder is not found through it).
 - **A Kiln data folder** (`data_folder::recognize`): it has `.kiln-data-folder.json` (`{format, created}`, written into
   the new place just before the pointer), or a structure only the launcher makes: `library/<kind>/` named after a mod
   kind, `profiles/<pid>/meta.json`, `installs/<id>.json` or `runtime/kiln-runtime-*.zip` (unknown entries may sit next to
-  them). The default root with launcher entries only (a launcher before dev.25 ran there) counts too. A folder with
-  `.kiln-data-move.json` (`{format, id}`) is a move in progress: never "use this one", never a target.
-- **Picked folder** (`data_folder::target_rule`): missing or empty: it becomes the data folder; a Kiln data folder: used as
-  it is (no merge); anything else, and a volume root or mount point, gets the subfolder `Kiln` (Windows) or `kiln`,
-  which must itself be missing, empty or a Kiln data folder. The default root never gets the subfolder. What every
-  refusal is (`data_folder::RefusalCode`, `check`): `KILN_DATA_DIR` set, another launcher, the quick flow busy, the game or
-  a server running, an unfinished move, the target inside, around or the same as the current folder, inside a game or
-  server folder or Kiln's state or settings folder, a link, a file, a network path, not writable, too small, a path the
-  game reads longer than 259 characters (Windows), a link or special file inside the data folder.
+  them). A folder with `.kiln-data-move.json` (`{format, id}`) is a move in progress: never "use this one", never a target.
+- **Picked folder** (`data_folder::target_rule`): missing or empty (nothing, or only the pointer, the journal and file
+  record, `quick.lock`, `data-folder.lock`, and in the default root the entry holding Kiln's state or settings folder):
+  it becomes the data folder; a Kiln data folder: used as it is (no merge); anything else, and a volume root or mount
+  point, gets the subfolder `Kiln` (Windows) or `kiln`, which must itself be missing, empty or a Kiln data folder. The
+  default root never gets the subfolder: with anything else in it (also launcher entries only, such as `settings.json`
+  and `logs/` a launcher before dev.25 left there) it is refused (`default_root_taken`, naming the entries: remove them
+  first). What every refusal is (`data_folder::RefusalCode`, `check`): `KILN_DATA_DIR` set, another launcher, the quick
+  flow busy, the game or a server running, an unfinished move, the target inside, around or the same as the current
+  folder, inside a game or server folder or Kiln's state or settings folder, a link, a file, a network path, not
+  writable, too small, a path the game reads longer than 259 characters (Windows), a link or special file inside the data
+  folder, a target that already holds an entry of a name the move would make there.
+- **Lock files** at the top of a data folder are `quick.lock` and `data-folder.lock`, by their names; inside `nexus/`
+  every `*.lock`. Any other `*.lock` at the top is an entry the launcher does not know. Lock files are never copied.
 - **Lock** `data-folder.lock` in the data root (`data_folder::DataLock`): shared by every launcher process from dev.25 on
-  for as long as it runs, exclusive for a move or a switch; taking it never waits. A move also holds `quick.lock`.
+  for as long as it runs, exclusive for a move or a switch; taking it never waits. A move also holds `quick.lock`, and
+  holds the target's `data-folder.lock` exclusively from the moment it writes the target's move marker until it returns,
+  so a launcher that starts during the move cannot take the new place either.
+- **The hash cache** `state/file-hashes.json` (`filecache`, keyed by absolute paths) is never copied: the new place builds
+  its own. The old one goes with the old copy's lock files, by its name, except where `state` is the old root's own state
+  folder. `filecache::unpersist` stops persisting it for the time a move runs (no flush puts it back into the old
+  folder); `filecache::persist_at` starts it again.
 - **Journal** `<default root>/data-folder.move.json` (`data-folder-move.schema.json`): `{format, id, from, to, started,
-  createdTarget, createdParents, entries:[{name, known, bytes}], state, previousPointer, rewritten, rewrittenAfter,
-  hardLinks, result?}`, written atomically before the move writes into the target, kept until the launcher acknowledges
-  the result (`data_folder_move::acknowledge`). A move is refused while one exists. Recovery goes by what is on disk
-  (does the folder in use match `to`), never by `state`.
+  createdTarget, createdParents, createdLock, entries:[{name, known, bytes}], skipped, state, previousPointer, rewritten,
+  rewrittenAfter, hardLinks, result?}`, written atomically before the move writes into the target, kept until the launcher
+  acknowledges the result (`data_folder_move::acknowledge`). A move is refused while one exists. Recovery goes by what is
+  on disk (does the folder in use match `to`), never by `state`.
 - **File record** `<default root>/data-folder.move.files.json`: `{format, id, files:[{path, size, sha256, linked,
   sourceSha256?}]}`, every file the move copied, written once before the pointer.
-- **A move** (`data_folder_move::move_to`): the target check again, the locks, the journal, the target and its
+- **A move** (`data_folder_move::move_to`): the target check again, the locks, the journal, the target, its lock and its
   `.kiln-data-move.json`, the copy of every entry, known and unknown (not the pointer, the journal, the file record,
-  markers, lock files, and on Windows `state\` when the old root is the default root): hard links on one volume where
-  they work, except what is written in place (`data_folder::written_in_place`: `logs/`, `profiles/<pid>/config/` and
-  `data/`, `admin-assets/`, `editor-assets/`, `sdk/`, downloads under way), real copies otherwise, with modification
-  times and Unix permissions; links and special files refuse the move. Then the verify (every file read back against
-  the sha256 taken while copying; every library entry's kdh1 against its import record: an entry that already differed
-  is copied as it is and named in the warnings), the source checked for changes (copied again, at most 3 rounds), the
-  file record, the marker, **the pointer: the one commit point** (moving to the default root removes it instead), the
-  new place checked (`locate` gives it; profiles, library entries and settings read as before; if not, the previous
-  pointer is put back and the move fails), then install records written again for the new root (`pathMode`), every
-  game whose `profile.json` is this folder's activated again, built modpacks' `file` rewritten (failures there are
-  warnings). `servers/<id>.json` `backupDir` is rewritten from the old root to the new one in the copy (its record line
-  holds both hashes). A cancel, an error, a full disk or a file that cannot be read before the commit removes the
-  partial copy and the journal; the old place is as it was and in use.
-- **Removal** (`data_folder_move::{pending, remove_old_copy, remove_partial_copy}`, never by themselves): the old copy of
-  a committed move goes file by file, only where the old file's sha256 is the record's (for a rewritten file, the old
-  one's) and the file in the new place has the record's sha256 (or the one the move itself wrote after the commit:
-  `rewrittenAfter`); then empty folders, lock files, the old markers, and the old root when it is empty and is not the
-  default root. Entries the launcher does not know are never removed. Nothing is removed without the journal, with a
-  journal whose id is not the new place's marker's or the record's, without the record, when the folder in use is not
-  `to`, or while a known game's `profile.json` names the old folder; the result then says where the old folder is. A
-  partial copy goes only when the target's `.kiln-data-move.json` has the journal's id: the journal's entries, the two
-  markers, the target when the move made it and it is empty; anything else stays. The result (what stayed, why, sizes,
-  paths) is kept in the journal until acknowledged.
+  markers, lock files, the hash cache, and an entry the target keeps for itself, `Journal::skipped`: on Windows the
+  default root's `state\`, which is `util::state_dir()`; it stays in the old folder and the result names it). A move
+  never copies into, replaces or removes anything in the target that it did not make: a file or folder that is already
+  there fails it (`conflict`, named). Hard links on one volume where they work, except what is written in place
+  (`data_folder::written_in_place`: `logs/`, `profiles/<pid>/config/` and `data/`, `admin-assets/`, `editor-assets/`,
+  `sdk/`, downloads under way), real copies otherwise, with modification times and Unix permissions; links and special
+  files refuse the move. Then the verify (every file read back against the sha256 taken while copying; every library
+  entry's kdh1 against its import record: an entry that already differed is copied as it is and named in the
+  warnings), the source checked for changes (copied again, at most 3 rounds), the file record, the marker, on Unix the
+  folders the move made and the target flushed to the disk, **the pointer: the one commit point** (moving to the default
+  root removes it instead; on Unix the default root is flushed after it), the new place checked (`locate` gives it;
+  profiles, library entries and settings read as before; if not, the previous pointer is put back and the move fails),
+  then install records written again for the new root (`pathMode`), the games whose `profile.json` was this folder's
+  before the move (decided with the old root at the start) activated again, built modpacks' `file` rewritten (failures
+  there are warnings), and last the old copy removed (`MoveResult.cleanup`, the rule below; a cancel there interrupts only
+  the removal, which goes on at the next start). `servers/<id>.json` `backupDir` is rewritten from the old root to the
+  new one in the copy (its record line holds both hashes). A cancel, an error, a full disk or a file that cannot be read
+  before the commit removes what the move made in the target and the journal; the old place is as it was and in use.
+  On Windows files are flushed one by one; folders cannot be flushed there, so a power loss right after the commit is
+  covered on Unix only.
+- **Removal** (`data_folder_move::remove_old_copy`, also the move's last phase; `pending`, `remove_partial_copy`, never by
+  themselves): the old copy of a committed move goes file by file, only where the old file's sha256 is the record's (for
+  a rewritten file, the old one's) and the file in the new place has the record's sha256, or the one the move itself
+  wrote there after the commit (`rewrittenAfter`: only the install records and activation records of the known games and
+  the files under `profiles/<pid>/config/` of the profiles the move activated, recorded where the move writes them). Then
+  the hash cache, the lock files, the old markers, empty folders, and the old root when it is empty and is not the
+  default root. Entries the launcher does not know and entries the target kept for itself are never removed. Calling it
+  again when nothing is left removes what a running move could not (its own lock files, the empty old root). Nothing is
+  removed without the journal, with a journal whose id is not the new place's marker's or the record's, without the
+  record, when the folder in use is not `to`, or while a known game's `profile.json` names the old folder; the result
+  then says where the old folder is. A partial copy found by a later start goes only when the target's
+  `.kiln-data-move.json` has the journal's id: the journal's entries, the two markers, the lock file and the target when
+  the move made them; anything else stays. The result (what stayed, why, sizes, paths) is kept in the journal until
+  acknowledged.
 - **What stays at the default root after a move away**: the pointer (about 150 bytes), the journal and the file record
-  until acknowledged, the entries the launcher does not know, files changed in either place after the move, and on
-  Windows `state\` (`util::state_dir()`: server console captures, the keyring store's lock).
+  until acknowledged, the entries the launcher does not know, and on Windows `state\` (`util::state_dir()`: server console
+  captures, the keyring store's lock). The move removes the rest itself before anything else writes there.
+- **Whose profile a game runs** (`profile::game_profile_owner`, for every launcher, also one that never moves anything):
+  a game's `kiln/profile.json` is this data folder's profile only when its paths name this data folder (Z and native
+  mode: `configDir`), or when it is the one this folder last wrote into the game (`installs/<id>.active.json`: the same
+  id, generation and fingerprint); in copy mode, without such a record, the id alone decides as before dev.25. Another
+  data folder's profile (another launcher, a `KILN_DATA_DIR`, a launcher before dev.25 at the default root after a move)
+  is never written again, taken over or copied back into a profile of the same id here; `GameStatus.otherFolderProfile
+  {id, root?}` says so and `activeProfile` is then empty; save backups taken then go to `backups/saves/<gameId>/`; an
+  activation of this folder's profile of that id in copy mode keeps that game's config copy in
+  `kiln/backups/profile-config-<pid>-<ts>/`.
 - **A launcher before dev.25** does not read the pointer and takes no data-folder lock. Started after a move it runs at
-  the default root as on a first run (or on the old copy while it is not removed). A profile it activates in a game is
-  another data folder's profile for the moved folder (`profile::game_profile_owner`: `Elsewhere`): it is not written
-  again, not taken over, its copy-mode configs are not copied back into a profile of the same id, and an activation of
-  the moved folder's profile of that id keeps that game's config copy in `kiln/backups/profile-config-<pid>-<ts>/`. The
-  old copy is not removed while such a game's profile names it. Running during a move, it can still write the old place:
-  what it changes during the copy is copied again; what it changes later stays in the old folder (the removal keeps
-  changed files).
+  the default root as on a first run. A profile it activates in a game is another data folder's profile for the moved
+  folder (above). Running during a move, it can still write the old place: what it changes during the copy is copied
+  again; what it changes later stays in the old folder (the removal keeps changed files), and the old copy is not
+  removed while a game's profile names it.
 
 ## 4. Game folder (`<game>/kiln/`)
 Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `sigdb/`, `services/`, `plugins/`,
@@ -1110,12 +1141,12 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `error` | `Error {code, message, detail}`, `ErrorCode`, `Result<T>`, `Error::{new, not_implemented, with_detail, invalid, not_found}` |
 | `task` | `trait Progress { report(Option<f32>, &str); canceled() }`, `NoProgress` |
 | `paths` | `DataDirs::{at, locate, library, profiles, installs, runtime, schema_cache, backups, logs, settings, library_entry, profile}`, `DataEnv::{from_process, default_root, locate, locate_checked, home_dir, state_dir, config_dir}`, `Located {dirs, source, default_root}`, `RootSource {Env, Pointer, Default}`, `LocateProblem::into_error`, `ProblemKind`, `paths::game::*` constants |
-| `data_folder` | `recognize(&Path, &DataEnv) -> Result<FolderState>`, `inventory(&Path, &DataEnv) -> Result<Inventory>`, `check(&CheckInput, &dyn SystemFacts) -> Result<Plan, Refusal>`, `check_here`, `target_rule`, `check_form`, `relation_to_current`, `game_path_too_long`, `needed_bytes`, `written_in_place`, `is_own_file`, `canonical`, `known_servers`, `read_pointer`, `write_pointer`, `remove_pointer`, `check_pointed`, `DataLock::{shared, exclusive, upgrade, downgrade, is_exclusive, path}`; `FolderState`, `Evidence`, `Inventory`, `EntrySize`, `LongestPath`, `Plan`, `Action`, `Refusal`, `RefusalCode`, `Target`, `CheckInput`, `SystemFacts`, `Facts`, `RealFacts`, `Space`, `Pointer`, `PathParts`, `PathRoot`, `PathStyle`; constants `POINTER`, `POINTER_OLD`, `JOURNAL`, `FILE_RECORD`, `MARKER`, `MOVE_MARKER`, `LOCK`, `KNOWN_ENTRIES`, `WINDOWS_MAX_PATH`, `MARGIN_BYTES` |
-| `data_folder_move` | `move_to(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>, &MoveOptions, &mut dyn Progress) -> Result<MoveResult>`, `use_folder(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>) -> Result<Located>`, `reset(&DataEnv) -> Result<Located>`, `pending(&DataEnv) -> Result<Pending>`, `remove_old_copy(&DataEnv, &mut dyn Progress) -> Result<Cleanup>`, `remove_partial_copy(&DataEnv) -> Result<Cleanup>`, `acknowledge(&DataEnv)`, `read_journal`, `MAX_ROUNDS`; `Journal`, `JournalEntry`, `FileRecord`, `RecordedFile`, `Rewrite`, `MoveOptions`, `MoveResult`, `Stayed`, `Pending`, `Cleanup`, `Kept` |
+| `data_folder` | `recognize(&Path, &DataEnv) -> Result<FolderState>`, `inventory(&Path, &DataEnv) -> Result<Inventory>`, `own_entries`, `foreign_entries`, `is_top_lock`, `check(&CheckInput, &dyn SystemFacts) -> Result<Plan, Refusal>`, `check_here`, `target_rule`, `check_form`, `relation_to_current`, `game_path_too_long`, `needed_bytes`, `written_in_place`, `is_own_file`, `canonical`, `known_servers`, `read_pointer`, `write_pointer`, `remove_pointer`, `check_pointed`, `DataLock::{shared, exclusive, upgrade, downgrade, is_exclusive, path}`; `FolderState`, `Evidence`, `Inventory`, `EntrySize`, `LongestPath`, `Plan`, `Action`, `Refusal`, `RefusalCode`, `Target`, `CheckInput`, `SystemFacts`, `Facts`, `RealFacts`, `Space`, `Pointer`, `PathParts`, `PathRoot`, `PathStyle`; constants `POINTER`, `POINTER_OLD`, `JOURNAL`, `FILE_RECORD`, `MARKER`, `MOVE_MARKER`, `LOCK`, `KNOWN_ENTRIES`, `HASH_CACHE`, `WINDOWS_MAX_PATH`, `MARGIN_BYTES` |
+| `data_folder_move` | `move_to(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>, &MoveOptions, &mut dyn Progress) -> Result<MoveResult>`, `use_folder(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>) -> Result<Located>`, `reset(&DataEnv) -> Result<Located>`, `repoint(&DataEnv, &Path, &dyn SystemFacts) -> Result<Located>`, `pending(&DataEnv) -> Result<Pending>`, `remove_old_copy(&DataEnv, &mut dyn Progress) -> Result<Cleanup>`, `remove_partial_copy(&DataEnv) -> Result<Cleanup>`, `acknowledge(&DataEnv)`, `read_journal`, `MAX_ROUNDS`; `Journal`, `JournalEntry`, `FileRecord`, `RecordedFile`, `Rewrite`, `MoveOptions`, `MoveResult`, `Stayed`, `Pending`, `Cleanup`, `Kept` |
 | `hash` | `dirhash(&Path) -> Result<String>`, `dirhash_records(impl IntoIterator<Item = Record>)`, `sha256_file`, `sha256_hex`, `hex`, `hash8`, `fingerprint(entries) -> String`, `Record`, `FingerprintEntry` |
 | `vdf` | `parse(&str) -> Result<Vdf>`, `Vdf::{get, path, as_str, entries}` |
 | `steam` | `roots()`, `libraries(&SteamRoot)`, `app_manifest(&Path, u32)`, `compat_tool`, `launch_options`, `compatdata`; `SteamRoot`, `SteamFlavor`, `Library`, `AppManifest`, `LaunchOptions` |
-| `game` | `detect()`, `inspect(&Path)`, `known(&DataDirs)`, `add`, `remove`, `status`, `path_mode`; `GameInstall`, `GameKind`, `Platform`, `PathMode`, `GameStatus`, `LaunchOptionsInfo` |
+| `game` | `detect()`, `inspect(&Path)`, `known(&DataDirs)`, `add`, `remove`, `status`, `path_mode`; `GameInstall`, `GameKind`, `Platform`, `PathMode`, `GameStatus` (+ `otherFolderProfile`), `OtherFolderProfile`, `LaunchOptionsInfo` |
 | `pe` | `exports(&Path)`, `is_pe64_dll(&[u8])`, `classify_proxy(&Path) -> Result<ProxyClass>`; `ProxyKind {None, Kiln, ShroudForge, Emf, Unknown, NotDll}`, `ProxyClass`, marker constants |
 | `proc` | `list()`, `find_game(&GameInstall)`, `alive(u32)`; `ProcessInfo` |
 | `launch` | `steam_uri(u32)`, `open_uri(&str)`, `play(&DataDirs, &GameInstall, &LaunchRequest) -> Result<LaunchResult>`; `LaunchMode`, `LaunchRequest`, `LaunchResult` |
