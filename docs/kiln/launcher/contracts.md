@@ -156,7 +156,9 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   warnings), the source checked for changes (copied again, at most 3 rounds), the file record, the marker, on Unix the
   folders the move made and the target flushed to the disk, **the pointer: the one commit point** (moving to the default
   root removes it instead; on Unix the default root is flushed after it), the new place checked (`locate` gives it;
-  profiles, library entries and settings read as before; if not, the previous pointer is put back and the move fails),
+  profiles, library entries and settings read as before; if not, the previous pointer is put back and the move fails).
+  If restoring that pointer fails, the verified new folder stays selected: the result is committed with a warning
+  naming both folders and requesting a restart, no old-copy removal runs, and the launcher keeps all writers held,
   then install records written again for the new root (`pathMode`), the games whose `profile.json` was this folder's
   before the move (decided with the old root at the start) activated again, built modpacks' `file` rewritten (failures
   there are warnings), and last the old copy removed (`MoveResult.cleanup`, the rule below; a cancel there interrupts only

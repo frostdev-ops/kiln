@@ -166,6 +166,14 @@ test("the move's last phase: removing the old copy, where Cancel only stops the 
   expect(movingLine(null)).toBeNull();
 });
 
+test("a committed move whose rollback failed asks for restart, never says nothing changed", () => {
+  const warning = "The previous place could not be set back, so /new stays selected. The old copy stays at /old. Restart Kiln before continuing.";
+  const lines = doneLines({ warnings: [warning], cleanup: { done: false, interrupted: false, folderRemoved: false, kept: [], reason: warning } });
+  expect(lines?.join(" ")).toContain("Restart Kiln");
+  expect(lines?.join(" ")).toContain("/new stays selected");
+  expect(lines?.join(" ")).not.toContain("Nothing changed");
+});
+
 test("a done move: the restart at once, unless there are warnings or a stopped removal to read", () => {
   expect(doneLines({ warnings: [], cleanup: { done: true, interrupted: false, folderRemoved: true, kept: [] } })).toBeNull();
   expect(doneLines({ warnings: [], cleanup: null })).toBeNull();

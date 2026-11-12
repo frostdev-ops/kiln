@@ -1160,6 +1160,8 @@ pub fn move_to(
     journal.state = "committed".into();
     let _ = write_journal(&default, &journal);
 
+    // The progress boundary also lets fault tests make the previous pointer unwritable after the commit.
+    progress.report(Some(0.92), "checking the new place after the switch");
     // the new place must read as the old one did
     let new_dirs = DataDirs::at(&to);
     let check = (|| -> Result<()> {
@@ -1185,8 +1187,18 @@ pub fn move_to(
             None => df::remove_pointer(&default),
         };
         if let Err(b) = back {
-            // the new place is complete (verified): it stays in use rather than none
-            return Err(Error::new(e.code, format!("{} The previous place could not be set back ({}), so {} stays in use.", e.message, b.message, to.display())));
+            // The verified new place stays selected. This is a committed result, never a failed/canceled move:
+            // callers must keep their old-root writers held and offer the restart, not resume that root.
+            let reason = format!("{} The previous place could not be set back ({}), so {} stays selected. The old copy stays at {}. Restart Kiln before continuing.", e.message, b.message, to.display(), from.display());
+            warnings.push(reason.clone());
+            let linked = c.files.values().filter(|f| f.line.linked).count() as u64;
+            return Ok(MoveResult {
+                id: journal.id.clone(), from: from.clone(), to: to.clone(),
+                bytes: c.files.values().map(|f| f.line.size).sum(), files: c.files.len() as u64,
+                linked, copied: c.files.len() as u64 - linked, warnings,
+                stayed: inv.unknown.iter().map(|e| Stayed { name: e.name.clone(), bytes: e.bytes, path: from.join(&e.name) }).collect(),
+                activated: Vec::new(), cleanup: Some(Cleanup::refused(&from, reason)),
+            });
         }
         let _ = sync_dir(&default);
         fail!(e);

@@ -922,6 +922,43 @@ pub(crate) mod tests {
         (t, env, from, to)
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_rollback_keeps_the_committed_move_held_for_restart() {
+        use std::os::unix::fs::PermissionsExt;
+        struct DenyRollback(PathBuf);
+        impl kiln_manage::task::Progress for DenyRollback {
+            fn report(&mut self, _: Option<f32>, m: &str) {
+                if m == "checking the new place after the switch" {
+                    std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o500)).unwrap();
+                }
+            }
+            fn canceled(&self) -> bool { false }
+        }
+        let _g = folder::test_serial();
+        let (t, env, from, to) = moving("rollback-denied", 3);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        let before: Vec<_> = (0..3).map(|i| std::fs::read(from.join(format!("backups/old/file-{i:03}.bin"))).unwrap()).collect();
+        let opts = dfm::MoveOptions { force_copy: true, inject: Some(dfm::Inject::FailCheckAfterCommit) };
+        let result = move_with(&f, &l, &to, &opts, &mut DenyRollback(from.clone()));
+        std::fs::set_permissions(&from, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(env.locate().unwrap().dirs.root, to, "the rollback really failed: the pointer names the new folder");
+        assert_eq!(f.hold(), Hold::Moved, "never resume the old root after a committed failure: {result:?}");
+        let m = result.expect("a committed move carries its warning to the restart dialog, not Move failed");
+        assert!(m.warnings.iter().any(|w| w.contains("Restart Kiln") && w.contains(&text(&to))), "{m:?}");
+        assert!(m.cleanup.as_ref().is_some_and(|c| !c.done && c.reason.is_some()));
+        for (i, bytes) in before.iter().enumerate() {
+            assert_eq!(&std::fs::read(from.join(format!("backups/old/file-{i:03}.bin"))).unwrap(), bytes, "the old data stays complete");
+        }
+        assert!(to.join("backups/old/file-000.bin").is_file());
+        assert!(f.command_refusal("app_settings_set").is_some());
+        assert!(f.command_refusal("data_folder_restart").is_none());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
     #[test]
     fn a_move_through_the_command_layer_then_the_notice_after_the_restart_until_the_ack() {
         let _g = folder::test_serial();
