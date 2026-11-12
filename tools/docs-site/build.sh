@@ -71,7 +71,12 @@ rm -rf "$work/api-raw"
 docfx metadata docfx.json 2>&1 | tee "$log"
 baseline=${KILN_DOCS_BASELINE:-$here/undocumented-dev24.txt}
 [[ -f $baseline ]] || { echo "no baseline file $baseline" >&2; exit 1; }
-missing=$(python3 -I "$here/undocumented.py" --baseline "$baseline" "$work/api" || true)
+rc=0
+missing=$(python3 -I "$here/undocumented.py" --baseline "$baseline" "$work/api") || rc=$?
+if ((rc != 0 && rc != 3)); then
+  echo "undocumented.py failed (exit $rc): stopping the docs build" >&2
+  exit 1
+fi
 n=$(grep -c . <<<"$missing" || true)
 if ((n)); then
   printf 'undocumented: %s public types and members have no XML summary and are not in %s:\n%s\n' \

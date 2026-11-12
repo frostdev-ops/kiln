@@ -11,8 +11,9 @@ PrintMembers, EqualityContract, the copy constructor) and the parameterless cons
 none, which the compiler does not ask docs for either. A record struct looks like a plain struct in the metadata; a
 struct counts as one when Equals(T), Equals(object), GetHashCode, == and != all have no summary (a hand-written
 struct with exactly that gap is skipped too); its ToString then counts as the compiler's as well.
-With --baseline it prints only the uids that are not in the file (one uid per line, # comments allowed) and exits 1 if
-there are any. Standard library only: the YAML is read line by line, in the shape DocFX writes it.
+With --baseline it prints only the uids that are not in the file (one uid per line, # comments allowed) and exits 3 if
+there are any. Exit 0 means no new names (or no baseline); other non-zero codes mean the check failed.
+Standard library only: the YAML is read line by line, in the shape DocFX writes it.
 """
 import argparse
 import os
@@ -127,7 +128,7 @@ def main():
         found = [u for u in found if u not in known]
     for u in found:
         print(u)
-    sys.exit(1 if a.baseline and found else 0)
+    sys.exit(3 if a.baseline and found else 0)
 
 
 if __name__ == "__main__":
