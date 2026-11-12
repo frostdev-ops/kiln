@@ -13,7 +13,7 @@ available, and each guided client check's last verdict, is generated from Kiln's
 | `mods.toml` metadata | `kiln.mod.json` v2 + `schema/kiln.mod.schema.json` | done |
 | Dependencies (mandatory/optional, version ranges, ordering) | `dependencies` (semver `^ ~ =`, comparators, `\|\|`, Maven `[a,b)`), `loadBefore/After` | done |
 | Incompatible mods | `incompatible` with a range | done |
-| `loaderVersion` / forge dependency | `apiVersion` (Kiln.Api 0.2.0) | done |
+| `loaderVersion` / forge dependency | `apiVersion` (Kiln mod API 0.2.1) | done |
 | `Dist` (client/dedicated server) | manifest `side` server/client/both + `Mods.Side`, `KilnApi.side()` | done (client run passed) |
 | Mod sorting + dependency error screen | resolver: order, cycles, missing/mismatched/incompatible reported, others load | done |
 | ModList | `Mods.All/IsLoaded/Get/Current`, `ModEntry` with stats; dashboard `mods` | done |

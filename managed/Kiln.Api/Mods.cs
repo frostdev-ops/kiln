@@ -113,7 +113,7 @@ public static class Mods
     /// A const is copied into the mod when it is built, so a mod reading it sees the API it was built against, not the
     /// running one: read <see cref="RuntimeApiVersion"/>.</summary>
     [Obsolete("Use Mods.RuntimeApiVersion: a const is copied into the mod at build time.")]
-    public const string ApiVersion = "0.2.0";
+    public const string ApiVersion = "0.2.1";
 
     /// <summary>The Kiln mod API version of the Kiln that is running (for example <c>0.2.0</c>); a manifest's
     /// <c>apiVersion</c> is checked against it. Read at run time, so a mod built against an older SDK still sees the
