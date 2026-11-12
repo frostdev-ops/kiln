@@ -69,6 +69,7 @@ class Synth:
         s_u1 = n.state("s.u1", "Attack_Unarmed_01", n.pose("p.u1", self.sel_bool("sel.u1", self.clip("u1a"), self.clip("u1b"), b)), "sm.un", retrigger=0.15)
         s_u2 = n.state("s.u2", "Attack_Unarmed_02", n.pose("p.u2", self.clip("u2")), "sm.un", retrigger=0.15)
         s_u3 = n.state("s.u3", "Attack_Unarmed_Lonely", n.pose("p.u3", self.clip("u3")), "sm.un")
+        self.edit(n.nid("clip.u1b"), preventRootMotion=True, loopMode="Loop")  # the second input differs from the first
         t12 = n.transition("t.u12", s_u1, s_u2, 0.15, n.id_equals("c.u12", SI, sid("Attack_Unarmed_02")))
         self.t21 = n.transition("t.u21", s_u2, s_u1, 0.15, n.id_equals("c.u21", SI, sid("Attack_Unarmed_01")))
         self.edit(self.t21, rootMotionMode="UseRootMotionFromDestinationState")
@@ -441,8 +442,9 @@ class Rules(Base):
 
     def test_rule1_first_clip_depth_first_and_additive(self):
         v, _ = self.merged({"x": {"clip": "x", "like": "Attack_Unarmed_01"}, "y": {"clip": "y", "like": "Attack_Hammer_Additive"}})
-        a, c = self.game("clip.u1a"), self.node(v, "m", "x", "clip")
-        self.assertEqual(c["speedController"], a["speedController"])
+        a, b, c = self.game("clip.u1a"), self.game("clip.u1b"), self.node(v, "m", "x", "clip")
+        self.assertNotEqual((a["preventRootMotion"], a["loopMode"]), (b["preventRootMotion"], b["loopMode"]))
+        self.assertEqual((c["preventRootMotion"], c["loopMode"]), (a["preventRootMotion"], a["loopMode"]), "the first input of the select, inputA")
         self.assertEqual(c["animationDuration"], PS.f32(47 / 30))
         y, add = self.node(v, "m", "y", "clip"), self.game("clip.ha.add")
         self.assertEqual(y["additiveType"], "Additive_LocalSpace")
@@ -470,12 +472,13 @@ class Rules(Base):
         self.assertEqual(self.status(rep, "ok")["status"], "live")
 
     def test_rule3_state_node(self):
-        v, rep = self.merged({"a": {"clip": "x", "like": "Parry_FullBody", "blendIn": 0.12}, "b": {"clip": "x", "like": "Parry_FullBody"}})
+        v, rep = self.merged({"a": {"clip": "x", "like": "Parry_FullBody", "blendIn": 0.07}, "b": {"clip": "x", "like": "Parry_FullBody"}})
         a, b, parry = self.node(v, "m", "a", "state"), self.node(v, "m", "b", "state"), self.game("s.parry")
         self.assertEqual(a["debugName"], "m.a")
         self.assertEqual(a["poseResult"]["value"], PG.node_id("m", "a", "pose"))
-        self.assertEqual(a["retriggerBlendDuration"], PS.f32(0.12))
+        self.assertEqual(a["retriggerBlendDuration"], PS.f32(0.07))
         self.assertEqual(b["retriggerBlendDuration"], parry["retriggerBlendDuration"])
+        self.assertNotEqual(parry["retriggerBlendDuration"], PS.f32(0.07))
         for f in parry:
             if f not in ("id", "debugName", "poseResult", "retriggerBlendDuration"):
                 self.assertEqual(a[f], parry[f], f)
@@ -841,7 +844,7 @@ class Off(Base):
         val = decode(self.raw)
         val["nodeDefinitions"][1]["value"]["id"] = dict(val["nodeDefinitions"][0]["value"]["id"])
         out, rep = self.merge(self.states(), raw=Encoder(TYPES).encode(TYPES.get(GRAPH), val))
-        self.assertOff(out, rep, "twice")
+        self.assertOff(out, rep, "the game's graph has node id")
 
     def test_the_merged_graph_must_decode_to_itself(self):
         class Lossy(Encoder):
@@ -854,6 +857,13 @@ class Off(Base):
         with mock.patch.object(PG, "Encoder", Lossy):
             out, rep = self.merge(self.states())
         self.assertOff(out, rep, "does not decode to itself")
+
+    def overfill(self, v):
+        """SM_Main with every entry in use and a count of 35: only the limit itself can refuse it."""
+        m = self.machine(v, "SM_Main")
+        gts = m["globalTransitions"]
+        gts[m["numGlobalTransitions"]:] = [dict(gts[0]) for _ in range(A.MAX_GLOBAL - m["numGlobalTransitions"])]
+        m["numGlobalTransitions"] = A.MAX_GLOBAL + 1
 
     def test_validate_refuses_a_changed_game_node(self):
         out, rep = self.merge(mod({"a": {"clip": "x", "like": "Parry_FullBody"}, "h": {"clip": "x", "like": self.synth.hammer[0]}}))
@@ -869,7 +879,7 @@ class Off(Base):
             "a list lost an id": lambda v: self.by_id(v)[self.synth.reset]["values"].pop(0),
             "the header": lambda v: v.update(hasGenderMapping=not v["hasGenderMapping"]),
             "usedInputIds": lambda v: v["usedInputIds"]["parameterIds"].pop(0),
-            "too many": lambda v: self.machine(v, "SM_Main").update(numGlobalTransitions=35),
+            "too many": self.overfill,
             "count": lambda v: self.machine(v, "SM_Main").update(numGlobalTransitions=self.machine(v, "SM_Main")["numGlobalTransitions"] - 1),
             "shape": lambda v: self.by_id(v)[PG.node_id("m", "a", "clip")]["speedController"]["rawValueController"].update(extra=1),
             "a missing field": lambda v: self.by_id(v)[PG.node_id("m", "a", "state")].pop("restState"),
