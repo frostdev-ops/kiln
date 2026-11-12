@@ -1,0 +1,106 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tests of the typegen pipeline with no game: the committed layout dumps (sigdb/types), the generator
+       (tools/typegen/typegen.py), the generated Kiln.Game and the layout stamps. Fixtures/ holds data and projects
+       the tests read or build; nothing in it is compiled into the test assembly. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <Compile Remove="Fixtures/**" />
+  </ItemGroup>
+  <!-- dump: the allow-list over sigdb/types -->
+
+  <!-- gen: the dev.24 golden, the generator, the generated Kiln.Game -->
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Game/Kiln.Game.csproj" />
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
+  </ItemGroup>
+  <!-- The legacy fixtures (Fixtures/legacy): the dev.24 shape of Kiln.Game, a variant of it with one field renamed, and
+       a consumer compiled against the first. Two of them are named Kiln.Game, so none is referenced as an assembly: they
+       are built (and restored) as project references and copied next to the tests, each into its own folder. -->
+  <ItemGroup>
+    <ProjectReference Include="Fixtures/legacy/Dev24Shape/Dev24Shape.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnLegacyFixture="true" />
+    <ProjectReference Include="Fixtures/legacy/Dev24Renamed/Dev24Renamed.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnLegacyFixture="true" />
+    <ProjectReference Include="Fixtures/legacy/Consumer/Consumer.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnLegacyFixture="true" />
+  </ItemGroup>
+  <Target Name="_KilnGenLegacyFixtures" AfterTargets="Build">
+    <MSBuild Projects="@(ProjectReference)" Targets="GetTargetPath" Condition="'%(ProjectReference.KilnLegacyFixture)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnLegacyOut" />
+    </MSBuild>
+    <ItemGroup>
+      <_KilnLegacyCopy Include="@(_KilnLegacyOut)" Dir="$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(_KilnLegacyOut.MSBuildSourceProjectFile)'))))" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_KilnLegacyCopy)" DestinationFolder="$(OutDir)legacy/%(_KilnLegacyCopy.Dir)" SkipUnchangedFiles="true" />
+  </Target>
+  <!-- Kiln.Game built from the made-up fixture dump (Fixtures/gen/lanterns.json), as a variant beside the main build;
+       its legacy part is the golden Generated.cs, since the fixture has none of the nine types, and it compiles the
+       program descriptors of the made-up catalog Fixtures/gen/programs.json. RoundTripTests reads it from
+       variants/lanterns/. -->
+  <Target Name="_KilnGenFixtureVariant" AfterTargets="Build">
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build"
+             Properties="KilnGameVariant=lanterns;KilnGameDump=$(MSBuildThisFileDirectory)Fixtures/gen/lanterns.json;KilnLocalGameTypes=$(MSBuildThisFileDirectory)../../Kiln.Game/Generated.cs;KilnGamePrograms=$(MSBuildThisFileDirectory)Fixtures/gen/programs.json">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnLanternsGame" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnLanternsGame)" DestinationFolder="$(OutDir)variants/lanterns" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- sdk: layout stamps -->
+  <!-- The stamp task (Kiln.Sdk.Tasks.dll, run in-process by StampTaskTests with MSBuild's own assemblies), the fixture
+       mod (Fixtures/stamp/StampMod, compiled against Kiln.Game variant stamp-a) and the five variants built from the
+       made-up dumps Fixtures/stamp/{a,b,c,d,e}.json. Their legacy part is the golden Generated.cs (the fixtures have
+       none of the nine types). The fixture mod goes to stamp/StampMod/, the variants to variants/stamp-{a,...,e}/. -->
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Sdk/Kiln.Sdk.csproj" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" />
+    <ProjectReference Include="Fixtures/stamp/StampMod/StampMod.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnStampFixture="true" />
+    <ProjectReference Include="Fixtures/stamp/EnumMetadata/EnumMetadata.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnEnumFixture="true" />
+  </ItemGroup>
+  <Target Name="_KilnStampFixtures" AfterTargets="Build">
+    <PropertyGroup>
+      <_KilnStampDir>$(MSBuildThisFileDirectory)Fixtures/stamp/</_KilnStampDir>
+      <_KilnStampLegacy>KilnLocalGameTypes=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)../../Kiln.Game/Generated.cs'))</_KilnStampLegacy>
+    </PropertyGroup>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-a;KilnGameDump=$(_KilnStampDir)a.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampA" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-b;KilnGameDump=$(_KilnStampDir)b.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampB" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-c;KilnGameDump=$(_KilnStampDir)c.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampC" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-d;KilnGameDump=$(_KilnStampDir)d.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampD" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-e;KilnGameDump=$(_KilnStampDir)e.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampE" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-f;KilnGameDump=$(_KilnStampDir)f.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampF" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnStampF)" DestinationFolder="$(OutDir)variants/stamp-f" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampA)" DestinationFolder="$(OutDir)variants/stamp-a" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampB)" DestinationFolder="$(OutDir)variants/stamp-b" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampC)" DestinationFolder="$(OutDir)variants/stamp-c" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampD)" DestinationFolder="$(OutDir)variants/stamp-d" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampE)" DestinationFolder="$(OutDir)variants/stamp-e" SkipUnchangedFiles="true" />
+    <MSBuild Projects="@(ProjectReference)" Targets="GetTargetPath" Condition="'%(ProjectReference.KilnStampFixture)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampMod" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnStampMod)" DestinationFolder="$(OutDir)stamp/StampMod" SkipUnchangedFiles="true" />
+    <MSBuild Projects="@(ProjectReference)" Targets="GetTargetPath" Condition="'%(ProjectReference.KilnEnumFixture)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnEnumMod" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnEnumMod)" DestinationFolder="$(OutDir)stamp/EnumMetadata" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
