@@ -1,0 +1,122 @@
+#nullable enable
+Kiln.EntityTransform
+Kiln.EntityTransform.Deconstruct(out Kiln.WorldPosition Position, out System.Numerics.Quaternion Rotation, out System.Numerics.Vector3 Scale) -> void
+Kiln.EntityTransform.EntityTransform() -> void
+Kiln.EntityTransform.EntityTransform(Kiln.WorldPosition Position, System.Numerics.Quaternion Rotation, System.Numerics.Vector3 Scale) -> void
+Kiln.EntityTransform.Equals(Kiln.EntityTransform other) -> bool
+Kiln.EntityTransform.Position.get -> Kiln.WorldPosition
+Kiln.EntityTransform.Position.init -> void
+Kiln.EntityTransform.Rotation.get -> System.Numerics.Quaternion
+Kiln.EntityTransform.Rotation.init -> void
+Kiln.EntityTransform.Scale.get -> System.Numerics.Vector3
+Kiln.EntityTransform.Scale.init -> void
+Kiln.EntityTransform.YawDegrees.get -> double
+Kiln.Nearby
+Kiln.Teleport
+Kiln.TeleportFlags
+Kiln.TeleportFlags.None = 0 -> Kiln.TeleportFlags
+Kiln.TeleportFlags.OffTarget = 1 -> Kiln.TeleportFlags
+Kiln.TeleportFlags.RawTarget = 2 -> Kiln.TeleportFlags
+Kiln.TeleportFlags.TimedOut = 4 -> Kiln.TeleportFlags
+Kiln.TeleportOptions
+Kiln.TeleportOptions.<Clone>$() -> Kiln.TeleportOptions!
+Kiln.TeleportOptions.Checkpoint.get -> bool
+Kiln.TeleportOptions.Checkpoint.init -> void
+Kiln.TeleportOptions.Equals(Kiln.TeleportOptions? other) -> bool
+Kiln.TeleportOptions.FindGround.get -> bool
+Kiln.TeleportOptions.FindGround.init -> void
+Kiln.TeleportOptions.TeleportOptions() -> void
+Kiln.TeleportOptions.YawDegrees.get -> double?
+Kiln.TeleportOptions.YawDegrees.init -> void
+Kiln.TeleportResult
+Kiln.TeleportResult.<Clone>$() -> Kiln.TeleportResult!
+Kiln.TeleportResult.Deconstruct(out Kiln.TeleportStatus Status, out Kiln.EntityId Entity, out Kiln.WorldPosition Position, out Kiln.WorldPosition Target, out double Distance, out Kiln.TeleportFlags Flags, out int Steps, out string! Reason) -> void
+Kiln.TeleportResult.Distance.get -> double
+Kiln.TeleportResult.Distance.init -> void
+Kiln.TeleportResult.Entity.get -> Kiln.EntityId
+Kiln.TeleportResult.Entity.init -> void
+Kiln.TeleportResult.Equals(Kiln.TeleportResult? other) -> bool
+Kiln.TeleportResult.Flags.get -> Kiln.TeleportFlags
+Kiln.TeleportResult.Flags.init -> void
+Kiln.TeleportResult.Moved.get -> bool
+Kiln.TeleportResult.Position.get -> Kiln.WorldPosition
+Kiln.TeleportResult.Position.init -> void
+Kiln.TeleportResult.Reason.get -> string!
+Kiln.TeleportResult.Reason.init -> void
+Kiln.TeleportResult.Status.get -> Kiln.TeleportStatus
+Kiln.TeleportResult.Status.init -> void
+Kiln.TeleportResult.Steps.get -> int
+Kiln.TeleportResult.Steps.init -> void
+Kiln.TeleportResult.Target.get -> Kiln.WorldPosition
+Kiln.TeleportResult.Target.init -> void
+Kiln.TeleportResult.TeleportResult(Kiln.TeleportStatus Status, Kiln.EntityId Entity, Kiln.WorldPosition Position, Kiln.WorldPosition Target, double Distance, Kiln.TeleportFlags Flags, int Steps, string! Reason) -> void
+Kiln.TeleportStatus
+Kiln.TeleportStatus.Failed = 0 -> Kiln.TeleportStatus
+Kiln.TeleportStatus.Moved = 1 -> Kiln.TeleportStatus
+Kiln.World
+Kiln.WorldStatus
+Kiln.WorldStatus.Deconstruct(out bool Programs, out bool WorldLive, out bool Teleport, out bool Find, out int KilnPrograms, out int EnginePrograms, out int EngineMax, out int TeleportsPending, out ulong WorldSteps) -> void
+Kiln.WorldStatus.EngineMax.get -> int
+Kiln.WorldStatus.EngineMax.init -> void
+Kiln.WorldStatus.EnginePrograms.get -> int
+Kiln.WorldStatus.EnginePrograms.init -> void
+Kiln.WorldStatus.Equals(Kiln.WorldStatus other) -> bool
+Kiln.WorldStatus.Find.get -> bool
+Kiln.WorldStatus.Find.init -> void
+Kiln.WorldStatus.KilnPrograms.get -> int
+Kiln.WorldStatus.KilnPrograms.init -> void
+Kiln.WorldStatus.Programs.get -> bool
+Kiln.WorldStatus.Programs.init -> void
+Kiln.WorldStatus.Teleport.get -> bool
+Kiln.WorldStatus.Teleport.init -> void
+Kiln.WorldStatus.TeleportsPending.get -> int
+Kiln.WorldStatus.TeleportsPending.init -> void
+Kiln.WorldStatus.WorldLive.get -> bool
+Kiln.WorldStatus.WorldLive.init -> void
+Kiln.WorldStatus.WorldStatus() -> void
+Kiln.WorldStatus.WorldStatus(bool Programs, bool WorldLive, bool Teleport, bool Find, int KilnPrograms, int EnginePrograms, int EngineMax, int TeleportsPending, ulong WorldSteps) -> void
+Kiln.WorldStatus.WorldSteps.get -> ulong
+Kiln.WorldStatus.WorldSteps.init -> void
+override Kiln.EntityTransform.GetHashCode() -> int
+override Kiln.TeleportOptions.Equals(object? obj) -> bool
+override Kiln.TeleportOptions.GetHashCode() -> int
+override Kiln.TeleportOptions.ToString() -> string!
+override Kiln.TeleportResult.Equals(object? obj) -> bool
+override Kiln.TeleportResult.GetHashCode() -> int
+override Kiln.TeleportResult.ToString() -> string!
+override Kiln.WorldStatus.GetHashCode() -> int
+static Kiln.EntityTransform.operator !=(Kiln.EntityTransform left, Kiln.EntityTransform right) -> bool
+static Kiln.EntityTransform.operator ==(Kiln.EntityTransform left, Kiln.EntityTransform right) -> bool
+static Kiln.Nearby.Entities(Kiln.EntityId center, double radius, string! component) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Nearby.Entities(Kiln.WorldPosition at, double radius, string! component) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Nearby.Within(System.Collections.Generic.IEnumerable<Kiln.EntityId>! candidates, Kiln.EntityId center, double radius) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Nearby.Within(System.Collections.Generic.IEnumerable<Kiln.EntityId>! candidates, Kiln.WorldPosition at, double radius) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Teleport.Available.get -> bool
+static Kiln.Teleport.To(Kiln.EntityId entity, Kiln.WorldPosition target, Kiln.TeleportOptions? options = null) -> System.Threading.Tasks.Task<Kiln.TeleportResult!>!
+static Kiln.Teleport.ToEntity(Kiln.EntityId entity, Kiln.EntityId target, double offset = 1.5, Kiln.TeleportOptions? options = null) -> System.Threading.Tasks.Task<Kiln.TeleportResult!>!
+static Kiln.Teleport.ToSpawnPoint(Kiln.EntityId entity, Kiln.EntityId spawnPoint, Kiln.TeleportOptions? options = null) -> System.Threading.Tasks.Task<Kiln.TeleportResult!>!
+static Kiln.TeleportOptions.operator !=(Kiln.TeleportOptions? left, Kiln.TeleportOptions? right) -> bool
+static Kiln.TeleportOptions.operator ==(Kiln.TeleportOptions? left, Kiln.TeleportOptions? right) -> bool
+static Kiln.TeleportResult.operator !=(Kiln.TeleportResult? left, Kiln.TeleportResult? right) -> bool
+static Kiln.TeleportResult.operator ==(Kiln.TeleportResult? left, Kiln.TeleportResult? right) -> bool
+static Kiln.World.Available.get -> bool
+static Kiln.World.ComponentHash(string! name) -> uint
+static Kiln.World.ComponentSize(Kiln.EntityId entity, string! component) -> int
+static Kiln.World.EntityCount.get -> int
+static Kiln.World.Exists(Kiln.EntityId entity) -> bool
+static Kiln.World.Find(string! component) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.World.Has(Kiln.EntityId entity, string! component) -> bool
+static Kiln.World.Position(Kiln.EntityId entity) -> Kiln.WorldPosition?
+static Kiln.World.ReadBytes(Kiln.EntityId entity, string! component) -> byte[]?
+static Kiln.World.Status.get -> Kiln.WorldStatus
+static Kiln.World.Transform(Kiln.EntityId entity) -> Kiln.EntityTransform?
+static Kiln.World.TryGetPosition(Kiln.EntityId entity, out Kiln.WorldPosition position) -> bool
+static Kiln.World.TryRead<T>(Kiln.EntityId entity, string! component, out T value) -> bool
+static Kiln.World.TryWrite<T>(Kiln.EntityId entity, string! component, int offset, T value) -> bool
+static Kiln.WorldStatus.operator !=(Kiln.WorldStatus left, Kiln.WorldStatus right) -> bool
+static Kiln.WorldStatus.operator ==(Kiln.WorldStatus left, Kiln.WorldStatus right) -> bool
+static readonly Kiln.TeleportOptions.Default -> Kiln.TeleportOptions!
+~override Kiln.EntityTransform.Equals(object obj) -> bool
+~override Kiln.EntityTransform.ToString() -> string
+~override Kiln.WorldStatus.Equals(object obj) -> bool
+~override Kiln.WorldStatus.ToString() -> string

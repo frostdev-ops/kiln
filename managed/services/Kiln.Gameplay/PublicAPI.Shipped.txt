@@ -1,0 +1,396 @@
+#nullable enable
+Kiln.BuildEvent
+Kiln.BuildEvent.BuildEvent() -> void
+Kiln.BuildEvent.DeniedByZone.get -> uint
+Kiln.BuildEvent.IsPlacement.get -> bool
+Kiln.BuildEvent.IsRemoval.get -> bool
+Kiln.BuildEvent.ItemId.get -> uint
+Kiln.BuildEvent.Kind.get -> Kiln.BuildKind
+Kiln.BuildEvent.Outcome.get -> Kiln.BuildOutcome
+Kiln.BuildEvent.Player.get -> Kiln.EntityId
+Kiln.BuildEvent.Position.get -> Kiln.WorldPosition
+Kiln.BuildEvent.Target.get -> Kiln.EntityId
+Kiln.BuildEvent.TerraformType.get -> int
+Kiln.BuildEvent.ZoneName.get -> string!
+Kiln.BuildKind
+Kiln.BuildKind.Dismantle = 3 -> Kiln.BuildKind
+Kiln.BuildKind.PickUpProp = 4 -> Kiln.BuildKind
+Kiln.BuildKind.PlaceBlock = 1 -> Kiln.BuildKind
+Kiln.BuildKind.PlaceProp = 2 -> Kiln.BuildKind
+Kiln.BuildKind.Terraform = 5 -> Kiln.BuildKind
+Kiln.BuildOutcome
+Kiln.BuildOutcome.DeniedByZone = 2 -> Kiln.BuildOutcome
+Kiln.BuildOutcome.Done = 0 -> Kiln.BuildOutcome
+Kiln.BuildOutcome.RefusedByGame = 1 -> Kiln.BuildOutcome
+Kiln.CraftEvent
+Kiln.CraftEvent.Amount.get -> int
+Kiln.CraftEvent.ByPlayer.get -> bool
+Kiln.CraftEvent.CraftEvent() -> void
+Kiln.CraftEvent.Operator.get -> Kiln.EntityId
+Kiln.CraftEvent.RecipeId.get -> uint
+Kiln.CraftEvent.Station.get -> Kiln.EntityId
+Kiln.CraftEvent.StationPosition.get -> Kiln.WorldPosition?
+Kiln.CraftResult
+Kiln.CraftResult.Crafted = 0 -> Kiln.CraftResult
+Kiln.CraftResult.MissingCraftingProps = 5 -> Kiln.CraftResult
+Kiln.CraftResult.MissingMaterials = 4 -> Kiln.CraftResult
+Kiln.CraftResult.NoRoomForOutput = 2 -> Kiln.CraftResult
+Kiln.CraftResult.Other = -1 -> Kiln.CraftResult
+Kiln.DiscardKind
+Kiln.DiscardKind.Destroy = 1 -> Kiln.DiscardKind
+Kiln.DiscardKind.Trash = 2 -> Kiln.DiscardKind
+Kiln.EntityCategories
+Kiln.EntityCategories.All = Kiln.EntityCategories.Default | Kiln.EntityCategories.Other -> Kiln.EntityCategories
+Kiln.EntityCategories.Creature = 2 -> Kiln.EntityCategories
+Kiln.EntityCategories.Default = Kiln.EntityCategories.Player | Kiln.EntityCategories.Creature | Kiln.EntityCategories.Npc | Kiln.EntityCategories.Prop | Kiln.EntityCategories.Pickup -> Kiln.EntityCategories
+Kiln.EntityCategories.None = 0 -> Kiln.EntityCategories
+Kiln.EntityCategories.Npc = 4 -> Kiln.EntityCategories
+Kiln.EntityCategories.Other = 32 -> Kiln.EntityCategories
+Kiln.EntityCategories.Pickup = 16 -> Kiln.EntityCategories
+Kiln.EntityCategories.Player = 1 -> Kiln.EntityCategories
+Kiln.EntityCategories.Prop = 8 -> Kiln.EntityCategories
+Kiln.EntityJoinLevelEvent
+Kiln.EntityJoinLevelEvent.ByKiln.get -> bool
+Kiln.EntityJoinLevelEvent.Category.get -> Kiln.EntityCategories
+Kiln.EntityJoinLevelEvent.Entity.get -> Kiln.EntityId
+Kiln.EntityJoinLevelEvent.EntityJoinLevelEvent() -> void
+Kiln.EntityJoinLevelEvent.IsPlayer.get -> bool
+Kiln.EntityJoinLevelEvent.Parent.get -> Kiln.EntityId
+Kiln.EntityJoinLevelEvent.Position.get -> Kiln.WorldPosition?
+Kiln.EntityJoinLevelEvent.Template.get -> System.Guid?
+Kiln.EntityJoinLevelEvent.TemplateInfo.get -> Kiln.TemplateInfo?
+Kiln.EntityJoinLevelEvent.TemplateName.get -> string!
+Kiln.EntityLeaveLevelEvent
+Kiln.EntityLeaveLevelEvent.ByKiln.get -> bool
+Kiln.EntityLeaveLevelEvent.Category.get -> Kiln.EntityCategories
+Kiln.EntityLeaveLevelEvent.Entity.get -> Kiln.EntityId
+Kiln.EntityLeaveLevelEvent.EntityLeaveLevelEvent() -> void
+Kiln.EntityLeaveLevelEvent.IsPlayer.get -> bool
+Kiln.EntityLeaveLevelEvent.Parent.get -> Kiln.EntityId
+Kiln.EntityLeaveLevelEvent.Position.get -> Kiln.WorldPosition?
+Kiln.EntityLeaveLevelEvent.Template.get -> System.Guid?
+Kiln.EntityLeaveLevelEvent.TemplateInfo.get -> Kiln.TemplateInfo?
+Kiln.EntityLeaveLevelEvent.TemplateName.get -> string!
+Kiln.Gameplay
+Kiln.Gameplay.Inject
+Kiln.GameplayActions
+Kiln.GameplayActions.All = Kiln.GameplayActions.Build | Kiln.GameplayActions.Break | Kiln.GameplayActions.Terraform | Kiln.GameplayActions.Interact | Kiln.GameplayActions.Loot | Kiln.GameplayActions.Craft | Kiln.GameplayActions.Spawn -> Kiln.GameplayActions
+Kiln.GameplayActions.Break = 2 -> Kiln.GameplayActions
+Kiln.GameplayActions.Build = 1 -> Kiln.GameplayActions
+Kiln.GameplayActions.Craft = 32 -> Kiln.GameplayActions
+Kiln.GameplayActions.Interact = 8 -> Kiln.GameplayActions
+Kiln.GameplayActions.Loot = 16 -> Kiln.GameplayActions
+Kiln.GameplayActions.None = 0 -> Kiln.GameplayActions
+Kiln.GameplayActions.Spawn = 64 -> Kiln.GameplayActions
+Kiln.GameplayActions.Terraform = 4 -> Kiln.GameplayActions
+Kiln.GameplayCancelableEvent
+Kiln.GameplayCancelableEvent.DeniedByZone.get -> uint
+Kiln.GameplayCancelableEvent.GameplayCancelableEvent() -> void
+Kiln.GameplayCancelableEvent.Injected.get -> bool
+Kiln.GameplayCancelableEvent.Step.get -> ulong
+Kiln.GameplayCancelableEvent.ZoneName.get -> string!
+Kiln.GameplayEvent
+Kiln.GameplayEvent.GameplayEvent() -> void
+Kiln.GameplayEvent.Step.get -> ulong
+Kiln.GameplayItemStack
+Kiln.GameplayItemStack.Count.get -> int
+Kiln.GameplayItemStack.Count.init -> void
+Kiln.GameplayItemStack.Deconstruct(out uint ItemId, out int Count) -> void
+Kiln.GameplayItemStack.Equals(Kiln.GameplayItemStack other) -> bool
+Kiln.GameplayItemStack.GameplayItemStack() -> void
+Kiln.GameplayItemStack.GameplayItemStack(uint ItemId, int Count) -> void
+Kiln.GameplayItemStack.ItemId.get -> uint
+Kiln.GameplayItemStack.ItemId.init -> void
+Kiln.GameplayRecipe
+Kiln.GameplayRecipe.<Clone>$() -> Kiln.GameplayRecipe!
+Kiln.GameplayRecipe.Deconstruct(out uint Id, out uint Workshop, out System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>! Inputs, out System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>! Outputs, out System.TimeSpan Duration, out ulong RequiredProps) -> void
+Kiln.GameplayRecipe.Duration.get -> System.TimeSpan
+Kiln.GameplayRecipe.Duration.init -> void
+Kiln.GameplayRecipe.Equals(Kiln.GameplayRecipe? other) -> bool
+Kiln.GameplayRecipe.GameplayRecipe(uint Id, uint Workshop, System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>! Inputs, System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>! Outputs, System.TimeSpan Duration, ulong RequiredProps) -> void
+Kiln.GameplayRecipe.HasCategoryInputs.get -> bool
+Kiln.GameplayRecipe.Id.get -> uint
+Kiln.GameplayRecipe.Id.init -> void
+Kiln.GameplayRecipe.Inputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>!
+Kiln.GameplayRecipe.Inputs.init -> void
+Kiln.GameplayRecipe.Outputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>!
+Kiln.GameplayRecipe.Outputs.init -> void
+Kiln.GameplayRecipe.RequiredProps.get -> ulong
+Kiln.GameplayRecipe.RequiredProps.init -> void
+Kiln.GameplayRecipe.Workshop.get -> uint
+Kiln.GameplayRecipe.Workshop.init -> void
+Kiln.GameplayStatus
+Kiln.GameplayStatus.<Clone>$() -> Kiln.GameplayStatus!
+Kiln.GameplayStatus.BuildHooks.get -> bool
+Kiln.GameplayStatus.BuildHooks.init -> void
+Kiln.GameplayStatus.Canceled.get -> ulong
+Kiln.GameplayStatus.Canceled.init -> void
+Kiln.GameplayStatus.CraftHook.get -> bool
+Kiln.GameplayStatus.CraftHook.init -> void
+Kiln.GameplayStatus.Deconstruct(out bool Intercept, out bool Inject, out bool CraftHook, out bool BuildHooks, out bool TerraformHook, out bool SpawnHook, out bool Teleports, out bool WorldRunning, out int Zones, out int Subscribers, out ulong Steps, out ulong EventsSeen, out ulong Dispatched, out ulong Canceled, out ulong Denied, out ulong HookRecords) -> void
+Kiln.GameplayStatus.Denied.get -> ulong
+Kiln.GameplayStatus.Denied.init -> void
+Kiln.GameplayStatus.Discard.get -> bool
+Kiln.GameplayStatus.Discard.init -> void
+Kiln.GameplayStatus.DiscardsCanceled.get -> ulong
+Kiln.GameplayStatus.DiscardsCanceled.init -> void
+Kiln.GameplayStatus.DiscardsSeen.get -> ulong
+Kiln.GameplayStatus.DiscardsSeen.init -> void
+Kiln.GameplayStatus.Dispatched.get -> ulong
+Kiln.GameplayStatus.Dispatched.init -> void
+Kiln.GameplayStatus.EntitiesFiltered.get -> ulong
+Kiln.GameplayStatus.EntitiesFiltered.init -> void
+Kiln.GameplayStatus.EntitiesJoined.get -> ulong
+Kiln.GameplayStatus.EntitiesJoined.init -> void
+Kiln.GameplayStatus.EntitiesLeft.get -> ulong
+Kiln.GameplayStatus.EntitiesLeft.init -> void
+Kiln.GameplayStatus.EntityCategories.get -> Kiln.EntityCategories
+Kiln.GameplayStatus.EntityCategories.init -> void
+Kiln.GameplayStatus.EntityHooks.get -> bool
+Kiln.GameplayStatus.EntityHooks.init -> void
+Kiln.GameplayStatus.Equals(Kiln.GameplayStatus? other) -> bool
+Kiln.GameplayStatus.EventsSeen.get -> ulong
+Kiln.GameplayStatus.EventsSeen.init -> void
+Kiln.GameplayStatus.GameplayStatus(bool Intercept, bool Inject, bool CraftHook, bool BuildHooks, bool TerraformHook, bool SpawnHook, bool Teleports, bool WorldRunning, int Zones, int Subscribers, ulong Steps, ulong EventsSeen, ulong Dispatched, ulong Canceled, ulong Denied, ulong HookRecords) -> void
+Kiln.GameplayStatus.HookRecords.get -> ulong
+Kiln.GameplayStatus.HookRecords.init -> void
+Kiln.GameplayStatus.Inject.get -> bool
+Kiln.GameplayStatus.Inject.init -> void
+Kiln.GameplayStatus.Intercept.get -> bool
+Kiln.GameplayStatus.Intercept.init -> void
+Kiln.GameplayStatus.SpawnHook.get -> bool
+Kiln.GameplayStatus.SpawnHook.init -> void
+Kiln.GameplayStatus.Steps.get -> ulong
+Kiln.GameplayStatus.Steps.init -> void
+Kiln.GameplayStatus.Subscribers.get -> int
+Kiln.GameplayStatus.Subscribers.init -> void
+Kiln.GameplayStatus.Teleports.get -> bool
+Kiln.GameplayStatus.Teleports.init -> void
+Kiln.GameplayStatus.TerraformHook.get -> bool
+Kiln.GameplayStatus.TerraformHook.init -> void
+Kiln.GameplayStatus.WorldRunning.get -> bool
+Kiln.GameplayStatus.WorldRunning.init -> void
+Kiln.GameplayStatus.Zones.get -> int
+Kiln.GameplayStatus.Zones.init -> void
+Kiln.IEntityLifecycleEvent
+Kiln.IEntityLifecycleEvent.ByKiln.get -> bool
+Kiln.IEntityLifecycleEvent.Category.get -> Kiln.EntityCategories
+Kiln.IEntityLifecycleEvent.Entity.get -> Kiln.EntityId
+Kiln.IEntityLifecycleEvent.Parent.get -> Kiln.EntityId
+Kiln.IEntityLifecycleEvent.Position.get -> Kiln.WorldPosition?
+Kiln.IEntityLifecycleEvent.Template.get -> System.Guid?
+Kiln.IEntityLifecycleEvent.TemplateInfo.get -> Kiln.TemplateInfo?
+Kiln.IEntityLifecycleEvent.TemplateName.get -> string!
+Kiln.InteractEvent
+Kiln.InteractEvent.ByPlayer.get -> bool
+Kiln.InteractEvent.Guest.get -> Kiln.EntityId
+Kiln.InteractEvent.Host.get -> Kiln.EntityId
+Kiln.InteractEvent.HostPosition.get -> Kiln.WorldPosition?
+Kiln.InteractEvent.InteractEvent() -> void
+Kiln.InteractEvent.OfferId.get -> uint
+Kiln.InteractionResultEvent
+Kiln.InteractionResultEvent.Accepted.get -> bool
+Kiln.InteractionResultEvent.Guest.get -> Kiln.EntityId
+Kiln.InteractionResultEvent.Host.get -> Kiln.EntityId
+Kiln.InteractionResultEvent.InteractionResultEvent() -> void
+Kiln.InteractionResultEvent.OfferId.get -> uint
+Kiln.ItemCraftedEvent
+Kiln.ItemCraftedEvent.ByPlayer.get -> bool
+Kiln.ItemCraftedEvent.ItemCraftedEvent() -> void
+Kiln.ItemCraftedEvent.Operator.get -> Kiln.EntityId
+Kiln.ItemCraftedEvent.Outputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameplayItemStack>!
+Kiln.ItemCraftedEvent.RawResult.get -> int
+Kiln.ItemCraftedEvent.RecipeId.get -> uint
+Kiln.ItemCraftedEvent.Result.get -> Kiln.CraftResult
+Kiln.ItemCraftedEvent.Station.get -> Kiln.EntityId
+Kiln.ItemCraftedEvent.StationPosition.get -> Kiln.WorldPosition?
+Kiln.ItemCraftedEvent.Succeeded.get -> bool
+Kiln.ItemCraftedEvent.WorkshopId.get -> uint
+Kiln.ItemPickupEvent
+Kiln.ItemPickupEvent.Count.get -> int
+Kiln.ItemPickupEvent.HiddenInUi.get -> bool
+Kiln.ItemPickupEvent.ItemId.get -> uint
+Kiln.ItemPickupEvent.ItemPickupEvent() -> void
+Kiln.ItemPickupEvent.Position.get -> Kiln.WorldPosition
+Kiln.ItemPickupEvent.Receiver.get -> Kiln.EntityId
+Kiln.ItemPickupEvent.SlotIndex.get -> int
+Kiln.ItemPickupEvent.SlotInventory.get -> Kiln.EntityId
+Kiln.ItemPickupEvent.Source.get -> Kiln.EntityId
+Kiln.ItemTossEvent
+Kiln.ItemTossEvent.Count.get -> int
+Kiln.ItemTossEvent.How.get -> Kiln.DiscardKind
+Kiln.ItemTossEvent.Inventory.get -> Kiln.EntityId
+Kiln.ItemTossEvent.ItemEntity.get -> Kiln.EntityId
+Kiln.ItemTossEvent.ItemId.get -> uint
+Kiln.ItemTossEvent.ItemTossEvent() -> void
+Kiln.ItemTossEvent.Player.get -> Kiln.EntityId
+Kiln.ItemTossEvent.PlayerPosition.get -> Kiln.WorldPosition?
+Kiln.ItemTossEvent.SlotIndex.get -> int
+Kiln.LootEvent
+Kiln.LootEvent.ByPlayer.get -> bool
+Kiln.LootEvent.BypassInteraction.get -> bool
+Kiln.LootEvent.Guest.get -> Kiln.EntityId
+Kiln.LootEvent.Host.get -> Kiln.EntityId
+Kiln.LootEvent.HostPosition.get -> Kiln.WorldPosition?
+Kiln.LootEvent.LootAll.get -> bool
+Kiln.LootEvent.LootEvent() -> void
+Kiln.LootEvent.OfferId.get -> uint
+Kiln.NaturalSpawnEvent
+Kiln.NaturalSpawnEvent.Entity.get -> Kiln.EntityId
+Kiln.NaturalSpawnEvent.NaturalSpawnEvent() -> void
+Kiln.NaturalSpawnEvent.Position.get -> Kiln.WorldPosition
+Kiln.NaturalSpawnEvent.Replaced.get -> bool
+Kiln.NaturalSpawnEvent.Template.get -> System.Guid
+Kiln.OfferAccepted
+Kiln.OfferAccepted.Deconstruct(out Kiln.EntityId Player, out Kiln.EntityId Entity) -> void
+Kiln.OfferAccepted.Entity.get -> Kiln.EntityId
+Kiln.OfferAccepted.Entity.init -> void
+Kiln.OfferAccepted.Equals(Kiln.OfferAccepted other) -> bool
+Kiln.OfferAccepted.OfferAccepted() -> void
+Kiln.OfferAccepted.OfferAccepted(Kiln.EntityId Player, Kiln.EntityId Entity) -> void
+Kiln.OfferAccepted.Player.get -> Kiln.EntityId
+Kiln.OfferAccepted.Player.init -> void
+Kiln.OfferOptions
+Kiln.OfferOptions.<Clone>$() -> Kiln.OfferOptions!
+Kiln.OfferOptions.BuildMode.get -> bool
+Kiln.OfferOptions.BuildMode.init -> void
+Kiln.OfferOptions.Equals(Kiln.OfferOptions? other) -> bool
+Kiln.OfferOptions.LowPriority.get -> bool
+Kiln.OfferOptions.LowPriority.init -> void
+Kiln.OfferOptions.OfferOptions() -> void
+Kiln.OfferOptions.RangeMeters.get -> byte
+Kiln.OfferOptions.RangeMeters.init -> void
+Kiln.OfferOptions.Sequence.get -> uint
+Kiln.OfferOptions.Sequence.init -> void
+Kiln.OfferSequences
+Kiln.OfferStatus
+Kiln.OfferStatus.Active = 2 -> Kiln.OfferStatus
+Kiln.OfferStatus.None = 0 -> Kiln.OfferStatus
+Kiln.OfferStatus.Pending = 1 -> Kiln.OfferStatus
+Kiln.OfferStatus.Removing = 3 -> Kiln.OfferStatus
+Kiln.OfferVerbs
+Kiln.Offers
+Kiln.ProtectionZone
+Kiln.ProtectionZone.<Clone>$() -> Kiln.ProtectionZone!
+Kiln.ProtectionZone.AllowAdmins.get -> bool
+Kiln.ProtectionZone.AllowAdmins.init -> void
+Kiln.ProtectionZone.AllowedSteamIds.get -> System.Collections.Generic.IReadOnlyCollection<ulong>!
+Kiln.ProtectionZone.AllowedSteamIds.init -> void
+Kiln.ProtectionZone.Center.get -> Kiln.WorldPosition
+Kiln.ProtectionZone.Center.init -> void
+Kiln.ProtectionZone.Contains(Kiln.WorldPosition p) -> bool
+Kiln.ProtectionZone.Deny.get -> Kiln.GameplayActions
+Kiln.ProtectionZone.Deny.init -> void
+Kiln.ProtectionZone.Equals(Kiln.ProtectionZone? other) -> bool
+Kiln.ProtectionZone.Max.get -> Kiln.WorldPosition
+Kiln.ProtectionZone.Max.init -> void
+Kiln.ProtectionZone.MaxY.get -> double
+Kiln.ProtectionZone.MaxY.init -> void
+Kiln.ProtectionZone.Min.get -> Kiln.WorldPosition
+Kiln.ProtectionZone.Min.init -> void
+Kiln.ProtectionZone.MinY.get -> double
+Kiln.ProtectionZone.MinY.init -> void
+Kiln.ProtectionZone.Name.get -> string!
+Kiln.ProtectionZone.Name.init -> void
+Kiln.ProtectionZone.ProtectionZone() -> void
+Kiln.ProtectionZone.Radius.get -> double
+Kiln.ProtectionZone.Radius.init -> void
+Kiln.ProtectionZone.Shape.get -> Kiln.ZoneShape
+Kiln.ProtectionZone.Shape.init -> void
+Kiln.TeleportEvent
+Kiln.TeleportEvent.Entity.get -> Kiln.EntityId
+Kiln.TeleportEvent.From.get -> Kiln.WorldPosition
+Kiln.TeleportEvent.IsPlayer.get -> bool
+Kiln.TeleportEvent.SearchesGround.get -> bool
+Kiln.TeleportEvent.Target.get -> Kiln.WorldPosition
+Kiln.TeleportEvent.Target.set -> void
+Kiln.TeleportEvent.TargetEntity.get -> Kiln.EntityId
+Kiln.TeleportEvent.TeleportEvent() -> void
+Kiln.TeleportedEvent
+Kiln.TeleportedEvent.Count.get -> int
+Kiln.TeleportedEvent.Entity.get -> Kiln.EntityId
+Kiln.TeleportedEvent.From.get -> Kiln.WorldPosition
+Kiln.TeleportedEvent.TeleportedEvent() -> void
+Kiln.TeleportedEvent.To.get -> Kiln.WorldPosition
+Kiln.ZoneHandle
+Kiln.ZoneHandle.Active.get -> bool
+Kiln.ZoneHandle.Dispose() -> void
+Kiln.ZoneHandle.Id.get -> uint
+Kiln.ZoneHandle.Update(Kiln.ProtectionZone! zone) -> void
+Kiln.ZoneHandle.Zone.get -> Kiln.ProtectionZone!
+Kiln.ZoneShape
+Kiln.ZoneShape.Box = 2 -> Kiln.ZoneShape
+Kiln.ZoneShape.Cylinder = 1 -> Kiln.ZoneShape
+Kiln.ZoneShape.Sphere = 0 -> Kiln.ZoneShape
+const Kiln.OfferSequences.ButtonPress = 2942390232 -> uint
+const Kiln.OfferSequences.Touch = 1045531071 -> uint
+const Kiln.OfferVerbs.Activate = 2166119838 -> uint
+const Kiln.OfferVerbs.Collect = 2425743549 -> uint
+const Kiln.OfferVerbs.Enter = 2019553657 -> uint
+const Kiln.OfferVerbs.Inspect = 638032107 -> uint
+const Kiln.OfferVerbs.Open = 204358933 -> uint
+const Kiln.OfferVerbs.Pet = 1834705559 -> uint
+const Kiln.OfferVerbs.Press = 1865818160 -> uint
+const Kiln.OfferVerbs.Read = 1662597084 -> uint
+const Kiln.OfferVerbs.Release = 2928998250 -> uint
+const Kiln.OfferVerbs.Rest = 1660103147 -> uint
+const Kiln.OfferVerbs.Sit = 3753371512 -> uint
+const Kiln.OfferVerbs.Sleep = 3303076299 -> uint
+const Kiln.OfferVerbs.Take = 870679286 -> uint
+const Kiln.OfferVerbs.Talk = 3649444939 -> uint
+const Kiln.OfferVerbs.Touch = 413737516 -> uint
+const Kiln.OfferVerbs.Use = 641956883 -> uint
+override Kiln.GameplayItemStack.GetHashCode() -> int
+override Kiln.GameplayRecipe.Equals(object? obj) -> bool
+override Kiln.GameplayRecipe.GetHashCode() -> int
+override Kiln.GameplayRecipe.ToString() -> string!
+override Kiln.GameplayStatus.Equals(object? obj) -> bool
+override Kiln.GameplayStatus.GetHashCode() -> int
+override Kiln.GameplayStatus.ToString() -> string!
+override Kiln.OfferAccepted.GetHashCode() -> int
+override Kiln.OfferOptions.Equals(object? obj) -> bool
+override Kiln.OfferOptions.GetHashCode() -> int
+override Kiln.OfferOptions.ToString() -> string!
+override Kiln.ProtectionZone.Equals(object? obj) -> bool
+override Kiln.ProtectionZone.GetHashCode() -> int
+override Kiln.ProtectionZone.ToString() -> string!
+static Kiln.Gameplay.Available.get -> bool
+static Kiln.Gameplay.Enable() -> bool
+static Kiln.Gameplay.EntityEventsAvailable.get -> bool
+static Kiln.Gameplay.Inject.Craft(Kiln.EntityId operatorEntity, Kiln.EntityId station, uint recipeId, int amount = 1) -> void
+static Kiln.Gameplay.Inject.Interact(Kiln.EntityId guest, Kiln.EntityId host, uint offerId) -> void
+static Kiln.Gameplay.Inject.Loot(Kiln.EntityId guest, Kiln.EntityId host, uint offerId = 0, bool lootAll = true, bool bypassInteraction = true) -> void
+static Kiln.Gameplay.IsDenied(Kiln.EntityId player, Kiln.WorldPosition position, Kiln.GameplayActions action, out uint zoneId) -> bool
+static Kiln.Gameplay.Protect(Kiln.ProtectionZone! zone) -> Kiln.ZoneHandle!
+static Kiln.Gameplay.Recipe(uint id) -> Kiln.GameplayRecipe?
+static Kiln.Gameplay.ReplaceNaturalSpawns(System.Guid from, System.Guid to, double chance = 1) -> System.IDisposable!
+static Kiln.Gameplay.Status.get -> Kiln.GameplayStatus?
+static Kiln.Gameplay.WatchEntities(Kiln.EntityCategories categories) -> System.IDisposable!
+static Kiln.Gameplay.WatchTeleports(Kiln.EntityId entity, bool watch = true) -> void
+static Kiln.Gameplay.WorkshopRecipes(uint workshop) -> System.Collections.Generic.IReadOnlyList<uint>!
+static Kiln.Gameplay.Zones.get -> System.Collections.Generic.IReadOnlyList<Kiln.ZoneHandle!>!
+static Kiln.GameplayItemStack.operator !=(Kiln.GameplayItemStack left, Kiln.GameplayItemStack right) -> bool
+static Kiln.GameplayItemStack.operator ==(Kiln.GameplayItemStack left, Kiln.GameplayItemStack right) -> bool
+static Kiln.GameplayRecipe.operator !=(Kiln.GameplayRecipe? left, Kiln.GameplayRecipe? right) -> bool
+static Kiln.GameplayRecipe.operator ==(Kiln.GameplayRecipe? left, Kiln.GameplayRecipe? right) -> bool
+static Kiln.GameplayStatus.operator !=(Kiln.GameplayStatus? left, Kiln.GameplayStatus? right) -> bool
+static Kiln.GameplayStatus.operator ==(Kiln.GameplayStatus? left, Kiln.GameplayStatus? right) -> bool
+static Kiln.OfferAccepted.operator !=(Kiln.OfferAccepted left, Kiln.OfferAccepted right) -> bool
+static Kiln.OfferAccepted.operator ==(Kiln.OfferAccepted left, Kiln.OfferAccepted right) -> bool
+static Kiln.OfferOptions.operator !=(Kiln.OfferOptions? left, Kiln.OfferOptions? right) -> bool
+static Kiln.OfferOptions.operator ==(Kiln.OfferOptions? left, Kiln.OfferOptions? right) -> bool
+static Kiln.Offers.Add(Kiln.EntityId entity, string? text, uint verb, System.Action<Kiln.OfferAccepted>! handler, Kiln.OfferOptions? options = null) -> void
+static Kiln.Offers.Available.get -> bool
+static Kiln.Offers.CustomVerbId(string! text) -> uint
+static Kiln.Offers.IsActive(Kiln.EntityId entity) -> bool
+static Kiln.Offers.List() -> System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Entity, string! Owner, uint Verb, long Accepts)>!
+static Kiln.Offers.Remove(Kiln.EntityId entity) -> bool
+static Kiln.Offers.SpawnWithOffer(string! template, Kiln.WorldPosition position, string? text, uint verb, System.Action<Kiln.OfferAccepted>! handler, Kiln.OfferOptions? options = null, Kiln.SpawnOptions? spawn = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+static Kiln.Offers.Status(Kiln.EntityId entity) -> Kiln.OfferStatus
+static Kiln.Offers.TryAdd(Kiln.EntityId entity, string? text, uint verb, System.Action<Kiln.OfferAccepted>! handler, out string! reason, Kiln.OfferOptions? options = null) -> bool
+static Kiln.ProtectionZone.operator !=(Kiln.ProtectionZone? left, Kiln.ProtectionZone? right) -> bool
+static Kiln.ProtectionZone.operator ==(Kiln.ProtectionZone? left, Kiln.ProtectionZone? right) -> bool
+~override Kiln.GameplayItemStack.Equals(object obj) -> bool
+~override Kiln.GameplayItemStack.ToString() -> string
+~override Kiln.OfferAccepted.Equals(object obj) -> bool
+~override Kiln.OfferAccepted.ToString() -> string

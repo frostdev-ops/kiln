@@ -1,0 +1,168 @@
+#nullable enable
+Kiln.ByteOrder
+Kiln.ByteOrder.Big = 1 -> Kiln.ByteOrder
+Kiln.ByteOrder.Little = 0 -> Kiln.ByteOrder
+Kiln.DataBuffer
+Kiln.DataBuffer.Capacity.get -> int
+Kiln.DataBuffer.Copy(Kiln.DataBuffer! source, int offset = 0, int? length = null) -> void
+Kiln.DataBuffer.DataBuffer(int initialCapacity = 64) -> void
+Kiln.DataBuffer.Head.get -> int
+Kiln.DataBuffer.Head.set -> void
+Kiln.DataBuffer.Order.get -> Kiln.ByteOrder
+Kiln.DataBuffer.Order.set -> void
+Kiln.DataBuffer.ReadBool() -> bool
+Kiln.DataBuffer.ReadBytes(int length) -> byte[]!
+Kiln.DataBuffer.ReadF16() -> System.Half
+Kiln.DataBuffer.ReadF32() -> float
+Kiln.DataBuffer.ReadF64() -> double
+Kiln.DataBuffer.ReadI16() -> short
+Kiln.DataBuffer.ReadI32() -> int
+Kiln.DataBuffer.ReadI64() -> long
+Kiln.DataBuffer.ReadI8() -> sbyte
+Kiln.DataBuffer.ReadString(int length) -> string!
+Kiln.DataBuffer.ReadU16() -> ushort
+Kiln.DataBuffer.ReadU32() -> uint
+Kiln.DataBuffer.ReadU64() -> ulong
+Kiln.DataBuffer.ReadU8() -> byte
+Kiln.DataBuffer.Remaining.get -> int
+Kiln.DataBuffer.Reserve(int length) -> void
+Kiln.DataBuffer.Reset() -> void
+Kiln.DataBuffer.Skip(int length) -> void
+Kiln.DataBuffer.Tail.get -> int
+Kiln.DataBuffer.Tail.set -> void
+Kiln.DataBuffer.ToArray() -> byte[]!
+Kiln.DataBuffer.WriteBool(bool v) -> void
+Kiln.DataBuffer.WriteBytes(System.ReadOnlySpan<byte> bytes) -> void
+Kiln.DataBuffer.WriteF16(System.Half v) -> void
+Kiln.DataBuffer.WriteF32(float v) -> void
+Kiln.DataBuffer.WriteF64(double v) -> void
+Kiln.DataBuffer.WriteI16(short v) -> void
+Kiln.DataBuffer.WriteI32(int v) -> void
+Kiln.DataBuffer.WriteI64(long v) -> void
+Kiln.DataBuffer.WriteI8(sbyte v) -> void
+Kiln.DataBuffer.WriteString(string! text) -> void
+Kiln.DataBuffer.WriteU16(ushort v) -> void
+Kiln.DataBuffer.WriteU32(uint v) -> void
+Kiln.DataBuffer.WriteU64(ulong v) -> void
+Kiln.DataBuffer.WriteU8(byte v) -> void
+Kiln.DataHash
+Kiln.DataImage
+Kiln.DataImage.Clone() -> Kiln.DataImage!
+Kiln.DataImage.DataImage(int width, int height) -> void
+Kiln.DataImage.EncodePng() -> byte[]!
+Kiln.DataImage.Fill(Kiln.Rgba color) -> void
+Kiln.DataImage.GetPixel(int x, int y) -> Kiln.Rgba?
+Kiln.DataImage.GetPixelPacked(int x, int y) -> uint?
+Kiln.DataImage.Height.get -> int
+Kiln.DataImage.Pixels.get -> System.Span<byte>
+Kiln.DataImage.SetPixel(int x, int y, Kiln.Rgba color) -> void
+Kiln.DataImage.SetPixel(int x, int y, byte r, byte g, byte b, byte a) -> void
+Kiln.DataImage.SetPixelPacked(int x, int y, uint rrggbbaa) -> void
+Kiln.DataImage.ToRgba8() -> byte[]!
+Kiln.DataImage.Width.get -> int
+Kiln.Eml
+Kiln.EmlModStatus
+Kiln.EmlModStatus.<Clone>$() -> Kiln.EmlModStatus!
+Kiln.EmlModStatus.Capabilities.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.EmlModStatus.Capabilities.init -> void
+Kiln.EmlModStatus.EmlModStatus() -> void
+Kiln.EmlModStatus.Equals(Kiln.EmlModStatus? other) -> bool
+Kiln.EmlModStatus.Id.get -> string?
+Kiln.EmlModStatus.Id.init -> void
+Kiln.EmlModStatus.Name.get -> string?
+Kiln.EmlModStatus.Name.init -> void
+Kiln.EmlModStatus.Path.get -> string!
+Kiln.EmlModStatus.Path.init -> void
+Kiln.EmlModStatus.Reason.get -> string?
+Kiln.EmlModStatus.Reason.init -> void
+Kiln.EmlModStatus.Source.get -> string!
+Kiln.EmlModStatus.Source.init -> void
+Kiln.EmlModStatus.State.get -> string!
+Kiln.EmlModStatus.State.init -> void
+Kiln.EmlModStatus.Version.get -> string?
+Kiln.EmlModStatus.Version.init -> void
+Kiln.EmlStatus
+Kiln.EmlStatus.<Clone>$() -> Kiln.EmlStatus!
+Kiln.EmlStatus.Aside.get -> string?
+Kiln.EmlStatus.Aside.init -> void
+Kiln.EmlStatus.Cached.get -> bool
+Kiln.EmlStatus.Cached.init -> void
+Kiln.EmlStatus.EmlStatus() -> void
+Kiln.EmlStatus.EmlVersion.get -> string?
+Kiln.EmlStatus.EmlVersion.init -> void
+Kiln.EmlStatus.Equals(Kiln.EmlStatus? other) -> bool
+Kiln.EmlStatus.Error.get -> string?
+Kiln.EmlStatus.Error.init -> void
+Kiln.EmlStatus.File.get -> string?
+Kiln.EmlStatus.File.init -> void
+Kiln.EmlStatus.Format.get -> int
+Kiln.EmlStatus.Format.init -> void
+Kiln.EmlStatus.KilnEmlVersion.get -> string?
+Kiln.EmlStatus.KilnEmlVersion.init -> void
+Kiln.EmlStatus.Mods.get -> System.Collections.Generic.IReadOnlyList<Kiln.EmlModStatus!>!
+Kiln.EmlStatus.Mods.init -> void
+Kiln.EmlStatus.Ms.get -> double
+Kiln.EmlStatus.Ms.init -> void
+Kiln.EmlStatus.Patched.get -> int
+Kiln.EmlStatus.Patched.init -> void
+Kiln.EmlStatus.Phase.get -> string!
+Kiln.EmlStatus.Phase.init -> void
+Kiln.EmlStatus.Pid.get -> int
+Kiln.EmlStatus.Pid.init -> void
+Kiln.EmlStatus.Restored.get -> bool
+Kiln.EmlStatus.Restored.init -> void
+Kiln.GuidHash
+Kiln.Rgba
+Kiln.Rgba.A.get -> byte
+Kiln.Rgba.A.init -> void
+Kiln.Rgba.B.get -> byte
+Kiln.Rgba.B.init -> void
+Kiln.Rgba.Deconstruct(out byte R, out byte G, out byte B, out byte A) -> void
+Kiln.Rgba.Equals(Kiln.Rgba other) -> bool
+Kiln.Rgba.G.get -> byte
+Kiln.Rgba.G.init -> void
+Kiln.Rgba.Packed.get -> uint
+Kiln.Rgba.R.get -> byte
+Kiln.Rgba.R.init -> void
+Kiln.Rgba.Rgba() -> void
+Kiln.Rgba.Rgba(byte R, byte G, byte B, byte A) -> void
+const Kiln.DataImage.MaxPixels = 67108864 -> long
+override Kiln.DataBuffer.ToString() -> string!
+override Kiln.EmlModStatus.Equals(object? obj) -> bool
+override Kiln.EmlModStatus.GetHashCode() -> int
+override Kiln.EmlModStatus.ToString() -> string!
+override Kiln.EmlStatus.Equals(object? obj) -> bool
+override Kiln.EmlStatus.GetHashCode() -> int
+override Kiln.EmlStatus.ToString() -> string!
+override Kiln.Rgba.GetHashCode() -> int
+override Kiln.Rgba.ToString() -> string!
+static Kiln.DataBuffer.Wrap(byte[]! bytes) -> Kiln.DataBuffer!
+static Kiln.DataBuffer.Wrap(string! text) -> Kiln.DataBuffer!
+static Kiln.DataHash.Crc32(System.ReadOnlySpan<byte> data) -> uint
+static Kiln.DataHash.Crc32(string! text) -> uint
+static Kiln.DataHash.Crc64(System.ReadOnlySpan<byte> data) -> ulong
+static Kiln.DataHash.Crc64(string! text) -> ulong
+static Kiln.DataHash.Fnv1a32(System.ReadOnlySpan<byte> data) -> uint
+static Kiln.DataHash.Fnv1a32(string! text) -> uint
+static Kiln.DataImage.Decode(System.ReadOnlySpan<byte> data) -> Kiln.DataImage!
+static Kiln.DataImage.DecodePng(System.ReadOnlySpan<byte> png) -> Kiln.DataImage!
+static Kiln.DataImage.FromRgba8(System.ReadOnlySpan<byte> rgba, int width, int height) -> Kiln.DataImage!
+static Kiln.DataImage.IsPng(System.ReadOnlySpan<byte> data) -> bool
+static Kiln.Eml.DefaultStateFile.get -> string!
+static Kiln.Eml.IsLoaded(string! id) -> bool
+static Kiln.Eml.Load(string! path, bool currentProcess = false) -> Kiln.EmlStatus?
+static Kiln.Eml.Status.get -> Kiln.EmlStatus?
+static Kiln.EmlModStatus.operator !=(Kiln.EmlModStatus? left, Kiln.EmlModStatus? right) -> bool
+static Kiln.EmlModStatus.operator ==(Kiln.EmlModStatus? left, Kiln.EmlModStatus? right) -> bool
+static Kiln.EmlStatus.operator !=(Kiln.EmlStatus? left, Kiln.EmlStatus? right) -> bool
+static Kiln.EmlStatus.operator ==(Kiln.EmlStatus? left, Kiln.EmlStatus? right) -> bool
+static Kiln.GuidHash.FromBytes(System.ReadOnlySpan<byte> guidBytes) -> System.Guid
+static Kiln.GuidHash.IdOf(System.Guid guid) -> uint
+static Kiln.GuidHash.IdOf(System.ReadOnlySpan<byte> guidBytes) -> uint
+static Kiln.GuidHash.Of(System.Guid guid) -> uint
+static Kiln.GuidHash.Of(System.ReadOnlySpan<byte> guidBytes) -> uint
+static Kiln.GuidHash.ToBytes(System.Guid guid) -> byte[]!
+static Kiln.Rgba.FromPacked(uint rrggbbaa) -> Kiln.Rgba
+static Kiln.Rgba.operator !=(Kiln.Rgba left, Kiln.Rgba right) -> bool
+static Kiln.Rgba.operator ==(Kiln.Rgba left, Kiln.Rgba right) -> bool
+~override Kiln.Rgba.Equals(object obj) -> bool
