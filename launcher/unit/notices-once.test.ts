@@ -6,7 +6,7 @@ import { beforeEach, expect, test } from "bun:test";
 import * as api from "../src/api/commands";
 import type { Activation } from "../src/api/commands";
 import { notifyActivation, useFolderNotes } from "../src/shell/notices";
-import { useToasts } from "../src/ui/Toast";
+import { reportShown, useToasts } from "../src/ui/Toast";
 
 beforeEach(() => useToasts.setState({ items: [] }));
 
@@ -15,7 +15,14 @@ let n = 0;
 const act = (r: Partial<Activation>, gameId = `g-${++n}`): Activation => ({
   gameId, profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-12T10:00:00Z", ...r,
 });
-const shown = () => useToasts.getState().items.map((i) => `${i.title}|${i.detail}`);
+/** What the toasts say; they are on screen now, as the Toaster would report them. */
+const shown = () => {
+  const items = useToasts.getState().items;
+  reportShown(items);
+  return items.map((i) => `${i.title}|${i.detail}`);
+};
+/** Lets the reports of what was on screen reach the (mock) backend. */
+const settle = () => new Promise((ok) => setTimeout(ok, 0));
 const OWN = "shroudforge:hoardershelper: the game uses your own folder /game/mods/HoardersHelper for this mod; Kiln leaves it as it is and places no copy of its own.";
 const KEPT = { path: "/game/mods/edited", reason: "files Kiln placed were changed. It is off in the profile, but ShroudForge may still load it.", mayRun: true, off: true };
 
@@ -23,6 +30,7 @@ test("the same notes are raised once per game, a new or changed sentence still s
   const a = act({ warnings: [OWN], keptFiles: ["eml:a: kept 1 file"], retained: [KEPT] });
   await notifyActivation(a);
   expect(shown().map((s) => s.split("|")[0]).sort()).toEqual(["Mod settings kept", "Notes on your mods", "Some mod folders were kept"]);
+  await settle();
   useToasts.setState({ items: [] });
   // the next mod switch writes the profile again and says the same
   await notifyActivation({ ...a, generation: 10 });
@@ -30,6 +38,7 @@ test("the same notes are raised once per game, a new or changed sentence still s
   // one new sentence: only it
   await notifyActivation({ ...a, warnings: [OWN, "shroudforge:other: a new note"] });
   expect(shown()).toEqual(["Notes on your mods|shroudforge:other: a new note"]);
+  await settle();
   // another game has its own memory
   await notifyActivation({ ...a, gameId: "another-game" });
   expect(shown().length).toBe(4);
@@ -48,8 +57,39 @@ test("with the notes switched off only a folder that may still run a mod that is
     expect(String(items[0].detail)).toContain("/game/mods/edited");
     expect(String(items[0].detail)).not.toContain("on-but-changed");
     expect(items[0].persistent).toBe(true);
+    reportShown(items);
+    await settle();
     useToasts.setState({ items: [] });
     await notifyActivation(act({ warnings: [OWN], retained: [KEPT, on] }, "g-off"));
+    expect(shown()).toEqual([]);
+  } finally {
+    await api.appSettingsSet(s);
+  }
+});
+
+test("a notice that never was on screen comes again at the next activation", async () => {
+  const a = act({ warnings: [OWN], retained: [KEPT] });
+  await notifyActivation(a);
+  expect(useToasts.getState().items.length).toBe(2);
+  // only the first was shown (the Deck shows one dialog at a time), then the launcher closed
+  reportShown([useToasts.getState().items[0]]);
+  await settle();
+  useToasts.setState({ items: [] });
+  await notifyActivation(a);
+  expect(useToasts.getState().items.map((i) => i.title)).toEqual(["Notes on your mods"]);
+});
+
+test("with the notes switched off, the player's own folder of a mod that is off still comes once", async () => {
+  const s = await api.appSettingsGet();
+  await api.appSettingsSet({ ...s, modFolderNotes: false });
+  try {
+    const off = "shroudforge:hoardershelper: your own folder /game/mods/HoardersHelper stays as it is; Kiln never switches a folder it did not place.";
+    const a = act({ warnings: [OWN, off], safetyNotes: [off] });
+    await notifyActivation(a);
+    expect(shown()).toEqual([`Notes on your mods|${off}`]);
+    await settle();
+    useToasts.setState({ items: [] });
+    await notifyActivation(a);
     expect(shown()).toEqual([]);
   } finally {
     await api.appSettingsSet(s);

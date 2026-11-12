@@ -110,8 +110,11 @@ Every activation (a mod switched, Play, a profile loaded, an add, a modpack, an 
 they are (`Activation.retained`), which mod files it kept or put back (`keptFiles`) and its notes on the mods
 (`warnings`: a player's own folder that serves a mod, a ShroudForge value a new version refuses). It says them every
 time, so the launcher raises each sentence once per game (`shell/notices.ts`):
-- **Once.** `notices_unseen` answers which sentences are new for the game and remembers them in the data folder
-  (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so the memory survives a
+- **Once.** `notices_unseen` answers which sentences are new for the game; asking remembers nothing. A sentence is
+  remembered (`notices_shown`) only when its toast is on screen: pushed into the desktop's stack, or the Deck's notice
+  dialog (or bar) showing it (`ui/Toast.tsx` `reportShown`). The Deck shows one notice at a time, so one still waiting
+  when the launcher closes comes at the next activation. The memory is in the data folder
+  (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so it survives a
   restart and moves with the data folder. A new or changed sentence still comes. What does come stays until closed
   ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"). A backend
   that cannot answer (an older one) gets the old behaviour: all of them.
@@ -121,10 +124,11 @@ time, so the launcher raises each sentence once per game (`shell/notices.ts`):
   Settings ("Mod notes", A: Read).
 - **Settings, Launcher, "Show notes about mod folders"** (`LauncherSettings.modFolderNotes`, on by default; the Deck's
   Settings "Notes about mod folders"). Off: none of these is raised, except the first notice of a folder that may still
-  run although its mod is off (`retained` with `mayRun` and `off`). Notes (N) still lists everything.
+  run although its mod is off (`retained` with `mayRun` and `off`, and the player's own folder of a mod that is off:
+  `Activation.safetyNotes`). Notes (N) still lists everything.
 - **A notice never takes the screen** (`ui/Toast.tsx`): a detail shows four lines, then "Show all" (an opened one scrolls
   inside its toast past 40% of the window); the stack is at most 60% of the window and scrolls. The Deck shows a notice
-  that stays as a dialog (it scrolls), and an error's line in the bar is cut at three lines.
+  that stays as a dialog (it scrolls); an error in its bar shows all of its text.
 
 Where a player's own folder comes from: a mod already in ShroudForge's (or EML's) mods folder before Kiln, added with
 "Add it" in the list, is served by that folder from then on (Kiln never takes over a folder it did not place; it

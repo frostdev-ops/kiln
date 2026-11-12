@@ -2,7 +2,7 @@
 // toasts (top centre, a short title only; a notice that stays until closed is a dialog). Every control is a real <button>: A clicks it, a tap clicks it.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { useToasts } from "../ui";
+import { reportShown, useToasts } from "../ui";
 import { candidates, focusEl, focusFirst, focusable } from "./focus";
 import { useLayer, type DeckAction } from "./layers";
 
@@ -262,6 +262,8 @@ export function DeckToaster() {
   const notice = items.find(lasting);
   const bar = items.filter((t) => !lasting(t));
   const times = notice && (notice.count ?? 1) > 1 ? ` (${notice.count} times)` : "";
+  // only what is on screen counts as shown: the one notice dialog and the bar's last two (the others wait their turn)
+  useEffect(() => reportShown([notice, ...bar.slice(-2)]), [notice, bar]);
   return (
     <>
       {bar.length > 0 && (

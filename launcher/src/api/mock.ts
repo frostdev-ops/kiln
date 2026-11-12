@@ -830,14 +830,18 @@ const handlers: Record<string, Handler> = {
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
   profile_active: (a) => (otherFolder[S(a.gameId)] ? null : activations[S(a.gameId)] ?? null),
   activation_notices: () => notices.splice(0),
-  // notices.rs take_unseen: each sentence once per game (the backend keeps the memory in the data folder; the mock
-  // for the page's life), and only the safety lines with the setting off
+  // notices.rs unseen / mark_seen: what the window has not shown yet for the game (only the safety lines with the
+  // setting off; asking remembers nothing), and what it reports on screen (the backend keeps that in the data folder;
+  // the mock for the page's life)
   notices_unseen: (a) => {
-    const seen = (noticesSeen[S(a.gameId)] ??= new Set());
+    const seen = noticesSeen[S(a.gameId)] ?? new Set<string>();
     const lines = ((a.lines as { text: string; safety?: boolean }[]) ?? []).filter((l) => settings.modFolderNotes !== false || l.safety).map((l) => l.text);
-    const fresh = [...new Set(lines.filter((t) => !seen.has(t)))];
-    lines.forEach((t) => seen.add(t));
-    return fresh;
+    return [...new Set(lines.filter((t) => !seen.has(t)))];
+  },
+  notices_shown: (a) => {
+    const seen = (noticesSeen[S(a.gameId)] ??= new Set());
+    ((a.lines as string[]) ?? []).forEach((t) => seen.add(t));
+    return null;
   },
   profile_revert: (a) => {
     const id = S(a.profileId);

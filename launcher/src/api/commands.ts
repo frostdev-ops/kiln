@@ -352,6 +352,9 @@ export interface Activation {
    * wants another version (their code changed, or Kiln cannot inspect or carry what is in them): the objects
    * profile_deactivate and uninstall return. Their own loader may still run them. Absent or empty: none. */
   retained?: RetainedPlacement[];
+  /** The sentences of `warnings` about a player's own folder that may still run although the profile has its mod off
+   *  (dev.26): raised even with "Show notes about mod folders" off. Absent or empty: none. */
+  safetyNotes?: string[];
 }
 /** An engine's own loader next to the game (EML's dbghelp.dll, a chained Flame loader...) and what it means for the
  * profile's mods of that engine. While it runs, it runs them only from its own folder. */
@@ -1137,9 +1140,12 @@ export interface NoticeLine {
   text: string;
   safety?: boolean;
 }
-/** The lines to raise now for this game: each once per game (remembered with the data folder,
- *  installs/<id>.notices-seen.json), and with "Show notes about mod folders" off only the `safety` ones. */
+/** The lines to raise now for this game: those not shown before (notices_shown), and with "Show notes about mod
+ *  folders" off only the `safety` ones. Asking remembers nothing. */
 export const noticesUnseen = (gameId: GameId, lines: NoticeLine[]) => call<string[]>("notices_unseen", { gameId, lines });
+/** These lines (their `text`) are on screen now: not raised again for this game (kept with the data folder,
+ *  installs/<id>.notices-seen.json). */
+export const noticesShown = (gameId: GameId, lines: string[]) => call<null>("notices_shown", { gameId, lines });
 /** Undoes a library_add (its changes); the game's profile.json follows where the profile is active. */
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
 /** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
@@ -1639,7 +1645,7 @@ export const COMMANDS = [
   "game_list", "game_detect", "game_add", "game_remove", "game_status",
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
-  "profile_deactivate", "profile_active", "activation_notices", "notices_unseen",
+  "profile_deactivate", "profile_active", "activation_notices", "notices_unseen", "notices_shown",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state", "launch_prestart",

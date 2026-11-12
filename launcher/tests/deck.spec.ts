@@ -476,7 +476,9 @@ test.describe("notices", () => {
       const { notifyActivation } = await import("/src/shell/notices.ts");
       const a = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", retained };
       await notifyActivation(a as never);
-      // the next activation says the same: not raised again
+      // the next activation, once the first notice is on screen (and so remembered), says the same: not raised again
+      while (!document.querySelector('[data-deck-dialog="notice"]')) await new Promise((ok) => setTimeout(ok, 20));
+      await new Promise((ok) => setTimeout(ok, 50));
       await notifyActivation(a as never);
       await notifyActivation({ ...a, retained: [], warnings: ["a second notice"] } as never);
     }, many);
@@ -511,6 +513,36 @@ test.describe("notices", () => {
     await page.clock.fastForward(7000);
     await expect(notice).toContainText("Kept folder 0");
     await expect(notice).not.toContainText("an old error");
+  });
+
+  test("a notice the Deck never showed comes at the next activation", async ({ page }) => {
+    // two notices; the Deck shows one dialog at a time; the launcher closes after the first: the second is not lost
+    await openDeck(page);
+    const act = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00",
+      activated: "2026-11-11T10:00:00Z", ...KEPT, warnings: ["shroudforge:a: the second notice"] };
+    const notify = () => page.evaluate(async (a) => { await (await import("/src/shell/notices.ts")).notifyActivation(a as never); }, act);
+    await notify();
+    const notice = page.locator('[data-deck-dialog="notice"]');
+    await expect(notice).toContainText("Some mod folders were kept");
+    await expect(notice).not.toContainText("the second notice");
+    // the launcher closes with the second one still waiting behind the first
+    await page.evaluate(async () => { (await import("/src/ui/Toast.tsx")).useToasts.setState({ items: [] }); });
+    await expect(notice).toHaveCount(0);
+    // the next activation says both again: the folder was shown, so only the second comes
+    await notify();
+    await expect(notice).toContainText("Notes on your mods");
+    await expect(notice).toContainText("the second notice");
+    await expect(notice).not.toContainText("mods/XHL-Vein-Mining");
+  });
+
+  test("an error's whole text is in the bar, not cut", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    const long = Array.from({ length: 12 }, (_, i) => `part ${i} of a long error from the backend that names /home/player/.local/share/kiln/library/x/${i}.`).join(" ");
+    await page.evaluate(async (m) => { (await import("/src/ui/Toast.tsx")).toast.error({ code: "io", message: m }, "Could not add the mod"); }, long);
+    const detail = page.locator(".deck-toast.err .deck-toast-detail");
+    await expect(detail).toContainText("part 11");
+    expect(await detail.evaluate((el) => el.scrollHeight <= el.clientHeight + 1), "the error's detail is clipped").toBe(true);
   });
 
   test("Settings reads the notes about mod folders again and turns them off", async ({ page }) => {

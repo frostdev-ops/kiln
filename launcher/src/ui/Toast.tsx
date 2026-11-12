@@ -5,7 +5,7 @@
 // one "N earlier notices" item that keeps all of their text. The newest is scrolled into view. A notice never takes
 // the screen: a long detail shows its first lines and "Show all" (the stack itself is capped too, and scrolls).
 import { X } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { toKilnError, type PlacementCleanup } from "../api/commands";
 
@@ -27,11 +27,15 @@ export interface ToastItem {
   /** The oldest persistent notices beyond MAX_PERSISTENT, folded into this one item, oldest first: its detail holds
    *  every one's title and detail, so nothing a notice said is lost. */
   folded?: ToastItem[];
+  /** Called once when the notice is on screen (the desktop's stack, the Deck's bar or notice dialog): `reportShown`. */
+  onShown?: () => void;
 }
 export interface ToastOptions {
   actions?: ToastAction[];
   /** How long it stays (ms; 0: until closed). */
   ms?: number;
+  /** Called once when the notice is really on screen (shell/notices.ts remembers it as seen then, not before). */
+  onShown?: () => void;
 }
 
 interface ToastStore {
@@ -125,10 +129,26 @@ export const useToasts = create<ToastStore>((set, get) => ({
   dismiss: (id) => set({ items: without(get().items, (i) => i.id === id) }),
 }));
 
+/** Notices already reported on screen (by id). */
+const reported = new Set<number>();
+
+/** The toasts' renderers call this with what they have on screen: each one's `onShown` runs once (a fold's notices
+ *  with it). A notice the window never showed (the Deck shows one dialog at a time) is never reported. */
+export function reportShown(items: (ToastItem | undefined)[]) {
+  for (const i of items) {
+    if (!i) continue;
+    for (const t of [i, ...(i.folded ?? [])]) {
+      if (reported.has(t.id)) continue;
+      reported.add(t.id);
+      t.onShown?.();
+    }
+  }
+}
+
 /** Imperative toasts. `error` takes anything a command rejects with (KilnError) and shows its message. */
 export const toast = {
-  ok: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "ok", title, detail, actions: o.actions }, o.ms),
-  info: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "info", title, detail, actions: o.actions }, o.ms),
+  ok: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "ok", title, detail, actions: o.actions, onShown: o.onShown }, o.ms),
+  info: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "info", title, detail, actions: o.actions, onShown: o.onShown }, o.ms),
   error: (e: unknown, title?: ReactNode) => {
     const k = toKilnError(e);
     return useToasts.getState().push({ kind: "err", title: title ?? k.message, detail: title ? k.message : k.code !== "internal" ? k.code : undefined });
@@ -174,6 +194,8 @@ export function Toaster() {
   useLayoutEffect(() => {
     if (box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [newest]);
+  // every notice in the stack is on screen (the stack scrolls; a long one shows its first lines)
+  useEffect(() => reportShown(items), [items]);
   return (
     <div ref={box} className="k-toasts" aria-live="polite">
       {items.map((t) => (

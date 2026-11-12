@@ -1,9 +1,9 @@
 //! Which activation notices the launcher has already shown for a game (docs/kiln/launcher/app.md "Notices about mod
 //! folders"). An activation says, every time, which folders Kiln left as they are, which mod files it kept and its
 //! notes on the mods (a player's own folder that serves a mod, a setting a new version refuses). The launcher raises
-//! each such sentence once per game: [`take_unseen`] answers which of an activation's sentences are new and remembers
-//! them. The memory is `<data>/installs/<game id>.notices-seen.json`, with the launcher's other records of that game,
-//! so it moves with the data folder. It holds sha256 hashes, not the sentences, and at most [`MAX_SEEN`] of them per
+//! each such sentence once per game: [`unseen`] answers which of an activation's sentences are new, and [`mark_seen`]
+//! remembers the ones the window has really shown. The memory is `<data>/installs/<game id>.notices-seen.json`, with
+//! the launcher's other records of that game, so it moves with the data folder. It holds sha256 hashes, not the sentences, and at most [`MAX_SEEN`] of them per
 //! game: the oldest go first.
 
 use crate::paths::DataDirs;
@@ -41,32 +41,50 @@ fn key(sentence: &str) -> String {
     crate::hash::sha256_hex(sentence.as_bytes())
 }
 
-/// The sentences of `sentences` not shown before for `game_id`, in their order and without repeats; all of
-/// `sentences` count as shown from now on (one shown again moves to the newest end, so the bound drops the ones not
-/// said for longest). A memory that cannot be read counts as empty and is written again: a notice is shown once more
-/// rather than never.
-pub fn take_unseen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<Vec<String>> {
+fn read(path: &std::path::Path) -> Seen {
+    crate::util::read_json::<Seen>(path).ok().flatten().unwrap_or_default()
+}
+
+/// The sentences of `sentences` not shown before for `game_id`, in their order and without repeats. Asking remembers
+/// nothing: a sentence counts as shown only when the window reports it on screen ([`mark_seen`]), so a launcher closed
+/// (or a window that stopped) before a notice came shows it at the next activation. A memory that cannot be read
+/// counts as empty: a notice is shown once more rather than never.
+pub fn unseen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<Vec<String>> {
     let path = file(dirs, game_id)?;
+    let seen = read(&path);
+    let mut new: Vec<String> = Vec::new();
+    for s in sentences {
+        if !seen.seen.contains(&key(s)) && !new.contains(s) { new.push(s.clone()); }
+    }
+    Ok(new)
+}
+
+/// Remembers `sentences` as shown for `game_id` (one shown again moves to the newest end, so the bound drops the ones
+/// not said for longest). Written through a temp file of its own name, so two launchers never write the same one.
+pub fn mark_seen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<()> {
+    let path = file(dirs, game_id)?;
+    if sentences.is_empty() { return Ok(()); }
     let _one = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut seen = crate::util::read_json::<Seen>(&path).ok().flatten().unwrap_or_default();
-    let mut new = Vec::new();
+    let mut seen = read(&path);
     for s in sentences {
         let k = key(s);
-        match seen.seen.iter().position(|x| *x == k) {
-            Some(i) => { seen.seen.remove(i); }
-            None if !new.contains(s) => new.push(s.clone()),
-            None => {}
-        }
+        seen.seen.retain(|x| *x != k);
         seen.seen.push(k);
     }
-    if sentences.is_empty() { return Ok(new); }
     if seen.seen.len() > MAX_SEEN {
         let extra = seen.seen.len() - MAX_SEEN;
         seen.seen.drain(..extra);
     }
     seen.format = 1;
-    std::fs::create_dir_all(dirs.installs()).map_err(crate::util::io_at(&dirs.installs(), "creating"))?;
-    crate::util::write_json_atomic(&path, &seen)?;
+    let mut text = serde_json::to_string_pretty(&seen)?;
+    text.push('\n');
+    crate::util::write_atomic_exclusive(&path, text.as_bytes())
+}
+
+/// [`unseen`], then [`mark_seen`] of all of `sentences`: for a caller that shows what it gets at once.
+pub fn take_unseen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<Vec<String>> {
+    let new = unseen(dirs, game_id, sentences)?;
+    mark_seen(dirs, game_id, sentences)?;
     Ok(new)
 }
 
@@ -98,6 +116,18 @@ mod tests {
         assert!(!text.contains("hoardershelper"), "{text}");
         // a repeat inside one take is one notice
         assert_eq!(take_unseen(&d, "g2", &s(&["x", "x"])).unwrap(), s(&["x"]));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Asking which sentences are new remembers nothing: only a sentence the window reports as shown is remembered (the
+    /// Deck shows one stay-until-closed notice at a time; a launcher closed before the others came must show them).
+    #[test]
+    fn asking_does_not_remember_only_a_shown_sentence_is() {
+        let (d, root) = dirs("ask");
+        assert_eq!(unseen(&d, "g", &s(&["a", "b"])).unwrap(), s(&["a", "b"]));
+        assert_eq!(unseen(&d, "g", &s(&["a", "b"])).unwrap(), s(&["a", "b"]), "asking twice without showing");
+        mark_seen(&d, "g", &s(&["a"])).unwrap();
+        assert_eq!(unseen(&d, "g", &s(&["a", "b"])).unwrap(), s(&["b"]));
         let _ = std::fs::remove_dir_all(root);
     }
 

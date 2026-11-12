@@ -88,6 +88,7 @@ pub fn run() {
             commands::profile::profile_active,
             commands::profile::activation_notices,
             commands::profile::notices_unseen,
+            commands::profile::notices_shown,
             commands::library::library_list,
             commands::library::library_detect,
             commands::library::library_import,

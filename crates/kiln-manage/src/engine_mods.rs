@@ -532,6 +532,10 @@ pub struct PlaceReport {
     /// them on with its notes; a reconcile of an unchanged profile does not repeat them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own_notes: Vec<String>,
+    /// The notes of [`PlaceReport::own_notes`] about a player's own folder that may still run although the profile has
+    /// its mod off (Kiln never switches it): the launcher raises these even with its notes about mod folders off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub safety_notes: Vec<String>,
     /// Files a mod wrote into its placed folder (its settings): one sentence per mod when they were moved to
     /// [`KEPT_MOD_FILES`] (the mod was removed, or its new version ships a file of the same name) or put back from
     /// there. Files carried into a new version of the copy are not listed: they stay where they were.
@@ -804,7 +808,7 @@ fn switch_eml_copy(game: &Path, receipts: &mut Vec<Placement>, dst: &Path, on: b
         })();
         if let Err(e) = saved {
             let back = match &before {
-                Some(text) => crate::util::write_atomic(&ext, text.as_bytes()),
+                Some(text) => crate::util::write_atomic_exclusive(&ext, text.as_bytes()),
                 None => std::fs::remove_file(&ext).map_err(io_at(&ext, "removing")),
             };
             if let Err(back) = back {
@@ -1397,7 +1401,7 @@ fn switch_copy(game: &Path, receipts: &mut [Placement], dst: &Path, enabled: boo
             save_placements(game, &next)
         })();
         if let Err(e) = saved {
-            if let Err(back) = crate::util::write_atomic(&dst.join("extended.mod.json"), current.as_bytes()) {
+            if let Err(back) = crate::util::write_atomic_exclusive(&dst.join("extended.mod.json"), current.as_bytes()) {
                 return Err(Error::new(e.code, format!("{}; the previous ShroudForge switch could not be restored: {}", e.message, back.message)));
             }
             return Err(e);
@@ -1464,11 +1468,14 @@ fn retain_off(rep: &mut PlaceReport, tag: String, path: &Path, reason: impl Into
 /// A profile entry the player's own folder serves (`own`): Kiln leaves the folder alone and places nothing. Said once
 /// per activation in plain words ([`PlaceReport::own_notes`]); it is the player's installation, not a problem.
 fn own_folder(rep: &mut PlaceReport, tag: String, path: &Path, on: bool) {
-    rep.own_notes.push(if on {
-        format!("{tag}: the game uses your own folder {} for this mod; Kiln leaves it as it is and places no copy of its own.", path.display())
+    if on {
+        rep.own_notes.push(format!("{tag}: the game uses your own folder {} for this mod; Kiln leaves it as it is and places no copy of its own.", path.display()));
     } else {
-        format!("{tag}: your own folder {} stays as it is; Kiln never switches a folder it did not place.", path.display())
-    });
+        // off in the profile, but its loader may still run it from there: a safety note
+        let note = format!("{tag}: your own folder {} stays as it is; Kiln never switches a folder it did not place.", path.display());
+        rep.safety_notes.push(note.clone());
+        rep.own_notes.push(note);
+    }
     rep.own.push(tag);
 }
 
@@ -2559,7 +2566,11 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
         ModKind::ShroudForge => {
             // The managed root of the folder: the game folder for the folder ShroudForge reads (Kiln's copy or the
             // player's own), else the data dir of the Library entry.
-            let placed = match game_dir { Some(g) => sf_folder(g, id, folder, false)?.map(|(p, own)| (g, p, own)), None => None };
+            let placed = match game_dir.map(|g| sf_folder(g, id, folder, false).map(|f| (g, f))).transpose()? {
+                Some((_, SfFolder::Several(dirs))) => return Ok(none(&SfFolder::several(id, &dirs))),
+                Some((g, SfFolder::At(p, own))) => Some((g, p, own)),
+                _ => None,
+            };
             let Some((root, dir, own_folder)) = placed.or_else(|| folder.map(|f| (library_root(f), f.to_path_buf(), false))) else {
                 return Ok(none("activate the profile once: ShroudForge's settings live in its mods folder"));
             };
@@ -2600,24 +2611,58 @@ pub fn settings(kind: ModKind, id: &str, game_dir: Option<&Path>, config_dir: &P
     }
 }
 
+/// Where the settings of a ShroudForge profile entry are in the game ([`sf_folder`]).
+enum SfFolder {
+    /// The folder, and whether it is the player's own (not a copy Kiln placed).
+    At(PathBuf, bool),
+    /// More than one folder of the player's holds the entry's package: Kiln does not pick one.
+    Several(Vec<PathBuf>),
+    Nowhere,
+}
+
+impl SfFolder {
+    /// The plain sentence for [`SfFolder::Several`].
+    fn several(id: &str, dirs: &[PathBuf]) -> String {
+        format!("ShroudForge mod {id}: more than one of your folders holds its package ({}). ShroudForge leaves out a package it \
+            finds twice, and Kiln does not pick one to change: keep one of them, then change its settings",
+            dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", "))
+    }
+}
+
+/// The ShroudForge package id (mod.json `id`) of the package in `folder`.
+fn sf_package_id(folder: &Path) -> Option<String> {
+    let file = folder.join("mod.json");
+    if std::fs::metadata(&file).ok()?.len() > 1024 * 1024 { return None; }
+    read_json(&file)?.get("id")?.as_str().map(str::to_owned)
+}
+
 /// The folder ShroudForge reads the settings of the profile entry `id` from in `game`, and whether it is the player's
-/// own: Kiln's copy `<mods>/<id>` (a changed copy is refused, as [`owned`] says), the player's folder of that name
-/// (no receipt of Kiln's), or another folder of ShroudForge's that holds the same package id
-/// ([`crate::shroudforge::other_holder`], found through `library`, the entry's Library folder). None: none of them.
-/// `writing`: a changed copy of Kiln's is an error (reading shows it, as Kiln's).
-fn sf_folder(game: &Path, id: &str, library: Option<&Path>, writing: bool) -> Result<Option<(PathBuf, bool)>> {
+/// own. Kiln's copy `<mods>/<id>` (its receipt names it; a changed copy is refused when `writing`, as [`owned`] says,
+/// and shown as Kiln's when reading). A folder Kiln did not place only when it holds THAT package: its mod.json id is
+/// the id of the entry's Library package (`library`, its folder). The player's folder named `<id>` that holds another
+/// package is not it; the folders that hold the package are then looked for by id, and more than one is
+/// [`SfFolder::Several`]. Without the Library folder a folder Kiln did not place cannot be told, so it is not used.
+fn sf_folder(game: &Path, id: &str, library: Option<&Path>, writing: bool) -> Result<SfFolder> {
     let root = crate::shroudforge::mods_dir(game);
     let dst = root.join(id);
     if dst.is_dir() {
         let receipts = placements(game)?;
-        let own = match owned(game, &receipts, &dst, ModKind::ShroudForge, id) {
-            Ok(o) => o.is_none(),
+        match owned(game, &receipts, &dst, ModKind::ShroudForge, id) {
+            Ok(Some(_)) => return Ok(SfFolder::At(dst, false)),
             Err(e) if writing => return Err(e),
-            Err(_) => false,
-        };
-        return Ok(Some((dst, own)));
+            Err(_) => return Ok(SfFolder::At(dst, false)),
+            Ok(None) => {}
+        }
     }
-    Ok(library.and_then(|src| crate::shroudforge::other_holder(&root, src, &dst)).map(|p| (p, true)))
+    let Some(package) = library.and_then(sf_package_id) else { return Ok(SfFolder::Nowhere) };
+    let mut holders: Vec<PathBuf> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path())
+        .filter(|p| p.is_dir() && sf_package_id(p).as_deref() == Some(package.as_str())).collect();
+    holders.sort();
+    Ok(match holders.len() {
+        0 => SfFolder::Nowhere,
+        1 => SfFolder::At(holders.remove(0), true),
+        _ => SfFolder::Several(holders),
+    })
 }
 
 /// Saves one declared setting with type validation. The command caller refuses writes while the game runs.
@@ -2638,7 +2683,11 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
             // stay [`place`]'s refusals.
             let not_there = || Error::not_found(format!("ShroudForge mod {id} is not in ShroudForge's mods folder: activate the profile first"));
             let game = game_dir.ok_or_else(not_there)?;
-            let (dir, _own) = sf_folder(game, id, folder, true)?.ok_or_else(not_there)?;
+            let dir = match sf_folder(game, id, folder, true)? {
+                SfFolder::At(dir, _) => dir,
+                SfFolder::Several(dirs) => return Err(Error::new(ErrorCode::Refused, SfFolder::several(id, &dirs))),
+                SfFolder::Nowhere => return Err(not_there()),
+            };
             refuse_symlink_path(game, &dir.join("mod.json"))?;
             refuse_symlink_path(game, &dir.join("extended.mod.json"))?;
             refuse_symlink_path(game, &dir.join("extended.mod.json.tmp"))?;
@@ -2819,7 +2868,7 @@ fn place_xhl_core_copy(dirs: &DataDirs, game: &Path, src: &Path, dlls: &[(String
         return Ok(false);
     }
     for (path, bytes) in &write {
-        crate::util::write_atomic(path, bytes)?;
+        crate::util::write_atomic_exclusive(path, bytes)?;
     }
     for path in &gone {
         std::fs::remove_file(path).map_err(io_at(path, "removing"))?;

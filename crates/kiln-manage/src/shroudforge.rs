@@ -661,7 +661,8 @@ fn write_extension(m: &SfMod, text: &str) -> Result<()> {
     if text.len() > MAX_FILE_BYTES {
         return Err(Error::invalid("the settings file would be larger than 2 MiB"));
     }
-    crate::util::write_atomic(&m.folder.join("extended.mod.json"), text.as_bytes())
+    // a mod folder in the game: never through a fixed temp name a file of the player's may have
+    crate::util::write_atomic_exclusive(&m.folder.join("extended.mod.json"), text.as_bytes())
 }
 
 /// A whole number written without its fraction by an earlier Kiln (`[2, 1.5]` for a fractional list, `2` for a

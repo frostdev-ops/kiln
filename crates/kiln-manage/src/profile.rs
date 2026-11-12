@@ -484,6 +484,10 @@ pub struct Activation {
     /// Empty: none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retained: Vec<crate::engine_mods::RetainedPlacement>,
+    /// The sentences of `warnings` about a player's own folder that may still run although the profile has its mod off
+    /// (engine_mods::PlaceReport::safety_notes): the launcher raises these even with its notes about mod folders off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub safety_notes: Vec<String>,
 }
 
 impl Activation {
@@ -491,6 +495,7 @@ impl Activation {
     /// earlier one kept or noted is kept in this one's lists. `retained` stays this one's: it is the game folder now.
     pub fn keep_notes_of(&mut self, earlier: Activation) {
         self.keep_notes(earlier.kept_files, earlier.warnings);
+        for n in earlier.safety_notes { if !self.safety_notes.contains(&n) { self.safety_notes.push(n); } }
     }
 
     fn keep_notes(&mut self, kept_files: Vec<String>, warnings: Vec<String>) {
@@ -1568,6 +1573,7 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
         kept_files: placed.kept_files,
         warnings: skipped_native_loaders(dirs, &profile).into_iter().chain(copy_warnings).chain(placed.warnings).chain(placed.own_notes).collect(),
         retained: placed.retained,
+        safety_notes: placed.safety_notes,
     };
     let _ = crate::util::write_json_atomic(&activation_record(dirs, install), &a);
     Ok(a)
@@ -1608,6 +1614,7 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
                 // Restored files and other one-time notes belong to this operation, even when the second placement
                 // has nothing left to do. Retained copies remain the final activation's current-state report.
                 a.keep_notes(placed.kept_files, placed.warnings.into_iter().chain(placed.own_notes).collect());
+                for n in placed.safety_notes { if !a.safety_notes.contains(&n) { a.safety_notes.push(n); } }
                 return Ok(Some(a));
             }
             // the profile's late natives and the compat rules live in chain.ini only
@@ -1748,6 +1755,7 @@ pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activatio
         kept_files: Vec::new(),
         warnings: Vec::new(),
         retained: Vec::new(),
+        safety_notes: Vec::new(),
     }))
 }
 
