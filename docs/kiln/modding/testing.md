@@ -105,7 +105,8 @@ public sealed class MyMod : Mod
   the player stops the run, gives a verdict before the body asked, or the mod unloads).
 - The body runs on the tick thread like a `[KilnTest]`; every `await` comes back there. The context does not teleport,
   give, spawn or set the time: call the services your mod already references.
-- A verdict is the player's. A failed assertion is written next to a pass; it does not turn it into a fail.
+- A verdict is the player's. A failed assertion is written next to a pass; it does not turn it into a fail. The one
+  exception is the `guard-proof` check (below).
 
 ### Tags
 `ClientCheckTags`: `visual` and `audio` (the player judges what they see or hear), `two-players` (needs a second
@@ -129,6 +130,10 @@ reports, and refuses it in every other state. Every line must hold, each read at
    game build (sha256) and Kiln version, is a pass. The first `cheats` check on a new build is the one that shows the
    guard working; until its newest run passed (a later fail or skip closes the gate again), every other `cheats` check
    is refused.
+5. The character of the player the check changes is a throwaway one: its name starts with `KilnCheck` (exact case),
+   read on the server side when the check starts. A name that cannot be read refuses. **Today Kiln has no reader for
+   a character's name** (the server sees the player's platform name and the character's id, not its name), so this
+   line refuses every `cheats` check until one exists.
 
 A missing guard, a status that does not arrive or arrives late, a read that throws, a latch that says no and a ledger
 that cannot be read all refuse. The refusal names the line that failed, in the list, in kiln.log
@@ -136,11 +141,18 @@ that cannot be read all refuse. The refusal names the line that failed, in the l
 While a check runs, the runner also holds the guard (cheats or not); when a `cheats` check ends it reads the guard
 again, and if a report passed to Steam or the guard stopped protecting during the check, the entry's note says so and a
 warning stays on the HUD line until the game exits.
+Once a `cheats` check has started, the HUD line and the top of the list say "A cheats check changed this character.
+Delete it before you play on: loaded again without the guard it can unlock Steam achievements." until the game exits or
+the world is left; no answer clears it.
 
 A `guard-proof` check must have a `Confirm` text (one without is refused): it is the one check the guard cannot cover,
 because it tests the guard. The runner shows the text before the body runs, and the body starts only after the player
 answers it with the screen's own "Yes, run it" button (never the pass key, never a default). No yes: the check does not
-start and has no entry. Any other check may carry a `Confirm` text too.
+start and has no entry. Any other check may carry a `Confirm` text too. The runner reads the guard's dropped counter
+when the `guard-proof` body starts and when it ends: if it did not go up, the guard did not see an achievement report,
+and the entry is recorded as `fail` whatever the player answered, with the counters in its note and an assertion row
+"the guard dropped at least one report". This is the one verdict the runner overrides; a fail there keeps every other
+`cheats` check refused.
 
 What the guard does not cover is in `Kiln.SteamGuard`'s documentation. In particular, a character changed by a `cheats`
 check and loaded later in a game without the guard can still reach its achievements then. The list says so beside every
