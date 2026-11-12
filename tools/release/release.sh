@@ -26,8 +26,6 @@
 #             feed/: the nupkgs as a static NuGet v3 feed (lib/feed.py; its URLs: KILN_FEED_URL, default this folder on
 #             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it).
 #             Both are built only: publish.sh uploads them with --sdk-site, github-draft.sh never
-# KILN_API_BASELINE: the last release's Kiln.Api .nupkg (or it unzipped) for pack.sh's API compat gate; unset: a loud
-#   warning, at the start and in the closing text, and the release goes on.
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
 #   source/   kiln-VERSION-src.tar.gz
@@ -50,6 +48,8 @@
 # The API gate (tools/release/api-gate.sh), before any build: no shipped public API removed since the previous v* tag,
 #   new API only with a raised Kiln.Mods.ApiVersion; after a release whose checks passed, the Unshipped.txt lines move
 #   into Shipped.txt in the working tree (to commit). The builds get the full version (VERSION in the export).
+# KILN_API_BASELINE: the last release's Kiln.Api .nupkg (or it unzipped) for pack.sh's API compat gate; unset: a loud
+#   warning, at the start and in the closing text, and the release goes on.
 # Builds run one at a time (they share Cargo's build directory); KILN_RELEASE_NICE=1 runs them at the lowest priority.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
