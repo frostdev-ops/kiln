@@ -239,7 +239,8 @@ followed. In order:
    hooked report of the same move wins. 1 and 2 are not limited by the budget.
 4. A fresh read through Kiln.Items' internal face (Kiln.Saves reads every item with data at each save) brings a followed
    item's location up to date (as an `Observed` move when it changed): the tracker is never older than the last such
-   read.
+   read. Kiln.Saves learns of such a move inside the read; mods get its `ItemMovedEvent` at the start of the next
+   step, so no mod handler runs in the middle of a save's staging.
 
 A followed item that is gone (not found, or the id holds another item entity) is reported once with its last placed
 location and is no longer followed. A read that finds an item entity that exists but sits in no holder's slot changes

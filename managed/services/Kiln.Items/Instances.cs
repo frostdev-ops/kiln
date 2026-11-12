@@ -49,7 +49,8 @@ public enum ItemMoveCause
 
 /// <summary>A followed item moved: another holder or another slot. Kiln follows the items that carry instance data
 /// (Kiln.Saves' <c>InstanceData</c>); there is no event for other items. Posted on the tick thread, only while the
-/// event has subscribers. Not cancelable (it already happened). Capability <c>items.instances</c>.</summary>
+/// event has subscribers; a move that a read of Kiln's own finds (a save, <c>item.Location()</c>) is posted at the start
+/// of the next step. Not cancelable (it already happened). Capability <c>items.instances</c>.</summary>
 [ServerOnly]
 public sealed class ItemMovedEvent : KilnEvent
 {
@@ -812,7 +813,9 @@ internal static unsafe class ItemTracker
                 return;
             }
         }
-        Report(f, loc, ItemMoveCause.Observed, ServiceTick.Step);
+        // Inside somebody's read (a save's staging in Kiln.Saves, item.Location()): the tracker and Kiln.Saves learn it now,
+        // mods get ItemMovedEvent at the next service tick, so no mod handler runs in the middle of that read.
+        Report(f, loc, ItemMoveCause.Observed, ServiceTick.Step, deferEvent: true);
     }
 
     // ---- what the hooks and results say ----
@@ -887,7 +890,7 @@ internal static unsafe class ItemTracker
         }
     }
 
-    private static void Report(Followed f, ItemLocation to, ItemMoveCause cause, ulong step)
+    private static void Report(Followed f, ItemLocation to, ItemMoveCause cause, ulong step, bool deferEvent = false)
     {
         ItemLocation from;
         lock (Gate)
@@ -909,7 +912,10 @@ internal static unsafe class ItemTracker
                     Backend.Current.Log(0, LogLevel.Error, $"kiln.items: an item-moved handler threw: {e}");
                 }
             }
-        if (Events.HasSubscribers<ItemMovedEvent>()) Events.Post(new ItemMovedEvent(f.Item, from, to, cause, step));
+        if (!Events.HasSubscribers<ItemMovedEvent>()) return;
+        var ev = new ItemMovedEvent(f.Item, from, to, cause, step);
+        if (deferEvent) Events.Enqueue(ev);
+        else Events.Post(ev);
     }
 
     private static void ReportGone(Followed f, ulong step)

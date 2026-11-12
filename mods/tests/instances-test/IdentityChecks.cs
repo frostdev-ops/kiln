@@ -14,6 +14,31 @@ public sealed partial class InstancesTestMod
     [LabOnLoad("identity.onload")]
     private void IdentityOnLoad()
     {
+        // A hot reload runs OnLoad while the world runs and the sources are long registered: there the contract is the
+        // other way round, EntityRef.Of answers in OnLoad.
+        bool reloaded;
+        try
+        {
+            reloaded = Spawn.Available && Spawn.WorldRunning;
+        }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
+        {
+            reloaded = false;
+        }
+        if (reloaded)
+        {
+            try
+            {
+                var r = EntityRef.Of(new EntityId(1024));
+                Check(true, $"check 1 (hot reload): the world runs, so EntityRef.Of answers in OnLoad ({r})");
+            }
+            catch (KilnUnavailableException e)
+            {
+                Check(false, $"check 1 (hot reload): EntityRef.Of throws {e.Capability} in OnLoad although the world runs ({e.Reason})");
+            }
+            Context.Tick.Pre += FirstTicks;
+            return;
+        }
         try
         {
             var r = EntityRef.Of(new EntityId(1024));
