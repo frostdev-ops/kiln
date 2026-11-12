@@ -24,7 +24,8 @@
 #             systemd units for kilnctl (kiln@.service, kiln-backup@.service, kiln-backup@.timer)
 #   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix;
 #             feed/: the nupkgs as a static NuGet v3 feed (lib/feed.py; its URLs: KILN_FEED_URL, default this folder on
-#             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it)
+#             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it).
+#             Both are built only: publish.sh uploads them with --sdk-site, github-draft.sh never
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
 #   source/   kiln-VERSION-src.tar.gz
@@ -444,7 +445,8 @@ else
   note "no tools/docs-site/build.sh in the export: the API reference (sdk/api/) is left out"
 fi
 # the SDK's nupkgs as a static NuGet v3 feed in sdk/feed/ (lib/feed.py), for dotnet new install and a mod's
-# nuget.config once the folder is served: its index names absolute URLs, by default where publish.sh puts the folder
+# nuget.config once the folder is served: its index names absolute URLs, by default where publish.sh would put it
+# (downloads/<version>/sdk/feed/); publish.sh uploads sdk/feed/ (and sdk/api/) only with --sdk-site
 feed_url=${KILN_FEED_URL:-https://frostdev.io/kiln/downloads/$version/sdk/feed/}
 python3 -I "$lib/feed.py" build --out "$out/sdk/feed" --base-url "$feed_url" "$out/sdk" | tee -a "$log"
 cp "$work"/samples/*.zip "$out/samples/" 2>/dev/null || true
