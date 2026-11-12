@@ -653,11 +653,13 @@ public static unsafe class Arsenals
 
     /// <summary>Registers a handler for <see cref="Is.Job"/> and <see cref="Act.Job"/>, id 1 to 63: an
     /// <c>[UnmanagedCallersOnly]</c> function <c>uint (uint entity, uint id, uint arg, void* user)</c>. It runs on the game's job
-    /// threads inside the sim step. Zero removes it; it also goes when the mod unloads.</summary>
+    /// threads inside the sim step. Zero removes it; it also goes when the mod unloads. Advanced mods only
+    /// (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
     [AdvancedApi]
     [TickThreadOnly]
     public static void JobHandler(uint id, nint function, nint user = 0)
     {
+        CreaturesGate.RequireAdvanced("Arsenals.JobHandler");
         var t = Creatures.Tick("Arsenals.JobHandler");
         var o = Creatures.RequireOwner(Creatures.OwnerKey.Caller, "Arsenals.JobHandler");
         Creatures.Check(t->RulesJobHandler(o.Native, id, (void*)function, (void*)user), $"job handler {id}");
