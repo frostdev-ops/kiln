@@ -22,7 +22,9 @@
 #   runtime/  kiln-runtime-VERSION.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt, kiln-server-VERSION.zip (the server
 #             pack: the server components as a flat zip to unzip into a server folder, lib/serverpack.py), and the
 #             systemd units for kilnctl (kiln@.service, kiln-backup@.service, kiln-backup@.timer)
-#   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix
+#   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix;
+#             feed/: the nupkgs as a static NuGet v3 feed (lib/feed.py; its URLs: KILN_FEED_URL, default this folder on
+#             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it)
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
 #   source/   kiln-VERSION-src.tar.gz
@@ -40,8 +42,11 @@
 #   glibc symbol version above 2.35, the server pack (only the server components, the runtime's bytes, rebuilt
 #   byte-identically) and the systemd units, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway
 #   container: --selftest and the launcher's window),a mod from the packed templates built against the packed SDK,
-#   the vsix's files, Authenticode signatures (when signed), every plugin DLL in the runtime's manifest (lib/plugins.py), and a scan of every file and archive for game data, home
+#   the NuGet feed against the nupkgs, the API reference's index.html (when built), the vsix's files, Authenticode signatures (when signed), every plugin DLL in the runtime's manifest (lib/plugins.py), and a scan of every file and archive for game data, home
 #   paths, keys, passwords and tokens.
+# The API gate (tools/release/api-gate.sh), before any build: no shipped public API removed since the previous v* tag,
+#   new API only with a raised Kiln.Mods.ApiVersion; after a release whose checks passed, the Unshipped.txt lines move
+#   into Shipped.txt in the working tree (to commit). The builds get the full version (VERSION in the export).
 # Builds run one at a time (they share Cargo's build directory); KILN_RELEASE_NICE=1 runs them at the lowest priority.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -134,6 +139,31 @@ rm -f "$work"/source/*.tar.gz
 tar --sort=name --owner=0 --group=0 --numeric-owner --mode='u=rwX,go=rX' --mtime="@$SOURCE_DATE_EPOCH" -C "$work" \
   --transform "s|^src|kiln-$version|" -czf "$work/source/kiln-$version-src.tar.gz" src
 [[ $(sed 's/[-+].*//' "$src/VERSION") == "${version%%-*}" ]] || die "VERSION in the export is $(cat "$src/VERSION"), not for $version"
+# The API gate (tools/release/api-gate.sh), before any build: no line of a PublicAPI.Shipped.txt removed since the
+# previous v* release, and new API only with a raised API version (Kiln.Mods.ApiVersion), so a mod can ask for it.
+if ((worktree)); then
+  gate_new=(--worktree)
+  prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+else
+  # GitHub makes the v* tags when a release is published: fetch them, or the gate and the notes start too early
+  git -C "$repo" fetch -q --tags origin 2>/dev/null || note "release: could not fetch tags; the API gate and the notes may start too early"
+  gate_new=("$full")
+  prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$full^" 2>/dev/null || true)
+fi
+if [[ -z $prev ]]; then
+  note "WARNING: no previous v* tag: the API gate has nothing to compare with (removed API and the API version are not checked)"
+else
+  step "API gate: the public API since $prev"
+  "$here/api-gate.sh" removed "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "shipped API was removed since $prev (above): the mod API is additive"
+  "$here/api-gate.sh" version-rule "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "new API needs a higher API version (above)"
+fi
+[[ -d ${KILN_API_BASELINE:-} ]] || note "WARNING: KILN_API_BASELINE is not a folder: pack.sh cannot compare the SDK's assemblies with the last released ones"
+# The full release version in the builds: native/CMakeLists.txt (kiln_version.h: the core's and the proxy's version),
+# managed/KilnVersion.props (the assemblies' informational version and Kiln.Api's Kiln.Build stamp) and
+# tools/package/stage.sh (kiln-runtime.json, so the runtime zip's name) read the export's VERSION. Written after the
+# source tarball and the check above: the tarball keeps VERSION as committed.
+printf '%s\n' "$version" >"$src/VERSION"
+export KilnVersion=$version
 # ShroudForge's runtime (submodule third_party/shroudforge, a GPL-3 component): git archive leaves submodules out, so
 # export the fork at the pinned commit with its own submodules, ship that as its corresponding source, and build from it
 sfpin=$(git -C "$repo" ls-tree "${full:-HEAD}" third_party/shroudforge | awk '$2 == "commit" {print $3}')
@@ -407,6 +437,16 @@ if ((!skip_windows)); then
 fi
 for f in "$KILN_OUT"/nuget/*."$sdk_version".nupkg; do cp "$f" "$out/sdk/"; done
 cp "$vsix" "$out/sdk/"
+# the modding site (guide + API reference, DocFX) in sdk/api/, when the export has its build script
+if [[ -f $src/tools/docs-site/build.sh ]]; then
+  quiet low "$src/tools/docs-site/build.sh" "$out/sdk/api"   # the modding site: guide + API reference (DocFX)
+else
+  note "no tools/docs-site/build.sh in the export: the API reference (sdk/api/) is left out"
+fi
+# the SDK's nupkgs as a static NuGet v3 feed in sdk/feed/ (lib/feed.py), for dotnet new install and a mod's
+# nuget.config once the folder is served: its index names absolute URLs, by default where publish.sh puts the folder
+feed_url=${KILN_FEED_URL:-https://frostdev.io/kiln/downloads/$version/sdk/feed/}
+python3 -I "$lib/feed.py" build --out "$out/sdk/feed" --base-url "$feed_url" "$out/sdk" | tee -a "$log"
 cp "$work"/samples/*.zip "$out/samples/" 2>/dev/null || true
 cp "$src/LICENSE" "$src/CREDITS.md" "$notices" "$out/"
 cp "$work/source/"*.tar.gz "$out/source/"
@@ -422,9 +462,7 @@ if [[ -n $notes ]]; then cp "$notes" "$out/RELEASE-NOTES.md"; else
     echo "# Kiln $version"
     echo
     if ((worktree)); then echo "Test build of the working tree at $KILN_GIT."; else
-      # GitHub makes the v* tags when a release is published: fetch them, or every release lists the whole history
-      git -C "$repo" fetch -q --tags origin 2>/dev/null || echo "release: could not fetch tags; the notes may start too early" >&2
-      prev=$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$full^" 2>/dev/null || true)
+      # $prev: the previous v* tag, found (after fetching the tags) for the API gate in 1.
       echo "Changes since ${prev:-the start of the project}:"
       echo
       git -C "$repo" log --no-merges --format='- %s' ${prev:+"$prev.."}"$full" | head -60
@@ -494,15 +532,29 @@ fill "$here/templates/README.txt" "$out/README.txt.tmp"
 python3 - "$out" <<'PY'
 import os, sys
 root = sys.argv[1]
-rows = []
+# folders of many files (the API reference, the NuGet feed): one row each, with the count and the total size
+FOLDERS = ("sdk/api", "sdk/feed")
+def row(rel, s):
+    return f"  {rel:<64} {s / 1048576:8.1f} MB" if s >= 1048576 else f"  {rel:<64} {s / 1024:8.1f} KB"
+rows, folded = [], {}
 for d, dirs, files in os.walk(root):
     dirs.sort()
+    reld = os.path.relpath(d, root).replace(os.sep, "/")
+    top = next((f for f in FOLDERS if reld == f or reld.startswith(f + "/")), None)
+    if top:
+        if top not in folded:
+            folded[top] = [0, 0, len(rows)]
+            rows.append("")
+        folded[top][0] += len(files)
+        folded[top][1] += sum(os.path.getsize(os.path.join(d, n)) for n in files)
+        continue
     for n in sorted(files):
         rel = os.path.relpath(os.path.join(d, n), root)
         if rel in ("README.txt.tmp", "SHA256SUMS") or rel.startswith("nexus" + os.sep):
             continue
-        s = os.path.getsize(os.path.join(d, n))
-        rows.append(f"  {rel:<64} {s / 1048576:8.1f} MB" if s >= 1048576 else f"  {rel:<64} {s / 1024:8.1f} KB")
+        rows.append(row(rel, os.path.getsize(os.path.join(d, n))))
+for top, (count, size, i) in folded.items():
+    rows[i] = row(f"{top}/ ({count} files)", size)
 rows.append(f"  {'README.txt':<64}")
 rows.append(f"  {'SHA256SUMS':<64}")
 t = open(os.path.join(root, "README.txt.tmp"), encoding="utf-8").read().replace("@FILES@", "\n".join(rows))
@@ -525,6 +577,23 @@ if ((checks)); then
   printf '%s\n' "${results[@]}" | tee -a "$log"
 fi
 
+# The API record: what this release added is shipped now, so its Unshipped.txt lines move into Shipped.txt in the
+# repository's working tree (not committed: the closing text says so). Only after a release whose checks all ran and
+# passed, never for a test build, and only while the working tree's API files are the released commit's.
+api_moved=0
+if ((worktree)); then
+  note "API record: a test build of the working tree; the Unshipped.txt lines stay"
+elif ((!checks)) || printf '%s\n' "${results[@]}" | grep -q '^FAIL'; then
+  note "API record: not promoted (the checks failed or did not run); after a good release run tools/release/api-gate.sh promote"
+else
+  step "API record: Unshipped.txt lines into Shipped.txt"
+  if "$here/api-gate.sh" promote --if-same-as "$full" 2>&1 | tee -a "$log"; then
+    api_moved=$(git -C "$repo" status --porcelain -- ':(glob)managed/**/PublicAPI.*.txt' | wc -l)
+  else
+    note "API record: not promoted (above); the release itself is fine"
+  fi
+fi
+
 # Nexus Mods: what would go up (GET calls only); the upload itself is publish.sh --nexus or nexus.py --publish
 if ((nexus)) && [[ -f $HOME/.config/kiln-release/nexus.env ]]; then
   step "Nexus Mods (dry run)"
@@ -533,7 +602,9 @@ fi
 
 step "done"
 du -sh "$out" | tee -a "$log"
-(cd "$out" && find . -type f | sort | while read -r f; do printf '%10s  %s\n' "$(du -h "$f" | cut -f1)" "${f#./}"; done) | tee -a "$log"
+# sdk/api/ and sdk/feed/ (many files each) as one row each, like README.txt's list
+(cd "$out" && find . -type f -not -path './sdk/api/*' -not -path './sdk/feed/*' | sort | while read -r f; do printf '%10s  %s\n' "$(du -h "$f" | cut -f1)" "${f#./}"; done
+  for d in sdk/api sdk/feed; do [[ -d $d ]] && printf '%10s  %s/ (%s files)\n' "$(du -sh "$d" | cut -f1)" "$d" "$(find "$d" -type f | wc -l)"; done; true) | tee -a "$log"
 cat <<EOF | tee -a "$log"
 
 Release $version is in $out (log: $log). Nothing is published.
@@ -542,4 +613,10 @@ Next (by hand, see docs/kiln/launcher/releasing.md):
   tools/release/publish.sh $out             publish: the GitHub release, the dev channel pointer, frostdev.io
   python3 -I tools/release/nexus.py $out    Nexus Mods (dry run; --publish uploads): the nexus/ build, no self-update
 EOF
+if ((api_moved)); then
+  cat <<EOF | tee -a "$log"
+  The API record: $api_moved PublicAPI file(s) changed in $repo (this release's API moved from Unshipped.txt into
+  Shipped.txt). Commit them: git -C "$repo" commit -m "api: ship the API of $version" -- ':(glob)managed/**/PublicAPI.*.txt'
+EOF
+fi
 if printf '%s\n' "${results[@]}" | grep -q '^FAIL'; then exit 1; fi
