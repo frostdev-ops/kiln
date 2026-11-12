@@ -28,6 +28,9 @@ public static class NoClip
 
     private const string Label = "noclip";
     private static readonly Dictionary<EntityId, RuleSet> Sets = new();
+    // players whose switch is being turned on right now: applying the rule set posts events, and a handler that calls
+    // Set for the same player must not make a second set
+    private static readonly HashSet<EntityId> Turning = new();
 
     /// <summary>True when this build can do it (the capability <see cref="Capability"/>). The server's
     /// <c>rules.json</c> and the player's game still decide for each player (<see cref="Set"/> says why not).</summary>
@@ -87,6 +90,8 @@ public static class NoClip
             });
         if (!RulesRuntime.CanPredictNoClip(player))
             return new(false, false, "client", $"NoClip stays off for {name}: their game has not confirmed the collision hook (an older Kiln, or a game build without it).");
+        if (!Turning.Add(player))
+            return new(true, RulesRuntime.Fresh(player).NoClip, null, $"NoClip is being turned on for {name}.");
         // Kiln's rule set, whoever asked: it outlives the mod or tool that turned it on
         var outer = ModContext.CurrentMod;
         ModContext.CurrentMod = null;
@@ -98,6 +103,7 @@ public static class NoClip
         finally
         {
             ModContext.CurrentMod = outer;
+            Turning.Remove(player);
         }
         if (!RulesRuntime.Fresh(player).NoClip)
         {
@@ -133,7 +139,11 @@ public static class NoClip
         if (Events.HasSubscribers<PlayerNoClipEndedEvent>()) Events.Post(new PlayerNoClipEndedEvent(player, reason, restoredTo));
     }
 
-    internal static void Forget() => Sets.Clear();
+    internal static void Forget()
+    {
+        Sets.Clear();
+        Turning.Clear();
+    }
 
     private static string NameOf(EntityId e)
     {
@@ -222,10 +232,11 @@ public static class NoClip
 /// <param name="Active">The character is moving without collision right now: its last collision step was skipped. On
 /// without Active: it is dead, gliding, on a ladder or a wall, or its game has not caught up yet.</param>
 /// <param name="StepsSkipped">Collision steps skipped for the character since the world started.</param>
-/// <param name="LastFree">Where the character last was in open space while NoClip was on (where it started, at first);
-/// null while NoClip is off.</param>
-/// <param name="Restoring">NoClip was turned off inside something: the character is being moved to
-/// <paramref name="LastFree"/>, and collision returns when it is there.</param>
+/// <param name="LastFree">Where the character last was in open space while NoClip was on (where it started, at first).
+/// Null when NoClip is off and no move back is in flight.</param>
+/// <param name="Restoring">NoClip was turned off inside something: the rules no longer carry it (<paramref name="On"/>
+/// is false), but the character is being moved to <paramref name="LastFree"/> and still has no collision. Collision
+/// returns when it is in open space; a move that fails is tried again.</param>
 public sealed record NoClipState(EntityId Player, bool On, bool Active, ulong StepsSkipped, WorldPosition? LastFree, bool Restoring);
 
 /// <summary>What <see cref="NoClip.Set"/> did.</summary>

@@ -451,15 +451,20 @@ It never lands, because without collision there is no ground. Water does not end
 - The switch or the rule set going off, or the server's limits changing. If the character is in open space, collision
   simply returns and it falls or stands as the game decides. If it is inside something, Kiln first moves it back to the
   **last free position** (the last place where the cells at its knees, waist and head were empty; at first, where
-  NoClip was turned on) and only then lets collision return; `NoClipState.Restoring` is true for those two or three
-  steps, and `PlayerNoClipEndedEvent.RestoredTo` says where it was put. After such a move the character is kept safe
-  until it stands on the ground (as after a carried flight), since the free position can be in the air. This order
+  NoClip was turned on) and only then lets collision return; `NoClipState.Restoring` is true meanwhile (normally two
+  or three steps), and `PlayerNoClipEndedEvent.RestoredTo` says where it was put. Collision never returns while a
+  living character is inside something: a move that fails is tried again every second, and until the character is in
+  open space (by the move, or because the player flew out) it keeps flying without collision, with a warning in
+  kiln.log. After a move back the character is kept safe until it stands on the ground (as after a carried flight),
+  since the free position can be in the air; turning NoClip on again ends that protection. This order
   matters: the game does not push a character out of solid ground. In a lab a character whose rule ended 7 m inside
   rock fell straight through the world, while one whose feet were about 1 m under the surface was lifted out by the
   game itself.
 - **Death** and any **teleport** of the player (fast travel, a bed, a command, a mod's `Teleport.To`): collision is
   back, the player is told why in chat, and NoClip stays off until it is asked for again (`/noclip`, `NoClip.Set`, or
-  a mod updating its rule set). The event's `Reason` is `Death` or `Teleport`.
+  a mod updating its rule set). The event's `Reason` is `Death` or `Teleport`. The character is never moved back
+  after a teleport: it stays where the game put it. A rule set for an area that the teleport left has its request
+  used up as well.
 - The player leaving, the world closing, the mod that applied the rule set unloading: rule sets end as always.
 - Opening the glider, a ladder or a wall climb end the flight, and collision with it, while the rule stays on: when the
   character is free of them it lifts off again.
@@ -476,9 +481,13 @@ How it works (kiln.rules `noclip.cpp`, feature `rules.noclip`, hook bit `KILN_RU
 then a collision step that sweeps the character's collider through the world and corrects the position. That step reads
 a switch of the game's own first, `MovementCollider.isEnabled`: off, it clears the collision results and returns. One
 hook on the step, in the server world and in the player's prediction, holds that switch off for the length of the call
-for a character that is in Kiln's flight and whose rules carry NoClip, and puts it back before returning. The flight is
-character flight's three hooks with NoClip's differences (`flight_math.h`). Only a flying character is touched: one
-that could not fly would fall through the world. `KilnRulesApi.noclip(entity, &state)` gives what the hook did.
+for a character that is in Kiln's flight and whose rules carry NoClip, and puts it back before returning, also when
+the call ends with a fault passing through. The flight is character flight's three hooks with NoClip's differences
+(`flight_math.h`). Only a flying character is touched: one that could not fly would fall through the world. And only a
+flight Kiln started: a character that another mod put into the flying state is left alone by all four hooks. The
+feature `rules.noclip` is on only where the game's code is the code this was written for: the step's first test, the
+branch it takes with the switch off, and that branch's target byte for byte (unset the results, return).
+`KilnRulesApi.noclip(entity, &state)` gives what the hook did.
 
 A lab (`mods/tests/noclip-test`, a spawned player character on a fresh world, `allowNoClip` on; 34 PASS, 0 FAIL):
 `NoClip: collision step rva 0x95890`, `standing on the ground it takes off at once: state 11, active True`, `holding
@@ -486,7 +495,9 @@ sneak it sinks through the ground into solid rock: y -5.71 … feet m2/255 waist
 position stayed at the surface: -0.20 m from the ground`, `the rule set ended inside the rock: … Restoring = True`,
 `NoClip ended inside something; the character is back at its last free position`, `collision is back and it stands on
 the ground, not under it`, `a teleport ends it: … Teleport; the rules no longer carry it though two rule sets still
-ask`, `updating the mod's rule set asks anew: on again`, `death ends it`.
+ask`, `updating the mod's rule set asks anew: on again`, `death ends it`. What a lab cannot stage (a move back that
+fails, NoClip asked again during a move, a teleport out of a rule's area before the rules are resolved, a character
+that leaves) is in `managed/tests/Kiln.Rules.Tests/NoClipTrackTests.cs`, with a world the test controls.
 
 Not proven yet (the guided client pass, check `rules.noclip`): everything a real game shows. The same decision in the
 player's prediction on a real connection (hosted single-player under Proton first, then a dedicated server); what the
