@@ -241,6 +241,7 @@
           "description": "Mixes in another clip, stretched to this one's length: by \"weight\" every joint, by \"bones\" only the named joints (not their children unless \"children\": true).",
           "required": ["with"],
           "oneOf": [ { "required": ["weight"] }, { "required": ["bones"] } ],
+          "x-kiln-message": "blend is { \"with\": clip, \"weight\": w } or { \"with\": clip, \"bones\": ... }: a weight or bones, one of the two",
           "properties": {
             "comment": {},
             "with": { "type": "string", "minLength": 1, "description": "A clip, named as \"from\" names one." },
@@ -390,10 +391,9 @@
           "then": {
             "description": "Animations of a glTF file, or clips reworked from others (\"from\") -> <out>/clip_<name>.bin (JointAnimation), with root motion and events under the same GUID.",
             "required": ["skeleton", "clips"],
-            "anyOf": [
-              { "required": ["gltf"] },
-              { "properties": { "clips": { "additionalProperties": { "required": ["from"] } } } }
-            ],
+            "if": { "not": { "required": ["gltf"] } },
+            "then": { "properties": { "clips": { "additionalProperties": { "required": ["from"],
+              "x-kiln-message": "this step has no \"gltf\": a clip of it needs \"from\" (only a step whose clips all have \"from\" needs no gltf)" } } } },
             "properties": {
               "op": {}, "tool": {}, "comment": {},
               "skeleton": { "type": "string", "description": "A skeleton step's name, or @input for a game skeleton (joints named j<index>, as tools/kfc exports them)." },
