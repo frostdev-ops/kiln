@@ -470,6 +470,9 @@ mods with player states) is refused at join too, also with `modSync` set to `war
 - `FindGameStates(name)`: the game's states of that name, with their machine, kind and the ids that enter them;
 - `GuidOf(mod, name)`: a state's GUID, by the rule alone;
 - `Graph` and `GraphHash`: which graph this side serves;
+- the capability is `anim.player_states`: `Capabilities.Is("anim.player_states")` says whether player states work on
+  this game build, `Capabilities.Why` says why not, and a mod that cannot do without them can name it under `features` in
+  its `kiln.mod.json` (it is then not loaded where they are off, with the reason in kiln.log);
 - `Define(PlayerAnimState)`: a state from code. It can never change the running game, and in this release it is not
   built: the result is `Refused`, "definitions from code are not available in this build; write the state in
   assets/player-states.json". Put your states in the file.
