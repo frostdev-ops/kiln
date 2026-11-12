@@ -431,7 +431,8 @@ merges the states of several mods into the game's graph as the game does at boot
 ### At boot
 
 When the game or the server starts, Kiln reads the player's graph once, adds the states of every enabled mod, and serves the
-result for the whole run, on the server and on every player's game: the same mods give the same graph, byte for byte. With no
+result for the whole run, on the server and on every player's game: the same mods with the same cooked clip resources give
+the same graph, byte for byte. With no
 player states in any mod, nothing is read and the game's graph is the game's own. A state that cannot load is left out with
 its reason, and the others load; `PlayerAnimStates.Find` gives the reason. A merge that cannot be proven on the installed game
 (a game update changed the format) serves nothing: the game's graph stays, and every state is reported unavailable.
@@ -462,6 +463,14 @@ every player state of the mod is refused with that reason. With them, a player w
 mod, cannot join a server that runs it unless the server sets `modSync` to `off` ([network.md](../network.md#join-handshake-and-mod-sync),
 [manifest.md](manifest.md#clients)). A player whose player graph differs from the server's (another version of your mod, other
 mods with player states) is refused at join too, also with `modSync` set to `warn`.
+
+**A dedicated server needs the cooked player clips too.** Install the same mod versions, `assets/player-states.json`,
+`assets/assets.json`, and every cooked clip resource those states use on the server and every client, including root motion
+and sequence resources when present. Run the mod's cook against the installed game on each machine before starting; merely
+importing a mod in the launcher or copying its source files does not cook it. Keep game-derived cooked output local, not in
+a distributed mod archive. A missing clip refuses its states; if clients have it and the server does not, their graph hashes
+differ and the join check refuses them. This is different from a held model's visual animation graph, which a dedicated
+server does not run ([models.md](models.md#on-a-dedicated-server)). Player states are evaluated by the server.
 
 ### From C#
 
