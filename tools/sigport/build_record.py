@@ -324,8 +324,10 @@ def loaded_line(log, svc):
 
 
 def test_result(kiln_dir, log, mod):
-    """{passed, failed, skipped, finished, fails} of one test mod: logs/tests/<mod>.json (Kiln.Testing), else the
-    last summary line the mod wrote to kiln.log ("N PASS, M FAIL" or "N passed, M failed")."""
+    """{passed, failed, skipped, finished, fails} of one test mod. A Kiln.Testing mod: logs/tests/<mod>.json. Else
+    kiln.log: passed and failed count the mod's PASS and FAIL lines (and its error lines, as failures), so the logs of
+    several boots of one run add up; finished means the mod wrote a summary line ("N PASS, M FAIL" or "N passed, M
+    failed"), the last of which is kept, and a failure it reports counts even when no FAIL line shows it."""
     j = Path(kiln_dir) / "logs" / "tests" / f"{mod}.json"
     if j.is_file():
         d = json.loads(j.read_text(encoding="utf-8-sig"))
@@ -333,30 +335,40 @@ def test_result(kiln_dir, log, mod):
                  for r in d.get("results", []) if r.get("outcome") in ("fail", "timeout")]
         return {"passed": d.get("passed", 0), "failed": d.get("failed", 0), "skipped": d.get("skipped", 0),
                 "finished": True, "source": f"logs/tests/{mod}.json", "fails": fails[:20]}
-    mine = [ln for ln in log.splitlines() if f"[mod:{mod}]" in ln]
-    last = None
-    for ln in mine:
-        for rx in SUMMARY:
-            m = rx.search(ln)
-            if m:
-                last = (int(m.group(1)), int(m.group(2)), ln.strip())
-    fails = [ln.split(f"[mod:{mod}]", 1)[1].strip() for ln in mine if re.search(r"\bFAIL\b", ln)
-             and not any(rx.search(ln) for rx in SUMMARY)]
-    errors = [ln.strip() for ln in log.splitlines() if f"[mod:{mod}]" in ln and ln.startswith("[E")
-              and "FAIL" not in ln]
+    tag = f"[mod:{mod}]"
+    passed, fails, last = 0, [], None
+    for ln in log.splitlines():
+        if tag not in ln:
+            continue
+        text = ln.split(tag, 1)[1].strip()
+        m = next((m for m in (rx.search(text) for rx in SUMMARY) if m), None)
+        if m:
+            last = (int(m.group(1)), int(m.group(2)), text)
+        elif re.search(r"\bFAIL\b", text) or ln.startswith("[E"):
+            fails.append(text)
+        elif re.search(r"\bPASS\b", text):
+            passed += 1
+    out = {"passed": passed, "failed": len(fails), "skipped": 0, "finished": last is not None, "source": "kiln.log",
+           "fails": fails[:20]}
     if last is None:
-        return {"passed": 0, "failed": 0, "skipped": 0, "finished": False, "source": "kiln.log",
-                "fails": (fails + errors)[:20] or ["no summary line in kiln.log"]}
-    return {"passed": last[0], "failed": last[1], "skipped": 0, "finished": True, "source": "kiln.log",
-            "summary": last[2], "fails": (fails + errors)[:20]}
+        out["fails"] = (fails or ["no summary line in kiln.log"])[:20]
+    else:
+        out["summary"] = last[2]
+        out["failed"] = max(len(fails), last[1])
+        if last[1] and not fails:
+            out["fails"] = [f"the summary reports {last[1]} failure(s): {last[2]}"]
+    return out
 
 
-def collect(server_dir, boot, services, lab="", date=None):
+def collect(server_dir, boot, services, lab="", date=None, earlier_logs=()):
     """A boot's result file (dict) from a stopped server folder: what the core resolved (logs/sigdb-report.json), which
-    services loaded (kiln.log) and how each service's test mods ended. services: {sigdb file stem: [test mod ids]}."""
+    services loaded (kiln.log) and how each service's test mods ended. services: {sigdb file stem: [test mod ids]}.
+    earlier_logs: the kiln.log of the earlier boots of a test that runs over several boots, read first."""
     k = Path(server_dir) / "kiln"
     rep = json.loads((k / "logs" / "sigdb-report.json").read_text())
-    log = (k / "logs" / "kiln.log").read_text(encoding="utf-8", errors="replace").replace("\r", "")
+    def read(p):
+        return Path(p).read_text(encoding="utf-8", errors="replace").replace("\r", "")
+    log = "".join(read(p) for p in earlier_logs) + read(k / "logs" / "kiln.log")
     cfg = {}
     if (k / "kiln.json").is_file():
         cfg = json.loads((k / "kiln.json").read_text())
@@ -373,7 +385,8 @@ def collect(server_dir, boot, services, lab="", date=None):
         values["features"][n] = bool(ok)
     errs = [ln.strip() for ln in log.splitlines() if ln.startswith("[E") and ("[kiln]" in ln or "[service:" in ln)]
     out = {"result": 1, "kind": "lab", "side": side, "sha256": rep.get("exe_sha256", ""), "kiln": rep.get("kiln", ""),
-           "date": date or today(), "boot": boot, "lab": lab, "policy": cfg.get("policy", ""),
+           "date": date or today(), "boot": boot, "boots": 1 + len(earlier_logs), "lab": lab,
+           "policy": cfg.get("policy", ""),
            "boot_complete": bool(re.search(r"\] boot complete", log)), "core_errors": errs[:20],
            "values": values, "services": {}}
     for svc, mods in services.items():
@@ -437,10 +450,12 @@ def lab_evidence(results, svc):
     for r in results:
         s = r["services"][svc]
         tests = ", ".join(f"{m} {t['passed']}/{t['failed']}" for m, t in s["tests"].items())
-        parts.append(f"{tests} (boot {r['boot']})")
+        n = r.get("boots", 1)
+        where = f"boot {r['boot']}" if n == 1 else f"{n} boots of {r['boot']}"
+        parts.append(f"{tests} ({where})")
     labs = sorted({r["lab"] for r in results if r.get("lab")})
     pol = sorted({r["policy"] for r in results if r.get("policy")})
-    n = len(results)
+    n = sum(r.get("boots", 1) for r in results)
     return (f"lab {', '.join(labs) or '?'}, policy {', '.join(pol) or '?'}, {n} boot{'s' if n > 1 else ''}, "
             f"Kiln {results[-1].get('kiln', '?')}: " + "; ".join(parts) +
             " (passed/failed); the core resolved the same values as the offline resolve")
@@ -634,13 +649,15 @@ def main_collect(argv):
     ap.add_argument("--service", action="append", default=[], metavar="FILE=MOD[,MOD]",
                     help="a sigdb file stem (core for <side>.json) and its test mods; repeat per service")
     ap.add_argument("--lab", default="")
+    ap.add_argument("--earlier-log", action="append", default=[], metavar="KILN_LOG",
+                    help="kiln.log of an earlier boot of the same run (a test over several boots); repeat in order")
     ap.add_argument("-o", "--out", required=True)
     a = ap.parse_args(argv)
     services = {}
     for s in a.service:
         svc, _, mods = s.partition("=")
         services[svc] = [m for m in mods.split(",") if m]
-    res = collect(a.server_dir, a.boot, services, a.lab)
+    res = collect(a.server_dir, a.boot, services, a.lab, earlier_logs=a.earlier_log)
     write(a.out, res)
     for svc, s in res["services"].items():
         tests = ", ".join(f"{m} {t['passed']}/{t['failed']}{'' if t['finished'] else ' (no summary)'}"
