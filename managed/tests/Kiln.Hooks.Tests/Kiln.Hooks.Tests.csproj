@@ -13,6 +13,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
+    <!-- the alias names the type Kiln.Hooks, which this project's namespace Kiln.Hooks.Tests hides -->
+    <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" Aliases="global,khooks" />
   </ItemGroup>
 </Project>

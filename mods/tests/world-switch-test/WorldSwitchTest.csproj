@@ -10,6 +10,7 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <AssemblyName>WorldSwitchTest</AssemblyName>
     <RootNamespace>WorldSwitchTest</RootNamespace>
+    <!-- Calls Kiln's lab and test members ([Experimental("KILNX001")]). -->
     <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
