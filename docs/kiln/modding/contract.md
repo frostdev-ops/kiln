@@ -77,7 +77,8 @@ spawned, a chest it watches, an item) holds a number, not an entity. The ref typ
   `items.instances`): an item entity's stamp, a sequence number kiln.items gives every item entity it sees. **Spawn**
   (Kiln.Spawn): any other entity kiln.spawn can inspect: the game's `SpawnTime` when the entity has one (everything
   spawned at run time, by the game or by Kiln), else the kiln.spawn tracker serial of a record re-found after a
-  restart, else 0. **Players**: player slots, from the players' source (Kiln.Players), when it is there.
+  restart, else 0. **Players** (Kiln.Players): player slots (ids 1 to 1023), stamped per session, so the next player
+  in the same slot is another entity.
 - **`ItemInstanceRef(EntityRef Entity, ItemId Item)`**: one particular item in the world: its entity and its type.
   It is not an item type (that is `ItemId`) and not Kiln.Blocks' `ItemRef` (which names an item for a recipe).
   `IsAlive` says nothing more than its entity's `IsAlive` does.
@@ -115,26 +116,9 @@ stations and factories (`T1_*`, `Craftingstation`, 12), NPCs (6) and a few more 
 entity streamed in or spawned at run time, by the game or by Kiln) and 67 item entities had kiln.items' stamp. A record
 kiln.spawn re-finds after a restart gives its tracker serial instead (none in that world).
 
-Players' refs come with the players' source (Kiln.Players): until it is there, a player slot is answered by kiln.spawn's
-source like any entity, `PlayerRef.Of` for a non-none id and `PlayerRef.Resolve()` on a non-none ref throw
-`KilnUnavailableException("identity.players")`, and `PlayerRef.IsOnline` returns false without a session serial.
-`None.IsAlive` and `PlayerRef.None.IsOnline` return false in every case. Services adopt these types as their packages
-land; until then they still use `EntityId` and their own player types.
-
-## 3. Side and thread attributes
-
-Kiln marks its APIs with where and on which thread they may be called. The attributes are in `Kiln.Api` and a mod
-may use them on its own code too.
-
-| Attribute | Means |
-|---|---|
-| `[TickThreadOnly]` | Call it on the server-world tick thread only; elsewhere it throws `InvalidOperationException`. Use `Scheduler.Post` to get there. |
-| `[ServerOnly]` | It works on the server (a dedicated server, or the host of a local game). |
-| `[ClientOnly]` | It works on a game client only. |
-| `[AnyThread]` | Safe from any thread. |
-| `[RenderThread]` | Call it on the game's render thread only (client). |
-| `[WorkerThread]` | It runs on, or may be called from, a worker thread; do not touch game state there. |
-
-Only `[TickThreadOnly]` has an analyzer rule today: [KILN101](analyzers.md#kiln101) warns when such a member is
-called from code that runs on another thread. The other five are markers for now; their analyzer rules are planned
-for dev.26.
+Kiln.Players supplies players (`identity.players`) and the stamps of player slots, also from the first service tick:
+`PlayerRef.Of`, `Resolve()` and `IsOnline` work from the first tick callback, not in `OnLoad`. A player who is joining
+or leaving gives an offline ref. On a server where kiln.players is unavailable, `PlayerRef.Of` for a non-none id and
+`PlayerRef.Resolve()` on a non-none ref throw `KilnUnavailableException("identity.players")`, and a player slot's
+`EntityRef` throws `identity.entities`. `None.IsAlive` and `PlayerRef.None.IsOnline` return false in every case.
+Services adopt these types as their packages land; until then they still use `EntityId` and their own player types.
