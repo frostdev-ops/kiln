@@ -563,6 +563,92 @@ def joint_animations(out):
     case("a float field", ja(), TypeDb(dump), out.types("ja-float", TypeDb(dump)))
 
 
+def lookup(g, name):
+    """Note player-anim-04's lookup, in the merge's terms: the states a name names, each with its machine, kind and entry ids."""
+    if "/" in name:
+        mname, sname = name.split("/", 1)
+        found = g.states_named(sname, mname)
+    else:
+        found = g.states_named(name)
+    out = []
+    for st, m in found:
+        row = PG.SUPPORTED.get(m["debugName"])
+        kinds = [row[0]] if row else ["state", "overlay"]
+        sid = st["id"]["value"]
+        ids = []
+        for kind in kinds:
+            cond = PG.ENTRIES[kind]
+            gts = [e for e in m["globalTransitions"][:m["numGlobalTransitions"]] if e["toState"]["value"] == sid]
+            ids = [i for e in gts for i in (cond.ids(g.by_id.get(e["conditionNode"]["value"])) or [])]
+            if not gts:
+                ids = [i for t in g.machine_transitions(m) if t["toState"]["value"] == sid for i in (cond.ids(g.by_id.get(t["conditionNode"]["value"])) or [])]
+            ids = list(dict.fromkeys(ids))
+            if ids:
+                break
+        out.append({"machine": m["debugName"], "name": st["debugName"], "kind": kind if ids else kinds[0], "ids": ids})
+    return out
+
+
+def lookup_cases(raw, types=TYPES):
+    g = PG.Graph(decode(raw, types))
+    names = set()
+    for v in g.nodes:
+        if v["type"] == "StateMachineState":
+            m = g.machine_of(v)
+            if m is not None and m["type"] == "StateMachine":
+                names.update((v["debugName"], f"{m['debugName']}/{v['debugName']}"))
+    names.update(("Nope", "SM_Main/Nope", "Nope/Block_FullBody"))
+    return [{"name": n, "states": lookup(g, n)} for n in sorted(names)]
+
+
+def clip_facts_cases(out):
+    """playergraph.ClipFacts on two mods' assets.json and a game: the Python test's case, and a few more entry forms."""
+    import uuid as U
+    d = out.dir / "clipfacts"
+    d.mkdir(exist_ok=True)
+    TF = TP.Facts
+
+    def ja(fps=30, frames=45, joints=TP.JOINTS, hier=TP.HIER, flags=1):
+        return TF.ja(None, fps=fps, frames=frames, joints=joints, hier=hier, flags=flags)
+
+    def assets(name, entries, files, prefix="// cooked by animcook\n"):
+        a = d / name
+        a.mkdir(exist_ok=True)
+        for f, b in files.items():
+            (a / f).write_bytes(b)
+        (a / "assets.json").write_text(prefix + json.dumps({"format": 1, "entries": entries}))
+        return a
+    g1, g2, g3, g4, g5, g6, g7 = (str(G.derive("t", "clip", x)) for x in "abcdefg")
+    a = assets("a", [{"kind": "resource", "guid": g1.upper(), "type": PG.JOINT_ANIM, "file": "a.bin"},
+                     {"kind": "resource", "guid": g1, "type": PG.ROOT_MOTION, "part": 0, "file": "a.bin"},
+                     {"kind": "resource", "guid": g2, "type": PG.JOINT_ANIM, "file": "b.bin", "side": "client"},
+                     {"kind": "resource", "guid": g3, "type": f"0x{TYPES.get(PG.JOINT_ANIM)['hash']:08x}", "file": "c.bin"},
+                     {"kind": "icon", "guid": g4, "file": "x.png"},
+                     {"kind": "resource", "guid": "{" + U.UUID(g5).hex + "}", "type": PG.JOINT_ANIM, "file": "e.bin", "side": "server", "part": "0"},
+                     {"kind": "resource", "guid": "urn:uuid:" + g6, "type": PG.JOINT_ANIM, "file": "missing.bin"},
+                     {"kind": "resource", "guid": g7, "type": PG.JOINT_ANIM, "file": "short.bin", "part": 1},
+                     {"kind": "resource", "guid": "not-a-guid", "type": PG.JOINT_ANIM, "file": "a.bin"}],
+               {"a.bin": ja(), "b.bin": ja(), "c.bin": ja(fps=60, frames=10, flags=0), "e.bin": ja(fps=24, frames=48), "short.bin": ja()[:20]})
+    b = assets("b", [{"kind": "resource", "guid": g1, "type": PG.SEQUENCES, "file": "s.bin"},
+                     {"kind": "resource", "guid": g3, "type": PG.JOINT_ANIM, "file": "c.bin"},
+                     {"kind": "resource", "guid": g7, "type": PG.JOINT_ANIM, "file": "short.bin"}],
+               {"s.bin": b"", "c.bin": ja(fps=60, frames=11), "short.bin": ja()[:20]}, prefix="  // two lines\n\n// of comments\n")
+    game_keys = [[g2, TYPES.get(PG.JOINT_ANIM)["hash"]], [g2, TYPES.get(PG.ROOT_MOTION)["hash"]], [g4, TYPES.get(PG.JOINT_ANIM)["hash"]],
+                 [g4, TYPES.get(PG.ROOT_MOTION)["hash"]]]
+    game_bytes = ja(fps=20, frames=5, flags=0)
+
+    class Game:
+        def has(self, key):
+            return [key.guid, key[1]] in game_keys
+
+        def read(self, key):
+            return game_bytes
+    f = PG.ClipFacts(TYPES, [a, b], Game())
+    queries = [g1, g2, g3, g4, g5, g6, g7, g1.upper(), str(G.derive("t", "clip", "none"))]
+    out.cases["clipfacts"] = {"mods": [str(a), str(b)], "game": game_keys, "game_bytes": game_bytes.hex(),
+                              "results": [[q, facts_json({"x": f(q)})["x"]] for q in queries]}
+
+
 def fuzz(out, raw, facts, n=160):
     """Bytes changed at random: the reference's verdicts (does it decode, does it round-trip, the merge's report)."""
     rng = random.Random(2025)
@@ -656,7 +742,7 @@ def game(out, graph_path, game_dir):
         res, rep = PG.merge(raw, types, [parse(m) for m in mods], seen.get)
         cases.append({"name": name, "mods": mods, "report": rep, "bin": out.file(f"game-want-{len(cases)}.bin", res) if res is not None else None})
     out.cases["game"] = {"graph": str(Path(graph_path).resolve()), "bytes": len(raw), "facts_from": "the installed game" if k else "the graph's own clip nodes",
-                         "facts": facts_json(seen), "neighbours": len(nbs), "cases": cases}
+                         "facts": facts_json(seen), "neighbours": len(nbs), "cases": cases, "lookup": lookup_cases(raw)}
 
 
 def main():
@@ -671,6 +757,8 @@ def main():
     texts(out)
     graphgen_graphs(out)
     joint_animations(out)
+    clip_facts_cases(out)
+    out.cases["lookup"] = {"graph": out.graph("synth4", raw), "names": lookup_cases(raw)}
     fuzz(out, raw, facts)
     if a.graph and Path(a.graph).is_file():
         game(out, a.graph, a.game)

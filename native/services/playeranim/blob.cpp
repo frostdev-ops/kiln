@@ -320,8 +320,9 @@ Value Value::hk(uint64_t x) {
 
 const Value* Value::get(std::string_view key) const {
     if (k != VK::Struct) return nullptr;
-    for (size_t i = 0; i < names.size(); ++i)
-        if (names[i] == key) return &items[i];
+    const std::vector<std::string_view>& n = names();
+    for (size_t i = 0; i < n.size(); ++i)
+        if (n[i] == key) return &items[i];
     return nullptr;
 }
 Value* Value::get(std::string_view key) { return const_cast<Value*>(static_cast<const Value*>(this)->get(key)); }
@@ -340,14 +341,17 @@ void Value::set(std::string_view key, Value v) {
         *m = std::move(v);
         return;
     }
-    names.push_back(key);
+    if (shared_names) own_names = *shared_names, shared_names = nullptr;
+    own_names.push_back(key);
     items.push_back(std::move(v));
 }
 
 bool Value::erase(std::string_view key) {
-    for (size_t i = 0; i < names.size(); ++i)
-        if (names[i] == key) {
-            names.erase(names.begin() + static_cast<ptrdiff_t>(i));
+    const std::vector<std::string_view>& n = names();
+    for (size_t i = 0; i < n.size(); ++i)
+        if (n[i] == key) {
+            if (shared_names) own_names = *shared_names, shared_names = nullptr;
+            own_names.erase(own_names.begin() + static_cast<ptrdiff_t>(i));
             items.erase(items.begin() + static_cast<ptrdiff_t>(i));
             return true;
         }
@@ -447,13 +451,20 @@ bool equal(const Value& a, const Value& b) {
             for (size_t i = 0; i < a.items.size(); ++i)
                 if (!equal(a.items[i], b.items[i])) return false;
             return true;
-        case VK::Struct:
+        case VK::Struct: {
             if (a.items.size() != b.items.size()) return false;
+            if (a.shared_names && a.shared_names == b.shared_names) {  // the same keys in the same order
+                for (size_t i = 0; i < a.items.size(); ++i)
+                    if (!equal(a.items[i], b.items[i])) return false;
+                return true;
+            }
+            const std::vector<std::string_view>&an = a.names(), &bn = b.names();
             for (size_t i = 0; i < a.items.size(); ++i) {
-                const Value* other = i < b.names.size() && b.names[i] == a.names[i] ? &b.items[i] : b.get(a.names[i]);
+                const Value* other = i < bn.size() && bn[i] == an[i] ? &b.items[i] : b.get(an[i]);
                 if (!other || !equal(a.items[i], *other)) return false;
             }
             return true;
+        }
         default: return false;
     }
 }
@@ -603,17 +614,19 @@ Value Decoder::value(const Type* t, const uint8_t* b, size_t n, int64_t o, int d
             v.u = read_uint(b, n, o, t->size);
             return v;
         case K_STRUCT: {
+            // a dict filled field by field: a repeated name keeps its first place and its last value
             v = Value::strukt();
             const auto& fs = db_.all_fields(t);
-            v.names.reserve(fs.size());
-            v.items.reserve(fs.size());
-            for (const Field* f : fs) {
+            v.shared_names = &t->names;
+            v.items.resize(t->names.size());
+            for (size_t i = 0; i < fs.size(); ++i) {
+                const Field* f = fs[i];
                 if (!f->t) {
-                    v.set(f->name, Value::none());
+                    v.items[t->slot[i]] = Value::none();
                     continue;
                 }
                 if (f->offset > static_cast<uint64_t>(INT64_MAX - std::max<int64_t>(o, 0))) throw PyError("error", "a field offset out of range");
-                v.set(f->name, value(f->t, b, n, o + static_cast<int64_t>(f->offset), depth + 1));
+                v.items[t->slot[i]] = value(f->t, b, n, o + static_cast<int64_t>(f->offset), depth + 1);
             }
             return v;
         }

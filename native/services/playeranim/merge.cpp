@@ -12,6 +12,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <chrono>
+#include <cstring>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -231,6 +234,7 @@ struct Graph {
     std::vector<Value>* wrapped = nullptr;
     std::vector<Value*> nodes;
     std::unordered_map<Id, size_t> by_id;  // also pos
+    std::vector<std::string_view> kinds;  // nodes[i]'s type name ("" when the Python has a number there)
     std::vector<Value*> machines, transitions;
     std::unordered_map<std::string, const Value*> first;  // node kind -> the first node of that kind (wrapped)
     std::unordered_set<Id> ids, compared;
@@ -242,6 +246,11 @@ struct Graph {
         for (size_t i = 0; i < nodes.size(); ++i) {
             const Id nid = id_of(*nodes[i]);
             if (!by_id.emplace(nid, i).second) off("the game's graph has node id " + hex8(nid) + " twice");
+        }
+        kinds.reserve(nodes.size());
+        for (Value* n : nodes) {  // v["type"] as the Python's tree holds it: a name, or no name (a number)
+            const Value& t = n->at("type");
+            kinds.push_back(t.k == VK::Enum && t.name >= 0 ? t.enum_name() : t.k == VK::Str ? std::string_view(t.s) : std::string_view());
         }
         for (Value* n : nodes)
             if (type_is(*n, "StateMachine")) machines.push_back(n);
@@ -269,6 +278,19 @@ struct Graph {
         }
     }
 
+    // The ids a list node holds, as a set: built once per node (rule 6 asks it for every neighbour; the lists change only
+    // after every neighbour is read).
+    const std::unordered_set<Id>& list_ids(const Value& v, const char* field) const {
+        auto it = list_ids_.find(&v);
+        if (it == list_ids_.end()) {
+            std::unordered_set<Id> have;
+            for (const Value& x : list_of(v.at(field)).items) have.insert(x.id());
+            it = list_ids_.emplace(&v, std::move(have)).first;
+        }
+        return it->second;
+    }
+    mutable std::unordered_map<const Value*, std::unordered_set<Id>> list_ids_;
+
     Value* node(Id nid) const {
         const auto it = by_id.find(nid);
         return it == by_id.end() ? nullptr : nodes[it->second];
@@ -277,8 +299,9 @@ struct Graph {
 
     std::vector<std::pair<Value*, Value*>> states_named(std::string_view name, const std::string* machine) const {
         std::vector<std::pair<Value*, Value*>> out;
-        for (Value* v : nodes) {
-            if (!type_is(*v, "StateMachineState") || !text_is(v->at("debugName"), name)) continue;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            Value* v = nodes[i];
+            if (kinds[i] != "StateMachineState" || !text_is(v->at("debugName"), name)) continue;
             Value* m = machine_of(*v);
             if (!m || !type_is(*m, "StateMachine")) continue;
             if (!machine || text_is(m->at("debugName"), *machine)) out.emplace_back(v, m);
@@ -580,10 +603,10 @@ struct Neighbour {
             if (x && !x->empty() && std::all_of(x->begin(), x->end(), [&](Id i) { return entry_set.count(i) > 0; })) ins.push_back(t);
         }
         // rule 6
-        for (Value* v : g.nodes) {
-            if (!cond.is_list(*v) || own.count(id_of(*v))) continue;
-            std::unordered_set<Id> have;
-            for (const Value& x : list_of(v->at(cond.values)).items) have.insert(x.id());
+        for (size_t i = 0; i < g.nodes.size(); ++i) {
+            Value* v = g.nodes[i];
+            if (g.kinds[i] != cond.multi || !cond.is_list(*v) || own.count(id_of(*v))) continue;
+            const std::unordered_set<Id>& have = g.list_ids(*v, cond.values);
             if (std::all_of(entry_set.begin(), entry_set.end(), [&](Id i) { return have.count(i) > 0; })) lists.push_back(v);
         }
         // rule 7
@@ -591,8 +614,9 @@ struct Neighbour {
             std::vector<Id> mine_order;
             g.walk(id_of(*pose), false, &mine_order);
             const std::unordered_set<Id> mine(mine_order.begin(), mine_order.end());
-            for (Value* v : g.nodes) {
-                if (!type_is(*v, "SelectPoseByParameterId") || v->at("parameterHash").id() != kStateInput || mine.count(id_of(*v))) continue;
+            for (size_t i = 0; i < g.nodes.size(); ++i) {
+                Value* v = g.nodes[i];
+                if (g.kinds[i] != "SelectPoseByParameterId" || v->at("parameterHash").id() != kStateInput || mine.count(id_of(*v))) continue;
                 const Value& vals = list_of(v->at("values"));
                 std::optional<size_t> at;
                 for (size_t i = 0; i < vals.items.size(); ++i)
@@ -689,12 +713,13 @@ std::optional<std::string> support(const Value& state, const Value& machine, std
 
 // ---- checks ----
 
-void check_uses(const TypeDb& types) {
+void check_uses(const TypeDb& types, const std::string& missing_field) {
     for (const auto& [tname, fields] : uses()) {
         const Type* t = types.get(tname);
         if (!t) off("the game's reflection has no " + tname);
         std::unordered_set<std::string_view> have;
-        for (const Field* f : types.all_fields(t)) have.insert(f->name);
+        for (const Field* f : types.all_fields(t))
+            if (f->name != missing_field) have.insert(f->name);
         std::string missing;
         for (const char* f : fields)
             if (!have.count(f)) missing += (missing.empty() ? "" : ", ") + std::string(f);
@@ -707,7 +732,7 @@ bool py_keys(const Value& v, std::vector<std::string>* out) {
     out->clear();
     switch (v.k) {
         case VK::Struct:
-            for (std::string_view n : v.names) out->emplace_back(n);
+            for (std::string_view n : v.names()) out->emplace_back(n);
             return true;
         case VK::Variant: *out = {"$type", "value"}; return true;
         case VK::Unknown: *out = {"$type", "$size"}; return true;
@@ -831,8 +856,8 @@ void validate(const TypeDb& types, const Value& pristine, const Value& merged, c
         std::vector<const char*> grow = machine ? std::vector<const char*>{"states", "transitions"} : lst ? std::vector<const char*>{lst->values} : std::vector<const char*>{"values", "inputPoses"};
         std::vector<const char*> fields = grow;
         if (machine) fields.insert(fields.end(), {"globalTransitions", "numGlobalTransitions"});
-        for (size_t f = 0; f < va.names.size(); ++f) {
-            const std::string_view name = va.names[f];
+        for (size_t f = 0; f < va.names().size(); ++f) {
+            const std::string_view name = va.names()[f];
             if (std::any_of(fields.begin(), fields.end(), [&](const char* x) { return name == x; })) continue;
             if (!equal(va.items[f], vb.at(name))) off("the game's " + type_text(va) + " " + hex8(nid) + ": " + std::string(name) + " changed");
         }
@@ -852,8 +877,8 @@ void validate(const TypeDb& types, const Value& pristine, const Value& merged, c
             if (!same || sint_of(vb.at("numGlobalTransitions")) < n) off("machine " + py_str(va.at("debugName")) + ": its own global transitions changed");
         }
     }
-    for (size_t f = 0; f < pristine.names.size(); ++f) {
-        const std::string_view name = pristine.names[f];
+    for (size_t f = 0; f < pristine.names().size(); ++f) {
+        const std::string_view name = pristine.names()[f];
         if (name == "nodeDefinitions" || name == "usedInputIds") continue;
         if (!equal(pristine.items[f], merged.at(name))) off("the graph's " + std::string(name) + " changed");
     }
@@ -937,6 +962,168 @@ ClipFacts joint_animation_facts(const TypeDb& types, const uint8_t* data, size_t
     return c;
 }
 
+// ---- the lookup ----
+
+GameStates::GameStates(const TypeDb& types, const Bytes& raw) {
+    const Type* gt = types.get(kGraphType);
+    if (!gt) off(std::string("the reflection has no ") + kGraphType);
+    Value value = Decoder(types, kMaxArray).decode(gt, raw.data(), raw.size(), 0, kGraphType);
+    const Graph g(value);
+    for (size_t i = 0; i < g.nodes.size(); ++i) {
+        const Value& st = *g.nodes[i];
+        if (g.kinds[i] != "StateMachineState") continue;
+        const Value* m = g.machine_of(st);
+        if (!m || !type_is(*m, "StateMachine")) continue;
+        GameState out;
+        out.machine = py_str(m->at("debugName"));
+        out.name = py_str(st.at("debugName"));
+        std::vector<std::string> kinds = {"state", "overlay"};
+        for (const SupportRow& row : supported())
+            if (out.machine == row.machine) kinds = {row.kind};
+        const Id sid = id_of(st);
+        const Value& all = list_of(m->at("globalTransitions"));
+        const size_t lim = static_cast<size_t>(std::clamp<int64_t>(sint_of(m->at("numGlobalTransitions")), 0, static_cast<int64_t>(all.items.size())));
+        for (const std::string& kind : kinds) {
+            const Entry& cond = entry_of(kind);
+            std::vector<Id> ids;
+            bool any_gt = false;
+            for (size_t k = 0; k < lim; ++k)
+                if (all.items[k].at("toState").id() == sid) {
+                    any_gt = true;
+                    if (auto x = cond.ids(g.node(all.items[k].at("conditionNode").id()))) ids.insert(ids.end(), x->begin(), x->end());
+                }
+            if (!any_gt)
+                for (const Value* t : g.machine_transitions(*m))
+                    if (t->at("toState").id() == sid)
+                        if (auto x = cond.ids(g.node(t->at("conditionNode").id()))) ids.insert(ids.end(), x->begin(), x->end());
+            out.ids.clear();
+            for (Id x : ids)
+                if (std::find(out.ids.begin(), out.ids.end(), static_cast<uint32_t>(x)) == out.ids.end()) out.ids.push_back(static_cast<uint32_t>(x));
+            out.kind = kind;
+            if (!out.ids.empty()) break;
+        }
+        if (out.ids.empty()) out.kind = kinds[0];
+        all_.push_back(std::move(out));
+    }
+}
+
+std::vector<const GameState*> GameStates::find(std::string_view name) const {
+    std::string_view machine, state = name;
+    const size_t slash = name.find('/');
+    if (slash != std::string_view::npos) machine = name.substr(0, slash), state = name.substr(slash + 1);
+    std::vector<const GameState*> out;
+    for (const GameState& s : all_)
+        if (s.name == state && (slash == std::string_view::npos || s.machine == machine)) out.push_back(&s);
+    return out;
+}
+
+// ---- clip facts (playergraph.ClipFacts) ----
+
+namespace {
+
+// str(uuid.UUID(text)), or false where uuid.UUID raises ValueError: "urn:" and "uuid:" removed, braces stripped at the ends,
+// hyphens removed, 32 hex digits.
+bool uuid_text(std::string s, std::string* out) {
+    for (const char* cut : {"urn:", "uuid:"})
+        for (size_t at; (at = s.find(cut)) != std::string::npos;) s.erase(at, std::strlen(cut));
+    while (!s.empty() && (s.front() == '{' || s.front() == '}')) s.erase(s.begin());
+    while (!s.empty() && (s.back() == '{' || s.back() == '}')) s.pop_back();
+    std::string hex;
+    for (char c : s)
+        if (c != '-') hex.push_back(c);
+    if (hex.size() != 32) return false;
+    for (char& c : hex) {
+        if (!std::isxdigit(static_cast<unsigned char>(c))) return false;
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    *out = hex.substr(0, 8) + "-" + hex.substr(8, 4) + "-" + hex.substr(12, 4) + "-" + hex.substr(16, 4) + "-" + hex.substr(20);
+    return true;
+}
+
+// _type_hash: "0x..." a number, a name of the reflection its hash, else FNV-1a of the name.
+uint32_t type_hash_of(const TypeDb& types, const std::string& name) {
+    if (name.size() > 2 && name[0] == '0' && name[1] == 'x') return static_cast<uint32_t>(std::stoull(name.substr(2), nullptr, 16));
+    const Type* t = types.get(name);
+    return t ? t->hash : fnv1a(name);
+}
+
+}  // namespace
+
+ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>& mods, std::function<bool(const std::string&, Bytes*)> read_file, Game game)
+    : types_(types), read_file_(std::move(read_file)), game_(std::move(game)) {
+    ja_ = type_hash_of(types, kJointAnim), rm_ = type_hash_of(types, kRootMotion), sq_ = type_hash_of(types, kSequences);
+    for (const Mod& m : mods) {
+        if (!m.has_json) continue;
+        // json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M)): whole-line comments, no trailing commas
+        Json doc;
+        try {
+            doc = parse_json(strip_line_comments(m.assets_json), m.assets_dir + "/assets.json", false, "");
+        } catch (const DefinitionError& e) {
+            warnings.push_back(e.what());
+            continue;
+        }
+        const Json* entries = doc.t == Json::Obj ? doc.find("entries") : nullptr;
+        if (!entries || entries->t != Json::Arr) continue;
+        for (const Json& e : entries->items) {
+            if (e.t != Json::Obj) continue;
+            const Json* kind = e.find("kind");
+            if (!kind || kind->t != Json::Str || kind->s != "resource") continue;
+            const Json* side = e.find("side");
+            if (side && side->t == Json::Str && side->s == "client") continue;
+            if (const Json* part = e.find("part")) {  // int(e.get("part", 0)) != 0
+                const bool zero = (part->t == Json::Int && part->s == "0") || (part->t == Json::Float && part->f > -1.0 && part->f < 1.0) || part->t == Json::False ||
+                                  (part->t == Json::Str && part->s == "0");
+                if (!zero) continue;
+            }
+            const Json *guid = e.find("guid"), *type = e.find("type"), *file = e.find("file");
+            if (!guid || guid->t != Json::Str || !type || type->t != Json::Str || !file || file->t != Json::Str) continue;
+            std::string g;
+            if (!uuid_text(guid->s, &g)) continue;
+            const uint32_t th = type_hash_of(types, type->s);
+            if (th == ja_ || th == rm_ || th == sq_) served_[{g, th}].push_back(m.assets_dir + "/" + file->s);
+        }
+    }
+}
+
+std::optional<ClipFacts> ClipFactsProvider::operator()(const std::string& guid_in) {
+    std::string guid = guid_in;
+    for (char& c : guid) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (const auto it = cache_.find(guid); it != cache_.end()) return it->second;
+    Guid g;
+    const bool parsed = Guid::parse(guid, &g);
+    auto game_has = [&](uint32_t th) { return parsed && game_.has && game_.has(g, th); };
+    std::optional<ClipFacts> facts;
+    const auto files = served_.find({guid, ja_});
+    if (files != served_.end() && !files->second.empty()) {
+        std::vector<std::optional<ClipFacts>> heads;
+        for (const std::string& f : files->second) {
+            Bytes b;
+            if (!read_file_(f, &b)) {  // OSError
+                heads.push_back(std::nullopt);
+                continue;
+            }
+            try {
+                heads.push_back(joint_animation_facts(types_, b.data(), b.size()));
+            } catch (const PyError& e) {
+                if (e.type != "MergeOff" && e.type != "error") throw;  // the Python catches OSError, struct.error, MergeOff
+                heads.push_back(std::nullopt);
+            }
+        }
+        if (!heads.empty() && std::all_of(heads.begin(), heads.end(), [&](const auto& h) { return h && *h == *heads[0]; })) facts = heads[0];
+    } else if (game_has(ja_)) {
+        Bytes b;
+        if (!game_.read || !game_.read(g, ja_, &b)) throw PyError("KeyError", "the game's " + std::string(kJointAnim) + " " + guid + " cannot be read");
+        facts = joint_animation_facts(types_, b.data(), b.size());
+    }
+    if (facts) {
+        const auto rm = served_.find({guid, rm_}), sq = served_.find({guid, sq_});
+        facts->root_motion = (rm != served_.end() && !rm->second.empty()) || game_has(rm_);
+        facts->sequences = (sq != served_.end() && !sq->second.empty()) || game_has(sq_);
+    }
+    cache_[guid] = facts;
+    return facts;
+}
+
 // ---- the merge ----
 
 namespace {
@@ -995,6 +1182,7 @@ public:
     uint32_t nid(const std::vector<std::string>& parts) const { return hooks_ && hooks_->ids.node_id ? hooks_->ids.node_id(parts) : node_id(parts); }
 
     MergeResult run(const GraphSource& src, const std::vector<ModStates>& mods) {
+        start_ = last_ = std::chrono::steady_clock::now();
         report_ = new_report();
         // the definitions are not changed: they can be merged again
         for (size_t i = 0; i < mods.size(); ++i)
@@ -1029,23 +1217,28 @@ public:
         try {
             const Type* gt = types_.get(kGraphType);
             if (!gt) off(std::string("the reflection has no ") + kGraphType);
-            check_uses(types_);
+            check_uses(types_, hooks_ ? hooks_->missing_field : std::string());
             const Decoder dec(types_, kMaxArray);
             const Encoder enc(types_);
             Value value = dec.decode(gt, raw->data(), raw->size(), 0, kGraphType);
             if (encode(enc, gt, value) != *raw) off("the game's graph does not encode back to its own bytes with this reflection");
-            const Value pristine = dec.decode(gt, raw->data(), raw->size(), 0, kGraphType);
+            const Value pristine = value;  // the Python decodes the same bytes again: the same value
+            lap(&times_.read);
             Graph g(value);
             if (hooks_)
                 for (const std::string& k : hooks_->drop_first) g.first.erase(k);
             std::vector<MachinePlan> plan = accept(g);
+            lap(&times_.accept);
             if (plan.empty()) return finish("untouched", std::nullopt, raw->size());
             std::set<Id> new_ids, tm, tl, ts;
             build(g, plan, &new_ids, &tm, &tl, &ts);
+            lap(&times_.build);
             validate(types_, pristine, value, tm, tl, ts, new_ids);
+            lap(&times_.validate);
             Bytes merged = encode(enc, gt, value);
             const Value back = dec.decode(gt, merged.data(), merged.size(), 0, kGraphType);
             if (!equal(back, value) || encode(enc, gt, back) != merged) off("the merged graph does not decode to itself");
+            lap(&times_.encode);
             return finish("merged", std::nullopt, raw->size(), std::move(merged));
         } catch (const PyError& e) {
             return finish("off", e.type == "MergeOff" ? e.text : e.type + ": " + e.text, raw->size());
@@ -1055,6 +1248,12 @@ public:
     }
 
 private:
+    void lap(double* into) {
+        const auto now = std::chrono::steady_clock::now();
+        *into += std::chrono::duration<double, std::milli>(now - last_).count();
+        last_ = now;
+    }
+
     Bytes encode(const Encoder& enc, const Type* gt, const Value& v) {
         Bytes out = enc.encode(gt, v, kGraphType);
         ++encodes_;
@@ -1085,6 +1284,8 @@ private:
         for (auto& w : work_) sorted.push_back(w.get());
         std::stable_sort(sorted.begin(), sorted.end(), key_less);
         MergeResult r;
+        times_.total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_).count();
+        r.times = times_;
         ojson states = ojson::array();
         for (Work* w : sorted) {
             states.push_back(w->st.entry());
@@ -1513,6 +1714,8 @@ private:
     std::vector<std::unique_ptr<Work>> work_;
     std::unordered_map<Id, std::unique_ptr<Neighbour>> neighbours_;
     int encodes_ = 0;
+    MergeTimes times_;
+    std::chrono::steady_clock::time_point start_, last_;
 };
 
 }  // namespace

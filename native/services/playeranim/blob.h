@@ -93,9 +93,13 @@ struct Value {
     std::string s;
     Guid g;
     std::vector<Value> items;
-    // Struct: member names. They point into the TypeDb the value was decoded with, or at string literals: a tree must
-    // not outlive its TypeDb, and set() takes only keys that live as long.
-    std::vector<std::string_view> names;
+
+    // Struct: member names, in the order of `items`. They point into the TypeDb the value was decoded with, or at string
+    // literals: a tree must not outlive its TypeDb, and set() takes only keys that live as long. A decoded struct shares
+    // its type's list; set() of a new key and erase() give it its own.
+    const std::vector<std::string_view>& names() const { return shared_names ? *shared_names : own_names; }
+    const std::vector<std::string_view>* shared_names = nullptr;
+    std::vector<std::string_view> own_names;
 
     static Value none() { return {}; }
     static Value boolean(bool b);
