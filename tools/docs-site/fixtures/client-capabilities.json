@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.25",
+  "pid": 77,
+  "written": "2026-11-11T23:00:00Z",
+  "side": "client",
+  "exe": { "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "verified": false },
+  "hooks": false,
+  "safeIdle": "unverified build",
+  "generation": 1,
+  "capabilities": [
+    { "name": "items.fuel", "state": "unavailable", "reason": "policy", "reasonText": "safe idle on an unverified build", "source": "core" },
+    { "name": "kiln.render", "state": "unavailable", "reason": "policy", "reasonText": "safe idle on an unverified build", "source": "core" },
+    { "name": "render.post", "state": "unavailable", "reason": "policy", "reasonText": "safe idle on an unverified build", "source": "core" }
+  ]
+}

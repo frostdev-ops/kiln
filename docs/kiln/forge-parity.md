@@ -3,7 +3,9 @@
 What Minecraft Forge (and NeoForge) gives modders, and the Kiln equivalent. Status: **done** (verified in a lab or
 live), **partial**, **client** (built, needs a joined player or the running client to confirm), **planned**.
 Details per area: `docs/kiln/modding/` (loader, MDK, testing), `docs/kiln/{events,config,commands,permissions}.md`,
-`docs/kiln/services/*.md`, `docs/kiln/{hooks,typegen,client,ui,network}.md`.
+`docs/kiln/services/*.md`, `docs/kiln/{hooks,typegen,client,ui,network}.md`. What a given server or client build has
+available, and each guided client check's last verdict, is generated from Kiln's state files:
+[status.generated.md](status.generated.md).
 
 ## Loading and tooling (FML, MDK)
 | Forge | Kiln | Status |
@@ -34,7 +36,7 @@ Details per area: `docs/kiln/modding/` (loader, MDK, testing), `docs/kiln/{event
 | `EVENT_BUS`, `@SubscribeEvent`, priorities, `@Cancelable`, `Event.Result` | `Events.On/Register/Post/Enqueue/HasSubscribers`, `[Subscribe]`, `EventPriority` (+Monitor), `CancelableEvent`, `ResultEvent` | done |
 | `ForgeConfigSpec` (comments, ranges, world restart, COMMON/SERVER/CLIENT) | `Config.Register<T>`, `[Comment]/[Range]/[RequiresRestart]`, `ConfigKind`, commented JSONC, file watch, `ConfigChangedEvent` | done |
 | Config GUI | `Config.Schema/Find`, `ConfigFile.TrySet`; dashboard `config_*` | done (in-game menu: client) |
-| Config sync server → client | `[Synced]`, `SyncedValuesJson` | planned |
+| Config sync server → client | `[Synced]`, `SyncedValuesJson`, `ConfigSync` over `kiln:config` (see Client) | done (real client: joined a lab server, client 26404966) |
 | Brigadier commands + argument types | `Commands.Literal/Argument`, `[Command]` methods, `Arg.*` (ints, enums, players, `~` positions, items, durations, time of day), `/help`, completion | done |
 | Selectors | `@s @a @p @r @e[type,name,distance,x,y,z,limit,sort]`, `Arg.Entities`, `Selectors` | done (@p/@r with real players: client) |
 | PermissionAPI (+ LuckPerms-style groups) | `Permissions.Register/Has/Explain`, groups mapped from server userGroups, `kiln/config/permissions.json`, hot reload; dashboard `permissions_*` | done |
@@ -101,7 +103,7 @@ Details per area: `docs/kiln/modding/` (loader, MDK, testing), `docs/kiln/{event
 |---|---|---|
 | Mixins, coremods, access transformers | `Hooks.Detour/Mid` (callable original, priority chains), `Memory.Patch` (auto-restore), `advanced` mods only | done |
 | Mappings (MCP/official/Parchment) | sigdb symbols verified per build + mod-shipped `sigdb/<side>.json` + `Kiln.Game` typegen from the game's reflection | done |
-| Reflection helpers | `Symbols.Get/Find/Hole`, `Constants.Get`, typed component reads (`Kiln.GameTypes.Components`) | done |
+| Reflection helpers | `Symbols.Get/Find/Hole`, `Constants.Get`, typed component reads (`Kiln.Ecs`, generated per game build; `Kiln.GameTypes.Components` is obsolete) | done |
 
 Known limit: under Wine, hot-reloading one of two mods that detour the same very hot function can stall the unload;
 one mod per hot function (docs/kiln/hooks.md).
@@ -115,19 +117,19 @@ one mod per hot function (docs/kiln/hooks.md).
 | SimpleChannel networking | `Network.Channel(name, v).Register<T>`, `SendToServer/SendTo/SendToAll/SendNear`, over the game session (channel 12, no extra port) | done (hosted + joined lab, 26 ms ping) |
 | FML handshake, mod list sync | HELLO/WELCOME, `NetClientHandshakeEvent`, `network.json` modSync off/warn/refuse | done (real client) |
 | Mod mismatch rejection | modSync refuse → toast with the missing mods + game login failure | done (real client) |
-| Vanilla clients/servers | `NetVanillaClientEvent`, `requireKiln`; vanilla peers never get Kiln frames | built, not run |
+| Vanilla clients/servers | `NetVanillaClientEvent`, `requireKiln`; vanilla peers never get Kiln frames | client (lab with simulated vanilla peers; a refusal with a real vanilla client: not run) |
 | KeyMappings + Controls screen | `KeyBindings.Register/Rebind/Reset`, Keys tab, `kiln/config/keybinds.json` | done (real client) |
 | Screens / GUI | `Ui.Window` (Dear ImGui over the game's Vulkan swapchain), keyboard capture | done; in-game mouse with a real mouse: to check |
 | HUD overlays, toasts | `Hud.Show`, `Hud.Toast`, `Ui.Frame` | done |
 | Mods screen, config screens | Kiln menu (Insert): Mods / Network / Keys / Overlay tabs, generated config page per mod | done (real client) |
-| Config sync server → client | `[Synced]`, `ConfigSync` over `kiln:config`, read-only while connected | done (real client) |
+| Config sync server → client | `[Synced]`, `ConfigSync` over `kiln:config`, read-only while connected | done (real client: joined a lab server, client 26404966) |
 | Registry/content sync | `ContentSync` (see World data and content) | done (real client) |
 | Sounds (SoundEvent, PlaySoundEvent) | `Kiln.Audio` `Sound`, soundcook | see the rows below |
 | Particles (`level.addParticle`, ParticleEngine) | `Vfx.PlayAt/On/For`, any game VFX by name (`Kiln.Vfx`, relay `kiln:vfx`), a guard against unknown GUIDs | lab; paths and guards ran in a client; what shows: manual test |
-| Particles (ParticleType, ParticleProvider, particle JSON) | `VfxBlock`, `ParticleBlock` | in progress |
-| Shader packs, custom render types, core shader overrides | `MaterialBlock` (new surfaces on the game's shaders), `ShaderBlock` | materials built, not yet seen in a game; particle compute first, then transparent and opaque surface shaders |
-| Post chains (`PostChain`, `GameRenderer` effects) | `ScreenEffectBlock`, `ColorGradingBlock` | planned |
-| Render events (`RenderLevelStageEvent`) | Render-pass hooks | research |
+| Particles (ParticleType, ParticleProvider, particle JSON) | `VfxBlock`, `ParticleBlock` (`blocks/*.json` or C#) | client (built; labs, CPU harness and real GPUs; not seen in a game) |
+| Shader packs, custom render types, core shader overrides | `MaterialBlock` (new surfaces on the game's shaders), `ParticleBlock.Shader` (a mod's own particle hooks in HLSL) | client: materials and particle shaders built, run on real GPUs outside the game, not seen in a game; transparent and opaque surface shaders: researched, planned |
+| Post chains (`PostChain`, `GameRenderer` effects) | `ScreenEffectBlock` (colour grading, tint, vignette, fades, flashes), `ScreenEffects.Play` | client (built; tested headless on real GPUs; not seen in a game) |
+| Render events (`RenderLevelStageEvent`) | `RenderFrameEvent`: drawing on the screen and at world positions with the game's camera | client (built, unit-tested; not run in a client) |
 | Title/pause screen buttons (`ScreenEvent.Init`) | `Ui.Menus.Add` (drawn by the game's own menu code) | done (real client) |
 | Custom screens, container screens, recipe book tabs | `Ui.Screen`, `Ui.Crafting.AddPanel/AddTab/AddSubcategory` | done (real client) |
 
@@ -154,8 +156,8 @@ one mod per hot function (docs/kiln/hooks.md).
 | Entity AI follow/guard | `Command.Guard(target, GuardOptions)`, `Creatures.GuardOrders` | done (lab; client walk + catch-up) |
 | Play an animation on a player | `Abilities.PlaySequence(player, guid, SequenceOptions)` | done (vanilla client) |
 | Player XP, levels, skill points, skill unlocks | `Player.Progression`, `PlayerLevelChangedEvent`, `/level /xp /skillpoints /skill` | done (vanilla client) |
-| Sounds (SoundEvent registry / sound resources) | `tools/soundcook` cook.json sound/cue/voiceover steps + kiln.assets (playback: Kiln.Audio) | offline done, in-game pending |
-| Sounds playback (playSound, music, voice) | `Kiln.Audio` Sound/Voiceover/SoundId, `kiln:audio` relay | lab; client boot passive; playback: manual test |
+| Sounds (SoundEvent registry / sound resources) | `tools/soundcook` cook.json sound/cue/voiceover steps + kiln.assets (playback: Kiln.Audio) | done (real client: heard in the round 2 human test) |
+| Sounds playback (playSound, music, voice) | `Kiln.Audio` Sound/Voiceover/SoundId, `kiln:audio` relay | done (real client: menu sounds and the sound tour of the round 2 human test) |
 | (beyond Forge) Nodes in the game's skill tree | `skills/*.json` `gameTree`, `GameTree`, `kiln.skills` | lab; drawing and unlocking seen in the client |
 | (beyond Forge) New talent trees and screen | `Skills.Register`, `TalentTree`, channel `kiln:skills` | lab; screen seen in the client, actions: manual test |
 | Cancelable events pattern | `TalentUnlockingEvent`, `TalentChangedEvent` | lab |
@@ -164,11 +166,11 @@ one mod per hot function (docs/kiln/hooks.md).
 | Villager or NPC interaction events | `DialogueLineEvent`, `DialogueKnowledgeEvent` | manual test |
 | Server-side validation of client actions | `vetoClientKnowledge`, `checkDialogue`, `KnowledgeRequestEvent` | manual test |
 | Debugger attach to a running server | `kiln debug --dap` (netcoredbg) | dedicated servers on Linux/Wine; Windows and client not covered |
-| MDK templates | Kiln.Templates: 12 kinds, including native | lab |
+| MDK templates | Kiln.Templates: 24 kinds, including native, a Kiln service and unit tests (`kiln-unit-test`) | lab |
 | Native mod SDK | Kiln.Sdk `native/`, `kiln_plugin` | built from the package with no repo |
-| Compile-time mod checks | Kiln.Analyzers KILN101-108 + code fixes | done |
+| Compile-time mod checks | Kiln.Analyzers KILN101-108, KILN110-112 (blocks), KILN190-198 (Kiln.GameIds: catalog, field paths) + code fixes | done |
 | Game ids as constants | Kiln.GameIds + `kiln catalog` | done |
-| Modder CLI | `kiln` (new, build, cook, deploy, pack, run, reload, test, debug, logs, lint, catalog) | done |
+| Modder CLI | `kiln` (new, build, cook, deploy, pack, run, reload, test, debug, logs, lint, blocks, catalog, vfx, skeleton) | done |
 | API docs site | `tools/docs-site` (DocFX) | builds locally, not published |
 | Custom advancements / quest mods (FTB Quests) | `Quests.Define`, `quests/*.json` | engine: lab; players: manual test |
 | Advancement triggers and rewards | objectives, `Quests.Signal`, `QuestInput`; rewards xp, item, knowledge, call | synthetic and world paths: lab; xp, items: manual test |

@@ -54,9 +54,11 @@ masked) over its .pdata function (all of `server.d` at that time):
 - Features: 61 on the server; before the client overlays 54 of them also resolved on the client (off: `time.weather`,
   `saves.write`, `saves.reasons`, `gameplay.build`, `chat.receive`, `time.sync_probe`; `net.kick/players/transport`
   belong to the server-only `net.json`: the client uses its own standalone `client.d/net.json` with
-  `net.client`/`net.host`). With the overlays below, everything but `time.weather` (and `content.loot`, which is off on
-  the server too) is on: 115 symbols on both sides, 108 identical. Client only: `world.lifecycle`,
-  `client.local_player`, `net.client`, `net.host`.
+  `net.client`/`net.host`). With the overlays below, everything but `time.weather` (and `content.loot`, then off on
+  the server too) was on: 115 symbols on both sides, 108 identical. Client only: `world.lifecycle`,
+  `client.local_player`, `net.client`, `net.host`. Since then `client.d/time.json` ports `time/WeatherUpdate` for the
+  client, and the newest client record (26430625, `sigdb/builds/client/5d9ef2f1….json`) has all 177 features on,
+  `time.weather` and `content.loot` included.
 
 Ported for the client (`sigdb/symbols/client.d/`, overlays over `server.d`):
 - `chat.json`: ReceiveAddLine. Client site 0xe61fea in ServerReceive 0xe61540:

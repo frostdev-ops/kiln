@@ -12,9 +12,9 @@ namespace ClientPass;
 // menu; part 3 reads that exit and takes the verdict. The part reached is kept in the mod's data folder.
 public sealed partial class ClientPassMod
 {
-    /// <summary>The kiln.json switch that turns the exit link on for a native Windows game.</summary>
-    /// <remarks>PLACEHOLDER: the key's name is not known yet; the core package names it.</remarks>
-    private const string WindowsUnloadKey = "<KEY: core names it in its report>";
+    /// <summary>The kiln.json switch that turns the exit link on for a native Windows game: top-level
+    /// <c>"unloadAtExit": "auto" | "on" | "off"</c> (default auto: on under Wine, off on native Windows).</summary>
+    private const string WindowsUnloadKey = "unloadAtExit";
 
     [ClientCheck("core.unload-quit", "Kiln unloads cleanly when the game quits", Area = "Core", Since = Dev25,
         Needs = ClientCheckNeeds.Hosted, Order = 199)]
