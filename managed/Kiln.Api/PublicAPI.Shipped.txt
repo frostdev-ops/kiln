@@ -1,6 +1,8 @@
 #nullable enable
 Kiln.AdvancedApiAttribute
 Kiln.AdvancedApiAttribute.AdvancedApiAttribute() -> void
+Kiln.AnyThreadAttribute
+Kiln.AnyThreadAttribute.AnyThreadAttribute() -> void
 Kiln.CancelableEvent
 Kiln.CancelableEvent.Cancel() -> void
 Kiln.CancelableEvent.CancelableEvent() -> void
@@ -14,6 +16,47 @@ Kiln.CancelableResultEvent.Decide(bool vanilla) -> bool
 Kiln.CancelableResultEvent.Deny() -> void
 Kiln.CancelableResultEvent.Result.get -> Kiln.EventResult
 Kiln.CancelableResultEvent.Result.set -> void
+Kiln.Capabilities
+Kiln.Capability
+Kiln.Capability.Capability() -> void
+Kiln.Capability.Capability(string! Name, Kiln.CapabilityState State, Kiln.CapabilityReason Reason, string! ReasonText, string! Source) -> void
+Kiln.Capability.Deconstruct(out string! Name, out Kiln.CapabilityState State, out Kiln.CapabilityReason Reason, out string! ReasonText, out string! Source) -> void
+Kiln.Capability.Equals(Kiln.Capability other) -> bool
+Kiln.Capability.IsAvailable.get -> bool
+Kiln.Capability.Name.get -> string!
+Kiln.Capability.Name.init -> void
+Kiln.Capability.Reason.get -> Kiln.CapabilityReason
+Kiln.Capability.Reason.init -> void
+Kiln.Capability.ReasonText.get -> string!
+Kiln.Capability.ReasonText.init -> void
+Kiln.Capability.SessionDependent.get -> bool
+Kiln.Capability.SessionDependent.init -> void
+Kiln.Capability.Source.get -> string!
+Kiln.Capability.Source.init -> void
+Kiln.Capability.State.get -> Kiln.CapabilityState
+Kiln.Capability.State.init -> void
+Kiln.CapabilityChangedEvent
+Kiln.CapabilityChangedEvent.Current.get -> Kiln.Capability
+Kiln.CapabilityChangedEvent.Name.get -> string!
+Kiln.CapabilityChangedEvent.Previous.get -> Kiln.Capability
+Kiln.CapabilityReason
+Kiln.CapabilityReason.Faulted = 7 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.NeedsKilnClient = 5 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.None = 0 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Offline = 8 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Policy = 6 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.ServiceMissing = 2 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.ServiceOlder = 3 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Session = 9 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.SymbolMissing = 1 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Unknown = 10 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.WrongSide = 4 -> Kiln.CapabilityReason
+Kiln.CapabilityState
+Kiln.CapabilityState.Available = 1 -> Kiln.CapabilityState
+Kiln.CapabilityState.Pending = 2 -> Kiln.CapabilityState
+Kiln.CapabilityState.Unavailable = 0 -> Kiln.CapabilityState
+Kiln.ClientOnlyAttribute
+Kiln.ClientOnlyAttribute.ClientOnlyAttribute() -> void
 Kiln.CommentAttribute
 Kiln.CommentAttribute.CommentAttribute(string! text) -> void
 Kiln.CommentAttribute.Text.get -> string!
@@ -118,6 +161,18 @@ Kiln.EntityId.IsNone.get -> bool
 Kiln.EntityId.IsPlayer.get -> bool
 Kiln.EntityId.Value.get -> uint
 Kiln.EntityId.Value.init -> void
+Kiln.EntityRef
+Kiln.EntityRef.Deconstruct(out Kiln.EntityId Id, out ulong Serial) -> void
+Kiln.EntityRef.EntityRef() -> void
+Kiln.EntityRef.EntityRef(Kiln.EntityId Id, ulong Serial) -> void
+Kiln.EntityRef.Equals(Kiln.EntityRef other) -> bool
+Kiln.EntityRef.HasSerial.get -> bool
+Kiln.EntityRef.Id.get -> Kiln.EntityId
+Kiln.EntityRef.Id.init -> void
+Kiln.EntityRef.IsAlive.get -> bool
+Kiln.EntityRef.IsNone.get -> bool
+Kiln.EntityRef.Serial.get -> ulong
+Kiln.EntityRef.Serial.init -> void
 Kiln.EventHandlerInfo
 Kiln.EventHandlerInfo.<Clone>$() -> Kiln.EventHandlerInfo!
 Kiln.EventHandlerInfo.Deconstruct(out string! Event, out string! Owner, out string! Handler, out Kiln.EventPriority Priority, out bool ReceiveCanceled, out Kiln.EventHandlerStats Stats) -> void
@@ -259,6 +314,9 @@ Kiln.GameTypeKind.U64 = 8 -> Kiln.GameTypeKind
 Kiln.GameTypeKind.U8 = 2 -> Kiln.GameTypeKind
 Kiln.GameTypes
 Kiln.GameValueCodec
+Kiln.IKilnResult
+Kiln.IKilnResult.Ok.get -> bool
+Kiln.IKilnResult.Reason.get -> string?
 Kiln.IResultEvent
 Kiln.IResultEvent.Result.get -> Kiln.EventResult
 Kiln.IResultEvent.Result.set -> void
@@ -267,9 +325,32 @@ Kiln.ImcMessage.Method.get -> string!
 Kiln.ImcMessage.Payload.get -> object?
 Kiln.ImcMessage.PayloadAs<T>() -> T?
 Kiln.ImcMessage.Sender.get -> string!
+Kiln.ItemId
+Kiln.ItemId.Deconstruct(out uint Value) -> void
+Kiln.ItemId.Equals(Kiln.ItemId other) -> bool
+Kiln.ItemId.IsNone.get -> bool
+Kiln.ItemId.ItemId() -> void
+Kiln.ItemId.ItemId(uint Value) -> void
+Kiln.ItemId.Value.get -> uint
+Kiln.ItemId.Value.init -> void
+Kiln.ItemInstanceRef
+Kiln.ItemInstanceRef.Deconstruct(out Kiln.EntityRef Entity, out Kiln.ItemId Item) -> void
+Kiln.ItemInstanceRef.Entity.get -> Kiln.EntityRef
+Kiln.ItemInstanceRef.Entity.init -> void
+Kiln.ItemInstanceRef.Equals(Kiln.ItemInstanceRef other) -> bool
+Kiln.ItemInstanceRef.IsAlive.get -> bool
+Kiln.ItemInstanceRef.IsNone.get -> bool
+Kiln.ItemInstanceRef.Item.get -> Kiln.ItemId
+Kiln.ItemInstanceRef.Item.init -> void
+Kiln.ItemInstanceRef.ItemInstanceRef() -> void
+Kiln.ItemInstanceRef.ItemInstanceRef(Kiln.EntityRef Entity, Kiln.ItemId Item) -> void
 Kiln.KilnEvent
 Kiln.KilnEvent.KilnEvent() -> void
 Kiln.KilnLog
+Kiln.KilnUnavailableException
+Kiln.KilnUnavailableException.Capability.get -> string!
+Kiln.KilnUnavailableException.KilnUnavailableException(string! capability, string? reason = null, System.Exception? innerException = null) -> void
+Kiln.KilnUnavailableException.Reason.get -> string?
 Kiln.Lifecycle
 Kiln.LogLevel
 Kiln.LogLevel.Debug = 4 -> Kiln.LogLevel
@@ -488,6 +569,22 @@ Kiln.PacingSites.MessageWait = 2 -> Kiln.PacingSites
 Kiln.PacingSites.None = 0 -> Kiln.PacingSites
 Kiln.PacingSites.ServerWait = 4 -> Kiln.PacingSites
 Kiln.PacingSites.TaskWorkers = 8 -> Kiln.PacingSites
+Kiln.PlayerRef
+Kiln.PlayerRef.CharacterId.get -> System.Guid
+Kiln.PlayerRef.CharacterId.init -> void
+Kiln.PlayerRef.Deconstruct(out ulong SteamId, out System.Guid CharacterId, out Kiln.EntityRef Entity) -> void
+Kiln.PlayerRef.Entity.get -> Kiln.EntityRef
+Kiln.PlayerRef.Entity.init -> void
+Kiln.PlayerRef.Equals(Kiln.PlayerRef other) -> bool
+Kiln.PlayerRef.HasCharacter.get -> bool
+Kiln.PlayerRef.IsNone.get -> bool
+Kiln.PlayerRef.IsOnline.get -> bool
+Kiln.PlayerRef.IsSamePerson(Kiln.PlayerRef other) -> bool
+Kiln.PlayerRef.PlayerRef() -> void
+Kiln.PlayerRef.PlayerRef(ulong SteamId, System.Guid CharacterId, Kiln.EntityRef Entity) -> void
+Kiln.PlayerRef.Resolve() -> Kiln.PlayerRef
+Kiln.PlayerRef.SteamId.get -> ulong
+Kiln.PlayerRef.SteamId.init -> void
 Kiln.Point<TIn, TOut>
 Kiln.Point<TIn, TOut>.AllowRefuse.get -> bool
 Kiln.Point<TIn, TOut>.Decide(TIn input, TOut answer) -> Kiln.PointDecision<TOut>
@@ -582,6 +679,11 @@ Kiln.ReflectedValue.Get<T>(string! path) -> T
 Kiln.ReflectedValue.Type.get -> Kiln.GameType!
 Kiln.ReflectedValue.this[string! path].get -> object?
 Kiln.ReflectedValue.this[string! path].set -> void
+Kiln.RenderThreadAttribute
+Kiln.RenderThreadAttribute.RenderThreadAttribute() -> void
+Kiln.RequiresCapabilityAttribute
+Kiln.RequiresCapabilityAttribute.Name.get -> string!
+Kiln.RequiresCapabilityAttribute.RequiresCapabilityAttribute(string! name) -> void
 Kiln.RequiresRestartAttribute
 Kiln.RequiresRestartAttribute.RequiresRestartAttribute() -> void
 Kiln.ResultEvent
@@ -606,6 +708,8 @@ Kiln.Scheduler.NextTickAwaitable.NextTickAwaitable() -> void
 Kiln.Scheduler.NextTickAwaitable.NextTickAwaitable(Kiln.Scheduler! scheduler) -> void
 Kiln.Scheduler.Post(System.Action! action) -> void
 Kiln.Scheduler.SynchronizationContext.get -> System.Threading.SynchronizationContext!
+Kiln.ServerOnlyAttribute
+Kiln.ServerOnlyAttribute.ServerOnlyAttribute() -> void
 Kiln.ServerPhase
 Kiln.ServerPhase.Booting = 0 -> Kiln.ServerPhase
 Kiln.ServerPhase.Idle = 4 -> Kiln.ServerPhase
@@ -654,6 +758,8 @@ Kiln.TickInfo.WallDelta.get -> System.TimeSpan
 Kiln.TickInfo.WallDeltaMs.get -> double
 Kiln.TickThreadOnlyAttribute
 Kiln.TickThreadOnlyAttribute.TickThreadOnlyAttribute() -> void
+Kiln.WorkerThreadAttribute
+Kiln.WorkerThreadAttribute.WorkerThreadAttribute() -> void
 Kiln.WorldConfig<T>
 Kiln.WorldConfig<T>.Value.get -> T!
 Kiln.WorldPosition
@@ -679,6 +785,8 @@ const Kiln.Pacing.ServerMaxWaitNs = 1000000000 -> long
 const Kiln.Pacing.ServerMinWaitNs = 100000 -> long
 const Kiln.Pacing.ServerOnlineWaitNs = 1000000 -> long
 const Kiln.Pacing.ServerSlowWaitNs = 100000 -> long
+override Kiln.Capability.GetHashCode() -> int
+override Kiln.CapabilityChangedEvent.ToString() -> string!
 override Kiln.ConfigChangedEvent.ToString() -> string!
 override Kiln.ConfigEntry.Equals(object? obj) -> bool
 override Kiln.ConfigEntry.GetHashCode() -> int
@@ -686,6 +794,8 @@ override Kiln.ConfigEntry.ToString() -> string!
 override Kiln.ConfigFile.ToString() -> string!
 override Kiln.EntityId.GetHashCode() -> int
 override Kiln.EntityId.ToString() -> string!
+override Kiln.EntityRef.GetHashCode() -> int
+override Kiln.EntityRef.ToString() -> string!
 override Kiln.EventHandlerInfo.Equals(object? obj) -> bool
 override Kiln.EventHandlerInfo.GetHashCode() -> int
 override Kiln.EventHandlerInfo.ToString() -> string!
@@ -697,6 +807,10 @@ override Kiln.GameSystem.GetHashCode() -> int
 override Kiln.GameSystem.ToString() -> string!
 override Kiln.GameType.ToString() -> string!
 override Kiln.ImcMessage.ToString() -> string!
+override Kiln.ItemId.GetHashCode() -> int
+override Kiln.ItemId.ToString() -> string!
+override Kiln.ItemInstanceRef.GetHashCode() -> int
+override Kiln.ItemInstanceRef.ToString() -> string!
 override Kiln.LoopWait.GetHashCode() -> int
 override Kiln.ModDependency.Equals(object? obj) -> bool
 override Kiln.ModDependency.GetHashCode() -> int
@@ -715,6 +829,8 @@ override Kiln.OverrideInfo.ToString() -> string!
 override Kiln.OverrideResult.Equals(object? obj) -> bool
 override Kiln.OverrideResult.GetHashCode() -> int
 override Kiln.OverrideResult.ToString() -> string!
+override Kiln.PlayerRef.GetHashCode() -> int
+override Kiln.PlayerRef.ToString() -> string!
 override Kiln.PointDecision<TOut>.GetHashCode() -> int
 override Kiln.PointLink.ToString() -> string!
 override Kiln.PointOrder.Equals(object? obj) -> bool
@@ -724,6 +840,12 @@ override Kiln.ReflectedResource.ToString() -> string!
 override Kiln.TaskWorkerCaps.GetHashCode() -> int
 override Kiln.WorldPosition.GetHashCode() -> int
 override Kiln.WorldPosition.ToString() -> string!
+static Kiln.Capabilities.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.Capability>!
+static Kiln.Capabilities.Get(string! name) -> Kiln.Capability
+static Kiln.Capabilities.Is(string! name) -> bool
+static Kiln.Capabilities.Why(string! name) -> string!
+static Kiln.Capability.operator !=(Kiln.Capability left, Kiln.Capability right) -> bool
+static Kiln.Capability.operator ==(Kiln.Capability left, Kiln.Capability right) -> bool
 static Kiln.Config.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.ConfigFile!>!
 static Kiln.Config.Directory.get -> string!
 static Kiln.Config.Find(string! id) -> Kiln.ConfigFile?
@@ -737,6 +859,10 @@ static Kiln.EcsPrograms.Bind(string! key, Kiln.EcsProgramCallback! callback) -> 
 static Kiln.EcsPrograms.SupportsOtherWrites.get -> bool
 static Kiln.EntityId.operator !=(Kiln.EntityId left, Kiln.EntityId right) -> bool
 static Kiln.EntityId.operator ==(Kiln.EntityId left, Kiln.EntityId right) -> bool
+static Kiln.EntityRef.Of(Kiln.EntityId entity) -> Kiln.EntityRef
+static Kiln.EntityRef.implicit operator Kiln.EntityId(Kiln.EntityRef r) -> Kiln.EntityId
+static Kiln.EntityRef.operator !=(Kiln.EntityRef left, Kiln.EntityRef right) -> bool
+static Kiln.EntityRef.operator ==(Kiln.EntityRef left, Kiln.EntityRef right) -> bool
 static Kiln.EventHandlerInfo.operator !=(Kiln.EventHandlerInfo? left, Kiln.EventHandlerInfo? right) -> bool
 static Kiln.EventHandlerInfo.operator ==(Kiln.EventHandlerInfo? left, Kiln.EventHandlerInfo? right) -> bool
 static Kiln.EventHandlerStats.operator !=(Kiln.EventHandlerStats left, Kiln.EventHandlerStats right) -> bool
@@ -792,6 +918,11 @@ static Kiln.GameValueCodec.IsScalar(Kiln.GameTypeKind k) -> bool
 static Kiln.GameValueCodec.Read(System.ReadOnlySpan<byte> data, Kiln.GameTypeKind kind, int size) -> object!
 static Kiln.GameValueCodec.Read(System.ReadOnlySpan<byte> data, Kiln.GameTypeKind kind, int size, System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>? enumValues) -> object!
 static Kiln.GameValueCodec.Write(System.Span<byte> data, Kiln.GameTypeKind kind, int size, object? value, System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>? enumValues = null, string! field = "value") -> void
+static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId
+static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemInstanceRef.operator !=(Kiln.ItemInstanceRef left, Kiln.ItemInstanceRef right) -> bool
+static Kiln.ItemInstanceRef.operator ==(Kiln.ItemInstanceRef left, Kiln.ItemInstanceRef right) -> bool
 static Kiln.KilnLog.Info(string! text) -> void
 static Kiln.KilnLog.Warn(string! text) -> void
 static Kiln.Lifecycle.IsServerRunning.get -> bool
@@ -818,6 +949,7 @@ static Kiln.Mods.Load(string! folder, System.Action<Kiln.ModOperationResult!>! d
 static Kiln.Mods.LoadAsync(string! folder) -> System.Threading.Tasks.Task<Kiln.ModOperationResult!>!
 static Kiln.Mods.Reload(string! id, System.Action<Kiln.ModOperationResult!>! done) -> void
 static Kiln.Mods.ReloadAsync(string! id) -> System.Threading.Tasks.Task<Kiln.ModOperationResult!>!
+static Kiln.Mods.RuntimeApiVersion.get -> string!
 static Kiln.Mods.Send(string! targetId, string! method, object? payload = null) -> bool
 static Kiln.Mods.Side.get -> Kiln.ModSide
 static Kiln.Mods.Unload(string! id, System.Action<Kiln.ModOperationResult!>! done) -> void
@@ -839,6 +971,9 @@ static Kiln.Pacing.OnLoopWait(Kiln.LoopWaitHandler! handler) -> Kiln.PacingHandl
 static Kiln.Pacing.OnServerWait(Kiln.ServerWaitHandler! handler) -> Kiln.PacingHandler!
 static Kiln.Pacing.Sites.get -> Kiln.PacingSites
 static Kiln.Pacing.TaskWorkersStarted.get -> bool
+static Kiln.PlayerRef.Of(Kiln.EntityId player) -> Kiln.PlayerRef
+static Kiln.PlayerRef.operator !=(Kiln.PlayerRef left, Kiln.PlayerRef right) -> bool
+static Kiln.PlayerRef.operator ==(Kiln.PlayerRef left, Kiln.PlayerRef right) -> bool
 static Kiln.PointDecision<TOut>.operator !=(Kiln.PointDecision<TOut> left, Kiln.PointDecision<TOut> right) -> bool
 static Kiln.PointDecision<TOut>.operator ==(Kiln.PointDecision<TOut> left, Kiln.PointDecision<TOut> right) -> bool
 static Kiln.PointOrder.Default.get -> Kiln.PointOrder!
@@ -864,21 +999,31 @@ static Kiln.WorldPosition.From(System.Numerics.Vector3 v) -> Kiln.WorldPosition
 static Kiln.WorldPosition.operator !=(Kiln.WorldPosition left, Kiln.WorldPosition right) -> bool
 static Kiln.WorldPosition.operator ==(Kiln.WorldPosition left, Kiln.WorldPosition right) -> bool
 static readonly Kiln.EntityId.None -> Kiln.EntityId
+static readonly Kiln.EntityRef.None -> Kiln.EntityRef
+static readonly Kiln.ItemId.None -> Kiln.ItemId
+static readonly Kiln.ItemInstanceRef.None -> Kiln.ItemInstanceRef
+static readonly Kiln.PlayerRef.None -> Kiln.PlayerRef
 virtual Kiln.EcsProgramCallback.Invoke(Kiln.EcsProgramContext context) -> void
 virtual Kiln.LoopWaitHandler.Invoke(in Kiln.LoopWait wait) -> void
 virtual Kiln.Mod.OnLoad() -> void
 virtual Kiln.Mod.OnUnload() -> void
 virtual Kiln.ServerWaitHandler.Invoke(ref long waitNanoseconds) -> void
 virtual Kiln.TickHandler.Invoke(in Kiln.TickInfo tick) -> void
+~override Kiln.Capability.Equals(object obj) -> bool
+~override Kiln.Capability.ToString() -> string
 ~override Kiln.EntityId.Equals(object obj) -> bool
+~override Kiln.EntityRef.Equals(object obj) -> bool
 ~override Kiln.EventHandlerStats.Equals(object obj) -> bool
 ~override Kiln.EventHandlerStats.ToString() -> string
 ~override Kiln.GameField.Equals(object obj) -> bool
 ~override Kiln.GameField.ToString() -> string
+~override Kiln.ItemId.Equals(object obj) -> bool
+~override Kiln.ItemInstanceRef.Equals(object obj) -> bool
 ~override Kiln.LoopWait.Equals(object obj) -> bool
 ~override Kiln.LoopWait.ToString() -> string
 ~override Kiln.ModStats.Equals(object obj) -> bool
 ~override Kiln.ModStats.ToString() -> string
+~override Kiln.PlayerRef.Equals(object obj) -> bool
 ~override Kiln.PointDecision<TOut>.Equals(object obj) -> bool
 ~override Kiln.PointDecision<TOut>.ToString() -> string
 ~override Kiln.TaskWorkerCaps.Equals(object obj) -> bool

@@ -304,6 +304,14 @@ Kiln.SyncSettings.SendConfigs.set -> void
 Kiln.SyncSettings.SendContent.get -> bool
 Kiln.SyncSettings.SendContent.set -> void
 Kiln.SyncSettings.SyncSettings() -> void
+[KILNX002]Kiln.GuardOutcome
+[KILNX002]Kiln.GuardOutcome.Protected = 0 -> Kiln.GuardOutcome
+[KILNX002]Kiln.GuardOutcome.UnprotectedFailed = 1 -> Kiln.GuardOutcome
+[KILNX002]Kiln.GuardOutcome.UnprotectedVanilla = 2 -> Kiln.GuardOutcome
+[KILNX002]Kiln.SteamGuardRelay
+[KILNX002]static Kiln.SteamGuardRelay.LatchFor(Kiln.EntityId player, string! reason) -> System.Threading.Tasks.Task<Kiln.GuardOutcome>!
+[KILNX002]static Kiln.SteamGuardRelay.LatchForAll(string! reason) -> System.Threading.Tasks.Task<Kiln.GuardOutcome>!
+[KILNX002]static Kiln.SteamGuardRelay.Note(Kiln.GuardOutcome outcome) -> string?
 const Kiln.ConfigSync.ChannelName = "kiln:config" -> string!
 const Kiln.ConfigSync.ChannelVersion = "1" -> string!
 const Kiln.DirHash.Empty = "kdh1:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" -> string!

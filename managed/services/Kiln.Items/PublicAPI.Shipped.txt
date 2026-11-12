@@ -28,6 +28,27 @@ Kiln.ClientTransferAmount.CustomAmount = 3 -> Kiln.ClientTransferAmount
 Kiln.ClientTransferAmount.Destroy = 4 -> Kiln.ClientTransferAmount
 Kiln.ClientTransferAmount.Half = 1 -> Kiln.ClientTransferAmount
 Kiln.ClientTransferAmount.One = 0 -> Kiln.ClientTransferAmount
+Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourArms = 7 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourFeet = 9 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourHead = 5 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourLowerBody = 8 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourUpperBody = 6 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Arrow = 14 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Backpack = 19 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.FishingBait = 16 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Glider = 18 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.HookShot = 17 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.RangedWeapon = 12 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Ring0 = 10 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Ring1 = 11 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Shield = 13 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Spell = 15 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityArms = 2 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityFeet = 4 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityHead = 0 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityLowerBody = 3 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityUpperBody = 1 -> Kiln.EquipmentSlot
 Kiln.FuelChange
 Kiln.FuelChange.After.get -> int
 Kiln.FuelChange.After.init -> void
@@ -184,6 +205,8 @@ Kiln.InventorySlot.Link.get -> int
 Kiln.InventorySlot.Link.init -> void
 Kiln.InventorySlot.Rarity.get -> Kiln.ItemRarity?
 Kiln.InventorySlot.Rarity.init -> void
+Kiln.InventorySlot.Ref.get -> Kiln.ItemInstanceRef
+Kiln.InventorySlot.Ref.init -> void
 Kiln.InventorySlot.Slot.get -> Kiln.SlotId
 Kiln.InventorySlot.Slot.init -> void
 Kiln.InventoryTransferEvent
@@ -224,16 +247,18 @@ Kiln.ItemChange.ItemChange() -> void
 Kiln.ItemChange.ItemChange(Kiln.SlotId Slot, Kiln.ItemId Item, int Amount, Kiln.EntityId ItemEntity) -> void
 Kiln.ItemChange.ItemEntity.get -> Kiln.EntityId
 Kiln.ItemChange.ItemEntity.init -> void
+Kiln.ItemChange.Ref.get -> Kiln.ItemInstanceRef
+Kiln.ItemChange.Ref.init -> void
 Kiln.ItemChange.Slot.get -> Kiln.SlotId
 Kiln.ItemChange.Slot.init -> void
-Kiln.ItemId
-Kiln.ItemId.Deconstruct(out uint Value) -> void
-Kiln.ItemId.Equals(Kiln.ItemId other) -> bool
-Kiln.ItemId.IsNone.get -> bool
-Kiln.ItemId.ItemId() -> void
-Kiln.ItemId.ItemId(uint Value) -> void
-Kiln.ItemId.Value.get -> uint
-Kiln.ItemId.Value.init -> void
+Kiln.ItemId (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Deconstruct(out uint Value) -> void (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Equals(Kiln.ItemId other) -> bool (forwarded, contained in Kiln.Api)
+Kiln.ItemId.IsNone.get -> bool (forwarded, contained in Kiln.Api)
+Kiln.ItemId.ItemId() -> void (forwarded, contained in Kiln.Api)
+Kiln.ItemId.ItemId(uint Value) -> void (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Value.get -> uint (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Value.init -> void (forwarded, contained in Kiln.Api)
 Kiln.ItemInfo
 Kiln.ItemInfo.<Clone>$() -> Kiln.ItemInfo!
 Kiln.ItemInfo.Category.get -> Kiln.ItemCategory
@@ -265,6 +290,32 @@ Kiln.ItemInfo.Name.get -> string!
 Kiln.ItemInfo.Name.init -> void
 Kiln.ItemInfo.Rarity.get -> Kiln.ItemRarity
 Kiln.ItemInfo.Rarity.init -> void
+Kiln.ItemInstanceExtensions
+Kiln.ItemLocation
+Kiln.ItemLocation.Deconstruct(out Kiln.EntityId Holder, out Kiln.SlotId Slot, out int Link, out int FlatSlot) -> void
+Kiln.ItemLocation.Equals(Kiln.ItemLocation other) -> bool
+Kiln.ItemLocation.FlatSlot.get -> int
+Kiln.ItemLocation.FlatSlot.init -> void
+Kiln.ItemLocation.Holder.get -> Kiln.EntityId
+Kiln.ItemLocation.Holder.init -> void
+Kiln.ItemLocation.IsPlaced.get -> bool
+Kiln.ItemLocation.IsSavedSlot.get -> bool
+Kiln.ItemLocation.ItemLocation() -> void
+Kiln.ItemLocation.ItemLocation(Kiln.EntityId Holder, Kiln.SlotId Slot, int Link, int FlatSlot) -> void
+Kiln.ItemLocation.Link.get -> int
+Kiln.ItemLocation.Link.init -> void
+Kiln.ItemLocation.Slot.get -> Kiln.SlotId
+Kiln.ItemLocation.Slot.init -> void
+Kiln.ItemMoveCause
+Kiln.ItemMoveCause.Observed = 2 -> Kiln.ItemMoveCause
+Kiln.ItemMoveCause.Transaction = 0 -> Kiln.ItemMoveCause
+Kiln.ItemMoveCause.Transfer = 1 -> Kiln.ItemMoveCause
+Kiln.ItemMovedEvent
+Kiln.ItemMovedEvent.Cause.get -> Kiln.ItemMoveCause
+Kiln.ItemMovedEvent.From.get -> Kiln.ItemLocation
+Kiln.ItemMovedEvent.Item.get -> Kiln.ItemInstanceRef
+Kiln.ItemMovedEvent.Step.get -> ulong
+Kiln.ItemMovedEvent.To.get -> Kiln.ItemLocation
 Kiln.ItemRarity
 Kiln.ItemRarity.Common = 0 -> Kiln.ItemRarity
 Kiln.ItemRarity.Epic = 3 -> Kiln.ItemRarity
@@ -388,6 +439,8 @@ Kiln.MoveChange.ItemEntity.get -> Kiln.EntityId
 Kiln.MoveChange.ItemEntity.init -> void
 Kiln.MoveChange.MoveChange() -> void
 Kiln.MoveChange.MoveChange(Kiln.SlotId From, Kiln.SlotId To, Kiln.ItemId Item, int Amount, Kiln.EntityId ItemEntity) -> void
+Kiln.MoveChange.Ref.get -> Kiln.ItemInstanceRef
+Kiln.MoveChange.Ref.init -> void
 Kiln.MoveChange.To.get -> Kiln.SlotId
 Kiln.MoveChange.To.init -> void
 Kiln.MoveKind
@@ -459,6 +512,11 @@ Kiln.WaterRefilledEvent.Entity.get -> Kiln.EntityId
 Kiln.WaterRefilledEvent.Keep.get -> Kiln.FuelKeep!
 Kiln.WaterRefilledEvent.Origin.get -> string!
 Kiln.WaterRefilledEvent.Units.get -> long
+[KILNX001]static Kiln.Items.LabFollow(Kiln.ItemInstanceRef item, System.Action<Kiln.ItemLocation, ulong>? gone = null) -> System.IDisposable!
+[KILNX001]static Kiln.Items.LabInstancesStatus.get -> string!
+[KILNX001]static Kiln.Items.LabMoveUnseen(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+[KILNX001]static Kiln.Items.LabTrackerReadsPerStep.get -> int
+[KILNX001]static Kiln.Items.LabTrackerReadsPerStep.set -> void
 const Kiln.Items.Fuel.UnitsPerCharge = 64 -> int
 override Kiln.ClientTransfer.GetHashCode() -> int
 override Kiln.FuelChange.GetHashCode() -> int
@@ -479,11 +537,14 @@ override Kiln.InventorySlot.GetHashCode() -> int
 override Kiln.InventorySlot.ToString() -> string!
 override Kiln.InventoryTransferEvent.ToString() -> string!
 override Kiln.ItemChange.GetHashCode() -> int
-override Kiln.ItemId.GetHashCode() -> int
-override Kiln.ItemId.ToString() -> string!
+override Kiln.ItemId.GetHashCode() -> int (forwarded, contained in Kiln.Api)
+override Kiln.ItemId.ToString() -> string! (forwarded, contained in Kiln.Api)
 override Kiln.ItemInfo.Equals(object? obj) -> bool
 override Kiln.ItemInfo.GetHashCode() -> int
 override Kiln.ItemInfo.ToString() -> string!
+override Kiln.ItemLocation.GetHashCode() -> int
+override Kiln.ItemLocation.ToString() -> string!
+override Kiln.ItemMovedEvent.ToString() -> string!
 override Kiln.ItemsGivenEvent.ToString() -> string!
 override Kiln.ItemsResult.Equals(object? obj) -> bool
 override Kiln.ItemsResult.GetHashCode() -> int
@@ -523,16 +584,20 @@ static Kiln.InventorySlot.operator !=(Kiln.InventorySlot? left, Kiln.InventorySl
 static Kiln.InventorySlot.operator ==(Kiln.InventorySlot? left, Kiln.InventorySlot? right) -> bool
 static Kiln.ItemChange.operator !=(Kiln.ItemChange left, Kiln.ItemChange right) -> bool
 static Kiln.ItemChange.operator ==(Kiln.ItemChange left, Kiln.ItemChange right) -> bool
-static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId
-static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool
-static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId (forwarded, contained in Kiln.Api)
+static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool (forwarded, contained in Kiln.Api)
+static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool (forwarded, contained in Kiln.Api)
 static Kiln.ItemInfo.operator !=(Kiln.ItemInfo? left, Kiln.ItemInfo? right) -> bool
 static Kiln.ItemInfo.operator ==(Kiln.ItemInfo? left, Kiln.ItemInfo? right) -> bool
+static Kiln.ItemInstanceExtensions.Location(this Kiln.ItemInstanceRef item) -> Kiln.ItemLocation?
+static Kiln.ItemLocation.operator !=(Kiln.ItemLocation left, Kiln.ItemLocation right) -> bool
+static Kiln.ItemLocation.operator ==(Kiln.ItemLocation left, Kiln.ItemLocation right) -> bool
 static Kiln.Items.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.ItemInfo!>!
 static Kiln.Items.Available.get -> bool
 static Kiln.Items.CanTransact.get -> bool
 static Kiln.Items.ContainerName(Kiln.EntityId entity) -> string?
 static Kiln.Items.ContainerNamesAvailable.get -> bool
+static Kiln.Items.Equipped(Kiln.EntityId player, Kiln.EquipmentSlot slot) -> Kiln.ItemInstanceRef
 static Kiln.Items.FindInventories(Kiln.InventoryKinds kinds = Kiln.InventoryKinds.Containers) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
 static Kiln.Items.Fuel.Add(Kiln.EntityId container, int units, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
 static Kiln.Items.Fuel.Available.get -> bool
@@ -549,6 +614,7 @@ static Kiln.Items.Get(Kiln.ItemId id) -> Kiln.ItemInfo?
 static Kiln.Items.Give(Kiln.EntityId target, Kiln.ItemId item, int count = 1, Kiln.Gear? gear = null, Kiln.GiveOptions options = Kiln.GiveOptions.None, Kiln.SlotId? slot = null) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
 static Kiln.Items.Give(Kiln.EntityId target, string! item, int count = 1, Kiln.Gear? gear = null, Kiln.GiveOptions options = Kiln.GiveOptions.None) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
 static Kiln.Items.GiveRecipeResult(Kiln.EntityId target, uint recipeId, int count = 1, Kiln.GiveOptions options = Kiln.GiveOptions.None) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
+static Kiln.Items.Held(Kiln.EntityId player) -> Kiln.ItemInstanceRef
 static Kiln.Items.Lookup(string! nameOrId) -> Kiln.ItemInfo?
 static Kiln.Items.Move(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to, int count = 0, Kiln.MoveOptions options = Kiln.MoveOptions.None, Kiln.SlotId? toSlot = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
 static Kiln.Items.MoveAll(Kiln.EntityId from, Kiln.EntityId to, Kiln.MoveOptions options = Kiln.MoveOptions.None) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
@@ -581,7 +647,7 @@ static Kiln.MoveResult.operator ==(Kiln.MoveResult? left, Kiln.MoveResult? right
 static Kiln.SlotId.Of(Kiln.EntityId inventory, int index) -> Kiln.SlotId
 static Kiln.SlotId.operator !=(Kiln.SlotId left, Kiln.SlotId right) -> bool
 static Kiln.SlotId.operator ==(Kiln.SlotId left, Kiln.SlotId right) -> bool
-static readonly Kiln.ItemId.None -> Kiln.ItemId
+static readonly Kiln.ItemId.None -> Kiln.ItemId (forwarded, contained in Kiln.Api)
 ~override Kiln.ClientTransfer.Equals(object obj) -> bool
 ~override Kiln.ClientTransfer.ToString() -> string
 ~override Kiln.FuelChange.Equals(object obj) -> bool
@@ -591,7 +657,8 @@ static readonly Kiln.ItemId.None -> Kiln.ItemId
 ~override Kiln.Gear.ToString() -> string
 ~override Kiln.ItemChange.Equals(object obj) -> bool
 ~override Kiln.ItemChange.ToString() -> string
-~override Kiln.ItemId.Equals(object obj) -> bool
+~override Kiln.ItemId.Equals(object obj) -> bool (forwarded, contained in Kiln.Api)
+~override Kiln.ItemLocation.Equals(object obj) -> bool
 ~override Kiln.MoveChange.Equals(object obj) -> bool
 ~override Kiln.MoveChange.ToString() -> string
 ~override Kiln.SlotId.Equals(object obj) -> bool

@@ -1111,7 +1111,6 @@ Kiln.QuestHolder.Key.get -> string!
 Kiln.QuestHolder.Key.init -> void
 Kiln.QuestHolder.QuestHolder() -> void
 Kiln.QuestHolder.QuestHolder(string! Key, ulong Account, Kiln.EntityId Entity) -> void
-Kiln.QuestInput
 Kiln.QuestJournalMode
 Kiln.QuestJournalMode.Chat = 0 -> Kiln.QuestJournalMode
 Kiln.QuestJournalMode.Native = 2 -> Kiln.QuestJournalMode
@@ -1521,6 +1520,18 @@ Kiln.WorldProgressStatus.TrackedBosses.init -> void
 Kiln.WorldProgressStatus.World.get -> bool
 Kiln.WorldProgressStatus.World.init -> void
 Kiln.WorldProgressStatus.WorldProgressStatus(bool Knowledge, bool World, bool Settings, bool Assets, Kiln.WorldIndexState Places, Kiln.WorldIndexState Bosses, int Spires, int Shrines, int Roots, int Obelisks, int BossCount, int TrackedBosses, double PlacesSeconds, double BossesSeconds, System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+[KILNX001]Kiln.QuestInput
+[KILNX001]static Kiln.Knowledge.LabRecord(Kiln.EntityId block, int phase, params (uint Id, uint Value)[]! record) -> bool
+[KILNX001]static Kiln.QuestInput.Build(Kiln.QuestHolder h, string! prop, int count = 1) -> void
+[KILNX001]static Kiln.QuestInput.Clear() -> void
+[KILNX001]static Kiln.QuestInput.Craft(Kiln.QuestHolder h, string! item, int count = 1) -> void
+[KILNX001]static Kiln.QuestInput.IsSynthetic(Kiln.QuestHolder h) -> bool
+[KILNX001]static Kiln.QuestInput.Kill(Kiln.QuestHolder? killer, string! template, string? tag = null, Kiln.WorldPosition? at = null, bool destroyed = false) -> void
+[KILNX001]static Kiln.QuestInput.Known.get -> System.Collections.Generic.IReadOnlyCollection<Kiln.QuestHolder>!
+[KILNX001]static Kiln.QuestInput.Reach(Kiln.QuestHolder h, Kiln.WorldPosition at) -> void
+[KILNX001]static Kiln.QuestInput.SetInventory(Kiln.QuestHolder h, string! item, int count) -> void
+[KILNX001]static Kiln.QuestInput.SetLevel(Kiln.QuestHolder h, int level) -> void
+[KILNX001]static Kiln.QuestInput.Talk(Kiln.QuestHolder h, string! npc, uint line = 0, string? node = null, string? modId = null) -> void
 override Kiln.Boss.Equals(object? obj) -> bool
 override Kiln.Boss.GetHashCode() -> int
 override Kiln.Boss.ToString() -> string!
@@ -1722,7 +1733,6 @@ static Kiln.Knowledge.GrantUnchecked(Kiln.EntityId target, uint id) -> System.Th
 static Kiln.Knowledge.Has(Kiln.EntityId target, string! name) -> bool
 static Kiln.Knowledge.Has(Kiln.Player! player, string! name) -> bool
 static Kiln.Knowledge.Info(uint id) -> Kiln.KnowledgeInfo?
-static Kiln.Knowledge.LabRecord(Kiln.EntityId block, int phase, params (uint Id, uint Value)[]! record) -> bool
 static Kiln.Knowledge.List(Kiln.EntityId target) -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeState>!
 static Kiln.Knowledge.NameOf(uint id, bool query = false) -> string?
 static Kiln.Knowledge.Npcs.get -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeNpc!>!
@@ -1821,18 +1831,9 @@ static Kiln.QuestHolder.OfCharacter(Kiln.CharacterKey character, ulong legacyAcc
 static Kiln.QuestHolder.Parse(string! who) -> Kiln.QuestHolder
 static Kiln.QuestHolder.Synthetic(string! name) -> Kiln.QuestHolder
 static Kiln.QuestHolder.World.get -> Kiln.QuestHolder
+static Kiln.QuestHolder.explicit operator Kiln.PlayerRef(Kiln.QuestHolder holder) -> Kiln.PlayerRef
 static Kiln.QuestHolder.operator !=(Kiln.QuestHolder left, Kiln.QuestHolder right) -> bool
 static Kiln.QuestHolder.operator ==(Kiln.QuestHolder left, Kiln.QuestHolder right) -> bool
-static Kiln.QuestInput.Build(Kiln.QuestHolder h, string! prop, int count = 1) -> void
-static Kiln.QuestInput.Clear() -> void
-static Kiln.QuestInput.Craft(Kiln.QuestHolder h, string! item, int count = 1) -> void
-static Kiln.QuestInput.IsSynthetic(Kiln.QuestHolder h) -> bool
-static Kiln.QuestInput.Kill(Kiln.QuestHolder? killer, string! template, string? tag = null, Kiln.WorldPosition? at = null, bool destroyed = false) -> void
-static Kiln.QuestInput.Known.get -> System.Collections.Generic.IReadOnlyCollection<Kiln.QuestHolder>!
-static Kiln.QuestInput.Reach(Kiln.QuestHolder h, Kiln.WorldPosition at) -> void
-static Kiln.QuestInput.SetInventory(Kiln.QuestHolder h, string! item, int count) -> void
-static Kiln.QuestInput.SetLevel(Kiln.QuestHolder h, int level) -> void
-static Kiln.QuestInput.Talk(Kiln.QuestHolder h, string! npc, uint line = 0, string? node = null, string? modId = null) -> void
 static Kiln.QuestMarker.operator !=(Kiln.QuestMarker? left, Kiln.QuestMarker? right) -> bool
 static Kiln.QuestMarker.operator ==(Kiln.QuestMarker? left, Kiln.QuestMarker? right) -> bool
 static Kiln.QuestObjective.Collect(string! item, int count = 1) -> Kiln.QuestObjective!
