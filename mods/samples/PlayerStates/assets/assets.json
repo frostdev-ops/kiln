@@ -3,6 +3,30 @@
   "entries": [
     {
       "kind": "resource",
+      "guid": "d797d163-b9c6-5404-a5fd-0ecd783fff4e",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_swing_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "106df2a2-36d7-5ab3-801e-80c446185a63",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_heavy_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "a297356c-29e7-5548-9c93-8b87154dc0f9",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_guard_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
       "guid": "b0f78b65-a8d6-5577-b060-ff55685f7916",
       "type": "keen::JointAnimation",
       "part": 0,
@@ -11,10 +35,74 @@
     },
     {
       "kind": "resource",
+      "guid": "b0f78b65-a8d6-5577-b060-ff55685f7916",
+      "type": "keen::RootMotionAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_swing.rootmotion.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "b0f78b65-a8d6-5577-b060-ff55685f7916",
+      "type": "keen::LveAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_swing.lve.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "5bbd3356-bc30-50d2-aad2-3c0df9704617",
+      "type": "keen::SequenceResource",
+      "part": 0,
+      "file": "cooked/clip_riposte_swing.events.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "b0f78b65-a8d6-5577-b060-ff55685f7916",
+      "type": "keen::AnimationSequenceContainer",
+      "part": 0,
+      "file": "cooked/clip_riposte_swing.notify.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
       "guid": "ebee0cbf-fc6a-5e5f-845e-e5702b993be5",
       "type": "keen::JointAnimation",
       "part": 0,
       "file": "cooked/clip_riposte_heavy.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "ebee0cbf-fc6a-5e5f-845e-e5702b993be5",
+      "type": "keen::RootMotionAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_heavy.rootmotion.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "ebee0cbf-fc6a-5e5f-845e-e5702b993be5",
+      "type": "keen::LveAnimation",
+      "part": 0,
+      "file": "cooked/clip_riposte_heavy.lve.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "1c54a7c5-9860-538f-ab99-258809fefd83",
+      "type": "keen::SequenceResource",
+      "part": 0,
+      "file": "cooked/clip_riposte_heavy.events.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "ebee0cbf-fc6a-5e5f-845e-e5702b993be5",
+      "type": "keen::AnimationSequenceContainer",
+      "part": 0,
+      "file": "cooked/clip_riposte_heavy.notify.bin",
       "mode": "new"
     },
     {

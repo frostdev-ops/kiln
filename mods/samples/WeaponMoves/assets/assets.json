@@ -39,10 +39,114 @@
     },
     {
       "kind": "resource",
+      "guid": "655af911-7040-5bcd-9e61-c3d9333530e9",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_1_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "eae5e824-0c2d-5ac6-be35-e310814bc631",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_cleave_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "1bf8800a-7473-561a-9e9e-d316fd3f9997",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_guard_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "d2aef103-0d4a-5970-9815-271c8246946b",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_2_arm.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
       "guid": "b809aed6-4166-5250-b553-859486a1a598",
       "type": "keen::JointAnimation",
       "part": 0,
       "file": "cooked/clip_slash_1.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "b809aed6-4166-5250-b553-859486a1a598",
+      "type": "keen::RootMotionAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_1.rootmotion.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "b809aed6-4166-5250-b553-859486a1a598",
+      "type": "keen::LveAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_1.lve.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "f9236af0-532b-5e7b-af71-f9c642b3bf47",
+      "type": "keen::SequenceResource",
+      "part": 0,
+      "file": "cooked/clip_slash_1.events.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "b809aed6-4166-5250-b553-859486a1a598",
+      "type": "keen::AnimationSequenceContainer",
+      "part": 0,
+      "file": "cooked/clip_slash_1.notify.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "79d731d4-b058-5ab7-93f3-374b9051a18d",
+      "type": "keen::JointAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_2.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "79d731d4-b058-5ab7-93f3-374b9051a18d",
+      "type": "keen::RootMotionAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_2.rootmotion.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "79d731d4-b058-5ab7-93f3-374b9051a18d",
+      "type": "keen::LveAnimation",
+      "part": 0,
+      "file": "cooked/clip_slash_2.lve.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "f77966b9-6a65-5d4e-b1ef-2f3d82110da8",
+      "type": "keen::SequenceResource",
+      "part": 0,
+      "file": "cooked/clip_slash_2.events.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "79d731d4-b058-5ab7-93f3-374b9051a18d",
+      "type": "keen::AnimationSequenceContainer",
+      "part": 0,
+      "file": "cooked/clip_slash_2.notify.bin",
       "mode": "new"
     },
     {
@@ -55,18 +159,42 @@
     },
     {
       "kind": "resource",
-      "guid": "792859b5-20aa-5686-8933-ce602c4cecd2",
-      "type": "keen::JointAnimation",
+      "guid": "e71d0250-5add-5724-8227-7d8b2e2c0ea5",
+      "type": "keen::RootMotionAnimation",
       "part": 0,
-      "file": "cooked/clip_guard.bin",
+      "file": "cooked/clip_cleave.rootmotion.bin",
       "mode": "new"
     },
     {
       "kind": "resource",
-      "guid": "79d731d4-b058-5ab7-93f3-374b9051a18d",
+      "guid": "e71d0250-5add-5724-8227-7d8b2e2c0ea5",
+      "type": "keen::LveAnimation",
+      "part": 0,
+      "file": "cooked/clip_cleave.lve.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "44c90c68-0f73-51f0-8f8d-a1ee3348d75f",
+      "type": "keen::SequenceResource",
+      "part": 0,
+      "file": "cooked/clip_cleave.events.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "e71d0250-5add-5724-8227-7d8b2e2c0ea5",
+      "type": "keen::AnimationSequenceContainer",
+      "part": 0,
+      "file": "cooked/clip_cleave.notify.bin",
+      "mode": "new"
+    },
+    {
+      "kind": "resource",
+      "guid": "792859b5-20aa-5686-8933-ce602c4cecd2",
       "type": "keen::JointAnimation",
       "part": 0,
-      "file": "cooked/clip_slash_2.bin",
+      "file": "cooked/clip_guard.bin",
       "mode": "new"
     },
     {

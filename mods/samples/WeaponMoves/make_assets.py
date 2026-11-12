@@ -5,8 +5,10 @@
     python3 mods/samples/WeaponMoves/make_assets.py        (writes assets/src/*.gltf; they are committed)
 
 - assets/src/fighter.gltf: a small rig of its own (20 joints, no mesh) and three motions, authored here as keyed turns of its joints:
-  `Slash` (a forehand, 1 s), `Cleave` (an overhead chop, 1.6 s) and `Guard` (the sword held across, a 1 s loop). assets/cook.json retargets
-  them onto the player's skeleton; the second swing of the chain is made from `Slash` there ("from", "mirror").
+  `Slash` (a forehand, 1 s), `Cleave` (an overhead chop, 1.6 s) and `Guard` (the sword held across, a 6.65 s loop). assets/cook.json retargets
+  them onto the player's skeleton, makes the second swing of the chain from `Slash` ("from", "mirror"), and puts the sword arm of each onto the
+  game's clip of the state it is placed like ("blend"): the body moves as the game's, the arm as written here. Their lengths are the moves' own
+  (`length` in blocks/weapon.json); the guard lasts as long as the game's block loop.
 - assets/src/blade.gltf: the sword with moving parts, skinned to 3 joints (grip, core, tip), and its loop `Spin` (2 s): the crystal in the blade
   turns and the tip sways. It is the held model of the look's `animated`.
 - assets/src/blade_rigid.gltf: the same sword in one piece, for the icon, the dropped item and the collection.
@@ -78,13 +80,17 @@ def ease(u):
 # Arms: about x lifts forward (negative), about z swings out to the side (the right arm out is negative, the left positive).
 # The ready pose is the same on both sides, so the mirrored second swing starts and ends where the first does.
 READY = {"arm_r": (-25, 0, 10), "forearm_r": (-30, 0, 0), "arm_l": (-25, 0, -10), "forearm_l": (-30, 0, 0)}
+GUARD_A = {"chest": (0, 10, 0), "arm_r": (-90, 0, 30), "forearm_r": (-60, 0, 0), "arm_l": (-60, 0, -20), "forearm_l": (-70, 0, 0)}
+GUARD_B = {"chest": (3, 10, 0), "arm_r": (-93, 0, 32), "forearm_r": (-64, 0, 0), "arm_l": (-62, 0, -20), "forearm_l": (-72, 0, 0)}
 MOTIONS = {
-    # the forehand: the sword comes from high on the right across to the left; the left arm pulls back out as the chest turns
+    # the forehand: the sword comes from high on the right across to the left. The left arm carries the backhand: from high across the body
+    # out to the left side. The cook mirrors this clip for the second swing, so there the right arm (with the sword) plays the backhand.
+    # Only the sword arm goes onto the game's clip, so in the first swing the left arm is the game's (the shield)
     "Slash": (1.0, [
         (0.00, READY),
-        (0.30, {"chest": (0, -35, 0), "spine": (0, -10, 0), "arm_r": (-120, 0, -50), "forearm_r": (-40, 0, 0), "arm_l": (-35, 0, 15), "forearm_l": (-30, 0, 0)}),
-        (0.42, {"chest": (0, 30, 0), "spine": (0, 10, 0), "arm_r": (-80, 0, 40), "forearm_r": (-10, 0, 0), "arm_l": (-20, 0, 45), "forearm_l": (-10, 0, 0)}),
-        (0.70, {"chest": (0, 40, 0), "spine": (0, 12, 0), "arm_r": (-50, 0, 60), "forearm_r": (-20, 0, 0), "arm_l": (-10, 0, 35), "forearm_l": (-15, 0, 0)}),
+        (0.30, {"chest": (0, -35, 0), "spine": (0, -10, 0), "arm_r": (-120, 0, -50), "forearm_r": (-40, 0, 0), "arm_l": (-110, 0, -55), "forearm_l": (-60, 0, 0)}),
+        (0.42, {"chest": (0, 30, 0), "spine": (0, 10, 0), "arm_r": (-80, 0, 40), "forearm_r": (-10, 0, 0), "arm_l": (-90, 0, 0), "forearm_l": (-10, 0, 0)}),
+        (0.70, {"chest": (0, 40, 0), "spine": (0, 12, 0), "arm_r": (-50, 0, 60), "forearm_r": (-20, 0, 0), "arm_l": (-40, 0, 75), "forearm_l": (-15, 0, 0)}),
         (1.00, READY)]),
     # the heavy: both hands up over the head, then down; the body leans into it and the knees give
     "Cleave": (1.6, [
@@ -95,11 +101,9 @@ MOTIONS = {
         (0.80, {"chest": (25, 0, 0), "spine": (8, 0, 0), "arm_r": (-55, 0, -10), "forearm_r": (-5, 0, 0), "arm_l": (-55, 0, 10), "forearm_l": (-5, 0, 0),
                 "thigh_l": (-20, 0, 0), "shin_l": (32, 0, 0), "thigh_r": (-20, 0, 0), "shin_r": (32, 0, 0)}),
         (1.00, READY)]),
-    # the guard: the sword held across in front, the chest breathing; it ends where it starts, so it loops
-    "Guard": (1.0, [
-        (0.00, {"chest": (0, 10, 0), "arm_r": (-90, 0, 30), "forearm_r": (-60, 0, 0), "arm_l": (-60, 0, -20), "forearm_l": (-70, 0, 0)}),
-        (0.50, {"chest": (3, 10, 0), "arm_r": (-92, 0, 30), "forearm_r": (-62, 0, 0), "arm_l": (-62, 0, -20), "forearm_l": (-72, 0, 0)}),
-        (1.00, {"chest": (0, 10, 0), "arm_r": (-90, 0, 30), "forearm_r": (-60, 0, 0), "arm_l": (-60, 0, -20), "forearm_l": (-70, 0, 0)})]),
+    # the guard: the sword held across in front, the arm giving a little five times; it ends where it starts, so it loops. It lasts as long as
+    # the game's block loop it goes onto (Block_FullBody, 6.65 s), so the cook does not stretch it
+    "Guard": (6.65, [(i / 10, GUARD_A if i % 2 == 0 else GUARD_B) for i in range(11)]),
 }
 
 
