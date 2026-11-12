@@ -62,6 +62,9 @@ One warning line per refused state.
 
 ## Limits
 - No hot reload, on purpose (above).
+- A state whose clip is not served (the mod's clips not cooked on this machine) is refused. A dedicated server that has
+  not cooked a mod's clips therefore merges fewer states than a client that has, the graph hashes differ, and the join
+  check refuses that client: a mod with player states needs its cook on the server too.
 - Definitions from code are not built (above).
 - The neighbours a state may be `like` are a fixed list (the modder's guide has it); anything else is refused by name.
 - Cost: the merge takes 50 to 90 ms of a boot when a mod has states (lab, a loaded machine: mean 80 ms, worst 167 ms

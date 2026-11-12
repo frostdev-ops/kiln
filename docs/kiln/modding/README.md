@@ -17,7 +17,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [limits.md](limits.md) | What a mod cannot do yet: each gap, what stands in the way, the release it is planned for |
 | [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot and UI; what they compile to, client requirements and errors. Start here to make something |
 | [inventory.md](inventory.md) | Moving items between inventories keeping their state (a stack, quick stack, move all), container names, transfer rules and events (ported from shroudlink), and why gear data lasts only a session |
-| [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs |
+| [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs; a weapon's own moves and held models with moving parts |
 | [world-blocks.md](world-blocks.md) | Props, crafting props, stations, containers with default loot and lids, doors, colliders and building materials |
 | [offers.md](offers.md) | Interaction offers from C#: the "E" prompt on any entity at run time, with a handler when a player accepts it (`Kiln.Offers`) |
 | [npc-blocks.md](npc-blocks.md) | Creature bodies, animation, AI, behaviour, drops, friendly NPCs and vendors |
@@ -32,7 +32,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [screen-effects.md](screen-effects.md) | Full-screen effects: colour grading, tint, vignette, fades and flashes, on a status, an effect or from code |
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
-| [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |
+| [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps, clips reworked from other clips (`from`); states of a mod's own in the player's animation graph (`assets/player-states.json`) |
 | [quests.md](quests.md) | Quest chains, conversations and NPCs: QuestBlock/DialogueBlock, quests/*.json, Quests.Define, rewards and client requirements |
 | [texts.md](texts.md) | The game's English texts by loca tag (`Texts.Get`, `GetPlain`), also on a dedicated server from a local catalog |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
