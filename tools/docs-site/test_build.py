@@ -24,6 +24,7 @@ class Build(unittest.TestCase):
         for name in ("build.sh", "docfx.json", "index.md", "toc.yml", "filterConfig.yml",
                      "annotate.py", "undocumented.py", "undocumented-dev24.txt", "stage-guide.py", "check-links.py"):
             shutil.copy2(HERE / name, self.here / name)
+        shutil.copytree(HERE / "apidoc", self.here / "apidoc")
         guide = self.root / "repo/docs/kiln/modding"
         (guide / "schemas").mkdir(parents=True)
         (guide / "README.md").write_text(
