@@ -398,170 +398,170 @@ real-client statement only when a player gave it in the game client.
 
 ### Achievement guard
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `guard.proof` | The achievement guard drops a level-up's report | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `guard.proof` | The achievement guard drops a level-up's report | never run |  |  |  |  |  |
 
 ### Animations and models
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `models.retarget` | A creature playing retargeted animations | never run |  |  |  |  |
-| client-pass | `models.skinned-creature` | A creature with a skinned body cooked from glTF | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `models.retarget` | A creature playing retargeted animations | never run |  |  |  |  |  |
+| client-pass | `models.skinned-creature` | A creature with a skinned body cooked from glTF | never run |  |  |  |  |  |
 
 ### Blocks
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `blocks.status-icons` | Status and perk icons of a mod's own | never run |  |  |  |  |
-| client-pass | `blocks.tools` | Tools of every kind | never run |  |  |  |  |
-| client-pass | `blocks.piercing` | A projectile that pierces three creatures | never run |  |  |  |  |
-| client-pass | `blocks.prop-model` | A prop with its own model and collision | never run |  |  |  |  |
-| client-pass | `blocks.sound-block` | Sounds declared as blocks | never run |  |  |  |  |
-| client-pass | `blocks.look-vfx` | A VFX on a weapon's look and on a placed thing | never run |  |  |  |  |
-| client-pass | `blocks.frostbolt-area` | Frostbolt's area damage and its frost VFX | never run |  |  |  |  |
-| client-pass | `blocks.frost-hits` | Frost VFX on each sword hit | never run |  |  |  |  |
-| client-pass | `blocks.wand-attacks` | A wand's three attacks | never run |  |  |  |  |
-| client-pass | `blocks.armour-look` | Armour's worn look | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `blocks.status-icons` | Status and perk icons of a mod's own | never run |  |  |  |  |  |
+| client-pass | `blocks.tools` | Tools of every kind | never run |  |  |  |  |  |
+| client-pass | `blocks.piercing` | A projectile that pierces three creatures | never run |  |  |  |  |  |
+| client-pass | `blocks.prop-model` | A prop with its own model and collision | never run |  |  |  |  |  |
+| client-pass | `blocks.sound-block` | Sounds declared as blocks | never run |  |  |  |  |  |
+| client-pass | `blocks.look-vfx` | A VFX on a weapon's look and on a placed thing | never run |  |  |  |  |  |
+| client-pass | `blocks.frostbolt-area` | Frostbolt's area damage and its frost VFX | never run |  |  |  |  |  |
+| client-pass | `blocks.frost-hits` | Frost VFX on each sword hit | never run |  |  |  |  |  |
+| client-pass | `blocks.wand-attacks` | A wand's three attacks | never run |  |  |  |  |  |
+| client-pass | `blocks.armour-look` | Armour's worn look | never run |  |  |  |  |  |
 
 ### Check runner
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-check-test (lab script, not a player) | `cct.assertions` | Passes on its assertions and a verdict | pass | 2026-11-12 | joined | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.fail-note` | Failed with a note | fail | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.skip` | Skipped | skip | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.two-steps` | Waits ticks between two instructions | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.private-log` | Private data in a log line stays out of the ledger | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.cheats-flag` | A cheats check (refused without the guard) | never run |  |  |  |  |
-| client-check-test (lab script, not a player) | `cct.guard-proof` | The guard-proof stand-in (refused without the guard) | never run |  |  |  |  |
-| client-check-test (lab script, not a player) | `cct.flag-unset` | The cheats checks' bodies never ran | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.hosted-only` | Needs a hosted world | never run |  |  |  |  |
-| client-check-test (lab script, not a player) | `cct.cleanup` | Cleans up however it ends | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |
-| client-check-test (lab script, not a player) | `cct.wait` | Waits for its verdict | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-check-test (lab script, not a player) | `cct.assertions` | Passes on its assertions and a verdict | pass | 2026-11-12 | joined | `0.2.0-dev` | server `f0d824be7fcd` |  |
+| client-check-test (lab script, not a player) | `cct.fail-note` | Failed with a note | fail | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` | the flash was green, not blue; seen at \<home\>/x from \<ip\> |
+| client-check-test (lab script, not a player) | `cct.skip` | Skipped | skip | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` | not on this build |
+| client-check-test (lab script, not a player) | `cct.two-steps` | Waits ticks between two instructions | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |  |
+| client-check-test (lab script, not a player) | `cct.private-log` | Private data in a log line stays out of the ledger | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |  |
+| client-check-test (lab script, not a player) | `cct.cheats-flag` | A cheats check (refused without the guard) | never run |  |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.guard-proof` | The guard-proof stand-in (refused without the guard) | never run |  |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.flag-unset` | The cheats checks' bodies never ran | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |  |
+| client-check-test (lab script, not a player) | `cct.hosted-only` | Needs a hosted world | never run |  |  |  |  |  |
+| client-check-test (lab script, not a player) | `cct.cleanup` | Cleans up however it ends | pass | 2026-11-12 | server | `0.2.0-dev` | server `f0d824be7fcd` |  |
+| client-check-test (lab script, not a player) | `cct.wait` | Waits for its verdict | never run |  |  |  |  |  |
 
 ### Core
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `core.unload-quit` | Kiln unloads cleanly when the game quits | never run |  |  |  |  |
-| client-pass | `core.unload-windows` | Kiln unloads cleanly when the game quits, on Windows | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `core.unload-quit` | Kiln unloads cleanly when the game quits | never run |  |  |  |  |  |
+| client-pass | `core.unload-windows` | Kiln unloads cleanly when the game quits, on Windows | never run |  |  |  |  |  |
 
 ### Cosmetics
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `cosmetics.frost-hood` | A hood with a model of its own in the vanity slot | never run |  |  |  |  |
-| client-pass | `cosmetics.cape` | A cape with a model of its own | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `cosmetics.frost-hood` | A hood with a model of its own in the vanity slot | never run |  |  |  |  |  |
+| client-pass | `cosmetics.cape` | A cape with a model of its own | never run |  |  |  |  |  |
 
 ### Creative mode
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `rules.flight-creative` | Flight and creative rules | never run |  |  |  |  |
-| client-pass | `glider.steer` | The steered glider in creative mode | never run |  |  |  |  |
-| client-pass | `glider.seen-by-other` | Another player's steered glider | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `rules.flight-creative` | Flight and creative rules | never run |  |  |  |  |  |
+| client-pass | `glider.steer` | The steered glider in creative mode | never run |  |  |  |  |  |
+| client-pass | `glider.seen-by-other` | Another player's steered glider | never run |  |  |  |  |  |
 
 ### Creature AI
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `creatures.ai-feud` | Who fights whom: a ranger on your side, a warden that ignores you | never run |  |  |  |  |
-| client-pass | `creatures.caller` | A Vukah that calls for help and throws ice | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `creatures.ai-feud` | Who fights whom: a ranger on your side, a warden that ignores you | never run |  |  |  |  |  |
+| client-pass | `creatures.caller` | A Vukah that calls for help and throws ice | never run |  |  |  |  |  |
 
 ### Drawing
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `drawing.render-sample` | Drawing on screen and in the world | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `drawing.render-sample` | Drawing on screen and in the world | never run |  |  |  |  |  |
 
 ### Gameplay
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `gameplay.items-quick-stack` | Item moves and quick stack | never run |  |  |  |  |
-| client-pass | `gameplay.combat-abilities` | Combat and an ability on a key | never run |  |  |  |  |
-| client-pass | `quests.npc-sample` | A Kiln NPC and quest in the game's own UI | never run |  |  |  |  |
-| client-pass | `time.set` | Time of day set by a mod | never run |  |  |  |  |
-| client-pass | `spawns.vukah` | A creature spawned by a mod | never run |  |  |  |  |
-| client-pass | `world.programs` | A world program with a player in the world | never run |  |  |  |  |
-| client-pass | `saves.kept` | What session 1 placed survives a restart | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `gameplay.items-quick-stack` | Item moves and quick stack | never run |  |  |  |  |  |
+| client-pass | `gameplay.combat-abilities` | Combat and an ability on a key | never run |  |  |  |  |  |
+| client-pass | `quests.npc-sample` | A Kiln NPC and quest in the game's own UI | never run |  |  |  |  |  |
+| client-pass | `time.set` | Time of day set by a mod | never run |  |  |  |  |  |
+| client-pass | `spawns.vukah` | A creature spawned by a mod | never run |  |  |  |  |  |
+| client-pass | `world.programs` | A world program with a player in the world | never run |  |  |  |  |  |
+| client-pass | `saves.kept` | What session 1 placed survives a restart | never run |  |  |  |  |  |
 
 ### Launcher
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `launcher.one-list` | Play lists every mod, with switches and Load order | never run |  |  |  |  |
-| client-pass | `launcher.profiles-settings` | Profiles live in Settings | never run |  |  |  |  |
-| client-pass | `launcher.archives` | 7z, rar and a game-folder zip dropped on the launcher | never run |  |  |  |  |
-| client-pass | `launcher.game-folder-rows` | Game folder rows, Load them and Add it | never run |  |  |  |  |
-| client-pass | `launcher.support-report` | A support report holds nothing private | never run |  |  |  |  |
-| client-pass | `library.guard-running` | Remove is refused while the game runs | never run |  |  |  |  |
-| client-pass | `library.guard-closed` | Remove works once the game is closed | never run |  |  |  |  |
-| client-pass | `launcher.kept-mod-files` | Files a mod wrote are kept when it is switched off | never run |  |  |  |  |
-| client-pass | `launcher.profile-rules` | A loaded profile's own rules apply at Play | never run |  |  |  |  |
-| client-pass | `launcher.reinstall` | After uninstalling and installing Kiln, the same profile is loaded | never run |  |  |  |  |
-| client-pass | `windows.nxm-vortex` | nxm:// links go back to Vortex | never run |  |  |  |  |
-| client-pass | `launcher.linked-home` | An EML mod on a host where /home links to /var/home | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `launcher.one-list` | Play lists every mod, with switches and Load order | never run |  |  |  |  |  |
+| client-pass | `launcher.profiles-settings` | Profiles live in Settings | never run |  |  |  |  |  |
+| client-pass | `launcher.archives` | 7z, rar and a game-folder zip dropped on the launcher | never run |  |  |  |  |  |
+| client-pass | `launcher.game-folder-rows` | Game folder rows, Load them and Add it | never run |  |  |  |  |  |
+| client-pass | `launcher.support-report` | A support report holds nothing private | never run |  |  |  |  |  |
+| client-pass | `library.guard-running` | Remove is refused while the game runs | never run |  |  |  |  |  |
+| client-pass | `library.guard-closed` | Remove works once the game is closed | never run |  |  |  |  |  |
+| client-pass | `launcher.kept-mod-files` | Files a mod wrote are kept when it is switched off | never run |  |  |  |  |  |
+| client-pass | `launcher.profile-rules` | A loaded profile's own rules apply at Play | never run |  |  |  |  |  |
+| client-pass | `launcher.reinstall` | After uninstalling and installing Kiln, the same profile is loaded | never run |  |  |  |  |  |
+| client-pass | `windows.nxm-vortex` | nxm:// links go back to Vortex | never run |  |  |  |  |  |
+| client-pass | `launcher.linked-home` | An EML mod on a host where /home links to /var/home | never run |  |  |  |  |  |
 
 ### Menus and hooks
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `menu.mods-page` | MODS in the main menu opens the mod manager | never run |  |  |  |  |
-| client-pass | `menu.kiln-menu` | Kiln's menu opens and draws | never run |  |  |  |  |
-| client-pass | `boot.proxy` | The game started with Kiln's proxy | never run |  |  |  |  |
-| client-pass | `hooks.camera-render-ui` | Camera, render and game UI with Kiln's hooks | never run |  |  |  |  |
-| client-pass | `overlay.device-takeover` | Kiln draws next to a graphics overlay | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `menu.mods-page` | MODS in the main menu opens the mod manager | never run |  |  |  |  |  |
+| client-pass | `menu.kiln-menu` | Kiln's menu opens and draws | never run |  |  |  |  |  |
+| client-pass | `boot.proxy` | The game started with Kiln's proxy | never run |  |  |  |  |  |
+| client-pass | `hooks.camera-render-ui` | Camera, render and game UI with Kiln's hooks | never run |  |  |  |  |  |
+| client-pass | `overlay.device-takeover` | Kiln draws next to a graphics overlay | never run |  |  |  |  |  |
 
 ### Other frameworks
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `eml.first-start` | The first start with EML mods takes seconds | never run |  |  |  |  |
-| client-pass | `frameworks.eml` | An EML mod runs | never run |  |  |  |  |
-| client-pass | `frameworks.shroudforge` | A ShroudForge mod runs, with its page in Kiln's menu | never run |  |  |  |  |
-| client-pass | `frameworks.eml-next-to-sf` | EML mods run while a ShroudForge mod is on | never run |  |  |  |  |
-| client-pass | `frameworks.greeneye` | A Greeneye mod runs | never run |  |  |  |  |
-| client-pass | `frameworks.flame` | Flame (Creative Mode) runs from the game's mods folder | never run |  |  |  |  |
-| client-pass | `frameworks.shroudtopia` | A Shroudtopia mod runs | never run |  |  |  |  |
-| client-pass | `frameworks.enshwick` | An Enshwick pack runs | never run |  |  |  |  |
-| client-pass | `frameworks.shroudlink` | shroudlink's MODS tab in singleplayer | never run |  |  |  |  |
-| client-pass | `emf.portraits` | EMF portraits do not hold up entering the world | never run |  |  |  |  |
-| client-pass | `chat.emf-bridge` | Kiln chat commands and EMF chat with kiln-emf's chat bridge | never run |  |  |  |  |
-| client-pass | `dll.xhl-late` | XHL-Core loaded late, after Kiln and ShroudForge | never run |  |  |  |  |
-| client-pass | `eml.nothing-changed` | Later EML starts change nothing | never run |  |  |  |  |
-| client-pass | `loader.sf-dbghelp` | Mods run with ShroudForge's dbghelp.dll and no DLL override | never run |  |  |  |  |
-| client-pass | `chat.emf-bridge-two` | Chat between two players with kiln-emf's chat bridge | never run |  |  |  |  |
-| client-pass | `windows.eml-own-loader` | EML's own dbghelp.dll on Windows | never run |  |  |  |  |
-| client-pass | `windows.non-ascii-user` | A Windows user name with non-ASCII letters | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `eml.first-start` | The first start with EML mods takes seconds | never run |  |  |  |  |  |
+| client-pass | `frameworks.eml` | An EML mod runs | never run |  |  |  |  |  |
+| client-pass | `frameworks.shroudforge` | A ShroudForge mod runs, with its page in Kiln's menu | never run |  |  |  |  |  |
+| client-pass | `frameworks.eml-next-to-sf` | EML mods run while a ShroudForge mod is on | never run |  |  |  |  |  |
+| client-pass | `frameworks.greeneye` | A Greeneye mod runs | never run |  |  |  |  |  |
+| client-pass | `frameworks.flame` | Flame (Creative Mode) runs from the game's mods folder | never run |  |  |  |  |  |
+| client-pass | `frameworks.shroudtopia` | A Shroudtopia mod runs | never run |  |  |  |  |  |
+| client-pass | `frameworks.enshwick` | An Enshwick pack runs | never run |  |  |  |  |  |
+| client-pass | `frameworks.shroudlink` | shroudlink's MODS tab in singleplayer | never run |  |  |  |  |  |
+| client-pass | `emf.portraits` | EMF portraits do not hold up entering the world | never run |  |  |  |  |  |
+| client-pass | `chat.emf-bridge` | Kiln chat commands and EMF chat with kiln-emf's chat bridge | never run |  |  |  |  |  |
+| client-pass | `dll.xhl-late` | XHL-Core loaded late, after Kiln and ShroudForge | never run |  |  |  |  |  |
+| client-pass | `eml.nothing-changed` | Later EML starts change nothing | never run |  |  |  |  |  |
+| client-pass | `loader.sf-dbghelp` | Mods run with ShroudForge's dbghelp.dll and no DLL override | never run |  |  |  |  |  |
+| client-pass | `chat.emf-bridge-two` | Chat between two players with kiln-emf's chat bridge | never run |  |  |  |  |  |
+| client-pass | `windows.eml-own-loader` | EML's own dbghelp.dll on Windows | never run |  |  |  |  |  |
+| client-pass | `windows.non-ascii-user` | A Windows user name with non-ASCII letters | never run |  |  |  |  |  |
 
 ### Servers
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `windows.dedicated-item` | A mod's new item on a native Windows dedicated server | never run |  |  |  |  |
-| client-pass | `server.remote-mods` | A remote server with server mods | never run |  |  |  |  |
-| client-pass | `server.pack-rented` | The server pack on a rented host | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `windows.dedicated-item` | A mod's new item on a native Windows dedicated server | never run |  |  |  |  |  |
+| client-pass | `server.remote-mods` | A remote server with server mods | never run |  |  |  |  |  |
+| client-pass | `server.pack-rented` | The server pack on a rented host | never run |  |  |  |  |  |
 
 ### Shaders and materials
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `shaders.particle-swirl` | Particles moved by a mod's own shader | never run |  |  |  |  |
-| client-pass | `shaders.material-reskin` | A game material reskinned by a mod | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `shaders.particle-swirl` | Particles moved by a mod's own shader | never run |  |  |  |  |  |
+| client-pass | `shaders.material-reskin` | A game material reskinned by a mod | never run |  |  |  |  |  |
 
 ### Steam Deck
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `deck.no-kiln` | "No Kiln" in the launcher on a Steam Deck | never run |  |  |  |  |
-| client-pass | `deck.mode` | The launcher's Steam Deck mode | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `deck.no-kiln` | "No Kiln" in the launcher on a Steam Deck | never run |  |  |  |  |  |
+| client-pass | `deck.mode` | The launcher's Steam Deck mode | never run |  |  |  |  |  |
 
 ### VFX
 
-| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |
-|---|---|---|---|---|---|---|---|
-| client-pass | `vfx.spawn-shapes` | VFX spawn shapes and streaks | never run |  |  |  |  |
-| client-pass | `vfx.play-params` | One VFX recoloured and resized by parameters | never run |  |  |  |  |
-| client-pass | `vfx.game-by-name` | A game VFX by name and a Kiln VFX | never run |  |  |  |  |
+| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |
+|---|---|---|---|---|---|---|---|---|
+| client-pass | `vfx.spawn-shapes` | VFX spawn shapes and streaks | never run |  |  |  |  |  |
+| client-pass | `vfx.play-params` | One VFX recoloured and resized by parameters | never run |  |  |  |  |  |
+| client-pass | `vfx.game-by-name` | A game VFX by name and a Kiln VFX | never run |  |  |  |  |  |

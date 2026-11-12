@@ -269,8 +269,8 @@ def render(server: dict, server_rows: dict, client: dict | None, client_rows: di
     for area in sorted(by_area, key=lambda a: a.encode("utf-8")):
         w(f"### {cell(area)}")
         w("")
-        w("| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build |")
-        w("|---|---|---|---|---|---|---|---|")
+        w("| Mod | Check | Title | Last verdict | Date | Session | Kiln | Game build | Notes |")
+        w("|---|---|---|---|---|---|---|---|---|")
         rows = sorted(by_area[area], key=lambda c: (c.get("order") if type(c.get("order")) is int else 0,
                                                     str(c["mod"]), str(c["id"])))
         for c in rows:
@@ -280,12 +280,17 @@ def render(server: dict, server_rows: dict, client: dict | None, client_rows: di
             if c["mod"] == "client-check-test":
                 mod += " (lab script, not a player)"
             if e is None:
-                w(f"| {mod} | {code(str(c['id']))} | {title} | {NEVER} |  |  |  |  |")
+                w(f"| {mod} | {code(str(c['id']))} | {title} | {NEVER} |  |  |  |  |  |")
             else:
                 g = e["game"]
                 build = f"{cell(g['side'])} {code(sha12(g['sha256']))}"
+                notes = [cell(e["note"])] if e.get("note") else []
+                assertions = e.get("assertions", [])
+                failed = sum(a["ok"] is not True for a in assertions)
+                if failed:
+                    notes.append(f"{failed} of {len(assertions)} assertions failed")
                 w(f"| {mod} | {code(str(c['id']))} | {title} | {e['verdict']} | {cell(e['time'][:10])} | "
-                  f"{cell(e['session'])} | {code(str(e['kiln']))} | {build} |")
+                  f"{cell(e['session'])} | {code(str(e['kiln']))} | {build} | {'; '.join(notes)} |")
         w("")
     return "\n".join(out).rstrip("\n") + "\n"
 

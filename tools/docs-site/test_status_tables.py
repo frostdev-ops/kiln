@@ -146,10 +146,31 @@ class Checks(unittest.TestCase):
                          "client-check-test (lab script, not a player)")
         self.assertEqual(row(Run()()[1], "Items", "demo.first")[0], "demo")
 
+    def test_verdict_notes_are_preserved_and_escaped(self):
+        checks = fixture("client-checks.json")
+        checks["entries"][-1]["note"] = "flash was green | not blue\n<guard warning>"
+        _, text, _ = Run(checks=checks)()
+        self.assertIn("| Game build | Notes |", text)
+        self.assertEqual(row(text, "Items", "demo.first")[-1],
+                         "flash was green \\| not blue \\<guard warning\\>")
+
+    def test_failed_assertions_are_reported_even_with_a_pass(self):
+        checks = fixture("client-checks.json")
+        checks["entries"][-1]["note"] = "guard warning"
+        checks["entries"][-1]["assertions"] = [
+            {"what": "one", "ok": True}, {"what": "two", "ok": False}, {"what": "three", "ok": False}]
+        _, text, _ = Run(checks=checks)()
+        r = row(text, "Items", "demo.first")
+        self.assertEqual(r[3], "pass")
+        self.assertEqual(r[-1], "guard warning; 2 of 3 assertions failed")
+        checks["entries"][-1]["assertions"] = [{"what": "one", "ok": True}]
+        _, text, _ = Run(checks=checks)()
+        self.assertEqual(row(text, "Items", "demo.first")[-1], "guard warning")
+
     def test_the_newest_entry_of_a_check_wins(self):
         _, text, _ = Run()()
         r = row(text, "Items", "demo.first")
-        self.assertEqual(r[3:], ["pass", "2026-11-11", "hosted", "`0.2.0-dev.25`", "client `222222222222`"])
+        self.assertEqual(r[3:], ["pass", "2026-11-11", "hosted", "`0.2.0-dev.25`", "client `222222222222`", ""])
         self.assertNotIn("| fail |", text)
 
     def test_the_newest_is_the_last_in_the_list(self):
@@ -161,7 +182,7 @@ class Checks(unittest.TestCase):
     def test_a_check_with_no_entry_is_never_run(self):
         _, text, _ = Run()()
         r = row(text, "World", "demo.never")
-        self.assertEqual(r[2:], ["Never played", "never run", "", "", "", ""])
+        self.assertEqual(r[2:], ["Never played", "never run", "", "", "", "", ""])
 
     def test_no_entries_at_all(self):
         checks = fixture("client-checks.json")
