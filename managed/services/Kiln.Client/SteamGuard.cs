@@ -151,12 +151,13 @@ public static unsafe class SteamGuard
     }
 
     /// <summary>Turns the guard on while <paramref name="hold"/> is not disposed. The first latch or hold puts the hook
-    /// in. Any thread.</summary>
+    /// in; call on the game tick thread, never the render thread.</summary>
     /// <param name="reason">What needs the guard, for the log (not empty).</param>
     /// <param name="hold">On true, dispose it to end this hold (other holds and a latch stay on); null on false.</param>
     /// <returns>True when the guard protects now; false when it cannot (see <see cref="Status"/>'s reason). On false
     /// nothing is held.</returns>
     /// <exception cref="ArgumentException"><paramref name="reason"/> is null or empty.</exception>
+    [TickThreadOnly]
     public static bool TryHold(string reason, out IDisposable? hold)
     {
         ArgumentException.ThrowIfNullOrEmpty(reason);
@@ -185,10 +186,11 @@ public static unsafe class SteamGuard
         }
     }
 
-    /// <summary>Turns the guard on until the game exits. The first latch or hold puts the hook in. Any thread.</summary>
+    /// <summary>Turns the guard on until the game exits. The first latch or hold puts the hook in; call on the game tick thread, never the render thread.</summary>
     /// <param name="reason">What needs the guard, for the log (not empty).</param>
     /// <returns>True when the guard protects now; false when it cannot (see <see cref="Status"/>'s reason).</returns>
     /// <exception cref="ArgumentException"><paramref name="reason"/> is null or empty.</exception>
+    [TickThreadOnly]
     public static bool Latch(string reason)
     {
         ArgumentException.ThrowIfNullOrEmpty(reason);
@@ -208,13 +210,14 @@ public static unsafe class SteamGuard
     }
 
     /// <summary>Turns the guard on while the returned hold is not disposed, like <see cref="TryHold"/>, and throws
-    /// when it cannot protect. Any thread.</summary>
+    /// when it cannot protect. Call on the game tick thread (the first call installs a hook).</summary>
     /// <param name="reason">What needs the guard, for the log (not empty).</param>
     /// <returns>Dispose it to end this hold (other holds and a latch stay on).</returns>
     /// <exception cref="ArgumentException"><paramref name="reason"/> is null or empty.</exception>
     /// <exception cref="KilnUnavailableException">The guard cannot protect: <see cref="Capability"/> when the service
     /// is not there or its target is not verified, else <see cref="ProtectingCapability"/> (the hook did not go in, or
     /// another hook is on the game's call). Nothing is held.</exception>
+    [TickThreadOnly]
     public static IDisposable Hold(string reason)
     {
         if (TryHold(reason, out var hold) && hold is not null) return hold;

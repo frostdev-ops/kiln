@@ -54,6 +54,27 @@ public sealed class JoinedTests
         Assert.Equal(1, h.Guard.Releases);
     }
 
+    [Fact]
+    public void Joined_ui_start_and_yes_do_no_guard_disk_or_send_work_until_client_tick()
+    {
+        using var h = new Harness();
+        var sent = new List<object>();
+        var tick = new Queue<Action>();
+        var net = new CheckNet(h.Runner, h.Env, null!, m => { sent.Add(m); return true; });
+        CheckUiHost.ActJoined(new UiAction(UiActionKind.Run, Item(true)), net, tick.Enqueue);
+        Assert.Null(net.View(h.Runner.View).Current);
+        tick.Dequeue()();
+        Assert.NotNull(net.View(h.Runner.View).Current);
+        CheckUiHost.ActJoined(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Yes), net, tick.Enqueue);
+        Assert.Equal(0, h.Guard!.Latches);
+        Assert.Equal(0, h.Guard.Holds);
+        Assert.Empty(sent);
+        tick.Dequeue()();
+        Assert.Equal(1, h.Guard.Latches);
+        Assert.Equal(1, h.Guard.Holds);
+        Assert.Single(sent.OfType<NetStart>());
+    }
+
     internal static ViewItem Item(bool cheats) => new("cct", cheats ? "t.cheats" : "t.pass", "Check", "Basics",
         cheats ? [ClientCheckTags.Cheats] : [], "joined", null, null, null, null, cheats);
 }

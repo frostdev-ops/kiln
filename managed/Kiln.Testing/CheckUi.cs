@@ -210,7 +210,7 @@ internal static class CheckUiHost
         _net = net;
         _screen = Ui.Screen("Guided checks", ui => CheckScreen.Draw(ui, View(), State, Act, DateTime.UtcNow, KeyLine()),
             new UiScreenOptions { Width = 980, Height = 700, Resizable = true });
-        _screen.Opened += () => _net?.RequestCatalog();
+        _screen.Opened += () => Act(new UiAction(UiActionKind.Refresh));
         _screen.Closed += OnClosed;
         Hud.Show("kiln.checks", () => CheckScreen.HudText(View(), Name(_pass), Name(_fail), Name(_skip), Name(_open)), HudAnchor.TopCenter,
             new Color(255, 225, 150));
@@ -262,19 +262,27 @@ internal static class CheckUiHost
         Act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Fail));
     }
 
+    internal static void ActJoined(UiAction a, CheckNet net, Action<Action>? post = null)
+    {
+        (post ?? (work => Client.Post(work)))(() =>
+        {
+        switch (a.Kind)
+        {
+            case UiActionKind.Run when a.Item is { } item: net.Start(item); break;
+            case UiActionKind.RunAll: net.StartAll(); break;
+            case UiActionKind.Answer: net.Answer(a.Answer, a.Note); break;
+            case UiActionKind.Refresh: net.RequestCatalog(); break;
+        }
+        });
+    }
+
     private static void Act(UiAction a)
     {
         var runner = _runner;
         if (runner is null) return;
         if (_net is { Joined: true } net)
         {
-            switch (a.Kind)
-            {
-                case UiActionKind.Run when a.Item is { } item: net.Start(item); break;
-                case UiActionKind.RunAll: net.StartAll(); break;
-                case UiActionKind.Answer: net.Answer(a.Answer, a.Note); break;
-                case UiActionKind.Refresh: net.RequestCatalog(); break;
-            }
+            ActJoined(a, net);
             return;
         }
         runner.Post(() =>

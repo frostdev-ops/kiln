@@ -67,11 +67,12 @@ typedef struct KilnSteamGuardApi {
     KilnResult(KILN_CALL* status)(KilnSteamGuardStatus* out);
     /* Turns the guard on until the game exits (the first call puts the detour in). `reason` (UTF-8, not empty) goes into
      * the log. KILN_OK only when the guard protects after the call; KILN_ERR_UNAVAILABLE otherwise (target not verified,
-     * install failed, foreign hook: see status.reason). Any thread. */
+     * install failed, foreign hook: see status.reason). The first latch or hold installs a hook and MUST run on the
+     * game tick thread (client main thread or hosted server tick), never the render thread. */
     KilnResult(KILN_CALL* latch)(KilnStr reason);
     /* Turns the guard on while the returned token is held (the first call puts the detour in). KILN_OK and *out_token
      * (never 0) only when the guard protects after the call; on any other result *out_token is 0 and nothing is held.
-     * Any thread. */
+     * The first latch or hold installs a hook and MUST run on the game tick thread, never the render thread. */
     KilnResult(KILN_CALL* hold)(KilnStr reason, uint64_t* out_token);
     /* Releases one hold. KILN_ERR_NOT_FOUND: the token is unknown or was released already. The detour stays in. */
     KilnResult(KILN_CALL* release)(uint64_t token);
