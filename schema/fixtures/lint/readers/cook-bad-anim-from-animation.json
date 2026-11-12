@@ -1,0 +1,2 @@
+{ "format": 1, "tool": "animcook", "steps": [ { "op": "skeleton", "name": "g", "gltf": "x.glb" },
+  { "op": "clips", "skeleton": "g", "gltf": "x.glb", "clips": { "a": { "animation": "Idle" }, "b": { "from": "a", "animation": "Idle", "mirror": true } } } ] }

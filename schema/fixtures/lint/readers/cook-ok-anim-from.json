@@ -1,0 +1,22 @@
+{
+ "format": 1,
+ "tool": "animcook",
+ "mod": "m",
+ "inputs": {
+  "rig": { "type": "keen::ModelHierarchyResource", "guid": "0a1b2c3d-0000-4000-8000-000000000001" },
+  "guard": { "type": "keen::JointAnimation", "guid": "0a1b2c3d-0000-4000-8000-000000000002" },
+  "swing": { "type": "keen::JointAnimation", "guid": "0a1b2c3d-0000-4000-8000-000000000003" }
+ },
+ "steps": [
+  { "op": "skeleton", "name": "g", "gltf": "src/g.glb" },
+  { "op": "clips", "skeleton": "g", "gltf": "src/g.glb", "clips": { "idle": { "animation": "Idle", "loop": true } } },
+  { "op": "clips", "skeleton": "g",
+    "clips": { "idle_left": { "from": "idle", "mirror": true },
+               "idle_slow": { "from": "idle", "speed": 0.8, "trim": [0.1, 1.4], "reverse": true, "loop": false },
+               "idle_mixed": { "from": "idle", "blend": { "with": "idle_left", "bones": { "arm_r": 1, "hand_r": 0.5 }, "children": true },
+                               "offset": { "head": { "rotate": [0, 10, 0] }, "hand_r": { "translate": [0, 0.05, 0] } } } } },
+  { "op": "clips", "skeleton": "@rig", "tolerance": { "rotation": 0.001 },
+    "clips": { "guard_left": { "from": "@guard", "mirror": { "pairs": { "j12": "j40" }, "axis": "x", "tolerance": 0.004 }, "guid": "@guard", "rootMotion": false },
+               "guard_half": { "from": "@guard", "blend": { "with": "@swing", "weight": 0.5 }, "events": [ { "at": 0.2, "foot": "left" } ] } } }
+ ]
+}
