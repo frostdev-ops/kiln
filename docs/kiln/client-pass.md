@@ -157,7 +157,7 @@ These checks come last in the list, each tagged so you can see them at a glance.
 | Another host | `other-host` | 931 a remote server with server mods (joined), 932 the server pack on a rented host, 933 an EML mod where `/home` links to `/var/home` (Fedora Atomic, Bazzite) |
 
 `core.unload-windows` runs like `core.unload-quit`, after one step: on native Windows the exit link is off by default
-in this release; set `<KEY: core names it in its report>` to `"on"` in `kiln/kiln.json` first.
+in this release; set `"unloadAtExit"` to `"on"` in `kiln/kiln.json` first.
 
 Checks tagged `launcher` are done (partly) in the launcher or on the desktop; the check only shows the steps and takes
 your answer.
