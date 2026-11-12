@@ -293,13 +293,24 @@ the self-update's `update.json`, the Nexus inbox reader and start-up cleanup, th
 **Start-up, in this order (lib.rs setup), before any watcher:** the folder is located without failing (nothing is
 created for a broken pointer; a missing default or `KILN_DATA_DIR` root is made, as before); the lock is taken shared
 (held exclusively elsewhere: the dialog); a broken pointer or another launcher's move stops here: no watcher, no
-import, no update check, no file written. Then a move the journal records: an unfinished one's partial copy is removed
-now (or left, with its path, when the proof is missing); a committed one not acknowledged yet gets the task "Remove
-the old data folder" two seconds later (what the move's own removal left, or the lock files and the empty old folder
+import, no update check, no file written. Then a move the journal records. An unfinished one: nothing is removed
+during setup; the folder is held as during a move (its proof is a file identical to the one in the folder in use, so
+nothing may write that folder), the task "Remove the unfinished copy" starts two seconds later, and the window shows
+only "Removing an unfinished copy" with the folder, the task's progress ("checking <file>") and Cancel ("Cancel
+leaves the rest for the next start; Kiln opens as usual."). The task is `data_folder_move::remove_partial_copy_with`:
+a file goes only when the folder in use holds the identical one; everything else stays, named with the crate's
+reason. When the task ends, however it ends, the hold ends: the held log lines are written, the steps below run, the
+launcher mounts, and the notice "Move not finished" names what is left (path, size, why), where the unfinished copy
+is, and Open; a canceled one says the rest goes at the next start. While anything is left the journal stays, the
+Settings row says so instead of Change, and every start tries again; once the player has taken the named files out
+(or removed the folder) the next start finishes. A committed one not acknowledged
+yet gets the task "Remove the old data folder" two seconds later (what the move's own removal left, or the lock files and the empty old folder
 the moving process still held; in the task tray, can be canceled, goes on at the next start). A removal the crate
 refuses (a game's profile still names the old folder) says its reason in the notice, and the ack keeps the journal;
 an unfinished move whose partial copy could not be removed names what is left, and the next start tries again.
-Then the file-hash cache, the watcher, the shipped runtime, the modpack watcher, Nexus, the self-update.
+Then (lib.rs `after_folder`, at once, or after the unfinished copy's task) the file-hash cache, the watcher, the shipped
+runtime, the modpack watcher, Nexus, the self-update. While an earlier move is not finished, the Settings row says why
+(`DataFolder.pending`) instead of offering Change.
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

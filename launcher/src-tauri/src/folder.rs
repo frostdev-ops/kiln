@@ -26,6 +26,9 @@ pub enum Hold {
     Moving,
     /// The pointer was written: this process restarts and touches the folder no more.
     Moved,
+    /// The partial copy of an unfinished move is being removed (the task "Remove the unfinished copy"): its proof is a
+    /// file identical to the one in this folder, so nothing writes the folder until the task returns.
+    Undoing,
     /// The process is on its way out (restart, quit).
     Leaving,
 }
@@ -34,14 +37,15 @@ pub enum Hold {
 pub const MOVING_ELSEWHERE: &str = "Kiln is moving its data in another window.";
 pub const MOVING_HERE: &str = "Kiln is moving its data folder: wait for the move to finish.";
 pub const MOVED: &str = "The data folder has moved: Kiln restarts to use it.";
+pub const UNDOING: &str = "Kiln is removing an unfinished copy of the data folder: wait for it to finish.";
 pub const LEAVING: &str = "Kiln is closing.";
 
 /// Commands that answer while the pointer is broken.
 pub const OPEN_WHEN_BROKEN: &[&str] = &["app_info", "data_folder_get", "data_folder_use", "data_folder_reset", "data_folder_restart", "deck_quit"];
 /// Commands that answer while another launcher moves the folder.
 pub const OPEN_WHEN_ELSEWHERE: &[&str] = &["app_info", "data_folder_get", "data_folder_restart", "deck_quit"];
-/// Commands that answer while this process moves the folder or has moved it: the move's own progress and Cancel, the
-/// restart, and what does not touch the data folder.
+/// Commands that answer while this process moves the folder, has moved it, or removes an unfinished copy: the task's
+/// own progress and Cancel, the restart, and what does not touch the data folder.
 pub const OPEN_WHEN_MOVING: &[&str] = &[
     "app_info", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart",
     "deck_quit", "deck_fullscreen", "deck_gamepad", "app_open_path", "app_open_url",
@@ -109,6 +113,7 @@ impl Folder {
             Hold::Elsewhere => busy(MOVING_ELSEWHERE),
             Hold::Moving => busy(MOVING_HERE),
             Hold::Moved => busy(MOVED),
+            Hold::Undoing => busy(UNDOING),
             Hold::Leaving => busy(LEAVING),
         }
     }
@@ -130,7 +135,7 @@ impl Folder {
             match self.hold() {
                 Hold::Free => return None,
                 Hold::Elsewhere => OPEN_WHEN_ELSEWHERE,
-                Hold::Moving | Hold::Moved | Hold::Leaving => OPEN_WHEN_MOVING,
+                Hold::Moving | Hold::Moved | Hold::Leaving | Hold::Undoing => OPEN_WHEN_MOVING,
             }
         };
         if open.contains(&cmd) { None } else { self.held_error() }

@@ -117,7 +117,7 @@ export function DeckDataFolderNotice() {
   return (
     <Dialog name="data-notice" title={v.title} onClose={ack} backLabel="Close" wide
       buttons={<>
-        {v.open && <DeckButton onClick={() => api.appOpenPath(n.kind === "undone" ? n.to : n.from).catch((e) => toast.error(e))}>Open old folder</DeckButton>}
+        {v.open && <DeckButton onClick={() => api.appOpenPath(n.kind === "undone" ? n.to : n.from).catch((e) => toast.error(e))}>{v.openLabel}</DeckButton>}
         <DeckButton primary onClick={ack}>OK</DeckButton>
       </>}>
       {v.facts.length > 0 && (

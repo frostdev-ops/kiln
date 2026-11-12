@@ -1073,7 +1073,7 @@ or emits `kiln://update`; its UI calls none of these commands.
 | found | `found_scan` | gameId, profileId | `FoundReport {gameId, profileId, kilnInstalled, mods: FoundMod[], loaders: OwnLoader[], unreadable: {path, reason}[], truncated}`; `FoundMod {kind: ModKind \| null, name, id, version, path (relative to the game, '/'), state: "loads"\|"off"\|"inProfile"\|"cannotRun", via?: "kiln"\|"ownLoader", reason, fix?: "dropins"\|"add", profileMod?}`, `OwnLoader {engine, name, kinds, file}` (mods in the game folder Kiln did not put there and whether they load with that profile: profiles.md "Mods in the game folder"; never fails over a missing or unreadable folder) |
 | found | `found_add` | gameId, profileId, path | `TaskId` -> `AddReport` (imports a `found_scan` entry into the Library and adds it to the profile, enabled; through `library_add`'s flow when the profile is active in the game; a refusal is in `import.skipped`; the player's folder stays) |
 
-| data_folder | `data_folder_get` | - | `DataFolder` (answers in every state; with a broken pointer `path` is the default place and `problem` is set) |
+| data_folder | `data_folder_get` | - | `DataFolder` (answers in every state; with a broken pointer `path` is the default place and `problem` is set; while an unfinished move's partial copy is removed `undoing` is set and `notice` comes after it; `pending`: why a move cannot start now) |
 | data_folder | `data_folder_size` | - | `{bytes, files}` (`data_folder::inventory`: what a move copies) |
 | data_folder | `data_folder_check` | path (the folder the player picked) | `DataFolderPlan` (`data_folder::check_here`; a refusal is `action: "refuse"` with the crate's `reason` and `code`; a task that runs is the refusal `busy`, "Kiln is still working on: <title>.") |
 | data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to` with the process's lock; refused while a task runs, and in a build with Nexus on while another launcher holds `nexus/instance.lock` (one before dev.25 takes no data-folder lock); the file-hash cache stops writing for the move (`filecache::unpersist`) and writes again after a failed or canceled one; the last phase, task message "removing the old copy: <file>", removes the old copy: a cancel there ends the task as done with `cleanup.interrupted`, the rest goes at the next start; when a game's profile could not be written for the new place the removal does not run and `cleanup.reason` names the game; a failed or canceled task left the old place in use, its error names what is left in the target; the restart follows) |
@@ -1105,8 +1105,11 @@ kiln.log's `[E` lines of the run that wrote boot.json).
 
 The data folder (`launcher/src-tauri/src/commands/data_folder.rs`, `folder.rs`; the crate's side in section 3):
 `DataFolder {path, defaultPath, source: "env"|"pointer"|"default", problem: {path, reason, kind}|null, notice:
-DataFolderNotice|null, elsewhere: boolean}` (`elsewhere`: another launcher holds the folder's lock exclusively, it is
-moving it), `DataFolderEntry {name, bytes, path}`, `DataFolderPlan {picked, target, action: "move"|"use"|"refuse",
+DataFolderNotice|null, elsewhere: boolean, undoing: {task: string|null, folder}|null, pending: string|null}`
+(`elsewhere`: another launcher holds the folder's lock exclusively, it is moving it; `undoing`: this start removes an
+unfinished move's partial copy at `folder`, the task "Remove the unfinished copy" (kind `data_folder_undo`; null for
+the moment before it starts; its result is the crate's `Cleanup`, `remove_partial_copy_with`); `pending`: an earlier move is not finished, the crate would refuse a move with
+`move_pending`, in words), `DataFolderEntry {name, bytes, path}`, `DataFolderPlan {picked, target, action: "move"|"use"|"refuse",
 reason, code (RefusalCode, snake_case), bytes, files, needed, free, sameVolume, hardLinks, copyMode: string[] (games by
 name that would run in copy mode from there and do not now), stays: DataFolderEntry[] (entries the launcher does not
 know: copied, and left in the old folder), warnings: string[]}`, `DataFolderNotice {kind: "moved"|"undone"|"unclear",
@@ -1115,9 +1118,9 @@ folderRemoved, reason}`, `DataFolderMoved {from, to, bytes, files, warnings, sta
 interrupted, folderRemoved, kept, reason}|null}`. While the pointer is broken only `app_info`, `data_folder_get`, `_use`, `_reset`, `_restart`
 and `deck_quit` answer, every other command rejects with `data_folder`; while another launcher moves the folder only
 `app_info`, `data_folder_get`, `_restart` and `deck_quit` (the others: `busy`); while this one moves it or has moved it,
-only `app_info`, `task_*`, `data_folder_get`, `_restart`, `deck_quit`, `deck_fullscreen`, `deck_gamepad`,
-`app_open_path` and `app_open_url` (the others: `busy`). New tasks fail at once with `busy` then, except the move and
-the removal of an old copy.
+or removes an unfinished copy, only `app_info`, `task_*`, `data_folder_get`, `_restart`, `deck_quit`,
+`deck_fullscreen`, `deck_gamepad`, `app_open_path` and `app_open_url` (the others: `busy`). New tasks fail at once
+with `busy` then, except the move, the removal of an old copy and the removal of an unfinished copy.
 
 `--selftest`: the binary runs headless, exercises the Rust side (data dir, crate calls with temp
 folders) and exits 0/1; used under Wine for the NSIS build. Its report has `distribution` ("direct" or "nexus"; also

@@ -32,7 +32,10 @@ export const ENV_WHY = "Set by KILN_DATA_DIR.";
 /** What the "Data folder" row shows: the data folder, or before data_folder_get answers (or on a backend without it)
  *  app_info's dataDir with Change off. */
 export function rowView(f: DataFolder | null | undefined, error: unknown, fallbackDir: string | null | undefined): RowView {
-  if (f) return { path: f.path, canChange: f.source !== "env", why: f.source === "env" ? ENV_WHY : null };
+  if (f?.source === "env") return { path: f.path, canChange: false, why: ENV_WHY };
+  // an earlier move is not finished (the backend's sentence): the folder dialog would end in a refusal
+  if (f?.pending) return { path: f.path, canChange: false, why: f.pending };
+  if (f) return { path: f.path, canChange: true, why: null };
   if (error) return { path: fallbackDir ?? null, canChange: false, why: "This launcher cannot move its data folder." };
   return { path: fallbackDir ?? null, canChange: false, why: null };
 }
@@ -136,8 +139,9 @@ export interface NoticeView {
   facts: { label: string; value: string }[];
   lines: string[];
   lists: NoticeList[];
-  /** Open old folder: something is still there. */
+  /** Open (`openLabel`): something is still there. */
   open: boolean;
+  openLabel: string;
 }
 
 /** The notice at the start after a move: where the data is now, what is still in the old folder (what Kiln left on
@@ -152,13 +156,20 @@ export function noticeView(n: DataFolderNotice): NoticeView {
   const lines: string[] = [];
   if (n.kind === "undone") {
     lines.push(`The last move did not finish. Kiln uses ${n.from} as before.`);
+    if (n.unfinished) lines.push("Kiln stopped removing the unfinished copy: the rest goes at the next start.");
     if (kept.length) lists.push({ line: "Kiln could not remove these from the unfinished copy:", items: kept });
     if (n.reason) lines.push(n.reason);
-    return { title: "Move not finished", facts: [{ label: "Data folder", value: n.from }], lines, lists, open: false };
+    // something is left there: where it is, and Open
+    const left = kept.length > 0 || !!n.unfinished || (!n.folderRemoved && !!n.reason);
+    return {
+      title: "Move not finished",
+      facts: [{ label: "Data folder", value: n.from }, ...(left ? [{ label: "Unfinished copy", value: n.to }] : [])],
+      lines, lists, open: left, openLabel: "Open unfinished copy",
+    };
   }
   if (n.kind === "unclear") {
     if (n.reason) lines.push(n.reason);
-    return { title: "Kiln did not finish a move", facts: n.from ? [{ label: "Old folder", value: n.from }, { label: "New folder", value: n.to }] : [], lines, lists, open: !!n.from };
+    return { title: "Kiln did not finish a move", facts: n.from ? [{ label: "Old folder", value: n.from }, { label: "New folder", value: n.to }] : [], lines, lists, open: !!n.from, openLabel: "Open old folder" };
   }
   if (n.removing) lines.push("Kiln is removing the old copy.");
   else if (n.unfinished) lines.push("Part of the old copy is still there: Kiln removes the rest at the next start.");
@@ -173,8 +184,13 @@ export function noticeView(n: DataFolderNotice): NoticeView {
     lines,
     lists,
     open,
+    openLabel: "Open old folder",
   };
 }
+
+/** The dialog while an unfinished move's partial copy is removed (the folder is held). */
+export const UNDOING_TITLE = "Removing an unfinished copy";
+export const UNDOING_CANCEL_LINE = "Cancel leaves the rest for the next start; Kiln opens as usual.";
 
 /** The dialog when another launcher holds the data folder (it is moving it). */
 export const ELSEWHERE_TITLE = "Kiln is moving its data in another window";

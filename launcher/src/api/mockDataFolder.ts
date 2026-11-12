@@ -11,6 +11,10 @@
 //   moved-removing   the same, while the task removes the old copy
 //   moved-unfinished the same, the removal stopped (it goes on at the next start)
 //   moved-refused    the same, the removal refused (a game's profile still names the old folder): its reason
+//   undoing      an unfinished move's partial copy is being removed (the task "Remove the unfinished copy"): the
+//                window shows only its dialog; done, the notice "Move not finished"
+//   undoing-left the same, the removal leaves files (named in the notice)
+//   pending      a partial copy is left from an earlier start: the Settings row says so, no folder dialog
 //   undone       an unfinished move undone at this start
 //   undone-left  the same, part of the partial copy could not be removed (the next start tries again)
 //   unclear      a move's record that matches neither folder
@@ -26,7 +30,7 @@
 //   anything else              move, used as it is
 // Also: `failNext(message)`, `sizeDelay(ms)`, `stepMs(ms)` (each step of the move task), `refusals()`, `state()`, `interruptRemoval(on)` (the move's last phase,
 // the removal of the old copy, is stopped: the task still ends as done, as the backend's does after a cancel there).
-import type { DataFolder, DataFolderMoved, DataFolderPlan, DataFolderSize, KilnError } from "./commands";
+import type { DataFolder, DataFolderMoved, DataFolderPlan, DataFolderSize, KilnError, Task } from "./commands";
 
 type Args = Record<string, unknown>;
 type StartTask = (kind: string, title: string, steps: string[], finish: () => unknown, stepMs?: number) => string;
@@ -85,6 +89,8 @@ function start(): DataFolder {
     case "undone-left": return { ...base, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: ["/mnt/games/Kiln/backups"], stayed: [],
       kept: [{ path: "/mnt/games/Kiln/backups", bytes: 2_400, reason: "it could not be removed: Permission denied (os error 13)" }], removing: false,
       unfinished: false, folderRemoved: false, reason: "Parts of the partial copy in /mnt/games/Kiln could not be removed: the folder stays marked as an unfinished move." } };
+    case "undoing": case "undoing-left": return { ...base, undoing: { task: null, folder: "/mnt/games/Kiln" } };
+    case "pending": return { ...base, pending: "Part of an unfinished copy from the last move is still in /mnt/games/Kiln: Kiln removes it at the next start." };
     case "undone": return { ...base, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: true, reason: null } };
     case "unclear": return { ...moved, notice: { kind: "unclear", ...LEFT, left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: false,
       reason: `The launcher uses /mnt/games/Kiln, but the move went from ${MOCK_DEFAULT_DATA} to /mnt/other/Kiln: nothing is removed.` } };
@@ -92,7 +98,8 @@ function start(): DataFolder {
   }
 }
 
-const FAIL_URL = typeof location !== "undefined" && new URLSearchParams(location.search).get("df") === "fail";
+const DF = typeof location !== "undefined" ? new URLSearchParams(location.search).get("df") : null;
+const FAIL_URL = DF === "fail";
 
 let folder: DataFolder = start();
 const picks: (string | null)[] = [];
@@ -100,6 +107,8 @@ let failNext: string | null = FAIL_URL ? "Could not copy library/kiln/new-items:
 let busy: string | null = null;
 let sizeDelay = 900;
 let interrupt = false;
+/** Each step of the recovery's task (`?df=undoing`): four steps, time enough to see the dialog and press Cancel. */
+const undoStepMs = 900;
 let reactivation: string | null = null;
 let stepMs = 600;
 
@@ -115,8 +124,12 @@ export const mockDataDir = () => folder.path;
  *  fails then, as in the backend (src-tauri/src/folder.rs). */
 const OPEN_WHEN_BROKEN = new Set(["app_info", "data_folder_get", "data_folder_use", "data_folder_reset", "data_folder_restart", "deck_quit"]);
 const OPEN_WHEN_ELSEWHERE = new Set(["app_info", "data_folder_get", "data_folder_restart", "deck_quit"]);
+/** While the partial copy is removed: as during a move (src-tauri/src/folder.rs OPEN_WHEN_MOVING). */
+const OPEN_WHEN_UNDOING = new Set(["app_info", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart",
+  "deck_quit", "deck_fullscreen", "deck_gamepad", "app_open_path", "app_open_url"]);
 export function dataFolderBlocks(cmd: string): KilnError | null {
   if (folder.problem && !OPEN_WHEN_BROKEN.has(cmd)) return { code: "data_folder", message: folder.problem.reason };
+  if (folder.undoing && !OPEN_WHEN_UNDOING.has(cmd)) return { code: "busy", message: "Kiln is removing an unfinished copy of the data folder: wait for it to finish." };
   if (folder.elsewhere && !OPEN_WHEN_ELSEWHERE.has(cmd)) return { code: "busy", message: "Kiln is moving its data in another window." };
   return null;
 }
@@ -138,7 +151,35 @@ function plan(path: string): DataFolderPlan {
   return base;
 }
 
-export function dataFolderMockHandlers(startTask: StartTask): Record<string, (a: Args) => unknown> {
+export function dataFolderMockHandlers(startTask: StartTask, taskOf: (id: string) => Task | undefined): Record<string, (a: Args) => unknown> {
+  // `?df=undoing`: the recovery's task starts a moment after the window, as in the backend, and the hold ends with it
+  if (folder.undoing) {
+    const left = DF === "undoing-left";
+    setTimeout(() => {
+      // the crate's sentences (data_folder_move::partial_reason)
+      const kept = left ? [
+        { path: "/mnt/games/Kiln/library/kiln/new-items/1.0.0/kiln.mod.json", bytes: 48_000, reason: "it differs from the file in the old folder (added, changed or replaced after the move stopped, or the old folder's file changed since)" },
+        { path: "/mnt/games/Kiln/backups/added-after-crash.bin", bytes: 2_400, reason: "the old folder has no such file, so Kiln cannot tell that the move made it" },
+      ] : [];
+      const id = startTask("data_folder_undo", "Remove the unfinished copy",
+        ["checking library/kiln/new-items/1.0.0/kiln.mod.json", "checking runtime/kiln-runtime-0.2.0-dev.zip", "checking backups/old/file-001.bin",
+          "checking settings.json"],
+        () => ({ folder: "/mnt/games/Kiln", done: !left, interrupted: false, removedFiles: 12, removedBytes: 3_600_000_000, folderRemoved: !left, kept,
+          reason: null }), undoStepMs);
+      folder = { ...folder, undoing: { task: id, folder: "/mnt/games/Kiln" } };
+      const watch = setInterval(() => {
+        const t = taskOf(id);
+        if (!t || t.state === "running" || t.state === "queued") return;
+        clearInterval(watch);
+        const canceled = t.state === "canceled";
+        // the journal stays while anything is left: a move would be refused until the next start finishes
+        const pending = canceled || left ? "Part of an unfinished copy from the last move is still in /mnt/games/Kiln: Kiln removes it at the next start." : null;
+        folder = { ...folder, undoing: null, pending, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: kept.map((k) => k.path), stayed: [], kept,
+          removing: false, unfinished: canceled, folderRemoved: !left && !canceled,
+          reason: null } };
+      }, 100);
+    }, 400);
+  }
   const api = {
     pick: (p: string | null) => { picks.push(p); },
     failNext: (message: string | null) => { failNext = message; },

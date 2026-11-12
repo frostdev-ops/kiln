@@ -65,6 +65,11 @@ test("the row: the folder in use; KILN_DATA_DIR turns Change off with the reason
   expect(rowView(folder(), null, "/x")).toEqual({ path: "/home/player/.local/share/kiln", canChange: true, why: null });
   expect(rowView(folder({ source: "pointer", path: "/mnt/games/Kiln" }), null, "/x")).toEqual({ path: "/mnt/games/Kiln", canChange: true, why: null });
   expect(rowView(folder({ source: "env", path: "/srv/kiln-data" }), null, "/x")).toEqual({ path: "/srv/kiln-data", canChange: false, why: ENV_WHY });
+  // an earlier move is not finished: the backend's reason, no folder dialog (it would end in move_pending)
+  const pending = "Part of an unfinished copy from the last move is still in /mnt/games/Kiln: Kiln removes it at the next start.";
+  expect(rowView(folder({ source: "pointer", pending }), null, "/x")).toEqual({ path: "/home/player/.local/share/kiln", canChange: false, why: pending });
+  // KILN_DATA_DIR wins over it (the env reason is the one to change)
+  expect(rowView(folder({ source: "env", pending }), null, "/x").why).toBe(ENV_WHY);
 });
 
 test("the row before data_folder_get answers, and on a backend without it: app_info's folder, no Change", () => {
@@ -91,7 +96,7 @@ test("a move that did not finish says nothing changed; a failure says why first"
 test("the notice: where the data is now; nothing left: no old folder, no Open", () => {
   const from = "/home/player/.local/share/kiln";
   const v = noticeView({ kind: "moved", from, to: "/mnt/games/Kiln", left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: true, reason: null });
-  expect(v).toEqual({ title: "Data folder moved", facts: [{ label: "Now in", value: "/mnt/games/Kiln" }], lines: [], lists: [], open: false });
+  expect(v).toEqual({ title: "Data folder moved", facts: [{ label: "Now in", value: "/mnt/games/Kiln" }], lines: [], lists: [], open: false, openLabel: "Open old folder" });
 });
 
 test("the notice names what Kiln left on purpose and what it could not remove, each with its size", () => {
@@ -192,4 +197,20 @@ test("a done move: the restart at once, unless there are warnings or a stopped r
   // a removal the crate did not run (a game's profile could not be written for the new place): its reason, not "next start"
   expect(doneLines({ warnings: ["w"], cleanup: { done: false, interrupted: false, folderRemoved: false, kept: [], reason: "Enshrouded still uses /a: activate that profile again." } }))
     .toEqual(["w", "Enshrouded still uses /a: activate that profile again."]);
+});
+
+test("an undone move: nothing left, what is left with where and Open, a canceled recovery", () => {
+  const n = { kind: "undone" as const, from: "/a", to: "/b", left: [], stayed: [], removing: false, reason: null };
+  const clean = noticeView({ ...n, kept: [], unfinished: false, folderRemoved: true });
+  expect(clean.facts).toEqual([{ label: "Data folder", value: "/a" }]);
+  expect(clean.open).toBe(false);
+  const left = noticeView({ ...n, kept: [{ path: "/b/library/kiln/x", bytes: 48_000, reason: "it is not the same as the file in the data folder in use" }],
+    unfinished: false, folderRemoved: false, reason: "Some files stay." });
+  expect(left.facts).toEqual([{ label: "Data folder", value: "/a" }, { label: "Unfinished copy", value: "/b" }]);
+  expect(left.lists).toEqual([{ line: "Kiln could not remove these from the unfinished copy:",
+    items: [{ text: "library/kiln/x (47 KB): it is not the same as the file in the data folder in use", title: "/b/library/kiln/x" }] }]);
+  expect([left.open, left.openLabel]).toEqual([true, "Open unfinished copy"]);
+  const canceled = noticeView({ ...n, kept: [], unfinished: true, folderRemoved: false });
+  expect(canceled.lines).toContain("Kiln stopped removing the unfinished copy: the rest goes at the next start.");
+  expect(canceled.open).toBe(true);
 });

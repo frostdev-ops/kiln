@@ -1175,7 +1175,7 @@ Object.assign(handlers, updateMockHandlers(mockEmit, MOCK_DISTRIBUTION));
 Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
-Object.assign(handlers, dataFolderMockHandlers(startTask));
+Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
 
 /** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
 export { mockPickFolder };

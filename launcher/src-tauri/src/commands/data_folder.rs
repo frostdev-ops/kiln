@@ -86,6 +86,20 @@ pub struct DataFolderOut {
     pub notice: Option<NoticeOut>,
     /// Another launcher holds the folder's lock exclusively: it is moving the data.
     pub elsewhere: bool,
+    /// An unfinished move's partial copy is being removed now (the folder is held): the window shows only its dialog.
+    pub undoing: Option<UndoOut>,
+    /// Why the folder cannot be moved now (an earlier move is not finished; the crate refuses `move_pending`): the
+    /// Settings row says it instead of offering the folder dialog.
+    pub pending: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoOut {
+    /// The task "Remove the unfinished copy" (None for the two seconds before it starts).
+    pub task: Option<String>,
+    /// The unfinished copy.
+    pub folder: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -157,14 +171,29 @@ struct StartState {
     /// What this start's removal of the old copy gave. The journal keeps a result only when the removal ran; a refusal
     /// (a game's profile still names the old folder, no proof) is kept here, for this process.
     removal: Option<Cleanup>,
+    undoing: Undoing,
+    /// The unfinished copy being removed (the journal's `to`).
+    undo_folder: Option<PathBuf>,
 }
 
-static START: Mutex<StartState> = Mutex::new(StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None });
+/// The removal of an unfinished move's partial copy at this start.
+#[derive(Debug, Clone, PartialEq)]
+enum Undoing {
+    None,
+    /// Scheduled or running (the task id once it runs): the folder is held.
+    Running(Option<String>),
+    Ended,
+}
+
+static START: Mutex<StartState> = Mutex::new(StartState {
+    notice: None, acked: false, cleaning: Cleaning::None, removal: None, undoing: Undoing::None, undo_folder: None,
+});
 
 /// Tests: a new process (what this start found and did is forgotten).
 #[cfg(test)]
 pub(crate) fn forget_start() {
-    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None };
+    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None, undoing: Undoing::None, undo_folder: None };
+    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
 fn start_state() -> std::sync::MutexGuard<'static, StartState> {
@@ -193,7 +222,9 @@ fn notice_of(kind: &'static str, j: &Journal, c: Option<&Cleanup>, removing: boo
         stayed,
         kept,
         removing,
-        unfinished: kind == "moved" && !removing && !c.is_some_and(|c| c.done || c.reason.is_some()),
+        // moved: the removal of the old copy has not finished; undone: the removal of the partial copy was canceled
+        unfinished: (kind == "moved" && !removing && !c.is_some_and(|c| c.done || c.reason.is_some()))
+            || (kind == "undone" && c.is_some_and(|c| c.interrupted)),
         folder_removed: c.is_some_and(|c| c.folder_removed),
         reason: reason.or_else(|| c.and_then(|c| c.reason.clone())),
     }
@@ -231,53 +262,92 @@ fn needs_cleanup(j: &Journal) -> bool {
     !j.result.as_ref().is_some_and(|c| c.done || c.reason.is_some())
 }
 
-/// Before any watcher (lib.rs setup). False: the data folder cannot be used here now (a broken pointer, another
-/// launcher's move): nothing else starts, the window shows the dialog.
-pub fn start(app: &AppHandle) -> bool {
+/// What start-up does next ([`start_with`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Next {
+    /// Nothing about a move: start-up goes on.
+    Nothing,
+    /// A committed move's old copy is left to remove: start-up goes on, the task "Remove the old data folder" follows.
+    Cleanup,
+    /// An unfinished move's partial copy is left: the folder is held and start-up waits for the task "Remove the
+    /// unfinished copy" (its proof is a file identical to the one in the folder in use, so nothing may write it).
+    Undo,
+}
+
+/// The start-up steps that use the data folder, put off while an unfinished copy is removed ([`end_undo`] runs them).
+static DEFERRED: Mutex<Option<Box<dyn FnOnce() + Send>>> = Mutex::new(None);
+
+fn defer(f: Box<dyn FnOnce() + Send>) {
+    *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
+}
+
+/// Before any watcher (lib.rs setup). `then`: the start-up steps that use the data folder (lib.rs `after_folder`):
+/// run now, put off until an unfinished copy is removed, or not at all (a broken pointer, another launcher's move:
+/// the window shows only the dialog).
+pub fn start(app: &AppHandle, then: fn(&AppHandle)) {
     let f = folder::current();
     if let Some(p) = f.problem() {
         eprintln!("data folder: {}", p.reason);
-        return false;
+        return;
     }
     if f.hold() == Hold::Elsewhere {
         eprintln!("data folder: {MOVING_ELSEWHERE_LOG}");
-        return false;
+        return;
     }
-    if start_with(&f) {
-        let app = app.clone();
-        // after the window is up; it never holds up the start, and a cancel or a closed launcher go on next time
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(2));
-            spawn_cleanup(&app);
-        });
+    // on the main thread (setup, and the end of the recovery's task through the event loop)
+    let a = app.clone();
+    let then: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let b = a.clone();
+        if let Err(e) = a.run_on_main_thread(move || then(&b)) {
+            eprintln!("data folder: the start-up steps could not run: {e}");
+        }
+    });
+    match begin(&f, then) {
+        Next::Nothing => {}
+        Next::Cleanup => after_the_window(app, spawn_cleanup),
+        Next::Undo => after_the_window(app, spawn_undo),
     }
-    true
+}
+
+/// [`start_with`], then the start-up steps that use the folder: now, or when the recovery's hold ends.
+pub(crate) fn begin(f: &Folder, then: Box<dyn FnOnce() + Send>) -> Next {
+    let next = start_with(f);
+    if next == Next::Undo { defer(then) } else { then() }
+    next
+}
+
+/// A task after the window is up: it never holds up the start, and a cancel or a closed launcher go on next time.
+fn after_the_window(app: &AppHandle, spawn: fn(&AppHandle)) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        spawn(&app);
+    });
 }
 
 const MOVING_ELSEWHERE_LOG: &str = "another launcher holds the data folder's lock exclusively (a move)";
 
-/// What a start does about a move (no window needed; tests call it): the partial copy of an unfinished move is
-/// removed now, an unclear record becomes the notice. True: a committed move's old copy is left to remove (the task).
-fn start_with(f: &Folder) -> bool {
-    let Ok(l) = f.located() else { return false };
+/// What a start does about a move (no window needed; tests call it). It removes nothing: an unfinished move holds the
+/// folder for its task, a committed one leaves its removal to a task, an unclear record becomes the notice.
+pub(crate) fn start_with(f: &Folder) -> Next {
+    let Ok(l) = f.located() else { return Next::Nothing };
     if l.source == RootSource::Env {
-        return false;
+        return Next::Nothing;
     }
     match dfm::pending(&f.env) {
         // not acknowledged yet: the removal goes on (or, with nothing left, removes the lock files and the empty old
         // folder the moving process still held)
         Ok(Pending::Committed { .. }) => {
             start_state().cleaning = Cleaning::Running(None);
-            return true;
+            return Next::Cleanup;
         }
         Ok(Pending::Uncommitted { journal }) => {
-            let c = dfm::remove_partial_copy(&f.env);
-            let n = match &c {
-                Ok(c) => notice_of("undone", &journal, Some(c), false, None),
-                Err(e) => notice_of("undone", &journal, None, false, Some(e.message.clone())),
-            };
-            launcher_log("data folder", &format!("an unfinished move to {} was undone at start: {:?}", journal.to.display(), c.as_ref().map(|c| c.done)));
-            start_state().notice = Some(n);
+            // held before any watcher, `launcher_log` or import touches the folder
+            f.set_hold(Hold::Undoing);
+            let mut st = start_state();
+            st.undoing = Undoing::Running(None);
+            st.undo_folder = Some(journal.to.clone());
+            return Next::Undo;
         }
         Ok(Pending::Unclear { journal, reason }) => {
             let n = match &journal {
@@ -291,7 +361,61 @@ fn start_with(f: &Folder) -> bool {
         }
         _ => {}
     }
-    false
+    Next::Nothing
+}
+
+/// The task that removes an unfinished move's partial copy ("Remove the unfinished copy"), with the folder held.
+fn spawn_undo(app: &AppHandle) {
+    let id = spawn_task(app, "data_folder_undo", "Remove the unfinished copy".into(), move |p| {
+        let f = folder::current();
+        to_value(undo_work(&f, p)?)
+    });
+    let mut st = start_state();
+    if st.undoing == Undoing::Running(None) {
+        st.undoing = Undoing::Running(Some(id));
+    }
+}
+
+/// Ends the recovery's hold however the task ends (done, canceled, failed, a panic): everything runs again.
+struct EndUndo<'a>(&'a Folder);
+
+impl Drop for EndUndo<'_> {
+    fn drop(&mut self) {
+        end_undo(self.0);
+    }
+}
+
+/// The hold ends: the held log lines are written, then the start-up steps that were put off run.
+fn end_undo(f: &Folder) {
+    start_state().undoing = Undoing::Ended;
+    if f.hold() == Hold::Undoing {
+        f.set_hold(Hold::Free);
+    }
+    flush_held_log();
+    let deferred = DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(d) = deferred {
+        d();
+    }
+}
+
+/// The recovery itself (the task's work; tests call it): the crate's removal of the partial copy, then the notice
+/// "Move not finished" with what is left; the hold ends when it returns.
+pub(crate) fn undo_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> Result<Cleanup, Error> {
+    let _end = EndUndo(f);
+    let journal = match dfm::pending(&f.env)? {
+        Pending::Uncommitted { journal } => journal,
+        _ => return Err(Error::not_found("No unfinished move of the data folder to undo.")),
+    };
+    // a file goes only when the folder in use holds the identical one; progress per file, a cancel between files
+    // (`interrupted`, the journal kept: the next start goes on); what stays is in `kept`, with why
+    let c = dfm::remove_partial_copy_with(&f.env, p);
+    let n = match &c {
+        Ok(c) => notice_of("undone", &journal, Some(c), false, None),
+        Err(e) => notice_of("undone", &journal, None, false, Some(e.message.clone())),
+    };
+    start_state().notice = Some(n);
+    launcher_log("data folder", &format!("the unfinished move to {} was undone: {:?}", journal.to.display(), c.as_ref().map(|c| (c.done, c.interrupted, c.kept.len()))));
+    c
 }
 
 /// The task that removes a committed move's old copy ("Remove the old data folder"; cancel between two files).
@@ -354,8 +478,10 @@ fn folder_out(f: &Folder) -> DataFolderOut {
             default_path,
             source: source_word(l.source),
             problem: None,
-            notice: if f.hold() == Hold::Elsewhere { None } else { notice(f) },
+            notice: if matches!(f.hold(), Hold::Elsewhere | Hold::Undoing) { None } else { notice(f) },
             elsewhere: f.hold() == Hold::Elsewhere,
+            undoing: undo_out(f),
+            pending: if l.source == RootSource::Env { None } else { pending_sentence(f) },
         },
         Err(_) => {
             let p: &LocateProblem = f.problem().expect("a folder that is not found has a problem");
@@ -370,9 +496,37 @@ fn folder_out(f: &Folder) -> DataFolderOut {
                 }),
                 notice: None,
                 elsewhere: false,
+                undoing: None,
+                pending: None,
             }
         }
     }
+}
+
+fn undo_out(f: &Folder) -> Option<UndoOut> {
+    if f.hold() != Hold::Undoing {
+        return None;
+    }
+    let st = start_state();
+    let Undoing::Running(task) = &st.undoing else { return None };
+    Some(UndoOut { task: task.clone(), folder: st.undo_folder.as_deref().map(text).unwrap_or_default() })
+}
+
+/// Why a move would be refused with `move_pending` now, in words for the Settings row (None: no move is pending).
+fn pending_sentence(f: &Folder) -> Option<String> {
+    let st = start_state();
+    let cleaning = matches!(st.cleaning, Cleaning::Running(_));
+    let refused = st.removal.as_ref().and_then(|c| c.reason.clone());
+    drop(st);
+    Some(match dfm::pending(&f.env).ok()? {
+        Pending::Nothing => return None,
+        Pending::Committed { .. } if cleaning => "Kiln is removing the old copy of the last move: wait for it to finish.".into(),
+        Pending::Committed { .. } => refused.unwrap_or_else(|| "The last move is not finished yet: Kiln finishes it at the next start.".into()),
+        Pending::Uncommitted { journal } => {
+            format!("Part of an unfinished copy from the last move is still in {}: Kiln removes it at the next start.", journal.to.display())
+        }
+        Pending::Unclear { reason, .. } => reason,
+    })
 }
 
 fn located_out(l: &Located, f: &Folder) -> DataFolderOut {
@@ -383,6 +537,8 @@ fn located_out(l: &Located, f: &Folder) -> DataFolderOut {
         problem: None,
         notice: None,
         elsewhere: false,
+        undoing: None,
+        pending: None,
     }
 }
 
@@ -739,7 +895,7 @@ pub(crate) mod tests {
         assert!(f.problem().is_some());
         assert!(f.lock().is_none(), "no lock taken");
         // start-up stops before any watcher, and the gate refuses every command but the five (and app_info)
-        assert!(!start_with(&f));
+        assert_eq!(start_with(&f), Next::Nothing);
         for name in crate::commands::NAMES {
             let refused = f.command_refusal(name);
             if folder::OPEN_WHEN_BROKEN.contains(name) {
@@ -791,7 +947,8 @@ pub(crate) mod tests {
         assert!(f.command_refusal("library_import").is_some());
         assert!(f.command_refusal("task_cancel").is_none(), "the move's own Cancel answers");
         crate::commands::app::launcher_log("test", "held back during the move");
-        assert!(!root.join("logs/launcher.log").exists(), "the log waits");
+        // (other tests in this process may write the log of the folder in use: look for the line, not the file)
+        assert!(!std::fs::read_to_string(root.join("logs/launcher.log")).unwrap_or_default().contains("held back during the move"), "the log waits");
         assert_eq!(hold_for_move(&f).unwrap_err().code, ErrorCode::Busy, "one move at a time");
 
         // a failed or canceled move: everything runs again, the held line is written
@@ -825,7 +982,7 @@ pub(crate) mod tests {
             assert_eq!(f.command_refusal(name).is_none(), folder::OPEN_WHEN_ELSEWHERE.contains(name), "{name}");
         }
         assert!(folder_out(&f).elsewhere);
-        assert!(!start_with(&f));
+        assert_eq!(start_with(&f), Next::Nothing);
         drop(other);
         // a second launcher of dev.25 holds it shared: a move here is refused by the crate, the check says so
         let f = Arc::new(Folder::open(env.clone()));
@@ -985,7 +1142,7 @@ pub(crate) mod tests {
         let f2 = Arc::new(Folder::open(env.clone()));
         folder::replace(f2.clone());
         assert_eq!(f2.located().unwrap().dirs.root, to);
-        assert!(start_with(&f2), "a committed move not acknowledged: the removal task");
+        assert_eq!(start_with(&f2), Next::Cleanup, "a committed move not acknowledged: the removal task");
         let n = notice(&f2).expect("the notice");
         assert_eq!((n.kind, n.from.as_str(), n.to.as_str(), n.removing), ("moved", text(&from).as_str(), text(&to).as_str(), true));
         cleanup_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
@@ -997,7 +1154,7 @@ pub(crate) mod tests {
         // and the next start has nothing to say
         forget_start();
         let f3 = Arc::new(Folder::open(env.clone()));
-        assert!(!start_with(&f3));
+        assert_eq!(start_with(&f3), Next::Nothing);
         assert_eq!(folder_out(&f3).notice, None);
         assert!(!from.join("backups/old/file-000.bin").exists(), "the old copy is gone");
         let _ = std::fs::remove_dir_all(&t);
@@ -1033,7 +1190,7 @@ pub(crate) mod tests {
         forget_start();
         let f3 = Arc::new(Folder::open(env.clone()));
         folder::replace(f3.clone());
-        assert!(start_with(&f3));
+        assert_eq!(start_with(&f3), Next::Cleanup);
         let c = cleanup_work(&f3, &mut kiln_manage::task::NoProgress).unwrap();
         assert!(c.done, "{c:?}");
         assert_eq!(left(&from), 0);
@@ -1146,7 +1303,10 @@ pub(crate) mod tests {
         let f2 = Arc::new(Folder::open(env.clone()));
         folder::replace(f2.clone());
         assert_eq!(f2.located().unwrap().dirs.root, from, "the old place is in use");
-        assert!(!start_with(&f2));
+        assert_eq!(start_with(&f2), Next::Undo, "the start holds the folder for the task");
+        assert_eq!(f2.hold(), Hold::Undoing);
+        let _ = undo_work(&f2, &mut kiln_manage::task::NoProgress);
+        assert_eq!(f2.hold(), Hold::Free, "the hold ends with the task");
         let n = notice(&f2).expect("the notice of the undone move");
         assert_eq!(n.kind, "undone");
         assert!(n.kept.iter().any(|k| left.starts_with(&k.path)), "it names what is left (the file or the entry that holds it): {n:?}");
@@ -1160,7 +1320,8 @@ pub(crate) mod tests {
         forget_start();
         let f3 = Arc::new(Folder::open(env.clone()));
         folder::replace(f3.clone());
-        assert!(!start_with(&f3));
+        assert_eq!(start_with(&f3), Next::Undo);
+        undo_work(&f3, &mut kiln_manage::task::NoProgress).unwrap();
         assert_eq!(notice(&f3).map(|n| n.kind), Some("undone"));
         assert!(!left.exists() && !to.exists(), "the partial copy is gone");
         assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing));
@@ -1204,7 +1365,7 @@ pub(crate) mod tests {
         forget_start();
         let f2 = Arc::new(Folder::open(env.clone()));
         folder::replace(f2.clone());
-        assert!(start_with(&f2));
+        assert_eq!(start_with(&f2), Next::Cleanup);
         let c = cleanup_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
         let reason = c.reason.clone().expect("refused with the crate's reason");
         let n = notice(&f2).expect("the notice");
@@ -1245,6 +1406,195 @@ pub(crate) mod tests {
         mover.join().unwrap().unwrap();
         assert!(rx.try_recv().is_ok());
         release_after_failure(&f);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// A move that "died" after its copy left a marked partial copy; a file the move never made was added to it. The
+    /// next start removes nothing synchronously: it holds the folder and leaves the recovery to a task (review F5, and
+    /// the verifier's reproduction).
+    #[test]
+    fn recovery_start_does_not_remove_an_unrecorded_addition() {
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env, from, to) = moving("unrecorded", 4);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        let opts = dfm::MoveOptions { force_copy: true, inject: Some(dfm::Inject::StopAfter(dfm::Step::Copy)) };
+        let _ = move_with(&f, &l, &to, &opts, &mut kiln_manage::task::NoProgress);
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "an unfinished move");
+        let added = to.join("backups/added-after-crash.bin");
+        std::fs::create_dir_all(added.parent().unwrap()).unwrap();
+        std::fs::write(&added, b"not the move's").unwrap();
+
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        assert_eq!(f2.located().unwrap().dirs.root, from);
+        let scheduled = start_with(&f2);
+        assert!(added.is_file(), "startup synchronously deleted an unrecorded addition (scheduled={scheduled:?})");
+        assert_eq!(scheduled, Next::Undo, "the recovery is a task");
+        assert_eq!(f2.hold(), Hold::Undoing, "and the folder is held for it");
+
+        // the task itself keeps it too: named with the crate's reason, the journal stays, the notice lists it
+        let c = undo_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(added.is_file(), "the recovery task deleted an unrecorded addition");
+        assert!(!c.done, "{c:?}");
+        let k = c.kept.iter().find(|k| k.path == added).expect("the addition is named");
+        assert_eq!(k.reason, dfm::partial_reason::NO_SUCH_FILE, "{k:?}");
+        assert_eq!(f2.hold(), Hold::Free);
+        let n = notice(&f2).expect("the notice");
+        assert!(n.kept.iter().any(|k| k.path == text(&added)), "{n:?}");
+        notice_ack_with(&f2).unwrap();
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "the next start tries again");
+
+        // the player takes the named file out: the next start finishes and drops the journal
+        std::fs::remove_file(&added).unwrap();
+        forget_start();
+        let f3 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f3.clone());
+        assert_eq!(start_with(&f3), Next::Undo);
+        let c = undo_work(&f3, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(c.done, "{c:?}");
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing));
+        assert!(!to.exists(), "the unfinished copy is gone");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// Cancel: the task ends at once with the hold (the launcher mounts on the folder in use), the notice says the rest
+    /// goes at the next start, and the next start's task goes on and finishes.
+    #[test]
+    fn a_canceled_recovery_goes_on_at_the_next_start() {
+        struct Cancel;
+        impl kiln_manage::task::Progress for Cancel {
+            fn report(&mut self, _: Option<f32>, _: &str) {}
+            fn canceled(&self) -> bool {
+                true
+            }
+        }
+        let _g = folder::test_serial();
+        let (t, env, from, to) = unfinished("undo-cancel");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let r = ran.clone();
+        assert_eq!(begin(&f, Box::new(move || { r.fetch_add(1, std::sync::atomic::Ordering::SeqCst); })), Next::Undo);
+        let c = undo_work(&f, &mut Cancel).unwrap();
+        assert!(c.interrupted && !c.done, "{c:?}");
+        assert_eq!(f.hold(), Hold::Free, "the launcher is usable on the folder in use");
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 1, "and its start-up goes on");
+        assert_eq!(crate::state::dirs().unwrap().root, from);
+        let n = folder_out(&f).notice.expect("the notice");
+        assert!(n.kind == "undone" && n.unfinished, "{n:?}");
+        notice_ack_with(&f).unwrap();
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "the journal stays");
+        assert!(to.exists(), "the rest is still there");
+
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        assert_eq!(begin(&f2, Box::new(|| {})), Next::Undo);
+        let c = undo_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(c.done, "the next start finishes: {c:?}");
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing));
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// An unfinished move from a former start, its partial copy left: the folder to start on, and its environment.
+    fn unfinished(name: &str) -> (PathBuf, DataEnv, PathBuf, PathBuf) {
+        let (t, env, from, to) = moving(name, 4);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        let opts = dfm::MoveOptions { force_copy: true, inject: Some(dfm::Inject::StopAfter(dfm::Step::Copy)) };
+        let _ = move_with(&f, &l, &to, &opts, &mut kiln_manage::task::NoProgress);
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }));
+        forget_start();
+        (t, env, from, to)
+    }
+
+    /// During the recovery every writer is refused (a command, the log is held back); when it ends the held lines are
+    /// written and the writer runs; the start-up steps that were put off run once, as on a start without a recovery.
+    #[test]
+    fn the_recovery_holds_the_folder_and_the_start_goes_on_after_it() {
+        let _g = folder::test_serial();
+        // a normal start: the steps run at once
+        let (t0, env0) = scratch("normal-start");
+        data_folder(&env0.default_root().unwrap());
+        let f0 = Arc::new(Folder::open(env0));
+        folder::replace(f0.clone());
+        forget_start();
+        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let r = ran.clone();
+        assert_eq!(begin(&f0, Box::new(move || { r.fetch_add(1, std::sync::atomic::Ordering::SeqCst); })), Next::Nothing);
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        // a start with an unfinished move: held, the steps wait
+        let (t, env, from, _to) = unfinished("held-start");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let r = ran.clone();
+        assert_eq!(begin(&f, Box::new(move || { r.fetch_add(1, std::sync::atomic::Ordering::SeqCst); })), Next::Undo);
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing that uses the folder runs during the recovery");
+        assert_eq!(crate::state::dirs().unwrap_err().message, folder::UNDOING);
+        let set = |keep: u32| {
+            let s = crate::commands::app::LauncherSettings { saves_keep: keep, ..Default::default() };
+            tauri::async_runtime::block_on(crate::commands::app::app_settings_set(s))
+        };
+        assert_eq!(set(6).unwrap_err().code, ErrorCode::Busy, "a writer is refused");
+        assert!(f.command_refusal("library_import").is_some() && f.command_refusal("task_cancel").is_none());
+        crate::commands::app::launcher_log("test", "held back during the recovery");
+        assert!(!std::fs::read_to_string(from.join("logs/launcher.log")).unwrap_or_default().contains("held back during the recovery"), "the log waits");
+        let out = folder_out(&f);
+        assert!(out.undoing.as_ref().is_some_and(|u| u.task.is_none() && !u.folder.is_empty()), "{out:?}");
+        assert!(out.notice.is_none());
+
+        // the task: done
+        let c = undo_work(&f, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(c.done, "{c:?}");
+        assert_eq!(f.hold(), Hold::Free);
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 1, "the start-up steps ran once, after it");
+        assert!(std::fs::read_to_string(from.join("logs/launcher.log")).unwrap().contains("held back during the recovery"));
+        set(6).unwrap();
+        let out = folder_out(&f);
+        assert_eq!(out.undoing, None);
+        assert_eq!(out.notice.map(|n| n.kind), Some("undone"));
+        assert_eq!(out.pending, None, "nothing pending: the Settings row offers the folder dialog again");
+        let _ = std::fs::remove_dir_all(&t);
+        let _ = std::fs::remove_dir_all(&t0);
+    }
+
+    /// The hold ends however the task ends: here the crate fails (the journal went away under it).
+    #[test]
+    fn the_recovery_hold_ends_when_its_task_fails() {
+        let _g = folder::test_serial();
+        let (t, env, _from, _to) = unfinished("undo-fails");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        assert_eq!(begin(&f, Box::new(|| {})), Next::Undo);
+        std::fs::remove_file(env.default_root().unwrap().join(df::JOURNAL)).unwrap();
+        assert!(undo_work(&f, &mut kiln_manage::task::NoProgress).is_err());
+        assert_eq!(f.hold(), Hold::Free, "everything runs again");
+        assert!(crate::state::dirs().is_ok());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// While a partial copy is left (the next start removes it), the Settings row says why a move cannot start.
+    #[test]
+    fn a_partial_copy_left_is_the_settings_rows_reason() {
+        let _g = folder::test_serial();
+        let (t, env, _from, to) = unfinished("pending-row");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        // no start-up here: the journal is there and the folder is free (as after an ack of a recovery that left files)
+        let out = folder_out(&f);
+        let why = out.pending.expect("the reason");
+        assert!(why.contains(&text(&to)) && why.contains("next start"), "{why}");
+        let plan = check_with(&f, &t.join("elsewhere"), &[]).unwrap();
+        assert_eq!(plan.code.as_deref(), Some("move_pending"), "the crate refuses a move too: {plan:?}");
         let _ = std::fs::remove_dir_all(&t);
     }
 }
