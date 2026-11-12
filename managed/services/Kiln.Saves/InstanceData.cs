@@ -166,7 +166,9 @@ public static class InstanceData
     /// (<see cref="ParkedState.SetAside"/>); a waiting record can be claimed too. Other mods' values in the same record stay
     /// parked. The item may be of another item type than the record's (the key's <see cref="InstanceKeyOptions.Items"/>
     /// still applies). Posts <see cref="InstanceDataRestoredEvent"/> (<see cref="InstanceMatch.Claimed"/>) for each key.
-    /// Since 0.2.0-dev.27.</summary>
+    /// It may be called from a handler of the store's own events: those are delivered when the matching or the save that
+    /// raised them is finished, so a claim made from a handler of a save's event is in the next save, not in that one
+    /// (until then the record is still parked on disk). Since 0.2.0-dev.27.</summary>
     /// <returns><see cref="InstanceClaimResult.Ok"/> false, nothing moved, when the item already has a value of one of those
     /// keys (remove it first).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="parked"/> is null.</exception>

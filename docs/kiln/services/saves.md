@@ -261,7 +261,10 @@ without it nobody knows whether a look-alike stood beside it.
    already has data of this session): every such record is set aside and reported (`InstanceDataLostEvent`,
    `Ambiguous`). It is kept, listed by `Parked` and `/instances`, and never attached automatically, also not in a later
    session. A mod that knows better puts it on an item with `InstanceData.Claim`, or drops it with `Discard` (an admin:
-   `/instances claim` / `discard`).
+   `/instances claim` / `discard`). Both may be called from a handler of the item data events: Kiln delivers those
+   when the matching or the save that raised them is finished, so a handler never meets a half-done match. A claim
+   made from a handler of a save's own event (an item found gone while saving) is in the next save; in that one the
+   record is still parked.
 4. **No candidate:** the record waits (`InstanceDataParkedEvent`, `NoCandidate`); after 3 sessions without its item it
    is dropped (`Unmatched`).
 5. **The holder:** a world holder is the one unclaimed entity of its template within 0.5 m (props) or 16 m (creatures,

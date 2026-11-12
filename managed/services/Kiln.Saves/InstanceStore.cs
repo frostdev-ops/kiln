@@ -571,7 +571,7 @@ internal sealed class InstanceStore
         if (Events.HasSubscribers<InstanceDataRestoredEvent>())
             foreach (var (m, keys) in parts)
                 foreach (var k in keys.Keys)
-                    Events.Post(new InstanceDataRestoredEvent(live.Ref, m, k, InstanceMatch.Claimed, detail));
+                    Post(new InstanceDataRestoredEvent(live.Ref, m, k, InstanceMatch.Claimed, detail));
         return new InstanceClaimResult(live.Ref, r.Id, mod ?? "", names, true, null);
     }
 
@@ -697,6 +697,38 @@ internal sealed class InstanceStore
         Lost(live.Values, live.Fields.Item, live.Ref, InstanceLossReason.Destroyed, $"the item is gone (last in {live.Holder.Name ?? live.Place.Holder.ToString()} slot {live.Place.FlatSlot})");
     }
 
+    // ----------------------------------------------------------------------------------------- the passes ----
+
+    // The store's own work runs in passes: a tick's bookkeeping, a match of one holder's records, the staging of a save.
+    // A pass keeps lists of its own while it runs (the outcomes of a match, the items of a save), and its events used to
+    // go out in the middle of it. A handler may claim or discard a parked record (InstanceData.Claim, Discard): that
+    // changed records the pass was still going to act on (a claim was overwritten by the attach planned before it; a
+    // record claimed during staging was in neither half of the save), and broke loops over the records. So the events of
+    // a pass wait until the outermost pass is finished, and then go out in order: a handler finds the store as the pass
+    // left it. What it changes then belongs to the next pass (for a save: the next save).
+    private int _passes;
+    private readonly List<Action> _afterPass = new();
+
+    private void BeginPass() => _passes++;
+
+    private void EndPass()
+    {
+        if (--_passes > 0) return;
+        // handlers may start passes of their own; their events come after the ones already waiting
+        while (_afterPass.Count > 0)
+        {
+            var batch = _afterPass.ToArray();
+            _afterPass.Clear();
+            foreach (var post in batch) post();
+        }
+    }
+
+    private void Post<T>(T ev) where T : KilnEvent
+    {
+        if (_passes > 0) _afterPass.Add(() => Events.Post(ev));
+        else Events.Post(ev);
+    }
+
     // ------------------------------------------------------------------------------------------- the tick ----
 
     /// <summary>A world load: holders are looked for from now on (world holders for <see cref="MatchWindowSteps"/>).</summary>
@@ -712,6 +744,19 @@ internal sealed class InstanceStore
     /// <summary>Tick thread, about once a second: players who left or joined, world holders that streamed in, the end of
     /// the match window.</summary>
     public void Tick()
+    {
+        BeginPass();
+        try
+        {
+            TickPass();
+        }
+        finally
+        {
+            EndPass();
+        }
+    }
+
+    private void TickPass()
     {
         if (_world is not { } w) return;
         try
@@ -986,6 +1031,19 @@ internal sealed class InstanceStore
     /// <summary>Runs the matcher over a holder that was just found and acts on its decisions.</summary>
     private bool RunMatch(IInstanceWorld w, HolderEntry h, IReadOnlyList<InstanceItem> items)
     {
+        BeginPass();
+        try
+        {
+            return RunMatchPass(w, h, items);
+        }
+        finally
+        {
+            EndPass();
+        }
+    }
+
+    private bool RunMatchPass(IInstanceWorld w, HolderEntry h, IReadOnlyList<InstanceItem> items)
+    {
         h.Matched = true;
         var recs = h.Records.ToArray();
         var input = recs.Select(r => new MatchRecord(r.Slot, r.Fields.Stable, r.Seen, r.Aside, r.OnlyTrusted, r.Alt.Count > 0 ? r.Alt : null)).ToArray();
@@ -1078,14 +1136,14 @@ internal sealed class InstanceStore
         if (!Events.HasSubscribers<InstanceDataRestoredEvent>()) return;
         foreach (var (mod, keys) in live.Values.Parts)
             foreach (var k in keys)
-                Events.Post(new InstanceDataRestoredEvent(item.Ref, mod, k, match, reason));
+                Post(new InstanceDataRestoredEvent(item.Ref, mod, k, match, reason));
     }
 
     private void Parked(HolderEntry h, SavedRecord r, InstanceParkReason reason)
     {
         if (!Events.HasSubscribers<InstanceDataParkedEvent>()) return;
         foreach (var (mod, keys) in r.Values.Parts)
-            Events.Post(new InstanceDataParkedEvent(h.Describe, h.Key.Kind == HolderKind.Player ? h.Key.Character : default, r.Slot, r.Fields.Item, mod, keys, reason, r.Reason));
+            Post(new InstanceDataParkedEvent(h.Describe, h.Key.Kind == HolderKind.Player ? h.Key.Character : default, r.Slot, r.Fields.Item, mod, keys, reason, r.Reason));
     }
 
     private void Lost(InstanceValues values, ItemId item, ItemInstanceRef last, InstanceLossReason reason, string detail)
@@ -1094,7 +1152,7 @@ internal sealed class InstanceStore
             $"Kiln.Saves: instance data of {item} ({string.Join(", ", values.Parts.Select(p => p.Mod))}) {reason}: {detail}");
         if (!Events.HasSubscribers<InstanceDataLostEvent>()) return;
         foreach (var (mod, keys) in values.Parts)
-            Events.Post(new InstanceDataLostEvent(item, last, mod, keys, reason, detail));
+            Post(new InstanceDataLostEvent(item, last, mod, keys, reason, detail));
     }
 
     private void Note(string id, LogLevel level, string text)
@@ -1260,6 +1318,7 @@ internal sealed class InstanceStore
     {
         // Item reads can synchronously announce moves back to this store. Share the same identity cache with them.
         _stagingHolders = new();
+        BeginPass();
         try
         {
             return StageSnapshot(gen, json, settled);
@@ -1267,6 +1326,7 @@ internal sealed class InstanceStore
         finally
         {
             _stagingHolders = null;
+            EndPass();  // what staging found out (an item gone) is told now, with the save's bytes already made
         }
     }
 
@@ -1641,7 +1701,7 @@ internal sealed class InstanceStore
                 var keys = r.Values.ByMod[mod];
                 r.Values.ByMod.Remove(mod);
                 if (Events.HasSubscribers<InstanceDataLostEvent>())
-                    Events.Post(new InstanceDataLostEvent(r.Fields.Item, ItemInstanceRef.None, mod, keys.Keys.ToList(), InstanceLossReason.Capped,
+                    Post(new InstanceDataLostEvent(r.Fields.Item, ItemInstanceRef.None, mod, keys.Keys.ToList(), InstanceLossReason.Capped,
                         $"{h.Describe} has more than {MaxRecordsPerHolderPerMod} records of {mod}: the oldest waiting or set-aside ones go"));
                 if (r.Values.IsEmpty) h.Records.Remove(r);
             }
