@@ -2,18 +2,23 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 
 namespace Kiln;
 
 /// <summary>The capability gate for kiln.hooks: only a mod whose <c>kiln.mod.json</c> has <c>"advanced": true</c>
-/// may hook, patch or read game memory. (Read straight from the manifest in <see cref="ModInfo.Directory"/> until the
-/// loader exposes the flag on <see cref="ModInfo"/>.) Also tracks each advanced mod so everything it installs is
-/// revoked when it unloads.</summary>
+/// (<see cref="ModInfo.Advanced"/>, filled by the loader from the manifest) may hook, patch or read game memory. Also
+/// tracks each advanced mod so everything it installs is revoked when it unloads.</summary>
 internal static class HooksGate
 {
-    private static readonly ConcurrentDictionary<ModContext, bool> Advanced = new();
     private static readonly ConcurrentDictionary<ModContext, ModHooks> Tracked = new();
+
+    /// <summary>Taken by every hook install and by a context's retire (Hooks.Forget), so neither sees the other half
+    /// done. Never taken on the dispatch path.</summary>
+    internal static readonly object Lifecycle = new();
+
+    /// <summary>The refusal for a context that has unloaded (its code may still run: a handler in flight, a timer).</summary>
+    public static InvalidOperationException Retired(string api, ModContext mod) =>
+        new($"{api}: mod '{mod.Info.Id}' has unloaded; an unloaded mod cannot install hooks");
 
     internal sealed class ModHooks
     {
@@ -26,13 +31,18 @@ internal static class HooksGate
 
     /// <summary>Returns the calling mod if it is advanced; throws otherwise.</summary>
     public static ModContext RequireAdvanced(string api)
+        => RequireAdvanced(api, "Hooking and patching game code is powerful and build-specific");
+
+    /// <summary>Returns the calling mod if it is advanced; throws otherwise. <paramref name="why"/> is the middle
+    /// sentence of the refusal.</summary>
+    public static ModContext RequireAdvanced(string api, string why)
     {
         var mod = ModContext.CurrentMod
             ?? throw new InvalidOperationException($"{api} must be called from a mod (on the tick thread or in OnLoad)");
-        if (!Advanced.GetOrAdd(mod, m => ReadAdvanced(m.Info.Directory)))
+        if (!mod.Info.Advanced)
             throw new InvalidOperationException(
-                $"{api}: mod '{mod.Info.Id}' is not advanced. Hooking and patching game code is powerful and " +
-                "build-specific; add \"advanced\": true to its kiln.mod.json to allow it.");
+                $"{api}: mod '{mod.Info.Id}' is not advanced. {why}; add \"advanced\": true to its kiln.mod.json " +
+                "to allow it.");
         return mod;
     }
 
@@ -49,9 +59,11 @@ internal static class HooksGate
         unsafe
         {
             var t = HooksNative.T;
-            if (t != null) t->RevokeOwner(mod.Owner);  // native: drop all hooks (chains emptied), restore all patches
+            if (t != null) t->RevokeOwner(mod.Owner);  // native: restore all patches (and drop anything else under it)
         }
-        Hooks.Forget(mod);  // clear the cookie dictionary so no new dispatch enters this mod's handlers
+        // Clear the mod's registrations so no new dispatch enters its handlers, and revoke their links (they are under
+        // the mod id's own hooks owner, HookCookies.Owner, so RevokeOwner above does not take them).
+        Hooks.Forget(mod);
         Tracked.TryRemove(mod, out var mh);
         // Wait for any game thread still inside this mod's handlers to leave before its context is unloaded. New calls
         // can no longer reach them (chains emptied, dictionary cleared), so this drains in microseconds.
@@ -62,27 +74,14 @@ internal static class HooksGate
                 Thread.SpinWait(64);
         }
         if (mh is { SymbolsLoaded: true }) Symbols.UnloadShipped(mod);
-        Advanced.TryRemove(mod, out _);
     }
 
     internal static ModHooks Current(ModContext mod) => Tracked.TryGetValue(mod, out var mh) ? mh : Track(mod);
 
-    private static bool ReadAdvanced(string directory)
+    /// <summary>Drops the tracker of a context that retired while one of its installs ran (its Retiring list was taken
+    /// before Track joined it), so the tracker does not keep the context alive.</summary>
+    internal static void Untrack(ModContext mod)
     {
-        try
-        {
-            var file = Path.Combine(directory, "kiln.mod.json");
-            using var doc = JsonDocument.Parse(File.ReadAllText(file), new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            });
-            return doc.RootElement.TryGetProperty("advanced", out var v)
-                && v.ValueKind == JsonValueKind.True;
-        }
-        catch
-        {
-            return false;
-        }
+        if (!mod.Alive) Tracked.TryRemove(mod, out _);
     }
 }

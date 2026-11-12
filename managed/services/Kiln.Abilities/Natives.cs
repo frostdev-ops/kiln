@@ -82,7 +82,18 @@ public delegate byte NativeHandler(NativeInvocation call);
 public unsafe ref struct NativeCall
 {
     private readonly AbilitiesNative.NativeCall* _c;
-    internal NativeCall(AbilitiesNative.NativeCall* c) => _c = c;
+    // Whose handler this call is in, and whether that mod may have the raw bytes: decided once where the handler was
+    // registered (AbilitiesDispatch.AddWrap), so the check on this per-hit path is a field read. Null: a handler Kiln
+    // registered outside any mod.
+    private readonly ModContext? _owner;
+    private readonly bool _raw;
+
+    internal NativeCall(AbilitiesNative.NativeCall* c, ModContext? owner, bool raw)
+    {
+        _c = c;
+        _owner = owner;
+        _raw = raw;
+    }
 
     public uint Native => _c->Hash;
     public int ArgCount => (int)_c->Argc;
@@ -97,8 +108,18 @@ public unsafe ref struct NativeCall
     public uint Raw(int i) => (uint)i < _c->Argc ? _c->Args[i] : throw new IndexOutOfRangeException();
     public bool IsConnected(int i) => (Raw(i) & 0xFFFF0000) == 0xFFFF0000;
 
-    /// <summary>The bytes of argument i's variable, or empty (not connected, out of range). Writes go to the program.</summary>
-    public Span<byte> Bytes(int i)
+    /// <summary>The bytes of argument i's variable, or empty (not connected, out of range). Writes go to the program.
+    /// A raw view of the program's memory: advanced mods only (<c>"advanced": true</c> in kiln.mod.json); an ordinary
+    /// mod's handler gets <see cref="InvalidOperationException"/> and uses the typed accessors instead.</summary>
+    public Span<byte> Bytes(int i) => _raw ? BytesCore(i) : throw Refused();
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private InvalidOperationException Refused() => _owner is null
+        ? new InvalidOperationException("NativeCall.Bytes must be called from a mod (on the tick thread or in OnLoad)")
+        : AbilitiesGate.NotAdvanced("NativeCall.Bytes", _owner);
+
+    // The typed accessors below and DamageCall read and write through this, for every mod.
+    internal Span<byte> BytesCore(int i)
     {
         var h = Raw(i);
         if ((h & 0xFFFF0000) != 0xFFFF0000) return Span<byte>.Empty;
@@ -118,11 +139,11 @@ public unsafe ref struct NativeCall
         return *(uint*)(_c->Layout + (h & 0xFFFF) * 24 + 8);
     }
 
-    public float GetFloat(int i) => Bytes(i) is { Length: >= 4 } b ? BitConverter.ToSingle(b) : 0;
-    public uint GetU32(int i) => Bytes(i) is { Length: >= 4 } b ? BitConverter.ToUInt32(b) : 0;
+    public float GetFloat(int i) => BytesCore(i) is { Length: >= 4 } b ? BitConverter.ToSingle(b) : 0;
+    public uint GetU32(int i) => BytesCore(i) is { Length: >= 4 } b ? BitConverter.ToUInt32(b) : 0;
     public EntityId GetEntity(int i) => new(GetU32(i));
-    public bool SetFloat(int i, float v) => Bytes(i) is { Length: 4 } b && BitConverter.TryWriteBytes(b, v);
-    public bool SetU32(int i, uint v) => Bytes(i) is { Length: 4 } b && BitConverter.TryWriteBytes(b, v);
+    public bool SetFloat(int i, float v) => BytesCore(i) is { Length: 4 } b && BitConverter.TryWriteBytes(b, v);
+    public bool SetU32(int i, uint v) => BytesCore(i) is { Length: 4 } b && BitConverter.TryWriteBytes(b, v);
 
     /// <summary>Runs the game's native now with the current arguments (once).</summary>
     public void CallOriginal() { if (_c->OriginalCalled == 0) AbilitiesNative.T->CallOriginal(_c); }
@@ -164,10 +185,10 @@ public unsafe ref struct DamageCall
     /// <summary>The damage setup argument (per-type factors), when connected.</summary>
     public DamageSetup Damage
     {
-        get => DamageSetup.From(_call.Bytes(14));
+        get => DamageSetup.From(_call.BytesCore(14));
         set
         {
-            var b = _call.Bytes(14);
+            var b = _call.BytesCore(14);
             if (b.Length == 52) value.ToBytes().CopyTo(b);
         }
     }
@@ -309,7 +330,15 @@ public static unsafe partial class Abilities
     public static IDisposable OnDamage(DamageHandler handler, int priority = 0)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return AbilitiesDispatch.AddWrap(0xb04d0e7a, (ref NativeCall c) =>
+        return AbilitiesDispatch.AddWrap(DamageHash, DamageWrap(handler), priority);
+    }
+
+    internal const uint DamageHash = 0xb04d0e7a;  // applyDamage
+
+    // The wrap OnDamage registers: its DamageCall reads and writes through NativeCall's internal core, so an ordinary
+    // mod's damage handler works although NativeCall.Bytes is gated.
+    internal static NativeWrapHandler DamageWrap(DamageHandler handler) =>
+        (ref NativeCall c) =>
         {
             var before = c.IsConnected(6) ? c.GetFloat(6) : 1f;
             var d = new DamageCall(c);
@@ -320,8 +349,7 @@ public static unsafe partial class Abilities
                 c.CallOriginal();
                 c.SetFloat(6, before);
             }
-        }, priority);
-    }
+        };
 
     /// <summary>Holds only instances of these programs for <see cref="ImpactStartingEvent"/> (the union over all
     /// callers; no filter = every new instance is held while anyone subscribes). Dispose to drop the filter.</summary>
