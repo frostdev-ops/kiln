@@ -1,19 +1,31 @@
 #!/usr/bin/env bash
-# Builds the modding site locally: the API reference from the assemblies and XML docs of Kiln.Api, Kiln.Testing and the
-# services (managed/Kiln.Sdk/pack.sh's stage), plus docs/kiln/modding/*.md. It publishes nothing.
-#   KILN_OUT=<build dir> tools/docs-site/build.sh     -> $KILN_OUT/docs-site/index.html
+# Builds the modding site as a folder: the API reference from the assemblies and XML docs of Kiln.Api, Kiln.Testing and
+# the services (managed/Kiln.Sdk/pack.sh's stage), plus docs/kiln/modding/*.md. It publishes nothing: the release puts
+# the folder into <release>/sdk/api/, putting it online is the owner's decision.
+#   KILN_OUT=<build dir> tools/docs-site/build.sh [<site folder>]   -> <site folder>/index.html
+# The site folder defaults to $KILN_OUT/docs-site; an existing one is replaced only when it holds a site from here.
 # The tool goes into $KILN_OUT/tools (dotnet tool install, from NuGet). Generated files stay out of the repository: the
-# config is copied to $KILN_OUT/docs-work, where docfx writes api/.
+# config is copied to $KILN_OUT/docs-work, where docfx writes api/ and docfx.log.
+# Steps: docfx metadata over the stage; annotate.py adds the thread/side/capability line to a copy of the XML docs;
+# docfx metadata again over the copy (api/); undocumented.py against undocumented-dev24.txt (a warning, an error with
+# KILN_DOCS_STRICT=1); docfx build.
 # docfx's runtimeconfig also asks for ASP.NET Core, which only `docfx serve` needs and which an SDK-only machine lacks, so
 # it runs from a private copy that names just Microsoft.NETCore.App.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 out=${KILN_OUT:?set KILN_OUT to your build folder}
+out=$(mkdir -p "$out" && cd "$out" && pwd)
+site=${1:-$out/docs-site}
+[[ $site == /* ]] || site=$PWD/$site
 tools=$out/tools/docfx
 work=$out/docs-work
 stage=$out/mdk-stage
 version=2.78.3
+if [[ -d $site && -n $(command ls -A "$site") && ! -f $site/xrefmap.yml ]]; then
+  echo "$site is not empty and holds no docs site: not replacing it" >&2
+  exit 1
+fi
 # the API reference reads the assemblies and XML docs pack.sh builds: no MSBuild workspace, whose assemblies docfx does
 # not find on this SDK
 [[ -f $stage/Kiln.Api.xml ]] || KILN_OUT=$out "$repo/managed/Kiln.Sdk/pack.sh"
@@ -21,7 +33,9 @@ version=2.78.3
 rm -rf "$work" && mkdir -p "$work"
 cp "$here"/index.md "$here"/toc.yml "$work"/
 cp -r "$repo/docs/kiln/modding" "$work/modding"      # docfx wants its sources below the config
-sed -e "s#MDK_STAGE#$stage#" "$here/docfx.json" > "$work/docfx.json"
+cp -r "$stage" "$work/stage"                          # annotate.py rewrites the XML docs of this copy
+sed -e "s#MDK_STAGE#$work/stage#" "$here/docfx.json" > "$work/docfx.json"
+sed -e "s#MDK_STAGE#$stage#" -e 's#"dest": "api"#"dest": "api-raw"#' "$here/docfx.json" > "$work/docfx-raw.json"
 cd "$work"
 # A private copy of the tool: without its deps.json every dll next to it is found, and the SDK's Microsoft.Extensions.*
 # stand in for the ones ASP.NET Core would provide.
@@ -42,7 +56,34 @@ o["rollForward"] = "Major"
 o["configProperties"].pop("Docfx.DotnetToolMode", None)   # it then looks for templates/ next to itself
 json.dump(c, open(sys.argv[1], "w"), indent=1)
 PY
-docfx() { dotnet exec "$run/docfx.dll" "$@"; }
-docfx metadata docfx.json
-docfx build docfx.json --output "$out/docs-site"
-echo "site: $out/docs-site/index.html"
+log=$work/docfx.log
+docfx() { NO_COLOR=1 dotnet exec "$run/docfx.dll" "$@"; }
+# pass one only tells annotate.py the attributes; its warnings come again in pass two
+docfx metadata docfx-raw.json >"$work/docfx-raw.log" 2>&1 || { tail -40 "$work/docfx-raw.log" >&2; exit 1; }
+python3 -I "$here/annotate.py" "$work/api-raw" "$work/stage"
+rm -rf "$work/api-raw"
+docfx metadata docfx.json 2>&1 | tee "$log"
+missing=$(python3 -I "$here/undocumented.py" --baseline "$here/undocumented-dev24.txt" "$work/api" || true)
+n=$(grep -c . <<<"$missing" || true)
+if ((n)); then
+  printf 'undocumented: %s public types and members have no XML summary and are not in undocumented-dev24.txt:\n%s\n' \
+    "$n" "$missing" >&2
+  [[ ${KILN_DOCS_STRICT:-} == 1 ]] && { echo "KILN_DOCS_STRICT=1: failing on them" >&2; exit 1; }
+else
+  echo "undocumented: none beyond undocumented-dev24.txt"
+fi
+rm -rf "$site"
+docfx build docfx.json --output "$site" 2>&1 | tee -a "$log"
+# the manifest names this build folder and only docfx's own tools read it; the source maps are a third of the size
+rm -f "$site/manifest.json" "$site"/public/*.map
+python3 - "$log" <<'PY'
+import collections, re, sys
+kinds = collections.Counter()
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    m = re.search(r"(?:^|: )warning:? ([A-Za-z]+):", line) or re.search(r"^warning: (.{0,24})", line)
+    if m:
+        kinds[m.group(1)] += 1
+print(f"docfx: {sum(kinds.values())} warnings" + (" (" + ", ".join(f"{k} {n}" for k, n in kinds.most_common()) + ")"
+                                                   if kinds else "") + f", log {sys.argv[1]}")
+PY
+echo "site: $site/index.html"
