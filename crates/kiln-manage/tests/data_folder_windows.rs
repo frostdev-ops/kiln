@@ -444,9 +444,82 @@ mod win {
         profile::activate(&new, &fx.active, &fx.game_z).unwrap();
         library::import(&new, &[kiln_mod(&fx.base, "after-move", "1.0.0")], &mut NoProgress).unwrap();
         assert_eq!(tree(&fx.dirs.root), before, "the old copy is as it was before the move");
+        // the identity the removal decides by: one file under two names, link count two
+        let (old_m, new_m) = (lib_dir(&fx.dirs, &fx.mods.kiln).join("M.dll"), lib_dir(&new, &fx.mods.kiln).join("M.dll"));
+        let (io, inew) = (handle_info(&old_m).unwrap(), handle_info(&new_m).unwrap());
+        eprintln!("one letter, a hard-linked file: old {io:?}, new {inew:?} (volume serial, file index, link count)");
+        assert_eq!((io, io.2), (inew, 2), "one file, two names");
         let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
-        assert!(c.done, "{c:?}");
-        assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists() && lib_dir(&new, &fx.mods.kiln).join("M.dll").is_file());
+        assert!(c.done && c.removed_files > 0, "{c:?}");
+        assert!(!c.kept.iter().any(|k| k.reason.contains("very file") || k.reason.contains("link")), "{c:?}");
+        assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists() && new_m.is_file());
+        let after = handle_info(&new_m).unwrap();
+        eprintln!("one letter, after the removal: new {after:?}");
+        assert_eq!(after.2, 1);
+    }
+
+    /// `GetFileInformationByHandle` of `p` itself, as the removals ask it (read attributes only, share everything, a
+    /// reparse point opened, not followed): the volume serial number, the file index and the link count.
+    fn handle_info(p: &Path) -> Option<(u32, u64, u32)> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, GetFileInformationByHandle,
+        };
+        let f = std::fs::OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(7)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(p)
+            .ok()?;
+        // SAFETY: a valid open handle and a zeroed out-struct of the right type.
+        unsafe {
+            let mut i: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+            if GetFileInformationByHandle(f.as_raw_handle() as _, &mut i) == 0 {
+                return None;
+            }
+            Some((i.dwVolumeSerialNumber, u64::from(i.nFileIndexHigh) << 32 | u64::from(i.nFileIndexLow), i.nNumberOfLinks))
+        }
+    }
+
+    /// Within the exFAT volume (`KILN_TEST_VOLUME_B`): a move from `E:` to `E:` (copies: exFAT has no hard links) that
+    /// crashed after the copy is recovered in full, then the same move is made and the old copy removed (the file
+    /// index on exFAT decides that the two places are two folders and every old file another file).
+    #[test]
+    fn a_move_within_the_exfat_volume_and_its_recovery() {
+        seen();
+        let Some(vb) = volume_b("a_move_within_the_exfat_volume_and_its_recovery") else { return };
+        let base = vb.join(format!("exfat-{}", std::process::id()));
+        clean(&base);
+        let fx = Fixture::build("exfat");
+        let (a, b) = (base.join("Kiln a"), base.join("Kiln b"));
+        let r = mv(&fx.env, &a, &MoveOptions::default(), &mut NoProgress).unwrap();
+        assert!(r.cleanup.unwrap().done);
+        dfm::acknowledge(&fx.env).unwrap();
+        let in_a = tree(&a);
+        let f = lib_dir(&DataDirs::at(&a), &fx.mods.kiln).join("M.dll");
+        eprintln!("exFAT: {} {:?}, settings.json {:?} (volume serial, file index, link count)", f.display(), handle_info(&f), handle_info(&a.join("settings.json")));
+        // a move E: -> E: that "dies" after the copy, and its recovery
+        let stop = MoveOptions { force_copy: false, inject: Some(Inject::StopAfter(dfm::Step::Copy)) };
+        assert_eq!(mv(&fx.env, &b, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+        assert!(b.join("library").is_dir());
+        assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Uncommitted { .. }));
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        eprintln!("exFAT recovery: {c:?}");
+        assert!(c.done && c.kept.is_empty(), "{c:?}");
+        assert!(!b.exists(), "the partial copy is gone: {:?}", super::listing(&b));
+        assert_eq!(tree(&a), in_a, "the folder in use is as it was");
+        assert_same(&fx.env.locate().unwrap().dirs.root, &a, "and in use");
+        // the same move, to the end
+        let r = mv(&fx.env, &b, &MoveOptions::default(), &mut NoProgress).unwrap();
+        assert_eq!(r.linked, 0, "exFAT has no hard links");
+        let c = r.cleanup.unwrap();
+        eprintln!("exFAT move: {c:?}");
+        assert!(c.done && c.removed_files > 0, "{c:?}");
+        assert_eq!(c.kept.iter().map(|k| k.path.clone()).collect::<Vec<_>>(), [a.join("My Notes")], "{c:?}");
+        assert_eq!(tree(&b).keys().collect::<Vec<_>>(), in_a.keys().collect::<Vec<_>>());
+        assert_eq!(data_only(&tree(&b)), data_only(&in_a));
+        assert_same(&fx.env.locate().unwrap().dirs.root, &b, "locate");
+        clean(&base);
     }
 
     /// Cancels as soon as the switch is under way (the move's own removal of the old copy is interrupted).

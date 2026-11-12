@@ -2226,7 +2226,7 @@ fn recovery_removes_the_one_file_a_crash_cut_off() {
     assert!(c.done && c.kept.is_empty() && c.folder_removed, "{c:?}");
     assert_eq!(c.cut_off, [to.join("backups/big.bin")]);
     let json = serde_json::to_value(&c).unwrap();
-    assert_eq!(json["cutOff"][0].as_str(), Some(to.join("backups/big.bin").to_str().unwrap()));
+    assert_eq!(json["cutOff"][0].as_str(), Some(to.join("backups").join("big.bin").to_str().unwrap()), "the host's separators");
     old_place_intact(&fx, &before, &to);
 }
 
