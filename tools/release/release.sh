@@ -217,6 +217,27 @@ export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$work=/build/work"$'\x1f'"--
 # Launcher build.rs rejects official builds without valid values; approval/live-provider proof remains manual.
 export KILN_NEXUS_ENABLED KILN_NEXUS_OAUTH_CLIENT_ID KILN_NEXUS_OAUTH_REDIRECT_URI
 export ContinuousIntegrationBuild=true DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NO_STRIP=${NO_STRIP:-true}
+# Rust: one toolchain for everything this machine builds (the Windows cross-builds; with --host-build the Linux files
+# too): the version the Linux build image has (linux-build/Dockerfile, RUST_VERSION). rustup's `stable` can move while
+# a release builds: 0.2.0-dev.26's first build stopped with "not applicable to the 'stable' toolchain" when it did. A
+# version number cannot move. KILN_RELEASE_RUST names another version for a trial build.
+pin_rust() {
+  local target=$1 want
+  want=${KILN_RELEASE_RUST:-$(sed -n 's/^ARG RUST_VERSION=//p' "$here/linux-build/Dockerfile")}
+  [[ $want =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "no Rust version to build with: '$want' (ARG RUST_VERSION in tools/release/linux-build/Dockerfile, or KILN_RELEASE_RUST)"
+  if command -v rustup >/dev/null 2>&1; then
+    rustup run "$want" rustc --version >/dev/null 2>&1 \
+      || die "Rust $want is not installed here: rustup toolchain install $want --profile minimal --target $target"
+    rustup target list --toolchain "$want" --installed 2>/dev/null | grep -qx "$target" \
+      || die "Rust $want has no $target target here: rustup target add --toolchain $want $target"
+    export RUSTUP_TOOLCHAIN=$want
+  elif [[ $(rustc --version 2>/dev/null) != "rustc $want "* ]]; then
+    die "rustc here is '$(rustc --version 2>&1 | head -1)', but the release builds with Rust $want (install rustup, or that version)"
+  fi
+  note "Rust $want for the files built on this machine (the Linux build image has the same)"
+}
+pin_rust x86_64-pc-windows-msvc
 cache=${KILN_RELEASE_CACHE:-$HOME/.cache/kiln-release}
 mkdir -p "$cache"
 # pinned downloads (each script checks its hash): .NET for the runtime, netcoredbg for the vsix; reused when cached
