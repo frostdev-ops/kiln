@@ -316,14 +316,11 @@ public static unsafe class PlayerAnimStates
         return h;
     }
 
-    /// <summary>Defines a player state from the calling mod's code. The game reads the player's graph once per process
-    /// and a change while a player's graph is live would end the game, so a definition from code never changes the
-    /// running game: when the boot merge already has exactly this definition (it is in the mod's
-    /// <c>assets/player-states.json</c>, or was kept from code on an earlier run) the result is
-    /// <see cref="PlayerAnimStateStatus.Live"/>; otherwise it is <see cref="PlayerAnimStateStatus.Pending"/>, "kept for the next
-    /// start": the state is in the graph after a restart, on every side that runs the mod, and not before. A definition
-    /// the service will not take is <see cref="PlayerAnimStateStatus.Refused"/> with its reason. Prefer
-    /// <c>assets/player-states.json</c>: it is in the graph from the first start.</summary>
+    /// <summary>Requests a player-state definition from the calling mod's code. Definitions from code are not implemented
+    /// in this build: when the merge is available, this returns <see cref="PlayerAnimStateStatus.Refused"/> with a reason.
+    /// Nothing is kept for the next start, and this never changes the running graph. Write the definition in
+    /// <c>assets/player-states.json</c> instead: the boot merge reads that file. The game reads the player's graph once per
+    /// process; replacing it while a player's graph is live can end the game.</summary>
     /// <remarks>Call it from the mod's own code (<c>OnLoad</c>, a tick handler): that is how the defining mod is found.</remarks>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> or one of its texts is null.</exception>
     /// <exception cref="ArgumentException">The name is empty, longer than 64 characters or has a <c>/</c>; the clip or
