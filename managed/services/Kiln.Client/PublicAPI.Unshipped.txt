@@ -1,5 +1,6 @@
 #nullable enable
 const Kiln.SteamGuard.Capability = "steam.achievement_guard" -> string!
+const Kiln.SteamGuard.ProtectingCapability = "steamguard.protecting" -> string!
 Kiln.SteamGuard
 Kiln.SteamGuardStatus
 Kiln.SteamGuardStatus.Active.get -> bool
@@ -21,6 +22,7 @@ Kiln.SteamGuardStatus.SteamGuardStatus(bool Available, bool HookInstalled, bool 
 Kiln.SteamGuardStatus.TargetVerified.get -> bool
 Kiln.SteamGuardStatus.TargetVerified.init -> void
 override Kiln.SteamGuardStatus.GetHashCode() -> int
+static Kiln.SteamGuard.Hold(string! reason) -> System.IDisposable!
 static Kiln.SteamGuard.Latch(string! reason) -> bool
 static Kiln.SteamGuard.Protecting.get -> bool
 static Kiln.SteamGuard.Status.get -> Kiln.SteamGuardStatus

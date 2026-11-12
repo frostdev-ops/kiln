@@ -32,16 +32,26 @@ public readonly record struct SteamGuardStatus(bool Available, bool HookInstalle
 /// that did not go in, another hook on the same call, a read that failed) reads as "not protecting".</para>
 /// <para>There is no call that turns the guard off. A latch lasts until the game exits; a hold lasts until it is
 /// disposed (two holds need two disposals). Another mod cannot end yours.</para>
-/// <para>What it does not cover. Only the call that reports an achievement as reached. It does not undo an achievement
-/// already reported. It does not cover other calls a mod or another loader makes into Steam itself, a game build whose
-/// call does not match the signature (then it is not available), nor a character or world loaded later in a game where
-/// the guard is off: if that character's saved state reaches an achievement, the game can report it then. See
-/// native/services/steamguard/README.md for which of the game's paths to Steam were read from its code.</para>
+/// <para>What it guards: the game's one call that sends achievement unlocks and stat changes to Steam (it also carries
+/// the game's progress stats). While the guard is on, that call is dropped and counted in <see cref="SteamGuardStatus.Dropped"/>.</para>
+/// <para>What it does not cover. It does not undo an achievement already reported. It does not cover the game's own
+/// reset of all stats (which removes, never unlocks), other calls a mod or another loader makes into Steam itself, a
+/// game build whose call does not match the signature (then it is not available), nor a character or world loaded later
+/// in a game where the guard is off: the game reports achievements from saved state, so a changed character can unlock
+/// them when it is loaded again. The guard runs in this process only: a joined player's account is protected by that
+/// player's own client, and a client without Kiln cannot be protected at all. See native/services/steamguard/README.md
+/// for what was read from the game's code and what is inferred.</para>
 /// </remarks>
+[ClientOnly]
+[AnyThread]
 public static unsafe class SteamGuard
 {
     /// <summary>Capability and sigdb feature name.</summary>
     public const string Capability = "steam.achievement_guard";
+
+    /// <summary>The capability row that says whether the guard protects in this session: pending until the first
+    /// latch or hold, available while protecting.</summary>
+    public const string ProtectingCapability = "steamguard.protecting";
 
     private const uint FlagTargetVerified = 1u << 0;
     private const uint FlagHookInstalled = 1u << 1;
@@ -158,7 +168,7 @@ public static unsafe class SteamGuard
                 t->Release(token);
                 return false;
             }
-            hold = new Hold(token);
+            hold = new HoldToken(token);
             return true;
         }
         catch
@@ -190,9 +200,24 @@ public static unsafe class SteamGuard
         }
     }
 
+    /// <summary>Turns the guard on while the returned hold is not disposed, like <see cref="TryHold"/>, and throws
+    /// when it cannot protect. Any thread.</summary>
+    /// <param name="reason">What needs the guard, for the log (not empty).</param>
+    /// <returns>Dispose it to end this hold (other holds and a latch stay on).</returns>
+    /// <exception cref="ArgumentException"><paramref name="reason"/> is null or empty.</exception>
+    /// <exception cref="KilnUnavailableException">The guard cannot protect: <see cref="Capability"/> when the service
+    /// is not there or its target is not verified, else <see cref="ProtectingCapability"/> (the hook did not go in, or
+    /// another hook is on the game's call). Nothing is held.</exception>
+    public static IDisposable Hold(string reason)
+    {
+        if (TryHold(reason, out var hold) && hold is not null) return hold;
+        var s = Status;
+        throw new KilnUnavailableException(s is { Available: true, TargetVerified: true } ? ProtectingCapability : Capability, s.Reason);
+    }
+
     private static long Clamp(ulong v) => v > long.MaxValue ? long.MaxValue : (long)v;
 
-    private sealed class Hold(ulong token) : IDisposable
+    private sealed class HoldToken(ulong token) : IDisposable
     {
         private ulong _token = token;
 

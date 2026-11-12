@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.steamguard's target on the client (enshrouded.exe). Client only: a dedicated server has no Steam user, so there is no server.d twin and this file does not 'extends' one. ReportAchievements is the Steam-achievement provider's apply method (the game's own function, provider vtable slot 6): it walks the queued achievement/stat operations and is the one place that calls ISteamUserStats::SetAchievement (interface vtable +0x30) and ::StoreStats (+0x48). Dropping it drops every achievement and stat write the game would send to Steam. The entry pattern keeps the prologue literal and wildcards only the two frame displacements, then anchors on the provider-ready check (mov rcx,[rcx+0x70]; call [rax+8]; mov al,0x18). Second sign (a feature requirement, so an update keeps it honest): @steamguard.sign anchors on the SetAchievement call site (48 8B 01 FF 50 30) followed by the '[online] Achievement ... couldn't be unlocked.' log string, and captures that string as steamguard/AchievementUnlockText; the native service reads it back to confirm the bytes are the achievement text. Evidence: native/services/steamguard/README.md.",
+  "symbols": {
+    "steamguard/ReportAchievements": {
+      "find": [
+        {
+          "pattern": "40 55 53 41 55 48 8D AC 24 ?? ?? FF FF 48 81 EC ?? ?? 00 00 4C 8B E9 49 8B D8 48 8B 49 70 48 8B 01 FF 50 08 84 C0 75 ?? B0 18"
+        }
+      ]
+    },
+    "@steamguard.sign": {
+      "find": [
+        {
+          "scope": { "symbol": "steamguard/ReportAchievements", "size": 2304 },
+          "pattern": "49 8B 4D 78 48 8B 55 10 48 8B 01 FF 50 30 84 C0 75 ?? 8B 44 24 3C 4C 8D 44 24 38 0F 10 05 ?? ?? ?? ?? 89 44 24 3C 48 8D 15 {steamguard/AchievementUnlockText:rel32}"
+        }
+      ]
+    }
+  },
+  "features": {
+    "steam.achievement_guard": {
+      "symbols": ["steamguard/ReportAchievements", "steamguard/AchievementUnlockText"],
+      "constants": []
+    }
+  }
+}
