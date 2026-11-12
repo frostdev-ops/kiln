@@ -5,7 +5,8 @@
 # into the lab with --policy any, and stops the server with `tools/lab/lab.sh stop` (SIGINT) in these runs:
 #   baseline  only with KILN_UNLOAD_BASELINE_CORE (a kiln-core.dll without on_unload calls): no test plugin
 #   plain     no test plugin
-#   markers   unload-test-0-nohandler, -1-marker, -2-marker
+#   markers   unload-test-0-nohandler, -1-marker, -2-marker, -6-caps (kiln.caps rows after boot and at exit; the run
+#             samples kiln/state/capabilities.json's mtime every 20 ms and keeps a copy of each version)
 #   faults    the same, plus -3-fault (null write), -4-block (never returns) and -5-reexit (calls ExitProcess itself)
 #   restart   a start from the save the faults run left, then a plain stop
 # Checks (PASS/FAIL lines; exit 1 when one fails):
@@ -27,6 +28,17 @@
 #             log that the baseline's do not have
 #   7 save    restart: the game finds world0.ksd, Kiln.Saves loads the same world at a newer revision than the faults
 #             run started from, and the stop runs the unload sequence again
+#   8 caps    markers run: 6-caps' ten reports of "unloadtest.step" (200 ms apart) rewrote capabilities.json while the
+#             server ran: at least two writes in the reports' window, consecutive writes at least 0.9 s apart, no more
+#             writes in the window than one a second allows, a version with the row (source
+#             plugin:unload-test-6-caps.dll), a newer generation than the boot write's and a "written" later than
+#             state/boot.json's, and the last version before the stop shows report 10. Write times are the file's
+#             mtimes, sampled every 20 ms with a copy of each version. The writer spaces the starts of its writes by
+#             1 s; an mtime trails its start by the time it took to render and write the file (up to ~60 ms seen on a
+#             busy disk), hence 0.9 s and not 1 s (a writer that wrote on every report would show 0.2 s)
+#   9 exit    markers run: "unloadtest.exit", reported in 6-caps' on_unload while the writer thread is inside its
+#             one-second gap (it waits until the file shows its "at exit" report first), is in capabilities.json after
+#             the stop; says how long after the previous write it was written
 # Usage (the lab must exist: tools/lab/lab.sh new <lab> <port>; one lab server at a time, so hold the lab lock):
 #   flock <lock file> native/core/tests/test-unload-lab.sh <lab name> [<KILN_OUT>]
 # Env: KILN_LABSTART               the command that starts a lab, given the lab name (default: tools/lab/lab.sh start)
@@ -36,6 +48,7 @@
 #      KILN_UNLOAD_BREAK_SAVE=1    empty world0.ksd before the restart run (and put it back after): check 7 must fail
 #      KILN_UNLOAD_CHECK_ONLY=<dir>  no lab run: evaluate the checks on an earlier run's folder (<KILN_OUT>/unload-lab)
 #      KILN_LABS                   where the labs are (as tools/lab/lab.sh)
+#      UNLOAD_TEST_CAPS_EXIT=single  6-caps reports only the exit row in its on_unload (no write just before it)
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
@@ -88,26 +101,49 @@ run() {
   local name=$1; shift
   local r=$out/$name
   mkdir -p "$r"
-  rm -f "$dir/kiln/logs/"unload-*.txt
+  rm -f "$dir/kiln/logs/"unload-*.txt "$dir/kiln/logs/caps-test.txt"
   rm -rf "$dir/kiln/crash-reports"
   local p
   for p in "$@"; do install -m 644 "$plugins/$p.dll" "$dir/kiln/plugins/"; done
-  local since
+  local since poller=""
   since=$(date '+%Y-%m-%d %H:%M:%S')
+  date +%s.%N >"$r/start-epoch"
+  if [[ " $* " == *" unload-test-6-caps "* ]]; then  # every write of capabilities.json: its mtime and a copy
+    mkdir -p "$r/caps-writes"
+    (
+      last="" n=0
+      while :; do
+        m=$(stat -c %.9Y "$dir/kiln/state/capabilities.json" 2>/dev/null)
+        if [[ -n $m && $m != "$last" ]]; then
+          n=$((n + 1)) last=$m
+          echo "$m" >>"$r/caps-writes.txt"
+          cp "$dir/kiln/state/capabilities.json" "$r/caps-writes/$n.json" 2>/dev/null
+        fi
+        sleep 0.02
+      done
+    ) &
+    poller=$!
+  fi
   $start_cmd "$lab" >"$r/start.txt" 2>&1 || echo "start failed" >>"$r/start.txt"
   local pid
   pid=$(tools/lab/lab.sh pid "$lab")
   echo "$pid" >"$r/pid"
+  cp "$dir/kiln/state/boot.json" "$r/boot.json" 2>/dev/null
   sleep "$run_s"
   command ls "$dir/kiln/logs/" >"$r/logs-before-stop.txt" 2>/dev/null
+  cp "$dir/kiln/state/capabilities.json" "$r/caps-before-stop.json" 2>/dev/null
   local t0 t1
   t0=$(date +%s.%N)
+  echo "$t0" >"$r/sigint-time"
   ( while [[ -n $pid && -d /proc/$pid ]]; do sleep 0.02; done; date +%s.%N >"$r/exit-time" ) &
   local watcher=$!
   stop_lab
   wait "$watcher"
   t1=$(cat "$r/exit-time")
   awk "BEGIN{printf \"%.2f\n\", $t1 - $t0}" >"$r/sigint-to-exit"
+  if [[ -n $poller ]]; then sleep 0.1; kill "$poller" 2>/dev/null; wait "$poller" 2>/dev/null; fi
+  cp "$dir/kiln/state/capabilities.json" "$r/capabilities.json" 2>/dev/null
+  cp "$dir/kiln/logs/caps-test.txt" "$r/" 2>/dev/null
   for p in "$@"; do rm -f "$dir/kiln/plugins/$p.dll"; done
   cp "$dir/kiln/logs/kiln.log" "$r/" 2>/dev/null
   cp "$dir/kiln/logs/"unload-*.txt "$r/" 2>/dev/null
@@ -127,7 +163,7 @@ if [[ -n ${KILN_UNLOAD_BASELINE_CORE:-} ]]; then
   install -m 644 "$new_core" "$dir/kiln/kiln-core.dll"
 fi
 run plain
-run markers unload-test-0-nohandler unload-test-1-marker unload-test-2-marker
+run markers unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-6-caps
 run faults unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-3-fault unload-test-4-block \
   unload-test-5-reexit
 if [[ ${KILN_UNLOAD_BREAK_SAVE:-} == 1 ]]; then  # a check of the check: a broken save must fail check 7
@@ -218,5 +254,83 @@ if has_line "$R/start.txt" ' up after ' && has_line "$R/game.log" "Found file 'w
 else
   fail "7 save: start '$(tail -1 "$R/start.txt")', world '$world', revisions faults $faults_rev restart $restart_rev, loaded: $(grep -o 'saves: world loaded: [^(]*([^)]*)[^,]*, [^,]*, revision [0-9]*' "$R/kiln.log" | head -1)"
 fi
-echo "== $((7 - fails)) of 7 passed"
+# 8 caps and 9 exit: kiln.caps rows of a test plugin after boot and in its on_unload (markers run)
+caps=$(python3 -I - "$M" <<'PY'
+import json, re, sys
+r = sys.argv[1]
+def num(f):
+    try: return float(open(f"{r}/{f}").read().split()[0])
+    except Exception: return None
+def doc(path):
+    try: return json.load(open(path))
+    except Exception: return None
+def row(d, name):
+    for c in (d or {}).get("capabilities", []):
+        if c.get("name") == name: return c
+    return None
+start, sigint, gone = num("start-epoch"), num("sigint-time"), num("exit-time")
+pid = (doc(f"{r}/boot.json") or {}).get("pid")  # the Windows pid the core writes into its state files
+try: mt = [float(x) for x in open(f"{r}/caps-writes.txt").read().split()]
+except Exception: mt = []
+writes = [(m, i) for i, m in enumerate(mt, 1) if start and m >= start]  # this run's writes: mtime, copy number
+running = [(m, i) for m, i in writes if sigint and m < sigint]
+reports, exit_rep, step_exit, unloads = [], None, None, 0
+try: lines = open(f"{r}/caps-test.txt").read().splitlines()
+except Exception: lines = []
+for l in lines:
+    if m := re.match(r"report (\d+) state=(\w+) rc=(-?\d+) unix_ms=(\d+) generation=(\d+)", l):
+        reports.append((int(m[1]), m[2], int(m[3]), int(m[4]) / 1000, int(m[5])))
+    elif m := re.match(r"exit reported rc=(-?\d+) unix_ms=(\d+) generation=(\d+) mode=(\w+)", l):
+        exit_rep = (int(m[1]), int(m[2]) / 1000, m[4])
+    elif l.startswith("step at exit"): step_exit = l
+    elif l.startswith("on_unload call="): unloads += 1
+boot_written = (doc(f"{r}/boot.json") or {}).get("written", "")
+src = "plugin:unload-test-6-caps.dll"
+# 8
+ok8, why8 = True, []
+if len(reports) != 10 or any(x[2] != 0 for x in reports): ok8 = False; why8.append(f"reports {[(x[0], x[2]) for x in reports]}")
+first = reports[0][3] if reports else 0; last = reports[-1][3] if reports else 0
+window = [(m, i) for m, i in running if first - 0.05 <= m <= last + 1.5]
+gaps = [b - a for (a, _), (b, _) in zip(running, running[1:])]
+boot = doc(f"{r}/caps-writes/{running[0][1]}.json") if running else None
+g0 = (boot or {}).get("generation", 0)
+if not boot or boot.get("pid") != pid: ok8 = False; why8.append(f"boot write of pid {(boot or {}).get('pid')} (server {pid})")
+with_row = [i for m, i in window if (d := doc(f"{r}/caps-writes/{i}.json")) and (c := row(d, "unloadtest.step")) and
+            c.get("source") == src and d.get("generation", 0) > g0 and d.get("written", "") > boot_written]
+allowed = int(last + 1.5 - first) + 1
+if len(window) < 2: ok8 = False; why8.append(f"{len(window)} write(s) in the reports' window")
+if len(window) > allowed: ok8 = False; why8.append(f"{len(window)} writes in {last + 1.5 - first:.1f} s")
+if gaps and min(gaps) < 0.9: ok8 = False; why8.append(f"two writes {min(gaps):.3f} s apart")
+if not with_row: ok8 = False; why8.append("no version with the row, a newer generation and a later 'written'")
+lastdoc = doc(f"{r}/caps-writes/{running[-1][1]}.json") if running else None
+lc = row(lastdoc, "unloadtest.step")
+if not lc or lc.get("reasonText") != "report 10 of 10" or lc.get("state") != "unavailable":
+    ok8 = False; why8.append(f"last version before the stop shows {lc}")
+print(("PASS" if ok8 else "FAIL") + f" 8 caps: {len(reports)} reports from {first:.3f} to {last:.3f}; {len(running)} writes while running "
+      f"(boot generation {g0}), {len(window)} in the reports' window ({allowed} allowed), closest two writes "
+      f"{(min(gaps) if gaps else float('nan')):.3f} s apart; {len(with_row)} version(s) with the row" + ("" if ok8 else "; " + "; ".join(why8)))
+# 9
+final = doc(f"{r}/capabilities.json")
+ec = row(final, "unloadtest.exit")
+ok9 = bool(final and final.get("pid") == pid and ec and ec.get("state") == "available" and ec.get("source") == src
+           and unloads == 1 and exit_rep and exit_rep[0] == 0)
+after = [m for m, i in writes if exit_rep and m >= exit_rep[1] - 0.005]
+before = [m for m, i in writes if exit_rep and m < exit_rep[1] - 0.005]
+how = ""
+if exit_rep and after:
+    how = f"written {1000 * (after[0] - exit_rep[1]):.0f} ms after it was reported"
+    if before:
+        gap = after[0] - before[-1]
+        how += f", {1000 * gap:.0f} ms after the previous write" + (
+            " (sooner than the writer thread's 1 s gap: the exit path's own write)" if gap < 0.9 else
+            " (the writer thread's gap had passed: it could have been either)")
+    if gone: how += f", {1000 * (gone - after[0]):.0f} ms before the process was gone"
+print(("PASS" if ok9 else "FAIL") + f" 9 exit: mode {exit_rep[2] if exit_rep else '?'}; {step_exit or 'no first report'}; "
+      f"after the stop unloadtest.exit is {'there' if ec else 'NOT there'} ({ec.get('source') if ec else '-'}); "
+      f"{how or 'no write after the report'}; on_unload calls {unloads}")
+PY
+)
+echo "$caps"
+fails=$((fails + $(grep -c '^FAIL' <<<"$caps")))
+echo "== $((9 - fails)) of 9 passed"
 ((fails == 0))
