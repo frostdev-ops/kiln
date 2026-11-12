@@ -1483,6 +1483,74 @@ export const deckGamepad = (on: boolean) => call<GamepadStatus>("deck_gamepad", 
 export const deckFullscreen = (on: boolean) => call<boolean>("deck_fullscreen", { on });
 export const deckQuit = () => call<null>("deck_quit");
 
+// data_folder.rs: where the launcher keeps its data (one folder, moved as one; Settings' "Data folder" row). The
+// data folder in use is fixed for the life of the process: after a move, a "use" or a reset the launcher restarts
+// (data_folder_restart), and that start removes the old copy and reports it (`notice`).
+// Not in COMMANDS yet: the Rust side registers these with the commands themselves (task app-2), and both lists change
+// together (src-tauri/src/commands/mod.rs tests that they match).
+/** Where the data folder comes from: `env` ($KILN_DATA_DIR; the launcher cannot change it), `pointer` (the file at the
+ *  default place that names a folder the player chose), `default`. */
+export type DataFolderSource = "env" | "pointer" | "default";
+export interface DataFolder {
+  /** The data folder in use. */
+  path: string;
+  /** The default place for this PC. */
+  defaultPath: string;
+  source: DataFolderSource;
+  /** The pointer names a folder that cannot be used: every other command fails until the player picks a folder
+   *  (data_folder_use), starts fresh (data_folder_reset) or quits. */
+  problem: { path: string; reason: string } | null;
+  /** A move finished at the last start: `left` are the paths that stayed in the old folder. Until data_folder_notice_ack. */
+  notice: DataFolderNotice | null;
+}
+export interface DataFolderNotice {
+  from: string;
+  to: string;
+  left: string[];
+}
+export interface DataFolderSize {
+  bytes: number;
+  files: number;
+}
+/** What data_folder_check found for a folder the player picked. */
+export interface DataFolderPlan {
+  picked: string;
+  /** The folder the data would be in (`<picked>/Kiln` when the picked folder has other files in it). */
+  target: string;
+  /** move: copy the data there; use: it already is a Kiln data folder (no merge); refuse: `reason` says why not. */
+  action: "move" | "use" | "refuse";
+  /** One sentence; set for "refuse". */
+  reason: string | null;
+  /** What moves. */
+  bytes: number;
+  files: number;
+  /** Free space at the target (null: unknown). */
+  free: number | null;
+  sameVolume: boolean;
+  /** Games whose mods would be copied into their game folder from there (Proton cannot reach the path). */
+  copyMode: string[];
+  /** Entries that are copied and also stay in the old folder. */
+  stays: string[];
+}
+/** data_folder_move's task result. */
+export interface DataFolderMoved {
+  from: string;
+  to: string;
+  warnings: string[];
+}
+export const dataFolderGet = () => call<DataFolder>("data_folder_get");
+export const dataFolderSize = () => call<DataFolderSize>("data_folder_size");
+export const dataFolderCheck = (path: string) => call<DataFolderPlan>("data_folder_check", { path });
+/** Task result: DataFolderMoved. `path`: the folder the player picked (the backend checks it again). */
+export const dataFolderMove = (path: string) => call<TaskId>("data_folder_move", { path });
+/** Switches to a folder that already is a Kiln data folder (the current one stays where it is). */
+export const dataFolderUse = (path: string) => call<DataFolder>("data_folder_use", { path });
+/** Starts fresh at the default place; only for a broken pointer. */
+export const dataFolderReset = () => call<DataFolder>("data_folder_reset");
+export const dataFolderNoticeAck = () => call<null>("data_folder_notice_ack");
+/** Restarts the launcher; the promise does not resolve (it rejects if the restart could not start). */
+export const dataFolderRestart = () => call<null>("data_folder_restart");
+
 /** Every command name (the Rust side registers the same list; mock.ts answers or rejects each). */
 export const COMMANDS = [
   "app_info", "app_settings_get", "app_settings_set", "app_open_path", "app_open_url", "task_list", "task_get", "task_cancel",

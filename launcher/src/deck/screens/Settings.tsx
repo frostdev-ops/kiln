@@ -1,5 +1,5 @@
 // Deck Settings: the desktop UI (now, and which UI to start in), button glyphs, launcher updates, fullscreen, the loaded
-// profile (a background feature: the Mods screen shows its switches), Quit.
+// profile (a background feature: the Mods screen shows its switches), the data folder (../DataFolder.tsx), Quit.
 // The last line names what the Deck detection saw (for testers' reports).
 // The Nexus Mods build (api/distribution.ts) has no launcher updates: its row is "New versions: Nexus Mods" (A opens
 // the Kiln page there in the browser), and no update command is called.
@@ -13,6 +13,7 @@ import { useActiveProfile, useAppInfo, useDistribution, useGame, useGameStatus, 
 import * as nx from "../../api/nexus";
 import { useNexusAccount } from "../../shell/catalogInstall";
 import { runTask, toast } from "../../ui";
+import { DeckDataFolderRow } from "../DataFolder";
 import { ProfileDialog, QuitDialog } from "../dialogs";
 import { useGlyphPref, type GlyphPref } from "../glyphs";
 import { usePads } from "../input";
@@ -126,6 +127,7 @@ export default function Settings() {
           <Row id="set-profile" title="Profile" sub="A saved set of mods and their switches; Mods shows the loaded one" a="Change"
             end={<Word tone="ember">{loadedName}</Word>} onClick={() => setProfiles(true)} />
         )}
+        <DeckDataFolderRow />
         <Row id="set-quit" title="Quit" a="Quit" onClick={() => setQuit(true)} />
       </div>
       <p className="deck-foot-note" data-testid="deck-detection">

@@ -16,6 +16,7 @@ import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
+import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -673,7 +674,7 @@ const S = (v: unknown) => String(v ?? "");
 
 const handlers: Record<string, Handler> = {
   // app
-  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true, noWebgl: false,
+  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: mockDataDir(), commit: "0f1ffa6", mock: true, noWebgl: false,
     distribution: MOCK_DISTRIBUTION, nexusEnabled: NEXUS_MOCK_ENABLED }),
   app_settings_get: () => settings,
   app_settings_set: (a) => (settings = { ...(a.settings as LauncherSettings) }),
@@ -1170,6 +1171,10 @@ Object.assign(handlers, updateMockHandlers(mockEmit, MOCK_DISTRIBUTION));
 Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
+Object.assign(handlers, dataFolderMockHandlers(startTask));
+
+/** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
+export { mockPickFolder };
 
 const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
 let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
@@ -1434,6 +1439,9 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   if (plan?.error) throw plan.error;
   if (plan && Object.hasOwn(plan, "result")) return clone(plan.result) as T;
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
+  // a pointer to a data folder that cannot be used: only the data folder's own commands answer (mockDataFolder.ts)
+  const blocked = dataFolderBlocks(cmd);
+  if (blocked) throw blocked;
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);
   const r = (await h(args)) ?? null;

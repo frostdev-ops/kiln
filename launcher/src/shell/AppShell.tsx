@@ -12,6 +12,7 @@ import { Lockup, Skeleton, Splash, TaskTray, Toaster, useRowContextMenu, useTask
 import { GameArtAuto } from "../components/GameArt";
 import { UpdateTray } from "./UpdateNotice";
 import { RouteErrorBoundary } from "./ErrorBoundary";
+import { DataFolderNotice } from "./DataFolderGate";
 import { NAV_MAIN, NAV_SIDE, navFor } from "./nav";
 import { DropAnywhere, ModpackDropOffer, useAddMods } from "./drop";
 import { ImportDetails, PickProfile } from "./importResult";
@@ -190,6 +191,7 @@ export function AppShell() {
       <ImportDetails />
       <PickProfile />
       <NxmListener />
+      <DataFolderNotice />
       <Toaster />
       <Splash done={ready} />
     </div>

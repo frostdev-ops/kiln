@@ -110,6 +110,14 @@
 .k-muted { color: var(--k-text-2); }
 .k-dim { color: var(--k-text-2); opacity: .85; }
 .k-ellipsis { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a path shortened in the middle (PathText): the head gives way first, the last name stays */
+.k-path { display: inline-flex; min-width: 0; max-width: 100%; white-space: nowrap; vertical-align: bottom; }
+.k-path-head { flex: 0 1 auto; min-width: 1.5em; overflow: hidden; text-overflow: ellipsis; }
+.k-path-tail { flex: 0 0 auto; max-width: 75%; overflow: hidden; text-overflow: ellipsis; }
+/* the data folder's dialogs: one line under the facts (components/DataFolderSettings.tsx, shell/DataFolderGate.tsx) */
+.k-df-line { margin: 10px 0 0; font-size: 16px; line-height: 1.35; color: var(--k-text-1); overflow-wrap: anywhere; }
+.k-df-list { margin: 4px 0 0; padding-left: 20px; }
+.k-df-gate { position: fixed; inset: 0; background: var(--k-bg-0); }
 .k-hr { border: 0; height: 1px; background: var(--k-line); margin: 4px 0; }
 
 /* ---------------------------------------------------------------- sections (the old cards: titled groups on the sheet) */
