@@ -1,0 +1,886 @@
+#nullable enable
+Kiln.AdvancedApiAttribute
+Kiln.AdvancedApiAttribute.AdvancedApiAttribute() -> void
+Kiln.CancelableEvent
+Kiln.CancelableEvent.Cancel() -> void
+Kiln.CancelableEvent.CancelableEvent() -> void
+Kiln.CancelableEvent.Canceled.get -> bool
+Kiln.CancelableEvent.Canceled.set -> void
+Kiln.CancelableEvent.CanceledBy.get -> string?
+Kiln.CancelableResultEvent
+Kiln.CancelableResultEvent.Allow() -> void
+Kiln.CancelableResultEvent.CancelableResultEvent() -> void
+Kiln.CancelableResultEvent.Decide(bool vanilla) -> bool
+Kiln.CancelableResultEvent.Deny() -> void
+Kiln.CancelableResultEvent.Result.get -> Kiln.EventResult
+Kiln.CancelableResultEvent.Result.set -> void
+Kiln.CommentAttribute
+Kiln.CommentAttribute.CommentAttribute(string! text) -> void
+Kiln.CommentAttribute.Text.get -> string!
+Kiln.Config
+Kiln.ConfigChangeSource
+Kiln.ConfigChangeSource.Api = 1 -> Kiln.ConfigChangeSource
+Kiln.ConfigChangeSource.File = 0 -> Kiln.ConfigChangeSource
+Kiln.ConfigChangeSource.Server = 2 -> Kiln.ConfigChangeSource
+Kiln.ConfigChangeSource.World = 3 -> Kiln.ConfigChangeSource
+Kiln.ConfigChangedEvent
+Kiln.ConfigChangedEvent.Changed.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigChangedEvent.Config.get -> Kiln.ConfigFile!
+Kiln.ConfigChangedEvent.Has(string! path) -> bool
+Kiln.ConfigChangedEvent.ModId.get -> string!
+Kiln.ConfigChangedEvent.PendingRestart.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigChangedEvent.Source.get -> Kiln.ConfigChangeSource
+Kiln.ConfigEntry
+Kiln.ConfigEntry.<Clone>$() -> Kiln.ConfigEntry!
+Kiln.ConfigEntry.Comment.get -> string?
+Kiln.ConfigEntry.Comment.init -> void
+Kiln.ConfigEntry.ConfigEntry(string! Path, string! Type, string? Comment, object? Default, object? Value, object? FileValue, double? Min, double? Max, System.Collections.Generic.IReadOnlyList<string!>! Options, bool RequiresRestart, bool Synced) -> void
+Kiln.ConfigEntry.Deconstruct(out string! Path, out string! Type, out string? Comment, out object? Default, out object? Value, out object? FileValue, out double? Min, out double? Max, out System.Collections.Generic.IReadOnlyList<string!>! Options, out bool RequiresRestart, out bool Synced) -> void
+Kiln.ConfigEntry.Default.get -> object?
+Kiln.ConfigEntry.Default.init -> void
+Kiln.ConfigEntry.Equals(Kiln.ConfigEntry? other) -> bool
+Kiln.ConfigEntry.FileValue.get -> object?
+Kiln.ConfigEntry.FileValue.init -> void
+Kiln.ConfigEntry.FromServer.get -> bool
+Kiln.ConfigEntry.FromServer.init -> void
+Kiln.ConfigEntry.Max.get -> double?
+Kiln.ConfigEntry.Max.init -> void
+Kiln.ConfigEntry.Min.get -> double?
+Kiln.ConfigEntry.Min.init -> void
+Kiln.ConfigEntry.Options.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigEntry.Options.init -> void
+Kiln.ConfigEntry.Path.get -> string!
+Kiln.ConfigEntry.Path.init -> void
+Kiln.ConfigEntry.PendingRestart.get -> bool
+Kiln.ConfigEntry.RequiresRestart.get -> bool
+Kiln.ConfigEntry.RequiresRestart.init -> void
+Kiln.ConfigEntry.Synced.get -> bool
+Kiln.ConfigEntry.Synced.init -> void
+Kiln.ConfigEntry.Type.get -> string!
+Kiln.ConfigEntry.Type.init -> void
+Kiln.ConfigEntry.Value.get -> object?
+Kiln.ConfigEntry.Value.init -> void
+Kiln.ConfigFile
+Kiln.ConfigFile.Changed -> System.Action<Kiln.ConfigChangedEvent!>?
+Kiln.ConfigFile.Entries.get -> System.Collections.Generic.IReadOnlyList<Kiln.ConfigEntry!>!
+Kiln.ConfigFile.FilePath.get -> string!
+Kiln.ConfigFile.Get(string! path) -> object?
+Kiln.ConfigFile.Id.get -> string!
+Kiln.ConfigFile.IsFromServer(string! path) -> bool
+Kiln.ConfigFile.Kind.get -> Kiln.ConfigKind
+Kiln.ConfigFile.LastError.get -> string?
+Kiln.ConfigFile.LoadedAt.get -> System.DateTime?
+Kiln.ConfigFile.ModId.get -> string!
+Kiln.ConfigFile.PendingRestart.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigFile.PerWorld.get -> bool
+Kiln.ConfigFile.Reload() -> void
+Kiln.ConfigFile.Save() -> void
+Kiln.ConfigFile.Schema() -> System.Text.Json.Nodes.JsonObject!
+Kiln.ConfigFile.SchemaJson(bool indented = true) -> string!
+Kiln.ConfigFile.SchemaSnapshot() -> System.Text.Json.Nodes.JsonObject!
+Kiln.ConfigFile.ServerValues.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigFile.Set(string! path, object? value) -> void
+Kiln.ConfigFile.SnapshotPath.get -> string!
+Kiln.ConfigFile.SyncedValuesJson() -> string!
+Kiln.ConfigFile.TrySet(string! path, object? value, out string! error) -> bool
+Kiln.ConfigFile.Type.get -> System.Type!
+Kiln.ConfigFile.ValuesJson(bool syncedOnly = false) -> string!
+Kiln.ConfigFile.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ConfigFile.WorldId.get -> string?
+Kiln.ConfigIgnoreAttribute
+Kiln.ConfigIgnoreAttribute.ConfigIgnoreAttribute() -> void
+Kiln.ConfigKeyAttribute
+Kiln.ConfigKeyAttribute.ConfigKeyAttribute(string! key) -> void
+Kiln.ConfigKeyAttribute.Key.get -> string!
+Kiln.ConfigKind
+Kiln.ConfigKind.Client = 2 -> Kiln.ConfigKind
+Kiln.ConfigKind.Common = 0 -> Kiln.ConfigKind
+Kiln.ConfigKind.Server = 1 -> Kiln.ConfigKind
+Kiln.EcsProgramCallback
+Kiln.EcsProgramContext
+Kiln.EcsProgramContext.EcsProgramContext() -> void
+Kiln.EcsProgramContext.EmitEvent(string! name, System.ReadOnlySpan<byte> data) -> bool
+Kiln.EcsProgramContext.Entity.get -> Kiln.EntityId
+Kiln.EcsProgramContext.QueueAdd(Kiln.EntityId entity, string! component, System.ReadOnlySpan<byte> data) -> bool
+Kiln.EcsProgramContext.QueueRemove(Kiln.EntityId entity, string! component) -> bool
+Kiln.EcsProgramContext.ReadEvents(string! name) -> byte[]![]!
+Kiln.EcsProgramContext.TryRead<T>(string! component, out T value, bool template = false) -> bool
+Kiln.EcsProgramContext.TryReadOther<T>(Kiln.EntityId entity, string! component, out T value) -> bool
+Kiln.EcsProgramContext.TryWrite<T>(string! component, T value) -> bool
+Kiln.EcsProgramContext.TryWriteOther<T>(Kiln.EntityId entity, string! component, T value) -> bool
+Kiln.EcsPrograms
+Kiln.EntityId
+Kiln.EntityId.Deconstruct(out uint Value) -> void
+Kiln.EntityId.EntityId() -> void
+Kiln.EntityId.EntityId(uint Value) -> void
+Kiln.EntityId.Equals(Kiln.EntityId other) -> bool
+Kiln.EntityId.IsNone.get -> bool
+Kiln.EntityId.IsPlayer.get -> bool
+Kiln.EntityId.Value.get -> uint
+Kiln.EntityId.Value.init -> void
+Kiln.EventHandlerInfo
+Kiln.EventHandlerInfo.<Clone>$() -> Kiln.EventHandlerInfo!
+Kiln.EventHandlerInfo.Deconstruct(out string! Event, out string! Owner, out string! Handler, out Kiln.EventPriority Priority, out bool ReceiveCanceled, out Kiln.EventHandlerStats Stats) -> void
+Kiln.EventHandlerInfo.Equals(Kiln.EventHandlerInfo? other) -> bool
+Kiln.EventHandlerInfo.Event.get -> string!
+Kiln.EventHandlerInfo.Event.init -> void
+Kiln.EventHandlerInfo.EventHandlerInfo(string! Event, string! Owner, string! Handler, Kiln.EventPriority Priority, bool ReceiveCanceled, Kiln.EventHandlerStats Stats) -> void
+Kiln.EventHandlerInfo.Handler.get -> string!
+Kiln.EventHandlerInfo.Handler.init -> void
+Kiln.EventHandlerInfo.Owner.get -> string!
+Kiln.EventHandlerInfo.Owner.init -> void
+Kiln.EventHandlerInfo.Priority.get -> Kiln.EventPriority
+Kiln.EventHandlerInfo.Priority.init -> void
+Kiln.EventHandlerInfo.ReceiveCanceled.get -> bool
+Kiln.EventHandlerInfo.ReceiveCanceled.init -> void
+Kiln.EventHandlerInfo.Stats.get -> Kiln.EventHandlerStats
+Kiln.EventHandlerInfo.Stats.init -> void
+Kiln.EventHandlerStats
+Kiln.EventHandlerStats.AverageMs.get -> double
+Kiln.EventHandlerStats.Calls.get -> long
+Kiln.EventHandlerStats.Calls.init -> void
+Kiln.EventHandlerStats.Deconstruct(out long Calls, out double TotalMs, out double MaxMs, out int Faults) -> void
+Kiln.EventHandlerStats.Equals(Kiln.EventHandlerStats other) -> bool
+Kiln.EventHandlerStats.EventHandlerStats() -> void
+Kiln.EventHandlerStats.EventHandlerStats(long Calls, double TotalMs, double MaxMs, int Faults) -> void
+Kiln.EventHandlerStats.Faults.get -> int
+Kiln.EventHandlerStats.Faults.init -> void
+Kiln.EventHandlerStats.MaxMs.get -> double
+Kiln.EventHandlerStats.MaxMs.init -> void
+Kiln.EventHandlerStats.TotalMs.get -> double
+Kiln.EventHandlerStats.TotalMs.init -> void
+Kiln.EventPriority
+Kiln.EventPriority.High = 1 -> Kiln.EventPriority
+Kiln.EventPriority.Highest = 0 -> Kiln.EventPriority
+Kiln.EventPriority.Low = 3 -> Kiln.EventPriority
+Kiln.EventPriority.Lowest = 4 -> Kiln.EventPriority
+Kiln.EventPriority.Monitor = 5 -> Kiln.EventPriority
+Kiln.EventPriority.Normal = 2 -> Kiln.EventPriority
+Kiln.EventResult
+Kiln.EventResult.Allow = 1 -> Kiln.EventResult
+Kiln.EventResult.Default = 0 -> Kiln.EventResult
+Kiln.EventResult.Deny = 2 -> Kiln.EventResult
+Kiln.EventSubscription
+Kiln.EventSubscription.Active.get -> bool
+Kiln.EventSubscription.Dispose() -> void
+Kiln.EventSubscription.Name.get -> string!
+Kiln.EventSubscription.Owner.get -> string!
+Kiln.EventSubscription.Priority.get -> Kiln.EventPriority
+Kiln.EventSubscription.ReceiveCanceled.get -> bool
+Kiln.EventSubscription.Stats.get -> Kiln.EventHandlerStats
+Kiln.EventSubscription.Type.get -> System.Type!
+Kiln.Events
+Kiln.Events.Diagnostics
+Kiln.Game
+Kiln.GameEvents
+Kiln.GameField
+Kiln.GameField.Deconstruct(out string! Name, out Kiln.GameType! Type, out int Offset) -> void
+Kiln.GameField.Equals(Kiln.GameField other) -> bool
+Kiln.GameField.GameField() -> void
+Kiln.GameField.GameField(string! Name, Kiln.GameType! Type, int Offset) -> void
+Kiln.GameField.Name.get -> string!
+Kiln.GameField.Name.init -> void
+Kiln.GameField.Offset.get -> int
+Kiln.GameField.Offset.init -> void
+Kiln.GameField.Type.get -> Kiln.GameType!
+Kiln.GameField.Type.init -> void
+Kiln.GameLogEvents
+Kiln.GameLogEvents.GameLogEvents() -> void
+Kiln.GameLogEvents.Line -> System.Action<Kiln.LogLevel, string!>?
+Kiln.GameSystem
+Kiln.GameSystem.<Clone>$() -> Kiln.GameSystem!
+Kiln.GameSystem.Calls.get -> ulong
+Kiln.GameSystem.Calls.init -> void
+Kiln.GameSystem.Deconstruct(out int Index, out string! Name, out ulong Rva, out bool Enabled, out ulong Calls, out double Milliseconds, out string! World) -> void
+Kiln.GameSystem.Enabled.get -> bool
+Kiln.GameSystem.Enabled.init -> void
+Kiln.GameSystem.Equals(Kiln.GameSystem? other) -> bool
+Kiln.GameSystem.GameSystem(int Index, string! Name, ulong Rva, bool Enabled, ulong Calls, double Milliseconds, string! World) -> void
+Kiln.GameSystem.Index.get -> int
+Kiln.GameSystem.Index.init -> void
+Kiln.GameSystem.Milliseconds.get -> double
+Kiln.GameSystem.Milliseconds.init -> void
+Kiln.GameSystem.Name.get -> string!
+Kiln.GameSystem.Name.init -> void
+Kiln.GameSystem.Rva.get -> ulong
+Kiln.GameSystem.Rva.init -> void
+Kiln.GameSystem.World.get -> string!
+Kiln.GameSystem.World.init -> void
+Kiln.GameSystems
+Kiln.GameType
+Kiln.GameType.Alignment.get -> int
+Kiln.GameType.AllFields.get -> System.Collections.Generic.IEnumerable<Kiln.GameField>!
+Kiln.GameType.ArrayLength.get -> int
+Kiln.GameType.Base.get -> Kiln.GameType?
+Kiln.GameType.Defaults.get -> byte[]?
+Kiln.GameType.EnumValues.get -> System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>!
+Kiln.GameType.Field(string! name) -> Kiln.GameField?
+Kiln.GameType.FieldCount.get -> int
+Kiln.GameType.Fields.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameField>!
+Kiln.GameType.Flags.get -> byte
+Kiln.GameType.Hash.get -> uint
+Kiln.GameType.Index.get -> int
+Kiln.GameType.Inner.get -> Kiln.GameType?
+Kiln.GameType.Kind.get -> Kiln.GameTypeKind
+Kiln.GameType.Name.get -> string!
+Kiln.GameType.QualifiedName.get -> string!
+Kiln.GameType.Resolved.get -> Kiln.GameType!
+Kiln.GameType.Size.get -> int
+Kiln.GameTypeKind
+Kiln.GameTypeKind.Bitmask16 = 14 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Bitmask32 = 15 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Bitmask64 = 16 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Bitmask8 = 13 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.BlobArray = 24 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.BlobOptional = 26 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.BlobString = 25 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.BlobVariant = 27 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Bool = 1 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.DsArray = 20 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.DsOptional = 22 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.DsString = 21 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.DsVariant = 23 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Enum = 12 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.F32 = 10 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.F64 = 11 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Guid = 29 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.None = 0 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.ObjectReference = 28 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.S16 = 5 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.S32 = 7 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.S64 = 9 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.S8 = 3 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.StaticArray = 19 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Struct = 18 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.Typedef = 17 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.U16 = 4 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.U32 = 6 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.U64 = 8 -> Kiln.GameTypeKind
+Kiln.GameTypeKind.U8 = 2 -> Kiln.GameTypeKind
+Kiln.GameTypes
+Kiln.GameValueCodec
+Kiln.IResultEvent
+Kiln.IResultEvent.Result.get -> Kiln.EventResult
+Kiln.IResultEvent.Result.set -> void
+Kiln.ImcMessage
+Kiln.ImcMessage.Method.get -> string!
+Kiln.ImcMessage.Payload.get -> object?
+Kiln.ImcMessage.PayloadAs<T>() -> T?
+Kiln.ImcMessage.Sender.get -> string!
+Kiln.KilnEvent
+Kiln.KilnEvent.KilnEvent() -> void
+Kiln.KilnLog
+Kiln.Lifecycle
+Kiln.LogLevel
+Kiln.LogLevel.Debug = 4 -> Kiln.LogLevel
+Kiln.LogLevel.Error = 1 -> Kiln.LogLevel
+Kiln.LogLevel.Info = 3 -> Kiln.LogLevel
+Kiln.LogLevel.Trace = 5 -> Kiln.LogLevel
+Kiln.LogLevel.Warn = 2 -> Kiln.LogLevel
+Kiln.Logger
+Kiln.Logger.Debug(string! message) -> void
+Kiln.Logger.Error(System.Exception! e, string! message) -> void
+Kiln.Logger.Error(string! message) -> void
+Kiln.Logger.Info(string! message) -> void
+Kiln.Logger.Warn(string! message) -> void
+Kiln.Logger.Write(Kiln.LogLevel level, string! message) -> void
+Kiln.LoopWait
+Kiln.LoopWait.Deconstruct(out int Milliseconds, out long LeftNanoseconds, out Kiln.LoopWaitKind Kind) -> void
+Kiln.LoopWait.Equals(Kiln.LoopWait other) -> bool
+Kiln.LoopWait.Kind.get -> Kiln.LoopWaitKind
+Kiln.LoopWait.Kind.init -> void
+Kiln.LoopWait.LeftNanoseconds.get -> long
+Kiln.LoopWait.LeftNanoseconds.init -> void
+Kiln.LoopWait.LoopWait() -> void
+Kiln.LoopWait.LoopWait(int Milliseconds, long LeftNanoseconds, Kiln.LoopWaitKind Kind = Kiln.LoopWaitKind.Handles) -> void
+Kiln.LoopWait.Milliseconds.get -> int
+Kiln.LoopWait.Milliseconds.init -> void
+Kiln.LoopWaitHandler
+Kiln.LoopWaitKind
+Kiln.LoopWaitKind.Handles = 0 -> Kiln.LoopWaitKind
+Kiln.LoopWaitKind.Messages = 1 -> Kiln.LoopWaitKind
+Kiln.Mod
+Kiln.Mod.Context.get -> Kiln.ModContext!
+Kiln.Mod.Log.get -> Kiln.Logger!
+Kiln.Mod.Mod() -> void
+Kiln.Mod.Text(string! key, params object?[]! args) -> string!
+Kiln.Mod.TextIn(string! language, string! key, params object?[]! args) -> string!
+Kiln.Mod.WorldConfig<T>(string? name = null) -> Kiln.WorldConfig<T!>!
+Kiln.ModConfig<T>
+Kiln.ModConfig<T>.Value.get -> T!
+Kiln.ModContext
+Kiln.ModContext.DataDirectory.get -> string!
+Kiln.ModContext.GameLog.get -> Kiln.GameLogEvents!
+Kiln.ModContext.Info.get -> Kiln.ModInfo!
+Kiln.ModContext.Locale.get -> Kiln.ModLocale!
+Kiln.ModContext.Log.get -> Kiln.Logger!
+Kiln.ModContext.Messages.get -> Kiln.ModMessages!
+Kiln.ModContext.Scheduler.get -> Kiln.Scheduler!
+Kiln.ModContext.Tick.get -> Kiln.TickEvents!
+Kiln.ModDependency
+Kiln.ModDependency.<Clone>$() -> Kiln.ModDependency!
+Kiln.ModDependency.Deconstruct(out string! Id, out string! VersionRange, out bool Optional) -> void
+Kiln.ModDependency.Equals(Kiln.ModDependency? other) -> bool
+Kiln.ModDependency.Id.get -> string!
+Kiln.ModDependency.Id.init -> void
+Kiln.ModDependency.ModDependency(string! Id, string! VersionRange, bool Optional) -> void
+Kiln.ModDependency.Optional.get -> bool
+Kiln.ModDependency.Optional.init -> void
+Kiln.ModDependency.VersionRange.get -> string!
+Kiln.ModDependency.VersionRange.init -> void
+Kiln.ModDisabledEvent
+Kiln.ModDisabledEvent.CrashReport.get -> string?
+Kiln.ModDisabledEvent.Faults.get -> int
+Kiln.ModDisabledEvent.Id.get -> string!
+Kiln.ModDisabledEvent.Reason.get -> string!
+Kiln.ModEntry
+Kiln.ModEntry.Dependencies.get -> System.Collections.Generic.IReadOnlyList<Kiln.ModDependency!>!
+Kiln.ModEntry.Directory.get -> string!
+Kiln.ModEntry.Error.get -> string?
+Kiln.ModEntry.Id.get -> string!
+Kiln.ModEntry.Info.get -> Kiln.ModInfo?
+Kiln.ModEntry.IsLoaded.get -> bool
+Kiln.ModEntry.LoadIndex.get -> int
+Kiln.ModEntry.Name.get -> string!
+Kiln.ModEntry.Side.get -> Kiln.ModSide
+Kiln.ModEntry.State.get -> Kiln.ModState
+Kiln.ModEntry.Stats.get -> Kiln.ModStats
+Kiln.ModEntry.Version.get -> string!
+Kiln.ModInfo
+Kiln.ModInfo.<Clone>$() -> Kiln.ModInfo!
+Kiln.ModInfo.Advanced.get -> bool
+Kiln.ModInfo.Advanced.init -> void
+Kiln.ModInfo.ApiVersion.get -> string!
+Kiln.ModInfo.ApiVersion.init -> void
+Kiln.ModInfo.Authors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModInfo.Authors.init -> void
+Kiln.ModInfo.Deconstruct(out string! Id, out string! Name, out string! Version, out string! Directory) -> void
+Kiln.ModInfo.Dependencies.get -> System.Collections.Generic.IReadOnlyList<Kiln.ModDependency!>!
+Kiln.ModInfo.Dependencies.init -> void
+Kiln.ModInfo.Description.get -> string!
+Kiln.ModInfo.Description.init -> void
+Kiln.ModInfo.Directory.get -> string!
+Kiln.ModInfo.Directory.init -> void
+Kiln.ModInfo.Equals(Kiln.ModInfo? other) -> bool
+Kiln.ModInfo.Exports.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModInfo.Exports.init -> void
+Kiln.ModInfo.Features.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModInfo.Features.init -> void
+Kiln.ModInfo.Id.get -> string!
+Kiln.ModInfo.Id.init -> void
+Kiln.ModInfo.License.get -> string?
+Kiln.ModInfo.License.init -> void
+Kiln.ModInfo.ModInfo(string! Id, string! Name, string! Version, string! Directory) -> void
+Kiln.ModInfo.Name.get -> string!
+Kiln.ModInfo.Name.init -> void
+Kiln.ModInfo.Side.get -> Kiln.ModSide
+Kiln.ModInfo.Side.init -> void
+Kiln.ModInfo.Url.get -> string?
+Kiln.ModInfo.Url.init -> void
+Kiln.ModInfo.Version.get -> string!
+Kiln.ModInfo.Version.init -> void
+Kiln.ModLocale
+Kiln.ModLocale.Directory.get -> string!
+Kiln.ModLocale.Get(string! key, params object?[]! args) -> string!
+Kiln.ModLocale.GetIn(string! language, string! key, params object?[]! args) -> string!
+Kiln.ModLocale.Has(string! key) -> bool
+Kiln.ModLocale.Keys.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModLocale.Languages.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModLocale.Missing(string! language) -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModLocale.Reload() -> void
+Kiln.ModLocale.TryGet(string! key, out string! text) -> bool
+Kiln.ModMessages
+Kiln.ModMessages.Dropped.get -> long
+Kiln.ModMessages.On(string! method, System.Action<Kiln.ImcMessage!>! handler) -> System.IDisposable!
+Kiln.ModMessages.Queued.get -> int
+Kiln.ModMessages.Take(string! method) -> System.Collections.Generic.IReadOnlyList<Kiln.ImcMessage!>!
+Kiln.ModOperationResult
+Kiln.ModOperationResult.<Clone>$() -> Kiln.ModOperationResult!
+Kiln.ModOperationResult.Affected.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModOperationResult.Affected.init -> void
+Kiln.ModOperationResult.Deconstruct(out bool Ok, out string! Message, out System.Collections.Generic.IReadOnlyList<string!>! Affected) -> void
+Kiln.ModOperationResult.Equals(Kiln.ModOperationResult? other) -> bool
+Kiln.ModOperationResult.Message.get -> string!
+Kiln.ModOperationResult.Message.init -> void
+Kiln.ModOperationResult.ModOperationResult(bool Ok, string! Message, System.Collections.Generic.IReadOnlyList<string!>! Affected) -> void
+Kiln.ModOperationResult.Ok.get -> bool
+Kiln.ModOperationResult.Ok.init -> void
+Kiln.ModReloadedEvent
+Kiln.ModReloadedEvent.Cascade.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModReloadedEvent.Id.get -> string!
+Kiln.ModReloadedEvent.Ok.get -> bool
+Kiln.ModReloadedEvent.Version.get -> string!
+Kiln.ModSide
+Kiln.ModSide.Both = 2 -> Kiln.ModSide
+Kiln.ModSide.Client = 1 -> Kiln.ModSide
+Kiln.ModSide.Server = 0 -> Kiln.ModSide
+Kiln.ModState
+Kiln.ModState.Disabled = 2 -> Kiln.ModState
+Kiln.ModState.Failed = 3 -> Kiln.ModState
+Kiln.ModState.Loaded = 1 -> Kiln.ModState
+Kiln.ModState.Pending = 0 -> Kiln.ModState
+Kiln.ModState.Skipped = 4 -> Kiln.ModState
+Kiln.ModState.Unloaded = 5 -> Kiln.ModState
+Kiln.ModStats
+Kiln.ModStats.Deconstruct(out long Steps, out double TotalMs, out double PreMsPerStep, out double PostMsPerStep, out double MaxMs, out int Faults, out int RecentFaults, out System.DateTime? LastFault, out string? LastFaultMessage) -> void
+Kiln.ModStats.Equals(Kiln.ModStats other) -> bool
+Kiln.ModStats.Faults.get -> int
+Kiln.ModStats.Faults.init -> void
+Kiln.ModStats.LastFault.get -> System.DateTime?
+Kiln.ModStats.LastFault.init -> void
+Kiln.ModStats.LastFaultMessage.get -> string?
+Kiln.ModStats.LastFaultMessage.init -> void
+Kiln.ModStats.MaxMs.get -> double
+Kiln.ModStats.MaxMs.init -> void
+Kiln.ModStats.ModStats() -> void
+Kiln.ModStats.ModStats(long Steps, double TotalMs, double PreMsPerStep, double PostMsPerStep, double MaxMs, int Faults, int RecentFaults, System.DateTime? LastFault, string? LastFaultMessage) -> void
+Kiln.ModStats.PostMsPerStep.get -> double
+Kiln.ModStats.PostMsPerStep.init -> void
+Kiln.ModStats.PreMsPerStep.get -> double
+Kiln.ModStats.PreMsPerStep.init -> void
+Kiln.ModStats.RecentFaults.get -> int
+Kiln.ModStats.RecentFaults.init -> void
+Kiln.ModStats.Steps.get -> long
+Kiln.ModStats.Steps.init -> void
+Kiln.ModStats.TotalMs.get -> double
+Kiln.ModStats.TotalMs.init -> void
+Kiln.Mods
+Kiln.ModsLoadedEvent
+Kiln.ModsLoadedEvent.Loaded.get -> System.Collections.Generic.IReadOnlyList<Kiln.ModEntry!>!
+Kiln.ModsLoadedEvent.NotLoaded.get -> System.Collections.Generic.IReadOnlyList<Kiln.ModEntry!>!
+Kiln.OverrideInfo
+Kiln.OverrideInfo.<Clone>$() -> Kiln.OverrideInfo!
+Kiln.OverrideInfo.Deconstruct(out string! Mod, out string! Target, out string! Detail) -> void
+Kiln.OverrideInfo.Detail.get -> string!
+Kiln.OverrideInfo.Detail.init -> void
+Kiln.OverrideInfo.Equals(Kiln.OverrideInfo? other) -> bool
+Kiln.OverrideInfo.Mod.get -> string!
+Kiln.OverrideInfo.Mod.init -> void
+Kiln.OverrideInfo.OverrideInfo(string! Mod, string! Target, string! Detail) -> void
+Kiln.OverrideInfo.Target.get -> string!
+Kiln.OverrideInfo.Target.init -> void
+Kiln.OverrideResult
+Kiln.OverrideResult.<Clone>$() -> Kiln.OverrideResult!
+Kiln.OverrideResult.Deconstruct(out Kiln.OverrideStatus Status, out string! Message, out string? HeldBy) -> void
+Kiln.OverrideResult.Equals(Kiln.OverrideResult? other) -> bool
+Kiln.OverrideResult.HeldBy.get -> string?
+Kiln.OverrideResult.HeldBy.init -> void
+Kiln.OverrideResult.Message.get -> string!
+Kiln.OverrideResult.Message.init -> void
+Kiln.OverrideResult.Ok.get -> bool
+Kiln.OverrideResult.OverrideResult(Kiln.OverrideStatus Status, string! Message, string? HeldBy = null) -> void
+Kiln.OverrideResult.Status.get -> Kiln.OverrideStatus
+Kiln.OverrideResult.Status.init -> void
+Kiln.OverrideStatus
+Kiln.OverrideStatus.Applied = 0 -> Kiln.OverrideStatus
+Kiln.OverrideStatus.Conflict = 1 -> Kiln.OverrideStatus
+Kiln.OverrideStatus.NotFound = 2 -> Kiln.OverrideStatus
+Kiln.OverrideStatus.Unavailable = 3 -> Kiln.OverrideStatus
+Kiln.Overrides
+Kiln.Pacing
+Kiln.PacingHandler
+Kiln.PacingHandler.Dispose() -> void
+Kiln.PacingHandler.Faulted.get -> bool
+Kiln.PacingHandler.Found.get -> bool
+Kiln.PacingSites
+Kiln.PacingSites.LoopWait = 1 -> Kiln.PacingSites
+Kiln.PacingSites.MessageWait = 2 -> Kiln.PacingSites
+Kiln.PacingSites.None = 0 -> Kiln.PacingSites
+Kiln.PacingSites.ServerWait = 4 -> Kiln.PacingSites
+Kiln.PacingSites.TaskWorkers = 8 -> Kiln.PacingSites
+Kiln.Point<TIn, TOut>
+Kiln.Point<TIn, TOut>.AllowRefuse.get -> bool
+Kiln.Point<TIn, TOut>.Decide(TIn input, TOut answer) -> Kiln.PointDecision<TOut>
+Kiln.Point<TIn, TOut>.Links.get -> System.Collections.Generic.IReadOnlyList<Kiln.PointLink!>!
+Kiln.Point<TIn, TOut>.Mode.get -> Kiln.PointMode
+Kiln.Point<TIn, TOut>.Name.get -> string!
+Kiln.Point<TIn, TOut>.Owner.get -> string!
+Kiln.PointDecision<TOut>
+Kiln.PointDecision<TOut>.DecidedBy.get -> string?
+Kiln.PointDecision<TOut>.DecidedBy.init -> void
+Kiln.PointDecision<TOut>.Deconstruct(out Kiln.PointOutcome Outcome, out TOut Value, out string? DecidedBy) -> void
+Kiln.PointDecision<TOut>.Equals(Kiln.PointDecision<TOut> other) -> bool
+Kiln.PointDecision<TOut>.IsRefused.get -> bool
+Kiln.PointDecision<TOut>.Outcome.get -> Kiln.PointOutcome
+Kiln.PointDecision<TOut>.Outcome.init -> void
+Kiln.PointDecision<TOut>.PointDecision() -> void
+Kiln.PointDecision<TOut>.PointDecision(Kiln.PointOutcome Outcome, TOut Value, string? DecidedBy) -> void
+Kiln.PointDecision<TOut>.Value.get -> TOut
+Kiln.PointDecision<TOut>.Value.init -> void
+Kiln.PointDecision<TOut>.ValueOr(TOut refused) -> TOut
+Kiln.PointLink
+Kiln.PointLink.Dispose() -> void
+Kiln.PointLink.Enabled.get -> bool
+Kiln.PointLink.Observer.get -> bool
+Kiln.PointLink.OffReason.get -> string?
+Kiln.PointLink.Order.get -> Kiln.PointOrder!
+Kiln.PointLink.Owner.get -> string!
+Kiln.PointLink.Point.get -> string!
+Kiln.PointMode
+Kiln.PointMode.Advise = 1 -> Kiln.PointMode
+Kiln.PointMode.Observe = 0 -> Kiln.PointMode
+Kiln.PointMode.Override = 2 -> Kiln.PointMode
+Kiln.PointOrder
+Kiln.PointOrder.<Clone>$() -> Kiln.PointOrder!
+Kiln.PointOrder.After.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.PointOrder.After.init -> void
+Kiln.PointOrder.Before.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.PointOrder.Before.init -> void
+Kiln.PointOrder.Equals(Kiln.PointOrder? other) -> bool
+Kiln.PointOrder.PointOrder() -> void
+Kiln.PointOrder.Priority.get -> int
+Kiln.PointOrder.Priority.init -> void
+Kiln.PointOutcome
+Kiln.PointOutcome.Changed = 1 -> Kiln.PointOutcome
+Kiln.PointOutcome.Kept = 0 -> Kiln.PointOutcome
+Kiln.PointOutcome.Refused = 2 -> Kiln.PointOutcome
+Kiln.PointRegistry
+Kiln.PointRegistry.AllLinks.get -> System.Collections.Generic.IReadOnlyList<Kiln.PointLink!>!
+Kiln.PointRegistry.Define<TIn, TOut>(string! owner, string! name, Kiln.PointMode mode, bool allowRefuse = false) -> Kiln.Point<TIn, TOut>!
+Kiln.PointRegistry.Defined.get -> System.Collections.Generic.IReadOnlyList<(string! Name, string! Owner, Kiln.PointMode Mode)>!
+Kiln.PointRegistry.Extend<TIn, TOut>(string! owner, string! point, System.Func<TIn, TOut, (Kiln.PointVerdict, TOut)>! link, Kiln.PointOrder? order = null) -> Kiln.PointLink!
+Kiln.PointRegistry.Log.get -> System.Action<string!>?
+Kiln.PointRegistry.Log.set -> void
+Kiln.PointRegistry.Observe<TIn, TOut>(string! owner, string! point, System.Action<TIn, TOut>! observer, Kiln.PointOrder? order = null) -> Kiln.PointLink!
+Kiln.PointRegistry.PointRegistry() -> void
+Kiln.PointRegistry.RemoveOwner(string! owner) -> void
+Kiln.PointRegistry.SetEnabled(string! point, string! owner, bool enabled) -> void
+Kiln.PointVerdict
+Kiln.PointVerdict.Pass = 0 -> Kiln.PointVerdict
+Kiln.PointVerdict.Refuse = 2 -> Kiln.PointVerdict
+Kiln.PointVerdict.Set = 1 -> Kiln.PointVerdict
+Kiln.Points
+Kiln.RangeAttribute
+Kiln.RangeAttribute.Max.get -> double
+Kiln.RangeAttribute.Min.get -> double
+Kiln.RangeAttribute.RangeAttribute(double min, double max) -> void
+Kiln.Reflected
+Kiln.ReflectedResource
+Kiln.ReflectedResource.Bytes.get -> byte[]!
+Kiln.ReflectedResource.Count(string! path) -> int
+Kiln.ReflectedResource.Describe(int maxArray = 8) -> string!
+Kiln.ReflectedResource.Exists.get -> bool
+Kiln.ReflectedResource.Get<T>(string! path) -> T
+Kiln.ReflectedResource.Guid.get -> System.Guid
+Kiln.ReflectedResource.HeldBy(string! path) -> string?
+Kiln.ReflectedResource.IsSet(string! path) -> bool
+Kiln.ReflectedResource.Original(string! path) -> object?
+Kiln.ReflectedResource.Part.get -> uint
+Kiln.ReflectedResource.Restore(string! path) -> bool
+Kiln.ReflectedResource.RestoreAll() -> int
+Kiln.ReflectedResource.Set(string! path, object? value) -> Kiln.OverrideResult!
+Kiln.ReflectedResource.Type.get -> Kiln.GameType!
+Kiln.ReflectedResource.VariantType(string! path) -> Kiln.GameType?
+Kiln.ReflectedResource.this[string! path].get -> object?
+Kiln.ReflectedResource.this[string! path].set -> void
+Kiln.ReflectedResources
+Kiln.ReflectedValue
+Kiln.ReflectedValue.Bytes.get -> byte[]!
+Kiln.ReflectedValue.Describe(int maxArray = 16) -> string!
+Kiln.ReflectedValue.Entity.get -> Kiln.EntityId
+Kiln.ReflectedValue.Get<T>(string! path) -> T
+Kiln.ReflectedValue.Type.get -> Kiln.GameType!
+Kiln.ReflectedValue.this[string! path].get -> object?
+Kiln.ReflectedValue.this[string! path].set -> void
+Kiln.RequiresRestartAttribute
+Kiln.RequiresRestartAttribute.RequiresRestartAttribute() -> void
+Kiln.ResultEvent
+Kiln.ResultEvent.Allow() -> void
+Kiln.ResultEvent.Decide(bool vanilla) -> bool
+Kiln.ResultEvent.Deny() -> void
+Kiln.ResultEvent.Result.get -> Kiln.EventResult
+Kiln.ResultEvent.Result.set -> void
+Kiln.ResultEvent.ResultEvent() -> void
+Kiln.Scheduler
+Kiln.Scheduler.NextTick() -> Kiln.Scheduler.NextTickAwaitable
+Kiln.Scheduler.NextTickAwaitable
+Kiln.Scheduler.NextTickAwaitable.Awaiter
+Kiln.Scheduler.NextTickAwaitable.Awaiter.Awaiter() -> void
+Kiln.Scheduler.NextTickAwaitable.Awaiter.Awaiter(Kiln.Scheduler! scheduler) -> void
+Kiln.Scheduler.NextTickAwaitable.Awaiter.GetResult() -> void
+Kiln.Scheduler.NextTickAwaitable.Awaiter.IsCompleted.get -> bool
+Kiln.Scheduler.NextTickAwaitable.Awaiter.OnCompleted(System.Action! continuation) -> void
+Kiln.Scheduler.NextTickAwaitable.Awaiter.UnsafeOnCompleted(System.Action! continuation) -> void
+Kiln.Scheduler.NextTickAwaitable.GetAwaiter() -> Kiln.Scheduler.NextTickAwaitable.Awaiter
+Kiln.Scheduler.NextTickAwaitable.NextTickAwaitable() -> void
+Kiln.Scheduler.NextTickAwaitable.NextTickAwaitable(Kiln.Scheduler! scheduler) -> void
+Kiln.Scheduler.Post(System.Action! action) -> void
+Kiln.Scheduler.SynchronizationContext.get -> System.Threading.SynchronizationContext!
+Kiln.ServerPhase
+Kiln.ServerPhase.Booting = 0 -> Kiln.ServerPhase
+Kiln.ServerPhase.Idle = 4 -> Kiln.ServerPhase
+Kiln.ServerPhase.Running = 2 -> Kiln.ServerPhase
+Kiln.ServerPhase.Starting = 1 -> Kiln.ServerPhase
+Kiln.ServerPhase.Stopping = 3 -> Kiln.ServerPhase
+Kiln.ServerStartedEvent
+Kiln.ServerStartedEvent.Source.get -> string!
+Kiln.ServerStartedEvent.Step.get -> ulong
+Kiln.ServerStartingEvent
+Kiln.ServerStartingEvent.Step.get -> ulong
+Kiln.ServerStoppingEvent
+Kiln.ServerStoppingEvent.Reason.get -> string!
+Kiln.ServerStoppingEvent.Step.get -> ulong
+Kiln.ServerWaitHandler
+Kiln.SubscribeAttribute
+Kiln.SubscribeAttribute.Priority.get -> Kiln.EventPriority
+Kiln.SubscribeAttribute.ReceiveCanceled.get -> bool
+Kiln.SubscribeAttribute.ReceiveCanceled.init -> void
+Kiln.SubscribeAttribute.SubscribeAttribute(Kiln.EventPriority priority = Kiln.EventPriority.Normal) -> void
+Kiln.SyncedAttribute
+Kiln.SyncedAttribute.SyncedAttribute() -> void
+Kiln.TaskWorkerCaps
+Kiln.TaskWorkerCaps.Background.get -> int
+Kiln.TaskWorkerCaps.Background.init -> void
+Kiln.TaskWorkerCaps.Deconstruct(out int Default, out int Background) -> void
+Kiln.TaskWorkerCaps.Default.get -> int
+Kiln.TaskWorkerCaps.Default.init -> void
+Kiln.TaskWorkerCaps.Equals(Kiln.TaskWorkerCaps other) -> bool
+Kiln.TaskWorkerCaps.IsEmpty.get -> bool
+Kiln.TaskWorkerCaps.TaskWorkerCaps() -> void
+Kiln.TaskWorkerCaps.TaskWorkerCaps(int Default, int Background) -> void
+Kiln.TickEvents
+Kiln.TickEvents.Post -> Kiln.TickHandler?
+Kiln.TickEvents.Pre -> Kiln.TickHandler?
+Kiln.TickEvents.TickEvents() -> void
+Kiln.TickHandler
+Kiln.TickInfo
+Kiln.TickInfo.Clock.get -> uint
+Kiln.TickInfo.ClockDelta.get -> uint
+Kiln.TickInfo.ClockDeltaTime.get -> System.TimeSpan
+Kiln.TickInfo.ClockPeriod.get -> long
+Kiln.TickInfo.Step.get -> ulong
+Kiln.TickInfo.TickInfo() -> void
+Kiln.TickInfo.WallDelta.get -> System.TimeSpan
+Kiln.TickInfo.WallDeltaMs.get -> double
+Kiln.TickThreadOnlyAttribute
+Kiln.TickThreadOnlyAttribute.TickThreadOnlyAttribute() -> void
+Kiln.WorldConfig<T>
+Kiln.WorldConfig<T>.Value.get -> T!
+Kiln.WorldPosition
+Kiln.WorldPosition.Deconstruct(out double X, out double Y, out double Z) -> void
+Kiln.WorldPosition.DistanceTo(Kiln.WorldPosition o) -> double
+Kiln.WorldPosition.Equals(Kiln.WorldPosition other) -> bool
+Kiln.WorldPosition.ToVector3() -> System.Numerics.Vector3
+Kiln.WorldPosition.WorldPosition() -> void
+Kiln.WorldPosition.WorldPosition(double X, double Y, double Z) -> void
+Kiln.WorldPosition.X.get -> double
+Kiln.WorldPosition.X.init -> void
+Kiln.WorldPosition.Y.get -> double
+Kiln.WorldPosition.Y.init -> void
+Kiln.WorldPosition.Z.get -> double
+Kiln.WorldPosition.Z.init -> void
+const Kiln.Events.MaxDepth = 32 -> int
+const Kiln.Events.MaxFaults = 5 -> int
+const Kiln.ModLocale.Fallback = "en" -> string!
+const Kiln.ModLocale.MaxFileBytes = 1048576 -> int
+const Kiln.Mods.ApiVersion = "0.2.1" -> string!
+const Kiln.Pacing.ServerIdleWaitNs = 40000000 -> long
+const Kiln.Pacing.ServerMaxWaitNs = 1000000000 -> long
+const Kiln.Pacing.ServerMinWaitNs = 100000 -> long
+const Kiln.Pacing.ServerOnlineWaitNs = 1000000 -> long
+const Kiln.Pacing.ServerSlowWaitNs = 100000 -> long
+override Kiln.ConfigChangedEvent.ToString() -> string!
+override Kiln.ConfigEntry.Equals(object? obj) -> bool
+override Kiln.ConfigEntry.GetHashCode() -> int
+override Kiln.ConfigEntry.ToString() -> string!
+override Kiln.ConfigFile.ToString() -> string!
+override Kiln.EntityId.GetHashCode() -> int
+override Kiln.EntityId.ToString() -> string!
+override Kiln.EventHandlerInfo.Equals(object? obj) -> bool
+override Kiln.EventHandlerInfo.GetHashCode() -> int
+override Kiln.EventHandlerInfo.ToString() -> string!
+override Kiln.EventHandlerStats.GetHashCode() -> int
+override Kiln.EventSubscription.ToString() -> string!
+override Kiln.GameField.GetHashCode() -> int
+override Kiln.GameSystem.Equals(object? obj) -> bool
+override Kiln.GameSystem.GetHashCode() -> int
+override Kiln.GameSystem.ToString() -> string!
+override Kiln.GameType.ToString() -> string!
+override Kiln.ImcMessage.ToString() -> string!
+override Kiln.LoopWait.GetHashCode() -> int
+override Kiln.ModDependency.Equals(object? obj) -> bool
+override Kiln.ModDependency.GetHashCode() -> int
+override Kiln.ModDependency.ToString() -> string!
+override Kiln.ModEntry.ToString() -> string!
+override Kiln.ModInfo.Equals(object? obj) -> bool
+override Kiln.ModInfo.GetHashCode() -> int
+override Kiln.ModInfo.ToString() -> string!
+override Kiln.ModOperationResult.Equals(object? obj) -> bool
+override Kiln.ModOperationResult.GetHashCode() -> int
+override Kiln.ModOperationResult.ToString() -> string!
+override Kiln.ModStats.GetHashCode() -> int
+override Kiln.OverrideInfo.Equals(object? obj) -> bool
+override Kiln.OverrideInfo.GetHashCode() -> int
+override Kiln.OverrideInfo.ToString() -> string!
+override Kiln.OverrideResult.Equals(object? obj) -> bool
+override Kiln.OverrideResult.GetHashCode() -> int
+override Kiln.OverrideResult.ToString() -> string!
+override Kiln.PointDecision<TOut>.GetHashCode() -> int
+override Kiln.PointLink.ToString() -> string!
+override Kiln.PointOrder.Equals(object? obj) -> bool
+override Kiln.PointOrder.GetHashCode() -> int
+override Kiln.PointOrder.ToString() -> string!
+override Kiln.ReflectedResource.ToString() -> string!
+override Kiln.TaskWorkerCaps.GetHashCode() -> int
+override Kiln.WorldPosition.GetHashCode() -> int
+override Kiln.WorldPosition.ToString() -> string!
+static Kiln.Config.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.ConfigFile!>!
+static Kiln.Config.Directory.get -> string!
+static Kiln.Config.Find(string! id) -> Kiln.ConfigFile?
+static Kiln.Config.Register<T>(Kiln.ConfigKind kind = Kiln.ConfigKind.Common, string? name = null) -> Kiln.ModConfig<T!>!
+static Kiln.Config.RegisterWorld<T>(string? name = null) -> Kiln.WorldConfig<T!>!
+static Kiln.Config.Schema() -> System.Text.Json.Nodes.JsonArray!
+static Kiln.ConfigEntry.operator !=(Kiln.ConfigEntry? left, Kiln.ConfigEntry? right) -> bool
+static Kiln.ConfigEntry.operator ==(Kiln.ConfigEntry? left, Kiln.ConfigEntry? right) -> bool
+static Kiln.EcsPrograms.Available.get -> bool
+static Kiln.EcsPrograms.Bind(string! key, Kiln.EcsProgramCallback! callback) -> System.IDisposable!
+static Kiln.EcsPrograms.SupportsOtherWrites.get -> bool
+static Kiln.EntityId.operator !=(Kiln.EntityId left, Kiln.EntityId right) -> bool
+static Kiln.EntityId.operator ==(Kiln.EntityId left, Kiln.EntityId right) -> bool
+static Kiln.EventHandlerInfo.operator !=(Kiln.EventHandlerInfo? left, Kiln.EventHandlerInfo? right) -> bool
+static Kiln.EventHandlerInfo.operator ==(Kiln.EventHandlerInfo? left, Kiln.EventHandlerInfo? right) -> bool
+static Kiln.EventHandlerStats.operator !=(Kiln.EventHandlerStats left, Kiln.EventHandlerStats right) -> bool
+static Kiln.EventHandlerStats.operator ==(Kiln.EventHandlerStats left, Kiln.EventHandlerStats right) -> bool
+static Kiln.Events.Diagnostics.HandlerCalls.get -> long
+static Kiln.Events.Diagnostics.Handlers.get -> System.Collections.Generic.IReadOnlyList<Kiln.EventHandlerInfo!>!
+static Kiln.Events.Diagnostics.Posts.get -> long
+static Kiln.Events.Diagnostics.Queued.get -> int
+static Kiln.Events.Diagnostics.ResetStats() -> void
+static Kiln.Events.Enqueue(Kiln.KilnEvent! ev) -> void
+static Kiln.Events.HasSubscribers(System.Type! type) -> bool
+static Kiln.Events.HasSubscribers<T>() -> bool
+static Kiln.Events.On<T>(System.Action<T!>! handler, Kiln.EventPriority priority = Kiln.EventPriority.Normal, bool receiveCanceled = false) -> Kiln.EventSubscription!
+static Kiln.Events.Post<T>(T! ev) -> T!
+static Kiln.Events.Register(object! target) -> System.Collections.Generic.IReadOnlyList<Kiln.EventSubscription!>!
+static Kiln.Events.Subscriptions.get -> System.Collections.Generic.IReadOnlyList<Kiln.EventSubscription!>!
+static Kiln.Events.Unregister(object! target) -> int
+static Kiln.Game.AssertTickThread() -> void
+static Kiln.Game.HasFeature(string! name) -> bool
+static Kiln.Game.IsTickThread.get -> bool
+static Kiln.Game.KilnVersion.get -> string!
+static Kiln.Game.Language.get -> string!
+static Kiln.GameEvents.Each(string! type, System.Action<Kiln.ReflectedValue!>! handler) -> int
+static Kiln.GameEvents.Post(string! type, System.Collections.Generic.IReadOnlyDictionary<string!, object?>! fields) -> bool
+static Kiln.GameField.operator !=(Kiln.GameField left, Kiln.GameField right) -> bool
+static Kiln.GameField.operator ==(Kiln.GameField left, Kiln.GameField right) -> bool
+static Kiln.GameSystem.operator !=(Kiln.GameSystem? left, Kiln.GameSystem? right) -> bool
+static Kiln.GameSystem.operator ==(Kiln.GameSystem? left, Kiln.GameSystem? right) -> bool
+static Kiln.GameSystems.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameSystem!>!
+static Kiln.GameSystems.Available.get -> bool
+static Kiln.GameSystems.Find(string! name) -> Kiln.GameSystem?
+static Kiln.GameSystems.Hook(string! name, System.Action? before = null, System.Action? after = null) -> System.IDisposable!
+static Kiln.GameSystems.Profile(bool on) -> void
+static Kiln.GameSystems.ProfileSeconds.get -> double
+static Kiln.GameSystems.Profiling.get -> bool
+static Kiln.GameSystems.Search(string! words) -> System.Collections.Generic.IEnumerable<Kiln.GameSystem!>!
+static Kiln.GameSystems.SetEnabled(string! name, bool enabled) -> void
+static Kiln.GameSystems.Stats() -> System.Collections.Generic.IReadOnlyList<Kiln.GameSystem!>!
+static Kiln.GameSystems.TurnAllOn() -> int
+static Kiln.GameTypes.All.get -> System.Collections.Generic.IEnumerable<Kiln.GameType!>!
+static Kiln.GameTypes.Available.get -> bool
+static Kiln.GameTypes.ByHash(uint hash) -> Kiln.GameType?
+static Kiln.GameTypes.Components.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
+static Kiln.GameTypes.Count.get -> int
+static Kiln.GameTypes.Events.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
+static Kiln.GameTypes.Find(string! name) -> Kiln.GameType?
+static Kiln.GameTypes.Search(string! words) -> System.Collections.Generic.IEnumerable<Kiln.GameType!>!
+static Kiln.GameTypes.Status.get -> string!
+static Kiln.GameTypes.TypeOf(object? value) -> Kiln.GameType?
+static Kiln.GameValueCodec.Fits(long v, Kiln.GameTypeKind kind, int size) -> bool
+static Kiln.GameValueCodec.Format(object! value, Kiln.GameTypeKind kind, System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>? enumValues = null) -> string!
+static Kiln.GameValueCodec.IsScalar(Kiln.GameTypeKind k) -> bool
+static Kiln.GameValueCodec.Read(System.ReadOnlySpan<byte> data, Kiln.GameTypeKind kind, int size) -> object!
+static Kiln.GameValueCodec.Read(System.ReadOnlySpan<byte> data, Kiln.GameTypeKind kind, int size, System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>? enumValues) -> object!
+static Kiln.GameValueCodec.Write(System.Span<byte> data, Kiln.GameTypeKind kind, int size, object? value, System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>? enumValues = null, string! field = "value") -> void
+static Kiln.KilnLog.Info(string! text) -> void
+static Kiln.KilnLog.Warn(string! text) -> void
+static Kiln.Lifecycle.IsServerRunning.get -> bool
+static Kiln.Lifecycle.ModsLoaded.get -> bool
+static Kiln.Lifecycle.Phase.get -> Kiln.ServerPhase
+static Kiln.Lifecycle.StartedAtStep.get -> ulong
+static Kiln.LoopWait.operator !=(Kiln.LoopWait left, Kiln.LoopWait right) -> bool
+static Kiln.LoopWait.operator ==(Kiln.LoopWait left, Kiln.LoopWait right) -> bool
+static Kiln.ModDependency.operator !=(Kiln.ModDependency? left, Kiln.ModDependency? right) -> bool
+static Kiln.ModDependency.operator ==(Kiln.ModDependency? left, Kiln.ModDependency? right) -> bool
+static Kiln.ModInfo.operator !=(Kiln.ModInfo? left, Kiln.ModInfo? right) -> bool
+static Kiln.ModInfo.operator ==(Kiln.ModInfo? left, Kiln.ModInfo? right) -> bool
+static Kiln.ModLocale.LookupOrder(string! language) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.ModLocale.Normalize(string? language) -> string!
+static Kiln.ModOperationResult.operator !=(Kiln.ModOperationResult? left, Kiln.ModOperationResult? right) -> bool
+static Kiln.ModOperationResult.operator ==(Kiln.ModOperationResult? left, Kiln.ModOperationResult? right) -> bool
+static Kiln.ModStats.operator !=(Kiln.ModStats left, Kiln.ModStats right) -> bool
+static Kiln.ModStats.operator ==(Kiln.ModStats left, Kiln.ModStats right) -> bool
+static Kiln.Mods.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.ModEntry!>!
+static Kiln.Mods.Current.get -> Kiln.ModEntry?
+static Kiln.Mods.Get(string! id) -> Kiln.ModEntry?
+static Kiln.Mods.IsLoaded(string! id) -> bool
+static Kiln.Mods.Load(string! folder, System.Action<Kiln.ModOperationResult!>! done) -> void
+static Kiln.Mods.LoadAsync(string! folder) -> System.Threading.Tasks.Task<Kiln.ModOperationResult!>!
+static Kiln.Mods.Reload(string! id, System.Action<Kiln.ModOperationResult!>! done) -> void
+static Kiln.Mods.ReloadAsync(string! id) -> System.Threading.Tasks.Task<Kiln.ModOperationResult!>!
+static Kiln.Mods.Send(string! targetId, string! method, object? payload = null) -> bool
+static Kiln.Mods.Side.get -> Kiln.ModSide
+static Kiln.Mods.Unload(string! id, System.Action<Kiln.ModOperationResult!>! done) -> void
+static Kiln.Mods.UnloadAsync(string! id) -> System.Threading.Tasks.Task<Kiln.ModOperationResult!>!
+static Kiln.OverrideInfo.operator !=(Kiln.OverrideInfo? left, Kiln.OverrideInfo? right) -> bool
+static Kiln.OverrideInfo.operator ==(Kiln.OverrideInfo? left, Kiln.OverrideInfo? right) -> bool
+static Kiln.OverrideResult.operator !=(Kiln.OverrideResult? left, Kiln.OverrideResult? right) -> bool
+static Kiln.OverrideResult.operator ==(Kiln.OverrideResult? left, Kiln.OverrideResult? right) -> bool
+static Kiln.Overrides.Active.get -> System.Collections.Generic.IReadOnlyList<Kiln.OverrideInfo!>!
+static Kiln.Overrides.Claim(string! target, System.Action! apply, System.Action! restore) -> Kiln.OverrideResult!
+static Kiln.Overrides.HolderOf(string! target) -> string?
+static Kiln.Overrides.Release(string! target) -> bool
+static Kiln.Overrides.RestoreAll() -> int
+static Kiln.Pacing.Available.get -> bool
+static Kiln.Pacing.CapTaskWorkers(Kiln.TaskWorkerCaps caps) -> bool
+static Kiln.Pacing.EffectiveTaskWorkerCaps.get -> Kiln.TaskWorkerCaps
+static Kiln.Pacing.HandlerCount(Kiln.PacingSites site) -> int
+static Kiln.Pacing.OnLoopWait(Kiln.LoopWaitHandler! handler) -> Kiln.PacingHandler!
+static Kiln.Pacing.OnServerWait(Kiln.ServerWaitHandler! handler) -> Kiln.PacingHandler!
+static Kiln.Pacing.Sites.get -> Kiln.PacingSites
+static Kiln.Pacing.TaskWorkersStarted.get -> bool
+static Kiln.PointDecision<TOut>.operator !=(Kiln.PointDecision<TOut> left, Kiln.PointDecision<TOut> right) -> bool
+static Kiln.PointDecision<TOut>.operator ==(Kiln.PointDecision<TOut> left, Kiln.PointDecision<TOut> right) -> bool
+static Kiln.PointOrder.Default.get -> Kiln.PointOrder!
+static Kiln.PointOrder.operator !=(Kiln.PointOrder? left, Kiln.PointOrder? right) -> bool
+static Kiln.PointOrder.operator ==(Kiln.PointOrder? left, Kiln.PointOrder? right) -> bool
+static Kiln.Points.Define<TIn, TOut>(string! name, Kiln.PointMode mode, bool allowRefuse = false) -> Kiln.Point<TIn, TOut>!
+static Kiln.Points.Extend<TIn, TOut>(string! point, System.Func<TIn, TOut, (Kiln.PointVerdict, TOut)>! link, Kiln.PointOrder? order = null) -> Kiln.PointLink!
+static Kiln.Points.Observe<TIn, TOut>(string! point, System.Action<TIn, TOut>! observer, Kiln.PointOrder? order = null) -> Kiln.PointLink!
+static Kiln.Points.Shared.get -> Kiln.PointRegistry!
+static Kiln.Reflected.All(string! component) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Reflected.Component(Kiln.EntityId entity, string! component) -> Kiln.ReflectedValue?
+static Kiln.ReflectedResources.All(Kiln.GameType! type) -> System.Collections.Generic.IEnumerable<Kiln.ReflectedResource!>!
+static Kiln.ReflectedResources.All(string! type) -> System.Collections.Generic.IEnumerable<Kiln.ReflectedResource!>!
+static Kiln.ReflectedResources.Available.get -> bool
+static Kiln.ReflectedResources.FindByField(Kiln.GameType! type, string! path, object? value) -> System.Collections.Generic.IReadOnlyList<Kiln.ReflectedResource!>!
+static Kiln.ReflectedResources.FindByField(string! type, string! path, object? value) -> System.Collections.Generic.IReadOnlyList<Kiln.ReflectedResource!>!
+static Kiln.ReflectedResources.Get(System.Guid guid, Kiln.GameType! type, uint part = 0) -> Kiln.ReflectedResource?
+static Kiln.ReflectedResources.Get(System.Guid guid, string! type, uint part = 0) -> Kiln.ReflectedResource?
+static Kiln.TaskWorkerCaps.AtMost(int workers) -> Kiln.TaskWorkerCaps
+static Kiln.TaskWorkerCaps.operator !=(Kiln.TaskWorkerCaps left, Kiln.TaskWorkerCaps right) -> bool
+static Kiln.TaskWorkerCaps.operator ==(Kiln.TaskWorkerCaps left, Kiln.TaskWorkerCaps right) -> bool
+static Kiln.WorldPosition.From(System.Numerics.Vector3 v) -> Kiln.WorldPosition
+static Kiln.WorldPosition.operator !=(Kiln.WorldPosition left, Kiln.WorldPosition right) -> bool
+static Kiln.WorldPosition.operator ==(Kiln.WorldPosition left, Kiln.WorldPosition right) -> bool
+static readonly Kiln.EntityId.None -> Kiln.EntityId
+virtual Kiln.EcsProgramCallback.Invoke(Kiln.EcsProgramContext context) -> void
+virtual Kiln.LoopWaitHandler.Invoke(in Kiln.LoopWait wait) -> void
+virtual Kiln.Mod.OnLoad() -> void
+virtual Kiln.Mod.OnUnload() -> void
+virtual Kiln.ServerWaitHandler.Invoke(ref long waitNanoseconds) -> void
+virtual Kiln.TickHandler.Invoke(in Kiln.TickInfo tick) -> void
+~override Kiln.EntityId.Equals(object obj) -> bool
+~override Kiln.EventHandlerStats.Equals(object obj) -> bool
+~override Kiln.EventHandlerStats.ToString() -> string
+~override Kiln.GameField.Equals(object obj) -> bool
+~override Kiln.GameField.ToString() -> string
+~override Kiln.LoopWait.Equals(object obj) -> bool
+~override Kiln.LoopWait.ToString() -> string
+~override Kiln.ModStats.Equals(object obj) -> bool
+~override Kiln.ModStats.ToString() -> string
+~override Kiln.PointDecision<TOut>.Equals(object obj) -> bool
+~override Kiln.PointDecision<TOut>.ToString() -> string
+~override Kiln.TaskWorkerCaps.Equals(object obj) -> bool
+~override Kiln.TaskWorkerCaps.ToString() -> string
+~override Kiln.WorldPosition.Equals(object obj) -> bool

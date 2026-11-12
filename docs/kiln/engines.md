@@ -226,7 +226,8 @@ engines' mods") and 5.8.
   `extended.mod.json` switch as the profile says, switches off Kiln's copies the profile dropped (their settings
   stay), and removes Kiln's copies of SET mods that are off. Ownership requires both the marker and the launcher's
   receipt in `kiln/state/library-placements.json`, with the recorded file inventory still matching (ShroudForge's
-  enabled switch and setting values may change). A marker alone never grants deletion or replacement rights;
+  enabled switch and setting values may change, and so may the default `targets` ShroudForge's own in-game menu adds
+  to a file without one). A marker alone never grants deletion or replacement rights;
   older marker-only copies and folders changed by the player are left alone. Replacement is staged beside the
   destination and rolls the previous copy back if placement fails. Activation is refused while the game runs.
   Enshwick's loader also reads only `<game>/mods/`, but kiln-enshwick copies the profile's enabled entries there
@@ -237,7 +238,17 @@ engines' mods") and 5.8.
   `<configDir>/shroudtopia/shroudtopia.json`, with the types taken from the values. EMF keeps its ini editor. EML,
   SET, Greeneye, Flame, shroudlink and Ember mods declare no settings Kiln edits; Enshwick keeps each mod's settings
   per world (`<save>-mod-settings/<id>/settings.toml`), edited in the game's Mods screen or with `enshwick config`. Settings calls require a valid mod id listed in the requested
-  profile. ShroudForge writes require that profile active in the selected game and a Kiln-owned placed copy.
+  profile. ShroudForge writes require that profile active in the selected game and the folder ShroudForge reads for
+  the entry: Kiln's unchanged copy, or the player's own folder that serves it (one Kiln did not place, also under
+  another folder name with the same package id). A setting the player changes in the launcher is their request, so
+  Kiln writes that one value into their folder's `extended.mod.json` too (atomically, links refused, game closed),
+  and the settings dialog says it is the player's own folder; switching, replacing and removing such a folder stay
+  refused. A folder Kiln did not place is used only when its mod.json id is the entry's package id (a player's folder
+  named like the entry that holds another package is not it); when several of the player's folders hold the package,
+  nothing is written and the settings say which folders. The write goes through a temp file of a new, random name
+  created exclusively, so no file of the mod folder is ever overwritten through it. A copy of Kiln's whose library files
+  changed stays refused. Hand edits to a setting's description, range or other metadata in a Kiln copy's
+  `extended.mod.json` are not carried to the mod's next version; only the values are (as before dev.26).
   Engine settings writes are refused while a game reading these files runs. Active copy-mode Shroudtopia profiles
   edit the game-side config copy, so activation's copy-back preserves the change. Without a matching selected game,
   a unique active copy is used; multiple active copies require selecting which game to edit.

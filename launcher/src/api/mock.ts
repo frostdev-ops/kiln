@@ -16,6 +16,7 @@ import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
+import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -90,6 +91,9 @@ let failNextInstall: string | null = null;
 let noProxy = false;
 /** What `launch_prestart` answers while the fake game runs (tests: `__kilnMock.setPreStart`); null: nothing before boot. */
 let preStart: PreStart | null = null;
+/** GameStatus.otherFolderProfile per game (tests: `__kilnMock.setOtherFolderProfile`): another data folder's profile is
+ *  in the game; activeProfile is null then, as the backend says it. */
+const otherFolder: Record<string, { id: string; root?: string | null } | null> = {};
 /** GameStatus.newerMods per game (tests: `__kilnMock.setNewerMods`). */
 const newerMods: Record<string, NewerKilnMod[]> = {};
 
@@ -337,6 +341,9 @@ const sfSettings: Record<string, { schema: Json; values: Record<string, Json> }>
     values: { stackMultiplier: 2, autoSort: false, layout: "compact" },
   },
 };
+/** ShroudForge mods the player's own folder serves (engine_mods::sf_folder): their settings say `ownFolder`. Tests:
+ *  `__kilnMock.setSfOwnFolder`. */
+const sfOwn = new Set<string>();
 /** `<profile configDir>/shroudtopia/shroudtopia.json` `mods`, by profile. */
 const shroudtopiaFiles = new Map<string, Record<string, Record<string, Json>>>();
 /** EML patched enshrouded.kfc (its `.kfc.bak` is the vanilla file). */
@@ -362,7 +369,8 @@ function engineSettings(kind: ModKind, id: string, pid: string) {
   if (kind === "shroudforge") {
     const sf = sfSettings[id];
     if (!sf) return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: { type: "object", properties: {} }, values: {}, note: "this mod declares no settings" };
-    return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: sf.schema, values: clone(sf.values), note: null };
+    return { kind, id, format: "extended.mod.json", file: `${g?.path}/shroudforge/mods/${id}/extended.mod.json`, schema: sf.schema, values: clone(sf.values), note: null,
+      ...(sfOwn.has(id) ? { ownFolder: true } : {}) };
   }
   if (kind === "shroudtopia") {
     const values = shroudtopiaFiles.get(pid)?.[id] ?? { active: true, flySpeed: 1.5, hotkey: "F6" };
@@ -431,7 +439,8 @@ function status(gameId: string): GameStatus {
   const r = running[gameId];
   return {
     id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: withMissing(runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null }, g.kind),
-    activeProfile: activations[gameId]?.profileId ?? null, playOncePending: !!r && r.mode !== "profile" && (noProxy || Date.now() - r.at < 2500),
+    activeProfile: otherFolder[gameId] ? null : activations[gameId]?.profileId ?? null,
+    ...(otherFolder[gameId] ? { otherFolderProfile: otherFolder[gameId]! } : {}), playOncePending: !!r && r.mode !== "profile" && (noProxy || Date.now() - r.at < 2500),
     boot: bootFor(gameId), launchOptions: noProxy ? { value: null, hasDllOverride: false, advice: 'WINEDLLOVERRIDES="dinput8=n,b" %command%' }
       : { value: 'WINEDLLOVERRIDES="dinput8=n,b" %command%', hasDllOverride: true, advice: null },
     newerMods: newerMods[gameId] ?? [],
@@ -646,7 +655,7 @@ const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", cr
 
 const assets = { root: "/home/player/.local/share/kiln", editor: { present: true, bytes: 0 }, admin: { map: false, catalog: false, bytes: 0 } };
 let settings: LauncherSettings = { steamRoots: [], defaultGameId: FRESH ? null : "client-steam", allowHttpModpacks: false, savesKeep: 10, updateCheck: true, animatedFire: true,
-  addToActiveProfile: true };
+  addToActiveProfile: true, modFolderNotes: true };
 // how the (Linux) launcher draws its window; `?render=software` as after the fallback
 let render: RenderInfo = typeof location !== "undefined" && new URLSearchParams(location.search).get("render") === "software"
   ? { mode: "software", why: "restart", marker: true, markerWhy: "The launcher turned this on by itself: the page did not start within 15 s of the window with the GPU (2026-11-11T21:04:10Z)" }
@@ -677,7 +686,7 @@ const S = (v: unknown) => String(v ?? "");
 
 const handlers: Record<string, Handler> = {
   // app
-  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true,
+  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: mockDataDir(), commit: "0f1ffa6", mock: true,
     noWebgl: render.mode === "software", distribution: MOCK_DISTRIBUTION, nexusEnabled: NEXUS_MOCK_ENABLED, render: { ...render } }),
   app_started: () => null,
   app_render_set: (a) => {
@@ -819,8 +828,21 @@ const handlers: Record<string, Handler> = {
     return r;
   },
   profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
-  profile_active: (a) => activations[S(a.gameId)] ?? null,
+  profile_active: (a) => (otherFolder[S(a.gameId)] ? null : activations[S(a.gameId)] ?? null),
   activation_notices: () => notices.splice(0),
+  // notices.rs unseen / mark_seen: what the window has not shown yet for the game (only the safety lines with the
+  // setting off; asking remembers nothing), and what it reports on screen (the backend keeps that in the data folder;
+  // the mock for the page's life)
+  notices_unseen: (a) => {
+    const seen = noticesSeen[S(a.gameId)] ?? new Set<string>();
+    const lines = ((a.lines as { text: string; safety?: boolean }[]) ?? []).filter((l) => settings.modFolderNotes !== false || l.safety).map((l) => l.text);
+    return [...new Set(lines.filter((t) => !seen.has(t)))];
+  },
+  notices_shown: (a) => {
+    const seen = (noticesSeen[S(a.gameId)] ??= new Set());
+    ((a.lines as string[]) ?? []).forEach((t) => seen.add(t));
+    return null;
+  },
   profile_revert: (a) => {
     const id = S(a.profileId);
     const p = clone(profiles.get(id) ?? reject("not_found", `No profile '${id}'.`));
@@ -1179,6 +1201,10 @@ Object.assign(handlers, updateMockHandlers(mockEmit, MOCK_DISTRIBUTION));
 Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
+Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
+
+/** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
+export { mockPickFolder };
 
 const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
 let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
@@ -1194,6 +1220,9 @@ function makeDefault(): Profile {
   profiles.set(p.id, p);
   return p;
 }
+
+/** notices_unseen's memory, by game. */
+const noticesSeen: Record<string, Set<string>> = {};
 
 /** Re-applies' activations the window has not taken (activation_notices), as the backend keeps them; tests put some
  *  there before the page loads with `window.__kilnMockNotices` (a re-apply before the window listened). */
@@ -1443,6 +1472,9 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   if (plan?.error) throw plan.error;
   if (plan && Object.hasOwn(plan, "result")) return clone(plan.result) as T;
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
+  // a pointer to a data folder that cannot be used: only the data folder's own commands answer (mockDataFolder.ts)
+  const blocked = dataFolderBlocks(cmd);
+  if (blocked) throw blocked;
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);
   const r = (await h(args)) ?? null;
@@ -1471,12 +1503,14 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
+  setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
   setPreStart: (p: PreStart | null) => { preStart = p; },
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
+  setOtherFolderProfile: (o: { id: string; root?: string | null } | null, gameId = "client-steam") => { otherFolder[gameId] = o; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
   /** A hand edit of the game's kiln.json (a key the launcher's Settings do not list, such as `mods.hosted`). */
   setKilnJson: (path: string, value: Json, gameId = "client-steam") => {

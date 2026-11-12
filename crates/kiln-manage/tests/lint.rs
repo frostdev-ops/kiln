@@ -167,6 +167,73 @@ fn python_readers_agree() {
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
+/// assets/player-states.json is a file kiln lint knows, in a mod and on its own: no KL903, checked against its schema.
+#[test]
+fn player_states_files_are_known() {
+    let case = fixtures().join("cases/player-states");
+    for p in [case.join("note/assets/player-states.json"), repo().join("mods/samples/PlayerStates/assets/player-states.json")] {
+        let r = run(&[p.clone()], &opts());
+        assert!(r.checked.iter().any(|c| Path::new(c) == p), "{} not checked:\n{}", p.display(), r.to_text());
+        assert!(r.diagnostics.iter().all(|d| d.code != "KL903" && d.severity < Severity::Warning), "{}", r.to_text());
+    }
+    let dir = tmp("player-states");
+    let r = lint_as(&dir, "assets/player-states.json", "{\"format\": 1, \"states\": {\"a\": {\"clip\": \"x\", \"like\": \"Block_FullBody\", \"speed\": 0}}}");
+    assert!(r.diagnostics.iter().all(|d| d.code != "KL903"), "{}", r.to_text());
+    assert!(r.diagnostics.iter().any(|d| d.code == "KL107" && d.pointer.as_deref() == Some("/states/a/speed")), "{}", r.to_text());
+}
+
+/// The player-states reader (tools/animcook/anicook/playerstates.py; native/services/playeranim/states.cpp ports it) refuses
+/// exactly the player-states files kiln lint refuses: the fixture case's, the repository's, and a few made for the dialect.
+#[test]
+fn player_states_reader_agrees() {
+    if !has_tool("python3", "--version") {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let root = repo();
+    let mut files = Vec::new();
+    json_files(&fixtures().join("cases/player-states"), &mut files);
+    json_files(&root.join("mods"), &mut files);
+    files.retain(|p| p.ends_with("assets/player-states.json"));
+    let dir = tmp("player-states-reader");
+    let state = "\"a\": {\"clip\": \"x\", \"like\": \"Block_FullBody\"}";
+    for (i, t) in [
+        format!("\u{feff}{{\"format\": 1, \"states\": {{{state}}}}}"),
+        format!("{{\"format\": 1, \"states\": {{{state}}}, \"format\": 1}}"),
+        format!("{{\"format\": 2, \"states\": {{{state}}}}}"),
+        "{\"format\": 1, \"states\": {\"a\": {\"clip\": \"x\", \"like\": \"Block_FullBody\", \"speed\": NaN}}}".to_string(),
+        "{\"format\": 1, \"states\": {\"a/b\": {\"clip\": \"x\", \"like\": \"Block_FullBody\"}}}".to_string(),
+        "{\"format\": 1, \"states\": {\"a\": {\"clip\": \"x\", \"like\": \"M/S/T\"}}}".to_string(),
+        format!("{{\"format\": 1, \"states\": {{\"{}\": {{\"clip\": \"x\", \"like\": \"Block_FullBody\"}}}}}}", "n".repeat(65)),
+        format!("{{\"format\": 1, \"states\": {{\"{}\": {{\"clip\": \"x\", \"like\": \"Block_FullBody\", \"blendIn\": 5, \"loop\": false}}}}}}", "n".repeat(64)),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let p = dir.join(format!("case{i}/assets/player-states.json"));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, t).unwrap();
+        files.push(p);
+    }
+    let out = std::process::Command::new("python3").arg(root.join("crates/kiln-manage/tests/lint/py-player-states.py")).arg(&root).args(&files).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let mut bad = Vec::new();
+    let mut n = 0;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let v: Value = serde_json::from_str(line).unwrap();
+        let f = PathBuf::from(v["file"].as_str().unwrap());
+        let text = std::fs::read_to_string(&f).unwrap();
+        let r = lint_as(&dir.join(format!("lint{n}")), "assets/player-states.json", &text);
+        let rust = refuses(&r, &[]);
+        n += 1;
+        if v["ok"].as_bool().unwrap() != rust.is_empty() {
+            bad.push(format!("{}: the reader {} ({}), kiln lint {:?}", f.display(), if v["ok"].as_bool().unwrap() { "accepts" } else { "refuses" }, v["error"], rust));
+        }
+    }
+    assert!(n >= 23, "{n}");
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
 /// kiln lint's schema validator agrees with ajv (draft 2020-12) on every fixture and every mod file of the repo.
 #[test]
 fn ajv_agrees() {
@@ -473,6 +540,51 @@ fn generated_files_are_current() {
     let vfx = "kiln-vfx.schema.json";
     check(repo().join("docs/kiln/modding/schemas").join(lint::docs::page_name(vfx)), lint::docs::schema_markdown(vfx).unwrap());
     assert!(stale.is_empty(), "stale (regenerate with KILN_LINT_WRITE=1): {stale:?}");
+}
+
+/// Every `(#anchor)` link of a generated schema page names a heading of that page, by GitHub's slug rule (lower case;
+/// letters, digits, `-`, `_` kept; a space is `-`; anything else dropped; `-1`, `-2` for a repeat). Caught before: a
+/// def linked from a table but given no heading (`#effects`, `#guid`, `#code`) and a $ref into a def's properties
+/// (`#/$defs/status/properties/modifies` linked as `#modifies`).
+#[test]
+fn generated_schema_pages_link_only_to_their_own_headings() {
+    fn slug(h: &str) -> String {
+        h.trim().to_lowercase().chars().filter_map(|c| if c == ' ' { Some('-') } else if c.is_alphanumeric() || c == '-' || c == '_' { Some(c) } else { None }).collect()
+    }
+    let index: Value = serde_json::from_str(&std::fs::read_to_string(repo().join("schema/schemas.json")).unwrap()).unwrap();
+    let mut ids: Vec<String> = index["schemas"].as_array().unwrap().iter().map(|r| r["schema"].as_str().unwrap().to_string()).collect();
+    ids.push("kiln-vfx.schema.json".into());
+    let mut bad = Vec::new();
+    let mut links = 0;
+    for id in &ids {
+        let page = lint::docs::schema_markdown(id).unwrap();
+        let mut seen: std::collections::HashMap<String, usize> = Default::default();
+        let mut anchors = std::collections::HashSet::new();
+        let mut fenced = false;
+        for line in page.lines() {
+            if line.starts_with("```") {
+                fenced = !fenced;
+            }
+            if fenced || !line.starts_with('#') {
+                continue;
+            }
+            let base = slug(line.trim_start_matches('#'));
+            let n = seen.entry(base.clone()).or_insert(0);
+            anchors.insert(if *n == 0 { base.clone() } else { format!("{base}-{n}") });
+            *n += 1;
+        }
+        for (i, line) in page.lines().enumerate() {
+            for part in line.split("](#").skip(1) {
+                let a = part.split(')').next().unwrap();
+                links += 1;
+                if !anchors.contains(a) {
+                    bad.push(format!("{}:{}: #{a}", lint::docs::page_name(id), i + 1));
+                }
+            }
+        }
+    }
+    assert!(links > 100, "{links} anchor links: the pages should link their defs");
+    assert!(bad.is_empty(), "links with no heading:\n{}", bad.join("\n"));
 }
 
 /// docs/kiln/modding/lint.md documents every code, under the heading the reports' `docs` links point at.

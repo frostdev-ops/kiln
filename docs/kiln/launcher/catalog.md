@@ -1,7 +1,7 @@
 # The online catalog (Nexus Mods)
 
-The official **0.2.0-dev.22** build (like dev.20 and dev.21) uses `KILN_NEXUS_ENABLED=0`: no Catalog, Nexus account/settings or `nxm://`
-handler. Download archives in a browser and import them manually. Kiln removes what an older build (0.2.0-dev.19)
+A build with `KILN_NEXUS_ENABLED=0` (the official builds 0.2.0-dev.20 to dev.22 were built so; `app_info.nexusEnabled` says
+what a build has) has no Catalog, Nexus account/settings or `nxm://` handler. Download archives in a browser and import them manually. Kiln removes what an older build (0.2.0-dev.19)
 left behind, and only Kiln's own: the personal API key and the nxm registration (see "Leftovers of older builds").
 Your OAuth sign-in, if any, and other programs' handlers are not touched. The enabled implementation described below is
 for a future approved configuration, not this build.

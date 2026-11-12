@@ -59,11 +59,11 @@ GameSystems.TurnAllOn();                                   // release this calle
   gameplay changes that already occurred while the system was skipped.
 - C# switching and profiler controls require the tick thread; window actions are queued there. Type and system
   queries are available on any thread. Native profiler controls synchronize start/stop and in-flight samples.
-- Native SET/power proxies disable installation of Kiln's runner hook; type reflection and events remain available.
+- Native SET (a module with SET's markers; another tool's `powrprof.dll` is not SET) disables installation of Kiln's runner hook; type reflection and events remain available.
   If such a module arrives later, Kiln releases every disable request and stops profiling. Its existing runner stays
   passive and its DLL stays mapped until process exit, preserving trampolines the later hook may reference.
   A module inventory that cannot be read is not such a module: Kiln looks again one second later and goes passive
-  only when a SET or power proxy is seen, or after five failed looks in a row (the detector kiln-set shares,
+  only when SET is seen, or after five failed looks in a row (the detector kiln-set shares,
   [set.md](../set.md)). Passive for that second reason only, it looks again every 5 s and turns the runner back on
   at the first clean look; disable and hook requests made before it went passive are gone and must be made again,
   and `status()` says which of the two it is.

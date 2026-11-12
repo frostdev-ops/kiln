@@ -22,7 +22,7 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "loadAfter": ["some-mod"],            // ordering only: when present, load after / before it
   "loadBefore": ["other-mod"],
   "incompatible": { "rival": "<3" },    // or ["rival"] (any version): this mod does not load when it is present
-  "features": ["tick", "log.mirror"],   // Kiln features this game build must have (Game.HasFeature)
+  "features": ["tick", "log.mirror"],   // capabilities this game build must have, fixed at boot (see "Asking what works")
   "entryAssembly": "MyMod.dll",         // a file in the folder; leave it out for a mod of data only (see below)
   "entryType": "MyMod.MyModClass",      // default: the only public Kiln.Mod subclass
   "exports": ["MyMod.Api.dll"],         // assemblies dependents compile against (shared at run time)
@@ -104,15 +104,20 @@ requires the key to name the assembly it builds (KILN001).
 
 An exclusive upper bound `<X.Y.Z` also excludes the pre-releases of X.Y.Z (`<2` rejects `2.0.0-beta`); pre-releases
 inside a range match. **apiVersion** is special: a bare version means "this API or a later one with the same
-major" (the mod API stays additive within a major, 0.x included), so `"0.1"` mods load on API 0.2. Today's API:
-`Kiln.Mods.ApiVersion` = 0.2.0.
+major" (the mod API stays additive within a major, 0.x included), so `"0.1"` mods load on API 0.2. The running
+Kiln's API: `Kiln.Mods.RuntimeApiVersion` (0.2.1). The const `Kiln.Mods.ApiVersion` is obsolete: it is copied into a
+mod when the mod is built, so it says the API the mod was built against. A release refuses to ship when a public
+member of the previous release was removed (`tools/release/api-gate.sh`, and `pack.sh` compares against
+`KILN_API_BASELINE`). A release also builds its SDK packages as a NuGet feed (`sdk/feed/`); its URL is given here once
+it is published.
 
 ## What the loader does (Forge's ModSorter + dependency checks)
 At the first server-world step (a client: in the menu; its side "server" mods at each hosted world's first step, see
 docs/kiln/client.md), for every folder with a `kiln.mod.json` (a `.disabled` file skips the folder):
 1. Read and validate the manifest. Errors name the field; the folder is reported as `folder:<name>`.
 2. Reject duplicates (the first folder in name order keeps the id), mods for the other **side** (skipped, not an
-   error), an `apiVersion` this Kiln does not provide, missing `features`.
+   error), an `apiVersion` this Kiln does not provide, `features` that are unavailable or depend on the session (see
+   below).
 3. Check dependencies and incompatibilities until nothing changes (a failure can fail its dependents): missing
    required dependency, version mismatch (also for a present optional one), `kiln` version, declared incompatibility.
 4. Order: dependencies (required and present optional), `loadAfter` and `loadBefore` edges; ties by id. Mods in a
@@ -131,6 +136,29 @@ A rejected mod never stops the others. `kiln.log` says why, for example:
 ```
 The same reasons are in `Mods.All` (`ModEntry.State`, `.Error`), the control command `mods` and `kiln/logs/mods.txt`.
 A later `load <folder>` or `reload <id>` retries mods that failed for want of that mod.
+
+## Asking what works
+What works on this game build and side, and why something does not, is one table of capabilities
+([services/caps.md](../services/caps.md)). From a mod:
+```csharp
+if (!Capabilities.Is("items.fuel")) { Log.Warn(Capabilities.Why("items.fuel")); return; }
+```
+- `Capabilities.Is(name)` is true when the capability works here. `Get(name)` returns its row (state, reason, reason
+  text, source), `Why(name)` one sentence to log, `All` every row. Any thread. `Game.HasFeature` asks the same table.
+- `CapabilityChangedEvent` (bus, tick thread) reports a row that is new, changed or removed.
+- A member marked `[RequiresCapability("name")]` throws `KilnUnavailableException` naming that capability when it is
+  off ([contract.md](contract.md)). The attribute only documents this; nothing checks it.
+
+**`features` in the manifest.** Each name must be a capability that is available and fixed at boot:
+- an unavailable one refuses the mod with the reason:
+  `needs feature gameplay.craft, unavailable: symbol gameplay/CraftRecipe: gameplay/CraftRecipe.find[0]: 0 matches [symbol-missing]`;
+- one that depends on the session (`SessionDependent`, reported pending at least once, such as `identity.players`) is
+  refused as a requirement: check `Capabilities.Is` at run time instead;
+- a `<service>.<thing>` row that a managed service registers exists only after that service was first used, which is
+  usually after the manifests were checked. Such a name is refused as "no capability of this name is registered",
+  with the same advice. Sigdb features (`items.fuel`, `tick`) and `kiln.<service>` rows are there from boot.
+
+The refusal is in `kiln/state/mods.json`, `Mods.All` and kiln.log. Works on a test server (dev.26); not run in a client.
 
 ## Exports: shared mod APIs
 Each mod has its own collectible load context. Assemblies resolve in this order: Kiln.Api (shared), Kiln's shared

@@ -1,0 +1,10 @@
+{
+  "id": "client-pass",
+  "name": "Client pass",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ClientPass.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "Guided checks for what only a player in the real game can confirm: the status page's rows awaiting a game test and the open client checklists, ordered into sessions (docs/kiln/client-pass.md). Open the list with Ctrl+Shift+F5. Uses the sample mods for content and says which one to add when it is missing. Verdicts go to kiln/state/client-checks.json; tools/client-checks/report.py reads them."
+}

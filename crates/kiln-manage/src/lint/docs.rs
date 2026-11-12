@@ -3,7 +3,39 @@
 
 use super::embedded;
 use serde_json::{Value as J, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// A heading's anchor by GitHub's rule: lower case, letters, digits, `-` and `_` kept, a space becomes `-`, every other
+/// character dropped (backticks and other punctuation too).
+pub fn heading_slug(text: &str) -> String {
+    text.trim()
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter_map(|c| match c {
+            ' ' => Some('-'),
+            c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The anchors of a page's headings in page order, with GitHub's `-1`, `-2` for a slug seen before.
+fn unique_slugs<'a>(headings: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    headings
+        .into_iter()
+        .map(|h| {
+            let base = heading_slug(h);
+            let n = seen.entry(base.clone()).or_insert(0);
+            let slug = if *n == 0 { base.clone() } else { format!("{base}-{n}") };
+            *n += 1;
+            slug
+        })
+        .collect()
+}
+
+/// Def name -> the anchor of its heading on this page. A def with no heading has no entry and is not linked.
+type Anchors = BTreeMap<String, String>;
 
 fn resolve<'a>(doc: &'a J, root_id: &str, r: &str) -> Option<(String, &'a J)> {
     let (file, frag) = r.split_once('#').unwrap_or((r, ""));
@@ -93,7 +125,7 @@ pub fn idrefs() -> J {
     })
 }
 
-fn type_of(s: &J, id: &str) -> String {
+fn type_of(s: &J, id: &str, anchors: &Anchors) -> String {
     let Some(o) = s.as_object() else { return if s == &J::Bool(true) { "any".into() } else { String::new() } };
     if let Some(c) = o.get("const") {
         return format!("`{c}`");
@@ -110,7 +142,7 @@ fn type_of(s: &J, id: &str) -> String {
         if base == "array"
             && let Some(it) = o.get("items")
         {
-            let inner = type_of(it, id);
+            let inner = type_of(it, id, anchors);
             if !inner.is_empty() {
                 return format!("array of {inner}");
             }
@@ -119,14 +151,19 @@ fn type_of(s: &J, id: &str) -> String {
     }
     if let Some(r) = o.get("$ref").and_then(J::as_str) {
         let name = r.rsplit('/').next().unwrap_or(r);
-        if r.starts_with("#/$defs/") {
-            return format!("[{name}](#{})", name.to_lowercase());
+        if let Some(path) = r.strip_prefix("#/$defs/") {
+            // a pointer into a def (#/$defs/status/properties/modifies) links to the def's heading, which holds it
+            let def = path.split('/').next().unwrap_or(path);
+            return match anchors.get(def) {
+                Some(a) => format!("[{name}](#{a})"),
+                None => format!("`{name}`"),
+            };
         }
         return format!("`{}`", r.replace("#/$defs/", " "));
     }
     for k in ["oneOf", "anyOf"] {
         if let Some(J::Array(alts)) = o.get(k) {
-            let v: Vec<String> = alts.iter().map(|a| type_of(a, id)).filter(|x| !x.is_empty()).collect();
+            let v: Vec<String> = alts.iter().map(|a| type_of(a, id, anchors)).filter(|x| !x.is_empty()).collect();
             if !v.is_empty() {
                 return v.join(" or ");
             }
@@ -172,7 +209,7 @@ fn notes(s: &J) -> String {
     n.join(" ")
 }
 
-fn table(o: &serde_json::Map<String, J>, id: &str, out: &mut String) {
+fn table(o: &serde_json::Map<String, J>, id: &str, anchors: &Anchors, out: &mut String) {
     let Some(props) = o.get("properties").and_then(J::as_object) else { return };
     let req: Vec<&str> = o.get("required").and_then(J::as_array).into_iter().flatten().filter_map(J::as_str).collect();
     let rows: Vec<(&String, &J)> = props.iter().filter(|(_, v)| v.as_object().is_some_and(|m| !m.is_empty())).collect();
@@ -181,7 +218,7 @@ fn table(o: &serde_json::Map<String, J>, id: &str, out: &mut String) {
     }
     out.push_str("| Key | Type | Required | Notes |\n|---|---|---|---|\n");
     for (k, v) in rows {
-        out.push_str(&format!("| `{k}` | {} | {} | {} |\n", type_of(v, id), if req.contains(&k.as_str()) { "yes" } else { "" }, notes(v)));
+        out.push_str(&format!("| `{k}` | {} | {} | {} |\n", type_of(v, id, anchors), if req.contains(&k.as_str()) { "yes" } else { "" }, notes(v)));
     }
     out.push('\n');
 }
@@ -207,31 +244,61 @@ pub fn schema_markdown(id: &str) -> Option<String> {
             r.container.as_ref().map(|c| format!(" (inside a binary .{c} file)")).unwrap_or_default()
         ));
     }
+    // Which defs get a heading: one with keys or notes, and every def this page links to (a $ref to it anywhere in
+    // the schema). Their anchors are fixed before any table is written, so every link names a heading that exists.
+    let mut linked = BTreeSet::new();
+    local_refs(doc, &mut linked);
+    let shown: Vec<(&String, &J, &serde_json::Map<String, J>)> = doc["$defs"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, d)| d.as_object().map(|o| (name, d, o)))
+        .filter(|(name, d, o)| has_keys(o) || !notes(d).is_empty() || linked.contains(name.as_str()))
+        .collect();
+    let title = doc["title"].as_str().unwrap_or(id);
+    let slugs = unique_slugs([title, "Top level"].into_iter().chain(shown.iter().map(|(n, _, _)| n.as_str())));
+    let anchors: Anchors = shown.iter().zip(slugs.into_iter().skip(2)).map(|((n, _, _), a)| ((*n).clone(), a)).collect();
     out.push_str("## Top level\n\n");
     if let Some(o) = doc.as_object() {
-        table(o, id, &mut out);
+        table(o, id, &anchors, &mut out);
     }
-    if let Some(defs) = doc["$defs"].as_object() {
-        for (name, d) in defs {
-            let Some(o) = d.as_object() else { continue };
-            let has_props = o.get("properties").and_then(J::as_object).is_some_and(|p| p.values().any(|v| v.as_object().is_some_and(|m| !m.is_empty())));
-            let n = notes(d);
-            let t = type_of(d, id);
-            if !has_props && n.is_empty() {
-                continue;
-            }
-            out.push_str(&format!("## {name}\n\n"));
-            if !n.is_empty() {
-                out.push_str(&n);
-                out.push_str("\n\n");
-            }
-            if !has_props && !t.is_empty() {
-                out.push_str(&format!("Type: {t}\n\n"));
-            }
-            table(o, id, &mut out);
+    for (name, d, o) in shown {
+        let n = notes(d);
+        let t = type_of(d, id, &anchors);
+        out.push_str(&format!("## {name}\n\n"));
+        if !n.is_empty() {
+            out.push_str(&n);
+            out.push_str("\n\n");
         }
+        if !has_keys(o) && !t.is_empty() {
+            out.push_str(&format!("Type: {t}\n\n"));
+        }
+        table(o, id, &anchors, &mut out);
     }
     Some(out)
+}
+
+/// A def's own table has rows (properties that are not `{}`).
+fn has_keys(o: &serde_json::Map<String, J>) -> bool {
+    o.get("properties").and_then(J::as_object).is_some_and(|p| p.values().any(|v| v.as_object().is_some_and(|m| !m.is_empty())))
+}
+
+/// The def names of every `#/$defs/<name>…` $ref in a schema document.
+fn local_refs(v: &J, out: &mut BTreeSet<String>) {
+    match v {
+        J::Object(o) => {
+            for (k, x) in o {
+                if k == "$ref"
+                    && let Some(path) = x.as_str().and_then(|r| r.strip_prefix("#/$defs/"))
+                {
+                    out.insert(path.split('/').next().unwrap_or(path).to_string());
+                }
+                local_refs(x, out);
+            }
+        }
+        J::Array(a) => a.iter().for_each(|x| local_refs(x, out)),
+        _ => {}
+    }
 }
 
 /// The file name of a schema's reference page (content-pack.schema.json -> content-pack.md).

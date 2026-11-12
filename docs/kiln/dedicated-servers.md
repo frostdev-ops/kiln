@@ -170,6 +170,27 @@ then rename it to `test.cmd`: Kiln then never reads a half-uploaded file. Detail
 
 Restart the server after adding or removing mods.
 
+**Mods with a cook recipe** (`assets/cook.json`: player animations, models, sounds) are made from the game's files on each
+machine; a mod archive doesn't carry them. A mod with player animation states needs its cooked clips on the server too:
+without them the server refuses those states, and then refuses every player whose game has them. Cook it on the server:
+
+```
+KILN_REPO=<a Kiln source checkout> kiln cook <server folder>/kiln/mods/<mod> --game <server folder>
+```
+
+You need Python 3.14 (or an older Python 3 with the `zstandard` package) and the Kiln source (the cook tools are its
+`tools/` folder), so this works on your own server, not on a rented one with only FTP. The cook makes what the server uses
+(animations, skeletons, graphs, templates) and skips what only a player's game draws (models), one line each:
+`step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. It marks those models in the
+mod's `assets/assets.json` as `"side": "client"`, so the server starts without a warning for each missing model file.
+Cook again after every game update.
+
+No Python on the server? Cook the mod on a PC with the game, then copy the mod folder with its `assets/cooked` folder and
+`assets/assets.json` to the server. That works when the PC's game and the server run the same Enshrouded update (after a
+game update, update both, then cook again; `game.version` in `assets/cooked/cook-report.json` names the build a cook read).
+The cooked animations are byte for byte the same from either side's files; only the cook report differs. The copied folder
+also holds the models, which the server loads and doesn't use.
+
 What players need depends on the mod. Its `kiln.mod.json` says it in `clients`:
 
 | `clients` | Players need | Players without it |

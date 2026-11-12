@@ -112,6 +112,8 @@ public static unsafe class PlayerCharacters
 
     /// <summary>Lab only (<c>KILN_CHARACTERS_SIMULATE=1</c>): a slot holds this character, for players replayed by
     /// <c>KILN_PLAYERS_SIMULATE</c>. Null clears it. False when simulation is off.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static bool Simulate(int slot, ulong account, Guid? id)
     {
         var t = T;

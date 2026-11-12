@@ -43,6 +43,10 @@ Differences, all on the safe side:
   Shroudtopia module loaded, and only that (Skill Search ships both parts in one folder).
 - DLL initialization, the factory, metadata and loader-invoked lifecycle calls are fault-guarded: a mod that faults or throws is switched off until the next start, the game
   runs on. Mod-owned threads and direct detours are outside those guards.
+- A mod DLL that is already in the process is never loaded or created a second time: another loader (EML's runtime
+  loader, a proxy loader, a native mod) loaded the same file, or a copy with the same size and bytes, before
+  kiln-shroudtopia got to it. `state/shroudtopia.json` lists it as `own-loader` with the loaded module's path, and
+  `kiln.log` has a warning. (GitHub issue 23: a loot mod's `CreateModInstance` ran twice and hooked the game twice.)
 
 ## ABI
 

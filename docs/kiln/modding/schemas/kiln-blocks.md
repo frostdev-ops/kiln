@@ -177,6 +177,17 @@ Played over the states: always, or on an overlay.
 | `speed` | number |  |  |
 | `weight` | number |  |  |
 
+## animatedModel
+
+A held model with moving parts: a skinned model of the mod's and the graph that plays its clip, held in the class's hand with the look's vfx on it (then clients "mod"). Each is a GUID or the name of its model or graph step of assets/cook.json.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `graph` | string |  | The graph that plays its clip: a GUID or its graph step's name. min length 1 |
+| `leftGraph` | string |  | Daggers only: the left hand's graph. Default: graph. min length 1 |
+| `leftModel` | string |  | Daggers only: the left hand's model. Default: model. min length 1 |
+| `model` | string |  | The skinned model: a GUID or its model step's name. min length 1 |
+
 ## animation
 
 How a body moves: a glTF of the mod with its clips (cooked when the mod builds), the engine's states and your own. Or a premade: "like".
@@ -279,6 +290,10 @@ What a piece of armor gives. A number left out: what its slot has at that level.
 | `physical` | integer |  | The tooltip's physical armour. min 0 |
 | `rarity` | [rarity](#rarity) |  |  |
 | `resist` | object |  | Armour against one kind, on top of the two above. |
+
+## armorStatsRef
+
+Type: [ref](#ref) or [armorStats](#armorstats)
 
 ## beard
 
@@ -416,7 +431,7 @@ How a spell or an ability is cast: animation, timing, costs.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `animation` | `"fast-bolt"` \| `"lob"` |  | The motion. A spell's default is fast-bolt; an ability's, none. |
+| `animation` | `"fast-bolt"` \| `"lob"` or object |  | The motion. A spell's default is fast-bolt; an ability's, none. On a spell an object changes it: like (a premade; default fast-bolt), animation, hitAt (the release, as releaseAt). |
 | `charges` | integer |  | How many a cast takes of a spell's stack or an ability's item. 0: none, used for ever. Default 1. min 0 |
 | `manaCost` | integer |  | min 0 |
 | `releaseAt` | number |  | Seconds into the animation the spell leaves the staff. |
@@ -665,6 +680,22 @@ What happens. Parts run in this order: chance decides, area, spawns, vfx, sound,
 | `then` | [effects](#effects) |  | More effects, on the same target. |
 | `vfx` | [vfx](#vfx) |  |  |
 
+## effectRef
+
+Type: [ref](#ref) or [effect](#effect)
+
+## effects
+
+Type: array of [effectRef](#effectref)
+
+## equipBonus
+
+Type: `"health"` \| `"stamina"` \| `"mana"` \| `"health-regen"` \| `"stamina-regen"` \| `"mana-regen"` \| `"melee-damage"` \| `"ranged-damage"` \| `"magic-damage"` \| `"crit-chance"` \| `"crit-damage"` \| `"frost-resist"` \| `"sprint-speed"`
+
+## fitName
+
+Type: `"hat"` \| `"hood"` \| `"noArmor"` \| `"shield"` \| `"tight"` \| `"armsTight01"` \| `"legsBeltTight"` \| `"legsFeetTight"` \| `"legsFeetTight01"`
+
 ## fits
 
 What a look makes the rest of the character do: "hood" gives hair its hood cut. A name, or a list of names.
@@ -676,6 +707,10 @@ Type: [fitName](#fitname) or array of [fitName](#fitname)
 How the target flinches.
 
 Type: `"none"` \| `"veryLight"` \| `"light"` \| `"medium"` \| `"heavy"`
+
+## guid
+
+Type: string
 
 ## hair
 
@@ -851,6 +886,27 @@ The crafting menu a station opens: an existing station's, which lists the statio
 |---|---|---|---|
 | `like` | `"workbench"` \| `"carpenter"` \| `"kitchen"` \| `"forge"` \| `"oven"` \| `"alchemy"` \| `"drying-rack"` \| `"charcoal-kiln"` \| `"kiln"` \| `"smelter"` \| `"fireplace"` \| `"grinder"` \| `"tannery"` \| `"table-saw"` |  | Default: the station's kind. |
 
+## move
+
+One move. At least one field: a move with none changes nothing.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `animation` | [moveAnimation](#moveanimation) |  |  |
+| `hitAt` | number |  | Seconds into the move its blow lands: the first damage event moves here. |
+| `length` | number |  | Seconds the whole move lasts. |
+| `like` | string |  | The game sequence it starts from: a sub-sequence name or a sequence GUID. Default: the class's in this slot. min length 1 |
+
+## moveAnimation
+
+The state it plays: a state of this mod by name, a game state ("State" or "Machine/State"), its GUID or its 0x id; or a list, one per state event of the motion (null keeps one).
+
+Type: string or array of string \| null
+
+## moveChain
+
+Type: [move](#move) or array of [move](#move)
+
 ## name
 
 The block's name. Ids come from your mod id and this: keep it. A rename says "was". Pattern `^[A-Za-z0-9_.-]+$`.
@@ -892,7 +948,7 @@ An enhancement on an item, in its perks: it runs while the item is worn or in ha
 |---|---|---|---|
 | `description` | string |  |  |
 | `icon` | string |  | A game perk, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients "mod"). min length 1 |
-| `modifies` | [modifies](#modifies) |  |  |
+| `modifies` | [modifies](#status) |  |  |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  | What every hit they land does to what was hit. |
 | `onHitTaken` | [hits](#hits) |  | What every hit they take does to whoever dealt it. |
@@ -1378,6 +1434,10 @@ A buff or debuff, shown in the game's buff bar. It lasts its seconds, or while a
 | `was` | [name](#name) |  | The name this block had before a rename. Ids come from the oldest name, so saves keep it. |
 | `while` | [state](#state) |  | A player has it for as long as they are in this state. |
 
+## statusRef
+
+Type: [ref](#ref) or [status](#status)
+
 ## strength
 
 What it takes to dig a material. Cost per block = health / (the tool's damage for this hardness x the server's mining factor x the class modifier). A field left out stays what it was.
@@ -1414,6 +1474,10 @@ One layer of a surface: maps of your own, a game material's layer ("game", "laye
 
 Type: [surfacePart](#surfacepart) or object
 
+## surfacePart
+
+Type: `"side"` \| `"top"` \| `"bottom"` \| `"edge"` \| `"edgeTop"` \| `"noise"`
+
 ## surfacePng
 
 A PNG in the mod's folder, a power of two on both sides, 4 to 4096. Pattern `^[^/\\].*\.[pP][nN][gG]$`. A file that must exist.
@@ -1440,7 +1504,7 @@ A node: in the game's own tree with game, or in a talent tree. It works for as l
 | `icon` | string |  | A PNG in the mod's folder. Pattern `\.[pP][nN][gG]$`. |
 | `keeps` | [statusRef](#statusref) |  | A status they have for as long as they have the talent. |
 | `maxLevel` | integer |  | Levels (default 1). The game's tree keeps at most 7. min 1 max 99 |
-| `modifies` | [modifies](#modifies) |  | Stats changed, per level. |
+| `modifies` | [modifies](#status) |  | Stats changed, per level. |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  |  |
 | `onHitTaken` | [hits](#hits) |  |  |
@@ -1700,6 +1764,7 @@ What an item looks like. Empty: its starter's look.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
+| `animated` | [animatedModel](#animatedmodel) |  |  |
 | `dropped` | [itemRef](#itemref) |  | An item whose model this shows lying on the ground. |
 | `icon` | string |  | The icon alone: item:<name>, or a PNG in the mod's folder (then clients "mod"). |
 | `like` | [itemRef](#itemref) |  | An item whose whole look this takes: held or worn model, dropped model, collection model and icon. |
@@ -1742,7 +1807,7 @@ One of a wand's attacks: how it is cast and what it sends.
 |---|---|---|---|
 | `cast` | [cast](#cast) | yes | The mana it costs and when it leaves the wand. animation is a staff's: a wand's motion is moves. |
 | `delivery` | [delivery](#delivery) | yes |  |
-| `moves` | `"bolt"` \| `"heavy"` \| `"special"` |  | The motion. Default: the attack slot's own. |
+| `moves` | `"bolt"` \| `"heavy"` \| `"special"` or object |  | The motion. Default: the attack slot's own. An object changes it: like (a premade; default the slot's own), animation, hitAt (the release, as cast.releaseAt). |
 | `onCast` | [effects](#effects) |  | On the caster, the moment it leaves the staff. |
 
 ## weapon
@@ -1752,6 +1817,7 @@ One of a wand's attacks: how it is cast and what it sends.
 | `class` | [weaponClassRef](#weaponclassref) | yes |  |
 | `description` | string |  |  |
 | `loot` | [loot](#loot) |  |  |
+| `moves` | [weaponMoves](#weaponmoves) |  |  |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  | What every hit the wielder lands does to the target, while it is in hand, with no unlock. |
 | `onKill` | [hits](#hits) |  | What a hit that kills does to what it killed, while it is in hand. |
@@ -1780,6 +1846,24 @@ How it is held and swung: a premade, a block of weaponClasses by name, or your o
 
 Type: `"sword"` \| `"axe"` \| `"mace"` \| `"greatsword"` \| `"greataxe"` \| `"hammer"` \| `"daggers"` \| `"bow"` \| `"staff"` \| `"shield"` \| `"wand"` or [ref](#ref) or [weaponClass](#weaponclass)
 
+## weaponMoves
+
+What its attack slots play, slot by slot; a slot left out keeps its class's. A slot the class does not have is refused.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `block` | [move](#move) |  | No hitAt: a block lands no blow. |
+| `dodgeAttack` | [move](#move) |  |  |
+| `execution` | [move](#move) |  |  |
+| `heavy` | [moveChain](#movechain) |  | The heavy attack on the ground: one move or a chain. |
+| `heavyAir` | [move](#move) |  | The heavy attack in the air. Default: primary's first link when primary is given. |
+| `jumpAttack` | [move](#move) |  |  |
+| `parry` | [move](#move) |  | No hitAt: a parry lands no blow. |
+| `plungeAttack` | [move](#move) |  |  |
+| `primary` | [moveChain](#movechain) |  | The light attack on the ground: one move, or a chain whose links hand over in turn. |
+| `sneakAttack` | [move](#move) |  |  |
+| `special` | [move](#move) |  |  |
+
 ## weaponStats
 
 A weapon's numbers: the tooltip's, made exactly so.
@@ -1792,6 +1876,10 @@ A weapon's numbers: the tooltip's, made exactly so.
 | `power` | integer |  | The tooltip's damage at that level. Default: what the class has, or damage's total. min 0 |
 | `rarity` | [rarity](#rarity) |  |  |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. min 0 |
+
+## weaponStatsRef
+
+Type: [ref](#ref) or [weaponStats](#weaponstats)
 
 ## window
 

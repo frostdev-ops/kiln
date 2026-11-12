@@ -3,8 +3,10 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
 #include "../src/hooks.cpp"
 #include "../src/coexist.h"
 
@@ -107,5 +109,36 @@ int main() {
     assert(!kset::set_marker(system_dll));
     assert(kset::power_proxy("/relocated/POWRPROF.DLL", "/system32"));
     assert(!kset::power_proxy("/relocated/normal.dll", "/system32"));
+    {  // Issue 23: a powrprof.dll is SET's by SET's markers only, never by its name. Files in TMPDIR.
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / ("kset-power-" + std::to_string(::getpid()));
+        fs::create_directories(dir);
+        auto put = [&](const char* name, const std::string& bytes) {
+            std::ofstream(dir / name, std::ios::binary) << bytes;
+            return dir / name;
+        };
+        auto wide = [](const char* s) { std::string w; for (; *s; ++s) { w += *s; w += '\0'; } return w; };
+        const std::string pe = "MZ" + std::string(4094, '\0') + "PowerGetActiveScheme";
+        // A proxy loader as a server's POWRPROF.dll: forwards the system DLL's exports and loads other DLLs.
+        const auto forwarding = put("forward.dll", pe + "Forwarding exports to %s\\powrprof.dll" + wide("mods\\*.dll"));
+        assert(kcompat::power_proxy_owner(forwarding) == kcompat::PowerProxy::other);
+        assert(kcompat::power_proxy_tool(forwarding).empty());
+        // SET's name in its version resource (UTF-16), its start line, its folder, its Vulkan layer: each one is SET.
+        for (const std::string& marker : {wide("Shrouded Engine Tweaks: Lua mods and an in-game overlay"),
+                                          std::string("Shrouded Engine Tweaks %s (%04u-%02u-%02u)"),
+                                          wide("shrouded_engine_tweaks\\plugins"), std::string("VK_LAYER_SHROUDED_ENGINE_TWEAKS")}) {
+            const auto set = put("set.dll", pe + std::string(70000, 'x') + marker);
+            assert(kcompat::power_proxy_owner(set) == kcompat::PowerProxy::set);
+            assert(kcompat::power_proxy_tool(set) == "Shrouded Engine Tweaks");
+        }
+        // The folder name alone does not make a renamed module SET (kset::set_marker, the scan of every module).
+        std::istringstream folder_only("shrouded_engine_tweaks\\mods");
+        assert(!kset::set_marker(folder_only));
+        assert(kcompat::power_proxy_tool(put("xp.dll", pe + "xpshare.ini")) == "Shared XP");
+        assert(kcompat::power_proxy_owner(dir / "missing.dll") == kcompat::PowerProxy::unreadable);
+        if (const char* real = std::getenv("KILN_SET_POWRPROF"); real && *real)
+            assert(kcompat::power_proxy_owner(real) == kcompat::PowerProxy::set);
+        fs::remove_all(dir);
+    }
     std::puts("hooks/coexist review: PASS");
 }

@@ -11,7 +11,7 @@ public sealed class ResolverTests
 
     private static ResolveResult Resolve(ManifestSide side = ManifestSide.Server, IReadOnlyDictionary<string, Manifest>? loaded = null,
         params ModCandidate[] mods) =>
-        Resolver.Resolve(mods, new ResolveEnvironment(SemVersion.Parse("0.1.0-dev"), SemVersion.Parse(Kiln.Mods.ApiVersion), side,
+        Resolver.Resolve(mods, new ResolveEnvironment(SemVersion.Parse("0.1.0-dev"), SemVersion.Parse(Kiln.Mods.RuntimeApiVersion), side,
             f => f != "missing.feature", loaded ?? ResolveEnvironment.NoneLoaded));
 
     private static ResolveResult Resolve(params ModCandidate[] mods) => Resolve(ManifestSide.Server, null, mods);
@@ -113,10 +113,33 @@ public sealed class ResolverTests
             new ModCandidate { Directory = "/mods/broken", Error = "kiln.mod.json: id 'Bad' must match" });
         Assert.Equal(["a", "devkiln"], Order(r));
         Assert.Contains("duplicate mod id 'a' (also in folder a)", r.Rejected.Single(x => x.Candidate.Directory == "/mods/copy").Reason);
-        Assert.Equal("needs Kiln API 1.0; this Kiln provides API 0.2.0", Why(r, "api"));
+        Assert.Equal($"needs Kiln API 1.0; this Kiln provides API {Mods.RuntimeApiVersion}", Why(r, "api"));  // the running API, whatever the release
         Assert.Equal("needs feature missing.feature, unavailable on this game build", Why(r, "feat"));
         Assert.Equal("needs Kiln >=0.5; this is Kiln 0.1.0-dev", Why(r, "newkiln"));
         Assert.Equal("kiln.mod.json: id 'Bad' must match", Why(r, "broken"));
+    }
+
+    [Fact]
+    public void A_bare_api_version_needs_that_api_or_later()
+    {
+        // an example of the bare-version rule (VersionRange.AtLeastSameMajor), not a statement of any release's number:
+        // a mod declaring "0.3" is refused by a runtime with API 0.2.0 and loads on one with API 0.3.0
+        static ResolveResult On(string api, ModCandidate mod) =>
+            Resolver.Resolve([mod], new ResolveEnvironment(SemVersion.Parse("0.2.0-dev.25"), SemVersion.Parse(api), ManifestSide.Server,
+                _ => true, ResolveEnvironment.NoneLoaded));
+        ModCandidate Next() => new() { Directory = "/mods/next",
+            Manifest = Manifest.Parse("""{"id":"next","version":"1.0.0","apiVersion":"0.3","entryAssembly":"M.dll"}""") };
+
+        var old = On("0.2.0", Next());
+        Assert.Empty(old.Order);
+        Assert.Equal("needs Kiln API 0.3; this Kiln provides API 0.2.0", Why(old, "next"));
+        Assert.Equal(ModState.Failed, old.Rejected.Single().State);
+
+        var now = On("0.3.0", Next());
+        Assert.Equal(["next"], Order(now));
+        Assert.Empty(now.Rejected);
+        // and an older mod keeps loading on the newer minor
+        Assert.Equal(["a"], Order(On("0.3.0", Mod("a"))));
     }
 
     [Fact]

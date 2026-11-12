@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Kiln;
@@ -235,10 +236,16 @@ public static class Saves
     public static bool WorldDataReady => SavesRuntime.WorldDataReady;
 
     /// <summary>Lab, tick thread: plays what closing a hosted world does to the mod data, on a dedicated server, where a world never
-    /// closes. Until <see cref="LabWorldLoaded"/> the data is empty, and <see cref="WorldDataReady"/> is false.</summary>
+    /// closes. Until <see cref="LabWorldLoaded"/> the data is empty, and <see cref="WorldDataReady"/> is false. For lab mods
+    /// only (<c>KILNX001</c>).</summary>
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static void LabCloseWorld() => SavesRuntime.LabCloseWorld();
 
-    /// <summary>Lab, tick thread: plays the next world's load (a world id and revision of the test's choosing).</summary>
+    /// <summary>Lab, tick thread: plays the next world's load (a world id and revision of the test's choosing). For lab mods
+    /// only (<c>KILNX001</c>).</summary>
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static void LabWorldLoaded(string? worldId, uint revision, uint worldUnix = 0, bool newWorld = false) =>
         SavesRuntime.LabWorldLoaded(worldId, revision, worldUnix, newWorld);
 

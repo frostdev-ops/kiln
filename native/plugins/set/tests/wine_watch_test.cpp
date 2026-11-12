@@ -9,7 +9,7 @@
 #include <chrono>
 #include <cstdio>
 
-#if !defined(KSET_WATCH_DLL) && !defined(KSET_SILENT_DLL)
+#if !defined(KSET_WATCH_DLL) && !defined(KSET_SILENT_DLL) && !defined(KSET_POWER_DLL)
 namespace {
 HMODULE unload_during_path = nullptr;
 bool unloaded_after_path = false;
@@ -50,6 +50,16 @@ extern "C" __declspec(dllexport) bool arm_watch() { return dll_watch.arm(); }
 extern "C" __declspec(dllexport) void disarm_watch() { dll_watch.disarm(); }
 #elif defined(KSET_SILENT_DLL)
 extern "C" __declspec(dllexport) const char* marker() { return "Shrouded Engine Tweaks"; }
+#elif defined(KSET_POWER_DLL)
+// Built twice as powrprof.dll (issue 23): KSET_POWER_DLL=1, a proxy loader that forwards the system DLL's exports and
+// loads other DLLs (the text of a server's ProxyLoader); KSET_POWER_DLL=2, one with SET's markers (its folder name, as
+// SET's powrprof.dll reads shrouded_engine_tweaks\plugins\ and \mods\).
+extern "C" __declspec(dllexport) DWORD WINAPI PowerGetActiveScheme(HKEY, GUID**) { return ERROR_CALL_NOT_IMPLEMENTED; }
+#if KSET_POWER_DLL == 2
+extern "C" __declspec(dllexport) const wchar_t* marker() { return L"shrouded_engine_tweaks\\plugins"; }
+#else
+extern "C" __declspec(dllexport) const char* marker() { return "Forwarding exports to %s\\powrprof.dll"; }
+#endif
 #else
 #include <aclapi.h>
 #include <tlhelp32.h>
@@ -281,6 +291,23 @@ int main() {
         check(unloaded_before_hold, "the fixture's last reference went between the walk and the scan's own reference");
         check(seen.state == kset::Inventory::clean, "a module unloaded after the walk is skipped, not a failed inventory");
         if (unload_before_hold) { FreeLibrary(unload_before_hold); unload_before_hold = nullptr; }
+    }
+    {  // Issue 23: a server's POWRPROF.dll that is a proxy loader (it only forwards and loads other DLLs) is not SET, so
+       // kiln-set and kiln.types keep running; a powrprof.dll with SET's markers still is. Loaded from folders that are
+       // not System32 (test-wine.sh sets powrprof=n,b, so Wine maps these files, not its builtin).
+        const HMODULE forwarding = LoadLibraryW((dir / L"forward" / L"powrprof.dll").c_str());
+        check(forwarding != nullptr, "loaded a forwarding powrprof.dll from another folder");
+        const kset::Inspection proxy = kset::inspect_runtime();
+        std::printf("a forwarding powrprof.dll: %s\n", proxy.text.empty() ? "clean" : proxy.text.c_str());
+        check(proxy.state == kset::Inventory::clean, "a powrprof.dll without SET's markers is not SET (issue 23)");
+        if (forwarding) FreeLibrary(forwarding);
+        const HMODULE set = LoadLibraryW((dir / L"set" / L"powrprof.dll").c_str());
+        check(set != nullptr, "loaded a powrprof.dll with SET's markers");
+        const kset::Inspection seen = kset::inspect_runtime();
+        std::printf("a SET-like powrprof.dll: %s\n", seen.text.empty() ? "clean" : seen.text.c_str());
+        check(seen.state == kset::Inventory::foreign && seen.text.find("SET's powrprof.dll is loaded") == 0,
+              "a powrprof.dll with SET's markers is SET");
+        if (set) FreeLibrary(set);
     }
     std::printf(failures ? "wine watch test: FAIL (%d)\n" : "wine watch test: PASS\n", failures);
     return failures;

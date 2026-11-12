@@ -8,7 +8,9 @@
 //   - mods: the active profile's "shroudtopia" entries (a mod folder or a DLL), then <game>/mods/<name>/ folders with
 //     a mod.json and <game>/mods/*.dll (compat.h's profile rule). Unlike Shroudtopia, a DLL is loaded only when its
 //     file exports CreateModInstance, so other loaders' DLLs in mods/ (Flame, EML packages) are never run by it;
-//   - each call into a mod runs under a fault guard: a mod that faults is switched off, the game runs on.
+//   - each call into a mod runs under a fault guard: a mod that faults is switched off, the game runs on;
+//   - a mod DLL that is already in the process (another loader loaded it: the same file, or a copy with the same bytes)
+//     is not loaded or created again: the state file reports it as own-loader (present_in_process).
 // Steps aside when Shroudtopia's own loader (shroudtopia.dll, or a Shroudtopia/Shroudweave winmm.dll) runs in this
 // process. Settings: <configDir>/shroudtopia/shroudtopia.json. Docs: docs/kiln/engines/shroudtopia.md.
 #include <algorithm>
@@ -43,7 +45,7 @@ struct Loaded {
     bool client = false, server = false;
     Mod* mod = nullptr;
     bool loaded = false, active = false;  // snapshots read only under the foreign-code guard
-    std::string status = "registered";  // registered, loaded, active, inactive, skipped, faulted
+    std::string status = "registered";  // registered, loaded, active, inactive, skipped, faulted, own-loader
     std::string reason;
     uint64_t updates = 0;
 };
@@ -295,6 +297,51 @@ std::vector<Candidate> scan() {
     return out;
 }
 
+// Modules kiln-shroudtopia loaded itself (loop thread only).
+std::set<HMODULE> g_own_loads;
+
+// This mod DLL, already in the process: `path` is the loaded module's file, `ours` whether kiln-shroudtopia loaded it.
+struct Present {
+    std::wstring path;
+    bool ours = false;
+};
+// Whether a mod DLL is already loaded in this process, before kiln-shroudtopia runs its CreateModInstance (issue 23:
+// EML's runtime loader, through a proxy loader, had loaded a Shroudtopia mod DLL and created its instance before Kiln's
+// plugin step; a second CreateModInstance installed its hooks twice). The same file is the one at the same path or
+// with the same file identity; a copy elsewhere counts when its size and bytes are the same (the same content hash).
+// Only modules that export CreateModInstance are compared, so the scan reads no other module's file.
+Present present_in_process(const fs::path& dll) {
+    HMODULE modules[2048]{};
+    DWORD needed = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules, sizeof modules, &needed)) return {};
+    const auto count = std::min<size_t>(needed / sizeof(HMODULE), std::size(modules));
+    std::error_code ec;
+    const auto size = fs::file_size(dll, ec);
+    if (ec) return {};
+    std::string mine;
+    bool read = false;
+    for (size_t i = 0; i < count; ++i) {
+        if (!GetProcAddress(modules[i], "CreateModInstance")) continue;
+        wchar_t p[32768]{};
+        const auto n = GetModuleFileNameW(modules[i], p, static_cast<DWORD>(std::size(p)));
+        if (!n || n == std::size(p)) continue;
+        const fs::path file(p);
+        // Wine's builtin of a DLL's name reports a path whose file it does not run (module_image.h).
+        if (!kcompat::module_is_file(modules[i], file)) continue;
+        bool same = fs::equivalent(file, dll, ec) && !ec;
+        if (!same) {
+            ec.clear();
+            const auto theirs_size = fs::file_size(file, ec);
+            if (ec || theirs_size != size) continue;
+            if (!read) read = kcompat::read_file(dll, &mine);
+            std::string theirs;
+            same = read && kcompat::read_file(file, &theirs) && theirs == mine;
+        }
+        if (same) return {p, g_own_loads.count(modules[i]) > 0};
+    }
+    return {};
+}
+
 // Loads and registers new DLLs (Shroudtopia's CheckAndLoadDlls + LoadAndRegisterMod).
 void check_and_load() {
     for (const auto& c : scan()) {
@@ -312,6 +359,29 @@ void check_and_load() {
         }
         DWORD code = 0;
         if (WaitForSingleObject(g_stop, 0) == WAIT_OBJECT_0 || observe_own_loader()) return;
+        if (const Present present = present_in_process(c.dll); !present.path.empty()) {
+            auto m = std::make_unique<Loaded>();
+            m->dll = c.dll;
+            m->origin = c.origin;
+            m->id = c.id;
+            m->name = c.id;
+            const std::string where = to_utf8(present.path);
+            if (present.ours) {
+                m->status = "skipped";
+                m->reason = "a copy of " + where + ", which kiln-shroudtopia already loaded; not created a second time";
+            } else {
+                m->status = "own-loader";
+                m->reason = "already in this process, loaded by another loader from " + where +
+                            " before kiln-shroudtopia (EML's runtime loader, a proxy loader or a native mod): it runs under that "
+                            "loader, and kiln-shroudtopia does not call its CreateModInstance a second time";
+            }
+            loader_log(present.ours ? KILN_LOG_INFO : KILN_LOG_WARN, c.id + " (" + path_utf8(c.dll) + "): " + m->reason);
+            std::lock_guard lock(g_mu);
+            g_seen.insert(key);
+            g_refused.erase(key);
+            g_mods.push_back(std::move(m));
+            continue;
+        }
         g_foreign_started = true;
         HMODULE h = checked.load(&code);
         if (!h) {
@@ -324,6 +394,7 @@ void check_and_load() {
             }
             continue;
         }
+        g_own_loads.insert(h);
         {
             std::lock_guard lock(g_mu);
             g_seen.insert(key);
@@ -388,8 +459,10 @@ void update_mods() {
     std::lock_guard lock(g_mu);
     std::vector<Loaded*> mods;
     for (auto& m : g_mods) mods.push_back(m.get());
+    // Not driven: faulted or skipped mods, and mods another loader runs (own-loader: no instance of Kiln's).
+    auto idle = [](const Loaded* m) { return m->status == "faulted" || m->status == "skipped" || m->status == "own-loader"; };
     for (Loaded* m : mods) {
-        if (m->status == "faulted" || m->status == "skipped") continue;
+        if (idle(m)) continue;
         if (!m->loaded) {
             if ((g_server && !m->server) || (!g_server && !m->client)) {
                 m->status = "skipped";
@@ -405,7 +478,7 @@ void update_mods() {
         }
     }
     for (Loaded* m : mods) {
-        if (m->status == "faulted" || m->status == "skipped" || !m->loaded) continue;
+        if (idle(m) || !m->loaded) continue;
         set_current_mod(m->name);
         const json v = config::mod_get(m->name.c_str(), "active");
         const bool should = v.is_boolean() && v.get<bool>();

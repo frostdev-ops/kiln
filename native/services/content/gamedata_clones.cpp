@@ -511,15 +511,7 @@ void register_sequence(Def& d, uintptr_t world) {
         d.state = "error", d.problem = "the clone has no sub-sequences";
         return;
     }
-    for (uint32_t k = 0; k < sn && k < 64; ++k) {
-        const uint32_t id = sub_id_of(d.guid, static_cast<int>(k));
-        if (S.get(id)) continue;
-        GEntry e;
-        e.id = id, e.addr = sd + static_cast<uintptr_t>(k) * S.type->size, e.sub = static_cast<int32_t>(k), e.clone = true;
-        e.name = k ? d.name + "#" + std::to_string(k) : d.name;
-        std::memcpy(e.guid, d.guid, 16);
-        S.add(std::move(e));
-    }
+    sequence_clone_entries(S, d.guid, d.name, sd, sn, S.type->size);
     apply_fields(d, *S.get(sub_id_of(d.guid, 0)));
     changed();
     d.state = "registered";

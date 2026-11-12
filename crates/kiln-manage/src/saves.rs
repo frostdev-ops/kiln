@@ -272,8 +272,13 @@ pub fn list(install: &GameInstall) -> Result<Vec<SaveSlot>> {
 
 // ---- backups ----
 
-fn active_profile(install: &GameInstall) -> Option<String> {
-    crate::profile::read_game_profile(&install.path).ok().flatten().map(|p| p.id)
+/// The profile of this data folder active in the game: another data folder's profile of the same id is not
+/// (`profile::game_profile_owner`), so its save backups are not filed under this folder's profile.
+fn active_profile(dirs: &DataDirs, install: &GameInstall) -> Option<String> {
+    match crate::profile::game_profile_owner(dirs, install) {
+        Ok(crate::profile::GameProfileOwner::Here { id }) => Some(id),
+        _ => None,
+    }
 }
 
 /// Where a new backup of this install goes: the active profile's `save-backups/`, else `backups/saves/<gameId>/`.
@@ -370,7 +375,7 @@ fn backup_unpruned(
     fingerprint: Option<&str>,
 ) -> Result<SaveBackup> {
     let now = SystemTime::now();
-    let profile = active_profile(install);
+    let profile = active_profile(dirs, install);
     let root = backup_root(dirs, install, profile.as_deref());
     std::fs::create_dir_all(&root)?;
     // `<stamp>`, then `<stamp>-2`, `-3`, ... above every id of that second (also pruned ones' successors), so the

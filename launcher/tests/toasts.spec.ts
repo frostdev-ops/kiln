@@ -58,3 +58,68 @@ test("a new error is in view however many notices came before it", async ({ page
   });
   await expect(page.locator(".k-toast", { hasText: "Clean up failed for Edited Addon" })).toBeInViewport();
 });
+
+// The player's report: a notice took the left half of the screen. A long detail shows its first lines; "Show all"
+// opens the rest, which scrolls inside the toast; the stack never takes more than 60% of the window.
+test("a long notice shows its first lines and opens the rest on request", async ({ page }) => {
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.evaluate(async () => {
+    const { toast } = await import("/src/ui/Toast.tsx");
+    const lines = Array.from({ length: 14 }, (_, i) => `shroudforge:mod-${i}: the game uses your own folder /home/player/.local/share/Steam/steamapps/common/Enshrouded/mods/Mod-${i} for this mod; Kiln leaves it as it is.`);
+    toast.info("Notes on your mods", lines.join(" "), { ms: 0 });
+  });
+  const t = page.locator(".k-toast", { hasText: "Notes on your mods" });
+  const detail = t.locator(".k-toast-detail");
+  const collapsed = (await detail.boundingBox())!.height;
+  expect(collapsed).toBeLessThan(100);
+  await expect(detail).toContainText("Mod-13"); // all of the text is there, only cut
+  await t.getByRole("button", { name: "Show all" }).click();
+  const open = (await detail.boundingBox())!.height;
+  expect(open).toBeGreaterThan(collapsed);
+  expect(open).toBeLessThanOrEqual(860 * 0.4 + 1);
+  await t.getByRole("button", { name: "Show less" }).click();
+  expect((await detail.boundingBox())!.height).toBeLessThan(100);
+  // many of them: the stack stays within 60% of the window
+  await page.evaluate(async () => {
+    const { toast } = await import("/src/ui/Toast.tsx");
+    for (let i = 0; i < 8; i++) toast.info(`Kept ${i}`, "mods/a: changed. ".repeat(40), { ms: 0 });
+  });
+  expect((await page.locator(".k-toasts").boundingBox())!.height).toBeLessThanOrEqual(860 * 0.6 + 1);
+});
+
+// A stay-until-closed notice about a mod folder counts as seen only when the player closes it: one scrolled out of view
+// in a tall stack (or on screen and never closed) comes again at the next activation; closed, it does not.
+test("a safety notice above the fold of a tall stack comes again until the player closes it", async ({ page }) => {
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  const act = {
+    gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-12T10:00:00Z",
+    retained: [{ path: "mods/still-runs", reason: "files Kiln placed were changed. It is off in the profile, but ShroudForge may still load it.", mayRun: true, off: true }],
+    warnings: Array.from({ length: 6 }, (_, i) => `shroudforge:m${i}: the game uses your own folder /games/Enshrouded/mods/Mod-${i} for this mod; Kiln leaves it as it is.`),
+  };
+  const notify = () => page.evaluate(async (a) => {
+    await (await import("/src/shell/notices.ts")).notifyActivation(a as never);
+    const { toast } = await import("/src/ui/Toast.tsx");
+    for (let i = 0; i < 5; i++) toast.info(`Other ${i}`, "a long recovery text that takes the room of several lines. ".repeat(6), { ms: 0 });
+  }, act);
+  const quit = () => page.evaluate(async () => { (await import("/src/ui/Toast.tsx")).useToasts.setState({ items: [] }); });
+  const safety = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
+  await notify();
+  await expect(safety).toHaveCount(1);
+  // the stack is taller than its cap: the newest is in view, the safety notice above it is not
+  await expect.poll(() => page.locator(".k-toasts").evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
+  const inView = await safety.evaluate((el) => { const b = el.getBoundingClientRect(); const s = el.parentElement!.getBoundingClientRect(); return b.bottom > s.top && b.top < s.bottom; });
+  expect(inView).toBe(false);
+  await quit();
+  await notify();
+  await expect(safety).toHaveCount(1);
+  // the player closes it
+  await safety.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(safety).toHaveCount(0);
+  await page.waitForTimeout(200);
+  await quit();
+  await notify();
+  await expect(page.locator(".k-toast", { hasText: "Other 4" })).toHaveCount(1);
+  await expect(safety).toHaveCount(0);
+});

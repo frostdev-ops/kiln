@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "comment": "WeaponMoves' cook recipe: run on each player's machine (kiln cook), reading the installed game; it writes assets/cooked/ (never committed). The sources are assets/src/*.gltf, made by make_assets.py: no game data. Read from the game: the player's skeleton (the clips are retargeted onto it), the clips of the four game states the moves are placed like (each move's clip is that game clip with the sample's sword arm on it) and the Bronze Sword's model (its material draws the sword).",
+  "tool": "modelcook",
+  "out": "cooked",
+  "inputs": {
+    "player_skeleton": { "guid": "87b29df6-6518-43ef-9298-e3f85a6204b9", "type": "keen::ModelHierarchyResource", "comment": "the player's skeleton" },
+    "sword_attack_1": { "guid": "b198a7fe-6893-47a9-84d9-4a39518513d1", "type": "keen::JointAnimation", "comment": "the clip of Attack_Sword_Shield_01, the sword's first attack (1.667 s, its blow at about 0.22 s)" },
+    "sword_attack_2": { "guid": "b064e5d1-9b24-4f08-a68c-13b577954dc3", "type": "keen::JointAnimation", "comment": "the clip of Attack_Sword_Shield_02, the second (1.75 s, its blow at about 0.22 s)" },
+    "sword_heavy": { "guid": "3875e634-1fab-4670-88f8-236ca91817ce", "type": "keen::JointAnimation", "comment": "the clip of the sword machine's Attack_Heavy (2.567 s, its blow at about 0.98 s)" },
+    "block": { "guid": "263941ec-3361-42b0-96e2-35a29f22224b", "type": "keen::JointAnimation", "comment": "the clip of Block_FullBody, a loop (6.65 s)" },
+    "bronze_model": { "guid": "9c38c7f0-fd0a-41a6-b91e-9a16287b8f59", "type": "keen::RenderModel", "comment": "Weapon_T1_1H_SwordEpic_01 (Bronze Sword): its material" }
+  },
+  "steps": [
+    { "tool": "animcook", "op": "clips", "skeleton": "@player_skeleton", "gltf": "src/fighter.gltf",
+      "comment": "the sample's own motions, authored on its own rig, played on the player's skeleton. The map is the rig's joint -> the player's joint (j<index>). These clips feed the next step",
+      "retarget": { "map": {
+        "root": "j0", "hips": "j1", "spine": "j10", "chest": "j13", "neck": "j16", "head": "j17",
+        "clavicle_l": "j39", "arm_l": "j40", "forearm_l": "j42", "hand_l": "j44",
+        "clavicle_r": "j69", "arm_r": "j70", "forearm_r": "j72", "hand_r": "j74",
+        "thigh_l": "j2", "shin_l": "j3", "foot_l": "j4", "thigh_r": "j6", "shin_r": "j7", "foot_r": "j8" } },
+      "clips": {
+        "slash_1_arm": { "animation": "Slash" },
+        "cleave_arm": { "animation": "Cleave" },
+        "guard_arm": { "animation": "Guard", "loop": true } } },
+    { "tool": "animcook", "op": "clips", "skeleton": "@player_skeleton",
+      "comment": "the clips the states play: each is the game's clip of the state it is placed like (with its root motion and events) with the sample's sword arm on it, from the shoulder down to the hand (j70 and j71 the upper arm, j72 and j73 the forearm, j74 the hand; the fingers keep the game's grip). The moves keep the sample's timing (blocks/weapon.json: the blow at hitAt, the end at length), so each game clip plays at the speed that puts its blow on hitAt (speed = its blow / hitAt) and is cut where the move ends (trim [0, length x speed]). The second swing's arm is the first one's reworked: mirrored (the right arm takes the left arm's pull, so the forehand becomes a backhand) and a little faster. No gltf: every clip here has from",
+      "clips": {
+        "slash_2_arm": { "from": "slash_1_arm", "mirror": true, "speed": 1.15 },
+        "slash_1": { "from": "@sword_attack_1", "trim": [0, 0.516], "speed": 0.516, "blend": { "with": "slash_1_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } },
+        "slash_2": { "from": "@sword_attack_2", "trim": [0, 0.5095], "speed": 0.5856, "blend": { "with": "slash_2_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } },
+        "cleave": { "from": "@sword_heavy", "trim": [0, 1.747], "speed": 1.092, "blend": { "with": "cleave_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } },
+        "guard": { "from": "@block", "blend": { "with": "guard_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } } } },
+    { "tool": "animcook", "op": "skeleton", "name": "moves_blade", "gltf": "src/blade.gltf" },
+    { "tool": "animcook", "op": "clips", "skeleton": "moves_blade", "gltf": "src/blade.gltf",
+      "clips": { "blade_spin": { "animation": "Spin", "loop": true } } },
+    { "tool": "animcook", "op": "graph", "name": "moves_blade", "skeleton": "moves_blade",
+      "states": { "spin": { "engine": "Idle", "clip": "blade_spin" } } },
+    { "op": "model", "gltf": "src/blade.gltf", "skeleton": "moves_blade", "base": "bronze_model", "mode": "new", "name": "moves_blade_anim", "stem": "moves_blade_anim" },
+    { "op": "model", "gltf": "src/blade_rigid.gltf", "base": "bronze_model", "mode": "new", "name": "moves_blade", "stem": "moves_blade" }
+  ]
+}

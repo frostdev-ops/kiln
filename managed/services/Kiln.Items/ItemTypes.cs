@@ -1,28 +1,8 @@
 // SPDX-License-Identifier: MIT
+// ItemId lives in Kiln.Api since dev.26; mods built against the old Kiln.Items still find it through this forward.
+[assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Kiln.ItemId))]
+
 namespace Kiln;
-
-/// <summary>An item type: FNV-1a-32 of the item's 16 GUID bytes, as the game computes it (and the dashboard catalog
-/// uses). 0 = none.</summary>
-public readonly record struct ItemId(uint Value)
-{
-    public static readonly ItemId None = default;
-    public bool IsNone => Value == 0;
-    public override string ToString() => $"0x{Value:x8}";
-
-    /// <summary>The id the game gives the item with these GUID bytes (as stored in the game's data).</summary>
-    public static ItemId FromGuidBytes(ReadOnlySpan<byte> guid)
-    {
-        if (guid.Length != 16) throw new ArgumentException("a GUID has 16 bytes", nameof(guid));
-        uint h = 0x811c9dc5;
-        var zero = true;
-        foreach (var b in guid)
-        {
-            zero &= b == 0;
-            h = (h ^ b) * 0x01000193;
-        }
-        return new ItemId(zero ? 0 : h);
-    }
-}
 
 /// <summary>One slot of an 8-slot inventory: the inventory entity and the slot index 0-7 (the game's
 /// InventorySlotId).</summary>
@@ -110,10 +90,12 @@ public readonly record struct Gear(int? Level = null, ItemRarity? Rarity = null)
     /// <summary>Upgrades (perks) unlocked at creation, as the workbench's upgrade does it: each raises the level by 1.
     /// 1-4, or 5 or 255 for all the item has (the rarity decides how many: Common 1 .. Legendary 5). Null or 0: none, the
     /// game's default. Needs <see cref="Items.GearOptionsAvailable"/> (else the give is Unavailable).</summary>
+    [RequiresCapability(Items.Caps.GearOptions)]
     public int? Unlocked { get; init; }
 
     /// <summary>A weapon gets an empty gem slot when the game's own roll at creation gave none (other items are
     /// unchanged). Needs <see cref="Items.GearOptionsAvailable"/>.</summary>
+    [RequiresCapability(Items.Caps.GearOptions)]
     public bool GemSlot { get; init; }
 }
 
@@ -156,7 +138,15 @@ public enum ItemsStatus
 }
 
 /// <summary>One slot a transaction changed.</summary>
-public readonly record struct ItemChange(SlotId Slot, ItemId Item, int Amount, EntityId ItemEntity);
+public readonly record struct ItemChange(SlotId Slot, ItemId Item, int Amount, EntityId ItemEntity)
+{
+    /// <summary>The item entity as one particular item, with the stamp kiln.items gave it at the commit (a give: the item
+    /// the game created; a take: the item it destroyed, no longer alive). <see cref="ItemInstanceRef.None"/> for a plain
+    /// stack, which has no item entity, for a dry-run give, and when the capability <c>items.instances</c> is off (an
+    /// older Kiln, an unknown game build). Filled by Kiln when it builds the value.</summary>
+    [AnyThread]
+    public ItemInstanceRef Ref { get; init; }
+}
 
 public sealed record ItemsResult(
     ItemsStatus Status,
@@ -195,6 +185,14 @@ public sealed record InventorySlot(
     ushort ItemState)
 {
     public bool IsEmpty => Item.IsNone || Count == 0;
+
+    /// <summary>The item in this slot as one particular item, with the stamp kiln.items gave it at this read: equal to
+    /// the <c>Ref</c> of the same item in a give, take or move result and in any later read while it lives.
+    /// <see cref="ItemInstanceRef.None"/> for an empty slot, for a plain stack (no item entity), and when the capability
+    /// <c>items.instances</c> is off (an older Kiln, an unknown game build). Filled by Kiln when it builds the
+    /// value.</summary>
+    [AnyThread]
+    public ItemInstanceRef Ref { get; init; }
 }
 
 /// <summary>An entity's inventory: every slot of every linked 8-slot inventory, in link order.</summary>

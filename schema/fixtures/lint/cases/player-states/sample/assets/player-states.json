@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "states": {
+    "swing": { "clip": "riposte_swing", "like": "Attack_Sword_Shield_01" },
+    "heavy": { "clip": "riposte_heavy", "like": "SM_Attack_Sword_Shield_FullBody/Attack_Heavy", "blendIn": 0.12 },
+    "guard": { "clip": "riposte_guard", "like": "Block_FullBody" },
+    "cast": { "clip": "8320fa69-4658-463e-aed9-40bfeb41b514", "like": "SM_Staff_Overlay/Staff_Cast_F_Shoot" }
+  }
+}

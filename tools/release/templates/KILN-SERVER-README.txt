@@ -83,6 +83,18 @@ Mods made for other loaders (EML, ShroudForge, EMF, ...) need Kiln's part for th
 listed under "Parts" at the top; for any other, use the full runtime with kilnctl.
 
 
+Other mod loaders: keep one
+---------------------------
+Kiln is the loader on a Kiln server. It replaces ProxyLoader (a POWRPROF.dll that loads other DLLs) and EML's own
+loaders (EML's dinput8.dll or dbghelp.dll, and the dbghelp_<mod>.dll builds some mods bundle): Kiln runs EML and
+Shroudtopia mods itself. Two loaders of one kind run the same mods twice (EML patches the game files twice, a DLL
+mod hooks the game twice), so remove the others. kiln/logs/kiln.log says when it finds two EML loaders.
+- A plain DLL mod: kiln/native/<mod>/ (see above).
+- A DLL Kiln should load right at the start (another tool's proxy): list it in kiln/chain.ini, the file directly in
+  the kiln folder. kiln/chain/ holds the chained DLLs; a chain.ini put in kiln/chain/ is not read (kiln/logs/proxy.log
+  then says so).
+
+
 Commands without the game: the console folder
 ---------------------------------------------
 Put a text file with a .cmd ending into kiln/control/console/, one command per line, for example:

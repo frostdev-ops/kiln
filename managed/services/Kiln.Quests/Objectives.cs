@@ -66,7 +66,7 @@ internal static class QuestObjectives
     // ------------------------------------------------------------------------------------------ positions, parties ----
     public static WorldPosition? PositionOf(QuestHolder h)
     {
-        if (QuestInput.IsSynthetic(h)) return QuestInput.PositionOf(h);
+        if (SyntheticInput.IsSynthetic(h)) return SyntheticInput.PositionOf(h);
         if (h.Entity.IsNone || !Players.Available) return null;
         try
         {
@@ -83,7 +83,7 @@ internal static class QuestObjectives
     {
         if (PositionOf(h) is not { } at) return [];
         var list = new List<QuestHolder>();
-        foreach (var o in Quests.Online().Concat(QuestInput.Known))
+        foreach (var o in Quests.Online().Concat(SyntheticInput.Known))
             if (o.Key != h.Key && PositionOf(o) is { } p && p.DistanceTo(at) <= radius) list.Add(o);
         return list;
     }
@@ -96,7 +96,7 @@ internal static class QuestObjectives
         if (actor is not { IsNone: false, IsWorld: false } a) return;
         Apply(a, kind, amount, static q => q.Scope != QuestScope.World);
         if (!share || PositionOf(a) is not { } at) return;
-        foreach (var o in Quests.Online().Concat(QuestInput.Known))
+        foreach (var o in Quests.Online().Concat(SyntheticInput.Known))
         {
             if (o.Key == a.Key || PositionOf(o) is not { } p) continue;
             var d = p.DistanceTo(at);
@@ -445,7 +445,7 @@ internal static class QuestObjectives
     public static int Inventory(QuestHolder h, string item)
     {
         if (h.IsWorld) return Quests.Online().Sum(o => Inventory(o, item));
-        if (QuestInput.IsSynthetic(h)) return QuestInput.ItemCount(h, item);
+        if (SyntheticInput.IsSynthetic(h)) return SyntheticInput.ItemCount(h, item);
         if (h.Entity.IsNone || ItemIdOf(item) is not { } id) return 0;
         try
         {
@@ -463,9 +463,9 @@ internal static class QuestObjectives
         var label = LabelOf(o.Item!);
         var have = Inventory(h, o.Item!);
         if (have < count) return $"you need {count} x {label} (you have {have})";
-        if (QuestInput.IsSynthetic(h))
+        if (SyntheticInput.IsSynthetic(h))
         {
-            QuestInput.SetItemCount(h, o.Item!, have - count);
+            SyntheticInput.SetItemCount(h, o.Item!, have - count);
             return null;
         }
         if (h.IsWorld || h.Entity.IsNone) return "a player in game has to hand this over";
@@ -489,29 +489,21 @@ internal static class QuestObjectives
 
 /// <summary>Feeds the engine the same way real events do, without a player: for lab tests, tools and mods with their own
 /// sources. Tick thread. A holder from <see cref="QuestHolder.Synthetic"/> has a position, an inventory and a level only
-/// through these calls.</summary>
+/// through these calls. Lab and test API (KILNX001): it may change or go in any release.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public static class QuestInput
 {
-    private static readonly Dictionary<string, WorldPosition> Positions = new(StringComparer.Ordinal);
-    private static readonly Dictionary<(string, string), int> Inventories = new();
-    private static readonly Dictionary<string, int> Levels = new(StringComparer.Ordinal);
-    private static readonly Dictionary<string, QuestHolder> KnownHolders = new(StringComparer.Ordinal);
-
     /// <summary>The synthetic holders seen so far.</summary>
-    public static IReadOnlyCollection<QuestHolder> Known => KnownHolders.Values.ToArray();
+    public static IReadOnlyCollection<QuestHolder> Known => SyntheticInput.Known;
 
-    public static bool IsSynthetic(QuestHolder h) => h.Entity.IsNone && (h.Account & 0x8000000000000000ul) != 0;
-
-    private static void See(QuestHolder h)
-    {
-        if (IsSynthetic(h)) KnownHolders[h.Key] = h;
-    }
+    public static bool IsSynthetic(QuestHolder h) => SyntheticInput.IsSynthetic(h);
 
     /// <summary>A creature died (or was destroyed, with <paramref name="destroyed"/>): the same path as the game's deaths.</summary>
     public static void Kill(QuestHolder? killer, string template, string? tag = null, WorldPosition? at = null, bool destroyed = false)
     {
         Game.AssertTickThread();
-        if (killer is { } k) See(k);
+        if (killer is { } k) SyntheticInput.See(k);
         QuestObjectives.OnKill(killer, template, tag, at, destroyed);
     }
 
@@ -519,31 +511,26 @@ public static class QuestInput
     public static void SetInventory(QuestHolder h, string item, int count)
     {
         Game.AssertTickThread();
-        See(h);
-        SetItemCount(h, item, count);
+        SyntheticInput.See(h);
+        SyntheticInput.SetItemCount(h, item, count);
         QuestObjectives.Evaluate(h, null, true);
     }
-
-    internal static void SetItemCount(QuestHolder h, string item, int count) => Inventories[(h.Key, item.ToLowerInvariant())] = count;
-    internal static int ItemCount(QuestHolder h, string item) => Inventories.GetValueOrDefault((h.Key, item.ToLowerInvariant()));
 
     /// <summary>Puts a synthetic holder at a position and evaluates reach objectives (their own and the world's).</summary>
     public static void Reach(QuestHolder h, WorldPosition at)
     {
         Game.AssertTickThread();
-        See(h);
-        Positions[h.Key] = at;
+        SyntheticInput.See(h);
+        SyntheticInput.SetPosition(h, at);
         QuestObjectives.Evaluate(h, at, false);
         QuestObjectives.Evaluate(QuestHolder.World, at, false);
     }
-
-    internal static WorldPosition? PositionOf(QuestHolder h) => Positions.TryGetValue(h.Key, out var p) ? p : null;
 
     /// <summary>A holder talked to an NPC (a definition id, or a template name). <paramref name="line"/>: the game's line id.</summary>
     public static void Talk(QuestHolder h, string npc, uint line = 0, string? node = null, string? modId = null)
     {
         Game.AssertTickThread();
-        See(h);
+        SyntheticInput.See(h);
         var def = Quests.FindNpcDef(npc, modId);
         QuestObjectives.OnTalk(h, EntityId.None, def?.Template ?? npc, def, line, node);
     }
@@ -551,28 +538,56 @@ public static class QuestInput
     public static void Craft(QuestHolder h, string item, int count = 1)
     {
         Game.AssertTickThread();
-        See(h);
+        SyntheticInput.See(h);
         QuestObjectives.OnCraftInput(h, item, count);
     }
 
     public static void Build(QuestHolder h, string prop, int count = 1)
     {
         Game.AssertTickThread();
-        See(h);
+        SyntheticInput.See(h);
         QuestObjectives.OnBuildInput(h, prop, count);
     }
 
     /// <summary>A synthetic holder's character level (level conditions).</summary>
     public static void SetLevel(QuestHolder h, int level)
     {
-        See(h);
-        Levels[h.Key] = level;
+        SyntheticInput.See(h);
+        SyntheticInput.SetLevel(h, level);
     }
 
+    /// <summary>Forgets synthetic positions, inventories and levels.</summary>
+    public static void Clear() => SyntheticInput.Clear();
+}
+
+/// <summary>The synthetic holders' state behind <see cref="QuestInput"/>, for the engine's own reads (not experimental,
+/// so Kiln's real paths need no suppression).</summary>
+internal static class SyntheticInput
+{
+    private static readonly Dictionary<string, WorldPosition> Positions = new(StringComparer.Ordinal);
+    private static readonly Dictionary<(string, string), int> Inventories = new();
+    private static readonly Dictionary<string, int> Levels = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, QuestHolder> KnownHolders = new(StringComparer.Ordinal);
+
+    internal static IReadOnlyCollection<QuestHolder> Known => KnownHolders.Values.ToArray();
+
+    internal static bool IsSynthetic(QuestHolder h) => h.Entity.IsNone && (h.Account & 0x8000000000000000ul) != 0;
+
+    internal static void See(QuestHolder h)
+    {
+        if (IsSynthetic(h)) KnownHolders[h.Key] = h;
+    }
+
+    internal static void SetItemCount(QuestHolder h, string item, int count) => Inventories[(h.Key, item.ToLowerInvariant())] = count;
+    internal static int ItemCount(QuestHolder h, string item) => Inventories.GetValueOrDefault((h.Key, item.ToLowerInvariant()));
+
+    internal static void SetPosition(QuestHolder h, WorldPosition at) => Positions[h.Key] = at;
+    internal static WorldPosition? PositionOf(QuestHolder h) => Positions.TryGetValue(h.Key, out var p) ? p : null;
+
+    internal static void SetLevel(QuestHolder h, int level) => Levels[h.Key] = level;
     internal static int LevelOf(QuestHolder h) => Levels.GetValueOrDefault(h.Key, 1);
 
-    /// <summary>Forgets synthetic positions, inventories and levels.</summary>
-    public static void Clear()
+    internal static void Clear()
     {
         Positions.Clear();
         Inventories.Clear();

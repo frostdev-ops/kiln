@@ -355,14 +355,27 @@ def stub_present_not_loaded():
 
 
 def other_powrprof():
-    """Another tool's powrprof.dll (SET, Shared XP...) is loaded: Kiln still runs Enshwick and says so."""
+    """Another tool's powrprof.dll (here SET's markers) is loaded: Kiln still runs Enshwick and names that tool."""
     g = Game("other_powrprof")
     g.bundled()
     g.pack("mods/you.a", "you.a")
     g.copy(os.path.join(TESTS, "powrprof_other.dll"), "powrprof.dll")
     g.run(1500, "--load", "powrprof.dll")
     g.status("started")
-    g.has("powrprof.dll belongs to another tool")
+    g.has("powrprof.dll is Shrouded Engine Tweaks's; it keeps running, and Kiln runs Enshwick")
+    return g
+
+
+def forwarding_powrprof():
+    """Issue 23: a proxy loader's powrprof.dll that only forwards is loaded: Kiln runs Enshwick and does not call it SET."""
+    g = Game("forwarding_powrprof")
+    g.bundled()
+    g.pack("mods/you.a", "you.a")
+    g.copy(os.path.join(TESTS, "powrprof_forward.dll"), "powrprof.dll")
+    g.run(1500, "--load", "powrprof.dll")
+    g.status("started")
+    g.has("powrprof.dll is another tool's power proxy (not Enshwick's stub")
+    g.lacks("SET, Shared XP, Creative Mode's server build, Ember...")
     return g
 
 
@@ -436,7 +449,7 @@ def real_loader():
 
 SCENARIOS = [bundled_server, game_loader_preferred, no_enshwick_mods, bundled_by_config, profile_sync, no_mods, step_aside_stub_loaded,
              step_aside_profile,
-             stub_present_not_loaded, other_powrprof, stub_claimed, client_no_hold, hold_expires, no_loader,
+             stub_present_not_loaded, other_powrprof, forwarding_powrprof, stub_claimed, client_no_hold, hold_expires, no_loader,
              broken_loader, renamed_loader_loaded, unsafe_source_preserves_copy]
 
 

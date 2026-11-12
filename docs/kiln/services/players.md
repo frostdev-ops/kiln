@@ -64,6 +64,28 @@ public sealed class Greeter : Mod
 
 Unavailable service: `All`, `Find`, ... and subscribing throw `NotSupportedException`; check `Players.Available`.
 
+## Identity: `PlayerRef` from a player
+Kiln.Players supplies the players for the identity types of [modding/contract.md](../modding/contract.md)
+(`managed/services/Kiln.Players/PlayerIdentity.cs`). It is started by the first service tick, also when no loaded mod
+references Kiln.Players, so these work **from the first tick, not in `OnLoad`**:
+```csharp
+PlayerRef me = (PlayerRef)player;                  // any thread; the snapshot's session (offline while joining or leaving)
+PlayerRef who = PlayerRef.Of(entity);              // tick thread; None when the entity is not a player in game
+PlayerRef now = who.Resolve();                     // tick thread; the same person with their current session
+bool on = who.IsOnline;                            // tick thread; false for an earlier session
+PlayerRef p2 = (PlayerRef)talentHolder;            // also from a TalentHolder (Kiln.Skills) and a QuestHolder (Kiln.Quests)
+```
+- The session entity carries a stamp made from the connection handle's generation and the step the player joined. A
+  ref of an earlier session is not `IsOnline` after the slot is reused, also when the same person comes back, and
+  `Resolve()` gives the new session. Use `IsSamePerson` to compare people across sessions.
+- The holder conversions check the person: a holder whose entity now holds someone else gives the holder's offline
+  ref, not the newcomer.
+- With kiln.players off, `Of` and `Resolve` throw `KilnUnavailableException("identity.players")`, and `IsOnline`
+  `identity.entities`. kiln.log at start: `kiln.players: identity.players and the players' entity source supplied`.
+- Entities that are not players are answered by Kiln.Items' and Kiln.Spawn's sources ([modding/contract.md](../modding/contract.md)).
+- Works on a test server, with simulated players (game-log replay, where the handle is 0 and the join step alone
+  separates sessions). Not run with a real player: the handle generations of real joins are unchecked.
+
 ## C (native plugins)
 
 ```c
@@ -128,6 +150,14 @@ or a `Z:\...` path) into its live log tracker, one line per step after the 50th:
 the real event path, and the test mod checks what its handlers got. The service logs a `SIMULATION` warning and
 `Players.Diagnostics.Status.Simulated` is true. Never set it on a real server.
 
+**Identity.** `players-test` checks `PlayerRef` and its stamps in every run. With
+`KILN_PLAYERS_SIMULATE='kiln\mods\players-test\fixtures\slot-reuse.log'`, Alder joins slot 0 and leaves, Birch takes
+slot 0, Alder rejoins into slot 1: the first session's ref is not online after the reuse, the two players are not the
+same person, and `Resolve` gives Alder's new session. `mods/tests/players-test/autostart/` is a separate mod
+(`players-autostart-test`) that references only Kiln.Api: `PlayerRef.Of` throws `identity.players` in its `OnLoad`
+and answers from its first tick, so Kiln.Players was started without a mod asking for it. Unit tests, no game:
+`managed/tests/Kiln.Players.Tests`.
+
 ## Client checklist (needs a joined player)
 
 1. `Players.All` lists them with the right name, entity 1, `Permissions` of their group, `State InGame`, a position
@@ -138,7 +168,8 @@ the real event path, and the test mod checks what its handlers got. The service 
 3. Join with each user-group password (Admin, Friend, Guest, Visitor): `UserGroupId` and `Permissions` per group;
    `IsAdmin` for each (does anything set the game's admin bit on a dedicated server?).
 4. Two players, one leaves and rejoins: the slot and entity are reused, `Joined`/`Left` pair up, `Handle` changes
-   generation.
+   generation. The first session's `PlayerRef` is not `IsOnline`, `Resolve()` gives the new session, and the stamp's
+   generation bits changed.
 5. Shutdown with a player on: `Left` fires.
 
 ## In a game client (hosted worlds)

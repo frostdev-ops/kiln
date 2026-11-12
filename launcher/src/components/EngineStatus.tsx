@@ -77,6 +77,8 @@ export function EngineRow({ s }: { s: EngineStatus }) {
   const mods = modLines(s.state);
   const effects = s.kind === "shroudforge" ? s.effects : null;
   const current = effects?.state === "current";
+  // kiln-eml found more than one EML loader in the game (`loaders`): each patches the game files; `reason` says to keep one.
+  const emlLoaders = s.kind === "eml" && isObj(s.state) && Array.isArray(s.state.loaders) ? s.state.loaders.length : 0;
   return (
     <div className="k-list-item" data-engine={s.kind} style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 2 }} title={s.file}>
       <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
@@ -90,7 +92,7 @@ export function EngineRow({ s }: { s: EngineStatus }) {
       )}
       {(reason || mods.length > 0) && (
         <span className="k-hint" style={{ flexBasis: "100%" }}>
-          {reason && <span>{reason}. </span>}
+          {reason && <span className={emlLoaders > 1 ? "k-tone-warn" : undefined} data-eml-loaders={emlLoaders > 1 ? emlLoaders : undefined}>{reason}. </span>}
           {mods.map((m, i) => (
             <span key={m.id + i}>{i ? ", " : ""}<span className="k-mono">{m.id}</span>{m.state ? ` ${m.state}` : ""}{m.reason ? ` (${m.reason})` : ""}</span>
           ))}

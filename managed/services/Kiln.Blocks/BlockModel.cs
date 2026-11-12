@@ -282,10 +282,19 @@ public sealed record CastBlock
     public VfxRef? Vfx { get; init; }
 }
 
-/// <summary>A cast animation with its timing. Premade instances of a block you will also be able to write yourself.</summary>
-[JsonConverter(typeof(PremadeConverter<CastAnimation>))]
+/// <summary>A cast animation with its timing. Premade instances; <c>CastAnimation.Lob with { Animation = …, HitAt = 1.2 }</c> plays another state or moves the release
+/// (in JSON <c>{ "like": "lob", "animation": …, "hitAt": 1.2 }</c>; without <c>like</c>, the quick bolt). A spell takes them; an ability's cast does not yet.</summary>
+[JsonConverter(typeof(MotionConverter<CastAnimation>))]
 public sealed record CastAnimation(string Key, string Sequence, double ChargeSeconds) : IPremade
 {
+    /// <summary>The state the cast plays, as <see cref="MoveBlock.Animation"/> takes it: the full-body cast state when the motion has one, else its overlay. Null: the motion's own.</summary>
+    [RequiresCapability("blocks.weapon_moves")]
+    public MoveAnimation? Animation { get; init; }
+    /// <summary>Seconds into the cast the spell leaves the staff, as <see cref="CastBlock.ReleaseAt"/> (give one of them, or the same number). The rest of the motion is scaled
+    /// to fit before it and shifted after it. Null: the motion's own.</summary>
+    [RequiresCapability("blocks.weapon_moves")]
+    public double? HitAt { get; init; }
+
     /// <summary>The quick bolt from the staff (Ice Bolt's).</summary>
     public static readonly CastAnimation FastBolt = new("fast-bolt", "Attack_Player_Staff_FixedAnim_IceBolt_fast", 1.0);
     /// <summary>The longer lob (Fireball's).</summary>

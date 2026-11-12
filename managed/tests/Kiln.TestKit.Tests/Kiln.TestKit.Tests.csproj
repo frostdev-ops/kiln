@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tests of Kiln.TestKit, with small test mods of its own under mods/ (each its own project). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">true</InvariantGlobalization>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="mods/**" />
+    <None Remove="mods/**" />
+    <EmbeddedResource Remove="mods/**" />
+    <Content Remove="mods/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.TestKit/Kiln.TestKit.csproj" />
+    <!-- Test mods: referenced so a test can name the mod's class (Load<TMod>); the harness loads a copy of each. -->
+    <TkMod Include="mods/TkEvents/TkEvents.csproj" />
+    <TkMod Include="mods/TkLifeBase/TkLifeBase.csproj" />
+    <TkMod Include="mods/TkLifeUser/TkLifeUser.csproj" />
+    <TkMod Include="mods/TkConfig/TkConfig.csproj" />
+    <TkMod Include="mods/TkCommands/TkCommands.csproj" />
+    <TkMod Include="mods/TkFaulty/TkFaulty.csproj" />
+    <TkMod Include="mods/TkLeaky/TkLeaky.csproj" />
+    <TkMod Include="mods/TkPlayers/TkPlayers.csproj" />
+    <TkMod Include="mods/TkSaves/TkSaves.csproj" />
+    <TkMod Include="mods/TkSuite/TkSuite.csproj" />
+    <TkMod Include="mods/TkOrdered/TkOrdered.csproj" />
+    <TkMod Include="mods/TkOffline/TkOffline.csproj" />
+    <TkMod Include="mods/TkBlock/TkBlock.csproj" />
+    <ProjectReference Include="@(TkMod)" />
+    <!-- Kiln.Hooks beside the kit, as in kiln/host: TkOffline reads it (a service that remembers a missing table). -->
+    <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
+    <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
+    <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
+    <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
+    <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
+    <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
+    <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
+    <!-- The parity mod: a Kiln.Sdk mod whose built folder also deploys into a lab server (LoadFolder offline). -->
+    <TkSample Include="mods/TkParity/TkParity.csproj" />
+    <ProjectReference Include="mods/TkParity/TkParity.csproj" />
+    <!-- Built mod folders (LoadFolder), never referenced. -->
+    <TkFolderMod Include="mods/TkLocale/TkLocale.csproj" />
+    <ProjectReference Include="@(TkFolderMod)" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The service-name test reads every header under native/ of the tree the tests were built from. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>KilnRepository</_Parameter1>
+      <_Parameter2>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', '..'))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <!-- mods.txt: the output assembly of each test mod, so a test finds its built folder under any artifacts path. -->
+  <Target Name="WriteTkModPaths" AfterTargets="Build">
+    <MSBuild Projects="@(TkMod);@(TkFolderMod);@(TkSample)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_TkModTarget" />
+    </MSBuild>
+    <WriteLinesToFile File="$(OutDir)mods.txt" Lines="@(_TkModTarget->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+</Project>

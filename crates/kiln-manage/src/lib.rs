@@ -8,7 +8,9 @@
 //! |---|---|
 //! | [`error`] | `Error {code, message, detail}`, [`ErrorCode`] |
 //! | [`task`] | progress reporting for long operations |
-//! | [`paths`] | launcher data dirs, game-side file names |
+//! | [`paths`] | launcher data dirs, game-side file names, the environment as a value (`DataEnv`), locating through the pointer |
+//! | [`data_folder`] | the data folder as a whole: what a folder is, its inventory, the pointer, the lock, the target check of a move |
+//! | [`data_folder_move`] | moving the data folder, using another one, starting fresh, finishing or undoing a move at the next start |
 //! | [`hash`] | kdh1 directory hash, kms1 fingerprint, sha256 |
 //! | [`filecache`] | sha256s and parsed files remembered while the file is unchanged (the launcher keeps the sha256s across starts) |
 //! | [`vdf`] | Valve KeyValues text reader |
@@ -29,6 +31,7 @@
 //! | [`library`] | the content-addressed mod library, import detection |
 //! | [`archive`] | 7z (in-process) and rar (a tool already on the PC) packages, unpacked under the import limits |
 //! | [`profile`] | profiles (`meta.json`), `profile.json`, activation |
+//! | [`notices`] | which activation notices the launcher has shown per game (`installs/<id>.notices-seen.json`) |
 //! | [`quick`] | the simple flow: import + add to the active profile + apply, the default profile "My mods", undo |
 //! | [`engine_mods`] | other engines' mods in the launcher: importers, placing SF/SET mods, settings, plugin status (owner: wire) |
 //! | [`found`] | mods in the game folder Kiln did not put there: whether each loads with a profile, and adding one |
@@ -63,6 +66,8 @@ pub mod hash;
 pub mod hostenv;
 pub mod launch;
 pub mod paths;
+pub mod data_folder;
+pub mod data_folder_move;
 pub mod engines;
 pub mod pe;
 pub mod proc;
@@ -81,6 +86,7 @@ pub mod manifest;
 pub mod playonce;
 pub mod prestart;
 pub mod profile;
+pub mod notices;
 pub mod quick;
 pub mod engine_mods;
 pub mod found;

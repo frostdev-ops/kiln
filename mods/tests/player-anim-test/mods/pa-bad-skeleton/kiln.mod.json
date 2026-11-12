@@ -1,0 +1,10 @@
+{
+  "id": "pa-bad-skeleton",
+  "name": "player-anim lab: a state whose clip is made for a skeleton of its own, not the player's",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "A fixture of mods/tests/player-anim-test (run.py): a state whose clip is made for a skeleton of its own, not the player's. Data only. Its clips are made where it is cooked (make_clips.py), never committed."
+}

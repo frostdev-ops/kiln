@@ -38,6 +38,11 @@ internal sealed record ResolveEnvironment(
     /// too (docs/kiln/client.md, "Mods and sides"). Off by default (the launcher's Rust port and the parity fixtures
     /// resolve the menu state).</summary>
     public bool Hosting { get; init; }
+
+    /// <summary>The capability registry (<see cref="Kiln.Capabilities.Get"/> in the game): a manifest's <c>features</c>
+    /// are checked against it and a refusal carries the row's reason; a session row cannot be required. Null: only
+    /// <see cref="HasFeature"/> is asked, with the text the launcher's Rust port and the parity fixtures pin.</summary>
+    public Func<string, Capability>? Capability { get; init; }
 }
 
 internal sealed record Rejection(ModCandidate Candidate, ModState State, string Reason);
@@ -99,11 +104,22 @@ internal static class Resolver
                 Reject(c, ModState.Failed, $"needs Kiln API {m.ApiVersion}; this Kiln provides API {env.ApiVersion}");
                 continue;
             }
-            var missing = m.Features.Where(f => !env.HasFeature(f)).ToArray();
-            if (missing.Length > 0)
+            if (env.Capability is { } capability)
             {
-                Reject(c, ModState.Failed, $"needs feature{(missing.Length > 1 ? "s" : "")} {string.Join(", ", missing)}, unavailable on this game build");
-                continue;
+                if (FeatureProblems(m, capability) is { } problems)
+                {
+                    Reject(c, ModState.Failed, problems);
+                    continue;
+                }
+            }
+            else
+            {
+                var missing = m.Features.Where(f => !env.HasFeature(f)).ToArray();
+                if (missing.Length > 0)
+                {
+                    Reject(c, ModState.Failed, $"needs feature{(missing.Length > 1 ? "s" : "")} {string.Join(", ", missing)}, unavailable on this game build");
+                    continue;
+                }
             }
             active[m.Id] = c;
         }
@@ -148,6 +164,33 @@ internal static class Resolver
     }
 
     private static string Lower(ManifestSide s) => s.ToString().ToLowerInvariant();
+
+    /// <summary>Each of the manifest's <c>features</c> that the registry says is off, or that depends on the session,
+    /// in manifest order and joined with "; "; null when all of them are fixed and available.</summary>
+    private static string? FeatureProblems(Manifest m, Func<string, Capability> capability)
+    {
+        List<string>? problems = null;
+        foreach (var f in m.Features)
+        {
+            var row = capability(f);
+            string? problem = null;
+            if (row.Reason == CapabilityReason.Unknown && !f.StartsWith("kiln.", StringComparison.Ordinal) &&
+                f.IndexOf('.') is var dot && dot > 0 && dot < f.Length - 1)
+                problem = $"needs feature {f}, unavailable: no capability of this name is registered [unknown]; " +
+                          "for a managed <service>.<thing> row, the service registers it only after manifests are checked. " +
+                          $"Check Capabilities.Is(\"{f}\") at run time instead";
+            else if (row.State == CapabilityState.Unavailable)
+                problem = row.ReasonText is { Length: > 0 } text
+                    ? $"needs feature {f}, unavailable: {text} [{Kiln.Capabilities.CodeName(row.Reason)}]"
+                    : $"needs feature {f}, unavailable [{Kiln.Capabilities.CodeName(row.Reason)}]";
+            else if (row.SessionDependent || row.State == CapabilityState.Pending)
+                problem = $"requires {f}, which depends on the session ({Kiln.Capabilities.StateName(row.State)}" +
+                          (row.ReasonText is { Length: > 0 } t ? ": " + t : "") +
+                          $"); a manifest may only require capabilities that are fixed at boot. Check Capabilities.Is(\"{f}\") at run time instead";
+            if (problem is not null) (problems ??= []).Add(problem);
+        }
+        return problems is null ? null : string.Join("; ", problems);
+    }
 
     private static string? CheckDependencies(Manifest m, Dictionary<string, ModCandidate> active,
         Dictionary<string, Rejection> rejected, ResolveEnvironment env)

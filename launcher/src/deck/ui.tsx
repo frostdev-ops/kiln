@@ -249,9 +249,10 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
  *  A notice that stays until it is closed (mod folders Kiln kept, their paths and what to do; the "N earlier notices"
  *  fold of older ones) is a dialog instead, one at a time with all its text: the right stick scrolls it, A on OK or B
  *  closes it, so a pad alone can read and dismiss it. One dialog stays open while notices follow each other, so focus
- *  goes back where it was when the first came. An error folded into the earlier notices goes after 6 s on its own. */
+ *  goes back where it was when the first came. An error folded into the earlier notices goes after 6 s on its own.
+ *  A notice counts as seen (its `onClosed`) only when the player closes it: A on OK, or B. */
 export function DeckToaster() {
-  const { items, dismiss } = useToasts();
+  const { items, dismiss, close } = useToasts();
   useEffect(() => {
     const errs = items.flatMap((t) => (t.folded ? t.folded.filter((f) => f.kind === "err") : t.kind === "err" ? [t] : []));
     if (!errs.length) return;
@@ -267,7 +268,7 @@ export function DeckToaster() {
       {bar.length > 0 && (
         <div className="deck-toasts" aria-live="polite">
           {bar.slice(-2).map((t) => (
-            <div key={t.id} className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={() => dismiss(t.id)}>
+            <div key={t.id} className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={() => close(t.id)}>
               <span className="deck-toast-title">{t.title}</span>
               {t.kind === "err" && t.detail && <span className="deck-toast-detail">{t.detail}</span>}
             </div>
@@ -276,8 +277,8 @@ export function DeckToaster() {
       )}
       {notice && (
         <Dialog name="notice" title={typeof notice.title === "string" ? notice.title + times : <>{notice.title}{times}</>}
-          onClose={() => dismiss(notice.id)} backLabel="Close"
-          buttons={<DeckButton primary onClick={() => dismiss(notice.id)}>OK</DeckButton>}>
+          onClose={() => close(notice.id)} backLabel="Close"
+          buttons={<DeckButton primary onClick={() => close(notice.id)}>OK</DeckButton>}>
           {notice.detail && <div className="deck-scroll" data-deck-notice="" style={{ overflowWrap: "anywhere" }}>{notice.detail}</div>}
         </Dialog>
       )}

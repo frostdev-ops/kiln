@@ -2,7 +2,7 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.22` for this release, or a unique
+`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.24` for this release, or a unique
 `0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
 not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
 
@@ -32,9 +32,16 @@ dotnet new kiln-mod -n MyMod --feed <feed> --server <server folder> --tests --se
 installed MDK to confirm availability. These add typed blocks and/or `blocks/*.json`; keep the form you need. `items` and
 `creature` remain the clone-based path when a block has no field for the change. [blocks.md](blocks.md).
 
+**dev.26+ (in development):** `dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj` makes an xunit project on
+the `Kiln.TestKit` package ([testing.md](testing.md)). `Game` in `KilnServices` references `Kiln.Game` (`Kiln.Ecs` typed reads);
+the build then writes `kiln.gametypes.json` beside the mod, which Kiln checks at load. Release packs carry their full version
+(`0.2.0-dev.26`) and an SDK feed folder (`sdk/feed/`). The launcher can move its data folder (Settings, Library, Data
+folder); after a move, delete a native mod project's `build` folder once (CMake keeps the old SDK path). Not run in a real
+launcher window yet.
+
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.22">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.24">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -52,7 +59,7 @@ The project file:
 | `KilnModId` | lower-case `AssemblyName` | `id` |
 | `KilnModName`, `Version` | `AssemblyName`, 1.0.0 | `name`, `version` |
 | `Authors`, `Description`, `PackageLicenseExpression`, `PackageProjectUrl` | | `authors`, `description`, `license`, `url` |
-| `KilnApiVersion` | the SDK's (0.2) | `apiVersion` |
+| `KilnApiVersion` | the SDK's (0.2.1) | `apiVersion` |
 | `KilnSide` | server | `side` |
 | `KilnClients` | from the side: server none, else mod | `clients` |
 | `KilnEntryType` | the only public `Mod` subclass | `entryType` |

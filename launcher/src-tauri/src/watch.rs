@@ -223,6 +223,14 @@ pub fn start(app: AppHandle) {
                 if LEAVING.load(Ordering::SeqCst) {
                     return;
                 }
+                // a round reads and writes the data folder (copy back, re-applied profiles, activation records): counted
+                // as a writer, and skipped while a move holds the folder
+                let writing = crate::state::writing();
+                if crate::folder::current().held_error().is_some() {
+                    drop(writing);
+                    std::thread::sleep(Duration::from_millis(1000));
+                    continue;
+                }
                 poll_follows(&app);
                 if games_at.elapsed() > Duration::from_secs(10) {
                     games = crate::state::dirs()
@@ -265,6 +273,7 @@ pub fn start(app: AppHandle) {
                         emit_game(&app, &g.id, GameEventKind::Native, now.pid);
                     }
                 }
+                drop(writing);
                 std::thread::sleep(Duration::from_millis(1000));
             }
         })

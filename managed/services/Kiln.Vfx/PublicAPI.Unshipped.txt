@@ -1,0 +1,21 @@
+#nullable enable
+*REMOVED*Kiln.ScreenTestSeams
+*REMOVED*Kiln.VfxTestSeams
+*REMOVED*static Kiln.ScreenTestSeams.Native(Kiln.ScreenEffect! effect) -> float[]!
+*REMOVED*static Kiln.ScreenTestSeams.NativeSizes.get -> (int Effect, int Status, int Table)
+*REMOVED*static Kiln.ScreenTestSeams.RoundTrip(Kiln.ScreenEffect! effect) -> float[]!
+*REMOVED*static Kiln.VfxTestSeams.GuardThroughCreateInstance(System.Guid unknown) -> Kiln.VfxHandle
+*REMOVED*static Kiln.VfxTestSeams.GuardThroughFxController(System.Guid unknown, Kiln.WorldPosition at) -> Kiln.VfxHandle
+*REMOVED*static Kiln.VfxTestSeams.LoopbackPlay(System.Guid vfx, Kiln.WorldPosition at, float scale, Kiln.EntityId entity, Kiln.Slot slot, Kiln.Offset offset, long lifetimeNs, Kiln.VfxParams? parameters) -> Kiln.VfxHandle
+*REMOVED*static Kiln.VfxTestSeams.LoopbackStop(Kiln.VfxHandle local) -> void
+*REMOVED*static Kiln.VfxTestSeams.NativeSizes.get -> (int Play, int Info, int Status, int Table)
+[KILNX001]Kiln.ScreenTestSeams
+[KILNX001]Kiln.VfxTestSeams
+[KILNX001]static Kiln.ScreenTestSeams.Native(Kiln.ScreenEffect! effect) -> float[]!
+[KILNX001]static Kiln.ScreenTestSeams.NativeSizes.get -> (int Effect, int Status, int Table)
+[KILNX001]static Kiln.ScreenTestSeams.RoundTrip(Kiln.ScreenEffect! effect) -> float[]!
+[KILNX001]static Kiln.VfxTestSeams.GuardThroughCreateInstance(System.Guid unknown) -> Kiln.VfxHandle
+[KILNX001]static Kiln.VfxTestSeams.GuardThroughFxController(System.Guid unknown, Kiln.WorldPosition at) -> Kiln.VfxHandle
+[KILNX001]static Kiln.VfxTestSeams.LoopbackPlay(System.Guid vfx, Kiln.WorldPosition at, float scale, Kiln.EntityId entity, Kiln.Slot slot, Kiln.Offset offset, long lifetimeNs, Kiln.VfxParams? parameters) -> Kiln.VfxHandle
+[KILNX001]static Kiln.VfxTestSeams.LoopbackStop(Kiln.VfxHandle local) -> void
+[KILNX001]static Kiln.VfxTestSeams.NativeSizes.get -> (int Play, int Info, int Status, int Table)

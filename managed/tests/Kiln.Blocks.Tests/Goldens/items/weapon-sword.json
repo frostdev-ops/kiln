@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "d38805fb-461f-5e46-a0f2-c6f6f2aa1f75",
+      "name": "golden-items.weapon-sword",
+      "base": "Weapon_T1_1H_Sword_Craft",
+      "displayName": "Sword",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

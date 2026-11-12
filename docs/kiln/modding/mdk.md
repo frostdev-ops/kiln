@@ -13,7 +13,7 @@ matching the mod API `Kiln.Mods.ApiVersion`); `pack.sh` adds the rest:
 
 | Built by | Version | Example |
 |---|---|---|
-| `tools/release/release.sh` (sets `KILN_SDK_VERSION`) | the release's | `0.2.0-dev.22` |
+| `tools/release/release.sh` (sets `KILN_SDK_VERSION`) | the release's | `0.2.0-dev.24` |
 | `pack.sh` in a working tree | `<base>-dev.local.<yyyymmdd>.<hhmmss>` (UTC) | `0.2.0-dev.local.20261106.185929` |
 
 NuGet keeps a package by id and version and never fetches that version again, so a package re-packed under the same
@@ -23,7 +23,7 @@ project made with `dotnet new` restores exactly the packages of that pack.
 
 ## A mod project
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.22">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.24">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -34,7 +34,7 @@ project made with `dotnet new` restores exactly the packages of that pack.
   </ItemGroup>
 </Project>
 ```
-Use the full version of the MDK pack you installed (`0.2.0-dev.22` for this release), not the API base `0.2.0`.
+Use the full version of the MDK pack you installed (`0.2.0-dev.24` for this release), not the API base `0.2.0`.
 The SDK sets `net10.0`, nullable, implicit usings, `EnableDynamicLoading`, no runtimeconfig/deps files; references
 Kiln.Api and the listed services with `ExcludeAssets=runtime` (they come from `kiln/host` at run time and are never
 copied); copies NuGet dependencies next to the mod (they load into the mod's own context).
@@ -46,7 +46,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnModName` | `AssemblyName` | `name` |
 | `Version` | 1.0.0 | `version` |
 | `Authors`, `Description`, `PackageLicenseExpression`, `PackageProjectUrl` | | `authors`, `description`, `license`, `url` |
-| `KilnApiVersion` | the SDK's (0.2) | `apiVersion` |
+| `KilnApiVersion` | the SDK's (0.2.1) | `apiVersion` |
 | `KilnSide` | server; `both` when `KilnServices` has `Blocks` | `side` |
 | `KilnClients` | from the side: server `none`, otherwise `mod`; with `Blocks` in `KilnServices`, what the blocks need ([blocks.md](blocks.md)) | `clients`: what joining players need (`none`, `kiln`, `mod`; manifest.md) |
 | `KilnEntryType` | | `entryType` |

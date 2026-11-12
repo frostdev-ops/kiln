@@ -1,0 +1,30 @@
+<Project>
+  <!--
+    Kiln.GameTypes: the mod's layout stamp, kiln.gametypes.json in the output folder (so KilnDeploy and KilnPack ship
+    it with the mod). When the mod compiles against Kiln.Game (KilnServices "Game", or any reference named Kiln.Game),
+    the KilnGameTypes task (Kiln.Sdk.Tasks.dll) writes, for every generated game type the built assembly references,
+    the layout it was compiled against and the fields and enum values it uses. Kiln.Host compares it with the
+    Kiln.Game of the running game build before the mod loads, and refuses the mod, naming the type and the field,
+    when a game update removed or retyped something it uses (docs/kiln/typegen.md, "Shipping and staying loadable").
+    No generated type used, or no Kiln.Game reference: no file, and a stale one is deleted. Imported by Sdk.targets
+    after Kiln.Mod.targets (which sets _KilnTasksDir).
+
+    Property (optional):
+      KilnGameTypes      false: no layout stamp (the host then loads the mod unchecked, as before)
+    Warning KILN020: the Kiln.Game reference has no layout table (an older Kiln.Game). Error KILN021: an assembly
+    could not be read.
+  -->
+  <UsingTask TaskName="Kiln.Sdk.KilnGameTypes" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" Condition="'$(KilnRepoMode)' != 'true'" />
+  <UsingTask TaskName="Kiln.Sdk.KilnGameTypes" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" TaskFactory="TaskHostFactory" Condition="'$(KilnRepoMode)' == 'true'" />
+
+  <Target Name="KilnGameTypes" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(KilnGameTypes)' != 'false'">
+    <ItemGroup>
+      <_KilnGameReference Include="@(ReferencePath->WithMetadataValue('Filename','Kiln.Game'))" />
+    </ItemGroup>
+    <KilnGameTypes Condition="'@(_KilnGameReference)' != ''" AssemblyPath="$(TargetPath)" GameReference="%(_KilnGameReference.FullPath)" OutputDirectory="$(OutDir)" />
+    <Delete Condition="'@(_KilnGameReference)' == ''" Files="$(OutDir)kiln.gametypes.json" />
+    <ItemGroup>
+      <FileWrites Include="$(OutDir)kiln.gametypes.json" />
+    </ItemGroup>
+  </Target>
+</Project>

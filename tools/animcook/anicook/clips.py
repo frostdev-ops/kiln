@@ -7,6 +7,7 @@ import struct
 from kfc import anim
 
 from .gltfdoc import compose, qinv, qmul, qnorm, qrot, to_game
+from .skeleton import SYNTHETIC_ROOT
 
 FPS = 60
 LVE_TRACK = 0xFA31A0F1  # trackName of all 578 LveAnimation resources
@@ -35,7 +36,10 @@ def sample_track(doc, chans, skel, node_of_joint, f, n, t0, t1):
             q = c["rotation"].eval(t)
         if "scale" in c:
             s = c["scale"].eval(t)
-        if skel.parents[j] == 0xFFFF or skel.nodes[skel.parents[j]] is None:
+        # Only a joint with no parent joint in this file (the root, or a child of the synthetic kiln_root) takes the nodes above it (Blender's
+        # Armature object). Asked of node_of_joint, the file being sampled: a game skeleton has no glTF nodes of its own (skel.nodes all
+        # None), and asking skel.nodes put every joint's whole chain into its local transform (the body torn into spikes, dev.26).
+        if skel.parents[j] == 0xFFFF or node_of_joint[skel.parents[j]] is None:
             above = doc.world_of_parent(node)
             if above is not None:
                 tr, q, s = compose(above, (tr, q, s))
@@ -93,7 +97,7 @@ def extract_root_motion(skel, frames, joint, axes="xz", rotation=False):
 
 
 def root_motion_value(positions, orientations):
-    end = positions[-1]
+    end = tuple(e - s for e, s in zip(positions[-1], positions[0]))  # the game's paths do not all start at zero
     return {"orientations": [dict(zip("xyzw", q)) for q in orientations], "positions": [dict(zip("xyz", p)) for p in positions],
             "startToEnd": {"x": -end[0], "y": -end[1], "z": -end[2]}, "fps": FPS, "frameCount": len(positions) - 1}
 
@@ -108,7 +112,7 @@ def lve_value(positions, orientations):
         d = (min(i + 1, n - 1) - max(i - 1, 0)) or 1
         pk.append({"time": i, "values": dict(zip("xyz", p)), "controls": {c: (b[k] - a[k]) / d for k, c in enumerate("xyz")}})
     ok = [{"time": i, "values": dict(zip("xyzw", orientations[i])), "controls": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 0.0}} for i in (0, n - 1)]
-    end = positions[-1]
+    end = tuple(e - s for e, s in zip(positions[-1], positions[0]))
     return {"trackName": LVE_TRACK, "orientationKeys": ok, "positionKeys": pk, "startToEnd": {"x": -end[0], "y": -end[1], "z": -end[2]},
             "fps": FPS, "frameCount": n - 1, "flags": 0}
 
@@ -152,6 +156,17 @@ def sample_animation(doc, anim_name, skel):
         if node is None and skel.source == "game":
             node = next((i for i in range(len(doc.nodes)) if doc.extras_joint(i) == j), None)
         node_of_joint.append(node)
+    for j, node in enumerate(node_of_joint):
+        p = skel.parents[j]
+        if node is None or p == 0xFFFF or skel.names[p] == SYNTHETIC_ROOT:
+            continue
+        # a node's transform is relative to its parent node: it is the joint's local transform only when that node is the parent joint's
+        if node_of_joint[p] is None:
+            raise ClipError(f"{doc.path.name}: node {doc.names[node]!r} is joint {skel.names[j]}, but its parent joint {skel.names[p]} is not in the file")
+        if doc.parent[node] != node_of_joint[p]:
+            under = doc.names[doc.parent[node]] if doc.parent[node] is not None else "nothing"
+            raise ClipError(f"{doc.path.name}: node {doc.names[node]!r} (joint {skel.names[j]}) is under {under!r}, the skeleton has it under "
+                            f"{skel.names[p]} ({doc.names[node_of_joint[p]]!r})")
     for node in chans:
         if node not in node_of_joint:
             parts = "; ".join(sorted(chans[node]))
@@ -176,7 +191,7 @@ def finish_clip(frames, n, skel, anim_name, loop=None, tolerance=None, root_moti
         if root_motion is None and (worst > 2.0 or worst_p > 0.02):
             warnings.append(f"loops, but its last frame differs from its first by {worst:.1f} deg / {worst_p:.3f} m: it will pop at the seam")
     rm = lv = None
-    if root_motion is not None:
+    if root_motion is not None and root_motion is not False:
         joint = root_motion.get("joint") or next((nm for nm, i in skel.index.items() if skel.parents[i] == 0xFFFF and nm != "kiln_root"), None)
         if joint is None or joint not in skel.index:
             raise ClipError(f"rootMotion joint {joint!r} is not in the skeleton")

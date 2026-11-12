@@ -6,7 +6,9 @@ namespace Kiln.Analyzers.Tools;
 
 internal static class ApiScanProjectSources
 {
-    internal static IReadOnlyList<string> Read(string project)
+    /// <summary>The project's Compile items and its NoWarn ids (the scan compiles with the project's own suppressions,
+    /// so that an [Experimental] API the project opts into, e.g. KILNX002, is not a compile error here).</summary>
+    internal static (IReadOnlyList<string> Files, IReadOnlyList<string> NoWarn) Read(string project)
     {
         project = Path.GetFullPath(project);
         // The project owns its source list: a directory walk includes excluded tests and misses linked files.
@@ -18,7 +20,7 @@ internal static class ApiScanProjectSources
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        foreach (var arg in new[] { "msbuild", project, "-getItem:Compile", "-property:Configuration=Release", "-nologo", "-nodeReuse:false" })
+        foreach (var arg in new[] { "msbuild", project, "-getItem:Compile", "-getProperty:NoWarn", "-property:Configuration=Release", "-nologo", "-nodeReuse:false" })
             start.ArgumentList.Add(arg);
         start.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
         start.Environment["MSBUILDUSESERVER"] = "0";
@@ -36,8 +38,12 @@ internal static class ApiScanProjectSources
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"MSBuild source evaluation failed for {project}: {diagnostics}\n{text}");
         using var doc = JsonDocument.Parse(text);
-        return doc.RootElement.GetProperty("Items").GetProperty("Compile").EnumerateArray()
+        var noWarn = doc.RootElement.GetProperty("Properties").GetProperty("NoWarn").GetString() ?? "";
+        var files = doc.RootElement.GetProperty("Items").GetProperty("Compile").EnumerateArray()
             .Select(item => item.GetProperty("FullPath").GetString() ?? throw new InvalidDataException("Compile item has no full path."))
             .Distinct(StringComparer.Ordinal).OrderBy(f => f, StringComparer.Ordinal).ToArray();
+        var ids = noWarn.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal).ToArray();
+        return (files, ids);
     }
 }

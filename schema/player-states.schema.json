@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "player-states.schema.json",
+  "title": "Kiln player states (assets/player-states.json), format 1",
+  "description": "States a mod adds to the player's animation graph, each placed like a state of the game's (its neighbour). Kiln merges every loaded mod's states into one override of the player's graph (tools/animcook/anicook/playergraph.py, the reference of the native merge). The mod id comes from the mod's kiln.mod.json, which must state \"side\": \"both\" and \"clients\": \"mod\". Strict JSON: no comments, no trailing commas, a key twice and an unknown key are errors. A wrong state is left out with its reason; the others load. Readers: tools/animcook/anicook/playerstates.py (Python json, duplicate keys refused).",
+  "type": "object",
+  "required": ["format", "states"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": 1 },
+    "states": {
+      "type": "object",
+      "description": "The mod's states by name. A state's GUID is derive(mod, \"state\", name) (UUIDv5 of \"<mod>:state:<name>\" in Kiln.Blocks' namespace); a sequence enters it with SetAnimationEvent.animationName = that GUID.",
+      "propertyNames": {
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[^/]+$",
+        "x-kiln-message": "a state name has 1 to 64 characters and no '/'"
+      },
+      "additionalProperties": { "$ref": "#/$defs/state" }
+    }
+  },
+  "$defs": {
+    "state": {
+      "type": "object",
+      "required": ["clip", "like"],
+      "additionalProperties": false,
+      "properties": {
+        "clip": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A clip name of this mod's cook (GUID derive(mod, \"clip\", name)), or a GUID written out (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx: a clip the game or another mod serves). It has to be served, and made for the player's skeleton."
+        },
+        "like": {
+          "type": "string",
+          "pattern": "^[^/]+(/[^/]+)?$",
+          "description": "The neighbour: a state of the player's graph by its debug name, or Machine/State when several machines have the name. Entered by state id: any state of SM_Attack_Unarmed_FullBody, SM_Attack_Sword_Shield_FullBody, SM_Attack_Hammer_FullBody, SM_Attack_Greatsword_FullBody, SM_Attack_Dual_Daggers_FullBody, SM_Jump_Attack_FullBody, SM_Attack_Staff_FullBody, SM_Attack_Wand_FullBody; in SM_Main Block_FullBody, Parry_FullBody, DodgeRoll_FullBody, Dodge_Attack_FullBody, Sneak_Attack_FullBody, Attack_Skill_Kick_FullBody (a sequence enters such a state with SetAnimationEvent). Entered by overlay: a state of SM_Staff_Overlay, SM_Wand_Overlay, SM_Ground_Bow_Overlay, SM_Air_Bow_Overlay, SM_Ranged_Attack_Additive that an overlay of its own enters, not their DoNothing (a sequence enters such a state with SetAnimationOverlayEvent, overlayName = the state's GUID). A block pose of your own is like Block_FullBody.",
+          "x-kiln-message": "State or Machine/State"
+        },
+        "blendIn": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Seconds to blend into the state (its global transition and retriggerBlendDuration). Default: the neighbour's."
+        },
+        "loop": { "type": "boolean", "description": "Default: the clip's own loop flag." },
+        "speed": { "type": "number", "exclusiveMinimum": 0, "description": "Play rate of the clip (the clip node's raw speed multiplier). Default: the neighbour's (1 in the game's nodes)." }
+      }
+    }
+  }
+}

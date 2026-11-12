@@ -197,6 +197,7 @@ internal static class NetEngine
             catch (Exception e) { Log(LogLevel.Warn, $"handshake property {k} threw: {e.Message}"); }
         }
         foreach (var (k, v) in WorldTablesGate.Properties()) d[k] = v;
+        foreach (var (k, v) in PlayerGraphGate.Properties()) d[k] = v;
         return d;
     }
 
@@ -473,6 +474,18 @@ internal static class NetEngine
             reason = refuse ? reason + " " + tables : tables;
             refuse = true;
             refusedFor = [.. refusedFor, tables];
+        }
+        // A different player graph plays other animations for the same state ids. Same rule: modSync off is the operator's
+        // call, and the log says what it let in.
+        if (PlayerGraphGate.Difference(hello.Properties) is { } graph)
+        {
+            if (_config.ModSync != ModSyncPolicy.Off)
+            {
+                reason = refuse ? reason + " " + graph : graph;
+                refuse = true;
+                refusedFor = [.. refusedFor, graph];
+            }
+            else Log(LogLevel.Warn, $"{p.Name} joins with another player animation graph (modSync off): {graph}");
         }
         if (Events.HasSubscribers<NetClientHandshakeEvent>())
         {
@@ -1057,5 +1070,6 @@ internal static class NetworkStartup
     {
         NetEngine.EnsureStarted();
         ConfigSync.Start();  // docs/kiln/sync.md
+        SteamGuardRelay.Start();  // both sides, before any hello: a client's hello lists its channels
     }
 }

@@ -1,0 +1,101 @@
+{
+  "programs": [
+    {
+      "key": "spell-release-lob.impact",
+      "guid": "1bf18af2-d11a-58f9-bf23-7c1321d87a05",
+      "size": 388
+    },
+    {
+      "key": "spell-release-lob.projectile",
+      "guid": "ce423480-5fd1-58bb-9e4e-79c7b9197739",
+      "size": 2648
+    }
+  ],
+  "templates": [
+    {
+      "guid": "8a4358a1-d4d1-51fa-9d37-6c2cfd17b2c4",
+      "name": "golden-items.spell-release-lob.impact",
+      "base": "Explosion_Player_Spell_Fireball_1",
+      "fields": {
+        "Impact.program": "1bf18af2-d11a-58f9-bf23-7c1321d87a05"
+      }
+    },
+    {
+      "guid": "19673245-423a-54cb-a45a-6ef35d45a239",
+      "name": "golden-items.spell-release-lob.projectile",
+      "base": "Projectile_Player_Staff_Fireball_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 5,
+        "Impact.program": "ce423480-5fd1-58bb-9e4e-79c7b9197739"
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "8a4358a1-d4d1-51fa-9d37-6c2cfd17b2c4"
+  },
+  "items": [
+    {
+      "guid": "f1242a6a-3826-5f4f-b64c-39207ca3b506",
+      "name": "golden-items.spell-release-lob",
+      "base": "Ammo_T1_Spell_Fire_Ball_lvl10",
+      "displayName": "Slow Lob",
+      "description": "",
+      "fields": {
+        "maxStackSize": 500,
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "equipment.placedEntityLocalSpawnVelocity.z": 30,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.1363636363636365,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 1,
+        "damageSetup.distribution.magicalIceDamage": 0,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {
+        "equipment.placedEntity": "19673245-423a-54cb-a45a-6ef35d45a239",
+        "equipment.visualEntity": "item:Ammo_T1_Spell_Fire_Ball_lvl10"
+      }
+    }
+  ],
+  "sequences": [
+    {
+      "guid": "34c80280-c80f-56b5-8d18-378ed03e85fd",
+      "name": "golden-items.spell-release-lob.cast",
+      "base": "Attack_Player_Staff_FixedAnim_Fireball_fast",
+      "fields": {
+        "events[VfxNotifierEvent#0].time": 1.1,
+        "events[SfxNotifierEvent#0].time": 1.1,
+        "events[SpawnEntityEvent#0].time": 1.1,
+        "events[PayUsageCost#0].time": 1.1,
+        "events[PayUsageCost#1].time": 1.1
+      }
+    }
+  ],
+  "itemRules": {
+    "impactValues.ManaCost": 8,
+    "impactValues.0x579b2657": 2.5,
+    "sequences[0].sequence": "golden-items.spell-release-lob.cast",
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 8
+      },
+      {
+        "locaId": "0x5c76837c",
+        "valueFormat": "Duration",
+        "value": 2500
+      }
+    ]
+  }
+}

@@ -36,7 +36,15 @@ internal sealed unsafe class WorldStore
 
     internal readonly EntityTable Entities;
 
-    public WorldStore() => Entities = new EntityTable();
+    /// <summary>Data that stays with one item (InstanceData): bundles "instances/&lt;mod&gt;" and
+    /// "character-instances/&lt;character&gt;/&lt;mod&gt;" of the same generation.</summary>
+    internal readonly InstanceStore Instances;
+
+    public WorldStore()
+    {
+        Entities = new EntityTable();
+        Instances = new InstanceStore(this);
+    }
 
     public string? WorldId { get; private set; }
     public string? Root { get; private set; }
@@ -90,6 +98,7 @@ internal sealed unsafe class WorldStore
         {
             SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: new world (no file yet); mod data is kept in memory until the first save");
             Entities.StartMatching();
+            Instances.StartMatching();
             return;
         }
         if (WorldId == null)
@@ -105,8 +114,9 @@ internal sealed unsafe class WorldStore
             Open(id, revision, unix);
         }
         Entities.StartMatching();
+        Instances.StartMatching();
         SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: world {WorldId} revision {revision} loaded by the game; mod data " +
-                                        $"generation {Generation} ({Match}), {_bundles.Count} bundles, {Entities.Summary}");
+                                        $"generation {Generation} ({Match}), {_bundles.Count} bundles, {Entities.Summary}, {Instances.Summary}");
     }
 
     /// <summary>A new world got its id with its first save.</summary>
@@ -145,6 +155,15 @@ internal sealed unsafe class WorldStore
     {
         _bundles.Clear();
         Entities.Clear();
+        Instances.Clear();
+    }
+
+    /// <summary>Test kit (SavesRuntime.EndSession): after <see cref="CloseWorld"/>, the next world opens as in a fresh process.</summary>
+    internal void Reopenable()
+    {
+        _closed = false;
+        _commits = 0;
+        Instances.EndSession();
     }
 
     private void Load(uint revision, uint unix)
@@ -170,6 +189,7 @@ internal sealed unsafe class WorldStore
             foreach (var (scope, doc) in bundles) Absorb(scope, doc);
             Generation = m.Revision;
             Match = match;
+            Instances.OnLoaded(m.Revision, match);
             var level = match == DataMatch.Older ? LogLevel.Warn : LogLevel.Info;
             SavesRuntime.Log(level, $"Kiln.Saves: world {WorldId} file revision {revision}: mod data generation {m.Revision} " +
                                     $"({match}{(match == DataMatch.Older ? ": the world file is newer than Kiln's data" : "")}, " +
@@ -178,6 +198,7 @@ internal sealed unsafe class WorldStore
         }
         Generation = 0;
         Match = DataMatch.None;
+        Instances.OnLoaded(0, DataMatch.None);
         SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: world {WorldId} file revision {revision}: no mod data yet ({all.Count} manifests, none usable)");
     }
 
@@ -212,6 +233,11 @@ internal sealed unsafe class WorldStore
         if (scope.StartsWith("entity/", StringComparison.Ordinal))
         {
             Entities.Absorb(scope["entity/".Length..], doc);
+            return;
+        }
+        if (scope.StartsWith(InstanceStore.WorldPrefix, StringComparison.Ordinal) || scope.StartsWith(InstanceStore.CharacterPrefix, StringComparison.Ordinal))
+        {
+            Instances.Absorb(scope, doc);
             return;
         }
         var mod = ModOf(scope);
@@ -283,7 +309,7 @@ internal sealed unsafe class WorldStore
         return o;
     }
 
-    private void Watch(ModContext mod)
+    internal void Watch(ModContext mod)
     {
         if (!_watched.Add(mod)) return;
         mod.Retiring += () => Retire(mod);
@@ -300,6 +326,7 @@ internal sealed unsafe class WorldStore
             foreach (var (k, s) in b.Keys)
                 Freeze(s, opts, mod, b.Scope, k);
         Entities.Retire(id, opts, mod);
+        Instances.Retire(mod, opts);
         _json.Remove(id);
         if (opts != null) JsonCaches.Clear();
     }
@@ -352,8 +379,9 @@ internal sealed unsafe class WorldStore
     // ---- staging / commit ----
 
     /// <summary>Writes every bundle (new blobs only) and the pending manifest of generation <paramref name="gen"/>.
-    /// Tick thread, right after the WorldSaving handlers.</summary>
-    public void Stage(uint gen, SaveReason reason, bool late)
+    /// Tick thread, right after the WorldSaving handlers (<paramref name="snapshot"/> false), and again at the snapshot
+    /// staging (<paramref name="snapshot"/> true).</summary>
+    public void Stage(uint gen, SaveReason reason, bool late, bool snapshot = false)
     {
         EnsureOpen();
         if (Root == null)
@@ -379,6 +407,9 @@ internal sealed unsafe class WorldStore
         }
         foreach (var (mod, data) in Entities.Stage(_json))
             Put("entity/" + mod, data, entries, ref fresh, ref bytes);
+        // Settled: nothing simulates between this read and the game's snapshot (the snapshot staging, a shutdown save).
+        foreach (var (scope, data) in Instances.Stage(gen, _json, settled: !late && (snapshot || reason == SaveReason.Shutdown)))
+            Put(scope, data, entries, ref fresh, ref bytes);
         var man = new JsonObject
         {
             ["format"] = 1,

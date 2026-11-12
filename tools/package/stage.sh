@@ -67,6 +67,8 @@ if ((build)); then
     built "$name" dn "$proj" -o "$out/host" || miss "managed service $name failed to build (log: $logs/$name.log)"
   done
   built Kiln.Game dn "$repo/managed/Kiln.Game/Kiln.Game.csproj" -o "$out/host" || miss "Kiln.Game failed to build (log: $logs/Kiln.Game.log)"
+  # one Kiln.Game per verified game build: host/game/<side>-<sha12>/ (Kiln.Host picks the running exe's)
+  built build-game "$repo/tools/typegen/build-game.sh" "$out/host" || miss "Kiln.Game per game build failed (tools/typegen/build-game.sh; log: $logs/build-game.log)"
   built Hello dn "$repo/mods/samples/Hello/Hello.csproj" -o "$out/mods/hello" || miss "Hello sample failed to build (log: $logs/Hello.log)"
   built Kiln.Admin dn "$repo/mods/Kiln.Admin/Kiln.Admin.csproj" -o "$out/mods/kiln-admin" || miss "Kiln.Admin failed to build (log: $logs/Kiln.Admin.log)"
   # kiln-eml: the GPL-3 EML plugin, its own Cargo workspace in gpl/kiln-eml (docs/kiln/eml.md); lands in bin/plugins
@@ -98,6 +100,7 @@ for proj in "$repo"/managed/services/*/*.csproj; do
   name=$(basename "$proj" .csproj)
   [[ -s $out/host/$name.dll ]] || miss "managed service $name: no $out/host/$name.dll"
 done
+compgen -G "$out/host/game/*/Kiln.Game.dll" >/dev/null || miss "required build output: no $out/host/game/<side>-<sha12>/Kiln.Game.dll (tools/typegen/build-game.sh)"
 for required in host/Kiln.Api.dll host/Kiln.Game.dll mods/kiln-admin/Kiln.Admin.dll mods/kiln-admin/kiln.mod.json \
                 mods/hello/Hello.dll mods/hello/kiln.mod.json cmake/bin/kiln-native-hello.dll; do
   [[ -s $out/$required ]] || miss "required build output: no $out/$required"
@@ -113,7 +116,7 @@ install -m 644 "$bin/dinput8.dll" "$c/dinput8.dll"
 install -m 644 "$bin/kiln-core.dll" "$bin/kiln-core.pdb" "$k/"
 rsync -a --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" \
   || miss "could not stage native services from $bin/services"
-rsync -a --include='Kiln.*' --exclude='*' "$out/host/" "$k/host/"
+rsync -a --include='Kiln.*' --include='game/***' --exclude='*' "$out/host/" "$k/host/"
 rsync -a "$dotnet_root/" "$k/dotnet/"
 printf '{\n  "policy": "verified-only",\n  "clr": true,\n  "plugins": true,\n  "log_level": "info"\n}\n' > "$k/kiln.json"
 # Kiln's own plugins (native/plugins/*): kiln-emf is the emf component, any other plugin is core

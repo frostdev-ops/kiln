@@ -30,3 +30,14 @@ Library skip messages (from `kiln_manage::shroudforge::skip_reason`):
   in the game folder"
 - "has a mod.json that is neither a ShroudForge (Lua) nor an EMF mod manifest"
 - "has Lua files but no mod.json: not a mod package (ShroudForge mods need mod.json with id, name and version)"
+
+## dev.26 addition (notices, settings in your own folder)
+
+Suggested guide text (section "Other mod loaders → ShroudForge", after the paragraph above):
+
+> **ShroudForge mods you had before Kiln.** A ShroudForge mod that was already in ShroudForge's mods folder stays your
+> own folder when you add it to Kiln ("Add it" in the mod list): Kiln never moves, replaces or switches a folder it did
+> not put there. You can still change its settings in the Kiln Launcher (the mod's menu, Settings): Kiln writes only
+> the setting you change. Kiln says once that the game uses your own folder for that mod; **Notes** above your mods
+> shows that note again, and Settings → "Show notes about mod folders" turns such notes off. Changing a setting in
+> ShroudForge's own in-game menu no longer makes Kiln treat its copy as yours.

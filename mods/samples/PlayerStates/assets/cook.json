@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "tool": "animcook",
+  "out": "cooked",
+  "comment": "PlayerStates' cook recipe: run on each player's machine (kiln cook), reading the installed game; it writes assets/cooked/ (never committed). The source is assets/src/riposte.gltf, made by make_assets.py: the sample's own rig and the motion of its sword arm, no game data. Read from the game: the player's skeleton (the arm is retargeted onto it) and the clips of the three game states ours are placed like (assets/player-states.json). Each of our clips is that game clip with the sword arm taken from ours, so the body moves as the game moves it.",
+  "inputs": {
+    "player_skeleton": { "guid": "87b29df6-6518-43ef-9298-e3f85a6204b9", "type": "keen::ModelHierarchyResource", "comment": "the player's skeleton" },
+    "sword_attack": { "guid": "b198a7fe-6893-47a9-84d9-4a39518513d1", "type": "keen::JointAnimation", "comment": "the clip of Attack_Sword_Shield_01, the first sword attack (1.667 s)" },
+    "sword_heavy": { "guid": "3875e634-1fab-4670-88f8-236ca91817ce", "type": "keen::JointAnimation", "comment": "the clip of the sword machine's Attack_Heavy (2.567 s)" },
+    "block": { "guid": "263941ec-3361-42b0-96e2-35a29f22224b", "type": "keen::JointAnimation", "comment": "the clip of Block_FullBody, a loop (6.65 s)" }
+  },
+  "steps": [
+    { "op": "clips", "skeleton": "@player_skeleton", "gltf": "src/riposte.gltf",
+      "comment": "the sample's sword arm, authored on its own rig, played on the player's skeleton. The map is the rig's joint -> the player's joint (j<index>). These clips only feed the next step",
+      "retarget": { "map": {
+        "root": "j0", "hips": "j1", "spine": "j10", "chest": "j13", "neck": "j16", "head": "j17",
+        "clavicle_l": "j39", "arm_l": "j40", "forearm_l": "j42", "hand_l": "j44",
+        "clavicle_r": "j69", "arm_r": "j70", "forearm_r": "j72", "hand_r": "j74",
+        "thigh_l": "j2", "shin_l": "j3", "foot_l": "j4", "thigh_r": "j6", "shin_r": "j7", "foot_r": "j8" } },
+      "clips": {
+        "riposte_swing_arm": { "animation": "swing" },
+        "riposte_heavy_arm": { "animation": "heavy" },
+        "riposte_guard_arm": { "animation": "guard", "loop": true } } },
+    { "op": "clips", "skeleton": "@player_skeleton",
+      "comment": "the clips the states play: the game's clip (with its root motion and events) and our sword arm on it, from the shoulder down to the hand: j70 and j71 the upper arm, j72 and j73 the forearm, j74 the hand. The fingers keep the game's grip",
+      "clips": {
+        "riposte_swing": { "from": "@sword_attack", "blend": { "with": "riposte_swing_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } },
+        "riposte_heavy": { "from": "@sword_heavy", "blend": { "with": "riposte_heavy_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } },
+        "riposte_guard": { "from": "@block", "blend": { "with": "riposte_guard_arm", "bones": ["j70", "j71", "j72", "j73", "j74"] } } } }
+  ]
+}

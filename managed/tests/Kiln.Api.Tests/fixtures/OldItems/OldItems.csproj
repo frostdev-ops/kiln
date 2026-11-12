@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Test fixture: a stand-in for Kiln.Items as it was before dev.26, when it declared Kiln.ItemId itself. Only
+       ItemIdConsumer compiles against it; it must never be copied next to Kiln.Api.Tests or loaded. -->
+  <PropertyGroup>
+    <AssemblyName>Kiln.Items</AssemblyName>
+    <RootNamespace>Kiln</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

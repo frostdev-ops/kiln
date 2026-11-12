@@ -249,7 +249,9 @@ fn active_here(dirs: &DataDirs, install: &GameInstall) -> Result<std::result::Re
     match profile::read_game_profile(&install.path)? {
         None => Ok(Ok(None)),
         Some(f) => match profile::get(dirs, &f.id) {
-            Ok(p) => Ok(Ok(Some(p))),
+            // the same id in another data folder (profile::game_profile_owner) is not this folder's profile
+            Ok(p) if profile::file_is_here(dirs, install, &f) => Ok(Ok(Some(p))),
+            Ok(_) => Ok(Err(())),
             Err(e) if e.code == ErrorCode::NotFound => Ok(Err(())),
             Err(e) => Err(e),
         },

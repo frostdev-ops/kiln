@@ -123,6 +123,15 @@ pub fn persist_at(file: &Path) {
     h.store = Some(file.to_path_buf());
 }
 
+/// Stops keeping the sha256s in the [`persist_at`] file: the next [`flush`] writes nothing; the sha256s in memory stay
+/// (and are written again after a new [`persist_at`]). The launcher calls it when a move of its data folder starts, so no
+/// flush puts the cache back into the old folder, and [`persist_at`] again after a move that failed or was canceled.
+pub fn unpersist() {
+    if let Ok(mut h) = hashes().lock() {
+        h.store = None;
+    }
+}
+
 /// Writes the sha256s to the [`persist_at`] file when new ones came in (only entries whose file still exists unchanged).
 /// No-op without one.
 pub fn flush() {
@@ -242,8 +251,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The persisted store is one per process: the tests that set it take turns.
+    static PERSIST: Mutex<()> = Mutex::new(());
+
     #[test]
     fn persisted_hashes_load_and_stale_ones_are_not_used() {
+        let _turn = PERSIST.lock().unwrap_or_else(|e| e.into_inner());
         let d = tmp("persist");
         let p = d.join("big.bin");
         std::fs::write(&p, b"payload").unwrap();
@@ -268,6 +281,30 @@ mod tests {
         assert_eq!(q_entry.sha256, crate::hash::sha256_hex(b"new bytes"));
         // stop persisting for the other tests of this process
         hashes().lock().unwrap().store = None;
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_flush_after_unpersist_writes_nothing() {
+        let _turn = PERSIST.lock().unwrap_or_else(|e| e.into_inner());
+        let d = tmp("unpersist");
+        let store = d.join("state/file-hashes.json");
+        persist_at(&store);
+        std::fs::write(d.join("a.bin"), b"a").unwrap();
+        sha256(&d.join("a.bin")).unwrap();
+        flush();
+        assert!(store.is_file(), "persisting: the flush writes the store");
+        std::fs::remove_file(&store).unwrap();
+        unpersist();
+        std::fs::write(d.join("b.bin"), b"b").unwrap();
+        assert_eq!(sha256(&d.join("b.bin")).unwrap(), crate::hash::sha256_hex(b"b"));
+        flush();
+        assert!(!store.exists(), "after unpersist a flush writes nothing");
+        assert!(hashes().lock().unwrap().map.contains_key(&d.join("b.bin")), "the sha256s in memory stay");
+        persist_at(&store);
+        flush();
+        assert!(store.is_file(), "persisting again: the new sha256 is written");
+        unpersist();
         let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -1,21 +1,105 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Generated, stable bindings for the game's ECS component types (tools/typegen). Explicit-layout structs + type
-       hash constants, plus a typed read API over kiln.world. Deployed to kiln/host/ and shared by every mod
-       (referenced with Private="false" ExcludeAssets="runtime"). Regenerate Generated.cs with tools/typegen.py from a
-       reflection dump (tools/typegen/probe). -->
+  <!-- The game's ECS types, generated at build time from a layout dump of the game's reflection table
+       (sigdb/types/<side>/<sha256>.json) by tools/typegen/typegen.py (docs/kiln/typegen.md §3):
+       - Kiln.Ecs.*: every struct, enum and bitmask of the component and event closure, with the engine's layout;
+       - Kiln.GameTypes.*: the nine dev.24 types, made by the v1 emitter from the same dump and marked [Obsolete];
+       - the layout table, embedded as the resource Kiln.Game.layouts (GameLayoutStamps);
+       - every type of the dump, embedded as Kiln.Game.types (the first-use check, EcsLayoutCheck.cs).
+       The generated files go to the intermediate folder of the build (with an artifacts path, outside the tree;
+       without one, into the git-ignored obj/), never among the sources. Generated.cs is the golden copy of the dev.24
+       legacy part and is not compiled. Deployed to kiln/host/ and shared by every mod (referenced with
+       Private="false" ExcludeAssets="runtime").
+       Properties: KilnGameDump (the dump; default below), KilnPython (default python3), KilnGameVariant (a short
+       name: the variant gets intermediate and output folders of its own, so several dumps build side by side),
+       KilnLocalGameTypes (a file that replaces the legacy part), KilnGamePrograms (a program catalog: adds the program
+       descriptors Kiln.Ecs.Programs; a catalog is read from the exe and never committed, so only tests pass a made-up one). -->
   <PropertyGroup>
     <RootNamespace>Kiln.GameTypes</RootNamespace>
     <AssemblyName>Kiln.Game</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591: the dev.24 legacy part has members without XML docs, and its text cannot change. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- The newest verified server build. A new game build is this one line. -->
+    <KilnGameDump Condition="'$(KilnGameDump)' == ''">$(MSBuildThisFileDirectory)../../sigdb/types/server/f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2.json</KilnGameDump>
+    <KilnPython Condition="'$(KilnPython)' == ''">python3</KilnPython>
+    <!-- The generator's root class (its root option). Ecs.cs and the tests name it too (docs/kiln/typegen.md §3). -->
+    <KilnGameRoot>Ecs</KilnGameRoot>
+    <_KilnTypegen>$(MSBuildThisFileDirectory)../../tools/typegen/typegen.py</_KilnTypegen>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(KilnGameVariant)' != ''">
+    <ArtifactsPivots Condition="'$(UseArtifactsOutput)' == 'true'">$(Configuration.ToLowerInvariant())_$(KilnGameVariant)</ArtifactsPivots>
+    <OutputPath Condition="'$(UseArtifactsOutput)' != 'true'">bin/$(Configuration)/variant-$(KilnGameVariant)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(UseArtifactsOutput)' != 'true'">obj/$(Configuration)/variant-$(KilnGameVariant)/</IntermediateOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" Private="false" />
-    <ProjectReference Include="../services/Kiln.World/Kiln.World.csproj" Private="false" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(KilnLocalGameTypes)' != ''">
     <Compile Remove="Generated.cs" />
-    <Compile Include="$(KilnLocalGameTypes)" Link="Generated.cs" />
+    <None Include="Generated.cs" />
+    <!-- Kiln.Api and Kiln.World do not depend on the dump: one build of each serves every variant. -->
+    <!-- Alias api as well: the class Kiln.GameTypes in Kiln.Api can only be named as api::Kiln.GameTypes here, where the
+         legacy namespace Kiln.GameTypes hides it (EcsLayoutCheck.cs). -->
+    <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" Private="false" Aliases="global,api"
+                      GlobalPropertiesToRemove="KilnGameDump;KilnGameVariant;KilnPython;KilnLocalGameTypes;KilnGamePrograms" />
+    <ProjectReference Include="../services/Kiln.World/Kiln.World.csproj" Private="false"
+                      GlobalPropertiesToRemove="KilnGameDump;KilnGameVariant;KilnPython;KilnLocalGameTypes;KilnGamePrograms" />
+    <InternalsVisibleTo Include="Kiln.Game.Tests" />
+    <_KilnGenInput Include="$(KilnGameDump);$(_KilnTypegen);$(MSBuildProjectFullPath)" />
+    <_KilnGenInput Include="$(KilnGamePrograms)" Condition="'$(KilnGamePrograms)' != ''" />
   </ItemGroup>
+
+  <Target Name="_KilnGameTypesPaths">
+    <Error Condition="'$(KilnGameVariant)' != '' and !$([System.Text.RegularExpressions.Regex]::IsMatch('$(KilnGameVariant)', '^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$'))"
+           Text="Kiln.Game: KilnGameVariant '$(KilnGameVariant)' is not a short name (letters, digits, _ . -; up to 32)." />
+    <Error Condition="!Exists('$(KilnGameDump)')" Text="Kiln.Game: the layout dump '$(KilnGameDump)' does not exist (KilnGameDump)." />
+    <PropertyGroup>
+      <_KilnGenDir>$(IntermediateOutputPath)kiln-typegen/</_KilnGenDir>
+      <_KilnGenArgs>--legacy-obsolete</_KilnGenArgs>
+      <_KilnGenArgs Condition="'$(KilnLocalGameTypes)' != ''">--no-legacy</_KilnGenArgs>
+    </PropertyGroup>
+    <ItemGroup>
+      <_KilnGenSource Include="$(_KilnGenDir)Kiln.Game.Ecs.g.cs;$(_KilnGenDir)Kiln.Game.Arrays.g.cs" />
+      <_KilnGenLegacy Include="$(_KilnGenDir)Kiln.Game.Legacy.g.cs" />
+      <_KilnGenTable Include="$(_KilnGenDir)Kiln.Game.layouts" />
+      <_KilnGenTypes Include="$(_KilnGenDir)Kiln.Game.types" />
+      <_KilnGenPrograms Include="$(_KilnGenDir)Kiln.Game.Programs.g.cs" Condition="'$(KilnGamePrograms)' != ''" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Runs only when the dump, the generator or this file changed. -->
+  <Target Name="KilnGenerateGameTypes" DependsOnTargets="PrepareForBuild;_KilnGameTypesPaths" BeforeTargets="PrepareResources;CoreCompile"
+          Inputs="@(_KilnGenInput)" Outputs="@(_KilnGenSource);@(_KilnGenLegacy);@(_KilnGenTable);@(_KilnGenTypes);@(_KilnGenPrograms)">
+    <Exec Command="&quot;$(KilnPython)&quot; -c &quot;import sys; sys.exit(0 if sys.version_info >= (3, 8) else 3)&quot;"
+          IgnoreExitCode="true" EchoOff="true" IgnoreStandardErrorWarningFormat="true"
+          StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_KilnPythonExit" />
+    </Exec>
+    <Error Condition="'$(_KilnPythonExit)' != '0'"
+           Text="Kiln.Game needs python3 (3.8 or newer) to generate its game types, and '$(KilnPython)' did not run it: install python3 or pass -p:KilnPython=&lt;interpreter&gt;." />
+    <Exec Command="&quot;$(KilnPython)&quot; &quot;$(_KilnTypegen)&quot; generate --dump &quot;$(KilnGameDump)&quot; --out &quot;$(_KilnGenDir)&quot; --root $(KilnGameRoot) $(_KilnGenArgs)"
+          IgnoreExitCode="true" EchoOff="true" CustomErrorRegularExpression="^typegen: error:"
+          IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="high">
+      <Output TaskParameter="ExitCode" PropertyName="_KilnGenExit" />
+    </Exec>
+    <Error Condition="'$(_KilnGenExit)' != '0'" Text="Kiln.Game: tools/typegen/typegen.py failed on '$(KilnGameDump)' (exit $(_KilnGenExit))." />
+    <Exec Condition="'$(KilnGamePrograms)' != ''"
+          Command="&quot;$(KilnPython)&quot; &quot;$(_KilnTypegen)&quot; programs --catalog &quot;$(KilnGamePrograms)&quot; --dump &quot;$(KilnGameDump)&quot; --out &quot;$(_KilnGenDir)&quot; --root $(KilnGameRoot)"
+          IgnoreExitCode="true" EchoOff="true" CustomErrorRegularExpression="^typegen: error:"
+          IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="high">
+      <Output TaskParameter="ExitCode" PropertyName="_KilnProgExit" />
+    </Exec>
+    <Error Condition="'$(KilnGamePrograms)' != '' and '$(_KilnProgExit)' != '0'" Text="Kiln.Game: typegen.py programs failed on '$(KilnGamePrograms)' (exit $(_KilnProgExit))." />
+  </Target>
+
+  <Target Name="_KilnAddGameTypes" AfterTargets="KilnGenerateGameTypes" DependsOnTargets="_KilnGameTypesPaths"
+          BeforeTargets="PrepareResources;CoreCompile">
+    <ItemGroup>
+      <Compile Include="@(_KilnGenSource);@(_KilnGenPrograms)" />
+      <Compile Include="@(_KilnGenLegacy)" Condition="'$(KilnLocalGameTypes)' == ''" />
+      <Compile Include="$(KilnLocalGameTypes)" Condition="'$(KilnLocalGameTypes)' != ''" Link="Generated.cs" />
+      <EmbeddedResource Include="@(_KilnGenTable)" LogicalName="Kiln.Game.layouts" WithCulture="false" Type="Non-Resx" />
+      <!-- Every type of the dump, for the first-use check against the game's live type table (docs/kiln/typegen.md §4). -->
+      <EmbeddedResource Include="@(_KilnGenTypes)" LogicalName="Kiln.Game.types" WithCulture="false" Type="Non-Resx" />
+      <FileWrites Include="@(_KilnGenSource);@(_KilnGenLegacy);@(_KilnGenTable);@(_KilnGenTypes);@(_KilnGenPrograms)" />
+    </ItemGroup>
+  </Target>
 </Project>

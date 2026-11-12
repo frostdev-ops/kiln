@@ -438,7 +438,7 @@ one of Kiln's: `{ "kiln": "condition", "slot": n }`, `"buff"`, `"time"`, `"phase
 - **The record layout** (offsets of attacks and rules inside an arsenal) comes from the reflection when the service is ready. Overrides need it: without it the hooks are not installed and `Force` throws `NotSupportedException`.
 - **Hooks go in at first use and come out when nothing uses them:** `ConstraintEval` and `ActionExec` for Kiln's kinds; `SelectAttack`, `AttackAvailable`, the follow-up lookup and a mid hook on `SetCurrentAttack` for overrides. Data-only
   arsenals need none. A server without rule mods runs none of this.
-- **Fails soft.** A target that does not resolve: `Arsenals.Status` says so, and what needs it throws `NotSupportedException` with the reason. Without the dispatcher, data-only arsenals still work; without the registry map, no arsenal can be written; without the attack targets, overrides are off. The AI switch needs none of them. Creatures run on either way (lab, with each target's pattern broken in turn). With no hooks loaded Kiln's kinds in a record are harmless: the game reads them as false and no-op.
+- **Fails soft.** A target that does not resolve: `Arsenals.RulesState` (an `ArsenalRulesStatus`) says so (the older `Arsenals.Status` / `RulesStatus` are obsolete: Kiln.Rules has a `RulesStatus` of its own, so a mod using both could not name it), and what needs it throws `NotSupportedException` with the reason. Without the dispatcher, data-only arsenals still work; without the registry map, no arsenal can be written; without the attack targets, overrides are off. The AI switch needs none of them. Creatures run on either way (lab, with each target's pattern broken in turn). With no hooks loaded Kiln's kinds in a record are harmless: the game reads them as false and no-op.
 
 **Cost, lab, 100 Vukahs fighting in pairs, each with 3 rules on Kiln's kinds and an allow mask** (4 runs of 400 steps):
 
@@ -537,6 +537,11 @@ It spawns transient Vukahs 60 m from the base and destroys them; it unloads and 
 
 `mods/tests/npc-rules-test/` and its `Companion/` build the same way (`NpcRulesTest.csproj` to `$KILN_OUT/mods/npc-rules-test`, `Companion/NpcRulesCompanion.csproj` to `$KILN_OUT/mods/npc-rules-companion`), and need the
 `force-ready` file. Forced-ready creatures fight each other; `grep -a npc-rules-test <lab>/kiln/logs/kiln.log` ends in a summary. To see what happens when a target does not resolve, break that symbol's pattern in the lab's `kiln/sigdb/server.d/creatures.json`: the test runs its short path.
+
+`mods/tests/npcai-test` (kiln.npcai and the AI blocks; `NpcAiTest.csproj` to `$KILN_OUT/mods/npcai-test`) needs the file as well. The switch is read once,
+when the service gets ready, so the file must be there before the server starts. Without it `ForceReady()` throws `NotSupportedException` ("force
+ready: unavailable"), whatever the entity: npcai-test then counts its four sections with forced-ready creatures (natural, rows, filter, rules) as one
+FAIL each, with the file's name, and creatures-test skips its readiness checks with an INFO line.
 
 ## Manual test (needs a joined player)
 

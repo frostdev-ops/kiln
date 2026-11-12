@@ -1,0 +1,114 @@
+{
+  "programs": [
+    {
+      "key": "spell-lob.impact",
+      "guid": "24c3b40a-ee64-5483-a3d6-c9dc3309e446",
+      "size": 1996
+    }
+  ],
+  "templates": [
+    {
+      "guid": "30bbffb4-ead1-56e7-9e57-f3b9a15b0069",
+      "name": "golden-items.spell-lob.impact",
+      "base": "Explosion_Player_Spell_Fireball_1",
+      "fields": {
+        "Impact.program": "24c3b40a-ee64-5483-a3d6-c9dc3309e446"
+      }
+    },
+    {
+      "guid": "16c7ccf8-084a-56a1-b0f0-9221e97e3030",
+      "name": "golden-items.spell-lob.projectile",
+      "base": "Projectile_Player_Staff_Fireball_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.5,
+        "LifeTime.lifeTime": 5
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "30bbffb4-ead1-56e7-9e57-f3b9a15b0069"
+  },
+  "items": [
+    {
+      "guid": "7a38e948-6c43-51fa-986c-013fedb869b4",
+      "name": "golden-items.spell-lob",
+      "base": "Ammo_T1_Spell_Fire_Ball_lvl10",
+      "displayName": "Lob",
+      "description": "",
+      "fields": {
+        "maxStackSize": 200,
+        "itemLevelRange.minLevel": 6,
+        "itemLevelRange.maxLevel": 6,
+        "equipment.placedEntityLocalSpawnVelocity.z": 30,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.605263157894737,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 1,
+        "damageSetup.distribution.magicalIceDamage": 0,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {
+        "equipment.placedEntity": "16c7ccf8-084a-56a1-b0f0-9221e97e3030",
+        "equipment.visualEntity": "item:Ammo_T1_Spell_Fire_Ball_lvl10"
+      }
+    }
+  ],
+  "itemRules": {
+    "impactValues.ManaCost": 25,
+    "impactValues.0x579b2657": 2.5,
+    "impactValues.StaminaCost": 4,
+    "sequences[0].sequence": "Attack_Player_Staff_FixedAnim_Fireball_fast",
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 25
+      },
+      {
+        "locaId": "0x5c76837c",
+        "valueFormat": "Duration",
+        "value": 2500
+      },
+      {
+        "locaId": "0xaa06e3ec",
+        "valueFormat": "Normal",
+        "value": 4
+      },
+      {
+        "locaId": "0xc9d82dea",
+        "valueFormat": "Float",
+        "value": 400
+      }
+    ]
+  },
+  "recipes": [
+    {
+      "guid": "5ae30bb1-ba87-53ca-a606-b1390bca4bc9",
+      "name": "golden-items.spell-lob.recipe",
+      "station": "hand",
+      "menu": null,
+      "seconds": null,
+      "fields": null,
+      "inputs": [
+        {
+          "item": "Material_T1_Wood_Logs",
+          "count": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "golden-items.spell-lob",
+          "count": 20
+        }
+      ]
+    }
+  ]
+}

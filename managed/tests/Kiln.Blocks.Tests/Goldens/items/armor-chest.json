@@ -1,0 +1,78 @@
+{
+  "items": [
+    {
+      "guid": "b362f9c8-d3e1-5d45-b701-b882e0a35ce0",
+      "name": "golden-items.armor-chest",
+      "base": "Armor_T0_Fur_Chest",
+      "displayName": "Chest",
+      "description": "",
+      "fields": {
+        "rarity": "Uncommon",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 10,
+        "itemLevelRange.maxLevel": 10,
+        "armorSetup.distribution.physical": 0.23121386766433716,
+        "armorSetup.distribution.magical": 0.06936416029930115,
+        "armorSetup.distribution.cut": 0,
+        "armorSetup.distribution.pierce": 0,
+        "armorSetup.distribution.blunt": 0,
+        "armorSetup.distribution.fire": 0.028901733458042145,
+        "armorSetup.distribution.ice": 0,
+        "armorSetup.distribution.fog": 0,
+        "armorSetup.distribution.lightning": 0
+      },
+      "refs": {}
+    }
+  ],
+  "itemParts": {
+    "model": "item:Armor_T1_Warrior_DPS_Chest",
+    "icon": "item:Armor_T1_Warrior_DPS_Chest"
+  },
+  "itemRules": {
+    "uiValues": [
+      {
+        "locaId": "0x88fbd16d",
+        "valueFormat": "Normal",
+        "value": 10
+      },
+      {
+        "locaId": "0xf38b388c",
+        "valueFormat": "Normal",
+        "value": 60
+      },
+      {
+        "locaId": "0xf4f5c558",
+        "valueFormat": "Percentage",
+        "value": 5
+      }
+    ],
+    "impactValues.0x17147b63": 10,
+    "impactValues.0x9d74c0c0": 60,
+    "impactValues.0x0f614860": 0.05
+  },
+  "itemDataRules": {
+    "perkReferences[0]": "Perk_Damage_Ice"
+  },
+  "recipes": [
+    {
+      "guid": "f71d76d7-b973-500b-bc88-a430b4ce93f4",
+      "name": "golden-items.armor-chest.recipe",
+      "station": "hand",
+      "menu": null,
+      "seconds": null,
+      "fields": null,
+      "inputs": [
+        {
+          "item": "Material_T1_Fur",
+          "count": 3
+        }
+      ],
+      "outputs": [
+        {
+          "item": "golden-items.armor-chest",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

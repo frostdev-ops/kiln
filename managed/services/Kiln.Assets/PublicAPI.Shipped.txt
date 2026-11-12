@@ -1,0 +1,68 @@
+#nullable enable
+Kiln.AssetKey
+Kiln.AssetKey.AssetKey() -> void
+Kiln.AssetKey.AssetKey(System.Guid guid, string! typeName, uint part = 0) -> void
+Kiln.AssetKey.AssetKey(System.Guid guid, uint type, uint part = 0) -> void
+Kiln.AssetKey.Guid.get -> System.Guid
+Kiln.AssetKey.Part.get -> uint
+Kiln.AssetKey.Type.get -> uint
+Kiln.Assets
+Kiln.BlobEntry
+Kiln.BlobEntry.BlobEntry() -> void
+Kiln.BlobEntry.BlobEntry(Kiln.ContentHash Hash, Kiln.BlobKind Kind, string! Mod) -> void
+Kiln.BlobEntry.Deconstruct(out Kiln.ContentHash Hash, out Kiln.BlobKind Kind, out string! Mod) -> void
+Kiln.BlobEntry.Equals(Kiln.BlobEntry other) -> bool
+Kiln.BlobEntry.Hash.get -> Kiln.ContentHash
+Kiln.BlobEntry.Hash.init -> void
+Kiln.BlobEntry.Kind.get -> Kiln.BlobKind
+Kiln.BlobEntry.Kind.init -> void
+Kiln.BlobEntry.Mod.get -> string!
+Kiln.BlobEntry.Mod.init -> void
+Kiln.BlobKind
+Kiln.BlobKind.Added = 0 -> Kiln.BlobKind
+Kiln.BlobKind.Override = 1 -> Kiln.BlobKind
+Kiln.ContentHash
+Kiln.ContentHash.ContentHash() -> void
+Kiln.ContentHash.Equals(Kiln.ContentHash other) -> bool
+Kiln.ContentHash.H0.get -> uint
+Kiln.ContentHash.H1.get -> uint
+Kiln.ContentHash.H2.get -> uint
+Kiln.ContentHash.Size.get -> uint
+Kiln.IconState
+Kiln.IconState.Failed = 3 -> Kiln.IconState
+Kiln.IconState.None = 0 -> Kiln.IconState
+Kiln.IconState.Pending = 1 -> Kiln.IconState
+Kiln.IconState.Served = 2 -> Kiln.IconState
+const Kiln.AssetKey.ItemInfoType = 3050211173 -> uint
+const Kiln.AssetKey.UiTextureType = 4192758167 -> uint
+override Kiln.BlobEntry.GetHashCode() -> int
+override Kiln.ContentHash.Equals(object? obj) -> bool
+override Kiln.ContentHash.GetHashCode() -> int
+override Kiln.ContentHash.ToString() -> string!
+static Kiln.Assets.AddBlob(byte[]! bytes) -> Kiln.ContentHash
+static Kiln.Assets.Available.get -> bool
+static Kiln.Assets.Dump(string! spec) -> string!
+static Kiln.Assets.IconStateOf(System.Guid itemGuid) -> Kiln.IconState
+static Kiln.Assets.ListAllBlobs() -> System.Collections.Generic.IReadOnlyList<Kiln.BlobEntry>!
+static Kiln.Assets.ListBlobs() -> System.Collections.Generic.IReadOnlyList<Kiln.BlobEntry>!
+static Kiln.Assets.ListResources(uint type) -> Kiln.AssetKey[]!
+static Kiln.Assets.LoadManifest(string! modDirectory) -> string!
+static Kiln.Assets.Override(Kiln.AssetKey key, byte[]! bytes) -> void
+static Kiln.Assets.OverrideBlob(Kiln.ContentHash hash, byte[]! bytes) -> void
+static Kiln.Assets.OverrideTexture(Kiln.AssetKey key, byte[]! png) -> void
+static Kiln.Assets.ReadResource(Kiln.AssetKey key) -> byte[]?
+static Kiln.Assets.Reflect(Kiln.AssetKey key) -> Kiln.ReflectedResource?
+static Kiln.Assets.Register(Kiln.AssetKey key, byte[]! bytes, bool? mustBeNew = null) -> void
+static Kiln.Assets.RegisterIcon(System.Guid itemGuid, byte[]! png) -> void
+static Kiln.Assets.RegisterIcon(System.Guid itemGuid, string! pngPath) -> void
+static Kiln.Assets.RemoveBlob(Kiln.ContentHash hash) -> void
+static Kiln.Assets.RemoveIcon(System.Guid itemGuid) -> void
+static Kiln.Assets.RemoveResource(Kiln.AssetKey key) -> void
+static Kiln.Assets.Status() -> string!
+static Kiln.Assets.TypeHash(string! name) -> uint
+static Kiln.BlobEntry.operator !=(Kiln.BlobEntry left, Kiln.BlobEntry right) -> bool
+static Kiln.BlobEntry.operator ==(Kiln.BlobEntry left, Kiln.BlobEntry right) -> bool
+static Kiln.ContentHash.operator !=(Kiln.ContentHash a, Kiln.ContentHash b) -> bool
+static Kiln.ContentHash.operator ==(Kiln.ContentHash a, Kiln.ContentHash b) -> bool
+~override Kiln.BlobEntry.Equals(object obj) -> bool
+~override Kiln.BlobEntry.ToString() -> string

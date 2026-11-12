@@ -110,6 +110,14 @@
 .k-muted { color: var(--k-text-2); }
 .k-dim { color: var(--k-text-2); opacity: .85; }
 .k-ellipsis { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a path shortened in the middle (PathText): the head gives way first, the last name stays */
+.k-path { display: inline-flex; min-width: 0; max-width: 100%; white-space: nowrap; vertical-align: bottom; }
+.k-path-head { flex: 0 1 auto; min-width: 1.5em; overflow: hidden; text-overflow: ellipsis; }
+.k-path-tail { flex: 0 0 auto; max-width: 75%; overflow: hidden; text-overflow: ellipsis; }
+/* the data folder's dialogs: one line under the facts (components/DataFolderSettings.tsx, shell/DataFolderGate.tsx) */
+.k-df-line { margin: 10px 0 0; font-size: 16px; line-height: 1.35; color: var(--k-text-1); overflow-wrap: anywhere; }
+.k-df-list { margin: 4px 0 0; padding-left: 20px; }
+.k-df-gate { position: fixed; inset: 0; background: var(--k-bg-0); }
 .k-hr { border: 0; height: 1px; background: var(--k-line); margin: 4px 0; }
 
 /* ---------------------------------------------------------------- sections (the old cards: titled groups on the sheet) */
@@ -333,13 +341,18 @@
 @keyframes k-in { from { opacity: .1; translate: 0 14px; } }
 
 /* ---------------------------------------------------------------- toasts: bottom left */
-.k-toasts { position: fixed; left: 48px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 96px)); max-height: calc(100dvh - 48px); overflow-y: auto; pointer-events: none; }
+/* a notice never takes the screen: the stack is at most 60% of the window (it scrolls), a detail shows 4 lines until
+   "Show all" (Toast.tsx Detail), and an opened one scrolls inside its toast past 40% of the window */
+.k-toasts { position: fixed; left: 48px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 96px)); max-height: min(calc(100dvh - 48px), 60dvh); overflow-y: auto; pointer-events: none; }
 .k-toast { flex-shrink: 0; pointer-events: auto; display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px 11px 16px; border-radius: var(--k-radius-m);
   background: var(--k-bg-2); box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 18px 40px rgba(0, 0, 0, .6); animation: k-toast .42s var(--k-spring) backwards; }
 .k-toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .k-toast-title { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 18px; color: var(--k-text-0); overflow-wrap: anywhere; }
 .k-toast-err .k-toast-title { color: var(--k-err); }
-.k-toast-detail { color: var(--k-text-2); font-size: 15.5px; overflow-wrap: anywhere; }
+.k-toast-detail { color: var(--k-text-2); font-size: 15.5px; line-height: 1.4; overflow-wrap: anywhere; max-height: calc(4 * 1.4em); overflow: hidden; }
+.k-toast-detail[data-cut] { -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); mask-image: linear-gradient(to bottom, #000 60%, transparent); }
+.k-toast-detail[data-open] { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
+.k-toast-more { align-self: flex-start; margin-top: 2px; font-size: 14.5px; }
 .k-toast-earlier { margin-top: 6px; }
 .k-toast-earlier-title { color: var(--k-text-0); }
 .k-toast-earlier[data-kind="err"] .k-toast-earlier-title { color: var(--k-err); }
@@ -569,3 +582,8 @@
 /* Settings, Profiles (components/ProfilesSettings.tsx) */
 .k-profiles { list-style: none; margin: 0; padding: 0; }
 .k-profiles .k-list-item { gap: 10px; }
+
+/* the notes about mod folders (components/FolderNotes.tsx): desktop dialog and the Deck's */
+.k-folder-notes { display: flex; flex-direction: column; gap: 14px; overflow-wrap: anywhere; }
+.k-folder-notes-section h3 { margin: 0 0 4px; }
+.k-folder-notes-section ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }

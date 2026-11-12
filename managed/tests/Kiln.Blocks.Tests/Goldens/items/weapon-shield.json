@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "guid": "511b9ebd-65a6-5dc8-bf34-56f1b3e33169",
+      "name": "golden-items.weapon-shield",
+      "base": "Shield_T1_DPS",
+      "displayName": "Shield",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "blockSetup.quality": 0.6
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

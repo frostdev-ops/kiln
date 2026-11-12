@@ -19,8 +19,12 @@
 //             reader; copied for consistency)
 //   perks     perkReferences[i] + perkIds[i] (perkId = FNV-1a(perk GUID): the PerkRegistry's key)
 // Evidence and the consumers of each field: docs/re/content.md section 8.
+#include <windows.h>
+
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <unordered_map>
@@ -28,6 +32,7 @@
 
 #include "refs.h"
 #include "services/kiln_assets.h"
+#include "services/kiln_profile.h"
 #include "services/kiln_spawn.h"
 #include "services/kiln_worldtables.h"
 
@@ -186,6 +191,109 @@ bool item_spec(const Schema& s, const std::string& spec, const Field& target, co
     return false;
 }
 
+// ---- a model a mod declares, on a dedicated server that did not cook it -------------------------------------------
+// A mod's own model (its assets/assets.json lists it as a keen::RenderModel resource) is served only where the mod was cooked.
+// A dedicated server draws nothing and is never cooked: kiln.assets keeps nothing of an entry whose file is missing
+// (assets.cpp, load_manifest), so the item path refused such a model there and the item kept its starter's (a warning per
+// item, retried every ~2 s for good). The template path already lets models through on a server (gamedata_walk.cpp). Here
+// the item path does too, but only for a GUID that the definition's own mod declares as a model: the mod is loaded (its
+// definitions exist only then), a GUID no mod declares stays refused, and a hot-reloaded manifest is read again.
+namespace fs = std::filesystem;
+
+thread_local const std::string* t_kitbash_mod = nullptr;  // the definition being kitbashed: its mod's id (newcontent.cpp)
+std::mutex g_decl_mu;
+struct ModDecl {
+    fs::path manifest;
+    fs::file_time_type stamp{};
+    std::unordered_set<G, GH> models;
+};
+std::unordered_map<std::string, fs::path> g_mod_folders;  // mod id -> folder, refreshed on a miss
+std::unordered_map<std::string, ModDecl> g_decls;         // mod id -> what its manifest declares
+
+fs::path u8path(const std::string& s) { return fs::path(std::u8string(s.begin(), s.end())); }
+
+json read_jsonc(const fs::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return json();
+    const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return json::parse(text, nullptr, false, true);
+}
+
+// The mod folders Kiln.Host loads from: kiln.profile's managed mods, then kiln/mods (no .disabled marker).
+std::vector<fs::path> mod_folders() {
+    std::vector<fs::path> out;
+    std::error_code ec;
+    bool dropins = true;
+    if (const auto* pr = static_cast<const KilnProfileApi*>(g_api->service(KilnStr{KILN_PROFILE_SERVICE, std::strlen(KILN_PROFILE_SERVICE)}, 1));
+        pr && pr->mode && pr->count && pr->get && pr->dropins) {
+        const uint32_t mode = pr->mode();
+        if (mode == KILN_PROFILE_NO_MODS || mode == KILN_PROFILE_INVALID) return out;
+        if (mode == KILN_PROFILE_ACTIVE || mode == KILN_PROFILE_ONCE) {
+            dropins = (pr->dropins() & (1u << KILN_PROFILE_KIND_KILN)) != 0;
+            for (uint32_t i = 0, n = pr->count(KILN_PROFILE_KIND_KILN); i < n; ++i) {
+                KilnProfileMod m{};
+                m.size = sizeof m;
+                if (pr->get(KILN_PROFILE_KIND_KILN, i, &m) == KILN_OK && m.enabled && m.path.ptr && m.path.len) out.push_back(u8path(std::string(m.path.ptr, m.path.len)));
+            }
+        }
+    }
+    if (!dropins) return out;
+    const fs::path root = u8path(mods_dir());
+    for (auto it = fs::directory_iterator(root, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+        if (it->is_directory(ec) && !fs::exists(it->path() / ".disabled", ec)) out.push_back(it->path());
+    return out;
+}
+
+fs::path folder_of(const std::string& id) {
+    std::error_code ec;
+    if (auto it = g_mod_folders.find(id); it != g_mod_folders.end() && fs::exists(it->second / "kiln.mod.json", ec)) return it->second;
+    g_mod_folders.clear();
+    for (const fs::path& d : mod_folders()) {
+        const json m = read_jsonc(d / "kiln.mod.json");
+        if (m.is_object() && m.contains("id") && m["id"].is_string()) g_mod_folders.emplace(m["id"].get<std::string>(), d);
+    }
+    const auto it = g_mod_folders.find(id);
+    return it == g_mod_folders.end() ? fs::path() : it->second;
+}
+
+// The models an assets.json declares: its "resource" entries of type keen::RenderModel (keen::Model references resolve to it).
+void declared_models(const json& manifest, std::unordered_set<G, GH>* out) {
+    if (!manifest.is_object() || !manifest.contains("entries") || !manifest["entries"].is_array()) return;
+    size_t index = 0;
+    for (const json& e : manifest["entries"]) {
+        const size_t at = index++;
+        if (!e.is_object()) continue;
+        const char* invalid = nullptr;
+        for (const char* key : {"kind", "type", "guid"})
+            if (e.contains(key) && !e[key].is_string()) { invalid = key; break; }
+        if (invalid) {
+            const std::string name = e.contains("name") && e["name"].is_string() ? e["name"].get<std::string>() : "unnamed";
+            LOGW("item models: assets/assets.json entry %zu (%s): %s must be a string (skipped)", at, name.c_str(), invalid);
+            continue;
+        }
+        uint8_t g[16];
+        if (e.value("kind", "") == "resource" && e.value("type", "") == "keen::RenderModel" && guid_parse(lower(e.value("guid", "")), g))
+            out->insert(gof(g));
+    }
+}
+
+bool declared_by_own_mod(const uint8_t g[16]) {
+    if (!t_kitbash_mod || t_kitbash_mod->empty()) return false;
+    std::lock_guard lock(g_decl_mu);
+    const fs::path folder = folder_of(*t_kitbash_mod);
+    if (folder.empty()) return false;
+    const fs::path mf = folder / "assets" / "assets.json";
+    std::error_code ec;
+    const auto stamp = fs::last_write_time(mf, ec);
+    if (ec) return false;
+    ModDecl& d = g_decls[*t_kitbash_mod];
+    if (d.manifest != mf || d.stamp != stamp) {
+        d = ModDecl{mf, stamp, {}};
+        declared_models(read_jsonc(mf), &d.models);
+    }
+    return d.models.count(gof(g)) != 0;
+}
+
 // One reference value for `f`: true + bytes, or false + why.
 bool resolve(const Schema& s, const Field& f, const std::string& spec, const ItemFind& find, const Pools& p,
              uint8_t out[16], uintptr_t* from_item, const Field** from_field, std::string* why) {
@@ -222,6 +330,9 @@ bool resolve(const Schema& s, const Field& f, const std::string& spec, const Ite
     if (f.type_name == "keen::ecs::TemplateReference" && gd_template_defined(out)) return true;
 #endif
     if (asset_served(f.type_name, out)) return true;
+    // a dedicated server that did not cook: a model the definition's own mod declares is carried as the GUID for its clients
+    static const bool server = GetModuleHandleA("enshrouded_server.exe") != nullptr;
+    if (server && f.type_name == "keen::ObjectReference<keen::Model>" && declared_by_own_mod(out)) return true;
     if (f.path == "equipment.voxelData.placeVoxelMaterial" && world_material(out)) return true;
     *why = f.path + ": " + spec + " is not a " + type_short(f.type_name) + " the game has loaded (no loaded item uses it" +
            (f.type_name == "keen::ecs::TemplateReference" ? ", it is not a loaded template" : "") +
@@ -519,5 +630,8 @@ std::string refs_info_json(const Schema& s, const std::vector<uintptr_t>& items)
     j["templates"] = spawn_api() != nullptr;
     return j.dump();
 }
+
+// newcontent.cpp: the mod whose definition the next kitbash calls on this thread work for (null: none, as for a game item's rule).
+void set_kitbash_mod(const std::string* mod) { t_kitbash_mod = mod; }
 
 }  // namespace kc

@@ -86,7 +86,13 @@ pub struct GameStatus {
     pub started: Option<String>,
     pub steam_updating: bool,
     pub runtime: crate::install::InstallState,
+    /// The profile of this data folder that is active in the game. None also when another data folder's profile is
+    /// (then `other_folder_profile`).
     pub active_profile: Option<String>,
+    /// Another data folder's profile is active in the game (another launcher, a `KILN_DATA_DIR`, a launcher before
+    /// dev.26 after a move: `profile::game_profile_owner`): said, never shown as loaded. Left out when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_folder_profile: Option<OtherFolderProfile>,
     /// kiln/play-once.ini still exists (the proxy has not consumed it).
     pub play_once_pending: bool,
     pub boot: Option<BootJson>,
@@ -95,6 +101,16 @@ pub struct GameStatus {
     /// runtime's): they may fail to load until Kiln is updated on the Runtime page.
     #[serde(default)]
     pub newer_mods: Vec<crate::profile::NewerKilnMod>,
+}
+
+/// `GameStatus.other_folder_profile`: the id of another data folder's profile active in the game, and the data folder
+/// its paths name (Z and native mode; left out in copy mode).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtherFolderProfile {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
 }
 
 pub const CLIENT_EXE: &str = "enshrouded.exe";
@@ -510,7 +526,11 @@ pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) 
         .and_then(|l| steam::app_manifest(l, install.app_id).ok().flatten())
         .is_some_and(|m| m.updating);
     let runtime = crate::install::status(dirs, install).unwrap_or_else(|_| fallback_install_state(install));
-    let active_profile = crate::profile::read_game_profile(&install.path).ok().flatten().map(|p| p.id);
+    let (active_profile, other_folder_profile) = match crate::profile::game_profile_owner(dirs, install) {
+        Ok(crate::profile::GameProfileOwner::Here { id }) => (Some(id), None),
+        Ok(crate::profile::GameProfileOwner::Elsewhere { id, root }) => (None, Some(OtherFolderProfile { id, root })),
+        _ => (None, None),
+    };
     let boot = crate::state::read_boot(&install.path).ok().flatten();
     let newer_mods = newer_mods(dirs, &runtime, active_profile.as_deref());
     Ok(GameStatus {
@@ -521,6 +541,7 @@ pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) 
         steam_updating,
         runtime,
         active_profile,
+        other_folder_profile,
         play_once_pending: install.path.join(crate::paths::game::PLAY_ONCE).is_file(),
         boot,
         launch_options: launch_options_info(install, roots),

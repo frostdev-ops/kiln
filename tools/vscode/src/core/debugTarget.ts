@@ -2,9 +2,9 @@
 // What the debugger attaches to: the server's Wine prefix, the wine it runs under (same wine, so same wineserver),
 // its Windows pid, and the netcoredbg to use. Read-only: /proc and `wine tasklist.exe` in the prefix.
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { ProxySpec, scrubWineEnv } from "./dap";
+import { kilnDataDir } from "./dataDir";
 import { run } from "./proc";
 import { expandHome, protectedReason, ServerDef, serverPids } from "./servers";
 
@@ -177,11 +177,7 @@ export function wineEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 export function netcoredbgCandidates(setting: string | undefined, env: NodeJS.ProcessEnv = process.env, bundled?: string): string[] {
   const explicit = setting || env.KILN_NETCOREDBG;
   if (explicit) return [expandHome(explicit)];
-  const data =
-    env.KILN_DATA_DIR ||
-    (process.platform === "win32"
-      ? path.join(env.LOCALAPPDATA ?? os.homedir(), "Kiln")
-      : path.join(env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "kiln"));
+  const data = kilnDataDir(env);  // a data folder moved in the launcher is followed through its pointer
   return [path.join(data, "tools", "netcoredbg", "netcoredbg.exe"), ...(bundled ? [bundled] : [])];
 }
 

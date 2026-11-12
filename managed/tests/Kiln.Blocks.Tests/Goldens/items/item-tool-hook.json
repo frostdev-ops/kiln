@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "guid": "e4b67a6c-0ca7-5eba-a2b0-1a4349a2c9d7",
+      "name": "golden-items.item-tool-hook",
+      "base": "Tool_Grappling_Hook",
+      "displayName": "Long Hook",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0xb78235f8": 20,
+    "impactValues.0xf76c843c": 20
+  }
+}

@@ -195,12 +195,15 @@ internal static unsafe class AbilitiesDispatch
 
     // ----------------------------------------------------------------------------------------------- wraps (job) ---
 
-    private sealed class WrapEntry
+    internal sealed class WrapEntry
     {
         public required uint Hash;
         public required NativeWrapHandler Handler;
         public required int Priority;
         public required ModContext? Mod;
+        // NativeCall.Bytes for this handler: the gate's answer for Mod, decided at registration (where the mod is known)
+        // and read by every call of the handler on the job threads.
+        public required bool RawAllowed;
         public long Order;
         public int Faults;
         public bool Active = true;
@@ -222,12 +225,7 @@ internal static unsafe class AbilitiesDispatch
         Ensure();
         var t = AbilitiesNative.Require("Abilities.Natives.Wrap");
         var mod = ModContext.CurrentMod;
-        var e = new WrapEntry { Hash = hash, Handler = handler, Priority = priority, Mod = mod, Order = Interlocked.Increment(ref _order) };
-        lock (Gate)
-        {
-            var cur = Wraps.TryGetValue(hash, out var a) ? a : [];
-            Wraps[hash] = cur.Append(e).OrderByDescending(x => x.Priority).ThenBy(x => x.Order).ToArray();
-        }
+        var e = Insert(hash, handler, priority, mod);
         var rc = t->NativeWrap(hash, 1);
         if (rc != AbilitiesNative.Ok)
         {
@@ -239,7 +237,24 @@ internal static unsafe class AbilitiesDispatch
         return new WrapHandle(e);
     }
 
-    private static void RemoveWrap(WrapEntry e)
+    // Puts the handler in the job-thread table (no native call: AddWrap asks the core to route the native here). The
+    // registering mod is known here, so NativeCall.Bytes' answer for it is decided here (tests call this directly).
+    internal static WrapEntry Insert(uint hash, NativeWrapHandler handler, int priority, ModContext? mod)
+    {
+        var e = new WrapEntry
+        {
+            Hash = hash, Handler = handler, Priority = priority, Mod = mod, RawAllowed = mod is { Info.Advanced: true },
+            Order = Interlocked.Increment(ref _order),
+        };
+        lock (Gate)
+        {
+            var cur = Wraps.TryGetValue(hash, out var a) ? a : [];
+            Wraps[hash] = cur.Append(e).OrderByDescending(x => x.Priority).ThenBy(x => x.Order).ToArray();
+        }
+        return e;
+    }
+
+    internal static void RemoveWrap(WrapEntry e)
     {
         bool empty;
         lock (Gate)
@@ -283,7 +298,7 @@ internal static unsafe class AbilitiesDispatch
                 ModContext.CurrentMod = h.Mod;
                 try
                 {
-                    var call = new NativeCall(c);
+                    var call = new NativeCall(c, h.Mod, h.RawAllowed);
                     h.Handler(ref call);
                 }
                 catch (Exception e)

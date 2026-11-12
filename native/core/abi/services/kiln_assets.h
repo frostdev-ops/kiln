@@ -84,8 +84,28 @@ enum {
 enum {
     KILN_ASSET_PUT_NEW = 1,      /* the key must not exist in the game (a new resource) */
     KILN_ASSET_PUT_OVERRIDE = 2, /* the key must exist in the game (replace its bytes) */
+    KILN_ASSET_PUT_PIN = 4,      /* pin the key for this process (below); combines with either of the above */
     /* neither: either */
 };
+
+/* KILN_ASSET_PUT_PIN (appended in dev.26; an older kiln.assets ignores the bit and puts as usual).
+ *  Who: native services only, for a resource the process must not see change once a service has built it. Today one
+ *   caller uses it: kiln.playeranim, for its merged player graph. Mods never pass it: no managed call passes it and
+ *   assets.json has no mode for it. kiln.assets cannot tell callers apart; the first pin of a key holds.
+ *  What a pin does: the put goes through as usual, then the key is pinned until the process ends. Its item is the only
+ *   one of that key and the one served from then on. A pinned key takes no further resource_put from anyone, the
+ *   pinning owner included (KILN_ERR_UNAVAILABLE, nothing added, a warning in kiln.log naming the key), no
+ *   resource_remove from anyone (KILN_ERR_UNAVAILABLE, the bytes stay served), and no icon_register / icon_remove of
+ *   it (UI texture keys). revert_owner, and the revoke of the pinning owner, take that owner's other resources off and
+ *   leave the pinned one served. A pin is refused (KILN_ERR_UNAVAILABLE, nothing added) while another owner has an
+ *   item of the key: the later item of a key is the one served, so the pin could not hold.
+ *  The player graph is reserved at all times: the key {GUID 21319e83-5087-4fff-8795-22997843649e,
+ *   keen::anim_graph::runtime_graph::AnimationGraphResource2_0 (0xa345050e), part 0} takes only a put that carries
+ *   KILN_ASSET_PUT_PIN. Every other put of it (a code call, an assets.json "resource" entry, a field override through
+ *   Kiln.Api's reflected resources) is refused with KILN_ERR_UNAVAILABLE and a warning naming the key, from process
+ *   start: before kiln.playeranim has merged, and also when kiln.playeranim is off or has no states to merge (then the
+ *   game's own graph is served). Overriding a running player's graph ends the server; mods add player animation
+ *   states in assets/player-states.json and kiln.playeranim merges them into the graph once. */
 
 typedef struct KilnAssetsApi {
     KilnServiceHeader header; /* { sizeof(KilnAssetsApi), KILN_ASSETS_VERSION } */
@@ -108,8 +128,10 @@ typedef struct KilnAssetsApi {
      * resource_put: serve `data` (copied) for `key`: a new resource, or the replacement of a game resource (flags).
      *   The bytes are the resource exactly as the game keeps it (its reflected struct with its BlobArray/BlobString
      *   data behind it; self-relative offsets inside the copy). New resources of a type are added to the game's
-     *   list of that type.
-     * resource_remove: takes this owner's resource / override off.
+     *   list of that type. KILN_ERR_UNAVAILABLE: resources are off on this build, or the key is pinned or is the
+     *   reserved player graph (KILN_ASSET_PUT_PIN above).
+     * resource_remove: takes this owner's resource / override off. KILN_ERR_UNAVAILABLE: the key is pinned (nothing
+     *   is taken off, from any owner).
      * resource_read: the bytes the game gets for `key` now (an override if any, else the game's own). out_len is set
      *   even when the buffer is too small (KILN_ERR_BUFFER_TOO_SMALL). KILN_ERR_NOT_FOUND: no such resource.
      * resource_list: every key of a type (the game's plus new ones), out_count set even when cap is too small. */

@@ -5,8 +5,9 @@
 | C table | `native/core/abi/services/kiln_saves.h` (`kiln.saves` v1) |
 | Native | `native/services/saves/` -> `kiln/services/kiln-saves.dll` |
 | Symbols | `sigdb/symbols/server.d/saves.json` (features `saves.request`, `saves.write`, `saves.load`, `saves.reasons`) |
-| Managed | `managed/services/Kiln.Saves/` -> `kiln/host/Kiln.Saves.dll` (`Saves`, `WorldData`, `PlayerData`, `CharacterData`, `EntityData`, events) |
+| Managed | `managed/services/Kiln.Saves/` -> `kiln/host/Kiln.Saves.dll` (`Saves`, `WorldData`, `PlayerData`, `CharacterData`, `EntityData`, `InstanceData`, events) |
 | Test mod | `mods/tests/saves-test/` (five boots: SIGINT, 3x kill -9, restore) |
+| Unit tests | `managed/tests/Kiln.Saves.Tests/` (instance data: `InstanceMatcherTests`, `InstanceMatcherPropertyTests`, `InstanceStoreTests`, `InstanceApiTests`) |
 | Evidence | `docs/re/saves.md` |
 
 Forge equivalents: `LevelEvent.Save` → `WorldSavingEvent`, `LevelEvent.Load` → `WorldLoadedEvent`, `SavedData` →
@@ -19,6 +20,10 @@ Forge equivalents: `LevelEvent.Save` → `WorldSavingEvent`, `LevelEvent.Load` �
 | `WorldSavingEvent` | the game accepted a world save (autosave every 30 s, a player left, `Saves.Request`, `Saves.Backup`); before the game snapshots the world. For the shutdown save: right after `ServerStoppingEvent`, before mods unload | tick thread; normally inside the game's save request after Kiln waited for the world's jobs (= Post rules), `BeforeSnapshot` true | no | `Reason`, `Revision` (the world file's revision once written), `WorldId`, `WorldFile`, `BeforeSnapshot`, `Step` |
 | `WorldSavedEvent` | the world file is complete (or the write failed / a Kiln request timed out) | tick thread, Pre of the next step | no | `Reason`, `Success`, `Revision`, `Duration`, `Result`, `TimedOut`, `WorldId`, `WorldFile` |
 | `WorldLoadedEvent` | the server finished loading the world save | tick thread, Pre | no | `WorldId`, `Revision`, `NewWorld`, `Data` (`DataMatch`), `WorldFile` |
+| `InstanceDataChangedEvent` | `Set` or a successful `Remove` (in-place edits of a `Get` live object are not intercepted; use `Set` to announce them) | tick thread, server only | no | `Item`, `Mod`, `Key`, `Removed` (false: set; true: removed) |
+| `InstanceDataRestoredEvent` | a saved record found its item after a load or a join (one per key) | tick thread | no | `Item`, `Mod`, `Key`, `Match` (`Exact`, `Moved`), `Detail` |
+| `InstanceDataParkedEvent` | a record waits: its holder was not found this session, the player left with the item, or no item of the holder fits it (one per mod) | tick thread | no | `Holder`, `Character`, `FlatSlot`, `Item`, `Mod`, `Keys`, `Reason` (`HolderAway`, `PlayerLeft`, `NoCandidate`), `Detail` |
+| `InstanceDataLostEvent` | a record no longer goes with an item: destroyed, not found in 3 sessions, over the cap, or set aside because it was not certain (one per mod) | tick thread | no | `Item`, `LastRef`, `Mod`, `Keys`, `Reason` (`Destroyed`, `Unmatched`, `Ambiguous`, `Capped`), `Detail` |
 
 All fields are read-only. Data written to `WorldData`/`PlayerData`/`EntityData` in a `WorldSavingEvent` handler is part
 of that save's generation. Kiln.Saves starts by itself when a mod subscribes to one of these events or touches any of
@@ -58,7 +63,10 @@ public sealed class Bank : Mod
 | `WorldData.Get<T>(key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys` / `Loaded` | per world, per calling mod. `Get` creates `new T()`. JSON via System.Text.Json (public properties and fields) |
 | `PlayerData.Get<T>(steamId, key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys(steamId)` / `Players` | per world, per Steam id, per mod; the player need not be online. All characters of the account share it: for character progress use `CharacterData` |
 | `CharacterData.Get<T>(key or entity, k)`, `CharacterData.Carried.*` | per character, per mod: this world's record of the character, and what goes with it to other worlds. [character-data.md](character-data.md) |
-| `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); known, saved world templates with a position get it back after a restart. Inventory item entities are session-only. Player entities map to `PlayerData` (Steam id) |
+| `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); known, saved world templates with a position get it back after a restart. Inventory item entities are session-only here (`IsPersistent` is false for them): for data on one item use `InstanceData`. Player entities map to `PlayerData` (Steam id) |
+| `InstanceData.Key<T>(name, options)` → `InstanceKey<T>` | declares a key of the calling mod, once (a static field of the mod's class, or `OnLoad`); the same name again returns the same key, another type or other options throw `ArgumentException`. `InstanceKeyOptions { Persist = World / Carried / Session, Items }`. Declaring needs no capability. [Instance data](#instance-data-values-that-stay-with-one-item) |
+| `item.Get(key)` / `TryGet(key, out v)` / `Has(key)` / `Set(key, v)` / `Remove(key)` on an `ItemInstanceRef` | the value on that one item; `Get` gives a live object (create with `new T()`), saved with the world. `[ServerOnly]`, `[TickThreadOnly]` |
+| `InstanceData.All(key)` / `Parked(key)` | every item of this session with the key, with its value; the saved records that are not on an item now (`Waiting` or `SetAside`, with the reason; the values are copies) |
 
 Rules: tick thread, from mod code (handlers, `OnLoad`, tasks; in a hosted world, once `Saves.WorldDataReady`: see "In a game client"). Keys belong to the calling mod (`kiln.mod.json` id).
 A stored value that no longer reads as `T` throws `InvalidDataException` and is kept as it was. A mod reload keeps the
@@ -77,12 +85,255 @@ data (objects are serialized when the mod unloads and read into the new instance
 - Restoring an older world file brings back its mod data: Kiln keeps the newest 30 generations and every generation of
   a world file in the save folder or its `backup/` (the game's own 10 backups). An older restore (no generation kept)
   loads the newest older generation (`DataMatch.Older`, logged as a warning).
+- Instance data rides the same generation: at both stagings (`WorldSavingEvent` and the snapshot staging) the place and
+  record fields of every item with data are read fresh from the game and written as bundles `instances/<mod>` and
+  `character-instances/<character>/<mod>`, so a crash gives the old or the new generation of them too. Each staging uses
+  one batched item read and one identity lookup per holder (including synchronous move notices from those reads).
+  Player join/save inventories are not read while no instance key is declared and no holder has saved records; a key
+  first declared mid-visit cannot rely on inventory states from before it was declared.
 - Entities: attachments are stored with the entity's template and position at the save and given back to the loaded
   entity of that template there (props within 0.5 m; creatures and NPCs within 16 m, nearest unclaimed), retried for
   10 minutes after a load (entities stream in), kept for 3 sessions if never matched. This needs a known, saved
   template with `CurrentTransform`. DoNotSave templates (most enemies, loot pickups), inventory item entities,
   and unknown templates: session only. An inventory item's default position is not a persistent identity;
   old item attachments are never matched to a different sword after a restart.
+
+## Instance data: values that stay with one item
+
+```csharp
+using Kiln;
+
+public sealed class Kills { public int Count { get; set; } }
+
+public sealed class Swords : Mod
+{
+    private static readonly InstanceKey<Kills> KillsKey = InstanceData.Key<Kills>("kills");
+
+    // sword: an ItemInstanceRef (the item entity and its stamp) from Items.Held(player), an inventory read's
+    // Slots[i].Ref, or a give, take or move result
+    public void CountKill(ItemInstanceRef sword) => sword.Get(KillsKey).Count++;   // follows this sword, not the slot
+
+    public int KillsOf(ItemInstanceRef sword) => sword.TryGet(KillsKey, out var k) ? k.Count : 0;
+
+    [Subscribe]
+    private void OnLost(InstanceDataLostEvent e) => Log.Info($"{e.Mod} {string.Join(",", e.Keys)} on {e.Item}: {e.Reason} ({e.Detail})");
+}
+```
+
+**Status in this release:** the store, the matching and the API are proven by unit tests against a fake of the game's
+items (`managed/tests/Kiln.Saves.Tests`), and read the game through kiln.items' item instances (kiln.items v4:
+stamps, locations, save-record fields, the tracker; `InstanceGame.cs`). On a server whose kiln.items has no v4, or has
+the feature off, every call but `Key` throws `KilnUnavailableException("saves.instance_data")` naming `items.instances`
+in its reason.
+
+**What is proven where.** Items in chests and other world holders are proven on a lab server (a copy of a real world,
+no player, server 26430253; `mods/tests/instances-test`, run twice, the second time on the final code): two identical
+swords with different values, moved within a chest, swapped, moved between chests, by the game's move all and by a
+move no hook sees, each had its own value after a stop, after `kill -9` between saves and right after one, and after
+a restored backup (`Exact` every time); 1,000 tagged identical swords in 42 chests came back on their own items; a mod
+not loaded for one boot found its values on its items; where a holder had changed in a way Kiln could not follow
+(twins swapped in the first step after a load, an older generation, two chests of one template 0.3 m apart) the
+records were set aside. No item got another item's value in any run. Items in a player's inventory are not proven: a
+lab has no real player, so that half rests on unit tests against the fake and on the guided client checks
+(`mods/tests/instances-test/ClientChecks.cs`, [modding/inventory.md](../modding/inventory.md)), which have not run.
+
+| Capability | Means |
+|---|---|
+| `saves.instance_data` | `InstanceData` works: kiln.saves, kiln.items' item instances (`items.instances`), kiln.spawn's holder inspection/search/metadata, and the world's data open (`Saves.WorldDataReady`) |
+| `saves.instance_data.carried` | `Persist.Carried`: not available in this release; declaring such a key throws `KilnUnavailableException` |
+
+Both are rows of the [capability registry](caps.md), reported by Kiln.Saves; `Capabilities.Get` and
+`kiln/state/capabilities.json` show them. `saves.instance_data` says what the calls enforce; it is decided again at
+Kiln.Saves' start, in its pump (about once a second) and when the item source is set, a world closes or a world loads:
+
+| State | Reason | Text | When |
+|---|---|---|---|
+| unavailable | the reason of the row `kiln.saves` | the text of that row | kiln.saves is not there |
+| unavailable | the reason of the row of what is off (`items.instances` or `kiln.spawn`) when that row is unavailable; else `service-missing` (no item source at all), `service-older` (a `kiln.<service>` table without what is needed) or `faulted` | `needs <capability>: <why>` | the item source says no: kiln.items has no item instances (no v4, or the feature off), or kiln.spawn's entity inspection, template metadata or holder search is missing |
+| pending | `session` | `the hosted world's data opens when the game loads it (Saves.WorldDataReady)` | the world's data is not open: a hosted world between its start and the game's load, and again after a hosted world closed |
+| available | `none` | | otherwise |
+
+`saves.instance_data.carried` is unavailable, reason `policy`, with the sentence below.
+
+**The row exists only once Kiln.Saves has started.** A managed service's row is registered at its first use, after the
+manifests were checked, and `saves.instance_data` can be pending, so a manifest's `features` cannot require it. A mod
+asks `Capabilities.Is("saves.instance_data")` (or `Capabilities.Why` for a log line) at run time, or catches the
+`KilnUnavailableException` the calls throw.
+
+**`Persist.Carried` is not available yet.** `Persist.World` keeps the value on this world's save, the item in a player's
+inventory included; data that travels with a character between worlds is not available yet. Declaring a key with
+`Persist.Carried` throws `KilnUnavailableException("saves.instance_data.carried")` with that text as its reason.
+
+Errors follow [the contract](../modding/contract.md): a none ref, a ref without a stamp, a stale ref (the item is gone,
+or its id belongs to another item now), an item type the key does not allow, a value over 64 KB as JSON at `Set`:
+`ArgumentException`; `TryGet`, `Has` and `Remove` answer false for a stale ref. A stored value that does not read as
+`T`: `InvalidDataException`, kept as stored. Not the tick thread or not mod code: `InvalidOperationException`; a key whose
+mod instance unloaded: `InvalidOperationException` (declare it again).
+
+### Where it is kept
+| The item is in | Kept in | Scope |
+|---|---|---|
+| a chest, tombstone, station, NPC or animal | the world's generation | `instances/<mod>` |
+| a player's inventory (`Persist.World`) | this world's record of the character | `character-instances/<character key>/<mod>` (not listed by `CharacterData.Keys`) |
+| anywhere, `Persist.Session` | nowhere: this server session only | |
+
+One record per item: an item that moves from a chest to a player is written in the character's scope at the next save
+and is gone from the chest's; nothing is copied. A holder without a persistent identity (not saved with a position, or
+a player whose character has no id on this build) keeps its items' data for the session only, logged once; so does an
+item entity that sits in no holder's slot at the save.
+
+**Slot numbers.** A record's `slot` is kiln.items' flat slot, kept as an opaque number unique in its holder. 0 to 255
+are the numbers the game's own world and character saves use (Generic links only: 8 per Generic link before this one,
+plus the index). 256 and up are slots the game's save does not number that way (equipment, currency, customization,
+nested links: 256 + the link's position in the holder's link tree x 8 + index). Such a number means the same slot after
+a rejoin only if the player's link tree comes back the same; that is not proven without a player.
+
+### Bundle format (`format` 1)
+```json
+{ "format": 1, "scope": "instances/<mod>",
+  "holders": [ {
+    "holder": { "kind": "world", "template": "<guid>", "pos": [x, y, z], "mobile": false, "name": "<template name>" },
+             // or { "kind": "character", "character": "<account hex>.<character id>" }
+    "missed": 1,              // sessions the holder was not found (omitted: 0)
+    "crowded": true,          // another entity of its template stood within the radius at the save (omitted: false)
+    "aside": "<reason>",      // the holder itself was not certain: all its records are set aside
+    "last": 3011,             // a player: the newest witness taken while in game
+    "joins": 1,               // a player: joins counted (a join's witness id is 2147483648 + this count)
+    "witness": { "3011": { "settled": true,   // read at the snapshot staging or a shutdown save (see below)
+                           "items": [ [flat slot, item, count, level, dur, durMax, fuel, fuelMax, dye, perksAvail, perksUnlocked, gem, gemLevel], ... ] } },
+    "records": [ {
+      "id": "<16 hex>",       // joins the parts of one item in several mods' bundles
+      "slot": 3, "rec": [item, count, level, dur, durMax, fuel, fuelMax, dye, perksAvail, perksUnlocked, gem, gemLevel],
+      "seen": 3011,           // the save whose fresh read placed it (the key of its witness)
+      "state": "live",        // live (on its item at the save), waiting, aside
+      "why": "<reason>", "missed": 0, "since": 3011, "gone": true,
+      "alt": [ [2147483649, 10], [3010, 11] ],   // a player's: its slot at the other states the client may come back as (-1 not there, -2 not read)
+      "keys": { "<key>": <the value as JSON> } } ] } ] }
+```
+A witness is the holder's whole list of item entities at that save (also those without data). Each mod's bundle carries
+the holders and records of that mod; a reader joins records with the same id, slot, fields and `seen`. A witness written
+as a bare list (an earlier writer of format 1) reads as not settled. When the snapshot staging replaces a witness,
+an item not re-read as placed loses its observation for that generation; the new list never vouches for the first
+staging's old slot. This also applies to a player's inventory read without fresh tagged items and to pending leave records.
+
+### How the matching decides
+The game keeps no id for an item. A saved record is a holder, a flat slot (see "Slot numbers" above), an
+item id and the fingerprint of the save record: a stable part (item id, level, perks available and unlocked, gem item
+and level, dye) and a volatile part (durability and fuel, compared as ratios within 0.002, because a load rebuilds them
+from ratios). After a load or a join, per holder:
+
+Every record needs its **witness**, the holder's list at the save that placed it. A record without one (saved before
+any save could read its holder, for example an item a player got and left with before the next autosave) is set aside:
+without it nobody knows whether a look-alike stood beside it.
+
+1. **The holder is as it was saved, and as the loader made it.** Three things must hold, or rule 1 does not apply:
+   - *between the save and the load:* the holder's list now equals the record's witness, every slot and every field;
+     and for a world holder also the record was read at the save of the generation the world file vouches for (`Exact`
+     or `Staged`). Both, because a world file edited offline with its header revision and time kept loads as `Exact`;
+     its changed list shows. For a player the loaded data must also be `Exact`/`Staged` and the newest generation in the
+     store (no newer committed or pending manifest). Otherwise the client's character file may be newer than Kiln's
+     witnesses, so only rule 2 can attach. See "Players" below: every known state the character may come back as is compared;
+   - *at the save:* that witness is **settled**: read at the snapshot staging, where no simulation step comes before the
+     game's snapshot, or at a shutdown save. The first staging of a save is one step early, and a swap in that step is
+     saved by the game but not by Kiln;
+   - *between the load and the match:* the holder's items are as the loader made them in this session. Entity ids come
+     from one counter that only grows, and the loader makes a holder's items in one go, so the ids must ascend in
+     flat-slot order (no two items changed places), form one run right after the holder's own id (nothing made later or
+     brought in from elsewhere), and, when the generation's witness tells the loader's slots, fill exactly those slots
+     (nothing moved or taken out). Measured in the lab (server 26430253, 17 holders with item entities: 14 storage
+     chests and 3 stations, two restarts): every holder's item entities were one run of ids starting at the holder's own
+     id + 1, ascending with the flat slot across links; items given in another order before the restart failed the
+     check, as they should. Not measured: an NPC or animal that holds item entities, and a player's inventory (for a
+     player the run has no anchor; a guided check logs the ids). Where the check fails, rule 1 does not apply.
+     A player is checked link by link: the character loader makes the worn gear before the backpack (seen on a real
+     client's join in dev.26), so the ids ascend within each link, the links' runs do not overlap, and together they
+     form one run. A look-alike that sits in two links (a sword worn and its twin in the backpack) turns rule 1 off for
+     that join, since a swap between two one-item links leaves no trace in the ids.
+
+   Then a record goes to the item in its own slot if item id and stable fingerprint agree, twins included. Otherwise it
+   waits.
+2. **Otherwise** (an older generation, a character that comes back changed, a list that differs, an unsettled witness,
+   items that changed since the load): a record goes to an item only if that item is the one item of the holder with
+   its item id and stable fingerprint, no other record of the holder has that fingerprint, and its witness shows no
+   look-alike of it at the save either. In its own slot that is `Exact`, elsewhere `Moved`.
+3. **Not certain** (several candidates, several records, a look-alike gone since the save, no witness, an item that
+   already has data of this session): every such record is set aside and reported (`InstanceDataLostEvent`,
+   `Ambiguous`). It is kept, listed by `Parked` and `/instances`, and never attached automatically, also not in a later
+   session.
+4. **No candidate:** the record waits (`InstanceDataParkedEvent`, `NoCandidate`); after 3 sessions without its item it
+   is dropped (`Unmatched`).
+5. **The holder:** a world holder is the one unclaimed entity of its template within 0.5 m (props) or 16 m (creatures,
+   NPCs) of the saved position; two or more, or another one within the radius at the save: its records are set aside.
+   Holders not found yet are looked for during the whole session, 16 per tick (about a second) in turn, and at once when
+   a mod touches an item in one. So a chest that streams in late is matched within a pass (200 waiting holders: about
+   13 s), before players move its items about. A holder not found by the end of the first 10 minutes after a load counts
+   as missed for that session; found later, that is undone. A player is found by `CharacterKey` once the inventory is
+   initialized.
+
+A record read at an older save but carried into a newer generation unread (its holder was away) is not vouched for by
+that generation: it is matched by rules 2 to 4, or by its own witness.
+
+**A build without snapshot staging** (`Saves.SnapshotStagingAvailable` false; kiln.log says so once at start): no
+witness is settled except a shutdown save's, so identical items (twins) cannot be told apart after a restart there. They
+are set aside; an item without a look-alike still finds its record.
+
+**What nobody can detect:** two items with equal fingerprints swapped while no Kiln was watching, with nothing else in
+the holder changed; and an item removed while no Kiln was watching with a look-alike put in its place. Both look exactly
+like nothing happened.
+
+**Two identical items trade their data when they were swapped where Kiln did not see.** Two items with equal item id, level, perks, gem and dye, and the same durability and fuel, whose slots were swapped in another world, or anywhere Kiln did not see (a world file or a character file edited offline), come back by slot on the newest exact load, and the two items trade their data. Nothing reports it: no event, no log line, no `Parked` entry. It is the one case nobody can detect, because the holder looks exactly as it was saved.
+
+### Gone items, players, mods
+- **Destroyed** (trash, crafting, taken away) in a world holder: dropped at once (`Destroyed`).
+- **Gone from a player's inventory:** not decided in that step. If the same visit of the character is still in game
+  50 steps later, or its inventory was still there when the item went, it was destroyed. Both tests compare the
+  character and its session stamp, not just the reusable player entity slot. Another character using the slot, or the
+  same character rejoining it, is not evidence that the old visit stayed alive. If the player left, the record waits with the
+  character (`PlayerLeft`) and comes back at the next join. A save in between keeps such a record, but it may only come
+  back to an inventory that is as one of its saved states.
+- **A read that places an item nowhere** (for one step at a leave the item entities outlive the player entity) changes
+  nothing: the item keeps its last place, its holder and its newest observation. Staging keeps those items in their
+  original character's scope, separate from any new visit using the same player entity slot; stale items never rebind it.
+- **A leaving player** keeps its character: while an item stays in the same holder entity, a later lookup that finds no
+  character (a record already reset) never replaces the one known.
+
+### Players: which file comes back
+A player leaves in one of three ways (`out/instances/t3/leave-order.md` of the dev.25 wave): from the menu (a leave save
+while the player still counts as in game, its file sent and acknowledged, then the entities go), by a crash or a lost
+connection (no leave save: the client keeps the file of the last save it received, up to 30 s old, or older if sends
+failed), or with the server's shutdown. So a character may come back as any state the client got: the inventory it
+joined with, or the inventory at a later save. Kiln reads every player's inventory at its join and at every save (with
+data or not) and keeps, for the newest 5 of these states of the visit (the join and about two minutes of autosaves), where
+each item was. A record carries its slot in each. At the next join the inventory is compared with all of them: the
+states it equals must agree on the item's slot (then it attaches there, also from an older state), or all lack it (then
+it waits). States that disagree, which happens when look-alikes were moved within those two minutes, set the record
+aside. A save that could not read a player's inventory counts as a state nobody knows: a record with it is set aside.
+When the inventory is as the loader made it and the loaded generation is the newest, the look-alike doubt looks only at
+the states the client's file can be (those equal to the inventory now, and states read too early to settle); a
+look-alike that left the inventory before the leave no longer sets the record aside. A leave from the menu is read once,
+one step before the game writes the file, so two identical items still in the inventory at such a leave are set aside,
+never swapped (a shutdown save is read last and is not affected).
+What this rests on: the client's file is one of the newest 5 states (a connection dead for longer is timed out by the
+server), and the client's file changes only when the server sends the character back, which it does at its world saves.
+- **A mod that is not loaded:** its records are kept as JSON, unread, matched and moved with their item like any other,
+  and dropped only with the item.
+- **A mod's unload:** its live objects are written out as JSON and every reference to its types goes (keys included);
+  a reload of the same mod id declares its keys again and reads the same data.
+- **Hosted worlds:** the instance data closes and opens with the world, as the rest of the mod data.
+
+### Caps and cleanup
+- At most 256 records per holder per mod (on an item, waiting and set aside together). Over that, the oldest waiting or
+  set-aside records go first (`Capped`).
+- 64 KB per value as JSON, checked at `Set` (`ArgumentException`). A live object that grows past it is not written in
+  that state: its last form that fit is saved, logged once per item and key, shown by `/instances`.
+- A holder never found: kept 3 sessions, then dropped (`Unmatched`). A session without kiln.items' item instances does not
+  count, nor does a session in which holder search could not answer; its records ride into the next generation unchanged.
+
+### `/instances [player|entity]`
+Admin only, owned by "kiln" (node `kiln.command.instances`). Per mod: what is attached (item, holder, slot, keys), what
+waits and what is set aside (holder, slot, item, reason, sessions missed), and values that did not fit. A player name
+or an entity id (a holder or an item) narrows it. Kiln.Saves registers it late-bound, by name, when Kiln.Chat is loaded
+(the first key's declaration, or the first service tick); a mod that only stores data does not load the chat library.
 
 ## Saves
 
@@ -105,7 +356,8 @@ stopped: `tar -xzf <backup> -C <dir>`.
 kiln/data/worlds/<world id>/
   manifests/0000003010.pending.json        generation staged for revision 3010 (before the world write)
   manifests/0000003010-1793770110.json     ... confirmed after the write (file time 1793770110)
-  blobs/9f/9f3c...e1.json                  one bundle: world/<mod>, player/<steam id>/<mod>, character/<key>/<mod>, carried/<key>/<mod> or entity/<mod>
+  blobs/9f/9f3c...e1.json                  one bundle: world/<mod>, player/<steam id>/<mod>, character/<key>/<mod>, carried/<key>/<mod>,
+                                           entity/<mod>, instances/<mod> or character-instances/<key>/<mod>
 kiln/backups/<stamp>-<name>/backup.json, savegame/world0.ksd, worlds/<id>/{manifests,blobs}
 ```
 `kiln/data/worlds` is reserved (a mod with id `worlds` would clash with it).
@@ -149,4 +401,5 @@ The pump (`set_pump`) is taken by Kiln.Saves; native plugins poll `next_event` (
   Every world of a process starts as the first does. So decide nothing from "this key is not there" before `Saves.WorldDataReady`: `WorldLoadedEvent` is the moment. Before that fix the
   closed world's data stayed open: a later world read it in those 10 s (the Warden "was placed once in this world and is gone" while he stood there), and a new world filed its
   data under the old world's id. A save's late write still commits: what it reports after the close stays staged, and the load finds it. On a build without the game's load hook the data stays open, as before, with a warning.
-  Lab: `mods/tests/world-switch-test` plays the order with `Saves.LabCloseWorld` and `Saves.LabWorldLoaded`.
+  Lab: `mods/tests/world-switch-test` plays the order with `Saves.LabCloseWorld` and `Saves.LabWorldLoaded` (lab members:
+  `[Experimental("KILNX001")]` and hidden; a lab mod puts `KILNX001` in its `NoWarn`).

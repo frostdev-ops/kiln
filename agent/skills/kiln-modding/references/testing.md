@@ -87,6 +87,58 @@ public sealed class MyTests
 - Results: kiln.log lines `PASS` / `FAIL` / `SKIP` tagged `[mod:<id>]`, and `kiln/logs/tests/<id>.json`
   (`passed`, `failed`, `skipped`, `results[]` with `outcome`, `message`, `stack`).
 
+## Offline unit tests (Kiln.TestKit, dev.26+, in development)
+Runs a mod under `dotnet test` with no game: Kiln.Host's real loader, a tick thread of its own, console commands, fake
+players and saved data. Needs the dev.26 MDK (package `Kiln.TestKit`, same version as `Kiln.Sdk`). Page:
+`docs/kiln/modding/unit-tests.md`.
+```sh
+dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj && dotnet test MyMod.Tests
+```
+```csharp
+using var kiln = new KilnHarness();
+var mod = kiln.Load<MyMod.MyModMod>();          // a second, isolated copy, as the game loads it
+kiln.Step();                                    // first step: mods load, the server starts
+Assert.True(mod.IsLoaded, mod.Error ?? kiln.DumpLogs());
+var ada = kiln.Players.Join("Ada"); kiln.Step();
+var r = kiln.RunCommand(ada, "mymod status");   // or RunCommand(line) as the console
+var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As: it runs on the harness's tick thread
+```
+- `public sealed class ModKilnTests : KilnTestSuite<MyMod.MyModMod>;` (namespace `Kiln.TestKit.Xunit`) runs every
+  `[KilnTest]` as an xunit test, in the in-game runner's order.
+- Real offline: loading, lifecycle, events, scheduler, configs, commands, permissions, messages, locales, the fault policy.
+  Faked: players, `WorldData`/`PlayerData`, `EntityData` on player entities only. Everything else (spawn, items, combat,
+  content, chat's native side, network, rendering, hooks) reports itself unavailable, and a test that asked for one is
+  skipped with its name; `AllowUnavailable` lets a suite run anyway. `kiln.Capabilities.Override(name, available)`.
+- Gaps: a service that caches "no table" (`Kiln.Ui` render, `kiln.net` at the first channel) is asked once per process, so
+  a later test can pass where it should be skipped: read the service's `Available` in the test. No client/server pair.
+  One harness per process. A blocked test is stopped by the watchdog (Linux tested, Windows not).
+- Offline green is not a server or client check: run `kiln test` on a test server as well.
+
+## Guided client checks (`[ClientCheck]`, dev.26+, in development)
+For what only a player can judge. Nothing of the runner has run in a real client yet. Page: `docs/kiln/modding/testing.md`.
+```csharp
+public override void OnLoad() => ClientChecks.Register(this);      // Kiln.Testing
+[ClientCheck("blocks.frost-flash", "Frost flash on hit", Tags = [ClientCheckTags.Visual], Needs = ClientCheckNeeds.Hosted)]
+public async Task Frost_flash(CheckContext c)
+{
+    c.Instruct("Hit the dummy three times. Does a blue flash appear?");
+    await c.Until(() => Hits >= 3, TimeSpan.FromMinutes(2), "three hits");
+    c.Expect(Hits == 3, "three hits counted");
+    await c.Verdict();                                             // the player's pass, fail or skip
+}
+```
+- Tick thread, like `[KilnTest]`. `CheckContext`: `Instruct`, `Expect` (recorded, never changes the verdict), `Verdict`,
+  `OnEnd`, `Ticks`, `Until`, `Delay`, `Player` (`EntityId`), `Session`, `Cancellation`.
+- The player opens the list with Ctrl+Shift+F5 (Ctrl+Shift+F6/F7/F8: pass, fail, skip); verdicts go to `kiln/state/client-checks.json`.
+- A `cheats` check (level, xp, skill points, knowledge) starts only while the player's achievement guard protects and a
+  `guard-proof` check passed on that build; it asks for a throwaway character every time.
+- Write checks for what you could not see; don't report them as passed until a player ran them.
+- Check sets to copy (dev.26+, none run by a player yet): item data (`mods/tests/instances-test/ClientChecks.cs`, area
+  "Item data"), player states (`mods/samples/PlayerStates`, area "Player animations"), weapon moves and held models
+  (`mods/tests/weapon-moves-test`, `blocks.moves-*`, `blocks.held-animated*`).
+- Offline (`Kiln.TestKit`) item data, player states and weapon moves are unavailable: `kiln.items`, `kiln.playeranim` and
+  `kiln.gamedata` have no fakes. Test them on a test server.
+
 ## Reading the logs
 `kiln logs [-f] [--mod ID] [--level E] [-n N]`, or:
 

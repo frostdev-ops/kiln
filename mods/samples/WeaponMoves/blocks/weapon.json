@@ -1,0 +1,23 @@
+{
+  // The sample's sword in data: it lowers to what the C# one in WeaponMovesMod.cs does (docs/kiln/modding/item-blocks.md, "Moves").
+  // Each move names a state of this mod (assets/player-states.json) and the game sequence it starts from, with the sample's timing.
+  // At boot kiln.playeranim adds the states to the player's graph, on the server and on every player's game that has the mod, and the
+  // moves play the sample's own clips in them. A change to the states applies from the next start. Not seen in a game client yet.
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "weapons": {
+    "turning-blade-json": {
+      "name": "Turning Blade", "description": "A crystal turns in the blade.", "class": "sword",
+      "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      // the rigid model (set on the item, and what the hand shows where the moving one is not cooked): its GUID follows from the mod and the model step's name,
+      // derive("weapon-moves", "model", "moves_blade"); the moving one in the hand is the model and graph steps of assets/cook.json
+      "visual": { "model": "cf4dc9c5-be6a-5e8d-a0d0-cd4cb877fb51", "animated": { "model": "moves_blade_anim", "graph": "moves_blade" } },
+      "moves": {
+        "primary": [ { "animation": "slash-1", "like": "Attack_Player_1H_Single_LightChain1", "hitAt": 0.42, "length": 1.0 },
+                     { "animation": "slash-2", "like": "Attack_Player_1H_Single_LightChain2", "hitAt": 0.37, "length": 0.87 } ],
+        "heavy":   { "animation": "cleave", "like": "Attack_Player_Melee_Heavy_Sword_Diagonal", "hitAt": 0.9, "length": 1.6 },
+        "block":   { "animation": "guard" } },
+      "recipe": { "needs": { "Material_T1_Twigs": 1 } }
+    }
+  }
+}

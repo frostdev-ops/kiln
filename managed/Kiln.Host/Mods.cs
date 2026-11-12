@@ -39,6 +39,10 @@ internal sealed class ModManagerOptions
     /// build without git), nothing is compared.</summary>
     public KilnBuild? KilnBuild { get; init; }
     public Func<string, bool> HasFeature { get; init; } = static _ => true;
+
+    /// <summary>The capability registry the resolver checks a manifest's <c>features</c> against (ResolveEnvironment.Capability);
+    /// null: <see cref="HasFeature"/> only.</summary>
+    public Func<string, Capability>? Capability { get; init; }
     public FaultPolicy Faults { get; init; } = new();
     public CrashReports? CrashReports { get; init; }
 
@@ -104,6 +108,8 @@ internal sealed class ModLoadContext(string id, string directory, Func<AssemblyN
     {
         if (name.Name is not { } n) return null;
         if (n == ApiAssembly.GetName().Name) return ApiAssembly;  // one shared API for every mod
+        // Kiln.Game: the build's own kiln/host/game/<side>-<sha12>/Kiln.Game.dll, else kiln/host's (GameTypes).
+        if (n == GameTypes.AssemblyName && GameTypes.Load() is { } game) return game;
         // Kiln's service assemblies (kiln/host/Kiln.*.dll) are shared too: one copy in the host's context.
         if (n.StartsWith("Kiln.", StringComparison.Ordinal))
         {
@@ -194,7 +200,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
         _dataDirectory = dataDirectory;
         _options = options ?? new ModManagerOptions();
         _kilnVersion = SemVersion.TryParse(_options.KilnVersion, out var kv) ? kv : new SemVersion(0, 0, 0);
-        _apiVersion = SemVersion.Parse(Kiln.Mods.ApiVersion);
+        _apiVersion = SemVersion.Parse(Kiln.Mods.RuntimeApiVersion);
         Events.HandlerFaulted += OnHandlerFaulted;
     }
 
@@ -332,6 +338,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
             _mods.ToDictionary(m => m.Id, m => m.Manifest, StringComparer.Ordinal))
         {
             Hosting = Hosting && _options.HostedServerMods,
+            Capability = _options.Capability,
         };
         var result = Resolver.Resolve(candidates, env);
         foreach (var c in candidates)
@@ -444,6 +451,13 @@ internal sealed class ModManager : IModsBackend, IDisposable
     private bool LoadCore(string directory, Manifest manifest, out string error)
     {
         error = "";
+        // its layout stamp against this game build's Kiln.Game, before any of its code loads
+        if (manifest.HasCode && !GameTypes.CheckMod(manifest.Id, directory, manifest.EntryAssembly, _host.Log, out var refusal))
+        {
+            error = $"mod {manifest.Id}: {refusal}";
+            _host.Log(LogLevel.Error, error);
+            return false;
+        }
         var dependencies = DependencyClosure(manifest);
         var alc = new ModLoadContext(manifest.Id, directory, dependencies.Count > 0 ? name => ResolveExport(dependencies, name) : null);
         ulong owner = 0;
@@ -1244,7 +1258,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
                 ["written"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
                 ["generation"] = Interlocked.Increment(ref _modsJsonGeneration),
                 ["side"] = _options.Side == ManifestSide.Client ? "client" : "server",
-                ["api"] = Kiln.Mods.ApiVersion,
+                ["api"] = Kiln.Mods.RuntimeApiVersion,
                 ["profile"] = new System.Text.Json.Nodes.JsonObject
                 {
                     ["id"] = profile.Id.Length > 0 ? profile.Id : null,

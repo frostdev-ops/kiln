@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Lab test of kiln.npcai and the AI and behaviour blocks. No player: creatures are forced ready, and find (or ignore) each other by the game's own
 // targeting. PASS and FAIL lines in kiln.log, then "npcai-test done: N PASS, M FAIL".
+// Needs the lab readiness switch, kiln/data/kiln.creatures/force-ready, before the server starts: without it the sections that need forced-ready
+// creatures (natural, rows, filter, rules) cannot run, and each is one FAIL that says so.
 using Kiln;
 
 namespace NpcAiTest;
@@ -16,6 +18,9 @@ public sealed class NpcAiTestMod : Mod
     private readonly List<string> _transitions = [];
     private EntityId _watched;
     private static EntityId _refused;
+    private bool _relatedInOnLoad;
+    private EntityId _fighter;
+    private readonly List<string> _fighterHits = [];
 
     private void Check(bool ok, string what)
     {
@@ -86,6 +91,23 @@ public sealed class NpcAiTestMod : Mod
         {
             if (ev.Entity == _watched && _transitions.Count < 40) _transitions.Add($"{ev.From}->{ev.To} ({ev.Condition})");
         });
+        // the rules fight: every hit on the wary (who, through what, how much), for the log
+        Events.On<EntityDamagedEvent>(ev =>
+        {
+            if (ev.Target == _fighter && _fighterHits.Count < 40)
+                _fighterHits.Add($"{ev.Amount} from {ev.Attacker} via {ev.Source} ({ev.Origin}, {ev.HealthBefore}->{ev.HealthAfter}{(ev.KillingBlow ? ", killing blow" : "")})");
+        });
+        // the world's table, set in OnLoad as mods do (the CreatureAi sample): it must still hold once the world runs. OnLoad is on the tick thread
+        // of a dedicated server.
+        try
+        {
+            if (Factions.Available)
+            {
+                Factions.Relate(Faction.Ancients, Faction.Skeleton, Relation.Neutral, mutual: false);
+                _relatedInOnLoad = true;
+            }
+        }
+        catch (Exception e) { Info($"Factions.Relate in OnLoad threw: {e.Message}"); }
         _ = Run();
     }
 
@@ -107,14 +129,16 @@ public sealed class NpcAiTestMod : Mod
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (!Spawn.WorldRunning && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(120);
+            var ready = Creatures.Status?.LabReady ?? false;
+            if (!ready) Info("the lab readiness switch is off (kiln/data/kiln.creatures/force-ready): natural, rows, filter and rules cannot run");
             await Section("service", Service);
             await Section("data", Data);
             await Section("table", Table);
             await Section("entities", Entities);
-            await Section("natural", Natural);
-            await Section("rows", Rows);
-            await Section("filter", Filter);
-            await Section("rules", Rules);
+            await Section("natural", Natural, ready);
+            await Section("rows", Rows, ready);
+            await Section("filter", Filter, ready);
+            await Section("rules", Rules, ready);
             await Section("unload", UnloadPath);
         }
         catch (Exception e) { Check(false, $"exception: {e}"); }
@@ -123,9 +147,15 @@ public sealed class NpcAiTestMod : Mod
         Log.Info($"{Me} done: {_pass} PASS, {_fail} FAIL");
     }
 
-    private async Task Section(string name, Func<Task> run)
+    // labReady false: the section needs forced-ready creatures (CreatureRef.ForceReady) and the lab has no readiness switch
+    private async Task Section(string name, Func<Task> run, bool labReady = true)
     {
         Info($"---- {name}");
+        if (!labReady)
+        {
+            Check(false, $"{name} needs forced-ready creatures, and this lab has no readiness switch: create kiln/data/kiln.creatures/force-ready before the server starts");
+            return;
+        }
         try { await run(); }
         catch (Exception e) { Check(false, $"{name} threw: {e}"); }
     }
@@ -154,6 +184,9 @@ public sealed class NpcAiTestMod : Mod
         Info($"status: {s}");
         Check(s is { Available: true }, "kiln.npcai found the game's faction checks on this build");
         Check(Factions.Available, "Factions.Available");
+        Check(_relatedInOnLoad && Factions.Get(Faction.Ancients, Faction.Skeleton) == Relation.Neutral,
+            "a relation set in OnLoad still holds once the world runs (Ancients toward Skeleton: Neutral)");
+        Factions.Reset();   // the table's checks below count their own cells
         return Task.CompletedTask;
     }
 
@@ -343,10 +376,16 @@ public sealed class NpcAiTestMod : Mod
     {
         var w = await _wary!.Spawn(Pos, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
         _mine.Add(w);
+        _fighter = w;
+        _fighterHits.Clear();
         var o = await Creature("Enemy_Scavenger_Melee01", 2, 0);
         var cw = Creatures.Of(w);
         var co = Creatures.Of(o);
         co.Level = 60;
+        // The level-60 Scavenger is the wary's sparring partner: it must outlast the casts and blows, and it must not end
+        // the fight. In some runs it fights back (it is ordered to attack the wary), and its blows (one of 566, or 405 then
+        // 161) kill the wary before the near-death check below. Its blows stay light.
+        co.DamageFactor = 0.02f;
         cw.ForceReady();
         co.ForceReady();
         await Steps(10);
@@ -356,7 +395,9 @@ public sealed class NpcAiTestMod : Mod
         var oh0 = co.Inspect()?.Health ?? 0;
         var lowestO = oh0;
         Combat.SetHealth(w, (int)(hpMax * 0.45));
-        int healed = 0, last = cw.Inspect()?.Health ?? 0, inCombat = 0;
+        int healed = 0, last = cw.Inspect()?.Health ?? 0, inCombat = 0, onItsSide = 0;
+        var mine = new List<EntityId>();
+        var chased = false;
         for (var i = 0; i < 400; i++)
         {
             if (i % 40 == 0)
@@ -373,19 +414,31 @@ public sealed class NpcAiTestMod : Mod
                 if (me.State == EnemyState.Combat) inCombat++;
             }
             if (co.Inspect() is { } oi) lowestO = Math.Min(lowestO, oi.Health);
-            if (i == 60)
-                foreach (var e in AiStats.SummonsOf(w)) Creatures.Of(e).ForceReady();   // no player near: the lab's summons wait to be ready like any creature
-            if (i % 100 == 0) Info($"rules step {i}: wary {me?.State} hp {me?.Health}/{hpMax} target {me?.Target}; scavenger hp {co.Inspect()?.Health}; summons {AiStats.Summons - s0}, casts {AiStats.Casts - c0}");
+            // The summons are looked at while they live: a summon lives 20 s of wall time (seconds: 20), and under load 400 steps take longer.
+            var live = AiStats.SummonsOf(w);
+            if (i >= 60)   // no player near: the lab's summons wait to be ready like any creature
+                foreach (var e in live)
+                    if (!mine.Contains(e))
+                    {
+                        mine.Add(e);
+                        Creatures.Of(e).ForceReady();
+                    }
+            if (live.All(e => Creatures.Of(e).Faction == Faction.Vukah)) onItsSide = Math.Max(onItsSide, live.Count);
+            chased |= live.Any(e => Creatures.Of(e).Inspect()?.Target == o);
+            if (i % 100 == 0) Info($"rules step {i}: wary {me?.State} hp {me?.Health}/{hpMax} target {me?.Target}; scavenger hp {co.Inspect()?.Health}; summons {AiStats.Summons - s0} (alive {live.Count}), casts {AiStats.Casts - c0}");
         }
         var summons = AiStats.Summons - s0;
         Check(healed >= 1, $"below half health its rule heals it by a tenth ({healed} time(s))");
         Check(summons is 2, $"and calls exactly two Vukahs while two live (Is.SummonsBelow(2)): {summons}");
-        var mine = AiStats.SummonsOf(w).ToList();
-        Check(mine.Count == 2 && mine.All(e => Creatures.Of(e).Faction == Faction.Vukah), $"the summons stand around it, on its side: {mine.Count}");
-        Check(mine.Any(e => Creatures.Of(e).Inspect()?.Target == o), "and go after its target");
+        Check(onItsSide == 2, $"the summons stand around it, on its side: {onItsSide}");
+        Check(chased, "and go after its target");
         Check(AiStats.Casts - c0 > 0, $"in a fight it casts its ice ({AiStats.Casts - c0} casts)");
         Check(lowestO < oh0, $"its casts and blows land: the Scavenger fell from {oh0} to {lowestO}");
         _mine.AddRange(mine);
+        Info($"hits on the wary in the fight (scavenger {o}, summons {string.Join(",", mine)}): {(_fighterHits.Count == 0 ? "none" : string.Join("; ", _fighterHits))}");
+        _fighter = default;
+        if (cw.Inspect() is not { Health: > 0 })
+            Info($"the wary is dead before the near-death check ({cw.Inspect()?.State}): the immune check below reads a corpse");
 
         // near death: immune
         // near death: immune (the game's CombatFlags.immune, which the game's impacts read; kiln.combat's direct hits do not)

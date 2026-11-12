@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "states": {
+    "cast": { "clip": "8320fa69-4658-463e-aed9-40bfeb41b514", "like": "SM_Staff_Overlay/Staff_Cast_F_Shoot" },
+    "zap": { "clip": "fd997a60-b8f3-409d-b3aa-f8e18d03b120", "like": "SM_Wand_Overlay/Attack_Magic_Wand_01" },
+    "loose": { "clip": "8320fa69-4658-463e-aed9-40bfeb41b514", "like": "SM_Ground_Bow_Overlay/Bow_Reload" }
+  }
+}

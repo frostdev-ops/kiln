@@ -72,6 +72,7 @@ internal static unsafe class Program
         UiEngine.EnsureStarted();
         Samples.RegisterExtras();
 
+        if (only is "checks") return RenderChecks(outDir, suffix, w, h);
         if (args.Contains("--check-z")) return CheckZ(lib, Path.Combine(work, "check-z"));
         if (args.Contains("--check-text"))
             return Math.Max(CheckText(lib, Path.Combine(work, "check-text"), w, h, "text"), CheckText(lib, Path.Combine(work, "check-textarea"), w, h, "textarea"));
@@ -246,6 +247,32 @@ internal static unsafe class Program
         _key(526, 0);
         _frame(1);
         return len >= 3003 ? 0 : 1;
+    }
+
+    // The guided check runner's screen and HUD line (Kiln.Testing's CheckScreen) drawn from sample state: the list with a
+    // check running, a check waiting for its Confirm yes, and the fail note being typed. Only with --scene checks.
+    private static int RenderChecks(string outDir, string suffix, int w, int h)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var (name, view, state) in Kiln.Testing.CheckSamples.All(now))
+        {
+            using var screen = Ui.Screen("Guided checks", ui => Kiln.Testing.CheckScreen.Draw(ui, view, state, _ => { }, now.AddSeconds(5),
+                "Keys: list Ctrl+Shift+F5 · pass Ctrl+Shift+F6 · fail Ctrl+Shift+F7 · skip Ctrl+Shift+F8 (Kiln menu, Keys)"),
+                new UiScreenOptions { Width = 980, Height = 700, Resizable = true });
+            using var hud = Hud.Show("kiln.checks", Kiln.Testing.CheckScreen.HudText(view, "Ctrl+Shift+F6", "Ctrl+Shift+F7", "Ctrl+Shift+F8", "Ctrl+Shift+F5"),
+                HudAnchor.TopCenter, new Color(255, 225, 150));
+            screen.Open();
+            byte* px = null;
+            for (var i = 0; i < 4; i++) px = _frame(0);
+            Thread.Sleep(250);
+            for (var i = 0; i < 6; i++) px = _frame(0);
+            var file = Path.Combine(outDir, $"{name}-{suffix}.png");
+            WritePng(file, px, w, h);
+            Console.WriteLine(file);
+            screen.Close();
+            _frame(0);
+        }
+        return 0;
     }
 
     // PNG: RGB, one IDAT (zlib from .NET), CRCs.

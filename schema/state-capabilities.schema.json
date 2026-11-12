@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-capabilities.schema.json",
+  "title": "Capability registry (<game>/kiln/state/capabilities.json), format 1",
+  "description": "What works in this Kiln process on this game build and side, and why something does not. Written atomically by kiln-core alone (service kiln.caps, native/core/abi/services/kiln_caps.h): once when boot completes, then after a change, at most once a second. Also written in safe idle. Readers: the launcher, the docs status tables, support reports.",
+  "type": "object",
+  "required": ["format", "kiln", "pid", "written", "side", "exe", "hooks", "generation", "capabilities"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "kiln": { "type": "string", "description": "Kiln version of the core that wrote the file." },
+    "pid": { "type": "integer", "minimum": 1 },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "side": { "enum": ["server", "client"] },
+    "exe": {
+      "type": "object",
+      "required": ["sha256", "verified"],
+      "properties": {
+        "sha256": { "type": "string", "description": "Lower-case hex SHA-256 of the game executable; empty when the image could not be read." },
+        "verified": { "type": "boolean", "description": "The executable is in the verified-builds list." }
+      }
+    },
+    "hooks": { "type": "boolean", "description": "False in safe idle: nothing is hooked, and every feature row says policy." },
+    "safeIdle": { "type": ["string", "null"], "description": "Why hooks are off, as in state/boot.json; null when they are on." },
+    "generation": { "type": "integer", "minimum": 1, "description": "kiln.caps generation() when the file was written: counts the changes a reader can see." },
+    "capabilities": {
+      "type": "array",
+      "description": "Every row, sorted by name (byte order). One row per name: the worst report for it (kiln_caps.h).",
+      "items": {
+        "type": "object",
+        "required": ["name", "state", "reason", "reasonText", "source"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._/-]{1,96}$",
+            "description": "A sigdb feature name (items.fuel), kiln.<service> for a service table being here, <service>.<thing> for a row a service registers, <id>.<thing> for a plugin's or mod's own."
+          },
+          "state": {
+            "enum": ["available", "unavailable", "pending"],
+            "description": "pending: depends on the session (no world yet, world data not loaded) and is not decided."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason code. none: only with available. Known codes: none, symbol-missing, service-missing, service-older, wrong-side, needs-kiln-client, policy, faulted, offline, session. Later versions append codes (written as other-<number> by a core that has no name for one): treat a code you do not know as unavailable for another reason and show reasonText."
+          },
+          "reasonText": { "type": "string", "description": "The reason in words; for symbol-missing 'symbol <name>: <sigdb's reason>' or 'constant <name>: <sigdb's reason>'. May be empty, or a note such as 'v3' on an available row." },
+          "source": { "type": "string", "description": "Who made the report that is shown: sigdb, core, or the reporting owner's name (service:kiln-items.dll, host, mod:<id>)." },
+          "session": { "type": "boolean", "description": "True when the name depends on the session (it was reported pending at least once). A mod manifest may not require such a row. Absent means false." }
+        }
+      }
+    }
+  }
+}

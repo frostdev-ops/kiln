@@ -1,0 +1,239 @@
+{
+  "programs": [
+    {
+      "key": "wand-full.primary.impact",
+      "guid": "2ba9a8e5-3a79-5cca-b93a-dbb0f0670b30",
+      "size": 388
+    },
+    {
+      "key": "wand-full.primary.projectile",
+      "guid": "349970c2-7f0f-5310-91a1-8d8600b737af",
+      "size": 2648
+    },
+    {
+      "key": "wand-full.heavy.impact",
+      "guid": "99dfce4a-0f7d-57fc-975f-e81f37902643",
+      "size": 388
+    },
+    {
+      "key": "wand-full.heavy.projectile",
+      "guid": "d41457d2-5821-5298-8418-b7aa493ee7fa",
+      "size": 2744
+    },
+    {
+      "key": "wand-full.special.impact",
+      "guid": "1d0f53b6-0f9e-508b-95b1-b399900cf806",
+      "size": 2092
+    }
+  ],
+  "templates": [
+    {
+      "guid": "14a8575a-0232-5eac-9a2e-ab29d1ff8b07",
+      "name": "golden-items.wand-full.primary.impact",
+      "base": "Explosion_Player_Spell_IceBolt_1",
+      "fields": {
+        "Impact.program": "2ba9a8e5-3a79-5cca-b93a-dbb0f0670b30"
+      }
+    },
+    {
+      "guid": "2537621c-ba5f-53ba-8f93-0b5067ac81f1",
+      "name": "golden-items.wand-full.primary.projectile",
+      "base": "Projectile_Player_Staff_IceBolt_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 3.3333333,
+        "Impact.program": "349970c2-7f0f-5310-91a1-8d8600b737af"
+      }
+    },
+    {
+      "guid": "991d1833-95b7-551b-be84-961673e3c89c",
+      "name": "golden-items.wand-full.heavy.impact",
+      "base": "Explosion_Player_Spell_Fireball_1",
+      "fields": {
+        "Impact.program": "99dfce4a-0f7d-57fc-975f-e81f37902643"
+      }
+    },
+    {
+      "guid": "6097ba29-d880-531b-a061-3b87e3f0ebf8",
+      "name": "golden-items.wand-full.heavy.projectile",
+      "base": "Projectile_Player_Staff_Fireball_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 5,
+        "Impact.program": "d41457d2-5821-5298-8418-b7aa493ee7fa"
+      }
+    },
+    {
+      "guid": "5f0677bd-e157-5914-b2d4-1d45e3c4cee4",
+      "name": "golden-items.wand-full.special.impact",
+      "base": "Explosion_Player_Spell_IceBolt_1",
+      "fields": {
+        "Impact.program": "1d0f53b6-0f9e-508b-95b1-b399900cf806"
+      }
+    },
+    {
+      "guid": "8997af77-52df-57d5-a3fc-41f568f71594",
+      "name": "golden-items.wand-full.special.projectile",
+      "base": "Projectile_Player_Staff_IceBolt_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 5
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "5f0677bd-e157-5914-b2d4-1d45e3c4cee4"
+  },
+  "sequences": [
+    {
+      "guid": "2bed543d-170d-5abb-b77e-08dae2c8ddec",
+      "name": "golden-items.wand-full.primary",
+      "base": "Attack_Player_Wand_IceChain_normal",
+      "fields": {
+        "events[VfxNotifierEvent#0].slot": "HandR",
+        "events[VfxNotifierEvent#0].attach": true,
+        "events[VfxNotifierEvent#0].vfx": "85e60392-52e2-4488-8653-2d539c18c80c"
+      }
+    },
+    {
+      "guid": "23dbd2ed-e902-5029-9d70-b533045cffab",
+      "name": "golden-items.wand-full.heavy",
+      "base": "Attack_Player_Wand_AllElements_Heavy",
+      "fields": {}
+    },
+    {
+      "guid": "79681b2b-ba85-521b-a29f-e2210a44b3e8",
+      "name": "golden-items.wand-full.special",
+      "base": "Attack_Player_Wand_SpecialAbility_Magnetic_Projectile",
+      "fields": {}
+    }
+  ],
+  "sequenceRules": {
+    "primary": {
+      "events[SpawnEntityEvent#0].templateReference": "2537621c-ba5f-53ba-8f93-0b5067ac81f1",
+      "events[SpawnEntityEvent#0].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#0].spawnVelocity.z": 45,
+      "events[SpawnEntityEvent#0].requiredEntityTag": "none",
+      "events[SpawnEntityEvent#1].templateReference": "2537621c-ba5f-53ba-8f93-0b5067ac81f1",
+      "events[SpawnEntityEvent#1].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#1].spawnVelocity.z": 45,
+      "events[SpawnEntityEvent#1].requiredEntityTag": "none",
+      "events[PayUsageCost#0].impactValues.0xaf236ece": 5,
+      "events[SpawnEntityEvent#0].time": 0.3,
+      "events[SpawnEntityEvent#1].time": 0.3
+    },
+    "heavy": {
+      "events[SpawnEntityEvent#0].templateReference": "6097ba29-d880-531b-a061-3b87e3f0ebf8",
+      "events[SpawnEntityEvent#0].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#0].spawnVelocity.z": 30,
+      "events[SpawnEntityEvent#0].requiredEntityTag": "none",
+      "events[SpawnEntityEvent#5].templateReference": "6097ba29-d880-531b-a061-3b87e3f0ebf8",
+      "events[SpawnEntityEvent#5].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#5].spawnVelocity.z": 30,
+      "events[SpawnEntityEvent#5].requiredEntityTag": "none",
+      "events[SpawnEntityEvent#1].chance": 0,
+      "events[SpawnEntityEvent#2].chance": 0,
+      "events[SpawnEntityEvent#3].chance": 0,
+      "events[SpawnEntityEvent#4].chance": 0,
+      "events[SpawnEntityEvent#6].chance": 0,
+      "events[SpawnEntityEvent#7].chance": 0,
+      "events[SpawnEntityEvent#8].chance": 0,
+      "events[SpawnEntityEvent#9].chance": 0,
+      "events[PayUsageCost#0].impactValues.0xaf236ece": 12,
+      "events[PayUsageCost#0].impactValues.0x727d7f78": 5,
+      "events[SpawnEntityEvent#9].time": 1.2,
+      "events[SpawnEntityEvent#8].time": 1.2,
+      "events[SpawnEntityEvent#7].time": 1.2,
+      "events[SpawnEntityEvent#6].time": 1.2,
+      "events[SpawnEntityEvent#5].time": 1.2,
+      "events[SpawnEntityEvent#4].time": 1.2,
+      "events[SpawnEntityEvent#3].time": 1.2,
+      "events[SpawnEntityEvent#2].time": 1.2,
+      "events[SpawnEntityEvent#1].time": 1.2,
+      "events[SpawnEntityEvent#0].time": 1.2
+    },
+    "special": {
+      "events[SpawnEntityEvent#0].templateReference": "8997af77-52df-57d5-a3fc-41f568f71594",
+      "events[SpawnEntityEvent#0].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#0].spawnVelocity.z": 30,
+      "events[SpawnEntityEvent#0].requiredEntityTag": "none",
+      "events[SpawnEntityEvent#1].chance": 0,
+      "events[SpawnEntityEvent#2].chance": 0,
+      "events[SpawnEntityEvent#3].chance": 0,
+      "events[SpawnEntityEvent#4].chance": 0,
+      "events[PayUsageCost#0].impactValues.0xaf236ece": 20,
+      "events[SpawnEntityEvent#0].time": 0.2,
+      "events[SpawnEntityEvent#1].time": 0.2,
+      "events[SpawnEntityEvent#2].time": 0.2,
+      "events[SpawnEntityEvent#3].time": 0.2,
+      "events[SpawnEntityEvent#4].time": 0.2
+    }
+  },
+  "items": [
+    {
+      "guid": "75cd1419-7aa0-5302-8abd-252ab2ec1906",
+      "name": "golden-items.wand-full",
+      "base": "Weapon_T1_1H_Wand_02_Ice",
+      "displayName": "Storm Wand",
+      "description": "",
+      "fields": {
+        "rarity": "Uncommon",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 8,
+        "itemLevelRange.maxLevel": 8,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 0.6590909090909091,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0,
+        "damageSetup.distribution.magicalIceDamage": 0,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 1,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 5
+      }
+    ],
+    "sequences[0].sequence": "golden-items.wand-full.primary",
+    "sequences[2].sequence": "golden-items.wand-full.primary",
+    "sequences[4].sequence": "golden-items.wand-full.heavy",
+    "sequences[3].sequence": "golden-items.wand-full.heavy",
+    "sequences[1].sequence": "golden-items.wand-full.special",
+    "impactValues.0x4e133b42": 0
+  },
+  "recipes": [
+    {
+      "guid": "18f9fe5f-b7eb-5909-a2af-e50b297426e8",
+      "name": "golden-items.wand-full.recipe",
+      "station": "hand",
+      "menu": null,
+      "seconds": null,
+      "fields": null,
+      "inputs": [
+        {
+          "item": "Material_T1_Wood_Logs",
+          "count": 3
+        }
+      ],
+      "outputs": [
+        {
+          "item": "golden-items.wand-full",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

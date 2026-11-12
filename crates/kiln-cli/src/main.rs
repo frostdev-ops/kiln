@@ -148,7 +148,16 @@ pub enum CatalogCmd {
 fn main() {
     let cli = Cli::parse();
     let json = cli.json;
-    let r = match cli.cmd {
+    // Keep the root in use stable for the whole command, including SDK extraction and child tools. Commands that
+    // do not use an existing data root need not create one; their own locating errors remain unchanged.
+    let lock = (|| -> anyhow::Result<_> {
+        let Ok(dirs) = kiln_manage::paths::DataDirs::locate() else { return Ok(None) };
+        if !dirs.root.is_dir() { return Ok(None) }
+        kiln_manage::data_folder::DataLock::shared(&dirs.root)?
+            .map(Some)
+            .ok_or_else(|| out::CliError::new("busy", "Kiln is moving or recovering its data folder: wait for it to finish.").into())
+    })();
+    let r = lock.and_then(|_lock| match cli.cmd {
         Cmd::New(a) => new::run(a, json),
         Cmd::Build(a) => build::build(a, json),
         Cmd::Cook(a) => build::cook(a, json),
@@ -164,7 +173,7 @@ fn main() {
         Cmd::Catalog(a) => catalog_cmd(a, json),
         Cmd::Vfx(a) => vfx::run(a, json),
         Cmd::Skeleton(a) => skeleton::run(a, json),
-    };
+    });
     std::process::exit(match r {
         Ok(code) => code,
         Err(e) => out::fail(&e, json),

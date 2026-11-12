@@ -14,12 +14,17 @@ link=(-fuse-ld=lld-link /link /libpath:"$xwin/crt/lib/x86_64" /libpath:"$xwin/sd
 "${compile[@]}" "$here/tests/wine_watch_test.cpp" /Fo"$out/wine_watch_test.obj" /Fe"$out/wine_watch_test.exe" "${link[@]}" >/dev/null
 "${compile[@]}" /LD /DKSET_WATCH_DLL "$here/tests/wine_watch_test.cpp" /Fo"$out/watch-fixture.obj" /Fe"$out/watch-fixture.dll" "${link[@]}" >/dev/null
 "${compile[@]}" /LD /DKSET_SILENT_DLL "$here/tests/wine_watch_test.cpp" /Fo"$out/silent-loader.obj" /Fe"$out/silent-loader.dll" "${link[@]}" >/dev/null
+# Issue 23: two powrprof.dll files in folders that are not System32: a forwarding proxy loader and one with SET's markers.
+mkdir -p "$out/forward" "$out/set"
+"${compile[@]}" /LD /DKSET_POWER_DLL=1 "$here/tests/wine_watch_test.cpp" /Fo"$out/forward/powrprof.obj" /Fe"$out/forward/powrprof.dll" "${link[@]}" >/dev/null
+"${compile[@]}" /LD /DKSET_POWER_DLL=2 "$here/tests/wine_watch_test.cpp" /Fo"$out/set/powrprof.obj" /Fe"$out/set/powrprof.dll" "${link[@]}" >/dev/null
 # The rule field write guard and stack check (hooks.cpp), with the plugin's /EHa (native/CMakeLists.txt says why).
 "${compile[@]}" /EHa /I"$here/src" /I"$here/../../core/abi" "$here/tests/wine_rules_test.cpp" "$here/src/rules.cpp" \
   /Fo"$out/" /Fe"$out/wine_rules_test.exe" "${link[@]}" >/dev/null
 ge=$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-11-x86_64/files/bin/wine
 wine=${KILN_WINE:-$([[ -x $ge ]] && echo "$ge" || command -v wine)}
-export WINEPREFIX=$out/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d"
+# powrprof=n,b: the test's own powrprof.dll files are mapped from their folders (Wine's builtin otherwise)
+export WINEPREFIX=$out/pfx WINEDEBUG=-all WINEDLLOVERRIDES="mscoree=;mshtml=;winedbg.exe=d;powrprof=n,b"
 # no window may reach the desktop: an unset WAYLAND_DISPLAY means the desktop's wayland-0
 unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 mkdir -p "$WINEPREFIX"

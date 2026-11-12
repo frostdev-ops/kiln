@@ -74,6 +74,11 @@ pub struct LauncherSettings {
     /// or gamescope). `--deck` / `--desktop` win for one start (docs/kiln/launcher/deck.md).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_mode: Option<String>,
+    /// "Show notes about mod folders" (Settings, Launcher; the Deck's Settings): an activation's notices about folders
+    /// Kiln left as they are, mod files it kept and notes on the mods, each sentence once per game (`notices_unseen`).
+    /// Off: none is raised, except the first notice of a folder that may still run although its mod is off.
+    #[serde(default = "yes")]
+    pub mod_folder_notes: bool,
 }
 
 impl Default for LauncherSettings {
@@ -88,6 +93,7 @@ impl Default for LauncherSettings {
             animated_fire: true,
             add_to_active_profile: true,
             ui_mode: None,
+            mod_folder_notes: true,
         }
     }
 }
@@ -223,7 +229,21 @@ pub fn spawn_task(
         result: None,
         error: None,
     };
-    TASKS.lock().unwrap().insert(id.clone(), Entry { task: task.clone(), cancel: cancel.clone() });
+    {
+        // under the task table's lock, as the move's check of running tasks (begin_alone): a task never starts once a
+        // move holds the data folder, and a move never starts while a task runs
+        let mut map = TASKS.lock().unwrap();
+        if !ALONE_KINDS.contains(&kind)
+            && let Some(e) = crate::folder::current().held_error()
+        {
+            let t = Task { state: TaskState::Failed, finished: Some(kiln_manage::util::now_rfc3339()), message: Some(e.message.clone()), error: Some(e), ..task };
+            map.insert(id.clone(), Entry { task: t.clone(), cancel });
+            drop(map);
+            emit(app, &t);
+            return id;
+        }
+        map.insert(id.clone(), Entry { task: task.clone(), cancel: cancel.clone() });
+    }
     emit(app, &task);
     // every task's start and outcome go to launcher.log: the task list lives in memory and ends with the process
     launcher_log("task", &format!("{id} started: {}", task.title));
@@ -261,6 +281,20 @@ pub fn spawn_task(
     id
 }
 
+/// Task kinds that run while the data folder is held: the move itself, the removal of an old copy (it works on the old
+/// folder, not the one in use), and the removal of an unfinished move's partial copy (the reason for its hold).
+pub const ALONE_KINDS: &[&str] = &["data_folder_move", "data_folder_cleanup", "data_folder_undo"];
+
+/// Runs `start` under the task table's lock with the titles of the tasks that run now: the data folder move's check
+/// ("Kiln is still working on: ...") and its hold are one step, so no task starts between them (spawn_task).
+pub fn begin_alone<T>(start: impl FnOnce(&[String]) -> T) -> T {
+    let map = TASKS.lock().unwrap();
+    let running: Vec<String> = map.values().filter(|e| !finished(e.task.state)).map(|e| e.task.title.clone()).collect();
+    let r = start(&running);
+    drop(map);
+    r
+}
+
 /// Serializes a task result (for `spawn_task` closures).
 pub fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, Error> {
     serde_json::to_value(v).map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))
@@ -270,7 +304,8 @@ pub fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, Error> {
 
 #[tauri::command]
 pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
-    let dirs = crate::state::dirs()?;
+    // answers in every state (a broken pointer: no data folder; a move: the folder found at start)
+    let data_dir = crate::folder::current().located().map(|l| l.dirs.root.display().to_string()).unwrap_or_default();
     Ok(AppInfo {
         nexus_enabled: kiln_manage::nexus::enabled(),
         // the release version (tools/release sets it at build time; a plain build is VERSION)
@@ -278,7 +313,7 @@ pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
         kiln: kiln_manage::VERSION.into(),
         platform: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
-        data_dir: dirs.root.display().to_string(),
+        data_dir,
         commit: option_env!("KILN_GIT_COMMIT").filter(|c| !c.is_empty()).map(String::from),
         mock: false,
         no_webgl: no_webgl() || crate::render::choice().is_some_and(|c| c.mode == crate::render::Mode::Software),
@@ -604,15 +639,61 @@ pub async fn app_assets_import(app: AppHandle, kind: String, from: Option<String
     Ok(id)
 }
 
-/// Appends one line to `<data>/logs/launcher.log`: `<time> <area>: <msg>`. Best effort.
+/// Lines `launcher_log` holds back while a move copies the data folder (written after a failed or canceled move:
+/// `flush_held_log`; a move that committed restarts, and they end with the process). At most HELD_MAX.
+static HELD_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+const HELD_MAX: usize = 500;
+
+/// Appends one line to `<data>/logs/launcher.log`: `<time> <area>: <msg>`. Best effort. While the data folder is held
+/// nothing is written there (the move copies and verifies `logs/`): during a move of this process the line waits in
+/// memory, otherwise (a broken pointer, a move elsewhere, after the commit) it goes to stderr only.
 pub fn launcher_log(area: &str, msg: &str) {
-    if let Ok(d) = crate::state::dirs() {
-        let p = d.logs().join("launcher.log");
-        let _ = std::fs::create_dir_all(d.logs());
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
-            use std::io::Write;
-            let _ = writeln!(f, "{} {area}: {msg}", kiln_manage::util::now_rfc3339());
+    let line = format!("{} {area}: {msg}", kiln_manage::util::now_rfc3339());
+    let _writing = crate::state::writing();
+    let f = crate::folder::current();
+    match f.hold() {
+        crate::folder::Hold::Moving | crate::folder::Hold::Undoing if f.problem().is_none() => {
+            let mut h = HELD_LOG.lock().unwrap_or_else(|e| e.into_inner());
+            if h.len() < HELD_MAX {
+                h.push(line);
+            }
+            return;
         }
+        _ => {}
+    }
+    match f.dirs() {
+        Ok(d) => append_log(&d, &[line]),
+        Err(_) => eprintln!("{line}"),
+    }
+}
+
+fn append_log(d: &kiln_manage::paths::DataDirs, lines: &[String]) {
+    let p = d.logs().join("launcher.log");
+    let _ = std::fs::create_dir_all(d.logs());
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+        use std::io::Write;
+        for l in lines {
+            let _ = writeln!(f, "{l}");
+        }
+    }
+}
+
+/// Writes the lines held back during a move that did not commit (the data folder is free again).
+pub fn flush_held_log() {
+    let lines = std::mem::take(&mut *HELD_LOG.lock().unwrap_or_else(|e| e.into_inner()));
+    if lines.is_empty() {
+        return;
+    }
+    match crate::state::dirs() {
+        Ok(d) => append_log(&d, &lines),
+        Err(_) => lines.iter().for_each(|l| eprintln!("{l}")),
+    }
+}
+
+/// Forgets the lines held back (a move that committed: the old folder's log stays as the move copied it).
+pub fn drop_held_log() {
+    for l in std::mem::take(&mut *HELD_LOG.lock().unwrap_or_else(|e| e.into_inner())) {
+        eprintln!("{l}");
     }
 }
 

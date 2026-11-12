@@ -12,6 +12,7 @@ import { lazy, Suspense, useState, type ComponentType } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
 import type { BootState, GameInstall, LastServer, ProxyKind } from "../api/commands";
+import { OTHER_FOLDER_PROFILE, otherFolderTitle } from "../shell/dataFolderText";
 import { qk, useGame, useGameSel, useGameStatus, useLaunchState, usePoll, usePreStart, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { detectGames, useDetect, useEnsureProfile, useInstallPrompt, useKilnInstall } from "../shell/firstRun";
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
@@ -155,7 +156,9 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
               {clients.map((g) => <option key={g.id} value={g.id}>{g.path.split(/[\\/]/).filter(Boolean).slice(-3).join("/")} · {g.source}</option>)}
             </select>
           )}
-          {other ? (
+          {s?.otherFolderProfile ? (
+            <Link className="k-link k-hero-profile k-tone-warn" to="/settings#profiles" title={otherFolderTitle(s.otherFolderProfile)}>{OTHER_FOLDER_PROFILE}</Link>
+          ) : other ? (
             <Link className="k-link k-hero-profile" to="/settings#profiles" title="The loaded profile: Settings, Profiles">Profile: {other.name}</Link>
           ) : rt?.installed && !mods.profileId && list.length > 0 && !profiles.isLoading && (
             <Link className="k-link k-hero-profile" to="/settings#profiles">No profile loaded</Link>

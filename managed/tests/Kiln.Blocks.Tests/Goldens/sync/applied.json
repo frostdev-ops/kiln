@@ -1,0 +1,102 @@
+{
+  "format": 1,
+  "@fields": 14,
+  "templates": {
+    "add": [
+      {
+        "guid": "0713a111-b0ee-5bea-8e13-d75d5e72acd1",
+        "name": "m.sword.moving",
+        "base": "Visuals_Staff_01_Magic_Basic01",
+        "fields": {
+          "ModelResource.model": "fd6c8517-5120-5cc0-bbaf-79a7d39a6457",
+          "VfxComponentResource.vfx": "none"
+        },
+        "removeComponents": [
+          "VfxParametersTemplateComponent"
+        ]
+      },
+      {
+        "guid": "ea12005b-d9a5-5df5-8901-9f6b707aad93",
+        "name": "k.lamp",
+        "base": "Prop_Lamp_01",
+        "fields": {
+          "LifeTime.lifeTime": 5
+        }
+      }
+    ],
+    "0713a111-b0ee-5bea-8e13-d75d5e72acd1": {
+      "@name": "m.sword.moving",
+      "ModelResource.model": "fd6c8517-5120-5cc0-bbaf-79a7d39a6457",
+      "VfxComponentResource.vfx": "none",
+      "SlotAttachment.attachmentSlot": "HandL",
+      "AnimationGraphResourceComponent2.animationGraph": {
+        "mul": 1
+      }
+    },
+    "ea12005b-d9a5-5df5-8901-9f6b707aad93": {
+      "@name": "k.lamp",
+      "LifeTime.lifeTime": 5
+    },
+    "0x1f2e3d4c": {
+      "@name": "Enemy_Vukah_Melee",
+      "Level.dataStorage[0]": 20
+    },
+    "0x0badcafe": {
+      "@name": "Enemy_Fell_Warrior",
+      "Health.maxHealth": {
+        "mul": 1
+      }
+    }
+  },
+  "sequences": {
+    "add": [
+      {
+        "guid": "a25dda57-162a-5475-b1f5-e4d879ea4534",
+        "name": "m.sword.heavy",
+        "base": "Attack_Player_Melee_Heavy_2H_Axe_01",
+        "fields": {}
+      }
+    ],
+    "a25dda57-162a-5475-b1f5-e4d879ea4534": {
+      "@name": "m.sword.heavy",
+      "length": 2.2,
+      "events[SpawnImpact#0].time": 0.9
+    },
+    "a25dda57-162a-5475-b1f5-e4d879ea4534#1": {
+      "@name": "m.sword.heavy#1",
+      "length": 2.2
+    }
+  },
+  "items": {
+    "0x2b0cf1d5": {
+      "@name": "Material_T1_Wood_Logs",
+      "maxStackSize": 1000,
+      "weight": {
+        "mul": 1
+      }
+    }
+  },
+  "recipes": {
+    "0x4da88f73": {
+      "@name": "Recipe_Torch",
+      "duration": 2
+    }
+  },
+  "itemdata": {
+    "0x77aa11bb": {
+      "@name": "m.sword",
+      "@refs": true,
+      "equipment.visualEntity": "0713a111-b0ee-5bea-8e13-d75d5e72acd1"
+    }
+  },
+  "buffs": {
+    "0x5f425faf": {
+      "@name": "buff_5f425faf",
+      "defaultLifeTime": 9,
+      "color": {
+        "mul": 1
+      }
+    }
+  },
+  "@resets": 4
+}

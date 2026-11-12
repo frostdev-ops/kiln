@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "guid": "640edda3-3723-50f3-9c49-e2446f3b08aa",
+      "name": "golden-items.item-tool-rod",
+      "base": "Tool_T1_FishingRod_basic",
+      "displayName": "Good Rod",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.FishingStrength": 2,
+    "impactValues.FishingEndurance": 50
+  }
+}

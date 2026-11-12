@@ -10,6 +10,8 @@ pub mod commands;
 pub mod deck;
 pub mod distribution;
 pub mod events;
+/// The process's data folder: found once, its lock, and the hold while a move runs (dev.26).
+pub mod folder;
 /// The backend timing harness (ignored tests; tools/launcher/perf.sh).
 #[cfg(test)]
 mod perf;
@@ -43,32 +45,18 @@ pub fn run() {
         .setup(|app| {
             // the window exists: the render watchdog's clock starts, software mode reaches the webview (render.rs)
             render::window_created(app.handle());
-            // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
-            if let Ok(d) = state::dirs() {
-                kiln_manage::filecache::persist_at(&state::file_hashes(&d));
-            }
-            watch::start(app.handle().clone());
-            let shipped = app.handle().clone();
-            std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
-            // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
-            commands::modpack::watch_last_server(app.handle());
-            // nxm:// links (Nexus Mods' Mod Manager Download): the instance lock and the link inbox (commands/nexus.rs)
-            commands::nexus::start(app.handle());
-            // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
-            #[cfg(feature = "self-update")]
-            selfupdate::start(app.handle().clone());
-            // the Nexus Mods build never updates itself (crate::distribution); launcher.log says so once
-            #[cfg(not(feature = "self-update"))]
-            commands::app::launcher_log("update", &format!(
-                "Kiln Launcher {} (pid {}), Nexus Mods build: no self-update, no update checks; new versions: {}",
-                app.package_info().version, std::process::id(), distribution::NEXUS_PAGE));
+            // the data folder first (commands/data_folder.rs): found once, its lock, an unfinished move. The start-up
+            // steps that use the folder (`after_folder`) run now; or, while an unfinished move's partial copy is removed,
+            // when that task ends; or not at all (a broken pointer, another launcher's move: the window shows only the
+            // dialog, nothing is written)
+            commands::data_folder::start(app.handle(), after_folder);
             #[cfg(any(debug_assertions, feature = "dev-eval"))]
             if let Some(dir) = std::env::var_os("KILN_DEV_EVAL_DIR").filter(|d| !d.is_empty()) {
                 dev_eval(app.handle().clone(), dir.into());
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(gated(tauri::generate_handler![
             commands::app::app_info,
             commands::app::app_settings_get,
             commands::app::app_settings_set,
@@ -99,6 +87,8 @@ pub fn run() {
             commands::profile::profile_deactivate,
             commands::profile::profile_active,
             commands::profile::activation_notices,
+            commands::profile::notices_unseen,
+            commands::profile::notices_shown,
             commands::library::library_list,
             commands::library::library_detect,
             commands::library::library_import,
@@ -215,9 +205,17 @@ pub fn run() {
             commands::found::found_add,
             commands::logs::report_save,
             commands::logs::report_summary,
+            commands::data_folder::data_folder_get,
+            commands::data_folder::data_folder_size,
+            commands::data_folder::data_folder_check,
+            commands::data_folder::data_folder_move,
+            commands::data_folder::data_folder_use,
+            commands::data_folder::data_folder_reset,
+            commands::data_folder::data_folder_notice_ack,
+            commands::data_folder::data_folder_restart,
             commands::app::app_started,
             commands::app::app_render_set
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")
         .run(|_, event| {
@@ -227,6 +225,44 @@ pub fn run() {
                 deck::gamepad::stop();
             }
         });
+}
+
+/// The start-up steps that use the data folder, in this order: the file-hash cache, the watcher, the shipped runtime,
+/// the modpack watcher, Nexus (its instance lock, inbox and leftovers), the self-update's first check. Run once, when the
+/// folder is free (commands/data_folder.rs `start`).
+fn after_folder(app: &tauri::AppHandle) {
+    // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
+    if let Ok(d) = state::dirs() {
+        kiln_manage::filecache::persist_at(&state::file_hashes(&d));
+    }
+    watch::start(app.clone());
+    let shipped = app.clone();
+    std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
+    // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
+    commands::modpack::watch_last_server(app);
+    // nxm:// links (Nexus Mods' Mod Manager Download): the instance lock and the link inbox (commands/nexus.rs)
+    commands::nexus::start(app);
+    // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
+    #[cfg(feature = "self-update")]
+    selfupdate::start(app.clone());
+    // the Nexus Mods build never updates itself (crate::distribution); launcher.log says so once
+    #[cfg(not(feature = "self-update"))]
+    commands::app::launcher_log("update", &format!(
+        "Kiln Launcher {} (pid {}), Nexus Mods build: no self-update, no update checks; new versions: {}",
+        app.package_info().version, std::process::id(), distribution::NEXUS_PAGE));
+}
+
+/// Every command passes the data folder's gate first (folder.rs): while the pointer is broken, another launcher moves
+/// the folder, or this one moves it, only the commands that do not reach the folder answer; the others are refused
+/// with the reason before they run.
+fn gated<R: tauri::Runtime>(handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        if let Some(e) = folder::current().command_refusal(invoke.message.command()) {
+            invoke.resolver.reject(e);
+            return true;
+        }
+        handler(invoke)
+    }
 }
 
 /// After `RunEvent::Exit` the process should be gone within moments. It was seen to stay instead (the old launcher
