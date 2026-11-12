@@ -75,6 +75,9 @@ internal static partial class Compiler
         catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or KeyNotFoundException) { return false; }
     };
 
+    /// <summary>The fields of a held template that each machine keeps its own of (the content sync's machine-local fields).</summary>
+    internal static readonly string[] MachineLocalPaths = ["ModelResource.model", "AnimationGraphResourceComponent2.animationGraph"];
+
     /// <summary>The staff's component of parameters for its own VFX: left out, as a VFX of ours has none.</summary>
     private static readonly string[] AnimatedRemove = ["VfxParametersTemplateComponent"];
 
@@ -170,6 +173,17 @@ internal static partial class Compiler
         }
         d.Refs["equipment.visualEntity"] = guid.ToString();
         low.Json["animatedHeld"] = json;
+        // Each machine keeps its own model and graph for the template that holds them: a machine that cooked has the moving model, one that did not stands in
+        // with the rigid one. The content sync would send a server's over a client's (the server's layer wins, and matchServer puts the client's graph back),
+        // so these two fields are machine-local. Safe: only the machine that draws reads them, and a dedicated server never starts a held model's graph and
+        // draws nothing (player-anim's lab, docs/kiln/modding/models.md "On a dedicated server"). The hand, the VFX and the rest sync as any clone's.
+        Guid[] hands = pair ? [BlockIds.Derive(mod, "template", $"{d.Key}.moving.r"), BlockIds.Derive(mod, "template", $"{d.Key}.moving.l")] : [guid];
+        var marks = hands.SelectMany(h => MachineLocalPaths.Select(f => (Template: h, Field: f))).ToList();
+        json["machineLocal"] = new JsonArray(marks.Select(m => (JsonNode)new JsonObject { ["template"] = m.Template.ToString(), ["field"] = m.Field }).ToArray());
+        low.AfterCommit(() =>
+        {
+            foreach (var (template, field) in marks) ContentSync.MarkMachineLocal("templates", template, field);
+        });
         var starter = d.Starter;
         var block = ctx.Block;
         var owner = ctx.Mod;

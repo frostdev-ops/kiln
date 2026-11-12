@@ -45,16 +45,28 @@ public sealed class SyncDocumentGoldenTests
 
     private static string Dir([CallerFilePath] string self = "") => Path.Combine(Path.GetDirectoryName(self)!, "Goldens", "sync");
 
-    /// <summary>What the server sends of its export: today exactly the export (definitions and programs are added beside it, by other code).</summary>
-    internal static string Sent(string export) => export;
+    /// <summary>Marks of a clone the state above does not have: the machine-local code runs, and must change nothing here.</summary>
+    internal static MachineLocalFields Elsewhere()
+    {
+        var m = new MachineLocalFields();
+        m.Add("templates", Guid.Parse("24e2460b-1615-5b86-ae02-556d8d39b6a4"), "ModelResource.model");
+        return m;
+    }
 
-    internal static JsonObject Reset(string server, string local)
+    /// <summary>What the server sends of its export (definitions and programs are added beside it, by other code).</summary>
+    internal static string Sent(string export, MachineLocalFields? marks = null) => ContentSync.WithoutMachineLocal(export, marks ?? Elsewhere(), out _);
+
+    internal static JsonObject Reset(string server, string local, MachineLocalFields? marks = null)
     {
         var doc = JsonNode.Parse(server)!.AsObject();
-        var n = ContentSync.AddResets(doc, JsonNode.Parse(local)!.AsObject());
+        var n = ContentSync.AddResets(doc, JsonNode.Parse(local)!.AsObject(), marks ?? Elsewhere());
         doc["@resets"] = n;
         return doc;
     }
+
+    [Fact]
+    public void Without_marks_of_its_own_the_export_is_sent_byte_for_byte() =>
+        Assert.Same(ServerExport, Sent(ServerExport, new MachineLocalFields()));
 
     [Fact]
     public void What_a_server_sends_is_its_golden() =>
