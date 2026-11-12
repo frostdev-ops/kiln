@@ -1208,7 +1208,8 @@ internal sealed class InstanceStore
         List<WriteRec> Of(HolderEntry h) => written.TryGetValue(h, out var l) ? l : written[h] = [];
 
         // 1. Every item with data, read now in one native call.
-        var byHolder = new SortedDictionary<uint, List<LiveItem>>();
+        // A leaving player's unplaced items can outlive its entity slot. Never combine them with the next visit.
+        var byHolder = new Dictionary<(uint Entity, CharacterKey Character, ulong Visit), List<LiveItem>>();
         foreach (var live in _live.Values) live.Fresh = false;
         foreach (var pending in _pending) pending.Item.Fresh = false;
         var persistent = _live.Values.Where(live => live.Values.HasPersistent).ToArray();
@@ -1253,16 +1254,20 @@ internal sealed class InstanceStore
                     }
                 }
             }
-            if (!byHolder.TryGetValue(live.Place.Holder.Value, out var list)) byHolder[live.Place.Holder.Value] = list = [];
+            var group = (live.Place.Holder.Value,
+                live.Holder.Kind == HolderKind.Player ? live.Holder.Character : default,
+                live.Holder.Kind == HolderKind.Player ? live.Holder.Visit : 0);
+            if (!byHolder.TryGetValue(group, out var list)) byHolder[group] = list = [];
             list.Add(live);
         }
 
         // 2. Per holder: its key, the witness of this save, and its live items as records.
-        var playersRead = new HashSet<uint>();
+        var playersRead = new HashSet<(uint Entity, CharacterKey Character, ulong Visit)>();
         var witnessed = new HashSet<HolderEntry>();
         var liveWrites = new List<(LiveItem Item, HolderEntry Entry)>();
-        foreach (var (holderId, items) in byHolder)
+        foreach (var (group, items) in byHolder.OrderBy(kv => kv.Key.Entity))
         {
+            var holderId = group.Entity;
             var identity = items.FirstOrDefault(i => i.Fresh)?.Holder ?? items[0].Holder;
             var holder = new EntityId(holderId);
             if (identity.Kind == HolderKind.None ||
@@ -1274,7 +1279,10 @@ internal sealed class InstanceStore
                 continue;
             }
             var key = HolderKey.Of(identity);
-            var entry = EntryForWrite(holder, key, identity.Name, identity.Visit);
+            // Stale items keep their character's records, but do not reclaim a slot now owned by another visit.
+            var entry = key.Kind == HolderKind.Player && !items.Any(i => i.Fresh)
+                ? EntryOfCharacter(key.Character, create: true)!
+                : EntryForWrite(holder, key, identity.Name, identity.Visit);
             uint obs = 0;
             var blind = !reads;  // the reads could not answer: this save may have sent a file Kiln could not read
             if (reads && items.Any(i => i.Fresh))
@@ -1291,7 +1299,7 @@ internal sealed class InstanceStore
                         {
                             entry.LastWitness = gen;
                             AddState(entry, gen, holder, list);
-                            playersRead.Add(holderId);
+                            playersRead.Add(group);
                         }
                     }
                     if (key.Kind == HolderKind.World)
@@ -1308,7 +1316,7 @@ internal sealed class InstanceStore
             if (key.Kind == HolderKind.Player && obs == 0 && blind)
             {
                 AddState(entry, gen, holder, null);
-                playersRead.Add(holderId);
+                playersRead.Add(group);
             }
             foreach (var live in items.OrderBy(i => i.Place.FlatSlot))
             {
@@ -1339,7 +1347,7 @@ internal sealed class InstanceStore
             }
             foreach (var (entity, character, visit) in players)
             {
-                if (character.IsNone || character.IsAccountOnly || playersRead.Contains(entity.Value)) continue;
+                if (character.IsNone || character.IsAccountOnly || playersRead.Contains((entity.Value, character, visit))) continue;
                 var entry = EntryOfCharacter(character, create: true)!;
                 IReadOnlyList<InstanceItem>? list = null;
                 if (reads)

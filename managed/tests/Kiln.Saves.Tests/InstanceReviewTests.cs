@@ -14,6 +14,46 @@ public sealed class InstanceReviewTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StagingKeepsLeavingItemsInTheirCharactersScopeWhenThePlayerSlotIsReused(bool otherTagged)
+    {
+        var w = _h.World;
+        var player = w.Join(Hero);
+        _h.Tag(w.Give(player, 0, Sword), 1);
+        _h.Tick();
+        _h.Save(1);
+        w.SendCharacter(player);
+        w.BeginLeave(player);
+        w.DestroyPlayerEntity(player); // the old items remain alive, unplaced, until the next step
+        var other = new CharacterKey(0x2233445566778899, Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-000000000002"));
+        w.Join(other, reuseId: player);
+        var ring = w.Give(player, 0, Ring);
+        if (otherTagged) _h.Tag(ring, 2);
+        _h.Tick();
+        _h.Save(2); // no gone notice has arrived for Hero's sword
+
+        var heroBundle = _h.Bundle(2, $"character-instances/{Hero.Text}/sword-mod");
+        Assert.NotNull(heroBundle);
+        var heroRecord = Assert.Single(heroBundle["holders"]![0]!["records"]!.AsArray());
+        Assert.Equal(1, heroRecord!["keys"]!["kills"]!["Count"]!.GetValue<int>());
+        Assert.False(Store.Instances.Holders.Single(h => h.Key.Character == Hero).IsBound);
+        var otherBundle = _h.Bundle(2, $"character-instances/{other.Text}/sword-mod");
+        if (otherTagged)
+        {
+            Assert.NotNull(otherBundle);
+            var otherRecord = Assert.Single(otherBundle["holders"]![0]!["records"]!.AsArray());
+            Assert.Equal(2, otherRecord!["keys"]!["kills"]!["Count"]!.GetValue<int>());
+        }
+        else Assert.Null(otherBundle);
+
+        _h.Restart(2, FakeInstanceWorld.Load(w.SaveGame()));
+        player = _h.World.Join(Hero);
+        _h.Tick();
+        Assert.Equal(1, _h.Count(_h.World.At(player, 0)));
+    }
+
+    [Theory]
     [InlineData(false, false, true)]
     [InlineData(false, true, true)]
     [InlineData(true, false, true)]

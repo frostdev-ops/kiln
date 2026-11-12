@@ -268,7 +268,8 @@ like nothing happened.
   character (`PlayerLeft`) and comes back at the next join. A save in between keeps such a record, but it may only come
   back to an inventory that is as one of its saved states.
 - **A read that places an item nowhere** (for one step at a leave the item entities outlive the player entity) changes
-  nothing: the item keeps its last place, its holder and its newest observation.
+  nothing: the item keeps its last place, its holder and its newest observation. Staging keeps those items in their
+  original character's scope, separate from any new visit using the same player entity slot; stale items never rebind it.
 - **A leaving player** keeps its character: while an item stays in the same holder entity, a later lookup that finds no
   character (a record already reset) never replaces the one known.
 
