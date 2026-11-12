@@ -26,11 +26,15 @@ internal static unsafe class FakeRegistry
     static readonly List<Link> Slots = [];
     static ulong _handles;
     static HooksNative.Table* _table;
+    static readonly HashSet<string> Symbols = [];
+    public static Action? DuringRevokeOwner;
+
+    public static bool HasSymbols(string id) { lock (Gate) return Symbols.Contains(id); }
 
     /// <summary>Puts a fresh fake in place of the core's table.</summary>
     public static void Install()
     {
-        lock (Gate) Slots.Clear();
+        lock (Gate) { Slots.Clear(); Symbols.Clear(); }
         if (_table == null)
         {
             _table = (HooksNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(HooksNative.Table));
@@ -39,6 +43,9 @@ internal static unsafe class FakeRegistry
             _table->Revoke = &Revoke;
             _table->RevokeOwner = &RevokeOwner;
             _table->CallOriginal = &CallOriginal;
+            // NativeStr is internal to Kiln.Api; NativeText mirrors its ABI here.
+            *(nint*)&_table->LoadSymbols = (nint)(delegate* unmanaged[Cdecl]<ulong, NativeText, NativeText, HooksNative.SigSummary*, int>)&LoadSymbols;
+            *(nint*)&_table->UnloadSymbols = (nint)(delegate* unmanaged[Cdecl]<NativeText, int>)&UnloadSymbols;
         }
         HooksNative.UseForTests(_table);
     }
@@ -46,6 +53,7 @@ internal static unsafe class FakeRegistry
     public static void Uninstall()
     {
         DuringInstall = null;
+        DuringRevokeOwner = null;
         HooksNative.UseForTests(null);
     }
 
@@ -114,6 +122,28 @@ internal static unsafe class FakeRegistry
         lock (Gate)
             foreach (var l in Slots)
                 if (l.Owner == owner) l.Live = false;
+        DuringRevokeOwner?.Invoke();
+        return HooksNative.Ok;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct NativeText
+    {
+        public byte* Ptr;
+        public nuint Len;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    static int LoadSymbols(ulong owner, NativeText id, NativeText path, HooksNative.SigSummary* summary)
+    {
+        lock (Gate) Symbols.Add(System.Text.Encoding.UTF8.GetString(id.Ptr, (int)id.Len));
+        return HooksNative.Ok;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    static int UnloadSymbols(NativeText id)
+    {
+        lock (Gate) Symbols.Remove(System.Text.Encoding.UTF8.GetString(id.Ptr, (int)id.Len));
         return HooksNative.Ok;
     }
 

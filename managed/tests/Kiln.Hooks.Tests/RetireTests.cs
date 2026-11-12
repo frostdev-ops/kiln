@@ -89,6 +89,67 @@ public sealed class RetireTests : IDisposable
         AssertNothingLeft(mod);
     }
 
+    [Fact]
+    public void RetireDuringInstallDrainsOtherHandlersAndUnloadsShippedSymbols()
+    {
+        var mod = TestMods.Make(_id, advanced: true, owner: 66);
+        var sigdb = Path.Combine(mod.Info.Directory, "sigdb");
+        Directory.CreateDirectory(sigdb);
+        File.WriteAllText(Path.Combine(sigdb, "server.json"), "{}");
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var revoking = new ManualResetEventSlim();
+        Thread? handler = null, retire = null;
+        try
+        {
+            TestMods.As(mod, () =>
+            {
+                Symbols.LoadShipped();
+                HooksApi.Detour(Address, call =>
+                {
+                    entered.Set();
+                    release.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+                    return call.CallOriginal();
+                });
+            });
+            Assert.True(FakeRegistry.HasSymbols(_id));
+            var link = Assert.Single(FakeRegistry.Live);
+            handler = new Thread(() => FakeRegistry.CallDetour(link));
+            handler.Start();
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+
+            var sawRevoke = false;
+            FakeRegistry.DuringRevokeOwner = revoking.Set;
+            FakeRegistry.DuringInstall = () =>
+            {
+                FakeRegistry.DuringInstall = null;
+                retire = new Thread(() => TestMods.Retire(mod));
+                retire.Start();
+                sawRevoke = revoking.Wait(TimeSpan.FromSeconds(5));
+            };
+            Assert.Throws<InvalidOperationException>(() => TestMods.As(mod,
+                () => HooksApi.Detour(Address + 16, PassThrough)));
+            Assert.True(sawRevoke);
+            Assert.True(SpinWait.SpinUntil(() => !HooksApi.Detours.Values.Any(r => r.Mod == mod), 5000));
+            // Forget has run, but the second handler still owns the original tracker's InFlight count.
+            Assert.False(retire!.Join(100), "retire skipped the in-flight handler drain");
+            Assert.True(FakeRegistry.HasSymbols(_id));  // still needed by the handler
+            release.Set();
+            Assert.True(handler.Join(5000));
+            Assert.True(retire.Join(5000));
+            Assert.False(FakeRegistry.HasSymbols(_id), "retire left the shipped symbols loaded");
+            AssertNothingLeft(mod);
+        }
+        finally
+        {
+            release.Set();
+            handler?.Join(10000);
+            retire?.Join(10000);
+            TestMods.Retire(mod);
+            Directory.Delete(mod.Info.Directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(true)]   // the context had installed before
     [InlineData(false)]  // its first install
