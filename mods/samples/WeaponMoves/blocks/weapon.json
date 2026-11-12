@@ -1,9 +1,8 @@
 {
   // The sample's sword in data: it lowers to what the C# one in WeaponMovesMod.cs does (docs/kiln/modding/item-blocks.md, "Moves").
   // Each move names a state of this mod (assets/player-states.json) and the game sequence it starts from, with the sample's timing.
-  // In this build nothing reads assets/player-states.json yet: when content is ready each name is reported ("player states are not
-  // available in this build") and each move plays its `like` sequence's own animation, with the timing below. Once the player-anim
-  // package is in the build, the moves play the sample's own clips.
+  // At boot kiln.playeranim adds the states to the player's graph, on the server and on every player's game that has the mod, and the
+  // moves play the sample's own clips in them. A change to the states applies from the next start. Not seen in a game client yet.
   "$schema": "../../../../schema/kiln-blocks.schema.json",
   "format": 1,
   "weapons": {

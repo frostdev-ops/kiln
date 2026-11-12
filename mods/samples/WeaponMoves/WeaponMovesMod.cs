@@ -11,9 +11,9 @@ namespace WeaponMovesSample;
 /// the player's skeleton when the mod is cooked (the second swing is the first one mirrored and a little faster). assets/player-states.json makes
 /// a state of each clip, placed like the game's sword attacks and block.
 ///
-/// In this build nothing reads assets/player-states.json yet: when content is ready each name is reported ("player states are not available in
-/// this build") and each move plays its <c>Like</c> sequence's own animation, with the timing below. Once the player-anim package is in the build,
-/// the moves play the sample's own clips. The held model moves either way.
+/// At boot kiln.playeranim adds the states to the player's graph, on the server and on every player's game that has the mod (the manifest says
+/// <c>"side": "both"</c> and <c>"clients": "mod"</c>), and the moves play the sample's own clips in them, with the timing below. A change to the
+/// states applies from the next start. Not seen in a game client yet.
 /// </summary>
 public sealed class WeaponMovesMod : Mod
 {
