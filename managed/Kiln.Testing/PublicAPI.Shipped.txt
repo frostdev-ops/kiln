@@ -1,0 +1,89 @@
+#nullable enable
+Kiln.Testing.Assert
+Kiln.Testing.AssertionException
+Kiln.Testing.AssertionException.AssertionException(string! message) -> void
+Kiln.Testing.KilnTestAttribute
+Kiln.Testing.KilnTestAttribute.KilnTestAttribute(string? name = null) -> void
+Kiln.Testing.KilnTestAttribute.Name.get -> string?
+Kiln.Testing.KilnTestAttribute.Order.get -> int
+Kiln.Testing.KilnTestAttribute.Order.init -> void
+Kiln.Testing.KilnTestAttribute.Skip.get -> string?
+Kiln.Testing.KilnTestAttribute.Skip.init -> void
+Kiln.Testing.KilnTestAttribute.TimeoutSeconds.get -> int
+Kiln.Testing.KilnTestAttribute.TimeoutSeconds.init -> void
+Kiln.Testing.SkipException
+Kiln.Testing.SkipException.SkipException(string! reason) -> void
+Kiln.Testing.TestContext
+Kiln.Testing.TestContext.Cancellation.get -> System.Threading.CancellationToken
+Kiln.Testing.TestContext.Delay(System.TimeSpan time) -> System.Threading.Tasks.Task!
+Kiln.Testing.TestContext.Log.get -> Kiln.Logger!
+Kiln.Testing.TestContext.Mod.get -> Kiln.ModContext!
+Kiln.Testing.TestContext.Name.get -> string!
+Kiln.Testing.TestContext.Ticks(int count = 1) -> System.Threading.Tasks.Task!
+Kiln.Testing.TestContext.Until(System.Func<bool>! condition, System.TimeSpan timeout, string? what = null) -> System.Threading.Tasks.Task!
+Kiln.Testing.TestOutcome
+Kiln.Testing.TestOutcome.Fail = 1 -> Kiln.Testing.TestOutcome
+Kiln.Testing.TestOutcome.Pass = 0 -> Kiln.Testing.TestOutcome
+Kiln.Testing.TestOutcome.Skip = 2 -> Kiln.Testing.TestOutcome
+Kiln.Testing.TestOutcome.Timeout = 3 -> Kiln.Testing.TestOutcome
+Kiln.Testing.TestReport
+Kiln.Testing.TestReport.<Clone>$() -> Kiln.Testing.TestReport!
+Kiln.Testing.TestReport.Deconstruct(out string! Mod, out string! Version, out System.DateTime Started, out double Ms, out System.Collections.Generic.IReadOnlyList<Kiln.Testing.TestResult!>! Results) -> void
+Kiln.Testing.TestReport.Equals(Kiln.Testing.TestReport? other) -> bool
+Kiln.Testing.TestReport.Failed.get -> int
+Kiln.Testing.TestReport.File.get -> string?
+Kiln.Testing.TestReport.File.init -> void
+Kiln.Testing.TestReport.Mod.get -> string!
+Kiln.Testing.TestReport.Mod.init -> void
+Kiln.Testing.TestReport.Ms.get -> double
+Kiln.Testing.TestReport.Ms.init -> void
+Kiln.Testing.TestReport.Ok.get -> bool
+Kiln.Testing.TestReport.Passed.get -> int
+Kiln.Testing.TestReport.Results.get -> System.Collections.Generic.IReadOnlyList<Kiln.Testing.TestResult!>!
+Kiln.Testing.TestReport.Results.init -> void
+Kiln.Testing.TestReport.Skipped.get -> int
+Kiln.Testing.TestReport.Started.get -> System.DateTime
+Kiln.Testing.TestReport.Started.init -> void
+Kiln.Testing.TestReport.TestReport(string! Mod, string! Version, System.DateTime Started, double Ms, System.Collections.Generic.IReadOnlyList<Kiln.Testing.TestResult!>! Results) -> void
+Kiln.Testing.TestReport.Version.get -> string!
+Kiln.Testing.TestReport.Version.init -> void
+Kiln.Testing.TestResult
+Kiln.Testing.TestResult.<Clone>$() -> Kiln.Testing.TestResult!
+Kiln.Testing.TestResult.Deconstruct(out string! Name, out Kiln.Testing.TestOutcome Outcome, out double Ms, out string? Message, out string? Stack) -> void
+Kiln.Testing.TestResult.Equals(Kiln.Testing.TestResult? other) -> bool
+Kiln.Testing.TestResult.Message.get -> string?
+Kiln.Testing.TestResult.Message.init -> void
+Kiln.Testing.TestResult.Ms.get -> double
+Kiln.Testing.TestResult.Ms.init -> void
+Kiln.Testing.TestResult.Name.get -> string!
+Kiln.Testing.TestResult.Name.init -> void
+Kiln.Testing.TestResult.Outcome.get -> Kiln.Testing.TestOutcome
+Kiln.Testing.TestResult.Outcome.init -> void
+Kiln.Testing.TestResult.Stack.get -> string?
+Kiln.Testing.TestResult.Stack.init -> void
+Kiln.Testing.TestResult.TestResult(string! Name, Kiln.Testing.TestOutcome Outcome, double Ms, string? Message, string? Stack) -> void
+Kiln.Testing.Tests
+override Kiln.Testing.TestReport.Equals(object? obj) -> bool
+override Kiln.Testing.TestReport.GetHashCode() -> int
+override Kiln.Testing.TestReport.ToString() -> string!
+override Kiln.Testing.TestResult.Equals(object? obj) -> bool
+override Kiln.Testing.TestResult.GetHashCode() -> int
+override Kiln.Testing.TestResult.ToString() -> string!
+static Kiln.Testing.Assert.Contains(string! expected, string? actual, string? message = null) -> void
+static Kiln.Testing.Assert.Equal<T>(T expected, T actual, string? message = null) -> void
+static Kiln.Testing.Assert.Fail(string! message) -> void
+static Kiln.Testing.Assert.False(bool condition, string? message = null) -> void
+static Kiln.Testing.Assert.InRange(double actual, double low, double high, string? message = null) -> void
+static Kiln.Testing.Assert.NotEqual<T>(T unexpected, T actual, string? message = null) -> void
+static Kiln.Testing.Assert.NotNull<T>(T? value, string? message = null) -> T!
+static Kiln.Testing.Assert.Null(object? value, string? message = null) -> void
+static Kiln.Testing.Assert.Same(object? expected, object? actual, string? message = null) -> void
+static Kiln.Testing.Assert.Skip(string! reason) -> void
+static Kiln.Testing.Assert.Throws<TException>(System.Action! action, string? message = null) -> TException!
+static Kiln.Testing.Assert.ThrowsAsync<TException>(System.Func<System.Threading.Tasks.Task!>! action, string? message = null) -> System.Threading.Tasks.Task<TException!>!
+static Kiln.Testing.Assert.True(bool condition, string? message = null) -> void
+static Kiln.Testing.TestReport.operator !=(Kiln.Testing.TestReport? left, Kiln.Testing.TestReport? right) -> bool
+static Kiln.Testing.TestReport.operator ==(Kiln.Testing.TestReport? left, Kiln.Testing.TestReport? right) -> bool
+static Kiln.Testing.TestResult.operator !=(Kiln.Testing.TestResult? left, Kiln.Testing.TestResult? right) -> bool
+static Kiln.Testing.TestResult.operator ==(Kiln.Testing.TestResult? left, Kiln.Testing.TestResult? right) -> bool
+static Kiln.Testing.Tests.RunAsync(string! modId, string? filter = null) -> System.Threading.Tasks.Task<Kiln.Testing.TestReport!>!

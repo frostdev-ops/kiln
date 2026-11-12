@@ -1,0 +1,850 @@
+#nullable enable
+Kiln.Content
+Kiln.ContentConflict
+Kiln.ContentConflict.<Clone>$() -> Kiln.ContentConflict!
+Kiln.ContentConflict.ContentConflict(string! Field, string! Winner, string! WinnerValue, string! Loser, string! LoserValue) -> void
+Kiln.ContentConflict.Deconstruct(out string! Field, out string! Winner, out string! WinnerValue, out string! Loser, out string! LoserValue) -> void
+Kiln.ContentConflict.Equals(Kiln.ContentConflict? other) -> bool
+Kiln.ContentConflict.Field.get -> string!
+Kiln.ContentConflict.Field.init -> void
+Kiln.ContentConflict.Loser.get -> string!
+Kiln.ContentConflict.Loser.init -> void
+Kiln.ContentConflict.LoserValue.get -> string!
+Kiln.ContentConflict.LoserValue.init -> void
+Kiln.ContentConflict.Winner.get -> string!
+Kiln.ContentConflict.Winner.init -> void
+Kiln.ContentConflict.WinnerValue.get -> string!
+Kiln.ContentConflict.WinnerValue.init -> void
+Kiln.ContentDefinition
+Kiln.ContentDefinition.<Clone>$() -> Kiln.ContentDefinition!
+Kiln.ContentDefinition.ContentDefinition(Kiln.ContentKind Kind, System.Guid Guid, uint Id, string! Name, string! State, System.Collections.Generic.IReadOnlyList<string!>! Worlds, string? Owner, string? Problem) -> void
+Kiln.ContentDefinition.Deconstruct(out Kiln.ContentKind Kind, out System.Guid Guid, out uint Id, out string! Name, out string! State, out System.Collections.Generic.IReadOnlyList<string!>! Worlds, out string? Owner, out string? Problem) -> void
+Kiln.ContentDefinition.DefinitionJson.get -> string?
+Kiln.ContentDefinition.DefinitionJson.init -> void
+Kiln.ContentDefinition.Equals(Kiln.ContentDefinition? other) -> bool
+Kiln.ContentDefinition.Guid.get -> System.Guid
+Kiln.ContentDefinition.Guid.init -> void
+Kiln.ContentDefinition.Id.get -> uint
+Kiln.ContentDefinition.Id.init -> void
+Kiln.ContentDefinition.IsPlaceholder.get -> bool
+Kiln.ContentDefinition.IsPlaceholder.init -> void
+Kiln.ContentDefinition.Kind.get -> Kiln.ContentKind
+Kiln.ContentDefinition.Kind.init -> void
+Kiln.ContentDefinition.Mod.get -> string?
+Kiln.ContentDefinition.Mod.init -> void
+Kiln.ContentDefinition.Name.get -> string!
+Kiln.ContentDefinition.Name.init -> void
+Kiln.ContentDefinition.Owner.get -> string?
+Kiln.ContentDefinition.Owner.init -> void
+Kiln.ContentDefinition.Problem.get -> string?
+Kiln.ContentDefinition.Problem.init -> void
+Kiln.ContentDefinition.State.get -> string!
+Kiln.ContentDefinition.State.init -> void
+Kiln.ContentDefinition.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentDefinition.Warnings.init -> void
+Kiln.ContentDefinition.Worlds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentDefinition.Worlds.init -> void
+Kiln.ContentEntry
+Kiln.ContentEntry.CraftingDuration.get -> System.TimeSpan
+Kiln.ContentEntry.CraftingDuration.set -> void
+Kiln.ContentEntry.Get(string! path) -> Kiln.ContentValue
+Kiln.ContentEntry.GetNumber(string! path) -> double
+Kiln.ContentEntry.GetRef(string! path) -> System.Guid
+Kiln.ContentEntry.Guid.get -> System.Guid
+Kiln.ContentEntry.Id.get -> uint
+Kiln.ContentEntry.Inputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.RecipeStack>!
+Kiln.ContentEntry.Kind.get -> Kiln.ContentKind
+Kiln.ContentEntry.MaxStack.get -> int
+Kiln.ContentEntry.MaxStack.set -> void
+Kiln.ContentEntry.Modified.get -> bool
+Kiln.ContentEntry.Name.get -> string!
+Kiln.ContentEntry.Original(string! path) -> Kiln.ContentValue
+Kiln.ContentEntry.Outputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.RecipeStack>!
+Kiln.ContentEntry.Reset(string! path) -> bool
+Kiln.ContentEntry.Set(string! path, System.TimeSpan value) -> void
+Kiln.ContentEntry.Set(string! path, bool value) -> void
+Kiln.ContentEntry.Set(string! path, double value) -> void
+Kiln.ContentEntry.Set(string! path, int value) -> void
+Kiln.ContentEntry.Set(string! path, long value) -> void
+Kiln.ContentEntry.Set(string! path, string! value) -> void
+Kiln.ContentEntry.SetInputs(System.Collections.Generic.IEnumerable<Kiln.RecipeStack>! stacks) -> void
+Kiln.ContentEntry.SetOutputs(System.Collections.Generic.IEnumerable<Kiln.RecipeStack>! stacks) -> void
+Kiln.ContentEntry.SetPerks(System.Collections.Generic.IReadOnlyList<string?>! perks, bool allowGameItem = false) -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentEntry.SetRef(string! key, string! value, bool allowGameItem = false) -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentEntry.SetRefJson(string! key, string! valueJson, bool allowGameItem = false) -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentEntry.SetStacks(System.Collections.Generic.IEnumerable<Kiln.DropStack>! stacks) -> void
+Kiln.ContentEntry.Stacks.get -> System.Collections.Generic.IReadOnlyList<Kiln.DropStack>!
+Kiln.ContentEnumKind
+Kiln.ContentEnumKind.Enum = 1 -> Kiln.ContentEnumKind
+Kiln.ContentEnumKind.Flags = 2 -> Kiln.ContentEnumKind
+Kiln.ContentEnumKind.Plain = 0 -> Kiln.ContentEnumKind
+Kiln.ContentField
+Kiln.ContentField.<Clone>$() -> Kiln.ContentField!
+Kiln.ContentField.Bytes.get -> int
+Kiln.ContentField.Bytes.init -> void
+Kiln.ContentField.ContentField(int Index, string! Path, string! TypeName, int Offset, int Bytes, Kiln.ContentValueType Type, bool Signed, bool Writable, Kiln.ContentEnumKind EnumKind, System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>! Values) -> void
+Kiln.ContentField.Deconstruct(out int Index, out string! Path, out string! TypeName, out int Offset, out int Bytes, out Kiln.ContentValueType Type, out bool Signed, out bool Writable, out Kiln.ContentEnumKind EnumKind, out System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>! Values) -> void
+Kiln.ContentField.EnumKind.get -> Kiln.ContentEnumKind
+Kiln.ContentField.EnumKind.init -> void
+Kiln.ContentField.Equals(Kiln.ContentField? other) -> bool
+Kiln.ContentField.Index.get -> int
+Kiln.ContentField.Index.init -> void
+Kiln.ContentField.IsReference.get -> bool
+Kiln.ContentField.IsReference.init -> void
+Kiln.ContentField.Offset.get -> int
+Kiln.ContentField.Offset.init -> void
+Kiln.ContentField.Path.get -> string!
+Kiln.ContentField.Path.init -> void
+Kiln.ContentField.Signed.get -> bool
+Kiln.ContentField.Signed.init -> void
+Kiln.ContentField.Type.get -> Kiln.ContentValueType
+Kiln.ContentField.Type.init -> void
+Kiln.ContentField.TypeName.get -> string!
+Kiln.ContentField.TypeName.init -> void
+Kiln.ContentField.Values.get -> System.Collections.Generic.IReadOnlyList<(string! Name, long Value)>!
+Kiln.ContentField.Values.init -> void
+Kiln.ContentField.Writable.get -> bool
+Kiln.ContentField.Writable.init -> void
+Kiln.ContentKind
+Kiln.ContentKind.Drops = 4 -> Kiln.ContentKind
+Kiln.ContentKind.Items = 1 -> Kiln.ContentKind
+Kiln.ContentKind.Loot = 3 -> Kiln.ContentKind
+Kiln.ContentKind.Recipes = 2 -> Kiln.ContentKind
+Kiln.ContentReadyEvent
+Kiln.ContentReadyEvent.Generation.get -> ulong
+Kiln.ContentReadyEvent.Reload.get -> bool
+Kiln.ContentRegistry
+Kiln.ContentRegistry.Count.get -> int
+Kiln.ContentRegistry.Field(string! path) -> Kiln.ContentField?
+Kiln.ContentRegistry.Fields.get -> System.Collections.Generic.IReadOnlyList<Kiln.ContentField!>!
+Kiln.ContentRegistry.Get(Kiln.ItemId item) -> Kiln.ContentEntry?
+Kiln.ContentRegistry.Get(string! key) -> Kiln.ContentEntry?
+Kiln.ContentRegistry.Get(uint id) -> Kiln.ContentEntry?
+Kiln.ContentRegistry.GetEnumerator() -> System.Collections.Generic.IEnumerator<Kiln.ContentEntry!>!
+Kiln.ContentRegistry.Kind.get -> Kiln.ContentKind
+Kiln.ContentRegistry.this[int index].get -> Kiln.ContentEntry!
+Kiln.ContentRegistryDefinitions
+Kiln.ContentReport
+Kiln.ContentReport.<Clone>$() -> Kiln.ContentReport!
+Kiln.ContentReport.Applied.get -> int
+Kiln.ContentReport.Applied.init -> void
+Kiln.ContentReport.Conflicts.get -> System.Collections.Generic.IReadOnlyList<Kiln.ContentConflict!>!
+Kiln.ContentReport.Conflicts.init -> void
+Kiln.ContentReport.ContentReport(int Applied, System.Collections.Generic.IReadOnlyList<string!>! Errors, System.Collections.Generic.IReadOnlyList<string!>! Warnings, System.Collections.Generic.IReadOnlyList<Kiln.ContentConflict!>! Conflicts) -> void
+Kiln.ContentReport.Deconstruct(out int Applied, out System.Collections.Generic.IReadOnlyList<string!>! Errors, out System.Collections.Generic.IReadOnlyList<string!>! Warnings, out System.Collections.Generic.IReadOnlyList<Kiln.ContentConflict!>! Conflicts) -> void
+Kiln.ContentReport.Equals(Kiln.ContentReport? other) -> bool
+Kiln.ContentReport.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentReport.Errors.init -> void
+Kiln.ContentReport.Ok.get -> bool
+Kiln.ContentReport.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentReport.Warnings.init -> void
+Kiln.ContentRoundTrip
+Kiln.ContentRoundTrip.<Clone>$() -> Kiln.ContentRoundTrip!
+Kiln.ContentRoundTrip.Applied.get -> int
+Kiln.ContentRoundTrip.Applied.init -> void
+Kiln.ContentRoundTrip.ContentRoundTrip(bool Ok, int Fields, int Applied, int Reset, double Milliseconds, System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+Kiln.ContentRoundTrip.Deconstruct(out bool Ok, out int Fields, out int Applied, out int Reset, out double Milliseconds, out System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+Kiln.ContentRoundTrip.Equals(Kiln.ContentRoundTrip? other) -> bool
+Kiln.ContentRoundTrip.Fields.get -> int
+Kiln.ContentRoundTrip.Fields.init -> void
+Kiln.ContentRoundTrip.Milliseconds.get -> double
+Kiln.ContentRoundTrip.Milliseconds.init -> void
+Kiln.ContentRoundTrip.Ok.get -> bool
+Kiln.ContentRoundTrip.Ok.init -> void
+Kiln.ContentRoundTrip.Problems.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentRoundTrip.Problems.init -> void
+Kiln.ContentRoundTrip.Reset.get -> int
+Kiln.ContentRoundTrip.Reset.init -> void
+Kiln.ContentSectionCall
+Kiln.ContentSectionCall.<Clone>$() -> Kiln.ContentSectionCall!
+Kiln.ContentSectionCall.ContentSectionCall(string! Section, string! Json, string! Owner, string! Source, ulong Generation, bool Reload) -> void
+Kiln.ContentSectionCall.Deconstruct(out string! Section, out string! Json, out string! Owner, out string! Source, out ulong Generation, out bool Reload) -> void
+Kiln.ContentSectionCall.Equals(Kiln.ContentSectionCall? other) -> bool
+Kiln.ContentSectionCall.Generation.get -> ulong
+Kiln.ContentSectionCall.Generation.init -> void
+Kiln.ContentSectionCall.Json.get -> string!
+Kiln.ContentSectionCall.Json.init -> void
+Kiln.ContentSectionCall.Owner.get -> string!
+Kiln.ContentSectionCall.Owner.init -> void
+Kiln.ContentSectionCall.Reload.get -> bool
+Kiln.ContentSectionCall.Reload.init -> void
+Kiln.ContentSectionCall.Section.get -> string!
+Kiln.ContentSectionCall.Section.init -> void
+Kiln.ContentSectionCall.Source.get -> string!
+Kiln.ContentSectionCall.Source.init -> void
+Kiln.ContentSectionResult
+Kiln.ContentSectionResult.<Clone>$() -> Kiln.ContentSectionResult!
+Kiln.ContentSectionResult.Applied.get -> int
+Kiln.ContentSectionResult.Applied.init -> void
+Kiln.ContentSectionResult.ContentSectionResult(int Applied, System.Collections.Generic.IReadOnlyList<string!>! Errors, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Kiln.ContentSectionResult.Deconstruct(out int Applied, out System.Collections.Generic.IReadOnlyList<string!>! Errors, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Kiln.ContentSectionResult.Equals(Kiln.ContentSectionResult? other) -> bool
+Kiln.ContentSectionResult.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentSectionResult.Errors.init -> void
+Kiln.ContentSectionResult.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentSectionResult.Warnings.init -> void
+Kiln.ContentStatus
+Kiln.ContentStatus.<Clone>$() -> Kiln.ContentStatus!
+Kiln.ContentStatus.Changed.get -> int
+Kiln.ContentStatus.Changed.init -> void
+Kiln.ContentStatus.Conflicts.get -> int
+Kiln.ContentStatus.Conflicts.init -> void
+Kiln.ContentStatus.ContentStatus(bool Ready, bool HasItems, bool HasRecipes, bool HasLoot, bool HasDrops, bool StackGuard, int Items, int Recipes, int Loot, int Drops, int Packs, int PackErrors, int Conflicts, int Changed, ulong Generation, string! Detail) -> void
+Kiln.ContentStatus.Deconstruct(out bool Ready, out bool HasItems, out bool HasRecipes, out bool HasLoot, out bool HasDrops, out bool StackGuard, out int Items, out int Recipes, out int Loot, out int Drops, out int Packs, out int PackErrors, out int Conflicts, out int Changed, out ulong Generation, out string! Detail) -> void
+Kiln.ContentStatus.Definitions.get -> int
+Kiln.ContentStatus.Definitions.init -> void
+Kiln.ContentStatus.Detail.get -> string!
+Kiln.ContentStatus.Detail.init -> void
+Kiln.ContentStatus.Drops.get -> int
+Kiln.ContentStatus.Drops.init -> void
+Kiln.ContentStatus.Equals(Kiln.ContentStatus? other) -> bool
+Kiln.ContentStatus.Generation.get -> ulong
+Kiln.ContentStatus.Generation.init -> void
+Kiln.ContentStatus.HasDrops.get -> bool
+Kiln.ContentStatus.HasDrops.init -> void
+Kiln.ContentStatus.HasItems.get -> bool
+Kiln.ContentStatus.HasItems.init -> void
+Kiln.ContentStatus.HasLoot.get -> bool
+Kiln.ContentStatus.HasLoot.init -> void
+Kiln.ContentStatus.HasRecipes.get -> bool
+Kiln.ContentStatus.HasRecipes.init -> void
+Kiln.ContentStatus.Items.get -> int
+Kiln.ContentStatus.Items.init -> void
+Kiln.ContentStatus.Loot.get -> int
+Kiln.ContentStatus.Loot.init -> void
+Kiln.ContentStatus.PackErrors.get -> int
+Kiln.ContentStatus.PackErrors.init -> void
+Kiln.ContentStatus.Packs.get -> int
+Kiln.ContentStatus.Packs.init -> void
+Kiln.ContentStatus.Placeholders.get -> int
+Kiln.ContentStatus.Placeholders.init -> void
+Kiln.ContentStatus.Ready.get -> bool
+Kiln.ContentStatus.Ready.init -> void
+Kiln.ContentStatus.Recipes.get -> int
+Kiln.ContentStatus.Recipes.init -> void
+Kiln.ContentStatus.StackGuard.get -> bool
+Kiln.ContentStatus.StackGuard.init -> void
+Kiln.ContentSync
+Kiln.ContentSyncState
+Kiln.ContentSyncState.Applied = 2 -> Kiln.ContentSyncState
+Kiln.ContentSyncState.Failed = 4 -> Kiln.ContentSyncState
+Kiln.ContentSyncState.Hosting = 3 -> Kiln.ContentSyncState
+Kiln.ContentSyncState.Off = 0 -> Kiln.ContentSyncState
+Kiln.ContentSyncState.Waiting = 1 -> Kiln.ContentSyncState
+Kiln.ContentSyncStatus
+Kiln.ContentSyncStatus.Applied.get -> int
+Kiln.ContentSyncStatus.Applied.init -> void
+Kiln.ContentSyncStatus.AppliedAt.get -> System.DateTime?
+Kiln.ContentSyncStatus.AppliedAt.init -> void
+Kiln.ContentSyncStatus.Bytes.get -> int
+Kiln.ContentSyncStatus.Bytes.init -> void
+Kiln.ContentSyncStatus.CompressedBytes.get -> int
+Kiln.ContentSyncStatus.CompressedBytes.init -> void
+Kiln.ContentSyncStatus.ContentSyncStatus() -> void
+Kiln.ContentSyncStatus.ContentSyncStatus(Kiln.ContentSyncState State, uint StateId, int ServerFields, int Applied, int Reset, int Errors, int Bytes, int CompressedBytes, System.DateTime? AppliedAt, string! Detail) -> void
+Kiln.ContentSyncStatus.Deconstruct(out Kiln.ContentSyncState State, out uint StateId, out int ServerFields, out int Applied, out int Reset, out int Errors, out int Bytes, out int CompressedBytes, out System.DateTime? AppliedAt, out string! Detail) -> void
+Kiln.ContentSyncStatus.Detail.get -> string!
+Kiln.ContentSyncStatus.Detail.init -> void
+Kiln.ContentSyncStatus.Equals(Kiln.ContentSyncStatus other) -> bool
+Kiln.ContentSyncStatus.Errors.get -> int
+Kiln.ContentSyncStatus.Errors.init -> void
+Kiln.ContentSyncStatus.Reset.get -> int
+Kiln.ContentSyncStatus.Reset.init -> void
+Kiln.ContentSyncStatus.ServerFields.get -> int
+Kiln.ContentSyncStatus.ServerFields.init -> void
+Kiln.ContentSyncStatus.State.get -> Kiln.ContentSyncState
+Kiln.ContentSyncStatus.State.init -> void
+Kiln.ContentSyncStatus.StateId.get -> uint
+Kiln.ContentSyncStatus.StateId.init -> void
+Kiln.ContentSyncedEvent
+Kiln.ContentSyncedEvent.Applied.get -> int
+Kiln.ContentSyncedEvent.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ContentSyncedEvent.Reset.get -> int
+Kiln.ContentSyncedEvent.Restored.get -> bool
+Kiln.ContentSyncedEvent.StateId.get -> uint
+Kiln.ContentValue
+Kiln.ContentValue.AsDouble.get -> double
+Kiln.ContentValue.Bool.get -> bool
+Kiln.ContentValue.ContentValue() -> void
+Kiln.ContentValue.ContentValue(Kiln.ContentValueType Type, long Integer, double Number, System.Guid Guid, string? Name) -> void
+Kiln.ContentValue.Deconstruct(out Kiln.ContentValueType Type, out long Integer, out double Number, out System.Guid Guid, out string? Name) -> void
+Kiln.ContentValue.Equals(Kiln.ContentValue other) -> bool
+Kiln.ContentValue.Guid.get -> System.Guid
+Kiln.ContentValue.Guid.init -> void
+Kiln.ContentValue.Integer.get -> long
+Kiln.ContentValue.Integer.init -> void
+Kiln.ContentValue.Name.get -> string?
+Kiln.ContentValue.Name.init -> void
+Kiln.ContentValue.Number.get -> double
+Kiln.ContentValue.Number.init -> void
+Kiln.ContentValue.Type.get -> Kiln.ContentValueType
+Kiln.ContentValue.Type.init -> void
+Kiln.ContentValueType
+Kiln.ContentValueType.Bool = 1 -> Kiln.ContentValueType
+Kiln.ContentValueType.Float = 3 -> Kiln.ContentValueType
+Kiln.ContentValueType.Guid = 5 -> Kiln.ContentValueType
+Kiln.ContentValueType.Int = 2 -> Kiln.ContentValueType
+Kiln.ContentValueType.None = 0 -> Kiln.ContentValueType
+Kiln.ContentValueType.Time = 4 -> Kiln.ContentValueType
+Kiln.DropStack
+Kiln.DropStack.Chance.get -> float
+Kiln.DropStack.Chance.init -> void
+Kiln.DropStack.CountMax.get -> int
+Kiln.DropStack.CountMax.init -> void
+Kiln.DropStack.CountMin.get -> int
+Kiln.DropStack.CountMin.init -> void
+Kiln.DropStack.Deconstruct(out Kiln.ItemId Item, out int CountMin, out int CountMax, out float Chance, out float Weight, out int Group) -> void
+Kiln.DropStack.DropStack() -> void
+Kiln.DropStack.DropStack(Kiln.ItemId Item, int CountMin, int CountMax, float Chance, float Weight, int Group) -> void
+Kiln.DropStack.Equals(Kiln.DropStack other) -> bool
+Kiln.DropStack.Group.get -> int
+Kiln.DropStack.Group.init -> void
+Kiln.DropStack.Item.get -> Kiln.ItemId
+Kiln.DropStack.Item.init -> void
+Kiln.DropStack.Weight.get -> float
+Kiln.DropStack.Weight.init -> void
+Kiln.Field<T>
+Kiln.Field<T>.Below<TBelow>(string! rest) -> Kiln.Field<TBelow>
+Kiln.Field<T>.Deconstruct(out string! Section, out string! Path) -> void
+Kiln.Field<T>.Equals(Kiln.Field<T> other) -> bool
+Kiln.Field<T>.Field() -> void
+Kiln.Field<T>.Field(string! Section, string! Path) -> void
+Kiln.Field<T>.Path.get -> string!
+Kiln.Field<T>.Path.init -> void
+Kiln.Field<T>.Section.get -> string!
+Kiln.Field<T>.Section.init -> void
+Kiln.FieldAccess
+Kiln.FieldPath
+Kiln.FieldValue<T>
+Kiln.FieldValue<T>.FieldValue() -> void
+Kiln.FieldValue<T>.Value.get -> T
+Kiln.FieldValues
+Kiln.FieldValues.Add<T>(Kiln.Field<T> field, Kiln.FieldValue<T> value) -> void
+Kiln.FieldValues.ContainsKey(string! key) -> bool
+Kiln.FieldValues.Count.get -> int
+Kiln.FieldValues.FieldValues() -> void
+Kiln.FieldValues.GetEnumerator() -> System.Collections.Generic.IEnumerator<System.Collections.Generic.KeyValuePair<string!, object!>>!
+Kiln.FieldValues.Keys.get -> System.Collections.Generic.IEnumerable<string!>!
+Kiln.FieldValues.TryGetValue(string! key, out object! value) -> bool
+Kiln.FieldValues.Values.get -> System.Collections.Generic.IEnumerable<object!>!
+Kiln.FieldValues.this[string! key].get -> object!
+Kiln.GameDataClone
+Kiln.GameDataClone.Base.get -> string!
+Kiln.GameDataClone.Base.init -> void
+Kiln.GameDataClone.Description.get -> string?
+Kiln.GameDataClone.Description.init -> void
+Kiln.GameDataClone.DisplayName.get -> string?
+Kiln.GameDataClone.DisplayName.init -> void
+Kiln.GameDataClone.Fields.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.Nodes.JsonNode?>!
+Kiln.GameDataClone.Fields.init -> void
+Kiln.GameDataClone.GameDataClone() -> void
+Kiln.GameDataClone.Guid.get -> System.Guid
+Kiln.GameDataClone.Guid.init -> void
+Kiln.GameDataClone.Name.get -> string!
+Kiln.GameDataClone.Name.init -> void
+Kiln.GameDataClone.Texts.get -> System.Collections.Generic.Dictionary<string!, Kiln.GameDataTexts!>!
+Kiln.GameDataClone.Texts.init -> void
+Kiln.GameDataClone.ToJson() -> System.Text.Json.Nodes.JsonObject!
+Kiln.GameDataClone.Values.get -> Kiln.FieldValues!
+Kiln.GameDataConfig
+Kiln.GameDataConfig.Exists.get -> bool
+Kiln.GameDataConfig.Get() -> Kiln.ContentValue
+Kiln.GameDataConfig.Original() -> Kiln.ContentValue
+Kiln.GameDataConfig.Path.get -> string!
+Kiln.GameDataConfig.Reset() -> bool
+Kiln.GameDataConfig.Set(double value) -> void
+Kiln.GameDataConfig.Set(long value) -> void
+Kiln.GameDataConfig.Set(string! value) -> void
+Kiln.GameDataDefinition
+Kiln.GameDataDefinition.<Clone>$() -> Kiln.GameDataDefinition!
+Kiln.GameDataDefinition.Base.get -> string!
+Kiln.GameDataDefinition.Base.init -> void
+Kiln.GameDataDefinition.Deconstruct(out Kiln.GameDataSection Section, out System.Guid Guid, out uint Id, out string! Name, out string! Base, out string! State, out string! Owner, out string? Mod, out bool IsPlaceholder, out string? Error, out System.Collections.Generic.IReadOnlyList<string!>! Warnings, out string! DefinitionJson) -> void
+Kiln.GameDataDefinition.DefinitionJson.get -> string!
+Kiln.GameDataDefinition.DefinitionJson.init -> void
+Kiln.GameDataDefinition.Equals(Kiln.GameDataDefinition? other) -> bool
+Kiln.GameDataDefinition.Error.get -> string?
+Kiln.GameDataDefinition.Error.init -> void
+Kiln.GameDataDefinition.GameDataDefinition(Kiln.GameDataSection Section, System.Guid Guid, uint Id, string! Name, string! Base, string! State, string! Owner, string? Mod, bool IsPlaceholder, string? Error, System.Collections.Generic.IReadOnlyList<string!>! Warnings, string! DefinitionJson) -> void
+Kiln.GameDataDefinition.Guid.get -> System.Guid
+Kiln.GameDataDefinition.Guid.init -> void
+Kiln.GameDataDefinition.Id.get -> uint
+Kiln.GameDataDefinition.Id.init -> void
+Kiln.GameDataDefinition.IsPlaceholder.get -> bool
+Kiln.GameDataDefinition.IsPlaceholder.init -> void
+Kiln.GameDataDefinition.Mod.get -> string?
+Kiln.GameDataDefinition.Mod.init -> void
+Kiln.GameDataDefinition.Name.get -> string!
+Kiln.GameDataDefinition.Name.init -> void
+Kiln.GameDataDefinition.Owner.get -> string!
+Kiln.GameDataDefinition.Owner.init -> void
+Kiln.GameDataDefinition.Section.get -> Kiln.GameDataSection
+Kiln.GameDataDefinition.Section.init -> void
+Kiln.GameDataDefinition.State.get -> string!
+Kiln.GameDataDefinition.State.init -> void
+Kiln.GameDataDefinition.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.GameDataDefinition.Warnings.init -> void
+Kiln.GameDataEntry
+Kiln.GameDataEntry.Address.get -> ulong
+Kiln.GameDataEntry.Config(string! alias) -> Kiln.GameDataConfig!
+Kiln.GameDataEntry.Event(string! type, int k = 0) -> Kiln.GameDataEvent!
+Kiln.GameDataEntry.Fields(string? prefix = null, int limit = 0) -> System.Collections.Generic.IReadOnlyList<Kiln.GameDataField!>!
+Kiln.GameDataEntry.Get(string! path) -> Kiln.ContentValue
+Kiln.GameDataEntry.GetJson(string! path = "") -> System.Text.Json.Nodes.JsonNode?
+Kiln.GameDataEntry.GetNumber(string! path) -> double
+Kiln.GameDataEntry.Guid.get -> System.Guid
+Kiln.GameDataEntry.Id.get -> uint
+Kiln.GameDataEntry.IsClone.get -> bool
+Kiln.GameDataEntry.Modified.get -> bool
+Kiln.GameDataEntry.Name.get -> string!
+Kiln.GameDataEntry.Original(string! path) -> Kiln.ContentValue
+Kiln.GameDataEntry.Reset(string! path) -> bool
+Kiln.GameDataEntry.Section.get -> Kiln.GameDataSection
+Kiln.GameDataEntry.Set(string! path, System.Guid value) -> void
+Kiln.GameDataEntry.Set(string! path, System.TimeSpan value) -> void
+Kiln.GameDataEntry.Set(string! path, bool value) -> void
+Kiln.GameDataEntry.Set(string! path, double value) -> void
+Kiln.GameDataEntry.Set(string! path, int value) -> void
+Kiln.GameDataEntry.Set(string! path, long value) -> void
+Kiln.GameDataEntry.Set(string! path, string! value) -> void
+Kiln.GameDataEntry.SetJson(string! path, string! json) -> int
+Kiln.GameDataEvent
+Kiln.GameDataEvent.Duration.get -> System.TimeSpan
+Kiln.GameDataEvent.Duration.set -> void
+Kiln.GameDataEvent.Get(string! field) -> Kiln.ContentValue
+Kiln.GameDataEvent.Path.get -> string!
+Kiln.GameDataEvent.SetJson(string! field, string! json) -> void
+Kiln.GameDataEvent.Time.get -> System.TimeSpan
+Kiln.GameDataEvent.Time.set -> void
+Kiln.GameDataField
+Kiln.GameDataField.<Clone>$() -> Kiln.GameDataField!
+Kiln.GameDataField.Deconstruct(out string! Path, out string! Type, out System.Text.Json.Nodes.JsonNode? Value, out bool Writable, out System.Text.Json.Nodes.JsonNode? Original) -> void
+Kiln.GameDataField.Equals(Kiln.GameDataField? other) -> bool
+Kiln.GameDataField.GameDataField(string! Path, string! Type, System.Text.Json.Nodes.JsonNode? Value, bool Writable, System.Text.Json.Nodes.JsonNode? Original) -> void
+Kiln.GameDataField.Original.get -> System.Text.Json.Nodes.JsonNode?
+Kiln.GameDataField.Original.init -> void
+Kiln.GameDataField.Path.get -> string!
+Kiln.GameDataField.Path.init -> void
+Kiln.GameDataField.Type.get -> string!
+Kiln.GameDataField.Type.init -> void
+Kiln.GameDataField.Value.get -> System.Text.Json.Nodes.JsonNode?
+Kiln.GameDataField.Value.init -> void
+Kiln.GameDataField.Writable.get -> bool
+Kiln.GameDataField.Writable.init -> void
+Kiln.GameDataItemExtensions
+Kiln.GameDataRegistry
+Kiln.GameDataRegistry.Count.get -> int
+Kiln.GameDataRegistry.Define(Kiln.GameDataClone! clone) -> Kiln.GameDataDefinition!
+Kiln.GameDataRegistry.Define(System.Text.Json.Nodes.JsonObject! definition) -> Kiln.GameDataDefinition!
+Kiln.GameDataRegistry.Definitions() -> System.Collections.Generic.IReadOnlyList<Kiln.GameDataDefinition!>!
+Kiln.GameDataRegistry.Dump(string? key = null, string? path = null) -> string!
+Kiln.GameDataRegistry.Get(System.Guid guid) -> Kiln.GameDataEntry?
+Kiln.GameDataRegistry.Get(string! key) -> Kiln.GameDataEntry?
+Kiln.GameDataRegistry.Get(uint id) -> Kiln.GameDataEntry?
+Kiln.GameDataRegistry.GetEnumerator() -> System.Collections.Generic.IEnumerator<Kiln.GameDataEntry!>!
+Kiln.GameDataRegistry.IsClone(System.Guid guid) -> bool
+Kiln.GameDataRegistry.Section.get -> Kiln.GameDataSection
+Kiln.GameDataRegistry.this[int index].get -> Kiln.GameDataEntry!
+Kiln.GameDataSection
+Kiln.GameDataSection.Arsenals = 2 -> Kiln.GameDataSection
+Kiln.GameDataSection.Buffs = 4 -> Kiln.GameDataSection
+Kiln.GameDataSection.Items = 7 -> Kiln.GameDataSection
+Kiln.GameDataSection.Perks = 5 -> Kiln.GameDataSection
+Kiln.GameDataSection.Sequences = 3 -> Kiln.GameDataSection
+Kiln.GameDataSection.Skills = 6 -> Kiln.GameDataSection
+Kiln.GameDataSection.Templates = 1 -> Kiln.GameDataSection
+Kiln.GameDataTexts
+Kiln.GameDataTexts.<Clone>$() -> Kiln.GameDataTexts!
+Kiln.GameDataTexts.Deconstruct(out string? Name, out string? Description) -> void
+Kiln.GameDataTexts.Description.get -> string?
+Kiln.GameDataTexts.Description.init -> void
+Kiln.GameDataTexts.Equals(Kiln.GameDataTexts? other) -> bool
+Kiln.GameDataTexts.GameDataTexts(string? Name = null, string? Description = null) -> void
+Kiln.GameDataTexts.Name.get -> string?
+Kiln.GameDataTexts.Name.init -> void
+Kiln.ItemDefinition
+Kiln.ItemDefinition.<Clone>$() -> Kiln.ItemDefinition!
+Kiln.ItemDefinition.BaseOn.get -> string!
+Kiln.ItemDefinition.BaseOn.init -> void
+Kiln.ItemDefinition.Description.get -> string?
+Kiln.ItemDefinition.Description.init -> void
+Kiln.ItemDefinition.DisplayName.get -> string?
+Kiln.ItemDefinition.DisplayName.init -> void
+Kiln.ItemDefinition.Drops.get -> System.Collections.Generic.IReadOnlyList<Kiln.ItemDrop!>?
+Kiln.ItemDefinition.Drops.init -> void
+Kiln.ItemDefinition.Equals(Kiln.ItemDefinition? other) -> bool
+Kiln.ItemDefinition.Fields.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>?
+Kiln.ItemDefinition.Fields.init -> void
+Kiln.ItemDefinition.Guid.get -> System.Guid
+Kiln.ItemDefinition.Guid.init -> void
+Kiln.ItemDefinition.Icon.get -> string?
+Kiln.ItemDefinition.Icon.init -> void
+Kiln.ItemDefinition.Id.get -> uint
+Kiln.ItemDefinition.ItemDefinition() -> void
+Kiln.ItemDefinition.Loot.get -> Kiln.ItemLoot?
+Kiln.ItemDefinition.Loot.init -> void
+Kiln.ItemDefinition.Lore.get -> string?
+Kiln.ItemDefinition.Lore.init -> void
+Kiln.ItemDefinition.Model.get -> string?
+Kiln.ItemDefinition.Model.init -> void
+Kiln.ItemDefinition.Name.get -> string!
+Kiln.ItemDefinition.Name.init -> void
+Kiln.ItemDefinition.Perks.get -> System.Collections.Generic.IReadOnlyList<string?>?
+Kiln.ItemDefinition.Perks.init -> void
+Kiln.ItemDefinition.Refs.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>?
+Kiln.ItemDefinition.Refs.init -> void
+Kiln.ItemDefinition.RolledLoot.get -> bool
+Kiln.ItemDefinition.RolledLoot.init -> void
+Kiln.ItemDefinition.Source.get -> string?
+Kiln.ItemDefinition.Source.init -> void
+Kiln.ItemDefinition.Texts.get -> System.Collections.Generic.IReadOnlyDictionary<string!, Kiln.ItemTexts!>?
+Kiln.ItemDefinition.Texts.init -> void
+Kiln.ItemDefinition.VisualModels.get -> System.Collections.Generic.IReadOnlyList<(uint Mask, string! Model)>?
+Kiln.ItemDefinition.VisualModels.init -> void
+Kiln.ItemDefinition.WeaponType.get -> string?
+Kiln.ItemDefinition.WeaponType.init -> void
+Kiln.ItemDrop
+Kiln.ItemDrop.<Clone>$() -> Kiln.ItemDrop!
+Kiln.ItemDrop.Chance.get -> double
+Kiln.ItemDrop.Chance.init -> void
+Kiln.ItemDrop.CountMax.get -> int
+Kiln.ItemDrop.CountMax.init -> void
+Kiln.ItemDrop.CountMin.get -> int
+Kiln.ItemDrop.CountMin.init -> void
+Kiln.ItemDrop.Deconstruct(out string! Table) -> void
+Kiln.ItemDrop.Equals(Kiln.ItemDrop? other) -> bool
+Kiln.ItemDrop.ItemDrop(string! Table) -> void
+Kiln.ItemDrop.Table.get -> string!
+Kiln.ItemDrop.Table.init -> void
+Kiln.ItemDrop.Weight.get -> double
+Kiln.ItemDrop.Weight.init -> void
+Kiln.ItemLoot
+Kiln.ItemLoot.<Clone>$() -> Kiln.ItemLoot!
+Kiln.ItemLoot.Equals(Kiln.ItemLoot? other) -> bool
+Kiln.ItemLoot.ItemLoot() -> void
+Kiln.ItemLoot.Like.get -> string?
+Kiln.ItemLoot.Like.init -> void
+Kiln.ItemLoot.StackMax.get -> int?
+Kiln.ItemLoot.StackMax.init -> void
+Kiln.ItemLoot.StackMin.get -> int?
+Kiln.ItemLoot.StackMin.init -> void
+Kiln.ItemTexts
+Kiln.ItemTexts.<Clone>$() -> Kiln.ItemTexts!
+Kiln.ItemTexts.AcquisitionHint.get -> string?
+Kiln.ItemTexts.AcquisitionHint.init -> void
+Kiln.ItemTexts.Caption.get -> string?
+Kiln.ItemTexts.Caption.init -> void
+Kiln.ItemTexts.Description.get -> string?
+Kiln.ItemTexts.Description.init -> void
+Kiln.ItemTexts.Equals(Kiln.ItemTexts? other) -> bool
+Kiln.ItemTexts.ItemTexts() -> void
+Kiln.ItemTexts.Lore.get -> string?
+Kiln.ItemTexts.Lore.init -> void
+Kiln.ItemTexts.Name.get -> string?
+Kiln.ItemTexts.Name.init -> void
+Kiln.ItemTexts.PrimaryAction.get -> string?
+Kiln.ItemTexts.PrimaryAction.init -> void
+Kiln.ItemTexts.SecondaryAction.get -> string?
+Kiln.ItemTexts.SecondaryAction.init -> void
+Kiln.ItemTexts.TertiaryAction.get -> string?
+Kiln.ItemTexts.TertiaryAction.init -> void
+Kiln.NewContent
+Kiln.ReadOnlyField<T>
+Kiln.ReadOnlyField<T>.Deconstruct(out string! Section, out string! Path) -> void
+Kiln.ReadOnlyField<T>.Equals(Kiln.ReadOnlyField<T> other) -> bool
+Kiln.ReadOnlyField<T>.Path.get -> string!
+Kiln.ReadOnlyField<T>.Path.init -> void
+Kiln.ReadOnlyField<T>.ReadOnlyField() -> void
+Kiln.ReadOnlyField<T>.ReadOnlyField(string! Section, string! Path) -> void
+Kiln.ReadOnlyField<T>.Section.get -> string!
+Kiln.ReadOnlyField<T>.Section.init -> void
+Kiln.RecipeDefinition
+Kiln.RecipeDefinition.<Clone>$() -> Kiln.RecipeDefinition!
+Kiln.RecipeDefinition.BaseOn.get -> string?
+Kiln.RecipeDefinition.BaseOn.init -> void
+Kiln.RecipeDefinition.DisplayName.get -> string?
+Kiln.RecipeDefinition.DisplayName.init -> void
+Kiln.RecipeDefinition.Duration.get -> System.TimeSpan?
+Kiln.RecipeDefinition.Duration.init -> void
+Kiln.RecipeDefinition.Equals(Kiln.RecipeDefinition? other) -> bool
+Kiln.RecipeDefinition.Fields.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>?
+Kiln.RecipeDefinition.Fields.init -> void
+Kiln.RecipeDefinition.Guid.get -> System.Guid
+Kiln.RecipeDefinition.Guid.init -> void
+Kiln.RecipeDefinition.Id.get -> uint
+Kiln.RecipeDefinition.Inputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.RecipeIngredient>!
+Kiln.RecipeDefinition.Inputs.init -> void
+Kiln.RecipeDefinition.Menu.get -> string?
+Kiln.RecipeDefinition.Menu.init -> void
+Kiln.RecipeDefinition.Name.get -> string!
+Kiln.RecipeDefinition.Name.init -> void
+Kiln.RecipeDefinition.Outputs.get -> System.Collections.Generic.IReadOnlyList<Kiln.RecipeIngredient>!
+Kiln.RecipeDefinition.Outputs.init -> void
+Kiln.RecipeDefinition.Props.get -> System.Collections.Generic.IReadOnlyList<Kiln.RecipeProp>?
+Kiln.RecipeDefinition.Props.init -> void
+Kiln.RecipeDefinition.RecipeDefinition() -> void
+Kiln.RecipeDefinition.Station.get -> string?
+Kiln.RecipeDefinition.Station.init -> void
+Kiln.RecipeDefinition.StationItem.get -> string?
+Kiln.RecipeDefinition.StationItem.init -> void
+Kiln.RecipeDefinition.Unlock.get -> Kiln.RecipeUnlock
+Kiln.RecipeDefinition.Unlock.init -> void
+Kiln.RecipeIngredient
+Kiln.RecipeIngredient.Category.get -> uint
+Kiln.RecipeIngredient.Category.init -> void
+Kiln.RecipeIngredient.Count.get -> int
+Kiln.RecipeIngredient.Count.init -> void
+Kiln.RecipeIngredient.Deconstruct(out string? Item, out int Count, out uint Category) -> void
+Kiln.RecipeIngredient.Equals(Kiln.RecipeIngredient other) -> bool
+Kiln.RecipeIngredient.Item.get -> string?
+Kiln.RecipeIngredient.Item.init -> void
+Kiln.RecipeIngredient.RecipeIngredient() -> void
+Kiln.RecipeIngredient.RecipeIngredient(string? Item, int Count, uint Category = 0) -> void
+Kiln.RecipeProp
+Kiln.RecipeProp.Deconstruct(out uint Id, out int Index) -> void
+Kiln.RecipeProp.Equals(Kiln.RecipeProp other) -> bool
+Kiln.RecipeProp.Id.get -> uint
+Kiln.RecipeProp.Id.init -> void
+Kiln.RecipeProp.Index.get -> int
+Kiln.RecipeProp.Index.init -> void
+Kiln.RecipeProp.RecipeProp() -> void
+Kiln.RecipeProp.RecipeProp(uint Id, int Index) -> void
+Kiln.RecipeStack
+Kiln.RecipeStack.Category.get -> uint
+Kiln.RecipeStack.Category.init -> void
+Kiln.RecipeStack.Count.get -> int
+Kiln.RecipeStack.Count.init -> void
+Kiln.RecipeStack.Deconstruct(out Kiln.ItemId Item, out int Count, out uint Category) -> void
+Kiln.RecipeStack.Equals(Kiln.RecipeStack other) -> bool
+Kiln.RecipeStack.Item.get -> Kiln.ItemId
+Kiln.RecipeStack.Item.init -> void
+Kiln.RecipeStack.RecipeStack() -> void
+Kiln.RecipeStack.RecipeStack(Kiln.ItemId Item, int Count, uint Category = 0) -> void
+Kiln.RecipeUnlock
+Kiln.RecipeUnlock.Always = 0 -> Kiln.RecipeUnlock
+Kiln.RecipeUnlock.LikeBase = 1 -> Kiln.RecipeUnlock
+Kiln.Texts
+Kiln.TextsStatus
+Kiln.TextsStatus.<Clone>$() -> Kiln.TextsStatus!
+Kiln.TextsStatus.Build.get -> string?
+Kiln.TextsStatus.Build.init -> void
+Kiln.TextsStatus.Count.get -> int
+Kiln.TextsStatus.Count.init -> void
+Kiln.TextsStatus.Deconstruct(out bool Loaded, out string? Source, out string? Build, out int Count, out double Seconds, out string! Reason) -> void
+Kiln.TextsStatus.Equals(Kiln.TextsStatus? other) -> bool
+Kiln.TextsStatus.Loaded.get -> bool
+Kiln.TextsStatus.Loaded.init -> void
+Kiln.TextsStatus.Reason.get -> string!
+Kiln.TextsStatus.Reason.init -> void
+Kiln.TextsStatus.Seconds.get -> double
+Kiln.TextsStatus.Seconds.init -> void
+Kiln.TextsStatus.Source.get -> string?
+Kiln.TextsStatus.Source.init -> void
+Kiln.TextsStatus.TextsStatus(bool Loaded, string? Source, string? Build, int Count, double Seconds, string! Reason) -> void
+const Kiln.ContentSync.ChannelName = "kiln:content" -> string!
+const Kiln.ContentSync.ChannelVersion = "1" -> string!
+override Kiln.ContentConflict.Equals(object? obj) -> bool
+override Kiln.ContentConflict.GetHashCode() -> int
+override Kiln.ContentConflict.ToString() -> string!
+override Kiln.ContentDefinition.Equals(object? obj) -> bool
+override Kiln.ContentDefinition.GetHashCode() -> int
+override Kiln.ContentDefinition.ToString() -> string!
+override Kiln.ContentEntry.ToString() -> string!
+override Kiln.ContentField.Equals(object? obj) -> bool
+override Kiln.ContentField.GetHashCode() -> int
+override Kiln.ContentField.ToString() -> string!
+override Kiln.ContentReport.Equals(object? obj) -> bool
+override Kiln.ContentReport.GetHashCode() -> int
+override Kiln.ContentReport.ToString() -> string!
+override Kiln.ContentRoundTrip.Equals(object? obj) -> bool
+override Kiln.ContentRoundTrip.GetHashCode() -> int
+override Kiln.ContentRoundTrip.ToString() -> string!
+override Kiln.ContentSectionCall.Equals(object? obj) -> bool
+override Kiln.ContentSectionCall.GetHashCode() -> int
+override Kiln.ContentSectionCall.ToString() -> string!
+override Kiln.ContentSectionResult.Equals(object? obj) -> bool
+override Kiln.ContentSectionResult.GetHashCode() -> int
+override Kiln.ContentSectionResult.ToString() -> string!
+override Kiln.ContentStatus.Equals(object? obj) -> bool
+override Kiln.ContentStatus.GetHashCode() -> int
+override Kiln.ContentStatus.ToString() -> string!
+override Kiln.ContentSyncStatus.GetHashCode() -> int
+override Kiln.ContentValue.GetHashCode() -> int
+override Kiln.ContentValue.ToString() -> string!
+override Kiln.DropStack.GetHashCode() -> int
+override Kiln.Field<T>.GetHashCode() -> int
+override Kiln.Field<T>.ToString() -> string!
+override Kiln.GameDataConfig.ToString() -> string!
+override Kiln.GameDataDefinition.Equals(object? obj) -> bool
+override Kiln.GameDataDefinition.GetHashCode() -> int
+override Kiln.GameDataDefinition.ToString() -> string!
+override Kiln.GameDataEntry.ToString() -> string!
+override Kiln.GameDataEvent.ToString() -> string!
+override Kiln.GameDataField.Equals(object? obj) -> bool
+override Kiln.GameDataField.GetHashCode() -> int
+override Kiln.GameDataField.ToString() -> string!
+override Kiln.GameDataTexts.Equals(object? obj) -> bool
+override Kiln.GameDataTexts.GetHashCode() -> int
+override Kiln.GameDataTexts.ToString() -> string!
+override Kiln.ItemDefinition.Equals(object? obj) -> bool
+override Kiln.ItemDefinition.GetHashCode() -> int
+override Kiln.ItemDefinition.ToString() -> string!
+override Kiln.ItemDrop.Equals(object? obj) -> bool
+override Kiln.ItemDrop.GetHashCode() -> int
+override Kiln.ItemDrop.ToString() -> string!
+override Kiln.ItemLoot.Equals(object? obj) -> bool
+override Kiln.ItemLoot.GetHashCode() -> int
+override Kiln.ItemLoot.ToString() -> string!
+override Kiln.ItemTexts.Equals(object? obj) -> bool
+override Kiln.ItemTexts.GetHashCode() -> int
+override Kiln.ItemTexts.ToString() -> string!
+override Kiln.ReadOnlyField<T>.GetHashCode() -> int
+override Kiln.ReadOnlyField<T>.ToString() -> string!
+override Kiln.RecipeDefinition.Equals(object? obj) -> bool
+override Kiln.RecipeDefinition.GetHashCode() -> int
+override Kiln.RecipeDefinition.ToString() -> string!
+override Kiln.RecipeIngredient.GetHashCode() -> int
+override Kiln.RecipeProp.GetHashCode() -> int
+override Kiln.RecipeStack.GetHashCode() -> int
+override Kiln.RecipeStack.ToString() -> string!
+override Kiln.TextsStatus.Equals(object? obj) -> bool
+override Kiln.TextsStatus.GetHashCode() -> int
+override Kiln.TextsStatus.ToString() -> string!
+static Kiln.Content.Apply(string! json, string? source = null) -> Kiln.ContentReport!
+static Kiln.Content.ApplyFile(string! path) -> Kiln.ContentReport!
+static Kiln.Content.Arsenals.get -> Kiln.GameDataRegistry!
+static Kiln.Content.Available.get -> bool
+static Kiln.Content.Buffs.get -> Kiln.GameDataRegistry!
+static Kiln.Content.ConfigVocabulary() -> string!
+static Kiln.Content.Drops.get -> Kiln.ContentRegistry!
+static Kiln.Content.Dump(string? path = null) -> string!
+static Kiln.Content.GameData(Kiln.GameDataSection section) -> Kiln.GameDataRegistry!
+static Kiln.Content.GameDataAvailable.get -> bool
+static Kiln.Content.GameDataDefinitions() -> System.Collections.Generic.IReadOnlyList<Kiln.GameDataDefinition!>!
+static Kiln.Content.GameDataStatus() -> string!
+static Kiln.Content.ItemData.get -> Kiln.GameDataRegistry!
+static Kiln.Content.Items.get -> Kiln.ContentRegistry!
+static Kiln.Content.Loot.get -> Kiln.ContentRegistry!
+static Kiln.Content.OnReady(System.Action<Kiln.ContentReadyEvent!>! handler) -> void
+static Kiln.Content.PackReport() -> string!
+static Kiln.Content.Perks.get -> Kiln.GameDataRegistry!
+static Kiln.Content.Ready.get -> bool
+static Kiln.Content.Recipes.get -> Kiln.ContentRegistry!
+static Kiln.Content.RegisterSection(string! name, System.Func<Kiln.ContentSectionCall!, Kiln.ContentSectionResult!>! apply, System.Action<string!, string?>! revert) -> void
+static Kiln.Content.Registry(Kiln.ContentKind kind) -> Kiln.ContentRegistry!
+static Kiln.Content.ReloadPacks() -> void
+static Kiln.Content.Revert() -> int
+static Kiln.Content.Sequences.get -> Kiln.GameDataRegistry!
+static Kiln.Content.Skills.get -> Kiln.GameDataRegistry!
+static Kiln.Content.StackGuard.get -> bool
+static Kiln.Content.StackGuard.set -> void
+static Kiln.Content.Status() -> Kiln.ContentStatus?
+static Kiln.Content.Templates.get -> Kiln.GameDataRegistry!
+static Kiln.Content.UnregisterSection(string! name) -> bool
+static Kiln.ContentConflict.operator !=(Kiln.ContentConflict? left, Kiln.ContentConflict? right) -> bool
+static Kiln.ContentConflict.operator ==(Kiln.ContentConflict? left, Kiln.ContentConflict? right) -> bool
+static Kiln.ContentDefinition.operator !=(Kiln.ContentDefinition? left, Kiln.ContentDefinition? right) -> bool
+static Kiln.ContentDefinition.operator ==(Kiln.ContentDefinition? left, Kiln.ContentDefinition? right) -> bool
+static Kiln.ContentField.operator !=(Kiln.ContentField? left, Kiln.ContentField? right) -> bool
+static Kiln.ContentField.operator ==(Kiln.ContentField? left, Kiln.ContentField? right) -> bool
+static Kiln.ContentRegistryDefinitions.Register(this Kiln.ContentRegistry! registry, Kiln.ItemDefinition! def) -> Kiln.ContentDefinition!
+static Kiln.ContentRegistryDefinitions.Register(this Kiln.ContentRegistry! registry, Kiln.RecipeDefinition! def) -> Kiln.ContentDefinition!
+static Kiln.ContentReport.operator !=(Kiln.ContentReport? left, Kiln.ContentReport? right) -> bool
+static Kiln.ContentReport.operator ==(Kiln.ContentReport? left, Kiln.ContentReport? right) -> bool
+static Kiln.ContentRoundTrip.operator !=(Kiln.ContentRoundTrip? left, Kiln.ContentRoundTrip? right) -> bool
+static Kiln.ContentRoundTrip.operator ==(Kiln.ContentRoundTrip? left, Kiln.ContentRoundTrip? right) -> bool
+static Kiln.ContentSectionCall.operator !=(Kiln.ContentSectionCall? left, Kiln.ContentSectionCall? right) -> bool
+static Kiln.ContentSectionCall.operator ==(Kiln.ContentSectionCall? left, Kiln.ContentSectionCall? right) -> bool
+static Kiln.ContentSectionResult.Ok(int applied) -> Kiln.ContentSectionResult!
+static Kiln.ContentSectionResult.operator !=(Kiln.ContentSectionResult? left, Kiln.ContentSectionResult? right) -> bool
+static Kiln.ContentSectionResult.operator ==(Kiln.ContentSectionResult? left, Kiln.ContentSectionResult? right) -> bool
+static Kiln.ContentStatus.operator !=(Kiln.ContentStatus? left, Kiln.ContentStatus? right) -> bool
+static Kiln.ContentStatus.operator ==(Kiln.ContentStatus? left, Kiln.ContentStatus? right) -> bool
+static Kiln.ContentSync.CheckRoundTrip() -> Kiln.ContentRoundTrip!
+static Kiln.ContentSync.Serving.get -> (uint StateId, uint Fields, int Bytes, int Parts)?
+static Kiln.ContentSync.Status.get -> Kiln.ContentSyncStatus
+static Kiln.ContentSyncStatus.operator !=(Kiln.ContentSyncStatus left, Kiln.ContentSyncStatus right) -> bool
+static Kiln.ContentSyncStatus.operator ==(Kiln.ContentSyncStatus left, Kiln.ContentSyncStatus right) -> bool
+static Kiln.ContentValue.operator !=(Kiln.ContentValue left, Kiln.ContentValue right) -> bool
+static Kiln.ContentValue.operator ==(Kiln.ContentValue left, Kiln.ContentValue right) -> bool
+static Kiln.DropStack.operator !=(Kiln.DropStack left, Kiln.DropStack right) -> bool
+static Kiln.DropStack.operator ==(Kiln.DropStack left, Kiln.DropStack right) -> bool
+static Kiln.Field<T>.operator !=(Kiln.Field<T> left, Kiln.Field<T> right) -> bool
+static Kiln.Field<T>.operator ==(Kiln.Field<T> left, Kiln.Field<T> right) -> bool
+static Kiln.FieldAccess.Get<T>(this Kiln.ContentEntry! entry, Kiln.Field<T> field) -> T
+static Kiln.FieldAccess.Get<T>(this Kiln.ContentEntry! entry, Kiln.ReadOnlyField<T> field) -> T
+static Kiln.FieldAccess.Get<T>(this Kiln.GameDataEntry! entry, Kiln.Field<T> field) -> T
+static Kiln.FieldAccess.Get<T>(this Kiln.GameDataEntry! entry, Kiln.ReadOnlyField<T> field) -> T
+static Kiln.FieldAccess.Original<T>(this Kiln.ContentEntry! entry, Kiln.Field<T> field) -> T
+static Kiln.FieldAccess.Original<T>(this Kiln.GameDataEntry! entry, Kiln.Field<T> field) -> T
+static Kiln.FieldAccess.Reset<T>(this Kiln.ContentEntry! entry, Kiln.Field<T> field) -> bool
+static Kiln.FieldAccess.Reset<T>(this Kiln.GameDataEntry! entry, Kiln.Field<T> field) -> bool
+static Kiln.FieldAccess.Set<T>(this Kiln.ContentEntry! entry, Kiln.Field<T> field, Kiln.FieldValue<T> value) -> int
+static Kiln.FieldAccess.Set<T>(this Kiln.ContentEntry! entry, Kiln.ReadOnlyField<T> field, Kiln.FieldValue<T> value) -> int
+static Kiln.FieldAccess.Set<T>(this Kiln.GameDataEntry! entry, Kiln.Field<T> field, Kiln.FieldValue<T> value) -> int
+static Kiln.FieldAccess.Set<T>(this Kiln.GameDataEntry! entry, Kiln.ReadOnlyField<T> field, Kiln.FieldValue<T> value) -> int
+static Kiln.FieldPath.Element(string! list, int index, int count = 0) -> string!
+static Kiln.FieldValue<T>.implicit operator Kiln.FieldValue<T>(T value) -> Kiln.FieldValue<T>
+static Kiln.GameDataDefinition.operator !=(Kiln.GameDataDefinition? left, Kiln.GameDataDefinition? right) -> bool
+static Kiln.GameDataDefinition.operator ==(Kiln.GameDataDefinition? left, Kiln.GameDataDefinition? right) -> bool
+static Kiln.GameDataField.operator !=(Kiln.GameDataField? left, Kiln.GameDataField? right) -> bool
+static Kiln.GameDataField.operator ==(Kiln.GameDataField? left, Kiln.GameDataField? right) -> bool
+static Kiln.GameDataItemExtensions.Config(this Kiln.ContentEntry! item, string! alias) -> Kiln.GameDataConfig!
+static Kiln.GameDataItemExtensions.Data(this Kiln.ContentEntry! item) -> Kiln.GameDataEntry!
+static Kiln.GameDataTexts.operator !=(Kiln.GameDataTexts? left, Kiln.GameDataTexts? right) -> bool
+static Kiln.GameDataTexts.operator ==(Kiln.GameDataTexts? left, Kiln.GameDataTexts? right) -> bool
+static Kiln.ItemDefinition.operator !=(Kiln.ItemDefinition? left, Kiln.ItemDefinition? right) -> bool
+static Kiln.ItemDefinition.operator ==(Kiln.ItemDefinition? left, Kiln.ItemDefinition? right) -> bool
+static Kiln.ItemDrop.operator !=(Kiln.ItemDrop? left, Kiln.ItemDrop? right) -> bool
+static Kiln.ItemDrop.operator ==(Kiln.ItemDrop? left, Kiln.ItemDrop? right) -> bool
+static Kiln.ItemLoot.operator !=(Kiln.ItemLoot? left, Kiln.ItemLoot? right) -> bool
+static Kiln.ItemLoot.operator ==(Kiln.ItemLoot? left, Kiln.ItemLoot? right) -> bool
+static Kiln.ItemTexts.operator !=(Kiln.ItemTexts? left, Kiln.ItemTexts? right) -> bool
+static Kiln.ItemTexts.operator ==(Kiln.ItemTexts? left, Kiln.ItemTexts? right) -> bool
+static Kiln.NewContent.Available.get -> bool
+static Kiln.NewContent.Definitions() -> System.Collections.Generic.IReadOnlyList<Kiln.ContentDefinition!>!
+static Kiln.NewContent.DefinitionsJson() -> string!
+static Kiln.NewContent.IdOf(System.Guid guid) -> uint
+static Kiln.NewContent.InfoJson() -> string!
+static Kiln.NewContent.Placeholders() -> System.Collections.Generic.IReadOnlyList<Kiln.ContentDefinition!>!
+static Kiln.NewContent.Register(Kiln.ItemDefinition! def) -> Kiln.ContentDefinition!
+static Kiln.NewContent.Register(Kiln.RecipeDefinition! def) -> Kiln.ContentDefinition!
+static Kiln.NewContent.RegisterJson(Kiln.ContentKind kind, string! json) -> Kiln.ContentDefinition!
+static Kiln.ReadOnlyField<T>.operator !=(Kiln.ReadOnlyField<T> left, Kiln.ReadOnlyField<T> right) -> bool
+static Kiln.ReadOnlyField<T>.operator ==(Kiln.ReadOnlyField<T> left, Kiln.ReadOnlyField<T> right) -> bool
+static Kiln.RecipeDefinition.operator !=(Kiln.RecipeDefinition? left, Kiln.RecipeDefinition? right) -> bool
+static Kiln.RecipeDefinition.operator ==(Kiln.RecipeDefinition? left, Kiln.RecipeDefinition? right) -> bool
+static Kiln.RecipeIngredient.Of(string! item, int count) -> Kiln.RecipeIngredient
+static Kiln.RecipeIngredient.OfCategory(uint category, int count) -> Kiln.RecipeIngredient
+static Kiln.RecipeIngredient.implicit operator Kiln.RecipeIngredient((string! Item, int Count) x) -> Kiln.RecipeIngredient
+static Kiln.RecipeIngredient.operator !=(Kiln.RecipeIngredient left, Kiln.RecipeIngredient right) -> bool
+static Kiln.RecipeIngredient.operator ==(Kiln.RecipeIngredient left, Kiln.RecipeIngredient right) -> bool
+static Kiln.RecipeProp.operator !=(Kiln.RecipeProp left, Kiln.RecipeProp right) -> bool
+static Kiln.RecipeProp.operator ==(Kiln.RecipeProp left, Kiln.RecipeProp right) -> bool
+static Kiln.RecipeStack.Of(string! item, int count) -> Kiln.RecipeStack
+static Kiln.RecipeStack.operator !=(Kiln.RecipeStack left, Kiln.RecipeStack right) -> bool
+static Kiln.RecipeStack.operator ==(Kiln.RecipeStack left, Kiln.RecipeStack right) -> bool
+static Kiln.Texts.Available.get -> bool
+static Kiln.Texts.Get(System.Guid tag) -> string?
+static Kiln.Texts.Get(string! tag) -> string?
+static Kiln.Texts.Get(uint tag) -> string?
+static Kiln.Texts.GetPlain(System.Guid tag) -> string?
+static Kiln.Texts.GetPlain(string! tag) -> string?
+static Kiln.Texts.GetPlain(uint tag) -> string?
+static Kiln.Texts.Preload() -> System.Threading.Tasks.Task<bool>!
+static Kiln.Texts.Status.get -> Kiln.TextsStatus!
+static Kiln.Texts.TagOf(System.Guid tag) -> uint
+static Kiln.TextsStatus.operator !=(Kiln.TextsStatus? left, Kiln.TextsStatus? right) -> bool
+static Kiln.TextsStatus.operator ==(Kiln.TextsStatus? left, Kiln.TextsStatus? right) -> bool
+~override Kiln.ContentSyncStatus.Equals(object obj) -> bool
+~override Kiln.ContentSyncStatus.ToString() -> string
+~override Kiln.ContentValue.Equals(object obj) -> bool
+~override Kiln.DropStack.Equals(object obj) -> bool
+~override Kiln.DropStack.ToString() -> string
+~override Kiln.Field<T>.Equals(object obj) -> bool
+~override Kiln.ReadOnlyField<T>.Equals(object obj) -> bool
+~override Kiln.RecipeIngredient.Equals(object obj) -> bool
+~override Kiln.RecipeIngredient.ToString() -> string
+~override Kiln.RecipeProp.Equals(object obj) -> bool
+~override Kiln.RecipeProp.ToString() -> string
+~override Kiln.RecipeStack.Equals(object obj) -> bool

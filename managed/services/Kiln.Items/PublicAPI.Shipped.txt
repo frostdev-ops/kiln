@@ -1,0 +1,597 @@
+#nullable enable
+Kiln.ClientTransfer
+Kiln.ClientTransfer.Amount.get -> Kiln.ClientTransferAmount
+Kiln.ClientTransfer.Amount.init -> void
+Kiln.ClientTransfer.ClientTransfer() -> void
+Kiln.ClientTransfer.ClientTransfer(Kiln.EntityId Source, Kiln.EntityId Target, Kiln.SlotId SourceSlot, Kiln.SlotId TargetSlot, Kiln.ClientTransferAmount Amount, int CustomAmount, bool RefillStacks, bool MoveAllStacks, bool Gifting) -> void
+Kiln.ClientTransfer.CustomAmount.get -> int
+Kiln.ClientTransfer.CustomAmount.init -> void
+Kiln.ClientTransfer.Deconstruct(out Kiln.EntityId Source, out Kiln.EntityId Target, out Kiln.SlotId SourceSlot, out Kiln.SlotId TargetSlot, out Kiln.ClientTransferAmount Amount, out int CustomAmount, out bool RefillStacks, out bool MoveAllStacks, out bool Gifting) -> void
+Kiln.ClientTransfer.Equals(Kiln.ClientTransfer other) -> bool
+Kiln.ClientTransfer.Gifting.get -> bool
+Kiln.ClientTransfer.Gifting.init -> void
+Kiln.ClientTransfer.MoveAllStacks.get -> bool
+Kiln.ClientTransfer.MoveAllStacks.init -> void
+Kiln.ClientTransfer.RefillStacks.get -> bool
+Kiln.ClientTransfer.RefillStacks.init -> void
+Kiln.ClientTransfer.Source.get -> Kiln.EntityId
+Kiln.ClientTransfer.Source.init -> void
+Kiln.ClientTransfer.SourceSlot.get -> Kiln.SlotId
+Kiln.ClientTransfer.SourceSlot.init -> void
+Kiln.ClientTransfer.Target.get -> Kiln.EntityId
+Kiln.ClientTransfer.Target.init -> void
+Kiln.ClientTransfer.TargetSlot.get -> Kiln.SlotId
+Kiln.ClientTransfer.TargetSlot.init -> void
+Kiln.ClientTransferAmount
+Kiln.ClientTransferAmount.All = 2 -> Kiln.ClientTransferAmount
+Kiln.ClientTransferAmount.CustomAmount = 3 -> Kiln.ClientTransferAmount
+Kiln.ClientTransferAmount.Destroy = 4 -> Kiln.ClientTransferAmount
+Kiln.ClientTransferAmount.Half = 1 -> Kiln.ClientTransferAmount
+Kiln.ClientTransferAmount.One = 0 -> Kiln.ClientTransferAmount
+Kiln.FuelChange
+Kiln.FuelChange.After.get -> int
+Kiln.FuelChange.After.init -> void
+Kiln.FuelChange.Before.get -> int
+Kiln.FuelChange.Before.init -> void
+Kiln.FuelChange.Container.get -> Kiln.EntityId
+Kiln.FuelChange.Container.init -> void
+Kiln.FuelChange.Deconstruct(out Kiln.EntityId Container, out Kiln.ItemId Item, out Kiln.SlotId Slot, out int Before, out int After, out int Max) -> void
+Kiln.FuelChange.Equals(Kiln.FuelChange other) -> bool
+Kiln.FuelChange.FuelChange() -> void
+Kiln.FuelChange.FuelChange(Kiln.EntityId Container, Kiln.ItemId Item, Kiln.SlotId Slot, int Before, int After, int Max) -> void
+Kiln.FuelChange.Item.get -> Kiln.ItemId
+Kiln.FuelChange.Item.init -> void
+Kiln.FuelChange.Max.get -> int
+Kiln.FuelChange.Max.init -> void
+Kiln.FuelChange.Slot.get -> Kiln.SlotId
+Kiln.FuelChange.Slot.init -> void
+Kiln.FuelKeep
+Kiln.FuelKeep.Active.get -> bool
+Kiln.FuelKeep.Dispose() -> void
+Kiln.FuelKeep.Entity.get -> Kiln.EntityId
+Kiln.FuelKeep.Inventories.get -> bool
+Kiln.FuelKeep.Item.get -> Kiln.ItemId
+Kiln.FuelKeep.Origin.get -> string!
+Kiln.FuelKeep.Policy.get -> Kiln.FuelRefill!
+Kiln.FuelKeep.Refilled -> System.Action<System.Collections.Generic.IReadOnlyList<Kiln.FuelChange>!>?
+Kiln.FuelKeep.UnitsAdded.get -> long
+Kiln.FuelLevel
+Kiln.FuelLevel.Charges.get -> double
+Kiln.FuelLevel.Deconstruct(out int Units, out int Max) -> void
+Kiln.FuelLevel.Equals(Kiln.FuelLevel other) -> bool
+Kiln.FuelLevel.FuelLevel() -> void
+Kiln.FuelLevel.FuelLevel(int Units, int Max) -> void
+Kiln.FuelLevel.IsFull.get -> bool
+Kiln.FuelLevel.Max.get -> int
+Kiln.FuelLevel.Max.init -> void
+Kiln.FuelLevel.MaxCharges.get -> double
+Kiln.FuelLevel.Units.get -> int
+Kiln.FuelLevel.Units.init -> void
+Kiln.FuelRefill
+Kiln.FuelRefill.<Clone>$() -> Kiln.FuelRefill!
+Kiln.FuelRefill.Equals(Kiln.FuelRefill? other) -> bool
+Kiln.FuelRefill.FuelRefill() -> void
+Kiln.FuelRefill.IsFull.get -> bool
+Kiln.FuelRefill.Limit.get -> int
+Kiln.FuelRefill.Limit.init -> void
+Kiln.FuelRefill.UnitsPerSecond.get -> double
+Kiln.FuelRefill.UnitsPerSecond.init -> void
+Kiln.FuelResult
+Kiln.FuelResult.<Clone>$() -> Kiln.FuelResult!
+Kiln.FuelResult.Changed.get -> int
+Kiln.FuelResult.Changed.init -> void
+Kiln.FuelResult.Changes.get -> System.Collections.Generic.IReadOnlyList<Kiln.FuelChange>!
+Kiln.FuelResult.Changes.init -> void
+Kiln.FuelResult.Deconstruct(out Kiln.ItemsStatus Status, out Kiln.EntityId Entity, out Kiln.ItemId Item, out int Matched, out int Changed, out System.Collections.Generic.IReadOnlyList<Kiln.FuelChange>! Changes, out string! Message, out int Steps, out bool DryRun) -> void
+Kiln.FuelResult.DryRun.get -> bool
+Kiln.FuelResult.DryRun.init -> void
+Kiln.FuelResult.Entity.get -> Kiln.EntityId
+Kiln.FuelResult.Entity.init -> void
+Kiln.FuelResult.Equals(Kiln.FuelResult? other) -> bool
+Kiln.FuelResult.FuelResult(Kiln.ItemsStatus Status, Kiln.EntityId Entity, Kiln.ItemId Item, int Matched, int Changed, System.Collections.Generic.IReadOnlyList<Kiln.FuelChange>! Changes, string! Message, int Steps, bool DryRun) -> void
+Kiln.FuelResult.Item.get -> Kiln.ItemId
+Kiln.FuelResult.Item.init -> void
+Kiln.FuelResult.Matched.get -> int
+Kiln.FuelResult.Matched.init -> void
+Kiln.FuelResult.Message.get -> string!
+Kiln.FuelResult.Message.init -> void
+Kiln.FuelResult.Ok.get -> bool
+Kiln.FuelResult.Status.get -> Kiln.ItemsStatus
+Kiln.FuelResult.Status.init -> void
+Kiln.FuelResult.Steps.get -> int
+Kiln.FuelResult.Steps.init -> void
+Kiln.Gear
+Kiln.Gear.Deconstruct(out int? Level, out Kiln.ItemRarity? Rarity) -> void
+Kiln.Gear.Equals(Kiln.Gear other) -> bool
+Kiln.Gear.Gear() -> void
+Kiln.Gear.Gear(int? Level = null, Kiln.ItemRarity? Rarity = null) -> void
+Kiln.Gear.GemSlot.get -> bool
+Kiln.Gear.GemSlot.init -> void
+Kiln.Gear.Level.get -> int?
+Kiln.Gear.Level.init -> void
+Kiln.Gear.Rarity.get -> Kiln.ItemRarity?
+Kiln.Gear.Rarity.init -> void
+Kiln.Gear.Unlocked.get -> int?
+Kiln.Gear.Unlocked.init -> void
+Kiln.GiveOptions
+Kiln.GiveOptions.AllOrNothing = 2 -> Kiln.GiveOptions
+Kiln.GiveOptions.DryRun = 8 -> Kiln.GiveOptions
+Kiln.GiveOptions.NoMerge = 4 -> Kiln.GiveOptions
+Kiln.GiveOptions.None = 0 -> Kiln.GiveOptions
+Kiln.GiveOptions.Notify = 1 -> Kiln.GiveOptions
+Kiln.InventoryCategory
+Kiln.InventoryCategory.Currency = 3 -> Kiln.InventoryCategory
+Kiln.InventoryCategory.Customization = 1 -> Kiln.InventoryCategory
+Kiln.InventoryCategory.Equipment = 2 -> Kiln.InventoryCategory
+Kiln.InventoryCategory.Generic = 4 -> Kiln.InventoryCategory
+Kiln.InventoryCategory.None = 0 -> Kiln.InventoryCategory
+Kiln.InventoryCategory.Virtual = 5 -> Kiln.InventoryCategory
+Kiln.InventoryContents
+Kiln.InventoryContents.<Clone>$() -> Kiln.InventoryContents!
+Kiln.InventoryContents.AvailableSlots.get -> int
+Kiln.InventoryContents.AvailableSlots.init -> void
+Kiln.InventoryContents.Count(Kiln.ItemId item) -> int
+Kiln.InventoryContents.Deconstruct(out Kiln.EntityId Entity, out bool Initialized, out byte SetupFlags, out int GenericSlots, out int AvailableSlots, out System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Inventory, Kiln.InventoryCategory Category)>! Inventories, out System.Collections.Generic.IReadOnlyList<Kiln.InventorySlot!>! Slots) -> void
+Kiln.InventoryContents.Entity.get -> Kiln.EntityId
+Kiln.InventoryContents.Entity.init -> void
+Kiln.InventoryContents.Equals(Kiln.InventoryContents? other) -> bool
+Kiln.InventoryContents.FreeSlots(Kiln.InventoryCategory category = Kiln.InventoryCategory.Generic) -> int
+Kiln.InventoryContents.GenericSlots.get -> int
+Kiln.InventoryContents.GenericSlots.init -> void
+Kiln.InventoryContents.Initialized.get -> bool
+Kiln.InventoryContents.Initialized.init -> void
+Kiln.InventoryContents.Inventories.get -> System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Inventory, Kiln.InventoryCategory Category)>!
+Kiln.InventoryContents.Inventories.init -> void
+Kiln.InventoryContents.InventoryContents(Kiln.EntityId Entity, bool Initialized, byte SetupFlags, int GenericSlots, int AvailableSlots, System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Inventory, Kiln.InventoryCategory Category)>! Inventories, System.Collections.Generic.IReadOnlyList<Kiln.InventorySlot!>! Slots) -> void
+Kiln.InventoryContents.IsNpc.get -> bool
+Kiln.InventoryContents.IsPlayer.get -> bool
+Kiln.InventoryContents.SetupFlags.get -> byte
+Kiln.InventoryContents.SetupFlags.init -> void
+Kiln.InventoryContents.Slots.get -> System.Collections.Generic.IReadOnlyList<Kiln.InventorySlot!>!
+Kiln.InventoryContents.Slots.init -> void
+Kiln.InventoryContents.UsedSlots.get -> int
+Kiln.InventoryKinds
+Kiln.InventoryKinds.All = Kiln.InventoryKinds.Containers | Kiln.InventoryKinds.Players | Kiln.InventoryKinds.Npcs -> Kiln.InventoryKinds
+Kiln.InventoryKinds.Containers = 1 -> Kiln.InventoryKinds
+Kiln.InventoryKinds.NonEmpty = 8 -> Kiln.InventoryKinds
+Kiln.InventoryKinds.Npcs = 4 -> Kiln.InventoryKinds
+Kiln.InventoryKinds.Players = 2 -> Kiln.InventoryKinds
+Kiln.InventorySlot
+Kiln.InventorySlot.<Clone>$() -> Kiln.InventorySlot!
+Kiln.InventorySlot.Category.get -> Kiln.InventoryCategory
+Kiln.InventorySlot.Category.init -> void
+Kiln.InventorySlot.Count.get -> int
+Kiln.InventorySlot.Count.init -> void
+Kiln.InventorySlot.Deconstruct(out Kiln.SlotId Slot, out Kiln.ItemId Item, out int Count, out Kiln.EntityId ItemEntity, out int Level, out Kiln.ItemRarity? Rarity, out Kiln.InventoryCategory Category, out int Link, out bool IsGear, out bool IsEquipped, out bool IsBroken, out ushort ItemState) -> void
+Kiln.InventorySlot.Equals(Kiln.InventorySlot? other) -> bool
+Kiln.InventorySlot.InventorySlot(Kiln.SlotId Slot, Kiln.ItemId Item, int Count, Kiln.EntityId ItemEntity, int Level, Kiln.ItemRarity? Rarity, Kiln.InventoryCategory Category, int Link, bool IsGear, bool IsEquipped, bool IsBroken, ushort ItemState) -> void
+Kiln.InventorySlot.IsBroken.get -> bool
+Kiln.InventorySlot.IsBroken.init -> void
+Kiln.InventorySlot.IsEmpty.get -> bool
+Kiln.InventorySlot.IsEquipped.get -> bool
+Kiln.InventorySlot.IsEquipped.init -> void
+Kiln.InventorySlot.IsGear.get -> bool
+Kiln.InventorySlot.IsGear.init -> void
+Kiln.InventorySlot.Item.get -> Kiln.ItemId
+Kiln.InventorySlot.Item.init -> void
+Kiln.InventorySlot.ItemEntity.get -> Kiln.EntityId
+Kiln.InventorySlot.ItemEntity.init -> void
+Kiln.InventorySlot.ItemState.get -> ushort
+Kiln.InventorySlot.ItemState.init -> void
+Kiln.InventorySlot.Level.get -> int
+Kiln.InventorySlot.Level.init -> void
+Kiln.InventorySlot.Link.get -> int
+Kiln.InventorySlot.Link.init -> void
+Kiln.InventorySlot.Rarity.get -> Kiln.ItemRarity?
+Kiln.InventorySlot.Rarity.init -> void
+Kiln.InventorySlot.Slot.get -> Kiln.SlotId
+Kiln.InventorySlot.Slot.init -> void
+Kiln.InventoryTransferEvent
+Kiln.InventoryTransferEvent.ByMod.get -> bool
+Kiln.InventoryTransferEvent.Canceled.get -> bool
+Kiln.InventoryTransferEvent.From.get -> Kiln.EntityId
+Kiln.InventoryTransferEvent.Kept.get -> int
+Kiln.InventoryTransferEvent.Kind.get -> Kiln.TransferKind
+Kiln.InventoryTransferEvent.Moved.get -> int
+Kiln.InventoryTransferEvent.Player.get -> Kiln.EntityId
+Kiln.InventoryTransferEvent.Step.get -> ulong
+Kiln.InventoryTransferEvent.To.get -> Kiln.EntityId
+Kiln.ItemCategory
+Kiln.ItemCategory.Ammunition = 8 -> Kiln.ItemCategory
+Kiln.ItemCategory.AnimalFood = 13 -> Kiln.ItemCategory
+Kiln.ItemCategory.Blueprints = 10 -> Kiln.ItemCategory
+Kiln.ItemCategory.BuildTools = 6 -> Kiln.ItemCategory
+Kiln.ItemCategory.Collectibles = 12 -> Kiln.ItemCategory
+Kiln.ItemCategory.ColorPalette = 16 -> Kiln.ItemCategory
+Kiln.ItemCategory.Consumables = 7 -> Kiln.ItemCategory
+Kiln.ItemCategory.Currency = 11 -> Kiln.ItemCategory
+Kiln.ItemCategory.Customization = 0 -> Kiln.ItemCategory
+Kiln.ItemCategory.Equipment = 1 -> Kiln.ItemCategory
+Kiln.ItemCategory.FishingRod = 5 -> Kiln.ItemCategory
+Kiln.ItemCategory.Instrument = 4 -> Kiln.ItemCategory
+Kiln.ItemCategory.Materials = 9 -> Kiln.ItemCategory
+Kiln.ItemCategory.Tools = 3 -> Kiln.ItemCategory
+Kiln.ItemCategory.WeaponGem = 15 -> Kiln.ItemCategory
+Kiln.ItemCategory.Weapons = 2 -> Kiln.ItemCategory
+Kiln.ItemChange
+Kiln.ItemChange.Amount.get -> int
+Kiln.ItemChange.Amount.init -> void
+Kiln.ItemChange.Deconstruct(out Kiln.SlotId Slot, out Kiln.ItemId Item, out int Amount, out Kiln.EntityId ItemEntity) -> void
+Kiln.ItemChange.Equals(Kiln.ItemChange other) -> bool
+Kiln.ItemChange.Item.get -> Kiln.ItemId
+Kiln.ItemChange.Item.init -> void
+Kiln.ItemChange.ItemChange() -> void
+Kiln.ItemChange.ItemChange(Kiln.SlotId Slot, Kiln.ItemId Item, int Amount, Kiln.EntityId ItemEntity) -> void
+Kiln.ItemChange.ItemEntity.get -> Kiln.EntityId
+Kiln.ItemChange.ItemEntity.init -> void
+Kiln.ItemChange.Slot.get -> Kiln.SlotId
+Kiln.ItemChange.Slot.init -> void
+Kiln.ItemId
+Kiln.ItemId.Deconstruct(out uint Value) -> void
+Kiln.ItemId.Equals(Kiln.ItemId other) -> bool
+Kiln.ItemId.IsNone.get -> bool
+Kiln.ItemId.ItemId() -> void
+Kiln.ItemId.ItemId(uint Value) -> void
+Kiln.ItemId.Value.get -> uint
+Kiln.ItemId.Value.init -> void
+Kiln.ItemInfo
+Kiln.ItemInfo.<Clone>$() -> Kiln.ItemInfo!
+Kiln.ItemInfo.Category.get -> Kiln.ItemCategory
+Kiln.ItemInfo.Category.init -> void
+Kiln.ItemInfo.Deconstruct(out Kiln.ItemId Id, out string! Name, out string? DisplayName, out int MaxStack, out Kiln.ItemCategory Category, out Kiln.ItemRarity Rarity, out bool IsGear, out int LevelMin, out int LevelMax, out byte EquipSlot, out uint Flags, out System.Guid Guid) -> void
+Kiln.ItemInfo.DisplayName.get -> string?
+Kiln.ItemInfo.DisplayName.init -> void
+Kiln.ItemInfo.Equals(Kiln.ItemInfo? other) -> bool
+Kiln.ItemInfo.EquipSlot.get -> byte
+Kiln.ItemInfo.EquipSlot.init -> void
+Kiln.ItemInfo.Flags.get -> uint
+Kiln.ItemInfo.Flags.init -> void
+Kiln.ItemInfo.Guid.get -> System.Guid
+Kiln.ItemInfo.Guid.init -> void
+Kiln.ItemInfo.Id.get -> Kiln.ItemId
+Kiln.ItemInfo.Id.init -> void
+Kiln.ItemInfo.IsBlueprint.get -> bool
+Kiln.ItemInfo.IsGear.get -> bool
+Kiln.ItemInfo.IsGear.init -> void
+Kiln.ItemInfo.ItemInfo(Kiln.ItemId Id, string! Name, string? DisplayName, int MaxStack, Kiln.ItemCategory Category, Kiln.ItemRarity Rarity, bool IsGear, int LevelMin, int LevelMax, byte EquipSlot, uint Flags, System.Guid Guid) -> void
+Kiln.ItemInfo.Label.get -> string!
+Kiln.ItemInfo.LevelMax.get -> int
+Kiln.ItemInfo.LevelMax.init -> void
+Kiln.ItemInfo.LevelMin.get -> int
+Kiln.ItemInfo.LevelMin.init -> void
+Kiln.ItemInfo.MaxStack.get -> int
+Kiln.ItemInfo.MaxStack.init -> void
+Kiln.ItemInfo.Name.get -> string!
+Kiln.ItemInfo.Name.init -> void
+Kiln.ItemInfo.Rarity.get -> Kiln.ItemRarity
+Kiln.ItemInfo.Rarity.init -> void
+Kiln.ItemRarity
+Kiln.ItemRarity.Common = 0 -> Kiln.ItemRarity
+Kiln.ItemRarity.Epic = 3 -> Kiln.ItemRarity
+Kiln.ItemRarity.Legendary = 4 -> Kiln.ItemRarity
+Kiln.ItemRarity.Rare = 2 -> Kiln.ItemRarity
+Kiln.ItemRarity.Uncommon = 1 -> Kiln.ItemRarity
+Kiln.Items
+Kiln.Items.Fuel
+Kiln.Items.Transfers
+Kiln.ItemsGivenEvent
+Kiln.ItemsResult
+Kiln.ItemsResult.<Clone>$() -> Kiln.ItemsResult!
+Kiln.ItemsResult.Changes.get -> System.Collections.Generic.IReadOnlyList<Kiln.ItemChange>!
+Kiln.ItemsResult.Changes.init -> void
+Kiln.ItemsResult.Deconstruct(out Kiln.ItemsStatus Status, out Kiln.EntityId Entity, out Kiln.ItemId Item, out int Requested, out int Done, out System.Collections.Generic.IReadOnlyList<Kiln.ItemChange>! Changes, out string! Message, out int GameError, out int Steps, out bool DryRun) -> void
+Kiln.ItemsResult.Done.get -> int
+Kiln.ItemsResult.Done.init -> void
+Kiln.ItemsResult.DryRun.get -> bool
+Kiln.ItemsResult.DryRun.init -> void
+Kiln.ItemsResult.Entity.get -> Kiln.EntityId
+Kiln.ItemsResult.Entity.init -> void
+Kiln.ItemsResult.Equals(Kiln.ItemsResult? other) -> bool
+Kiln.ItemsResult.GameError.get -> int
+Kiln.ItemsResult.GameError.init -> void
+Kiln.ItemsResult.Item.get -> Kiln.ItemId
+Kiln.ItemsResult.Item.init -> void
+Kiln.ItemsResult.ItemsResult(Kiln.ItemsStatus Status, Kiln.EntityId Entity, Kiln.ItemId Item, int Requested, int Done, System.Collections.Generic.IReadOnlyList<Kiln.ItemChange>! Changes, string! Message, int GameError, int Steps, bool DryRun) -> void
+Kiln.ItemsResult.Message.get -> string!
+Kiln.ItemsResult.Message.init -> void
+Kiln.ItemsResult.Requested.get -> int
+Kiln.ItemsResult.Requested.init -> void
+Kiln.ItemsResult.Status.get -> Kiln.ItemsStatus
+Kiln.ItemsResult.Status.init -> void
+Kiln.ItemsResult.Steps.get -> int
+Kiln.ItemsResult.Steps.init -> void
+Kiln.ItemsResult.Succeeded.get -> bool
+Kiln.ItemsServiceStatus
+Kiln.ItemsServiceStatus.<Clone>$() -> Kiln.ItemsServiceStatus!
+Kiln.ItemsServiceStatus.Catalog.get -> bool
+Kiln.ItemsServiceStatus.Catalog.init -> void
+Kiln.ItemsServiceStatus.Committed.get -> ulong
+Kiln.ItemsServiceStatus.Committed.init -> void
+Kiln.ItemsServiceStatus.Deconstruct(out bool Transactions, out bool Read, out bool Catalog, out int Program, out int Pending, out int Items, out ulong Committed, out ulong RolledBack, out ulong ProgramUpdates, out string! Detail) -> void
+Kiln.ItemsServiceStatus.Detail.get -> string!
+Kiln.ItemsServiceStatus.Detail.init -> void
+Kiln.ItemsServiceStatus.Equals(Kiln.ItemsServiceStatus? other) -> bool
+Kiln.ItemsServiceStatus.Items.get -> int
+Kiln.ItemsServiceStatus.Items.init -> void
+Kiln.ItemsServiceStatus.ItemsServiceStatus(bool Transactions, bool Read, bool Catalog, int Program, int Pending, int Items, ulong Committed, ulong RolledBack, ulong ProgramUpdates, string! Detail) -> void
+Kiln.ItemsServiceStatus.Pending.get -> int
+Kiln.ItemsServiceStatus.Pending.init -> void
+Kiln.ItemsServiceStatus.Program.get -> int
+Kiln.ItemsServiceStatus.Program.init -> void
+Kiln.ItemsServiceStatus.ProgramUpdates.get -> ulong
+Kiln.ItemsServiceStatus.ProgramUpdates.init -> void
+Kiln.ItemsServiceStatus.Read.get -> bool
+Kiln.ItemsServiceStatus.Read.init -> void
+Kiln.ItemsServiceStatus.RolledBack.get -> ulong
+Kiln.ItemsServiceStatus.RolledBack.init -> void
+Kiln.ItemsServiceStatus.Transactions.get -> bool
+Kiln.ItemsServiceStatus.Transactions.init -> void
+Kiln.ItemsStatus
+Kiln.ItemsStatus.Done = 0 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.Dropped = 9 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.Invalid = 100 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.NoInventory = 4 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.NoRoom = 2 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.NotEnough = 3 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.Partial = 1 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.Refused = 7 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.SlotChanged = 6 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.Unavailable = 8 -> Kiln.ItemsStatus
+Kiln.ItemsStatus.UnknownItem = 5 -> Kiln.ItemsStatus
+Kiln.ItemsTakenEvent
+Kiln.ItemsTransactionEvent
+Kiln.ItemsTransactionEvent.Count.get -> int
+Kiln.ItemsTransactionEvent.Info.get -> Kiln.ItemInfo?
+Kiln.ItemsTransactionEvent.Item.get -> Kiln.ItemId
+Kiln.ItemsTransactionEvent.Origin.get -> string!
+Kiln.ItemsTransactionEvent.Result.get -> Kiln.ItemsResult!
+Kiln.ItemsTransactionEvent.Target.get -> Kiln.EntityId
+Kiln.ItemsV3Status
+Kiln.ItemsV3Status.<Clone>$() -> Kiln.ItemsV3Status!
+Kiln.ItemsV3Status.Deconstruct(out bool Moves, out bool Names, out bool TransferHooks, out bool HooksInstalled, out int Rules, out int Handlers, out int Reporters, out ulong TransfersSeen, out ulong TransfersCanceled, out ulong MovesDone, out int NamesFound, out string! Detail) -> void
+Kiln.ItemsV3Status.Detail.get -> string!
+Kiln.ItemsV3Status.Detail.init -> void
+Kiln.ItemsV3Status.Equals(Kiln.ItemsV3Status? other) -> bool
+Kiln.ItemsV3Status.Handlers.get -> int
+Kiln.ItemsV3Status.Handlers.init -> void
+Kiln.ItemsV3Status.HooksInstalled.get -> bool
+Kiln.ItemsV3Status.HooksInstalled.init -> void
+Kiln.ItemsV3Status.ItemsV3Status(bool Moves, bool Names, bool TransferHooks, bool HooksInstalled, int Rules, int Handlers, int Reporters, ulong TransfersSeen, ulong TransfersCanceled, ulong MovesDone, int NamesFound, string! Detail) -> void
+Kiln.ItemsV3Status.Moves.get -> bool
+Kiln.ItemsV3Status.Moves.init -> void
+Kiln.ItemsV3Status.MovesDone.get -> ulong
+Kiln.ItemsV3Status.MovesDone.init -> void
+Kiln.ItemsV3Status.Names.get -> bool
+Kiln.ItemsV3Status.Names.init -> void
+Kiln.ItemsV3Status.NamesFound.get -> int
+Kiln.ItemsV3Status.NamesFound.init -> void
+Kiln.ItemsV3Status.Reporters.get -> int
+Kiln.ItemsV3Status.Reporters.init -> void
+Kiln.ItemsV3Status.Rules.get -> int
+Kiln.ItemsV3Status.Rules.init -> void
+Kiln.ItemsV3Status.TransferHooks.get -> bool
+Kiln.ItemsV3Status.TransferHooks.init -> void
+Kiln.ItemsV3Status.TransfersCanceled.get -> ulong
+Kiln.ItemsV3Status.TransfersCanceled.init -> void
+Kiln.ItemsV3Status.TransfersSeen.get -> ulong
+Kiln.ItemsV3Status.TransfersSeen.init -> void
+Kiln.MoveChange
+Kiln.MoveChange.Amount.get -> int
+Kiln.MoveChange.Amount.init -> void
+Kiln.MoveChange.Deconstruct(out Kiln.SlotId From, out Kiln.SlotId To, out Kiln.ItemId Item, out int Amount, out Kiln.EntityId ItemEntity) -> void
+Kiln.MoveChange.Equals(Kiln.MoveChange other) -> bool
+Kiln.MoveChange.From.get -> Kiln.SlotId
+Kiln.MoveChange.From.init -> void
+Kiln.MoveChange.Item.get -> Kiln.ItemId
+Kiln.MoveChange.Item.init -> void
+Kiln.MoveChange.ItemEntity.get -> Kiln.EntityId
+Kiln.MoveChange.ItemEntity.init -> void
+Kiln.MoveChange.MoveChange() -> void
+Kiln.MoveChange.MoveChange(Kiln.SlotId From, Kiln.SlotId To, Kiln.ItemId Item, int Amount, Kiln.EntityId ItemEntity) -> void
+Kiln.MoveChange.To.get -> Kiln.SlotId
+Kiln.MoveChange.To.init -> void
+Kiln.MoveKind
+Kiln.MoveKind.All = 2 -> Kiln.MoveKind
+Kiln.MoveKind.QuickStack = 1 -> Kiln.MoveKind
+Kiln.MoveKind.Stack = 0 -> Kiln.MoveKind
+Kiln.MoveOptions
+Kiln.MoveOptions.ActionBar = 4 -> Kiln.MoveOptions
+Kiln.MoveOptions.DryRun = 1 -> Kiln.MoveOptions
+Kiln.MoveOptions.Equipped = 2 -> Kiln.MoveOptions
+Kiln.MoveOptions.None = 0 -> Kiln.MoveOptions
+Kiln.MoveOptions.Silent = 8 -> Kiln.MoveOptions
+Kiln.MoveResult
+Kiln.MoveResult.<Clone>$() -> Kiln.MoveResult!
+Kiln.MoveResult.Canceled.get -> bool
+Kiln.MoveResult.Canceled.init -> void
+Kiln.MoveResult.Changes.get -> System.Collections.Generic.IReadOnlyList<Kiln.MoveChange>!
+Kiln.MoveResult.Changes.init -> void
+Kiln.MoveResult.Deconstruct(out Kiln.ItemsStatus Status, out Kiln.MoveKind Kind, out Kiln.EntityId From, out Kiln.EntityId To, out int Requested, out int Done, out int Stacks, out System.Collections.Generic.IReadOnlyList<Kiln.MoveChange>! Changes, out string! Message, out int GameError, out bool Canceled, out int Steps, out bool DryRun) -> void
+Kiln.MoveResult.Done.get -> int
+Kiln.MoveResult.Done.init -> void
+Kiln.MoveResult.DryRun.get -> bool
+Kiln.MoveResult.DryRun.init -> void
+Kiln.MoveResult.Equals(Kiln.MoveResult? other) -> bool
+Kiln.MoveResult.From.get -> Kiln.EntityId
+Kiln.MoveResult.From.init -> void
+Kiln.MoveResult.GameError.get -> int
+Kiln.MoveResult.GameError.init -> void
+Kiln.MoveResult.Kind.get -> Kiln.MoveKind
+Kiln.MoveResult.Kind.init -> void
+Kiln.MoveResult.Message.get -> string!
+Kiln.MoveResult.Message.init -> void
+Kiln.MoveResult.MoveResult(Kiln.ItemsStatus Status, Kiln.MoveKind Kind, Kiln.EntityId From, Kiln.EntityId To, int Requested, int Done, int Stacks, System.Collections.Generic.IReadOnlyList<Kiln.MoveChange>! Changes, string! Message, int GameError, bool Canceled, int Steps, bool DryRun) -> void
+Kiln.MoveResult.Requested.get -> int
+Kiln.MoveResult.Requested.init -> void
+Kiln.MoveResult.Stacks.get -> int
+Kiln.MoveResult.Stacks.init -> void
+Kiln.MoveResult.Status.get -> Kiln.ItemsStatus
+Kiln.MoveResult.Status.init -> void
+Kiln.MoveResult.Steps.get -> int
+Kiln.MoveResult.Steps.init -> void
+Kiln.MoveResult.Succeeded.get -> bool
+Kiln.MoveResult.To.get -> Kiln.EntityId
+Kiln.MoveResult.To.init -> void
+Kiln.SlotId
+Kiln.SlotId.Deconstruct(out ulong Value) -> void
+Kiln.SlotId.Equals(Kiln.SlotId other) -> bool
+Kiln.SlotId.Index.get -> int
+Kiln.SlotId.Inventory.get -> Kiln.EntityId
+Kiln.SlotId.IsNone.get -> bool
+Kiln.SlotId.SlotId() -> void
+Kiln.SlotId.SlotId(ulong Value) -> void
+Kiln.SlotId.Value.get -> ulong
+Kiln.SlotId.Value.init -> void
+Kiln.TransferKind
+Kiln.TransferKind.MoveAll = 2 -> Kiln.TransferKind
+Kiln.TransferKind.QuickStack = 1 -> Kiln.TransferKind
+Kiln.TransferKinds
+Kiln.TransferKinds.Any = Kiln.TransferKinds.QuickStack | Kiln.TransferKinds.MoveAll -> Kiln.TransferKinds
+Kiln.TransferKinds.MoveAll = 2 -> Kiln.TransferKinds
+Kiln.TransferKinds.QuickStack = 1 -> Kiln.TransferKinds
+Kiln.TransferRule
+Kiln.TransferRule.Dispose() -> void
+Kiln.TransferRule.IsActive.get -> bool
+Kiln.TransferRule.What.get -> string!
+Kiln.WaterRefilledEvent
+Kiln.WaterRefilledEvent.Changes.get -> System.Collections.Generic.IReadOnlyList<Kiln.FuelChange>!
+Kiln.WaterRefilledEvent.Entity.get -> Kiln.EntityId
+Kiln.WaterRefilledEvent.Keep.get -> Kiln.FuelKeep!
+Kiln.WaterRefilledEvent.Origin.get -> string!
+Kiln.WaterRefilledEvent.Units.get -> long
+const Kiln.Items.Fuel.UnitsPerCharge = 64 -> int
+override Kiln.ClientTransfer.GetHashCode() -> int
+override Kiln.FuelChange.GetHashCode() -> int
+override Kiln.FuelLevel.GetHashCode() -> int
+override Kiln.FuelLevel.ToString() -> string!
+override Kiln.FuelRefill.Equals(object? obj) -> bool
+override Kiln.FuelRefill.GetHashCode() -> int
+override Kiln.FuelRefill.ToString() -> string!
+override Kiln.FuelResult.Equals(object? obj) -> bool
+override Kiln.FuelResult.GetHashCode() -> int
+override Kiln.FuelResult.ToString() -> string!
+override Kiln.Gear.GetHashCode() -> int
+override Kiln.InventoryContents.Equals(object? obj) -> bool
+override Kiln.InventoryContents.GetHashCode() -> int
+override Kiln.InventoryContents.ToString() -> string!
+override Kiln.InventorySlot.Equals(object? obj) -> bool
+override Kiln.InventorySlot.GetHashCode() -> int
+override Kiln.InventorySlot.ToString() -> string!
+override Kiln.InventoryTransferEvent.ToString() -> string!
+override Kiln.ItemChange.GetHashCode() -> int
+override Kiln.ItemId.GetHashCode() -> int
+override Kiln.ItemId.ToString() -> string!
+override Kiln.ItemInfo.Equals(object? obj) -> bool
+override Kiln.ItemInfo.GetHashCode() -> int
+override Kiln.ItemInfo.ToString() -> string!
+override Kiln.ItemsGivenEvent.ToString() -> string!
+override Kiln.ItemsResult.Equals(object? obj) -> bool
+override Kiln.ItemsResult.GetHashCode() -> int
+override Kiln.ItemsResult.ToString() -> string!
+override Kiln.ItemsServiceStatus.Equals(object? obj) -> bool
+override Kiln.ItemsServiceStatus.GetHashCode() -> int
+override Kiln.ItemsServiceStatus.ToString() -> string!
+override Kiln.ItemsTakenEvent.ToString() -> string!
+override Kiln.ItemsV3Status.Equals(object? obj) -> bool
+override Kiln.ItemsV3Status.GetHashCode() -> int
+override Kiln.ItemsV3Status.ToString() -> string!
+override Kiln.MoveChange.GetHashCode() -> int
+override Kiln.MoveResult.Equals(object? obj) -> bool
+override Kiln.MoveResult.GetHashCode() -> int
+override Kiln.MoveResult.ToString() -> string!
+override Kiln.SlotId.GetHashCode() -> int
+override Kiln.SlotId.ToString() -> string!
+override Kiln.TransferRule.ToString() -> string!
+override Kiln.WaterRefilledEvent.ToString() -> string!
+static Kiln.ClientTransfer.operator !=(Kiln.ClientTransfer left, Kiln.ClientTransfer right) -> bool
+static Kiln.ClientTransfer.operator ==(Kiln.ClientTransfer left, Kiln.ClientTransfer right) -> bool
+static Kiln.FuelChange.operator !=(Kiln.FuelChange left, Kiln.FuelChange right) -> bool
+static Kiln.FuelChange.operator ==(Kiln.FuelChange left, Kiln.FuelChange right) -> bool
+static Kiln.FuelLevel.operator !=(Kiln.FuelLevel left, Kiln.FuelLevel right) -> bool
+static Kiln.FuelLevel.operator ==(Kiln.FuelLevel left, Kiln.FuelLevel right) -> bool
+static Kiln.FuelRefill.ChargesPerSecond(double charges, int limitUnits = 0) -> Kiln.FuelRefill!
+static Kiln.FuelRefill.Full.get -> Kiln.FuelRefill!
+static Kiln.FuelRefill.operator !=(Kiln.FuelRefill? left, Kiln.FuelRefill? right) -> bool
+static Kiln.FuelRefill.operator ==(Kiln.FuelRefill? left, Kiln.FuelRefill? right) -> bool
+static Kiln.FuelResult.operator !=(Kiln.FuelResult? left, Kiln.FuelResult? right) -> bool
+static Kiln.FuelResult.operator ==(Kiln.FuelResult? left, Kiln.FuelResult? right) -> bool
+static Kiln.Gear.operator !=(Kiln.Gear left, Kiln.Gear right) -> bool
+static Kiln.Gear.operator ==(Kiln.Gear left, Kiln.Gear right) -> bool
+static Kiln.InventoryContents.operator !=(Kiln.InventoryContents? left, Kiln.InventoryContents? right) -> bool
+static Kiln.InventoryContents.operator ==(Kiln.InventoryContents? left, Kiln.InventoryContents? right) -> bool
+static Kiln.InventorySlot.operator !=(Kiln.InventorySlot? left, Kiln.InventorySlot? right) -> bool
+static Kiln.InventorySlot.operator ==(Kiln.InventorySlot? left, Kiln.InventorySlot? right) -> bool
+static Kiln.ItemChange.operator !=(Kiln.ItemChange left, Kiln.ItemChange right) -> bool
+static Kiln.ItemChange.operator ==(Kiln.ItemChange left, Kiln.ItemChange right) -> bool
+static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId
+static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool
+static Kiln.ItemInfo.operator !=(Kiln.ItemInfo? left, Kiln.ItemInfo? right) -> bool
+static Kiln.ItemInfo.operator ==(Kiln.ItemInfo? left, Kiln.ItemInfo? right) -> bool
+static Kiln.Items.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.ItemInfo!>!
+static Kiln.Items.Available.get -> bool
+static Kiln.Items.CanTransact.get -> bool
+static Kiln.Items.ContainerName(Kiln.EntityId entity) -> string?
+static Kiln.Items.ContainerNamesAvailable.get -> bool
+static Kiln.Items.FindInventories(Kiln.InventoryKinds kinds = Kiln.InventoryKinds.Containers) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Items.Fuel.Add(Kiln.EntityId container, int units, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
+static Kiln.Items.Fuel.Available.get -> bool
+static Kiln.Items.Fuel.Fill(Kiln.EntityId container, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
+static Kiln.Items.Fuel.FillAll(Kiln.EntityId holder, Kiln.ItemId item = default(Kiln.ItemId), bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
+static Kiln.Items.Fuel.FillAll(Kiln.EntityId holder, System.Collections.Generic.IEnumerable<Kiln.ItemId>! items, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
+static Kiln.Items.Fuel.KeepFull(Kiln.EntityId entity, Kiln.ItemId item = default(Kiln.ItemId), bool inventories = true) -> Kiln.FuelKeep!
+static Kiln.Items.Fuel.Read(Kiln.EntityId container) -> Kiln.FuelLevel?
+static Kiln.Items.Fuel.Refill(Kiln.EntityId entity, Kiln.FuelRefill! policy, Kiln.ItemId item = default(Kiln.ItemId), bool inventories = true) -> Kiln.FuelKeep!
+static Kiln.Items.Fuel.Set(Kiln.EntityId container, int units, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
+static Kiln.Items.Fuel.SetAll(Kiln.EntityId holder, int units, Kiln.ItemId item = default(Kiln.ItemId), bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.FuelResult!>!
+static Kiln.Items.GearOptionsAvailable.get -> bool
+static Kiln.Items.Get(Kiln.ItemId id) -> Kiln.ItemInfo?
+static Kiln.Items.Give(Kiln.EntityId target, Kiln.ItemId item, int count = 1, Kiln.Gear? gear = null, Kiln.GiveOptions options = Kiln.GiveOptions.None, Kiln.SlotId? slot = null) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
+static Kiln.Items.Give(Kiln.EntityId target, string! item, int count = 1, Kiln.Gear? gear = null, Kiln.GiveOptions options = Kiln.GiveOptions.None) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
+static Kiln.Items.GiveRecipeResult(Kiln.EntityId target, uint recipeId, int count = 1, Kiln.GiveOptions options = Kiln.GiveOptions.None) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
+static Kiln.Items.Lookup(string! nameOrId) -> Kiln.ItemInfo?
+static Kiln.Items.Move(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to, int count = 0, Kiln.MoveOptions options = Kiln.MoveOptions.None, Kiln.SlotId? toSlot = null) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+static Kiln.Items.MoveAll(Kiln.EntityId from, Kiln.EntityId to, Kiln.MoveOptions options = Kiln.MoveOptions.None) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+static Kiln.Items.MovesAvailable.get -> bool
+static Kiln.Items.QuickStack(Kiln.EntityId from, Kiln.EntityId to, Kiln.MoveOptions options = Kiln.MoveOptions.None) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+static Kiln.Items.Read(Kiln.EntityId entity) -> Kiln.InventoryContents?
+static Kiln.Items.ResultPeekAvailable.get -> bool
+static Kiln.Items.Search(string! text, int max = 25) -> System.Collections.Generic.IReadOnlyList<Kiln.ItemInfo!>!
+static Kiln.Items.Status() -> Kiln.ItemsServiceStatus?
+static Kiln.Items.Status3() -> Kiln.ItemsV3Status?
+static Kiln.Items.Take(Kiln.EntityId target, Kiln.ItemId item, int count = 1, Kiln.SlotId? from = null, bool exactSlot = false, Kiln.EntityId? itemEntity = null, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
+static Kiln.Items.TakeSlot(Kiln.EntityId target, Kiln.InventorySlot! slot, bool dryRun = false) -> System.Threading.Tasks.Task<Kiln.ItemsResult!>!
+static Kiln.Items.Transfers.Available.get -> bool
+static Kiln.Items.Transfers.Deny(Kiln.EntityId container, Kiln.TransferKinds kinds = Kiln.TransferKinds.Any) -> Kiln.TransferRule!
+static Kiln.Items.Transfers.Keep(Kiln.SlotId slot, Kiln.TransferKinds kinds = Kiln.TransferKinds.Any) -> Kiln.TransferRule!
+static Kiln.Items.Transfers.KeepItem(Kiln.ItemId item, Kiln.EntityId owner = default(Kiln.EntityId), Kiln.TransferKinds kinds = Kiln.TransferKinds.Any) -> Kiln.TransferRule!
+static Kiln.Items.Transfers.ParseAction(System.ReadOnlySpan<byte> payload) -> Kiln.ClientTransfer?
+static Kiln.Items.Transfers.Status() -> Kiln.ItemsV3Status?
+static Kiln.Items.TryGetResult(System.Threading.Tasks.Task<Kiln.ItemsResult!>! transaction, out Kiln.ItemsResult? result) -> bool
+static Kiln.ItemsResult.operator !=(Kiln.ItemsResult? left, Kiln.ItemsResult? right) -> bool
+static Kiln.ItemsResult.operator ==(Kiln.ItemsResult? left, Kiln.ItemsResult? right) -> bool
+static Kiln.ItemsServiceStatus.operator !=(Kiln.ItemsServiceStatus? left, Kiln.ItemsServiceStatus? right) -> bool
+static Kiln.ItemsServiceStatus.operator ==(Kiln.ItemsServiceStatus? left, Kiln.ItemsServiceStatus? right) -> bool
+static Kiln.ItemsV3Status.operator !=(Kiln.ItemsV3Status? left, Kiln.ItemsV3Status? right) -> bool
+static Kiln.ItemsV3Status.operator ==(Kiln.ItemsV3Status? left, Kiln.ItemsV3Status? right) -> bool
+static Kiln.MoveChange.operator !=(Kiln.MoveChange left, Kiln.MoveChange right) -> bool
+static Kiln.MoveChange.operator ==(Kiln.MoveChange left, Kiln.MoveChange right) -> bool
+static Kiln.MoveResult.operator !=(Kiln.MoveResult? left, Kiln.MoveResult? right) -> bool
+static Kiln.MoveResult.operator ==(Kiln.MoveResult? left, Kiln.MoveResult? right) -> bool
+static Kiln.SlotId.Of(Kiln.EntityId inventory, int index) -> Kiln.SlotId
+static Kiln.SlotId.operator !=(Kiln.SlotId left, Kiln.SlotId right) -> bool
+static Kiln.SlotId.operator ==(Kiln.SlotId left, Kiln.SlotId right) -> bool
+static readonly Kiln.ItemId.None -> Kiln.ItemId
+~override Kiln.ClientTransfer.Equals(object obj) -> bool
+~override Kiln.ClientTransfer.ToString() -> string
+~override Kiln.FuelChange.Equals(object obj) -> bool
+~override Kiln.FuelChange.ToString() -> string
+~override Kiln.FuelLevel.Equals(object obj) -> bool
+~override Kiln.Gear.Equals(object obj) -> bool
+~override Kiln.Gear.ToString() -> string
+~override Kiln.ItemChange.Equals(object obj) -> bool
+~override Kiln.ItemChange.ToString() -> string
+~override Kiln.ItemId.Equals(object obj) -> bool
+~override Kiln.MoveChange.Equals(object obj) -> bool
+~override Kiln.MoveChange.ToString() -> string
+~override Kiln.SlotId.Equals(object obj) -> bool

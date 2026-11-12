@@ -1,0 +1,134 @@
+#nullable enable
+Kiln.SettingChange
+Kiln.SettingChange.<Clone>$() -> Kiln.SettingChange!
+Kiln.SettingChange.After.get -> object!
+Kiln.SettingChange.After.init -> void
+Kiln.SettingChange.Before.get -> object!
+Kiln.SettingChange.Before.init -> void
+Kiln.SettingChange.Changed.get -> bool
+Kiln.SettingChange.Changed.init -> void
+Kiln.SettingChange.Deconstruct(out string! Name, out object! Before, out object! After, out bool Changed) -> void
+Kiln.SettingChange.Equals(Kiln.SettingChange? other) -> bool
+Kiln.SettingChange.Name.get -> string!
+Kiln.SettingChange.Name.init -> void
+Kiln.SettingChange.SettingChange(string! Name, object! Before, object! After, bool Changed) -> void
+Kiln.SettingChangedEvent
+Kiln.SettingChangedEvent.After.get -> object!
+Kiln.SettingChangedEvent.Before.get -> object!
+Kiln.SettingChangedEvent.By.get -> string!
+Kiln.SettingChangedEvent.FromGame.get -> bool
+Kiln.SettingChangedEvent.Name.get -> string!
+Kiln.SettingFlags
+Kiln.SettingFlags.Changed = 32 -> Kiln.SettingFlags
+Kiln.SettingFlags.DocumentedRange = 8 -> Kiln.SettingFlags
+Kiln.SettingFlags.Live = 1 -> Kiln.SettingFlags
+Kiln.SettingFlags.NextEvent = 4 -> Kiln.SettingFlags
+Kiln.SettingFlags.None = 0 -> Kiln.SettingFlags
+Kiln.SettingFlags.PlayersRead = 2 -> Kiln.SettingFlags
+Kiln.SettingFlags.Unknown = 16 -> Kiln.SettingFlags
+Kiln.SettingFlags.Verified = 64 -> Kiln.SettingFlags
+Kiln.SettingInfo
+Kiln.SettingInfo.<Clone>$() -> Kiln.SettingInfo!
+Kiln.SettingInfo.Changed.get -> bool
+Kiln.SettingInfo.Deconstruct(out int Index, out string! Name, out string! Group, out Kiln.SettingKind Kind, out Kiln.SettingFlags Flags, out string! Effect, out object! Value, out object! Initial, out object? Default, out double Min, out double Max, out System.Collections.Generic.IReadOnlyList<string!>! Options, out int Offset) -> void
+Kiln.SettingInfo.Default.get -> object?
+Kiln.SettingInfo.Default.init -> void
+Kiln.SettingInfo.Effect.get -> string!
+Kiln.SettingInfo.Effect.init -> void
+Kiln.SettingInfo.Equals(Kiln.SettingInfo? other) -> bool
+Kiln.SettingInfo.Flags.get -> Kiln.SettingFlags
+Kiln.SettingInfo.Flags.init -> void
+Kiln.SettingInfo.Group.get -> string!
+Kiln.SettingInfo.Group.init -> void
+Kiln.SettingInfo.Index.get -> int
+Kiln.SettingInfo.Index.init -> void
+Kiln.SettingInfo.Initial.get -> object!
+Kiln.SettingInfo.Initial.init -> void
+Kiln.SettingInfo.Kind.get -> Kiln.SettingKind
+Kiln.SettingInfo.Kind.init -> void
+Kiln.SettingInfo.Live.get -> bool
+Kiln.SettingInfo.Max.get -> double
+Kiln.SettingInfo.Max.init -> void
+Kiln.SettingInfo.Min.get -> double
+Kiln.SettingInfo.Min.init -> void
+Kiln.SettingInfo.Name.get -> string!
+Kiln.SettingInfo.Name.init -> void
+Kiln.SettingInfo.Offset.get -> int
+Kiln.SettingInfo.Offset.init -> void
+Kiln.SettingInfo.Options.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.SettingInfo.Options.init -> void
+Kiln.SettingInfo.PlayersRead.get -> bool
+Kiln.SettingInfo.SettingInfo(int Index, string! Name, string! Group, Kiln.SettingKind Kind, Kiln.SettingFlags Flags, string! Effect, object! Value, object! Initial, object? Default, double Min, double Max, System.Collections.Generic.IReadOnlyList<string!>! Options, int Offset) -> void
+Kiln.SettingInfo.Value.get -> object!
+Kiln.SettingInfo.Value.init -> void
+Kiln.SettingKind
+Kiln.SettingKind.Bool = 1 -> Kiln.SettingKind
+Kiln.SettingKind.Duration = 5 -> Kiln.SettingKind
+Kiln.SettingKind.Enum = 4 -> Kiln.SettingKind
+Kiln.SettingKind.Float = 2 -> Kiln.SettingKind
+Kiln.SettingKind.Int = 3 -> Kiln.SettingKind
+Kiln.Settings
+Kiln.SettingsStatus
+Kiln.SettingsStatus.<Clone>$() -> Kiln.SettingsStatus!
+Kiln.SettingsStatus.ConfigPath.get -> string!
+Kiln.SettingsStatus.ConfigPath.init -> void
+Kiln.SettingsStatus.Count.get -> int
+Kiln.SettingsStatus.Count.init -> void
+Kiln.SettingsStatus.DayDuration.get -> System.TimeSpan?
+Kiln.SettingsStatus.DayDuration.init -> void
+Kiln.SettingsStatus.DaytimeChanges.get -> uint
+Kiln.SettingsStatus.DaytimeChanges.init -> void
+Kiln.SettingsStatus.Deconstruct(out bool Ready, out bool ResendsToPlayers, out bool VerifiedSingleton, out int Count, out long Revision, out long Sets, out long ResendsRequested, out long ResendsSent, out string? Preset, out System.TimeSpan? DayDuration, out System.TimeSpan? NightDuration, out System.TimeSpan? TimeOfDay, out uint DaytimeChanges, out string! ConfigPath) -> void
+Kiln.SettingsStatus.Equals(Kiln.SettingsStatus? other) -> bool
+Kiln.SettingsStatus.NightDuration.get -> System.TimeSpan?
+Kiln.SettingsStatus.NightDuration.init -> void
+Kiln.SettingsStatus.Preset.get -> string?
+Kiln.SettingsStatus.Preset.init -> void
+Kiln.SettingsStatus.Ready.get -> bool
+Kiln.SettingsStatus.Ready.init -> void
+Kiln.SettingsStatus.ResendsRequested.get -> long
+Kiln.SettingsStatus.ResendsRequested.init -> void
+Kiln.SettingsStatus.ResendsSent.get -> long
+Kiln.SettingsStatus.ResendsSent.init -> void
+Kiln.SettingsStatus.ResendsToPlayers.get -> bool
+Kiln.SettingsStatus.ResendsToPlayers.init -> void
+Kiln.SettingsStatus.Revision.get -> long
+Kiln.SettingsStatus.Revision.init -> void
+Kiln.SettingsStatus.Sets.get -> long
+Kiln.SettingsStatus.Sets.init -> void
+Kiln.SettingsStatus.SettingsStatus(bool Ready, bool ResendsToPlayers, bool VerifiedSingleton, int Count, long Revision, long Sets, long ResendsRequested, long ResendsSent, string? Preset, System.TimeSpan? DayDuration, System.TimeSpan? NightDuration, System.TimeSpan? TimeOfDay, uint DaytimeChanges, string! ConfigPath) -> void
+Kiln.SettingsStatus.TimeOfDay.get -> System.TimeSpan?
+Kiln.SettingsStatus.TimeOfDay.init -> void
+Kiln.SettingsStatus.VerifiedSingleton.get -> bool
+Kiln.SettingsStatus.VerifiedSingleton.init -> void
+override Kiln.SettingChange.Equals(object? obj) -> bool
+override Kiln.SettingChange.GetHashCode() -> int
+override Kiln.SettingChange.ToString() -> string!
+override Kiln.SettingChangedEvent.ToString() -> string!
+override Kiln.SettingInfo.Equals(object? obj) -> bool
+override Kiln.SettingInfo.GetHashCode() -> int
+override Kiln.SettingInfo.ToString() -> string!
+override Kiln.SettingsStatus.Equals(object? obj) -> bool
+override Kiln.SettingsStatus.GetHashCode() -> int
+override Kiln.SettingsStatus.ToString() -> string!
+static Kiln.SettingChange.operator !=(Kiln.SettingChange? left, Kiln.SettingChange? right) -> bool
+static Kiln.SettingChange.operator ==(Kiln.SettingChange? left, Kiln.SettingChange? right) -> bool
+static Kiln.SettingInfo.operator !=(Kiln.SettingInfo? left, Kiln.SettingInfo? right) -> bool
+static Kiln.SettingInfo.operator ==(Kiln.SettingInfo? left, Kiln.SettingInfo? right) -> bool
+static Kiln.Settings.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.SettingInfo!>!
+static Kiln.Settings.Available.get -> bool
+static Kiln.Settings.Get(string! name) -> object!
+static Kiln.Settings.Has(string! name) -> bool
+static Kiln.Settings.Info(string! name) -> Kiln.SettingInfo!
+static Kiln.Settings.Ready.get -> bool
+static Kiln.Settings.Resend() -> void
+static Kiln.Settings.Reset(string! name, bool resend = true) -> Kiln.SettingChange!
+static Kiln.Settings.ResetAll(bool resend = true) -> int
+static Kiln.Settings.Revision.get -> long
+static Kiln.Settings.Save() -> string!
+static Kiln.Settings.Set(string! name, object! value, bool resend = true, bool anyValue = false) -> Kiln.SettingChange!
+static Kiln.Settings.Status.get -> Kiln.SettingsStatus!
+static Kiln.Settings.TrySet(string! name, object! value, out Kiln.SettingChange? change, out string! error, bool resend = true, bool anyValue = false) -> bool
+static Kiln.Settings.Values.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>!
+static Kiln.SettingsStatus.operator !=(Kiln.SettingsStatus? left, Kiln.SettingsStatus? right) -> bool
+static Kiln.SettingsStatus.operator ==(Kiln.SettingsStatus? left, Kiln.SettingsStatus? right) -> bool

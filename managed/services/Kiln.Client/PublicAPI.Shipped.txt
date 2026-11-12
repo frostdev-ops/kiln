@@ -1,0 +1,32 @@
+#nullable enable
+Kiln.Client
+Kiln.Client.NextTickAwaitable
+Kiln.Client.NextTickAwaitable.Awaiter
+Kiln.Client.NextTickAwaitable.Awaiter.Awaiter() -> void
+Kiln.Client.NextTickAwaitable.Awaiter.GetResult() -> void
+Kiln.Client.NextTickAwaitable.Awaiter.IsCompleted.get -> bool
+Kiln.Client.NextTickAwaitable.Awaiter.OnCompleted(System.Action! continuation) -> void
+Kiln.Client.NextTickAwaitable.Awaiter.UnsafeOnCompleted(System.Action! continuation) -> void
+Kiln.Client.NextTickAwaitable.GetAwaiter() -> Kiln.Client.NextTickAwaitable.Awaiter
+Kiln.Client.NextTickAwaitable.NextTickAwaitable() -> void
+Kiln.ClientState
+Kiln.ClientState.DedicatedServer = 1 -> Kiln.ClientState
+Kiln.ClientState.Hosting = 2 -> Kiln.ClientState
+Kiln.ClientState.Menu = 0 -> Kiln.ClientState
+Kiln.ClientState.Remote = 3 -> Kiln.ClientState
+static Kiln.Client.Available.get -> bool
+static Kiln.Client.ClientWorldSession.get -> uint
+static Kiln.Client.ClientWorldSteps.get -> ulong
+static Kiln.Client.HasLocalPlayer.get -> bool
+static Kiln.Client.InGame.get -> bool
+static Kiln.Client.IsClient.get -> bool
+static Kiln.Client.IsClientThread.get -> bool
+static Kiln.Client.IsDedicatedServer.get -> bool
+static Kiln.Client.IsHosting.get -> bool
+static Kiln.Client.IsRemote.get -> bool
+static Kiln.Client.LocalPlayer.get -> Kiln.EntityId
+static Kiln.Client.NextTick() -> Kiln.Client.NextTickAwaitable
+static Kiln.Client.Post(System.Action! work) -> void
+static Kiln.Client.ServerWorldSession.get -> uint
+static Kiln.Client.State.get -> Kiln.ClientState
+static Kiln.Client.Tick -> Kiln.TickHandler?
