@@ -21,6 +21,23 @@ public sealed class CapabilitiesTests
         Assert.Contains(KitBackend.Instance.Asked.Since(0), a => a is { Kind: AskKind.Service, Name: "kiln.items" });
     }
 
+    [Theory]
+    [InlineData("kiln.characters")]
+    [InlineData("kiln.flame")]
+    [InlineData("kiln.knowledge")]
+    [InlineData("kiln.playerstate")]
+    [InlineData("kiln.progression")]
+    [InlineData("kiln.questmark")]
+    [InlineData("kiln.skills")]
+    public void ServicesWhoseHeadersAreOutsideCoreAreOffline(string name)
+    {
+        using var kiln = new KilnHarness();
+        Assert.Equal(CapReason.Offline, KitBackend.Instance.Capabilities.Get(name).Reason);
+        Assert.Contains("unavailable (offline)", kiln.Capabilities.Why(name));
+        Assert.Equal(CoverageKind.Unavailable, Assert.Single(Coverage.All, r => r.Area == name).Kind);
+        Assert.Throws<InvalidOperationException>(() => kiln.Capabilities.Override(name, true));
+    }
+
     [Fact]
     public void AFeatureOverrideShowsInGameHasFeatureAndEndsWithTheHarness()
     {

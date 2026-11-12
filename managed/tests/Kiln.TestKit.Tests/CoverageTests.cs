@@ -11,10 +11,10 @@ public sealed class CoverageTests
     public void TheEmbeddedServiceNamesAreTheHeaders()
     {
         var repo = typeof(CoverageTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(a => a.Key == "KilnRepository").Value!;
-        var headers = Path.Combine(repo, "native", "core", "abi", "services");
+        var headers = Path.Combine(repo, "native");
         Assert.True(Directory.Exists(headers), headers);
         var define = new Regex(@"^#define\s+KILN_\w+_SERVICE\s+""(kiln\.[^""]+)""", RegexOptions.Multiline);
-        var names = Directory.GetFiles(headers, "*.h").SelectMany(f => define.Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value))
+        var names = Directory.GetFiles(headers, "*.h", SearchOption.AllDirectories).SelectMany(f => define.Matches(File.ReadAllText(f)).Select(m => m.Groups[1].Value))
             .Distinct().Order(StringComparer.Ordinal).ToList();
         Assert.Equal(names, ServiceNames.All.Order(StringComparer.Ordinal));
     }
