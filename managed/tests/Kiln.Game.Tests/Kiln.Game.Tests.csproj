@@ -52,5 +52,37 @@
   </Target>
 
   <!-- sdk: layout stamps -->
+  <!-- The stamp task (Kiln.Sdk.Tasks.dll, run in-process by StampTaskTests with MSBuild's own assemblies), the fixture
+       mod (Fixtures/stamp/StampMod, compiled against Kiln.Game variant stamp-a) and the three variants built from the
+       made-up dumps Fixtures/stamp/{a,b,c}.json. Their legacy part is the golden Generated.cs (the fixtures have none of
+       the nine types). The fixture mod goes to stamp/StampMod/, the variants to variants/stamp-{a,b,c}/. -->
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Sdk/Kiln.Sdk.csproj" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" />
+    <ProjectReference Include="Fixtures/stamp/StampMod/StampMod.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnStampFixture="true" />
+  </ItemGroup>
+  <Target Name="_KilnStampFixtures" AfterTargets="Build">
+    <PropertyGroup>
+      <_KilnStampDir>$(MSBuildThisFileDirectory)Fixtures/stamp/</_KilnStampDir>
+      <_KilnStampLegacy>KilnLocalGameTypes=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)../../Kiln.Game/Generated.cs'))</_KilnStampLegacy>
+    </PropertyGroup>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-a;KilnGameDump=$(_KilnStampDir)a.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampA" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-b;KilnGameDump=$(_KilnStampDir)b.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampB" />
+    </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-c;KilnGameDump=$(_KilnStampDir)c.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampC" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnStampA)" DestinationFolder="$(OutDir)variants/stamp-a" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampB)" DestinationFolder="$(OutDir)variants/stamp-b" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_KilnStampC)" DestinationFolder="$(OutDir)variants/stamp-c" SkipUnchangedFiles="true" />
+    <MSBuild Projects="@(ProjectReference)" Targets="GetTargetPath" Condition="'%(ProjectReference.KilnStampFixture)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampMod" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnStampMod)" DestinationFolder="$(OutDir)stamp/StampMod" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
