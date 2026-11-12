@@ -28,7 +28,10 @@
 //   d10 matching those records at a load; unequal twins: a save, one moved, a save, that generation dropped.  drop-gen
 //   d11 the matcher's decision for the unequal twins on the older generation.                                          stop
 //   e1  break-it 4 setup: twins W1 W2 tagged in A, a save.                                                             stop
-//   e2  break-it 4: W1 and W2 swapped in the first tick a mod can move items after the load, racing the matcher.        end
+//   e2  break-it 4: W1 and W2 swapped in the first tick a mod can move items after the load, racing the matcher; then
+//       V3, the one item of its kind in E, moved within E between two saves, the newest generation dropped.      drop-gen
+//   u4  V3 on the older generation: Moved.                                                                             stop
+//   f1..f3, and c1..c3 before d1 in a fresh world: FinalChecks.cs.
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -555,6 +558,14 @@ public sealed partial class InstancesTestMod
             case "u1": await U1(); break;
             case "u2": await U2(); break;
             case "u4": await U4(); break;
+            case "c1": await C1(); break;
+            case "c2": await C2(); break;
+            case "c3": await C3(); break;
+            case "f1": await F1(); break;
+            case "f2": await F2(); break;
+            case "f3": await F3(); break;
+            case "g1": await G1(); break;
+            case "g2": await G2(); break;
             case "n1": await N1(); break;
             case "d10": await D10(); break;
             case "d11": await D11(); break;
@@ -958,7 +969,7 @@ public sealed partial class InstancesTestMod
             try
             {
                 // a retried boot spawns 4 m further on (chests of an earlier try may have been saved)
-                var pos = new WorldPosition(ai.Position.X + 6 + dx, ai.Position.Y + 40, ai.Position.Z + 6 + 4 * (_ds.Boot % 5));
+                var pos = new WorldPosition(ai.Position.X + 6 + dx, SafeY(ai.Position.Y + 40), ai.Position.Z + 6 + 4 * (_ds.Boot % 5));
                 var e = await Spawn.Entity(tmpl, pos, 0, new SpawnOptions { Tag = "instances-test-t4" });
                 await Until(() => Items.Read(e) is { Initialized: true }, 100);
                 _ds.Chests[name] = PosOf(e);
@@ -1166,7 +1177,7 @@ public sealed partial class InstancesTestMod
             try
             {
                 // 40 m up, as break-it 3's chests (which came back after a restart); a first try 60 m up did not come back
-                var e = await Spawn.Entity(ai.Template!.Value, new WorldPosition(ai.Position.X - 30 + 2.5 * (i % 8), ai.Position.Y + 40, ai.Position.Z - 30 + 2.5 * (i / 8)), 0,
+                var e = await Spawn.Entity(ai.Template!.Value, new WorldPosition(ai.Position.X - 30 + 2.5 * (i % 8), SafeY(ai.Position.Y + 40), ai.Position.Z - 30 + 2.5 * (i / 8)), 0,
                     new SpawnOptions { Tag = "instances-test-t4-numbers" });
                 holders.Add(e);
             }
@@ -1344,7 +1355,7 @@ public sealed partial class InstancesTestMod
         Info($"t4 u4: loaded {_worldLoaded} ({_ds.Notes.GetValueOrDefault("unequalV3")})");
         await VerifyLoaded("u4 V3 on an older generation", LoadedStates(), s => s.Name == "V3");
         Info($"t4 unequal: V3: {(_refs.TryGetValue("V3", out var r) && _restored.TryGetValue(r, out var m) ? $"restored {m}" : "not restored")}");
-        Ready("end");
+        Next("f1", "stop");
     }
 
     // ---- unequal twins without a look-alike: V1 and V2 of an item no other slot of chest E holds ----
