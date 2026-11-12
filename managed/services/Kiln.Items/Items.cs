@@ -23,8 +23,9 @@ public static unsafe partial class Items
     private static ItemsNative.Table* T =>
         _table != null ? _table : (_table = Services.Get<ItemsNative.Table>(ItemsNative.Service, ItemsNative.Version));
 
-    /// <summary>True when the native service is loaded.</summary>
-    public static bool Available => T != null;
+    /// <summary>True when the native service is loaded: capability <c>kiln.items</c>
+    /// (<see cref="Capabilities.Why"/> says why not).</summary>
+    public static bool Available => Can(Caps.Service);
 
     /// <summary>True when give/take can run (the service's program runs and its checks passed).</summary>
     public static bool CanTransact => Status()?.Transactions == true;
@@ -39,7 +40,8 @@ public static unsafe partial class Items
         }
     }
 
-    /// <summary>The runtime can observe inventory commits before their next-step callbacks. Needed for a journal saved with the inventory.</summary>
+    /// <summary>The runtime can observe inventory commits before their next-step callbacks. Needed for a journal saved with the inventory.
+    /// The same answer as capability <c>items.result_peek</c>, read from the table itself.</summary>
     public static bool ResultPeekAvailable => ResultTable != null;
 
     /// <summary>Observes the result of a Give/Take task, including an inventory commit whose normal callback has not yet run. Runs no callbacks,
@@ -65,9 +67,9 @@ public static unsafe partial class Items
         return true;
     }
 
-    /// <summary>This build supports <see cref="Gear.Unlocked"/> and <see cref="Gear.GemSlot"/> (feature
-    /// items.pide_options; a give with them is Unavailable otherwise).</summary>
-    public static bool GearOptionsAvailable => Available && Game.HasFeature("items.pide_options");
+    /// <summary>This build supports <see cref="Gear.Unlocked"/> and <see cref="Gear.GemSlot"/> (capability
+    /// <c>items.pide_options</c>; a give with them is Unavailable otherwise).</summary>
+    public static bool GearOptionsAvailable => Available && Can(Caps.GearOptions);
 
     /// <summary>The service's state, or null when it is not loaded.</summary>
     public static ItemsServiceStatus? Status()
@@ -102,6 +104,7 @@ public static unsafe partial class Items
     // ------------------------------------------------------------------------------------------- reading -------
 
     /// <summary>The inventory of <paramref name="entity"/>, or null when it has none (or it does not exist).</summary>
+    [RequiresCapability(Caps.Service)]
     public static InventoryContents? Read(EntityId entity)
     {
         var t = Require("Items.Read");
@@ -132,6 +135,7 @@ public static unsafe partial class Items
     }
 
     /// <summary>Entities with an initialized inventory of these kinds (one pass over the world's entities).</summary>
+    [RequiresCapability(Caps.Service)]
     public static IReadOnlyList<EntityId> FindInventories(InventoryKinds kinds = InventoryKinds.Containers)
     {
         var t = Require("Items.FindInventories");
@@ -158,6 +162,7 @@ public static unsafe partial class Items
     /// <paramref name="gear"/>'s level and rarity. Completes on the tick thread with what happened (never throws for
     /// game-side outcomes; check <see cref="ItemsResult.Status"/>).
     /// </summary>
+    [RequiresCapability(Caps.Service)]
     public static Task<ItemsResult> Give(EntityId target, ItemId item, int count = 1, Gear? gear = null,
         GiveOptions options = GiveOptions.None, SlotId? slot = null)
     {
@@ -202,6 +207,7 @@ public static unsafe partial class Items
     /// <see cref="ItemsResult.Done"/> counts recipe runs,
     /// <see cref="ItemsResult.Changes"/> lists the stacks with their item entities.
     /// </summary>
+    [RequiresCapability(Caps.Service)]
     public static Task<ItemsResult> GiveRecipeResult(EntityId target, uint recipeId, int count = 1,
         GiveOptions options = GiveOptions.None)
     {
@@ -215,6 +221,7 @@ public static unsafe partial class Items
 
     /// <summary>Give by name or id (see <see cref="Lookup"/>); an unknown name completes with
     /// <see cref="ItemsStatus.UnknownItem"/>.</summary>
+    [RequiresCapability(Caps.Service)]
     public static Task<ItemsResult> Give(EntityId target, string item, int count = 1, Gear? gear = null,
         GiveOptions options = GiveOptions.None)
     {
@@ -230,6 +237,7 @@ public static unsafe partial class Items
     /// slot (backpack, action bars, equipment); with <paramref name="exactSlot"/> only that slot, and only while it
     /// still holds the item (and <paramref name="itemEntity"/> when given). Gear taken out is destroyed by the game.
     /// </summary>
+    [RequiresCapability(Caps.Service)]
     public static Task<ItemsResult> Take(EntityId target, ItemId item, int count = 1, SlotId? from = null,
         bool exactSlot = false, EntityId? itemEntity = null, bool dryRun = false)
     {
@@ -246,6 +254,7 @@ public static unsafe partial class Items
     }
 
     /// <summary>Takes everything in one slot as read (exact slot, the same item entity for gear).</summary>
+    [RequiresCapability(Caps.Service)]
     public static Task<ItemsResult> TakeSlot(EntityId target, InventorySlot slot, bool dryRun = false) =>
         slot.IsEmpty
             ? Invalid(target, slot.Item, 0, "the slot is empty")

@@ -90,10 +90,12 @@ public readonly record struct Gear(int? Level = null, ItemRarity? Rarity = null)
     /// <summary>Upgrades (perks) unlocked at creation, as the workbench's upgrade does it: each raises the level by 1.
     /// 1-4, or 5 or 255 for all the item has (the rarity decides how many: Common 1 .. Legendary 5). Null or 0: none, the
     /// game's default. Needs <see cref="Items.GearOptionsAvailable"/> (else the give is Unavailable).</summary>
+    [RequiresCapability(Items.Caps.GearOptions)]
     public int? Unlocked { get; init; }
 
     /// <summary>A weapon gets an empty gem slot when the game's own roll at creation gave none (other items are
     /// unchanged). Needs <see cref="Items.GearOptionsAvailable"/>.</summary>
+    [RequiresCapability(Items.Caps.GearOptions)]
     public bool GemSlot { get; init; }
 }
 

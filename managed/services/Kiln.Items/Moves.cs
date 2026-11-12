@@ -33,12 +33,14 @@ public static unsafe partial class Items
         return t;
     }
 
-    /// <summary>True when moves work on this game build (feature items.move): <see cref="Move"/>,
-    /// <see cref="QuickStack"/> and <see cref="MoveAll"/> are Unavailable otherwise.</summary>
-    public static bool MovesAvailable => V3 != null && Status3()?.Moves == true;
+    /// <summary>True when moves work right now (capability <c>items.move</c>, and the kiln_items program runs in the
+    /// server world): <see cref="Move"/>, <see cref="QuickStack"/> and <see cref="MoveAll"/> are Unavailable otherwise.
+    /// The session part is read live; <c>items.moves</c> carries it in the registry, up to a second late.</summary>
+    public static bool MovesAvailable => Can(Caps.Move) && Status3()?.Moves == true;
 
-    /// <summary>True when <see cref="ContainerName"/> can read names on this game build (feature items.names).</summary>
-    public static bool ContainerNamesAvailable => V3 != null && Status3()?.Names == true;
+    /// <summary>True when <see cref="ContainerName"/> can read names on this game build (capability
+    /// <c>items.names</c>).</summary>
+    public static bool ContainerNamesAvailable => Can(Caps.Names);
 
     /// <summary>The v3 parts' state (moves, names, transfer hooks, counters), or null on an older runtime.</summary>
     public static ItemsV3Status? Status3()
@@ -61,6 +63,7 @@ public static unsafe partial class Items
     /// <see cref="ContainerNamesAvailable"/> is false (an older Kiln, or a game build the string table is unknown on).
     /// </summary>
     /// <example><code>if (Items.ContainerName(chest) == "Ores") { /* deposit ore here */ }</code></example>
+    [RequiresCapability(Caps.Names)]
     public static string? ContainerName(EntityId entity)
     {
         var t = Require3("Items.ContainerName");
@@ -111,6 +114,7 @@ public static unsafe partial class Items
     /// var r = await Items.Move(player, sword.Slot, chest);
     /// if (r.Succeeded) Log.Info($"moved {r.Changes[0].ItemEntity}");   // the same item entity as sword.ItemEntity
     /// </code></example>
+    [RequiresCapability(Caps.Move)]
     public static Task<MoveResult> Move(EntityId from, SlotId slot, EntityId to, int count = 0,
         MoveOptions options = MoveOptions.None, SlotId? toSlot = null)
     {
@@ -129,6 +133,7 @@ public static unsafe partial class Items
     /// moves with its item entity. Transfer rules and events (<see cref="Transfers"/>) see it, flagged
     /// <see cref="InventoryTransferEvent.ByMod"/>, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
+    [RequiresCapability(Caps.Move)]
     public static Task<MoveResult> QuickStack(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.QuickStack, from, to, options), "Items.QuickStack");
 
@@ -137,6 +142,7 @@ public static unsafe partial class Items
     /// player's action bar stays unless <see cref="MoveOptions.ActionBar"/>. Gear moves with its item entity. Transfer
     /// rules and events see it, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
+    [RequiresCapability(Caps.Move)]
     public static Task<MoveResult> MoveAll(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.All, from, to, options), "Items.MoveAll");
 
@@ -278,12 +284,13 @@ public static unsafe partial class Items
     /// </remarks>
     public static class Transfers
     {
-        /// <summary>True when the hooks can be installed on this game build (feature items.transfer).</summary>
-        public static bool Available => V3 != null && Status3()?.TransferHooks == true;
+        /// <summary>True when the hooks can be installed on this game build (capability <c>items.transfer</c>).</summary>
+        public static bool Available => Can(Caps.Transfer);
 
         /// <summary>The stack in <paramref name="slot"/> stays where it is while it lies in the source inventory of a
         /// transfer (a locked slot). Dispose the rule to end it; so does the mod's unload.</summary>
         /// <exception cref="NotSupportedException">The hooks are not available on this build.</exception>
+        [RequiresCapability(Caps.Transfer)]
         public static TransferRule Keep(SlotId slot, TransferKinds kinds = TransferKinds.Any)
         {
             if (slot.IsNone) throw new ArgumentException("no slot", nameof(slot));
@@ -295,6 +302,7 @@ public static unsafe partial class Items
 
         /// <summary>Stacks of <paramref name="item"/> stay in the source inventory of a transfer; with
         /// <paramref name="owner"/> only when that entity's inventory is the source.</summary>
+        [RequiresCapability(Caps.Transfer)]
         public static TransferRule KeepItem(ItemId item, EntityId owner = default, TransferKinds kinds = TransferKinds.Any)
         {
             if (item.IsNone) throw new ArgumentException("no item", nameof(item));
@@ -306,6 +314,7 @@ public static unsafe partial class Items
 
         /// <summary>A transfer into or out of <paramref name="container"/> does not run (the caller is told it moved
         /// nothing).</summary>
+        [RequiresCapability(Caps.Transfer)]
         public static TransferRule Deny(EntityId container, TransferKinds kinds = TransferKinds.Any)
         {
             if (container.IsNone) throw new ArgumentException("no entity", nameof(container));
