@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-client-checks.schema.json",
+  "title": "Guided check ledger (<game>/kiln/state/client-checks.json), format 1",
+  "description": "Written by Kiln.Testing's check runner (docs/kiln/modding/testing.md, \"Guided checks\"): rewritten whole to a temporary file, flushed and renamed over the old one after every verdict. Entries only grow; a check run again adds an entry and the newest one counts. A check the runner refused, or one that was stopped or interrupted before its verdict, has no entry. A ledger that cannot be read is moved aside (client-checks.unreadable-<time>.json) and a new one started. No user name, home path, machine name, Steam id, IP address or token appears in it.",
+  "type": "object",
+  "required": ["format", "checks", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "format": {"const": 1},
+    "checks": {
+      "type": "array",
+      "description": "Every check the runner has seen, merged by mod and id (the newest registration's fields win), so checks that never ran can be counted.",
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "entries": {
+      "type": "array",
+      "description": "One per verdict, oldest first.",
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "modId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true,
+      "description": "cheats, visual, audio, two-players, guard-proof, windows, steam-deck, launcher, or a free tag."
+    },
+    "needs": {"enum": ["any", "hosted", "joined"]},
+    "check": {
+      "type": "object",
+      "required": ["mod", "id", "title", "area", "tags", "needs", "order"],
+      "additionalProperties": false,
+      "properties": {
+        "mod": {"$ref": "#/$defs/modId"},
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string"},
+        "area": {"type": "string"},
+        "since": {"type": ["string", "null"]},
+        "tags": {"$ref": "#/$defs/tags"},
+        "needs": {"$ref": "#/$defs/needs"},
+        "order": {"type": "integer"}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["mod", "modVersion", "id", "title", "area", "tags", "kiln", "game", "session", "verdict", "note", "time", "assertions", "log"],
+      "additionalProperties": false,
+      "properties": {
+        "mod": {"$ref": "#/$defs/modId"},
+        "modVersion": {"type": "string"},
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string"},
+        "area": {"type": "string"},
+        "since": {"type": ["string", "null"]},
+        "tags": {"$ref": "#/$defs/tags"},
+        "kiln": {"type": "string", "description": "Kiln's version (Game.KilnVersion)."},
+        "game": {
+          "type": "object",
+          "required": ["side", "sha256", "verified"],
+          "additionalProperties": false,
+          "description": "The game build of the process that wrote the entry (kiln/state/boot.json's exe); sha256 null when it could not be read.",
+          "properties": {
+            "side": {"$ref": "common.schema.json#/$defs/runSide"},
+            "sha256": {"oneOf": [{"$ref": "common.schema.json#/$defs/sha256"}, {"type": "null"}]},
+            "verified": {"type": "boolean"}
+          }
+        },
+        "session": {"enum": ["hosted", "joined", "server"]},
+        "verdict": {"enum": ["pass", "fail", "skip"]},
+        "note": {"type": "string", "maxLength": 600, "description": "The player's one line (fail, skip), scrubbed; a guard warning is appended here. Empty when none."},
+        "time": {"$ref": "common.schema.json#/$defs/time"},
+        "assertions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": ["what", "ok"],
+            "additionalProperties": false,
+            "properties": {
+              "what": {"type": "string"},
+              "ok": {"type": "boolean"},
+              "detail": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "log": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {"type": "string", "maxLength": 1000},
+          "description": "kiln.log lines written while the check ran, scrubbed, at most 200 lines and 32 KiB."
+        },
+        "logDropped": {"type": "integer", "minimum": 0, "description": "Lines of the check's time that were not kept (the cap)."},
+        "guard": {
+          "type": "object",
+          "description": "The achievement guard read when the body ended: present on checks tagged cheats.",
+          "required": ["hookInstalled", "targetVerified", "active", "dropped", "passed"],
+          "additionalProperties": false,
+          "properties": {
+            "hookInstalled": {"type": "boolean"},
+            "targetVerified": {"type": "boolean"},
+            "active": {"type": "boolean"},
+            "dropped": {"type": "integer", "minimum": 0},
+            "passed": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

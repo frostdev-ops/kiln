@@ -1,0 +1,31 @@
+#nullable enable
+Kiln.ItemId (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Deconstruct(out uint Value) -> void (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Equals(Kiln.ItemId other) -> bool (forwarded, contained in Kiln.Api)
+Kiln.ItemId.IsNone.get -> bool (forwarded, contained in Kiln.Api)
+Kiln.ItemId.ItemId() -> void (forwarded, contained in Kiln.Api)
+Kiln.ItemId.ItemId(uint Value) -> void (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Value.get -> uint (forwarded, contained in Kiln.Api)
+Kiln.ItemId.Value.init -> void (forwarded, contained in Kiln.Api)
+override Kiln.ItemId.GetHashCode() -> int (forwarded, contained in Kiln.Api)
+override Kiln.ItemId.ToString() -> string! (forwarded, contained in Kiln.Api)
+static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId (forwarded, contained in Kiln.Api)
+static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool (forwarded, contained in Kiln.Api)
+static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool (forwarded, contained in Kiln.Api)
+static readonly Kiln.ItemId.None -> Kiln.ItemId (forwarded, contained in Kiln.Api)
+~override Kiln.ItemId.Equals(object obj) -> bool (forwarded, contained in Kiln.Api)
+*REMOVED*Kiln.ItemId
+*REMOVED*Kiln.ItemId.Deconstruct(out uint Value) -> void
+*REMOVED*Kiln.ItemId.Equals(Kiln.ItemId other) -> bool
+*REMOVED*Kiln.ItemId.IsNone.get -> bool
+*REMOVED*Kiln.ItemId.ItemId() -> void
+*REMOVED*Kiln.ItemId.ItemId(uint Value) -> void
+*REMOVED*Kiln.ItemId.Value.get -> uint
+*REMOVED*Kiln.ItemId.Value.init -> void
+*REMOVED*override Kiln.ItemId.GetHashCode() -> int
+*REMOVED*override Kiln.ItemId.ToString() -> string!
+*REMOVED*static Kiln.ItemId.FromGuidBytes(System.ReadOnlySpan<byte> guid) -> Kiln.ItemId
+*REMOVED*static Kiln.ItemId.operator !=(Kiln.ItemId left, Kiln.ItemId right) -> bool
+*REMOVED*static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool
+*REMOVED*static readonly Kiln.ItemId.None -> Kiln.ItemId
+*REMOVED*~override Kiln.ItemId.Equals(object obj) -> bool
