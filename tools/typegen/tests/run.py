@@ -371,6 +371,80 @@ def test_legacy_mode_needs_two_arguments():
     assert rc == 2 and "typegen.py" in so
 
 
+# --- verified-build inventory failures must not publish a partial set of variants ------------------------------------
+
+def build_game_case(name, corrupt=None, verified=True):
+    repo = work("build-game-" + name)
+    script = os.path.join(repo, "tools", "typegen", "build-game.sh")
+    os.makedirs(os.path.dirname(script))
+    shutil.copyfile(os.path.join(ROOT, "tools", "typegen", "build-game.sh"), script)
+    for digit in "01":
+        sha = digit * 64
+        for kind in ("types", "builds"):
+            path = os.path.join(repo, "sigdb", kind, "server", sha + ".json")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            data = {"schema": 2, "side": "server", "exe_sha256": sha} if kind == "types" else {"verified": verified}
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{" if digit == "1" and kind == corrupt else json.dumps(data))
+    host = os.path.join(repo, "host")
+    previous = os.path.join(host, "game", "previous")
+    os.makedirs(previous)
+    with open(os.path.join(previous, "Kiln.Game.dll"), "wb") as f:
+        f.write(b"previous variant")
+    # No managed build: the stub records whether inventory errors reached the build/publish stage at all.
+    bin_dir = os.path.join(repo, "bin")
+    os.makedirs(bin_dir)
+    dotnet = os.path.join(bin_dir, "dotnet")
+    with open(dotnet, "w", encoding="utf-8", newline="\n") as f:
+        f.write('''#!/usr/bin/env bash
+set -eu
+printf 'build\\n' >> "$KILN_OUT/invocations"
+for a in "$@"; do
+  case $a in -p:KilnGameVariant=*) variant=${a#*=} ;; esac
+done
+dir=$KILN_OUT/dotnet/bin/Kiln.Game/release_$variant
+mkdir -p "$dir"
+printf 'test assembly' > "$dir/Kiln.Game.dll"
+''')
+    os.chmod(dotnet, 0o755)
+    out = os.path.join(repo, "build")
+    env = dict(os.environ, KILN_OUT=out, PATH=bin_dir + os.pathsep + os.environ["PATH"])
+    result = subprocess.run(["bash", script, host], capture_output=True, text=True, env=env)
+    return result, host, out
+
+
+def inventory_refused(kind):
+    p, host, out = build_game_case("bad-" + kind, corrupt=kind)
+    assert p.returncode != 0, f"build-game accepted an unreadable {kind} file and published a partial set: {p.stdout}"
+    assert "JSONDecodeError" in p.stderr, p.stderr
+    assert read(os.path.join(host, "game", "previous", "Kiln.Game.dll")) == b"previous variant"
+    assert not os.path.exists(os.path.join(out, "invocations")), "started builds with an incomplete inventory"
+
+
+def test_build_game_refuses_an_unreadable_dump_after_a_valid_build():
+    inventory_refused("types")
+
+
+def test_build_game_refuses_an_unreadable_build_record_after_a_valid_build():
+    inventory_refused("builds")
+
+
+def test_build_game_publishes_the_complete_verified_inventory():
+    p, host, out = build_game_case("valid")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert sorted(os.listdir(os.path.join(host, "game"))) == ["server-" + d * 12 for d in "01"]
+    for digit in "01":
+        assert read(os.path.join(host, "game", "server-" + digit * 12, "Kiln.Game.dll")) == b"test assembly"
+    assert read(os.path.join(out, "invocations")) == b"build\nbuild\n"
+
+
+def test_build_game_refuses_an_empty_verified_inventory_without_replacing_variants():
+    p, host, out = build_game_case("unverified", verified=False)
+    assert p.returncode != 0 and "no verified schema-2 dump" in p.stderr, p.stdout + p.stderr
+    assert read(os.path.join(host, "game", "previous", "Kiln.Game.dll")) == b"previous variant"
+    assert not os.path.exists(os.path.join(out, "invocations"))
+
+
 def main():
     global WORK
     args = sys.argv[1:]

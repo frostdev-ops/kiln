@@ -20,7 +20,8 @@ mkdir -p "$host" "$logs"
 command -v python3 >/dev/null || { echo "build-game: needs python3 (3.8 or newer) to read the dumps and build Kiln.Game" >&2; exit 1; }
 
 # side, sha256 and dump path of every verified schema-2 dump, one per line, in path order
-mapfile -t builds < <(python3 - "$repo" <<'PY'
+# Capture the inventory before splitting it: process substitution would hide a Python failure after partial output.
+inventory=$(python3 - "$repo" <<'PY'
 import glob, json, os, re, sys
 repo = sys.argv[1]
 for path in sorted(glob.glob(os.path.join(repo, "sigdb", "types", "*", "*.json"))):
@@ -40,7 +41,8 @@ for path in sorted(glob.glob(os.path.join(repo, "sigdb", "types", "*", "*.json")
     print(side, sha, path)
 PY
 )
-((${#builds[@]})) || { echo "build-game: no verified schema-2 dump under $repo/sigdb/types" >&2; exit 1; }
+[[ -n $inventory ]] || { echo "build-game: no verified schema-2 dump under $repo/sigdb/types" >&2; exit 1; }
+mapfile -t builds <<<"$inventory"
 
 next=$host/game.new
 rm -rf "$next" && mkdir -p "$next"
