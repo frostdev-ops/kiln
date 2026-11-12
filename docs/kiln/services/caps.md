@@ -66,9 +66,32 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 - Every in-core service and every published service, `kiln.<service>`, with `v<n>` as text.
 - Every service DLL that did not load, as `kiln.<stem>`, with `service-missing` or `faulted`.
 - Kiln's managed layer adds `identity.entities` and `identity.players` ([modding/contract.md](../modding/contract.md)):
-  pending until a service registers a source (Kiln.Players does at the first tick), then available. In dev.25 the
-  only entity source is Kiln.Players', so `identity.entities` reads available while `EntityRef.Of` of an entity that
-  is not a player still throws `KilnUnavailableException("identity.entities")`.
+  pending until a service registers a source, then available. The sources (Kiln.Players, Kiln.Items, Kiln.Spawn)
+  register at the first service tick. A source can still answer "not yet" for one entity: kiln.spawn's says so while
+  the server world is still loading its save, and the call throws `KilnUnavailableException("identity.entities")`.
+
+## Rows added in dev.25
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `items.fuel` | sigdb feature | core; Kiln.Items lowers it at its start when its table has no water functions or `items.transaction` is off | water in containers (`Items.Fuel`) |
+| `items.move` | sigdb feature | core; Kiln.Items lowers it when its table has no move functions or `items.transaction` is off | moves that keep item state (`Items.Move`) |
+| `items.names` | sigdb feature | core; Kiln.Items lowers it when its table has no name functions or kiln.items turned them off | container names |
+| `items.transfer` | sigdb feature | core; Kiln.Items lowers it when its table has no transfer functions or kiln.items turned the hooks off | the quick-stack and move-all hooks (`Items.Transfers`) |
+| `items.instances` | sigdb feature | core; Kiln.Items lowers it when its table is older than v4 or kiln.items turned item instances off | item instances: stamps, locations, save-record fields (`ItemInstanceRef`, `Items.Held`, `Items.Equipped`) |
+| `items.result_peek` | managed, static | Kiln.Items at its start | its table has `peek_result` (an older runtime's has not) |
+| `items.moves` | managed, session | Kiln.Items, refreshed every 25 steps | moves run right now: available while the `kiln_items` program runs in a server world, pending while it waits for one, unavailable when it broke |
+| `saves.instance_data` | managed, session | Kiln.Saves at its start and about once a second | `InstanceData` works: kiln.saves and an item source (`items.instances`, or kiln.spawn's) are here and the world's data is open; pending while it is not open (a hosted world before the game loads it) |
+| `saves.instance_data.carried` | managed, static | Kiln.Saves | always unavailable (`policy`): `Persist.Carried` is not in this release |
+| `anim.player_states` | native, static | kiln.playeranim, decided before the mods load and never pending | mods' states in the player's animation graph ([playeranim.md](playeranim.md)) |
+| `blocks.weapon_moves` | managed, static | Kiln.Blocks, once, when the first item block compiles | a weapon's moves, a wand's and a staff cast's animation and `hitAt`: needs kiln.gamedata |
+| `blocks.animated_held` | managed, static | Kiln.Blocks, with the row above | a look's animated held model: needs kiln.gamedata and kiln.assets |
+
+What a manifest's `features` can require of these: the sigdb features (`items.fuel`, `items.move`, `items.names`,
+`items.transfer`, `items.instances`) and `anim.player_states`. The manifests are checked before the managed services
+start, so for a sigdb feature the check sees the sigdb verdict only, not a later lowering by Kiln.Items: ask
+`Capabilities.Is` at run time as well. The managed rows exist only once their service has started (`blocks.*` only
+after the first item block compiled), and `items.moves` and `saves.instance_data` depend on the session: a manifest
+naming one of them is refused, with the advice to check `Capabilities.Is` at run time.
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats
@@ -98,7 +121,7 @@ the mods load (in `kiln_plugin_main` or `on_ready`), not only once a world is th
 Written by the core alone: when boot completes (also in safe idle), then at most once a second after a change, and
 once more at a normal exit. A failed write is retried each second. It holds the format, Kiln's version, the side, the
 exe's SHA-256 and whether its build is verified, whether hooks are on, the safe-idle sentence, the generation and
-every row. Nothing in the launcher reads it yet.
+every row. Nothing in the launcher reads it yet; `tools/docs-site/status-tables.py` makes the docs' status tables from it.
 
 ## Limits
 - **A managed service's own rows exist only after that service was first used**, usually after the manifests were
