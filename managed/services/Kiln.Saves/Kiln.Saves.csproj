@@ -16,5 +16,8 @@
     <!-- CharacterSync: the channel "kiln:character" (Kiln.Network brings Kiln.Players and Kiln.Client along). The rest of
          this assembly still reads other services through their native tables (Foreign.cs). -->
     <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <!-- Instance data reads the game's items through Kiln.Items' internal face (kiln.items v4: InstanceGame.cs). Kiln.Items
+         references only Kiln.Api, so there is no cycle. -->
+    <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
   </ItemGroup>
 </Project>
