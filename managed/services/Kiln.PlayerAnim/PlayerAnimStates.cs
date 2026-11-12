@@ -142,6 +142,7 @@ public static unsafe class PlayerAnimStates
 
     /// <summary>What the player's graph is on this side: <see cref="PlayerAnimGraphState.Off"/> without the service.</summary>
     [AnyThread]
+    [RequiresCapability("anim.player_states")]
     public static PlayerAnimGraphState Graph
     {
         get
@@ -157,6 +158,7 @@ public static unsafe class PlayerAnimStates
     /// zero when it is the game's own (untouched, off, waiting) or the service is missing. Server and client must have
     /// the same to play the same states.</summary>
     [AnyThread]
+    [RequiresCapability("anim.player_states")]
     public static string GraphHash
     {
         get
@@ -177,6 +179,7 @@ public static unsafe class PlayerAnimStates
     /// have an empty <see cref="PlayerAnimGameState.Machine"/> and no ids.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
     [AnyThread]
+    [RequiresCapability("anim.player_states")]
     public static IReadOnlyList<PlayerAnimGameState> FindGameStates(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -234,6 +237,7 @@ public static unsafe class PlayerAnimStates
     /// from code, with its status. Null: the mod defines no such state, or the service is missing.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="mod"/> or <paramref name="name"/> is null.</exception>
     [AnyThread]
+    [RequiresCapability("anim.player_states")]
     public static PlayerAnimStateInfo? Find(string mod, string name)
     {
         ArgumentNullException.ThrowIfNull(mod);
@@ -253,6 +257,7 @@ public static unsafe class PlayerAnimStates
 
     /// <summary>Every state mods define, by mod id, then name. Empty while the graph is waiting, or without the service.</summary>
     [AnyThread]
+    [RequiresCapability("anim.player_states")]
     public static IReadOnlyList<PlayerAnimStateInfo> All
     {
         get
@@ -326,6 +331,7 @@ public static unsafe class PlayerAnimStates
     /// is off on this game build.</exception>
     /// <exception cref="InvalidOperationException">Not called from a mod's code.</exception>
     [AnyThread]
+    [RequiresCapability("anim.player_states")]
     public static PlayerAnimDefineResult Define(PlayerAnimState state)
     {
         Validate(state);
