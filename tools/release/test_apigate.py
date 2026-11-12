@@ -468,6 +468,62 @@ class BumpApi(Base):
         # what the other readers parse still matches (tools/package/stage.sh, crates/kiln-manage/tests/profiles.rs)
         self.assertEqual("0.3.0", ag.API_RE.search(self.r.read(self.THREE[0])).group(1))
 
+    def test_bump_keeps_both_gates_sound_for_two_releases(self):
+        for carrier in (ag.SHIPPED, ag.UNSHIPPED):
+            with self.subTest(carrier=carrier):
+                self.r.put({p: (REPO / p).read_text(encoding="utf-8") for p in self.THREE})
+                const = 'const Kiln.Mods.ApiVersion = "0.2.0" -> string!'
+                self.r.commit(self.project(API, ["Kiln.A", const] if carrier == ag.SHIPPED else ["Kiln.A"],
+                                           [const] if carrier == ag.UNSHIPPED else []))
+                for release, version in enumerate(("0.3.0", "0.4.0"), 1):
+                    tag = f"{carrier}-v{release}"
+                    self.r.git("tag", tag)
+                    entries = ag.lines(self.r.read(f"{API}/{ag.UNSHIPPED}"))
+                    self.r.put({f"{API}/{ag.UNSHIPPED}": api(*entries, f"Kiln.A.New{release}() -> void")})
+                    code, out = run(self.r, "bump-api")
+                    self.assertEqual(0, code, out)
+                    self.assertIn(f'const Kiln.Mods.ApiVersion = "{version}" -> string!',
+                                  self.r.read(f"{API}/{carrier if release == 1 else ag.SHIPPED}"))
+                    self.r.commit({})
+                    for args in (("removed", tag), ("record",), ("version-rule", tag), ("promote",)):
+                        code, out = run(self.r, *args)
+                        self.assertEqual(0, code, f"{args}: {out}")
+                    self.r.commit({})
+                    for args in (("removed", tag), ("record",)):
+                        code, out = run(self.r, *args)
+                        self.assertEqual(0, code, f"after promote {args}: {out}")
+
+    def test_const_value_replacement_is_allowed_in_all_record_commands(self):
+        old = 'const Kiln.Mods.ApiVersion = "0.2.0" -> string!'
+        new = 'const Kiln.Mods.ApiVersion = "0.3.0" -> string!'
+        self.r.commit(self.project(API, [old]), tag="v1")
+        self.r.commit(self.project(API, [old], ["*REMOVED*" + old, new]))
+        for args in (("removed", "v1"), ("record",), ("promote",)):
+            code, out = run(self.r, *args)
+            self.assertEqual(0, code, f"{args}: {out}")
+        self.assertEqual(api(new), self.r.read(f"{API}/{ag.SHIPPED}"))
+
+    def test_only_the_exact_api_version_const_value_may_change(self):
+        old = 'const Kiln.Mods.ApiVersion = "0.2.0" -> string!'
+        for new in ('const Kiln.Mods.ApiVersion = "0.3.0" -> string',
+                    'const Kiln.Mods.ApiVersion = "0.3.0" -> object!',
+                    'const Kiln.Other.ApiVersion = "0.3.0" -> string!',
+                    'static Kiln.Mods.ApiVersion.get -> string!', ""):
+            with self.subTest(new=new):
+                self.r.commit(self.project(API, [old], ["*REMOVED*" + old, new]))
+                for args in (("record",), ("promote",)):
+                    code, out = run(self.r, *args)
+                    self.assertEqual(1, code, f"{args}: {out}")
+
+    def test_bump_preserves_other_const_lines_and_line_endings(self):
+        old = 'const Kiln.Mods.ApiVersion = "0.2.0" -> string!'
+        other = 'const Kiln.Other.Version = "0.2.0" -> string!'
+        p = self.r.root / API / ag.SHIPPED
+        p.write_bytes(api(old, other).replace("\n", "\r\n").encode())
+        self.assertEqual(0, run(self.r, "bump-api")[0])
+        self.assertEqual(api(old.replace('"0.2.0"', '"0.3.0"'), other).replace("\n", "\r\n").encode(),
+                         p.read_bytes())
+
     def test_an_explicit_version_and_a_patch_version(self):
         self.assertEqual(0, run(self.r, "bump-api", "0.2.1")[0])
         self.assertEqual(("0.2.1", "0.2.1", "0.2.1"), self.state())

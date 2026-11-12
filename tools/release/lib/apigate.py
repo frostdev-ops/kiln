@@ -27,7 +27,8 @@ The removal rule (one function, removal_case, used by removed, record and promot
   - beside `[KILNX...]<line>` (an existing member made experimental), or
   - beside `<line> (forwarded, contained in <Assembly>)` (a type moved with a type forward), and then the project of
     <Assembly>, when it has a PublicAPI record, must record <line> in its Shipped.txt or Unshipped.txt, or
-  - when the line is itself experimental (`[KILNX...]`: lab API is not part of the promise).
+  - when the line is itself experimental (`[KILNX...]`: lab API is not part of the promise), or
+  - when only the value of `const Kiln.Mods.ApiVersion = "..." -> string!` changes (the API version carrier).
 "Beside" is the same Unshipped.txt for a `*REMOVED*` entry, the project's record for a line gone since a tag (after a
 promote the pair sits in Shipped.txt). Everything else, a bare `*REMOVED*` included, is a refusal.
 
@@ -52,7 +53,8 @@ wants for a forwarded type. Nothing is written unless every project passes; a se
 `bump-api`: VERSION (X.Y.Z) default the next minor; it must be higher than the current one and keep the major unless
 --major is given. It writes managed/Kiln.Api/Mods.cs (the const's text), managed/Kiln.Sdk/Sdk/Kiln.Version.props
 (KilnModApiVersion: major.minor, or the full version when the patch is not 0) and crates/kiln-manage/src/profile.rs
-(KILN_API), after checking that the three agree, and prints the doc lines that name the old version.
+(KILN_API), after checking that the three agree, and the const's exact record line in Kiln.Api's PublicAPI files.
+It prints the doc lines that name the old version.
 
 Exit codes: 0 fine, 1 refused (the reasons are printed), 2 usage or a revision/file that cannot be read, 3 promote
 skipped by --if-same-as.
@@ -77,6 +79,7 @@ PROFILE_RS = "crates/kiln-manage/src/profile.rs"
 # the const's text, as tools/package/stage.sh and crates/kiln-manage/tests/profiles.rs read it
 API_RE = re.compile(r'ApiVersion = "([^"]+)"')
 CONST_RE = re.compile(r'(public const string ApiVersion = ")([^"]*)(")')
+CONST_RECORD_RE = re.compile(r'const Kiln\.Mods\.ApiVersion = "[^"]*" -> string!')
 PROPS_RE = re.compile(r"(<KilnModApiVersion>)([^<]*)(</KilnModApiVersion>)")
 PROFILE_RE = re.compile(r'(pub const KILN_API: &str = ")([^"]*)(")')
 DOC_HINT = re.compile(r"(?i)apiversion|kiln api|mod api|kiln\.api\b|api version|KILN_API")
@@ -216,7 +219,10 @@ def removal_case(line, beside, records):
       forwarded      `<line> (forwarded, contained in <Assembly>)` beside it: a type moved with a type forward; the
                      project of <Assembly>, when it has a record, must record <line> (a forward to nowhere is a break)
       lab            <line> is itself experimental (`[KILNX...]`): not part of the promise, it may go
+      API version    only the value of the exact Mods.ApiVersion const record changes
     """
+    if CONST_RECORD_RE.fullmatch(line) and any(b != line and CONST_RECORD_RE.fullmatch(b) for b in beside):
+        return "API version const value changed", None
     if EXPERIMENTAL.match(line):
         return "lab member removed: experimental, not part of the promise", None
     for b in beside:
@@ -543,6 +549,18 @@ def cmd_bump_api(a):
     texts[MODS_CS] = CONST_RE.sub(lambda m: m.group(1) + text + m.group(3), texts[MODS_CS])
     texts[VERSION_PROPS] = PROPS_RE.sub(lambda m: m.group(1) + props_form(new) + m.group(3), texts[VERSION_PROPS])
     texts[PROFILE_RS] = PROFILE_RE.sub(lambda m: m.group(1) + text + m.group(3), texts[PROFILE_RS])
+    # This exact record line carries the API version, not a removed member. Keep its location and newline style.
+    for name in (SHIPPED, UNSHIPPED):
+        k = f"{project(MODS_CS)}/{name}"
+        p = os.path.join(a.repo, k)
+        if os.path.isfile(p):
+            with open(p, encoding="utf-8", newline="") as f:
+                record = f.read()
+            updated = "".join(l.replace(f'"{old}"', f'"{text}"', 1)
+                              if CONST_RECORD_RE.fullmatch(l.rstrip("\r\n")) else l
+                              for l in record.splitlines(keepends=True))
+            if updated != record:
+                paths[k], texts[k] = p, updated
     for k, p in paths.items():
         write(p, texts[k])
     print(f"api-gate: API version {old} -> {text}: {MODS_CS}, {VERSION_PROPS} (KilnModApiVersion {props_form(new)}), "

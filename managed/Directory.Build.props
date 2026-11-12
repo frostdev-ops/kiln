@@ -18,7 +18,8 @@
        sits next to its csproj; projects without one (Kiln.Host, Kiln.Sdk, analyzers, tests, spikes) get no reference.
        PublicAPI.Shipped.txt is what released builds have shipped; new public API goes into PublicAPI.Unshipped.txt
        (the RS0016 code fix, run through dotnet format analyzers, writes the lines there). The mod API is additive: never
-       delete a Shipped.txt line; mark the old member [Obsolete] and add the new one next to it. -->
+       delete a Shipped.txt line; mark the old member [Obsolete] and add the new one next to it. The one version carrier,
+       const Kiln.Mods.ApiVersion, keeps its line: tools/release/api-gate.sh bump-api changes only its value. -->
 
   <!-- Experimental API. API that is not proven yet, or that exists only for labs and tests, carries
        [System.Diagnostics.CodeAnalysis.Experimental("KILNX0nn")]; a lab or test member on a public class also carries
