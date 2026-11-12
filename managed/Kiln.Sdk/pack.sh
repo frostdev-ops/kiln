@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Builds the Kiln MDK NuGet packages into $KILN_OUT/nuget (a local feed):
-#   Kiln.Api        reference assemblies: Kiln.Api, every managed service (Kiln.Players, Kiln.Chat, ...), Kiln.Testing
+#   Kiln.Api        reference assemblies: Kiln.Api, every managed service (Kiln.Players, Kiln.Chat, ...), Kiln.Testing,
+#                   Kiln.Game (the generated game types, from the newest dump; needs python3)
 #   Kiln.Sdk        MSBuild SDK: <Project Sdk="Kiln.Sdk/<version>">, kiln.mod.json, KilnDeploy, KilnPack, and the
 #                   Roslyn analyzers (Kiln.Analyzers, KILN1xx) + game-id generator (Kiln.GameIds) in analyzers/dotnet/cs,
 #                   and the native SDK in native/ (KilnPlugin.cmake, the ABI headers, the Linux toolchain)
 #   Kiln.Templates  dotnet new kiln-mod, kiln-items, kiln-native, ... (templates/kiln-*)
 # A service that fails to build is left out of Kiln.Api (warning), like tools/deploy-server.sh does.
-#   KILN_OUT=<build dir> [KILN_SDK_VERSION=<version>] managed/Kiln.Sdk/pack.sh
+#   KILN_OUT=<build dir> [KILN_SDK_VERSION=<version>] [KILN_API_BASELINE=<last release Kiln.Api, folder or .nupkg>] managed/Kiln.Sdk/pack.sh
 # Version: KILN_SDK_VERSION (tools/release/release.sh sets the release's, e.g. 0.2.0-dev.12), else a new one per pack:
 # <base>-dev.local.<yyyymmdd>.<hhmmss> (UTC; base from Sdk/Kiln.Version.props). NuGet caches a package by id and version and
 # never looks again, so the same version packed twice would leave mods on the first one; a +build suffix doesn't help, as
@@ -25,9 +26,27 @@ rm -rf "$stage" && mkdir -p "$feed" "$stage"
 build() { dotnet build "$1" -c Release -o "$stage" --artifacts-path "$out/dotnet" -v q -nologo -p:GenerateDocumentationFile=true -p:NoWarn='CS1591%3BCS1573' >/dev/null; }
 build "$repo/managed/Kiln.Api/Kiln.Api.csproj"
 build "$repo/managed/Kiln.Testing/Kiln.Testing.csproj"
+# Kiln.Game (KilnServices "Game") is part of the SDK: a failed build stops the pack, with its error lines.
+game_log=$out/pack-kiln-game.log
+if ! dotnet build "$repo/managed/Kiln.Game/Kiln.Game.csproj" -c Release -o "$stage" --artifacts-path "$out/dotnet" -v q -nologo \
+     -p:GenerateDocumentationFile=true -p:NoWarn='CS1591%3BCS1573' >"$game_log" 2>&1; then
+  { grep -E '(^|: )error' "$game_log" | sort -u || tail -25 "$game_log"; } >&2
+  echo "pack: Kiln.Game failed to build (log: $game_log); it is part of Kiln.Api, so the pack stops" >&2
+  exit 1
+fi
 for proj in "$repo"/managed/services/*/*.csproj; do
   build "$proj" || echo "pack: WARNING: $(basename "$proj" .csproj) failed to build; not in Kiln.Api" >&2
 done
+# The API compat gate (tools/release/apicompat.sh): the staged DLLs against the last release's (KILN_API_BASELINE, a folder
+# or a Kiln.Api .nupkg). A break stops the pack before any package is written; unset, it warns loudly and the pack goes on.
+# A service of the last release that failed to build above (a PublicAPI record error is a build error) is not staged, and
+# the gate counts that as a break: with a baseline, a pack never drops a released assembly.
+if [[ -n ${KILN_API_BASELINE:-} ]]; then
+  "$repo/tools/release/apicompat.sh" "$KILN_API_BASELINE" "$stage" \
+    || { echo "pack: the API compat gate failed (above); no package written" >&2; exit 1; }
+else
+  "$repo/tools/release/apicompat.sh" "" "$stage" || [[ $? == 3 ]]
+fi
 # Roslyn components shipped inside Kiln.Sdk (analyzers/dotnet/cs): KILN1xx analyzers + code fixes, the game-id generator.
 analyzers=$out/mdk-analyzers
 rm -rf "$analyzers" && mkdir -p "$analyzers"

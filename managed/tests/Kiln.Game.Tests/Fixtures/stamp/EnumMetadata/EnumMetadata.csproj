@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Enum uses that survive in the mod's own metadata, without reading generated fields. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../../Kiln.Game/Kiln.Game.csproj" Private="false"
+                      AdditionalProperties="KilnGameVariant=stamp-a;KilnGameDump=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)../a.json'));KilnLocalGameTypes=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)../../../../../Kiln.Game/Generated.cs'))" />
+  </ItemGroup>
+</Project>

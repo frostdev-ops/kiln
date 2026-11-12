@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Test fixture: a mod-like assembly compiled against the old Kiln.Items (OldItems), so its metadata holds the type
+       reference [Kiln.Items]Kiln.ItemId. Kiln.Api.Tests loads it next to the real Kiln.Items and Kiln.Api to prove the
+       type forward. The stub is neither copied (Private) nor passed on to referencing projects (PrivateAssets). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OldItems/OldItems.csproj" Private="false" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

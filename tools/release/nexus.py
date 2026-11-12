@@ -181,7 +181,10 @@ def members(folder, kind, version):
     if kind == "server":
         return [(server_pack(folder, version), None, False)]
     if kind == "sdk":
-        return [(os.path.join(sdk, n), None, n == "kiln") for n in sorted(os.listdir(sdk))] + [(readme, "README.txt", False)]
+        # the files at sdk/'s top only: sdk/feed/ (the NuGet feed, served from frostdev.io) and sdk/api/ (the API
+        # reference, ~1,300 files) are folders for a web server, not for the zip
+        return [(os.path.join(sdk, n), None, n == "kiln") for n in sorted(os.listdir(sdk))
+                if os.path.isfile(os.path.join(sdk, n))] + [(readme, "README.txt", False)]
     raise Fail(f"unknown kind {kind}")
 
 
