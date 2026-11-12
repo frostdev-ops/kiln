@@ -542,6 +542,51 @@ fn generated_files_are_current() {
     assert!(stale.is_empty(), "stale (regenerate with KILN_LINT_WRITE=1): {stale:?}");
 }
 
+/// Every `(#anchor)` link of a generated schema page names a heading of that page, by GitHub's slug rule (lower case;
+/// letters, digits, `-`, `_` kept; a space is `-`; anything else dropped; `-1`, `-2` for a repeat). Caught before: a
+/// def linked from a table but given no heading (`#effects`, `#guid`, `#code`) and a $ref into a def's properties
+/// (`#/$defs/status/properties/modifies` linked as `#modifies`).
+#[test]
+fn generated_schema_pages_link_only_to_their_own_headings() {
+    fn slug(h: &str) -> String {
+        h.trim().to_lowercase().chars().filter_map(|c| if c == ' ' { Some('-') } else if c.is_alphanumeric() || c == '-' || c == '_' { Some(c) } else { None }).collect()
+    }
+    let index: Value = serde_json::from_str(&std::fs::read_to_string(repo().join("schema/schemas.json")).unwrap()).unwrap();
+    let mut ids: Vec<String> = index["schemas"].as_array().unwrap().iter().map(|r| r["schema"].as_str().unwrap().to_string()).collect();
+    ids.push("kiln-vfx.schema.json".into());
+    let mut bad = Vec::new();
+    let mut links = 0;
+    for id in &ids {
+        let page = lint::docs::schema_markdown(id).unwrap();
+        let mut seen: std::collections::HashMap<String, usize> = Default::default();
+        let mut anchors = std::collections::HashSet::new();
+        let mut fenced = false;
+        for line in page.lines() {
+            if line.starts_with("```") {
+                fenced = !fenced;
+            }
+            if fenced || !line.starts_with('#') {
+                continue;
+            }
+            let base = slug(line.trim_start_matches('#'));
+            let n = seen.entry(base.clone()).or_insert(0);
+            anchors.insert(if *n == 0 { base.clone() } else { format!("{base}-{n}") });
+            *n += 1;
+        }
+        for (i, line) in page.lines().enumerate() {
+            for part in line.split("](#").skip(1) {
+                let a = part.split(')').next().unwrap();
+                links += 1;
+                if !anchors.contains(a) {
+                    bad.push(format!("{}:{}: #{a}", lint::docs::page_name(id), i + 1));
+                }
+            }
+        }
+    }
+    assert!(links > 100, "{links} anchor links: the pages should link their defs");
+    assert!(bad.is_empty(), "links with no heading:\n{}", bad.join("\n"));
+}
+
 /// docs/kiln/modding/lint.md documents every code, under the heading the reports' `docs` links point at.
 #[test]
 fn every_rule_is_documented() {

@@ -77,6 +77,10 @@ kiln.creatures' variants and natural-spawn rules (Creatures.ApplyJson). Docs: do
 | `spawnRules` | array of object |  |  |
 | `variants` | array of object |  |  |
 
+## damageKind
+
+Type: `"All"` \| `"Physical"` \| `"Cut"` \| `"Pierce"` \| `"Blunt"` \| `"Wood"` \| `"Stone"` \| `"Metal"` \| `"Poison"` \| `"Explosion"` \| `"SkillShot"` \| `"Magical"` \| `"MagicalBase"` \| `"MagicalAdder"` \| `"MagicalMultiplier"` \| `"Fire"` \| `"Fog"` \| `"Ice"` \| `"Lightning"`
+
 ## definitionStack
 
 An item name, or {item, count} / {category: "0x...", count} (inputs only).
@@ -94,6 +98,10 @@ Type: object
 an enemy feature: [+\|-]UseTaunt, Move, Patrol, Roaming, ReturnHome, FleeHome, Combat, Run, Sleep, Awareness, Investigate, ... (EnemyFeatures)
 
 Type: string
+
+## faction
+
+Type: `"Environment"` \| `"HitAll"` \| `"Fogger"` \| `"Vukah"` \| `"Scavenger"` \| `"Wildlife"` \| `"WildBeast"` \| `"Player"` \| `"AutomatedPlayer"` \| `"HitOthers"` \| `"Skeleton"` \| `"PlayerAlly"` \| `"FarmAnimal"` \| `"Cyclops"` \| `"Drak"` \| `"Ancients"` \| `"None"`
 
 ## fields
 

@@ -89,6 +89,10 @@ One node or a list of nodes.
 
 Type: [nodeRef](#noderef) or array of [nodeRef](#noderef)
 
+## nodeTexts
+
+Type: object
+
 ## pair
 
 [a, b] or {"x": a, "y": b}.
