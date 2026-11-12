@@ -10,11 +10,9 @@
 //    from kiln/control to check that the mod's load context is collected);
 //  - identity.players (PlayerIdentity.cs): PlayerRef.Of throws KilnUnavailableException in OnLoad and works from the
 //    first tick; with KILN_PLAYERS_SIMULATE=...\fixtures\slot-reuse.log a player joins, leaves, another joins into the
-//    same slot and the first rejoins elsewhere: the refs' stamps, IsOnline, IsSamePerson and Resolve. IsOnline needs an
-//    entity source, which Kiln.Players does not register yet; the mod puts the players' one into Kiln.Api's internal
-//    seam by reflection around each check (lab only) and restores the seam after.
+//    same slot and the first rejoins elsewhere: the refs' stamps, IsOnline (through the players' entity source that
+//    Kiln.Players registers at startup), IsSamePerson and Resolve.
 // Output: "players-test: PASS <what>" / "players-test: FAIL <what>: <why>" lines in kiln/logs/kiln.log, then a summary.
-using System.Reflection;
 using Kiln;
 
 namespace PlayersTest;
@@ -262,30 +260,6 @@ public sealed class PlayersTestMod : Mod
         }
     }
 
-    /// <summary>Lab only: runs <paramref name="body"/> with Kiln.Players' entity source in Kiln.Api's internal seam
-    /// (IdentitySources.Entities), then puts back what was there. Kiln.Players does not register it (the seam is being
-    /// reshaped), so this is the only way a lab can check PlayerRef.IsOnline.</summary>
-    private static T WithPlayersEntitySource<T>(Func<T> body)
-    {
-        var seam = typeof(PlayerRef).Assembly.GetType("Kiln.IdentitySources")?.GetProperty("Entities", BindingFlags.Public | BindingFlags.Static)
-                   ?? throw new InvalidOperationException("Kiln.IdentitySources.Entities not found");
-        var adapter = typeof(Players).Assembly.GetType("Kiln.PlayersEntitySerialAdapter")
-                      ?? throw new InvalidOperationException("Kiln.PlayersEntitySerialAdapter not found");
-        var prev = seam.GetValue(null);
-        seam.SetValue(null, Activator.CreateInstance(adapter, nonPublic: true));
-        try
-        {
-            return body();
-        }
-        finally
-        {
-            seam.SetValue(null, prev);
-        }
-    }
-
-    private static bool EntitySeamEmpty() =>
-        typeof(PlayerRef).Assembly.GetType("Kiln.IdentitySources")?.GetProperty("Entities", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) is null;
-
     private void IdentityEmpty()
     {
         Check(_onLoadOf == "unavailable identity.players", "identity: PlayerRef.Of in OnLoad throws KilnUnavailableException(identity.players)", _onLoadOf);
@@ -294,8 +268,10 @@ public sealed class PlayersTestMod : Mod
         var r = offline.Resolve();
         Check(r == offline, "identity: Resolve of an absent player is offline, not an error", r.ToString());
         Check(PlayerRef.Of(new EntityId(2000)).IsNone, "identity: Of of a non-player entity is none");
-        var alive = WithPlayersEntitySource(() => EntityRef.Of(new EntityId(1)));
+        var alive = EntityRef.Of(new EntityId(1));
         Check(alive.IsNone, "identity: players' entity source: empty slot 1 is absent", alive.ToString());
+        var stale = new PlayerRef(76561190000000001, Guid.Empty, new EntityRef(new EntityId(1), 1UL << 60 | 1));
+        Check(!stale.IsOnline, "identity: IsOnline of a ref into an empty slot is false (entity source registered)");
     }
 
     private void SlotReuseJoined(Player p)
@@ -305,20 +281,18 @@ public sealed class PlayersTestMod : Mod
         _refs.Add((p.Name, of, cast));
         Check(of == cast && of.Entity.HasSerial && of.SteamId == p.SteamId,
             $"identity: join {_refs.Count} ({p.Name}): (PlayerRef)player == PlayerRef.Of(entity), stamped", $"of {of}, cast {cast}");
-        if (_refs.Count == 1 && EntitySeamEmpty())
+        if (_refs.Count == 1)
         {
             string what;
             try { what = $"returned {of.IsOnline}"; }
-            catch (KilnUnavailableException x) { what = $"unavailable {x.Capability}"; }
-            Check(what == "unavailable identity.entities", "identity: IsOnline without an entity source throws identity.entities", what);
+            catch (Exception x) { what = $"{x.GetType().Name}: {x.Message}"; }
+            Check(what == "returned True", "identity: IsOnline answers through the registered entity source (no reflection): the first player's ref is online", what);
         }
-        if (_refs.Count == 1)
-            Check(WithPlayersEntitySource(() => of.IsOnline), "identity: the first player's ref is online while they play");
         if (_refs.Count == 2)
         {
             // Birch in slot 0, where Alder was.
             var a = _refs[0].Of;
-            var (aOnline, bOnline, aNow) = WithPlayersEntitySource(() => (a.IsOnline, of.IsOnline, a.Resolve()));
+            var (aOnline, bOnline, aNow) = (a.IsOnline, of.IsOnline, a.Resolve());
             Check(a.Entity.Id == of.Entity.Id && a.Entity.Serial != of.Entity.Serial, "identity: same slot, different stamps",
                 $"{a.Entity} vs {of.Entity}");
             Check(!aOnline, "identity: after slot reuse the first player's ref is not online");
@@ -330,7 +304,7 @@ public sealed class PlayersTestMod : Mod
         {
             // Alder again, now in slot 1.
             var a = _refs[0].Of;
-            var (aOnline, aNow, nowOnline) = WithPlayersEntitySource(() => (a.IsOnline, a.Resolve(), a.Resolve().IsOnline));
+            var (aOnline, aNow, nowOnline) = (a.IsOnline, a.Resolve(), a.Resolve().IsOnline);
             Check(!aOnline, "identity: the first session's ref stays not online after a rejoin");
             Check(a.IsSamePerson(of), "identity: the rejoined player is the same person");
             Check(aNow == of && nowOnline, "identity: Resolve gives the new session, online", $"{aNow} vs {of}");
@@ -357,7 +331,7 @@ public sealed class PlayersTestMod : Mod
         var stamps = new[] { a1, b, a2 }.Select(r => r.Entity.Serial).ToList();
         Check(stamps.All(s => s != 0) && stamps.Distinct().Count() == 3, "identity: three sessions, three non-zero stamps",
             string.Join(", ", stamps.Select(s => $"0x{s:x}")));
-        var (a1On, bOn, a2On) = WithPlayersEntitySource(() => (a1.IsOnline, b.IsOnline, a2.IsOnline));
+        var (a1On, bOn, a2On) = (a1.IsOnline, b.IsOnline, a2.IsOnline);
         Check(!a1On && bOn && a2On, "identity: at the end only the two current sessions are online", $"{a1On} {bOn} {a2On}");
         Check(PlayerRef.Of(new EntityId(1)) == b && PlayerRef.Of(new EntityId(2)) == a2, "identity: Of gives the current sessions");
         Check(Players.All.Count == 2, "sim slot reuse: two players in game at the end", $"{Players.All.Count}");
