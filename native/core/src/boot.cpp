@@ -5,6 +5,9 @@
 //   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
 //   chain.ini [late], state/boot.json, state/hooks.json.
 #include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "api.h"
 #include "chain_status.h"
@@ -32,7 +35,21 @@
 #define KILN_BUILD ""
 #endif
 
+// kiln.caps, the capability registry (services/caps.cpp): the core's rows, then <state>/capabilities.json.
+namespace kiln::caps {
+void core_rows(bool hooks, bool verified, const std::string& safe_idle);
+void boot_complete();
+}  // namespace kiln::caps
+
 namespace kiln {
+
+// api.cpp: KilnPluginInfo.on_unload at process exit. The sequence is there; its trigger is armed below.
+size_t unload_prepare();
+DWORD unload_handler_ms();
+DWORD unload_total_ms();
+void unload_run(uint32_t exit_code, const char* via);
+void unload_abandon() noexcept;
+
 namespace {
 
 bool g_booted = false;
@@ -252,6 +269,134 @@ void write_boot_json(const BootFacts& f) {
         KLOG_W("state: cannot write %s", u8(paths().state / L"boot.json").c_str());
 }
 
+// ---- the exit trigger for on_unload ----
+// Every ExitProcess path meets in ntdll!RtlExitUserProcess: the game's CRT exit after main returns (under Wine it goes
+// through mscoree!CorExitProcess, past the exe's own ExitProcess import), kernelbase's ExitProcess (an export forwarded
+// there), any other DLL's ExitProcess. One raw link there runs the sequence on the way in, before the loader lock is
+// taken and while the other threads still run (kernel32!ExitProcess when that link cannot be placed). The link lives for
+// the process, like the tick's; hooks.json lists it as "kiln/unload" (its "rva" is relative to the exe, which it is
+// not in). Contract for plugin authors: kiln_api.h, KilnPluginInfo.on_unload.
+void* g_exit_next = nullptr;  // the chain's continuation: the real exit
+const char* g_exit_via = "";
+
+// RtlExitUserProcess(NTSTATUS) and ExitProcess(UINT): one 32-bit argument, no return (x64 has one convention).
+void exit_call(uint32_t code) {
+    try {
+        unload_run(code, g_exit_via);
+    } catch (...) {  // /EHa: a fault of the sequence itself must not keep the process from exiting
+        unload_abandon();
+    }
+    reinterpret_cast<void (*)(uint32_t)>(g_exit_next)(code);
+}
+
+// ---- on_unload: is the exit link armed? ----
+// Proven under Wine only (Linux servers, Proton clients, the Steam Deck). On native Windows it is off by default in
+// this release: a link misplaced there would show as a crash at exit for every player, and dev.24 called no handler
+// there either. kiln.json "unloadAtExit": "auto" (the default: on under Wine, off on native Windows), "on" or "off"
+// (case does not matter); any other value counts as "auto" and is warned about. The block between the markers is pure
+// (no Windows, no Kiln calls): native/core/tests/test-unload.sh cuts it out of this file and runs its decision table.
+// unload-policy:begin
+struct UnloadPolicy {
+    bool armed = false;
+    bool warn = false;  // the setting is not auto, on or off: it counts as auto, and the boot log says so
+    std::string says;   // the boot line after "unload: ", e.g. "on (Wine 11.0; kiln.json \"unloadAtExit\": auto)"
+};
+
+// wine: the Wine version, "" on native Windows. setting: kiln.json's "unloadAtExit" (a string's value, else the JSON
+// text of the value), nullptr when the key is not there.
+inline UnloadPolicy unload_policy(std::string_view wine, const std::string* setting) {
+    std::string v = setting ? *setting : std::string("auto");
+    for (char& c : v)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    UnloadPolicy p;
+    p.warn = v != "auto" && v != "on" && v != "off";
+    const std::string key = !setting ? "kiln.json \"unloadAtExit\" not set: auto"
+                            : p.warn ? "kiln.json \"unloadAtExit\": \"" + *setting + "\", counted as auto"
+                                     : "kiln.json \"unloadAtExit\": " + (v == "auto" ? v : "\"" + v + "\"");
+    if (v == "off") {
+        p.says = "off (" + key + ")";
+    } else if (v == "on") {
+        p.armed = true;
+        p.says = wine.empty() ? "on on native Windows (" + key + "; proven under Wine only)"
+                              : "on (Wine " + std::string(wine) + "; " + key + ")";
+    } else if (!wine.empty()) {
+        p.armed = true;
+        p.says = "on (Wine " + std::string(wine) + "; " + key + ")";
+    } else {
+        p.says = "off on native Windows by default (not yet proven there; " + key +
+                 "); kiln.json \"unloadAtExit\": \"on\" turns it on";
+    }
+    return p;
+}
+// unload-policy:end
+
+// ntdll!wine_get_version (as Kiln.Host's Entry.WineVersion): the Wine version, "" on native Windows.
+std::string wine_version() {
+    using Fn = const char*(__cdecl*)();
+    const HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    const auto fn =
+        nt ? reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(nt, "wine_get_version"))) : nullptr;
+    if (!fn) return {};
+    const char* v = fn();
+    return v && *v ? std::string(v) : std::string("?");
+}
+
+// kiln.json's top-level "unloadAtExit" (config.cpp keeps no such key): a string's value, else the JSON text of the
+// value; nothing when there is no kiln.json, it does not parse, or the key is not there.
+std::optional<std::string> unload_setting() {
+    std::string text;
+    if (!read_file(paths().kiln / L"kiln.json", &text)) return std::nullopt;
+    const auto doc = nlohmann::json::parse(jsonc_to_json(text), nullptr, false);
+    if (!doc.is_object() || !doc.contains("unloadAtExit")) return std::nullopt;
+    const auto& v = doc["unloadAtExit"];
+    return v.is_string() ? v.get<std::string>() : v.dump();
+}
+
+// After every module ran kiln_plugin_main and on_ready, only with hooks on (no plugin is loaded in safe idle), and only
+// when a loaded module has an on_unload. One line says whether the link is armed and why.
+void arm_unload() {
+    const size_t n = unload_prepare();
+    if (!n) return;
+    const std::optional<std::string> setting = unload_setting();
+    const UnloadPolicy policy = unload_policy(wine_version(), setting ? &*setting : nullptr);
+    if (policy.warn)
+        KLOG_W("unload: kiln.json \"unloadAtExit\": %s is not \"auto\", \"on\" or \"off\"; it counts as \"auto\"",
+               setting->c_str());
+    if (!policy.armed) {
+        KLOG_I("unload: %s; %zu on_unload handler(s) will not be called at exit", policy.says.c_str(), n);
+        return;  // no link
+    }
+    if (!hooks::ensure_ready()) {
+        KLOG_W("unload: %s, but kiln.hooks is not ready; %zu on_unload handler(s) will not be called",
+               policy.says.c_str(), n);
+        return;
+    }
+    const struct {
+        const wchar_t* dll;
+        const char* fn;
+        const char* via;
+    } at[] = {{L"ntdll.dll", "RtlExitUserProcess", "ntdll!RtlExitUserProcess"},
+              {L"kernel32.dll", "ExitProcess", "kernel32!ExitProcess"}};
+    for (const auto& a : at) {
+        const HMODULE m = GetModuleHandleW(a.dll);
+        const auto target = m ? reinterpret_cast<uintptr_t>(GetProcAddress(m, a.fn)) : 0;
+        if (!target) continue;
+        hooks::chain::Order o;
+        o.label = "kiln/unload";
+        KilnHandle h = 0;
+        g_exit_via = a.via;
+        if (hooks::chain::install_raw(0, target, o, reinterpret_cast<void*>(&exit_call), &g_exit_next, &h) == KILN_OK) {
+            KLOG_I("unload: %s: %zu on_unload handler(s) will be called when the process exits with code 0 (link on "
+                   "%s; up to %lu ms each, %lu ms in all)",
+                   policy.says.c_str(), n, a.via, unload_handler_ms(), unload_total_ms());
+            return;
+        }
+        KLOG_W("unload: no link on %s", a.via);
+    }
+    KLOG_W("unload: %s, but the process exit cannot be watched; %zu on_unload handler(s) will not be called",
+           policy.says.c_str(), n);
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
@@ -273,6 +418,8 @@ void boot() {
         native_mods::run_late();  // the player's chain DLLs named in chain.ini [late] still load
         check_entry_patch(f);
         write_boot_json(f);
+        caps::core_rows(false, false, f.safe_idle);
+        caps::boot_complete();
         return;
     }
     // Server or client: its own definitions, build records and kiln.json section.
@@ -322,9 +469,11 @@ void boot() {
     if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
+    caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
 
     if (hooks) load_plugins();  // kiln/services/*.dll, then plugins (profile-aware), then on_ready
+    if (hooks) arm_unload();    // on_unload at the process's exit call
     for (const auto& p : plugin_records())
         if (std::string_view(p.status) == "failed") f.errors.push_back("plugin " + p.file + ": " + p.error);
     native_mods::run_boot();
@@ -339,6 +488,7 @@ void boot() {
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     check_entry_patch(f);
     write_boot_json(f);
+    caps::boot_complete();  // capabilities.json, then a write after each change (at most one a second)
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();
     KLOG_I("boot complete; handing control to the game");
@@ -358,9 +508,11 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_boot(const KilnBootInfo* info) 
         kiln::boot();
     } catch (const std::exception& e) {
         kiln::log::writef(KILN_LOG_ERROR, "kiln", "boot failed: %s", e.what());
+        kiln::caps::boot_complete();  // capabilities.json says what there is
         return KILN_ERR_INTERNAL;
     } catch (...) {
         kiln::log::writef(KILN_LOG_ERROR, "kiln", "boot failed");
+        kiln::caps::boot_complete();
         return KILN_ERR_INTERNAL;
     }
     return KILN_OK;

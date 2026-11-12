@@ -258,6 +258,8 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             KilnVersion = _version,
             KilnBuild = KilnBuild.Of(typeof(Kiln.Mod).Assembly),
             HasFeature = HasFeature,
+            // The registry's reasons in refusals; a core without kiln.caps keeps the old text.
+            Capability = Service(Kiln.Capabilities.ServiceName, Kiln.Capabilities.ServiceVersion) != 0 ? Kiln.Capabilities.Get : null,
             Faults = new FaultPolicy { Limit = _config.FaultLimit, WindowSeconds = _config.FaultWindowSeconds },
             CrashReports = _config.CrashReports
                 ? _crash = new CrashReports(Path.Combine(kiln, "crash-reports"), Path.Combine(logs, "kiln.log"), SystemReport, () => _mods!.Describe(), Log)
@@ -294,6 +296,14 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         ModsBackend.Current = host._mods;
         Kiln.Testing.Tests.Starter = host.RequestTests;
         ServiceTick.HostDriven = true;  // Kiln's service tick runs from the host's Pre, not from a mod's
+        try
+        {
+            Kiln.Capabilities.Start();  // the registry's snapshot, and the identity rows that follow their sources
+        }
+        catch (Exception e)
+        {
+            host.Log(LogLevel.Warn, $"capabilities: not started: {e.Message}");
+        }
         try
         {
             PacingNative.Attach();  // kiln.pacing: which waits this build lets mods pace; hooks go in when a mod asks

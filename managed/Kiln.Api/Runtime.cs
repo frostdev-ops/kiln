@@ -96,8 +96,11 @@ public static class Game
     /// <see cref="ModLocale.LookupOrder"/> turns it into the files that are tried.</summary>
     public static string Language => GameLanguageSource.Current();
 
-    /// <summary>Whether a Kiln feature (e.g. <c>"tick"</c>, <c>"log.mirror"</c>) works on this game build.</summary>
-    public static bool HasFeature(string name) => Backend.Current.HasFeature(name);
+    /// <summary>Whether a Kiln capability (e.g. <c>"tick"</c>, <c>"log.mirror"</c>, <c>"items.fuel"</c>) works here:
+    /// <see cref="Capabilities.Is"/>, which also knows services (<c>"kiln.items"</c>) and the rows they register.
+    /// <see cref="Capabilities.Why"/> says why one is off. Any thread.</summary>
+    [AnyThread]
+    public static bool HasFeature(string name) => Capabilities.Is(name);
 
     public static void AssertTickThread()
     {
