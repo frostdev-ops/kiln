@@ -335,8 +335,8 @@ public sealed partial class WeaponMovesTestMod
             var step = StepSeconds();
             var span = Content.Sequences.Get(sequence.ToString())!.Get("events[SpawnImpact#0].duration").Number;
             Info($"{label}: started step {b.Start}, damage window opened {b.Opened?.ToString("0.###") ?? "-"} s (in a step of {b.OpenStep:0.###} s), first hurt step {b.Hit?.ToString() ?? "none"} = {b.Seconds?.ToString("0.###") ?? "-"} s ({(b.Hit is { } h ? (long)(h - b.Start) : -1)} steps of {step:0.####} s); {b.Detail}");
-            // one step: the mean step of this run, and the 60 Hz clock both ends are read on (1/60 s)
-            Check(b.Opened is { } o && Math.Abs(o - want) <= step + 1 / 60.0 + 1e-6,
+            // one step: the step it fired in or the mean step of this run, whichever is longer, and the 60 Hz clock both ends are read on (1/60 s)
+            Check(b.Opened is { } o && Math.Abs(o - want) <= Math.Max(step, b.OpenStep) + 1 / 60.0 + 1e-6,
                 $"{label}: its damage window (the SpawnImpact's impact) opens {b.Opened?.ToString("0.###") ?? "never"} s after the sequence started, {want:0.###} s asked, within one step ({step:0.###} s, read on the 1/60 s clock): {b.StepsOff?.ToString("+0;-0;0") ?? "no"} step(s) from the step the sequence's clock reaches it in (that step {b.OpenStep:0.###} s)");
             Check(b.Seconds is { } s && s >= want - step - 1e-3 && s <= want + span + step + 1e-3,
                 $"{label}: the hurt event on the dummy comes {b.Seconds?.ToString("0.###") ?? "never"} s after the start ({(b.Hit is { } h2 ? (long)(h2 - b.Start) : -1)} steps), inside the blow's window {want:0.###}..{want + span:0.###} s give or take one step");
