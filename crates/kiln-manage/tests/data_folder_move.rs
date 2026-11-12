@@ -2344,6 +2344,32 @@ fn a_cut_off_server_record_stays() {
     assert!(c.cut_off.is_empty(), "{c:?}");
 }
 
+/// Metadata taken before a progress event cannot prove that bytes appended during that event are a copy.
+#[test]
+fn recovery_keeps_a_cut_off_file_that_grows_while_it_is_checked() {
+    use std::io::Write;
+    let (fx, _, to) = crashed_inside_a_file("cut-off-grows");
+    let cut = to.join("backups/big.bin");
+    struct AppendOnCheck { path: PathBuf, changed: bool }
+    impl Progress for AppendOnCheck {
+        fn report(&mut self, _: Option<f32>, text: &str) {
+            if text == "checking backups/big.bin" {
+                std::fs::OpenOptions::new().append(true).open(&self.path).unwrap().write_all(b"player's new bytes").unwrap();
+                self.changed = true;
+            }
+        }
+    }
+    let mut progress = AppendOnCheck { path: cut.clone(), changed: false };
+    let mut expected = std::fs::read(&cut).unwrap();
+    expected.extend_from_slice(b"player's new bytes");
+    let c = dfm::remove_partial_copy_with(&fx.env, &mut progress).unwrap();
+    assert!(progress.changed, "the test must change the file after its metadata was taken");
+    assert!(cut.is_file(), "recovery deleted bytes it never compared: {c:?}");
+    assert_eq!(std::fs::read(&cut).unwrap(), expected);
+    assert!(c.cut_off.is_empty() && !c.done, "{c:?}");
+    assert_eq!(kept_of(&c).get(&cut).map(String::as_str), Some(dfm::partial_reason::DIFFERS));
+}
+
 /// A failed checkpoint must not spend an unrecorded cut-off-file allowance.
 #[test]
 fn recovery_keeps_a_cut_off_file_when_its_checkpoint_cannot_be_written() {

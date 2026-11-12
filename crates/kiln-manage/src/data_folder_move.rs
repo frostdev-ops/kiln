@@ -2127,9 +2127,6 @@ enum Proof {
 /// The first `n` bytes of `t` (all of them) equal the first `n` bytes of `s`.
 fn is_prefix(t: &Path, s: &Path, n: u64) -> std::io::Result<bool> {
     use std::io::Read;
-    if n == 0 {
-        return Ok(true);
-    }
     let (mut a, mut b) = (std::fs::File::open(t)?, std::fs::File::open(s)?);
     let (mut x, mut y) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
     let mut left = n;
@@ -2142,7 +2139,8 @@ fn is_prefix(t: &Path, s: &Path, n: u64) -> std::io::Result<bool> {
         }
         left -= k as u64;
     }
-    Ok(true)
+    // `n` came from earlier metadata. Bytes appended since then are not part of the proof.
+    Ok(a.read(&mut x[..1])? == 0)
 }
 
 impl Recovery<'_> {
