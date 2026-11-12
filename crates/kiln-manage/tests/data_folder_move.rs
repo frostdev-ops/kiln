@@ -553,6 +553,14 @@ fn a_crash_at_each_step_is_recovered_by_the_next_start() {
         assert_eq!(e.code, ErrorCode::Internal, "{step:?}");
         let committed = matches!(step, Step::Commit | Step::Activate);
         match dfm::pending(&fx.env).unwrap() {
+            Pending::Unclear { .. } if step == Step::FolderMarker => {
+                let copied = tree(&to);
+                let c = dfm::remove_partial_copy(&fx.env).unwrap();
+                assert!(!c.done && c.removed_bytes == 0, "a commit marker protects the verified copy: {c:?}");
+                assert_eq!(tree(&to), copied);
+                assert_eq!(tree(&fx.dirs.root), before);
+                assert!(fx.dirs.root.join(df::JOURNAL).is_file() && fx.dirs.root.join(df::FILE_RECORD).is_file());
+            }
             Pending::Uncommitted { journal } if !committed => {
                 assert_eq!(located(&fx.env).dirs.root, fx.dirs.root, "{step:?}: the old place is in use");
                 assert_eq!(dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap().removed_files, 0, "{step:?}: nothing of the old place goes");
@@ -593,6 +601,74 @@ fn committed_copy(tag: &str) -> (Fixture, PathBuf) {
     assert_eq!(e.code, ErrorCode::Internal);
     assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Committed { .. }));
     (fx, to)
+}
+
+/// A drive missing when the broken-pointer dialog opens, then mounted (or still missing) at the next start.
+/// Reset and repoint must never turn a committed destination into a disposable partial copy.
+#[test]
+fn a_committed_destination_survives_reset_and_repoint() {
+    for action in ["reset", "from", "to"] {
+        for mounted in [false, true] {
+            let (fx, to) = committed_copy(&format!("committed-{action}-{mounted}"));
+            put(&to, "profiles/after-move/data/save.bin", b"written after the move");
+            let before = tree(&to);
+            let offline = fx.base.join("offline");
+            std::fs::rename(&to, &offline).unwrap();
+            assert!(fx.env.locate().is_err());
+            match action {
+                "reset" => { dfm::reset(&fx.env).unwrap(); }
+                "from" => { dfm::repoint(&fx.env, &fx.dirs.root, &Facts::all_clear()).unwrap(); }
+                "to" => {
+                    // A late mount while the dialog is open. Keep the pointer broken until Choose folder.
+                    df::write_pointer(&fx.dirs.root, &fx.base.join("missing-drive")).unwrap();
+                    std::fs::rename(&offline, &to).unwrap();
+                    dfm::repoint(&fx.env, &to, &Facts::all_clear()).unwrap();
+                    if !mounted { std::fs::rename(&to, &offline).unwrap(); }
+                }
+                _ => unreachable!(),
+            }
+            if mounted && offline.exists() { std::fs::rename(&offline, &to).unwrap(); }
+            let pending = dfm::pending(&fx.env).unwrap();
+            if action == "to" && mounted {
+                assert!(matches!(pending, Pending::Committed { .. }), "{action} {mounted}: {pending:?}");
+            } else {
+                assert!(matches!(pending, Pending::Unclear { .. }), "{action} {mounted}: {pending:?}");
+            }
+            let c = dfm::remove_partial_copy(&fx.env).unwrap();
+            assert!(!c.done && c.removed_files == 0 && c.removed_bytes == 0, "{action} {mounted}: {c:?}");
+            assert!(fx.dirs.root.join(df::JOURNAL).is_file() && fx.dirs.root.join(df::FILE_RECORD).is_file());
+            if !mounted {
+                assert_eq!(dfm::acknowledge(&fx.env).unwrap_err().code, ErrorCode::Refused, "keep the missing drive's proof");
+                std::fs::rename(&offline, &to).unwrap();
+            }
+            assert_eq!(tree(&to), before, "{action} {mounted}: no destination file was removed");
+        }
+    }
+}
+
+#[test]
+fn a_commit_marker_alone_prevents_partial_removal() {
+    let fx = Fixture::build("commit-marker");
+    let to = fx.base.join("target");
+    mv(&fx, &to, &linking(), &inject(Inject::StopAfter(Step::FolderMarker))).unwrap_err();
+    let before = tree(&to);
+    assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Unclear { .. }));
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(!c.done && c.reason.as_deref().is_some_and(|r| r.contains(&to.display().to_string())));
+    assert_eq!(tree(&to), before);
+    assert_eq!(dfm::acknowledge(&fx.env).unwrap_err().code, ErrorCode::Refused);
+}
+
+#[test]
+fn reset_and_repoint_refuse_unrelated_move_markers() {
+    let fx = Fixture::build("recovery-marker");
+    df::write_pointer(&fx.dirs.root, &fx.base.join("missing-drive")).unwrap();
+    put(&fx.dirs.root, df::MOVE_MARKER, br#"{"format":1,"id":"other"}"#);
+    let pointer = std::fs::read(fx.dirs.root.join(df::POINTER)).unwrap();
+    for e in [dfm::reset(&fx.env).unwrap_err(), dfm::repoint(&fx.env, &fx.dirs.root, &Facts::all_clear()).unwrap_err()] {
+        assert!(e.message.contains(&fx.dirs.root.display().to_string()) && e.message.contains("move"), "{e:?}");
+    }
+    assert_eq!(std::fs::read(fx.dirs.root.join(df::POINTER)).unwrap(), pointer);
 }
 
 #[test]

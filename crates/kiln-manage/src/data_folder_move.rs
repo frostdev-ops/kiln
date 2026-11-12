@@ -329,6 +329,12 @@ fn move_mark_id(dir: &Path) -> Option<String> {
     crate::util::read_json::<MoveMark>(&p).ok().flatten().map(|m| m.id)
 }
 
+/// Even if the pointer was reset or a drive is absent, a verified destination is never a partial copy.
+fn may_have_committed(journal: &Journal) -> bool {
+    !matches!(journal.state.as_str(), "copying" | "verifying" | "failed")
+        || std::fs::symlink_metadata(journal.to.join(MARKER)).is_ok()
+}
+
 fn new_id() -> Result<String> {
     Ok(crate::hash::hex(&crate::util::random_bytes::<16>()?))
 }
@@ -1453,6 +1459,10 @@ pub fn reset(env: &DataEnv) -> Result<Located> {
         Err(p) if p.kind == crate::paths::ProblemKind::NoDefault || p.pointer.is_none() => Err(p.into_error()),
         Err(p) => {
             let file = p.pointer.clone().unwrap_or_default();
+            let default = default_root(env)?;
+            if std::fs::symlink_metadata(default.join(MOVE_MARKER)).is_ok() {
+                return Err(refuse(RefusalCode::MoveInProgress, format!("{} holds a move marker: choose its committed data folder instead of starting fresh here.", default.display())));
+            }
             let old = file.with_file_name(df::POINTER_OLD);
             crate::util::rename_replace(&file, &old)?;
             env.locate()
@@ -1485,7 +1495,8 @@ pub fn repoint(env: &DataEnv, picked: &Path, facts: &dyn SystemFacts) -> Result<
         Ok(S::Kiln { .. }) => {}
         Ok(S::Link) => return Err(refuse(C::Link, format!("{shown} is a link to another folder: pick the folder itself."))),
         Ok(S::NotAFolder) => return Err(refuse(C::NotAFolder, format!("{shown} is a file, not a folder."))),
-        Ok(S::Moving { .. }) => return Err(refuse(C::MoveInProgress, format!("{shown} holds a move of a data folder that has not been finished."))),
+        Ok(S::Moving { id, committed: true }) if read_journal(env)?.is_some_and(|j| j.id == id) => {}
+        Ok(S::Moving { .. }) => return Err(refuse(C::MoveInProgress, format!("{shown} holds a move marker that is not this launcher's committed move: nothing was changed."))),
         Ok(_) => return Err(refuse(C::NotAKilnFolder, format!("{shown} is not a Kiln data folder: pick the folder that holds your library and profiles."))),
         Err(e) => return Err(refuse(C::Unreadable, format!("Kiln cannot read {shown}: {}.", e.message))),
     }
@@ -1538,7 +1549,7 @@ pub fn pending(env: &DataEnv) -> Result<Pending> {
     };
     match env.locate_checked() {
         Ok(l) if same_folder(&l.dirs.root, &journal.to) => Ok(Pending::Committed { journal }),
-        Ok(l) if same_folder(&l.dirs.root, &journal.from) => Ok(Pending::Uncommitted { journal }),
+        Ok(l) if same_folder(&l.dirs.root, &journal.from) && !may_have_committed(&journal) => Ok(Pending::Uncommitted { journal }),
         Ok(l) => {
             let reason = format!(
                 "The launcher uses {}, but the move went from {} to {}: nothing is removed.",
@@ -1829,6 +1840,10 @@ fn remove_empty_dirs(p: &Path, left: &mut Vec<Kept>) {
 fn remove_partial(default: &Path, journal: &Journal) -> Cleanup {
     let to = &journal.to;
     let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None };
+    if may_have_committed(journal) {
+        c.reason = Some(format!("{} may hold a committed data folder: nothing was removed, and the move's journal stays.", to.display()));
+        return c;
+    }
     let drop_records = || {
         let _ = remove_if_there(&record_path(default));
         let _ = remove_if_there(&journal_path(default));
@@ -1889,6 +1904,9 @@ pub fn remove_partial_copy(env: &DataEnv) -> Result<Cleanup> {
 /// start, and without them the folder would stay marked as an unfinished move that nothing can finish.
 pub fn acknowledge(env: &DataEnv) -> Result<()> {
     let default = default_root(env)?;
+    if let Pending::Unclear { reason, .. } = pending(env)? {
+        return Err(Error::new(ErrorCode::Refused, format!("{reason} The move's journal and file record stay until its data folder is in use again.")));
+    }
     if let Ok(Some(j)) = read_journal(env)
         && move_mark_id(&j.to).as_deref() == Some(j.id.as_str())
     {

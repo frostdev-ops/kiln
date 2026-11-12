@@ -137,7 +137,10 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   createdTarget, createdParents, createdLock, entries:[{name, known, bytes}], skipped, state, previousPointer, rewritten,
   rewrittenAfter, hardLinks, result?}`, written atomically before the move writes into the target, kept until the launcher
   acknowledges the result (`data_folder_move::acknowledge`). A move is refused while one exists. Recovery goes by what is
-  on disk (does the folder in use match `to`), never by `state`.
+  on disk (does the folder in use match `to`). A destination carrying the folder marker, or a journal past verifying,
+  is never an unfinished copy, even after resetting the pointer or while its drive is missing: nothing is removed and
+  the journal and file record stay until that folder is in use again. Choose folder accepts that committed destination
+  when its move marker matches this journal; reset refuses a default root carrying any move marker.
 - **File record** `<default root>/data-folder.move.files.json`: `{format, id, files:[{path, size, sha256, linked,
   sourceSha256?}]}`, every file the move copied, written once before the pointer.
 - **A move** (`data_folder_move::move_to`): the target check again, the locks, the journal, the target, its lock and its
