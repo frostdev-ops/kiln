@@ -312,7 +312,8 @@ the game's graph when the game starts.
 
 ### The file
 
-`<mod>/assets/player-states.json`:
+`<mod>/assets/player-states.json` (a whole mod to copy: `mods/samples/PlayerStates`, a sword whose first attack, heavy attack
+and guard are states of its own, with their clips written by a script):
 
 ```json
 {
@@ -483,7 +484,8 @@ mods with player states) is refused at join too, also with `modSync` set to `war
   or server: a player graph served while a player's graph runs ends the server, so the graph, and every clip a served state
   plays, stays as it was at boot. A mod with player states that is unloaded or reloaded while the game runs keeps its states
   and their clips in the game, and kiln.log says so (`playeranim: mod <id> was reloaded: its player states stay as they were
-  at this start; a change to them applies from the next start`). Don't register a resource from code under the GUID of a
+  at this start; a change to them applies from the next start`). The same line appears for every mod with
+  player states when the game or server shuts down, where it means nothing. Don't register a resource from code under the GUID of a
   clip one of your states plays: nothing stops it, and the clip would change under the running graph.
 - **34 ways in per machine.** A machine holds 34 global transitions (one per state that can be entered from any state); a
   full-body machine that would go past 34 takes all of its mod states into nested machines of 34 each (a machine inside one
@@ -534,6 +536,18 @@ graph:
   hands moving 1.1 to 1.2 m merged against 0.28 m in the control. `SM_Staff_Overlay` filled to its 21 states: the first and
   the last enter. Each overlay state goes back to the rest state when its overlay ends, and the game's casts still play.
 - A player graph served while a player's graph runs ends the server; served before any player exists, it is used.
+- The service itself, from the committed lab test (`mods/tests/player-anim-test/run.py`, one server start per scenario,
+  authored clips cooked on the lab machine): each of a mod's states is `Live` and entered, and the pose follows its authored
+  clip within 0.08 m where the same sequence on the game's graph is 1.2 to 3.0 m off; a guard like `Block_FullBody` with the
+  game's own guard clip gives the game's block pose within 0.003 m; the game's own states play as without mods (0.008 to
+  0.068 m; two boots of the game's graph differ by 0.136 m); two mods' seven states all load, each plays its own clip, and
+  the served graph's hash is the one `animcook.py player-graph` gives for the same folders; removing one mod gives the other
+  mod's graph alone; a wrong `like`, a clip of another skeleton and a manifest without `clients` are each refused with their
+  reason while the other states load; with the merge switched off the game's graph is served and every state is
+  unavailable; with no mod, nothing is put; a state id no state has leaves the pose where it is; a mod unloaded, loaded
+  and reloaded keeps its state playing. Ten boots with seven states: the merge takes 80 ms on average (worst 167 ms, on a
+  loaded machine), and the time from process start to the world running is the same with and without player states (13.4 s
+  against 13.5 s).
 
 **Proven offline.** `python3 -m unittest discover -s tools/animcook/tests` (no game) checks each rule of the merge and each
 refusal on a small graph, and each test was checked to fail with its rule broken. `tools/animcook/tests/game_playergraph_check.py`
@@ -544,7 +558,10 @@ cases, 160 generated graphs, and the game check's scenarios on the game's own gr
 state beside every neighbour takes 24 to 32 ms.
 
 **Not proven:** anything a client draws, a second player seeing a mod's state, root motion of a mod's clip moving the body,
-and a player who joined (every run used a `1_Player` with no client behind it).
+and a player who joined (every run used a `1_Player` with no client behind it). An overlay state entered through a sequence
+copy made with Kiln's content service has not run either (the runs served edited copies of the game's casts as resources).
+The guided checks for a real client are in the sample, `mods/samples/PlayerStates` (seven `[ClientCheck]` methods, built,
+not yet run).
 
 ## Skeleton output for mesh tools
 
