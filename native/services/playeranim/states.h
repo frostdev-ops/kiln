@@ -7,7 +7,9 @@
 // be a neighbour and whether the clip is served is the merge's (merge.h). No Windows, no game, no Kiln API.
 #pragma once
 #include <cstdint>
+#include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -82,6 +84,27 @@ struct ManifestFields {
     std::optional<std::string> id, side, clients;
 };
 ManifestFields read_manifest_text(std::string_view text, const std::string& where);
+
+// ---- mods that go or change after the boot merge ----
+
+// One look at <game>/kiln/state/mods.json (schema/state-mods.schema.json), which Kiln.Host rewrites after every resolve, load,
+// unload and reload. `generation` grows with every write in one process. A mod's `loadIndex` is its place among the loaded mods
+// (null when not loaded): an unload takes a mod out of that list and a load appends it, so a reload moves the mod behind every
+// mod that was after it, and a mod's loadIndex also drops when a mod before it goes.
+struct ModsLook {
+    bool ok = false;
+    uint64_t generation = 0;
+    std::map<std::string, std::string> state;  // id -> "loaded", "unloaded", "pending", ...
+    std::vector<std::string> order;            // the ids with a loadIndex, by loadIndex
+};
+// ok false: not a mods.json of this process (broken, another pid when `pid` is not 0).
+ModsLook read_mods_state(std::string_view text, uint64_t pid);
+// What happened between two looks to the mods in `watched` (those with player states), one line each, in id order:
+//   loaded, then not:           "mod X is <state> now: its player states stay ..."
+//   not loaded, then loaded:    "mod X is loaded again: ..."  (not after "pending": that is the boot's own load)
+//   loaded both times, but moved behind a mod that was after it: "mod X was reloaded: ..."
+// A reload of the last loaded mod between two looks moves nothing and gets no line. Nothing when `before` is no look.
+std::vector<std::string> mods_changes(const ModsLook& before, const ModsLook& after, const std::set<std::string>& watched);
 
 // ---- the JSON reader, exposed for the tests ----
 
