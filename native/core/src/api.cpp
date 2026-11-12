@@ -18,8 +18,18 @@
 #include "config.h"
 #include "tick.h"
 #include "worldinfo.h"
+#include "services/kiln_caps.h"
 #include "services/kiln_hooks.h"
 #include "services/service.h"
+
+// kiln.caps, the capability registry (services/caps.cpp)
+namespace kiln::caps {
+const KilnCapsApi* table();
+void owner_gone(KilnOwner owner);
+void feature_off(std::string_view name);
+void service_published(KilnOwner owner, std::string_view name, uint32_t version);
+void service_dll(const std::filesystem::path& file, std::string_view status, const std::string& error);
+}  // namespace kiln::caps
 
 namespace kiln {
 namespace {
@@ -46,8 +56,10 @@ KilnResult KILN_CALL api_build_info(KilnBuildInfo* out) {
 
 bool KILN_CALL api_feature(KilnStr name) {
     const std::string_view n = sv(name);
-    return g_hooks && sigdb::feature(n) && (n.substr(0, 4) != "tick" || tick::installed()) &&
-           (n != "world.lifecycle" || tick::lifecycle());
+    const bool on = g_hooks && sigdb::feature(n) && (n.substr(0, 4) != "tick" || tick::installed()) &&
+                    (n != "world.lifecycle" || tick::lifecycle());
+    if (!on && g_hooks) caps::feature_off(n);  // a tick hook that faulted since boot: its kiln.caps rows follow
+    return on;
 }
 
 KilnResult KILN_CALL api_path(int32_t kind, char* buffer, size_t capacity, size_t* out_len) {
@@ -71,7 +83,10 @@ KilnResult KILN_CALL api_path(int32_t kind, char* buffer, size_t capacity, size_
 }
 
 KilnOwner KILN_CALL api_owner_create(KilnStr id) { return reg::owner_create(sv(id)); }
-void KILN_CALL api_owner_revoke(KilnOwner owner) { reg::owner_revoke(owner); }
+void KILN_CALL api_owner_revoke(KilnOwner owner) {
+    reg::owner_revoke(owner);
+    caps::owner_gone(owner);
+}
 
 KilnResult KILN_CALL api_subscribe_tick(KilnOwner owner, int32_t phase, KilnTickFn fn, void* user, KilnHandle* out) {
     if (!tick::installed()) return KILN_ERR_UNAVAILABLE;
@@ -116,6 +131,8 @@ const void* KILN_CALL api_service(KilnStr name, uint32_t min_version) {
     if (sv(name) == KILN_PROFILE_SERVICE) return min_version <= KILN_PROFILE_VERSION ? profile::table() : nullptr;
     // kiln.progress too: the early plugins show their long work with it, before hooks are decided (and in safe idle).
     if (sv(name) == KILN_PROGRESS_SERVICE) return min_version <= KILN_PROGRESS_VERSION ? progress::table() : nullptr;
+    // kiln.caps too: in safe idle it says why everything is off.
+    if (sv(name) == KILN_CAPS_SERVICE) return min_version <= KILN_CAPS_VERSION ? caps::table() : nullptr;
     // kiln.hooks is the one service early plugins may use before hooks are decided (hooks::serve_early; its `available`
     // flag says whether it is on, and boot clears it again in safe idle).
     // Only the core's own table, never a published one of the same name.
@@ -134,12 +151,15 @@ KilnResult KILN_CALL api_register_service(KilnOwner owner, KilnStr name, const v
     if (!table || !name.ptr || name.len == 0) return KILN_ERR_INVALID_ARGUMENT;
     const auto* h = static_cast<const KilnServiceHeader*>(table);
     if (h->size < sizeof(KilnServiceHeader)) return KILN_ERR_INVALID_ARGUMENT;
-    std::lock_guard lock(g_published_mutex);
-    for (const auto& p : g_published)
-        if (p.name == sv(name)) return KILN_ERR_INVALID_ARGUMENT;
-    g_published.push_back({owner, std::string(sv(name)), table});
+    {
+        std::lock_guard lock(g_published_mutex);
+        for (const auto& p : g_published)
+            if (p.name == sv(name)) return KILN_ERR_INVALID_ARGUMENT;
+        g_published.push_back({owner, std::string(sv(name)), table});
+    }
     KLOG_I("service %.*s v%u published by %s", static_cast<int>(name.len), name.ptr, h->version,
            reg::owner_name(owner).c_str());
+    caps::service_published(owner, sv(name), h->version);  // unlocked: its subscribers may call api_service
     return KILN_OK;
 }
 
@@ -238,7 +258,10 @@ std::wstring lower_path(const std::filesystem::path& p) {
 
 void record(const char* kind, const std::filesystem::path& file, const char* status, std::string error,
             const KilnPluginInfo* info = nullptr) {
-    if (std::string_view(kind) == "service") return;  // boot.json "plugins" lists plugins only
+    if (std::string_view(kind) == "service") {  // boot.json "plugins" lists plugins only; kiln.caps keeps these
+        caps::service_dll(file, status, error);
+        return;
+    }
     PluginRecord r;
     r.file = u8(file.filename());
     r.path = u8(file);
@@ -285,6 +308,7 @@ void load_one(const std::filesystem::path& file, const char* kind) {
         std::snprintf(text, sizeof text, "kiln_plugin_main faulted (0x%08lx)", code);
         record(kind, file, "failed", text);
         reg::owner_revoke(owner);
+        caps::owner_gone(owner);
         return;  // keep the module mapped: it may still be on a stack we cannot see
     }
     if (rc != KILN_OK) {
@@ -297,6 +321,7 @@ void load_one(const std::filesystem::path& file, const char* kind) {
         record(kind, file, rc == KILN_ERR_UNAVAILABLE ? "skipped" : "failed",
                "kiln_plugin_main returned " + std::to_string(rc) + (rc == KILN_ERR_UNAVAILABLE ? " (unavailable)" : ""), &info);
         reg::owner_revoke(owner);
+        caps::owner_gone(owner);
         return;
     }
     KLOG_I("%s %s loaded: %.*s %.*s", kind, name.c_str(), static_cast<int>(info.id.len),

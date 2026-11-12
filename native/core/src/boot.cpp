@@ -32,6 +32,12 @@
 #define KILN_BUILD ""
 #endif
 
+// kiln.caps, the capability registry (services/caps.cpp): the core's rows, then <state>/capabilities.json.
+namespace kiln::caps {
+void core_rows(bool hooks, bool verified, const std::string& safe_idle);
+void boot_complete();
+}  // namespace kiln::caps
+
 namespace kiln {
 namespace {
 
@@ -273,6 +279,8 @@ void boot() {
         native_mods::run_late();  // the player's chain DLLs named in chain.ini [late] still load
         check_entry_patch(f);
         write_boot_json(f);
+        caps::core_rows(false, false, f.safe_idle);
+        caps::boot_complete();
         return;
     }
     // Server or client: its own definitions, build records and kiln.json section.
@@ -322,6 +330,7 @@ void boot() {
     if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
+    caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
 
     if (hooks) load_plugins();  // kiln/services/*.dll, then plugins (profile-aware), then on_ready
@@ -339,6 +348,7 @@ void boot() {
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     check_entry_patch(f);
     write_boot_json(f);
+    caps::boot_complete();  // capabilities.json, then a write after each change (at most one a second)
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();
     KLOG_I("boot complete; handing control to the game");
@@ -358,9 +368,11 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_boot(const KilnBootInfo* info) 
         kiln::boot();
     } catch (const std::exception& e) {
         kiln::log::writef(KILN_LOG_ERROR, "kiln", "boot failed: %s", e.what());
+        kiln::caps::boot_complete();  // capabilities.json says what there is
         return KILN_ERR_INTERNAL;
     } catch (...) {
         kiln::log::writef(KILN_LOG_ERROR, "kiln", "boot failed");
+        kiln::caps::boot_complete();
         return KILN_ERR_INTERNAL;
     }
     return KILN_OK;
