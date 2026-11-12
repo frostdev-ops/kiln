@@ -397,6 +397,156 @@ The probe dumped 9 component types with real offsets (e.g. `NetworkHealth {healt
 `NpcCommon` 1688 B / 36 fields). `Components.Get<T>` was cross-checked byte-for-byte against the raw component bytes
 on live entities: **CurrentTransform matched on 2702 entities, TeleportCount on 6** — 0 differences.
 
+## 6. Shipping and staying loadable
+A mod binds to a generated type's fields by name when its code is compiled at run time, and every mod shares one
+`Kiln.Game.dll`. So a `Kiln.Game` regenerated for a new game build keeps an old mod working while every field it
+names still exists with the same type. This section is what makes that hold, and what refuses a mod, naming the type
+and the field, before it loads when it does not hold (instead of a `MissingFieldException` in the middle of a tick).
+
+Where each part lives: the stamp task (`managed/Kiln.Sdk/KilnGameTypesTask.cs`), `tools/typegen/build-game.sh`,
+`Kiln.Api.Ref.csproj` and the tests are typegen's. The SDK targets, `pack.sh`, `tools/deploy-server.sh`,
+`tools/package/stage.sh` and Kiln.Host belong to other packages; typegen hands their changes over as patches
+(`kiln-host.diff`, `pack-sh.diff`, `sdk-targets.diff`). What follows describes the whole path with those applied.
+
+### 6.1 The runtime layout
+```
+kiln/host/Kiln.Game.dll                          built from the newest dump (KilnGameDump, §3.9); loads when nothing better exists
+kiln/host/game/<side>-<sha12>/Kiln.Game.dll      built from that build's dump; <sha12> = first 12 hex digits of the exe's SHA-256
+```
+There is one `game/<side>-<sha12>/` folder for every schema-2 dump `sigdb/types/<side>/<sha256>.json` whose build
+record `sigdb/builds/<side>/<sha256>.json` says `"verified": true`. `tools/typegen/build-game.sh` builds them:
+
+```sh
+KILN_OUT=<build dir> tools/typegen/build-game.sh <host dir>
+# build-game: client-5d9ef2f140b8 <- sigdb/types/client/5d9ef2f1….json
+# build-game: server-f0d824be7fcd <- sigdb/types/server/f0d824be….json
+```
+
+It runs `dotnet build managed/Kiln.Game -c Release -p:KilnGameDump=<dump> -p:KilnGameVariant=<side>-<sha12>` for one
+variant after the other (each in its own folders, `$KILN_OUT/dotnet/bin/Kiln.Game/release_<variant>/`; Kiln.Api and
+Kiln.World are built once), copies each `Kiln.Game.dll` (and its pdb) into `<host dir>/game/<variant>/`, and replaces
+`<host dir>/game/` as a whole, so a build that is no longer verified loses its folder. A variant that fails to build
+stops it with the build's error lines and the log's path (`$KILN_OUT/build-game/<variant>.log`). It reads the dumps
+and records only: no exe is read or named. On the committed dumps (game svn 1287369) it makes two 1,917,440-byte dlls,
+`client-5d9ef2f140b8` and `server-f0d824be7fcd` (the old schema-1 server dump and the client build without a dump are
+skipped). `tools/deploy-server.sh` and `tools/package/stage.sh` call it after their `Kiln.Game` build line and copy
+`host/game/` with the rest of `kiln/host/`; a failure stops the deploy, and the stage unless `--allow-missing`.
+
+The SDK carries the newest one: `pack.sh` builds `Kiln.Game` into the stage (a failed build stops the pack), and the
+`Kiln.Api` package holds it as `kiln/lib/Kiln.Game.dll` with its XML docs. `kiln/lib/Kiln.Services.props` lists
+`Kiln.World` for `Game` (Kiln.Game is built against Kiln.Api and Kiln.World; its public signatures name Kiln.Api
+types such as `EntityId`), so a mod that names `Game` gets both as compile references.
+
+### 6.2 How the host picks
+Where Kiln.Host resolves `Kiln.Game` (a mod's load context, and the default context's `Resolving` handler), it takes
+`kiln/host/game/<side>-<sha12>/Kiln.Game.dll` for the running exe (`KilnBuildInfo.exe_sha256`, the side from the core)
+when that file exists, else `kiln/host/Kiln.Game.dll`; one copy per process, in the host's context. It logs which, once:
+
+```
+Kiln.Game: game/server-f0d824be7fcd/Kiln.Game.dll, generated for this game build
+Kiln.Game: Kiln.Game.dll (no game/server-0123456789ab/ for this game build: the newest layouts; mods are checked against them)
+Kiln.Game: Kiln.Game.dll (this game build's SHA-256 is unknown: the newest layouts)
+```
+
+On a build without its own folder the flat dll's layouts may not be the game's: the layout stamps below still refuse
+a mod whose types changed against that dll, and typed access checks each type against the live `kiln.types` table at
+first use.
+
+### 6.3 The stamp file (`kiln.gametypes.json`)
+The SDK task `Kiln.Sdk.KilnGameTypes` (in `Kiln.Sdk.Tasks.dll`, run by `Sdk/Kiln.GameTypes.targets` after
+`CopyFilesToOutputDirectory` when the project references `Kiln.Game`) writes it into the mod's output folder, so
+`KilnDeploy` and `KilnPack` ship it beside the entry assembly. A mod asks for Kiln.Game with `Game` in
+`KilnServices` (`<KilnServices>Game;Chat</KilnServices>`); `Kiln.Game.dll` is a compile reference only and never in the
+mod's folder. `-p:KilnGameTypes=false` turns the stamp off.
+
+The task reads the built mod and the `Kiln.Game.dll` it compiled against with `System.Reflection.Metadata` (neither is
+loaded). From the mod it takes every `TypeReference` whose resolution scope is the assembly `Kiln.Game` (a nested type
+through its enclosing reference, so `Kiln.Ecs+Lamp`) and every field `MemberReference` on such a type; from the
+reference, the embedded table (§3.6). For each referenced type that is in the table it writes the type's layout hash,
+the fields the mod names with their C# type copied from the table, and for an enum or bitmask every value. The fixture
+mod of the tests reads `Lamp.glow`, `wick`, `mode`, `flags` and `core.heat`, `core.ticks`, and its stamp is:
+
+```json
+{
+  "schema": 1,
+  "assembly": "StampMod.dll",
+  "mvid": "<the mod assembly's MVID>",
+  "layoutSet": "45b03485e3fd0a21",
+  "types": {
+    "Kiln.Ecs+Glimmer_Mode": { "layout": "3a947bfe0c52a885", "values": { "Off": 0, "Dim": 1, "Bright": 2 } },
+    "Kiln.Ecs+Glimmer_ModeMask": { "layout": "3b7d12d47050fbc8", "values": { "Off": 1, "Dim": 2, "Bright": 4 } },
+    "Kiln.Ecs+Lamp": { "layout": "2df304c77f995381",
+                       "fields": { "core": "Ecs.LampCore", "flags": "Ecs.Glimmer_ModeMask", "glow": "float", "mode": "Ecs.Glimmer_Mode", "wick": "uint" } },
+    "Kiln.Ecs+LampCore": { "layout": "ed4894308b12acb3", "fields": { "heat": "float", "ticks": "uint" } }
+  }
+}
+```
+
+(written indented, one member per line, types and fields in ordinal order, values in table order). The enum and the
+bitmask are there because the fields' signatures name them; `Lamp.spare`, the unused `Torch` and `Glimmer_Hue` and the
+base `Component` are not. Not stamped: the nine legacy types of `Kiln.GameTypes` (their members are held by the public
+API record), `Ecs.StaticArray<N><T>`, `Ecs.ObjectReference` and `Ecs.GameGuid` (not in the table), and the generated
+statics (`Hash`, `Name`, `Layout`, …). A mod that references no generated type gets no file, and a stale file in the
+output folder is deleted (also when the project no longer references Kiln.Game); `KilnDeploy` deletes the deployed one
+before it copies. An unchanged stamp is not rewritten. A reference without a table (an older Kiln.Game) is warning
+KILN020 and no file; an unreadable assembly is error KILN021.
+
+The MVID ties the stamp to one build of the mod: a stamp whose `mvid` is not the entry assembly's (a file left beside
+a rebuilt mod) is ignored.
+
+### 6.4 The check, and what a refusal looks like
+Before a mod's entry assembly loads, when its folder has `kiln.gametypes.json` with the entry assembly's MVID, Kiln.Host
+calls `Kiln.GameLayoutStamps.Check` (§3.7) in the loaded Kiln.Game by reflection (the host does not reference Kiln.Game).
+A refusal fails the mod through the loader's usual path: its record in the mod list (`Mods.Get(id)`, `kiln/logs/mods.txt`
+and the snapshot behind `kiln/state/mods.json`, which the launcher reads) is failed with the reason, and the log has
+the same line:
+
+```
+mod hello: it was built against game types this game build changed (Hello.dll: Kiln.Ecs+NetworkHealth.health changed
+from int to uint in this Kiln.Game (server f0d824be)); update the mod, or ask its author for a build for this game version
+```
+
+(one line in the log; this is the line `GameTypesTests` asserts, for a stamp that says `health` was an `int`).
+
+No stamp, a stale one, no Kiln.Game in `kiln/host`, or a Kiln.Game older than the stamps: the mod loads as before.
+
+### 6.5 After a game update (mod authors)
+1. Nothing, usually. A mod whose fields still exist with the same types keeps loading: a moved field, a new field, a
+   new enum value or a resized struct does not refuse it (the cross-layout test below proves the moved-field case).
+2. A refused mod names the type and field in the log. Update to the Kiln SDK that knows the new build (its
+   `kiln/lib/Kiln.Game.dll` is the new layouts), rebuild: the compiler shows where the field is gone or retyped. Fix
+   those lines, ship the rebuilt folder (the new `kiln.gametypes.json` comes with it).
+3. A mod built against a newer Kiln.Game than the player's runs where its fields exist in the older one and is refused,
+   with the same kind of line, where they do not.
+
+### 6.6 What the stamp cannot see
+It records what the mod's metadata names. Field access through generics, `ref` returns and `Unsafe.As<T>` on a
+generated type still ends in `MemberReference` rows and is covered. Not covered, and not checked before load:
+- reflection by string (`typeof(Ecs.Lamp).GetField("glow")`) and `dynamic`;
+- raw offsets and sizes (`World.TryWrite(e, "Lamp", 8, …)`, `Unsafe.Add` from a field's address, `sizeof` folded into
+  the mod's own arithmetic) and reinterpreting casts (`MemoryMarshal.Cast`, `MemoryMarshal.Read<MyOwnStruct>`) over a
+  generated type's bytes;
+- methods of generated types (the implicit conversions of single-field wrappers): a wrapper that stops being one loses
+  its conversions, which fails at JIT time like a missing field;
+- enum constants are copied into the mod at build time: the stamp holds every value of an enum the mod names, so a
+  renumbered value is refused, but a mod that casts a raw number to an enum is not checked;
+- code in other assemblies the mod loads that it did not build with the SDK (no stamp of their own).
+
+### 6.7 Tests (no game)
+- `StampTaskTests`: the task run in-process (with a small `IBuildEngine`) on the fixture mod `Fixtures/stamp/StampMod`,
+  compiled in the test build against Kiln.Game variant `stamp-a` (made-up dump `Fixtures/stamp/a.json`, written by
+  `Fixtures/stamp/mkstamp.py`): the stamp above byte for byte; no file for Kiln.Api or for the legacy consumer (only
+  `Kiln.GameTypes` types); a stale file removed; an unchanged stamp not rewritten; the dev.24-shape Kiln.Game (no
+  table) gives KILN020 and no file; a file that is no assembly gives KILN021.
+- `StampCrossLayoutTests`: the fixture mod, loaded in a load context that resolves `Kiln.Game` to a variant: against
+  `stamp-b` (`spare` moved to offset 0, every used field moved by 4, names and types kept) `Check` passes and the mod
+  reads every value right out of a buffer laid out as B says (and wrong ones out of A's layout: it follows B's
+  offsets); against `stamp-c` (`glow` a float64) `Check` refuses with
+  `StampMod.dll: Kiln.Ecs+Lamp.glow changed from float to double in this Kiln.Game (server 00000000)`; and against
+  `stamp-c` without the check, running the mod's code throws `MissingFieldException` naming `glow`.
+- `Kiln.Host.Tests/GameTypesTests` (in the host patch): the variant name, the file choice, the log line, a refused mod
+  (state failed, the reason in the record and the log), a passing stamp, a stale MVID, no Kiln.Game, an older one.
+
 ## Caveats
 - The dump is per build. A new game build is a new dump (§2) and one line in `Kiln.Game.csproj` (`KilnGameDump`);
   nothing generated is committed, so there is nothing else to regenerate. `Generated.cs` is the golden copy of the
