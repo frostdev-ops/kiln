@@ -24,7 +24,10 @@
 #             systemd units for kilnctl (kiln@.service, kiln-backup@.service, kiln-backup@.timer)
 #   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix;
 #             feed/: the nupkgs as a static NuGet v3 feed (lib/feed.py; its URLs: KILN_FEED_URL, default this folder on
-#             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it)
+#             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it).
+#             Both are built only: publish.sh uploads them with --sdk-site, github-draft.sh never
+# KILN_API_BASELINE: the last release's Kiln.Api .nupkg (or it unzipped) for pack.sh's API compat gate; unset: a loud
+#   warning, at the start and in the closing text, and the release goes on.
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
 #   source/   kiln-VERSION-src.tar.gz
@@ -157,7 +160,31 @@ else
   "$here/api-gate.sh" removed "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "shipped API was removed since $prev (above): the mod API is additive"
   "$here/api-gate.sh" version-rule "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "new API needs a higher API version (above)"
 fi
-[[ -d ${KILN_API_BASELINE:-} ]] || note "WARNING: KILN_API_BASELINE is not a folder: pack.sh cannot compare the SDK's assemblies with the last released ones"
+# The API compat gate in pack.sh (tools/release/apicompat.sh) compares the SDK's assemblies with the last release's:
+# KILN_API_BASELINE, a folder (an unzipped Kiln.Api.<ver>.nupkg) or that .nupkg. A wrong one stops here, not an hour
+# later in pack.sh; none is a loud warning (pack.sh's own runs under quiet, into the log only) and the release goes on.
+api_compat=1
+if [[ -n ${KILN_API_BASELINE:-} ]]; then
+  b=$(realpath -m -- "$KILN_API_BASELINE")
+  if [[ -d $b ]]; then
+    [[ -n $(find "$b" -name Kiln.Api.dll -type f -print -quit) ]] || die "KILN_API_BASELINE=$b holds no Kiln.Api.dll (an unzipped Kiln.Api.<ver>.nupkg of the last release)"
+  elif [[ -f $b && $b == *.nupkg ]]; then
+    python3 -I -c 'import sys, zipfile; sys.exit(0 if any(n.endswith("/Kiln.Api.dll") for n in zipfile.ZipFile(sys.argv[1]).namelist()) else 1)' "$b" 2>/dev/null \
+      || die "KILN_API_BASELINE=$b is not a Kiln.Api .nupkg holding Kiln.Api.dll"
+  else
+    die "KILN_API_BASELINE=$b does not exist or is neither a folder nor a .nupkg"
+  fi
+  export KILN_API_BASELINE=$b
+  note "API compat gate: pack.sh compares the SDK's assemblies with $b"
+else
+  api_compat=0
+  note "WARNING: ****************************************************************************************"
+  note "WARNING: KILN_API_BASELINE is not set: pack.sh's API compat gate will NOT run."
+  note "WARNING: Nothing compares this release's SDK assemblies (Kiln.Api, Kiln.Testing, the services) with the last"
+  note "WARNING: release's: a removed or changed public member would ship unnoticed (the PublicAPI record gate above"
+  note "WARNING: still ran). Set KILN_API_BASELINE to the last release's Kiln.Api.<ver>.nupkg, or to it unzipped."
+  note "WARNING: ****************************************************************************************"
+fi
 # The full release version in the builds: native/CMakeLists.txt (kiln_version.h: the core's and the proxy's version),
 # managed/KilnVersion.props (the assemblies' informational version and Kiln.Api's Kiln.Build stamp) and
 # tools/package/stage.sh (kiln-runtime.json, so the runtime zip's name) read the export's VERSION. Written after the
@@ -444,7 +471,8 @@ else
   note "no tools/docs-site/build.sh in the export: the API reference (sdk/api/) is left out"
 fi
 # the SDK's nupkgs as a static NuGet v3 feed in sdk/feed/ (lib/feed.py), for dotnet new install and a mod's
-# nuget.config once the folder is served: its index names absolute URLs, by default where publish.sh puts the folder
+# nuget.config once the folder is served: its index names absolute URLs, by default where publish.sh would put it
+# (downloads/<version>/sdk/feed/); publish.sh uploads sdk/feed/ (and sdk/api/) only with --sdk-site
 feed_url=${KILN_FEED_URL:-https://frostdev.io/kiln/downloads/$version/sdk/feed/}
 python3 -I "$lib/feed.py" build --out "$out/sdk/feed" --base-url "$feed_url" "$out/sdk" | tee -a "$log"
 cp "$work"/samples/*.zip "$out/samples/" 2>/dev/null || true
@@ -613,6 +641,9 @@ Next (by hand, see docs/kiln/launcher/releasing.md):
   tools/release/publish.sh $out             publish: the GitHub release, the dev channel pointer, frostdev.io
   python3 -I tools/release/nexus.py $out    Nexus Mods (dry run; --publish uploads): the nexus/ build, no self-update
 EOF
+if ((!api_compat)); then
+  note "WARNING: the SDK was NOT compared with the last release (KILN_API_BASELINE was not set): see the warning at the start."
+fi
 if ((api_moved)); then
   cat <<EOF | tee -a "$log"
   The API record: $api_moved PublicAPI file(s) changed in $repo (this release's API moved from Unshipped.txt into

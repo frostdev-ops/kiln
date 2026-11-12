@@ -162,13 +162,13 @@ class Removed(Base):
         self.r.commit(self.project(SVC, ["Kiln.Chat.X", "[KILNX002]Kiln.Chat.Send() -> void"]))
         code, out = run(self.r, "removed", "v1")
         self.assertEqual(0, code, out)
-        self.assertIn("allowed, now experimental: Kiln.Chat.Send() -> void", out)
+        self.assertIn("allowed (made experimental ([KILNX002])): Kiln.Chat.Send() -> void", out)
         # the same through Unshipped.txt, as the analyzer writes it
         self.r.commit(self.project(SVC, ["Kiln.Chat.Send() -> void", "Kiln.Chat.X"],
                                    ["*REMOVED*Kiln.Chat.Send() -> void", "[KILNX002]Kiln.Chat.Send() -> void"]))
         code, out = run(self.r, "removed", "v1")
         self.assertEqual(0, code, out)
-        self.assertIn("allowed, now experimental", out)
+        self.assertIn("allowed (made experimental ([KILNX002]))", out)
 
     def test_a_different_line_with_an_experimental_prefix_does_not_excuse_a_removal(self):
         self.r.commit(self.project(API, ["Kiln.A.Go() -> void"]), tag="v1")
@@ -178,6 +178,136 @@ class Removed(Base):
     def test_a_bad_revision_is_exit_2(self):
         self.r.commit(self.project(API, ["Kiln.A"]))
         self.assertEqual(2, run(self.r, "removed", "v-none")[0])
+
+
+FWD = " (forwarded, contained in Kiln.Api)"
+
+
+class Forwarded(Base):
+    """A type moved to another assembly with a type forward (identity moved Kiln.ItemId from Kiln.Items to Kiln.Api)."""
+
+    def moved(self, api_records=True, items_extra=(), api_extra=()):
+        files = {**self.project(SVC, ["Kiln.ItemId", "Kiln.ItemId.Value.get -> uint", "Kiln.Items.X"],
+                                ["*REMOVED*Kiln.ItemId", "*REMOVED*Kiln.ItemId.Value.get -> uint",
+                                 "Kiln.ItemId" + FWD, "Kiln.ItemId.Value.get -> uint" + FWD, *items_extra]),
+                 **self.project(API, ["Kiln.A"], (["Kiln.ItemId", "Kiln.ItemId.Value.get -> uint"] if api_records else [])
+                                + list(api_extra)),
+                 f"{SVC}/Kiln.Chat.csproj": "<Project />\n", f"{API}/Kiln.Api.csproj": "<Project />\n"}
+        return files
+
+    def test_removed_lists_a_forwarded_pair_as_allowed(self):
+        self.r.commit(self.project(SVC, ["Kiln.ItemId", "Kiln.ItemId.Value.get -> uint", "Kiln.Items.X"]), tag="v1")
+        self.r.commit(self.moved())
+        code, out = run(self.r, "removed", "v1")
+        self.assertEqual(0, code, out)
+        self.assertIn(f"{SVC}/PublicAPI.Shipped.txt: allowed (forwarded to Kiln.Api): Kiln.ItemId.Value.get -> uint", out)
+
+    def test_record_and_promote_allow_a_forwarded_pair(self):
+        self.r.commit(self.moved())
+        code, out = run(self.r, "record")
+        self.assertEqual(0, code, out)
+        self.assertIn("allowed (forwarded to Kiln.Api): *REMOVED*Kiln.ItemId", out)
+        self.assertEqual(0, run(self.r, "promote")[0])
+        # the forwarded lines stand in Shipped.txt in place of the old ones: the record the analyzer wants
+        self.assertEqual(api("Kiln.ItemId" + FWD, "Kiln.ItemId.Value.get -> uint" + FWD, "Kiln.Items.X"),
+                         self.r.read(f"{SVC}/PublicAPI.Shipped.txt"))
+        self.r.commit({})
+        self.assertEqual(0, run(self.r, "record")[0])
+
+    def test_a_forward_to_nowhere_is_refused_everywhere(self):
+        # Kiln.Api has a PublicAPI record, and it does not record the moved type
+        self.r.commit(self.project(SVC, ["Kiln.ItemId", "Kiln.ItemId.Value.get -> uint", "Kiln.Items.X"]), tag="v1")
+        files = self.moved(api_records=False)
+        self.r.commit(files)
+        code, out = run(self.r, "removed", "v1")
+        self.assertEqual(1, code, out)
+        self.assertIn("forward to nowhere", out)
+        code, out = run(self.r, "record")
+        self.assertEqual(1, code, out)
+        self.assertIn(f"{SVC}/PublicAPI.Unshipped.txt: *REMOVED*Kiln.ItemId: forwarded to Kiln.Api, whose PublicAPI "
+                      "record does not have it", out)
+        code, out = run(self.r, "promote")
+        self.assertEqual(1, code, out)
+        for p, text in files.items():
+            self.assertEqual(text, self.r.read(p), p)
+
+    def test_the_target_assembly_is_found_by_its_assembly_name(self):
+        files = self.moved(api_records=False)
+        files[f"managed/Other/Renamed.csproj"] = "<Project><PropertyGroup><AssemblyName>Kiln.Api</AssemblyName>" \
+                                                 "</PropertyGroup></Project>\n"
+        files.update(self.project("managed/Other", ["Kiln.ItemId", "Kiln.ItemId.Value.get -> uint"]))
+        files[f"{API}/Kiln.Api.csproj"] = "<Project><PropertyGroup><AssemblyName>Kiln.Old</AssemblyName></PropertyGroup></Project>\n"
+        self.r.commit(files)
+        code, out = run(self.r, "record")
+        self.assertEqual(0, code, out)
+        self.assertIn("allowed (forwarded to Kiln.Api): *REMOVED*Kiln.ItemId\n", out)
+        # the project named Kiln.Api builds Kiln.Old: its record (which has the lines) is not the target's
+        files.update(self.project("managed/Other", []))
+        files.update(self.project(API, ["Kiln.A", "Kiln.ItemId", "Kiln.ItemId.Value.get -> uint"]))
+        self.r.commit(files)
+        self.assertEqual(1, run(self.r, "record")[0])
+
+    def test_a_forward_to_an_assembly_without_a_record_is_allowed_and_said(self):
+        files = self.moved()
+        for k in list(files):
+            files[k] = files[k].replace("Kiln.Api)", "System.Runtime)")
+        self.r.commit(files)
+        code, out = run(self.r, "record")
+        self.assertEqual(0, code, out)
+        self.assertIn("forwarded to System.Runtime (no PublicAPI record of System.Runtime to check)", out)
+
+    def test_a_forwarded_line_for_another_symbol_does_not_cover(self):
+        self.r.commit({**self.project(SVC, ["Kiln.ItemId", "Kiln.Other"], ["*REMOVED*Kiln.Other", "Kiln.ItemId" + FWD,
+                                                                          "*REMOVED*Kiln.ItemId"]),
+                       **self.project(API, ["Kiln.ItemId"]), f"{API}/Kiln.Api.csproj": "<Project />\n"})
+        code, out = run(self.r, "record")
+        self.assertEqual(1, code, out)
+        self.assertIn("*REMOVED*Kiln.Other: a shipped line may not be removed", out)
+        self.assertNotIn("*REMOVED*Kiln.ItemId:", out)
+
+
+class Record(Base):
+    def test_a_bare_removed_line_fails_and_is_named(self):
+        self.r.commit({**self.project(API, ["Kiln.A", "Kiln.B"], ["*REMOVED*Kiln.B"]), **self.project(SVC, ["Kiln.Chat"])})
+        code, out = run(self.r, "record")
+        self.assertEqual(1, code, out)
+        self.assertIn(f"{API}/PublicAPI.Unshipped.txt: *REMOVED*Kiln.B: a shipped line may not be removed", out)
+
+    def test_an_experimental_pair_and_a_lab_line_pass(self):
+        self.r.commit(self.project(API, ["Kiln.A", "Kiln.B", "[KILNX001]Kiln.Lab"],
+                                   ["*REMOVED*Kiln.B", "[KILNX004]Kiln.B", "*REMOVED*[KILNX001]Kiln.Lab"]))
+        code, out = run(self.r, "record")
+        self.assertEqual(0, code, out)
+        self.assertIn("allowed (made experimental ([KILNX004])): *REMOVED*Kiln.B", out)
+        self.assertIn("allowed (lab member removed", out)
+
+    def test_the_pair_must_be_in_the_same_file(self):
+        # an experimental line for the symbol in another project's Unshipped.txt does not cover the removal
+        self.r.commit({**self.project(API, ["Kiln.A", "Kiln.B"], ["*REMOVED*Kiln.B"]),
+                       **self.project(SVC, ["Kiln.Chat"], ["[KILNX004]Kiln.B"])})
+        self.assertEqual(1, run(self.r, "record")[0])
+
+    def test_a_merge_conflict_marker_fails_and_is_named(self):
+        for marker in ("<<<<<<< HEAD", "||||||| dfff2e51", "=======", ">>>>>>> dev25/identity"):
+            self.r.commit(self.project(API, ["Kiln.A", "Kiln.B"], ["Kiln.C", marker, "Kiln.D"]))
+            code, out = run(self.r, "record")
+            self.assertEqual(1, code, marker)
+            self.assertIn(f"{API}/PublicAPI.Unshipped.txt: line 3: {marker}: a merge conflict marker", out)
+        self.r.commit({f"{API}/PublicAPI.Shipped.txt": api("Kiln.A", "=======", "Kiln.B"),
+                       f"{API}/PublicAPI.Unshipped.txt": api()})
+        code, out = run(self.r, "record")
+        self.assertEqual(1, code)
+        self.assertIn(f"{API}/PublicAPI.Shipped.txt: line 3: =======", out)
+        self.r.commit({f"{API}/PublicAPI.Shipped.txt": api("Kiln.A", "Kiln.Equals(string ======= x) -> bool")})
+        self.assertEqual(0, run(self.r, "record")[0], "a marker only at the start of a line")
+
+    def test_reads_a_revision_or_the_working_tree(self):
+        self.r.commit(self.project(API, ["Kiln.A", "Kiln.B"]))
+        self.r.put(self.project(API, ["Kiln.A", "Kiln.B"], ["*REMOVED*Kiln.B"]))
+        self.assertEqual(0, run(self.r, "record")[0], "HEAD has no *REMOVED* line")
+        code, out = run(self.r, "record", "--worktree")
+        self.assertEqual(1, code)
+        self.assertIn("*REMOVED*Kiln.B", out)
 
 
 class Pending(Base):
@@ -263,6 +393,13 @@ class Promote(Base):
         self.r.commit(self.project(API, ["Kiln.A"], ["Kiln.A"]))
         self.assertEqual(0, run(self.r, "promote")[0])
         self.assertEqual(api("Kiln.A"), self.r.read(f"{API}/PublicAPI.Shipped.txt"))
+
+    def test_an_experimental_line_elsewhere_does_not_let_promote_remove(self):
+        # the experimental line is already in Shipped.txt, not beside the *REMOVED* entry in Unshipped.txt
+        self.r.commit(self.project(API, ["Kiln.A", "Kiln.B", "[KILNX003]Kiln.B"], ["*REMOVED*Kiln.B"]))
+        code, out = run(self.r, "promote")
+        self.assertEqual(1, code, out)
+        self.assertIn("*REMOVED*Kiln.B: a shipped line may not be removed", out)
 
     def test_removed_of_a_line_now_experimental_deletes_it(self):
         self.r.commit(self.project(API, ["Kiln.A", "Kiln.B"], ["*REMOVED*Kiln.B", "[KILNX003]Kiln.B"]))

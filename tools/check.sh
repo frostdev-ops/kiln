@@ -3,6 +3,9 @@
 #   [KILN_OUT=<build dir>] [KILN_API_BASELINE=<last release Kiln.Api, folder or .nupkg>] [KILN_CHECK_JOBS=<n>] \
 #     tools/check.sh [--no-baseline] [-v]
 # Stages, each with one result line and its wall time:
+#   record  the API record before anything builds (tools/release/api-gate.sh record --worktree): every *REMOVED* line
+#           of a PublicAPI.Unshipped.txt beside its [KILNX...] line (made experimental) or its "(forwarded, contained
+#           in <Assembly>)" line (a type moved, recorded by <Assembly>), and no merge conflict marker in a PublicAPI file
 #   build   every managed project with a PublicAPI.Shipped.txt (found by that file, so gate 1, the PublicApiAnalyzers
 #           record, runs), Kiln.Host and the unit test projects: one Release build of one generated solution
 #           ($KILN_OUT/check/check.slnx), so each project is built once
@@ -11,8 +14,8 @@
 #   stage   Kiln.Api, Kiln.Testing and every managed/services/* DLL from that build into $KILN_OUT/check/stage, the set
 #           managed/Kiln.Sdk/pack.sh stages and packs
 #   compat  gate 2: tools/release/apicompat.sh against KILN_API_BASELINE (-v lists every addition)
-# On a failure the stage prints the failing diagnostics (compiler errors, failed tests, BREAK lines), not the whole log;
-# the full logs are in $KILN_OUT/check/*.log.
+# On a failure the stage prints the failing diagnostics (record lines, compiler errors, failed tests, BREAK lines), not
+# the whole log; the full logs are in $KILN_OUT/check/*.log. A failed record stage does not stop the build stages.
 # The last line is one of:
 #   check: PASSED in <s>s                                   exit 0
 #   check: PASSED in <s>s without the API compat gate (--no-baseline)   exit 0
@@ -67,6 +70,18 @@ projects=("${gated[@]}" "$repo/managed/Kiln.Host/Kiln.Host.csproj" "${tests[@]}"
   for p in "${projects[@]}"; do echo "  <Project Path=\"$(realpath --relative-to="$work" "$p")\" />"; done
   echo '</Solution>'
 } >"$work/check.slnx"
+
+# record
+t=$SECONDS
+if "$repo/tools/release/api-gate.sh" record --worktree >"$work/record.log" 2>&1; then
+  result record OK $((SECONDS - t)) "$(tail -1 "$work/record.log" | sed 's/^api-gate: //')"
+else
+  rc=$?
+  result record FAILED $((SECONDS - t)) "$( ((rc == 1)) && echo "the API record is not sound:" || echo "api-gate.sh could not run (exit $rc):")"
+  grep -E '^  ' "$work/record.log" | head -40
+  ((rc == 1)) || tail -5 "$work/record.log"
+  failed+=(record)
+fi
 
 # build
 t=$SECONDS
