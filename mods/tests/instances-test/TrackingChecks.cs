@@ -72,79 +72,185 @@ public sealed partial class InstancesTestMod
         Check(events.Count == 3, $"check 4: every move reported once ({events.Count} event(s))");
     }
 
-    private readonly List<EntityId> _spawnedForCost = [];
+    // ---- the per-step read's budget: many item entities, the cost with and without it, the bound on lateness ----
+    private readonly List<EntityId> _spawnedChests = [];
+    private readonly List<(EntityId Holder, InventorySlot Slot)> _many = [];
+    private ulong _now;  // the step of the latest tick callback
 
-    // ---- what the per-step read costs: 10, 100, 1000 followed items ----
-    [LabCheck(70, "tracking.cost")]
-    private async Task TrackingCost()
+    private void Clock(in TickInfo t) => _now = t.Step;
+
+    /// <summary>Up to <paramref name="want"/> item entities (swords) in spawned chests, with their refs.</summary>
+    private async Task MakeItems(int want)
     {
         var sword = Sword();
-        if (sword == null) return;
-        var given = new List<(EntityId Holder, ItemChange Change)>();
-        var holders = await QuietContainers(4, 200);
-        // more room: chests of the world's own container template next to the first one (the lab is a copy)
-        if (holders.Count > 0 && Spawn.Inspect(holders[0]) is { Template: { } tmpl } info)
+        var near = (await QuietContainers(1, 1)).FirstOrDefault();
+        var tmpl = Spawn.Lookup("Prop_Storage_40_T5_Chest_Silver") ?? Spawn.Lookup("Prop_Storage_32_T2_Chest_Wood") ??
+                   (Spawn.Inspect(near) is { Template: { } g } ? Spawn.Template(g) : null);
+        var at = Spawn.Inspect(near)?.Position;
+        if (sword == null || tmpl == null || at is not { } p)
         {
-            var spawned = _spawnedForCost;
-            for (var i = 0; i < 64; i++)
-            {
-                try
-                {
-                    var e = Spawn.Entity(tmpl, new WorldPosition(info.Position.X + 2 * (i % 8), info.Position.Y + 40, info.Position.Z + 2 * (i / 8)),
-                        0, new SpawnOptions { Flags = SpawnFlags.Transient, Tag = "instances-test" }).GetAwaiter().GetResult();
-                    spawned.Add(e);
-                }
-                catch (Exception ex)
-                {
-                    Info($"cost: spawning a container failed: {ex.Message}");
-                    break;
-                }
-            }
-            await Until(() => spawned.All(e => Items.Read(e) is { Initialized: true }), 200);
-            holders.AddRange(spawned.Where(e => Items.Read(e) is { Initialized: true }));
-            Info($"cost: {spawned.Count} container(s) spawned, {holders.Count} holder(s) to fill");
+            Check(false, $"items for the budget: a sword {sword}, a chest template {tmpl?.Name}, a place {at}");
+            return;
         }
-        var pending = new List<(EntityId, Task<ItemsResult>)>();
-        var before = new HashSet<EntityId>();
+        var made = 0;
+        for (var i = 0; made < want && i < 480; i++)
+        {
+            try
+            {
+                var e = Spawn.Entity(tmpl.Id, new WorldPosition(p.X + 3 * (i % 20), p.Y + 60, p.Z + 3 * (i / 20)), 0,
+                    new SpawnOptions { Flags = SpawnFlags.Transient, Tag = "instances-test" }).GetAwaiter().GetResult();
+                _spawnedChests.Add(e);
+            }
+            catch (Exception ex)
+            {
+                Info($"budget: spawning a chest failed after {i}: {ex.Message}");
+                break;
+            }
+            if (i % 20 == 19)
+            {
+                await Until(() => _spawnedChests.All(c => Items.Read(c) is { Initialized: true }), 100);
+                made = _spawnedChests.Sum(c => Items.Read(c)?.FreeSlots() ?? 0);
+            }
+        }
+        await Until(() => _spawnedChests.All(c => Items.Read(c) is { Initialized: true }), 200);
+        var gives = new List<Task<ItemsResult>>();
         var planned = 0;
-        foreach (var h in holders)
+        foreach (var c in _spawnedChests)
         {
-            var inv = Items.Read(h);
-            var free = inv?.FreeSlots() ?? 0;
-            if (free == 0) continue;
-            foreach (var s in inv!.Slots.Where(x => !x.ItemEntity.IsNone)) before.Add(s.ItemEntity);
-            pending.Add((h, Items.Give(h, sword.Id, free, options: GiveOptions.NoMerge)));
-            planned += free;
-            if (planned >= 1100) break;
+            var free = Items.Read(c)?.FreeSlots() ?? 0;
+            if (free == 0 || planned >= want) continue;
+            var n = Math.Min(free, want - planned);
+            gives.Add(Items.Give(c, sword!.Id, n, options: GiveOptions.NoMerge));
+            planned += n;
         }
-        foreach (var (h, task) in pending)
-        {
-            await task;
-            // a result lists 16 changes at most: the read names every new item entity
-            foreach (var s in Items.Read(h)!.Slots.Where(x => x.Item == sword.Id && !x.Ref.IsNone && !before.Contains(x.ItemEntity)))
-                given.Add((h, new ItemChange(s.Slot, s.Item, 1, s.ItemEntity) { Ref = s.Ref }));
-        }
-        Info($"cost: {given.Count} item entities given ({pending.Count} give(s))");
-        foreach (var n in new[] { 10, 100, 1000 })
-        {
-            if (given.Count < n)
+        foreach (var task in gives) await task;
+        foreach (var c in _spawnedChests)
+            foreach (var slot in Items.Read(c)?.Slots.Where(x => !x.Ref.IsNone) ?? [])
+                _many.Add((c, slot));
+        Info($"budget: {_spawnedChests.Count} chest(s) of {tmpl.Name} spawned, {_many.Count} item entities in them");
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex Cost = new(
+        @"budget (\S+) .*rotation at (\d+) of (\d+), rechecking (\d+).* ([0-9.]+) us per step, worst ([0-9.]+) us, ([0-9.]+) items per step \(avg of (\d+)\)");
+
+    [LabCheck(70, "tracking.budget")]
+    private async Task TrackingBudget()
+    {
+        await MakeItems(10000);
+        if (_many.Count < 100) return;
+        Info($"budget: load {LoadAverage()}");
+        for (var pass = 1; pass <= 2; pass++)
+            foreach (var n in new[] { 10, 100, 1000, 10000 })
             {
-                Info($"cost: only {given.Count} item entities, not {n}");
-                continue;
+                if (_many.Count < n)
+                {
+                    Info($"budget: only {_many.Count} item entities, not {n}");
+                    continue;
+                }
+                var handles = _many.Take(n).Select(x => Items.LabFollow(x.Slot.Ref)).ToList();
+                foreach (var budget in new[] { 64, 0 })
+                {
+                    Items.LabTrackerReadsPerStep = budget;
+                    await Steps(70);
+                    var st = Items.LabInstancesStatus;
+                    var m = Cost.Match(st);
+                    Check(m.Success && m.Groups[8].Value == "64",
+                        $"budget pass {pass}: {n} followed, {(budget == 0 ? "no budget" : $"budget {budget}")}: " +
+                        (m.Success ? $"{m.Groups[5].Value} us per step, worst {m.Groups[6].Value} us, {m.Groups[7].Value} items per step" : st));
+                }
+                Items.LabTrackerReadsPerStep = 64;
+                foreach (var h in handles) h.Dispose();
+                await Steps(2);
             }
-            var handles = given.Take(n).Select(x => Items.LabFollow(x.Change.Ref)).ToList();
-            await Steps(70);
-            var status = Items.LabInstancesStatus;
-            var us = Regex.Match(status, @"([0-9.]+) us per step").Groups[1].Value;
-            Check(status.Contains($"followed {n},") && us.Length > 0, $"cost: {n} followed items: {us} us per step ({status})");
-            foreach (var h in handles) h.Dispose();
+        Info($"budget: load {LoadAverage()}");
+    }
+
+    // With more followed items than the budget, an unseen move of the item the rotation has just read is reported within
+    // ceil(followed / 64) + 1 steps of the step it was asked in (+1: the move itself runs in the next sim step).
+    [LabCheck(71, "tracking.rotation-bound")]
+    private async Task TrackingRotationBound()
+    {
+        if (_many.Count < 1000) await MakeItems(1000);
+        const int n = 1000;
+        if (_many.Count < n) return;
+        Context.Tick.Pre += Clock;
+        var events = new List<ItemMovedEvent>();
+        using var sub = Events.On<ItemMovedEvent>(events.Add);
+        var set = _many.Take(n).ToList();
+        var handles = set.Select(x => Items.LabFollow(x.Slot.Ref)).ToList();
+        var (lastHolder, last) = set[^1];
+        // the spawned chests are full: the move goes to a container of the world with room
+        var target = (await QuietContainers(1, 1)).FirstOrDefault();
+        Check(!target.IsNone, $"rotation bound: a container with room for the move: {target}");
+        if (target.IsNone) return;
+        // a full rotation (the ring drops earlier followers at its wrap), then the step that reads the last item
+        await Steps(2 * (n / 64 + 2));
+        var ok = await Until(() => Cost.Match(Items.LabInstancesStatus) is { Success: true } m && m.Groups[2].Value == m.Groups[3].Value &&
+                                   m.Groups[3].Value == n.ToString(), 200);
+        var asked = _now;
+        var mv = Items.LabMoveUnseen(lastHolder, last.Slot, target);
+        var bound = (ulong)((n + 63) / 64 + 2);
+        await Until(() => events.Any(e => e.Item == last.Ref), (int)bound + 20);
+        var ev = events.FirstOrDefault(e => e.Item == last.Ref);
+        var r = await mv;
+        Check(ok && r.Succeeded && ev is { Cause: ItemMoveCause.Observed } && ev.Step - asked <= bound,
+            $"rotation bound: {n} followed, the last item of the rotation moved unseen at step {asked} (right after its read): " +
+            $"{(ev == null ? "not reported" : $"reported at step {ev.Step}, {ev.Step - asked} step(s) later (bound {bound})")}");
+        foreach (var h in handles) h.Dispose();
+        Context.Tick.Pre -= Clock;
+        await Items.Move(target, SlotOf(target, last.ItemEntity)?.Slot ?? default, lastHolder);
+    }
+
+    // A holder's teardown: the holder goes in one call, its items one step later; the read in between finds them placed
+    // nowhere. No move may be reported for that read, and the gone carries the last placed location.
+    [LabCheck(72, "tracking.teardown")]
+    private async Task TrackingTeardown()
+    {
+        if (_spawnedChests.Count == 0) await MakeItems(40);
+        var chest = _spawnedChests.LastOrDefault();
+        var items = _many.Where(x => x.Holder == chest).Take(5).ToList();
+        if (chest.IsNone || items.Count == 0) return;
+        Context.Tick.Pre += Clock;
+        var events = new List<ItemMovedEvent>();
+        using var sub = Events.On<ItemMovedEvent>(events.Add);
+        var gone = new Dictionary<ItemInstanceRef, (ItemLocation At, ulong Step)>();
+        Items.LabTrackerReadsPerStep = 0;  // every followed item every step: the one-step gap is read for sure
+        var handles = items.Select(x => Items.LabFollow(x.Slot.Ref, (at, step) => gone[x.Slot.Ref] = (at, step))).ToList();
+        await Steps(3);
+        var destroyedAt = _now;
+        Spawn.Destroy(chest);
+        _spawnedChests.Remove(chest);
+        await Until(() => gone.Count == items.Count, 20);
+        var right = items.Count(x => gone.TryGetValue(x.Slot.Ref, out var g) && g.At.Holder == chest && g.At.IsPlaced && g.At.Slot == x.Slot.Slot);
+        Check(events.Count == 0 && right == items.Count,
+            $"teardown: chest {chest} destroyed at step {destroyedAt}: {events.Count} move(s) reported (want 0); {gone.Count} gone, " +
+            $"{right} with their last placed location in the chest; gone at step(s) {string.Join(",", gone.Values.Select(g => g.Step).Distinct())}");
+        Items.LabTrackerReadsPerStep = 64;
+        foreach (var h in handles) h.Dispose();
+        Context.Tick.Pre -= Clock;
+        _many.RemoveAll(x => x.Holder == chest);
+    }
+
+    [LabCheck(73, "tracking.budget-cleanup")]
+    private async Task TrackingBudgetCleanup()
+    {
+        foreach (var c in _spawnedChests) Spawn.Destroy(c);
+        Info($"budget: {_spawnedChests.Count} spawned chest(s) removed with their items; {Items.LabInstancesStatus}");
+        _spawnedChests.Clear();
+        _many.Clear();
+        await Steps(3);
+    }
+
+    private static string LoadAverage()
+    {
+        try
+        {
+            return File.ReadAllText(@"Z:\proc\loadavg").Trim();
         }
-        // take everything back, remove the spawned containers
-        foreach (var grp in given.GroupBy(x => x.Holder))
-            foreach (var (_, ch) in grp)
-                await Items.Take(grp.Key, sword.Id, 1, ch.Slot, true, ch.ItemEntity);
-        foreach (var e in _spawnedForCost) Spawn.Destroy(e);
-        Info($"cost: taken back, {_spawnedForCost.Count} spawned container(s) removed; {Items.LabInstancesStatus}");
+        catch
+        {
+            return "unknown";
+        }
     }
 
     // ---- check 5: flat slots before a save = flat slots after a restart ----

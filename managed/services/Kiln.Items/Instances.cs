@@ -208,8 +208,22 @@ public static unsafe partial class Items
         return SubmitMove(r, "Items.LabMoveUnseen", unseen: true);
     }
 
-    /// <summary>Lab only: the tracker's last read of all followed items: how many, and how long it took
-    /// (microseconds), averaged over the last 64 steps with something followed; and the stamps' state.</summary>
+    /// <summary>Lab only: the per-step read's rotation size (default 64; 0: every followed item every step, as without a
+    /// budget). Setting it starts a new cost window for <see cref="LabInstancesStatus"/>.</summary>
+    [Experimental("KILNX001")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static int LabTrackerReadsPerStep
+    {
+        get => ItemTracker.Budget;
+        set
+        {
+            ItemTracker.Budget = Math.Max(0, value);
+            ItemTracker.ResetCosts();
+        }
+    }
+
+    /// <summary>Lab only: the tracker's per-step read (followed, budget, rotation, rechecks, the items read and the time
+    /// per step, average and worst of the last 64 steps with something followed) and the stamps' state.</summary>
     [Experimental("KILNX001")]
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static string LabInstancesStatus => ItemTracker.Describe() + "; " + ItemInstances.DescribeNative();
@@ -282,7 +296,33 @@ internal static unsafe class ItemInstances
         x.Entity = item.Entity.Id.Value;
         Check(Items.V4->ReadInstances(&x, 1, (uint)sizeof(ItemsNative.Instance), 0), "ItemInstances.Read");
         if ((x.Flags & ItemsNative.InstFound) == 0 || RefOf(in x) != item) return null;
-        return InfoOf(in x);
+        var info = InfoOf(in x);
+        ItemTracker.Observe(item, info.Location);  // a followed item's location is never older than this read
+        return info;
+    }
+
+    /// <summary>Several items in one native call, each as <see cref="Read(ItemInstanceRef)"/> reads it (null: gone, stale
+    /// or none), in the order given. Tick thread.</summary>
+    internal static IReadOnlyList<ItemInstanceInfo?> Read(IReadOnlyList<ItemInstanceRef> items)
+    {
+        Services.RequireTickThread("ItemInstances.Read");
+        Require();
+        var result = new ItemInstanceInfo?[items.Count];
+        if (items.Count == 0) return result;
+        var buf = new ItemsNative.Instance[items.Count];
+        for (var i = 0; i < items.Count; i++)
+            buf[i].Entity = items[i].IsNone || IdentitySources.PlaceOf(items[i].Entity.Serial) != EntitySourceOrder.Items
+                ? 0
+                : items[i].Entity.Id.Value;
+        ReadRaw(buf, 0, "ItemInstances.Read");
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (buf[i].Entity == 0 || (buf[i].Flags & ItemsNative.InstFound) == 0 || RefOf(in buf[i]) != items[i]) continue;
+            var info = InfoOf(in buf[i]);
+            ItemTracker.Observe(items[i], info.Location);
+            result[i] = info;
+        }
+        return result;
     }
 
     /// <summary>Every item entity in the holder's inventories, in flat-slot order (saved slots first); empty when it has
@@ -311,8 +351,14 @@ internal static unsafe class ItemInstances
             Check(rc == ItemsNative.BufferTooSmall ? ItemsNative.Ok : rc, "ItemInstances.ReadHolder");
             initialized = init != 0;
             var list = new List<ItemInstanceInfo>((int)Math.Min(n, cap));
+            var followed = ItemTracker.Count > 0;
             for (var i = 0; i < n && i < cap; i++)
-                if ((buf[i].Flags & ItemsNative.InstFound) != 0) list.Add(InfoOf(in buf[i]));
+            {
+                if ((buf[i].Flags & ItemsNative.InstFound) == 0) continue;
+                var info = InfoOf(in buf[i]);
+                if (followed) ItemTracker.Observe(info.Item, info.Location);
+                list.Add(info);
+            }
             return list;
         }
     }
@@ -527,26 +573,53 @@ internal static class PlayerSlots
 /// <summary>Follows chosen items (Kiln.Saves' items with data; <see cref="Items.LabFollow"/> in labs) and says when one
 /// moved or is gone. In order: Kiln's own move results name the item entity (<see cref="ItemMoveCause.Transaction"/>);
 /// a transfer report (quick stack, move all) makes it read again at once the followed items whose holder is the
-/// report's from or to (<see cref="ItemMoveCause.Transfer"/>); one batched read of every followed item per step catches
-/// the rest (<see cref="ItemMoveCause.Observed"/>, reported once two reads in a row agree, so a hooked report of the
-/// same move wins). Nothing is read per step while nothing is followed. Tick thread.</summary>
+/// report's from or to (<see cref="ItemMoveCause.Transfer"/>); neither is limited. The rest is caught by the per-step
+/// read (<see cref="ItemMoveCause.Observed"/>), which has a budget: each step it reads the next
+/// <see cref="ReadsPerStep"/> followed items of a rotation, plus up to <see cref="RechecksPerStep"/> items it saw
+/// somewhere new one step earlier, and reports a move when two reads in a row agree (so a hooked report of the same
+/// move wins). A read that finds an item entity placed nowhere (its holder's teardown: the holder goes one step before
+/// its items) changes nothing: no move is reported for it, and a later gone carries the last placed location. A fresh
+/// read through <see cref="ItemInstances"/> (the store's reads at a save) brings a followed item's location up to date,
+/// so the tracker is never older than the last such read. Nothing is read per step while nothing is followed. Tick
+/// thread.</summary>
 internal static unsafe class ItemTracker
 {
+    /// <summary>The most followed items the per-step read reads in one step (the rotation). Lab (server 26430253, a lab at
+    /// nice 19 on a busy PC): one batched location read cost 9.0-9.8 µs for 10 items and 42.7-90.2 µs for 100, so 64 keeps
+    /// a step's read at about 30-60 µs there and well under 100 µs on a quiet server, whatever the number followed. An
+    /// item is read at least once every ceil(followed / 64) steps.</summary>
+    internal const int ReadsPerStep = 64;
+
+    /// <summary>The most items read again (outside the rotation) to confirm a move the previous read saw. Only items found
+    /// somewhere new by a read become such items: at most <see cref="ReadsPerStep"/> a step from the rotation, so with
+    /// this equal to it a step reads at most 128 items, and a confirmation waits a second step only when more than 64
+    /// items keep moving every step.</summary>
+    internal const int RechecksPerStep = 64;
+
     private sealed class Followed(ItemInstanceRef item, ItemLocation last)
     {
         public readonly ItemInstanceRef Item = item;
         public ItemLocation Last = last;
         public int Handles = 1;
         public ItemLocation? Candidate;  // seen somewhere else by the per-step read once; reported when seen again
+        public bool Removed;             // no longer followed (the rotation drops it at its next wrap)
+        public bool Rechecking;          // in Rechecks
     }
 
     private static readonly object Gate = new();
     private static readonly Dictionary<EntityRef, Followed> ByRef = new();
+    private static readonly List<Followed> Ring = new();       // the rotation, in follow order
+    private static readonly List<Followed> Rechecks = new();   // items with a candidate, oldest first
+    private static int _cursor;
     private static IDisposable? _tick;
     private static ulong _reporter;
     private static bool _reportFailed;
     private static readonly double[] Costs = new double[64];
+    private static readonly int[] Counts = new int[64];
     private static int _costN, _costAt, _lastCount;
+
+    /// <summary>Lab: the rotation's size per step (0: every followed item every step, as before the budget).</summary>
+    internal static int Budget { get; set; } = ReadsPerStep;
 
     internal static event Action<ItemInstanceRef, ItemLocation, ItemLocation, ItemMoveCause>? Moved;
     internal static event Action<ItemInstanceRef, ItemLocation, ulong>? Gone;
@@ -570,7 +643,12 @@ internal static unsafe class ItemTracker
         lock (Gate)
         {
             if (ByRef.TryGetValue(item.Entity, out var f)) f.Handles++;
-            else ByRef[item.Entity] = new Followed(item, now?.Location ?? default);
+            else
+            {
+                f = new Followed(item, now?.Location ?? default);
+                ByRef[item.Entity] = f;
+                Ring.Add(f);
+            }
             _tick ??= ServiceTickAccess.Add("kiln.items followed items", Step);
         }
         SyncReporter();
@@ -586,9 +664,37 @@ internal static unsafe class ItemTracker
             if (Interlocked.Exchange(ref _done, 1) != 0) return;
             lock (Gate)
             {
-                if (ByRef.TryGetValue(key, out var f) && --f.Handles <= 0) ByRef.Remove(key);
+                if (ByRef.TryGetValue(key, out var f) && --f.Handles <= 0) Unfollow(f);
             }
             SyncReporter();
+        }
+    }
+
+    // Gate held.
+    private static void Unfollow(Followed f)
+    {
+        ByRef.Remove(f.Item.Entity);
+        f.Removed = true;
+        if (f.Rechecking)
+        {
+            f.Rechecking = false;
+            Rechecks.Remove(f);
+        }
+    }
+
+    // Gate held: the candidate set or cleared, and the recheck list with it.
+    private static void SetCandidate(Followed f, ItemLocation? candidate)
+    {
+        f.Candidate = candidate;
+        if (candidate != null && !f.Rechecking && !f.Removed)
+        {
+            f.Rechecking = true;
+            Rechecks.Add(f);
+        }
+        else if (candidate == null && f.Rechecking)
+        {
+            f.Rechecking = false;
+            Rechecks.Remove(f);
         }
     }
 
@@ -597,22 +703,36 @@ internal static unsafe class ItemTracker
         lock (Gate)
         {
             var avg = _costN == 0 ? 0 : Costs.Take(_costN).Average();
-            return $"followed {ByRef.Count}, last read {_lastCount} item(s), {avg:0.0} us per step (avg of {_costN})";
+            var worst = _costN == 0 ? 0 : Costs.Take(_costN).Max();
+            var items = _costN == 0 ? 0 : Counts.Take(_costN).Average();
+            return $"followed {ByRef.Count}, budget {(Budget == 0 ? "none" : Budget.ToString())} + {RechecksPerStep} rechecks, " +
+                   $"rotation at {_cursor} of {Ring.Count}, rechecking {Rechecks.Count}, last read {_lastCount} item(s), " +
+                   $"{avg:0.0} us per step, worst {worst:0.0} us, {items:0.0} items per step (avg of {_costN})";
+        }
+    }
+
+    /// <summary>Lab: forget the cost window (a new measurement starts).</summary>
+    internal static void ResetCosts()
+    {
+        lock (Gate)
+        {
+            _costN = 0;
+            _costAt = 0;
         }
     }
 
     // ---- the per-step read ----
     private static void Step(ulong step)
     {
-        Followed[] all;
+        List<Followed> batch;
         lock (Gate)
         {
             if (ByRef.Count == 0) return;
-            all = ByRef.Values.ToArray();
+            batch = Pick();
         }
-        if (!ItemInstances.On) return;
-        var buf = new ItemsNative.Instance[all.Length];
-        for (var i = 0; i < all.Length; i++) buf[i].Entity = all[i].Item.Entity.Id.Value;
+        if (batch.Count == 0 || !ItemInstances.On) return;
+        var buf = new ItemsNative.Instance[batch.Count];
+        for (var i = 0; i < batch.Count; i++) buf[i].Entity = batch[i].Item.Entity.Id.Value;
         var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
@@ -626,27 +746,73 @@ internal static unsafe class ItemTracker
         lock (Gate)
         {
             Costs[_costAt] = us;
+            Counts[_costAt] = batch.Count;
             _costAt = (_costAt + 1) % Costs.Length;
             _costN = Math.Min(_costN + 1, Costs.Length);
-            _lastCount = all.Length;
+            _lastCount = batch.Count;
         }
-        for (var i = 0; i < all.Length; i++)
+        for (var i = 0; i < batch.Count; i++)
         {
-            var f = all[i];
+            var f = batch[i];
             if (ItemInstances.RefOf(in buf[i]) != f.Item)
             {
                 ReportGone(f, step);
                 continue;
             }
             var loc = ItemInstances.LocationOf(in buf[i]);
+            if (!loc.IsPlaced) continue;  // its holder's teardown (or in transit): not a move, nothing changes
+            ItemLocation? report = null;
+            lock (Gate)
+            {
+                if (f.Removed) continue;
+                if (loc == f.Last) SetCandidate(f, null);
+                else if (f.Candidate == loc) report = loc;
+                else SetCandidate(f, loc);
+            }
+            if (report is { } to) Report(f, to, ItemMoveCause.Observed, step);
+        }
+    }
+
+    // Gate held. This step's reads: the rechecks first (oldest first, at most RechecksPerStep), then the next items of the
+    // rotation (Budget of them; 0 = all), never one twice.
+    private static List<Followed> Pick()
+    {
+        var batch = new List<Followed>();
+        for (var i = 0; i < Rechecks.Count && batch.Count < RechecksPerStep; i++) batch.Add(Rechecks[i]);
+        var want = Budget <= 0 ? ByRef.Count : Math.Min(Budget, ByRef.Count);
+        var taken = 0;
+        for (var scanned = 0; taken < want && scanned <= Ring.Count; scanned++)
+        {
+            if (_cursor >= Ring.Count)
+            {
+                Ring.RemoveAll(x => x.Removed);  // the rotation wraps: drop what is no longer followed
+                _cursor = 0;
+                if (Ring.Count == 0) break;
+            }
+            var f = Ring[_cursor++];
+            if (f.Removed) continue;
+            taken++;
+            if (!f.Rechecking || batch.IndexOf(f) < 0) batch.Add(f);  // a recheck already in the batch is not read twice
+        }
+        return batch;
+    }
+
+    /// <summary>A fresh read through <see cref="ItemInstances"/> (the store's reads at a save) saw a followed item: its
+    /// location is brought up to date, as an observed move when it changed. Unplaced reads change nothing.</summary>
+    internal static void Observe(ItemInstanceRef item, ItemLocation loc)
+    {
+        if (!loc.IsPlaced) return;
+        Followed? f;
+        lock (Gate)
+        {
+            if (ByRef.Count == 0 || !ByRef.TryGetValue(item.Entity, out f) || f.Item != item) return;
             if (loc == f.Last)
             {
-                f.Candidate = null;
-                continue;
+                SetCandidate(f, null);
+                return;
             }
-            if (f.Candidate == loc) Report(f, loc, ItemMoveCause.Observed, step);
-            else f.Candidate = loc;
         }
+        Report(f, loc, ItemMoveCause.Observed, ServiceTick.Step);
     }
 
     // ---- what the hooks and results say ----
@@ -714,8 +880,10 @@ internal static unsafe class ItemTracker
                 continue;
             }
             var loc = ItemInstances.LocationOf(in buf[i]);
+            if (!loc.IsPlaced) continue;  // its holder's teardown: not a move, nothing changes
             if (loc != f.Last) Report(f, loc, cause, step);
-            else f.Candidate = null;
+            else
+                lock (Gate) SetCandidate(f, null);
         }
     }
 
@@ -724,10 +892,10 @@ internal static unsafe class ItemTracker
         ItemLocation from;
         lock (Gate)
         {
-            if (!ByRef.ContainsKey(f.Item.Entity)) return;  // no longer followed
+            if (f.Removed) return;  // no longer followed
             from = f.Last;
             f.Last = to;
-            f.Candidate = null;
+            SetCandidate(f, null);
         }
         if (Moved is { } moved)
             foreach (var d in moved.GetInvocationList())
@@ -748,7 +916,8 @@ internal static unsafe class ItemTracker
     {
         lock (Gate)
         {
-            if (!ByRef.Remove(f.Item.Entity)) return;  // reported once
+            if (f.Removed) return;  // reported once
+            Unfollow(f);
         }
         if (Gone is { } gone)
             foreach (var d in gone.GetInvocationList())
