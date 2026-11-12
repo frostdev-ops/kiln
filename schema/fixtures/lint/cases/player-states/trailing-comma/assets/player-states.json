@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "states": {
+    "slash": { "clip": "slash", "like": "Attack_Sword_Shield_02" },
+  }
+}

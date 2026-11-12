@@ -3,7 +3,7 @@
 """kiln.playeranim on a lab server, player free: mods' states in the player's animation graph, one server start per scenario.
 
     KILN_OUT=<build dir> python3 mods/tests/player-anim-test/run.py --lab NAME [--only S[,S]] [--out DIR] [--net-port 27193]
-        [--game DIR] [--boots 10] [--join]
+        [--game DIR] [--boots 10] [--join] [--broken-reservation]
 
 Before it: build Kiln into $KILN_OUT (kiln.playeranim, kiln.types and kiln.assets among the services) and this folder's
 PlayerAnimTest.csproj into $KILN_OUT/mods/player-anim-test; make the lab with `tools/lab/lab.sh new`. The driver deploys Kiln into
@@ -28,6 +28,11 @@ Prints PASS/FAIL/SKIP lines and the numbers behind them, and exits non-zero on a
   join         (--join, with the Kiln.Network gate patch built in) a HELLO with another graph hash is refused, the same one accepted
   timing       --boots boots without a player-state mod and as many with A and B: the service's times and the time to the world
   reload       mod A unloaded and loaded again while a 1_Player exists: its state still plays
+  graph-override  mod A merged, and every way a mod has to replace the player's graph: an assets.json entry (fixture pa-graph-override,
+               its file the installed game's graph, written into the lab's copy), Assets.Override and Register at load and while a 1_Player
+               exists, a ReflectedResource field override, Assets.RemoveResource: each refused, the merged graph still served, the state plays.
+               With --broken-reservation (a kiln.assets built with the reservation line taken out): no code attempts and no player, and the
+               check is that the fixture's entry now replaces the merged graph (what the reservation is there to stop)
 """
 import argparse
 import hashlib
@@ -820,9 +825,88 @@ def scenarios(lab, c, a):
         c("reload.still-plays", d <= FOLLOWS, f"{d:.3f} m from its clip after the unload, load and reload")
         c("reload.server-up", alive)
 
+    def graph_override():
+        fixture = "pa-graph-override"
+        broken = a.broken_reservation
+        name = "graph-override-broken" if broken else "graph-override"
+        slash = clone_guid("pa-a/slash")
+        p = {"scenario": name, "lookups": lookups(["pa-a"]), "clones": full_body_clones(["pa-a"]), "upSeconds": 60}
+        if broken:
+            p.update(noPlayer=True, upSeconds=0, plays=[])
+        else:
+            p.update(graphAttempts=True, plays=[P("pa-a/slash", slash, 100)], playsAfterAttempts=[P("pa-a/slash-after", slash, 100)])
+        lab.set_mods(["pa-a", fixture], p)
+        raw = game.read(PLAYER_GRAPH, GRAPH_TYPE)
+        f = lab.kiln / "mods" / fixture / "assets/graph/player-graph.bin"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(raw)
+        game_sha = hashlib.sha256(raw).hexdigest()[:16]
+        want, _ = offline_hash(lab, ["pa-a"])
+        print(f"INFO {name}: the fixture's entry is the installed game's graph ({len(raw)} B, sha256 {game_sha}); animcook's merge of A {want}", flush=True)
+        text, gtext, _, alive = lab.run(name)
+        caps = lab.kiln / "state/capabilities.json"
+        if caps.exists():
+            shutil.copy(caps, lab.out / name / "capabilities.json")
+        lines = [l.split("] ", 2)[-1] for l in text.splitlines()]
+        size, sha = served(text)
+        m = merged_line(text)
+        _, graph, h = graph_line(text)
+        manifest = [l for l in lines if l.startswith("assets: ") and fixture in l]
+        if broken:
+            c(f"{name}.entry-taken", not any("reserved" in l for l in lines) and any("resources 1" in l for l in manifest), str(manifest[:2]))
+            c(f"{name}.served-hash-changed", sha == game_sha and sha != want,
+              f"served {sha}, the fixture's {game_sha}, the merged graph {want}; playeranim: {[l for l in service_lines(text) if 'refused' in l or 'merged' in l][:2]}")
+            return
+        c(f"{name}.merged", m is not None and m["hash"] == h == want and graph == "Merged", f"{m and m['hash']}; PlayerAnimStates {graph} {h}; animcook {want}")
+        key_text = f"{PLAYER_GRAPH}:{GRAPH_TYPE}:0"
+        c(f"{name}.manifest-entry-refused", any(key_text in l and "reserved for kiln.playeranim" in l and "player-states.json" in l for l in manifest)
+          and any("resources 0" in l and "errors 1" in l for l in manifest), " / ".join(manifest[:2]))
+        store = [l for l in lines if l.startswith("assets: owner") and key_text in l]
+        c(f"{name}.store-names-the-key", any("reserved for kiln.playeranim" in l for l in store), next((l for l in store if "reserved" in l), "no line"))
+        for when in ("at-load", "with-player"):
+            for call in ("Override", "Register"):
+                t = pat(text, rf"pat: {when}: Assets\.{call}: (.*)")
+                said = t[-1][1] if t else "no line"
+                c(f"{name}.{when}.{call}-throws", said.startswith("threw ArgumentException") and "assets/player-states.json" in said, said[:220])
+            t = pat(text, rf"pat: {when}: reflected set (.*)")
+            said = t[-1][1] if t else "no line"
+            c(f"{name}.{when}.reflected-set-refused", "ok False" in said and "did not take the resource (error 3)" in said, said[:220])
+            t = pat(text, rf"pat: {when}: Assets\.RemoveResource: (.*)")
+            c(f"{name}.{when}.remove-returns", bool(t) and t[-1][1] == "returned", t[-1][1] if t else "no line")
+        after = text.split("pat: with-player: Assets.Override", 1)[-1]
+        after_lines = [l.split("] ", 2)[-1] for l in after.splitlines()]
+        c(f"{name}.with-player.refused-natively", any(l.startswith("assets: owner") and key_text in l and "pinned for this process" in l and "removal" not in l
+                                                      for l in after_lines), next((l for l in after_lines if key_text in l and "pinned" in l), "no line"))
+        c(f"{name}.with-player.removal-refused", any(key_text in l and "removal refused" in l for l in after_lines),
+          next((l for l in after_lines if "removal refused" in l), "no line"))
+        a_sha = pat(text, r"pat: after-attempts: player graph as kiln.assets reads it: (\d+) B, sha256 (\w+)")
+        a_sha = a_sha[-1][2] if a_sha else None
+        c(f"{name}.served-is-the-merged-graph", sha == a_sha == want, f"before the attempts {sha}, after {a_sha}, the merged graph {want}")
+        _, graph2, h2 = graph_line(text, "after-attempts")
+        c(f"{name}.graph-hash-unchanged", h2 == h == want and graph2 == graph, f"PlayerAnimStates.GraphHash {h} -> {h2}, Graph {graph} -> {graph2}")
+        cb = pat(text, r"pat: before: capability anim.player_states: (.*)")
+        ca = pat(text, r"pat: after: capability anim.player_states: (.*)")
+        cb, ca = (cb[-1][1] if cb else None), (ca[-1][1] if ca else None)
+        c(f"{name}.capability-unchanged", cb is not None and cb == ca and cb.startswith("available"), f"before {cb}; after {ca}")
+        c(f"{name}.no-take-back", not any("refused the merged graph" in l for l in service_lines(text)), "")
+        got = plays(text)
+        exp = game.expect(lab.cook("pa-a"), "a_slash")
+        sid = f"{fnv(derive('pa-a', 'state', 'slash')):08x}"
+        for label in ("pa-a/slash", "pa-a/slash-after"):
+            q = got.get(label)
+            d = follows(q, exp)[0] if q else float("inf")
+            c(f"{name}.{label.split('/')[1]}-plays", q is not None and sid in states_seen(q) and d <= FOLLOWS,
+              f"state ids {states_seen(q) if q else None}, {d:.3f} m from its clip")
+        c(f"{name}.server-up-60s", alive and "pat: up 60 s" in text)
+        if "_errors" in base:
+            new = [l for l in game_errors(gtext) if l not in base["_errors"]]
+            c(f"{name}.game-log-quiet", not new, str(new[:3]))
+        else:
+            c.skip(f"{name}.game-log-quiet", "no baseline in this run")
+
     return [("baseline", baseline), ("unknown-id", unknown_id), ("untouched", untouched), ("entered", entered), ("game-states", game_states),
             ("two-mods", two_mods), ("removed", removed), ("broken", broken), ("off", off), ("overlays", overlays), ("join", join),
-            ("timing", timing), ("reload", reload)]
+            ("timing", timing), ("reload", reload), ("graph-override", graph_override)]
 
 
 def main():
@@ -834,13 +918,15 @@ def main():
     ap.add_argument("--net-port", type=int, default=27193, help="the lab transport's UDP port for fake clients (join)")
     ap.add_argument("--boots", type=int, default=10)
     ap.add_argument("--join", action="store_true")
+    ap.add_argument("--broken-reservation", action="store_true",
+                    help="graph-override against a kiln.assets built without the player graph's reservation: shows what the reservation stops")
     a = ap.parse_args()
     lab = Lab(a)
     if REPO in lab.out.resolve().parents:
         sys.exit("run.py: --out is inside the repository; what it writes is made from the game's files")
     c = Checks()
     only = set(filter(None, a.only.split(",")))
-    needs_base = {"unknown-id", "entered", "game-states", "two-mods", "off"}
+    needs_base = {"unknown-id", "entered", "game-states", "two-mods", "off"} | (set() if a.broken_reservation else {"graph-override"})
     try:
         for name, fn in scenarios(lab, c, a):
             if only and name not in only and not (name == "baseline" and only & needs_base):
