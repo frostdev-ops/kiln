@@ -59,8 +59,9 @@ public abstract class KilnTestSuite<TMod> : IClassFixture<KilnSuiteLifetime> whe
     /// <summary>How much longer than its timeout a test may block the tick thread before the watchdog stops it.</summary>
     protected virtual TimeSpan WatchdogGrace => KilnTestOptions.Default.WatchdogGrace;
 
-    /// <summary>One <c>[KilnTest]</c>, by name.</summary>
-    [Theory]
+    /// <summary>One <c>[KilnTest]</c>, by name. A mod with no <c>[KilnTest]</c> method gives one skipped test, not a
+    /// failure (a suite made by <c>dotnet new kiln-unit-test</c> for a mod that has no tests yet).</summary>
+    [Theory(SkipTestWithoutData = true)]
     [MemberData(nameof(KilnTests))]
     public void KilnTest(string name)
     {

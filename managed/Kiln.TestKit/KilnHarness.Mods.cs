@@ -27,8 +27,12 @@ public sealed partial class KilnHarness
     /// and its <c>.pdb</c>; its private dependencies, i.e. the assemblies it references (transitively) that lie in the same
     /// folder, except Kiln.Api and Kiln's shared assemblies (<c>Kiln.*</c> beside Kiln.Host), which every mod shares as in the
     /// game; and its texts: <see cref="ModManifest.LocalesDirectory"/>, else <c>&lt;Assembly&gt;.locales/</c>, else the
-    /// folder's <c>locales/</c> when the folder's <c>kiln.mod.json</c> is this mod's. Anything else a mod folder holds:
-    /// build it as one and use <see cref="LoadFolder"/>.</para>
+    /// folder's <c>locales/</c> when the folder's <c>kiln.mod.json</c> is this mod's; and, when there is a folder
+    /// <c>&lt;Assembly&gt;.mod/</c> beside the assembly, all of its files (data folders, <c>locales/</c>), which become the
+    /// mod folder's own. The Kiln.TestKit package fills <c>&lt;Assembly&gt;.kiln.mod.json</c> and
+    /// <c>&lt;Assembly&gt;.mod/</c> from a referenced mod project's output folder (its build targets), so a mod built with
+    /// Kiln.Sdk loads with its real manifest and files. Anything else a mod folder holds: build it as one and use
+    /// <see cref="LoadFolder"/>.</para>
     /// <para>The handle gives the instance as <see cref="Kiln.Mod"/>: the copy's types are not the test project's.</para>
     /// </remarks>
     /// <exception cref="ModLoadException">A hot load the loader refused, or whose <c>OnLoad</c> threw.</exception>
@@ -76,6 +80,9 @@ public sealed partial class KilnHarness
         CopyAssembly(Path.Combine(source, entry), dir);
         foreach (var dependency in PrivateDependencies(source, Path.Combine(source, entry)))
             CopyAssembly(dependency, dir);
+        // the mod folder's other files, which the Kiln.TestKit package's targets carry from a referenced mod project
+        var files = Path.Combine(source, name + ".mod");
+        if (Directory.Exists(files)) CopyTree(files, dir);
         var locales = manifest?.LocalesDirectory is { } l ? l
             : Directory.Exists(Path.Combine(source, name + ".locales")) ? Path.Combine(source, name + ".locales")
             : ownFolder ? Path.Combine(source, "locales") : null;
