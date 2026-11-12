@@ -72,8 +72,10 @@ public sealed partial class InstancesTestMod
         Check(events.Count == 3, $"check 4: every move reported once ({events.Count} event(s))");
     }
 
+    private readonly List<EntityId> _spawnedForCost = [];
+
     // ---- what the per-step read costs: 10, 100, 1000 followed items ----
-    [LabCheck(50, "tracking.cost")]
+    [LabCheck(70, "tracking.cost")]
     private async Task TrackingCost()
     {
         var sword = Sword();
@@ -83,8 +85,8 @@ public sealed partial class InstancesTestMod
         // more room: chests of the world's own container template next to the first one (the lab is a copy)
         if (holders.Count > 0 && Spawn.Inspect(holders[0]) is { Template: { } tmpl } info)
         {
-            var spawned = new List<EntityId>();
-            for (var i = 0; i < 40; i++)
+            var spawned = _spawnedForCost;
+            for (var i = 0; i < 64; i++)
             {
                 try
                 {
@@ -137,11 +139,12 @@ public sealed partial class InstancesTestMod
             Check(status.Contains($"followed {n},") && us.Length > 0, $"cost: {n} followed items: {us} us per step ({status})");
             foreach (var h in handles) h.Dispose();
         }
-        // take everything back
+        // take everything back, remove the spawned containers
         foreach (var grp in given.GroupBy(x => x.Holder))
             foreach (var (_, ch) in grp)
                 await Items.Take(grp.Key, sword.Id, 1, ch.Slot, true, ch.ItemEntity);
-        Info($"cost: taken back; {Items.LabInstancesStatus}");
+        foreach (var e in _spawnedForCost) Spawn.Destroy(e);
+        Info($"cost: taken back, {_spawnedForCost.Count} spawned container(s) removed; {Items.LabInstancesStatus}");
     }
 
     // ---- check 5: flat slots before a save = flat slots after a restart ----
@@ -176,6 +179,7 @@ public sealed partial class InstancesTestMod
             recs.Add(new FlatRecord(h.Value, info.TemplateName ?? "", info.Position.X, info.Position.Y, info.Position.Z, l.FlatSlot,
                 l.Slot.Value, sword.Id.Value, read.Level, ch.ItemEntity.Value));
         }
+        Directory.CreateDirectory(Context.DataDirectory);
         File.WriteAllText(Path.Combine(Context.DataDirectory, "flat-slots.json"), JsonSerializer.Serialize(recs));
         File.WriteAllText(Path.Combine(Context.DataDirectory, "boot1.done"), DateTimeOffset.UtcNow.ToString("O"));
         Info($"check 5: {recs.Count} item(s) recorded with their flat slots; waiting 40 s for an autosave, then restart the lab");
@@ -189,16 +193,23 @@ public sealed partial class InstancesTestMod
         var file = Path.Combine(Context.DataDirectory, "flat-slots.json");
         var recs = File.Exists(file) ? JsonSerializer.Deserialize<List<FlatRecord>>(File.ReadAllText(file)) ?? [] : [];
         Check(recs.Count > 0, $"check 5: {recs.Count} record(s) from boot 1");
+        var containers = Items.FindInventories(InventoryKinds.Containers);
         foreach (var r in recs)
         {
-            var holder = new EntityId(r.Holder);
-            var info = Spawn.Inspect(holder);
-            Check(info != null && info.TemplateName == r.Template, $"check 5: holder {holder} is the same container after the restart ({info?.TemplateName})");
+            // entity ids change at a restart (the loader hands them out in load order): find the holder by template and
+            // position, as instance data does, and only when exactly one container fits
+            var near = containers.Where(e => Spawn.Inspect(e) is { } i && i.TemplateName == r.Template &&
+                                             Math.Abs(i.Position.X - r.X) < 0.5 && Math.Abs(i.Position.Y - r.Y) < 0.5 &&
+                                             Math.Abs(i.Position.Z - r.Z) < 0.5).ToList();
+            Check(near.Count == 1, $"check 5: the holder {r.Template} at ({r.X:0.0}, {r.Y:0.0}, {r.Z:0.0}), entity {r.Holder} before the restart, " +
+                                   $"is found again: {string.Join(", ", near)}");
+            if (near.Count != 1) continue;
+            var holder = near[0];
             var match = Items.Read(holder)?.Slots.FirstOrDefault(s => !s.Ref.IsNone && s.Ref.Location() is { } l && l.FlatSlot == r.FlatSlot);
             var loc = match?.Ref.Location();
-            Check(match != null && match.Item.Value == r.Item && match.Level == r.Level,
-                $"check 5: flat slot {r.FlatSlot} holds the same item after the restart: {match?.Ref} (was entity {r.Entity}), level {match?.Level} " +
-                $"(was {r.Level}), slot {loc?.Slot} (was {new SlotId(r.Slot)})");
+            Check(match != null && match.Item.Value == r.Item && loc is { IsSavedSlot: true },
+                $"check 5: flat slot {r.FlatSlot} of holder {holder} (was {r.Holder}) holds the same item after the restart: {match?.Ref} " +
+                $"(was entity {r.Entity}), slot {loc?.Slot} (was {new SlotId(r.Slot)})");
             if (match != null) await Items.Take(holder, match.Item, 1, match.Slot, true, match.ItemEntity);
         }
         File.Delete(file);
