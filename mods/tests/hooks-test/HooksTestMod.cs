@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System.Diagnostics;
+using System.Text.Json;
 using Kiln;
 
 namespace HooksTest;
@@ -9,7 +10,10 @@ namespace HooksTest;
 /// a replaced return (driven by directly invoking the detoured function with a sentinel entity so the running game is
 /// never affected), a mid hook, mod-shipped symbols, a reversible patch and its restore, and a per-call overhead
 /// measurement. The persistent detour/mid/patch installed in <see cref="OnLoad"/> let a reload test exercise install
-/// and owner-revoke on every reload. Prints "hooks-test: PASS|FAIL ..." lines and a summary.
+/// and owner-revoke on every reload. Link slots: 1,000 install/remove cycles of a detour and of a mid hook, and a run
+/// of hot reloads (<c>reload-test hooks-test 20</c>), must leave <c>linkSlots.used</c> in kiln/state/hooks.json where it
+/// started (the count of loads and the first full run's number live in a <see cref="Keep"/> block, which outlives a
+/// reload). Prints "hooks-test: PASS|FAIL ..." lines and a summary.
 /// </summary>
 public sealed class HooksTestMod : Mod
 {
@@ -33,6 +37,7 @@ public sealed class HooksTestMod : Mod
 
     public override void OnLoad()
     {
+        Keep.Span<int>(SlotsKey, 2)[0]++;  // loads of this mod in this process (survives hot reloads)
         if (!Hooks.Available)
         {
             Check(false, "kiln.hooks unavailable on this build");
@@ -161,12 +166,56 @@ public sealed class HooksTestMod : Mod
 
             Measure();
             Log.Info($"hooks-test: stats {Hooks.Stats()}");
+            await LinkSlots();
         }
         catch (Exception e)
         {
             Check(false, $"unexpected exception: {e}");
         }
         Log.Info($"hooks-test: done, {_pass} passed, {_fail} failed");
+    }
+
+    // ---- link slots ----
+    private const string SlotsKey = "hooks-test.link-slots";  // [0] loads, [1] linkSlots.used after the first full run
+
+    private static nuint CycleDetour(HookCall call) => call.CallOriginal();
+    private static void CycleMid(ref Registers r) { }
+
+    // linkSlots.used from kiln/state/hooks.json, once the core has written the changes so far (a one-shot timer, at most
+    // once per second after a change): about three seconds of steps.
+    private async Task<int> SlotsUsed()
+    {
+        for (var i = 0; i < 75; i++) await Context.Scheduler.NextTick();
+        var file = Path.GetFullPath(Path.Combine(Context.Info.Directory, "..", "..", "state", "hooks.json"));
+        using var doc = JsonDocument.Parse(File.ReadAllText(file));
+        return doc.RootElement.GetProperty("linkSlots").GetProperty("used").GetInt32();
+    }
+
+    private async Task LinkSlots()
+    {
+        const int Cycles = 1000;
+        // one install of each handler first: the first one takes its slot, every later one revives it
+        Hooks.Detour("GetComponent", CycleDetour).Remove();
+        var midAt = Symbols.TryGet("GetEntityTransform", out var gt) ? gt : Symbols.Get("GetComponent");
+        Hooks.Mid(midAt, CycleMid).Remove();
+        var start = await SlotsUsed();
+        var sw = Stopwatch.StartNew();
+        for (var i = 0; i < Cycles; i++) Hooks.Detour("GetComponent", CycleDetour).Remove();
+        for (var i = 0; i < Cycles; i++) Hooks.Mid(midAt, CycleMid).Remove();
+        sw.Stop();
+        var end = await SlotsUsed();
+        Check(end == start, $"{Cycles} detour and {Cycles} mid install/remove cycles leave linkSlots.used where it started " +
+                            $"({start} -> {end}, {sw.Elapsed.TotalMilliseconds:F0} ms)");
+
+        var keep = Keep.Span<int>(SlotsKey, 2);
+        var loads = keep[0];
+        if (keep[1] == 0)
+        {
+            keep[1] = end;
+            Log.Info($"hooks-test: link slots baseline {end} (load {loads}); a hot reload test compares against it");
+        }
+        else
+            Check(end == keep[1], $"after {loads - 1} hot reload(s) linkSlots.used is where it started ({keep[1]} -> {end})");
     }
 
     private unsafe nuint CallGetComponent(uint entity)
