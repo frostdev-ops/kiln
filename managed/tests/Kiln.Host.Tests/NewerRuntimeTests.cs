@@ -33,7 +33,7 @@ public sealed class NewerRuntimeTests : ModsFixture
     {
         // managed/Directory.Build.targets stamps it from git; a tree without git has none
         if (KilnBuild.Of(typeof(Kiln.Mod).Assembly) is not { } b) return;
-        Assert.StartsWith(Kiln.Mods.ApiVersion.Split('.')[0] + ".", b.Version);
+        Assert.StartsWith(Kiln.Mods.RuntimeApiVersion.Split('.')[0] + ".", b.Version);
         Assert.Matches(@"\+\d{8}\.[0-9a-f]{7,40}$", b.Version);
         Assert.NotNull(b.Created);
     }

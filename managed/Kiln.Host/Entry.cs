@@ -341,7 +341,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         var lrc = api->SubscribeLog(host._owner, &Entry.OnGameLogLine, null, &log);
         host._logHandle = lrc == KilnAbi.Ok ? log : ulong.MaxValue;  // MaxValue: unavailable
         if (lrc != KilnAbi.Ok) host.Log(LogLevel.Warn, $"game log mirror unavailable (rc {lrc}): ServerStarted fires at the first step");
-        host.Log(LogLevel.Info, $"Kiln.Host {typeof(HostRuntime).Assembly.GetName().Version} (mod API {Kiln.Mods.ApiVersion}" +
+        host.Log(LogLevel.Info, $"Kiln.Host {typeof(HostRuntime).Assembly.GetName().Version} (mod API {Kiln.Mods.RuntimeApiVersion}" +
                                 $"{(KilnBuild.Of(typeof(Kiln.Mod).Assembly) is { } build ? ", build " + build.Version : "")}) on .NET {Environment.Version}" +
                                 $"{(host._wine.Length > 0 ? ", Wine " + host._wine : "")}; side {host.CurrentSide().ToString().ToLowerInvariant()}; " +
                                 $"{host._profile}; {host._mods.Discover().Count()} mod folder(s), loading at the first server step; " +
@@ -824,7 +824,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         string sha;
         fixed (byte* p = _build.ExeSha256) sha = Marshal.PtrToStringAnsi((nint)p) ?? "";
         var up = DateTime.UtcNow - _startedAt;
-        return $"Kiln: {_version} (core), Kiln.Host {typeof(HostRuntime).Assembly.GetName().Version}, mod API {Kiln.Mods.ApiVersion}\n" +
+        return $"Kiln: {_version} (core), Kiln.Host {typeof(HostRuntime).Assembly.GetName().Version}, mod API {Kiln.Mods.RuntimeApiVersion}\n" +
                $".NET: {RuntimeInformation.FrameworkDescription}; OS: {RuntimeInformation.OSDescription}{(_wine.Length > 0 ? $" (Wine {_wine})" : "")}\n" +
                $"Game: {Path.GetFileName(Environment.ProcessPath)} sha256 {sha} ({(_build.Verified != 0 ? "verified" : "unverified")} build, " +
                $"hooks {(_build.HooksEnabled != 0 ? "on" : "off")}), side {CurrentSide().ToString().ToLowerInvariant()}\n" +
