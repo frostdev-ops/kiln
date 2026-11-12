@@ -218,8 +218,10 @@ restores, and shows a HUD line `sync-test: wood max … | resin max … | homes 
 `giveOnJoin` in the server config it gives the joined player one stack of that many wood logs after 15 s.
 
 ## Runtime (real client)
-A lab (bigstacks + sync-test, `maxHomes` 7, `giveOnJoin` 1000). Client build 26404966 with sync-test only (no
-BigStacks), joined through Join > Dedicated server > Search by IPv4 (`127.0.0.1:25900`).
+2026-11-04: a lab (bigstacks + sync-test, `maxHomes` 7, `giveOnJoin` 1000) on the same PC. Client build 26404966 with
+sync-test only (no BigStacks), joined through Join > Dedicated server > Search by IPv4 (`127.0.0.1:25900`). Later joined
+runs on the same kind of lab: [client.md](client.md), "Mods and sides". Not run: a joined session on a server on
+another machine or over the internet.
 - **Config sync**: `config state 234b7726 from the server: 2 config(s)`. On the client, `maxHomes` was 7 (the
   server's) with 3 in its file, read-only. Four `PASS client.config.*` lines.
   - A server file edit while connected (`maxHomes` 9) reached the client within 0.03 s of the server's reload.

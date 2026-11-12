@@ -8,8 +8,9 @@ it joins someone else's world, only the client world runs locally. RE evidence: 
 Status: **runtime-verified** on client build 26404966 (`sigdb/builds/client/ce6fdba6….json`,
 `"verified": true`): two launches through Steam (GE-Proton11-11), a new throwaway world
 hosted online (Host_Online) and offline (Host_Offline), two hosted sessions in one process, two clean exits. The server
-regression passes too: `build c5c9fe50…: verified`, all services load, tick-stats format unchanged. Not covered yet:
-joining a remote world (REMOTE), service write paths on the client, kiln.ui / kiln.net.
+regression passes too: `build c5c9fe50…: verified`, all services load, tick-stats format unchanged. Not covered by
+these runs: joining a remote world (REMOTE), service write paths on the client, kiln.ui / kiln.net. Joined sessions ran
+later: see "Mods and sides" below.
 
 Measured (kiln.log, tick-stats.jsonl, probe mod):
 | | server world (hosted) | client world | prediction |
@@ -91,8 +92,11 @@ A `"server"` or `"client"` section overrides the top-level keys on that side (`c
   - `client.d/<name>.json` with `"extends": "server.d/<name>.json"` is an overlay. Its entries replace the base's by
     name, and `"remove": {"symbols": [], "constants": [], "features": []}` drops base entries.
   - `client.d/<name>.json` without `"extends"` is a standalone client definition (e.g. `net.json`, `ui.json`).
-- Overlays today: `chat.json`, `time.json`, `saves.json` and `gameplay.json` (patterns that differ on the client). The
-  only feature off on the client is `time.weather`, plus `content.loot`, which is off on the server too.
+- Overlays today: `assets`, `chat`, `content`, `emf`, `gameplay`, `pacing`, `quests`, `rules`, `saves`, `skills` and
+  `time` (`.json`; patterns that differ on the client). The newest client build record, 26430625
+  (`sigdb/builds/client/5d9ef2f1….json`, verified), has all 109 of its features on, `time.weather` and `content.loot`
+  included; on 26404966 (`ce6fdba6…`) `content.loot` was off. The composed client set now declares 176 features; 67 of
+  them (audio, quests, rules, skills, pacing and others) are not in that record.
 - Tools:
   - `tools/sigport/sigdb_check.py sigdb/symbols/client.json <exe>` resolves exactly what the core will see.
   - `tools/sigport/sidecompare.py <server exe> <client exe>` compares the two sides function by function.
@@ -259,7 +263,11 @@ Runtime-verified (client 26430625, build verified; a LOCAL world hosted Offline 
   in 10.5 ms` / `5.4 ms`, `6 mod(s) stay loaded`; in the menu `/hosted` answers `Unknown command`, `/hostedboth`
   answers (phase Idle). kiln.combat: `server world closed (the game is closing it)`, then `world singletons: ...` at
   the next world's first step. 0 `[E` lines; the game quit normally.
-- Not run: a joined (remote) session (outward-facing).
+- Not run here: a joined (remote) session. Other runs had a Kiln client join a dedicated lab server on the same PC
+  (`127.0.0.1`, Join > Dedicated server > Search by IPv4): the sync run on client 26404966 ([sync.md](sync.md),
+  "Runtime (real client)"), the human checks of 2026-11-04, and the round 2 tests of 2026-11-04/05 (client 26430625,
+  server 26430253), with joins as the first and as a later world of one process. Not run: a joined session on a server
+  on another machine or over the internet, and a joined session with `server` mods among the client's own mods.
 
 ### For service authors: what changes in a client
 - Hooks on engine functions fire for **every** world: client and prediction worlds too. Check the world kind
