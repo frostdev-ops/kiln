@@ -76,6 +76,8 @@ internal static partial class Compiler
         public List<ItemDrop>? Drops;
         public bool Rolled;
         public IReadOnlyDictionary<string, ItemTexts>? Texts;
+        /// <summary>What it is held in: none (a material, armor), one hand, or both (daggers). A look's animated model is for what is held.</summary>
+        public HeldIn Held;
 
         public void Commit(string displayName, string? description, string? source = null)
         {
@@ -209,6 +211,7 @@ internal static partial class Compiler
     private static void CheckVisual(BlockContext ctx, VisualBlock v)
     {
         if (v.Vfx is { } vfx) VfxData.Lower(ctx, vfx, "vfx", Slot.HandR);
+        if (v.Animated is { } a) AnimatedParts(ctx, a, "animated", twoHands: true);
         if (v.Tint is { } t && !IsColour(t)) throw new BlockError(ctx.Block, "tint", $"\"{t}\" is not a colour: #rrggbb");
     }
 
@@ -266,7 +269,8 @@ internal static partial class Compiler
             d.Fields["itemColorCombinationSetup.color0"] = (double)rgba;
             d.Fields["itemColorCombinationSetup.isSet"] = true;
         }
-        if (v.Vfx is { } held) HeldVfx(d, v, held, $"{path}.vfx");
+        if (v.Animated is { } animated) AnimatedHeld(d, v, animated, $"{path}.animated");
+        else if (v.Vfx is { } held) HeldVfx(d, v, held, $"{path}.vfx");
     }
 
     private static void ApplyLoot(Draft d, LootBlock? l)
@@ -338,6 +342,7 @@ internal static partial class Compiler
             if (stamina < 0) throw new BlockError(ctx.Block, "stats.staminaCost", $"{stamina} is less than 0");
             d.Rules[$"impactValues.{ConfigStamina}"] = stamina;
         }
+        d.Held = cls.Key == WeaponClass.Daggers.Key ? HeldIn.BothHands : HeldIn.OneHand;
         // a roll can give it any rarity, so every slot has to be filled
         PerkSlots(d, perks ?? cls.Perks, loot is { Rolled: true } ? Rarity.Legendary : stats.Rarity, cls.PerksFrom != null ? 1 : 5, cls.PerksFrom, "perks", "stats.rarity");
         ApplyVisual(d, visual ?? cls.Visual, visual != null ? "visual" : "class.visual");
@@ -698,7 +703,7 @@ internal static partial class Compiler
         var mod = ctx.Mod.Id;
         var healPotion = kind == ItemKind.Consumable && b.Heals != null;
         var starter = kind == ItemKind.Tool ? b.Tool!.Harvests.Starter : healPotion ? "Consumable_Potion_Health_T1" : kind.Starter;
-        var d = new Draft(ctx, low, key, name, starter) { Texts = b.Texts };
+        var d = new Draft(ctx, low, key, name, starter) { Texts = b.Texts, Held = kind == ItemKind.Tool ? HeldIn.OneHand : HeldIn.None };
         if (b.Stack is { } stack) d.Fields["maxStackSize"] = stack;
         ApplyVisual(d, b.Visual, "visual");
         ApplyLoot(d, b.Loot);

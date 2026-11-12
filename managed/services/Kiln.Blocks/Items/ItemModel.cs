@@ -39,6 +39,23 @@ public sealed record VisualBlock : IBlock
     /// up the blade), or on what stands there for a placed thing, as a prop's light. A VFX of what happens goes on that: an on-hit, a status, an effect.</summary>
     [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
+    /// <summary>A model with moving parts for the hand: a skinned model of the mod's own and the graph that plays its clip. The item holds it in the hand its
+    /// class is held in, with <see cref="Vfx"/> on it; <see cref="Model"/> stays what the icon, the dropped model and the collection show. Then <c>clients: mod</c>.</summary>
+    public AnimatedModel? Animated { get; init; }
+}
+
+/// <summary>A held model that moves: the skinned model and the graph, each a GUID or the name of the <c>model</c> or <c>graph</c> step of <c>assets/cook.json</c> that makes
+/// it (the cook derives the GUID from the mod and that name). Daggers are held in both hands: <see cref="LeftModel"/> and <see cref="LeftGraph"/> are the left one's.</summary>
+public sealed record AnimatedModel
+{
+    /// <summary>The skinned model: a GUID, or the name of its <c>model</c> step.</summary>
+    public string? Model { get; init; }
+    /// <summary>The graph that plays its clip: a GUID, or the name of its <c>graph</c> step.</summary>
+    public string? Graph { get; init; }
+    /// <summary>Daggers only: the left hand's model. Null: the left hand holds <see cref="Model"/> too.</summary>
+    public string? LeftModel { get; init; }
+    /// <summary>Daggers only: the left hand's graph. Null: <see cref="Graph"/>.</summary>
+    public string? LeftGraph { get; init; }
 }
 
 /// <summary>What an item does to what its wearer hits. A list of effects works wherever this is asked for: <c>OnHit = [burst]</c>.</summary>

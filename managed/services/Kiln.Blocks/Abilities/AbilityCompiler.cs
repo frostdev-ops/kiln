@@ -216,6 +216,9 @@ internal static partial class Compiler
         if (a.Key != null) ctx.Need(ClientsLevel.Mod, "key", "binding a key needs the mod on the player's game");
         if (cast.Animation != null && cast.Vfx != null) ctx.Need(ClientsLevel.Kiln, "cast.vfx", "new data that names a VFX has to reach the players' games: Kiln clients get it from the server");
         if (cast.Animation == null && cast.Vfx != null) throw new BlockError(ctx.Block, "cast.vfx", "without an animation there is no motion to carry it: put it on the delivery");
+        if (cast.Animation is { Animation: not null } or { HitAt: not null })
+            throw new BlockError(ctx.Block, cast.Animation.Animation != null ? "cast.animation.animation" : "cast.animation.hitAt",
+                $"ability {a.Name}: not yet on an ability's cast. A spell's cast and a wand attack's moves take it (docs/kiln/modding/item-blocks.md, \"Moves\")");
 
         var delivery = a.Delivery ?? new SelfBlock { Effects = a.OnCast! };
         var onCast = a.Delivery == null ? null : a.OnCast;

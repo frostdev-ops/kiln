@@ -737,7 +737,19 @@
         "icon": { "type": "string", "anyOf": [ { "$ref": "#/$defs/iconPng" }, { "not": { "pattern": "\\.[pP][nN][gG]$" } } ], "x-kiln-message": "item:<name>, an item's GUID, or a PNG in the mod's folder by a path relative to it (no full path, no '..')", "description": "The icon alone: item:<name>, or a PNG in the mod's folder (then clients \"mod\")." },
         "dropped": { "$ref": "#/$defs/itemRef", "description": "An item whose model this shows lying on the ground." },
         "tint": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The colour of the parts the game lets you tint." },
-        "vfx": { "$ref": "#/$defs/vfx", "description": "A VFX on the thing itself while it is there: in the hand while held (right hand, at the grip, by default), or on what stands there for a placed thing." }
+        "vfx": { "$ref": "#/$defs/vfx", "description": "A VFX on the thing itself while it is there: in the hand while held (right hand, at the grip, by default), or on what stands there for a placed thing." },
+        "animated": { "$ref": "#/$defs/animatedModel" }
+      },
+      "additionalProperties": false
+    },
+    "animatedModel": {
+      "type": "object",
+      "description": "A held model with moving parts: a skinned model of the mod's and the graph that plays its clip, held in the class's hand with the look's vfx on it (then clients \"mod\"). Each is a GUID or the name of its model or graph step of assets/cook.json.",
+      "properties": {
+        "model": { "type": "string", "minLength": 1, "description": "The skinned model: a GUID or its model step's name." },
+        "graph": { "type": "string", "minLength": 1, "description": "The graph that plays its clip: a GUID or its graph step's name." },
+        "leftModel": { "type": "string", "minLength": 1, "description": "Daggers only: the left hand's model. Default: model." },
+        "leftGraph": { "type": "string", "minLength": 1, "description": "Daggers only: the left hand's graph. Default: graph." }
       },
       "additionalProperties": false
     },
