@@ -11,7 +11,11 @@ internal sealed class InstanceGame : IInstanceWorld
     private Action<ItemInstanceRef, InstancePlace, ulong>? _gone;
     private bool _subscribed;
 
-    public void Require() => ItemInstances.Require();
+    public void Require()
+    {
+        ItemInstances.Require();
+        SpawnLink.RequireIdentity();
+    }
 
     public ulong Step => ServiceTick.Step;
 
@@ -52,7 +56,7 @@ internal sealed class InstanceGame : IInstanceWorld
 
     public HolderIdentity Holder(EntityId holder) => IdentityOf(holder, CharacterStore.KeyOf);
 
-    public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius) => SpawnLink.Find(template, near, radius, 16);
+    public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius) => SpawnLink.Find(template, near, radius, 16, required: true);
 
     public IReadOnlyList<(EntityId Entity, CharacterKey Character)> PlayersInGame() =>
         Players.Available
@@ -80,7 +84,7 @@ internal sealed class InstanceGame : IInstanceWorld
     {
         if (holder.IsNone) return HolderIdentity.None;
         if (holder.IsPlayer) return HolderIdentity.OfPlayer(characterOf(holder), $"player {holder}");
-        if (!SpawnLink.Available) return HolderIdentity.None;
+        SpawnLink.RequireIdentity();
         SpawnLink.Ent? ent;
         try
         {
@@ -91,8 +95,9 @@ internal sealed class InstanceGame : IInstanceWorld
             throw new KilnUnavailableException("kiln.spawn", e.Message, e);
         }
         if (ent?.Template is not { } template) return HolderIdentity.None;
-        var meta = SpawnLink.Template(template);
+        var meta = SpawnLink.Template(template, required: true);
+        if (!meta.known) throw new KilnUnavailableException("kiln.spawn", "holder template flags are not ready");
         if (!meta.canPersist) return HolderIdentity.None;
-        return HolderIdentity.OfWorld(template, ent.Position, SpawnLink.IsMobile(template), ent.Name);
+        return HolderIdentity.OfWorld(template, ent.Position, meta.kind is 1 or 4, ent.Name);
     }
 }

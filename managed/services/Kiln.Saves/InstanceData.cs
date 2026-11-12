@@ -78,7 +78,7 @@ public sealed class InstanceKey<T> where T : class, new()
 /// them. A mod reload keeps the data: live objects are written out as JSON when the mod unloads and read into the new
 /// instance's types. Values of a mod that is not loaded are kept unread and move with their item.</para>
 /// <para>Capability <c>saves.instance_data</c>: kiln.saves, kiln.items' item instances (<c>items.instances</c>) and the
-/// world's data open. When it is off the calls throw <see cref="KilnUnavailableException"/>; declaring a key needs
+/// kiln.spawn's holder inspection/search/metadata, and the world's data open. When it is off the calls throw <see cref="KilnUnavailableException"/>; declaring a key needs
 /// nothing.</para>
 /// </remarks>
 public static class InstanceData

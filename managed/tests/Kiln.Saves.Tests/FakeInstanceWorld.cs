@@ -39,6 +39,8 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     private uint _nextId;
     public ulong Step { get; set; } = 1000;
     public bool Off { get; set; }
+    public bool SpawnOff { get; set; }
+    public bool FindOff { get; set; }
 
     /// <summary>A leaving player's entity answers without its character (a lookup after its record was reset).</summary>
     public bool ForgetLeavingCharacter { get; set; }
@@ -85,13 +87,18 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         return new Handle(this, item);
     }
 
-    public HolderIdentity Holder(EntityId holder) => !Holders.TryGetValue(holder.Value, out var h) ? HolderIdentity.None
-        : h.Identity.Kind == HolderKind.Player && !h.InGame && ForgetLeavingCharacter ? HolderIdentity.OfPlayer(default, h.Identity.Name)
-        : h.Identity;
+    public HolderIdentity Holder(EntityId holder)
+    {
+        if (SpawnOff) throw new KilnUnavailableException("kiln.spawn", "holder identity unavailable in the test");
+        return !Holders.TryGetValue(holder.Value, out var h) ? HolderIdentity.None
+            : h.Identity.Kind == HolderKind.Player && !h.InGame && ForgetLeavingCharacter ? HolderIdentity.OfPlayer(default, h.Identity.Name)
+            : h.Identity;
+    }
 
     public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius)
     {
         FindCalls++;
+        if (FindOff || SpawnOff) throw new KilnUnavailableException("kiln.spawn", "find unavailable in the test");
         return Holders.Values.Where(h => h.Identity.Kind == HolderKind.World && h.Identity.Template == template && h.Identity.Position.DistanceTo(near) <= radius)
             .OrderBy(h => h.Identity.Position.DistanceTo(near)).Select(h => h.Entity).ToList();
     }

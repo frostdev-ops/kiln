@@ -135,7 +135,7 @@ lab has no real player, so that half rests on unit tests against the fake and on
 
 | Capability | Means |
 |---|---|
-| `saves.instance_data` | `InstanceData` works: kiln.saves, kiln.items' item instances (`items.instances`), and the world's data open (`Saves.WorldDataReady`) |
+| `saves.instance_data` | `InstanceData` works: kiln.saves, kiln.items' item instances (`items.instances`), kiln.spawn's holder inspection/search/metadata, and the world's data open (`Saves.WorldDataReady`) |
 | `saves.instance_data.carried` | `Persist.Carried`: not available in this release; declaring such a key throws `KilnUnavailableException` |
 
 **`Persist.Carried` is not available yet.** `Persist.World` keeps the value on this world's save, the item in a player's
@@ -289,7 +289,7 @@ server), and the client's file changes only when the server sends the character 
 - 64 KB per value as JSON, checked at `Set` (`ArgumentException`). A live object that grows past it is not written in
   that state: its last form that fit is saved, logged once per item and key, shown by `/instances`.
 - A holder never found: kept 3 sessions, then dropped (`Unmatched`). A session without kiln.items' item instances does not
-  count, and its records ride into the next generation unchanged.
+  count, nor does a session in which holder search could not answer; its records ride into the next generation unchanged.
 
 ### `/instances [player|entity]`
 Admin only, owned by "kiln" (node `kiln.command.instances`). Per mod: what is attached (item, holder, slot, keys), what

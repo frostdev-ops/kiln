@@ -147,6 +147,7 @@ internal sealed class HolderEntry
 
     public int Missed;
     public bool MissCounted;
+    public bool FindUnavailable; // this session cannot count towards dropping records
     public string? Aside;
     public bool Crowded;
     public uint LastWitness;
@@ -525,17 +526,7 @@ internal sealed class InstanceStore
         l.Follow = null;
     }
 
-    private HolderIdentity HolderOf(IInstanceWorld w, EntityId holder)
-    {
-        try
-        {
-            return w.Holder(holder);
-        }
-        catch (KilnUnavailableException)
-        {
-            return HolderIdentity.None;
-        }
-    }
+    private HolderIdentity HolderOf(IInstanceWorld w, EntityId holder) => w.Holder(holder);
 
     // ------------------------------------------------------------------------------------- moves and gone ----
 
@@ -544,9 +535,18 @@ internal sealed class InstanceStore
         if (LiveOf(item) is not { } live || _world is not { } w) return;
         // "Exists, placed nowhere" (its holder's teardown, maybe a drag): changes nothing the store knows of its place.
         if (to.Holder.IsNone) return;
+        HolderIdentity identity;
+        try
+        {
+            identity = HolderOf(w, to.Holder);
+        }
+        catch (KilnUnavailableException)
+        {
+            return; // the next staging re-reads it; unavailable is not a new identity
+        }
         var same = to.Holder == live.Place.Holder;
         live.Place = to;
-        live.Holder = Kept(live.Holder, same, HolderOf(w, to.Holder));
+        live.Holder = Kept(live.Holder, same, identity);
     }
 
     /// <summary>A holder identity read again. While the item stays in the same holder entity (ids are never used twice in a
@@ -603,7 +603,7 @@ internal sealed class InstanceStore
         _matching = true;
         _windowCounted = false;
         _windowEnd = 0;
-        foreach (var h in _holders) h.MissCounted = false;
+        foreach (var h in _holders) h.MissCounted = h.FindUnavailable = false;
     }
 
     /// <summary>Tick thread, about once a second: players who left or joined, world holders that streamed in, the end of
@@ -626,7 +626,8 @@ internal sealed class InstanceStore
         }
         catch (KilnUnavailableException)
         {
-            // the item reads cannot answer now: nothing is decided this time
+            // A session with unavailable reads is not evidence that an absent holder was destroyed.
+            foreach (var h in _holders.Where(h => h.Key.Kind == HolderKind.World && !h.IsBound)) h.FindUnavailable = true;
         }
     }
 
@@ -781,7 +782,16 @@ internal sealed class InstanceStore
             SetHolderAside(h, $"another entity of its template stood within {h.Key.Radius} m of it at the save");
             return false;
         }
-        var found = w.FindHolders(h.Key.Template, h.Key.Position, h.Key.Radius);
+        IReadOnlyList<EntityId> found;
+        try
+        {
+            found = w.FindHolders(h.Key.Template, h.Key.Position, h.Key.Radius);
+        }
+        catch (KilnUnavailableException)
+        {
+            h.FindUnavailable = true;
+            return false;
+        }
         var free = found.Where(e => !_byEntity.ContainsKey(e.Value)).Distinct().ToArray();
         if (free.Length == 0) return false;
         if (free.Length > 1)
@@ -821,7 +831,7 @@ internal sealed class InstanceStore
         _windowCounted = true;
         foreach (var h in _holders.Where(h => h.Key.Kind == HolderKind.World && !h.IsBound && h.Aside is null && h.Records.Count > 0).ToArray())
         {
-            if (h.MissCounted) continue;
+            if (h.MissCounted || h.FindUnavailable) continue;
             h.MissCounted = true;
             h.Missed++;
             if (h.Missed >= MaxMissedSessions)
@@ -1179,11 +1189,19 @@ internal sealed class InstanceStore
                 // "exists, placed nowhere" (its holder's teardown): it keeps its last placed location and its old observation
                 if (now is { } n && !n.Place.Holder.IsNone)
                 {
-                    var same = n.Place.Holder == live.Place.Holder;
-                    live.Place = n.Place;
-                    live.Fields = n.Fields;
-                    live.Holder = Kept(live.Holder, same, HolderOf(w!, n.Place.Holder));
-                    live.Fresh = true;
+                    try
+                    {
+                        var identity = HolderOf(w!, n.Place.Holder);
+                        var same = n.Place.Holder == live.Place.Holder;
+                        live.Place = n.Place;
+                        live.Fields = n.Fields;
+                        live.Holder = Kept(live.Holder, same, identity);
+                        live.Fresh = true;
+                    }
+                    catch (KilnUnavailableException)
+                    {
+                        // Keep its last observed holder and witness, never treat an unavailable identity as none.
+                    }
                 }
             }
             if (!byHolder.TryGetValue(live.Place.Holder.Value, out var list)) byHolder[live.Place.Holder.Value] = list = [];

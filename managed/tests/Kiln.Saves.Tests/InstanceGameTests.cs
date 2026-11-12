@@ -84,7 +84,19 @@ public sealed class InstanceGameTests : IDisposable
         Assert.Equal(HolderKind.None, InstanceGame.IdentityOf(new EntityId(2046), _ => Hero).Kind);  // never saved
         Assert.Equal(HolderKind.None, InstanceGame.IdentityOf(new EntityId(2048), _ => Hero).Kind);  // no such entity
         TestWorld.Available = false;
-        Assert.Equal(HolderKind.None, InstanceGame.IdentityOf(new EntityId(2042), _ => Hero).Kind);  // no kiln.spawn
+        Assert.Throws<KilnUnavailableException>(() => InstanceGame.IdentityOf(new EntityId(2042), _ => Hero));
+    }
+
+    [Fact]
+    public void SpawnErrorsAreUnavailableNotAbsent()
+    {
+        var game = new InstanceGame();
+        TestWorld.InspectResult = 3;
+        Assert.Throws<KilnUnavailableException>(() => InstanceGame.IdentityOf(new EntityId(2042), _ => Hero));
+        TestWorld.FindResult = 3;
+        Assert.Throws<KilnUnavailableException>(() => game.FindHolders(Chest, default, 1));
+        TestWorld.Available = false;
+        Assert.Throws<KilnUnavailableException>(() => game.FindHolders(Chest, default, 1));
     }
 
     [Fact]

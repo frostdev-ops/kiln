@@ -13,6 +13,36 @@ public sealed class InstanceReviewTests : IDisposable
 
     public void Dispose() => _h.Dispose();
 
+    [Fact]
+    public void AnUnavailableHolderIdentityRefusesSetInsteadOfKeepingItOnlyInMemory()
+    {
+        var w = _h.World;
+        var sword = w.Give(w.Chest(ChestTemplate, A), 0, Sword);
+        w.SpawnOff = true;
+        var error = Assert.Throws<KilnUnavailableException>(() => _h.Tag(sword, 1));
+        Assert.Contains("kiln.spawn", error.Message);
+        Assert.Null(Store.Instances.LiveOf(sword));
+    }
+
+    [Fact]
+    public void ASessionsFailedFindDoesNotCountEvenIfItRecoversBeforeTheDeadline()
+    {
+        var w = _h.World;
+        _h.Tag(w.Give(w.Chest(ChestTemplate, A), 0, Sword), 1);
+        _h.Save(1);
+        for (uint generation = 1; generation <= 3; generation++)
+        {
+            var absent = new FakeInstanceWorld { FindOff = true };
+            _h.Restart(generation, absent);
+            absent.FindOff = false; // the failed answer earlier in this session still matters
+            _h.EndWindow();
+            Assert.Single(Store.Instances.Holders);
+            Assert.Equal(0, Store.Instances.Holders[0].Missed);
+            _h.Save(generation + 1);
+        }
+        Assert.Empty(_h.Of<InstanceDataLostEvent>());
+    }
+
     [Theory]
     [InlineData("committed")]
     [InlineData("pending")]
