@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "kiln": "0.2.0-dev.25",
+  "pid": 4242,
+  "written": "2026-11-11T22:40:00Z",
+  "side": "server",
+  "exe": { "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "verified": true },
+  "hooks": true,
+  "safeIdle": null,
+  "generation": 3,
+  "futureKey": "ignored",
+  "capabilities": [
+    { "name": "items.fuel", "state": "available", "reason": "none", "reasonText": "", "source": "sigdb" },
+    { "name": "items.moves", "state": "pending", "reason": "session", "reasonText": "no world is loaded yet", "source": "host", "session": true },
+    { "name": "kiln.items", "state": "available", "reason": "none", "reasonText": "v3", "source": "service:kiln-items.dll" },
+    { "name": "kiln.render", "state": "unavailable", "reason": "wrong-side", "reasonText": "client only", "source": "core" },
+    { "name": "net.kick", "state": "unavailable", "reason": "symbol-missing", "reasonText": "symbol net/KickPlayer: find[0]: 0 matches", "source": "sigdb" },
+    { "name": "net.lobby", "state": "unavailable", "reason": "other-14", "reasonText": "", "source": "core", "extra": 1 }
+  ]
+}
