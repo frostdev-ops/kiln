@@ -39,7 +39,8 @@ picked up), calls `Load` once for each mod that supports this side (`hasClientSu
 Differences, all on the safe side:
 - A DLL is loaded only when its export table (read from the file) has `CreateModInstance`. Shroudtopia 1.0 loads any
   DLL in a `mods/<name>/` folder, which in a shared `mods/` folder also runs other loaders' DLLs (Flame, EML packages);
-  Kiln never does. Folders with `flame.json` or `src/mod.lua` are skipped.
+  Kiln never does. Folders with `flame.json` are skipped. A folder that is also an EML mod (`src/mod.lua`) gets its
+  Shroudtopia module loaded, and only that (Skill Search ships both parts in one folder).
 - DLL initialization, the factory, metadata and loader-invoked lifecycle calls are fault-guarded: a mod that faults or throws is switched off until the next start, the game
   runs on. Mod-owned threads and direct detours are outside those guards.
 
