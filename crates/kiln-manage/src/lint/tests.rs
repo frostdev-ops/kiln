@@ -18,6 +18,8 @@ fn file_names_map_to_schemas() {
     assert_eq!(k("mods/x/content/a.json").as_deref(), Some("content"));
     assert_eq!(k("mods/x/assets/assets.json").as_deref(), Some("assets"));
     assert_eq!(k("mods/x/assets/cook.json").as_deref(), Some("cook"));
+    assert_eq!(k("mods/x/assets/player-states.json").as_deref(), Some("playerstates"));
+    assert_eq!(k("mods/x/assets/cooked/player-states.json"), None); // what the cook writes is not the author's file
     assert_eq!(k("mods/x/impact/cook.json").as_deref(), Some("cook"));
     assert_eq!(k("mods/x/impact/natives.json").as_deref(), Some("natives"));
     assert_eq!(k("mods/x/native.json").as_deref(), Some("native"));

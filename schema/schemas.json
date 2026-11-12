@@ -86,6 +86,21 @@
       "docs": "docs/kiln/modding/models.md#cookjson-format-1"
     },
     {
+      "schema": "player-states.schema.json",
+      "name": "Kiln player states",
+      "kind": "playerstates",
+      "fileMatch": [
+        "**/assets/player-states.json"
+      ],
+      "dialect": {
+        "comments": false,
+        "trailingCommas": false,
+        "bom": false
+      },
+      "reader": "tools/animcook/anicook/playerstates.py (Python json: strict, a key twice refused) and native/services/playeranim/states.cpp (its port: the same rules)",
+      "docs": "docs/kiln/modding/animations.md#player-states-states-of-your-own-in-the-players-graph"
+    },
+    {
       "schema": "impact-natives.schema.json",
       "name": "Kiln natives of a mod's Impact programs",
       "kind": "natives",
