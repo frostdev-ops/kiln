@@ -254,7 +254,13 @@ public:
 
 }  // namespace
 
-extern "C" __declspec(dllexport) Mod* CreateModInstance() { fault_if(L"factory-fault"); return new TestMod(); }
+volatile LONG g_instances = 0;  // CreateModInstance calls on this module (compathost --load-create, issue 23)
+extern "C" __declspec(dllexport) Mod* CreateModInstance() {
+    fault_if(L"factory-fault");
+    InterlockedIncrement(&g_instances);
+    return new TestMod();
+}
+extern "C" __declspec(dllexport) long kiln_shroudtopia_test_instances() { return InterlockedCompareExchange(&g_instances, 0, 0); }
 extern "C" __declspec(dllexport) bool kiln_shroudtopia_test_patch_restored() { return g_patch_data[3] == 4; }
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID) { return TRUE; }
