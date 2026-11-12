@@ -41,11 +41,16 @@ and leans forward, and so does the raised sword. Only a game client shows how it
 ## Cook, build, run
 
 Someone who imports the release zip has everything the cook needs: `assets/src/riposte.gltf` ships in it, and the rest is read
-from the installed game. The cook needs Python and the Kiln source (`KILN_REPO`), as every cooked mod does today. In the mod's folder:
+from the installed game. The cook needs Python and the Kiln source (`KILN_REPO`), as every cooked mod does today. On the mod's
+folder (the one with `kiln.mod.json`):
 
 ```sh
-python3 "$KILN_REPO/tools/animcook/animcook.py" recipe assets/cook.json --update-manifest
+KILN_REPO=<a Kiln source checkout> kiln cook <the mod's folder>                             # a player's game
+KILN_REPO=<a Kiln source checkout> kiln cook <the mod's folder> --game <the server's folder> # a dedicated server
 ```
+
+`kiln cook` runs the recipe's tool; the same by hand, in the mod's folder:
+`python3 "$KILN_REPO/tools/animcook/animcook.py" recipe assets/cook.json --update-manifest`.
 
 From the repository:
 
@@ -84,7 +89,8 @@ with other player states refused. They need a player and have not been run.
 
 ## What is not proven
 
-Nothing of this sample has been seen in a game client yet in this form. Checked without a client: the cooked clips against the
+An earlier form of this sample has been seen in a game client: its states played on the Riposte Sword after a join check that
+passed, with the body in the skeleton's bind pose outside the arm. This form, on the game's clips, has not been seen in a client yet. Checked without a client: the cooked clips against the
 game's (above), the same bytes cooked from a dedicated server's files and from a client's. On a dedicated server, the lab test
 `mods/tests/player-anim-test/run.py` (its own fixture mods, not this sample) shows states entered by sequences on a spawned player
 character and their poses following their clips. How the arm looks on the game's body, the blends in and out, and the hits landing

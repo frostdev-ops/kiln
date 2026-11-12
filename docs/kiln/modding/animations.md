@@ -404,6 +404,12 @@ refused, and another name fixes it.
 - For an overlay and for a block, your clip plays in the neighbour's layer, under its bone mask: the arms of a cast, the guard
   over the legs. The rest of the body plays what the game plays.
 - Its length, loop, root motion and events are the clip's own.
+- A clip sampled from a glTF writes every joint it does not animate at the skeleton's bind pose, so a full-body state built from
+  an arm motion alone shows the body standing stiff while the arm moves. To keep the body moving, make the state's clip `from` the
+  game clip of its `like` and blend your own motion in by `bones` (`j70` to `j74` for the sword arm: upper arm, forearm and hand
+  with their twist joints): the body, the other arm, the grip, the root motion and the events stay the game's.
+  `mods/samples/PlayerStates` and `mods/samples/WeaponMoves` do it; `mods/samples/check_player_clips.py` decodes the cooked clips
+  and checks that no joint the game clip moves is left at the bind pose.
 
 ### Checking it
 

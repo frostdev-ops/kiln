@@ -36,9 +36,11 @@ clip moves is left at the skeleton's bind pose. The hand and the arm's twist joi
 arm and the forearm only.
 
 **Cooking an imported copy:** the release zip holds `assets/src/` and the recipe; the rest is read from the installed game. With Python and
-the Kiln source (`KILN_REPO`), in the mod's folder: `python3 "$KILN_REPO/tools/modelcook/modelcook.py" recipe assets/cook.json --update-manifest`.
-A dedicated server cooks the clips and the states the same way (on this build its model steps fail there: they read a model only the client has).
+the Kiln source (`KILN_REPO`): `kiln cook <the mod's folder>` (the folder with `kiln.mod.json`), which runs
+`python3 "$KILN_REPO/tools/modelcook/modelcook.py" recipe assets/cook.json --update-manifest` there. A dedicated server cooks the clips and
+the states the same way with `--game <the server's folder>`; its model steps are skipped there, one line each: only a game client draws them.
 
-Not seen in a game client yet.
+An earlier form of this sample has been seen in a game client: the moves played after a join check that passed, with the body in the
+skeleton's bind pose outside the arm. This form, on the game's clips, has not been seen in a client yet.
 
 Docs: `docs/kiln/modding/item-blocks.md` ("Moves", "Parts"), `docs/kiln/modding/animations.md` ("`clips`", "Retargeting", "Player states").
