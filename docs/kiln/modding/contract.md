@@ -1,0 +1,100 @@
+# The API contract: errors, identity, threads
+
+Three rules that every Kiln API follows, or is moving to. The types live in `Kiln.Api`
+(`managed/Kiln.Api/Results.cs`, `Identity.cs`, `ThreadingAttributes.cs`), so every mod has them without listing a
+service. Tests: `managed/tests/Kiln.Api.Tests/IdentityTests.cs`, `ContractTests.cs`, `ItemIdForwardTests.cs`.
+
+## 1. The error rule
+
+A call can fail in three ways, and each way has one shape.
+
+| What happened | What you get |
+|---|---|
+| The game refused (player left, slot full, already set) | a result with `Ok = false` and a `Reason` |
+| Your argument is wrong (unknown id, out of range, null) | `ArgumentException` (or a subclass) is thrown |
+| The capability is off (service not loaded, this game build lacks it, wrong side) | `KilnUnavailableException` is thrown |
+
+A refusal by the game is normal play, so it is a value you check, not an exception:
+
+```csharp
+var r = await Knowledge.Grant(player, name);
+if (!r.Ok) Log.Info($"not granted: {r.Reason}");   // e.g. the player left before the step
+```
+
+A bad argument is a bug in the mod, so it throws:
+
+```csharp
+SlotId.Of(inventory, 9);   // ArgumentOutOfRangeException: an inventory has slots 0-7
+```
+
+A capability that is off throws `KilnUnavailableException`. It names the capability (`Capability`) and says why
+(`Reason`, may be null). It derives from `NotSupportedException`, so code that already catches
+`NotSupportedException` keeps working:
+
+```csharp
+try
+{
+    var me = EntityRef.Of(entity);
+}
+catch (KilnUnavailableException e) when (e.Capability == "identity.entities")
+{
+    Log.Warn(e.Message);   // "identity.entities is not available: …"
+}
+```
+
+`Knowledge` already behaves this way: game reasons come back as `KnowledgeResult.Ok = false`, unknown ids and bad
+arguments throw (`managed/services/Kiln.Quests/Knowledge.cs`, the remarks on `Knowledge`, lines 194-197).
+
+`IKilnResult` (`bool Ok`, `string? Reason`) is the common shape of such results. The services' result records
+implement it from dev.26 on; in this release none does yet, and other services may still throw their own exception
+types for an unavailable capability.
+
+## 2. Identity: EntityRef, PlayerRef, ItemId
+
+An `EntityId` is a number, and the game hands the same number to a new entity after the old one is destroyed. A mod
+that keeps an id across steps (a dummy it spawned, a chest it watches) can end up talking to a different entity. The
+ref types carry enough to notice that.
+
+- **`EntityRef(EntityId Id, ulong Serial)`**: an id plus the spawn serial it had when it was captured.
+  `EntityRef.Of(id)` captures it (tick thread). `default` / `EntityRef.None` is no entity. A ref converts
+  implicitly to `EntityId`, so you pass it to every API that takes an id; there is no conversion the other way, as
+  that would hide the capture.
+- **`IsAlive`** (tick thread) is false for `None`, false when the id no longer exists, false when no service supplies
+  serials, and false when the id now has another serial: the id was reused. When the ref has no serial
+  (`HasSerial` false, `Serial` 0), `IsAlive` can only say that the id exists. That is the weaker answer: a reused id
+  still counts as alive. Check `HasSerial` when it matters.
+- Where serials come from is up to the service that fills the seam. kiln.spawn has a tracker serial only for entities
+  Kiln spawned with tracking; the game's `SpawnTime` component exists on entities spawned at run time, not on
+  entities loaded from the save. An entity with neither has serial 0.
+- **`PlayerRef(ulong SteamId, Guid CharacterId, EntityRef Entity)`**: a person: the Steam id, the character
+  (`Guid.Empty` when unknown, see `HasCharacter`) and the session entity (none while offline). `PlayerRef.Of(entity)`
+  finds the player of a session entity (`None` when it is not one); `Resolve()` gives the same person with their
+  current session entity. `IsOnline` is true while the held session entity is alive, so a ref from an earlier session
+  says false; call `Resolve()` to find them again. With no player service, `Of` and `Resolve` throw
+  `KilnUnavailableException("identity.players")`.
+- **`ItemId`**: an item type (FNV-1a-32 of the item's GUID). It moved from Kiln.Items to Kiln.Api in dev.25.
+  Kiln.Items forwards the type, so a mod built against the old Kiln.Items still loads and sees the same type.
+
+Capabilities: `identity.entities` (entity serials), `identity.players` (players).
+
+In this release the types exist and `IsAlive` and `Of` work as soon as a service fills the seam. The services start
+handing out and taking these types as their packages land; until then they still use `EntityId` and their own
+player types.
+
+## 3. Side and thread attributes
+
+Kiln marks its APIs with where and on which thread they may be called. The attributes are in `Kiln.Api` and a mod
+may use them on its own code too.
+
+| Attribute | Means |
+|---|---|
+| `[TickThreadOnly]` | Call it on the server-world tick thread only; elsewhere it throws `InvalidOperationException`. Use `Scheduler.Post` to get there. |
+| `[ServerOnly]` | It works on the server (a dedicated server, or the host of a local game). |
+| `[ClientOnly]` | It works on a game client only. |
+| `[AnyThread]` | Safe from any thread. |
+| `[RenderThread]` | Call it on the game's render thread only (client). |
+| `[WorkerThread]` | It runs on, or may be called from, a worker thread; do not touch game state there. |
+
+Only `[TickThreadOnly]` has an analyzer rule today: [KILN101](analyzers.md#kiln101) warns when such a member is
+called from code that runs on another thread. The other five are markers for now; their analyzer rules are planned
+for dev.26.
