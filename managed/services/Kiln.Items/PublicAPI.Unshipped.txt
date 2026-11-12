@@ -94,3 +94,5 @@ static Kiln.Items.Held(Kiln.EntityId player) -> Kiln.ItemInstanceRef
 [KILNX001]static Kiln.Items.LabMoveUnseen(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
 [KILNX001]static Kiln.Items.LabInstancesStatus.get -> string!
 ~override Kiln.ItemLocation.Equals(object obj) -> bool
+[KILNX001]static Kiln.Items.LabTrackerReadsPerStep.get -> int
+[KILNX001]static Kiln.Items.LabTrackerReadsPerStep.set -> void
