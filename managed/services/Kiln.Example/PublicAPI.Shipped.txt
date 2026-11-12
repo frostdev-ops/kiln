@@ -1,0 +1,4 @@
+#nullable enable
+Kiln.Example
+static Kiln.Example.Available.get -> bool
+static Kiln.Example.Steps.get -> ulong
