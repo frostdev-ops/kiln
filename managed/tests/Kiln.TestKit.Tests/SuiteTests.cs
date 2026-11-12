@@ -125,6 +125,28 @@ public sealed class SuiteTests
         Assert.Equal(1, session.HarnessCount);
     }
 
+    private sealed class ShutdownFailureSuiteKey { }
+
+    [Fact]
+    public void ABlockedSuiteShutdownIsAnXunitCleanupFailure()
+    {
+        var session = KilnTestSuites.Enter(typeof(ShutdownFailureSuiteKey), () => new KilnTestSession(k =>
+        {
+            k.Load<TkBlock.TkUnloadBlockMod>(new ModManifest("tk-stuck"));
+            return k.Load<TkSuiteMod>(new ModManifest("tk-suite"));
+        }, () => new KilnHarnessOptions { StopTimeout = TimeSpan.FromMilliseconds(250) }));
+        Assert.Equal(TestOutcome.Pass, session.Run("TkSuiteMod.First_sets_state").Outcome);
+
+        var error = Record.Exception(() => KilnTestSuites.Close(typeof(ShutdownFailureSuiteKey)));
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.Contains("tk-stuck", error.Message);
+        Assert.Contains("OnUnload", error.Message);
+        Assert.Contains("blocked the tick thread", error.Message);
+        using var next = new KilnHarness();
+        next.Step();
+    }
+
     [Fact]
     public void ResultsMapOntoXunit()
     {

@@ -167,7 +167,8 @@ Ordinary harness calls, including `Step`, `Unload` and `Reload`, have a 30 s wat
 (`KilnHarnessOptions.CallTimeout`). `Dispose` bounds the server stop separately to 30 s
 (`KilnHarnessOptions.StopTimeout`). A blocked mod callback is stopped and the harness abandoned, as for a stopped
 test; the exception reports the mod id and the stack where the stop reached it. Disposal still retires the remaining
-mods without running their callbacks and releases the harness for the next test.
+mods without running their callbacks and releases the harness for the next test. In an xunit suite a shutdown failure
+is a fixture-cleanup failure, not just a diagnostic, so a blocked `OnUnload` cannot leave the suite green.
 
 A `[KilnTest]` that blocks the tick thread (a loop, `Thread.Sleep`, `.Result`, a lock) past its timeout and a grace
 of 2 s (`KilnTestSuite.WatchdogGrace`) is stopped: an interrupt for a wait, a lock or a sleep, an abort for a loop. It

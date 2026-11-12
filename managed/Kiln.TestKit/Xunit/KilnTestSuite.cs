@@ -150,14 +150,14 @@ internal static class KilnTestSuites
     {
         lock (Lock)
         {
-            if (Interlocked.Exchange(ref _hooked, 1) == 0) AppDomain.CurrentDomain.ProcessExit += (_, _) => Close(null);
+            if (Interlocked.Exchange(ref _hooked, 1) == 0) AppDomain.CurrentDomain.ProcessExit += (_, _) => Close(null, throwOnError: false);
             if (!Sessions.TryGetValue(suite, out var session)) Sessions[suite] = session = create();
             return session;
         }
     }
 
     /// <summary>Disposes the session of <paramref name="suite"/> (null: every session).</summary>
-    public static void Close(Type? suite)
+    public static void Close(Type? suite, bool throwOnError = true)
     {
         List<KilnTestSession> closing;
         lock (Lock)
@@ -166,10 +166,15 @@ internal static class KilnTestSuites
             if (suite is null) Sessions.Clear();
             else Sessions.Remove(suite);
         }
+        var errors = new List<string>();
         foreach (var s in closing)
         {
             s.Dispose();
-            if (s.DisposeError is { } error) global::Xunit.TestContext.Current.SendDiagnosticMessage($"[kiln] a suite's harness did not stop cleanly: {error}");
+            if (s.DisposeError is not { } error) continue;
+            errors.Add(error);
+            global::Xunit.TestContext.Current.SendDiagnosticMessage($"[kiln] a suite's harness did not stop cleanly: {error}");
         }
+        if (throwOnError && errors.Count > 0)
+            throw new InvalidOperationException("a suite's harness did not stop cleanly: " + string.Join("\n", errors));
     }
 }
