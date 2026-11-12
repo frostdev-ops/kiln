@@ -22,7 +22,9 @@
 #   runtime/  kiln-runtime-VERSION.zip, kilnctl, kilnctl.exe, INSTALL-RUNTIME.txt, kiln-server-VERSION.zip (the server
 #             pack: the server components as a flat zip to unzip into a server folder, lib/serverpack.py), and the
 #             systemd units for kilnctl (kiln@.service, kiln-backup@.service, kiln-backup@.timer)
-#   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix
+#   sdk/      Kiln.Sdk, Kiln.Api, Kiln.Templates nupkgs, kiln, kiln.exe (the CLI), the VS Code extension .vsix;
+#             feed/: the nupkgs as a static NuGet v3 feed (lib/feed.py; its URLs: KILN_FEED_URL, default this folder on
+#             frostdev.io); api/: the modding site and API reference (tools/docs-site/build.sh, when the export has it)
 #   samples/  sample mods as zips (Library > import)
 #   updates/  latest.json per source and channel: frostdev.io/<channel>/latest.json, github/latest.json
 #   source/   kiln-VERSION-src.tar.gz
@@ -40,8 +42,11 @@
 #   glibc symbol version above 2.35, the server pack (only the server components, the runtime's bytes, rebuilt
 #   byte-identically) and the systemd units, kilnctl/kiln/the AppImage started on a clean Ubuntu 22.04 (a throwaway
 #   container: --selftest and the launcher's window),a mod from the packed templates built against the packed SDK,
-#   the vsix's files, Authenticode signatures (when signed), every plugin DLL in the runtime's manifest (lib/plugins.py), and a scan of every file and archive for game data, home
+#   the NuGet feed against the nupkgs, the API reference's index.html (when built), the vsix's files, Authenticode signatures (when signed), every plugin DLL in the runtime's manifest (lib/plugins.py), and a scan of every file and archive for game data, home
 #   paths, keys, passwords and tokens.
+# The API gate (tools/release/api-gate.sh), before any build: no shipped public API removed since the previous v* tag,
+#   new API only with a raised Kiln.Mods.ApiVersion; after a release whose checks passed, the Unshipped.txt lines move
+#   into Shipped.txt in the working tree (to commit). The builds get the full version (VERSION in the export).
 # Builds run one at a time (they share Cargo's build directory); KILN_RELEASE_NICE=1 runs them at the lowest priority.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -432,6 +437,16 @@ if ((!skip_windows)); then
 fi
 for f in "$KILN_OUT"/nuget/*."$sdk_version".nupkg; do cp "$f" "$out/sdk/"; done
 cp "$vsix" "$out/sdk/"
+# the modding site (guide + API reference, DocFX) in sdk/api/, when the export has its build script
+if [[ -f $src/tools/docs-site/build.sh ]]; then
+  quiet low "$src/tools/docs-site/build.sh" "$out/sdk/api"   # the modding site: guide + API reference (DocFX)
+else
+  note "no tools/docs-site/build.sh in the export: the API reference (sdk/api/) is left out"
+fi
+# the SDK's nupkgs as a static NuGet v3 feed in sdk/feed/ (lib/feed.py), for dotnet new install and a mod's
+# nuget.config once the folder is served: its index names absolute URLs, by default where publish.sh puts the folder
+feed_url=${KILN_FEED_URL:-https://frostdev.io/kiln/downloads/$version/sdk/feed/}
+python3 -I "$lib/feed.py" build --out "$out/sdk/feed" --base-url "$feed_url" "$out/sdk" | tee -a "$log"
 cp "$work"/samples/*.zip "$out/samples/" 2>/dev/null || true
 cp "$src/LICENSE" "$src/CREDITS.md" "$notices" "$out/"
 cp "$work/source/"*.tar.gz "$out/source/"
@@ -517,15 +532,29 @@ fill "$here/templates/README.txt" "$out/README.txt.tmp"
 python3 - "$out" <<'PY'
 import os, sys
 root = sys.argv[1]
-rows = []
+# folders of many files (the API reference, the NuGet feed): one row each, with the count and the total size
+FOLDERS = ("sdk/api", "sdk/feed")
+def row(rel, s):
+    return f"  {rel:<64} {s / 1048576:8.1f} MB" if s >= 1048576 else f"  {rel:<64} {s / 1024:8.1f} KB"
+rows, folded = [], {}
 for d, dirs, files in os.walk(root):
     dirs.sort()
+    reld = os.path.relpath(d, root).replace(os.sep, "/")
+    top = next((f for f in FOLDERS if reld == f or reld.startswith(f + "/")), None)
+    if top:
+        if top not in folded:
+            folded[top] = [0, 0, len(rows)]
+            rows.append("")
+        folded[top][0] += len(files)
+        folded[top][1] += sum(os.path.getsize(os.path.join(d, n)) for n in files)
+        continue
     for n in sorted(files):
         rel = os.path.relpath(os.path.join(d, n), root)
         if rel in ("README.txt.tmp", "SHA256SUMS") or rel.startswith("nexus" + os.sep):
             continue
-        s = os.path.getsize(os.path.join(d, n))
-        rows.append(f"  {rel:<64} {s / 1048576:8.1f} MB" if s >= 1048576 else f"  {rel:<64} {s / 1024:8.1f} KB")
+        rows.append(row(rel, os.path.getsize(os.path.join(d, n))))
+for top, (count, size, i) in folded.items():
+    rows[i] = row(f"{top}/ ({count} files)", size)
 rows.append(f"  {'README.txt':<64}")
 rows.append(f"  {'SHA256SUMS':<64}")
 t = open(os.path.join(root, "README.txt.tmp"), encoding="utf-8").read().replace("@FILES@", "\n".join(rows))
@@ -573,7 +602,9 @@ fi
 
 step "done"
 du -sh "$out" | tee -a "$log"
-(cd "$out" && find . -type f | sort | while read -r f; do printf '%10s  %s\n' "$(du -h "$f" | cut -f1)" "${f#./}"; done) | tee -a "$log"
+# sdk/api/ and sdk/feed/ (many files each) as one row each, like README.txt's list
+(cd "$out" && find . -type f -not -path './sdk/api/*' -not -path './sdk/feed/*' | sort | while read -r f; do printf '%10s  %s\n' "$(du -h "$f" | cut -f1)" "${f#./}"; done
+  for d in sdk/api sdk/feed; do [[ -d $d ]] && printf '%10s  %s/ (%s files)\n' "$(du -sh "$d" | cut -f1)" "$d" "$(find "$d" -type f | wc -l)"; done; true) | tee -a "$log"
 cat <<EOF | tee -a "$log"
 
 Release $version is in $out (log: $log). Nothing is published.
