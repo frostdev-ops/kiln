@@ -1,0 +1,72 @@
+{
+ "schema": 2,
+ "side": "server",
+ "exe_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+ "components": [
+  "demo::Widget"
+ ],
+ "events": [],
+ "types": [
+  {
+   "name": "Color",
+   "qualifiedName": "demo::Color",
+   "hash": "0x6D61A3AD",
+   "kind": 12,
+   "size": 1,
+   "align": 1,
+   "inner": "demo::uint8",
+   "values": [
+    {
+     "name": "Red",
+     "value": 0
+    },
+    {
+     "name": "Green",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "Widget",
+   "qualifiedName": "demo::Widget",
+   "hash": "0x94B53BB6",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "fields": [
+    {
+     "name": "color",
+     "offset": 0,
+     "type": "demo::Color"
+    },
+    {
+     "name": "count",
+     "offset": 4,
+     "type": "demo::uint32"
+    }
+   ],
+   "defaults": [
+    0,
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "name": "uint32",
+   "qualifiedName": "demo::uint32",
+   "hash": "0x61F3F407",
+   "kind": 6,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "uint8",
+   "qualifiedName": "demo::uint8",
+   "hash": "0x4BCAAA3A",
+   "kind": 2,
+   "size": 1,
+   "align": 1
+  }
+ ]
+}
