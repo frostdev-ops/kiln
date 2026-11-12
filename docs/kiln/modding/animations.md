@@ -472,6 +472,28 @@ a distributed mod archive. A missing clip refuses its states; if clients have it
 differ and the join check refuses them. This is different from a held model's visual animation graph, which a dedicated
 server does not run ([models.md](models.md#on-a-dedicated-server)). Player states are evaluated by the server.
 
+On the server, cook against the server's own folder: `kiln cook <mod folder> --game <server folder>` (the folder with
+`enshrouded_server.kfc`). It needs Python 3.14 (or an older Python 3 with the `zstandard` package) and the Kiln source: set
+`KILN_REPO` to a Kiln checkout (the cook tools are its `tools/`). The cook makes everything a server uses: the clips with their root motion and sequences, skeletons, graphs and
+visual templates, and it checks your player states against the server's player graph. It skips the model steps (a server has
+no models; only a game client draws them), one line each:
+
+```
+step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it
+```
+
+With `--update-manifest` (which `kiln cook` always passes) the skipped models' entries stay in `assets/assets.json`, marked
+`"side": "client"`, so kiln.assets skips them on the server without a warning per file. Only those entries change; the clip
+entries, which the join compares, stay as the clients have them. A resource the server's files should have and do not (a
+game update) still stops the cook, as on a client.
+
+You can also copy the cooked files instead of cooking on the server, when the server and the clients run the same game
+build: the same Enshrouded update on both (`game.version` in `cook-report.json` names the build a cook read). Cooked from a
+server's and a client's files of build 1287369, the WeaponMoves and PlayerStates samples gave byte-identical clips,
+skeleton, graph, `cooked/clips.json` and `cooked/player-states.json` (neither sample has root motion or events, so those
+were not compared); only `cook-report.json` differs (the game's path, its exe and the side), and nothing at boot reads it.
+A copied client folder also holds the models; a server loads them and draws nothing with them.
+
 ### From C#
 
 `Kiln.PlayerAnim`, the static class `PlayerAnimStates` (both sides, any thread):
