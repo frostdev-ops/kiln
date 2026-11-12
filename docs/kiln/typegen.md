@@ -504,11 +504,52 @@ exist yet.
 Blob arrays and blob strings (37 fields on this build) stay `fixed byte` buffers: their data lies behind a
 self-relative offset. Writing a component, typed program access and typed events are not here (dev.26).
 
-## 5. Verified (lab, server svn 1285601)
-The probe dumped 9 component types with real offsets (e.g. `NetworkHealth {health@0, healthMax@4}`,
-`CurrentTransform` 56 B = `keen::WorldTransform`, `TeleportCount {counter u8 @0, lastTeleportTime keen::Time @8}`,
-`NpcCommon` 1688 B / 36 fields). `Components.Get<T>` was cross-checked byte-for-byte against the raw component bytes
-on live entities: **CurrentTransform matched on 2702 entities, TeleportCount on 6** — 0 differences.
+## 5. Verified (lab, server svn 1287369, `f0d824be…`)
+`tools/typegen/probe` (mod `typegen-probe`) is the lab check of the typed reads; it no longer dumps (`typedump` does,
+§2). Its `[KilnTest]` methods run once the world is up (`tests.autoRun`), on the tick thread, and write
+`kiln/data/typegen-probe/summary.json`:
+
+1. **Plan:** every generated ECS component (every `IGameComponent<T>` in `Kiln.Ecs`) that has live entities, most
+   entities first, up to 200 entities each. It must hold at least 20 types, the dev.24 names that are live, an
+   attribute component, a transform, `NpcCommon`, and types with an enum field, a bitmask field, a static array of
+   structs and structs nested three deep (found by .NET reflection over the generated structs).
+2. **Supports:** `Ecs.Supports<T>()` is true and `Ecs.WhyNot<T>()` null for every planned type.
+3. **Bytes:** `Ecs.TryGet<T>` is true and its copy equals `World.ReadBytes(entity, T.Name)`, same length, same bytes,
+   one type per server step. A component that every planned entity lost since the plan (an `*Init` component the game
+   removes after one step) is reported as transient, not failed.
+4. **Fields:** every leaf reached through the generated struct (its public fields by .NET reflection: nested structs,
+   wrapper structs, enums, bitmasks, inline arrays element by element up to 64 elements, at most 4,096 leaves per
+   entity) equals `Reflected.Component(entity, qualified name)[path]` for the same path (`transform.position.x`,
+   `dataStorage[2]`), one entity per step: integers, enums and bitmasks by their bits within the field's size, floats
+   exactly, object references and guids by their 16 bytes. A leaf `Reflected` cannot read is counted as skipped with
+   its reason; an entity where `Reflected` finds no component while kiln.world has it is a mismatch.
+5. **Legacy:** the nine dev.24 types through `Kiln.GameTypes.Components` (extern alias `game` on the Kiln.Game
+   reference, CS0618 suppressed in that one file) equal the raw bytes.
+6. **Self-test:** one byte flipped in a copy is reported by both comparers, naming the type and the field.
+
+`expect-refused.json` in the mod's data folder (`{"keen::ecs::X": "text the refusal must contain"}`) turns a run into
+the wrong-layout run: those types must be refused with that text and `Ecs.TryGet` must be false; every other type must
+still pass. The mod also registers the guided client check `typegen.typed-reads` (hosted session, the same comparison
+against the client exe's memory, asserted with `c.Expect`); it has not been run yet.
+
+```sh
+tools/lab/lab.sh new <lab> <port> --save <the lab save>
+dotnet build tools/typegen/probe -c Release -o $KILN_OUT/mods/typegen-probe --artifacts-path $KILN_OUT/dotnet
+KILN_OUT=<build dir> tools/deploy-server.sh ~/srv/enshrouded/labs/<lab> --policy any
+tools/lab/lab.sh start <lab>; grep typegen kiln/logs/kiln.log
+```
+
+Results on 2026-11-12, lab with the standard lab save, no player, the mod alone:
+
+| Run | Kiln.Game | What ran |
+|---|---|---|
+| right layouts | built from the committed server dump | 7 of 7 pass: 118 components with live entities; bytes on 6,484 entities, all equal (93 gone since the plan; 3 transient `*Init` types); fields on 6,167 entities, **100,331 leaves compared, all equal**, 0 skipped (no raw buffer and no array over 64 elements among the live types); legacy: `Health` 124, `CurrentTransform` 200, `LastTransform` 10, `Velocity` 6, `TeleportCount` 6, `NpcCommon` 8 entities equal (`NetworkHealth`, `Mana`, `Stamina` have no live entities without a player) |
+| wrong layout | `-p:KilnGameDump=<doctored copy> -p:KilnGameVariant=doctored` in `kiln/host`: `Collider.isPathBlocker` moved from 16 to 20, `TriggerShapeType.Box` renumbered 1 to 101 | 7 of 7 pass: both types refused, `TryGet` false, one warning each: `Kiln.Game: Kiln.Ecs+Collider cannot be read on this game build, typed access to it returns nothing: keen::ecs::Collider.isPathBlocker: offset 20 generated, 16 live` and `… Kiln.Ecs+TriggerShape … keen::ecs::TriggerShape.shape: keen::ecs::TriggerShapeType.Box: value 101 generated, 1 live`; the other 116 types pass bytes (6,165 entities) and fields (96,967 leaves) |
+| no kiln.types | the right one, `kiln/services/kiln-types.dll` left out of the lab | 6 pass, fields skipped (no `Reflected`): `Supports` true for all 118 types through the exe-hash path (the SHA-256 of the process image read under Wine equals the dump's), bytes on 6,167 entities all equal, legacy equal |
+
+The `kiln.log` of the three runs has no error and no warning from Kiln.Game or the mod other than the two expected
+ones. Not covered: components with no live entity in that save (569 of 687, among them `NetworkHealth`, `Mana`,
+`Stamina`, which need a player), the 37 raw-buffer fields, and the client side (the guided check).
 
 ## 6. Shipping and staying loadable
 A mod binds to a generated type's fields by name when its code is compiled at run time, and every mod shares one
