@@ -1,1 +1,2 @@
 #nullable enable
+static Kiln.Player.explicit operator Kiln.PlayerRef(Kiln.Player! player) -> Kiln.PlayerRef
