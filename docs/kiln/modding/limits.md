@@ -1,0 +1,112 @@
+# What a mod cannot do yet
+
+Read this before you spend a day on something that has no API. Each row says what is missing, what stands in the way
+(in the game or in Kiln), what to do meanwhile if the tree has an honest workaround, and the release it is planned for.
+
+Checked against **0.2.0-dev.24** on 2026-11-11. The planned releases are named dev.25, dev.26, dev.27 and dev.28,
+then the API freeze at **0.3.0**. A planned release is a plan, not a promise: rows move when the work shows a cost the
+plan did not see.
+
+Proof levels in the "Meanwhile" column: "works in the game" means a real client record backs it; "works on a test
+server" means a dedicated-server lab with no player; "unit tests" means no game ran it. Anything else says what is
+still open.
+
+## Being closed in dev.25
+
+In work, not in a release yet.
+
+| What | Today (dev.24) | State |
+|---|---|---|
+| Persistent per-item data (a value on one sword that survives moves, saves and restarts) | `EntityData` on an item is session-only and refuses positional item records ([inventory.md](inventory.md#per-item-instance-data-and-affixes)) | in work, not in a release yet |
+| Offline unit tests for a mod (`dotnet test` with no game) | [Kiln.Testing](testing.md) runs inside a server; the fakes are private to Kiln's own tests | in work, not in a release yet |
+| A mod's own states in the player's animation graph, and a weapon's own moves | Only the game's sequences, through `Abilities.PlaySequence` ([services/abilities.md](../services/abilities.md)); no merged player graph | in work, not in a release yet |
+| One capability table with reasons (`Is`, `Why`, `All`) | Each service has its own `Available` / `Supports…` property; the manifest's `features` are checked against core sigdb names, with no reason a mod can read ([manifest.md](manifest.md)) | in work, not in a release yet |
+| Identity types (`EntityRef`, `ItemRef`, `PlayerRef`) | A player has several types across services; entity ids are reused and not generation-checked; items are `ItemId` in one service and bare `uint` in others | in work, not in a release yet |
+
+## No API yet
+
+| What | What stands in the way | Meanwhile | Planned |
+|---|---|---|---|
+| Affixes (rolled modifiers on an item) | Needs per-item data (above) and generated Impact programs applied on equip; the game's items have no spare field ([inventory.md](inventory.md#per-item-instance-data-and-affixes)) | none | dev.26 |
+| Raycast, line of sight, overlap, ground height | No server code; the client's voxel line-of-sight walk is mapped and would be ported to the server | an NPC brain's `Sight` uses distance and faction only ([npc-blocks.md](npc-blocks.md#limits-and-costs)) | dev.27 |
+| Player aim direction | kiln.rules already reads the camera's orientation from `PlayerInput` for the steered glider; nothing public exposes it. A `Forward` target points along the body's yaw ([services/abilities.md](../services/abilities.md)) | none | dev.26 |
+| Writing the camera (cutscenes, shake, field of view) | No write path, native included. Needs RE on whether a server write to the client's camera control moves a vanilla client's camera | a client mod can read the camera ([render.md](../render.md)) | dev.27 |
+| Pathfinding queries | Only "go there": `CreatureRef.MoveTo` sets a home, `NpcRuntime.MoveTo` walks; no path or reachability answer ([services/creatures.md](../services/creatures.md)) | none | dev.27 |
+| Choosing a weather; fog and light | `Time.ResetWeather()` only. The weather layers are mapped; the phenomenon ids and the call that adds one need RE ([services/time.md](../services/time.md)) | none | dev.26 (weather choice); fog and light not in a release yet |
+| Map markers, compass pins, nameplates | Only a quest's marker and waypoint. The game's marker types are mapped, including the player's custom pin | a quest step's `Marker` ([quests.md](quests.md)); on a Kiln client, draw a marker on screen with `Render` (unit tests only) ([render.md](../render.md)) | dev.27 |
+| Kick and ban a player; a cancelable login event | The native `kick` call exists in kiln.net; the managed call is internal | `NetVanillaClientEvent.Kick` refuses a client without Kiln at join (test server with simulated peers; not run in a client) ([network.md](../network.md)) | dev.26 (kick, ban list); dev.27 (cancelable login) |
+| Equip, unequip, set a slot | Equipment is read-only. The game's `equipItem` is mapped; Kiln would call it inside kiln.items' program | taking gear from a player with `MoveOptions.Equipped` unequips it (client check open) ([services/items.md](../services/items.md)) | dev.26 |
+| Remove a buff from C# | The game's `removeBuff` native is used by Kiln's blocks; there is no public call | an effect block's `Removes` takes a block's or a game status off (works on a test server) ([blocks.md](blocks.md)) | dev.26 |
+| Playing an animation of its own; a cancelable "sequence starting" event | Only the game's sequences through `Abilities.PlaySequence`; `SequenceStartedEvent` is observe only | none | dev.25 (own states, above); a cancelable sequence start is not in a release yet |
+| A mod's own stats, experience values, currencies | No store, no UI ([engines/enshwick.md](../engines/enshwick.md)) | `Progression.AddExperience` adds to the game's own experience ([services/progression.md](../services/progression.md)) | dev.27 |
+| Survivor recruit and assign, raising the base limit | Read only (`Villagers`, `WorldProgress.Survivors`); the game's calls need RE ([engines/enshwick.md](../engines/enshwick.md)) | none | dev.28 |
+| Slot marks and slot keys (storage mods) | No Kiln equivalent of shroudlink's `Marks` and `SlotKeys` ([engines/shroudlink.md](../engines/shroudlink.md)) | none | dev.26 |
+| World programs on a client world | kiln.world registers programs in the server world only ([emf.md](../emf.md)) | `Client.Tick` runs code on the client's main thread at each client-world step ([client.md](../client.md)) | dev.28 |
+
+## There, but limited
+
+| What | What stands in the way | Meanwhile | Planned |
+|---|---|---|---|
+| Typed game data | `Kiln.Game` has 9 generated structs from an old server dump and is not in the SDK. The rest is string paths (`"Health.dataStorage[2]"`), raw offsets and `0x…` ids ([../typegen.md](../typegen.md)) | `Reflected` values by name ([services/types.md](../services/types.md)) | dev.25 (typegen package) |
+| Writes the game saves and sends | `World.TryWrite` and `ReflectedValue` are raw stores the game does not mark written: a player-free test showed the save skips them on a container a save already wrote. Attribute writes are not marked written for saving either. Only kiln.items uses the tracked path, for water ([services/items.md](../services/items.md)) | `Items.Fuel` for water (works on a test server); a Kiln service call where one exists | dev.26 |
+| Systems | `GameSystems.Hook(name, before, after)` and on/off only: no Replace, no per-entity wrap, no typed views ([ecs-programs.md](ecs-programs.md)) | a world program of your own ([ecs-programs.md](ecs-programs.md)) | dev.27 |
+| Kiln natives in Impact programs | A native suspends the program for one step, and only programs a mod clones or writes call them ([impact.md](impact.md)) | none | dev.27 |
+| Hooks from C# | `Hooks.Detour` sees the first four integer arguments; floats need `Hooks.Mid` or a native mod's `raw_detour`. Each managed install takes a new link slot, and slots are never freed ([services/hooks.md](../services/hooks.md#limits-and-failures)) | `Hooks.Mid`; a [native mod](../native-mods.md) | dev.27 (typed hooks with floats); dev.25 (managed hooks reuse their slot) |
+| Writes that raise no event | Attribute writes, `Combat.SetHealth` / `SetInvulnerable`, `CreatureRef` setters, content `Set` / `Apply` / `Revert`, `Time.SetSpeed` / `SetCycle` / `ResetWeather` and `World.TryWrite` post nothing ([../events.md](../events.md)) | none: a mod that needs to know has to poll | dev.26 (a change event for each of Kiln's own writes) |
+| Events that cannot be canceled | Death, item pickup, a player's build edits and equipment changes are reported after the fact | death: cancel or lower the lethal `EntityHurtEvent` ([services/combat.md](../services/combat.md)); build edits: `Gameplay.Protect` zones (client check open) ([services/gameplay.md](../services/gameplay.md#protection-zones)) | dev.27 |
+| Events for one entity only | No per-entity filter: watching one target makes kiln.combat hold every hit in the world for a step | filter in the handler | dev.26 |
+| Definitions from code | Talent nodes, quests, VFX, NPCs, materials and world-program declarations made in C# take effect from the next start: mods load after the game's registries close ([vfx.md](vfx.md), [quests.md](quests.md), [world-blocks.md](world-blocks.md)) | put them in `blocks/*.json`, `quests/*.json` or `skills/*.json`: those are in from the first start (works on a test server) | dev.26 (baked at build); dev.27 (`Mod.OnBoot`) |
+| UI blocks | No text fields, tables, tabs, images or trees; no values from the game's world; no state of a window's own; a block's `command` does not reach a joined server ([ui-blocks.md](ui-blocks.md#what-it-does-not-do)) | `Ui.Window` and `Ui.Screen` in C# ([../ui.md](../ui.md)); Kiln's own windows have opened in the game | dev.27 |
+| Station menus with tabs of their own | A station's menu uses its kind's tabs, or `Menu.Like`'s ([world-blocks.md](world-blocks.md)) | `Menu.Like` an existing station | dev.28 |
+| Per-use durability on tools | Only a torch burns down by a number of the item's own; the game wears other tools by the world's durability setting, so `Durability` on them is refused ([item-blocks.md](item-blocks.md)) | none | dev.28 |
+| Cloth and chains on a model | The model cook does not write them ([models.md](models.md)) | rigid or skinned parts | dev.28 |
+| A roster NPC with a body of its own; villager routines | A friendly NPC's body is a game NPC's for now; routines need hooks on the game's task choice ([npc-blocks.md](npc-blocks.md#limits-and-costs)) | `Bodies.Villager`, `Bodies.Fisher` | dev.28 |
+| A block kind of your own | `Kiln.Blocks` uses the internals of seven services; there is no public way to add a kind ([blocks.md](blocks.md)) | compose the existing blocks | dev.28 |
+| Content sync to joined clients | Loot and drop tables are rolled on the server and not sent; PNG icons are not sent; a changed reference of a game item in a list field (per-body or pickup model lists) is not sent ([../sync.md](../sync.md), [services/content.md](../services/content.md)) | ship the mod to the client (`clients: mod`) or a modpack | not in a release yet |
+
+## Hard caps
+
+Values read from the code of dev.24. Where the code counts the game's data at start (skill points, material ids), the
+value is the count for the current game build.
+
+| Limit | Value | Where it comes from | Planned |
+|---|---|---|---|
+| New VFX, all mods together | 473 | the game's table holds 2,048 and uses 1,575; past it the game aborts, so Kiln refuses the mod ([vfx.md](vfx.md)) | dev.28 |
+| Buff clones | 1,024 per process | room in Kiln's copy of the game's buff collection ([services/gamedata.md](../services/gamedata.md)) | dev.28 |
+| Roster NPCs, the game's and all mods' | 64 (the game uses 35) | the game keeps NPC unlock states in one 64-bit mask ([services/npcs.md](../services/npcs.md)) | dev.28 |
+| Skill points `GiveSkillPoints` can add | 60 | the game's +1 skill-point knowledge flags, counted at start; more points: raise the level ([services/progression.md](../services/progression.md)) | not in a release yet |
+| World programs | 32 for all mods; 8 per mod file | kiln.world's program table; the declaration file's limit ([ecs-programs.md](ecs-programs.md)) | dev.28 |
+| Access lists per world program | templates 8, read and write 42, singletons 64 per list, other templates 9, other accessors 92, event inputs and outputs 24 | the game's scheduler ([ecs-programs.md](ecs-programs.md)) | not in a release yet |
+| Transfer rules, handlers and reporters | 256 of each | kiln.items ([inventory.md](inventory.md)) | not in a release yet |
+| Fuel keeps (`Items.Fuel` keep-full) | 256 at once | kiln.items ([services/items.md](../services/items.md)) | not in a release yet |
+| New building materials, all mods together | 49 | a material is a byte in a cell, 128..255: the game's free ids plus six it no longer uses ([services/worldtables.md](../services/worldtables.md#ids)) | dev.28 |
+| New wall materials, all mods together | 3 (roofs 50, placeable terrain 8) | a player's build menu copies each pool into an array of 64 items, the game's own among them; a 65th stops the game ([services/worldtables.md](../services/worldtables.md)) | not in a release yet |
+| New terrain materials, all mods together | 11 | a terrain material is a cell's low byte 1..127 and the game uses 1..116 ([world-blocks.md](world-blocks.md)) | not in a release yet |
+| Faction values | 0..15 | the game's faction type; a value above 15 is untried and would fall through the game's code as hostile to everyone but its own ([npc-ai.md](npc-ai.md)) | not in a release yet |
+| Hooked addresses | 512 per process | kiln.hooks' target table ([services/hooks.md](../services/hooks.md#limits-and-failures)) | not in a release yet |
+| Hook link slots | 65,536 per process, never freed | kiln.hooks' stubs ([services/hooks.md](../services/hooks.md#limits-and-failures)) | dev.25 (managed hooks reuse their slot) |
+| Water in a container | 1,023 charges | the game sends a container's water to players as charges × 64 in 16 bits ([item-blocks.md](item-blocks.md)) | not in a release yet |
+
+## Seen failing in the game
+
+From real-client test records. "Now" says what the tree does today.
+
+| What | Where it was seen | Now |
+|---|---|---|
+| Admin commands reach the real Steam account: `level` on a local test character unlocked three real achievements, and restoring saves did not undo them | real client, test round 2, 2026-11-05 | no guard in dev.24; a guard on achievement writes is in work for dev.25. Do not run level or knowledge commands on a Steam account you care about |
+| Too many wall materials crash a hosting game: 65 and 67 items in the wall pool, three crashes out of three when entering a hosted world | real client, build 26430625, 2026-11-06 | Kiln refuses a wall material past the pool's room, by name (works on a test server) ([services/worldtables.md](../services/worldtables.md)) |
+| A client without Kiln crashes joining a server that has entities of Kiln-added templates, about 2 s into its loading screen | real client, test round 2, 2026-11-05 | the server holds an unproven client and refuses it or lets it in without those entities; tested with simulated peers, not yet run in a client ([network.md](../network.md)) |
+| Ore painting (`/glacier-vein` in TerrainSample) filled 0 cells in a hosted world and said "ok" | real client, 2026-11-06 | the sample finds the ground and fails when no cell changed; a cell edit on a hosting client has not run yet ([world-blocks.md](world-blocks.md)) |
+| A second hosted world in one game process read the first world's mod data for about 10 s (an NPC was reported "placed once" and not bound) | real client, test round 2 retest, 2026-11-05 | a world's data opens at its load; works on a test server, client check open |
+| Adding a mod with talent nodes to a character moved nodes from the game's slots to Kiln's and lost unlocks without a warning | real client, test round 2 retest, 2026-11-05 | stable slot order, both directions keep unlocks; unit tests and a test server, client check open ([services/skills.md](../services/skills.md)) |
+| `Sound.Replace` called from `Client.Post` work threw "Assets calls must be made from mod code"; the test's caption then stayed on menus | real client, test round 2 retest, 2026-11-05 | `Client.Post` runs the work as the mod that posted it; not re-run in a client |
+| Placing a summoned NPC with its tool: the preview showed, clicks placed nothing | real client, test round 2 retest, 2026-11-05 | no record of a fix |
+| The game's crash reporter started Kiln again and rotated kiln.log, so the crashed session was only in kiln.prev.log | real client, test round 2, 2026-11-05 | the proxy stays out of the crash reporter's start; no crash since to confirm it ([client.md](../client.md)) |
+
+## Not planned
+
+| What | Why | Planned |
+|---|---|---|
+| Ragdolls | client physics; a creature has a `Dead` state only ([npc-blocks.md](npc-blocks.md#limits-and-costs)) | not planned |
+| Mounts and vehicles | no code and no design yet | a research spike in dev.28; any build after the 0.3.0 freeze |
+| New terrain in world generation | no code and no design yet | a research spike in dev.28; any build after the 0.3.0 freeze |
