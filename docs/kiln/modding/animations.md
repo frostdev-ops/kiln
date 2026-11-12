@@ -18,7 +18,12 @@ Status:
   them at the default tolerance, stays within 0.12 degrees and 1.2 mm on 99% of clips (worst position 13.6 mm, on one clip of 155
   joints), and its files are about 7% larger than the game's. A creature authored in Blender and exported by its glTF exporter,
   cooked and decoded again, matches Blender's own evaluation within 0.6 mm (`tools/animcook/tests/run_blender_check.py`).
-- **Not proven:** anything drawn in the game client, and a body actually moved by root motion. See [Manual checks](#manual-checks).
+- **Proven in a client:** a mod's own skinned held model with its own skeleton, clip and graph, drawn in a real client and
+  seen by the owner on 2026-11-11: Kiln Equipment's Sunspire, a skinned model on a 2-joint skeleton with a looping clip and a
+  one-state graph, in a copy of `Visuals_Staff_01_Magic_Basic01`. A dedicated server runs such a graph too; what it needs of
+  the cooked files is in [models.md](models.md#on-a-dedicated-server).
+- **Not proven:** a creature's body drawn in the client, a body actually moved by root motion, and a state added to the
+  player's graph. See [Manual checks](#manual-checks).
 
 ## A recipe
 
