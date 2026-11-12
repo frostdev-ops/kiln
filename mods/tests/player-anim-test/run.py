@@ -66,7 +66,7 @@ CHAINLIGHTNING = "Attack_Player_Staff_Overlay_ChainLightning"  # Staff_Cast_F_Re
 WANDCHAIN = "Attack_Player_Wand_LightningChain_normal"  # Attack_Magic_Wand_01 and _02 at 0 (gated on entity tags): the base of pa-cast/zap
 WANDHEAVY = "Attack_Player_Wand_AllElements_Heavy"   # Attack_Magic_Wand_Heavy at 0.13 s: the reference of pa-cast/zap
 BOWSHOT = "Attack_Player_Ranged_Bow_Shoot"         # Bow_Reload_Fast, Bow_Reload (tagged) at 0, Bow_Shoot at 0.4 s: the base of pa-cast/loose
-STRONGSHOT = "Attack_Player_SpecialAbility_Strong_Shot_Bow"  # Bow_Shoot_SpecialAbility at 0.13 s: the reference of pa-cast/loose
+STRONGSHOT = "Attack_Player_SpecialAbility_Strong_Shot_Bow"  # Bow_Shoot_SpecialAbility at 0.13 s: a game bow state after pa-cast/loose
 STAFF, WAND, BOW = "Weapon_T1_2H_Staff_01", "Weapon_T1_1H_Wand_01_Fire", "Weapon_T1_2H_Bow_01"
 # Unused test sequences of the game whose resources carry the overlay copies in the carrier route (served as overrides of them).
 CARRIERS = {"cast": "e3c08f06-464a-4da8-bfc4-8672cff34795", "zap": "fcbbb950-4eaa-4a40-af07-3a27d3bd09c7",
@@ -82,7 +82,8 @@ AUTHORED = {("pa-a", "slash"): ("a_slash", HEAVY), ("pa-a", "leap"): ("a_leap", 
 
 # Thresholds, in metres: the mean distance of HandR and HandL from where they should be.
 FOLLOWS = 0.12       # the pose follows the authored clip
-NOISE = 0.15         # the same game sequence on two boots (T0: 0.05 to 0.10 at the best of a few samples' shift)
+NOISE = 0.25         # the same game sequence on two boots of the game's own graph: 0.15 to 0.16 over a whole play (baseline against off);
+                     # a different motion is 0.5 m and more
 APART = 0.30         # far from it: what a control has to show
 
 
@@ -273,6 +274,12 @@ def states_seen(p):
 
 def moved(p, slot=3):
     return max(math.dist(p["pts"][0][slot], x[slot]) for x in p["pts"])
+
+
+def moved_in(p, lo, hi, slots=(3, 4)):
+    """How far the hands go, at most, from where they are at sample lo, over samples lo..hi (mean of the slots)."""
+    A = p["pts"]
+    return max((sum(math.dist(A[lo][s], A[i][s]) for s in slots) / len(slots) for i in range(lo, min(hi, len(A)))), default=0.0)
 
 
 def near(a, b, lo=0, hi=None, shift=3, slots=(3, 4), offset=0):
@@ -646,7 +653,8 @@ def scenarios(lab, c, a):
         for key, word in (("pa-bad-like/nowhere", "Attack_Sword_Shield_99"), ("pa-bad-skeleton/wave", "another skeleton"), ("pa-no-clients/slash", "clients")):
             s = info.get(key, {})
             c(f"broken.{key}.refused", s.get("status") == "Refused" and word in s.get("reason", ""), f"{s.get('status')}: {s.get('reason')}")
-            c(f"broken.{key}.in-kiln-log", key.split("/")[1] in warn and word in warn, "")
+            # a state's own refusal names the state; a manifest's refusal names the mod (all its states go)
+            c(f"broken.{key}.in-kiln-log", key.split("/")[0] in warn and word in warn, next((l.split("] ", 2)[-1] for l in warn.splitlines() if key.split("/")[0] in l), ""))
         others = [k for k in ("pa-bad-like/fine", *(f"pa-a/{n}" for n in STATES_A)) if info.get(k, {}).get("status") == "Live"]
         c("broken.the-rest-live", len(others) == 1 + len(STATES_A), str(others))
         c("broken.server-up", alive and "pat: up 60 s" in text)
@@ -683,8 +691,8 @@ def scenarios(lab, c, a):
                  P("game-chainlightning", CARRIERS["chainlightning"], 150, 50, STAFF)]
         wand = [P("ref-zap", WANDHEAVY, 70, 50, WAND), P("mod-zap", CARRIERS["zap"], 70, 50, WAND), P("mod-zap-1st", CARRIERS["zap"], 16, 0, WAND),
                 P("mod-zap-2nd-before-end", CARRIERS["zap"], 70, 50, WAND), P("mod-zap-3rd-after-end", CARRIERS["zap"], 70, 50, WAND)]
-        bow = [P("ref-loose", STRONGSHOT, 100, 50, BOW), P("mod-loose", CARRIERS["loose"], 100, 50, BOW), P("ref-loose-2", STRONGSHOT, 100, 50, BOW),
-               P("mod-loose-2", CARRIERS["loose"], 100, 50, BOW), P("game-bowshot", CARRIERS["bowshot"], 60, 50, BOW)]
+        bow = [P("mod-loose", CARRIERS["loose"], 100, 50, BOW), P("mod-loose-2", CARRIERS["loose"], 100, 50, BOW), P("game-strongshot", STRONGSHOT, 100, 50, BOW),
+               P("game-bowshot", CARRIERS["bowshot"], 60, 50, BOW)]
         runs = {}
         for name, mods in (("overlays-control", []), ("overlays", ["pa-cast"])):
             lab.set_mods(mods, {"scenario": name, "lookups": lookups(["pa-cast"]), "clones": clones, "plays": staff + wand + bow, "upSeconds": 60}, carriers=carriers)
@@ -703,14 +711,23 @@ def scenarios(lab, c, a):
         for n in ("cast", "zap", "loose"):
             s = info.get(f"pa-cast/{n}", {})
             c(f"overlays.{n}.live", s.get("status") == "Live" and s.get("kind") == "Overlay", str(s))
-        # windows as in the T0b proof runs: the staff shoot from 0.4 s, the wand's whole cast, the bow's special shot (its overlay at 0.4 s, the reference's at 0.13 s)
-        for n, mod, ref, lo, hi, off in (("cast", "mod-cast", "ref-cast", 8, 31, 0), ("cast-2", "mod-cast-2", "ref-cast-2", 8, 31, 0),
-                                         ("zap", "mod-zap", "ref-zap", 0, 21, 0), ("loose", "mod-loose", "ref-loose", 6, 16, -3),
-                                         ("loose-2", "mod-loose-2", "ref-loose-2", 6, 16, -3)):
+        # The mod's overlay state plays its clip in the neighbour's layer: the arms move as in the game's state that plays the clip
+        # (the reference), where on the game's graph (the control) the overlay finds no state and the arms stay. Measured as how far the
+        # hands go from where they are when the overlay starts, in the window the clip plays in; the mean distance to the reference is
+        # given too (the neighbour's layer settings are not the reference state's, so the poses differ by 0.15 to 0.3 m).
+        # The bow's state plays the staff shoot's clip (the bow's own clips barely move the hands): its reference is that clip in the staff's
+        # state, and its overlay starts at 0 s (the copy's first events name it) where the staff copy's starts at 0.4 s.
+        for n, mod, ref, lo, hi, rlo, rhi in (("cast", "mod-cast", "ref-cast", 5, 26, 5, 26), ("cast-2", "mod-cast-2", "ref-cast-2", 5, 26, 5, 26),
+                                              ("zap", "mod-zap", "ref-zap", 0, 21, 0, 21), ("loose", "mod-loose", "ref-cast", 0, 21, 5, 26),
+                                              ("loose-2", "mod-loose-2", "ref-cast-2", 0, 21, 5, 26)):
             m, r, k = got.get(mod), got.get(ref), ctl.get(mod)
-            d = near(m, r, lo, hi, 2, offset=off)[0] if m and r else float("inf")
-            dc = near(k, ctl.get(ref) or r, lo, hi, 2, offset=off)[0] if k and r else float("inf")
-            c(f"overlays.{n}.follows-the-reference", d <= 0.25 and dc >= d + 0.1, f"merged {d:.3f} m, the same on the game's graph {dc:.3f} m")
+            if not (m and r and k):
+                c(f"overlays.{n}.follows-the-reference", False, "a play is missing")
+                continue
+            gm, gr, gk = moved_in(m, lo, hi), moved_in(r, rlo, rhi), moved_in(k, lo, hi)
+            d = near(m, r, lo, hi, 2, offset=rlo - lo)[0]
+            c(f"overlays.{n}.follows-the-reference", gm >= 0.5 * gr and gk < 0.5 * gr,
+              f"the hands move {gm:.3f} m merged, {gr:.3f} m in the reference, {gk:.3f} m on the game's graph; merged {d:.3f} m from the reference")
         one, two = got.get("mod-zap"), got.get("mod-zap-2nd-before-end")
         if one and two:
             restart = near(two, one, 0, 18, 1)[0]
@@ -722,6 +739,10 @@ def scenarios(lab, c, a):
             c("overlays.zap-cast-after-the-end-restarts", d <= 0.2, f"{d:.3f} m from the first cast")
         g = got.get("game-chainlightning")
         c("overlays.game-cast-after", g is not None and moved(g) > 0.5, f"HandR moved {moved(g):.3f} m" if g else "")
+        for k in ("game-strongshot", "game-bowshot"):
+            g, b = got.get(k), ctl.get(k)
+            d = near(g, b, 0, 30)[0] if g and b else float("inf")
+            c(f"overlays.{k}-as-without-the-state", d <= NOISE, f"{d:.3f} m from the same on the game's graph")
         print("INFO overlays: the carrier copies have every event's consume off and the redirected overlay events' requiredEntityTag cleared", flush=True)
         c("overlays.server-up", alive and "pat: up 60 s" in text)
 
