@@ -28,6 +28,21 @@ struct Seen {
 /// One take at a time per process: two activations at once must not lose each other's sentences.
 static LOCK: Mutex<()> = Mutex::new(());
 
+/// One take at a time across processes too: two launchers (the desktop window and the Deck's, or a second window on the
+/// same data folder) each read the memory, add their sentences and write it back, and without this the later write
+/// drops what the earlier one added. The lock is a file of its own next to the memory, `<game id>.notices-seen.lock`,
+/// held for the read and the write; the operating system releases it when the process ends, however it ends. Where it
+/// cannot be taken (a folder that refuses locks) the take goes on without it: a notice shown once more at worst.
+fn lock_across_processes(path: &std::path::Path) -> Option<std::fs::File> {
+    let lock = path.with_extension("lock");
+    if let Some(dir) = lock.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&lock).ok()?;
+    file.lock().ok()?;
+    Some(file)
+}
+
 fn file(dirs: &DataDirs, game_id: &str) -> Result<PathBuf> {
     // game ids are file names in installs/ already (`<id>.json`): nothing that leaves the folder
     if game_id.is_empty() || game_id.len() > 128 || !game_id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
@@ -60,11 +75,13 @@ pub fn unseen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<Ve
 }
 
 /// Remembers `sentences` as shown for `game_id` (one shown again moves to the newest end, so the bound drops the ones
-/// not said for longest). Written through a temp file of its own name, so two launchers never write the same one.
+/// not said for longest). Read, changed and written under a lock two launchers share, and written through a temp file
+/// of its own name, so neither loses what the other remembered and neither writes the other's file.
 pub fn mark_seen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<()> {
     let path = file(dirs, game_id)?;
     if sentences.is_empty() { return Ok(()); }
     let _one = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _across = lock_across_processes(&path);
     let mut seen = read(&path);
     for s in sentences {
         let k = key(s);
@@ -145,6 +162,59 @@ mod tests {
         assert_eq!(file.seen.len(), MAX_SEEN);
         assert!(take_unseen(&d, "g", &first).unwrap().is_empty());
         assert_eq!(take_unseen(&d, "g", &s(&["note 0"])).unwrap(), s(&["note 0"]), "the oldest went");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Two launchers on one data folder: several processes each remember sentences of their own, one at a time, at
+    /// the same moment. None may lose another's. The children are this test binary, running `a_launcher_of_its_own`.
+    #[test]
+    fn launchers_at_once_do_not_lose_each_others_sentences() {
+        const LAUNCHERS: usize = 4;
+        const EACH: usize = 30;
+        let (d, root) = dirs("two");
+        let children: Vec<std::process::Child> = (0..LAUNCHERS)
+            .map(|n| {
+                std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["notices::tests::a_launcher_of_its_own", "--exact", "--nocapture", "--test-threads=1"])
+                    .env("KM_NOTICES_ROOT", &root)
+                    .env("KM_NOTICES_TAG", n.to_string())
+                    .env("KM_NOTICES_EACH", EACH.to_string())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for mut c in children {
+            assert!(c.wait().unwrap().success(), "a child launcher failed");
+        }
+        let all: Vec<String> = (0..LAUNCHERS).flat_map(|n| (0..EACH).map(move |i| format!("launcher {n} sentence {i}"))).collect();
+        let missing = unseen(&d, "g", &all).unwrap();
+        assert!(missing.is_empty(), "{} of {} sentences were lost: {:?}", missing.len(), all.len(), &missing[..missing.len().min(5)]);
+        assert!(root.join("installs/g.notices-seen.lock").is_file(), "the lock file is next to the memory");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The child of the test above: does nothing unless that test started it.
+    #[test]
+    fn a_launcher_of_its_own() {
+        let (Ok(root), Ok(tag), Ok(each)) = (std::env::var("KM_NOTICES_ROOT"), std::env::var("KM_NOTICES_TAG"), std::env::var("KM_NOTICES_EACH")) else {
+            return;
+        };
+        let d = DataDirs::at(PathBuf::from(root));
+        for i in 0..each.parse::<usize>().unwrap() {
+            mark_seen(&d, "g", &[format!("launcher {tag} sentence {i}")]).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_taken_does_not_stop_the_memory() {
+        let (d, root) = dirs("nolock");
+        std::fs::create_dir_all(d.installs()).unwrap();
+        // a folder where the lock file should be: it cannot be opened as a file
+        std::fs::create_dir_all(d.installs().join("g.notices-seen.lock")).unwrap();
+        mark_seen(&d, "g", &s(&["a"])).unwrap();
+        assert!(unseen(&d, "g", &s(&["a"])).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
