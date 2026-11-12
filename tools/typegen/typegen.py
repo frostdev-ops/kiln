@@ -155,6 +155,8 @@ KNOWN_KINDS = set(range(1, 30))
 
 # Members every generated struct has; a game field with one of these names stops the generator.
 STRUCT_MEMBERS = {"Hash", "Name", "QualifiedName", "Size", "Layout"}
+# The generated methods a mod can bind to, listed in a struct's table line as <name>@method:<C# type> (§3.6).
+TABLE_METHODS = {"op_Implicit", "get_Values"}
 # Names the hand-written part of the root class uses or keeps for typed access (task access); a generated type with
 # one of them stops the generator. Extend this set when a hand-written member of the root class is added.
 ROOT_RESERVED = {"ObjectReference", "GameGuid", "Get", "TryGet", "Has", "All", "Available", "NameOf", "Find",
@@ -497,6 +499,9 @@ class Model:
                                    f"({', '.join(sorted(STRUCT_MEMBERS))})")
                 if n == cs:
                     raise GenError(f"{qn}.{n}: a field cannot have its struct's C# name")
+                if n in TABLE_METHODS:
+                    raise GenError(f"{qn}.{n}: the field's name is a generated method's name in the layout table "
+                                   f"({', '.join(sorted(TABLE_METHODS))})")
                 fs = self.by[f["type"]]["size"]
                 if f["offset"] + fs > size:
                     raise GenError(f"{qn}.{n}: {f['offset']} + {fs} ends past the struct's {size} bytes")
@@ -696,6 +701,8 @@ class Model:
             if ft is not None:
                 self.wrappers += 1
                 n = cs_id(flat[0][0]["name"])
+                # the stamps see a mod's use of the conversions as this member (docs/kiln/typegen.md §3.6)
+                members.append(f"op_Implicit@method:{ft}")
                 wrapper = (f"        /// <summary>The wrapped value.</summary>\n"
                            f"        public static implicit operator {ft}({cs} value) => value.{n};\n"
                            f"        /// <summary>Wraps a value.</summary>\n"
@@ -703,6 +710,7 @@ class Model:
         attr = ""
         if value:
             self.attributes += 1
+            members.append(f"get_Values@method:Span<{value}>")
             attr = (f"        /// <summary>The attribute's value slots (<c>dataStorage</c>). Which slot is the current, the base or the "
                     f"maximum value is the game's data, not named here.</summary>\n"
                     f"        [global::System.Diagnostics.CodeAnalysis.UnscopedRef]\n"

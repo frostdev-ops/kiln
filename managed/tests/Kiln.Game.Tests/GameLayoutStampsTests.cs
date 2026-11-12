@@ -11,7 +11,9 @@ public class GameLayoutStampsTests
     // A hand-made table in the format of docs/kiln/typegen.md §3 (made-up types and hashes).
     const string Table =
         "// kiln-typegen: generated at build time from a game layout dump. Never commit this file.\n" +
-        "kiln.game.layouts\t1\tside=server\texe_sha256=00000000000000000000000000000000000000000000000000000000000000aa\troot=Ecs\ttypes=3\tset=1111111111111111\n" +
+        "kiln.game.layouts\t1\tside=server\texe_sha256=00000000000000000000000000000000000000000000000000000000000000aa\troot=Ecs\ttypes=5\tset=1111111111111111\n" +
+        "S\tKiln.Ecs+LampId\t00000000000000d4\tkeen::ecs::LampId\t4\tstruct\tid@0:uint\top_Implicit@method:uint\n" +
+        "S\tKiln.Ecs+Warmth\t00000000000000e5\tkeen::ecs::Warmth\t24\tcomponent\tkey@0:uint\tdataStorage@8:Ecs.StaticArray4<float>\tget_Values@method:Span<float>\n" +
         "S\tKiln.Ecs+Lamp\t00000000000000a1\tkeen::ecs::Lamp\t24\tcomponent\tglow@0:float\twick@4:Ecs.LampId\tstore@8:Ecs.StaticArray4<float>\n" +
         "E\tKiln.Ecs+Glimmer_Mode\t00000000000000b2\tkeen::glimmer::Mode\t1\tbyte\tOff=0\tDim=1\tBright=2\n" +
         "F\tKiln.Ecs+Glimmer_ModeMask\t00000000000000c3\tkeen::Bitmask8<keen::glimmer::Mode>\t1\tbyte\tOff=1\tDim=2\tBright=4\n";
@@ -106,6 +108,39 @@ public class GameLayoutStampsTests
     }
 
     [Fact]
+    public void A_wrapper_conversion_that_is_gone_or_retyped_is_refused_naming_the_type()
+    {
+        Assert.True(Check(Stamp("""
+            "Kiln.Ecs+LampId": { "layout": "0000000000000999", "fields": { "op_Implicit": "uint" } }
+            """), out var reason), reason);
+        Assert.False(Check(Stamp("""
+            "Kiln.Ecs+LampId": { "layout": "0000000000000999", "fields": { "op_Implicit": "ushort" } }
+            """), out reason));
+        Assert.Equal("Lanterns.dll: Kiln.Ecs+LampId: the conversion to and from ushort is now to and from uint in this Kiln.Game (server 00000000)", reason);
+        // the conversion of a struct that is no longer a wrapper (Lamp has several fields)
+        Assert.False(Check(Stamp("""
+            "Kiln.Ecs+Lamp": { "layout": "0000000000000999", "fields": { "glow": "float", "op_Implicit": "float" } }
+            """), out reason));
+        Assert.Equal("Lanterns.dll: Kiln.Ecs+Lamp: the conversion to and from float is gone in this Kiln.Game (server 00000000): it is no longer a single-field wrapper", reason);
+    }
+
+    [Fact]
+    public void An_attribute_view_that_is_gone_or_retyped_is_refused_naming_the_type()
+    {
+        Assert.True(Check(Stamp("""
+            "Kiln.Ecs+Warmth": { "layout": "0000000000000999", "fields": { "get_Values": "Span<float>" } }
+            """), out var reason), reason);
+        Assert.False(Check(Stamp("""
+            "Kiln.Ecs+Warmth": { "layout": "0000000000000999", "fields": { "get_Values": "Span<int>" } }
+            """), out reason));
+        Assert.Equal("Lanterns.dll: Kiln.Ecs+Warmth: the attribute view Values changed from Span<int> to Span<float> in this Kiln.Game (server 00000000)", reason);
+        Assert.False(Check(Stamp("""
+            "Kiln.Ecs+Lamp": { "layout": "0000000000000999", "fields": { "get_Values": "Span<float>" } }
+            """), out reason));
+        Assert.Equal("Lanterns.dll: Kiln.Ecs+Lamp: the attribute view Values (Span<float>) is gone in this Kiln.Game (server 00000000)", reason);
+    }
+
+    [Fact]
     public void Bad_json_is_refused()
     {
         Assert.False(Check("{ \"schema\": 1, ", out var reason));
@@ -157,7 +192,23 @@ public class GameLayoutStampsTests
             Assert.Equal(Convert.ToUInt64(p[2], 16), (ulong)t.GetField("Layout", BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!);
             Assert.Equal(p[3], (string)t.GetField("QualifiedName", BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!);
             var fields = t.GetFields(BindingFlags.Public | BindingFlags.Instance).Select(f => f.Name).OrderBy(n => n, StringComparer.Ordinal);
-            Assert.Equal(p.Skip(6).Select(m => m[..m.IndexOf('@')]).OrderBy(n => n, StringComparer.Ordinal), fields);
+            var members = p.Skip(6).ToList();
+            Assert.Equal(members.Where(m => !m.Contains("@method:", StringComparison.Ordinal)).Select(m => m[..m.IndexOf('@')])
+                .OrderBy(n => n, StringComparer.Ordinal), fields);
+            // the generated methods the table lists exist on the type, with the listed type
+            foreach (var m in members.Where(m => m.Contains("@method:", StringComparison.Ordinal)))
+            {
+                var (name, type) = (m[..m.IndexOf('@')], m[(m.IndexOf(':') + 1)..]);
+                var found = t.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance).Where(x => x.Name == name).ToList();
+                Assert.True(found.Count > 0, $"{p[1]}: no method {name}");
+                if (name == "op_Implicit") Assert.Equal(2, found.Count);
+                else Assert.StartsWith("System.Span`1", found.Single().ReturnType.FullName, StringComparison.Ordinal);
+                _ = type;
+            }
+            // every generated method of those two families is listed
+            Assert.Equal(t.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                    .Where(x => x.Name is "op_Implicit" or "get_Values").Select(x => x.Name).Distinct().OrderBy(n => n, StringComparer.Ordinal),
+                members.Where(m => m.Contains("@method:", StringComparison.Ordinal)).Select(m => m[..m.IndexOf('@')]).OrderBy(n => n, StringComparer.Ordinal));
         }
     }
 
