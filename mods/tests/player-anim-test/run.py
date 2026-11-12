@@ -794,11 +794,14 @@ def scenarios(lab, c, a):
         said = {}
 
         def act(text):
+            # pa-a is not the last mod in the load order at first (player-anim-test loads after it); after "load" it is the last one
+            said["reload"] = lab.control("reload pa-a")
+            time.sleep(3)
             said["unload"] = lab.control("unload pa-a")
             time.sleep(3)
             said["load"] = lab.control(f"load {lab.kiln / 'mods/pa-a'}")
             time.sleep(3)
-            said["reload"] = lab.control("reload pa-a")
+            said["reload-as-last"] = lab.control("reload pa-a")
             time.sleep(3)
             (lab.kiln / "mods/player-anim-test/go-reload").write_text("")
             return said
@@ -807,9 +810,11 @@ def scenarios(lab, c, a):
         print(f"INFO reload: control answers {said}", flush=True)
         after = text.split("pat: go reload", 1)[-1]
         lines = [l for l in service_lines(text.split("pat: paused", 1)[-1])]
-        # pa-a is not the last mod in the load order (player-anim-test loads after it), so each step moves kiln/state/mods.json
-        for step, words in (("unload", "is unloaded now"), ("load", "is loaded again"), ("reload", "was reloaded")):
+        for step, words in (("reload", "was reloaded"), ("unload", "is unloaded now"), ("load", "is loaded again")):
             c(f"reload.line-after-{step}", any(f"mod pa-a {words}" in l for l in lines), str([l for l in lines if "pa-a" in l][:4]))
+        # the service's known limit: a reload of the last mod in the load order moves nothing in kiln/state/mods.json, so it gets no line
+        n = sum("mod pa-a was reloaded" in l for l in lines)
+        c("reload.known-limit-no-line-for-the-last-mod", n == 1, f"{n} 'was reloaded' line(s) for two reloads, the second one of the last mod in the load order")
         p = plays(after).get("pa-a/slash")
         d = follows(p, game.expect(lab.cook("pa-a"), "a_slash"))[0] if p else float("inf")
         c("reload.still-plays", d <= FOLLOWS, f"{d:.3f} m from its clip after the unload, load and reload")
