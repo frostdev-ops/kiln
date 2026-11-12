@@ -210,8 +210,10 @@ internal sealed class CheckRunner
 
     /// <summary>An answer to the running check (tick thread). Returns null when taken, else why not.
     /// <paramref name="guardAtEnd"/> is a joining client's guard status sent with its verdict.</summary>
-    public string? Answer(AnswerKind kind, string? note = null, object? controller = null, GuardStatus? guardAtEnd = null)
+    public string? Answer(AnswerKind kind, string? note = null, object? controller = null, GuardStatus? guardAtEnd = null, CheckOrigin origin = CheckOrigin.Local)
     {
+        if (origin == CheckOrigin.Control && _run is { Request.Origin: not CheckOrigin.Control })
+            return "the control folder cannot answer a check that was not started from the control folder";
         if (kind == AnswerKind.Stop)
         {
             var queued = _queue.Count;

@@ -193,7 +193,7 @@ internal sealed class CheckNet
                 "pass" => AnswerKind.Pass, "fail" => AnswerKind.Fail, "skip" => AnswerKind.Skip, "yes" => AnswerKind.Yes, "no" => AnswerKind.No,
                 "stop" => AnswerKind.Stop, _ => null,
             };
-            var why = kind is { } k ? _runner.Answer(k, m.Note, peer, m.Guard?.ToStatus()) : $"unknown answer '{m.Kind}'";
+            var why = kind is { } k ? _runner.Answer(k, m.Note, peer, m.Guard?.ToStatus(), CheckOrigin.Remote) : $"unknown answer '{m.Kind}'";
             if (why is not null) _channel.SendTo(peer, new NetState { Kind = "answer-refused", Message = why });
         });
     }

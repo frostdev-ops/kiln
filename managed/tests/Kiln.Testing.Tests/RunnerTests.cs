@@ -193,6 +193,55 @@ public sealed class RunnerTests
         Assert.Equal("joined", h.Answer(AnswerKind.Pass, null, "peer-a").Session);
     }
 
+    [Theory]
+    [InlineData("yes")]
+    [InlineData("no")]
+    [InlineData("pass")]
+    [InlineData("fail")]
+    [InlineData("skip")]
+    public void Control_folder_cannot_answer_a_locally_started_check(string command)
+    {
+        using var h = new Harness(x => x.Env.Character = null);
+        h.Start("t.proof");
+        if (command is "pass" or "fail" or "skip")
+        {
+            h.Runner.Answer(AnswerKind.Yes);
+            h.Runner.Answer(AnswerKind.Yes);
+            h.Pump();
+        }
+        var dir = Path.Combine(h.Dir, "control");
+        Directory.CreateDirectory(dir);
+        var control = new ControlFolder(h.Runner, dir, h.Env);
+        File.WriteAllText(Path.Combine(dir, "answer.cmd"), command);
+        control.Poll(now: true);
+        h.Pump();
+        var result = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "answer.result.json")));
+        Assert.False(result.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains("control folder", result.RootElement.GetProperty("message").GetString());
+        Assert.Empty(h.OnDisk());
+        Assert.NotNull(h.Runner.Current);
+        if (command is "yes" or "no") Assert.Equal(CheatsRule.ThrowawayQuestion, h.Runner.View.Current!.Confirm);
+    }
+
+    [Fact]
+    public void Control_folder_can_confirm_and_judge_its_own_noncheats_check()
+    {
+        using var h = new Harness();
+        h.Start("t.confirm", CheckOrigin.Control);
+        var dir = Path.Combine(h.Dir, "control");
+        Directory.CreateDirectory(dir);
+        var control = new ControlFolder(h.Runner, dir, h.Env);
+        foreach (var command in new[] { "yes", "pass" })
+        {
+            File.WriteAllText(Path.Combine(dir, command + ".cmd"), command);
+            control.Poll(now: true);
+            h.Pump();
+            using var result = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, command + ".result.json")));
+            Assert.True(result.RootElement.GetProperty("ok").GetBoolean());
+        }
+        Assert.Single(h.OnDisk());
+    }
+
     [Fact]
     public void The_control_folder_runs_answers_and_refuses()
     {

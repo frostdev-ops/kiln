@@ -134,7 +134,7 @@ internal sealed class ControlFolder
                 var current = _runner.Current;
                 if (current is null) throw new ArgumentException("no check is running");
                 var key = (current.Case.Mod, current.Case.Id);
-                if (_runner.Answer(kind, rest, null) is { } why) throw new ArgumentException(why);
+                if (_runner.Answer(kind, rest, null, origin: CheckOrigin.Control) is { } why) throw new ArgumentException(why);
                 Wait(result, line, e => e.Kind == RunEventKind.Finished && (e.Mod, e.Id) == key);
                 break;
             }
@@ -144,7 +144,7 @@ internal sealed class ControlFolder
                 if (current is null) throw new ArgumentException("no check is waiting for a yes or no");
                 var key = (current.Case.Mod, current.Case.Id);
                 Wait(result, line, e => (e.Mod, e.Id) == key && e.Kind is RunEventKind.Started or RunEventKind.Refused or RunEventKind.Declined);
-                if (_runner.Answer(verb == "yes" ? AnswerKind.Yes : AnswerKind.No, null, null) is { } why)
+                if (_runner.Answer(verb == "yes" ? AnswerKind.Yes : AnswerKind.No, null, null, origin: CheckOrigin.Control) is { } why)
                 {
                     _waiting.RemoveAt(_waiting.Count - 1);
                     throw new ArgumentException(why);
@@ -159,7 +159,7 @@ internal sealed class ControlFolder
                     var key = (current.Case.Mod, current.Case.Id);
                     Wait(result, line, e => (e.Mod, e.Id) == key && e.Kind is RunEventKind.Finished or RunEventKind.Declined);
                 }
-                if (_runner.Answer(AnswerKind.Stop, null, null) is { } why)
+                if (_runner.Answer(AnswerKind.Stop, null, null, origin: CheckOrigin.Control) is { } why)
                 {
                     if (current is not null) _waiting.RemoveAt(_waiting.Count - 1);
                     throw new ArgumentException(why);
