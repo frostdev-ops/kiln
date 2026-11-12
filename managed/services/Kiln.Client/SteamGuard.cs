@@ -32,11 +32,15 @@ public readonly record struct SteamGuardStatus(bool Available, bool HookInstalle
 /// that did not go in, another hook on the same call, a read that failed) reads as "not protecting".</para>
 /// <para>There is no call that turns the guard off. A latch lasts until the game exits; a hold lasts until it is
 /// disposed (two holds need two disposals). Another mod cannot end yours.</para>
-/// <para>What it does not cover. Only the call that reports an achievement as reached. It does not undo an achievement
-/// already reported. It does not cover other calls a mod or another loader makes into Steam itself, a game build whose
-/// call does not match the signature (then it is not available), nor a character or world loaded later in a game where
-/// the guard is off: if that character's saved state reaches an achievement, the game can report it then. See
-/// native/services/steamguard/README.md for which of the game's paths to Steam were read from its code.</para>
+/// <para>What it guards: the game's one call that sends achievement unlocks and stat changes to Steam (it also carries
+/// the game's progress stats). While the guard is on, that call is dropped and counted in <see cref="SteamGuardStatus.Dropped"/>.</para>
+/// <para>What it does not cover. It does not undo an achievement already reported. It does not cover the game's own
+/// reset of all stats (which removes, never unlocks), other calls a mod or another loader makes into Steam itself, a
+/// game build whose call does not match the signature (then it is not available), nor a character or world loaded later
+/// in a game where the guard is off: the game reports achievements from saved state, so a changed character can unlock
+/// them when it is loaded again. The guard runs in this process only: a joined player's account is protected by that
+/// player's own client, and a client without Kiln cannot be protected at all. See native/services/steamguard/README.md
+/// for what was read from the game's code and what is inferred.</para>
 /// </remarks>
 public static unsafe class SteamGuard
 {
