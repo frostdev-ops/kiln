@@ -17,7 +17,7 @@ ntdll's `LdrEnumerateLoadedModules` walks it), decided by SET's markers and neve
 `powrprof.dll` that carries SET's name or its folder name (`Shrouded Engine Tweaks`, `shrouded_engine_tweaks`, ASCII or
 UTF-16, any case), or a renamed module carrying SET's name (found in SET 0.1.1's release DLL, assumed for 0.2.0's,
 which has not been checked; `native/plugins/compat/set_marker.h`). Another tool's `powrprof.dll` (a proxy loader that
-only forwards the system DLL's exports, Shared XP, Ember) is not SET, and kiln-set runs next to it (until dev.25 any
+only forwards the system DLL's exports, Shared XP, Ember) is not SET, and kiln-set runs next to it (up to 0.2.0-dev.25 any
 non-system `powrprof.dll` switched kiln-set off: GitHub issue 23). A non-system `powrprof.dll` that cannot be read
 counts as a failed look (below). Windows' own System32 power DLL is never inspected. The check runs before initialization and before Lua
 tick/menu work; a module loaded later stops the runtime and releases its Lua owners. Kiln uses `dinput8.dll`, so
