@@ -153,6 +153,12 @@ else
   "$here/api-gate.sh" version-rule "$prev" "${gate_new[@]}" 2>&1 | tee -a "$log" || die "new API needs a higher API version (above)"
 fi
 [[ -d ${KILN_API_BASELINE:-} ]] || note "WARNING: KILN_API_BASELINE is not a folder: pack.sh cannot compare the SDK's assemblies with the last released ones"
+# The full release version in the builds: native/CMakeLists.txt (kiln_version.h: the core's and the proxy's version),
+# managed/KilnVersion.props (the assemblies' informational version and Kiln.Api's Kiln.Build stamp) and
+# tools/package/stage.sh (kiln-runtime.json, so the runtime zip's name) read the export's VERSION. Written after the
+# source tarball and the check above: the tarball keeps VERSION as committed.
+printf '%s\n' "$version" >"$src/VERSION"
+export KilnVersion=$version
 # ShroudForge's runtime (submodule third_party/shroudforge, a GPL-3 component): git archive leaves submodules out, so
 # export the fork at the pinned commit with its own submodules, ship that as its corresponding source, and build from it
 sfpin=$(git -C "$repo" ls-tree "${full:-HEAD}" third_party/shroudforge | awk '$2 == "commit" {print $3}')
