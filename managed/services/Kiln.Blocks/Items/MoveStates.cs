@@ -18,17 +18,22 @@ internal sealed record ModStateAnswer(Guid Guid, PlayerStateKind Kind, PlayerSta
 /// <summary>The two questions the player-anim lookup answers, by content ready, on both sides, from any thread.</summary>
 internal interface IPlayerStateLookup
 {
+    /// <summary>Why the lookup cannot answer here (no service, the capability off, the graph off or not up yet); null when it can.</summary>
+    string? NotAnswering => null;
     /// <summary><c>"State"</c> or <c>"Machine/State"</c>. Empty: none; several: the bare name is in several machines.</summary>
     IReadOnlyList<GameStateAnswer> FindGameStates(string name);
     /// <summary>Null: mod <paramref name="mod"/> defines no state <paramref name="name"/>.</summary>
     ModStateAnswer? Find(string mod, string name);
 }
 
-/// <summary>Where the lookup plugs in. Null (today): player states are not available in this build. Tests set it.</summary>
+/// <summary>Where the lookup plugs in: <see cref="PlayerAnimLookup"/> over <c>Kiln.PlayerAnim</c>. Tests set it; null: no lookup at all.</summary>
 internal static class PlayerStateSeam
 {
-    internal static IPlayerStateLookup? Lookup;
+    internal static IPlayerStateLookup? Lookup = PlayerAnimLookup.Instance;
 }
+
+/// <summary>A refusal of the lookup while a name is resolved: the capability went off between the question and the answer.</summary>
+internal sealed class PlayerStatesNotAnswering(string reason) : Exception(reason);
 
 /// <summary>One name of a move's <c>animation</c>, as the compile read it: a GUID it already is, or a name the lookup answers for at content ready. Null names keep the motion's own.</summary>
 internal sealed record AnimationRef(string Written, Guid? Guid, string? Name)
@@ -70,6 +75,25 @@ internal static class MoveStates
         if (lookup == null)
         {
             problem = $"\"{name}\" cannot be looked up: player states are not available in this build. Name a game state by its GUID or 0x id (the catalog's graphs section) until then; the motion keeps its own";
+            return null;
+        }
+        try { return Resolve(mod, name, lookup, out problem); }
+        catch (PlayerStatesNotAnswering e)
+        {
+            problem = NotAnswering(name, e.Message);
+            return null;
+        }
+    }
+
+    private static string NotAnswering(string name, string why) =>
+        $"\"{name}\" cannot be looked up: player states are not available here ({why}). The motion keeps its own; a game state by its GUID or 0x id needs no lookup";
+
+    private static (Guid Guid, PlayerStateKind? Kind)? Resolve(string mod, string name, IPlayerStateLookup lookup, out string? problem)
+    {
+        problem = null;
+        if (lookup.NotAnswering is { } why)
+        {
+            problem = NotAnswering(name, why);
             return null;
         }
         if (!name.Contains('/') && lookup.Find(mod, name) is { } own)

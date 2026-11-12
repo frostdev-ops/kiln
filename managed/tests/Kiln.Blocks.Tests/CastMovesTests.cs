@@ -12,7 +12,7 @@ public sealed class CastMovesTests : IDisposable
     private const string Mod = "cast-moves-test";
 
     public CastMovesTests() => PlayerStateSeam.Lookup = null;
-    public void Dispose() => PlayerStateSeam.Lookup = null;
+    public void Dispose() => PlayerStateSeam.Lookup = PlayerAnimLookup.Instance;
 
     private static JsonObject Lower<T>(T b, string name = "storm") where T : class, IBlock => Compiler.Lower(new ModBlocks(Mod, 1) { ManifestClients = "mod" }, name, b).Low.Json;
 

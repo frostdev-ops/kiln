@@ -288,9 +288,11 @@ public sealed record CastBlock
 public sealed record CastAnimation(string Key, string Sequence, double ChargeSeconds) : IPremade
 {
     /// <summary>The state the cast plays, as <see cref="MoveBlock.Animation"/> takes it: the full-body cast state when the motion has one, else its overlay. Null: the motion's own.</summary>
+    [RequiresCapability("blocks.weapon_moves")]
     public MoveAnimation? Animation { get; init; }
     /// <summary>Seconds into the cast the spell leaves the staff, as <see cref="CastBlock.ReleaseAt"/> (give one of them, or the same number). The rest of the motion is scaled
     /// to fit before it and shifted after it. Null: the motion's own.</summary>
+    [RequiresCapability("blocks.weapon_moves")]
     public double? HitAt { get; init; }
 
     /// <summary>The quick bolt from the staff (Ice Bolt's).</summary>

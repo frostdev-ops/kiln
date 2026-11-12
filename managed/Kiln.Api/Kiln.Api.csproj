@@ -47,5 +47,6 @@
     <InternalsVisibleTo Include="Kiln.Quests" />
     <InternalsVisibleTo Include="Kiln.Rules" />
     <InternalsVisibleTo Include="Kiln.PlayerAnim" />
+    <InternalsVisibleTo Include="Kiln.Blocks" />
   </ItemGroup>
 </Project>

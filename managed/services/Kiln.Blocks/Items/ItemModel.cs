@@ -42,6 +42,7 @@ public sealed record VisualBlock : IBlock
     /// <summary>A model with moving parts for the hand: a skinned model of the mod's own and the graph that plays its clip. The item holds it in the hand its
     /// class is held in, with <see cref="Vfx"/> on it; <see cref="Model"/> is set on the item as for any look and stands in where the moving model is not cooked; the icon and the dropped model are
     /// <see cref="Icon"/> and <see cref="Dropped"/>, as for any look. Then <c>clients: mod</c>.</summary>
+    [RequiresCapability("blocks.animated_held")]
     public AnimatedModel? Animated { get; init; }
 }
 
@@ -126,6 +127,7 @@ public sealed record WeaponBlock : IBlock, ITweakable
     /// <summary>The name this block had before a rename. Ids come from the oldest name, so saves keep it.</summary>
     public string? Was { get; init; }
     /// <summary>What its attack slots play: its own motions, timing and chains, slot by slot. Null: its class's (docs/kiln/modding/item-blocks.md, "Moves").</summary>
+    [RequiresCapability("blocks.weapon_moves")]
     public WeaponMoves? Moves { get; init; }
 
     /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
@@ -229,9 +231,11 @@ public sealed record WandAttack
 public sealed record WandMoves(string Key, string Sequence, double ReleaseSeconds, int[] Fires, int[] Silenced) : IPremade
 {
     /// <summary>The state the motion plays, as <see cref="MoveBlock.Animation"/> takes it. Null: the motion's own.</summary>
+    [RequiresCapability("blocks.weapon_moves")]
     public MoveAnimation? Animation { get; init; }
     /// <summary>Seconds into the motion the attack leaves the wand: the release, as <see cref="CastBlock.ReleaseAt"/> (give one of them, or the same number). The rest of the
     /// motion is scaled to fit before it and shifted after it. Null: the motion's own.</summary>
+    [RequiresCapability("blocks.weapon_moves")]
     public double? HitAt { get; init; }
     /// <summary>JSON's object with no <c>like</c>: the attack's own motion, with what the object changes.</summary>
     internal static readonly WandMoves Unset = new("", "", 0, [], []);
