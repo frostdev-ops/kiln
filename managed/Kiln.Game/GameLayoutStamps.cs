@@ -38,6 +38,7 @@ public static class GameLayoutStamps
 
     /// <summary>The table of this assembly, as embedded: one line per generated type with its layout hash and its
     /// fields (or enum values), after a header with the dump's side, exe SHA-256 and the hash of the whole set.</summary>
+    [global::Kiln.AnyThread]
     public static string Table => _table.Value;
 
     /// <summary>
@@ -47,6 +48,7 @@ public static class GameLayoutStamps
     /// <param name="stampJson">The stamp's text.</param>
     /// <param name="reason">Null when the mod can run, else why not.</param>
     /// <exception cref="ArgumentNullException"><paramref name="stampJson"/> is null.</exception>
+    [global::Kiln.AnyThread]
     public static bool Check(string stampJson, out string? reason)
     {
         ArgumentNullException.ThrowIfNull(stampJson);

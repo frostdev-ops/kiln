@@ -185,6 +185,15 @@ public class GameLayoutStampsTests
         Assert.Equal("unknown layout stamp schema (none); this Kiln.Game reads schema 1", reason);
     }
 
+    [Theory]
+    [InlineData(nameof(GameLayoutStamps.Table))]
+    [InlineData(nameof(GameLayoutStamps.Check))]
+    public void Public_stamp_members_declare_their_any_thread_contract(string name)
+    {
+        var member = Assert.Single(typeof(GameLayoutStamps).GetMember(name, BindingFlags.Public | BindingFlags.Static));
+        Assert.Contains(member.GetCustomAttributesData(), a => a.AttributeType == typeof(AnyThreadAttribute));
+    }
+
     [Fact]
     public void A_null_stamp_is_a_bad_argument()
     {
