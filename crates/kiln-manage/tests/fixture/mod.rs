@@ -3,14 +3,16 @@
 //!
 //! In `<scratch>/` (below `std::env::temp_dir()`, removed on drop unless `KILN_TEST_KEEP` is set):
 //! - the environment of a Linux player ([`Fixture::env`]: `HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`,
-//!   `XDG_CONFIG_HOME` below the scratch folder) and its default data root `xdg-data/kiln` ([`Fixture::dirs`]);
+//!   `XDG_CONFIG_HOME` below the scratch folder) and its default data root `xdg-data/kiln` ([`Fixture::dirs`]); on
+//!   Windows a Windows player's (`LOCALAPPDATA`, `APPDATA`, `USERPROFILE` below it), default root `local\Kiln`, with
+//!   Kiln's state folder `local\Kiln\state` inside it as on a real PC;
 //! - a library ([`library::import`]): a Kiln mod, a native `dllmain` mod, an EMF mod and a SET mod (a fixed-folder
 //!   kind that `engine_mods::place` copies into the game folder with a `.kiln-library.json` marker and a receipt);
 //! - two profiles ([`profile::create`], [`profile::save`]): "Ember run" with all four, active ([`profile::activate`])
 //!   in both game folders, and "Spare";
 //! - `game-z/`, a game folder in Z mode (its own Wine prefix `game-z.pfx/` whose `dosdevices/z:` points at `/`, as
 //!   `tests/profiles.rs` does), and `game-copy/`, one without a prefix (copy mode); an install record each
-//!   ([`game::inspect_with`], [`game::write_record`]);
+//!   ([`game::inspect_with`], [`game::write_record`]); on Windows both are native mode (no prefix);
 //! - the quick flow's lock (`quick.lock`, [`quick::resume_active`]);
 //! - a save backup under the active profile ([`saves::backup_from`], from a save in the Z prefix);
 //! - a runtime bundle under `runtime/` ([`bundle::create`], [`bundle::import`]);
@@ -49,11 +51,12 @@ impl Drop for Scratch {
     }
 }
 
+/// Windows: `canonicalize` gives `\\?\C:\…`; the launcher keeps and compares paths without that prefix.
 pub fn scratch(tag: &str) -> Scratch {
     let p = std::env::temp_dir().join(format!("km-data-folder-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&p);
     std::fs::create_dir_all(&p).unwrap();
-    Scratch(p.canonicalize().unwrap())
+    Scratch(kiln_manage::steam::strip_verbatim(p.canonicalize().unwrap()))
 }
 
 pub fn put(root: &Path, rel: &str, data: &[u8]) {
@@ -62,7 +65,8 @@ pub fn put(root: &Path, rel: &str, data: &[u8]) {
     std::fs::write(p, data).unwrap();
 }
 
-/// A Linux player's environment with everything below `base`.
+/// A Linux player's environment with everything below `base` (on Windows a Windows player's: [`win_env_at`]).
+#[cfg(not(windows))]
 pub fn env_at(base: &Path) -> DataEnv {
     DataEnv {
         windows: false,
@@ -75,6 +79,28 @@ pub fn env_at(base: &Path) -> DataEnv {
         app_data: None,
         xdg_config_home: Some(base.join("xdg-config").into()),
     }
+}
+
+#[cfg(windows)]
+pub fn env_at(base: &Path) -> DataEnv {
+    win_env_at(base)
+}
+
+/// A Windows player's environment with everything below `base`: `LOCALAPPDATA` `base\local` (default root
+/// `local\Kiln`, state folder `local\Kiln\state`), `APPDATA` `base\roaming`, `USERPROFILE` `base\home`.
+pub fn win_env_at(base: &Path) -> DataEnv {
+    DataEnv {
+        windows: true,
+        local_app_data: Some(base.join("local").into()),
+        app_data: Some(base.join("roaming").into()),
+        user_profile: Some(base.join("home").into()),
+        ..Default::default()
+    }
+}
+
+/// The subfolder a non-empty picked folder gets on this platform (`Kiln` on Windows, `kiln` elsewhere).
+pub fn sub() -> &'static str {
+    if cfg!(windows) { "Kiln" } else { "kiln" }
 }
 
 pub fn kiln_mod(root: &Path, id: &str, version: &str) -> PathBuf {
@@ -148,6 +174,8 @@ pub struct Fixture {
     pub unknown: PathBuf,
     /// The launcher's path `handler.json` names.
     pub launcher_exe: PathBuf,
+    /// The save folder the backup was taken from (in the Z prefix; on Windows `<scratch>/Saved Games/Enshrouded`).
+    pub saves_dir: PathBuf,
 }
 
 fn refs(r: &library::ImportReport, kind: ModKind, id: &str) -> LibraryRef {
@@ -162,12 +190,15 @@ fn game_folder(base: &Path, name: &str, z_prefix: bool, dirs: &DataDirs) -> Game
     let game = base.join(name);
     put(&game, "enshrouded.exe", b"MZ");
     std::fs::create_dir_all(game.join("kiln")).unwrap();
+    #[cfg(unix)]
     if z_prefix {
         // kilnctl's `<dir>.pfx`: game::inspect_with takes it as the folder's own Wine prefix
         let pfx = base.join(format!("{name}.pfx"));
         std::fs::create_dir_all(pfx.join("dosdevices")).unwrap();
         std::os::unix::fs::symlink("/", pfx.join("dosdevices/z:")).unwrap();
     }
+    #[cfg(not(unix))]
+    let _ = z_prefix; // a game on Windows runs natively: no prefix
     let g = game::inspect_with(&game, &[], &dirs.root).unwrap();
     game::write_record(dirs, &g, None).unwrap();
     g
@@ -200,7 +231,8 @@ impl Fixture {
         // two game folders with their install records
         let game_z = game_folder(&base, "game-z", true, &dirs);
         let game_copy = game_folder(&base, "game-copy", false, &dirs);
-        assert_eq!((game_z.path_mode, game_copy.path_mode), (PathMode::Z, PathMode::Copy));
+        let modes = if cfg!(windows) { (PathMode::Native, PathMode::Native) } else { (PathMode::Z, PathMode::Copy) };
+        assert_eq!((game_z.path_mode, game_copy.path_mode), modes);
 
         // two profiles, one active in both games
         let mut p = profile::create(&dirs, "Ember run", None).unwrap();
@@ -220,12 +252,15 @@ impl Fixture {
         quick::resume_active(&dirs, &game_z).unwrap();
 
         // a save backup under the active profile
-        let saves_dir = game_z.prefix.as_ref().unwrap().join("drive_c/users/steamuser/Saved Games/Enshrouded");
+        let saves_dir = match game_z.prefix.as_ref() {
+            Some(pfx) => pfx.join("drive_c/users/steamuser/Saved Games/Enshrouded"),
+            None => base.join("Saved Games/Enshrouded"),
+        };
         put(&saves_dir, "3ad85aea_1", b"world save");
         let backup = saves::backup_from(
             &dirs,
             &game_z,
-            &[SaveDir { label: "local".into(), path: saves_dir, steam_id: None, recursive: true }],
+            &[SaveDir { label: "local".into(), path: saves_dir.clone(), steam_id: None, recursive: true }],
             BackupReason::Manual,
             Some("data-folder fixture"),
             None,
@@ -269,6 +304,7 @@ impl Fixture {
         let handler = kiln_manage::nexus::catalog::root_of(&dirs).join("handler.json");
         std::fs::create_dir_all(handler.parent().unwrap()).unwrap();
         std::fs::write(&handler, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&handler, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -278,7 +314,7 @@ impl Fixture {
         let unknown = dirs.root.join("My Notes");
         put(&unknown, "readme.txt", b"the player's own notes");
 
-        Fixture { scratch, base, env, dirs, mods, game_z, game_copy, active, spare, bundle, server, server_id, modpack, backup, unknown, launcher_exe }
+        Fixture { scratch, base, env, dirs, mods, game_z, game_copy, active, spare, bundle, server, server_id, modpack, backup, unknown, launcher_exe, saves_dir }
     }
 
     /// Activates the active profile again in both games (Z, copy).
@@ -291,7 +327,7 @@ impl Fixture {
         vec![
             ("<data>", self.dirs.root.clone()),
             ("<game Z>", self.game_z.path.clone()),
-            ("<prefix Z>", self.game_z.prefix.clone().unwrap()),
+            ("<prefix Z>", self.game_z.prefix.clone().unwrap_or_else(|| self.saves_dir.clone())),
             ("<game copy>", self.game_copy.path.clone()),
             ("<server>", self.server.clone()),
             ("<state>", self.env.state_dir()),

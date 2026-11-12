@@ -2,18 +2,24 @@
 //! folder holds (`inventory`), every refusal of a picked folder and the plans (`check`), the system's probes
 //! (`RealFacts`), and the list of files that record the data root's absolute path (the fixture: tests/fixture/mod.rs).
 //! The Windows path rules run here too, through `DataEnv { windows: true, .. }` over Windows path strings.
-#![cfg(all(unix, feature = "zip"))]
+//!
+//! The file builds for Windows too (run under Wine, see tests/data_folder_windows.rs): the parts that need a symlink,
+//! Unix permissions (a folder made unreadable with `chmod`), a named pipe, a Wine prefix with `Z:` or Unix modes are
+//! Unix only, each marked where it is; on Windows the fixture is a Windows player's (`fixture::win_env_at`).
+#![cfg(feature = "zip")]
 
 mod fixture;
 
-use fixture::{Fixture, env_at, put, scratch};
+use fixture::{Fixture, env_at, put, scratch, sub};
 use kiln_manage::data_folder::{
     self as df, Action, CheckInput, Evidence, Facts, FolderState, Inventory, LongestPath, PathParts, PathStyle, Plan, RealFacts, Refusal,
     RefusalCode, Space, SystemFacts,
 };
 use kiln_manage::game::{GameInstall, GameKind, PathMode, Platform};
 use kiln_manage::paths::{DataDirs, DataEnv, RootSource};
+#[cfg(unix)]
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(unix)]
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
@@ -77,6 +83,7 @@ fn install_at(dir: &Path, prefix: Option<PathBuf>) -> GameInstall {
     }
 }
 
+#[cfg(unix)]
 fn chmod(p: &Path, mode: u32) {
     std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
 }
@@ -95,8 +102,11 @@ fn recognizes_missing_files_links_and_empty_folders() {
     let d = s.0.join("folder");
     std::fs::create_dir_all(&d).unwrap();
     assert_eq!(r(&d), FolderState::Empty);
-    symlink(&d, s.0.join("link")).unwrap();
-    assert_eq!(r(&s.0.join("link")), FolderState::Link);
+    #[cfg(unix)] // a link: tests/data_folder_windows.rs makes a junction
+    {
+        symlink(&d, s.0.join("link")).unwrap();
+        assert_eq!(r(&s.0.join("link")), FolderState::Link);
+    }
     // what a default root keeps after a move counts as empty
     for f in [df::POINTER, df::JOURNAL, &format!("{}.tmp", df::POINTER), &format!("{}.tmp", df::JOURNAL), "quick.lock", df::LOCK] {
         put(&d, f, b"");
@@ -115,13 +125,16 @@ fn recognizes_missing_files_links_and_empty_folders() {
     // the first entry that is not the launcher's says what it is
     put(&d, "Photos/a.jpg", b"");
     assert_eq!(r(&d), FolderState::Other { entry: "Photos".into() });
-    // unreadable: an error, not a guess
-    let locked = s.0.join("locked");
-    put(&locked, "x", b"");
-    chmod(&locked, 0o000);
-    let e = df::recognize(&locked, &env);
-    chmod(&locked, 0o755);
-    assert!(e.is_err(), "{e:?}");
+    // unreadable: an error, not a guess (Unix permissions)
+    #[cfg(unix)]
+    {
+        let locked = s.0.join("locked");
+        put(&locked, "x", b"");
+        chmod(&locked, 0o000);
+        let e = df::recognize(&locked, &env);
+        chmod(&locked, 0o755);
+        assert!(e.is_err(), "{e:?}");
+    }
 }
 
 #[test]
@@ -151,12 +164,19 @@ fn a_kiln_data_folder_by_its_marker_or_its_layout() {
     assert_eq!(case("prof-other", &["profiles/p/other.json"]), other("profiles"));
     assert_eq!(case("rt-other", &["runtime/other.zip"]), other("runtime"));
     assert_eq!(case("inst-other", &["installs/readme.txt"]), other("installs"));
-    assert_eq!(case("case", &["Library/Kiln/a/M.dll"]), other("Library"), "Linux names count their case");
+    if cfg!(windows) {
+        assert_eq!(case("case", &["Library/Kiln/a/M.dll"]), kiln(Evidence::Library), "Windows names have no case");
+    } else {
+        assert_eq!(case("case", &["Library/Kiln/a/M.dll"]), other("Library"), "Linux names count their case");
+    }
     // a library that is a link is not followed
-    let d = s.0.join("linked");
-    std::fs::create_dir_all(&d).unwrap();
-    symlink(s.0.join("lib/library"), d.join("library")).unwrap();
-    assert_eq!(df::recognize(&d, &env).unwrap(), other("library"));
+    #[cfg(unix)]
+    {
+        let d = s.0.join("linked");
+        std::fs::create_dir_all(&d).unwrap();
+        symlink(s.0.join("lib/library"), d.join("library")).unwrap();
+        assert_eq!(df::recognize(&d, &env).unwrap(), other("library"));
+    }
 }
 
 #[test]
@@ -189,6 +209,7 @@ fn the_windows_default_root_keeps_its_state() {
 
 /// Bytes and regular files below `dir`, links not followed, `skip` (relative paths) left out: the inventory's totals
 /// counted another way.
+#[cfg(unix)]
 fn count(dir: &Path, rel: &str, skip: &[&str]) -> (u64, u64) {
     let (mut b, mut f) = (0, 0);
     for e in std::fs::read_dir(dir).unwrap().flatten() {
@@ -208,6 +229,7 @@ fn count(dir: &Path, rel: &str, skip: &[&str]) -> (u64, u64) {
 }
 
 #[test]
+#[cfg(unix)] // a symlink and a named pipe inside the folder (Windows: a junction, tests/data_folder_windows.rs)
 fn the_inventory_splits_known_unknown_locks_and_links() {
     let fx = Fixture::build("inventory");
     let root = &fx.dirs.root;
@@ -279,9 +301,12 @@ fn refused_where_the_current_folder_is() {
     assert_eq!(code(check(&l, &l.current.join("library"), &all)), RefusalCode::InsideCurrent);
     assert_eq!(code(check(&l, &l.current.join("not yet there"), &all)), RefusalCode::InsideCurrent);
     // through a link: the link itself is refused as one, a folder below it is inside the current folder
-    symlink(&l.current, l.base.join("alias")).unwrap();
-    assert_eq!(code(check(&l, &l.base.join("alias"), &all)), RefusalCode::Link);
-    assert_eq!(code(check(&l, &l.base.join("alias/new"), &all)), RefusalCode::InsideCurrent);
+    #[cfg(unix)]
+    {
+        symlink(&l.current, l.base.join("alias")).unwrap();
+        assert_eq!(code(check(&l, &l.base.join("alias"), &all)), RefusalCode::Link);
+        assert_eq!(code(check(&l, &l.base.join("alias/new"), &all)), RefusalCode::InsideCurrent);
+    }
     // a Kiln data folder that holds the current one
     let outer = l.base.join("outer");
     let inner = outer.join("inner");
@@ -323,8 +348,9 @@ fn refused_inside_a_game_a_server_or_kilns_own_folders() {
     i.servers = &servers;
     assert_eq!(code(df::check(&i, &all)), RefusalCode::InsideServer);
     assert!(check(&l, &p, &all).is_ok());
-    // Kiln's own state and settings folders
-    assert_eq!(code(check(&l, &l.env.state_dir().join("x"), &all)), RefusalCode::InsideKilnState);
+    // Kiln's own state and settings folders (Windows: the state folder is inside the default root, the current folder)
+    let in_state = if cfg!(windows) { RefusalCode::InsideCurrent } else { RefusalCode::InsideKilnState };
+    assert_eq!(code(check(&l, &l.env.state_dir().join("x"), &all)), in_state);
     assert_eq!(code(check(&l, &l.env.config_dir(), &all)), RefusalCode::InsideKilnState);
 }
 
@@ -338,30 +364,36 @@ fn refused_for_the_paths_form_or_what_is_there() {
     assert_eq!(code(check(&l, &l.base.join("file.txt"), &all)), RefusalCode::NotAFolder);
     let r = check(&l, &l.base.join("file.txt/below"), &all).unwrap_err();
     assert_eq!(r.code, RefusalCode::NotAFolder, "a file in the way: {}", r.reason);
-    let real = l.base.join("real");
-    std::fs::create_dir_all(&real).unwrap();
-    symlink(&real, l.base.join("linked")).unwrap();
-    assert_eq!(code(check(&l, &l.base.join("linked"), &all)), RefusalCode::Link);
-    // the `kiln` subfolder of a folder with other files: a link, a file, a folder of someone else's
     let busy = l.base.join("busy");
     put(&busy, "photo.jpg", b"x");
-    symlink(&real, busy.join("kiln")).unwrap();
-    assert_eq!(code(check(&l, &busy, &all)), RefusalCode::Link);
-    std::fs::remove_file(busy.join("kiln")).unwrap();
-    put(&busy, "kiln", b"a file");
+    #[cfg(unix)]
+    {
+        let real = l.base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        symlink(&real, l.base.join("linked")).unwrap();
+        assert_eq!(code(check(&l, &l.base.join("linked"), &all)), RefusalCode::Link);
+        // the `kiln` subfolder of a folder with other files: a link, a file, a folder of someone else's
+        symlink(&real, busy.join("kiln")).unwrap();
+        assert_eq!(code(check(&l, &busy, &all)), RefusalCode::Link);
+        std::fs::remove_file(busy.join("kiln")).unwrap();
+    }
+    put(&busy, sub(), b"a file");
     assert_eq!(code(check(&l, &busy, &all)), RefusalCode::NotAFolder);
-    std::fs::remove_file(busy.join("kiln")).unwrap();
-    put(&busy, "kiln/other.txt", b"x");
+    std::fs::remove_file(busy.join(sub())).unwrap();
+    put(&busy, &format!("{}/other.txt", sub()), b"x");
     let r = check(&l, &busy, &all).unwrap_err();
     assert_eq!(r.code, RefusalCode::KilnSubfolderTaken);
-    assert!(r.reason.contains(&busy.join("kiln").display().to_string()), "{}", r.reason);
-    // a folder Kiln cannot read
-    let locked = l.base.join("locked");
-    put(&locked, "x", b"");
-    chmod(&locked, 0o000);
-    let r = check(&l, &locked, &all);
-    chmod(&locked, 0o755);
-    assert_eq!(code(r), RefusalCode::Unreadable);
+    assert!(r.reason.contains(&busy.join(sub()).display().to_string()), "{}", r.reason);
+    // a folder Kiln cannot read (Unix permissions)
+    #[cfg(unix)]
+    {
+        let locked = l.base.join("locked");
+        put(&locked, "x", b"");
+        chmod(&locked, 0o000);
+        let r = check(&l, &locked, &all);
+        chmod(&locked, 0o755);
+        assert_eq!(code(r), RefusalCode::Unreadable);
+    }
 }
 
 #[test]
@@ -483,15 +515,15 @@ fn plans_for_a_move_or_a_folder_to_use() {
     // a folder with other files: its kiln subfolder
     put(&p, "photo.jpg", b"x");
     let plan = check(&l, &p, &all).unwrap();
-    assert_eq!((plan.action, &plan.target), (Action::Move, &p.join("kiln")));
+    assert_eq!((plan.action, &plan.target), (Action::Move, &p.join(sub())));
     // a Kiln data folder there: used as it is
-    put(&p, "kiln/profiles/x/meta.json", b"{}");
+    put(&p, &format!("{}/profiles/x/meta.json", sub()), b"{}");
     let plan = check(&l, &p, &all).unwrap();
-    assert_eq!((plan.action, &plan.target, plan.bytes, plan.needed), (Action::Use, &p.join("kiln"), 0, 0));
+    assert_eq!((plan.action, &plan.target, plan.bytes, plan.needed), (Action::Use, &p.join(sub()), 0, 0));
     // a mount point gets the subfolder, even empty
     let usb = l.base.join("usb");
     std::fs::create_dir_all(&usb).unwrap();
-    assert_eq!(check(&l, &usb, &Facts { volume_root: true, ..Facts::all_clear() }).unwrap().target, usb.join("kiln"));
+    assert_eq!(check(&l, &usb, &Facts { volume_root: true, ..Facts::all_clear() }).unwrap().target, usb.join(sub()));
     // `.` names and a trailing slash are dropped
     let plan = check(&l, &PathBuf::from(format!("{}/./next/", l.base.display())), &all).unwrap();
     assert_eq!(plan.target, l.base.join("next"));
@@ -529,6 +561,7 @@ fn moving_back_to_the_default_root() {
 }
 
 #[test]
+#[cfg(unix)] // a Wine prefix whose Z: is a symlink; on Windows every game is native mode
 fn a_place_that_forces_copy_mode_is_named_not_refused() {
     let l = light("copy-mode");
     let pfx = l.base.join("pfx");
@@ -560,17 +593,21 @@ fn the_real_probes_on_one_disk() {
     std::fs::create_dir_all(&a).unwrap();
     std::fs::create_dir_all(&b).unwrap();
     assert!(facts.writable(&a));
-    let ro = s.0.join("read-only");
-    std::fs::create_dir_all(&ro).unwrap();
-    chmod(&ro, 0o555);
-    let w = facts.writable(&ro);
-    chmod(&ro, 0o755);
-    assert!(!w);
+    #[cfg(unix)] // a folder without write permission
+    {
+        let ro = s.0.join("read-only");
+        std::fs::create_dir_all(&ro).unwrap();
+        chmod(&ro, 0o555);
+        let w = facts.writable(&ro);
+        chmod(&ro, 0o755);
+        assert!(!w);
+    }
     assert_eq!(facts.same_volume(&a, &b), Some(true));
     assert!(facts.hard_links(&a, &b), "this scratch disk has hard links");
     let sp = facts.space(&a).unwrap();
     assert!(sp.free > 0 && sp.unit > 0, "{sp:?}");
-    assert!(facts.volume_root(Path::new("/")));
+    let top = s.0.ancestors().last().unwrap(); // `/`, or the drive root `C:\`
+    assert!(facts.volume_root(top), "{top:?}");
     assert!(!facts.volume_root(&a));
     assert_eq!(std::fs::read_dir(&a).unwrap().count() + std::fs::read_dir(&b).unwrap().count(), 0, "the probes leave nothing behind");
     let g = install_at(&s.0.join("game"), None);
@@ -607,13 +644,16 @@ fn the_real_probes_across_two_volumes() {
     assert!(!links, "a hard link never crosses volumes");
     assert!(writable);
     assert!(space.is_some_and(|s| s.unit > 0));
-    assert!(root.is_some_and(|r| r != Path::new("/")), "the mount point is a volume root");
+    assert!(root.is_some_and(|r| r != Path::new("/") && !s.0.starts_with(r)), "the mount point (Windows: its drive) is a volume root");
     assert_eq!(left, 0, "the probes leave nothing behind");
 }
 
 // ------------------------------------------------------------------------------------------------ recorded paths
 
+// The list of recorded paths is taken with Linux rules (Z mode and copy mode, the Z: forms): Unix only.
+
 /// One place where a file names the data root.
+#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Hit {
     file: String,
@@ -622,6 +662,7 @@ struct Hit {
 }
 
 /// `needle` occurs in `hay` as a whole path (what follows is not part of a name).
+#[cfg(unix)]
 fn occurrences(hay: &str, needle: &str) -> usize {
     hay.match_indices(needle)
         .filter(|(i, _)| hay[i + needle.len()..].chars().next().is_none_or(|c| !(c.is_alphanumeric() || "-_.".contains(c))))
@@ -630,6 +671,7 @@ fn occurrences(hay: &str, needle: &str) -> usize {
 
 /// Where in a file the data root is named: JSON fields by pointer, INI lines by section, other text by line, else the
 /// whole file. Every occurrence in the bytes must be found in a field, or the file is reported as `(bytes)`.
+#[cfg(unix)]
 fn hits_in(file: &str, bytes: &[u8], host: &str, z: &str) -> Vec<Hit> {
     let z_json = z.replace('\\', "\\\\");
     let text = String::from_utf8_lossy(bytes);
@@ -689,6 +731,7 @@ fn hits_in(file: &str, bytes: &[u8], host: &str, z: &str) -> Vec<Hit> {
     out
 }
 
+#[cfg(unix)]
 fn files_below(dir: &Path, out: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let Ok(m) = std::fs::symlink_metadata(e.path()) else { continue };
@@ -701,6 +744,7 @@ fn files_below(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// Who writes and reads each record the test finds, and what a move must do with it (the table's other columns).
+#[cfg(unix)]
 fn about(file: &str, field: &str) -> Option<(&'static str, &'static str, &'static str)> {
     const ACTIVATE: &str = "written again by activation from the new place (`core-2` activates the active profiles again)";
     Some(match (file, field) {
@@ -723,10 +767,13 @@ fn about(file: &str, field: &str) -> Option<(&'static str, &'static str, &'stati
     })
 }
 
+#[cfg(unix)]
 const REPORT_BEGIN: &str = "<!-- data_folder test: begin (written by `cargo test --test data_folder`, KILN_TEST_REPORT) -->";
+#[cfg(unix)]
 const REPORT_END: &str = "<!-- data_folder test: end -->";
 
 /// Writes the test's table between the markers of the file named by `KILN_TEST_REPORT`, keeping what is around them.
+#[cfg(unix)]
 fn write_report(path: &Path, hits: &BTreeSet<Hit>, searched: &BTreeMap<&'static str, usize>) {
     let mut t = String::new();
     t.push_str(REPORT_BEGIN);
@@ -760,6 +807,7 @@ fn write_report(path: &Path, hits: &BTreeSet<Hit>, searched: &BTreeMap<&'static 
 
 /// Every file the fixture made that names the data root, and which field: the exact list, so a new record fails here.
 #[test]
+#[cfg(unix)] // Z mode and copy mode, and the Z: forms of the root: Linux rules
 fn recorded_absolute_paths_of_the_data_root() {
     let fx = Fixture::build("recorded");
     let (z, copy) = fx.activate();
@@ -822,14 +870,15 @@ fn the_fixture_is_a_kiln_data_folder_and_can_be_checked_with_the_real_probes() {
     let p = fx.base.join("moved");
     let i = CheckInput { current: &fx.dirs.root, source: RootSource::Default, picked: &p, env: &fx.env, inventory: &inv, installs: &installs, servers: &servers, locked: false };
     let plan = df::check(&i, &RealFacts { dirs: &fx.dirs }).unwrap();
-    assert_eq!((plan.action, plan.same_volume, plan.hard_links, plan.private_files), (Action::Move, Some(true), true, Some(true)));
+    let private = if cfg!(unix) { Some(true) } else { None };
+    assert_eq!((plan.action, plan.same_volume, plan.hard_links, plan.private_files), (Action::Move, Some(true), true, private));
     assert!(inv.in_place_files > 0, "the active profile's config is written in place");
     let unit = RealFacts { dirs: &fx.dirs }.space(&fx.base).unwrap().unit;
     assert_eq!(plan.needed, df::needed_bytes(inv.in_place_bytes, inv.in_place_files, unit));
     assert_eq!((plan.bytes, plan.files), (inv.bytes, inv.files));
     assert_eq!(names(&plan.unknown), ["My Notes"]);
-    let copy_id = fx.game_copy.id.clone();
-    assert_eq!((plan.copy_mode_now.clone(), plan.copy_mode_after.clone()), (vec![copy_id.clone()], vec![copy_id]));
+    let copy: Vec<String> = if cfg!(windows) { vec![] } else { vec![fx.game_copy.id.clone()] }; // Windows: native mode
+    assert_eq!((plan.copy_mode_now.clone(), plan.copy_mode_after.clone()), (copy.clone(), copy));
     // the game folders and the server's are refused as places
     for inside in [fx.game_z.path.join("kiln/data-here"), fx.server.join("x")] {
         let i = CheckInput { picked: &inside, ..CheckInput { current: &fx.dirs.root, source: RootSource::Default, picked: &p, env: &fx.env, inventory: &inv, installs: &installs, servers: &servers, locked: false } };

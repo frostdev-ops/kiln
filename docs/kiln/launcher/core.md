@@ -7,8 +7,10 @@ Server, admin and modpack modules: [servers.md](servers.md), [admin-protocol.md]
 
 Features: the default build (kilnctl without features, the launcher's `--selftest`) has everything except zips
 (`zip`: bundle read/create/verify/extract, zip import in the library) and zstd (`saves`: the save editor's
-compression). kilnctl enables `server` + `zip`, the launcher `full`. Builds and tests pass on Linux and
-`x86_64-pc-windows-msvc` (`cargo xwin build --tests`, run under Wine).
+compression). kilnctl enables `server` + `zip`, the launcher `full`. Builds pass on Linux and `x86_64-pc-windows-msvc`;
+for Windows the integration tests build (`cargo xwin test --no-run --target x86_64-pc-windows-msvc --features full
+--test '*'`; the data-folder ones pass under Wine, windows-checklist.md), the library's own unit tests do not
+(`found/tests.rs` and `report_tests.rs` use Unix-only APIs).
 
 ## Data and paths
 - `paths::DataDirs::locate()`: `$KILN_DATA_DIR`, else the folder the pointer `<default root>/data-folder.json` names,
