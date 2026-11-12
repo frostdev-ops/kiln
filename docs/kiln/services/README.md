@@ -1,6 +1,7 @@
 # Writing a Kiln service
 
-A service is one capability (teleport, items, chat, ...) with three layers. The template is `example`:
+A service is one capability (teleport, items, chat, ...) with three layers. Which services and features a build has
+available is generated from a boot's `capabilities.json`: [../status.generated.md](../status.generated.md). The template is `example`:
 
 | Layer | Where | Template |
 |---|---|---|

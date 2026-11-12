@@ -1,7 +1,8 @@
 # Writing Kiln mods
 
 Kiln loads C# mods into the Enshrouded server and client. Each feature page states what still needs a client check. This folder is the modder's guide; the
-framework's internals are in `docs/kiln/architecture.md`.
+framework's internals are in `docs/kiln/architecture.md`. What is available on a build, and each guided client check's last verdict, is in the
+generated [../status.generated.md](../status.generated.md); what has no API yet is in [limits.md](limits.md).
 
 | Page | What |
 |---|---|

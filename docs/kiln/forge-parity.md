@@ -3,7 +3,9 @@
 What Minecraft Forge (and NeoForge) gives modders, and the Kiln equivalent. Status: **done** (verified in a lab or
 live), **partial**, **client** (built, needs a joined player or the running client to confirm), **planned**.
 Details per area: `docs/kiln/modding/` (loader, MDK, testing), `docs/kiln/{events,config,commands,permissions}.md`,
-`docs/kiln/services/*.md`, `docs/kiln/{hooks,typegen,client,ui,network}.md`.
+`docs/kiln/services/*.md`, `docs/kiln/{hooks,typegen,client,ui,network}.md`. What a given server or client build has
+available, and each guided client check's last verdict, is generated from Kiln's state files:
+[status.generated.md](status.generated.md).
 
 ## Loading and tooling (FML, MDK)
 | Forge | Kiln | Status |
