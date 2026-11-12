@@ -52,6 +52,11 @@ dev.25+ (in development; pages in the repository's `docs/kiln/`, not on the wiki
 | Unit tests with no game (`Kiln.TestKit`) | `modding/unit-tests.md` |
 | Guided client checks (`[ClientCheck]`) | `modding/testing.md`; the pack: `client-pass.md` |
 | The achievement guard (`Kiln.SteamGuard`) | `services/steamguard.md` |
+| Data on one item (`InstanceData`) | `modding/inventory.md` "Data on one item"; `services/saves.md`, `services/items.md` |
+| A mod's own player animation states (`assets/player-states.json`) | `modding/animations.md` "Player states"; `services/playeranim.md` |
+| Weapon moves, animated held models, clips reworked at cook time | `modding/item-blocks.md` "Moves"; `modding/animations.md` "Clips reworked" |
+
+dev.25+ samples: ItemData, PlayerStates, WeaponMoves.
 
 Sample mods: Hello, SampleLib, SampleConsumer, SampleTests, BigStacks, NewItems, SpellTweaks, CreatureTweaks, EliteVukah, FireNova,
 ImpactSample, AssetSample, ModelSample, SoundSample, VfxSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,

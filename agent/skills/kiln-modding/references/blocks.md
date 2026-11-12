@@ -15,6 +15,19 @@ When updating dev.19 C# code, an item's `Loot.Tables` entries are now `DropPlace
 selects UI blocks. Consult `kiln new --list` for the installed template's options. Clone templates remain useful only when
 blocks do not express the required field.
 
+**Weapon moves (dev.25+, in development; no player has seen a move):** `WeaponBlock.Moves` (`WeaponMoves`): `Primary`
+and `Heavy` take one `MoveBlock` or a chain (`[first, second]`); `HeavyAir`, `DodgeAttack`, `JumpAttack`, `PlungeAttack`,
+`Block`, `Parry`, `Special`, `Execution`, `SneakAttack` one each. A `MoveBlock` has `Animation` (a mod state or a game
+state by name, a GUID or a `0x` id; a list for several state events), `Like` (the sequence it starts from), `HitAt` and
+`Length` in seconds. JSON: `"moves": { "primary": [ { "animation": "my-slash", "hitAt": 0.28 } ], "heavy": {...} }`.
+Wands: `WandMoves.Heavy with { Animation = ..., HitAt = 1.1 }` (a `like` other than the premades is refused); spells:
+`CastBlock.Animation` (`CastAnimation.Lob with { ... }`); an ability's cast refuses both. `VisualBlock.Animated`
+(`AnimatedModel`: `Model`, `Graph`, `LeftModel`, `LeftGraph`) is a held model with moving parts; a game that did not cook
+it shows the rigid model. Only the primary and heavy chains link; other follow-ups stay the game's. A name that cannot be
+looked up is reported by block and slot and the move keeps its `like` state. Clips can be reworked at cook time:
+`"from"` with `trim`, `reverse`, `speed`, `mirror`, `blend`, `offset` in `cook.json`. Lab-checked on a dedicated server
+only. Page: `docs/kiln/modding/item-blocks.md` "Moves"; sample `mods/samples/WeaponMoves`; `kiln new item-blocks`.
+
 ## World blocks
 
 ```csharp

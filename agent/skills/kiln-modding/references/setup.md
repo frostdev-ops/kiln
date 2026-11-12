@@ -35,7 +35,9 @@ installed MDK to confirm availability. These add typed blocks and/or `blocks/*.j
 **dev.25+ (in development):** `dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj` makes an xunit project on
 the `Kiln.TestKit` package ([testing.md](testing.md)). `Game` in `KilnServices` references `Kiln.Game` (`Kiln.Ecs` typed reads);
 the build then writes `kiln.gametypes.json` beside the mod, which Kiln checks at load. Release packs carry their full version
-(`0.2.0-dev.25`) and an SDK feed folder (`sdk/feed/`).
+(`0.2.0-dev.25`) and an SDK feed folder (`sdk/feed/`). The launcher can move its data folder (Settings, Library, Data
+folder); after a move, delete a native mod project's `build` folder once (CMake keeps the old SDK path). Not run in a real
+launcher window yet.
 
 The project file:
 ```xml
