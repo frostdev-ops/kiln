@@ -4,7 +4,7 @@
 
 Lab with "labPort" in kiln/config/network.json, weapon-moves-test (and the sample weapon-moves, when it is loaded):
 
-    mods/tests/weapon-moves-test/syncheld.py --port <labPort> [--verbose] [--dump FILE] [--fail-once]
+    mods/tests/weapon-moves-test/syncheld.py --port <labPort> [--graph-hash HEX16] [--verbose] [--dump FILE] [--fail-once]
 
 Each hand's moving template (<mod>.<item>.moving, a pair's .moving.l and .moving.r) keeps its model and its graph on each machine: the body of rules
 the state carries under its GUID (the server's layer on a client) has no ModelResource.model and no AnimationGraphResourceComponent2.animationGraph, and
@@ -31,6 +31,8 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--dump", help="write the state the server sent to this file")
     ap.add_argument("--fail-once", action="store_true", help="one expectation wrong, to see the check fail")
+    ap.add_argument("--graph-hash", help="the player graph hash the server serves (kiln.log: \"playeranim: ... hash <16 hex>\"): sent in HELLO, "
+                                         "as a client with the same mods would; without it a server with mod states refuses this client")
     a = ap.parse_args()
     fails = 0
 
@@ -39,15 +41,33 @@ def main():
         fails += 0 if ok else 1
         print(f"{'PASS' if ok else 'FAIL'} syncheld.{name}: {detail}")
 
-    probe = st.SyncClient(a.port, "syncheld-probe")
-    probe.hello(nt.with_required(a.port, [], st.CHANNELS), st.CHANNELS)
-    probe.wait(lambda: probe.welcome is not None, 8)
-    if not probe.welcome:
-        check("handshake", False, "no WELCOME (is the lab up with labPort set?)")
+    # What the server asks of a client before it welcomes it: the mods that state clients "mod" (REJECT's details), and the player animation
+    # graph it serves (Kiln.Network's PlayerGraphGate: HELLO carries the graph's hash and the live states; a differing hash is refused). This
+    # client plays no graph: it says the server's own hash back (--graph-hash, from the server's kiln.log), as a client with the same mods would.
+    mods, props = [], {"nettest.client": "syncheld"}
+    if a.graph_hash:
+        props["kiln.playeranim"] = a.graph_hash
+    welcome = None
+    for _ in range(5):
+        probe = st.SyncClient(a.port, "syncheld-probe")
+        probe.hello(mods, st.CHANNELS, props)
+        probe.wait(lambda: probe.welcome is not None or probe.reject is not None, 8)
+        if probe.welcome is not None:
+            welcome = probe.welcome
+            break
+        if probe.reject is None:
+            break
+        for d in probe.reject[1]:
+            w = d.split()
+            if len(w) >= 3 and w[2].startswith("(missing") and not any(m[0] == w[0] for m in mods):
+                mods.append((w[0], w[1], nt.NET_TEST_MOD[2]))
+    if not welcome:
+        check("handshake", False, f"no WELCOME (is the lab up with labPort set?); last refusal: {probe.reject[1] if probe.reject else None}")
         return 2
-    mods = [m for m, _, _ in probe.welcome["mods"]]
+    check("handshake.graph", True, f"welcomed with the server's player graph hash {props.get('kiln.playeranim', '(none asked)')} and {len(mods)} mod(s)")
     c = st.SyncClient(a.port, "syncheld", a.verbose)
-    if not c.connect([(m, v, sv) for m, v, sv in probe.welcome["mods"]]):
+    c.hello([(m, v, sv) for m, v, sv in welcome["mods"]], st.CHANNELS, props)
+    if not c.wait(lambda: c.welcome is not None, 8):
         check("welcome", False, "no WELCOME in 8 s")
         return 2
     c.wait(lambda: c.contents, 15)
