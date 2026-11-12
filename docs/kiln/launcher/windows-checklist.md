@@ -3,11 +3,12 @@
 Verified under Wine: NSIS install/uninstall, `--selftest` 11/11, WebView2 UI (runtime 156, `--no-sandbox`),
 Rust suites for x86_64-pc-windows-msvc, proxyhost with `C:\` paths (107/107), a dedicated server installed, started,
 administered over KAP and stopped with Ctrl-C by the Windows runner. Test user "Jörg Müller" (non-ASCII paths).
-The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 58/59): to `D:\` (made `D:\Kiln`), to
+The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 61/61): to `D:\` (made `D:\Kiln`), to
 another letter on the same disk and to another volume (exFAT `E:`), to `D:\Spiele Ordner\Jörg Müller\データ`, with a
 259-character library path (a 260 one refused) and a data folder past 260 characters, each and back; `\\?\` and another
 case; junctions refused; `%LOCALAPPDATA%\Kiln\state` untouched; a file held without read sharing (fails the move
-cleanly to another letter; on the same letter its hard link stays in the target: the one failure); read-only files and a
+cleanly, nothing left in the target, on the same letter and another); a file the move made held without delete sharing
+while the move fails (named, the target stays marked until the next start removes it); read-only files and a
 re-activation that fails (the old copy stays until the profile is activated again); the lock across two processes.
 
 On a real Windows 10/11 PC:

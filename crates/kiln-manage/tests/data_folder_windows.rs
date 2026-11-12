@@ -818,6 +818,61 @@ mod win {
         }
     }
 
+    /// Opens a file the move made in the target, once it is there, without delete sharing, and holds it until dropped.
+    struct HoldMade {
+        to: PathBuf,
+        rel: &'static str,
+        held: Option<std::fs::File>,
+    }
+    impl Progress for HoldMade {
+        fn report(&mut self, _: Option<f32>, m: &str) {
+            if self.held.is_none() && m == format!("copying {}", self.rel) {
+                const FILE_SHARE_READ: u32 = 1;
+                let f = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(self.to.join(self.rel)).unwrap();
+                self.held = Some(f);
+            }
+        }
+    }
+
+    /// A file the move made in the target is held by another handle without delete sharing while the move fails, so its
+    /// clean-up really cannot remove it: the error names it, the target keeps the move's marker and reads as a move in
+    /// progress (never "use this one"), the journal stays and `acknowledge` is refused; once the handle is closed,
+    /// `remove_partial_copy` removes the rest and the same move goes through.
+    #[test]
+    fn a_made_file_held_by_another_handle_during_a_failed_move() {
+        seen();
+        let fx = Fixture::build("held-made-win");
+        let before = tree(&fx.dirs.root);
+        let to = fx.base.join("target");
+        let mut hold = HoldMade { to: to.clone(), rel: "settings.json", held: None };
+        let opts = MoveOptions { force_copy: true, inject: Some(Inject::FailAfterCopy) };
+        let e = mv(&fx.env, &to, &opts, &mut hold).unwrap_err();
+        assert!(hold.held.is_some(), "the hook held the file");
+        let held = to.join("settings.json");
+        eprintln!("the failed move with a held file in the target: {}", e.message);
+        assert!(e.message.contains(&held.display().to_string()), "the error names the held file: {e:?}");
+        assert!(held.is_file() && to.join(df::MOVE_MARKER).is_file(), "{:?}", super::listing(&to));
+        assert!(matches!(df::recognize(&to, &fx.env).unwrap(), FolderState::Moving { .. }), "it reads as a move in progress");
+        assert_eq!(check_here(&fx.env, &to).unwrap_err().code, RefusalCode::MovePending, "no new move while the journal stays");
+        assert!(fx.dirs.root.join(df::JOURNAL).is_file(), "the journal stays");
+        assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Uncommitted { .. }));
+        assert!(dfm::acknowledge(&fx.env).is_err(), "acknowledge is refused while the partial copy carries the marker");
+        assert_same(&fx.env.locate().unwrap().dirs.root, &fx.dirs.root, "the old place is in use");
+        assert_eq!(tree(&fx.dirs.root), before, "and complete");
+        // still held: the next start cannot finish either, and says so
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        assert!(!c.done && to.join(df::MOVE_MARKER).is_file(), "{c:?}");
+        drop(hold);
+        let c = dfm::remove_partial_copy(&fx.env).unwrap();
+        assert!(c.done, "{c:?}");
+        assert!(!to.exists(), "the partial copy is gone: {:?}", super::listing(&to));
+        assert!(!fx.dirs.root.join(df::JOURNAL).exists());
+        let r = mv(&fx.env, &to, &MoveOptions::default(), &mut NoProgress).unwrap();
+        assert_same(&r.to, &to, "the same move again");
+        assert!(r.cleanup.unwrap().done);
+        assert_eq!(data_only(&tree(&to)), data_only(&before));
+    }
+
     /// Read-only files (a mod unpacked with the attribute, a config the player protected): moved, verified, and the
     /// old copy removed; the new place keeps the attribute.
     #[test]
