@@ -1,0 +1,10 @@
+{
+  "id": "pa-bad-like",
+  "name": "player-anim lab: a state like a game state that does not exist, and one that loads",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "A fixture of mods/tests/player-anim-test (run.py): a state like a game state that does not exist, and one that loads. Data only. Its clips are made where it is cooked (make_clips.py), never committed."
+}

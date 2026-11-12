@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "tool": "animcook",
+  "out": "cooked",
+  "comment": "src/pa-bad-skeleton.gltf is written by ../../make_clips.py --rig: a stick of two joints, no game data.",
+  "steps": [
+    { "op": "skeleton", "name": "stick", "gltf": "src/pa-bad-skeleton.gltf" },
+    { "op": "clips", "skeleton": "stick", "gltf": "src/pa-bad-skeleton.gltf", "clips": { "x_wave": { "animation": "x_wave" } } }
+  ]
+}

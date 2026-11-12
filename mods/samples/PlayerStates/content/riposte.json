@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "comment": "The sample's sword. Its attacks are set in PlayerStatesMod.cs once the game's data is ready: three of its sequence slots get copies of the game's sequences that name this mod's player states. The hand recipe costs one twig so the sword is easy to try.",
+  "items": {
+    "add": [
+      {
+        "guid": "4c0d7e21-9a3b-4f6e-8d15-2b7c9e0a6f31",
+        "name": "Kiln_Sample_RiposteSword",
+        "base": "Weapon_T1_1H_SwordEpic_01",
+        "displayName": "Kiln Sample Riposte Sword",
+        "description": "Its first light attack, its heavy attack and its guard are animations of the Player States sample's own."
+      }
+    ]
+  },
+  "recipes": {
+    "add": [
+      {
+        "guid": "4c0d7e21-9a3b-4f6e-8d15-2b7c9e0a6f32",
+        "name": "Kiln_Sample_RiposteSword_Recipe",
+        "station": "hand",
+        "inputs": [ { "item": "Material_T1_Twigs", "count": 1 } ],
+        "outputs": [ { "item": "Kiln_Sample_RiposteSword", "count": 1 } ]
+      }
+    ]
+  }
+}
