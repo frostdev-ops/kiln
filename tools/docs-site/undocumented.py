@@ -9,8 +9,8 @@ sorted. DocFX lists public and protected members, so those are what is checked; 
 left out, as are the members the compiler writes for a record (Equals, GetHashCode, ToString, ==, !=, Deconstruct,
 PrintMembers, EqualityContract, the copy constructor) and the parameterless constructor of a class that declares
 none, which the compiler does not ask docs for either. A record struct looks like a plain struct in the metadata; a
-struct counts as one when Equals(T), Equals(object), GetHashCode, ToString and == all have no summary (a hand-written
-struct with exactly that gap is skipped too).
+struct counts as one when Equals(T), Equals(object), GetHashCode, == and != all have no summary (a hand-written
+struct with exactly that gap is skipped too); its ToString then counts as the compiler's as well.
 With --baseline it prints only the uids that are not in the file (one uid per line, # comments allowed) and exits 1 if
 there are any. Standard library only: the YAML is read line by line, in the shape DocFX writes it.
 """
@@ -106,7 +106,7 @@ def undocumented(api):
     for t in every:
         u = t["uid"]
         if t.get("type") == "Struct" and {f"{u}.Equals({u})", f"{u}.Equals(System.Object)", f"{u}.GetHashCode",
-                                          f"{u}.ToString", f"{u}.op_Equality({u},{u})"} <= bare:
+                                          f"{u}.op_Equality({u},{u})", f"{u}.op_Inequality({u},{u})"} <= bare:
             records.add(u)
     return sorted({i["uid"] for i in every
                    if i.get("type") not in (None, "Namespace") and not i["summary"] and not generated(i, records)})
