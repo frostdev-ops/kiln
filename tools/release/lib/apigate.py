@@ -40,8 +40,9 @@ Shipped.txt that existed at OLD and is deleted at NEW is a removal of all its li
 `record`: every `*REMOVED*` line of every Unshipped.txt, judged by the rule, and merge conflict markers (`<<<<<<<`,
 `|||||||`, `=======`, `>>>>>>>`) in any PublicAPI file; without an old tag (tools/check.sh's first stage).
 
-`version-rule`: new API means additions in an Unshipped.txt at NEW that are not experimental. Then the API version at
-NEW must be higher than at OLD (`bump-api` raises it). An OLD whose Mods.cs cannot be read: a warning, no refusal.
+`version-rule`: new API means non-experimental lines shipped at NEW but not OLD, compared per project. For a project
+without Shipped.txt at OLD, only its Unshipped.txt additions count. The API version at NEW must be higher than at OLD
+(`bump-api` raises it). An OLD whose Mods.cs cannot be read: a warning, no refusal.
 
 `promote`: per project, additions go into Shipped.txt in ordinal order (UTF-16 code units, as the analyzer's code fix
 sorts; `#nullable enable` stays first), `*REMOVED*<line>` deletes <line> from Shipped.txt when the rule allows it
@@ -382,10 +383,25 @@ def cmd_api_version(a):
 def cmd_version_rule(a):
     old = tree(a.repo, a.old, False)
     new = tree(a.repo, a.new or "HEAD", a.worktree)
-    added = [(p, n) for p, n, _, _ in pending(new) if n]
+    added = []
+    for p in sorted(set(api_files(new, SHIPPED) + api_files(new, UNSHIPPED))):
+        proj = project(p)
+        before = shipped_at(old, proj)
+        if before is None:
+            # A newly gated project's Shipped.txt is its initial baseline, not newly added API.
+            if not p.endswith("/" + UNSHIPPED):
+                continue
+            additions = {l for l in lines(new.read(p)) if not l.startswith(REMOVED)}
+        else:
+            if not p.endswith("/" + SHIPPED):
+                continue
+            additions = (shipped_at(new, proj) or set()) - before
+        n = sum(not EXPERIMENTAL.match(l) for l in additions)
+        if n:
+            added.append((p, n))
     total = sum(n for _, n in added)
     if not added:
-        print(f"api-gate: no new API pending at {new.label}: the API version may stay")
+        print(f"api-gate: no new API since {old.label} at {new.label}: the API version may stay")
         return 0
     v_old, v_new = api_version(old), api_version(new)
     if v_new is None:
@@ -405,8 +421,7 @@ def cmd_version_rule(a):
     for p, n in added:
         print(f"  {p}: {n} added", file=sys.stderr)
     print("  Raise it so a mod can ask for the new API: tools/release/api-gate.sh bump-api <version> (default: the next\n"
-          "  minor), fix the doc lines it prints, commit, and release again. If these lines were already released,\n"
-          "  run tools/release/api-gate.sh promote and commit the moved lines instead.", file=sys.stderr)
+          "  minor), fix the doc lines it prints, commit, and release again.", file=sys.stderr)
     return 1
 
 

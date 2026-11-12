@@ -334,6 +334,39 @@ class VersionRule(Base):
         self.assertIn("still 0.2.0", out)
         self.assertIn("bump-api", out)
 
+    def test_already_released_unshipped_lines_need_no_raise(self):
+        self.r.commit(self.files("0.2.0", ["Kiln.A.New() -> void"]), tag="v1")
+        self.r.commit(self.files("0.2.0", ["Kiln.A.New() -> void"]))
+        code, out = run(self.r, "version-rule", "v1")
+        self.assertEqual(0, code, out)
+        self.assertIn("no new API", out)
+
+    def test_promoting_new_api_before_release_does_not_bypass_the_raise(self):
+        self.r.commit(self.files("0.2.0"), tag="v1")
+        self.r.put(self.files("0.2.0", ["Kiln.A.New() -> void"]))
+        self.assertEqual(0, run(self.r, "promote")[0])
+        self.r.commit({})
+        code, out = run(self.r, "version-rule", "v1")
+        self.assertEqual(1, code, out)
+        self.assertIn("1 new API lines", out)
+        self.assertNotIn("run tools/release/api-gate.sh promote", out)
+
+    def test_new_api_is_compared_per_project(self):
+        self.r.commit({**self.files("0.2.0"), **self.project(SVC, ["Kiln.Shared"])}, tag="v1")
+        self.r.commit(self.project(API, ["Kiln.A", "Kiln.Shared"]))
+        code, out = run(self.r, "version-rule", "v1")
+        self.assertEqual(1, code, out)
+        self.assertIn(f"{API}/PublicAPI.Shipped.txt: 1 added", out)
+
+    def test_a_project_without_an_old_record_counts_only_its_unshipped_additions(self):
+        self.r.commit({f"{API}/Mods.cs": MODS_CS}, tag="v1")
+        self.r.commit(self.project(API, ["Kiln.A"]))
+        self.assertEqual(0, run(self.r, "version-rule", "v1")[0])
+        self.r.commit(self.project(API, ["Kiln.A"], ["Kiln.A.New() -> void", "[KILNX001]Kiln.Lab"]))
+        code, out = run(self.r, "version-rule", "v1")
+        self.assertEqual(1, code, out)
+        self.assertIn(f"{API}/PublicAPI.Unshipped.txt: 1 added", out)
+
     def test_new_api_with_a_higher_version_passes_whatever_part_rose(self):
         self.r.commit(self.files("0.2.0"), tag="v1")
         for v in ("0.2.1", "0.3.0", "1.0.0"):
