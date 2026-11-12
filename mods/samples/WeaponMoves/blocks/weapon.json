@@ -10,7 +10,7 @@
     "turning-blade-json": {
       "name": "Turning Blade", "description": "A crystal turns in the blade.", "class": "sword",
       "stats": { "level": 5, "power": 30, "rarity": "rare" },
-      // the rigid model (the icon, the dropped item, the collection): its GUID follows from the mod and the model step's name,
+      // the rigid model (set on the item, and what the hand shows where the moving one is not cooked): its GUID follows from the mod and the model step's name,
       // derive("weapon-moves", "model", "moves_blade"); the moving one in the hand is the model and graph steps of assets/cook.json
       "visual": { "model": "cf4dc9c5-be6a-5e8d-a0d0-cd4cb877fb51", "animated": { "model": "moves_blade_anim", "graph": "moves_blade" } },
       "moves": {

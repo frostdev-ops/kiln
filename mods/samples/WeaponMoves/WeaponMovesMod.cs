@@ -26,7 +26,7 @@ public sealed class WeaponMovesMod : Mod
         {
             Name = "Turning Blade", Description = "A crystal turns in the blade.", Class = WeaponClass.Sword,
             Stats = new WeaponStats { Level = 5, Power = 30, Rarity = Rarity.Rare },
-            // in the hand the skinned model and the graph of assets/cook.json, by their steps' names; the rigid model for the icon and the ground
+            // in the hand the skinned model and the graph of assets/cook.json, by their steps' names; the rigid model on the item, and in the hand where the moving one is not cooked
             Visual = new VisualBlock { Model = BladeModel, Animated = new AnimatedModel { Model = "moves_blade_anim", Graph = "moves_blade" } },
             Moves = new WeaponMoves
             {

@@ -40,7 +40,8 @@ public sealed record VisualBlock : IBlock
     [ClientsModWhen(VfxRef.OwnName)]
     public VfxRef? Vfx { get; init; }
     /// <summary>A model with moving parts for the hand: a skinned model of the mod's own and the graph that plays its clip. The item holds it in the hand its
-    /// class is held in, with <see cref="Vfx"/> on it; <see cref="Model"/> stays what the icon, the dropped model and the collection show. Then <c>clients: mod</c>.</summary>
+    /// class is held in, with <see cref="Vfx"/> on it; <see cref="Model"/> is set on the item as for any look and stands in where the moving model is not cooked; the icon and the dropped model are
+    /// <see cref="Icon"/> and <see cref="Dropped"/>, as for any look. Then <c>clients: mod</c>.</summary>
     public AnimatedModel? Animated { get; init; }
 }
 

@@ -133,7 +133,8 @@ public sealed partial class WeaponMovesTestMod
         c.Instruct("Take each Held weapon from your bag in hand in turn: the Held Sword, the Held Greataxe, the Held Shield, the Held Daggers and the Held Daggers (left). " +
                    "Pass if each sits in the hand its class is held in (the sword in the right hand, the greataxe in the left, the shield on the left arm, the daggers one in " +
                    "each hand), its crystal turns and its tip sways by itself in a loop, the greataxe's glow (the game's lit axe's) sits 0.6 m up the blade and the others have " +
-                   "none, no staff glow shows on any of them, and in the bag and dropped on the ground each shows the rigid blade, not the moving one.");
+                   "none, no staff glow shows on any of them, and in the bag and dropped on the ground each shows its class's own item (these looks name no icon and no dropped " +
+                   "model), not the moving blade.");
         await c.Verdict();
     }
 
