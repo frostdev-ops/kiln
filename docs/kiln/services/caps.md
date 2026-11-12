@@ -66,7 +66,9 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 - Every in-core service and every published service, `kiln.<service>`, with `v<n>` as text.
 - Every service DLL that did not load, as `kiln.<stem>`, with `service-missing` or `faulted`.
 - Kiln's managed layer adds `identity.entities` and `identity.players` ([modding/contract.md](../modding/contract.md)):
-  pending until the service that supplies them starts (the first tick), then available.
+  pending until a service registers a source (Kiln.Players does at the first tick), then available. In dev.25 the
+  only entity source is Kiln.Players', so `identity.entities` reads available while `EntityRef.Of` of an entity that
+  is not a player still throws `KilnUnavailableException("identity.entities")`.
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats
