@@ -52,6 +52,102 @@ public sealed class EventFilterTests : KilnTest
     }
 
     [Fact]
+    public void The_filter_keeps_its_own_copy_of_the_entities()
+    {
+        var mine = new HashSet<EntityId> { Doll };
+        var filter = new EventFilter { Entities = mine };
+        var got = new List<EntityId>();
+        using var a = Events.On<HitLikeEvent>(e => got.Add(e.Target), filter);
+        mine.Add(Other);        // the caller's set changes afterwards: the subscription does not
+        mine.Remove(Doll);
+        Events.Post(new HitLikeEvent(Other, Player));
+        Events.Post(new HitLikeEvent(Doll, Player));
+        Assert.Equal([Doll], got);
+        Assert.Equal(new HashSet<EntityId> { Doll }, Events.EntityFilterUnion(typeof(HitLikeEvent)));
+        Assert.Equal([Doll], filter.Entities!);
+    }
+
+    // ---- EntityWatch: what a service holds for the handlers follows the subscriptions ----
+
+    private sealed class Service
+    {
+        public readonly List<uint[]> Pushes = new();
+        public bool Refuses;
+        public bool Push(uint[] ids)
+        {
+            if (Refuses) return false;
+            lock (Pushes) Pushes.Add(ids);
+            return true;
+        }
+        public uint[] Last { get { lock (Pushes) return Pushes[^1]; } }
+    }
+
+    [Fact]
+    public void A_new_subscription_is_with_the_service_before_On_returns()
+    {
+        var svc = new Service();
+        using var watch = new EntityWatch([typeof(HitLikeEvent)], svc.Push);
+        using var a = Events.On<HitLikeEvent>(_ => { }, EventFilter.ForEntity(Doll));
+        Assert.Equal([Doll.Value], svc.Last);   // no Refresh was called: the subscription itself told the service
+        // from another thread, as a mod's worker would: when On has returned, the service watches that entity too
+        EventSubscription? b = null;
+        var t = new Thread(() => b = Events.On<HitLikeEvent>(_ => { }, EventFilter.ForEntity(Other)));
+        t.Start();
+        t.Join();
+        Assert.Equal([Doll.Value, Other.Value], svc.Last);
+        // a handler that takes everything: the service holds everything (the empty list), again at once
+        using var all = Events.On<HitLikeEvent>(_ => { });
+        Assert.Empty(svc.Last);
+        b!.Dispose();
+    }
+
+    [Fact]
+    public void A_removed_subscription_narrows_the_set_at_the_next_refresh()
+    {
+        var svc = new Service();
+        using var watch = new EntityWatch([typeof(HitLikeEvent)], svc.Push);
+        using var a = Events.On<HitLikeEvent>(_ => { }, EventFilter.ForEntity(Doll));
+        var all = Events.On<HitLikeEvent>(_ => { });
+        Assert.Empty(svc.Last);
+        all.Dispose();
+        Assert.Empty(svc.Last);                 // holding more than needed for a step loses nothing
+        watch.Refresh();                        // the service's own step
+        Assert.Equal([Doll.Value], svc.Last);
+        var pushes = svc.Pushes.Count;
+        watch.Refresh();
+        Assert.Equal(pushes, svc.Pushes.Count); // nothing changed: nothing pushed
+    }
+
+    [Fact]
+    public void A_push_the_service_did_not_take_is_tried_again()
+    {
+        var svc = new Service { Refuses = true };
+        using var watch = new EntityWatch([typeof(HitLikeEvent)], svc.Push);
+        using var a = Events.On<HitLikeEvent>(_ => { }, EventFilter.ForEntity(Doll));
+        Assert.Empty(svc.Pushes);
+        svc.Refuses = false;
+        watch.Refresh();
+        Assert.Equal([Doll.Value], svc.Last);
+    }
+
+    [Fact]
+    public void The_watched_ids_of_several_event_types_are_one_set()
+    {
+        Assert.Equal([3u, 5u, 9u], EntityWatch.Compute([new HashSet<EntityId> { new(9), new(3) }, new HashSet<EntityId> { new(5), new(3) }]));
+        Assert.Empty(EntityWatch.Compute([new HashSet<EntityId> { new(9) }, null]));  // one kind has a handler that takes everything
+        Assert.Empty(EntityWatch.Compute([new HashSet<EntityId>(), new HashSet<EntityId>()]));
+        Assert.Empty(EntityWatch.Compute([]));
+    }
+
+    [Fact]
+    public void A_handler_that_fails_to_follow_does_not_break_subscribing()
+    {
+        using var watch = new EntityWatch([typeof(HitLikeEvent)], _ => throw new InvalidOperationException("native table gone"));
+        using var a = Events.On<HitLikeEvent>(_ => { }, EventFilter.ForEntity(Doll));
+        Assert.True(a.Active);
+    }
+
+    [Fact]
     public void Nobody_listening_gives_an_empty_union() => Assert.Empty(Events.EntityFilterUnion(typeof(NoEntityEvent))!);
 
     [Fact]

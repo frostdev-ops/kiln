@@ -378,45 +378,27 @@ public static unsafe class Combat
 
     // ---- the entity filter of held hits (since 0.2.0-dev.27): kiln.combat holds only the hits a handler's filter lets
     // through (Events.On<T>(handler, EventFilter)); one handler without a filter holds every hit, as before.
-    private static int _filterVersion = -1;
-    private static uint[] _pushedFilter = [];
+    private static readonly EntityWatch HitWatch =
+        new([typeof(EntityHurtEvent), typeof(EntityHealEvent), typeof(EntityKnockbackEvent)], PushHoldFilter);
+    private static bool _noFilterSaid;
 
-    /// <summary>The entities the handlers of the held kinds watch: null = every hit (a handler without a filter, or
-    /// nobody with a filter). Pure over the three unions, for the tests.</summary>
-    internal static uint[]? HoldFilterOf(params IReadOnlySet<EntityId>?[] unions)
+    // The watched entities for the native side (empty: every hit). EntityWatch calls it when a handler was added (on
+    // the subscribing thread, before Events.On returns: a hit on its entity later in the same step is already held) and
+    // once a step for what was removed. kiln.combat takes the list under its own lock, from any thread.
+    private static bool PushHoldFilter(uint[] ids)
     {
-        HashSet<uint>? all = null;
-        foreach (var u in unions)
-        {
-            if (u is null) return null;           // someone takes every event of a held kind
-            (all ??= []).UnionWith(u.Select(e => e.Value));
-        }
-        return all is { Count: > 0 } ? all.Order().ToArray() : null;
-    }
-
-    private static void PushHoldFilter()
-    {
-        var version = Events.Version;
-        if (version == _filterVersion) return;
-        _filterVersion = version;
-        var unions = new List<IReadOnlySet<EntityId>?>();
-        if (Events.HasSubscribers<EntityHurtEvent>()) unions.Add(Events.EntityFilterUnion(typeof(EntityHurtEvent)));
-        if (Events.HasSubscribers<EntityHealEvent>()) unions.Add(Events.EntityFilterUnion(typeof(EntityHealEvent)));
-        if (Events.HasSubscribers<EntityKnockbackEvent>()) unions.Add(Events.EntityFilterUnion(typeof(EntityKnockbackEvent)));
-        var ids = HoldFilterOf([.. unions]) ?? [];
-        if (ids.AsSpan().SequenceEqual(_pushedFilter)) return;
         var t = CombatNative.V3;
         if (t == null)
         {
-            if (ids.Length > 0)
+            if (ids.Length > 0 && !_noFilterSaid)
+            {
+                _noFilterSaid = true;
                 Backend.Current.Log(0, LogLevel.Info, "Kiln.Combat: this kiln-combat.dll has no hold filter: every hit is held while a handler wants hits");
-            _pushedFilter = [];
-            return;
+            }
+            return true;  // nothing to tell it: it holds every hit
         }
         if (ids.Length > 4096) ids = [];  // more than the native filter takes: hold every hit
-        int rc;
-        fixed (uint* p = ids) rc = t->HoldFilter(p, (uint)ids.Length);
-        if (rc == CombatNative.Ok) _pushedFilter = ids;
+        fixed (uint* p = ids) return t->HoldFilter(p, (uint)ids.Length) == CombatNative.Ok;
     }
 
     private static bool _sizeWarned;
@@ -441,7 +423,7 @@ public static unsafe class Combat
             CanceledHits.Clear();
             for (uint i = 0; i < count; ++i) Dispatch(ref events[i]);
             CompleteHits();
-            PushHoldFilter();
+            HitWatch.Refresh();
             return Interest();
         }
         catch (Exception e)

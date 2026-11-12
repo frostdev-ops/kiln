@@ -255,6 +255,10 @@ public static class Events
     /// <summary>Changes whenever a subscription is added or removed (wraps around). Any thread.</summary>
     internal static int Version => Volatile.Read(ref _version);
 
+    /// <summary>Raised when a subscription was added, on the subscribing thread, before <c>On</c> returns and outside the
+    /// bus's lock: a service that holds work for subscribers (<see cref="EntityWatch"/>) widens what it holds at once.</summary>
+    internal static event Action? SubscriptionAdded;
+
     /// <summary>Subscribes every <see cref="SubscribeAttribute"/> method of <paramref name="target"/> (instance and
     /// static methods of its type; pass a <see cref="Type"/> for its static methods only). Kiln calls this for each
     /// <see cref="Mod"/> before <c>OnLoad</c>, and then also registers the mod's <c>[Command]</c> methods (Kiln.Chat).
@@ -550,6 +554,14 @@ public static class Events
             if (!mod.Alive) RemoveAll(mod);
         }
         StartProducers(type);
+        try
+        {
+            SubscriptionAdded?.Invoke();
+        }
+        catch (Exception e)
+        {
+            Backend.Current.Log(0, LogLevel.Warn, $"events: a service could not follow the new subscription to {type.Name}: {e.Message}");
+        }
         return sub;
     }
 
