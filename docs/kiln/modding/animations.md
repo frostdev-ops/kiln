@@ -435,6 +435,19 @@ player states in any mod, nothing is read and the game's graph is the game's own
 its reason, and the others load; `PlayerAnimStates.Find` gives the reason. A merge that cannot be proven on the installed game
 (a game update changed the format) serves nothing: the game's graph stays, and every state is reported unavailable.
 
+What kiln.log says, one of these per start, and a warning line with the reason for each refused state:
+
+```
+playeranim: 3 state(s) of 1 mod(s) merged into the player's graph: 3 machine(s), 437260 -> 438620 bytes, 67 ms (types 4.7, clip facts 0.1, merge 62.4, put 0.1), hash b92020749983197c
+playeranim: no mod defines a player state: the game's graph is untouched
+playeranim: no player state could be merged (1 refused): the game's graph is untouched
+playeranim: off: <reason>: the game's graph is untouched, 3 state(s) unavailable
+```
+
+The same, with every state's status and reason, is in `<game>/kiln/data/playeranim/status.json`. The service is
+`kiln.playeranim`; `"enabled": false` in `<game>/kiln/config/playeranim.json` turns it off (the game's graph is served, and
+mods' player states are unavailable).
+
 ### Your manifest, and joining a server
 
 `kiln.mod.json` has to state both keys, written out:
@@ -457,13 +470,13 @@ mods with player states) is refused at join too, also with `modSync` set to `war
 - `FindGameStates(name)`: the game's states of that name, with their machine, kind and the ids that enter them;
 - `GuidOf(mod, name)`: a state's GUID, by the rule alone;
 - `Graph` and `GraphHash`: which graph this side serves;
-- `Define(PlayerAnimState)`: a state from code. It never changes the running game: its result is `Pending`, "kept for the
-  next start", unless the boot merge already has exactly that state. Put your states in `assets/player-states.json`;
-  `Define`, where available, applies from the next start.
+- `Define(PlayerAnimState)`: a state from code. It can never change the running game, and in this release it is not
+  built: the result is `Refused`, "definitions from code are not available in this build; write the state in
+  assets/player-states.json". Put your states in the file.
 
 ### Limits
 
-- **No hot reload.** A change (to the file, to the set of enabled mods, by `Define`) applies from the next start of the game
+- **No hot reload.** A change (to the file, to the set of enabled mods) applies from the next start of the game
   or server: a player graph served while a player's graph runs ends the server, so the graph, and every clip a served state
   plays, stays as it was at boot.
 - **34 ways in per machine.** A machine holds 34 global transitions (one per state that can be entered from any state); a
@@ -520,10 +533,9 @@ graph:
 refusal on a small graph, and each test was checked to fail with its rule broken. `tools/animcook/tests/game_playergraph_check.py`
 runs the merge on the game's own graph: a state beside each of the 94 neighbours, every refusal, two mods in both orders
 giving the same bytes, nesting, a full overlay machine. Kiln's native merge gives the same bytes and the same report as
-animcook's for the melee, jump, block, parry, dodge, sneak and kick states (312 checks over the unit tests' 49 merge cases, 82
-definition cases, 160 generated graphs and the game check's 7 scenarios); for the staff, wand and bow states that comparison
-follows. In
-C++ on the game's graph: reading it 5 to 13 ms, writing it 3 to 5 ms, merging 60 states 44 to 60 ms.
+animcook's for every kind of neighbour (`native/services/playeranim/tests/run.sh`, 369 checks: 63 merge cases, 82 definition
+cases, 160 generated graphs, and the game check's scenarios on the game's own graph). In C++ on the game's graph, merging a
+state beside every neighbour takes 24 to 32 ms.
 
 **Not proven:** anything a client draws, a second player seeing a mod's state, root motion of a mod's clip moving the body,
 and a player who joined (every run used a `1_Player` with no client behind it).
