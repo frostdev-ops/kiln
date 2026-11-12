@@ -60,7 +60,7 @@ public sealed partial class WeaponMovesTestMod
         uint one = Abilities.IdOf(CloneGuid("own-sword", "primary.1")), two = Abilities.IdOf(CloneGuid("own-sword", "primary.2"));
         c.Instruct("Take the Own Sword from your bag in hand and give the training doll three light attacks in a row. Its swings are states of the test mod's own " +
                    "(wm-slash-1 and wm-slash-2) playing the clips the test cooks: the first a forehand, the sword coming from high on your right across to the left " +
-                   "while the left arm pulls back; the second the same swing mirrored and a little faster, a backhand from the left across to the right. Pass if the " +
+                   "while the left arm swings from across the body out to the left; the second the same swing mirrored and a little faster, a backhand from the left across to the right. Pass if the " +
                    "first swing is that forehand, the second that backhand, the third the forehand again, and none of them is the game's own sword swing.");
         var seen = await Entered(c, s => s.Count >= 3, TimeSpan.FromMinutes(3), "three swings");
         var swings = seen.Where(s => s == one || s == two).Take(3).ToList();

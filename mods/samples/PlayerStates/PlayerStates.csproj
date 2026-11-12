@@ -23,6 +23,6 @@
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="content/*.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="assets/**" Exclude="assets/local/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="assets/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

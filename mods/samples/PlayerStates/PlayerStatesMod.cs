@@ -117,8 +117,9 @@ public sealed class PlayerStatesMod : Mod
         await GiveSword(c);
         c.Expect(PlayerAnimStates.Graph == PlayerAnimGraphState.Merged, "the merged player graph is served", $"{PlayerAnimStates.Graph}, hash {PlayerAnimStates.GraphHash}");
         c.Expect(Live("swing"), "the state swing is live", PlayerAnimStates.Find(ModId, "swing")?.Reason);
-        c.Instruct("Put the Kiln Sample Riposte Sword in your hand and attack three times. Does your character swing with the sample's own motion "
-                   + "(the sword goes up over the left shoulder), not the game's slash?");
+        c.Instruct("Put the Kiln Sample Riposte Sword in your hand and attack three times. The body moves as in the game's own first sword attack "
+                   + "(the step, the turn of the hips and shoulders, the shield arm), but the sword arm plays the sample's: from low behind the right "
+                   + "hip up across the body and over the left shoulder. Is it that, with no part of the body stiff or in a T-like pose?");
         await c.Until(() => StateOf(c.Player) == IdOf("swing"), TimeSpan.FromMinutes(3), "the server's graph input held the state's id while the attack ran");
         await c.Verdict();
     }
@@ -128,8 +129,8 @@ public sealed class PlayerStatesMod : Mod
     {
         await GiveSword(c);
         c.Expect(Live("guard"), "the state guard (like Block_FullBody) is live", PlayerAnimStates.Find(ModId, "guard")?.Reason);
-        c.Instruct("With the Riposte Sword in hand, hold block and walk. Is the guard pose the sample's (the sword held flat above the head), "
-                   + "and do the legs still walk?");
+        c.Instruct("With the Riposte Sword in hand, hold block and walk. The body and the shield arm hold the game's block; the sword arm is the "
+                   + "sample's: raised, the forearm across above the head, the blade held flat, swaying a little. Is it that, and do the legs still walk?");
         await c.Until(() => StateOf(c.Player) == IdOf("guard"), TimeSpan.FromMinutes(3), "the guard's id was entered");
         await c.Verdict();
     }
@@ -144,7 +145,7 @@ public sealed class PlayerStatesMod : Mod
         foreach (var p in peers)
             c.Expect(p.Properties.TryGetValue("kiln.playeranim", out var h) && h == own, $"{p.Name}'s handshake carried the server's graph hash",
                      p.Properties.TryGetValue("kiln.playeranim", out var hh) ? $"{hh} against {own}" : "no kiln.playeranim in its handshake (a build without the join check)");
-        c.Instruct("Player A: take the Riposte Sword and attack. Player B: watch A attack. Do you see A's own swing (over the left shoulder), in time with the hit?");
+        c.Instruct("Player A: take the Riposte Sword and attack. Player B: watch A attack. Do you see A's own swing (the sword arm up across the body and over the left shoulder, the body moving as in the game's attack), in time with the hit?");
         await c.Verdict();
     }
 

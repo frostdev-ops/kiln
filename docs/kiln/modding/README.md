@@ -94,7 +94,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `FrostboltBlock` | the first blocks: a staff spell, a sword and a status sharing one Frost Burst effect, with VFX of its own; Frostlance as data |
 | `AbilityBlocks` | shared effects, perks, abilities, talent trees and triggers in C# and JSON |
 | `ItemBlocks` | every item block: a material, a potion, food, an arrow, tools, a weapon of every class, a wand, armor, a station and loot; `blocks/twins.json` as data |
-| `WeaponMoves` | a sword with moves of its own (a chain of two swings, a heavy and a block, each with its own clip and timing) and a held model with moving parts; clips authored on the sample's own rig, retargeted at cook time, the second swing mirrored |
+| `WeaponMoves` | a sword with moves of its own (a chain of two swings, a heavy and a block, each with its own clip and timing) and a held model with moving parts; each clip is the game's clip of the state it is placed like, retimed to the move, with the sword arm from the sample's own rig (retargeted, the second swing's mirrored) |
 | `LootBlocks` | loot tables, a creature that drops one, and recipes at the game's workbench |
 | `CreatureBlocks` | reusable bodies, animation, AI, behaviour and NPCs: a creature made of its own files, a Vukah that rallies, a sentinel driven by C#, a trader |
 | `StationBlocks` | a drying rack and a forge with workshops and recipes of their own, a bench, props on the game's art |
@@ -110,7 +110,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `ShaderSample` | particle shaders (advanced): curl-noise particles moved by `shaders/swirl.hlsl`, the same block on Kiln's sprite, and a hook that fails its checks on purpose |
 | `MaterialSample` | `MaterialBlock`: two swords on materials written from nothing, by hand and from a glTF's materials, and a particle that takes a material's look |
 | `ModelSample` | tools/modelcook + kiln.assets: a game sword's model replaced, a new sword with its own model and visual template, icons rendered from the glTF |
-| `PlayerStates` | states of a mod's own in the player's animation graph (`assets/player-states.json`): a sword whose first light attack, heavy attack and block play them, and a staff cast for the guided checks; cook its clips first |
+| `PlayerStates` | states of a mod's own in the player's animation graph (`assets/player-states.json`): a sword whose first light attack, heavy attack and block play them (the game's clips with the sample's sword arm, from a glTF of its own rig), and a staff cast for the guided checks; cook its clips first |
 | `AssetSample` | kiln.assets: a PNG icon for a new item from a data pack, a retexture of a game item's inventory icon |
 | `SoundSample` | tools/soundcook + Kiln.Audio: test tones as UI, positional, looped and streamed sounds, music, a replaced game cue, a voiced line and a narration |
 | `UiSample` | Kiln.Ui from code: an FPS line on the HUD, a window (F8) with widgets, toasts |
