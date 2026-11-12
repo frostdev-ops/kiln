@@ -723,8 +723,14 @@ public static unsafe class ContentSync
     /// server's document. Returns how many entries were added.</summary>
     private static int AddResets(JsonObject server)
     {
-        var reset = 0;
         if (ExportJson(Kinds, out _) is not { } localJson || JsonNode.Parse(localJson) is not JsonObject local) return 0;
+        return AddResets(server, local);
+    }
+
+    /// <summary><see cref="AddResets(JsonObject)"/> on this game's exported document: pure (tests).</summary>
+    internal static int AddResets(JsonObject server, JsonObject local)
+    {
+        var reset = 0;
         foreach (var section in ResetSections)
         {
             if (local[section] is not JsonObject ls) continue;
