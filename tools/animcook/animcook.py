@@ -117,6 +117,8 @@ def _check_player_states(a, path, t, k, *, defer_external=False):
             rep["states"].append(e)
         return rep, False
     clips = PG.ClipFacts(t, [Path(path).parent], k)
+    for warning in clips.warnings:
+        print(f"player states: warning: {warning}")
     _, rep = PG.merge(raw, t, [m], clips)
     if defer_external:
         states = {s.name: s for s in m.states}
@@ -221,7 +223,10 @@ def cmd_player_graph(a):
             errors.append(str(e))
     t, k, tinfo = _types(a)
     raw, src = _player_graph_source(a, t, k)
-    data, rep = PG.merge(raw, t, mods, PG.ClipFacts(t, [d / "assets" for d in dirs], k))
+    clips = PG.ClipFacts(t, [d / "assets" for d in dirs], k)
+    for warning in clips.warnings:
+        print(f"player states: warning: {warning}")
+    data, rep = PG.merge(raw, t, mods, clips)
     rep["errors"] = sorted(errors)
     rep["graphSource"], rep["types"] = src, tinfo.get("source")
     for e in rep["errors"]:

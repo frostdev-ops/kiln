@@ -1153,6 +1153,18 @@ class Facts(unittest.TestCase):
                     self.assertIsNone(PG.ClipFacts(TYPES, [d], ServedGame())(guid))
                     self.assertIsNone(PG.ClipFacts(TYPES, [d])(guid))
 
+    def test_malformed_asset_type_is_isolated_and_named(self):
+        bad_guid, good_guid = mclip("bad"), mclip("good")
+        good = self.assets("good", [{"kind": "resource", "guid": good_guid, "type": PG.JOINT_ANIM, "file": "x.bin"}], {"x.bin": self.ja()})
+        for i, typ in enumerate(("0xZZ", "0x100000000", "0x12345678901234567890", "0x1234tail")):
+            with self.subTest(type=typ):
+                bad = self.assets(f"bad{i}", [{"kind": "resource", "guid": bad_guid, "type": typ, "file": "x.bin"}], {"x.bin": self.ja()})
+                provider = PG.ClipFacts(TYPES, [bad, good])
+                self.assertIsNone(provider(bad_guid))
+                self.assertIsNotNone(provider(good_guid))
+                self.assertIn(str(bad / "assets.json"), provider.warnings[0])
+                self.assertIn("entry 0", provider.warnings[0])
+
     def test_from_mods_and_the_game(self):
         g1, g2, g3, g4 = (str(G.derive("t", "clip", x)) for x in "abcd")
         a = self.assets("a", [{"kind": "resource", "guid": g1.upper(), "type": PG.JOINT_ANIM, "file": "a.bin"},

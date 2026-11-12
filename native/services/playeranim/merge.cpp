@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstring>
 #include <iterator>
@@ -1042,7 +1043,12 @@ bool uuid_text(std::string s, std::string* out) {
 
 // _type_hash: "0x..." a number, a name of the reflection its hash, else FNV-1a of the name.
 uint32_t type_hash_of(const TypeDb& types, const std::string& name) {
-    if (name.size() > 2 && name[0] == '0' && name[1] == 'x') return static_cast<uint32_t>(std::stoull(name.substr(2), nullptr, 16));
+    if (name.starts_with("0x")) {
+        uint32_t value = 0;
+        const auto result = std::from_chars(name.data() + 2, name.data() + name.size(), value, 16);
+        if (result.ec != std::errc{} || result.ptr != name.data() + name.size()) throw std::invalid_argument("invalid 32-bit resource type " + name);
+        return value;
+    }
     const Type* t = types.get(name);
     return t ? t->hash : fnv1a(name);
 }
@@ -1064,7 +1070,8 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
         }
         const Json* entries = doc.t == Json::Obj ? doc.find("entries") : nullptr;
         if (!entries || entries->t != Json::Arr) continue;
-        for (const Json& e : entries->items) {
+        for (size_t index = 0; index < entries->items.size(); ++index) {
+            const Json& e = entries->items[index];
             if (e.t != Json::Obj) continue;
             const Json* kind = e.find("kind");
             if (!kind || kind->t != Json::Str || kind->s != "resource") continue;
@@ -1078,7 +1085,13 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
             if (!guid || guid->t != Json::Str || !type || type->t != Json::Str || !file || file->t != Json::Str) continue;
             std::string g;
             if (!uuid_text(guid->s, &g)) continue;
-            const uint32_t th = type_hash_of(types, type->s);
+            uint32_t th;
+            try {
+                th = type_hash_of(types, type->s);
+            } catch (const std::invalid_argument& error) {
+                warnings.push_back(m.assets_dir + "/assets.json: entry " + std::to_string(index) + " (" + g + "): " + error.what());
+                continue;
+            }
             if (th != ja_ && th != rm_ && th != sq_) continue;
             if (side && side->t == Json::Str && (side->s == "client" || side->s == "server")) {
                 one_sided_.insert(g);

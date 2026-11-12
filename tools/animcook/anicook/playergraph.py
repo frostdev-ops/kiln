@@ -974,7 +974,12 @@ def _scalars(types, type_name, raw, names):
 
 def _type_hash(types, name):
     if isinstance(name, str) and name.startswith("0x"):
-        return int(name, 16)
+        if not name[2:] or any(c not in "0123456789abcdefABCDEF" for c in name[2:]):
+            raise ValueError(f"invalid 32-bit resource type {name}")
+        value = int(name, 16)
+        if value > 0xffffffff:
+            raise ValueError(f"invalid 32-bit resource type {name}")
+        return value
     t = types.get(name)
     return t["hash"] if t else fnv1a32(name.encode())
 
@@ -993,12 +998,13 @@ class ClipFacts:
         self.hashes = {n: _type_hash(types, n) for n in (JOINT_ANIM, ROOT_MOTION, SEQUENCES)}
         self.served = {}  # (guid, type hash) -> [file paths]
         self.one_sided = set()  # do not sample a clip whose resources can differ between server and client
+        self.warnings = []
         for d in mod_asset_dirs:
             p = d / "assets.json"
             if not p.exists():
                 continue
             doc = json.loads(re.sub(r"^\s*//.*$", "", p.read_text(encoding="utf-8"), flags=re.M))
-            for e in doc.get("entries", []):
+            for index, e in enumerate(doc.get("entries", [])):
                 if e.get("kind") != "resource" or int(e.get("part", 0)) != 0:
                     continue
                 if not isinstance(e.get("guid"), str) or not isinstance(e.get("type"), str) or not isinstance(e.get("file"), str):
@@ -1007,7 +1013,11 @@ class ClipFacts:
                     guid = str(uuid.UUID(e["guid"]))
                 except ValueError:
                     continue
-                th = _type_hash(types, e["type"])
+                try:
+                    th = _type_hash(types, e["type"])
+                except ValueError as error:
+                    self.warnings.append(f"{p}: entry {index} ({guid}): {error}")
+                    continue
                 if th in self.hashes.values():
                     if e.get("side") in ("client", "server"):
                         self.one_sided.add(guid)
