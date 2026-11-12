@@ -306,7 +306,8 @@ into it when it is built. The SDK build task (the next typegen task) writes, nex
 `fields` lists the fields of the type that the mod uses, each with its C# type in the table's form (the stamp task
 copies it from the table of the Kiln.Game the mod is built against), and the generated methods of §3.6 it calls, under
 their table names (`"op_Implicit": "uint"`, `"get_Values": "Span<float>"`); `values` lists every value of every enum
-or bitmask the mod names, used or not. `GameLayoutStamps.Check(stampJson, out reason)` (any thread) compares it
+or bitmask referenced in the mod's metadata, used or not (not a constant folded into a number with no enum reference,
+§6.6). `GameLayoutStamps.Check(stampJson, out reason)` (any thread) compares it
 with this assembly's table:
 - `schema` other than 1, unreadable JSON, not an object: refused, with that reason.
 - `layoutSet` equal to the table's `set`: fine.
@@ -690,8 +691,12 @@ element type, is refused before load (§3.7). Not covered, and not checked befor
   generated type's bytes;
 - any other generated member a later generator version adds without listing it in the table (§3.6); the hand-written
   members of `Ecs` (`TryGet`, `Get`, `Has`, …) are covered by the public API record instead;
-- enum constants are copied into the mod at build time: the stamp holds every value of an enum the mod names, so a
-  renumbered value is refused, but a mod that casts a raw number to an enum is not checked;
+- an enum constant folded by the compiler into a number is **not stamped or checked** when no metadata reference
+  to its enum remains (for example `n == (byte)Ecs.Glimmer_Mode.Bright` or
+  `const int K = (int)Ecs.Glimmer_Mode.Bright`). The task cannot recover its source type from a numeric literal.
+  An enum present as a field's or local's type in the mod's own metadata, or through an `ldtoken` (`typeof`), is
+  stamped already: every value of that enum is compared, including unused values. A cast from a raw number is
+  covered only if an enum metadata reference survives compilation;
 - code in other assemblies the mod loads that it did not build with the SDK (no stamp of their own).
 
 ### 6.7 Tests (no game)

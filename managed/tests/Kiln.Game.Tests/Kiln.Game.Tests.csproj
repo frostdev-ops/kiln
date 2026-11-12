@@ -62,6 +62,7 @@
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
     <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" />
     <ProjectReference Include="Fixtures/stamp/StampMod/StampMod.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnStampFixture="true" />
+    <ProjectReference Include="Fixtures/stamp/EnumMetadata/EnumMetadata.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnEnumFixture="true" />
   </ItemGroup>
   <Target Name="_KilnStampFixtures" AfterTargets="Build">
     <PropertyGroup>
@@ -92,6 +93,10 @@
       <Output TaskParameter="TargetOutputs" ItemName="_KilnStampMod" />
     </MSBuild>
     <Copy SourceFiles="@(_KilnStampMod)" DestinationFolder="$(OutDir)stamp/StampMod" SkipUnchangedFiles="true" />
+    <MSBuild Projects="@(ProjectReference)" Targets="GetTargetPath" Condition="'%(ProjectReference.KilnEnumFixture)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnEnumMod" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnEnumMod)" DestinationFolder="$(OutDir)stamp/EnumMetadata" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

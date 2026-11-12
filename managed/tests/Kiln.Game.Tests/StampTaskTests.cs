@@ -160,6 +160,44 @@ public class StampTaskTests
     }
 
     [Fact]
+    public void An_enum_constant_folded_to_a_number_is_not_stamped_or_checked()
+    {
+        using var pe = new PEReader(File.OpenRead(Stamps.ModDll));
+        var md = pe.GetMetadataReader();
+        Assert.DoesNotContain(md.TypeReferences, h => md.StringComparer.Equals(md.GetTypeReference(h).Name, "Glimmer_Hue"));
+        var stamp = Stamps.ModStamp();
+        Assert.DoesNotContain("Glimmer_Hue", stamp, StringComparison.Ordinal);
+        var table = Stamps.Table(Stamps.Variant("a"));
+        var set = GameLayoutStampsTests.Header(table)["set"];
+        var changed = table.Replace("set=" + set, "set=ffffffffffffffff", StringComparison.Ordinal)
+            .Replace(Stamps.Line(table, "Kiln.Ecs+Glimmer_Hue")[2], "00000000000000ff", StringComparison.Ordinal)
+            .Replace("Blue=1", "Blue=7", StringComparison.Ordinal);
+        Assert.NotEqual(table, changed);
+        Assert.True(GameLayoutStamps.Check(stamp, changed, out var reason), reason);
+    }
+
+    [Fact]
+    public void Enum_types_in_fields_locals_and_ldtoken_are_stamped_without_generated_member_access()
+    {
+        var assembly = GenRepo.Built("stamp", "EnumMetadata", "EnumMetadata.dll");
+        var dir = Stamps.NewDir();
+        var (ok, engine, task) = Stamps.Run(assembly, Stamps.Variant("a"), dir);
+        Assert.True(ok, string.Join("\n", engine.Errors.Select(e => e.Message)));
+        using var stamp = JsonDocument.Parse(File.ReadAllText(task.StampFile));
+        var types = stamp.RootElement.GetProperty("types");
+        Assert.Equal(["Kiln.Ecs+Glimmer_Hue", "Kiln.Ecs+Glimmer_Mode", "Kiln.Ecs+Glimmer_ModeMask"],
+            types.EnumerateObject().Select(t => t.Name));
+        foreach (var type in types.EnumerateObject())
+            Assert.NotEmpty(type.Value.GetProperty("values").EnumerateObject());
+        var table = Stamps.Table(Stamps.Variant("a"));
+        var changed = table.Replace("set=" + GameLayoutStampsTests.Header(table)["set"], "set=ffffffffffffffff", StringComparison.Ordinal)
+            .Replace(Stamps.Line(table, "Kiln.Ecs+Glimmer_Hue")[2], "00000000000000ff", StringComparison.Ordinal)
+            .Replace("Blue=1", "Blue=7", StringComparison.Ordinal);
+        Assert.False(GameLayoutStamps.Check(stamp.RootElement.GetRawText(), changed, out var reason));
+        Assert.Contains("Kiln.Ecs+Glimmer_Hue.Blue changed from 1 to 7", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void The_stamp_passes_against_the_Kiln_Game_it_was_made_from()
     {
         var stamp = Stamps.ModStamp();

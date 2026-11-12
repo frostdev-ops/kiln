@@ -11,8 +11,10 @@ namespace Kiln;
 /// <summary>
 /// The layouts of the generated game types in this <c>Kiln.Game.dll</c>, and the check that tells whether a mod built
 /// against other layouts can run against these. A mod binds to a generated type's fields by name when its code is
-/// compiled at run time, so it keeps working while every field it uses is still there with the same type, and every
-/// enum value it uses (enum constants are copied into the mod when it is built) keeps its number.
+/// compiled at run time: the check compares the fields and generated methods named in its stamp. For each enum or
+/// bitmask referenced in the mod's metadata (including field and local types and <c>typeof</c> tokens), it compares
+/// every value. An enum constant folded by the compiler into a number, with no metadata reference to its enum, is not
+/// stamped and is not checked; this is not a source-level check.
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class GameLayoutStamps
