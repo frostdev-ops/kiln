@@ -177,15 +177,18 @@ internal static class CheckScreen
     /// <summary>The HUD line: the current instruction, always, so the player can play the check with the list closed.</summary>
     public static string HudText(RunnerView v, string pass, string fail, string skip, string open)
     {
-        var warning = (v.Warning is { } w ? "  |  GUARD WARNING: " + w : "") + (v.Changed is { } ch ? "  |  " + ch : "");
-        if (v.Current is not { } c) return warning.Length > 0 ? warning.TrimStart(' ', '|') : "";
-        var text = c.Phase switch
-        {
-            "confirming" => $"Check \"{c.Title}\" asks a question first: open the list ({open})",
-            "finishing" => $"Check \"{c.Title}\": writing the verdict",
-            _ => $"Check \"{c.Title}\": {(c.Instruction.Length > 0 ? c.Instruction : "setting up…")}   [pass {pass} · fail {fail} · skip {skip}]",
-        };
-        return text + warning;
+        // one line each, so a long instruction does not push the warnings off the screen
+        var lines = new List<string>();
+        if (v.Current is { } c)
+            lines.Add(c.Phase switch
+            {
+                "confirming" => $"Check \"{c.Title}\" asks a question first: open the list ({open})",
+                "finishing" => $"Check \"{c.Title}\": writing the verdict",
+                _ => $"Check \"{c.Title}\": {(c.Instruction.Length > 0 ? c.Instruction : "setting up…")}   [pass {pass} · fail {fail} · skip {skip}]",
+            });
+        if (v.Warning is { } w) lines.Add("GUARD WARNING: " + w);
+        if (v.Changed is { } ch) lines.Add(ch);
+        return string.Join('\n', lines);
     }
 }
 

@@ -41,7 +41,10 @@ internal static class CheckSamples
         var confirm = new ViewCurrent("client-pass", "guard.proof", "The achievement guard drops a report", "Achievement guard", "confirming",
             Items[4].Confirm!, Items[4].Confirm, [], "hosted", true);
         yield return ("checks-confirm", View(confirm), new ScreenState { ConfirmKey = "client-pass/guard.proof", ConfirmShown = now });
-        yield return ("checks-note", View(running, "skills.points: the guard passed 1 achievement report(s) to Steam during the check"),
+        yield return ("checks-note", View(running, "skills.points: the guard passed 1 achievement report(s) to Steam during the check") with
+            {
+                Changed = CheckRunner.ChangedCharacter,
+            },
             new ScreenState { Noting = true, Note = "the bar went down only on the second hit" });
     }
 }
