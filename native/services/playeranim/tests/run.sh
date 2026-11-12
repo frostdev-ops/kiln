@@ -37,6 +37,12 @@ g++ -std=c++20 -O1 -g -Wall -Wextra "${inc[@]}" -I"$here/platform" -I"$here/../.
   "$here/test_service.cpp" "${src[@]:1}" -o "$out/test_service"
 timeout 5 "$out/test_service" "$out/service-fixtures"
 
+# Corrupt reflected typedef chains fail closed, including through the merge. Never let a regression hang the runner.
+g++ -std=c++20 -O1 -g -Wall -Wextra "${inc[@]}" "$here/test_typedef.cpp" "${src[@]:1}" -o "$out/test_typedef"
+for mode in decode encode merge; do
+  (ulimit -c 0; timeout 5 "$out/test_typedef" "$mode" "$here/../../../../tools/animcook/types/anim-types.json")
+done
+
 # The times on the game's graph, from an optimized build without sanitizers.
 g++ -std=c++20 -O2 -Wall -Wextra "${inc[@]}" "${src[@]}" -o "$out/time_playeranim"
 "$out/time_playeranim" --time "$out/cases" ${exe:+"$exe"}
