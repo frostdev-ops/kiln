@@ -14,6 +14,9 @@ type Mock = Record<string, (...a: unknown[]) => unknown>;
 const df = (page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => (window as unknown as { __kilnDataFolderMock: Mock }).__kilnDataFolderMock[f as string](...(a as unknown[])), [fn, args] as const);
 const calls = (page: Page) => page.evaluate(() => (window as unknown as { __kilnMock: { calls: () => string[] } }).__kilnMock.calls());
+// The commands a held folder saw, without the page's "my first screen is up" call (src/shell/started.ts): the backend answers
+// app_started in every held state (folder.rs), or its render watchdog would take a folder dialog for a black window.
+const heldCalls = (all: string[]) => new Set(all.filter((c) => c !== "app_started"));
 const pick = (page: Page, path: string | null) => df(page, "pick", path);
 
 async function open(page: Page, url = "/#/settings") {
@@ -181,7 +184,7 @@ test.describe("a pointer to a folder that cannot be used", () => {
     await expect(page.locator(".k-app, .deck")).toHaveCount(0);
     await expect(page.locator(".k-toast, .deck-toast")).toHaveCount(0);
     await expect(page.getByText("This page failed")).toHaveCount(0);
-    expect(new Set(await calls(page))).toEqual(new Set(["data_folder_get"]));
+    expect(heldCalls(await calls(page))).toEqual(new Set(["data_folder_get"]));
     // the same in a deep link and in a Deck start
     await openBroken(page, "/?df=broken&deck=steamdeck#/settings");
     await expect(page.locator(".k-app, .deck")).toHaveCount(0);
@@ -296,7 +299,7 @@ test("a removal refused at start says why, not \"the rest goes at the next start
 
 test.describe("an unfinished move's partial copy is removed at start", () => {
   const TITLE = "Removing an unfinished copy";
-  const allowed = new Set(["app_info", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart", "deck_quit"]);
+  const allowed = new Set(["app_info", "app_started", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart", "deck_quit"]);
 
   test("only its dialog with the task's progress, then the launcher and the notice", async ({ page }) => {
     await page.goto("/?df=undoing#/settings");
@@ -375,7 +378,7 @@ test("another launcher is moving the data folder: only its dialog and Quit", asy
   await cannotDismiss(page, "Kiln is moving its data in another window");
   await page.waitForTimeout(1000);
   await expect(page.locator(".k-app, .deck")).toHaveCount(0);
-  expect(new Set(await calls(page))).toEqual(new Set(["data_folder_get"]));
+  expect(heldCalls(await calls(page))).toEqual(new Set(["data_folder_get"]));
   await d.getByRole("button", { name: "Quit" }).click();
   await expect.poll(() => calls(page)).toContain("deck_quit");
 });
