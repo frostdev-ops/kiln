@@ -73,6 +73,12 @@ fn eml_dbghelp() -> Vec<u8> { build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_F
 fn eml_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH") }
 fn alp_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0mods\\auto-loot-plus\\config.txt") }
 fn xhl_core() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"XHL-Native-Plugin-Host.log\0dinput8-chain.ini\0native-plugin.ini") }
+/// XHL-Core 2.0.6 (2026-11-02): its log file's name is only in the DLL as UTF-16 text (Windows' wide strings).
+fn xhl_core_2x() -> Vec<u8> {
+    let mut text = b"dinput8-chain.ini\0native-plugin.ini\0".to_vec();
+    for c in "XHL-Native-Plugin-Host.log".encode_utf16() { text.extend_from_slice(&c.to_le_bytes()); }
+    build_test_dll(&["DirectInput8Create"], &text)
+}
 fn xhl_plugin() -> Vec<u8> { build_test_dll(&["XhlPluginEntry"], b"XHL plugin") }
 
 fn eml_mod(root: &Path, dir: &str, id: &str) {
@@ -117,11 +123,31 @@ fn layout(root: &Path, which: &str) {
         }
         // XHL-Core alone
         "xhl-core" => put(root, "dinput8.dll", &xhl_core()),
+        // XHL-Core 2.0.6: its dinput8.dll alone at the archive's root
+        "xhl-core-2x" => put(root, "dinput8.dll", &xhl_core_2x()),
         // an XHL plugin without an EML part (XHL-Vein-Mining 2.x drops dbghelp.dll)
         "xhl-plugin" => {
             put(root, "mods/XHL-Vein-Mining/XHL-Vein-Mining.dll", &xhl_plugin());
             put(root, "mods/XHL-Vein-Mining/native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
             put(root, "mods/XHL-Vein-Mining/config.txt", b"x");
+        }
+        // XHL-Free-Climbing 2.0.1 and the other XHL mods of 2026-11 ("1.0 Ready"): the plugin, XHL-Core's ini with the
+        // mod's settings, and a mod.json that only names the mod (no EML part: no src/mod.lua)
+        "xhl-2x" => {
+            put(root, "mods/XHL-Free-Climb/XHL-Free-Climb.dll", &xhl_plugin());
+            put(root, "mods/XHL-Free-Climb/mod.json", br#"{
+  "id": "xhl-free-climb",
+  "name": "XHL Free Climbing",
+  "version": "2.0.1",
+  "capabilities": [],
+  "authors": [
+    "XHL"
+  ],
+  "license": "MIT",
+  "description": "Climb walls and uneven rock using the configured keyboard or gamepad button."
+}
+"#);
+            put(root, "mods/XHL-Free-Climb/native-plugin.ini", b"[Plugin]\r\nEnabled=1\r\nDll=XHL-Free-Climb.dll\r\n\r\n[Climbing]\r\nHoldKeyVk=71\r\nHoldGamepadButton=R3\r\n");
         }
         // XHL-Max-Stack-65535 and the other pure XHL data mods: dbghelp.dll + mods/<Name>/ with config.txt
         "loader-dbghelp" => {
@@ -353,6 +379,32 @@ fn xhl_mods_are_placed_where_xhl_core_finds_their_plugin() {
         assert!(d.reasons().contains("XHL-Core plugin (native-plugin.ini)"), "{}", d.reasons());
         assert_eq!(d.natives(), natives, "{which}: XHL-Core in the package is a native mod");
     }
+}
+
+/// XHL's mods since 2026-11 carry a mod.json that names the mod but has no EML part. A player reported "Nothing to add"
+/// for them: the folder was taken for a broken EML package. It is an XHL-Core plugin, placed where XHL-Core loads it,
+/// with every file it came with (its settings are in native-plugin.ini).
+#[test]
+fn xhl_2x_mods_with_a_naming_mod_json_are_xhl_core_plugins() {
+    let d = drop_on_launcher("xhl-2x", "XHL-Free-Climbing (1.0 Ready) 175 2.0.1 2026-11-02T15-32Z KgLa3UeWT");
+    assert_eq!(d.found(), ["xhl/xhl-free-climb"], "{}", d.reasons());
+    assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
+    assert!(d.natives().is_empty() && d.eml_paths().is_empty() && d.chained().is_empty());
+    for f in ["XHL-Free-Climb.dll", "mod.json", "native-plugin.ini"] {
+        assert!(d.g.path.join("mods/XHL-Free-Climb").join(f).is_file(), "{f}: {:?}", tree(&d.g.path));
+    }
+    assert_eq!(std::fs::read(d.g.path.join("mods/XHL-Free-Climb/XHL-Free-Climb.dll")).unwrap(), xhl_plugin());
+    assert!(d.reasons().contains("requires XHL-Core") && d.reasons().contains("never loads this plugin DLL itself"), "{}", d.reasons());
+}
+
+/// XHL-Core 2.x is XHL-Core: one native mod ("xhl-core") whose next build replaces it, and the host the XHL plugins
+/// need. Kiln looked for its markers as 8-bit text only and told players with XHL-Core installed that it was missing.
+#[test]
+fn xhl_core_2x_is_recognised_with_its_wide_text_markers() {
+    let d = drop_on_launcher("xhl-core-2x", "XHL-Core 236 2.0.6 2026-11-02T20-51Z MdXNSV1Ib");
+    assert_eq!(d.found(), ["native/xhl-core"], "{}", d.reasons());
+    assert_eq!(d.natives(), ["xhl-core"]);
+    assert!(kiln_manage::engine_mods::xhl_host(&d.g.path).available, "{}", kiln_manage::engine_mods::xhl_host(&d.g.path).text);
 }
 
 #[test]

@@ -352,13 +352,14 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
-            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("mod.json").exists(),
+            // XHL's own mod.json (since 2026-11) only names the mod; an EML part (src/mod.lua) makes it an EML mod
+            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("src").join("mod.lua").exists(),
             _ => true,
         };
         if !found {
             let why = match kind {
                 ModKind::Ember => "an Ember mod folder holds exactly one library (.dll), and no other engine's mod DLL",
-                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package",
+                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package (src/mod.lua)",
                 ModKind::Enshwick => "invalid, unsupported or changed pack.toml, or no Enshwick mod DLL",
                 _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
             };
@@ -2628,8 +2629,7 @@ pub fn xhl_host(game_dir: &Path) -> HostPrerequisite {
         if !m.is_file() || m.len() > 128 * 1024 * 1024 { return false; }
         let Ok(b) = std::fs::read(&p) else { return false };
         crate::pe::is_pe64_dll(&b) && crate::pe::parse(&b).is_ok_and(|p| p.exports.iter().any(|s| s == "DirectInput8Create"))
-            && [b"XHL-Native-Plugin-Host.log".as_slice(), b"native-plugin.ini".as_slice()].iter()
-                .all(|s| b.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
+            && ["XHL-Native-Plugin-Host.log", "native-plugin.ini"].iter().all(|s| crate::pe::contains_text(&b, s))
     });
     HostPrerequisite { available, text: if available {
         "XHL-Core is recognized on an active proxy/chain path. Only that external host loads XHL companions; placement does not verify gameplay. On Wine/Proton, proxy loading also needs its DLL override."
