@@ -403,6 +403,8 @@ internal static partial class KilnApis
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.EntityId,System.Double)", // Nearby.Within(IEnumerable<EntityId>, EntityId, double): via Nearby.Validate(WorldPosition, double)
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.WorldPosition,System.Double)", // Nearby.Within(IEnumerable<EntityId>, WorldPosition, double): via Nearby.Filter(IEnumerable<EntityId>, WorldPosition, double, EntityId)
         "M:Kiln.NetChannel.SendNear``1(Kiln.WorldPosition,System.Double,``0,Kiln.NetPeer)", // NetChannel.SendNear<T>(WorldPosition, double, T, NetPeer?): Services.RequireTickThread
+        "M:Kiln.NoClip.Of(Kiln.EntityId)", // NoClip.Of(EntityId): Game.AssertTickThread
+        "M:Kiln.NoClip.Set(Kiln.EntityId,System.Boolean)", // NoClip.Set(EntityId, bool): Game.AssertTickThread
         "M:Kiln.NpcView.InPhase(System.String)", // NpcView.InPhase(string): via CreatureRef.Phase.get
         "M:Kiln.NpcView.get_Health", // NpcView.Health.get: via NpcView.Info.get
         "M:Kiln.NpcView.get_HealthFraction", // NpcView.HealthFraction.get: via NpcView.HealthMax.get
