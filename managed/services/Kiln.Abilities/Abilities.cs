@@ -384,8 +384,24 @@ public static unsafe partial class Abilities
 
         /// <summary>Verifies and inserts a program blob (copied). Returns its id. Throws <see cref="ArgumentException"/>
         /// with the verifier's reason when refused. A program that calls Kiln natives nobody registered or declared
-        /// yet waits and is inserted once they are (returns its id, <paramref name="waiting"/> true). Tick thread.</summary>
+        /// yet waits and is inserted once they are (returns its id, <paramref name="waiting"/> true). Tick thread.
+        /// Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
+        /// <see cref="InvalidOperationException"/>. Programs shipped as assets (<see cref="Refresh"/>) need no flag.</summary>
         public static uint Register(byte[] blob, out bool waiting)
+        {
+            AbilitiesGate.RequireAdvanced("Abilities.Programs.Register");
+            return RegisterCore(blob, out waiting);
+        }
+
+        /// <summary>Like <see cref="Register(byte[], out bool)"/>, without the waiting flag. Advanced mods only.</summary>
+        public static uint Register(byte[] blob)
+        {
+            AbilitiesGate.RequireAdvanced("Abilities.Programs.Register");
+            return RegisterCore(blob, out _);
+        }
+
+        // Kiln's own programs (the buff program of ApplyBuff, run for whichever mod uses buffs) come here past the gate.
+        internal static uint RegisterCore(byte[] blob, out bool waiting)
         {
             ArgumentNullException.ThrowIfNull(blob);
             Game.AssertTickThread();
@@ -402,8 +418,6 @@ public static unsafe partial class Abilities
             waiting = msg.Length > 0;
             return id;
         }
-
-        public static uint Register(byte[] blob) => Register(blob, out _);
 
         /// <summary>Lists kiln.assets' ImpactProgram resources again and registers the new ones. Tick thread.</summary>
         public static int Refresh()
