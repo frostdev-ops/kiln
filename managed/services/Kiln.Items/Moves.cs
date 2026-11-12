@@ -164,6 +164,7 @@ public static unsafe partial class Items
         public readonly TaskCompletionSource<MoveResult> Tcs = tcs;
         public readonly ModContext? Mod = mod;
         public ulong Ticket;
+        public bool Unseen;  // a lab move kept away from the item tracker (Items.LabMoveUnseen)
     }
 
     private static readonly object MoveGate = new();
@@ -171,7 +172,7 @@ public static unsafe partial class Items
     private static readonly HashSet<ModContext> MovesWatched = new();
     private static long _nextMove;
 
-    private static Task<MoveResult> SubmitMove(ItemsNative.MoveRequest r, string api)
+    private static Task<MoveResult> SubmitMove(ItemsNative.MoveRequest r, string api, bool unseen = false)
     {
         var t = Require3(api);
         var kind = (MoveKind)r.Kind;
@@ -182,7 +183,7 @@ public static unsafe partial class Items
         var mod = ModContext.CurrentMod;
         if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
         var tcs = new TaskCompletionSource<MoveResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var p = new PendingMove(tcs, mod);
+        var p = new PendingMove(tcs, mod) { Unseen = unseen };
         long key;
         lock (MoveGate)
         {
@@ -238,11 +239,16 @@ public static unsafe partial class Items
             var c = (ItemsNative.MoveChange*)r->Changes;
             for (var i = 0; i < changes.Length; i++)
                 changes[i] = new MoveChange(new SlotId(c[i].FromSlot), new SlotId(c[i].ToSlot), new ItemId(c[i].Item),
-                    (int)c[i].Amount, new EntityId(c[i].Pide));
+                    (int)c[i].Amount, new EntityId(c[i].Pide))
+                {
+                    Ref = ItemRefs.Of(c[i].Pide, c[i].Item, c[i].Reserved),
+                };
             var status = Enum.IsDefined(typeof(ItemsStatus), r->Status) ? (ItemsStatus)r->Status : ItemsStatus.Refused;
-            p.Tcs.TrySetResult(new MoveResult(status, (MoveKind)r->Kind, new EntityId(r->From), new EntityId(r->To),
+            var result = new MoveResult(status, (MoveKind)r->Kind, new EntityId(r->From), new EntityId(r->To),
                 (int)r->Requested, (int)r->Done, (int)r->Stacks, changes, ItemsNative.Text(r->Message, 160),
-                (int)r->GameError, r->Canceled != 0, (int)r->Steps, (r->Flags & ItemsNative.MoveDryRun) != 0));
+                (int)r->GameError, r->Canceled != 0, (int)r->Steps, (r->Flags & ItemsNative.MoveDryRun) != 0);
+            if (!p.Unseen) ItemTracker.OnMove(result, (r->Flags & ItemsNative.MoveSilent) != 0);
+            p.Tcs.TrySetResult(result);
         }
         catch
         {
@@ -465,7 +471,15 @@ public enum MoveOptions
 
 /// <summary>One piece of a move's ledger: <see cref="Amount"/> of <see cref="Item"/> left <see cref="From"/> and arrived
 /// in <see cref="To"/>. Gear carries its <see cref="ItemEntity"/> along (the same one before and after).</summary>
-public readonly record struct MoveChange(SlotId From, SlotId To, ItemId Item, int Amount, EntityId ItemEntity);
+public readonly record struct MoveChange(SlotId From, SlotId To, ItemId Item, int Amount, EntityId ItemEntity)
+{
+    /// <summary>The item entity that moved, as one particular item: it moves whole, stamp and all, so this equals its
+    /// <c>Ref</c> in a read before and after the move. <see cref="ItemInstanceRef.None"/> for a plain stack (no item
+    /// entity) and when the capability <c>items.instances</c> is off (an older Kiln, an unknown game build). Filled by
+    /// Kiln when it builds the value.</summary>
+    [AnyThread]
+    public ItemInstanceRef Ref { get; init; }
+}
 
 /// <summary>What a move did. <see cref="Status"/> is <see cref="ItemsStatus.Done"/> (all moved),
 /// <see cref="ItemsStatus.Partial"/> (only <see cref="Done"/> of <see cref="Requested"/> fit),

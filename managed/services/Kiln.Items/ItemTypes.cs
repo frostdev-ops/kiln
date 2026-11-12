@@ -136,7 +136,15 @@ public enum ItemsStatus
 }
 
 /// <summary>One slot a transaction changed.</summary>
-public readonly record struct ItemChange(SlotId Slot, ItemId Item, int Amount, EntityId ItemEntity);
+public readonly record struct ItemChange(SlotId Slot, ItemId Item, int Amount, EntityId ItemEntity)
+{
+    /// <summary>The item entity as one particular item, with the stamp kiln.items gave it at the commit (a give: the item
+    /// the game created; a take: the item it destroyed, no longer alive). <see cref="ItemInstanceRef.None"/> for a plain
+    /// stack, which has no item entity, for a dry-run give, and when the capability <c>items.instances</c> is off (an
+    /// older Kiln, an unknown game build). Filled by Kiln when it builds the value.</summary>
+    [AnyThread]
+    public ItemInstanceRef Ref { get; init; }
+}
 
 public sealed record ItemsResult(
     ItemsStatus Status,
@@ -175,6 +183,14 @@ public sealed record InventorySlot(
     ushort ItemState)
 {
     public bool IsEmpty => Item.IsNone || Count == 0;
+
+    /// <summary>The item in this slot as one particular item, with the stamp kiln.items gave it at this read: equal to
+    /// the <c>Ref</c> of the same item in a give, take or move result and in any later read while it lives.
+    /// <see cref="ItemInstanceRef.None"/> for an empty slot, for a plain stack (no item entity), and when the capability
+    /// <c>items.instances</c> is off (an older Kiln, an unknown game build). Filled by Kiln when it builds the
+    /// value.</summary>
+    [AnyThread]
+    public ItemInstanceRef Ref { get; init; }
 }
 
 /// <summary>An entity's inventory: every slot of every linked 8-slot inventory, in link order.</summary>

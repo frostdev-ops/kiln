@@ -122,7 +122,10 @@ public static unsafe partial class Items
             ref var s = ref slots[i];
             list.Add(new InventorySlot(new SlotId(s.Id), new ItemId(s.Item), (int)s.Count, new EntityId(s.Pide), s.Level,
                 s.Rarity <= 4 ? (ItemRarity)s.Rarity : null, (InventoryCategory)s.Category, s.Link,
-                (s.Flags & 0x04) != 0, (s.Flags & 0x01) != 0, (s.Flags & 0x02) != 0, s.State));
+                (s.Flags & 0x04) != 0, (s.Flags & 0x01) != 0, (s.Flags & 0x02) != 0, s.State)
+            {
+                Ref = s.Count == 0 ? ItemInstanceRef.None : ItemRefs.Of(s.Pide, s.Item, s.Reserved),
+            });
         }
         return new InventoryContents(entity, info.Initialized != 0, info.SetupFlags, info.GenericSlots,
             info.AvailableSlots, invs, list);
@@ -361,6 +364,7 @@ public static unsafe partial class Items
             var result = ResultOf(r);
             // Item events run synchronously before the task completes and may request a save themselves.
             Volatile.Write(ref p.Observed, result);
+            ItemTracker.OnTransaction(result, p.Take);
             ItemsEvents.Completed(p.Take, result, p.Mod);
             p.Tcs.TrySetResult(result);
         }
@@ -375,7 +379,10 @@ public static unsafe partial class Items
         var changes = new ItemChange[Math.Min(r->ChangeCount, 16u)];
         var c = (ItemsNative.Change*)r->Changes;
         for (var i = 0; i < changes.Length; i++)
-            changes[i] = new ItemChange(new SlotId(c[i].Slot), new ItemId(c[i].Item), (int)c[i].Amount, new EntityId(c[i].Pide));
+            changes[i] = new ItemChange(new SlotId(c[i].Slot), new ItemId(c[i].Item), (int)c[i].Amount, new EntityId(c[i].Pide))
+            {
+                Ref = ItemRefs.Of(c[i].Pide, c[i].Item, c[i].Reserved),
+            };
         var status = Enum.IsDefined(typeof(ItemsStatus), r->Status) ? (ItemsStatus)r->Status : ItemsStatus.Refused;
         return new ItemsResult(status, new EntityId(r->Entity), new ItemId(r->Item), (int)r->Requested,
             (int)r->Done, changes, ItemsNative.Text(r->Message, 160), (int)r->GameError, (int)r->Steps,

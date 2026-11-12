@@ -54,9 +54,12 @@ types for an unavailable capability.
 
 ## 2. Identity: EntityRef, ItemInstanceRef, PlayerRef, ItemId
 
-An `EntityId` is a number, and the game hands the same number to a new entity after the old one is destroyed. A mod
-that keeps an id across steps (a dummy it spawned, a chest it watches) can end up talking to a different entity. The
-ref types carry enough to notice that.
+An `EntityId` is a number, and the same number can come to name another entity: a player slot (1..1023) goes to the
+next player who joins, and every id is handed out again when a world is set up (a restart, a hosted game that loads
+another world), so an id remembered from before a restart names whatever the save loaded there. Inside one running
+world the game hands out every other id from a counter that only grows (kiln.items' evidence:
+docs/kiln/services/items.md, "The stamp, and why it is enough"). A mod that keeps an id across steps (a dummy it
+spawned, a chest it watches, an item) holds a number, not an entity. The ref types carry enough to notice that.
 
 - **`EntityRef(EntityId Id, ulong Serial)`**: an id plus the spawn serial it had when it was captured.
   `EntityRef.Of(id)` captures it (tick thread). `default` / `EntityRef.None` is no entity. A ref converts
@@ -69,13 +72,17 @@ ref types carry enough to notice that.
   When the ref has no serial
   (`HasSerial` false, `Serial` 0), `IsAlive` true means no more than "an entity with this id exists": a reused id
   still counts as alive. `HasSerial` is the way to tell which answer you have.
-- Where serials come from is up to the service that fills the seam. kiln.spawn has a tracker serial only for entities
-  Kiln spawned with tracking; the game's `SpawnTime` component exists on entities spawned at run time, not on
-  entities loaded from the save. An entity with neither has serial 0.
+- Where serials come from: three sources, asked in a fixed order (Players, Items, Spawn); the first that knows the
+  entity answers, and serials of different sources never compare equal. **Items** (Kiln.Items, capability
+  `items.instances`): an item entity's stamp, a sequence number kiln.items gives every item entity it sees. **Spawn**
+  (Kiln.Spawn): any other entity kiln.spawn can inspect: the game's `SpawnTime` when the entity has one (everything
+  spawned at run time, by the game or by Kiln), else the kiln.spawn tracker serial of a record re-found after a
+  restart, else 0. **Players**: player slots, from the players' source (Kiln.Players), when it is there.
 - **`ItemInstanceRef(EntityRef Entity, ItemId Item)`**: one particular item in the world: its entity and its type.
   It is not an item type (that is `ItemId`) and not Kiln.Blocks' `ItemRef` (which names an item for a recipe).
   `IsAlive` says nothing more than its entity's `IsAlive` does.
-  Where the item is and its data come as extension methods in Kiln.Items.
+  Where the item is comes from Kiln.Items (`item.Location()`, `Items.Held`, `Items.Equipped`); its data calls (`Get`,
+  `Set`, `Has`, ...) are extension methods in Kiln.Saves.
 - Test **`EntityRef.IsNone`** and **`ItemInstanceRef.IsNone`**, not `== None`: a none entity id can still carry a
   serial or item type, and record equality compares those fields too. For example, `new EntityRef(EntityId.None, 9)`
   and `new ItemInstanceRef(EntityRef.None, new ItemId(7))` both have `IsNone == true` but are not equal to `None`.
@@ -94,15 +101,25 @@ ref types carry enough to notice that.
 
 Capabilities: `identity.entities` (entity serials), `identity.players` (players).
 
-When no service supplies entity serials, which is the case until the release notes say otherwise, `EntityRef.Of`
-for a non-none id and `IsAlive` on a non-none entity or item ref throw `KilnUnavailableException("identity.entities")`.
-When no service supplies players, which is likewise the case until the release notes say otherwise, `PlayerRef.Of`
-for a non-none id and `PlayerRef.Resolve()` on a non-none player ref throw `KilnUnavailableException("identity.players")`.
-`None.IsAlive` and `PlayerRef.None.IsOnline` still return false; `PlayerRef.IsOnline` also returns false without a
-session serial, and otherwise uses the entity source (throwing `identity.entities` when that source is missing).
-The supplying services must be initialized and their capabilities enabled before these operations can work; for
-auto-started services that means from the first tick callback, not in `OnLoad`. Services adopt these types as their
-packages land; until then they still use `EntityId` and their own player types.
+On a server, Kiln.Items and Kiln.Spawn supply entity serials (`identity.entities`). Their sources start at the first
+service tick, so in `OnLoad` `EntityRef.Of` for a non-none id and `IsAlive` on a non-none ref still throw
+`KilnUnavailableException("identity.entities")`, and they also throw while the server world is still loading its save
+(before the game's Run state: kiln.spawn's source says "the server world is not running yet"). From the first tick in
+which the world runs they answer (lab: step 272-274 after a start, the first tick callback a mod gets with
+`Spawn.WorldRunning` true). Without Kiln.Spawn (or on a game build where kiln.spawn is off) every entity that is not an
+item entity throws; without kiln.items v4 (`items.instances` off) item entities are answered by kiln.spawn's source with
+weaker serials. A ref has no serial (`HasSerial` false: `IsAlive` only says that the id exists) for an entity the save
+loaded that has no `SpawnTime`: in the lab world (ids 1 to 2681 after a start) 232 of 1,518 entities, all of them
+`Scatter_*` (83), `Prop_*` (78), `DefaultInventory` (48, the linked 8-slot inventories of chests and stations),
+stations and factories (`T1_*`, `Craftingstation`, 12), NPCs (6) and a few more props; 1,219 had a `SpawnTime` (every
+entity streamed in or spawned at run time, by the game or by Kiln) and 67 item entities had kiln.items' stamp. A record
+kiln.spawn re-finds after a restart gives its tracker serial instead (none in that world).
+
+Players' refs come with the players' source (Kiln.Players): until it is there, a player slot is answered by kiln.spawn's
+source like any entity, `PlayerRef.Of` for a non-none id and `PlayerRef.Resolve()` on a non-none ref throw
+`KilnUnavailableException("identity.players")`, and `PlayerRef.IsOnline` returns false without a session serial.
+`None.IsAlive` and `PlayerRef.None.IsOnline` return false in every case. Services adopt these types as their packages
+land; until then they still use `EntityId` and their own player types.
 
 ## 3. Side and thread attributes
 

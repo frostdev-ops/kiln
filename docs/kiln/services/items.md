@@ -7,11 +7,11 @@ entity, and the change is replicated and saved like a vanilla one. Evidence and 
 
 | Layer | Where |
 |---|---|
-| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`, `items.pide_options`, `items.move`, `items.transfer`, `items.names`) |
-| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v3: v1 + water + moves, container names, transfer rules and events) |
+| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`, `items.pide_options`, `items.move`, `items.transfer`, `items.names`, `items.instances`) |
+| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v4: v1 + water + moves, container names, transfer rules and events + item instances) |
 | Native | `native/services/items/` → `kiln/services/kiln-items.dll` |
 | Managed | `managed/services/Kiln.Items/` → `kiln/host/Kiln.Items.dll` (namespace `Kiln`, class `Items`) |
-| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log; v3: `MovesTest.cs`); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots); `native/services/items/tests/run.sh` (host tests under Wine) |
+| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log; v3: `MovesTest.cs`); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots); `native/services/items/tests/run.sh` (host tests under Wine); `mods/tests/instances-test/` (entity refs, item instances, following items) |
 
 ## C#
 
@@ -147,6 +147,122 @@ handlers and reports too.
 Lab switches: `kiln/data/kiln.items/selftest` (a marker file) makes the service name a container through the game's own rename path and
 run a native handler scenario when the test mod asks; `KILN_ITEMS_HOOKS=early` installs the transfer hooks at load.
 
+## Item instances (v4): one particular item
+Capability `items.instances` (sigdb feature of the same name: kiln.items v4 is there and its reads resolved). When it is
+off (an older Kiln, an unknown game build: no offset is guessed), every member below throws
+`KilnUnavailableException("items.instances")`, and the `Ref` fields of results and reads are `ItemInstanceRef.None`.
+Reads only: nothing here writes a game component, so a client without Kiln sees nothing new.
+
+| Member | Side, thread | What |
+|---|---|---|
+| `InventorySlot.Ref` | any (a value) | the item in the slot with the stamp of this read; `None` for an empty slot, a plain stack (no item entity), or the capability off |
+| `ItemChange.Ref` | any (a value) | the item a give created or a take destroyed, with the stamp of its commit (a take's ref is not alive afterwards); `None` for a plain stack or a dry-run give |
+| `MoveChange.Ref` | any (a value) | the item entity that moved; equal to its `Ref` in a read before and after |
+| `Items.Held(player)` | `[ServerOnly][TickThreadOnly]` | the item in hand: what the running action uses, else the selected action-bar slot; `None` when empty, a plain stack, or not a player |
+| `Items.Equipped(player, EquipmentSlot)` | `[ServerOnly][TickThreadOnly]` | the item in one of the 20 equipment slots of the game's `SlotSelection` (`EquipmentSlot` has the values of Kiln.Players' `PlayerEquipSlot`) |
+| `item.Location()` (`ItemInstanceExtensions`) | `[ServerOnly][TickThreadOnly]` | `ItemLocation?`: where the item is now; null when it is gone or the ref is stale |
+| `ItemLocation(Holder, Slot, Link, FlatSlot)` | value | `IsPlaced`, `IsSavedSlot`; see "Flat slots" |
+| `ItemMovedEvent` (`Item`, `From`, `To`, `Cause`, `Step`) | `[ServerOnly]`, tick thread | a followed item moved; posted only while it has subscribers |
+| `ItemMoveCause` | value | `Transaction` (Kiln's own stack move), `Transfer` (a quick stack or move all), `Observed` (the per-step read) |
+
+`Held` and `Equipped` read `SlotSelection` by the game's own field names (`kiln.types`), as kiln.players does; without the
+reflection they throw `items.instances` too. The data calls on an item (`Get`, `Set`, `Has`, ...) are in Kiln.Saves; Kiln.Saves
+also decides which items are followed. Lab-only members (hidden, `[Experimental]`): `Items.LabFollow(item, gone)` (KILNX251),
+`Items.LabMoveUnseen(from, slot, to)` (KILNX252, a move kept from the tracker), `Items.LabInstancesStatus` (KILNX253).
+
+```csharp
+InventorySlot s = Items.Read(chest)!.Slots.First(x => !x.Ref.IsNone);
+ItemInstanceRef sword = s.Ref;                          // this sword, not "a sword"
+ItemLocation? where = sword.Location();                 // holder, slot, link, flat slot; null once it is gone
+MoveResult m = await Items.Move(chest, s.Slot, other);
+bool same = m.Changes[0].Ref == sword;                  // true: the item entity moved whole, stamp and all
+ItemInstanceRef inHand = Items.Held(player);
+```
+
+### The stamp, and why it is enough
+Every item entity (the "pide" of a stack of gear, a tool, a can) gets a 32-bit sequence number, never 0, new for every
+item entity the process sees, delivered where the item entity is delivered: `KilnItemsSlot.reserved` (captured at the
+read), `KilnItemsChange.reserved` and `KilnItemsMoveChange.reserved` (captured at the commit). An `ItemInstanceRef`'s
+serial is that number in the Items place of `EntityRef` (`IdentitySources.Stamp(Items, n)`). Instance data is keyed by
+(entity id, stamp), and every access compares both.
+
+The requirement: when an item entity is destroyed and its id is given to another item entity, no caller may ever see
+the old stamp for the new one. Evidence (server 26430253, exe `f0d824be…`; the same on 26404334), static:
+- **One counter hands out every non-player id.** `createEntity` (`0x623ce0`) called with id 0 takes the next id with
+  `lock xadd dword [storage + 0x498], 1` (`0x6247c3`). The job command queues' queued create (`0x5fb340` → `0x5fb3d0`),
+  which createPide (`0x1b1920`, `call` at `0x1b1e9d`) uses for every new item entity, takes its id at queue time with
+  `lock xadd` through the queue's pointer `+0x38` (`0x5fb49e`); the storage's setup stores `&storage[0x498]` into every
+  queue's `+0x38` (`0x62d556`, `0x62d5a2`). The record loader (`0x7abd60`) creates item entities through `0x620ce0`,
+  createEntity with the read-only id `0` at `0x1301130`. sigdb captures `0x498` from both places and refuses to start the
+  feature unless they agree (`items/storage.next_id`, 2 votes; `items/queue.next_id`, 2 votes).
+- **The counter only grows in a running world.** Its only writers in the ECS code are the storage constructors
+  (`0x5f6ce8`: `:= 1023`) and `deserializeEntityGrid` (`0x613f8c`: `:= 1023`, or the value of the snapshot it loads at a
+  world's set-up). Nothing that destroys an entity touches it (`destroyEntity` `0x63e8a0` removes the record only).
+- **Explicit ids** come only from player slots (`0x628e20`: id = slot + 1, players 1..1023), the network's create message
+  on a client (`0x677ba8`), the queued creates' own pre-taken ids (`0x6bf473`), and an engine sub-range with bit 31 set
+  (`0x66e94e`). kiln.items never stamps an id below 1024 or with bit 31 set.
+
+So within one world an id never names a second entity. The stamp table is keyed by id, forgotten when a server world
+closes or starts, and also forgotten if the counter (read every Pre) is ever seen to go down. A take's commit leaves a
+tombstone: the id reads as gone from then on, in the same step and the next. An id whose `ItemState` names another item
+than its entry is treated as another item entity (a new stamp). The case nothing in kiln.items could see by itself (the
+game frees an id and gives it to another item entity of the same item in the same world, with no signal) is the one the
+counter rules out; the host test shows what the table would do then. Lab evidence: "Lab results: item instances" below.
+
+### Reads
+`read_instances` reads N item entities in one call (tick thread, Pre or Post): found or not, stamp, item id, holder
+(the entity whose `InventorySetup` links the inventory), slot, link, flat slot, count, and the fields the game's record
+builder (`0x72a9b0`) writes into the item's save record, read the same way: level (the `Level` attribute; the record keeps
+its low byte), durability current and max, fuel current and max (through the attribute registry, the block must have
+values and the attribute's group), dye (`ColorPaletteItem`), perks available and unlocked (`PerkContainerNew`, else the
+older `PerkContainer`, counted up to its first empty perk), gem item and level (`WeaponGemSlot`; the level is the gem's
+own item entity's `Level`). `KILN_ITEMS_READ_LOCATION` skips the record fields. `read_holder` reads every item entity of
+one holder in flat-slot order. `instances_status` counts stamps, resets and mismatches and shows the id counter.
+
+### Flat slots
+The world and character savers (`0x72a520`, `0x72c6eb`) walk the 16 links of a holder's `InventorySetup`, save only
+**Generic** (4) links, and number their slots `(Generic links before this one) x 8 + index`: a chest of three Generic
+links has slots 0-23, link 1 index 5 is slot 13. That is `ItemLocation.FlatSlot` 0-255 (`IsSavedSlot`). A slot in a link
+the savers do not number this way (equipment, currency, customization, a Virtual link's nested inventories) gets
+`256 + (its inventory's position in the link tree) x 8 + index`: unique in the holder, stable while the links are, but not
+a number the game saves.
+
+### Following items: what the hooks see, and what only the per-step read sees
+Kiln follows the items Kiln.Saves gives data (and `Items.LabFollow` in labs); nothing is read per step while nothing is
+followed. In order:
+1. Kiln's own `Items.Move` (a stack) names the item entity in its result: cause `Transaction`. A take that destroys a
+   followed item reports it gone at once.
+2. A transfer report (the game's quick stack or move all, also `Items.QuickStack` / `Items.MoveAll`) makes the tracker
+   read again at once the followed items whose holder is the report's from or to: cause `Transfer`. A followed item makes
+   the tracker register one report listener, which installs kiln.items' two transfer hooks (never removed; chained).
+3. One batched location read of every followed item per step catches the rest: cause `Observed`, reported when two reads
+   in a row agree (one step later than the move), so a hooked report of the same move wins.
+
+A followed item that is gone (not found, or the id holds another item entity) is reported once with its last known
+location and is no longer followed.
+
+Moves only the per-step read sees (they reach the inventories through the game's slot transfer `0x1b4550`, take/put
+`0x1b9620` / `0x1b7100`, or its equip path, none of which kiln.items hooks; docs/re/items.md section 13 and the item
+lifecycle notes):
+- a player's single drag and drop, swap, split (half, one, a custom amount) between any two slots: the client's
+  `inventoryTransferAction` without the RefillStacks / MoveAllStacks flags (`0x19f077`);
+- a move between backpack and action bar (the ToActionbar / ToBackpack flags, `0x19f15c`);
+- equip and unequip, and swapping the equipment set (`equipment_actions` `0x1472c0` → equipItem `0x1b4e70` → moveStack;
+  `swap_equipment_set_actions` `0x147ee0`), except the move all equipItem runs itself (`0x1b5457`, `0x1b548a`), which the
+  hook reports;
+- a gift to another player (the Gifting flag; the same slot transfer);
+- death: the items that go to the tombstone (`player_items_loot` `0x1aa7a0`, take and put per slot);
+- the slot transfer the actor interaction code calls (`0x7ca86`);
+- another loader's or plugin's own transaction (EMF's moveStack, shroudlink's `move_stack` outside quick stack).
+Not moves: trash, destroy, crafting use, a player leaving (the item entity is destroyed: gone), a pickup, a join and a
+world load (new item entities).
+
+### Lab test
+`mods/tests/instances-test/` (PASS / FAIL lines, "instances-test done: N PASS, M FAIL"): deploy it into a lab with a
+copied world and no player, start, read kiln.log. Check 5 needs a restart: the first boot leaves
+`kiln/data/instances-test/boot1.done` and waits for an autosave; stop and start the lab; the second boot compares.
+`KILN_LAB_NO_ENTITY_SOURCES=1` starts the server without the entity sources (to see the identity checks fail).
+
 ## C (native plugins and services)
 ```c
 const KilnItemsApi* it = api->service((KilnStr){"kiln.items", 10}, 1);   /* in on_ready */
@@ -159,7 +275,11 @@ it->give(owner, &r, on_done, user, &ticket);       /* on_done(const KilnItemsRes
 `find_item` / `item_id_of_guid`, `status`. v2 (check `header.size`): `fuel` (a `KilnItemsFuelRequest`: `SET`, `FILL` or
 `ADD`, `INVENTORIES`, `DRY_RUN`, `limit`; the callback gets a `KilnItemsFuelResult`), `fuel_read` (tick thread),
 `fuel_keep` (a refill policy: `FILL`, or `ADD` with `units` per second; an optional callback with what it refilled, once
-per Pre) / `fuel_keep_end`. Details and every field: the header.
+per Pre) / `fuel_keep_end`. v4 (header size >= `sizeof(KilnItemsApi)` of v4; feature `items.instances`):
+`read_instances(items, count, item_size, flags)` and `read_holder(holder, out, capacity, item_size, &count, &initialized)`
+fill `KilnItemsInstance` records (stamp, item, holder, slot, link, flat slot, count, the save record's fields; tick thread),
+`instances_status` (any thread); the stamps are in the `reserved` fields of `KilnItemsSlot`, `KilnItemsChange` and
+`KilnItemsMoveChange` (0 from an older service). Details and every field: the header.
 
 ## How it runs
 - A system ECS program `kiln_items` (other-write Inventory, InventorySetup, InventoryEmptyState, ItemState,
@@ -213,6 +333,31 @@ PASS the control can lost the raw write, as the game's save skips untracked writ
 ```
 A container created in the same session is saved whole at the next save, raw writes included; the control proves the
 difference only on a container a save already wrote, so the test writes in boot 2 and reads in boot 3.
+
+## Lab results: item instances (lab `dev25-instances`, a copy of a real world, no player; server 26430253)
+`mods/tests/instances-test`, two full runs (94 PASS, 0 FAIL in the second), check 5 across a restart (10 PASS, 0 FAIL).
+- **Ids are never handed out twice.** 43 new entities in one run (30 creatures destroyed and spawned again in the same
+  tick callback, tracked and untracked, plus item entities given, taken, and a take and a give in one step):
+  "entity ids handed out again: 0 of 43 new entities". Every old ref was not alive at once and `EntityRef.Of(old id)` was
+  none; the stamps of the new ones differed. The SpawnTime of a respawn in the same callback was never the old one's
+  (the old one was spawned a step earlier).
+- **A tracked spawn with a SpawnTime** reports the SpawnTime as its stamp, not its tracker serial: "tracked True,
+  record serial 1, SpawnTime 24383333823", stamp unchanged over 30 steps.
+- **One item, one ref:** the read's `Ref`, the give's and the move's are equal; `Location()` follows the move; a plain
+  stack has none; after the take the ref is not alive and has no location.
+- **Following:** `Items.Move` → `Transaction` (step 650), `Items.MoveAll` → `Transfer` (the next step), a move kept
+  from the tracker → `Observed` (step 661, after the per-step read had seen it twice; the steps since 651 include the
+  moves that put the move all back), the take → gone once with its last location; 3 events for 3 moves.
+- **Flat slots across a restart:** three swords given into link 1 of three stations (flat slots 8, 8, 9); after a stop
+  and a start the holders came back as other entities (1153 → 1156, 1150 → 1152), found by template and position, and
+  each sword was at the same flat slot, as a new item entity in a new inventory entity. The world save written before the
+  restart holds the swords' records with slot bytes 8, 8 and 9 (`entity_chunk00`), the numbers kiln.items reported.
+- **What the per-step read costs** (lab at nice 19 on a busy PC, location reads of all followed items, average of 64
+  steps): 10 items 9.0 to 9.8 µs, 100 items 42.7 to 90.2 µs, 1000 items 4,604 µs. Nothing is read while nothing is
+  followed.
+- **Census** (ids 1 to 2681 after a start): 67 item stamps, 1,219 SpawnTime serials, 232 entities without a serial (save
+  props and scatter, the linked inventory entities, stations, NPCs), 1,163 ids absent.
+- With `KILN_LAB_NO_ENTITY_SOURCES=1` check 1 and check 2 fail ("no service supplies entity serials in this process").
 
 ## In a game client (hosted worlds)
 - The own-registration fallback (RegisterAllPrograms hook) skips worlds whose kind is not 0 (a client's client and
