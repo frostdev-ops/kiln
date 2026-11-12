@@ -556,33 +556,23 @@ R_NEXUS_SUMS=$(cd "$out/nexus" && for f in linux/* windows/*; do [[ -f $f ]] && 
 fill "$here/templates/README-nexus.txt" "$out/nexus/README.txt"
 unset R_NEXUS_SUMS
 fill "$here/templates/README.txt" "$out/README.txt.tmp"
-# the file list: what GitHub and frostdev.io get (nexus/ is only for Nexus Mods and has its own README)
+# the file list: the downloads, not nexus/ (its own README) or sdk/api/ and sdk/feed/ (built, not published by default)
 python3 - "$out" <<'PY'
 import os, sys
 root = sys.argv[1]
-# folders of many files (the API reference, the NuGet feed): one row each, with the count and the total size
-FOLDERS = ("sdk/api", "sdk/feed")
 def row(rel, s):
     return f"  {rel:<64} {s / 1048576:8.1f} MB" if s >= 1048576 else f"  {rel:<64} {s / 1024:8.1f} KB"
-rows, folded = [], {}
+rows = []
 for d, dirs, files in os.walk(root):
     dirs.sort()
     reld = os.path.relpath(d, root).replace(os.sep, "/")
-    top = next((f for f in FOLDERS if reld == f or reld.startswith(f + "/")), None)
-    if top:
-        if top not in folded:
-            folded[top] = [0, 0, len(rows)]
-            rows.append("")
-        folded[top][0] += len(files)
-        folded[top][1] += sum(os.path.getsize(os.path.join(d, n)) for n in files)
-        continue
+    if reld == "sdk":
+        dirs[:] = [n for n in dirs if n not in ("api", "feed")]
     for n in sorted(files):
         rel = os.path.relpath(os.path.join(d, n), root)
         if rel in ("README.txt.tmp", "SHA256SUMS") or rel.startswith("nexus" + os.sep):
             continue
         rows.append(row(rel, os.path.getsize(os.path.join(d, n))))
-for top, (count, size, i) in folded.items():
-    rows[i] = row(f"{top}/ ({count} files)", size)
 rows.append(f"  {'README.txt':<64}")
 rows.append(f"  {'SHA256SUMS':<64}")
 t = open(os.path.join(root, "README.txt.tmp"), encoding="utf-8").read().replace("@FILES@", "\n".join(rows))
@@ -630,7 +620,7 @@ fi
 
 step "done"
 du -sh "$out" | tee -a "$log"
-# sdk/api/ and sdk/feed/ (many files each) as one row each, like README.txt's list
+# sdk/api/ and sdk/feed/ (many files each) as one row each in this local build listing only
 (cd "$out" && find . -type f -not -path './sdk/api/*' -not -path './sdk/feed/*' | sort | while read -r f; do printf '%10s  %s\n' "$(du -h "$f" | cut -f1)" "${f#./}"; done
   for d in sdk/api sdk/feed; do [[ -d $d ]] && printf '%10s  %s/ (%s files)\n' "$(du -sh "$d" | cut -f1)" "$d" "$(find "$d" -type f | wc -l)"; done; true) | tee -a "$log"
 cat <<EOF | tee -a "$log"
