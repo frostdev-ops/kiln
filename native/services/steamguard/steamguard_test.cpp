@@ -96,7 +96,7 @@ int main() {
     uint64_t th = 0;
     check(t_latch(s("latch")) == KILN_OK, "latch");
     check(t_hold(s("hold"), &th) == KILN_OK, "hold on top of the latch");
-    check(t_release(th) == KILN_ERR_NOT_FOUND ? false : true, "release the hold");
+    check(t_release(th) == KILN_OK, "release the hold");
     check(g_holds.load() == 0 && guard_active(), "the latch keeps the guard on after every hold is released");
 
     // A target that fails verification: Latch and TryHold return false, nothing is installed.
@@ -125,6 +125,27 @@ int main() {
     check(t_hold(s("x"), &tf) == KILN_ERR_UNAVAILABLE && tf == 0, "hold fails when a foreign hook is over the detour");
     check(g_failed.load() && std::strstr(g_reason, "hooked over"), "the reason names the foreign hook");
     check(!protecting_now(), "not protecting with a foreign hook over the detour");
+
+    // After the install, kiln.hooks stops reporting the link: not protecting, and it stays so (sticky).
+    boot_valid();
+    check(t_latch(s("x")) == KILN_OK && protecting_now(), "latched and protecting before the link goes");
+    g_test_link_present = false;
+    const KilnSteamGuardStatus lost = status();
+    check(!(lost.flags & KILN_STEAMGUARD_HOOK_INSTALLED) && (lost.flags & KILN_STEAMGUARD_FAILED),
+          "a link that disappears after the install: not installed, failed");
+    check(std::strstr(lost.reason, "no longer reports") != nullptr, "the reason names the lost link");
+    g_test_link_present = true;
+    check(!(status().flags & KILN_STEAMGUARD_HOOK_INSTALLED) && !protecting_now(), "the lost-link failure is sticky");
+
+    // After the install, another module hooks the target: not protecting, with the reason, for good.
+    boot_valid();
+    check(t_latch(s("x")) == KILN_OK && protecting_now(), "latched and protecting before the foreign hook");
+    g_test_foreign_over = true;
+    const KilnSteamGuardStatus over = status();
+    check(!(over.flags & KILN_STEAMGUARD_HOOK_INSTALLED) && std::strstr(over.reason, "after the guard went in") != nullptr,
+          "a foreign hook after the install: not installed, with the reason");
+    g_test_foreign_over = false;
+    check(!protecting_now(), "the foreign-hook failure is sticky");
 
     // A status struct with a smaller size is filled only that far.
     boot_valid();

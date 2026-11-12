@@ -44,11 +44,10 @@ static_assert(sizeof(KilnSteamGuardApi) == sizeof(KilnServiceHeader) + 4 * sizeo
 
 namespace {
 
-// The value ReportAchievements returns on its normal path when the batch produced no newly-unlocked achievement (the
-// accumulator byte it finally moves into al is 0 then): "ran, nothing to report". Returning it drops the write without
-// the game logging a failure or taking its provider-not-ready retry path (which returns 0x18). What only a real client
-// can confirm is that the game then drops the queued operation instead of re-submitting it; see the README and the
-// first-run watch.
+// What a dropped call returns: 0, the function's own result when every operation went through (its result byte is
+// the first error code, 0 when none). The game's null provider answers the same slot with 0 too. The caller stores the
+// byte with the operation and the client's poll frees the operation without reading it, so no value makes the game
+// retry; 0 also keeps the game off its error paths. Evidence: README.md, "What a dropped call returns".
 constexpr uint64_t kDropReturn = 0;
 
 // steamguard/ReportAchievements entry bytes, as the sigdb pattern names them (frame displacements wildcarded). The
@@ -193,11 +192,22 @@ bool target_verified_now() {
     return second_sign_ok(g_sign);
 }
 
-// True when the guard's hook is in and no foreign hook sits over it.
+// True when the guard's hook is in, kiln.hooks reports its link on the target, and no foreign hook is there. Called
+// under g_mu. A link that disappears or a foreign hook that appears after the install fails the guard for good.
 bool hook_installed_now() {
     if (!g_installed.load(std::memory_order_acquire) || g_failed.load(std::memory_order_acquire)) return false;
-    if (!bk_link_present(g_target)) return false;
-    if (bk_foreign_over(g_target)) return false;
+    if (bk_foreign_over(g_target)) {
+        set_reason("another module hooked the achievement report after the guard went in: not protecting");
+        g_failed.store(true, std::memory_order_release);
+        logf(KILN_LOG_WARN, "%s", g_reason);
+        return false;
+    }
+    if (!bk_link_present(g_target)) {
+        set_reason("kiln.hooks no longer reports the guard's link on the target: not protecting");
+        g_failed.store(true, std::memory_order_release);
+        logf(KILN_LOG_WARN, "%s", g_reason);
+        return false;
+    }
     return true;
 }
 
@@ -336,45 +346,93 @@ bool bk_read(uintptr_t addr, void* dst, size_t n) {
     return g_hooks && g_hooks->read(addr, dst, n) == KILN_OK;
 }
 
+constexpr char kLinkLabel[] = "steamguard/ReportAchievements";
+constexpr size_t kJumpBytes = 16;     // covers safetyhook's 5-byte rel32 jmp and its 14-byte absolute form
+uint8_t g_after_install[kJumpBytes];  // the target's bytes right after our detour went in (Kiln's own jump)
+
 bool bk_install(uintptr_t target) {
     if (!g_hooks) return false;
-    if (!g_hook.install(g_api, g_owner, target, reinterpret_cast<void*>(&hk_report), "steamguard/ReportAchievements")) {
+    if (!g_hook.install(g_api, g_owner, target, reinterpret_cast<void*>(&hk_report), kLinkLabel)) {
         logf(KILN_LOG_WARN, "%s", g_hook.error() ? g_hook.error() : "install failed");
         return false;
     }
-    logf(KILN_LOG_INFO, "detour on steamguard/ReportAchievements at 0x%llx", static_cast<unsigned long long>(target));
+    if (!bk_read(target, g_after_install, sizeof g_after_install)) {
+        logf(KILN_LOG_WARN, "the target could not be read after the install");
+        return false;
+    }
+    logf(KILN_LOG_INFO, "detour on %s at 0x%llx", kLinkLabel, static_cast<unsigned long long>(target));
     return true;
 }
 
-bool bk_link_present(uintptr_t) {
-    // We never revoke, so our link stays until the process ends. operator bool() is the registry's view of the live link.
-    return static_cast<bool>(g_hook);
-}
+// What kiln.hooks' map says about the target. Every read failure is "not confirmed": fail closed.
+struct MapVerdict {
+    bool read = false;     // the map was read and parsed, and has the target
+    bool link = false;     // a live link with our label is on the target
+    bool foreign = false;  // foreignBefore or foreignOver is set
+};
 
-// Asks the hook map whether a foreign hook sits over our detour on the target. Cold path (status), not the detour.
-bool bk_foreign_over(uintptr_t target) {
-    if (!g_hooks || !g_hooks->map_json) return false;
+// The map is rebuilt on each map_json call, so it is read at most every 500 ms (status reads may come every frame
+// from a HUD). Only a positive verdict is reused; a negative one makes the guard fail for good (sticky).
+MapVerdict map_verdict(uintptr_t target) {
+    static std::mutex mu;
+    static MapVerdict cached;
+    static ULONGLONG cached_at = 0;
+    std::lock_guard lk(mu);
+    const ULONGLONG now = GetTickCount64();
+    if (cached.read && cached.link && !cached.foreign && now - cached_at < 500) return cached;
+    MapVerdict v;
+    if (!g_hooks || !g_hooks->map_json || !g_hooks->image_base) return v;
     size_t len = 0;
-    if (g_hooks->map_json(nullptr, 0, &len) != KILN_ERR_BUFFER_TOO_SMALL && len == 0) return false;
+    g_hooks->map_json(nullptr, 0, &len);
+    if (len == 0) return v;
     std::string text(len + 1, '\0');
     size_t got = 0;
-    if (g_hooks->map_json(text.data(), text.size(), &got) != KILN_OK) return false;
+    if (g_hooks->map_json(text.data(), text.size(), &got) != KILN_OK) return v;
     text.resize(got);
+    const uintptr_t base = g_hooks->image_base();
+    if (base == 0 || target < base) return v;
+    char want[24];
+    std::snprintf(want, sizeof want, "0x%llx", static_cast<unsigned long long>(target - base));
     try {
         const auto doc = nlohmann::json::parse(text, nullptr, false);
-        if (!doc.is_object()) return false;
-        const uintptr_t base = g_hooks->image_base ? g_hooks->image_base() : 0;
-        const uint64_t rva = base && target >= base ? static_cast<uint64_t>(target - base) : 0;
-        char want[24];
-        std::snprintf(want, sizeof want, "0x%llx", static_cast<unsigned long long>(rva));
-        for (const auto& t : doc.value("targets", nlohmann::json::array())) {
-            if (t.value("rva", std::string()) == want)
-                return !t.value("foreignOver", nlohmann::json()).is_null();
+        if (!doc.is_object() || !doc.contains("targets") || !doc["targets"].is_array()) return v;
+        for (const auto& t : doc["targets"]) {
+            if (!t.is_object() || t.value("rva", std::string()) != want) continue;
+            v.read = true;
+            if (t.contains("links") && t["links"].is_array())
+                for (const auto& l : t["links"])
+                    if (l.is_object() && l.value("label", std::string()) == kLinkLabel) v.link = true;
+            const bool before = t.contains("foreignBefore") && !t["foreignBefore"].is_null();
+            const bool over = t.contains("foreignOver") && !t["foreignOver"].is_null();
+            v.foreign = before || over;
+            break;
         }
     } catch (...) {
-        return false;  // a map we cannot read is not evidence of a foreign hook; link_present and verify still gate us
+        return MapVerdict{};
     }
-    return false;
+    cached = v;
+    cached_at = now;
+    return v;
+}
+
+// kiln.hooks reports our link on the target, and the target still begins with the jump our install left there.
+bool bk_link_present(uintptr_t target) {
+    if (!g_hook) return false;
+    uint8_t live[kJumpBytes];
+    if (!bk_read(target, live, sizeof live) || std::memcmp(live, g_after_install, sizeof live) != 0) return false;
+    const MapVerdict v = map_verdict(target);
+    return v.read && v.link;
+}
+
+// Another module's hook on the target: the map reports one (before or over Kiln's detour), or someone rewrote the
+// jump our install left (seen at once, before the core's own check catches up).
+bool bk_foreign_over(uintptr_t target) {
+    uint8_t live[kJumpBytes];
+    if (g_installed.load(std::memory_order_acquire) &&
+        (!bk_read(target, live, sizeof live) || std::memcmp(live, g_after_install, sizeof live) != 0))
+        return true;
+    const MapVerdict v = map_verdict(target);
+    return v.read && v.foreign;
 }
 
 uint64_t bk_call_original(void* a, void* b, void* c, void* d) {
