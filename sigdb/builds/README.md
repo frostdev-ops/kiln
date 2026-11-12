@@ -89,4 +89,36 @@ under the file that declares it. Corner cases:
 ## Keeping a record current
 ```sh
 python3 tools/sigport/build_record.py <side> <exe> --steam-build N [--svn N]   # a new record, every name static
+python3 tools/sigport/build_record.py <side> <exe> --refresh                    # after any sigdb change
+python3 tools/sigport/build_record.py check [server] [client]                   # every declared name listed?
 ```
+
+- **`--refresh`** updates the existing record of the exe: new names enter at `static` (or `unresolved`), names sigdb
+  no longer declares are dropped (both are printed), the format-1 maps and `declared` are written again. `verified`,
+  `note`, and every service's `level`, `date` and `evidence` stay as they are, and no name changes level. Run twice on
+  an unchanged tree, it leaves the file byte for byte the same. One exception is refused rather than hidden: a name at
+  `lab` or `seen` whose value, resolve or declaring file changed. The refresh then writes nothing and lists those
+  names. Run the lab boot of their service again, or pass `--demote-changed` to put them back to `static`.
+  `--note TEXT` with `--refresh` replaces the note; `verified` is set only when a record is first written.
+- **`check`** needs no exe: it compares names. For each side, the record of the newest build (highest `steam_build`)
+  must be format 2 and list every declared name exactly once, under the file that declares it, with a valid level
+  (an `unresolved` name with its reason). It names every missing, extra or misplaced name and exits 1. Older records
+  are reported as superseded and not checked. `tools/sigport/tests/test_build_record.py` runs it on the repository,
+  so a sigdb name added without a refresh fails the tests.
+
+### How a level moves from `static` to `lab`
+A lab boot (policy `any`, the service's test mods deployed) is turned into a result file, and the result file into
+levels; nobody types a level:
+```sh
+python3 tools/sigport/build_record.py collect <server dir> --boot <name> --lab <lab> \
+    --service players=players-test --service progression=progression-test -o result.json   # after the server stopped
+python3 tools/sigport/build_record.py apply result.json [more results...]
+```
+`collect` reads the stopped server's `kiln/logs/kiln.log` (did each service load, the summary line of each test mod),
+`kiln/logs/tests/<mod>.json` where a mod uses Kiln.Testing, and `kiln/logs/sigdb-report.json` (what the running core
+resolved, name by name). `apply` raises a service and its resolved names to `lab` only when every result that names
+the service shows it loaded, each listed test mod printed its summary with no failure, and the core resolved every one
+of the service's names to the same value as the offline resolve. Otherwise it changes nothing for that service and
+prints why. A service tested over several boots (saves, build, placeholders) is applied with all its results at once.
+`carry` makes a result file from an earlier record of the same exe (its format-1 maps, for example from git history),
+for levels a boot proved before this format existed: only names that still resolve to the recorded value are raised.
