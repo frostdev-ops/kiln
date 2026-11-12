@@ -412,6 +412,8 @@ namespace {
 constexpr DWORD kUnloadHandlerMs = 3000;  // kiln-shroudtopia's own handler waits up to 1 s for its worker
 constexpr DWORD kUnloadTotalMs = 10000;
 constexpr DWORD kUnloadLogWaitMs = 500;   // for the log thread to write the last line (it has no flush)
+constexpr DWORD kUnloadFlushMs = 2000;   // includes the last file write, even if the file system stalls
+constexpr DWORD kUnloadMarginMs = 1000;
 
 enum : LONG { kJobIdle, kJobRunning, kJobReturned, kJobFaulted, kJobExited };
 
@@ -430,6 +432,7 @@ UnloadJob* g_unload_jobs = nullptr;  // reverse load order
 size_t g_unload_count = 0;
 DWORD g_unload_handler_ms = kUnloadHandlerMs, g_unload_total_ms = kUnloadTotalMs;
 std::atomic<int> g_unload_state{0};  // 0 not run, 1 running, 2 over
+std::atomic<double> g_unload_started_ms{-1};  // published before state 1, shared by all exit callers
 HANDLE g_unload_over = nullptr;      // manual-reset, set when the sequence is over
 
 // KILN_UNLOAD_HANDLER_MS / KILN_UNLOAD_TOTAL_MS: shorter limits (for tests); a value above the default is ignored.
@@ -476,6 +479,19 @@ bool holds_loader_lock() {
     const auto* peb = reinterpret_cast<const uint8_t*>(__readgsqword(0x60));
     const auto* cs = *reinterpret_cast<RTL_CRITICAL_SECTION* const*>(peb + 0x110);
     return cs && reinterpret_cast<uintptr_t>(cs->OwningThread) == GetCurrentThreadId();
+}
+
+DWORD WINAPI unload_flush_thread(void*) { return caps::flush() ? 0 : 1; }
+
+// flush() bounds lock acquisition, but the file write itself can stall. Keep it off the exiting thread and include
+// its whole wait in the sequence's bound. A worker still writing is left to the OS when the process ends.
+bool unload_flush() {
+    HANDLE th = CreateThread(nullptr, 0, &unload_flush_thread, nullptr, 0, nullptr);
+    if (!th) return false;
+    DWORD code = 1;
+    const bool ok = WaitForSingleObject(th, kUnloadFlushMs) == WAIT_OBJECT_0 && GetExitCodeThread(th, &code) && code == 0;
+    CloseHandle(th);
+    return ok;
 }
 
 bool kiln_log_has(std::string_view needle) {
@@ -539,10 +555,18 @@ size_t unload_prepare() {
 DWORD unload_handler_ms() { return g_unload_handler_ms; }
 DWORD unload_total_ms() { return g_unload_total_ms; }
 
+// boot.cpp's catch: a fault in the sequence itself must also release every other exit caller.
+void unload_abandon() noexcept {
+    int running = 1;
+    if (g_unload_state.compare_exchange_strong(running, 2)) SetEvent(g_unload_over);
+}
+
 // The trigger: the process is exiting with `exit_code` (through `via`). Returns when the caller may go on into the
 // real exit.
 void unload_run(uint32_t exit_code, const char* via) {
     if (!g_unload_count) return;
+    double unstarted = -1;
+    g_unload_started_ms.compare_exchange_strong(unstarted, now_ms());
     int was = 0;
     if (!g_unload_state.compare_exchange_strong(was, 1)) {
         // Once per process. A handler that ends the process from its on_unload is done (the sequence goes on); any
@@ -555,7 +579,11 @@ void unload_run(uint32_t exit_code, const char* via) {
                 break;
             }
         }
-        if (was == 1) WaitForSingleObject(g_unload_over, g_unload_total_ms + kUnloadLogWaitMs + 1000);
+        if (was == 1) {
+            const double bound = g_unload_total_ms + kUnloadFlushMs + kUnloadLogWaitMs + kUnloadMarginMs;
+            const double left = bound - (now_ms() - g_unload_started_ms.load());
+            WaitForSingleObject(g_unload_over, static_cast<DWORD>(std::max(0.0, left)));
+        }
         return;
     }
     char line[256];
@@ -576,7 +604,7 @@ void unload_run(uint32_t exit_code, const char* via) {
         unload_finish(KILN_LOG_WARN, line);
         return;
     }
-    const double t0 = now_ms();
+    const double t0 = g_unload_started_ms.load();
     KLOG_I("unload: the process is exiting (%s, exit code 0, thread %lu): %zu on_unload handler(s), last loaded first, "
            "each on its own thread, up to %lu ms each and %lu ms in all",
            via, GetCurrentThreadId(), g_unload_count, g_unload_handler_ms, g_unload_total_ms);
@@ -626,8 +654,8 @@ void unload_run(uint32_t exit_code, const char* via) {
         calls += part;
     }
     // The handlers may have reported rows (kiln.caps): capabilities.json is written a last time when something is
-    // dirty. Bounded on its own (about 2 s when the writer thread or the registry is stuck), outside the handlers' limits.
-    if (!caps::flush()) KLOG_W("unload: capabilities.json could not be written a last time");
+    // dirty. Its worker's whole wait is bounded at 2 s, outside the handlers' limits.
+    if (!unload_flush()) KLOG_W("unload: capabilities.json could not be written a last time");
     std::snprintf(line, sizeof line,
                   "unload: done in %.0f ms (%u faulted, %u given up, %u not called); the process exits", now_ms() - t0,
                   faulted, given_up, skipped);

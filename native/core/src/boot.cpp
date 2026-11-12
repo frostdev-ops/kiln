@@ -48,6 +48,7 @@ size_t unload_prepare();
 DWORD unload_handler_ms();
 DWORD unload_total_ms();
 void unload_run(uint32_t exit_code, const char* via);
+void unload_abandon() noexcept;
 
 namespace {
 
@@ -283,6 +284,7 @@ void exit_call(uint32_t code) {
     try {
         unload_run(code, g_exit_via);
     } catch (...) {  // /EHa: a fault of the sequence itself must not keep the process from exiting
+        unload_abandon();
     }
     reinterpret_cast<void (*)(uint32_t)>(g_exit_next)(code);
 }
