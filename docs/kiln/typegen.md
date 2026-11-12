@@ -728,10 +728,13 @@ element type, is refused before load (§3.7). Not covered, and not checked befor
 - The base of the attribute components (`keen::ecs::AttributeComponent`) is reflected on this build and flattened like
   any base. What the slots of an attribute's `dataStorage` mean is not in the reflection: `Values` (§4.4) has no slot
   names.
-- The typed reads (§4) are proven offline only (the check against a fake live table, the calls without a game). That
-  they read the right bytes on live entities is the lab check's job.
+- The typed reads (§4) were checked on live entities in a lab on the server build (§5): the 118 components that
+  had live entities in the lab save, of 687. The other components, the 37 raw-buffer fields and the client exe's
+  memory were not read in a game; the guided client check `typegen.typed-reads` is the check for the client and
+  has not been run.
 - Without the game's type table, a `Kiln.Game.dll` reads nothing on an exe it was not generated for; the first check
-  hashes the running exe once (a few hundred megabytes on a client).
+  hashes the running exe once (the exe file, tens of megabytes; the first typed call waits for the hash; the lab
+  run without kiln.types showed it works under Wine).
 - The hand-written part of `Ecs` names every type with `global::`: a generated type such as `Ecs.EntityId` or
   `Ecs.Time` hides a namespace-level type of the same name inside the class. Every member name it declares is in
   `ROOT_RESERVED` (a test checks it).
