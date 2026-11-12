@@ -196,11 +196,15 @@ destroyed before the first run). Keys: a variable alias or debug name of the pro
   the game's applyBuff ... result 1` and `the buff's own program (e34f34e4, 0x97faba7b) started on buff entity 2558
   (root 2543)`; that buff did not heal a Vukah (it probably heals players only: client checklist).
 - `RemoveBuff(target, buffGuid)` and `RemoveBuff(target, buffId)` (dev.27): `Task<BuffRemoveResult>` through the game's
-  own removeBuff native, run by a second Kiln program (`6b696c6e-6275-4666-8000-000000000002`: one step's wait,
-  removeBuff(WasRemoved, Buff, Target), kiln.Signal(WasRemoved, tag), DSELF). The step's wait lets Kiln's listener ask
-  for the signal before removeBuff runs; the answer arrives about two steps after the call. `Ok` is the game's own
-  `wasRemoved`: false, with a reason, when the entity did not have the buff (or, after 120 steps, when the program never
-  answered). On success `BuffRemovedEvent(Target, Buff, Mod)` is posted first. The id overload passes 16 bytes with
+  own removeBuff native, run by a second Kiln program (`6b696c6e-6275-4666-8000-000000000002`:
+  removeBuff(WasRemoved, Buff, Target), Done = 1, then up to 30 steps of waiting, DSELF). Kiln reads `Done` and
+  `WasRemoved` from the live program instance at each step and destroys the helper entity once it has them, so the
+  answer does not ride the native event queue (which drops events when it is full); a helper nobody read ends
+  itself. The answer arrives about two steps after the call. `Ok` is the game's own `wasRemoved`: false, with a
+  reason, when the entity did not have the buff, when the game refused the helper entity, when the helper went away
+  before it was read, when the server world closed meanwhile (the task still completes: a hosted session that ends
+  leaves nothing waiting), or, after 120 steps, when the program never answered. On success
+  `BuffRemovedEvent(Target, Buff, Mod)` is posted first. The id overload passes 16 bytes with
   that id's FNV-1a (the game hashes buff references and reads nothing else), so a `GameBuffs.Ids` constant or a listed
   `EntityBuff.Id` works. The game answers at once, but clears the BuffContainer slot and destroys the buff entity one
   step after the answer: read `BuffsOf` a step later to see it gone. ApplyBuff of a buff the entity already has keeps

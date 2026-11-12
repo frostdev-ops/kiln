@@ -6,37 +6,70 @@ namespace Kiln;
 
 internal static class AbilitiesCaps
 {
-    /// <summary>Managed, static: buffs applied and removed through the game's natives (<see cref="Abilities.ApplyBuff"/>,
+    /// <summary>Managed, session: buffs removed (and applied) through the game's natives (<see cref="Abilities.ApplyBuff"/>,
     /// <see cref="Abilities.RemoveBuff(EntityId, Guid)"/>). Needs kiln.abilities with its natives, programs and instance
-    /// hooks, and kiln.spawn.</summary>
+    /// hooks, and kiln.spawn with spawn components; pending until a server world has set up the game's registries.</summary>
     public const string Buffs = "abilities.buffs";
 
-    /// <summary>Managed, static: an entity's buffs read (<see cref="Abilities.BuffsOf"/>). Needs kiln.players and its
+    /// <summary>Managed, static: an entity's buffs read (<see cref="Abilities.BuffsOf"/>). Needs kiln.playerstate and its
     /// reflection reads (<c>players.reflection</c>).</summary>
     public const string BuffList = "abilities.buff_list";
 
-    private static int _reported;
+    private static int _listReported, _started;
+    private static (CapabilityState State, CapabilityReason Reason, string Text)? _buffs;
+    private static IDisposable? _tick;
 
-    /// <summary>Reports the rows once. Never throws: a refused report is logged.</summary>
+    /// <summary>Reports the rows: buff_list once, buffs now and again on the service tick (about once a second) when it
+    /// changes, because its registries come with the server world (a client hosts after its mods loaded). Never throws.</summary>
     internal static void Ensure()
     {
-        if (Interlocked.Exchange(ref _reported, 1) == 1) return;
+        RefreshBuffs();
+        if (Interlocked.Exchange(ref _started, 1) == 0)
+        {
+            try
+            {
+                _tick = ServiceTick.Add("kiln.abilities capabilities", static (in TickInfo t) =>
+                {
+                    if (t.Step % 25 == 0) RefreshBuffs();
+                });
+            }
+            catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+            {
+                ModLog.Warn($"kiln.abilities: no service tick for {Buffs}: {e.Message}");
+            }
+        }
+        if (Interlocked.Exchange(ref _listReported, 1) == 1) return;
         try
         {
-            var (state, reason, text) = DecideBuffs(Status(), Row("kiln.abilities"), Row("abilities.natives"),
-                Row("abilities.programs"), Row("abilities.instances"), Spawn.Available, Row("kiln.spawn"));
-            Capabilities.Report(Buffs, state, reason, text);
-            (state, reason, text) = DecideList(PlayerStates.Available, Row("kiln.players"), Row("players.reflection"));
+            var (state, reason, text) = DecideList(PlayerStates.Status is { } st ? st.Reflection : null, Row("kiln.playerstate"), Row("players.reflection"));
             Capabilities.Report(BuffList, state, reason, text);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or TypeInitializationException
                                       or FileNotFoundException or FileLoadException)
         {
-            ModLog.Warn($"kiln.abilities: its capability rows were not reported: {e.Message}");
+            ModLog.Warn($"kiln.abilities: {BuffList} was not reported: {e.Message}");
         }
     }
 
-    /// <summary>Throws <see cref="KilnUnavailableException"/> naming <paramref name="name"/> when its row is off.</summary>
+    private static void RefreshBuffs()
+    {
+        try
+        {
+            var now = DecideBuffs(Status(), Row("kiln.abilities"), Row("abilities.natives"), Row("abilities.programs"),
+                Row("abilities.instances"), Spawn.Available, Spawn.Available && Spawn.SupportsComponents, Row("kiln.spawn"));
+            if (_buffs == now) return;
+            _buffs = now;
+            Capabilities.Report(Buffs, now.State, now.Reason, now.Text);
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or TypeInitializationException
+                                      or FileNotFoundException or FileLoadException)
+        {
+            ModLog.Warn($"kiln.abilities: {Buffs} was not reported: {e.Message}");
+        }
+    }
+
+    /// <summary>Throws <see cref="KilnUnavailableException"/> naming <paramref name="name"/> when its row is not available
+    /// now (unavailable, or pending: no server world yet).</summary>
     internal static void Require(string name)
     {
         Ensure();
@@ -56,28 +89,36 @@ internal static class AbilitiesCaps
         return t->GetStatus(&s) == AbilitiesNative.Ok ? (s.Natives != 0, s.Programs != 0, s.Instances != 0) : null;
     }
 
-    /// <summary>The <c>abilities.buffs</c> row from what kiln.abilities resolved (null: no table) and the rows it needs.
-    /// Pure, so every branch is tested without the native table.</summary>
+    internal const string WaitingText = "the game's native and program registries come with a server world (none yet)";
+
+    /// <summary>The <c>abilities.buffs</c> row from what kiln.abilities says now (null: no table), the sigdb rows its
+    /// features come from, and kiln.spawn. kiln.abilities' natives and programs are only "on" once a server world has set
+    /// up the game's registries: with their sigdb features resolved, that is a pending row, not an unavailable one. Pure,
+    /// so every branch is tested without the native table.</summary>
     internal static (CapabilityState State, CapabilityReason Reason, string Text) DecideBuffs(
         (bool Natives, bool Programs, bool Instances)? status, Capability? service, Capability? natives, Capability? programs,
-        Capability? instances, bool spawn, Capability? spawnRow)
+        Capability? instances, bool spawn, bool spawnComponents, Capability? spawnRow)
     {
         if (status is not { } s)
             return Off(service, CapabilityReason.ServiceMissing, "kiln.abilities is not loaded");
-        if (!s.Natives) return Off(natives, CapabilityReason.Faulted, "kiln.abilities has no natives on this build", "abilities.natives");
-        if (!s.Programs) return Off(programs, CapabilityReason.Faulted, "kiln.abilities has no programs on this build", "abilities.programs");
+        foreach (var (row, name) in new[] { (natives, "abilities.natives"), (programs, "abilities.programs"), (instances, "abilities.instances") })
+            if (row is { State: CapabilityState.Unavailable })
+                return Off(row, CapabilityReason.SymbolMissing, "", name);
         if (!s.Instances) return Off(instances, CapabilityReason.Faulted, "kiln.abilities has no instance hooks on this build", "abilities.instances");
         if (!spawn) return Off(spawnRow, CapabilityReason.ServiceMissing, "kiln.spawn is not loaded", "kiln.spawn");
+        if (!spawnComponents)
+            return (CapabilityState.Unavailable, CapabilityReason.ServiceOlder, "kiln.spawn takes no extra components (an older kiln-spawn.dll)");
+        if (!s.Natives || !s.Programs) return (CapabilityState.Pending, CapabilityReason.Session, WaitingText);
         return (CapabilityState.Available, CapabilityReason.None, "");
     }
 
-    /// <summary>The <c>abilities.buff_list</c> row. Pure.</summary>
-    internal static (CapabilityState State, CapabilityReason Reason, string Text) DecideList(bool players, Capability? service,
-        Capability? reflection)
+    /// <summary>The <c>abilities.buff_list</c> row: kiln.playerstate's reflection flag (null: no kiln.playerstate). Pure.</summary>
+    internal static (CapabilityState State, CapabilityReason Reason, string Text) DecideList(bool? reflection, Capability? service,
+        Capability? reflectionRow)
     {
-        if (!players) return Off(service, CapabilityReason.ServiceMissing, "kiln.players is not loaded", "kiln.players");
-        if (reflection is { State: CapabilityState.Unavailable })
-            return Off(reflection, CapabilityReason.SymbolMissing, "", "players.reflection");
+        if (reflection is null) return Off(service, CapabilityReason.ServiceMissing, "kiln.playerstate is not loaded", "kiln.playerstate");
+        if (reflection == false || reflectionRow is { State: CapabilityState.Unavailable })
+            return Off(reflectionRow, CapabilityReason.Faulted, "kiln.playerstate read nothing from the game's reflection", "players.reflection");
         return (CapabilityState.Available, CapabilityReason.None, "");
     }
 

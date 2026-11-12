@@ -58,7 +58,7 @@ internal static unsafe class AbilitiesDispatch
         if (Events.HasSubscribers<ImpactStartingEvent>()) m |= AbilitiesNative.InterestHold;
         if (Events.HasSubscribers<ImpactEndedEvent>()) m |= AbilitiesNative.Bit(AbilitiesNative.EvImpactEnded);
         if (Events.HasSubscribers<ImpactNativeEvent>()) m |= AbilitiesNative.Bit(AbilitiesNative.EvNative);
-        if (Events.HasSubscribers<ImpactSignalEvent>() || Abilities.RemovalsPending) m |= AbilitiesNative.Bit(AbilitiesNative.EvSignal);
+        if (Events.HasSubscribers<ImpactSignalEvent>()) m |= AbilitiesNative.Bit(AbilitiesNative.EvSignal);
         if (!Abilities.Natives.ManagedNatives.IsEmpty) m |= AbilitiesNative.Bit(AbilitiesNative.EvManagedCall);
         return m;
     }
@@ -79,7 +79,6 @@ internal static unsafe class AbilitiesDispatch
         try
         {
             Step++;
-            Abilities.ExpireRemovals(Step);
             Tick?.Invoke(Step);
         }
         catch (Exception e)
@@ -127,8 +126,6 @@ internal static unsafe class AbilitiesDispatch
                     });
                     break;
                 case AbilitiesNative.EvSignal:
-                    // Kiln's remove-buff program answers here; mods never see its signal
-                    if (ev.Tag == Abilities.RemoveSignalTag && Abilities.CompleteRemoval(ev.Self, ev.ValueSize > 0 && ev.Value[0] != 0)) break;
                     if (!Events.HasSubscribers<ImpactSignalEvent>()) break;
                     var val = new byte[Math.Min(ev.ValueSize, 64)];
                     for (var k = 0; k < val.Length; k++) val[k] = ev.Value[k];

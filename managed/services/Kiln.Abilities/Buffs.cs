@@ -54,16 +54,21 @@ public static partial class Abilities
     /// here (a keen::ImpactProgram blob) and registered at first use.</summary>
     internal static readonly Guid BuffProgram = new("6b696c6e-6275-4666-8000-000000000001");
 
-    /// <summary>The program behind <see cref="RemoveBuff(EntityId, Guid)"/>: one step's wait, removeBuff(WasRemoved,
-    /// Buff, Target), kiln.Signal(WasRemoved, <see cref="RemoveSignalTag"/>), DSELF.</summary>
+    /// <summary>The program behind <see cref="RemoveBuff(EntityId, Guid)"/>: removeBuff(WasRemoved, Buff, Target), Done =
+    /// 1, then it waits (<see cref="RemoveWaitSteps"/> steps at most) for Kiln to read its two variables and destroy its
+    /// entity, and destroys itself if nobody came. Kiln polls the instance, so the answer does not depend on the native
+    /// event queue (which drops events when it is full).</summary>
     internal static readonly Guid RemoveBuffProgram = new("6b696c6e-6275-4666-8000-000000000002");
 
-    /// <summary>The tag of the remove program's kiln.Signal: Kiln's listener takes these and posts no
-    /// <see cref="ImpactSignalEvent"/> for them.</summary>
-    internal const uint RemoveSignalTag = 0x6b696c52;
+    /// <summary>The remove program's variables: the buff reference, the target, the game's answer, and the done flag.</summary>
+    internal const uint VarBuff = 0, VarTarget = 1, VarWasRemoved = 2, VarDone = 3;
 
     /// <summary>Steps a removal waits for its program's answer before it gives up (about 5 s on a dedicated server).</summary>
     internal const ulong RemoveTimeoutSteps = 120;
+
+    /// <summary>Steps the remove program keeps its answer readable before it destroys itself. Kiln reads it at the next
+    /// step; the rest is slack, and the end of it keeps an entity from waiting for good when Kiln's managed side is gone.</summary>
+    internal const int RemoveWaitSteps = 30;
 
     internal const string NotRemovedText = "the entity has no such buff (the game's removeBuff removed nothing)";
 
@@ -133,12 +138,19 @@ public static partial class Abilities
         public required TaskCompletionSource<BuffRemoveResult> Done;
     }
 
-    // impact entity -> removal waiting for its program's signal (tick thread only)
+    // impact entity -> removal waiting for its program; polled by a service tick every step, and ended when the server
+    // world closes (ServerStoppingEvent comes on the destroying thread on a client: hence the lock)
     private static readonly Dictionary<uint, Removal> Removals = new();
+    private static int _closeHooked;
     private static readonly Dictionary<uint, Guid> GuidsById = new();
+    private static IDisposable? _removalTick;
+    private static ulong _removalStep;
 
-    /// <summary>True while a removal waits for its program: Kiln's listener then asks the native side for signals.</summary>
-    internal static bool RemovalsPending => Removals.Count > 0;
+    /// <summary>True while a removal waits for its program.</summary>
+    internal static bool RemovalsPending
+    {
+        get { lock (Removals) return Removals.Count > 0; }
+    }
 
     /// <summary>Takes a buff off an entity (a player, a creature, an NPC) through the game's own removeBuff native, the
     /// call the game's programs use: the buff entity goes, and with it the buff's effect and its icon on the clients.
@@ -182,6 +194,7 @@ public static partial class Abilities
     [RequiresCapability(AbilitiesCaps.BuffList)]
     public static IReadOnlyList<EntityBuff> BuffsOf(EntityId entity)
     {
+        Game.AssertTickThread();  // off the thread kiln.players answers "wrong thread", which would read as "no buffs"
         AbilitiesCaps.Require(AbilitiesCaps.BuffList);
         if (entity.IsNone) return [];
         var list = PlayerStates.BuffsOf(entity);  // kiln.players reads any entity's BuffContainer
@@ -196,43 +209,125 @@ public static partial class Abilities
         if (target.IsNone) throw new ArgumentException("no target", nameof(target));
         AbilitiesCaps.Require(AbilitiesCaps.Buffs);
         var at = World.Position(target) ?? throw new ArgumentException($"entity {target} is not in the world (no position)", nameof(target));
-        AbilitiesDispatch.Ensure();
         EnsureRemoveProgram();
-        var e = RunProgram(RemoveBuffProgram, at, new ImpactOptions
+        EntityId e;
+        try
         {
-            Root = target,
-            Configs = new ImpactConfigs { ["Buff"] = buff, ["Target"] = target },
-            Tag = "abilities-unbuff",
-        }).GetAwaiter().GetResult();
+            e = RunProgram(RemoveBuffProgram, at, new ImpactOptions
+            {
+                Root = target,
+                Configs = new ImpactConfigs { ["Buff"] = buff, ["Target"] = target },
+                Tag = "abilities-unbuff",
+            }).GetAwaiter().GetResult();
+        }
+        catch (SpawnException x)
+        {
+            // the game refused the removal's impact entity: a refusal, not a bad argument
+            return Task.FromResult(new BuffRemoveResult(target, id, false, $"the game refused the removal's impact: {x.Message}"));
+        }
         var r = new Removal
         {
-            Impact = e, Target = target, Buff = id, Since = AbilitiesDispatch.Step, Mod = ModContext.CurrentMod,
+            Impact = e, Target = target, Buff = id, Since = _removalStep, Mod = ModContext.CurrentMod,
             Done = new TaskCompletionSource<BuffRemoveResult>(TaskCreationOptions.RunContinuationsAsynchronously),
         };
-        Removals[e.Value] = r;
+        lock (Removals) Removals[e.Value] = r;
+        _removalTick ??= ServiceTick.Add("kiln.abilities removals", static (in TickInfo t) => PollRemovals());
+        HookWorldClose();
         return r.Done.Task;
     }
 
-    /// <summary>The remove program's kiln.Signal arrived (Kiln's listener, tick thread). False: not one of Kiln's.</summary>
-    internal static bool CompleteRemoval(uint impactEntity, bool removed)
+    // Kiln's own subscription (not the calling mod's, which would end with that mod): when the server world closes, no
+    // step polls any more (a client is back in its menu), so the waiting removals end here.
+    private static void HookWorldClose()
     {
-        if (!Removals.Remove(impactEntity, out var r)) return false;
-        Finish(r, removed, removed ? null : NotRemovedText);
-        return true;
+        if (Interlocked.Exchange(ref _closeHooked, 1) == 1) return;
+        var outer = ModContext.CurrentMod;
+        ModContext.CurrentMod = null;
+        try
+        {
+            Events.On<ServerStoppingEvent>(_ => CloseRemovals());
+        }
+        finally
+        {
+            ModContext.CurrentMod = outer;
+        }
     }
 
-    /// <summary>Removals whose program never answered (it was canceled, faulted or its entity went away).</summary>
-    internal static void ExpireRemovals(ulong step)
+    /// <summary>The server world closes: every waiting removal ends, not removed, with that reason.</summary>
+    internal static void CloseRemovals()
     {
-        if (Removals.Count == 0) return;
-        List<Removal>? late = null;
-        foreach (var r in Removals.Values)
-            if (step - r.Since > RemoveTimeoutSteps) (late ??= []).Add(r);
-        if (late is null) return;
-        foreach (var r in late)
+        List<Removal> open;
+        lock (Removals)
         {
-            Removals.Remove(r.Impact.Value);
-            Finish(r, false, $"the removal program did not answer within {RemoveTimeoutSteps} steps (canceled or faulted)");
+            open = Removals.Values.ToList();
+            Removals.Clear();
+        }
+        foreach (var r in open) Finish(r, false, ReasonOf(RemovalState.WorldClosed));
+    }
+
+    /// <summary>What a pending removal's program says now. Pure, for the tests.</summary>
+    internal enum RemovalState { Waiting, Removed, NotRemoved, Gone, WorldClosed, TimedOut }
+
+    /// <summary>The removal's state from what was read this step: a server world running, the impact entity there, its
+    /// done flag and the game's answer (null: not readable yet), and its age in steps.</summary>
+    internal static RemovalState Judge(bool worldRunning, bool impactExists, bool? done, bool wasRemoved, ulong age) =>
+        !worldRunning ? RemovalState.WorldClosed
+        : done == true ? (wasRemoved ? RemovalState.Removed : RemovalState.NotRemoved)
+        : !impactExists ? RemovalState.Gone
+        : age > RemoveTimeoutSteps ? RemovalState.TimedOut
+        : RemovalState.Waiting;
+
+    internal static string? ReasonOf(RemovalState s) => s switch
+    {
+        RemovalState.NotRemoved => NotRemovedText,
+        RemovalState.Gone => "the removal's impact went away before its answer was read (canceled or destroyed)",
+        RemovalState.WorldClosed => "the server world closed before the removal ran",
+        RemovalState.TimedOut => $"the removal program did not answer within {RemoveTimeoutSteps} steps",
+        _ => null,
+    };
+
+    // every step while removals wait: read each program's done flag and answer from its live instance
+    private static unsafe void PollRemovals()
+    {
+        _removalStep++;
+        List<Removal> open;
+        lock (Removals)
+        {
+            if (Removals.Count == 0) return;
+            open = Removals.Values.ToList();
+        }
+        var running = Spawn.WorldRunning;
+        foreach (var r in open)
+        {
+            bool exists = false, removed = false;
+            bool? done = null;
+            if (running && World.Available && World.TryRead<ImpactComponentRaw>(r.Impact, "Impact", out var c))
+            {
+                exists = true;
+                var t = AbilitiesNative.T;
+                byte d = 0, w = 0;
+                uint len;
+                if (t != null && c.ImpactId != 0 && t->InstanceRead(c.ImpactId, VarDone, &d, 1, &len) == AbilitiesNative.Ok)
+                {
+                    // done only counts with the answer beside it: a read that fails is asked again at the next step
+                    if (d == 0) done = false;
+                    else if (t->InstanceRead(c.ImpactId, VarWasRemoved, &w, 1, &len) == AbilitiesNative.Ok)
+                    {
+                        done = true;
+                        removed = w != 0;
+                    }
+                }
+            }
+            var state = Judge(running, exists, done, removed, _removalStep - r.Since);
+            if (state == RemovalState.Waiting) continue;
+            lock (Removals)
+                if (!Removals.Remove(r.Impact.Value)) continue;  // the world closed meanwhile and ended it
+            if (exists)
+            {
+                try { Spawn.Destroy(r.Impact); }
+                catch (Exception x) when (x is InvalidOperationException or NotSupportedException or SpawnException) { }
+            }
+            Finish(r, state == RemovalState.Removed, ReasonOf(state));
         }
     }
 
@@ -265,20 +360,20 @@ public static partial class Abilities
 
     internal static byte[] BuildRemoveProgram()
     {
-        const uint hBuff = 0xFFFF0000, hTarget = 0xFFFF0001, hWas = 0xFFFF0002;
+        const uint hBuff = 0xFFFF0000 | VarBuff, hTarget = 0xFFFF0000 | VarTarget, hWas = 0xFFFF0000 | VarWasRemoved,
+            hDone = 0xFFFF0000 | VarDone;
         uint[] code =
         [
-            28,                                          // RVM: one step, so Kiln's listener asks for the signal below
-            11, hTarget, 11, hBuff, 11, hWas,            // args[2] entity, [1] buffType, [0] wasRemoved (out)
-            19, 0x6b696c02, 0xca687904,                  // ECALL removeBuff
-            27,                                          // POP
-            11, RemoveSignalTag, 11, hWas,               // args[1] tag, [0] value
-            19, 0x6b696c03, 0x38b05baf,                  // ECALL kiln.Signal
-            27, 29, 30,                                  // POP, DSELF, HALT
+            11, hTarget, 11, hBuff, 11, hWas,            // 0: args[2] entity, [1] buffType, [0] wasRemoved (out)
+            19, 0x6b696c02, 0xca687904,                  // 6: ECALL removeBuff
+            27,                                          // 9: POP
+            13, 24, hDone,                               // 10: Done = 1 (ICONST1, GSTORE)
+            .. Enumerable.Repeat(28u, RemoveWaitSteps),  // 13: RVM, one a step: Kiln reads the answer and destroys the entity
+            29, 30,                                      // DSELF, HALT: nobody came
         ];
         // keen types: BuffTypeReference 0x305916d9 (16 B), ecs EntityId 0x737c8f86 (4 B), bool 0xc894953d (1 B)
         (string Name, uint Type, int Size)[] vars = [("Buff::value", 0x305916d9, 16), ("Target::value", 0x737c8f86, 4),
-            ("WasRemoved::value", 0xc894953d, 1)];
+            ("WasRemoved::value", 0xc894953d, 1), ("Done::value", 0xc894953d, 1)];
         return ProgramBlob.Build(RemoveBuffProgram, code, [30], vars);
     }
 

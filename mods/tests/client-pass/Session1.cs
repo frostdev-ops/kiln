@@ -494,7 +494,8 @@ public sealed partial class ClientPassMod
         await c.Ticks(240);
         var r = await Abilities.RemoveBuff(c.Player, hot);
         c.Expect(r.Ok, "RemoveBuff says the game removed it", r.ToString());
-        c.Expect(!Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), "the buff is no longer in the player's buff slots");
+        // the game answers at once and clears the slot a step later
+        await c.Until(() => !Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is no longer in the player's buff slots");
         c.Instruct("Did the buff's icon appear in your HUD, and did it go away when the check took the buff off (about 10 " +
                    "seconds later), with no other buff touched?");
         await c.Verdict();
