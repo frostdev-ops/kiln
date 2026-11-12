@@ -1,0 +1,10 @@
+{
+  "id": "pa-graph-override",
+  "name": "player-anim lab: an assets.json entry that overrides the player's animation graph",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "A fixture of mods/tests/player-anim-test (run.py, scenario graph-override): one assets.json resource entry for the player's animation graph, which kiln.assets has to refuse. Data only. Its file (the game's own graph) is written into the lab's copy at run time, never committed."
+}
