@@ -4,7 +4,7 @@ A `ParticleBlock` already covers bursts, rates, shapes, curves, flipbooks and st
 enough (particles that swirl through noise, orbit a point, follow a path, pulse, react to the wind) you write **hooks** in HLSL: small functions
 that change a particle when it is born, every tick, and before it is drawn. Kiln links them into its own sprite module when the game starts.
 
-**Status (dev.25):** built since 0.2.0-dev.16 and tested on the CPU harness and on an RTX 3080 Ti (hostile hooks included); not yet seen in the game.
+**Status (dev.26):** built since 0.2.0-dev.16 and tested on the CPU harness and on an RTX 3080 Ti (hostile hooks included); not yet seen in the game.
 Research and evidence: `docs/re/shaders.md`.
 
 ## What you write

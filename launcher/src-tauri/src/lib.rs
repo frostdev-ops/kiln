@@ -10,7 +10,7 @@ pub mod commands;
 pub mod deck;
 pub mod distribution;
 pub mod events;
-/// The process's data folder: found once, its lock, and the hold while a move runs (dev.25).
+/// The process's data folder: found once, its lock, and the hold while a move runs (dev.26).
 pub mod folder;
 /// The backend timing harness (ignored tests; tools/launcher/perf.sh).
 #[cfg(test)]

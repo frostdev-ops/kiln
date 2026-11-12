@@ -88,7 +88,7 @@ enum {
     /* neither: either */
 };
 
-/* KILN_ASSET_PUT_PIN (appended in dev.25; an older kiln.assets ignores the bit and puts as usual).
+/* KILN_ASSET_PUT_PIN (appended in dev.26; an older kiln.assets ignores the bit and puts as usual).
  *  Who: native services only, for a resource the process must not see change once a service has built it. Today one
  *   caller uses it: kiln.playeranim, for its merged player graph. Mods never pass it: no managed call passes it and
  *   assets.json has no mode for it. kiln.assets cannot tell callers apart; the first pin of a key holds.

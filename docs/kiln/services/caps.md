@@ -4,7 +4,7 @@ One table of capabilities for the whole process: a name with a state (available,
 a reason text and a source. The core fills it; services, plugins and Kiln's managed layer add rows. Mods read it as
 `Kiln.Capabilities`; the same table is written to `kiln/state/capabilities.json`.
 
-**Status (dev.25):** works on a test server (a dedicated lab server under Wine). Not run in a game client.
+**Status (dev.26):** works on a test server (a dedicated lab server under Wine). Not run in a game client.
 
 | Layer | Where |
 |---|---|
@@ -70,7 +70,7 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
   register at the first service tick. A source can still answer "not yet" for one entity: kiln.spawn's says so while
   the server world is still loading its save, and the call throws `KilnUnavailableException("identity.entities")`.
 
-## Rows added in dev.25
+## Rows added in dev.26
 | Row | Kind | Reported by | What it says |
 |---|---|---|---|
 | `items.fuel` | sigdb feature | core; Kiln.Items lowers it at its start when its table has no water functions or `items.transaction` is off | water in containers (`Items.Fuel`) |

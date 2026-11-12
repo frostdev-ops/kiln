@@ -18,8 +18,8 @@ Back to the tick thread: `Context.Scheduler.Post(action)` or `await Context.Sche
 `Game.IsTickThread` / `Game.AssertTickThread()`. On a client in the main menu there is no world: `Scheduler.Post`
 work waits for the first world step.
 
-## The API contract (dev.25+, in development; not seen by a player)
-dev.25 is not released: these need a dev.25 runtime and MDK. Page: `docs/kiln/modding/contract.md`.
+## The API contract (dev.26+, in development; not seen by a player)
+dev.26 is not released: these need a dev.26 runtime and MDK. Page: `docs/kiln/modding/contract.md`.
 - **One error rule.** The game refused: a result with `Ok = false` and `Reason` (`IKilnResult`). A bad argument:
   `ArgumentException`. A capability that is off: `KilnUnavailableException` (`Capability`, `Reason`; a
   `NotSupportedException`). Few results implement `IKilnResult` yet (`PlayerAnimDefineResult`), and older services still
@@ -44,7 +44,7 @@ dev.25 is not released: these need a dev.25 runtime and MDK. Page: `docs/kiln/mo
 - **Side and thread markers:** `[ServerOnly]`, `[ClientOnly]`, `[AnyThread]`, `[RenderThread]`, `[WorkerThread]`
   beside `[TickThreadOnly]`. Markers only; few members carry them yet.
 - **API version:** `Mods.RuntimeApiVersion` is the running Kiln's mod API. `Mods.ApiVersion` is obsolete: a const,
-  copied into your mod at build time. Release builds carry their full version (`0.2.0-dev.25`).
+  copied into your mod at build time. Release builds carry their full version (`0.2.0-dev.26`).
 - **`[Experimental]` ids:** `KILNX001` lab and test members (hidden; a build error unless the project adds it to
   `NoWarn`), `KILNX002` API not yet proven in a real client. Neither is covered by the additive-API promise.
 
@@ -66,7 +66,7 @@ public sealed class MyMod : Mod
 ```
 - `Context`: `Info` (the whole manifest as `ModInfo`), `Log`, `Tick`, `GameLog`, `Scheduler`, `Messages`,
   `DataDirectory` (`<dataDir>/<id>`: your files).
-- `Game`: `KilnVersion`, `IsTickThread`, `HasFeature(name)`, `AssertTickThread()`. dev.25+: `HasFeature` is
+- `Game`: `KilnVersion`, `IsTickThread`, `HasFeature(name)`, `AssertTickThread()`. dev.26+: `HasFeature` is
   `Capabilities.Is`.
 - The dedicated server steps about 24.5 times a second (~41 ms). 1470 steps ≈ 1 minute.
 
@@ -188,7 +188,7 @@ In a hosted world, `OnLoad` sees empty world data until `WorldLoadedEvent`: read
 move within the session, not a restart. Kiln skips these attachments on save and refuses old positional gear records.
 World entities such as saved chests retain their normal persistence. dev.24 and older supply no persistent per-item data.
 
-**Data on one item (dev.25+, in development; a player's inventory not seen by a player):** Kiln.Saves.
+**Data on one item (dev.26+, in development; a player's inventory not seen by a player):** Kiln.Saves.
 ```csharp
 _kills = InstanceData.Key<Kills>("kills");          // OnLoad; options: new InstanceKeyOptions { Persist = Persist.Session }
 var sword = Items.Held(player);                     // ItemInstanceRef; also Items.Equipped(player, EquipmentSlot.ArmourHead),
@@ -227,7 +227,7 @@ dev.21+: `Overrides.Claim`/`Release`/`RestoreAll` from a thread where no mod's c
 `InvalidOperationException`; post to the tick thread with `Context.Scheduler.Post`. A `ReflectedResources` handle got in
 `OnLoad` stays your claim from any thread. `Assets.Reflect(key)` returns `null` on a build without kiln.types.
 
-## Typed ECS reads (dev.25+, in development; not seen by a player)
+## Typed ECS reads (dev.26+, in development; not seen by a player)
 `<KilnServices>Game</KilnServices>`, then `Kiln.Ecs` (Kiln.Game): a typed struct for every component and event of
 the game, generated per verified build (`Ecs.Health`, `Ecs.LastTransform`, `Ecs.Enemy01_State`, `Ecs.FactionType`).
 ```csharp
@@ -240,7 +240,7 @@ foreach (var e in Ecs.All<Ecs.Health>()) { }                  // also Ecs.Get<T>
 - Each type is checked against the running game at first use. A mismatch reads as nothing (false, null, empty) with
   one warning: never a partial read. Kiln also stamps the mod (`kiln.gametypes.json`) and refuses it by name at load
   when a type it uses changed; an enum constant the compiler folds into a number is not stamped.
-- Reads only: a struct is a copy. Writes stay `World.TryWrite` (raw, not saved) until dev.26.
+- Reads only: a struct is a copy. Writes stay `World.TryWrite` (raw, not saved) until dev.27.
 - `Kiln.GameTypes.Components` and the nine old structs are obsolete (`Use Kiln.Ecs.`) and still work.
 - Server lab: typed reads equal raw bytes for 118 components; the rest and the client side are unproven.
   Page: `docs/kiln/typegen.md` §4.
@@ -250,7 +250,7 @@ foreach (var e in Ecs.All<Ecs.Health>()) { }                  // also Ecs.Get<T>
 `SpeedFactor`, `DamageFactor`, `XpFactor`, `Loot`, `Features`, `Ai.Set(path, v)`, `Reset()`), `Command.Guard /
 Attack / Stay / MoveTo / Heal`. Variants: `CreatureVariants.Register(new CreatureVariant { Id, Base, Level, ... })`,
 `await Creatures.Spawn(variantOrTemplate, pos)`, `CreatureVariants.AddSpawnRule(...)`. Setters are layers of your mod.
-dev.25+: `Arsenals.RulesState` (`ArsenalRulesStatus`) replaces the obsolete `Arsenals.Status` (`RulesStatus`).
+dev.26+: `Arsenals.RulesState` (`ArsenalRulesStatus`) replaces the obsolete `Arsenals.Status` (`RulesStatus`).
 
 ## Abilities
 `Abilities.Register(new AbilityDefinition { Id = "mymod:name", DefaultKey = "G", ChatCommand, Cost, Cooldown,
@@ -259,7 +259,7 @@ CastTime, Targeting, OnCast = async cast => { await cast.Impact(template, pos, c
 `Abilities.HoldPrograms(ids)`), `await Abilities.RunImpact(...)`, `Abilities.PlaySequence(actor, guid)`,
 `await Abilities.ApplyBuff(target, buffGuid, duration, caster)`, `Abilities.Attributes.Get/Add`,
 `Abilities.Natives.Register(name, argc, call => ...)` for Impact programs.
-dev.25+ (not seen by a player): a mod's own **player animation states** come from `assets/player-states.json`
+dev.26+ (not seen by a player): a mod's own **player animation states** come from `assets/player-states.json`
 (`{"format": 1, "states": {"my-slash": {"clip": "my_slash", "like": "Attack_Sword_Shield_01"}}}`), merged into the
 player's graph at boot, never hot-reloaded; the mod needs `"side": "both"`, `"clients": "mod"` and its cook on the server.
 Sequences enter them: a weapon's `Moves` or a cast's `Animation` names them ([blocks.md](blocks.md)). `Kiln.PlayerAnim`'s
@@ -323,14 +323,14 @@ thread. Content changes reach Kiln clients without any code (content sync); conf
 ## Client
 `Client.State` (`Menu`, `DedicatedServer`, `Hosting`, `Remote`), `Client.IsClient`, `IsHosting`, `LocalPlayer`,
 `Client.Tick += (in TickInfo t) => ...`, `Client.Post(action)`, `await Client.NextTick()`.
-dev.25+, experimental (`KILNX002`), never run in a real client: `SteamGuard` (Kiln.Client, client only, any thread) stops
+dev.26+, experimental (`KILNX002`), never run in a real client: `SteamGuard` (Kiln.Client, client only, any thread) stops
 the game client reporting achievements to Steam. `SteamGuard.Hold(reason)` (an `IDisposable`; throws
 `KilnUnavailableException` when it cannot protect), `TryHold(reason, out hold)`, `Latch(reason)` (until the game exits),
 `Status` (`SteamGuardStatus`), `Protecting`. Call `Hold`/`TryHold`/`Latch` on the game's tick thread. Not covered: the game's
 own stat reset, other mods' Steam calls, a player without Kiln.
 
 ## Hooks (advanced tier only) and other DLL mods
-Only when no service does the job, and only with `"advanced": true`. dev.25+: the gate reads the manifest's `advanced`
+Only when no service does the job, and only with `"advanced": true`. dev.26+: the gate reads the manifest's `advanced`
 (`ModInfo.Advanced`) and also covers `OriginalCode.Read`/`FindUnique`/`TryFindUnique`, `Keep.Block`/`Keep.Span`,
 `Arsenals.JobHandler`, `Is.Job`, `Act.Job`, `Abilities.Programs.Register` and `NativeCall.Bytes`: without it they throw
 `InvalidOperationException`. An unloaded mod can no longer install hooks. Since dev.21 every hook Kiln places on the game exe goes
@@ -370,7 +370,7 @@ and your mod. Your hook is a **link** in that function's chain. An address outsi
   working; the handler never runs twice for one call). A replaced `MidHook2` can run its handler twice for one call at that moment.
 - **Link slots:** 65,536 per process, 512 hooked addresses (`KilnHooksStats.targets_cap`). A revoked link keeps its slot; an
   identical re-install (kind, function, user pointer, owner, label) takes it back. Managed `Hooks.Detour`/`Hooks.Mid` take a new
-  slot on every install up to dev.24: install once, switch a flag. dev.25+: a managed re-install by the same mod, kind and
+  slot on every install up to dev.24: install once, switch a flag. dev.26+: a managed re-install by the same mod, kind and
   address reuses its slot, also after a hot reload (test server); each new address still takes one. kiln.log warns at 75%
   and when full.
 - Dropping a hook object does not remove the link: `revoke()` or `revoke_owner(owner)`. Reordering links already installed is not

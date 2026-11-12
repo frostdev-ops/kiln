@@ -6,7 +6,7 @@ using static Kiln.Testing.ClientCheckTags;
 
 namespace ClientPass;
 
-// Kiln's unload at the game's exit (new in 0.2.0-dev.25). The answer is only known after the game has closed, so each
+// Kiln's unload at the game's exit (new in 0.2.0-dev.26). The answer is only known after the game has closed, so each
 // check runs in three parts over three starts: part 1 asks the player to quit with Esc, Quit; part 2, at the next start,
 // reads the previous session's kiln.log (Kiln renames it kiln.prev.log when it starts) and asks for Alt+F4 at the main
 // menu; part 3 reads that exit and takes the verdict. The part reached is kept in the mod's data folder.
@@ -16,11 +16,11 @@ public sealed partial class ClientPassMod
     /// <c>"unloadAtExit": "auto" | "on" | "off"</c> (default auto: on under Wine, off on native Windows).</summary>
     private const string WindowsUnloadKey = "unloadAtExit";
 
-    [ClientCheck("core.unload-quit", "Kiln unloads cleanly when the game quits", Area = "Core", Since = Dev25,
+    [ClientCheck("core.unload-quit", "Kiln unloads cleanly when the game quits", Area = "Core", Since = Dev26,
         Needs = ClientCheckNeeds.Hosted, Order = 199)]
     public Task CoreUnloadQuit(CheckContext c) => UnloadCheck(c, "unload-quit", null);
 
-    [ClientCheck("core.unload-windows", "Kiln unloads cleanly when the game quits, on Windows", Area = "Core", Since = Dev25,
+    [ClientCheck("core.unload-windows", "Kiln unloads cleanly when the game quits, on Windows", Area = "Core", Since = Dev26,
         Tags = [Windows], Needs = ClientCheckNeeds.Hosted, Order = 915)]
     public Task CoreUnloadWindows(CheckContext c) => UnloadCheck(c, "unload-windows",
         $"On a native Windows PC the exit link is off by default in this release: before part 1, set \"{WindowsUnloadKey}\" " +

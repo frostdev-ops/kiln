@@ -162,7 +162,7 @@ pub struct LocateProblem {
 }
 
 impl LocateProblem {
-    /// As the crate's error: `not_found` for [`ProblemKind::NoDefault`] (as before dev.25), else `data_folder` with
+    /// As the crate's error: `not_found` for [`ProblemKind::NoDefault`] (as before dev.26), else `data_folder` with
     /// `detail: {kind, pointer, path}`.
     pub fn into_error(self) -> Error {
         if self.kind == ProblemKind::NoDefault {
@@ -291,7 +291,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// `DataDirs::locate` as it was before dev.25 (a446e223), with the variables from `get` and the platform as a
+    /// `DataDirs::locate` as it was before dev.26 (a446e223), with the variables from `get` and the platform as a
     /// value: the reference the new code must match.
     fn locate_before(get: &dyn Fn(&str) -> Option<OsString>, windows: bool) -> Result<DataDirs> {
         if let Some(d) = get("KILN_DATA_DIR").filter(|d| !d.is_empty()) {
@@ -334,7 +334,7 @@ mod tests {
 
     /// Every branch of the old `locate` (both platforms), against `DataEnv::locate` built by hand.
     #[test]
-    fn locate_matches_the_code_before_dev25_in_every_branch() {
+    fn locate_matches_the_code_before_dev26_in_every_branch() {
         let cases: &[&[(&str, &str)]] = &[
             &[],
             &[("KILN_DATA_DIR", "/scratch/env")],

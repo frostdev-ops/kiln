@@ -64,7 +64,7 @@ Comments and trailing commas allowed.
 - C#: `Quests.Define`, `Quests.Start`, `Quests.Signal`, `Quests.Advance`, `Quests.BindNpc`, `Dialogues.Open`, `QuestHolder.Of(player)`.
   Events: `QuestStartedEvent`, `QuestStepEvent`, `QuestCompletedEvent`, `QuestFailedEvent` (cancelable), `QuestStateChangedEvent`.
 - Test without a player: `QuestHolder.Synthetic("name")`; `/questadmin reload | state | start | step | advance`. `QuestInput` is a
-  lab helper: dev.25+ marks it `[Experimental("KILNX001")]` and hides it (a lab-only project adds `KILNX001` to `NoWarn`).
+  lab helper: dev.26+ marks it `[Experimental("KILNX001")]` and hides it (a lab-only project adds `KILNX001` to `NoWarn`).
 
 ## Quest and dialogue blocks (dev.20+)
 Use `QuestBlock` / `DialogueBlock` or `quests` / `dialogues` inside `blocks/*.json`; `kiln new quest MyQuest` scaffolds one.

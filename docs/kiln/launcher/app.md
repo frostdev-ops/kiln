@@ -267,7 +267,7 @@ folder": progress and Cancel, not dismissable); its last phase removes the old c
 leaves the rest for the next start."); a failed or canceled move says "Nothing changed"; done, the launcher restarts
 (`data_folder_restart`), after the crate's warnings or "The data has moved. The rest of the old copy goes at the next
 start." when there are any. Another data folder's profile in the game (`GameStatus.otherFolderProfile`: a launcher
-before dev.25 after a move, `KILN_DATA_DIR`, another launcher) is said on Play's top line, in Settings' Profiles and on
+before dev.26 after a move, `KILN_DATA_DIR`, another launcher) is said on Play's top line, in Settings' Profiles and on
 the Deck's Profile row ("Another data folder's profile is loaded in this game"), never shown as loaded. Deck Settings has the same row and steps in the Deck's dialogs, with `deck_browse` as
 the folder browser. Code: `src/components/DataFolderSettings.tsx`, `src/deck/DataFolder.tsx`, `src/shell/dataFolder.ts`
 (the steps), `src/shell/dataFolderText.ts` (the words).

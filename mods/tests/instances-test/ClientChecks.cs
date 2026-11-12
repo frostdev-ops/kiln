@@ -13,7 +13,7 @@ namespace InstancesTest;
 
 public sealed partial class InstancesTestMod
 {
-    private const string T3Area = "Item data", T3Since = "0.2.0-dev.25";
+    private const string T3Area = "Item data", T3Since = "0.2.0-dev.26";
 
     [LabOnLoad("t3.client-checks")]
     private void T3RegisterClientChecks()

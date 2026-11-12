@@ -158,7 +158,7 @@ if (!Capabilities.Is("items.fuel")) { Log.Warn(Capabilities.Why("items.fuel")); 
   usually after the manifests were checked. Such a name is refused as "no capability of this name is registered",
   with the same advice. Sigdb features (`items.fuel`, `tick`) and `kiln.<service>` rows are there from boot.
 
-The refusal is in `kiln/state/mods.json`, `Mods.All` and kiln.log. Works on a test server (dev.25); not run in a client.
+The refusal is in `kiln/state/mods.json`, `Mods.All` and kiln.log. Works on a test server (dev.26); not run in a client.
 
 ## Exports: shared mod APIs
 Each mod has its own collectible load context. Assemblies resolve in this order: Kiln.Api (shared), Kiln's shared

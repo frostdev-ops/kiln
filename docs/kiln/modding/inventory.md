@@ -207,7 +207,7 @@ that comes back with every state the client may have kept. A server shutdown tak
 
 ### What is proven where
 **Items in chests and other world holders are proven on a test server; items in a player's inventory wait for the
-guided client pass.** On a lab server with a copy of a real world and no player (dev.25, `mods/tests/instances-test`):
+guided client pass.** On a lab server with a copy of a real world and no player (dev.26, `mods/tests/instances-test`):
 two identical swords and their look-alikes, each with its own value, moved within a chest, between chests, swapped,
 moved by the game's move all and by a move no hook sees, kept their own values after a stop, after `kill -9` between
 saves and right after one, and after a restored backup; 1,000 tagged identical swords in 42 chests came back on their own

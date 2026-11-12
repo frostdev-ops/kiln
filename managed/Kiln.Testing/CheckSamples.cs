@@ -20,7 +20,7 @@ internal static class CheckSamples
             confirm: "This check levels the character once, which reports an achievement. Run it only if your Steam account already has it.",
             tags: [ClientCheckTags.Cheats, ClientCheckTags.GuardProof]),
         I("client-pass", "skills.points", "Skill points from the admin command", "Achievement guard",
-            refusal: "line 4: no guard-proof check has run on game build 5d9ef2f1a0b3… and Kiln 0.2.0-dev.25: run it and pass it first",
+            refusal: "line 4: no guard-proof check has run on game build 5d9ef2f1a0b3… and Kiln 0.2.0-dev.26: run it and pass it first",
             tags: ClientCheckTags.Cheats),
         I("client-pass", "net.second-player", "A second player sees the banner", "Network",
             refusal: "needs a game joined to a server; this session is hosted", needs: "joined", tags: ClientCheckTags.TwoPlayers),

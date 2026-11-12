@@ -1,4 +1,4 @@
-//! This process's data folder (dev.25, package `data-folder`): found once, the first time anything asks, and kept
+//! This process's data folder (dev.26, package `data-folder`): found once, the first time anything asks, and kept
 //! until the process ends. `state::dirs()` is the one way to it for every command and background thread, and refuses
 //! while the folder is held:
 //! - a broken pointer (the folder the pointer names cannot be used): nothing is created anywhere, no lock is taken,
@@ -54,7 +54,7 @@ pub const OPEN_WHEN_MOVING: &[&str] = &[
 pub struct Folder {
     pub env: DataEnv,
     found: Result<Located, LocateProblem>,
-    /// Making the root (the default or `KILN_DATA_DIR` one, as before dev.25): the error, if it failed.
+    /// Making the root (the default or `KILN_DATA_DIR` one, as before dev.26): the error, if it failed.
     made: Result<(), Error>,
     lock: Mutex<Option<DataLock>>,
     hold: Mutex<Hold>,
@@ -77,7 +77,7 @@ impl Folder {
                 match DataLock::shared(&l.dirs.root) {
                     Ok(Some(k)) => lock = Some(k),
                     Ok(None) => hold = Hold::Elsewhere,
-                    // a folder Kiln cannot write a lock into (read-only): it works without one, as before dev.25
+                    // a folder Kiln cannot write a lock into (read-only): it works without one, as before dev.26
                     Err(e) => eprintln!("data folder lock: {e}"),
                 }
             }

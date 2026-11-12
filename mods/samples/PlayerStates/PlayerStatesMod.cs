@@ -13,7 +13,7 @@ public sealed class PlayerStatesMod : Mod
     public const string ModId = "player-states-sample";
     public const string Sword = "Kiln_Sample_RiposteSword";
     private const string Area = "Player animations";
-    private const string Since = "0.2.0-dev.25";
+    private const string Since = "0.2.0-dev.26";
 
     /// <summary>Which of the sword's sequences gets a copy that plays which state: the game's sequence (by name), the state,
     /// the copy's GUID. The game's sword attack names Attack_Sword_Shield_01, its heavy attack Attack_Heavy, its block Block_FullBody;

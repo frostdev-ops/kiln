@@ -8,7 +8,7 @@ by itself, and asks one yes/no question. You answer with a key. Every answer is 
 record that a script turns into a summary.
 
 The pass covers the lines of the status page that wait for a game test: the 18 rows of "Built, game test pending", the
-dev.22 and dev.21 client checklists (11 items each), and two lines new in 0.2.0-dev.25 (the achievement guard, and
+dev.22 and dev.21 client checklists (11 items each), and two lines new in 0.2.0-dev.26 (the achievement guard, and
 Kiln's unload when the game quits). `mods/tests/client-pass/rows.json` maps each line to its checks.
 
 > **Status.** The pack builds and its mapping is tested offline. **None of its checks has run in a real game yet**, and

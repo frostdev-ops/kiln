@@ -22,7 +22,7 @@ public static partial class Coverage
             "world file's path, the snapshot stage, a client's hosted world", FakeTables.SavesService);
         Row("EntityData", CoverageKind.RecordingFake,
             "on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable " +
-            "(EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.26's fake world)", FakeTables.SavesService);
+            "(EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.27's fake world)", FakeTables.SavesService);
         Row("Config (per world)", CoverageKind.Real,
             "Mod.WorldConfig<T>() binds to the harness world's folder (kiln/data/worlds/<id>/config) through Kiln.Saves and " +
             "differs between world ids");

@@ -23,7 +23,7 @@ public sealed partial class ClientPassMod
         "level achievement up to level 30: a Steam achievement cannot be taken back. Use a new throwaway character named " +
         "KilnCheck... and delete it when the cheats group is done. If you are not sure, answer no.";
 
-    [ClientCheck("guard.proof", "The achievement guard drops a level-up's report", Area = "Achievement guard", Since = Dev25,
+    [ClientCheck("guard.proof", "The achievement guard drops a level-up's report", Area = "Achievement guard", Since = Dev26,
         Tags = [Cheats, GuardProof], Needs = ClientCheckNeeds.Hosted, Confirm = GuardConfirm, Order = 601)]
     public async Task GuardProofLevelUp(CheckContext c)
     {

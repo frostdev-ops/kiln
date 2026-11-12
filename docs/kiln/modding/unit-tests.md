@@ -205,7 +205,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | Players | recording fake | `kiln.players` | Kiln.Players' own code on the kit's kiln.players: KilnHarness.Players.Join/Leave take effect at the next step (Players.All, Find, Joined/Left, PlayerJoinedEvent/PlayerLeftEvent); entity slot + 1, Steam id, admin bit, user-group rights, the test's positions; 16 slots. Unavailable: raw records, the game-log replay, the position probe for non-players, native subscribers |
 | Commands as a player, permissions | real |  | Kiln.Chat's Commands.Execute with a fake player as source (KilnHarness.RunCommand(player, line)) and Kiln.Permissions' real rules on permissions.json and enshrouded_server.json in the temp folder (WritePermissions, WriteServerConfig); @p and player names resolve against the fake players. Replies come back in the result, chat is not faked |
 | Saved data (WorldData, PlayerData) | recording fake | `kiln.saves` | Kiln.Saves' store on the kit's kiln.saves: a world id and revision per server folder, the save cycle on the steps (WorldSaving, staged generation, WorldSaved), the game's autosave (30 s virtual), player-left and shutdown saves; a harness on the same folder reads the last save (KilnHarness.Kill: no shutdown save). Unavailable: backups, the world file's path, the snapshot stage, a client's hosted world |
-| EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable (EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.26's fake world) |
+| EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable (EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.27's fake world) |
 | Config (per world) | real |  | Mod.WorldConfig<T>() binds to the harness world's folder (kiln/data/worlds/<id>/config) through Kiln.Saves and differs between world ids |
 | kiln.net | unavailable | `kiln.net` | no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable |
 | [KilnTest] tests | real |  | Kiln.Testing's own runner, started test by test through Kiln.Host (KilnHarness.RunTest, KilnTestSession, the xunit KilnTestSuite): same order, timeouts and results as in a server. Offline a passing body that asked for an unfaked service or a feature that is off is skipped with the names; failed bodies and timeouts remain failures with the names. A test that blocks the tick thread is stopped by the watchdog and reported as a timeout with the stack where it blocked |
@@ -254,11 +254,11 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.worldtables | unavailable | `kiln.worldtables` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 <!-- coverage:end -->
 
-Planned for dev.26: a fake world laid out by the generated `Kiln.Game` types, and recording fakes for combat,
+Planned for dev.27: a fake world laid out by the generated `Kiln.Game` types, and recording fakes for combat,
 spawn, items, time, chat, quests and skills. Hooks, memory, Impact programs, AI and rendering stay unfaked.
 
 ## What was checked, and what was not
-Run on Linux (.NET SDK 10.0.113) for dev.25, with every package restored from a feed packed from the tree:
+Run on Linux (.NET SDK 10.0.113) for dev.26, with every package restored from a feed packed from the tree:
 - Kiln.TestKit's own tests (`managed/tests/Kiln.TestKit.Tests`), the table check on this page among them: it fails
   when a `Coverage` row changes and the page does not (checked by changing one row).
 - `dotnet new kiln-mod` then `dotnet new kiln-unit-test` against the packed feed: `dotnet test` passed (the harness

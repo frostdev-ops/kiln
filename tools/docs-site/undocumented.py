@@ -14,7 +14,7 @@ struct with exactly that gap is skipped too); its ToString then counts as the co
 With --baseline it prints only the uids that are not in the file (one uid per line, # comments allowed) and exits 3 if
 there are any. Exit 0 means no new names (or no baseline); other non-zero codes mean the check failed.
 The game types tools/typegen/typegen.py generates into the class Kiln.Ecs at build time are left out too, with
-their members (2,578 names on dev.25, mostly enum values): a type nested in Kiln.Ecs counts as generated when its
+their members (2,578 names on dev.26, mostly enum values): a type nested in Kiln.Ecs counts as generated when its
 summary has the shape the generator writes ("<c>keen::X</c>: an ECS component|an ECS event|a game struct, N bytes,
 align N.", "Game enum <c>..", "Game bitmask <c>..", "A game <c>StaticArray</c> of N elements", "The game's ECS
 program(s)"). The metadata carries no other marker (no [GeneratedCode]). The hand-written part of Kiln.Ecs (the

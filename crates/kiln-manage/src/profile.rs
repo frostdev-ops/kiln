@@ -1378,7 +1378,7 @@ pub enum GameProfileOwner {
     None,
     /// A profile of this data folder.
     Here { id: String },
-    /// Another data folder's profile (another launcher, a `KILN_DATA_DIR`, a launcher before dev.25 at the default root
+    /// Another data folder's profile (another launcher, a `KILN_DATA_DIR`, a launcher before dev.26 at the default root
     /// after a move): left alone. `root`: the data folder its paths name, in Z and native mode.
     Elsewhere { id: String, root: Option<PathBuf> },
 }
@@ -1401,7 +1401,7 @@ fn root_named(file: &ProfileFile, install: &GameInstall) -> Option<PathBuf> {
 /// A game's profile file is this data folder's: the profile is here, and the file names this data folder (Z and
 /// native mode: its `configDir`), or it is the one this data folder last wrote into the game (`installs/<id>.active.json`:
 /// the same id, generation and fingerprint). In copy mode the paths name no folder: the record decides, and without a
-/// record the id alone does (as before dev.25).
+/// record the id alone does (as before dev.26).
 pub(crate) fn file_is_here(dirs: &DataDirs, install: &GameInstall, file: &ProfileFile) -> bool {
     if get(dirs, &file.id).is_err() {
         return false;

@@ -472,7 +472,7 @@ if (Ecs.Get<Ecs.NpcCommon>(entity) is { } npc)
 foreach (var e in Ecs.All<Ecs.Health>()) { /* ... */ }
 ```
 `EcsAccessTests.DocExample` compiles the same code. A struct is a copy: change it, and nothing in the game changes
-(typed writes are dev.26 work).
+(typed writes are dev.27 work).
 
 ### 4.4 Attribute components
 A component whose base chain runs through `keen::ecs::AttributeComponent` and that has a `dataStorage` static array
@@ -508,7 +508,7 @@ exist yet.
 
 ### 4.6 Still raw
 Blob arrays and blob strings (37 fields on this build) stay `fixed byte` buffers: their data lies behind a
-self-relative offset. Writing a component, typed program access and typed events are not here (dev.26).
+self-relative offset. Writing a component, typed program access and typed events are not here (dev.27).
 
 ## 5. Verified (lab, server svn 1287369, `f0d824be…`)
 `tools/typegen/probe` (mod `typegen-probe`) is the lab check of the typed reads; it no longer dumps (`typedump` does,

@@ -3,7 +3,7 @@
 Verified under Wine: NSIS install/uninstall, `--selftest` 11/11, WebView2 UI (runtime 156, `--no-sandbox`),
 Rust suites for x86_64-pc-windows-msvc, proxyhost with `C:\` paths (107/107), a dedicated server installed, started,
 administered over KAP and stopped with Ctrl-C by the Windows runner. Test user "Jörg Müller" (non-ASCII paths).
-The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 93/93): to `D:\` (made `D:\Kiln`),
+The data folder's move (dev.26, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 93/93): to `D:\` (made `D:\Kiln`),
 to another letter on the same disk, to another volume (exFAT `E:`) and within it (with a crashed move's recovery), to
 `D:\Spiele Ordner\Jörg Müller\データ`, with a 259-character library path (a 260 one refused) and a data folder past 260
 characters, each and back; `\\?\` and another case; junctions refused, and no old copy removed through one;
@@ -59,7 +59,7 @@ On a real Windows 10/11 PC:
      exFAT stick (no POSIX deletes there): the result names it as on its way out; it is gone once the program lets go,
      and the next start finishes.
    - a launcher of dev.24 or older started after a move: it starts as on a first run (empty library) at
-     `%LOCALAPPDATA%\Kiln` and does not touch the moved folder; dev.25 started again uses the moved folder, and if the
+     `%LOCALAPPDATA%\Kiln` and does not touch the moved folder; dev.26 started again uses the moved folder, and if the
      old launcher activated a profile, says the game runs another data folder's profile.
 
 Notes: never put `mscoree=` in WINEDLLOVERRIDES when testing servers (the .NET host fails with 0x8007007E); in a

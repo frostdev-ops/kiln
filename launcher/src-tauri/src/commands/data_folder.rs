@@ -1,4 +1,4 @@
-//! The data folder's commands (dev.25, package `data-folder`; contracts.md section 9): where the launcher keeps its
+//! The data folder's commands (dev.26, package `data-folder`; contracts.md section 9): where the launcher keeps its
 //! data, a check of a folder the player picked, the move (a task), "use this one", a fresh start after a broken
 //! pointer, the notice after a move, and the restart. The crate does the work (kiln_manage::data_folder,
 //! kiln_manage::data_folder_move); this file decides when, and holds the process's data folder while it runs
@@ -965,7 +965,7 @@ pub(crate) mod tests {
         let f = Arc::new(Folder::open(env.clone()));
         folder::replace(f.clone());
         let root = f.located().unwrap().dirs.root.clone();
-        assert!(root.is_dir(), "the default root is made, as before dev.25");
+        assert!(root.is_dir(), "the default root is made, as before dev.26");
         assert!(f.lock().is_some(), "and its lock taken shared");
         let settings = root.join("settings.json");
         let set = |keep: u32| {
@@ -1022,7 +1022,7 @@ pub(crate) mod tests {
         assert!(folder_out(&f).elsewhere);
         assert_eq!(start_with(&f), Next::Nothing);
         drop(other);
-        // a second launcher of dev.25 holds it shared: a move here is refused by the crate, the check says so
+        // a second launcher of dev.26 holds it shared: a move here is refused by the crate, the check says so
         let f = Arc::new(Folder::open(env.clone()));
         folder::replace(f.clone());
         assert_eq!(f.hold(), Hold::Free);
@@ -1273,7 +1273,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&t);
     }
 
-    /// A launcher before dev.25 (or another data folder) activated its profile in the game: game_status says so and
+    /// A launcher before dev.26 (or another data folder) activated its profile in the game: game_status says so and
     /// does not call it loaded; profile_active gives none.
     #[test]
     #[cfg(unix)]
@@ -1369,7 +1369,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&t);
     }
 
-    /// After a move, a launcher before dev.25 at the old default root activates its own profile in a game the moved
+    /// After a move, a launcher before dev.26 at the old default root activates its own profile in a game the moved
     /// folder knows: the removal at the next start is refused with the crate's reason (the journal keeps no result),
     /// the notice shows that reason instead of "the rest goes at the next start", and the ack keeps the journal.
     #[test]
@@ -1397,7 +1397,7 @@ pub(crate) mod tests {
         // the move's own removal is stopped, so the old copy is still there at the next start
         let mut w = Watch { tried: true, removing: 0, cancel_after: Some(1), messages: vec![] };
         move_with(&f, &l, &to, &dfm::MoveOptions::default(), &mut w).unwrap();
-        // a launcher before dev.25 runs at the old default root as on a first run and activates its profile there
+        // a launcher before dev.26 runs at the old default root as on a first run and activates its profile there
         let old = DataDirs::at(&from);
         let p = profile::create(&old, "Old launcher", None).unwrap();
         profile::activate(&old, &p.id, &g).unwrap();

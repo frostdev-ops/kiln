@@ -1,4 +1,4 @@
-//! The data folder as a whole (dev.25 `data-folder`, task core-1): what a folder is (`recognize`), what the data
+//! The data folder as a whole (dev.26 `data-folder`, task core-1): what a folder is (`recognize`), what the data
 //! folder holds (`inventory`), every refusal of a picked folder and the plans (`check`), the system's probes
 //! (`RealFacts`), and the list of files that record the data root's absolute path (the fixture: tests/fixture/mod.rs).
 //! The Windows path rules run here too, through `DataEnv { windows: true, .. }` over Windows path strings.
@@ -550,7 +550,7 @@ fn moving_back_to_the_default_root() {
     put(&default, df::JOURNAL, b"{}");
     assert_eq!(code(df::check(&i, &Facts::all_clear())), RefusalCode::MovePending);
     std::fs::remove_file(default.join(df::JOURNAL)).unwrap();
-    // the default root with launcher entries only (a launcher before dev.25 ran there) is refused, naming them
+    // the default root with launcher entries only (a launcher before dev.26 ran there) is refused, naming them
     put(&default, "settings.json", b"{}\n");
     put(&default, "logs/launcher.log", b"a line\n");
     let r = df::check(&i, &Facts::all_clear()).unwrap_err();

@@ -118,7 +118,7 @@ pub fn game_status(install: &GameInstall) -> Result<kiln_manage::game::GameStatu
         .and_then(|l| kiln_manage::steam::app_manifest(l, install.app_id).ok().flatten())
         .is_some_and(|m| m.updating);
     let runtime = install_state(install, false)?;
-    // this data folder's profile, or another data folder's (a launcher before dev.25 after a move, KILN_DATA_DIR,
+    // this data folder's profile, or another data folder's (a launcher before dev.26 after a move, KILN_DATA_DIR,
     // another launcher): that one is said, never shown as loaded
     let d = dirs()?;
     use kiln_manage::profile::GameProfileOwner as Owner;

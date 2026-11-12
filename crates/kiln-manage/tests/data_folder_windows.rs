@@ -1,4 +1,4 @@
-//! The data folder's move on Windows (dev.25 `data-folder`, task `win`): real moves with the real probes
+//! The data folder's move on Windows (dev.26 `data-folder`, task `win`): real moves with the real probes
 //! ([`RealFacts`]) on real folders, each to the end (the pointer, the old copy gone, `locate` giving the new place) and
 //! back: a drive root, another drive letter on the same disk and on another volume, spaces and non-ASCII letters,
 //! long paths, `\\?\` and another case, a junction, Kiln's state folder in the default root, a file that cannot be

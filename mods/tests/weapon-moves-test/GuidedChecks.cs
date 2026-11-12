@@ -10,7 +10,7 @@ namespace WeaponMovesTest;
 
 public sealed partial class WeaponMovesTestMod
 {
-    private const string Since = "0.2.0-dev.25";
+    private const string Since = "0.2.0-dev.26";
 
     /// <summary>The weapons in the player's bag and a training doll a few metres in front of them; both go away when the check ends.</summary>
     private async Task<bool> Scene(CheckContext c, params string[] items)

@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Kiln.Api.Tests;
 
-/// <summary>ItemId moved from Kiln.Items to Kiln.Api in dev.25, with a type forward left in Kiln.Items. The fixture
+/// <summary>ItemId moved from Kiln.Items to Kiln.Api in dev.26, with a type forward left in Kiln.Items. The fixture
 /// ItemIdConsumer was compiled against a stand-in of the old Kiln.Items (fixtures/OldItems), so it references
 /// [Kiln.Items]Kiln.ItemId; loaded next to the real assemblies it must see Kiln.Api's ItemId.</summary>
 public sealed class ItemIdForwardTests
