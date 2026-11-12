@@ -13,7 +13,7 @@ public sealed class WeaponMovesTests : IDisposable
     private const string Mod = "moves-test";
 
     public WeaponMovesTests() => PlayerStateSeam.Lookup = null;
-    public void Dispose() => PlayerStateSeam.Lookup = null;
+    public void Dispose() => PlayerStateSeam.Lookup = PlayerAnimLookup.Instance;
 
     private static ModBlocks NewMod() => new(Mod, 1) { ManifestClients = "mod" };
 

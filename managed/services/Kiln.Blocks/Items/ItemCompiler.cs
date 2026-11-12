@@ -22,7 +22,13 @@ internal static partial class Compiler
     internal static double ArmorShare(int armor, int level) => armor / (ArmorGradient * level + ArmorOffset);
 
     /// <summary>The blocks of this file. Null: not one of them.</summary>
-    private static BlockHandle? DefineItemBlock<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock => block switch
+    private static BlockHandle? DefineItemBlock<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock
+    {
+        BlockCapabilities.Ensure();
+        return DefineItemBlockNow(ctx, low, name, block);
+    }
+
+    private static BlockHandle? DefineItemBlockNow<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock => block switch
     {
         WeaponBlock w => DefineWeapon(ctx, low, name, w),
         WandBlock w => DefineWand(ctx, low, name, w),
