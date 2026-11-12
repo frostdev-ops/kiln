@@ -20,8 +20,8 @@ Status:
   cooked and decoded again, matches Blender's own evaluation within 0.6 mm (`tools/animcook/tests/run_blender_check.py`).
 - **Proven in a client:** a mod's own skinned held model with its own skeleton, clip and graph, drawn in a real client and
   seen by the owner on 2026-11-11: Kiln Equipment's Sunspire, a skinned model on a 2-joint skeleton with a looping clip and a
-  one-state graph, in a copy of `Visuals_Staff_01_Magic_Basic01`. A dedicated server runs such a graph too; what it needs of
-  the cooked files is in [models.md](models.md#on-a-dedicated-server).
+  one-state graph, in a copy of `Visuals_Staff_01_Magic_Basic01`. A dedicated server does not run the graph of a held
+  model; what it needs of such a model is in [models.md](models.md#on-a-dedicated-server).
 - **Not proven:** a creature's body drawn in the client, a body actually moved by root motion, and a state added to the
   player's graph. See [Manual checks](#manual-checks).
 
