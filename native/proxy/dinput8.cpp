@@ -882,6 +882,20 @@ bool profile_well_formed(const wchar_t* file) {
     return result;
 }
 
+// A chain.ini put in kiln\chain\ (where Kiln keeps the chained DLLs) is never read: the chain file is kiln\chain.ini.
+// Issue 23: a server owner's DLLs then loaded nothing, and proxy.log said only "0 chained DLL(s) handled". `file` is
+// kiln\chain.ini; the hint is logged only when it does not exist and kiln\chain\chain.ini does.
+void hint_misplaced_chain_ini(const wchar_t* file) {
+    if (GetFileAttributesW(file) != INVALID_FILE_ATTRIBUTES) return;
+    wchar_t misplaced[kPath];
+    lstrcpynW(misplaced, g_kiln, kPath - 32);
+    lstrcatW(misplaced, L"\\chain\\chain.ini");
+    const DWORD attributes = GetFileAttributesW(misplaced);
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) return;
+    plog(L"chain: %s is not read: the chain file belongs in %s (one folder up; kiln\\chain\\ holds the chained DLLs). "
+         L"Move it there to load the DLLs it lists", misplaced, file);
+}
+
 // kiln\chain.ini [chain] (lines before any section count as [chain]) -> <game>\dinput8-chain.ini ([Chain], [EMF] and
 // lines before any section, EMF's rules) -> kiln\chain.ini [profile], or with play-once mode=profile kiln\chain\once.ini
 // ([profile], lines before any section count) in place of chain.ini [profile]. once.ini may have a [chain] and a [late]
@@ -902,6 +916,7 @@ void load_chain(bool profile_once, bool skip) {
     lstrcatW(file, L"\\chain.ini");
     Section chain_sections[] = {{L"chain", &chain}, {L"profile", profile_once ? &ignored : &profile}, {L"late", &late}};
     read_dll_list(file, &chain, chain_sections, 3);
+    hint_misplaced_chain_ini(file);
     if (profile_once) {
         List once_chain, once_late;
         lstrcpynW(file, g_kiln, kPath - 32);

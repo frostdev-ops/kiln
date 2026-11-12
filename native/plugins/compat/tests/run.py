@@ -909,6 +909,47 @@ def shroudtopia_loader_named_mod():
     g.expect(g.state("shroudtopia").get("steppedAside") is False, "CreateModInstance mod named shroudtopia.dll is not a loader")
     return g
 
+def shroudtopia_preloaded_by_other_loader():
+    """Issue 23: another loader (EML's runtime loader through a proxy loader, in the field) loaded a Shroudtopia mod DLL
+    from mods/<name>/ and created its instance before Kiln's plugin step. kiln-shroudtopia must not create it again:
+    exactly one CreateModInstance, and the state file says the mod runs under its own loader."""
+    g = Game("shroudtopia-preloaded", server=True)
+    g.put("mods/azj/mod.json", {"id": "azj"})
+    g.dll("shroudtopia_test.dll", "mods/azj/azj.dll")
+    g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50,
+                                                  "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+    g.run(g.plugin("kiln-shroudtopia.dll"), 700, "--load-create", "mods\\azj\\azj.dll")
+    g.has("fake loader: mods\\azj\\azj.dll loaded, instance created")
+    g.expect(g.result("instances") == "1", f"exactly one CreateModInstance: instances: {g.result('instances')}")
+    g.lacks("Registered mod: Kiln Test Mod")
+    g.lacks("Loading mod: Kiln Test Mod")
+    m = mods_by(g, "shroudtopia", "id", "azj")
+    g.expect(len(m) == 1 and m[0].get("status") == "own-loader", f"state: azj own-loader: {m}")
+    g.expect(m and "already in this process, loaded by another loader" in m[0].get("reason", ""), f"state: reason: {m}")
+    g.has("azj (")
+    return g
+
+
+def shroudtopia_copy_preloaded_by_other_loader():
+    """Issue 23, the same file by content: another loader loaded a copy of the mod's DLL from elsewhere (its own cache
+    folder). The copy in mods/ has the same bytes: kiln-shroudtopia does not load it or create a second instance."""
+    g = Game("shroudtopia-copy-preloaded", server=True)
+    g.put("mods/azj/mod.json", {"id": "azj"})
+    g.dll("shroudtopia_test.dll", "mods/azj/azj.dll")
+    g.dll("shroudtopia_test.dll", "loader-cache/azj-runtime.dll")
+    g.dll("shroudtopia_client.dll", "mods/other.dll")  # a different mod: still loaded (as client only, it is skipped)
+    g.put("kiln/config/shroudtopia/shroudtopia.json", {"active": True, "bootDelay": 0, "updateDelay": 50,
+                                                  "mods": {"Kiln Test Mod": TEST_MOD_CONFIG}})
+    g.run(g.plugin("kiln-shroudtopia.dll"), 700, "--load-create", "loader-cache\\azj-runtime.dll")
+    g.expect(g.result("instances") == "1", f"the copy's instance only: instances: {g.result('instances')}")
+    g.lacks("Registered mod: Kiln Test Mod")
+    m = mods_by(g, "shroudtopia", "id", "azj")
+    g.expect(len(m) == 1 and m[0].get("status") == "own-loader", f"state: azj own-loader: {m}")
+    g.expect(m and "azj-runtime.dll" in m[0].get("reason", ""), f"state: the reason names the loaded copy: {m}")
+    g.has("Registered mod: Kiln Client Mod")
+    return g
+
+
 # ---------------------------------------------------------------------------------------------------- own loaders ---
 # The launcher copies a profile's mods into the own loader's folder (<folder>/<library id>/) with a .kiln-library.json
 # marker. While the adapter steps aside, each profile entry says whether it runs there (own-loader) or not at all
@@ -1190,7 +1231,8 @@ SCENARIOS = {f.__name__.replace("_", "-"): f for f in [
     greeneye_chaining, greeneye_lifetime, ancestor_symlinks, greeneye_hot_callback_faults,
     greeneye_manifest_bounds, shroudtopia_loader_named_mod, greeneye_default_dll_profile,
     greeneye_aside_profile, greeneye_aside_player_copy, flame_aside_profile, shroudtopia_aside_profile, emf_aside_profile, copy_dedupe,
-    wine_builtin_not_a_loader, dropins_rule, kiln_files_not_a_loader]}
+    wine_builtin_not_a_loader, dropins_rule, kiln_files_not_a_loader, shroudtopia_preloaded_by_other_loader,
+    shroudtopia_copy_preloaded_by_other_loader]}
 
 
 def main():

@@ -2,7 +2,10 @@
 // compathost.exe: a stand-in for the game and kiln-core for the compatibility plugins (kiln-greeneye, kiln-flame,
 // kiln-shroudtopia). run.py copies it into a scratch game folder as enshrouded.exe or enshrouded_server.exe and runs
 // it under plain Wine:
-//   compathost.exe <plugin.dll> <wait ms> [--claim-greeneye] [--load <dll>] [--hooks-full|--hooks-refuse] [--at <ms> --copy <src> <dst>]
+//   compathost.exe <plugin.dll> <wait ms> [--claim-greeneye] [--load <dll>] [--load-create <dll>] [--hooks-full|--hooks-refuse]
+//                  [--at <ms> --copy <src> <dst>]
+// --load-create: a fake loader of another engine (issue 23): loads a Shroudtopia mod DLL and calls its CreateModInstance
+// before the plugin starts; RESULT instances=<n> then says how often that module's CreateModInstance ran in all.
 // It serves a minimal KilnApi (log, paths, side, build info, kiln.profile from kiln/profile.json, a kiln.hooks v2 stand-in
 // that places raw_detour links with safetyhook, register_service / service), loads the plugin, runs kiln_plugin_main and on_ready, waits, then calls the test targets below and prints
 // RESULT lines that run.py checks together with kiln/logs/kiln.log and kiln/state/*.json.
@@ -384,6 +387,7 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring load_later;
     std::wstring copy_src, copy_dst;
     HANDLE claim = nullptr;
+    HMODULE created = nullptr;  // --load-create
     for (int i = 3; i < argc; ++i) {
         if (!wcscmp(argv[i], L"--claim-greeneye")) {
             wchar_t name[96];
@@ -399,6 +403,11 @@ int wmain(int argc, wchar_t** argv) {
         } else if (!wcscmp(argv[i], L"--load") && i + 1 < argc) {
             HMODULE h = LoadLibraryW((g_game + L"\\" + argv[++i]).c_str());
             line("[host] preloaded " + u8(argv[i]) + (h ? " ok" : " FAILED"));
+        } else if (!wcscmp(argv[i], L"--load-create") && i + 1 < argc) {
+            created = LoadLibraryW((g_game + L"\\" + argv[++i]).c_str());
+            using CreateFn = void* (*)();
+            auto create = created ? reinterpret_cast<CreateFn>(GetProcAddress(created, "CreateModInstance")) : nullptr;
+            line("[host] fake loader: " + u8(argv[i]) + (create && create() ? " loaded, instance created" : " FAILED"));
         } else if (!wcscmp(argv[i], L"--free-at") && i + 1 < argc) {
             free_ms = _wtoi(argv[++i]);
         } else if (!wcscmp(argv[i], L"--load-at") && i + 2 < argc) {
@@ -502,6 +511,10 @@ int wmain(int argc, wchar_t** argv) {
             const uint32_t st = flame->symbols(KilnStr{"ftest", 5}, &file);
             line("[host] RESULT flame_symbols_ftest=" + std::to_string(st) + " file=" + sv(file));
         }
+    }
+    if (created) {
+        if (auto instances = reinterpret_cast<long (*)()>(GetProcAddress(created, "kiln_shroudtopia_test_instances")))
+            line("[host] RESULT instances=" + std::to_string(instances()));
     }
     if (!freed && info.on_unload) info.on_unload(info.user);
     {

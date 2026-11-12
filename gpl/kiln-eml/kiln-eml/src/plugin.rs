@@ -213,17 +213,48 @@ fn init_logging(logs: Option<&Utf8Path>) {
 
 // ---- standing aside for EML's own loader ----
 
+/// A module path EML's loader may have: its proxy names (`dbghelp.dll`, `dinput8.dll`), the renamed builds mods bundle
+/// (`dbghelp_<mod>.dll`, `dinput8_<name>.dll`: issue 23 had `dinput8_eml.dll` next to a mod's `dbghelp_*.dll`), or
+/// Kiln's chain folder.
 fn loader_module_candidate(path: &str) -> bool {
     let lower = path.to_lowercase().replace('/', "\\");
     let name = lower.rsplit('\\').next().unwrap_or("");
-    name == "dbghelp.dll" || (name.starts_with("dbghelp_") && name.ends_with(".dll"))
-        || name == "dinput8.dll" || lower.contains("\\kiln\\chain\\")
+    let renamed = |stem: &str| name.strip_prefix(stem).is_some_and(|rest| rest.starts_with('_') && rest.ends_with(".dll"));
+    name == "dbghelp.dll" || renamed("dbghelp") || name == "dinput8.dll" || renamed("dinput8")
+        || lower.contains("\\kiln\\chain\\")
+}
+
+/// Who an EML-marked loader file is: ShroudForge's loader (it carries EML) or EML's own. None: not an EML loader (no
+/// `EML_LOG_FILE_PATH`, or Kiln's own proxy, which names every engine).
+fn eml_loader_who(bytes: &[u8]) -> Option<&'static str> {
+    let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+    if has(b"KilnProxy/") || !has(b"EML_LOG_FILE_PATH") {
+        return None;
+    }
+    Some(if has(b"shroudforge") || has(b"ShroudForge") {
+        "ShroudForge's loader (it runs EML packages itself)"
+    } else {
+        "EML's own loader"
+    })
+}
+
+/// More than one EML loader in this process (issue 23: `dinput8_eml.dll` and a mod's bundled `dbghelp_*.dll` build;
+/// EML's log said "Applied 2281 patches" twice per start): each one patches the game files in its DllMain, and kiln-eml
+/// cannot stop either. The sentence for kiln.log and `reason` in kiln/state/eml.json (the launcher's engines view shows
+/// it). None for one loader or none.
+fn several_loaders_note(paths: &[String]) -> Option<String> {
+    if paths.len() < 2 {
+        return None;
+    }
+    let count = if paths.len() == 2 { "two".to_string() } else { paths.len().to_string() };
+    Some(format!("{count} EML loaders in this process ({}): each one patches the game files at every start. Keep one \
+        and remove the others (on a Kiln server remove them all: Kiln runs the EML mods)", paths.join(", ")))
 }
 
 /// EML's own proxy (dbghelp.dll, or dinput8.dll chained by Kiln), or ShroudForge's (which carries EML), loaded in this
 /// process: it already patched the game files in its DllMain, so kiln-eml must not patch them a second time.
 #[cfg(windows)]
-fn eml_loader_loaded() -> Option<(String, &'static str)> {
+fn eml_loader_loaded() -> Option<LoadedLoaders> {
     use windows::Win32::Foundation::HMODULE;
     use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
     use windows::Win32::System::ProcessStatus::EnumProcessModules;
@@ -243,6 +274,7 @@ fn eml_loader_loaded() -> Option<(String, &'static str)> {
         return None;
     }
     let n = (needed as usize / std::mem::size_of::<HMODULE>()).min(mods.len());
+    let mut found: Vec<(String, &'static str)> = Vec::new();
     for &m in &mods[..n] {
         let mut buf = [0u16; 1024];
         let len = unsafe { GetModuleFileNameW(Some(m), &mut buf) } as usize;
@@ -256,10 +288,7 @@ fn eml_loader_loaded() -> Option<(String, &'static str)> {
             continue;
         }
         let Ok(bytes) = std::fs::read(&path) else { continue };
-        let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
-        if has(b"KilnProxy/") || !has(b"EML_LOG_FILE_PATH") {
-            continue;
-        }
+        let Some(who) = eml_loader_who(&bytes) else { continue };
         // Wine without a DLL override loads its builtin dbghelp but reports the game folder's path for it: the file
         // there is EML's, the code in the process is not. The loaded image's PE header must be the file's.
         // A header that cannot be read on either side keeps the old answer: the file's loader counts as running.
@@ -272,15 +301,32 @@ fn eml_loader_loaded() -> Option<(String, &'static str)> {
                 (Wine's builtin, without a DLL override): kiln-eml runs the EML mods");
             continue;
         }
-        let who = if has(b"shroudforge") || has(b"ShroudForge") {
-            "ShroudForge's loader (it runs EML packages itself)"
-        } else {
-            "EML's own loader"
-        };
-        let short = if who.starts_with("ShroudForge") { "ShroudForge's loader" } else { "EML's own loader" };
-        return Some((format!("{path} is loaded: {who} patched the game files this start"), short));
+        found.push((path, who));
     }
-    None
+    loaded_loaders(found)
+}
+
+/// The EML loaders found in this process, as kiln-eml reports them: the first one names who patched the game files;
+/// `several` is set when there is more than one.
+#[cfg_attr(not(windows), allow(dead_code))]
+struct LoadedLoaders {
+    why: String,
+    who: &'static str,
+    paths: Vec<String>,
+    several: Option<String>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn loaded_loaders(found: Vec<(String, &'static str)>) -> Option<LoadedLoaders> {
+    let (path, who) = found.first().cloned()?;
+    let short = if who.starts_with("ShroudForge") { "ShroudForge's loader" } else { "EML's own loader" };
+    let paths: Vec<String> = found.into_iter().map(|(p, _)| p).collect();
+    let several = several_loaders_note(&paths);
+    let why = match &several {
+        Some(note) => format!("{note}. {path} is loaded: {who} patched the game files this start"),
+        None => format!("{path} is loaded: {who} patched the game files this start"),
+    };
+    Some(LoadedLoaders { why, who: short, paths, several })
 }
 
 /// (TimeDateStamp, SizeOfImage, AddressOfEntryPoint) of a PE image's headers: the same for a file and its loaded image.
@@ -294,7 +340,7 @@ fn pe_identity(b: &[u8]) -> Option<(u32, u32, u32)> {
 }
 
 #[cfg(not(windows))]
-fn eml_loader_loaded() -> Option<(String, &'static str)> { None }
+fn eml_loader_loaded() -> Option<LoadedLoaders> { None }
 
 /// The folders another EML runner reads: EML's `<game>/mods`, and ShroudForge's configured mods folder.
 fn loader_roots(game: &Utf8Path) -> Vec<Utf8PathBuf> {
@@ -566,11 +612,20 @@ fn start(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo, with_ready:
     if rc != KILN_OK {
         tracing::debug!(rc, "kiln.eml not published");
     }
-    if let Some((why, who)) = eml_loader_loaded() {
+    if let Some(found) = eml_loader_loaded() {
         RAN.store(true, Ordering::Release);
-        klog(3, &format!("kiln-eml: standing aside: {why}. Remove it to let Kiln run the EML mods (kiln/state/eml.json)"));
+        let LoadedLoaders { why, who, paths, several } = found;
+        if several.is_some() {
+            klog(2, &format!("kiln-eml: standing aside: {why}. Remove them to let Kiln run the EML mods (kiln/state/eml.json)"));
+        } else {
+            klog(3, &format!("kiln-eml: standing aside: {why}. Remove it to let Kiln run the EML mods (kiln/state/eml.json)"));
+        }
         let sf = who.starts_with("ShroudForge") && kpath(KILN_PATH_GAME).is_some_and(|g| shroudforge_mode(&g));
-        let out = aside_outcome(&why, who, sf);
+        let mut out = aside_outcome(&why, who, sf);
+        out.loaders = paths;
+        if several.is_some() {
+            out.reason = several;
+        }
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
     }
     KILN_OK
@@ -691,6 +746,39 @@ mod tests {
             assert!(loader_module_candidate(path), "loaded EML at {path} must be inspected before kiln-eml runs");
         }
         assert!(!loader_module_candidate(r"C:\Game\unrelated.dll"));
+        assert!(!loader_module_candidate(r"C:\Game\dinput8x.dll"));
+    }
+    /// Issue 23: `dinput8_eml.dll` and a mod's bundled `dbghelp_*.dll` EML build in one server process (EML's log:
+    /// "Applied 2281 patches" twice per start). Both are EML loaders, and kiln-eml says there are two and to keep one.
+    #[test]
+    fn two_eml_loaders_in_one_process_are_reported() {
+        let eml = |tail: &[u8]| [b"MZ...EML_LOG_FILE_PATH...".as_slice(), tail].concat();
+        let a = r"C:\Servers\Game\dinput8_eml.dll".to_string();
+        let b = r"C:\Servers\Game\dbghelp_XHL-Unlimited-FlameAltars.dll".to_string();
+        assert!(loader_module_candidate(&a), "a renamed dinput8 build of EML's loader is a candidate");
+        assert!(loader_module_candidate(&b));
+        assert_eq!(eml_loader_who(&eml(b"")), Some("EML's own loader"));
+        assert_eq!(eml_loader_who(b"MZ plain proxy"), None);
+        assert_eq!(eml_loader_who(&eml(b"KilnProxy/2 0.2.0")), None, "Kiln's proxy names EML but is not its loader");
+        let one = loaded_loaders(vec![(b.clone(), "EML's own loader")]).unwrap();
+        assert!(one.several.is_none() && one.paths == [b.clone()]);
+        assert!(one.why.starts_with(&format!("{b} is loaded: EML's own loader patched")), "{}", one.why);
+        let two = loaded_loaders(vec![(a.clone(), "EML's own loader"), (b.clone(), "EML's own loader")]).unwrap();
+        let note = two.several.as_deref().expect("two loaders are reported");
+        assert!(note.starts_with(&format!("two EML loaders in this process ({a}, {b})")), "{note}");
+        assert!(note.contains("Keep one"), "{note}");
+        assert!(two.why.starts_with(note), "the stand-aside line leads with it: {}", two.why);
+        assert_eq!(two.paths, [a.clone(), b.clone()]);
+        assert!(several_loaders_note(&[a.clone(), b.clone(), "C:\\x\\dbghelp.dll".into()]).unwrap().starts_with("3 EML loaders"));
+        // the state file: `reason` carries the sentence the launcher's engines view shows, `loaders` the paths
+        let mut out = Outcome::new(Phase::Aside, Vec::new());
+        out.aside = Some(two.why.clone());
+        out.loaders = two.paths.clone();
+        out.reason = two.several.clone();
+        let v = serde_json::to_value(&out).unwrap();
+        assert_eq!(v["loaders"].as_array().map(Vec::len), Some(2));
+        assert!(v["reason"].as_str().unwrap().contains("Keep one"));
+        assert!(serde_json::to_value(Outcome::new(Phase::Aside, Vec::new())).unwrap().get("loaders").is_none());
     }
     #[test]
     fn pe_identity_reads_the_header_fields() {

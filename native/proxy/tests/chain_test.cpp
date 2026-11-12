@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include "../dinput8.cpp"
 
@@ -46,6 +47,31 @@ int main(int argc, char** argv) {
     // Do not override play-once no-mods or a corrupt profile's skip decision.
     chain_one(KILN_CHAIN_SOURCE_PROFILE, root.c_str(), L"plain.dll", kAccept, true);
     CHECK(g_chain[g_count - 1].status == KILN_CHAIN_SKIPPED);
+    // Issue 23: a chain.ini put in kiln\chain\ is not read. proxy.log says where it belongs, and only while
+    // kiln\chain.ini does not exist.
+    {
+        const auto game = root / L"misplaced";
+        fs::create_directories(game / L"kiln" / L"chain");
+        std::ofstream(game / L"kiln" / L"chain" / L"chain.ini") << "[chain]\nloader.dll\n";
+        lstrcpynW(g_game, game.c_str(), kPath);
+        lstrcpynW(g_kiln, (game / L"kiln").c_str(), kPath);
+        auto start = [&] {
+            open_log();
+            load_chain(false, false);
+            CloseHandle(g_log);
+            g_log = INVALID_HANDLE_VALUE;
+            std::ifstream in(game / L"kiln" / L"logs" / L"proxy.log", std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        };
+        const std::string hint = "\\kiln\\chain\\chain.ini is not read: the chain file belongs in ";
+        std::string log = start();
+        std::printf("misplaced chain.ini: %s", log.c_str());
+        CHECK(log.find(hint) != std::string::npos);
+        CHECK(log.find("\\kiln\\chain.ini (one folder up") != std::string::npos);
+        std::ofstream(game / L"kiln" / L"chain.ini") << "[chain]\n";
+        log = start();
+        CHECK(log.find(hint) == std::string::npos);
+    }
     std::printf("proxy chain: %u checks passed\n", checks);
     return 0;
 }

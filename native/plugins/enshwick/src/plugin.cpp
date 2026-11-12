@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "../../compat/compat.h"
+#include "../../compat/set_marker.h"
 #include "logic.h"
 #include "tree.h"
 #include <memory>
@@ -143,9 +144,15 @@ StepAsideFacts gather_step_aside(std::string* note) {
         else if (enshwick)
             *note = "powrprof.dll is Enshwick's stub but did not load (under Wine it needs WINEDLLOVERRIDES=powrprof=n,b): "
                     "Kiln runs Enshwick instead";
-        else
-            *note = "powrprof.dll belongs to another tool (SET, Shared XP, Creative Mode's server build, Ember...); it "
-                    "keeps running, and Kiln runs Enshwick";
+        else {
+            // Named by that tool's own markers (compat/set_marker.h), never guessed from the file name: a proxy loader
+            // that only forwards the system DLL's exports is no SET (issue 23).
+            const std::string tool = kcompat::power_proxy_tool(pp);
+            *note = (tool.empty() ? std::string("powrprof.dll is another tool's power proxy (not Enshwick's stub; no marker of "
+                                                "SET, Shared XP, Ember or Creative Mode's server build)")
+                                  : "powrprof.dll is " + tool + "'s") +
+                    "; it keeps running, and Kiln runs Enshwick";
+        }
     }
     if (HANDLE m = OpenMutexW(SYNCHRONIZE, FALSE, claim_name().c_str())) {
         CloseHandle(m);

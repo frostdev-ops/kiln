@@ -121,3 +121,17 @@ test("Deck has a label for every detected kind and adopted receipts are accepted
   const adopted: ReplacedFile["action"] = "adopted";
   expect(adopted).toBe("adopted");
 });
+
+// Issue 23: kiln-eml found two EML loaders in one server (dinput8_eml.dll and a mod's bundled dbghelp_*.dll build).
+test("the engines view says to keep one EML loader when kiln-eml found two", () => {
+  const reason = "two EML loaders in this process (C:\\S\\dinput8_eml.dll, C:\\S\\dbghelp_x.dll): each one patches the game files at every start. Keep one and remove the others (on a Kiln server remove them all: Kiln runs the EML mods)";
+  const s: EngineStatus = { kind: "eml", plugin: "kiln-eml", file: "kiln/state/eml.json",
+    state: { format: 1, phase: "aside", aside: `${reason}. C:\\S\\dinput8_eml.dll is loaded: EML's own loader patched the game files this start`,
+      reason, loaders: ["C:\\S\\dinput8_eml.dll", "C:\\S\\dbghelp_x.dll"], mods: [] } };
+  const html = render(s);
+  expect(html).toContain("aside");
+  expect(html).toContain("Keep one and remove the others");
+  expect(html).toMatch(/<span class="k-tone-warn" data-eml-loaders="2">two EML loaders in this process/);
+  const one: EngineStatus = { ...s, state: { format: 1, phase: "aside", aside: "C:\\S\\dbghelp.dll is loaded", loaders: ["C:\\S\\dbghelp.dll"], mods: [] } };
+  expect(render(one)).not.toContain("data-eml-loaders");
+});

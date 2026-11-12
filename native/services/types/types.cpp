@@ -63,8 +63,9 @@ std::atomic<bool> g_systems_ok{false};
 // When native SET may have appeared since the startup check: after a DLL load or a module-list change (3 s
 // fingerprint, no wineserver call), never per tick (the check reaches wineserver once per loaded module under Wine).
 kset::ModuleWatch g_modules;
-// A module inventory that fails once is retried (coexist.h): the runner goes passive only for a SET or power proxy
-// that was seen, or after ConflictGate::failures_to_step_aside failed inventories in a row. Tick thread only.
+// A module inventory that fails once is retried (coexist.h): the runner goes passive only for a SET runtime that was
+// seen (SET's markers; another tool's powrprof.dll is not SET), or after ConflictGate::failures_to_step_aside failed
+// inventories in a row. Tick thread only.
 kset::ConflictGate g_conflicts;
 bool g_external_runner = false;
 // Passive because the inventory could not be read, not because another runtime was seen: the gate keeps looking, and a
@@ -228,7 +229,7 @@ KilnResult KILN_CALL status(KilnTypesStatus* out) {
     out->profile_seconds = g_profile.seconds(now.QuadPart, g_qpf);
     out->detail = !g_external_runner ? ks(g_detail)
                   : g_runner_unsure  ? ks("the loaded modules could not be read (kiln.log says why); system runner passive until a check reads them")
-                                     : ks("native SET/power proxy detected; system runner passive until exit");
+                                     : ks("native SET detected; system runner passive until exit");
     return KILN_OK;
 }
 uint32_t KILN_CALL type_count() { return g_tt.error.empty() ? g_tt.count : 0; }
@@ -502,14 +503,14 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
                     g_external_runner = false;
                 }
                 g_systems_ok = true;
-                logf(KILN_LOG_INFO, "native SET/power proxy check: the loaded modules were read again (%zu modules, no SET or power proxy): "
+                logf(KILN_LOG_INFO, "native SET check: the loaded modules were read again (%zu modules, no SET): "
                      "system runner active again; switch and hook requests made before it went passive must be made again", seen.modules);
             } else if (seen.state == kset::Inventory::foreign) {
                 {
                     std::lock_guard lock(g_sys_mu);
                     g_runner_unsure = false;
                 }
-                logf(KILN_LOG_WARN, "native SET/power proxy check: %s: runner left passive until exit", conflict.c_str());
+                logf(KILN_LOG_WARN, "native SET check: %s: runner left passive until exit", conflict.c_str());
             }
             return;
         }
@@ -532,11 +533,11 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         HMODULE pin = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&runner_detour), &pin);
         if (unsure)
-            logf(KILN_LOG_WARN, "native SET/power proxy check: %s: systems restored, runner passive until a check reads the loaded "
+            logf(KILN_LOG_WARN, "native SET check: %s: systems restored, runner passive until a check reads the loaded "
                  "modules again (looked at every %llu s)", conflict.c_str(),
                  static_cast<unsigned long long>(kset::ConflictGate::passive_retry_ms / 1000));
         else
-            logf(KILN_LOG_WARN, "native SET/power proxy check: %s: systems restored, runner left passive until exit", conflict.c_str());
+            logf(KILN_LOG_WARN, "native SET check: %s: systems restored, runner left passive until exit", conflict.c_str());
         return;
     }
     if (!reap || !g_off_count.load(std::memory_order_acquire)) return;
