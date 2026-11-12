@@ -312,6 +312,10 @@ class NexusTests(unittest.TestCase):
             "runtime/kilnctl.exe": os.urandom(400),
             "sdk/Kiln.Sdk.0.2.0.nupkg": os.urandom(300),
             "sdk/kiln": os.urandom(300),
+            # folders for a web server (the NuGet feed, the API reference): not in the SDK zip
+            "sdk/feed/index.json": b"{}",
+            "sdk/feed/kiln.sdk/index.json": b"{}",
+            "sdk/api/index.html": b"<html></html>",
         }
         if nexus:  # the Nexus build: no self-update
             files.update({
@@ -435,6 +439,7 @@ class NexusTests(unittest.TestCase):
             self.assertIn(b"does not update itself", files["README.txt"], prefix)
         # the SDK zip carries the Nexus README too; the runtime is as before
         self.assertIn(b"does not update itself", self.zip_of("kiln-sdk")["README.txt"])
+        self.assertEqual(sorted(self.zip_of("kiln-sdk")), ["Kiln.Sdk.0.2.0.nupkg", "README.txt", "kiln"])
         self.assertIn("kilnctl", self.zip_of("kiln-runtime-standalone"))
         # the first release creates the files: nothing to archive yet
         self.assertTrue(all("archive_existing_file" not in f["req"] for f in self.mock.files))
