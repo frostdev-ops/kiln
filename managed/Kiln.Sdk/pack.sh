@@ -6,7 +6,7 @@
 #                   and the native SDK in native/ (KilnPlugin.cmake, the ABI headers, the Linux toolchain)
 #   Kiln.Templates  dotnet new kiln-mod, kiln-items, kiln-native, ... (templates/kiln-*)
 # A service that fails to build is left out of Kiln.Api (warning), like tools/deploy-server.sh does.
-#   KILN_OUT=<build dir> [KILN_SDK_VERSION=<version>] managed/Kiln.Sdk/pack.sh
+#   KILN_OUT=<build dir> [KILN_SDK_VERSION=<version>] [KILN_API_BASELINE=<last release Kiln.Api, folder or .nupkg>] managed/Kiln.Sdk/pack.sh
 # Version: KILN_SDK_VERSION (tools/release/release.sh sets the release's, e.g. 0.2.0-dev.12), else a new one per pack:
 # <base>-dev.local.<yyyymmdd>.<hhmmss> (UTC; base from Sdk/Kiln.Version.props). NuGet caches a package by id and version and
 # never looks again, so the same version packed twice would leave mods on the first one; a +build suffix doesn't help, as
@@ -25,9 +25,18 @@ rm -rf "$stage" && mkdir -p "$feed" "$stage"
 build() { dotnet build "$1" -c Release -o "$stage" --artifacts-path "$out/dotnet" -v q -nologo -p:GenerateDocumentationFile=true -p:NoWarn='CS1591%3BCS1573' >/dev/null; }
 build "$repo/managed/Kiln.Api/Kiln.Api.csproj"
 build "$repo/managed/Kiln.Testing/Kiln.Testing.csproj"
+not_built=()
 for proj in "$repo"/managed/services/*/*.csproj; do
-  build "$proj" || echo "pack: WARNING: $(basename "$proj" .csproj) failed to build; not in Kiln.Api" >&2
+  build "$proj" || { echo "pack: WARNING: $(basename "$proj" .csproj) failed to build; not in Kiln.Api" >&2; not_built+=(--not-built "$(basename "$proj" .csproj)"); }
 done
+# The API compat gate (tools/release/apicompat.sh): the staged DLLs against the last release's (KILN_API_BASELINE, a folder
+# or a Kiln.Api .nupkg). A break stops the pack before any package is written; unset, it warns loudly and the pack goes on.
+if [[ -n ${KILN_API_BASELINE:-} ]]; then
+  "$repo/tools/release/apicompat.sh" "${not_built[@]}" "$KILN_API_BASELINE" "$stage" \
+    || { echo "pack: the API compat gate failed (above); no package written" >&2; exit 1; }
+else
+  "$repo/tools/release/apicompat.sh" "" "$stage" || [[ $? == 3 ]]
+fi
 # Roslyn components shipped inside Kiln.Sdk (analyzers/dotnet/cs): KILN1xx analyzers + code fixes, the game-id generator.
 analyzers=$out/mdk-analyzers
 rm -rf "$analyzers" && mkdir -p "$analyzers"
