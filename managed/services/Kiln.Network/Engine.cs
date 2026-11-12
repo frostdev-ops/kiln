@@ -295,6 +295,7 @@ internal static class NetEngine
             if (p is null) return;
             var was = p.State;
             p.State = NetPeerState.Closed;
+            if (p.Kick is not null) PlayerGate.Kicked(p, NetNative.Ok);  // it left on Kiln's refusal before the login failure
             Log(LogLevel.Info, $"peer {p.Name} (0x{peer:x}) left ({was})");
             if (Events.HasSubscribers<NetPeerLeftEvent>()) Events.Post(new NetPeerLeftEvent(p));
         }
@@ -574,9 +575,39 @@ internal static class NetEngine
         }
     }
 
+    /// <summary>A refusal of PlayerGate waits for its time: the server tick looks every step, not every 25.</summary>
+    internal static bool KicksPending;
+
+    /// <summary>Tests: whether this process serves clients (null: kiln.net's roles say).</summary>
+    internal static bool? TestServerRole;
+
+    /// <summary>Sends a Kiln client a REJECT with <paramref name="reason"/> (its overlay shows it).</summary>
+    internal static void SendReject(NetPeer p, string reason) => SendFrame(p.Id, EncodeRejectAdvertised(new Wire.Reject(reason, [])), p);
+
+    internal static void RunDueKicks(DateTime now)
+    {
+        var left = false;
+        foreach (var p in ServerPeers())
+        {
+            if (p.Kick is null) continue;
+            if (p.KickAt is { } at && now >= at) RunKick(p);
+            else left = true;
+        }
+        KicksPending = left;
+    }
+
+    private static void RunKick(NetPeer p)
+    {
+        p.KickAt = null;
+        var rc = NetNative.Kick(p.Id, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
+        Log(rc == NetNative.Ok ? LogLevel.Info : LogLevel.Warn, $"kick {p.Name} (0x{p.Id:x}): rc {rc}");
+        if (p.Kick is not null) PlayerGate.Kicked(p, rc);
+    }
+
     private static void ServerTick(in TickInfo tick)
     {
         if (_tableDirty) BroadcastChannelTable();
+        if (KicksPending) RunDueKicks(DateTime.UtcNow);
         if (tick.Step % 25 != 0) return;  // ~1 s on a dedicated server
         NetAdvertise.Tick();
         var now = DateTime.UtcNow;
@@ -588,7 +619,8 @@ internal static class NetEngine
         foreach (var p in ServerPeers())
         {
             RefreshInfo(p);
-            if (!TestFreezeVanillaDecisions && VanillaGate.TimeIsUp(p.State, p.IsLab, p.HeldSince, p.InGameSince, now, _config))
+            PlayerGate.Check(p);  // the ban list and PlayerLoginEvent, once the connection names its player
+            if (!TestFreezeVanillaDecisions && p.Kick is null && VanillaGate.TimeIsUp(p.State, p.IsLab, p.HeldSince, p.InGameSince, now, _config))
             {
                 var held = p.HeldSince != null;
                 p.State = NetPeerState.Vanilla;
@@ -608,12 +640,7 @@ internal static class NetEngine
                     if (rc != NetNative.Ok) Log(LogLevel.Warn, $"letting {p.Name} (0x{p.Id:x}) in: rc {rc}");
                 }
             }
-            if (p.KickAt is { } at && now >= at)
-            {
-                p.KickAt = null;
-                var rc = NetNative.Kick(p.Id, _config.KickReason);
-                Log(rc == NetNative.Ok ? LogLevel.Info : LogLevel.Warn, $"kick {p.Name} (0x{p.Id:x}): rc {rc}");
-            }
+            if (p.KickAt is { } at && now >= at) RunKick(p);
             if (p.State == NetPeerState.Ready && p.Cleared && p.DefinitionsSince == null && p.ClearedTemplates != gate.KilnTemplates)
             {
                 // Kiln-only templates were added since its last clear (a hot load): kiln.net keeps their entities from it. A
@@ -1069,6 +1096,7 @@ internal static class NetworkStartup
     static NetworkStartup()
     {
         NetEngine.EnsureStarted();
+        PlayerGate.Start();  // Players.Kick, the ban list, PlayerLoginEvent (docs/kiln/services/players.md)
         ConfigSync.Start();  // docs/kiln/sync.md
         SteamGuardRelay.Start();  // both sides, before any hello: a client's hello lists its channels
     }

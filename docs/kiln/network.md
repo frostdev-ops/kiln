@@ -35,7 +35,9 @@ ch.SendTo(player, msg); ch.SendTo(peer, msg); ch.SendToAll(msg, except: peer); c
 ## Peers and events
 - `Network.Peers` (server): every connected machine, Kiln or not. `NetPeer`: `Name`, `Player` (entity), `AccountId`,
   `State` (Connecting / Ready / Vanilla / Rejected / Closed), `KilnVersion`, `Mods`, `Properties`, `Warnings`,
-  `RoundTrip`, counters. `Network.PeerOf(entity)`.
+  `RoundTrip`, counters. `Network.PeerOf(entity)`. `Network.Kick(peer, reason)` (dev.27): refuses a connection, the
+  same way the gate refuses a client without Kiln; for players, `Players.Kick` and Kiln's ban list
+  ([services/players.md](services/players.md#kick-and-ban-dev27)), checked on the server tick with `PlayerLoginEvent`.
 - `Network.Server` (client): the server connection; `Network.ServerHasKiln`.
 - Server events (event bus, tick thread):
   - `NetClientHandshakeEvent` (cancelable): a Kiln client's HELLO arrived. Fields: `Missing`, `Extra`, and `Refuse`,

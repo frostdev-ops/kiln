@@ -59,6 +59,7 @@
     { "section": "New in 0.2.0-dev.26", "key": "A held model with moving parts", "checks": ["weapon-moves-test/blocks.held-animated", "weapon-moves-test/blocks.held-animated-two-players"] },
 
     { "section": "New in 0.2.0-dev.27", "key": "A mod takes a buff off a player: the icon goes", "checks": ["abilities.remove-buff"] },
-    { "section": "New in 0.2.0-dev.27", "key": "Player.Aim follows the player's camera", "checks": ["players.aim"] }
+    { "section": "New in 0.2.0-dev.27", "key": "Player.Aim follows the player's camera", "checks": ["players.aim"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Kick and ban a joined player", "checks": ["kick-test/players.kick", "kick-test/players.kick.after", "kick-test/players.ban", "kick-test/players.ban.after"] }
   ]
 }

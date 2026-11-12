@@ -26,3 +26,67 @@ override Kiln.PlayerAim.ToString() -> string!
 static Kiln.PlayerAim.operator !=(Kiln.PlayerAim? left, Kiln.PlayerAim? right) -> bool
 static Kiln.PlayerAim.operator ==(Kiln.PlayerAim? left, Kiln.PlayerAim? right) -> bool
 static Kiln.PlayerStates.AimOf(Kiln.EntityId player) -> Kiln.PlayerAim?
+Kiln.BanEntry
+Kiln.BanEntry.<Clone>$() -> Kiln.BanEntry!
+Kiln.BanEntry.BanEntry(ulong SteamId, ulong AccountId, string! Name, string! Reason, string! By, System.DateTimeOffset Since, System.DateTimeOffset? Until) -> void
+Kiln.BanEntry.Deconstruct(out ulong SteamId, out ulong AccountId, out string! Name, out string! Reason, out string! By, out System.DateTimeOffset Since, out System.DateTimeOffset? Until) -> void
+Kiln.BanEntry.Equals(Kiln.BanEntry? other) -> bool
+Kiln.BanEntry.Since.get -> System.DateTimeOffset
+Kiln.BanEntry.Since.init -> void
+Kiln.Bans
+Kiln.KickResult
+Kiln.KickResult.<Clone>$() -> Kiln.KickResult!
+Kiln.KickResult.Equals(Kiln.KickResult? other) -> bool
+Kiln.KickResult.Name.get -> string!
+Kiln.KickResult.Ok.get -> bool
+Kiln.KickResult.Player.get -> Kiln.PlayerRef
+Kiln.KickResult.Reason.get -> string?
+Kiln.PlayerBannedEvent.Ban.get -> Kiln.BanEntry!
+Kiln.PlayerLoginEvent
+Kiln.PlayerLoginEvent.AccountId.get -> ulong
+Kiln.PlayerLoginEvent.Entity.get -> Kiln.EntityId
+Kiln.PlayerLoginEvent.HasKiln.get -> bool
+Kiln.PlayerLoginEvent.Name.get -> string!
+Kiln.PlayerLoginEvent.Reason.get -> string!
+Kiln.PlayerLoginEvent.Reason.set -> void
+Kiln.PlayerLoginEvent.SteamId.get -> ulong
+Kiln.PlayerUnbannedEvent
+Kiln.PlayerUnbannedEvent.Ban.get -> Kiln.BanEntry!
+Kiln.PlayerUnbannedEvent.By.get -> string!
+override Kiln.BanEntry.Equals(object? obj) -> bool
+override Kiln.BanEntry.GetHashCode() -> int
+override Kiln.KickResult.Equals(object? obj) -> bool
+override Kiln.KickResult.GetHashCode() -> int
+override Kiln.KickResult.ToString() -> string!
+static Kiln.Bans.Add(Kiln.PlayerRef player, string! reason, System.TimeSpan? duration = null) -> Kiln.BanEntry!
+static Kiln.Bans.Add(ulong steamId, string! reason, System.TimeSpan? duration = null) -> Kiln.BanEntry!
+static Kiln.Bans.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.BanEntry!>!
+static Kiln.Bans.Find(ulong steamOrAccountId) -> Kiln.BanEntry?
+static Kiln.Bans.Remove(ulong steamOrAccountId) -> bool
+static Kiln.KickResult.operator !=(Kiln.KickResult? left, Kiln.KickResult? right) -> bool
+static Kiln.KickResult.operator ==(Kiln.KickResult? left, Kiln.KickResult? right) -> bool
+static Kiln.Players.Kick(Kiln.PlayerRef player, string! reason) -> System.Threading.Tasks.Task<Kiln.KickResult!>!
+Kiln.BanEntry.AccountId.get -> ulong
+Kiln.BanEntry.AccountId.init -> void
+Kiln.BanEntry.By.get -> string!
+Kiln.BanEntry.By.init -> void
+Kiln.BanEntry.IsActive(System.DateTimeOffset now) -> bool
+Kiln.BanEntry.Matches(ulong steamId, ulong accountId) -> bool
+Kiln.BanEntry.Name.get -> string!
+Kiln.BanEntry.Name.init -> void
+Kiln.BanEntry.Reason.get -> string!
+Kiln.BanEntry.Reason.init -> void
+Kiln.BanEntry.SteamId.get -> ulong
+Kiln.BanEntry.SteamId.init -> void
+Kiln.BanEntry.Until.get -> System.DateTimeOffset?
+Kiln.BanEntry.Until.init -> void
+Kiln.PlayerBannedEvent
+Kiln.PlayerKickedEvent
+Kiln.PlayerKickedEvent.Banned.get -> bool
+Kiln.PlayerKickedEvent.By.get -> string?
+Kiln.PlayerKickedEvent.Name.get -> string!
+Kiln.PlayerKickedEvent.Player.get -> Kiln.PlayerRef
+Kiln.PlayerKickedEvent.Reason.get -> string!
+override Kiln.BanEntry.ToString() -> string!
+static Kiln.BanEntry.operator !=(Kiln.BanEntry? left, Kiln.BanEntry? right) -> bool
+static Kiln.BanEntry.operator ==(Kiln.BanEntry? left, Kiln.BanEntry? right) -> bool
