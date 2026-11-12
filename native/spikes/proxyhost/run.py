@@ -1481,11 +1481,42 @@ def s_bootinfo_v2proxy():
     return h
 
 
+def s_xhl_name():
+    """XHL-Core 2.x picks its role in DllMain by GetModuleHandleW(L"dinput8.dll"): its own module means "primary", and it
+    waits for a call of its own DirectInput8Create, which behind Kiln's proxy never comes (no XHL plugin starts). A DLL the
+    proxy chain-loads from chain.ini [profile] under another file name (Kiln's copy kiln\\chain\\<id>\\xhl-core.dll) gets
+    the proxy for that name; under Wine one whose file is called dinput8.dll (a Library entry that keeps the name it was
+    downloaded with) gets itself. That is why kiln-manage chain-loads XHL-Core from that copy
+    (engine_mods::xhl_core_chain_dlls)."""
+    before = len(failures)
+    g = Game("xhl-own-name")
+    g.dll("dinput8-probe", "kiln/chain/xhl-core/xhl-core.dll")
+    g.write("kiln/chain.ini", "[profile]\nchain\\xhl-core\\xhl-core.dll\n")
+    g.run()
+    print(f"[xhl-name, kiln\\chain\\xhl-core\\xhl-core.dll] rc {g.rc}")
+    probe = next((l for l in g.lines if l.startswith("probe dinput8-probe dinput8.dll=")), "")
+    check(g, has(g.lines, "dll dinput8-probe attach"), "the copy under its own name loads from chain.ini [profile]")
+    check(g, probe.startswith("probe dinput8-probe dinput8.dll=other "), f"it does not get itself for dinput8.dll ({probe})")
+    check(g, probe.split(" ", 3)[-1].lower() == winpath(os.path.join(g.dir, "dinput8.dll")).lower(), "it gets Kiln's proxy")
+    if len(failures) != before:
+        dump(g)
+    h = Game("xhl-dinput8-name")
+    lib = h.dll("dinput8-probe", "library/xhl-core/dinput8.dll")  # outside kiln\, as the launcher's Library is
+    h.write("kiln/chain.ini", f"[profile]\n{winpath(lib)}\n")
+    h.run()
+    print(f"[xhl-name, library\\xhl-core\\dinput8.dll] rc {h.rc}")
+    probe = next((l for l in h.lines if l.startswith("probe dinput8-probe dinput8.dll=")), "")
+    check(h, has(h.lines, "dll dinput8-probe attach"), "a DLL called dinput8.dll elsewhere loads from chain.ini [profile] too")
+    check(h, probe.startswith("probe dinput8-probe dinput8.dll=self"),
+          f"under Wine it gets itself for dinput8.dll, as XHL-Core's \"role=primary.\" showed ({probe})")
+    return h
+
+
 SCENARIOS = {f.__name__[2:]: f for f in (s_chain, s_emf, s_engine_bounds, s_emf_limits, s_vanilla, s_nomods, s_profile, s_profile_rules, s_expired, s_future, s_invalid,
                                           s_server, s_undeletable, s_disabled, s_crash_reporter, s_corrupt, s_fixtures, s_semver,
                                           s_realcore, s_late, s_late_modes, s_late_realcore, s_rules_realcore, s_late_native_realcore, s_late_policy_realcore,
                                           s_late_requires_realcore, s_late_already_loaded_realcore, s_late_loader_and_entry, s_overlap_refused_realcore,
-                                          s_late_oldproxy, s_entry_gate_held, s_addon_log, s_bootinfo_v2proxy)}
+                                          s_late_oldproxy, s_entry_gate_held, s_addon_log, s_bootinfo_v2proxy, s_xhl_name)}
 
 
 def main():

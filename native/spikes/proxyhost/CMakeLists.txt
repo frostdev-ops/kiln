@@ -44,6 +44,8 @@ proxyhost_dll(fake-emf-exports TEST_EMF_EXPORTS)
 proxyhost_dll(fake-emf-wide TEST_EMF_WIDE)
 proxyhost_dll(fake-kiln-exports TEST_KILN_EXPORTS)
 proxyhost_dll(addon-log TEST_APPENDS_ADDON_LOG)
+# asks for the module called dinput8.dll in its DllMain, as XHL-Core 2.x does to pick its role
+proxyhost_dll(dinput8-probe TEST_DINPUT8_PROBE)
 add_dependencies(proxyhost proxyhost-fakecore)
 
 # The core's semver port against schema/fixtures/semver (run.py runs it as scenario "semver").
