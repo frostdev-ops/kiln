@@ -7,8 +7,9 @@ namespace Kiln;
 /// dispatcher of <see cref="Hooks"/> and the label the target's symbol (or owner name and RVA), so the cookie decides.
 /// A fresh cookie per install took a new slot of the 65,536 every time. Here a cookie belongs to one (mod id, kind,
 /// address) for the life of the process: removing an install returns it to that key's free list and the next install
-/// on the key takes it again, also after the mod reloaded (its id is the same). Two installs on one key that are live
-/// at the same time get two cookies. Only strings and numbers are kept, so nothing here holds an unloaded mod.</summary>
+/// on the key takes it again, also after the mod reloaded (its id is the same; see <see cref="Owner"/> for the owner).
+/// Two installs on one key that are live at the same time get two cookies. Only strings and numbers are kept, so nothing
+/// here holds an unloaded mod.</summary>
 internal static class HookCookies
 {
     public const byte Detour = 0, Mid = 1;
@@ -44,8 +45,26 @@ internal static class HookCookies
         }
     }
 
-    /// <summary>The native owner the mod's links are installed under.</summary>
-    public static ulong Owner(ModContext mod) => mod.Owner;
+    // The registry also compares the owner, and the host gives every load of a mod a new one (Kiln.Host Mods.LoadCore:
+    // OwnerCreate("mod:" + id)). Links go under an owner of Kiln.Hooks' own per mod id instead, with the same name, made
+    // once and never revoked as a whole: so a reloaded mod's install matches its previous load's revoked link too. Its
+    // links are revoked one by one when a context of the mod retires (Hooks.Forget); its patches stay under the mod's
+    // own owner (Memory.Patch, RevokeOwner on retire).
+    private static readonly Dictionary<string, ulong> Owners = new(StringComparer.Ordinal);
+
+    /// <summary>Makes a native owner (the core's owner_create; 0 when there is no core). Tests replace it.</summary>
+    internal static Func<string, ulong> CreateOwner = name => Backend.Current.OwnerCreate(name);
+
+    /// <summary>The native owner the mod's links are installed under: one per mod id for the process, else (no core
+    /// to make one) the mod's own.</summary>
+    public static ulong Owner(ModContext mod)
+    {
+        ulong owner;
+        lock (Gate)
+            if (!Owners.TryGetValue(mod.Info.Id, out owner))
+                Owners[mod.Info.Id] = owner = CreateOwner("mod:" + mod.Info.Id);
+        return owner != 0 ? owner : mod.Owner;
+    }
 
     /// <summary>Free cookies of a key (tests).</summary>
     internal static int FreeCount(string modId, byte kind, nuint address)

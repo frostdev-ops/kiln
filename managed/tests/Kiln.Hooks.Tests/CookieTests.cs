@@ -15,8 +15,20 @@ public sealed class CookieTests : IDisposable
     readonly string _id = $"cookie-mod-{Interlocked.Increment(ref _seq)}";  // a key of its own per test
     static readonly nuint Address = unchecked((nuint)0x140001000UL);
 
-    public CookieTests() => FakeRegistry.Install();
-    public void Dispose() => FakeRegistry.Uninstall();
+    const ulong HooksOwner = 0x5000;  // what the core's owner_create would hand Kiln.Hooks for a mod id
+    readonly Func<string, ulong> _createOwner = HookCookies.CreateOwner;
+
+    public CookieTests()
+    {
+        FakeRegistry.Install();
+        HookCookies.CreateOwner = _ => HooksOwner;
+    }
+
+    public void Dispose()
+    {
+        HookCookies.CreateOwner = _createOwner;
+        FakeRegistry.Uninstall();
+    }
 
     static nuint PassThrough(HookCall call) => call.CallOriginal();
     static void Nothing(ref Registers r) { }
@@ -117,6 +129,9 @@ public sealed class CookieTests : IDisposable
         });
         var after = FakeRegistry.Live.ToDictionary(l => l.Kind, l => l.User);
         Assert.Equal(before, after);
+        // same cookie and the same hooks owner: the registry revived both links, no new slot
+        Assert.Equal(2, FakeRegistry.SlotsUsed);
+        Assert.All(FakeRegistry.Live, l => Assert.Equal(HooksOwner, l.Owner));
 
         // the old context's handle no longer reaches the new install that took its cookie
         stale.Remove();
@@ -124,5 +139,21 @@ public sealed class CookieTests : IDisposable
         FakeRegistry.CallDetour(detour);
         Assert.Equal(1, calls);
         TestMods.Retire(reloaded);
+    }
+
+    [Fact]
+    public void RetiringOneContextOfAModLeavesAnotherLiveContextsLinks()
+    {
+        // two live contexts of one id (a client and its hosted server, say) share the hooks owner
+        var a = TestMods.Make(_id, advanced: true, owner: 47);
+        var b = TestMods.Make(_id, advanced: true, owner: 48);
+        TestMods.As(a, () => HooksApi.Detour(Address, PassThrough));
+        TestMods.As(b, () => HooksApi.Detour(Address, PassThrough));
+        Assert.Equal(2, FakeRegistry.Live.Select(l => l.User).Distinct().Count());
+        TestMods.Retire(a);
+        var left = Assert.Single(FakeRegistry.Live);
+        Assert.Same(b, HooksApi.Detours[(long)left.User].Mod);
+        TestMods.Retire(b);
+        Assert.Empty(FakeRegistry.Live);
     }
 }

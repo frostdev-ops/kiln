@@ -51,9 +51,11 @@ internal static class HooksGate
         unsafe
         {
             var t = HooksNative.T;
-            if (t != null) t->RevokeOwner(mod.Owner);  // native: drop all hooks (chains emptied), restore all patches
+            if (t != null) t->RevokeOwner(mod.Owner);  // native: restore all patches (and drop anything else under it)
         }
-        Hooks.Forget(mod);  // clear the cookie dictionary so no new dispatch enters this mod's handlers
+        // Clear the mod's registrations so no new dispatch enters its handlers, and revoke their links (they are under
+        // the mod id's own hooks owner, HookCookies.Owner, so RevokeOwner above does not take them).
+        Hooks.Forget(mod);
         Tracked.TryRemove(mod, out var mh);
         // Wait for any game thread still inside this mod's handlers to leave before its context is unloaded. New calls
         // can no longer reach them (chains emptied, dictionary cleared), so this drains in microseconds.
