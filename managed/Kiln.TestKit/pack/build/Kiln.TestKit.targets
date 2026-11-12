@@ -1,0 +1,58 @@
+<Project>
+  <!--
+    Kiln.TestKit in a test project (imported by NuGet from the Kiln.TestKit package; docs/kiln/modding/unit-tests.md).
+
+    1. Kiln's shared assemblies. The kit loads mods through Kiln.Host (in this package's lib/), and the loader shares the
+       Kiln.* assemblies it finds beside itself with every mod, as kiln/host does in the game. So Kiln.Testing and every
+       Kiln.<Service>.dll of the Kiln.Api package of the same version (its kiln/lib/) are referenced and copied into the
+       output: a test can name any service, and a mod's service is loadable even when the kit does not fake it (then it
+       reports itself unavailable, by its own code). Kiln.Api.dll comes from the same package's lib/.
+       KilnTestKitServices=false: reference none of them (then add what the kit and your mods need yourself).
+
+    2. A mod's folder. A mod built with Kiln.Sdk has its kiln.mod.json, locales/ and data folders (blocks/, content/...)
+       in its own output folder, not in the test project's. For every referenced project whose output folder holds a
+       kiln.mod.json, this copies, after the build:
+         <mod output>/kiln.mod.json      to  <test output>/<Assembly>.kiln.mod.json
+         every other file of the folder  to  <test output>/<Assembly>.mod/   (not its *.dll, *.pdb, *.deps.json,
+                                             *.runtimeconfig.json at the top: the assemblies come by the reference)
+       which is where KilnHarness.Load<TMod>() looks: the mod loads with its real manifest, texts and data.
+       KilnTestKitModFolders=false: copy nothing (then pass a ModManifest, or use LoadFolder on the mod's output).
+  -->
+  <PropertyGroup>
+    <!-- Match Kiln.Host's runtime; an explicit project setting takes precedence. -->
+    <InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">true</InvariantGlobalization>
+    <_KilnTkApiDir Condition="'$(PkgKiln_Api)' != ''">$([MSBuild]::EnsureTrailingSlash('$(PkgKiln_Api)'))</_KilnTkApiDir>
+    <_KilnTkApiDir Condition="'$(_KilnTkApiDir)' == '' and '$(NuGetPackageRoot)' != '' and '$(KilnTestKitVersion)' != ''">$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))kiln.api/$(KilnTestKitVersion.ToLowerInvariant())/</_KilnTkApiDir>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(KilnTestKitServices)' != 'false' and '$(_KilnTkApiDir)' != '' and Exists('$(_KilnTkApiDir)kiln/lib/Kiln.Testing.dll')">
+    <Reference Include="$(_KilnTkApiDir)kiln/lib/Kiln.*.dll" Private="true" />
+  </ItemGroup>
+
+  <Target Name="_KilnTestKitCheckServices" BeforeTargets="ResolveAssemblyReferences" Condition="'$(KilnTestKitServices)' != 'false'">
+    <Error Condition="'$(_KilnTkApiDir)' == '' or !Exists('$(_KilnTkApiDir)kiln/lib/Kiln.Testing.dll')" Code="KILNTK001"
+           Text="Kiln.TestKit $(KilnTestKitVersion): no Kiln.Api package of the same version with kiln/lib/Kiln.Testing.dll (looked in '$(_KilnTkApiDir)'). Restore again, or set KilnTestKitServices=false and reference Kiln's assemblies yourself." />
+  </Target>
+
+  <Target Name="KilnTestKitModFolders" AfterTargets="CopyFilesToOutputDirectory" Condition="'$(KilnTestKitModFolders)' != 'false'">
+    <ItemGroup>
+      <_KilnTkModRef Include="@(ReferencePath)" Condition="'%(ReferencePath.ReferenceSourceTarget)' == 'ProjectReference' and Exists('%(RootDir)%(Directory)kiln.mod.json')" />
+    </ItemGroup>
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="_KilnTestKitOneModFolder" Condition="'@(_KilnTkModRef)' != ''"
+             Properties="_KilnTkModDir=%(_KilnTkModRef.RootDir)%(_KilnTkModRef.Directory);_KilnTkModName=%(_KilnTkModRef.Filename);_KilnTkOutDir=$([System.IO.Path]::GetFullPath('$(OutDir)'))" />
+  </Target>
+
+  <!-- One mod: its manifest and files beside its assembly in the test output (a fresh copy each build). -->
+  <Target Name="_KilnTestKitOneModFolder">
+    <PropertyGroup>
+      <_KilnTkFiles>$(_KilnTkOutDir)$(_KilnTkModName).mod/</_KilnTkFiles>
+    </PropertyGroup>
+    <ItemGroup>
+      <_KilnTkModFile Include="$(_KilnTkModDir)**/*"
+                      Exclude="$(_KilnTkModDir)*.dll;$(_KilnTkModDir)*.pdb;$(_KilnTkModDir)*.deps.json;$(_KilnTkModDir)*.runtimeconfig.json;$(_KilnTkModDir)kiln.mod.json" />
+    </ItemGroup>
+    <RemoveDir Directories="$(_KilnTkFiles)" />
+    <Copy SourceFiles="$(_KilnTkModDir)kiln.mod.json" DestinationFiles="$(_KilnTkOutDir)$(_KilnTkModName).kiln.mod.json" />
+    <Copy SourceFiles="@(_KilnTkModFile)" DestinationFiles="@(_KilnTkModFile->'$(_KilnTkFiles)%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+</Project>

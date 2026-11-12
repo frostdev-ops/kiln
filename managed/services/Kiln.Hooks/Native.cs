@@ -85,6 +85,14 @@ internal static unsafe class HooksNative
         }
     }
 
+    /// <summary>Puts <paramref name="table"/> in place of the core's (null: look the core's up again). For unit tests
+    /// that drive the managed side against a fake registry; nothing in Kiln calls it.</summary>
+    internal static void UseForTests(Table* table)
+    {
+        _table = table;
+        _looked = table != null;
+    }
+
     public static Table* Require(string api)
     {
         var t = T;

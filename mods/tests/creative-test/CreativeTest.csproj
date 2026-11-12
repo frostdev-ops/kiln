@@ -9,6 +9,8 @@
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <AssemblyName>CreativeTest</AssemblyName>
+    <!-- Calls Kiln's lab and test members ([Experimental("KILNX001")]). -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />

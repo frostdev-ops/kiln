@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/services/Kiln.Ui/Kiln.Ui.csproj" />
+    <!-- the guided check runner's screen (scene "checks") -->
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" />
   </ItemGroup>
 </Project>

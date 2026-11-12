@@ -1,4 +1,5 @@
 #nullable enable
+static Kiln.Mods.RuntimeApiVersion.get -> string!
 Kiln.AnyThreadAttribute
 Kiln.AnyThreadAttribute.AnyThreadAttribute() -> void
 Kiln.ClientOnlyAttribute

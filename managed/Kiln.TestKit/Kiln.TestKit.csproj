@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.TestKit: mod tests under `dotnet test`, with no game. KilnHarness loads a mod through Kiln.Host's real loader
+       into a temporary kiln folder and drives its ticks by hand. Never deployed into a game: nothing under tools/ or
+       Kiln.Sdk's pack.sh builds managed/Kiln.TestKit (they take Kiln.Host, Kiln.Api, Kiln.Testing and managed/services/*). -->
+  <!-- Packed as the Kiln.TestKit NuGet package by pack/Kiln.TestKit.Pack.csproj, from a build of this project into a stage
+       of its own (out of pack.sh's mdk-stage, whose Kiln.*.dll all go into Kiln.Api's kiln/lib). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln.TestKit</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" />
+    <!-- The real mod loader (ModManager, Manifest, Resolver): Kiln.Host gives the kit friend access. -->
+    <ProjectReference Include="../Kiln.Host/Kiln.Host.csproj" />
+    <!-- RunCommand: Commands.Execute, CommandSource and CommandResult. -->
+    <ProjectReference Include="../services/Kiln.Chat/Kiln.Chat.csproj" />
+    <!-- Kiln.Chat needs these at run time (it references them without copying them). -->
+    <ProjectReference Include="../services/Kiln.Permissions/Kiln.Permissions.csproj" />
+    <ProjectReference Include="../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../services/Kiln.Items/Kiln.Items.csproj" />
+    <ProjectReference Include="../services/Kiln.Time/Kiln.Time.csproj" />
+    <ProjectReference Include="../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+    <ProjectReference Include="../services/Kiln.Client/Kiln.Client.csproj" />
+    <!-- The fakes of kiln.players and kiln.saves (Fakes/): the world and players surface names Kiln.Saves' types. -->
+    <ProjectReference Include="../services/Kiln.Saves/Kiln.Saves.csproj" />
+    <!-- Kiln.Saves needs it at run time (CharacterSync's channel); it references it without copying it. -->
+    <ProjectReference Include="../services/Kiln.Network/Kiln.Network.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Kiln.TestKit.Xunit: [KilnTest] methods as xunit tests (the extensibility package, not a runner). -->
+    <PackageReference Include="xunit.v3.extensibility.core" Version="3.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="pack/**" />
+    <None Remove="pack/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.TestKit.Tests" />
+    <!-- Kiln's own unit tests build their KilnTest fixture on the shared fakes (Shared/UnitTestFakes.cs). -->
+    <InternalsVisibleTo Include="Kiln.Api.Tests" />
+  </ItemGroup>
+</Project>

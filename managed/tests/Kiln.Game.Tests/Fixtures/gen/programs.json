@@ -1,0 +1,5 @@
+[
+ {"name": "lantern_glow", "lists": {"0x18": ["Lantern"], "0x38": ["Gauges", "Comet"], "0x58": ["Warmth"], "0x98": ["light_cache"], "0x170": ["LanternLit"]}},
+ {"name": "unlit_cleanup", "lists": {"0x18": ["Unlit"], "0x88": ["Lantern"]}},
+ {"name": "7", "lists": {}}
+]

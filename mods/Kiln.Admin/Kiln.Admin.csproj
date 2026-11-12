@@ -9,6 +9,8 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <RootNamespace>Kiln.Admin</RootNamespace>
+    <!-- The admin bridge explicitly opts into the not-yet-client-proven achievement guard relay. -->
+    <NoWarn>$(NoWarn);KILNX002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />

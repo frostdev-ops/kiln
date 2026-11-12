@@ -11,6 +11,8 @@
     <AssemblyName>QuestNativeTest</AssemblyName>
     <RootNamespace>QuestNativeTest</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Calls Kiln's lab and test members ([Experimental("KILNX001")]). -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />

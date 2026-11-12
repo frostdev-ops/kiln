@@ -11,7 +11,7 @@ public static partial class Quests
     private static QuestBook CharacterBook(QuestHolder h)
     {
         var c = h.Character;
-        if (c.IsNone && h.Entity.IsNone && !QuestInput.IsSynthetic(h)) c = CharacterData.LastOf(h.Account);  // offline, by account
+        if (c.IsNone && h.Entity.IsNone && !SyntheticInput.IsSynthetic(h)) c = CharacterData.LastOf(h.Account);  // offline, by account
         if (c.IsNone || c.IsAccountOnly) return PlayerData.Get<QuestBook>(h.Account != 0 ? h.Account : c.Account, "book");
         if (!CharacterData.Contains(c, "book")) CharacterData.MigrateFromPlayerData(c, "book", QuestCharacters.LegacyIds(h));
         return CharacterData.Get<QuestBook>(c, "book");

@@ -1,0 +1,13 @@
+<Project>
+  <!-- The kit's own test mods: built like Kiln mods (Kiln.Api and services referenced, never shipped), each its own
+       project. Imports Kiln's managed settings first. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../../Directory.Build.props" />
+  <PropertyGroup>
+    <KilnManaged>$(MSBuildThisFileDirectory)../../../</KilnManaged>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>
