@@ -44,8 +44,8 @@ pub struct JournalEntry {
     pub bytes: u64,
 }
 
-/// `<default root>/data-folder.move.json`: the record of one move. `state` is for people and logs; recovery decides by
-/// what is on disk (does the folder in use match `to`), never by `state` alone.
+/// `<default root>/data-folder.move.json`: the record of one move. Recovery checks what is on disk and uses commit
+/// states conservatively too: they prevent partial-copy deletion even if the destination is absent or reset.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Journal {

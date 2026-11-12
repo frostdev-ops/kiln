@@ -28,7 +28,7 @@
         }
       }
     },
-    "state": { "enum": ["copying", "verifying", "committed", "moved", "cleaning", "cleaned", "failed"], "description": "For people and logs only." },
+    "state": { "enum": ["copying", "verifying", "committed", "moved", "cleaning", "cleaned", "failed"], "description": "Progress for people and logs; a commit state also conservatively prevents treating the destination as a partial copy, even while it is missing. A precommit state alone never authorizes removal." },
     "previousPointer": { "type": ["string", "null"], "description": "What the pointer named before the move; null: there was none (the default root was in use)." },
     "rewritten": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Files the move rewrote in the copy (servers/<id>.json backupDir, from the old root to the new one); their file record line holds both hashes." },
     "rewrittenAfter": {

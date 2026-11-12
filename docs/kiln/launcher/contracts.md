@@ -106,12 +106,14 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   pointer and one look at the folder's marker (its entries only without one). After a broken pointer:
   `data_folder_move::reset` renames it to `data-folder.json.old` (the default root is used), or `data_folder_move::repoint`
   points at a Kiln data folder the player picks (refused unless the pointer is broken; the folder must be a Kiln data
-  folder, not a move in progress, not a link or a file, not inside a game folder or Kiln's state or settings folder; only
+  folder, not an unfinished or unrelated move (a matching committed move is allowed), not a link or a file,
+  not inside a game folder or Kiln's state or settings folder; only
   the pointer is written, and the previous one is put back byte for byte if the folder is not found through it).
 - **A Kiln data folder** (`data_folder::recognize`): it has `.kiln-data-folder.json` (`{format, created}`, written into
   the new place just before the pointer), or a structure only the launcher makes: `library/<kind>/` named after a mod
   kind, `profiles/<pid>/meta.json`, `installs/<id>.json` or `runtime/kiln-runtime-*.zip` (unknown entries may sit next to
-  them). A folder with `.kiln-data-move.json` (`{format, id}`) is a move in progress: never "use this one", never a target.
+  them). A folder with `.kiln-data-move.json` (`{format, id}`) is a move in progress: never an ordinary "use this one"
+  or move target; only Choose folder after a broken pointer can recover a matching committed move, as above.
 - **Picked folder** (`data_folder::target_rule`): missing or empty (nothing, or only the pointer, the journal and file
   record, `quick.lock`, `data-folder.lock`, and in the default root the entry holding Kiln's state or settings folder):
   it becomes the data folder; a Kiln data folder: used as it is (no merge); anything else, and a volume root or mount
@@ -160,8 +162,8 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   root removes it instead; on Unix the default root is flushed after it), the new place checked (`locate` gives it;
   profiles, library entries and settings read as before; if not, the previous pointer is put back and the move fails).
   If restoring that pointer fails, the verified new folder stays selected: the result is committed with a warning
-  naming both folders and requesting a restart, no old-copy removal runs, and the launcher keeps all writers held,
-  then install records written again for the new root (`pathMode`), the games whose `profile.json` was this folder's
+  naming both folders and requesting a restart, no old-copy removal runs, and the launcher keeps all writers held.
+  Otherwise, install records are written again for the new root (`pathMode`), the games whose `profile.json` was this folder's
   before the move (decided with the old root at the start) activated again, built modpacks' `file` rewritten (failures
   there are warnings), and last the old copy removed (`MoveResult.cleanup`, the rule below; a cancel there interrupts only
   the removal, which goes on at the next start). When a game's profile could not be activated again, that game still
@@ -1030,7 +1032,7 @@ or emits `kiln://update`; its UI calls none of these commands.
 | data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to` with the process's lock; refused while a task runs, and in a build with Nexus on while another launcher holds `nexus/instance.lock` (one before dev.25 takes no data-folder lock); the file-hash cache stops writing for the move (`filecache::unpersist`) and writes again after a failed or canceled one; the last phase, task message "removing the old copy: <file>", removes the old copy: a cancel there ends the task as done with `cleanup.interrupted`, the rest goes at the next start; when a game's profile could not be written for the new place the removal does not run and `cleanup.reason` names the game; a failed or canceled task left the old place in use, its error names what is left in the target; the restart follows) |
 | data_folder | `data_folder_use` | path (picked) | `DataFolder` of the folder now named (`use_folder`; with a broken pointer `repoint`); the restart follows |
 | data_folder | `data_folder_reset` | - | `DataFolder` at the default place (`reset`; only with a broken pointer); the restart follows |
-| data_folder | `data_folder_notice_ack` | - | null, never fails (the notice is gone for this process; the move's journal is acknowledged only for a finished removal or an unclear record; a removal that stopped or was refused, and an unfinished move's partial copy that could not be removed, keep it for the next start) |
+| data_folder | `data_folder_notice_ack` | - | null, never fails (the notice is gone for this process; the move's journal is acknowledged only for a finished removal; an unclear record stays until its committed folder is in use again; a removal that stopped or was refused, and an unfinished move's partial copy that could not be removed, keep it for the next start) |
 | data_folder | `data_folder_restart` | - | does not return (the watcher stops, the lock goes, Tauri's `restart()`) |
 `ImportReport {imported: LibraryRef[], existing: LibraryRef[], skipped: {path, reason}[], notes: {path, text}[], names:
 {"<kind>/<id>": string}}`, `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added:
