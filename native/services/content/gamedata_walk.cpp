@@ -1057,7 +1057,8 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
         }
         if (target && f.ref) {
             // the GUID must be a loaded resource of the reference's type (a template the game knows, ...)
-            // A StateId is only hashed, it is never a resource: any GUID is valid, so blocks can invent new states.
+            // A StateId (SetAnimationEvent.animationName) and an OverlayId (SetAnimationOverlayEvent.overlayName) are only hashed into the graph's id, never
+            // loaded as a resource: any GUID is valid, so blocks can name the game's states and overlays and invent new ones.
             // A dedicated server loads no UI images and nothing on it reads them: a reference to one cannot be checked there, and needs not be.
             static const bool server = GetModuleHandleA("enshrouded_server.exe") != nullptr;
             static const uint32_t kSound = fnv1a(std::string("keen::SoundContainerResource")), kModel = fnv1a(std::string("keen::RenderModel"));  // nor sounds or models: it carries the GUID for its clients
@@ -1066,7 +1067,7 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
                                   kGraph = fnv1a(std::string("keen::anim_graph::runtime_graph::AnimationGraphResource2_0"));
             // A loca tag is only hashed to its id, and the UI shows an empty string for a tag no table has (client LocaRecord): any GUID is safe, and a
             // clone's own texts answer theirs.
-            const bool ok = f.type_name == "keen::ObjectReference<keen::animationgraph::StateId>" || f.type_name == "keen::ObjectReference<keen::LocaTag>" ||
+            const bool ok = f.type_name == "keen::ObjectReference<keen::animationgraph::StateId>" || f.type_name == "keen::ObjectReference<keen::animationgraph::OverlayId>" || f.type_name == "keen::ObjectReference<keen::LocaTag>" ||
                             (server && (f.type_name == "keen::ObjectReference<keen::UiImage>" || target == kSound || target == kModel)) ||
                             res_data(g, target) != 0 ||
                             (target == kToolGraph && res_data(g, kGraph) != 0) ||

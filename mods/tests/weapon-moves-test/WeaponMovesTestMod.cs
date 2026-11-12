@@ -26,7 +26,6 @@ public sealed partial class WeaponMovesTestMod : Mod
     internal const string AxeSwing1 = "ad276dac-1bb6-4406-bdfc-c584edfd0f5d", AxeSwing2 = "6bc6f8fb-5ecb-4351-836f-4d5b50f72007";
     internal const string GreatswordHeavy = "30c8d4c5-5927-47ec-84b1-c00d32c7f35d", WandHeavyOverlay = "718fce5f-df4b-4dca-8ea6-ad69599134ce";
     internal const uint ParryPose = 0xfeec6023;
-    private const string OverlayDefect = "kiln.content refuses every SetAnimationOverlayEvent.overlayName that is not a loaded resource: an OverlayId is only hashed, like a StateId (native/services/content/gamedata_walk.cpp)";
 
     /// <summary>One move as the blocks wrote it: the block, the clone's suffix, the sequence it starts from, the state, the timing.</summary>
     internal sealed record Case(string Block, string Suffix, string Like, Guid? State, uint? StateId, double? HitAt, double? Length, bool AtReady);
@@ -62,14 +61,7 @@ public sealed partial class WeaponMovesTestMod : Mod
         public readonly List<(ulong Step, uint Sequence, long TriggerTime)> Seen = new();
     }
 
-    private int _known;
     private void Info(string s) => Log.Info($"{Me}: INFO {s}");
-    // a check that fails on a defect outside this test, written down in the report: logged, counted apart, and turned into a FAIL the day it passes
-    private void Known(bool ok, string defect, string what)
-    {
-        if (ok) { _fail++; Log.Error($"{Me}: FAIL {what}: passes now, so the known defect ({defect}) is gone: make this a Check"); }
-        else { _known++; Log.Warn($"{Me}: KNOWN {what} ({defect})"); }
-    }
     private bool Check(bool ok, string what)
     {
         if (ok) { _pass++; Log.Info($"{Me}: PASS {what}"); }
@@ -109,6 +101,8 @@ public sealed partial class WeaponMovesTestMod : Mod
                 Block = new MoveBlock { Animation = "0xfeec6023" },
             },
         });
+        // a clone of the bolt that only the reference checks below write to
+        Content.Sequences.Define(new GameDataClone { Guid = BlockIds.Derive(Me, "sequence", "probe"), Name = G("probe"), Base = WandBolt });
         var found = ClientChecks.Register(this);
         ListChecks(found);
         if (!Client.IsDedicatedServer) return;
@@ -182,7 +176,6 @@ public sealed partial class WeaponMovesTestMod : Mod
         foreach (var e in _spawned)
             if (World.Exists(e)) Spawn.Destroy(e);
         Log.Info($"{Me} done: {_pass} PASS, {_fail} FAIL");
-        if (_known > 0) Log.Warn($"{Me}: {_known} KNOWN failure(s) of code outside this test, listed above");
     }
 
     private async Task Part(string name, Func<Task> run)
@@ -292,9 +285,11 @@ public sealed partial class WeaponMovesTestMod : Mod
     {
         var mine = Blocks.Report().GetValueOrDefault(Me);
         var errors = (mine.Errors ?? []).Distinct().ToList();
-        var overlay = errors.Where(e => e.Contains("overlayName", StringComparison.Ordinal) && e.Contains("OverlayId", StringComparison.Ordinal)).ToList();
-        Check(errors.Except(overlay).Count() == 0, $"the blocks came through with no word from the services, content ready's moves included: [{string.Join(" | ", errors.Except(overlay))}]");
-        Known(overlay.Count == 0, OverlayDefect, $"an overlay named by a wand's move is written: [{string.Join(" | ", overlay)}]");
+        var overlay = errors.Where(e => e.Contains("overlayName", StringComparison.Ordinal)).ToList();
+        if (_wrong) overlay.Add("(fail-once)");
+        Check(errors.Count == 0, $"the blocks came through with no word from the services, content ready's moves included: [{string.Join(" | ", errors)}]");
+        Check(overlay.Count == 0, $"an overlay named by a wand's move is written (kiln.content takes an OverlayId as it takes a StateId): [{string.Join(" | ", overlay)}]");
+        Refusals();
         Info($"warnings: [{string.Join(" | ", Blocks.Warnings(Me))}]");
         foreach (var b in new[] { "chain-sword", "heavy-greataxe", "moves-wand" })
         {
@@ -303,6 +298,20 @@ public sealed partial class WeaponMovesTestMod : Mod
             Info($"{b}: movesReady {low["movesReady"]?.ToJsonString()}");
             Check(low["movesReady"] is JsonObject { Count: > 0 }, $"{b}: content ready's half ran on the game's data: movesReady has {(low["movesReady"] as JsonObject)?.Count ?? 0} part(s)");
         }
+    }
+
+    // What kiln.content still refuses beside the overlay it takes: a reference the game loads as a resource, to one it does not have.
+    private void Refusals()
+    {
+        var probe = G("probe");
+        var made = Guid.NewGuid().ToString();
+        var template = Content.Apply("{\"format\":1,\"sequences\":{\"" + probe + "\":{\"events[SpawnEntityEvent#0].templateReference\":\"" + made + "\"}}}", $"{Me}: a missing template");
+        Check(template.Errors.Count > 0 && Seq(probe).Get("events[SpawnEntityEvent#0].templateReference").Guid != Guid.Parse(made),
+            $"a reference to a template the game does not have is still refused: [{string.Join(" | ", template.Errors)}]");
+        var overlay = Content.Apply("{\"format\":1,\"sequences\":{\"" + probe + "\":{\"events[SetAnimationOverlayEvent#0].overlayName\":\"" + made + "\"}}}", $"{Me}: a new overlay");
+        var took = Seq(probe).Get("events[SetAnimationOverlayEvent#0].overlayName").Guid;
+        if (_wrong) took = Guid.Empty;
+        Check(overlay.Errors.Count == 0 && took == Guid.Parse(made), $"an overlay name no resource has is taken, as a state's is (only hashed): {took} [{string.Join(" | ", overlay.Errors)}]");
     }
 
     // ---- 1. clones --------------------------------------------------------------------------------------------
@@ -470,7 +479,7 @@ public sealed partial class WeaponMovesTestMod : Mod
         Check(item.Get("sequences[0].sequence").Guid == s.Guid && s.IsClone, $"moves-wand: its primary slot plays its own {name} ({s.Guid})");
         var overlay = s.Get("events[SetAnimationOverlayEvent#0].overlayName").Guid;
         Check(s.Get("events[SetAnimationOverlayEvent#1].overlayName").Guid == game.Get("events[SetAnimationOverlayEvent#1].overlayName").Guid, "moves-wand: the bolt's second overlay is the bolt's");
-        Known(overlay == Guid.Parse(WandHeavyOverlay), OverlayDefect, $"moves-wand: a GUID with no kind goes to the motion's overlay, the first one: {overlay}, given {WandHeavyOverlay}");
+        Check(overlay == Guid.Parse(WandHeavyOverlay), $"moves-wand: a GUID with no kind goes to the motion's overlay, the first one: {overlay}, given {WandHeavyOverlay}");
         // the firing shots (the bolt's first two): the first lands on hitAt, the rest follow by the map
         var want = _wrong ? 0.7 : 0.60;
         var shots = Enumerable.Range(0, 2).Select(i => (Now: s.Get($"events[SpawnEntityEvent#{i}].time").Number, Was: s.Original($"events[SpawnEntityEvent#{i}].time").AsDouble)).ToList();
