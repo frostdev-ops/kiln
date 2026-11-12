@@ -35,7 +35,7 @@ std::vector<DWORD> secondary_waits;
 HANDLE sequence_event = nullptr;
 bool throw_log = false;
 bool in_secondary = false;
-int logs = 0, file_reads = 0, real_exits = 0, flushes = 0;
+int logs = 0, file_reads = 0, real_exits = 0, flushes = 0, clock_reads = 0;
 DWORD flush_wait = 0;
 bool stall_flush = false;
 DWORD GetCurrentThreadId() { return thread_id; }
@@ -79,7 +79,7 @@ DWORD WaitForSingleObject(HANDLE h, DWORD ms) {
     return WAIT_OBJECT_0;
 }
 namespace kiln {
-double now_ms() { return clock_now; }
+double now_ms() { ++clock_reads; return clock_now; }
 struct Paths { std::filesystem::path logs; };
 const Paths& paths() { static Paths p; return p; }
 struct Config { int log_level = KILN_LOG_TRACE; };
@@ -123,7 +123,7 @@ void prepare(void (KILN_CALL* handler)(void*)) {
     clock_now = 1000;
     secondary_waits.clear();
     throw_log = false;
-    logs = file_reads = real_exits = flushes = 0;
+    logs = file_reads = real_exits = flushes = clock_reads = 0;
     stall_flush = false;
     flush_wait = 0;
     unload_prepare();
@@ -156,6 +156,22 @@ int main() {
     kiln::exit_call(0);
     check(flush_wait == 2000 && kiln::g_unload_state == 2 && real_exits == 1,
           "a stuck last file write is abandoned after 2000 ms so the second caller bound is real");
+    cleanup();
+    prepare(&marker);
+    throw_log = true;  // a crash must not even try the logger, much less wait on its lock
+    kiln::exit_call(42);
+    check(logs == 0 && file_reads == 0 && flushes == 0 && clock_reads == 0 && secondary_waits.empty() &&
+              kiln::g_unload_state == 2 && static_cast<Event*>(sequence_event)->set && real_exits == 1,
+          "non-zero exit does no log, polling, clock or handler work and marks done");
+    cleanup();
+    prepare(&marker);
+    kiln::g_unload_state = 1;  // another thread is already in the normal sequence when this thread crashes
+    in_secondary = true;
+    kiln::exit_call(23);
+    in_secondary = false;
+    check(secondary_waits.empty() && logs == 0 && clock_reads == 0 && kiln::g_unload_state == 2 &&
+              static_cast<Event*>(sequence_event)->set && real_exits == 1,
+          "non-zero exit never waits for an already running normal sequence");
     cleanup();
     std::printf("%d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

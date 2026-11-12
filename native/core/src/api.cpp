@@ -565,6 +565,13 @@ void unload_abandon() noexcept {
 // real exit.
 void unload_run(uint32_t exit_code, const char* via) {
     if (!g_unload_count) return;
+    if (exit_code != 0) {
+        // A crash may have stranded the heap or the logger's mutex. Do not allocate, log, poll, or wait, even when
+        // another thread is already running the normal sequence. The game's non-zero exits must reach the OS now.
+        g_unload_state.store(2);
+        SetEvent(g_unload_over);
+        return;
+    }
     double unstarted = -1;
     g_unload_started_ms.compare_exchange_strong(unstarted, now_ms());
     int was = 0;
@@ -587,15 +594,6 @@ void unload_run(uint32_t exit_code, const char* via) {
         return;
     }
     char line[256];
-    if (exit_code != 0) {
-        // The game's own crash handling ends the process with a non-zero code (1, 23, 41, 42; abort: 3): a crash
-        // does not call on_unload (kiln-set's session marker relies on that).
-        std::snprintf(line, sizeof line,
-                      "unload: the process exits with code %u (%s): not a normal exit, no on_unload handler is called",
-                      exit_code, via);
-        unload_finish(KILN_LOG_WARN, line);
-        return;
-    }
     if (holds_loader_lock()) {
         std::snprintf(line, sizeof line,
                       "unload: the process exits from under the loader lock (%s, thread %lu: a DllMain called it): no "
