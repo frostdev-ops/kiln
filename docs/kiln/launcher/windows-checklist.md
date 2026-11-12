@@ -3,7 +3,7 @@
 Verified under Wine: NSIS install/uninstall, `--selftest` 11/11, WebView2 UI (runtime 156, `--no-sandbox`),
 Rust suites for x86_64-pc-windows-msvc, proxyhost with `C:\` paths (107/107), a dedicated server installed, started,
 administered over KAP and stopped with Ctrl-C by the Windows runner. Test user "Jörg Müller" (non-ASCII paths).
-The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 92/93): to `D:\` (made `D:\Kiln`),
+The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 93/93): to `D:\` (made `D:\Kiln`),
 to another letter on the same disk, to another volume (exFAT `E:`) and within it (with a crashed move's recovery), to
 `D:\Spiele Ordner\Jörg Müller\データ`, with a 259-character library path (a 260 one refused) and a data folder past 260
 characters, each and back; `\\?\` and another case; junctions refused, and no old copy removed through one;
@@ -14,9 +14,10 @@ target stays marked until the next start removes it); a re-activation that fails
 is activated again); the journal's write-through rename; the lock across two processes; read-only files removed
 through a handle with read and `DELETE` only (Wine refuses the right to write attributes on a read-only file; Windows
 grants it, see item 10); the attribute fallback's delete, and its read-only put back when refused; set-aside leftovers
-and 250-byte names. The one failure: a file held by another program with delete sharing loses its name at once under
-Wine (POSIX delete, on `C:` and on exFAT `E:`), so the removal finishes in one call where the test expects a second
-one; a FAT or exFAT stick on a real PC is where the name stays (item 10).
+and 250-byte names. A file another program holds open with delete sharing, on `C:` and exFAT `E:` in both removals:
+through the POSIX delete its name goes at once and the removal is done; through the classic delete (as on FAT, exFAT
+and older Windows) its name stays, it is counted removed and named as on its way out, and once the program lets go it
+is gone and the recovery finishes (a real exFAT stick: item 10).
 
 On a real Windows 10/11 PC:
 1. NSIS install with the WebView2 bootstrapper on a clean PC; `kiln-launcher.exe --selftest --out r.json` from cmd and
