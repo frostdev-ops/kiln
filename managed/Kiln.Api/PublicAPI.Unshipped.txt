@@ -1,4 +1,56 @@
 #nullable enable
+Kiln.Capabilities
+Kiln.Capability
+Kiln.Capability.Capability() -> void
+Kiln.Capability.Capability(string! Name, Kiln.CapabilityState State, Kiln.CapabilityReason Reason, string! ReasonText, string! Source) -> void
+Kiln.Capability.Deconstruct(out string! Name, out Kiln.CapabilityState State, out Kiln.CapabilityReason Reason, out string! ReasonText, out string! Source) -> void
+Kiln.Capability.Equals(Kiln.Capability other) -> bool
+Kiln.Capability.IsAvailable.get -> bool
+Kiln.Capability.Name.get -> string!
+Kiln.Capability.Name.init -> void
+Kiln.Capability.Reason.get -> Kiln.CapabilityReason
+Kiln.Capability.Reason.init -> void
+Kiln.Capability.ReasonText.get -> string!
+Kiln.Capability.ReasonText.init -> void
+Kiln.Capability.SessionDependent.get -> bool
+Kiln.Capability.SessionDependent.init -> void
+Kiln.Capability.Source.get -> string!
+Kiln.Capability.Source.init -> void
+Kiln.Capability.State.get -> Kiln.CapabilityState
+Kiln.Capability.State.init -> void
+Kiln.CapabilityChangedEvent
+Kiln.CapabilityChangedEvent.Current.get -> Kiln.Capability
+Kiln.CapabilityChangedEvent.Name.get -> string!
+Kiln.CapabilityChangedEvent.Previous.get -> Kiln.Capability
+Kiln.CapabilityReason
+Kiln.CapabilityReason.Faulted = 7 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.NeedsKilnClient = 5 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.None = 0 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Offline = 8 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Policy = 6 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.ServiceMissing = 2 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.ServiceOlder = 3 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Session = 9 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.SymbolMissing = 1 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.Unknown = 10 -> Kiln.CapabilityReason
+Kiln.CapabilityReason.WrongSide = 4 -> Kiln.CapabilityReason
+Kiln.CapabilityState
+Kiln.CapabilityState.Available = 1 -> Kiln.CapabilityState
+Kiln.CapabilityState.Pending = 2 -> Kiln.CapabilityState
+Kiln.CapabilityState.Unavailable = 0 -> Kiln.CapabilityState
+Kiln.RequiresCapabilityAttribute
+Kiln.RequiresCapabilityAttribute.Name.get -> string!
+Kiln.RequiresCapabilityAttribute.RequiresCapabilityAttribute(string! name) -> void
+override Kiln.Capability.GetHashCode() -> int
+override Kiln.CapabilityChangedEvent.ToString() -> string!
+static Kiln.Capabilities.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.Capability>!
+static Kiln.Capabilities.Get(string! name) -> Kiln.Capability
+static Kiln.Capabilities.Is(string! name) -> bool
+static Kiln.Capabilities.Why(string! name) -> string!
+static Kiln.Capability.operator !=(Kiln.Capability left, Kiln.Capability right) -> bool
+static Kiln.Capability.operator ==(Kiln.Capability left, Kiln.Capability right) -> bool
+~override Kiln.Capability.Equals(object obj) -> bool
+~override Kiln.Capability.ToString() -> string
 static Kiln.Mods.RuntimeApiVersion.get -> string!
 Kiln.AnyThreadAttribute
 Kiln.AnyThreadAttribute.AnyThreadAttribute() -> void
