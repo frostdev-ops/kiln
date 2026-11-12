@@ -1,0 +1,734 @@
+{
+ "schema": 2,
+ "side": "server",
+ "exe_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+ "components": [
+  "keen::ecs::Comet",
+  "keen::ecs::Component",
+  "keen::ecs::Gauges",
+  "keen::ecs::Lantern",
+  "keen::ecs::Unlit",
+  "keen::ecs::Warmth"
+ ],
+ "events": [
+  "keen::ecs::Event",
+  "keen::ecs::LanternLit"
+ ],
+ "types": [
+  {
+   "name": "Bitmask16<keen::LanternTag>",
+   "qualifiedName": "keen::Bitmask16<keen::LanternTag>",
+   "hash": "0x58906969",
+   "kind": 14,
+   "size": 2,
+   "align": 2,
+   "inner": "keen::LanternTag"
+  },
+  {
+   "name": "Bitmask64<keen::LanternMode>",
+   "qualifiedName": "keen::Bitmask64<keen::LanternMode>",
+   "hash": "0xE40B0CA5",
+   "kind": 16,
+   "size": 8,
+   "align": 8,
+   "inner": "keen::LanternMode"
+  },
+  {
+   "name": "Bitmask8<keen::glimmer::Kind>",
+   "qualifiedName": "keen::Bitmask8<keen::glimmer::Kind>",
+   "hash": "0x03EB194B",
+   "kind": 13,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::glimmer::Kind"
+  },
+  {
+   "name": "BlobArray<keen::uint8>",
+   "qualifiedName": "keen::BlobArray<keen::uint8>",
+   "hash": "0x3546C53F",
+   "kind": 24,
+   "size": 8,
+   "align": 4
+  },
+  {
+   "name": "BlobString",
+   "qualifiedName": "keen::BlobString",
+   "hash": "0x7C5B3600",
+   "kind": 25,
+   "size": 8,
+   "align": 4
+  },
+  {
+   "name": "Brightness",
+   "qualifiedName": "keen::Brightness",
+   "hash": "0x9856186D",
+   "kind": 17,
+   "size": 4,
+   "align": 4,
+   "inner": "keen::Lumen"
+  },
+  {
+   "name": "DsHandle",
+   "qualifiedName": "keen::DsHandle",
+   "hash": "0x09037341",
+   "kind": 22,
+   "size": 8,
+   "align": 8
+  },
+  {
+   "name": "Guid",
+   "qualifiedName": "keen::Guid",
+   "hash": "0x807DD69F",
+   "kind": 29,
+   "size": 16,
+   "align": 4
+  },
+  {
+   "name": "HashKey32",
+   "qualifiedName": "keen::HashKey32",
+   "hash": "0xCE64F02C",
+   "kind": 18,
+   "size": 4,
+   "align": 4,
+   "fields": [
+    {
+     "name": "value",
+     "offset": 0,
+     "type": "keen::uint32"
+    }
+   ]
+  },
+  {
+   "name": "LanternMode",
+   "qualifiedName": "keen::LanternMode",
+   "hash": "0x7F63D7AD",
+   "kind": 12,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::uint8",
+   "values": [
+    {
+     "name": "Off",
+     "value": 0
+    },
+    {
+     "name": "Dim",
+     "value": 1
+    },
+    {
+     "name": "Bright",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "name": "LanternTag",
+   "qualifiedName": "keen::LanternTag",
+   "hash": "0xCE5AA8F6",
+   "kind": 12,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::uint8",
+   "values": [
+    {
+     "name": "Hanging",
+     "value": 0
+    },
+    {
+     "name": "Lit",
+     "value": 1
+    },
+    {
+     "name": "Smoky",
+     "value": 2
+    },
+    {
+     "name": "Hooded",
+     "value": 15
+    }
+   ]
+  },
+  {
+   "name": "Lumen",
+   "qualifiedName": "keen::Lumen",
+   "hash": "0x529DD817",
+   "kind": 17,
+   "size": 4,
+   "align": 4,
+   "inner": "keen::float32"
+  },
+  {
+   "name": "Moment",
+   "qualifiedName": "keen::Moment",
+   "hash": "0x1F0C23EA",
+   "kind": 18,
+   "size": 8,
+   "align": 8,
+   "fields": [
+    {
+     "name": "value",
+     "offset": 0,
+     "type": "keen::sint64"
+    }
+   ]
+  },
+  {
+   "name": "Notch",
+   "qualifiedName": "keen::Notch",
+   "hash": "0x1EF48408",
+   "kind": 17,
+   "size": 2,
+   "align": 2,
+   "inner": "keen::sint16"
+  },
+  {
+   "name": "ObjectReference<keen::LampModel>",
+   "qualifiedName": "keen::ObjectReference<keen::LampModel>",
+   "hash": "0xECD8E9F6",
+   "kind": 28,
+   "size": 16,
+   "align": 4
+  },
+  {
+   "name": "StaticArray<keen::BlobString,2>",
+   "qualifiedName": "keen::StaticArray<keen::BlobString,2>",
+   "hash": "0x88FD83A6",
+   "kind": 19,
+   "size": 16,
+   "align": 4,
+   "inner": "keen::BlobString"
+  },
+  {
+   "name": "StaticArray<keen::ecs::Spark,3>",
+   "qualifiedName": "keen::StaticArray<keen::ecs::Spark,3>",
+   "hash": "0x48A163BF",
+   "kind": 19,
+   "size": 24,
+   "align": 4,
+   "inner": "keen::ecs::Spark"
+  },
+  {
+   "name": "StaticArray<keen::float32,4>",
+   "qualifiedName": "keen::StaticArray<keen::float32,4>",
+   "hash": "0x7CE232EF",
+   "kind": 19,
+   "size": 16,
+   "align": 4,
+   "inner": "keen::float32"
+  },
+  {
+   "name": "StaticArray<keen::sint16,4>",
+   "qualifiedName": "keen::StaticArray<keen::sint16,4>",
+   "hash": "0xAED6C7D1",
+   "kind": 19,
+   "size": 8,
+   "align": 2,
+   "inner": "keen::sint16"
+  },
+  {
+   "name": "StaticArray<keen::uint8,4>",
+   "qualifiedName": "keen::StaticArray<keen::uint8,4>",
+   "hash": "0x0B45934A",
+   "kind": 19,
+   "size": 4,
+   "align": 1,
+   "inner": "keen::uint8"
+  },
+  {
+   "name": "TagSet",
+   "qualifiedName": "keen::TagSet",
+   "hash": "0xEB1A982E",
+   "kind": 17,
+   "size": 2,
+   "align": 2,
+   "inner": "keen::Bitmask16<keen::LanternTag>"
+  },
+  {
+   "name": "Tilt",
+   "qualifiedName": "keen::Tilt",
+   "hash": "0xD914A6E5",
+   "kind": 12,
+   "size": 2,
+   "align": 2,
+   "inner": "keen::Notch",
+   "values": [
+    {
+     "name": "Left",
+     "value": -1
+    },
+    {
+     "name": "Level",
+     "value": 0
+    },
+    {
+     "name": "Right",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "WickId",
+   "qualifiedName": "keen::WickId",
+   "hash": "0xBEE68669",
+   "kind": 17,
+   "size": 4,
+   "align": 4,
+   "inner": "keen::ecs::LampId"
+  },
+  {
+   "name": "bool",
+   "qualifiedName": "keen::bool",
+   "hash": "0x767EF14A",
+   "kind": 1,
+   "size": 1,
+   "align": 1
+  },
+  {
+   "name": "Comet",
+   "qualifiedName": "keen::ecs::Comet",
+   "hash": "0x41BAC01D",
+   "kind": 18,
+   "size": 24,
+   "align": 8,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "trail",
+     "offset": 0,
+     "type": "keen::glimmer::Trail"
+    },
+    {
+     "name": "speed",
+     "offset": 16,
+     "type": "keen::float64"
+    }
+   ]
+  },
+  {
+   "name": "Component",
+   "qualifiedName": "keen::ecs::Component",
+   "hash": "0xB4B5CB62",
+   "kind": 18,
+   "size": 1,
+   "align": 1,
+   "fields": []
+  },
+  {
+   "name": "Event",
+   "qualifiedName": "keen::ecs::Event",
+   "hash": "0xD8A6B2C5",
+   "kind": 18,
+   "size": 1,
+   "align": 1,
+   "fields": []
+  },
+  {
+   "name": "FloatMeter",
+   "qualifiedName": "keen::ecs::FloatMeter",
+   "hash": "0x16F0A988",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::ecs::MeterBase",
+   "fields": []
+  },
+  {
+   "name": "Gauges",
+   "qualifiedName": "keen::ecs::Gauges",
+   "hash": "0xC7CB5097",
+   "kind": 18,
+   "size": 56,
+   "align": 8,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "on",
+     "offset": 0,
+     "type": "keen::bool"
+    },
+    {
+     "name": "b",
+     "offset": 1,
+     "type": "keen::uint8"
+    },
+    {
+     "name": "sb",
+     "offset": 2,
+     "type": "keen::sint8"
+    },
+    {
+     "name": "us",
+     "offset": 4,
+     "type": "keen::uint16"
+    },
+    {
+     "name": "s",
+     "offset": 6,
+     "type": "keen::sint16"
+    },
+    {
+     "name": "ui",
+     "offset": 8,
+     "type": "keen::uint32"
+    },
+    {
+     "name": "i",
+     "offset": 12,
+     "type": "keen::sint32"
+    },
+    {
+     "name": "ul",
+     "offset": 16,
+     "type": "keen::uint64"
+    },
+    {
+     "name": "l",
+     "offset": 24,
+     "type": "keen::sint64"
+    },
+    {
+     "name": "f",
+     "offset": 32,
+     "type": "keen::float32"
+    },
+    {
+     "name": "d",
+     "offset": 40,
+     "type": "keen::float64"
+    },
+    {
+     "name": "modes",
+     "offset": 48,
+     "type": "keen::Bitmask64<keen::LanternMode>"
+    }
+   ]
+  },
+  {
+   "name": "LampId",
+   "qualifiedName": "keen::ecs::LampId",
+   "hash": "0xFC2DEA90",
+   "kind": 18,
+   "size": 4,
+   "align": 4,
+   "fields": [
+    {
+     "name": "id",
+     "offset": 0,
+     "type": "keen::uint32"
+    }
+   ]
+  },
+  {
+   "name": "Lantern",
+   "qualifiedName": "keen::ecs::Lantern",
+   "hash": "0xDB3FBC29",
+   "kind": 18,
+   "size": 136,
+   "align": 8,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "glow",
+     "offset": 0,
+     "type": "keen::Brightness"
+    },
+    {
+     "name": "wick",
+     "offset": 4,
+     "type": "keen::WickId"
+    },
+    {
+     "name": "mode",
+     "offset": 8,
+     "type": "keen::LanternMode"
+    },
+    {
+     "name": "tags",
+     "offset": 10,
+     "type": "keen::TagSet"
+    },
+    {
+     "name": "levels",
+     "offset": 12,
+     "type": "keen::StaticArray<keen::sint16,4>"
+    },
+    {
+     "name": "lit",
+     "offset": 24,
+     "type": "keen::Moment"
+    },
+    {
+     "name": "sparks",
+     "offset": 32,
+     "type": "keen::StaticArray<keen::ecs::Spark,3>"
+    },
+    {
+     "name": "params",
+     "offset": 56,
+     "type": "keen::uint32"
+    },
+    {
+     "name": "model",
+     "offset": 64,
+     "type": "keen::ObjectReference<keen::LampModel>"
+    },
+    {
+     "name": "guid",
+     "offset": 80,
+     "type": "keen::Guid"
+    },
+    {
+     "name": "notes",
+     "offset": 96,
+     "type": "keen::BlobArray<keen::uint8>"
+    },
+    {
+     "name": "title",
+     "offset": 104,
+     "type": "keen::BlobString"
+    },
+    {
+     "name": "opaque",
+     "offset": 112,
+     "type": "keen::DsHandle"
+    },
+    {
+     "name": "labels",
+     "offset": 120,
+     "type": "keen::StaticArray<keen::BlobString,2>"
+    }
+   ]
+  },
+  {
+   "name": "LanternLit",
+   "qualifiedName": "keen::ecs::LanternLit",
+   "hash": "0x2220ED62",
+   "kind": 18,
+   "size": 12,
+   "align": 4,
+   "inner": "keen::ecs::Event",
+   "fields": [
+    {
+     "name": "lantern",
+     "offset": 0,
+     "type": "keen::ecs::LampId"
+    },
+    {
+     "name": "mode",
+     "offset": 4,
+     "type": "keen::LanternMode"
+    },
+    {
+     "name": "wicks",
+     "offset": 8,
+     "type": "keen::StaticArray<keen::uint8,4>"
+    }
+   ]
+  },
+  {
+   "name": "MeterBase",
+   "qualifiedName": "keen::ecs::MeterBase",
+   "hash": "0xC1231971",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "key",
+     "offset": 0,
+     "type": "keen::HashKey32"
+    },
+    {
+     "name": "start",
+     "offset": 4,
+     "type": "keen::uint16"
+    },
+    {
+     "name": "count",
+     "offset": 6,
+     "type": "keen::uint8"
+    }
+   ]
+  },
+  {
+   "name": "Spark",
+   "qualifiedName": "keen::ecs::Spark",
+   "hash": "0xD1E998F4",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "fields": [
+    {
+     "name": "heat",
+     "offset": 0,
+     "type": "keen::float32"
+    },
+    {
+     "name": "age",
+     "offset": 4,
+     "type": "keen::uint16"
+    },
+    {
+     "name": "tilt",
+     "offset": 6,
+     "type": "keen::Tilt"
+    }
+   ]
+  },
+  {
+   "name": "Unlit",
+   "qualifiedName": "keen::ecs::Unlit",
+   "hash": "0x75F74CD1",
+   "kind": 18,
+   "size": 1,
+   "align": 1,
+   "inner": "keen::ecs::Component",
+   "fields": []
+  },
+  {
+   "name": "Warmth",
+   "qualifiedName": "keen::ecs::Warmth",
+   "hash": "0x2769ACB6",
+   "kind": 18,
+   "size": 24,
+   "align": 4,
+   "inner": "keen::ecs::FloatMeter",
+   "fields": [
+    {
+     "name": "store",
+     "offset": 8,
+     "type": "keen::StaticArray<keen::float32,4>"
+    }
+   ]
+  },
+  {
+   "name": "float32",
+   "qualifiedName": "keen::float32",
+   "hash": "0x71EC172D",
+   "kind": 10,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "float64",
+   "qualifiedName": "keen::float64",
+   "hash": "0x6DDF44EE",
+   "kind": 11,
+   "size": 8,
+   "align": 8
+  },
+  {
+   "name": "Kind",
+   "qualifiedName": "keen::glimmer::Kind",
+   "hash": "0x765546CB",
+   "kind": 12,
+   "size": 4,
+   "align": 4,
+   "inner": "keen::uint32",
+   "values": [
+    {
+     "name": "Ember",
+     "value": 0
+    },
+    {
+     "name": "Flash",
+     "value": 1
+    },
+    {
+     "name": "event",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "name": "Trail",
+   "qualifiedName": "keen::glimmer::Trail",
+   "hash": "0x4F72510B",
+   "kind": 18,
+   "size": 12,
+   "align": 4,
+   "fields": [
+    {
+     "name": "length",
+     "offset": 0,
+     "type": "keen::float32"
+    },
+    {
+     "name": "kind",
+     "offset": 4,
+     "type": "keen::glimmer::Kind"
+    },
+    {
+     "name": "kinds",
+     "offset": 8,
+     "type": "keen::Bitmask8<keen::glimmer::Kind>"
+    }
+   ]
+  },
+  {
+   "name": "sint16",
+   "qualifiedName": "keen::sint16",
+   "hash": "0x4CA4912F",
+   "kind": 5,
+   "size": 2,
+   "align": 2
+  },
+  {
+   "name": "sint32",
+   "qualifiedName": "keen::sint32",
+   "hash": "0x58A92141",
+   "kind": 7,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "sint64",
+   "qualifiedName": "keen::sint64",
+   "hash": "0xCCB093A2",
+   "kind": 9,
+   "size": 8,
+   "align": 8
+  },
+  {
+   "name": "sint8",
+   "qualifiedName": "keen::sint8",
+   "hash": "0x58D86E48",
+   "kind": 3,
+   "size": 1,
+   "align": 1
+  },
+  {
+   "name": "uint16",
+   "qualifiedName": "keen::uint16",
+   "hash": "0x76D64E45",
+   "kind": 4,
+   "size": 2,
+   "align": 2
+  },
+  {
+   "name": "uint32",
+   "qualifiedName": "keen::uint32",
+   "hash": "0x82D1E3FB",
+   "kind": 6,
+   "size": 4,
+   "align": 4
+  },
+  {
+   "name": "uint64",
+   "qualifiedName": "keen::uint64",
+   "hash": "0xF2D95010",
+   "kind": 8,
+   "size": 8,
+   "align": 8
+  },
+  {
+   "name": "uint8",
+   "qualifiedName": "keen::uint8",
+   "hash": "0xD297A9C6",
+   "kind": 2,
+   "size": 1,
+   "align": 1
+  }
+ ]
+}

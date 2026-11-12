@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Shared by the generator, golden and round-trip tests: where the repository and the built fixtures are.
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -35,6 +36,19 @@ static class GenRepo
 
     /// <summary>The Kiln.Game this test assembly was built against.</summary>
     public static Assembly GameAssembly => Assembly.Load(new AssemblyName("Kiln.Game"));
+
+    /// <summary>Runs python3 with <paramref name="args"/>.</summary>
+    public static (int Code, string Out, string Err) Python(params string[] args)
+    {
+        var psi = new ProcessStartInfo("python3") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        psi.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
+        using var p = Process.Start(psi)!;
+        var so = p.StandardOutput.ReadToEndAsync();
+        var se = p.StandardError.ReadToEndAsync();
+        p.WaitForExit();
+        return (p.ExitCode, so.Result, se.Result);
+    }
 
     public static JsonElement ReadJson(string path)
     {
