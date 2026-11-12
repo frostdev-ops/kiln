@@ -117,8 +117,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
 
-Templates: 24 in Kiln.Templates; `kiln new --list` shows 23 of them with their options (not `kiln-unit-test`: use
-`dotnet new kiln-unit-test`). Block templates: `kiln-spell`, `kiln-item-blocks`,
+Templates: `kiln new --list` shows all 24 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
 `kiln-cosmetic` and `kiln-building-material`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`, `kiln-datapack`,
 `kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`, `kiln-native`

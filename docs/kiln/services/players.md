@@ -82,7 +82,7 @@ PlayerRef p2 = (PlayerRef)talentHolder;            // also from a TalentHolder (
   ref, not the newcomer.
 - With kiln.players off, `Of` and `Resolve` throw `KilnUnavailableException("identity.players")`, and `IsOnline`
   `identity.entities`. kiln.log at start: `kiln.players: identity.players and the players' entity source supplied`.
-- Entities that are not players have no source yet: `EntityRef.Of` for them still throws `identity.entities`.
+- Entities that are not players are answered by Kiln.Items' and Kiln.Spawn's sources ([modding/contract.md](../modding/contract.md)).
 - Works on a test server, with simulated players (game-log replay, where the handle is 0 and the join step alone
   separates sessions). Not run with a real player: the handle generations of real joins are unchecked.
 
