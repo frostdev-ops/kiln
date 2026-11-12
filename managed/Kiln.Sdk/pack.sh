@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Kiln MDK NuGet packages into $KILN_OUT/nuget (a local feed):
-#   Kiln.Api        reference assemblies: Kiln.Api, every managed service (Kiln.Players, Kiln.Chat, ...), Kiln.Testing
+#   Kiln.Api        reference assemblies: Kiln.Api, every managed service (Kiln.Players, Kiln.Chat, ...), Kiln.Testing,
+#                   Kiln.Game (the generated game types, from the newest dump; needs python3)
 #   Kiln.Sdk        MSBuild SDK: <Project Sdk="Kiln.Sdk/<version>">, kiln.mod.json, KilnDeploy, KilnPack, and the
 #                   Roslyn analyzers (Kiln.Analyzers, KILN1xx) + game-id generator (Kiln.GameIds) in analyzers/dotnet/cs,
 #                   and the native SDK in native/ (KilnPlugin.cmake, the ABI headers, the Linux toolchain)
@@ -25,6 +26,14 @@ rm -rf "$stage" && mkdir -p "$feed" "$stage"
 build() { dotnet build "$1" -c Release -o "$stage" --artifacts-path "$out/dotnet" -v q -nologo -p:GenerateDocumentationFile=true -p:NoWarn='CS1591%3BCS1573' >/dev/null; }
 build "$repo/managed/Kiln.Api/Kiln.Api.csproj"
 build "$repo/managed/Kiln.Testing/Kiln.Testing.csproj"
+# Kiln.Game (KilnServices "Game") is part of the SDK: a failed build stops the pack, with its error lines.
+game_log=$out/pack-kiln-game.log
+if ! dotnet build "$repo/managed/Kiln.Game/Kiln.Game.csproj" -c Release -o "$stage" --artifacts-path "$out/dotnet" -v q -nologo \
+     -p:GenerateDocumentationFile=true -p:NoWarn='CS1591%3BCS1573' >"$game_log" 2>&1; then
+  { grep -E '(^|: )error' "$game_log" | sort -u || tail -25 "$game_log"; } >&2
+  echo "pack: Kiln.Game failed to build (log: $game_log); it is part of Kiln.Api, so the pack stops" >&2
+  exit 1
+fi
 for proj in "$repo"/managed/services/*/*.csproj; do
   build "$proj" || echo "pack: WARNING: $(basename "$proj" .csproj) failed to build; not in Kiln.Api" >&2
 done
