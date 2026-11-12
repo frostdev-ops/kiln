@@ -1098,3 +1098,160 @@ fn repoint_after_a_broken_pointer() {
     assert!(!default.join(df::POINTER).exists());
     assert_eq!(names(&default), entries, "no lock file, no journal");
 }
+
+// ------------------------------------------------------------------------------------------------ core-4
+
+/// A hard link the move made whose read-back fails (the source cannot be read) is removed before the error returns:
+/// the target is as it was (gone: the move made it), and the same move goes through once the file can be read.
+#[test]
+#[cfg(unix)] // Unix permissions; Windows: a file held open without read sharing, tests/data_folder_windows.rs
+fn a_link_that_cannot_be_read_back_is_removed_and_the_move_can_be_made_again() {
+    let fx = Fixture::build("unreadable-link");
+    let before = tree(&fx.dirs.root);
+    let f = lib_dir(&fx.dirs, &fx.mods.native).join("fps.dll");
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let to = fx.base.join("target");
+    let e = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap_err();
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(e.message.contains(&f.display().to_string()), "{e:?}");
+    old_place_intact(&fx, &before, &to);
+    let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
+    assert!(r.linked > 0);
+    assert_eq!(located(&fx.env).dirs.root, to);
+}
+
+/// A copy that fails in the middle (the disk fills up after the destination was made and partly written) leaves
+/// nothing behind; the same move then goes through. By real copies, and by hard links (where only what is written in
+/// place is copied). A target folder that was there before (empty) stays, empty.
+#[test]
+fn a_copy_that_fails_in_the_middle_leaves_nothing_behind() {
+    for (tag, facts, n, existed) in [("copies", Facts::all_clear(), 3, false), ("links", linking(), 0, false), ("existing", Facts::all_clear(), 5, true)] {
+        let fx = Fixture::build(&format!("full-during-{tag}"));
+        let before = tree(&fx.dirs.root);
+        let to = fx.base.join("target");
+        if existed {
+            std::fs::create_dir_all(&to).unwrap();
+        }
+        let e = mv(&fx, &to, &facts, &inject(Inject::FullDuring(n))).unwrap_err();
+        assert!(e.message.contains("no space left"), "{tag}: {e:?}");
+        if existed {
+            assert_eq!(std::fs::read_dir(&to).unwrap().count(), 0, "{tag}: the target is as it was");
+            std::fs::remove_dir(&to).unwrap(); // for the check below, then made again
+            old_place_intact(&fx, &before, &to);
+            std::fs::create_dir_all(&to).unwrap();
+        } else {
+            old_place_intact(&fx, &before, &to);
+        }
+        mv(&fx, &to, &facts, &MoveOptions::default()).unwrap();
+        assert_eq!(located(&fx.env).dirs.root, to, "{tag}");
+    }
+}
+
+/// A full disk in the middle of each file of a copy in turn (a server record the copy rewrites too): every time the
+/// target is gone and the old place complete and in use, until the move goes through.
+#[test]
+fn a_full_disk_in_the_middle_of_any_file_leaves_nothing_behind() {
+    let mut n = 0;
+    loop {
+        let fx = Fixture::build(&format!("full-each-{n}"));
+        let before = tree(&fx.dirs.root);
+        let to = fx.base.join("target");
+        match mv(&fx, &to, &Facts::all_clear(), &inject(Inject::FullDuring(n))) {
+            Err(e) => {
+                assert!(e.message.contains("no space left"), "file {n}: {e:?}");
+                old_place_intact(&fx, &before, &to);
+            }
+            Ok(r) => {
+                assert!(r.copied > 5 && n == r.copied, "every file was the one the disk filled up on once: {n} of {}", r.copied);
+                break;
+            }
+        }
+        n += 1;
+        assert!(n < 500);
+    }
+}
+
+/// Makes the Z game's `kiln/` read-only as the switch starts, so writing its profile for the new place fails after the
+/// commit.
+#[cfg(unix)]
+struct BlockGame {
+    kiln: PathBuf,
+}
+#[cfg(unix)]
+impl Progress for BlockGame {
+    fn report(&mut self, _: Option<f32>, m: &str) {
+        if m.starts_with("switching") {
+            std::fs::set_permissions(&self.kiln, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+    }
+}
+
+/// Every path a game's profile file names (config and data folder, mod folders, plugin DLLs), as host paths.
+#[cfg(unix)]
+fn named_paths(g: &kiln_manage::game::GameInstall, file: &kiln_manage::profile::ProfileFile) -> Vec<PathBuf> {
+    let mut v: Vec<&str> = file.config_dir.iter().chain(&file.data_dir).map(String::as_str).collect();
+    for k in kiln_manage::manifest::ModKind::ALL {
+        v.extend(file.mods.folders(k).into_iter().flatten().map(|m| m.path.as_str()));
+    }
+    v.extend(file.mods.plugin.iter().map(|m| m.path.as_str()));
+    v.into_iter().map(|p| kiln_manage::winpath::to_host(p, g).unwrap()).collect()
+}
+
+/// A game's profile that could not be written for the new place after the commit still names the old copy: the move
+/// does not remove it, nor does a later start, until that profile is activated again from the new place.
+#[test]
+#[cfg(unix)] // Z mode, and a read-only folder
+fn the_old_copy_stays_while_a_game_still_names_it() {
+    let fx = Fixture::build("names-old");
+    let before = tree(&fx.dirs.root);
+    let to = fx.base.join("moved");
+    let kiln = fx.game_z.path.join("kiln");
+    let mut p = BlockGame { kiln: kiln.clone() };
+    let r = dfm::move_to(&located(&fx.env), &fx.env, &to, &linking(), None, &MoveOptions::default(), &mut p);
+    std::fs::set_permissions(&kiln, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let r = r.unwrap();
+    let game = fx.game_z.path.display().to_string();
+    assert!(!r.activated.contains(&fx.game_z.id) && r.activated.contains(&fx.game_copy.id), "{r:?}");
+    assert!(r.warnings.iter().any(|w| w.contains(&game)), "{:?}", r.warnings);
+    let c = r.cleanup.unwrap();
+    assert!(!c.done && c.removed_files == 0, "the move did not run its removal: {c:?}");
+    assert!(c.reason.as_deref().is_some_and(|w| w.contains(&game) && w.contains("could not be written")), "{c:?}");
+    assert!(fx.dirs.root.join(df::JOURNAL).exists() && fx.dirs.root.join(df::FILE_RECORD).exists(), "the journal stays for the next start");
+    assert_eq!(tree(&fx.dirs.root), before, "the old copy is complete");
+    let f = profile::read_game_profile(&fx.game_z.path).unwrap().unwrap();
+    let paths = named_paths(&fx.game_z, &f);
+    assert!(paths.iter().all(|p| p.exists() && !p.starts_with(&to)), "every path the game's profile names is there, none in the new place: {paths:?}");
+    assert!(paths.iter().filter(|p| p.starts_with(&fx.dirs.root)).count() >= 3, "it reads from the old copy: {paths:?}");
+    // the next start: the old copy stays, and the result says which game
+    assert!(matches!(dfm::pending(&fx.env).unwrap(), Pending::Committed { .. }));
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.removed_files == 0 && c.reason.as_deref().is_some_and(|w| w.contains(&game) && w.contains("activate")), "{c:?}");
+    assert_eq!(tree(&fx.dirs.root), before);
+    // the profile activated again from the new place: the old copy goes
+    profile::activate(&DataDirs::at(&to), &fx.active, &fx.game_z).unwrap();
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.done && c.removed_files > 0, "{c:?}");
+    assert!(!lib_dir(&fx.dirs, &fx.mods.kiln).exists());
+    let f = profile::read_game_profile(&fx.game_z.path).unwrap().unwrap();
+    let paths = named_paths(&fx.game_z, &f);
+    assert!(paths.iter().all(|p| p.exists() && !p.starts_with(&fx.dirs.root)), "{paths:?}");
+}
+
+/// A play-once profile that names the old copy holds it too, whoever wrote it.
+#[test]
+#[cfg(unix)] // Z mode
+fn a_play_once_profile_that_names_the_old_copy_holds_it() {
+    let fx = Fixture::build("once");
+    // the game's profile file as the old place wrote it, kept to be put back as a play-once profile after the move
+    let old_profile = std::fs::read(fx.game_z.path.join("kiln/profile.json")).unwrap();
+    let to = fx.base.join("moved");
+    let e = mv(&fx, &to, &linking(), &MoveOptions { force_copy: false, inject: Some(Inject::StopAfter(Step::Activate)) }).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal);
+    std::fs::write(fx.game_z.path.join("kiln/profile.once.json"), &old_profile).unwrap();
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.removed_files == 0 && c.reason.as_deref().is_some_and(|w| w.contains("profile.once.json")), "{c:?}");
+    assert!(lib_dir(&fx.dirs, &fx.mods.kiln).exists());
+    std::fs::remove_file(fx.game_z.path.join("kiln/profile.once.json")).unwrap();
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.done && c.removed_files > 0, "{c:?}");
+}

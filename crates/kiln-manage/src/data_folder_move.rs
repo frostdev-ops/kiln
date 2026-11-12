@@ -201,7 +201,8 @@ pub struct MoveResult {
     /// Games (install ids) whose profile was activated again from the new place.
     pub activated: Vec<String>,
     /// The removal of the old copy, the move's last phase ([`remove_old_copy`]'s rule): what went, what stayed and why.
-    /// Interrupted by a cancel after the switch, it goes on at the next start. None only if the move stopped before.
+    /// Interrupted by a cancel after the switch, it goes on at the next start. Not run when a game's profile could not
+    /// be activated again (the reason names the game). None only if the move stopped before.
     pub cleanup: Option<Cleanup>,
 }
 
@@ -229,8 +230,11 @@ pub enum Inject {
     FailAfterVerify,
     /// The check of the new place after the commit fails.
     FailCheckAfterCommit,
-    /// The disk is full after this many files copied for real.
+    /// The disk is full after this many files copied for real (before the next one is made).
     FullAfter(u64),
+    /// The disk fills up in the middle of the copy after this many files copied for real: the next destination is made
+    /// and partly written, then the write fails.
+    FullDuring(u64),
     /// A cancel after this many files.
     CancelAfter(u64),
     /// The process "dies" after this step: the function returns at once, nothing is cleaned up.
@@ -544,8 +548,10 @@ fn full_disk(path: &Path) -> Error {
         .with_detail(serde_json::json!({ "os": std::io::Error::from(std::io::ErrorKind::StorageFull).to_string() }))
 }
 
-/// Copies `src` to `dst` (a new file), hashing what it reads; keeps the modification time and the permissions.
-fn copy_hashed(src: &Path, dst: &Path) -> Result<(String, u64)> {
+/// Copies `src` to `dst` (a new file), hashing what it reads; keeps the modification time and the permissions. When it
+/// fails after it made `dst`, it removes `dst` (it made it) before it returns. `full`: a full disk injected after the
+/// first bytes are written (a test hook).
+fn copy_hashed(src: &Path, dst: &Path, full: bool) -> Result<(String, u64)> {
     use std::io::{Read, Write};
     let mut r = std::fs::File::open(src).map_err(|e| {
         Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {e} (another program may hold it open)", src.display()))
@@ -553,28 +559,60 @@ fn copy_hashed(src: &Path, dst: &Path) -> Result<(String, u64)> {
     })?;
     let meta = r.metadata().map_err(io_at(src, "reading"))?;
     let mut w = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(io_at(dst, "writing"))?;
-    let mut h = sha2::Sha256::new();
-    let mut buf = vec![0u8; 1 << 16];
-    let mut n_total = 0u64;
-    loop {
-        let n = r.read(&mut buf).map_err(|e| {
-            Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {e} (another program may hold it open)", src.display()))
-                .with_detail(src.display().to_string())
-        })?;
-        if n == 0 {
-            break;
+    // from here `dst` is this call's: it is removed again on any error
+    let written = (|| -> Result<(String, u64)> {
+        let mut h = sha2::Sha256::new();
+        let mut buf = vec![0u8; 1 << 16];
+        let mut n_total = 0u64;
+        loop {
+            let n = r.read(&mut buf).map_err(|e| {
+                Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {e} (another program may hold it open)", src.display()))
+                    .with_detail(src.display().to_string())
+            })?;
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+            w.write_all(&buf[..n]).map_err(io_at(dst, "writing"))?;
+            n_total += n as u64;
+            if full {
+                return Err(full_disk(dst));
+            }
         }
-        h.update(&buf[..n]);
-        w.write_all(&buf[..n]).map_err(io_at(dst, "writing"))?;
-        n_total += n as u64;
-    }
-    w.sync_all().map_err(io_at(dst, "flushing"))?;
-    if let Ok(t) = meta.modified() {
-        let _ = w.set_modified(t);
-    }
+        if full {
+            return Err(full_disk(dst));
+        }
+        w.sync_all().map_err(io_at(dst, "flushing"))?;
+        if let Ok(t) = meta.modified() {
+            let _ = w.set_modified(t);
+        }
+        Ok((crate::hash::hex(h.finalize().as_slice()), n_total))
+    })();
     drop(w);
-    std::fs::set_permissions(dst, meta.permissions()).map_err(io_at(dst, "setting the permissions of"))?;
-    Ok((crate::hash::hex(h.finalize().as_slice()), n_total))
+    let done = written.and_then(|r| std::fs::set_permissions(dst, meta.permissions()).map(|_| r).map_err(io_at(dst, "setting the permissions of")));
+    if done.is_err() {
+        let _ = std::fs::remove_file(dst);
+    }
+    done
+}
+
+/// Writes `data` to `dst` (a new file, never one that is there). When it fails after it made `dst`, it removes `dst`
+/// (it made it) before it returns. No temporary file: the target is verified as a whole before the commit. `full`: a
+/// full disk injected after half the bytes are written (a test hook).
+fn write_new(dst: &Path, data: &[u8], full: bool) -> Result<()> {
+    use std::io::Write;
+    let mut w = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(io_at(dst, "writing"))?;
+    let done = if full {
+        let _ = w.write_all(&data[..data.len() / 2]);
+        Err(full_disk(dst))
+    } else {
+        w.write_all(data).map_err(io_at(dst, "writing")).and_then(|_| w.sync_all().map_err(io_at(dst, "flushing")))
+    };
+    drop(w);
+    if done.is_err() {
+        let _ = std::fs::remove_file(dst);
+    }
+    done
 }
 
 impl Copier<'_> {
@@ -605,8 +643,10 @@ impl Copier<'_> {
         if real && matches!(self.inject, Some(Inject::FullAfter(n)) if self.real_files >= n) {
             return Err(full_disk(&dst));
         }
+        // whatever is made in the target here is recorded below, or removed again before the error returns
+        let full = matches!(self.inject, Some(Inject::FullDuring(n)) if self.real_files >= n);
         let line = if let Some((old_text, new_text)) = rewrite {
-            crate::util::write_atomic(&dst, new_text.as_bytes())?;
+            write_new(&dst, new_text.as_bytes(), full)?;
             if let Ok(m) = std::fs::metadata(&src) {
                 let _ = std::fs::set_permissions(&dst, m.permissions());
             }
@@ -622,12 +662,17 @@ impl Copier<'_> {
                 source_sha256: Some(crate::hash::sha256_hex(old_text.as_bytes())),
             }
         } else if !real && std::fs::hard_link(&src, &dst).is_ok() {
-            let (sha256, size) = crate::hash::sha256_file(&dst).map_err(|e| {
-                Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {} (another program may hold it open)", src.display(), e.message))
-            })?;
-            RecordedFile { path: rel.clone(), size, sha256, linked: true, source_sha256: None }
+            match crate::hash::sha256_file(&dst) {
+                Ok((sha256, size)) => RecordedFile { path: rel.clone(), size, sha256, linked: true, source_sha256: None },
+                Err(e) => {
+                    // the link was made in this call: it goes before the error returns
+                    let _ = std::fs::remove_file(&dst);
+                    return Err(Error::new(ErrorCode::Io, format!("Kiln cannot read {}: {} (another program may hold it open)", src.display(), e.message))
+                        .with_detail(src.display().to_string()));
+                }
+            }
         } else {
-            let (sha256, size) = copy_hashed(&src, &dst)?;
+            let (sha256, size) = copy_hashed(&src, &dst, full)?;
             self.real_files += 1;
             RecordedFile { path: rel.clone(), size, sha256, linked: false, source_sha256: None }
         };
@@ -803,7 +848,9 @@ fn stopped(step: Step) -> Error {
 /// entries and settings read as in the old place; if not, the previous pointer is put back and the move fails), then
 /// install records written again for the new root, the games whose profile was this folder's before the move
 /// activated again, built modpacks' `file` rewritten (failures there are warnings), and last the old copy removed by
-/// [`remove_old_copy`]'s rule ([`MoveResult::cleanup`]; a cancel there interrupts only the removal).
+/// [`remove_old_copy`]'s rule ([`MoveResult::cleanup`]; a cancel there interrupts only the removal). When a game's
+/// profile could not be activated again, that game still names the old copy: the removal is not run at all, the
+/// cleanup says which game and why, and the journal stays for the next start.
 ///
 /// A move never copies into, replaces or removes anything in the target that it did not make: an entry the target
 /// keeps for itself (its state or settings folder, [`crate::data_folder::own_entries`]) is not copied and stays in the
@@ -811,7 +858,8 @@ fn stopped(step: Step) -> Error {
 /// absolute paths) is never copied.
 ///
 /// A cancel, an error, a full disk or a file that cannot be read before the commit: what the move made in the target
-/// is removed, the journal too, and the old place is as it was and in use.
+/// is removed (also the file a failed copy step had just made), the journal too, and the old place is as it was and in
+/// use.
 pub fn move_to(
     located: &Located, env: &DataEnv, picked: &Path, facts: &dyn SystemFacts, own: Option<&mut DataLock>, opts: &MoveOptions,
     progress: &mut dyn Progress,
@@ -1100,6 +1148,7 @@ pub fn move_to(
         }
     }
     let mut activated = Vec::new();
+    let mut not_activated = Vec::new();
     let known_now = crate::game::known(&new_dirs).unwrap_or_default();
     for (g, pid) in &reactivate {
         let g2 = known_now.iter().find(|k| k.id == g.id).cloned().unwrap_or_else(|| {
@@ -1117,11 +1166,14 @@ pub fn move_to(
                     note(rel);
                 }
             }
-            Err(e) => warnings.push(format!(
-                "The profile of the game at {} could not be written for the new place ({}): activate it again before you play.",
-                g.path.display(),
-                e.message
-            )),
+            Err(e) => {
+                not_activated.push(g.path.display().to_string());
+                warnings.push(format!(
+                    "The profile of the game at {} could not be written for the new place ({}): activate it again before you play.",
+                    g.path.display(),
+                    e.message
+                ));
+            }
         }
     }
     journal.rewritten_after = after.into_iter().filter(|(rel, sha)| c.files.get(rel).is_some_and(|f| f.line.sha256 != *sha))
@@ -1142,10 +1194,19 @@ pub fn move_to(
         return Err(stopped(Step::Activate));
     }
 
-    // last, while nothing else has written yet: the old copy (the same rule and code as at a next start)
-    let cleanup = match remove_old_copy(env, progress) {
-        Ok(c) => c,
-        Err(e) => Cleanup::refused(&from, format!("The old copy was not removed ({}): it is at {}.", e.message, from.display())),
+    // last, while nothing else has written yet: the old copy (the same rule and code as at a next start). Not when a
+    // game's profile could not be written for the new place: that game still reads from the old copy.
+    let cleanup = if !not_activated.is_empty() {
+        Cleanup::refused(&from, format!(
+            "The profile of the game at {} could not be written for the new place, so the old copy stays at {}: activate that profile again, then the old copy goes at the next start.",
+            not_activated.join(", "),
+            from.display()
+        ))
+    } else {
+        match remove_old_copy(env, progress) {
+            Ok(c) => c,
+            Err(e) => Cleanup::refused(&from, format!("The old copy was not removed ({}): it is at {}.", e.message, from.display())),
+        }
     };
     progress.report(Some(1.0), &format!("moved to {}", to.display()));
     let linked = c.files.values().filter(|f| f.line.linked).count() as u64;
@@ -1414,9 +1475,11 @@ fn save_result(default: &Path, journal: &mut Journal, c: &Cleanup, state: &str) 
 /// kept for itself ([`Journal::skipped`]), are never removed. A cancel (between two files) stops it; the next call goes
 /// on, and a call when nothing is left removes what a running move could not (its own lock files, the empty old
 /// root). Without proof (no committed move, the folder in use is not `to`, the marker's id or the record's differs, no
-/// record, a known game still running a profile from the old folder) nothing is removed and the result says where the
-/// old folder is. The move itself runs this as its last phase ([`MoveResult::cleanup`]). The result is kept in the
-/// journal until [`acknowledge`].
+/// record) nothing is removed and the result says where the old folder is. Nor while a known game's profile names a
+/// path under the old root, whoever wrote it (`kiln/profile.json`, `profile.once.json`, `chain.ini`, `chain/once.ini`):
+/// the result says which game, and that activating its profile again lets the old copy go at the next start. The move
+/// itself runs this as its last phase ([`MoveResult::cleanup`]), unless a game's profile could not be written for the
+/// new place. The result is kept in the journal until [`acknowledge`].
 pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cleanup> {
     let default = default_root(env)?;
     let mut journal = match pending(env)? {
@@ -1441,14 +1504,10 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         Ok(None) => return Ok(no("The move's file record is missing.".into())),
         Err(e) => return Ok(no(format!("The move's file record cannot be read ({}).", e.message))),
     };
-    // a game whose profile still names the old folder (Z or native mode) loads its files: nothing goes while one does
-    let new_dirs = DataDirs::at(&journal.to);
-    for g in crate::game::known(&new_dirs).unwrap_or_default() {
-        if let Ok(crate::profile::GameProfileOwner::Elsewhere { root: Some(root), .. }) = crate::profile::game_profile_owner(&new_dirs, &g)
-            && same_folder(&root, &from)
-        {
-            return Ok(no(format!("The game at {} still runs a profile from the old folder.", g.path.display())));
-        }
+    // a game whose profile names a path under the old folder loads its files from there, whoever wrote that profile:
+    // nothing goes while one does
+    if let Some(why) = game_names_old_root(&DataDirs::at(&journal.to), &from) {
+        return Ok(no(why));
     }
     let unknown: BTreeSet<&str> = journal.entries.iter().filter(|e| !e.known).map(|e| e.name.as_str()).collect();
     let after: BTreeMap<&str, &str> = journal.rewritten_after.iter().map(|r| (r.path.as_str(), r.sha256.as_str())).collect();
@@ -1463,6 +1522,8 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         reason: None,
     });
     c.interrupted = false;
+    c.done = false;
+    c.reason = None;
     // a call again (the next start) works the record out anew; only what never goes is carried over
     let stays: Vec<PathBuf> = unknown.iter().map(|u| from.join(u)).chain(journal.skipped.iter().map(|s| from.join(s))).collect();
     c.kept.retain(|k| stays.contains(&k.path) && k.path.exists());
@@ -1568,6 +1629,65 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
     save_result(&default, &mut journal, &c, "cleaned");
     progress.report(Some(1.0), "the old copy is removed");
     Ok(c)
+}
+
+/// Why the old copy must stay because a known game still reads from it: its `kiln/profile.json`, `kiln/profile.once.json`,
+/// `kiln/chain.ini` or `kiln/chain/once.ini` names a path under `old` (Z and native mode), whoever wrote it, or its
+/// profile file cannot be read (then Kiln cannot tell). None: no game names it.
+fn game_names_old_root(dirs: &DataDirs, old: &Path) -> Option<String> {
+    let o = PathParts::of(&df::canonical(old), style());
+    let games = match crate::game::known(dirs) {
+        Ok(g) => g,
+        Err(e) => {
+            return Some(format!(
+                "The list of known games cannot be read ({}), so Kiln cannot tell whether a game still uses the old folder: it stays.",
+                e.message
+            ));
+        }
+    };
+    for g in games {
+        let under = |path: &str| {
+            let p = path.trim();
+            (crate::winpath::is_absolute_game_path(p) || p.starts_with('/'))
+                && crate::winpath::to_host(p, &g).is_ok_and(|h| PathParts::of(&df::canonical(&h), style()).within(&o))
+        };
+        let says = |file: &Path| {
+            format!(
+                "The game at {} still runs a profile that names the old folder ({}): activate that profile again from the new place, then the old copy goes at the next start.",
+                g.path.display(),
+                file.display()
+            )
+        };
+        for rel in [crate::paths::game::PROFILE, crate::paths::game::PROFILE_ONCE] {
+            let file = g.path.join(rel);
+            match crate::util::read_json::<crate::profile::ProfileFile>(&file) {
+                Ok(None) => {}
+                Ok(Some(f)) => {
+                    let mut paths: Vec<&str> = f.config_dir.iter().chain(f.data_dir.iter()).map(String::as_str).collect();
+                    for k in crate::manifest::ModKind::ALL {
+                        paths.extend(f.mods.folders(k).into_iter().flatten().map(|m| m.path.as_str()));
+                    }
+                    paths.extend(f.mods.plugin.iter().map(|m| m.path.as_str()));
+                    if paths.into_iter().any(under) {
+                        return Some(says(&file));
+                    }
+                }
+                Err(e) => {
+                    return Some(format!(
+                        "{} cannot be read ({}), so Kiln cannot tell whether the game still uses the old folder: it stays.",
+                        file.display(),
+                        e.message
+                    ));
+                }
+            }
+        }
+        let chain = crate::chain::read(&g.path).map(|c| c.profile).unwrap_or_default();
+        let once = std::fs::read(g.path.join(crate::paths::game::CHAIN_ONCE)).map(|b| crate::chain::parse_once(&b).profile).unwrap_or_default();
+        if chain.iter().chain(&once).any(|e| under(&e.path)) {
+            return Some(says(&g.path.join(crate::paths::game::CHAIN)));
+        }
+    }
+    None
 }
 
 fn dir_bytes(p: &Path) -> u64 {
