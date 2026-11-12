@@ -39,6 +39,10 @@ internal sealed class ModManagerOptions
     /// build without git), nothing is compared.</summary>
     public KilnBuild? KilnBuild { get; init; }
     public Func<string, bool> HasFeature { get; init; } = static _ => true;
+
+    /// <summary>The capability registry the resolver checks a manifest's <c>features</c> against (ResolveEnvironment.Capability);
+    /// null: <see cref="HasFeature"/> only.</summary>
+    public Func<string, Capability>? Capability { get; init; }
     public FaultPolicy Faults { get; init; } = new();
     public CrashReports? CrashReports { get; init; }
 
@@ -332,6 +336,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
             _mods.ToDictionary(m => m.Id, m => m.Manifest, StringComparer.Ordinal))
         {
             Hosting = Hosting && _options.HostedServerMods,
+            Capability = _options.Capability,
         };
         var result = Resolver.Resolve(candidates, env);
         foreach (var c in candidates)

@@ -258,6 +258,8 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             KilnVersion = _version,
             KilnBuild = KilnBuild.Of(typeof(Kiln.Mod).Assembly),
             HasFeature = HasFeature,
+            // The registry's reasons in refusals; a core without kiln.caps keeps the old text.
+            Capability = Service(Kiln.Capabilities.ServiceName, Kiln.Capabilities.ServiceVersion) != 0 ? Kiln.Capabilities.Get : null,
             Faults = new FaultPolicy { Limit = _config.FaultLimit, WindowSeconds = _config.FaultWindowSeconds },
             CrashReports = _config.CrashReports
                 ? _crash = new CrashReports(Path.Combine(kiln, "crash-reports"), Path.Combine(logs, "kiln.log"), SystemReport, () => _mods!.Describe(), Log)
