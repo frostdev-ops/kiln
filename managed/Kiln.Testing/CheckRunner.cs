@@ -27,6 +27,9 @@ internal interface IRunnerEnv
 
     EntityId LocalPlayer { get; }
 
+    /// <summary>Platform names visible to this process, not character names.</summary>
+    IReadOnlyList<string> PlayerNames => [];
+
     /// <summary>The name of the character <paramref name="player"/> plays, read on the server side; null when it cannot
     /// be read here (<paramref name="why"/> says why).</summary>
     string? CharacterName(EntityId player, out string why);
@@ -146,9 +149,16 @@ internal sealed class CheckRunner
         _dirty = true;
     });
 
+    /// <summary>Keep known platform names private even after the player leaves.</summary>
+    internal void RememberPlayers()
+    {
+        foreach (var name in _env.PlayerNames) Scrubber.AddPlayer(name);
+    }
+
     /// <summary>One step of the runner (tick thread).</summary>
     public void Step()
     {
+        RememberPlayers();
         while (_inbox.TryDequeue(out var work))
         {
             try
@@ -580,6 +590,7 @@ internal sealed class CheckRunner
 
     private void Complete(Run run)
     {
+        RememberPlayers();
         _run = null;
         _dirty = true;
         run.Finished = true;
@@ -603,7 +614,7 @@ internal sealed class CheckRunner
         }
         var c = run.Case;
         LedgerGuard? guard = null;
-        var note = run.Note;
+        var note = Scrubber.Scrub(run.Note);
         if (c.Cheats)
         {
             GuardStatus? after = run.Session == ClientCheckSession.Joined ? run.GuardAtEnd : _env.Guard is { } g ? CheatsRule.ReadStatus(g).Status : null;
@@ -629,7 +640,10 @@ internal sealed class CheckRunner
             Mod = c.Mod, ModVersion = c.ModVersion, Id = c.Id, Title = c.Title, Area = c.Area, Since = c.Since, Tags = c.Tags.ToArray(),
             Kiln = g0.Kiln, Game = new LedgerGame { Side = g0.Side, Sha256 = g0.Sha256, Verified = g0.Verified },
             Session = LedgerEntry.SessionName(run.Session), Verdict = LedgerEntry.VerdictName(verdict), Note = note,
-            Time = _env.Now.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), Assertions = run.Assertions.ToArray(), Log = log,
+            Time = _env.Now.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), Assertions = run.Assertions.Select(a => a with
+            {
+                What = Scrubber.Line(a.What, MaxNote), Detail = a.Detail is null ? null : Scrubber.Line(a.Detail, MaxNote),
+            }).ToArray(), Log = log,
             LogDropped = dropped, Guard = guard,
         };
         Ledger.MergeCatalogue([LedgerCheck.Of(c)]);

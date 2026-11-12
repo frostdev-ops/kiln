@@ -32,6 +32,7 @@ internal static class ChecksService
             CheckRegistry.Changed += runner.CatalogueChanged;
             AsKiln(() =>
             {
+                Events.On<NetPeerLeftEvent>(e => runner.Scrubber.AddPlayer(e.Peer.Name));
                 try
                 {
                     _net = CheckNet.Open(runner, env);
@@ -135,6 +136,19 @@ internal sealed class LiveEnv : IRunnerEnv
             {
                 return EntityId.None;
             }
+        }
+    }
+
+    public IReadOnlyList<string> PlayerNames
+    {
+        get
+        {
+            var names = new List<string>();
+            // Players is the server-world platform-name snapshot (including the host). Network adds peers not yet in it.
+            try { names.AddRange(Players.All.Select(p => p.Name)); } catch (KilnUnavailableException) { }
+            try { names.AddRange(Network.Peers.Select(p => p.Name)); } catch (KilnUnavailableException) { }
+            // Kiln.Client exposes the local entity, but currently no local Steam persona-name reader on a joined client.
+            return names;
         }
     }
 

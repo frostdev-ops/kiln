@@ -103,6 +103,39 @@ public sealed class ScrubTests
         Assert.Contains(t.Assertions, a => !a.Ok && a.Detail!.Contains("<ip>") && !a.Detail.Contains("10.1.2.3"));
     }
 
+    [Theory]
+    [InlineData("FrostVisitor")]
+    [InlineData("Admin")]
+    [InlineData("Q")]
+    [InlineData("player")]
+    [InlineData("home")]
+    public void Visible_player_names_stay_private_even_after_the_player_leaves(string name)
+    {
+        using var h = new Harness();
+        h.Env.PlayerNames = [name];
+        h.Pump();
+        h.Start("t.pass");
+        h.Env.LogTail.Lines.Add($"[network] {name} disconnected");
+        h.Env.PlayerNames = [];
+        var entry = h.Answer(AnswerKind.Fail, $"seen by {name}");
+        Assert.Equal("seen by <player>", entry.Note);
+        Assert.Equal("[network] <player> disconnected", Assert.Single(entry.Log));
+    }
+
+    [Fact]
+    public void A_player_learned_at_completion_is_removed_from_the_entry()
+    {
+        using var h = new Harness();
+        CheckMod.DuringBody = () => h.Env.LogTail.Lines.Add("FrostVisitor joined");
+        h.Start("t.pass");
+        h.Runner.Current!.Add(true, "FrostVisitor hit", "seen FrostVisitor");
+        h.Env.PlayerNames = ["FrostVisitor"];
+        var entry = h.Answer(AnswerKind.Fail, "FrostVisitor saw it");
+        Assert.Equal("<player> saw it", entry.Note);
+        Assert.Equal("<player> joined", Assert.Single(entry.Log));
+        Assert.Contains(entry.Assertions, a => a.What == "<player> hit" && a.Detail == "seen <player>");
+    }
+
     [Fact]
     public void The_captured_log_is_capped_in_lines_and_bytes()
     {

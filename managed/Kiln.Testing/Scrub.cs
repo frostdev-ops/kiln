@@ -22,6 +22,23 @@ internal sealed partial class Scrubber
 
     private readonly List<(Regex Pattern, string Token)> _words = new();
     private readonly object _lock = new();
+    private readonly HashSet<string> _players = new(StringComparer.OrdinalIgnoreCase);
+    private Regex? _playerPattern;
+
+    /// <summary>Known platform names are private even when short or equal to a common word. Retained after disconnect.</summary>
+    public void AddPlayer(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        lock (_lock)
+        {
+            if (!_players.Add(name.Trim())) return;
+            var names = _players.OrderByDescending(n => n.Length).Select(n => n.Length <= 3
+                ? $@"(?<![\p{{L}}\p{{N}}_]){Regex.Escape(n)}(?![\p{{L}}\p{{N}}_])" : Regex.Escape(n));
+            // Do not rewrite redaction tokens (including <player>) when a player chose e.g. "player" or "home".
+            _playerPattern = new Regex(@"(?<token><(?:home|user|host|steamid|ip|redacted|player)>)|(?:" + string.Join("|", names) + ")",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+    }
 
     // a home folder: /home/x, /var/home/x, /Users/x, C:\Users\x, Z:\home\x (any run of either slash, also doubled
     // inside JSON); the rest of the path stays
@@ -112,6 +129,9 @@ internal sealed partial class Scrubber
             return parts[0] == 127 || parts.All(p => p == 0) ? m.Value : "<ip>";
         });
         s = LongRun().Replace(s, "<redacted>");
+        lock (_lock)
+            if (_playerPattern is { } players)
+                s = players.Replace(s, m => m.Groups["token"].Success ? m.Value : "<player>");
         return s;
     }
 

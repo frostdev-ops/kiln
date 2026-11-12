@@ -392,11 +392,17 @@ internal sealed class CheckNet
     private void OnEntry(NetEntry m)
     {
         if (m.Entry is not { } e) return;
+        _runner.RememberPlayers();
         var game = _env.Game;
         var mine = e with
         {
             Game = new LedgerGame { Side = game.Side, Sha256 = game.Sha256, Verified = game.Verified }, Kiln = game.Kiln, Session = "joined",
             Note = _runner.Scrubber.Line(e.Note, 600), Log = e.Log.Select(l => _runner.Scrubber.Line(l, CheckRunner.MaxLine)).ToArray(),
+            Assertions = e.Assertions.Select(a => a with
+            {
+                What = _runner.Scrubber.Line(a.What, CheckRunner.MaxNote),
+                Detail = a.Detail is null ? null : _runner.Scrubber.Line(a.Detail, CheckRunner.MaxNote),
+            }).ToArray(),
         };
         if (!_runner.Ledger.Append(mine)) _env.Write(LogLevel.Error, $"checks: the joined entry of {e.Mod}/{e.Id} was not written: {_runner.Ledger.WriteError}");
         _runner.MarkDirtyFromAnyThread();
@@ -424,6 +430,7 @@ internal sealed class CheckNet
     /// <summary>Tick thread: forget the server's state when the client left it.</summary>
     public void Step()
     {
+        _runner.RememberPlayers();
         NetPeer? server = null;
         try
         {

@@ -31,6 +31,7 @@ internal sealed class FakeEnv : IRunnerEnv
     public string? Character { get; set; } = "KilnCheck runner";
     public bool CharacterThrows { get; set; }
     public uint WorldSession { get; set; } = 1;
+    public IReadOnlyList<string> PlayerNames { get; set; } = [];
 
     public string? CharacterName(EntityId player, out string why)
     {
