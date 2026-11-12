@@ -173,13 +173,16 @@ public class OriginalCodeTests
     }
 
     [Fact]
-    public void TryFindReportsInvalidOrUnavailableImagesWithoutThrowing()
+    public void TryFindReportsInvalidOrUnavailableImagesWithoutThrowing() => TestMods.As(Coremod, () =>
     {
         Assert.False(OriginalCode.TryFindUnique("invalid", out var address, out var why));
         Assert.Equal((nuint)0, address);
         Assert.NotEmpty(why);
         Assert.Throws<ArgumentOutOfRangeException>(() => OriginalCode.Read(0, -1));
-    }
+    });
+
+    // The raw entry points are gated (advanced mods only); these tests run as one.
+    static readonly ModContext Coremod = TestMods.Make("original-code-tests", advanced: true);
 
     [Fact]
     public void KeepValidatesElementCountsBeforeMultiplication()

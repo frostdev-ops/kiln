@@ -30,4 +30,25 @@ public sealed class GateTests
         var e = Assert.Throws<InvalidOperationException>(() => TestMods.As(null, () => Memory.Read<int>(0x1000)));
         Assert.Equal("Memory.Read must be called from a mod (on the tick thread or in OnLoad)", e.Message);
     }
+
+    [Fact]
+    public void OriginalCodeIsForAdvancedModsOnly()
+    {
+        TestMods.As(Plain, () =>
+        {
+            TestMods.AssertGated("OriginalCode.Read", "plain-mod", () => OriginalCode.Read(0x1000, 4));
+            TestMods.AssertGated("OriginalCode.FindUnique", "plain-mod", () => OriginalCode.FindUnique("48 8B"));
+            TestMods.AssertGated("OriginalCode.TryFindUnique", "plain-mod", () => OriginalCode.TryFindUnique("48 8B", out _, out _));
+        });
+        TestMods.As(Advanced, () =>
+        {
+            // past the gate: this test host is no game process, so the exe view is unavailable (not the gate's text)
+            var read = Assert.Throws<InvalidOperationException>(() => OriginalCode.Read(0x1000, 4));
+            Assert.StartsWith("OriginalCode: the exe could not be read", read.Message);
+            Assert.Throws<KeyNotFoundException>(() => OriginalCode.FindUnique("48 8B"));
+            Assert.False(OriginalCode.TryFindUnique("48 8B", out _, out var why));
+            Assert.StartsWith("the exe could not be read", why);
+        });
+        Assert.Throws<InvalidOperationException>(() => TestMods.As(null, () => OriginalCode.Read(0x1000, 4)));
+    }
 }
