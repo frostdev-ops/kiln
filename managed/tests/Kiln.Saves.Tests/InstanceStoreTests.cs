@@ -609,11 +609,203 @@ public sealed class InstanceStoreTests : IDisposable
         Assert.Equal("world", holder["holder"]!["kind"]!.GetValue<string>());
         Assert.Equal(ChestTemplate.ToString(), holder["holder"]!["template"]!.GetValue<string>());
         Assert.Equal("PropChest", holder["holder"]!["name"]!.GetValue<string>());
-        Assert.Equal(2, holder["witness"]!["1"]!.AsArray().Count);  // the holder's whole list, with the sword that has no data
+        Assert.Equal(2, holder["witness"]!["1"]!["items"]!.AsArray().Count);  // the holder's whole list, with the sword that has no data
+        Assert.True(holder["witness"]!["1"]!["settled"]!.GetValue<bool>());     // read at the snapshot staging
         var rec = holder["records"]![0]!;
         Assert.Equal(12, rec["rec"]!.AsArray().Count);
         Assert.Equal("live", rec["state"]!.GetValue<string>());
         Assert.Equal(16, rec["id"]!.GetValue<string>().Length);
+    }
+}
+
+[Collection("instance data")]
+public sealed class InstanceHardeningTests : IDisposable
+{
+    private readonly InstanceHarness _h = new();
+    private static readonly InstanceFields Sword = Rec.Of(Rec.Sword, level: 5);
+    private static readonly InstanceFields Ring = Rec.Of(Rec.Ring, level: 2, perksAvailable: 2);
+
+    public void Dispose() => _h.Dispose();
+
+    /// <summary>A chest with twin swords 10 (slot 3) and 20 (slot 5) and a ring 7 (slot 6), saved as revision 1.</summary>
+    private FakeInstanceWorld.Snapshot TwinsSaved()
+    {
+        var w = _h.World;
+        var a = w.Chest(ChestTemplate, A);
+        _h.Tag(w.Give(a, 3, Sword), 10);
+        _h.Tag(w.Give(a, 5, Sword), 20);
+        _h.Tag(w.Give(a, 6, Ring), 7);
+        _h.Save(1);
+        return w.SaveGame();
+    }
+
+    // ---- H1: world holders are looked for all session, with a budget ----
+
+    [Fact]
+    public void AChestThatStreamsInAfterTheWindowIsMatchedByTheTickBeforeAnyModTouchesIt()
+    {
+        var loaded = FakeInstanceWorld.Load(TwinsSaved(), streamed: false);
+        _h.Restart(1, loaded);
+        _h.EndWindow();                                          // not there in the window: one missed session
+        Assert.Equal(1, _h.Parked()[0].SessionsMissed);
+        var chest = loaded.HolderAt(ChestTemplate, A);
+        loaded.Holders[chest.Value].Initialized = true;          // it streams in at minute 30
+        loaded.Step += 25;
+        _h.Tick();
+        var s3 = loaded.At(chest, 3);
+        var s5 = loaded.At(chest, 5);
+        Assert.NotNull(Store.Instances.LiveOf(s3));              // matched by the tick, before anyone touched it
+        loaded.Swap(s3, s5);                                     // the player swaps the twins: seen, the values follow
+        Assert.Equal(10, _h.Count(loaded.At(chest, 5)));
+        Assert.Equal(20, _h.Count(loaded.At(chest, 3)));
+        _h.Save(2);
+        Assert.Null(_h.Bundle(2, "instances/sword-mod")!["holders"]![0]!["missed"]);   // found later: the missed session is undone
+    }
+
+    [Fact]
+    public void ATaggedSwordTakenOutLateKeepsItsValue()
+    {
+        var loaded = FakeInstanceWorld.Load(TwinsSaved(), streamed: false);
+        _h.Restart(1, loaded);
+        _h.EndWindow();
+        var chest = loaded.HolderAt(ChestTemplate, A);
+        loaded.Holders[chest.Value].Initialized = true;
+        loaded.Step += 25;
+        _h.Tick();
+        var p = loaded.Join(Hero);
+        loaded.Move(loaded.At(chest, 6), p, 12);                 // the player takes the ring out
+        Assert.Equal(7, _h.Count(loaded.At(p, 12)));
+        Assert.Empty(_h.Parked());
+    }
+
+    [Fact]
+    public void TheSearchForHoldersHasABudgetPerTickAndGoesRoundRobin()
+    {
+        var w = _h.World;
+        for (var i = 0; i < 40; i++) _h.Tag(w.Give(w.Chest(ChestTemplate, new WorldPosition(10 * i, 0, 0)), 0, Ring), i);
+        _h.Save(1);
+        var loaded = FakeInstanceWorld.Load(w.SaveGame());
+        _h.Restart(1, loaded, tick: false);
+        _h.Tick();
+        Assert.Equal(InstanceStore.ResolvePerTick, loaded.FindCalls);
+        Assert.Equal(40 - InstanceStore.ResolvePerTick, Store.Instances.Holders.Count(h => !h.IsBound));
+        _h.Tick();
+        _h.Tick();
+        Assert.Equal(0, Store.Instances.Holders.Count(h => !h.IsBound));
+        Assert.Equal(40, loaded.FindCalls);
+    }
+
+    // ---- H2: rule 1 needs the items as the loader made them ----
+
+    [Fact]
+    public void TwinsSwappedBetweenTheLoadAndTheMatchAreSetAsideNotSwapped()
+    {
+        var loaded = FakeInstanceWorld.Load(TwinsSaved());
+        _h.Restart(1, loaded, tick: false);
+        var chest = loaded.HolderAt(ChestTemplate, A);
+        loaded.Swap(loaded.At(chest, 3), loaded.At(chest, 5), seen: false);   // before the store matched the chest
+        _h.Tick();
+        Assert.Null(_h.Count(loaded.At(chest, 3)));
+        Assert.Null(_h.Count(loaded.At(chest, 5)));
+        Assert.Equal(7, _h.Count(loaded.At(chest, 6)));           // the single fit still attaches
+        Assert.Equal(2, _h.Of<InstanceDataLostEvent>().Count(e => e.Reason == InstanceLossReason.Ambiguous));
+    }
+
+    [Fact]
+    public void ATwinMadeAfterTheLoadInTheLastSlotGetsNothing()
+    {
+        var w = _h.World;
+        var a = w.Chest(ChestTemplate, A);
+        _h.Tag(w.Give(a, 3, Sword), 10);
+        _h.Tag(w.Give(a, 5, Sword), 20);
+        _h.Save(1);
+        var loaded = FakeInstanceWorld.Load(w.SaveGame());
+        _h.Restart(1, loaded, tick: false);
+        var chest = loaded.HolderAt(ChestTemplate, A);
+        loaded.Destroy(loaded.At(chest, 5), seen: false);         // the sword in slot 5 is crafted away
+        var made = loaded.Give(chest, 5, Sword);                  // and a new twin is put there
+        _h.Tick();
+        Assert.Null(_h.Count(made));
+        Assert.Null(_h.Count(loaded.At(chest, 3)));               // not certain which sword is gone
+    }
+
+    [Fact]
+    public void ALoaderThatMakesItemsOutOfSlotOrderLeavesTwinsAside()
+    {
+        var loaded = FakeInstanceWorld.Load(TwinsSaved(), outOfSlotOrder: true);
+        _h.Restart(1, loaded);
+        var chest = loaded.HolderAt(ChestTemplate, A);
+        Assert.Null(_h.Count(loaded.At(chest, 3)));
+        Assert.Null(_h.Count(loaded.At(chest, 5)));
+        Assert.Equal(7, _h.Count(loaded.At(chest, 6)));
+    }
+
+    // ---- H3: no witness, no attachment ----
+
+    [Fact]
+    public void APlayerWhoLeavesBeforeAnySaveHasNoWitnessAndTheRecordIsSetAside()
+    {
+        var w = _h.World;
+        var p = w.Join(Hero);
+        _h.Tag(w.Give(p, 10, Ring), 3);
+        w.Leave(p);                                               // no save while the player was in game
+        _h.Tick();
+        Assert.Equal(InstanceParkReason.PlayerLeft, Assert.Single(_h.Of<InstanceDataParkedEvent>()).Reason);
+        var back = w.Join(Hero);
+        _h.Tick();
+        Assert.Null(_h.Count(w.At(back, 10)));
+        var aside = Assert.Single(_h.Parked());
+        Assert.Equal(ParkedState.SetAside, aside.State);
+        Assert.Contains("without the holder's list", aside.Reason);
+    }
+
+    // ---- H4: only a settled observation vouches for the holder ----
+
+    [Fact]
+    public void ASwapInTheStepBeforeTheSnapshotIsNotTrustedWithoutTheSnapshotStaging()
+    {
+        var w = _h.World;
+        var a = w.Chest(ChestTemplate, A);
+        var s1 = w.Give(a, 3, Sword);
+        var s2 = w.Give(a, 5, Sword);
+        _h.Tag(s1, 10);
+        _h.Tag(s2, 20);
+        FakeInstanceWorld.Snapshot? file = null;
+        // the first staging reads 10 in slot 3; in the next simulation step the player swaps them; the game saves that
+        _h.SaveFirstStagingOnly(1, between: () =>
+        {
+            w.Swap(s1, s2, seen: false);                          // the tracker has not reported it before the snapshot
+            file = w.SaveGame();
+        });
+        Assert.False(_h.Bundle(1, "instances/sword-mod")!["holders"]![0]!["witness"]!["1"]!["settled"]!.GetValue<bool>());
+        Assert.Equal(DataMatch.Exact, _h.Restart(1, FakeInstanceWorld.Load(file!)));
+        var chest = _h.World.HolderAt(ChestTemplate, A);
+        Assert.Null(_h.Count(_h.World.At(chest, 3)));             // never 10 on the sword that was 20
+        Assert.Null(_h.Count(_h.World.At(chest, 5)));
+        Assert.Equal(2, _h.Parked().Count(x => x.State == ParkedState.SetAside));
+    }
+
+    [Fact]
+    public void AShutdownSavesFirstStagingIsSettled()
+    {
+        var w = _h.World;
+        var a = w.Chest(ChestTemplate, A);
+        _h.Tag(w.Give(a, 3, Sword), 10);
+        _h.Tag(w.Give(a, 5, Sword), 20);
+        _h.SaveFirstStagingOnly(1, SaveReason.Shutdown);
+        Assert.True(_h.Bundle(1, "instances/sword-mod")!["holders"]![0]!["witness"]!["1"]!["settled"]!.GetValue<bool>());
+        _h.Restart(1, FakeInstanceWorld.Load(w.SaveGame()));
+        var chest = _h.World.HolderAt(ChestTemplate, A);
+        Assert.Equal(10, _h.Count(_h.World.At(chest, 3)));
+        Assert.Equal(20, _h.Count(_h.World.At(chest, 5)));
+    }
+
+    [Fact]
+    public void AnEarlierWitnessWithoutTheSettledFlagReadsAsUnsettled()
+    {
+        var doc = System.Text.Json.Nodes.JsonNode.Parse("{\"format\":1,\"scope\":\"instances/sword-mod\",\"holders\":[{\"holder\":{\"kind\":\"world\",\"template\":\"" + ChestTemplate + "\",\"pos\":[10,0,10],\"mobile\":false},\"witness\":{\"1\":[[3," + Rec.Sword.Value + ",1,5,100,100,0,0,0,0,0,0,0],[5," + Rec.Sword.Value + ",1,5,100,100,0,0,0,0,0,0,0]]},\"records\":[{\"id\":\"00000000000000a1\",\"slot\":3,\"rec\":[" + Rec.Sword.Value + ",1,5,100,100,0,0,0,0,0,0,0],\"seen\":1,\"state\":\"live\",\"keys\":{\"kills\":{\"Count\":10}}},{\"id\":\"00000000000000a2\",\"slot\":5,\"rec\":[" + Rec.Sword.Value + ",1,5,100,100,0,0,0,0,0,0,0],\"seen\":1,\"state\":\"live\",\"keys\":{\"kills\":{\"Count\":20}}}]}]}")!.AsObject();
+        Store.Instances.Absorb("instances/sword-mod", doc);
+        Assert.False(Store.Instances.Holders.Single().Witness[1].Settled);
     }
 }
 

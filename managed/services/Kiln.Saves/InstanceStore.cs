@@ -137,7 +137,7 @@ internal sealed class HolderEntry
     public string? Aside;
     public bool Crowded;
     public uint LastWitness;
-    public readonly Dictionary<uint, IReadOnlyList<WitnessEntry>> Witness = new();
+    public readonly Dictionary<uint, Witness> Witness = new();
     public readonly List<SavedRecord> Records = [];
 
     public bool IsBound => !Bound.IsNone;
@@ -159,6 +159,10 @@ internal sealed class InstanceStore
     /// <summary>A player's item that is gone: destroyed if the player is still in game this many steps later.</summary>
     internal const ulong LeaveWindowSteps = 50;
 
+    /// <summary>World holders not found yet are looked for all session, this many per tick (about a second), in turn: one
+    /// kiln.spawn find each, and one read of the holder's items when exactly one entity fits.</summary>
+    internal const int ResolvePerTick = 16;
+
     private readonly WorldStore _owner;
     private IInstanceWorld? _world;
     private readonly Dictionary<uint, LiveItem> _live = new();
@@ -172,6 +176,7 @@ internal sealed class InstanceStore
     private int _session;
     private bool _matching, _windowCounted;
     private ulong _windowEnd;
+    private int _resolveCursor;
 
     private sealed class Pending
     {
@@ -568,7 +573,8 @@ internal sealed class InstanceStore
             ResolvePending(step, players);
             CheckBound(w, players);
             JoinPlayers(w, players);
-            if (_matching && step < _windowEnd) ResolveWorldHolders(w);
+            // World holders are looked for all session; the window only decides when one not found yet counts as missed.
+            if (_matching) ResolveWorldHolders(w);
             if (_matching && step >= _windowEnd && !_windowCounted) CountMissedHolders();
         }
         catch (KilnUnavailableException)
@@ -656,10 +662,16 @@ internal sealed class InstanceStore
         return true;
     }
 
+    /// <summary>Up to <see cref="ResolvePerTick"/> unbound world holders, in turn, so a holder that streams in late is
+    /// matched within a pass (200 unbound holders: 13 ticks) instead of when a mod happens to touch one of its items.</summary>
     private void ResolveWorldHolders(IInstanceWorld w)
     {
-        foreach (var h in _holders.Where(h => h.Key.Kind == HolderKind.World && !h.IsBound && h.Aside is null && h.Records.Count > 0).ToArray())
-            TryResolve(w, h);
+        var waiting = _holders.Where(h => h.Key.Kind == HolderKind.World && !h.IsBound && h.Aside is null && h.Records.Count > 0).ToArray();
+        if (waiting.Length == 0) return;
+        var n = Math.Min(ResolvePerTick, waiting.Length);
+        var start = _resolveCursor % waiting.Length;
+        for (var i = 0; i < n; i++) TryResolve(w, waiting[(start + i) % waiting.Length]);
+        _resolveCursor = (start + n) % waiting.Length;
     }
 
     /// <summary>PLAN D6 rule 5: exactly one unclaimed entity of the template inside the radius, else the holder's records
@@ -765,7 +777,19 @@ internal sealed class InstanceStore
         var input = recs.Select(r => new MatchRecord(r.Slot, r.Fields.Stable, r.Seen, r.Aside, r.OnlyTrusted)).ToArray();
         var now = items.Select(i => new MatchItem(i.Place.FlatSlot, i.Fields, LiveOf(i.Ref) is not null)).ToArray();
         uint? trusted = h.Key.Kind == HolderKind.World && _loadedMatch is DataMatch.Exact or DataMatch.Staged ? _loadedGeneration : null;
-        var outcomes = InstanceMatcher.Match(input, h.Witness, now, trusted);
+        // Rule 1 also needs the holder's items as the loader made them in this session (nothing swapped or brought in
+        // between their load and now): the entity ids tell.
+        // The loader's own slots are known when the world file is the generation and its witness is settled.
+        var made = items.Count;
+        IReadOnlyList<int>? loadSlots = null;
+        if (trusted is { } g && h.Witness.TryGetValue(g, out var gw) && gw.Settled)
+        {
+            made = gw.Entries.Count;
+            loadSlots = gw.Entries.Select(e => e.Slot).ToList();
+        }
+        var asMade = LoadOrder.AsMade(h.Bound, h.Key.Kind == HolderKind.World, items.Select(i => (i.Place.FlatSlot, i.Ref.Entity.Id.Value)).ToList(),
+            made, loadSlots, out var order);
+        var outcomes = InstanceMatcher.Match(input, h.Witness, now, trusted, asMade);
         int attached = 0, aside = 0, parked = 0;
         foreach (var o in outcomes)
         {
@@ -807,7 +831,7 @@ internal sealed class InstanceStore
         }
         SavesRuntime.Log(aside > 0 ? LogLevel.Warn : LogLevel.Debug,
             $"Kiln.Saves: instance data of {h.Describe} (entity {h.Bound}): {attached} attached, {parked} waiting, {aside} set aside" +
-            $"{(trusted is not null ? $" (generation {trusted} is the world file's own)" : "")}");
+            $"{(trusted is not null ? $" (generation {trusted} is the world file's own)" : "")}{(asMade ? "" : $"; not as loaded: {order}")}");
     }
 
     private void Attach(IInstanceWorld w, SavedRecord r, in InstanceItem item, InstanceMatch match, string reason)
@@ -914,10 +938,15 @@ internal sealed class InstanceStore
         h.Aside ??= o["aside"]?.GetValue<string>();
         h.LastWitness = Math.Max(h.LastWitness, o["last"]?.GetValue<uint>() ?? 0);
         if (o["witness"] is JsonObject ws)
-            foreach (var (obs, list) in ws)
-                if (uint.TryParse(obs, out var g) && list is JsonArray a && !h.Witness.ContainsKey(g))
-                    h.Witness[g] = a.Select(e => e as JsonArray ?? throw new FormatException("witness entry"))
-                        .Select(e => new WitnessEntry(e[0]!.GetValue<int>(), ReadFields(e, 1))).ToList();
+            foreach (var (obs, node) in ws)
+            {
+                if (!uint.TryParse(obs, out var g) || h.Witness.ContainsKey(g)) continue;
+                // { "settled": bool, "items": [...] }; a bare list (an earlier writer) counts as not settled
+                var list = node as JsonArray ?? node?["items"] as JsonArray ?? throw new FormatException("witness without items");
+                var settled = node is JsonObject wo && (wo["settled"]?.GetValue<bool>() ?? false);
+                h.Witness[g] = new Witness(list.Select(e => e as JsonArray ?? throw new FormatException("witness entry"))
+                    .Select(e => new WitnessEntry(e[0]!.GetValue<int>(), ReadFields(e, 1))).ToList(), settled);
+            }
         if (o["records"] is not JsonArray records) return;
         foreach (var rn in records)
         {
@@ -990,7 +1019,11 @@ internal sealed class InstanceStore
 
     /// <summary>Both stagings of generation <paramref name="gen"/>: the place and fingerprint of every item with data are
     /// read fresh, and every holder's records are written with the witness of this save (PLAN D6 rule 6, D7).</summary>
-    public List<(string Scope, byte[] Data)> Stage(uint gen, Dictionary<string, JsonSerializerOptions> json)
+    /// <param name="gen">The generation.</param>
+    /// <param name="json">The mods' serializer options.</param>
+    /// <param name="settled">This staging is the snapshot staging, or a shutdown save's: no simulation step comes between
+    /// this read and the game's snapshot, so the witness taken now can vouch for the holder (rule 1).</param>
+    public List<(string Scope, byte[] Data)> Stage(uint gen, Dictionary<string, JsonSerializerOptions> json, bool settled = false)
     {
         var output = new List<(string Scope, byte[] Data)>();
         var w = _world;
@@ -1068,7 +1101,7 @@ internal sealed class InstanceStore
                     var list = w!.ReadHolder(holder, out var initialized);
                     if (initialized)
                     {
-                        entry.Witness[gen] = list.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList();
+                        entry.Witness[gen] = new Witness(list.Select(i => new WitnessEntry(i.Place.FlatSlot, i.Fields)).ToList(), settled);
                         obs = gen;
                         if (key.Kind == HolderKind.Player) entry.LastWitness = gen;
                     }
@@ -1172,9 +1205,12 @@ internal sealed class InstanceStore
         if (h.LastWitness != 0) o["last"] = h.LastWitness;
         var ws = new JsonObject();
         foreach (var g in recs.Select(x => x.r.Seen).Append(h.LastWitness).Where(g => g != 0).Distinct().Order())
-            if (h.Witness.TryGetValue(g, out var list))
-                ws[g.ToString(System.Globalization.CultureInfo.InvariantCulture)] =
-                    new JsonArray(list.OrderBy(e => e.Slot).Select(e => (JsonNode?)WriteFields(e.Fields, e.Slot)).ToArray());
+            if (h.Witness.TryGetValue(g, out var wit))
+                ws[g.ToString(System.Globalization.CultureInfo.InvariantCulture)] = new JsonObject
+                {
+                    ["settled"] = wit.Settled,
+                    ["items"] = new JsonArray(wit.Entries.OrderBy(e => e.Slot).Select(e => (JsonNode?)WriteFields(e.Fields, e.Slot)).ToArray()),
+                };
         if (ws.Count > 0) o["witness"] = ws;
         var ra = new JsonArray();
         foreach (var (r, keys) in recs)

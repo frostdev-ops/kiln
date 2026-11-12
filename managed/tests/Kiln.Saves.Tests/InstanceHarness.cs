@@ -91,14 +91,30 @@ internal sealed class InstanceHarness : IDisposable
     public void Tag(ItemInstanceRef item, int count) => TestMods.As(Mod, () => item.Set(Kills, new Kills { Count = count, Tag = $"#{count}" }));
 
     // ---- saves and restarts ----
+    /// <summary>A save on a build with snapshot staging: the staging after the WorldSaving handlers, the snapshot staging,
+    /// the world write and Kiln's confirmation.</summary>
     public void Save(uint revision)
     {
-        Store.Stage(revision, SaveReason.Request, late: false);
+        StageOnly(revision);
         Store.Commit(revision, 1000 + revision, SaveReason.Request);
     }
 
-    /// <summary>Only the staging of a save (the process dies before the world file is written, or before Kiln confirms it).</summary>
-    public void StageOnly(uint revision) => Store.Stage(revision, SaveReason.Request, late: false);
+    /// <summary>Both stagings of a save, nothing after (the process dies before the world file is written, or before Kiln
+    /// confirms it).</summary>
+    public void StageOnly(uint revision)
+    {
+        Store.Stage(revision, SaveReason.Request, late: false);
+        Store.Stage(revision, SaveReason.Request, late: false, snapshot: true);
+    }
+
+    /// <summary>A save with only the first staging (a build without snapshot staging, or the second staging did not come);
+    /// <paramref name="between"/> runs in the simulation step between that staging and the game's snapshot.</summary>
+    public void SaveFirstStagingOnly(uint revision, SaveReason reason = SaveReason.Request, Action? between = null)
+    {
+        Store.Stage(revision, reason, late: false);
+        between?.Invoke();
+        Store.Commit(revision, 1000 + revision, reason);
+    }
 
     /// <summary>A new process loads the world file of <paramref name="fileRevision"/> (and file time): the store reads the
     /// generation that belongs to it, the game's items come back with new ids, and the first tick matches.</summary>

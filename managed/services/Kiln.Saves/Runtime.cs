@@ -79,6 +79,9 @@ internal static unsafe class SavesRuntime
             var st = SavesNative.ReadStatus();
             Log(LogLevel.Info, $"Kiln.Saves: started (native events from seq {last + 1}; state {StateText(st?.State ?? 0)}, " +
                                $"world {GuidOf(st)?.ToString() ?? "unknown"} revision {st?.Revision ?? 0})");
+            if (st is { } s0 && (s0.Features & SavesNative.CanSnapshotStage) == 0)
+                Log(LogLevel.Warn, "Kiln.Saves: this build has no snapshot staging: instance data is read one simulation step before the " +
+                                   "game's snapshot, so identical items (twins) cannot be told apart after a restart (they are set aside)");
             return true;
         }
     }
@@ -363,7 +366,7 @@ internal static unsafe class SavesRuntime
                 // Only final serialization: do not repeat WorldSaving handlers or overwrite a target after its snapshot.
                 if (ev.SaveSeq == 0 || ev.SaveSeq != _savingSeq || ev.SaveSeq == _snapshotSeq || ev.Revision != _savingRevision) break;
                 _snapshotSeq = ev.SaveSeq;
-                Store.Stage(ev.Revision, reason, late: false);
+                Store.Stage(ev.Revision, reason, late: false, snapshot: true);
                 break;
             }
             case SavesNative.EvWritten:

@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: MIT
 // The rule that decides, after a load or a join, which saved record belongs to which item (PLAN D6 rules 1 to 4). A pure
-// function: the records of one holder, the witnesses they were saved with, the holder's item entities now, and which
-// generation the world file vouches for. The one failure it may never have is an item getting another item's data, so
-// where it is not certain it sets the record aside or leaves it parked; it never guesses and never takes "the first".
+// function: the records of one holder, the witnesses they were saved with, the holder's item entities now, which generation
+// the world file vouches for, and whether the holder's items are as the loader made them. The one failure it may never have
+// is an item getting another item's data, so where it is not certain it sets the record aside or leaves it parked; it never
+// guesses and never takes "the first".
 namespace Kiln;
 
 /// <summary>One entry of a witness: what one slot of the holder held at a save (flat slot, item id, full fingerprint).</summary>
 internal readonly record struct WitnessEntry(int Slot, InstanceFields Fields);
+
+/// <summary>A holder's whole list of item entities at one save.</summary>
+/// <param name="Entries">Every item entity of the holder then, with or without data.</param>
+/// <param name="Settled">Read where no simulation step could follow before the game's snapshot (the snapshot staging, or
+/// a shutdown save). Only a settled observation can vouch that the holder was saved as Kiln read it.</param>
+internal sealed record Witness(IReadOnlyList<WitnessEntry> Entries, bool Settled);
 
 /// <summary>A saved record as the matcher sees it.</summary>
 /// <param name="Slot">The flat slot it was saved at.</param>
@@ -47,6 +54,86 @@ internal readonly record struct MatchOutcome(int Record, MatchKind Kind, int Ite
     public bool Attached => Kind is MatchKind.AttachExact or MatchKind.AttachMoved;
 }
 
+/// <summary>Whether a holder's item entities are still as the loader made them in this session: the evidence rule 1 needs
+/// for the time between the holder's load and the match, when nothing follows its items yet.</summary>
+/// <remarks>The fact behind it: within one server world every non-player entity id comes from one counter that only
+/// grows, and no id is used twice. If the loader makes a holder's item entities in one go, in flat-slot order, right after
+/// the holder (the lab has to show this; one data point so far: chest 1042, its can in slot 3 entity 1043, its pouch in slot
+/// 8 entity 1044), then a swap of two items breaks the ascending order, and an item made later or brought in from elsewhere
+/// falls outside the loader's run of ids. The lab measurement decides the slack constants; it must never turn the
+/// predicate into "always true": if the loader does not work that way, rule 1 stays off.</remarks>
+internal static class LoadOrder
+{
+    /// <summary>Condition 2: the ids span at most (made - 1 + this): a gapless run, today.</summary>
+    internal const int SpanSlack = 0;
+
+    /// <summary>Condition 3, for a holder whose own id comes from the same counter (a world holder): the items follow it,
+    /// within (made + this) ids. Today: right after it.</summary>
+    internal const int AnchorSlack = 0;
+
+    /// <summary>Decides it for one holder.</summary>
+    /// <param name="holder">The holder entity.</param>
+    /// <param name="anchored">The holder's own id comes from the entity counter (world holders; a player's entity id is a
+    /// session slot, so it is not).</param>
+    /// <param name="items">The holder's item entities now: flat slot and entity id.</param>
+    /// <param name="made">How many item entities the loader made for it: the item count of the generation's witness when
+    /// the world file is that generation, else the count now.</param>
+    /// <param name="loadSlots">The slots the loader filled, when known: the settled witness of the generation the world file
+    /// vouches for. Then every one of those items must still be there, each in its slot.</param>
+    /// <param name="why">The reason, in words.</param>
+    /// <remarks>Ascending ids prove that no two items changed places, not that none moved: an item moved to an empty
+    /// slot, or several shifted in order, keep the order. With the loader's slots known, the same slots filled by the same
+    /// run of ids in order means every item is where it was made. Without them (a player's join, an older generation) a
+    /// shift in order into the witness's slots after the load is not seen; it needs look-alikes with equal wear and a
+    /// deliberate pattern of moves within the match delay.</remarks>
+    public static bool AsMade(EntityId holder, bool anchored, IReadOnlyList<(int Slot, uint Id)> items, int made, IReadOnlyList<int>? loadSlots,
+        out string why)
+    {
+        if (items.Count == 0)
+        {
+            why = "no items";
+            return true;
+        }
+        if (items.Count > made)
+        {
+            why = $"{items.Count} items where the loader made {made}: one came in since";
+            return false;
+        }
+        var sorted = items.OrderBy(i => i.Slot).ToArray();
+        // 1. ids strictly ascending in flat-slot order: the identity is the only permutation that keeps a sorted list sorted
+        for (var i = 1; i < sorted.Length; i++)
+            if (sorted[i].Id <= sorted[i - 1].Id)
+            {
+                why = $"the item in slot {sorted[i].Slot} (entity {sorted[i].Id}) is older than the one in slot {sorted[i - 1].Slot} " +
+                      $"(entity {sorted[i - 1].Id}): items changed places since they were made";
+                return false;
+            }
+        // 2. one run: an item made after the load, or brought in from another holder, lies outside it
+        var span = (long)sorted[^1].Id - sorted[0].Id;
+        if (span > made - 1 + SpanSlack)
+        {
+            why = $"entity ids {sorted[0].Id} to {sorted[^1].Id} for {made} item(s) made by the loader: an item came in since";
+            return false;
+        }
+        // 3. that run follows the holder
+        if (anchored && (sorted[0].Id <= holder.Value || (long)sorted[^1].Id - holder.Value > made + AnchorSlack))
+        {
+            why = $"entity ids {sorted[0].Id} to {sorted[^1].Id} were not made with holder {holder}";
+            return false;
+        }
+        // 4. the loader's own slots, each still holding its item
+        if (loadSlots is not null && (items.Count != made || !sorted.Select(i => i.Slot).SequenceEqual(loadSlots.Order())))
+        {
+            why = items.Count != made
+                ? $"{made - items.Count} of the {made} items the loader made are gone or elsewhere"
+                : "an item moved to another slot since the load";
+            return false;
+        }
+        why = $"entity ids ascend in slot order in one run after the holder";
+        return true;
+    }
+}
+
 internal static class InstanceMatcher
 {
     /// <summary>Durability and fuel ratios count as unchanged within this much (the loader rebuilds them from a ratio and
@@ -77,13 +164,13 @@ internal static class InstanceMatcher
         return Math.Abs((double)cur1 / max1 - (double)cur2 / max2) <= RatioTolerance;
     }
 
-    /// <summary>Whether a record's holder state is trusted (rule 1): its observation is the generation the world file
-    /// vouches for (<paramref name="trustedGeneration"/>: given only for a world holder whose loaded generation is
-    /// Exact or Staged), or the holder's list now equals the witness it was saved with.</summary>
-    public static bool Trusted(in MatchRecord r, IReadOnlyDictionary<uint, IReadOnlyList<WitnessEntry>> witnesses,
-        IReadOnlyList<MatchItem> items, uint? trustedGeneration) =>
-        (trustedGeneration is { } g && g != 0 && r.Seen == g) ||
-        (r.Seen != 0 && witnesses.TryGetValue(r.Seen, out var w) && SameAsWitness(w, items));
+    /// <summary>Whether a record's holder state is vouched for between the save and the load (the first half of rule 1):
+    /// its witness exists and is settled, and its observation is the generation the world file vouches for
+    /// (<paramref name="trustedGeneration"/>: given only for a world holder whose loaded generation is Exact or Staged), or
+    /// the holder's list now equals that witness. Rule 1 also needs the holder's items as the loader made them.</summary>
+    public static bool Trusted(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses, IReadOnlyList<MatchItem> items, uint? trustedGeneration) =>
+        r.Seen != 0 && witnesses.TryGetValue(r.Seen, out var w) && w.Settled &&
+        ((trustedGeneration is { } g && r.Seen == g) || SameAsWitness(w.Entries, items));
 
     /// <summary>Decides every record of one holder. Pure: nothing is read or changed.</summary>
     /// <param name="records">The holder's saved records (waiting and set aside alike).</param>
@@ -91,8 +178,10 @@ internal static class InstanceMatcher
     /// <param name="items">The holder's item entities now.</param>
     /// <param name="trustedGeneration">The generation whose observations the world file vouches for; null for a player,
     /// or for a world whose loaded generation is older than its file (or none).</param>
-    public static MatchOutcome[] Match(IReadOnlyList<MatchRecord> records, IReadOnlyDictionary<uint, IReadOnlyList<WitnessEntry>> witnesses,
-        IReadOnlyList<MatchItem> items, uint? trustedGeneration)
+    /// <param name="asMade">The holder's items are as the loader made them in this session (<see cref="LoadOrder"/>):
+    /// nothing changed places and nothing came in between the load and now. Without it rule 1 does not apply.</param>
+    public static MatchOutcome[] Match(IReadOnlyList<MatchRecord> records, IReadOnlyDictionary<uint, Witness> witnesses,
+        IReadOnlyList<MatchItem> items, uint? trustedGeneration, bool asMade)
     {
         var outcome = new MatchOutcome?[records.Count];
         var bySlot = new Dictionary<int, int>();
@@ -111,7 +200,14 @@ internal static class InstanceMatcher
                 outcome[r] = new MatchOutcome(r, MatchKind.AlreadyAside, -1, "set aside in an earlier session; it is never attached automatically");
                 continue;
             }
-            if (Trusted(rec, witnesses, items, trustedGeneration))
+            // No witness: nobody knows whether a look-alike stood beside it at the save, nor whether the holder is as saved.
+            if (rec.Seen == 0 || !witnesses.ContainsKey(rec.Seen))
+            {
+                outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1,
+                    "it was saved without the holder's list of items, so whether a look-alike stood beside it is not known");
+                continue;
+            }
+            if (asMade && Trusted(rec, witnesses, items, trustedGeneration))
             {
                 // Rule 1: nothing moved unseen, so the record's own slot is the item, twins included.
                 if (bySlot.TryGetValue(rec.Slot, out var it) && items[it].Fields.Stable == rec.Stable)
@@ -150,7 +246,7 @@ internal static class InstanceMatcher
                 var r = group.Single();
                 var it = candidates[0];
                 // At the save the holder had a look-alike of this item too, and one of the two is gone: which one is not known.
-                if (witnesses.TryGetValue(records[r].Seen, out var saved) && saved.Count(e => e.Fields.Stable == fp) is var twins and > 1)
+                if (witnesses[records[r].Seen].Entries.Count(e => e.Fields.Stable == fp) is var twins and > 1)
                 {
                     outcome[r] = new MatchOutcome(r, MatchKind.SetAside, -1,
                         $"at the save the holder had {twins} items {fp}; now it has one, and which one is gone is not known");

@@ -379,8 +379,9 @@ internal sealed unsafe class WorldStore
     // ---- staging / commit ----
 
     /// <summary>Writes every bundle (new blobs only) and the pending manifest of generation <paramref name="gen"/>.
-    /// Tick thread, right after the WorldSaving handlers.</summary>
-    public void Stage(uint gen, SaveReason reason, bool late)
+    /// Tick thread, right after the WorldSaving handlers (<paramref name="snapshot"/> false), and again at the snapshot
+    /// staging (<paramref name="snapshot"/> true).</summary>
+    public void Stage(uint gen, SaveReason reason, bool late, bool snapshot = false)
     {
         EnsureOpen();
         if (Root == null)
@@ -406,7 +407,8 @@ internal sealed unsafe class WorldStore
         }
         foreach (var (mod, data) in Entities.Stage(_json))
             Put("entity/" + mod, data, entries, ref fresh, ref bytes);
-        foreach (var (scope, data) in Instances.Stage(gen, _json))
+        // Settled: nothing simulates between this read and the game's snapshot (the snapshot staging, a shutdown save).
+        foreach (var (scope, data) in Instances.Stage(gen, _json, settled: !late && (snapshot || reason == SaveReason.Shutdown)))
             Put(scope, data, entries, ref fresh, ref bytes);
         var man = new JsonObject
         {

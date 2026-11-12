@@ -34,6 +34,7 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     public ulong Step { get; set; } = 1000;
     public bool Off { get; set; }
     public int ReadCalls { get; private set; }
+    public int FindCalls { get; set; }
     public readonly Dictionary<uint, FakeItem> Items = new();
     public readonly Dictionary<uint, FakeHolder> Holders = new();
     public readonly Dictionary<uint, int> Followed = new();
@@ -73,9 +74,12 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
 
     public HolderIdentity Holder(EntityId holder) => Holders.TryGetValue(holder.Value, out var h) ? h.Identity : HolderIdentity.None;
 
-    public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius) =>
-        Holders.Values.Where(h => h.Identity.Kind == HolderKind.World && h.Identity.Template == template && h.Identity.Position.DistanceTo(near) <= radius)
+    public IReadOnlyList<EntityId> FindHolders(Guid template, WorldPosition near, double radius)
+    {
+        FindCalls++;
+        return Holders.Values.Where(h => h.Identity.Kind == HolderKind.World && h.Identity.Template == template && h.Identity.Position.DistanceTo(near) <= radius)
             .OrderBy(h => h.Identity.Position.DistanceTo(near)).Select(h => h.Entity).ToList();
+    }
 
     public IReadOnlyList<(EntityId Entity, CharacterKey Character)> PlayersInGame() =>
         Holders.Values.Where(h => h.Identity.Kind == HolderKind.Player && h.InGame).Select(h => (h.Entity, h.Identity.Character)).ToList();
@@ -179,16 +183,17 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         return new Snapshot(world, CharacterFiles.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()));
     }
 
-    /// <summary>The game's load in a new process: new entity ids and stamps, the same slots and record fields. Players are
-    /// not in game until they join (with their character file).</summary>
-    public static FakeInstanceWorld Load(Snapshot s, uint firstId = 5000, bool streamed = true)
+    /// <summary>The game's load in a new process: new entity ids and stamps (from one growing counter: each holder, then
+    /// its item entities in flat-slot order), the same slots and record fields. Players are not in game until they join
+    /// (with their character file). <paramref name="outOfSlotOrder"/>: a loader that makes the items in reverse order.</summary>
+    public static FakeInstanceWorld Load(Snapshot s, uint firstId = 5000, bool streamed = true, bool outOfSlotOrder = false)
     {
         var w = new FakeInstanceWorld(firstId);
         foreach (var (holder, items) in s.World)
         {
             var e = w.Chest(holder.Template, holder.Position, holder.Mobile, holder.Name);
             w.Holders[e.Value].Initialized = streamed;
-            foreach (var (slot, f) in items) w.Give(e, slot, f);
+            foreach (var (slot, f) in outOfSlotOrder ? items.OrderByDescending(i => i.Slot) : items.OrderBy(i => i.Slot)) w.Give(e, slot, f);
         }
         foreach (var (c, file) in s.Characters) w.CharacterFiles[c] = file.ToList();
         return w;
