@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "dd4daac1-d263-5085-a94e-f9f7f0e765b7",
+      "name": "golden-items.weapon-axe",
+      "base": "Weapon_T1_1H_Axe_01",
+      "displayName": "Axe",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

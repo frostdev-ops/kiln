@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "guid": "1256f701-ed44-5ec9-aa19-f0cd4f30e8d9",
+      "name": "golden-items.item-material",
+      "base": "Material_T1_Bones",
+      "displayName": "Ember",
+      "description": "",
+      "fields": {
+        "maxStackSize": 50,
+        "rarity": "Rare",
+        "itemLevelRange.minLevel": 4,
+        "itemLevelRange.maxLevel": 4,
+        "fuelSetup.burnTime": 30,
+        "fuelSetup.energyOutput": 1000,
+        "fuelSetup.isSet": "True"
+      },
+      "refs": {}
+    }
+  ],
+  "itemParts": {
+    "model": "item:Material_T1_Charcoal",
+    "icon": "item:Material_T1_Charcoal"
+  },
+  "itemRules": {}
+}

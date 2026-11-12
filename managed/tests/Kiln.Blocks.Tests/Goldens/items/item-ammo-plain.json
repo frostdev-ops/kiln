@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "guid": "e449f1ae-3be8-55bf-a75c-435cb4011a0e",
+      "name": "golden-items.item-ammo-plain",
+      "base": "Ammo_T1_Arrow_Flint_lvl5",
+      "displayName": "Plain Arrow",
+      "description": "",
+      "fields": {
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

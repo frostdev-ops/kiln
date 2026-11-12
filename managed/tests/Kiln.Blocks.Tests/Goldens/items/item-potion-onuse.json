@@ -1,0 +1,47 @@
+{
+  "programs": [
+    {
+      "key": "item-potion-onuse.use",
+      "guid": "f1b353a4-3856-5819-a8b1-827a656a2711",
+      "size": 892
+    }
+  ],
+  "sequences": [
+    {
+      "guid": "35a0cc15-25d5-57a9-abbf-96917b9b3e4a",
+      "name": "golden-items.item-potion-onuse.use",
+      "base": "UseItem_Potion_Antidote_RemovePoison",
+      "fields": {
+        "events[SpawnImpact#0].impact": "f1b353a4-3856-5819-a8b1-827a656a2711"
+      }
+    }
+  ],
+  "items": [
+    {
+      "guid": "811b0960-7c53-5867-9972-2ef10e3b76d1",
+      "name": "golden-items.item-potion-onuse",
+      "base": "Consumable_Potion_Antidote_Poison_T2",
+      "displayName": "Blue Potion",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "uiValues": [
+      {
+        "locaId": "0xda23cb46",
+        "valueFormat": "Normal",
+        "value": 30,
+        "isSigned": true
+      },
+      {
+        "locaId": "0x61cea4c1",
+        "valueFormat": "Normal",
+        "value": 20,
+        "isSigned": true
+      }
+    ],
+    "sequences[0].sequence": "golden-items.item-potion-onuse.use"
+  }
+}

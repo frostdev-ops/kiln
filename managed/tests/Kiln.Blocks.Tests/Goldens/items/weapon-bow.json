@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "fdab9f89-c8dd-506b-9db1-cb160c610e35",
+      "name": "golden-items.weapon-bow",
+      "base": "Weapon_T1_2H_Bow_01",
+      "displayName": "Bow",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

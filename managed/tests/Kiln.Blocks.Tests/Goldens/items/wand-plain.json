@@ -1,0 +1,103 @@
+{
+  "programs": [
+    {
+      "key": "wand-plain.primary.impact",
+      "guid": "04cddf7a-23e1-5bff-9110-d17262fb9c33",
+      "size": 388
+    },
+    {
+      "key": "wand-plain.primary.projectile",
+      "guid": "329fbf0c-1989-5563-ad10-c1275ed0c3a7",
+      "size": 2648
+    }
+  ],
+  "templates": [
+    {
+      "guid": "c34473ba-775e-5967-8669-c51f0f443b16",
+      "name": "golden-items.wand-plain.primary.impact",
+      "base": "Explosion_Player_Spell_IceBolt_1",
+      "fields": {
+        "Impact.program": "04cddf7a-23e1-5bff-9110-d17262fb9c33"
+      }
+    },
+    {
+      "guid": "d981fa84-9af4-5f20-a5c6-61374475f9a1",
+      "name": "golden-items.wand-plain.primary.projectile",
+      "base": "Projectile_Player_Staff_IceBolt_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 5,
+        "Impact.program": "329fbf0c-1989-5563-ad10-c1275ed0c3a7"
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "c34473ba-775e-5967-8669-c51f0f443b16"
+  },
+  "sequences": [
+    {
+      "guid": "84b3cbed-570e-536e-a23c-ab46d0207d1c",
+      "name": "golden-items.wand-plain.primary",
+      "base": "Attack_Player_Wand_IceChain_normal",
+      "fields": {}
+    }
+  ],
+  "sequenceRules": {
+    "primary": {
+      "events[SpawnEntityEvent#0].templateReference": "d981fa84-9af4-5f20-a5c6-61374475f9a1",
+      "events[SpawnEntityEvent#0].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#0].spawnVelocity.z": 30,
+      "events[SpawnEntityEvent#0].requiredEntityTag": "none",
+      "events[SpawnEntityEvent#1].templateReference": "d981fa84-9af4-5f20-a5c6-61374475f9a1",
+      "events[SpawnEntityEvent#1].ignoreSpawnVelocity": true,
+      "events[SpawnEntityEvent#1].spawnVelocity.z": 30,
+      "events[SpawnEntityEvent#1].requiredEntityTag": "none",
+      "events[PayUsageCost#0].impactValues.0xaf236ece": 4
+    }
+  },
+  "items": [
+    {
+      "guid": "adb0c860-fc2f-50de-87e5-03e7ad948106",
+      "name": "golden-items.wand-plain",
+      "base": "Weapon_T1_1H_Wand_02_Ice",
+      "displayName": "Plain Wand",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.1363636363636365,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0,
+        "damageSetup.distribution.magicalIceDamage": 1,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 4
+      }
+    ],
+    "sequences[0].sequence": "golden-items.wand-plain.primary",
+    "sequences[2].sequence": "golden-items.wand-plain.primary",
+    "sequences[4].sequence": "golden-items.wand-plain.primary",
+    "sequences[3].sequence": "golden-items.wand-plain.primary",
+    "sequences[1].sequence": "golden-items.wand-plain.primary",
+    "impactValues.0x4e133b42": 0
+  }
+}

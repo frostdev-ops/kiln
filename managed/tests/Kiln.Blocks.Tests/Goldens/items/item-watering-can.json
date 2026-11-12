@@ -1,0 +1,28 @@
+{
+  "templates": [
+    {
+      "guid": "9cf5a315-b243-5799-bbc5-23eb2484cb3f",
+      "name": "golden-items.item-watering-can.water",
+      "base": "Pide_Fuel_Watering_Can",
+      "fields": {
+        "FuelSetup.maxFuelCharges": 400
+      }
+    }
+  ],
+  "items": [
+    {
+      "guid": "118457c0-19cc-5133-b3d1-eb29783657b4",
+      "name": "golden-items.item-watering-can",
+      "base": "Tool_T1_WateringCan",
+      "displayName": "Big Can",
+      "description": "",
+      "fields": {},
+      "refs": {
+        "pidEntity": "9cf5a315-b243-5799-bbc5-23eb2484cb3f"
+      }
+    }
+  ],
+  "itemRules": {
+    "impactValues.0xd8f493f3": 64
+  }
+}

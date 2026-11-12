@@ -1,0 +1,35 @@
+{
+  "breaksInto": "Material_T1_Metal_Scraps",
+  "items": [
+    {
+      "guid": "e23c49fc-1afb-5923-97d4-9882975cf544",
+      "name": "golden-items.item-tool-pickaxe",
+      "base": "Tool_T1_Pickaxe_Scrap_Grassland",
+      "displayName": "Big Pick",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "damageSetup.distribution.woodDamage": 16,
+        "damageSetup.distribution.stoneDamage": 24,
+        "damageSetup.distribution.metalDamage": 16
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0x17147b63": 1,
+    "impactValues.0x928ebfe3.value.softDamage": 100,
+    "impactValues.0x6e279a98.value.softDamage": 700,
+    "impactValues.0x928ebfe3.value.slightlyHardDamage": 100,
+    "impactValues.0x6e279a98.value.slightlyHardDamage": 700,
+    "impactValues.0x928ebfe3.value.moderatelyHardDamage": 100,
+    "impactValues.0x6e279a98.value.moderatelyHardDamage": 700,
+    "impactValues.0x928ebfe3.value.hardDamage": 60,
+    "impactValues.0x6e279a98.value.hardDamage": 420,
+    "impactValues.0x928ebfe3.value.veryHardDamage": 20,
+    "impactValues.0x6e279a98.value.veryHardDamage": 140
+  }
+}
