@@ -1,0 +1,11 @@
+{
+  "id": "weapon-moves-test",
+  "name": "weapon moves lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "WeaponMovesTest.dll",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true,
+  "description": "PASS/FAIL lines: a weapon's moves (Kiln.Blocks), on a dedicated server with a spawned player character and a dummy. The clones and their GUIDs, the item slots, the retimed events, the chain links as data and as played, the blow's step against hitAt, a vanilla weapon unchanged, ids and slots across a restart. Also the guided client checks of the moves."
+}
