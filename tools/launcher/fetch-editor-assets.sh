@@ -42,6 +42,18 @@ copy() { # <dest>
 }
 copy "$repo/launcher/assets-local/editor"
 if ((install)); then
-  data=${KILN_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/kiln}
+  data=${KILN_DATA_DIR:-}
+  if [[ -z $data ]]; then
+    # the launcher's data folder: the default root, or the folder its pointer names after a move (Settings, Library)
+    data=${XDG_DATA_HOME:-$HOME/.local/share}/kiln
+    if [[ -f $data/data-folder.json ]]; then
+      moved=$(python3 -I -c 'import json,os,sys
+v = json.loads(open(sys.argv[1], encoding="utf-8-sig").read())
+p = v.get("path")
+if v.get("format", 1) <= 1 and isinstance(p, str) and os.path.isabs(p): print(p)' "$data/data-folder.json" 2>/dev/null) || moved=
+      [[ -n $moved ]] || { echo "the data folder's pointer $data/data-folder.json cannot be used; start the Kiln Launcher to fix it" >&2; exit 1; }
+      data=$moved
+    fi
+  fi
   copy "$data/editor-assets"
 fi
