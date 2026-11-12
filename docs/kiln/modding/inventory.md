@@ -191,6 +191,10 @@ level, perks, gem, dye) and the holder's whole list of items. After a load or a 
 world without Kiln, or edited offline), with nothing else in the holder changed; or an item taken away while no Kiln
 was watching and a look-alike put in its place. Both look exactly as if nothing had happened.
 
+**So two identical items trade their data when they were swapped where Kiln did not see.** Two items with equal item
+id, level, perks, gem and dye, and the same durability and fuel, whose slots were swapped in another world, or anywhere
+Kiln did not see, come back by slot on the newest exact load, and the two items trade their data. Nothing reports it.
+
 Caps: 256 records per holder per mod (on an item, waiting and set aside together; the oldest waiting or set-aside go
 first) and 64 KB per value as JSON (`Set` throws `ArgumentException` above it). A destroyed item (trash, crafting, taken
 away) drops its data at once with `Destroyed`.

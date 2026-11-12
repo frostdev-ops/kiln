@@ -242,6 +242,7 @@ internal sealed class InstanceStore
                 value.Moved += OnMoved;
                 value.Gone += OnGone;
             }
+            if (ReferenceEquals(_owner, SavesRuntime.Store)) InstanceCapabilities.Refresh();
         }
     }
 

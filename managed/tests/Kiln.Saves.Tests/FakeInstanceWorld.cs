@@ -69,8 +69,14 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     // ---- IInstanceWorld ----
     public void Require()
     {
-        if (Off) throw new KilnUnavailableException("items.instances", "off in the test");
+        if (Off) throw new KilnUnavailableException(OffCapability, OffReason);
     }
+
+    /// <summary>What <see cref="Require"/> names when <see cref="Off"/>: items.instances, or kiln.spawn for the holder
+    /// identity operations.</summary>
+    public string OffCapability { get; set; } = global::Kiln.Items.Caps.Instances;
+
+    public string OffReason { get; set; } = "off in the test";
 
     public InstanceItem? Read(ItemInstanceRef item)
     {
