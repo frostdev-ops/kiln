@@ -401,9 +401,10 @@ void setui::sessionOff(std::filesystem::path control) {
 void setui::configure(std::filesystem::path logs, std::filesystem::path control, void (*sink)(const char*)) {
     logsDir = std::move(logs); controlDir = std::move(control); logSink = sink;
     debugLog = read(controlDir, "set-ui.ini").find("debugLog=0") == std::string::npos;
-    // The marker alone proves nothing: the core never runs on_unload when the game exits normally, so it still says
-    // running=1 after every session. The game's crash report from the end of that session is the evidence.
-    // The marker's own time is when that session's SET started (configure writes it; stop() never runs at exit).
+    // The marker alone proves nothing: the core calls on_unload (and so stop(), which writes running=0) at a normal
+    // exit only where that is armed (under Wine; off by default on native Windows, kiln.json "unloadAtExit"), so it can
+    // still say running=1 after a clean session. The evidence is a game crash report written during that session
+    // (gameCrashSummary). The marker's own time is when that session's SET started: configure writes it here.
     std::error_code ec;
     const auto started = std::filesystem::last_write_time(controlDir / "set-session.txt", ec);
     crashSummary = !ec && read(controlDir, "set-session.txt").starts_with("running=1") ? gameCrashSummary(started) : "";

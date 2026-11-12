@@ -39,7 +39,9 @@
        Ids (a package that takes a new id adds its row here, in the same commit):
          KILNX001  lab and test members on public classes (with EditorBrowsable Never)
          KILNX002  API not yet proven in a real client
-       In use today: none. A mod that calls such API has to opt in with NoWarn for the id. -->
+       In use today: KILNX001 on lab and test members in Kiln.Creatures, Kiln.Items, Kiln.Players, Kiln.Quests,
+       Kiln.Rules, Kiln.Saves, Kiln.Skills and Kiln.Vfx; KILNX002 on Kiln.Client's SteamGuard and Kiln.Network's
+       SteamGuardRelay. A mod that calls such API has to opt in with NoWarn for the id. -->
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/PublicAPI.Shipped.txt')">
     <KilnPublicApi>true</KilnPublicApi>
     <!-- "The record is wrong": public API without a line (RS0016), a line without its API (RS0017), a constructor that

@@ -19,12 +19,21 @@ public sealed class TablesTests
     [InlineData("M:Kiln.Game.AssertTickThread")]                       // the check itself
     public void Any_thread_members(string id) => Assert.DoesNotContain(id, KilnApis.TickThread);
 
+    [Theory]
+    [InlineData("M:Kiln.Symbols.Get(System.String)")]                                    // HooksGate
+    [InlineData("M:Kiln.Hooks.Detour(System.String,Kiln.DetourHandler,System.Int32)")]
+    [InlineData("M:Kiln.Abilities.Programs.Register(System.Byte[])")]                     // AbilitiesGate
+    [InlineData("M:Kiln.NativeCall.Bytes(System.Int32)")]                                // AbilitiesGate.NotAdvanced
+    [InlineData("M:Kiln.Is.Job(System.UInt32,System.UInt32)")]                           // CreaturesGate
+    public void Advanced_members(string id) => Assert.Contains(id, KilnApis.Advanced);
+
     [Fact]
-    public void Advanced_members_are_kiln_hooks()
+    public void Advanced_members_are_behind_a_gate()
     {
-        Assert.Contains("M:Kiln.Symbols.Get(System.String)", KilnApis.Advanced);
-        Assert.Contains("M:Kiln.Hooks.Detour(System.String,Kiln.DetourHandler,System.Int32)", KilnApis.Advanced);
-        Assert.All(KilnApis.Advanced, id => Assert.Matches(@"^M:Kiln\.(Hooks|Symbols|Memory|Constants)\.", id));
+        // The services with an advanced gate: Kiln.Hooks (HooksGate), Kiln.Abilities (AbilitiesGate), Kiln.Creatures
+        // (CreaturesGate). A new type here means a new gated entry point: check that it is meant to be advanced.
+        Assert.All(KilnApis.Advanced, id => Assert.Matches(
+            @"^M:Kiln\.(Hooks|Symbols|Memory|Constants|OriginalCode|Keep|Abilities\.Programs|NativeCall|Is|Act|Arsenals)\.", id));
     }
 
     [Fact]

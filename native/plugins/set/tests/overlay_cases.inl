@@ -139,10 +139,11 @@
  assert(toolsKey(&escape,nullptr)&&!setui::isOpen()&&!toolsDemand&&!toolsCapture);
  setui::stop();assert(toolsUnsubscribed==3&&setui::service()->open({nullptr,0})==KILN_ERR_UNAVAILABLE);
  assert(slurp(work/"set-session.txt")=="running=0\n");
- // Last Session. The core never runs a plugin's on_unload when the game exits normally, so set-session.txt still says
- // running=1 after every session: the marker alone opens nothing. A game crash report written as the previous session
- // ended does, and that notice never takes the game's input; only SET tools the player opens do. The game's own
- // bounded crash summary is displayed, not blamed on a mod, and nothing is exported until the player chooses it.
+ // Last Session. Where the core does not call a plugin's on_unload at a normal exit (native Windows by default), so
+ // stop() never runs, set-session.txt still says running=1 after the session: the marker alone opens nothing. A game
+ // crash report written during the previous session does, and that notice never takes the game's input; only SET
+ // tools the player opens do. The game's own bounded crash summary is displayed, not blamed on a mod, and nothing is
+ // exported until the player chooses it.
  const auto game=work/"game",logFolder=game/"kiln/logs",controlFolder=game/"kiln/control";
  std::filesystem::create_directories(logFolder);std::filesystem::create_directories(controlFolder);std::filesystem::create_directories(game/"crash_dumps/old");
  std::ofstream(logFolder/"kiln.prev.log")<<"previous session log";
