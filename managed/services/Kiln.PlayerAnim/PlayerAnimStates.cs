@@ -255,7 +255,9 @@ public static unsafe class PlayerAnimStates
         return rc == PlayerAnimNative.Ok ? Info(&s) : null;
     }
 
-    /// <summary>Every state mods define, by mod id, then name. Empty while the graph is waiting, or without the service.</summary>
+    /// <summary>Every state mods define, by mod id, then name. A malformed file exposes the names read before the error as
+    /// Refused with the file's reason; when none can be read, one Refused entry named <c>&lt;file&gt;</c> represents the file.
+    /// An unreadable manifest uses its folder name as the mod identity. Empty while waiting, or without the service.</summary>
     [AnyThread]
     [RequiresCapability("anim.player_states")]
     public static IReadOnlyList<PlayerAnimStateInfo> All

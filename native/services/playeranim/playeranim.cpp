@@ -772,6 +772,29 @@ Config read_config() {
     return c;
 }
 
+// Recover names only for diagnostics; a partially parsed file can never contribute a live definition.
+ModStates refused_file(const std::string& text, const std::string& mod, const std::string& why) {
+    std::set<std::string> names;
+    bool states = false;
+    (void)ojson::parse(text, [&](int depth, ojson::parse_event_t event, ojson& value) {
+        if (event == ojson::parse_event_t::key) {
+            if (depth == 1) states = value == "states";
+            else if (depth == 2 && states) names.insert(value.get<std::string>());
+        }
+        return true;
+    }, false);
+    if (names.empty()) names.insert("<file>");  // no trustworthy state name survived; expose the file refusal in All
+    ModStates m;
+    m.mod = mod;
+    for (const std::string& name : names) {
+        State st;
+        st.mod = mod; st.name = name; st.guid = derive(mod, "state", name); st.id = fnv_guid_text(st.guid);
+        st.refuse(why);
+        m.states.push_back(std::move(st));
+    }
+    return m;
+}
+
 // After every service's kiln_plugin_main: kiln.assets and kiln.types are registered, the resource service isn't up yet.
 void KILN_CALL on_ready(void*) {
     std::unique_lock lock(g_mu);
@@ -791,18 +814,19 @@ void KILN_CALL on_ready(void*) {
             std::error_code ec;
             if (!fs::exists(file, ec)) continue;
             ++files;
-            std::string man, text;
-            if (!read_file(base / L"kiln.mod.json", &man)) {
-                g_errors.push_back(to_utf8(file) + ": no kiln.mod.json above it: player states need the mod's id");
-                continue;
-            }
+            std::string man, text, mod = to_utf8(base.filename());  // folder identity if the manifest has no readable id
+            const bool readable = read_file(file, &text);
             try {
+                if (!read_file(base / L"kiln.mod.json", &man))
+                    throw DefinitionError(to_utf8(file) + ": no kiln.mod.json above it: player states need the mod's id");
                 const ManifestFields mf = read_manifest_text(man, to_utf8(base / L"kiln.mod.json"));
-                if (!read_file(file, &text)) throw DefinitionError("mod " + *mf.id + ": " + to_utf8(file) + ": cannot be read");
-                g_mods.push_back(load_bytes(text, *mf.id, mf.side, mf.clients, kFileName));
-                g_dir_of[*mf.id] = dir;
+                mod = *mf.id;
+                if (!readable) throw DefinitionError("mod " + mod + ": " + to_utf8(file) + ": cannot be read");
+                g_mods.push_back(load_bytes(text, mod, mf.side, mf.clients, to_utf8(file)));
+                g_dir_of[mod] = dir;
             } catch (const DefinitionError& e) {
                 g_errors.push_back(e.what());
+                g_mods.push_back(refused_file(text, mod, e.what()));
             }
         }
     } catch (const std::exception& e) {
