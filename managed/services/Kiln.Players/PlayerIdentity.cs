@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Players supplies identity.players: PlayerRef.Of and PlayerRef.Resolve (Kiln.Api/Identity.cs) read players from
 // here, through IdentitySources.Players, set by PlayersStartup at the first service tick (ServiceTick.AutoStart).
-// It also holds the players' entity-stamp source, which is not registered yet (see PlayersEntitySource).
+// It also registers the players' entity-stamp source at EntitySourceOrder.Players (PlayersEntitySource), which
+// EntityRef.Of, EntityRef.IsAlive and so PlayerRef.IsOnline ask first.
 namespace Kiln;
 
 public sealed partial record Player
@@ -63,12 +64,15 @@ internal static class PlayerIdentity
     /// <summary>The source <see cref="PlayersStartup"/> puts into <see cref="IdentitySources.Players"/>.</summary>
     internal static readonly PlayersRefSource RefSource = new();
 
+    /// <summary>The source <see cref="PlayersStartup"/> registers at <see cref="EntitySourceOrder.Players"/>.</summary>
+    internal static readonly PlayersEntitySource EntitySource = new();
+
     // ---- the session stamp ----
     // A player's session entity is slot + 1, and the game gives it to the next connection in that slot, so a ref needs
     // a stamp that tells two sessions of one slot apart. The stamp is the players source's place in the entity seam's
     // order in bits 60..63 (Players = place 0, so 0x1) and a 60-bit session value in bits 0..59:
     //
-    //   bits 60..63  0x1: what IdentitySources.Stamp(EntitySourceOrder.Players, value) puts there, so no other
+    //   bits 60..63  0x1: IdentitySources.Stamp(EntitySourceOrder.Players, value) puts it there, so no other
     //                entity source's stamp ever equals a player's
     //   bit  59      always 1, so the value is never 0
     //   bits 34..58  Handle >> 6, the connection handle's generation (low 25 bits)
@@ -88,23 +92,29 @@ internal static class PlayerIdentity
     private const int StepBits = 34, GenerationBits = 25;
     private const ulong StepMask = (1UL << StepBits) - 1, GenerationMask = (1UL << GenerationBits) - 1;
 
-    /// <summary>The 60-bit session value (see above). Never 0; below 2^60.</summary>
+    /// <summary>The 60-bit session value (see above). Never 0; at most 2^60 - 1 (<c>IdentitySources.MaxStampValue</c>),
+    /// what <see cref="IdentitySources.Stamp"/> accepts.</summary>
     internal static ulong SessionValue(Player p) =>
         ValueMark | (((p.Handle >> 6) & GenerationMask) << StepBits) | (p.JoinedStep & StepMask);
 
     /// <summary>The stamp of the player's session: the one function the entity source, the players source and the
     /// conversions use. Never 0.</summary>
-    // Becomes `IdentitySources.Stamp(EntitySourceOrder.Players, SessionValue(p))` once the entity seam is merged.
-    internal static ulong StampOf(Player p) => (1UL << 60) | SessionValue(p);
+    internal static ulong StampOf(Player p) => IdentitySources.Stamp(EntitySourceOrder.Players, SessionValue(p));
 
-    /// <summary>The player's session entity with its stamp; <see cref="EntityRef.None"/> unless in game.</summary>
-    // Becomes `EntityRef.Of(p.Entity)` once the players' entity source is registered (it returns this same stamp);
-    // until then EntityRef.Of throws in a game, so the ref is built here.
+    /// <summary>The session entity of this snapshot with its stamp; <see cref="EntityRef.None"/> unless in game. Built
+    /// directly, not with <see cref="EntityRef.Of"/>: the <see cref="Player"/> conversion is any-thread and gives the
+    /// ref of the session the snapshot shows, also when that session is over (<see cref="EntityRef.Of"/> would need the
+    /// tick thread and would capture whoever holds the slot now). For a player in game it is the same ref
+    /// <see cref="EntityRef.Of"/> gives, since the entity source answers with <see cref="StampOf"/>.</summary>
     internal static EntityRef EntityOf(Player p) =>
         p.InGame && !p.Entity.IsNone ? new EntityRef(p.Entity, StampOf(p)) : EntityRef.None;
 
-    /// <summary>The ref for this snapshot: the one place a <see cref="PlayerRef"/> is built from a <see cref="Player"/>.</summary>
+    /// <summary>The ref of this snapshot (the <see cref="Player"/> conversion).</summary>
     internal static PlayerRef RefOf(Player p) => new(p.SteamId, Roster.CharacterOf(p), EntityOf(p));
+
+    /// <summary>The ref of a player in game now, its session entity captured through the entity seam
+    /// (<see cref="EntityRef.Of"/>), as <see cref="PlayersRefSource"/> gives it. Tick thread.</summary>
+    internal static PlayerRef LiveRefOf(Player p) => new(p.SteamId, Roster.CharacterOf(p), EntityRef.Of(p.Entity));
 
     // ---- reads that turn "the service is off" into the capability's exception ----
 
@@ -145,77 +155,59 @@ internal static class PlayerIdentity
         return d.Available ? d : throw new KilnUnavailableException(capability, "kiln.players is unavailable");
     }
 
-    /// <summary>Puts the players source into the identity seam (<see cref="PlayersStartup"/>, tests).</summary>
-    internal static void Install() => IdentitySources.Players = RefSource;
+    /// <summary>Puts the players source into <see cref="IdentitySources.Players"/> and registers the players' entity
+    /// source at <see cref="EntitySourceOrder.Players"/> (<see cref="PlayersStartup"/>, tests). Never sets
+    /// <see cref="IdentitySources.Entities"/>.</summary>
+    internal static void Install()
+    {
+        IdentitySources.Players = RefSource;
+        IdentitySources.SetEntitySource(EntitySourceOrder.Players, EntitySource);
+    }
 }
 
 /// <summary>identity.players: what <see cref="PlayerRef.Of"/> and <see cref="PlayerRef.Resolve"/> ask.</summary>
 internal sealed class PlayersRefSource : IPlayerRefSource
 {
     public PlayerRef FromEntity(EntityId player) =>
-        PlayerIdentity.FindInGame(player, PlayerIdentity.PlayersCapability) is { } p ? PlayerIdentity.RefOf(p) : PlayerRef.None;
+        PlayerIdentity.FindInGame(player, PlayerIdentity.PlayersCapability) is { } p ? PlayerIdentity.LiveRefOf(p) : PlayerRef.None;
 
     public PlayerRef Current(ulong steamId, Guid characterId)
     {
         var wanted = new PlayerRef(steamId, characterId, EntityRef.None);
         foreach (var p in PlayerIdentity.InGame(PlayerIdentity.PlayersCapability))
-        {
-            var r = PlayerIdentity.RefOf(p);
-            if (r.IsSamePerson(wanted)) return r;
-        }
+            if (new PlayerRef(p.SteamId, PlayerIdentity.Roster.CharacterOf(p), EntityRef.None).IsSamePerson(wanted))
+                return PlayerIdentity.LiveRefOf(p);
         return wanted;
     }
 }
 
-/// <summary>What the players' entity source says about an entity. The same names and values as the entity seam's
-/// <c>EntitySerialAnswer</c> (Kiln.Api, once merged); this enum goes away then.</summary>
-internal enum PlayersEntityAnswer
-{
-    /// <summary>Not a player id: the next source is asked.</summary>
-    NotMine = 0,
-    /// <summary>A player id with nobody in game in it now (empty slot, joining, leaving).</summary>
-    Absent = 1,
-    /// <summary>A player in game: the stamp is their session's.</summary>
-    Alive = 2,
-}
-
 /// <summary>The players' entity stamps: for a player's session entity, the stamp of the session now in that slot (the
 /// same stamp <see cref="PlayerRef.Entity"/> carries), so <see cref="PlayerRef.IsOnline"/> turns false once the player
-/// left or another connection took the slot.</summary>
-/// <remarks>Not registered: <see cref="IdentitySources.Entities"/> is never set from the service (the entity seam that
-/// orders the sources is not merged yet). Once it is, this class implements its <c>IEntityStampSource</c>
-/// (<see cref="Query"/> already has that shape) and <see cref="PlayersStartup"/> registers it.</remarks>
-internal sealed class PlayersEntitySource
+/// left or another connection took the slot. Registered at <see cref="EntitySourceOrder.Players"/> by
+/// <see cref="PlayersStartup"/>, so it is asked first.</summary>
+internal sealed class PlayersEntitySource : IEntityStampSource
 {
-    /// <summary><see cref="PlayersEntityAnswer.NotMine"/> for an id that is not a player id
-    /// (<see cref="EntityId.IsPlayer"/> false); <see cref="PlayersEntityAnswer.Alive"/> with the stamp of the session
-    /// now in that slot when a player is in game there; else <see cref="PlayersEntityAnswer.Absent"/>. Tick thread.</summary>
+    /// <summary><see cref="EntitySerialAnswer.NotMine"/> for an id that is not a player id
+    /// (<see cref="EntityId.IsPlayer"/> false), decided without asking kiln.players; <see cref="EntitySerialAnswer.Alive"/>
+    /// with the stamp of the session now in that slot when a player is in game there; else
+    /// <see cref="EntitySerialAnswer.Absent"/>. Tick thread.</summary>
     /// <exception cref="KilnUnavailableException">kiln.players cannot answer (<c>identity.entities</c>); never
-    /// <see cref="PlayersEntityAnswer.Absent"/> or <see cref="PlayersEntityAnswer.NotMine"/> for that.</exception>
-    public PlayersEntityAnswer Query(EntityId entity, out ulong stamp)
+    /// <see cref="EntitySerialAnswer.Absent"/> or <see cref="EntitySerialAnswer.NotMine"/> for that.</exception>
+    public EntitySerialAnswer Query(EntityId entity, out ulong stamp)
     {
         stamp = 0;
-        if (!entity.IsPlayer) return PlayersEntityAnswer.NotMine;
-        if (PlayerIdentity.FindInGame(entity, PlayerIdentity.EntitiesCapability) is not { } p) return PlayersEntityAnswer.Absent;
+        if (!entity.IsPlayer) return EntitySerialAnswer.NotMine;
+        if (PlayerIdentity.FindInGame(entity, PlayerIdentity.EntitiesCapability) is not { } p) return EntitySerialAnswer.Absent;
         stamp = PlayerIdentity.StampOf(p);
-        return PlayersEntityAnswer.Alive;
+        return EntitySerialAnswer.Alive;
     }
 }
 
-/// <summary>Today's single-source entity seam over <see cref="PlayersEntitySource"/>: Alive gives true with the stamp,
-/// Absent and NotMine give false. For unit tests and the players-test lab mod only, which put it into
-/// <see cref="IdentitySources.Entities"/> themselves; the service never does. Goes away with the new seam.</summary>
-internal sealed class PlayersEntitySerialAdapter : IEntitySerialSource
-{
-    private readonly PlayersEntitySource _source = new();
-
-    public bool TryGetSerial(EntityId entity, out ulong serial) =>
-        _source.Query(entity, out serial) == PlayersEntityAnswer.Alive;
-}
-
 /// <summary>Started at the first service tick (<c>ServiceTick.AutoStart</c>), so identity works from the first tick
-/// even when no loaded mod references Kiln.Players. Never throws: on a server or client without kiln.players the source
-/// is still set, and it answers with <see cref="KilnUnavailableException"/> (<c>identity.players</c>).</summary>
+/// even when no loaded mod references Kiln.Players. Sets <see cref="IdentitySources.Players"/> and registers the
+/// players' entity source (never <see cref="IdentitySources.Entities"/>). Never throws: on a server or client without
+/// kiln.players both are still set, and they answer with <see cref="KilnUnavailableException"/>
+/// (<c>identity.players</c>, <c>identity.entities</c>).</summary>
 internal static class PlayersStartup
 {
     static PlayersStartup()
@@ -223,9 +215,8 @@ internal static class PlayersStartup
         try
         {
             PlayerIdentity.Install();
-            // IdentitySources.SetEntitySource(EntitySourceOrder.Players, new PlayersEntitySource());  // once the entity seam is merged
             Backend.Current.Log(0, LogLevel.Info,
-                $"kiln.players: identity.players supplied (kiln.players {(SafeAvailable() ? "available" : "unavailable")})");
+                $"kiln.players: identity.players and the players' entity source supplied (kiln.players {(SafeAvailable() ? "available" : "unavailable")})");
         }
         catch (Exception e)
         {

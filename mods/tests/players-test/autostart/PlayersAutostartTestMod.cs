@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // identity.players with no reference to Kiln.Players. Deploy it as the lab's only mod: then nothing but
 // ServiceTick.AutoStart loads Kiln.Players, so PlayerRef.Of throwing KilnUnavailableException(identity.players) in
-// OnLoad and answering from the first tick on proves the AutoStart entry. Output: "players-autostart-test: PASS ..." /
+// OnLoad and answering from the first tick on (PlayerRef.Of, Resolve, and IsOnline through the players' entity source)
+// proves the AutoStart entry. Output: "players-autostart-test: PASS ..." /
 // "FAIL ..." lines in kiln/logs/kiln.log, then a summary.
 using Kiln;
 
@@ -51,6 +52,15 @@ public sealed class PlayersAutostartTestMod : Mod
         try { resolve = new PlayerRef(76561190000000001, Guid.Empty, EntityRef.None).Resolve().ToString(); }
         catch (Exception e) { resolve = $"{e.GetType().Name}: {e.Message}"; }
         Check(resolve == "76561190000000001", "first tick: Resolve of an absent player is offline", resolve);
+        // The players' entity source is registered by the same startup: IsOnline answers (an empty slot: false).
+        string online;
+        try { online = new PlayerRef(76561190000000001, Guid.Empty, new EntityRef(new EntityId(1), 1UL << 60 | 1)).IsOnline.ToString(); }
+        catch (Exception e) { online = $"{e.GetType().Name}: {e.Message}"; }
+        Check(online == "False", "first tick: IsOnline answers through the players' entity source (empty slot 1: false)", online);
+        string entity;
+        try { entity = EntityRef.Of(new EntityId(1)).ToString(); }
+        catch (Exception e) { entity = $"{e.GetType().Name}: {e.Message}"; }
+        Check(entity == "none", "first tick: EntityRef.Of of an empty player slot is none", entity);
         Log.Info($"players-autostart-test: {_pass} PASS, {_fail} FAIL");
     }
 

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // identity.players without a game: Kiln.Players' source and entity source over a fake roster, reached through the real
-// PlayerRef / EntityRef code of Kiln.Api. The seams in Kiln.Api (IdentitySources) are internal to it, so this test
-// sets them by reflection; the entity source sits behind its test adapter (the service never registers it).
+// PlayerRef / EntityRef code of Kiln.Api and its entity seam (PlayerIdentity.Install registers the players' entity
+// source at EntitySourceOrder.Players, as PlayersStartup does). The seam (IdentitySources) is internal to Kiln.Api, so
+// this test saves, clears and restores it by reflection.
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Xunit;
@@ -55,28 +56,64 @@ public sealed class PlayerIdentityTests : IDisposable
     private const ulong SteamA = 76561190000000001, SteamB = 76561190000000002;
     private static readonly Guid CharA = new("1b4e28ba-2fa1-11d2-883f-0016d3cca427"), CharB = new("2c5f39cb-3fb2-12e3-994f-1127e4ddb538");
 
-    private static readonly PropertyInfo EntitiesSeam = Seam("Entities"), PlayersSeam = Seam("Players");
+    private static readonly Type Sources = typeof(PlayerRef).Assembly.GetType("Kiln.IdentitySources", throwOnError: true)!;
+    private static readonly Type Order = typeof(PlayerRef).Assembly.GetType("Kiln.EntitySourceOrder", throwOnError: true)!;
+    private static readonly PropertyInfo EntitiesSeam = Sources.GetProperty("Entities", BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly PropertyInfo PlayersSeam = Sources.GetProperty("Players", BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly MethodInfo SetSource = Sources.GetMethod("SetEntitySource", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+    private static readonly MethodInfo GetSource = Sources.GetMethod("EntitySource", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+    private static readonly object[] Places = Enum.GetValues(Order).Cast<object>().ToArray();
+
     private readonly object? _prevEntities = EntitiesSeam.GetValue(null), _prevPlayers = PlayersSeam.GetValue(null);
+    private readonly object?[] _prevSources = Places.Select(p => GetSource.Invoke(null, [p])).ToArray();
     private readonly IPlayerDirectory _prevRoster = PlayerIdentity.Roster;
     private readonly FakeRoster _roster = new();
 
-    private static PropertyInfo Seam(string name) =>
-        typeof(PlayerRef).Assembly.GetType("Kiln.IdentitySources", throwOnError: true)!
-            .GetProperty(name, BindingFlags.Public | BindingFlags.Static)!;
+    /// <summary>The entity source registered at this place of the seam's order ("Players", "Items", "Spawn").</summary>
+    private static object? SourceAt(string place) => GetSource.Invoke(null, [Enum.Parse(Order, place)]);
+
+    private static void ClearSeams()
+    {
+        EntitiesSeam.SetValue(null, null);
+        PlayersSeam.SetValue(null, null);
+        foreach (var p in Places) SetSource.Invoke(null, [p, null]);
+    }
 
     public PlayerIdentityTests()
     {
+        // Only the players' source in the seam: no single-source override, no spawn or item source.
+        ClearSeams();
         PlayerIdentity.Roster = _roster;
         PlayerIdentity.Install();
-        EntitiesSeam.SetValue(null, new PlayersEntitySerialAdapter());
     }
 
     public void Dispose()
     {
         EntitiesSeam.SetValue(null, _prevEntities);
         PlayersSeam.SetValue(null, _prevPlayers);
+        for (var i = 0; i < Places.Length; i++) SetSource.Invoke(null, [Places[i], _prevSources[i]]);
         PlayerIdentity.Roster = _prevRoster;
     }
+
+    /// <summary>The players' entity source's answer as its number (NotMine 0, Absent 1, Alive 2). Its signature uses
+    /// Kiln.Api's internal EntitySerialAnswer, which this assembly cannot name, so it is called by reflection.</summary>
+    private static int Answer(EntityId e, out ulong stamp)
+    {
+        var args = new object?[] { e, 0UL };
+        try
+        {
+            var answer = typeof(PlayersEntitySource).GetMethod("Query")!.Invoke(PlayerIdentity.EntitySource, args)!;
+            stamp = (ulong)args[1]!;
+            return (int)answer;
+        }
+        catch (TargetInvocationException x) when (x.InnerException is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(x.InnerException);
+            throw;
+        }
+    }
+
+    private const int NotMine = 0, Absent = 1, Alive = 2;
 
     private static KilnUnavailableException Unavailable(Action call, string capability)
     {
@@ -260,21 +297,53 @@ public sealed class PlayerIdentityTests : IDisposable
         Assert.Equal(PlayerIdentity.StampOf(a), PlayerIdentity.StampOf(a with { Handle = 5 | 1u << 6 }));
     }
 
+    [Fact]
+    public void The_largest_generation_and_step_still_fit_the_seams_stamp()
+    {
+        // IdentitySources.Stamp refuses 0 and anything above 2^60 - 1; the packing masks into exactly that range.
+        var max = new Player { Entity = new EntityId(16), Slot = 15, State = PlayerState.InGame, Handle = uint.MaxValue, JoinedStep = ulong.MaxValue };
+        Assert.Equal((1UL << 60) - 1, PlayerIdentity.SessionValue(max));
+        Assert.Equal(ulong.MaxValue >> 3, PlayerIdentity.StampOf(max));   // 0x1 in bits 60-63, all value bits set
+        var top = max with { JoinedStep = (1UL << 34) - 1, Handle = (uint)((1UL << 25) - 1) << 6 };
+        Assert.Equal(PlayerIdentity.StampOf(max), PlayerIdentity.StampOf(top));
+    }
+
+    [Fact]
+    public void The_source_through_EntityRef_Of_and_the_snapshot_give_the_same_ref()
+    {
+        var alder = _roster.Join("Alder", 0, SteamA, 3, 250, character: CharA);
+        Assert.Equal(EntityRef.Of(alder.Entity), PlayerIdentity.EntityOf(alder));
+        Assert.Equal(PlayerIdentity.LiveRefOf(alder), PlayerIdentity.RefOf(alder));
+        Assert.Equal(PlayerRef.Of(alder.Entity), PlayerIdentity.RefOf(alder));
+        Assert.Equal(new PlayerRef(SteamA, Guid.Empty, EntityRef.None).Resolve(), PlayerIdentity.RefOf(alder));
+    }
+
+    [Fact]
+    public void A_snapshot_of_an_ended_session_converts_to_that_session()
+    {
+        var first = _roster.Join("Alder", 0, SteamA, 1, 100);
+        _roster.Join("Birch", 0, SteamB, 2, 400);
+        var r = (PlayerRef)first;                     // not the slot's current session
+        Assert.NotEqual(PlayerRef.Of(first.Entity), r);
+        Assert.False(r.IsOnline);
+        var off = Task.Run(() => (PlayerRef)first).GetAwaiter().GetResult();   // any thread
+        Assert.Equal(r, off);
+    }
+
     // ---- the entity source ----
 
     [Fact]
     public void Entity_source_answers_not_mine_absent_alive()
     {
-        var src = new PlayersEntitySource();
         var alder = _roster.Join("Alder", 0, SteamA, 1, 100);
         _roster.Join("Birch", 1, SteamB, 1, 0, PlayerState.Joining);
 
-        Assert.Equal(PlayersEntityAnswer.NotMine, src.Query(new EntityId(2000), out var s0));
+        Assert.Equal(NotMine, Answer(new EntityId(2000), out var s0));
         Assert.Equal(0UL, s0);
-        Assert.Equal(PlayersEntityAnswer.NotMine, src.Query(EntityId.None, out _));
-        Assert.Equal(PlayersEntityAnswer.Absent, src.Query(new EntityId(5), out _));
-        Assert.Equal(PlayersEntityAnswer.Absent, src.Query(new EntityId(2), out _));   // joining
-        Assert.Equal(PlayersEntityAnswer.Alive, src.Query(new EntityId(1), out var s1));
+        Assert.Equal(NotMine, Answer(EntityId.None, out _));
+        Assert.Equal(Absent, Answer(new EntityId(5), out _));
+        Assert.Equal(Absent, Answer(new EntityId(2), out _));   // joining
+        Assert.Equal(Alive, Answer(new EntityId(1), out var s1));
         Assert.Equal(PlayerIdentity.StampOf(alder), s1);
         Assert.Equal(PlayerRef.Of(new EntityId(1)).Entity.Serial, s1);
     }
@@ -282,17 +351,16 @@ public sealed class PlayerIdentityTests : IDisposable
     [Fact]
     public void Entity_source_off_throws_identity_entities()
     {
-        var src = new PlayersEntitySource();
         _roster.Join("Alder", 0, SteamA, 1, 100);
         var r = PlayerRef.Of(new EntityId(1));
         _roster.IsAvailable = false;
-        var e = Unavailable(() => src.Query(new EntityId(1), out _), "identity.entities");
+        var e = Unavailable(() => Answer(new EntityId(1), out _), "identity.entities");
         Assert.Equal("kiln.players is unavailable", e.Reason);
-        Unavailable(() => src.Query(new EntityId(5), out _), "identity.entities");
+        Unavailable(() => Answer(new EntityId(5), out _), "identity.entities");
         Unavailable(() => _ = r.IsOnline, "identity.entities");   // not "offline"
         _roster.IsAvailable = true;
         _roster.ThrowNotSupported = true;
-        Unavailable(() => src.Query(new EntityId(1), out _), "identity.entities");
+        Unavailable(() => Answer(new EntityId(1), out _), "identity.entities");
     }
 
     [Fact]
@@ -300,7 +368,18 @@ public sealed class PlayerIdentityTests : IDisposable
     {
         // NotMine is decided by the id alone, so the next source in the seam's order is asked even with kiln.players off.
         _roster.IsAvailable = false;
-        Assert.Equal(PlayersEntityAnswer.NotMine, new PlayersEntitySource().Query(new EntityId(2000), out _));
+        Assert.Equal(NotMine, Answer(new EntityId(2000), out _));
+    }
+
+    [Fact]
+    public void Ids_outside_the_player_slots_need_another_source()
+    {
+        // Known limit: with only the players' source registered (no spawn or item source yet), every source says
+        // NotMine for a non-player id, so EntityRef.Of throws identity.entities for it. PlayerRef.Of does not depend on it.
+        _roster.Join("Alder", 0, SteamA, 1, 100);
+        Unavailable(() => EntityRef.Of(new EntityId(2000)), "identity.entities");
+        Assert.True(PlayerRef.Of(new EntityId(2000)).IsNone);
+        Assert.True(EntityRef.Of(new EntityId(5)).IsNone);   // a player slot: the players' source answers Absent
     }
 
     // ---- conversions ----
@@ -376,12 +455,15 @@ public sealed class PlayerIdentityTests : IDisposable
     [Fact]
     public void Startup_supplies_the_source_and_does_not_throw_without_kiln_players()
     {
-        PlayersSeam.SetValue(null, null);
-        EntitiesSeam.SetValue(null, null);
+        ClearSeams();
         PlayerIdentity.Roster = NativePlayerDirectory.Instance;   // the real service: not loaded in a test process
         RuntimeHelpers.RunClassConstructor(typeof(PlayersStartup).TypeHandle);
         Assert.Same(PlayerIdentity.RefSource, PlayersSeam.GetValue(null));
-        Assert.Null(EntitiesSeam.GetValue(null));   // the service never registers an entity source
+        Assert.Same(PlayerIdentity.EntitySource, SourceAt("Players"));
+        Assert.Null(SourceAt("Items"));
+        Assert.Null(SourceAt("Spawn"));
+        Assert.Null(EntitiesSeam.GetValue(null));   // the single-source override is never set by the service
+        Unavailable(() => EntityRef.Of(new EntityId(1)), "identity.entities");  // the registered source, kiln.players off
         Unavailable(() => PlayerRef.Of(new EntityId(1)), "identity.players");
         Unavailable(() => new PlayerRef(SteamA, Guid.Empty, EntityRef.None).Resolve(), "identity.players");
     }
