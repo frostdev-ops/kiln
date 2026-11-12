@@ -42,6 +42,7 @@ assets built first: their descriptions say so).
 | `npcsample` | `mods/samples/NpcSample` | an NPC and a quest in the game's UI |
 | `rules-sample` | `mods/samples/RulesSample` | `/flight` |
 | `world-programs` | `mods/samples/WorldPrograms` | a world program with a player |
+| `weapon-moves-test` | `mods/tests/weapon-moves-test` (run `build-assets.py` first) | moves and held models with moving parts (`blocks.moves-*`, `blocks.held-animated`); `blocks.held-animated-two-players` needs a joined dedicated server |
 | `cosmetic-sample` | `mods/samples/CosmeticSample` | session 2 only: the hood and the cape |
 
 **Frameworks profile** (sessions 3 to 5): `client-pass` and one mod of each framework you have: an EML mod, a
